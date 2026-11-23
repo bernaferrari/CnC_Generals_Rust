@@ -124,6 +124,11 @@ impl<'a> AiWorldView<'a> {
     pub(super) fn has_build_eligibility_catalog(&self) -> bool {
         self.world.build_eligibility_action_definitions().is_some()
     }
+
+    pub(super) fn has_admitted_map_build_list(&self) -> bool {
+        self.world.map_definition_source.is_some()
+            && (self.world.isInGame() || self.world.is_loading_map())
+    }
     /// C++ BuildAssistant::isPossibleToMakeUnit(factory, thing).
     pub(super) fn is_possible_to_make_unit(&self, factory: ObjectId, unit: &str) -> bool {
         self.world.constructor_can_build_template(factory, unit)

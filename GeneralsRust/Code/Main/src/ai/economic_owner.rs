@@ -83,7 +83,7 @@ impl DozerQueueAttempt {
     pub(super) fn start(
         world: &mut GameLogic,
         player: u32,
-        prepare: impl FnOnce(&GameLogic) -> Option<Self>,
+        prepare: impl FnOnce(&mut GameLogic) -> Option<Self>,
     ) -> Option<(Self, bool)> {
         // AIPlayer.cpp:3134–3170 enables unit building for both the
         // isPossibleToMakeUnit factory probe and the paid production order.
@@ -199,7 +199,12 @@ impl GameLogic {
             return;
         }
         let started = DozerQueueAttempt::start(self, player, |world| {
-            world.ai_manager.ai_players.get(&player)?.prepare_dozer_queue(world)
+            let mut captured = Vec::new();
+            let attempt = world.ai_manager.ai_players.get(&player)?
+                .prepare_dozer_queue(world, |index| captured.push(index));
+            world.ai_manager.ai_players.get_mut(&player)?
+                .clear_factory_captures(captured);
+            attempt
         });
         if let Some((attempt, queued)) = started {
             if let Some(ai) = self.ai_manager.ai_players.get_mut(&player) {

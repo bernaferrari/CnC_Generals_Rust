@@ -26,6 +26,59 @@ impl GameLogic {
         }
     }
 
+    /// AIPlayer.cpp:3010–3027 and Player.cpp:653–663. Admit the
+    /// preplaced producers for each installed ordinary campaign controller.
+    /// Two prepends in C++ leave oldest Object birth first in the BuildList.
+    pub(crate) fn admit_preplaced_campaign_factories(&mut self) {
+        if !self.is_single_player_scenario()
+            || self.ai_definitions.data().force_skirmish_ai
+        {
+            return;
+        }
+        let mut rows: std::collections::BTreeMap<u32, Vec<AIBuildingInfo>> = self
+            .ai_manager
+            .ai_players
+            .keys()
+            .copied()
+            .filter(|&id| self.get_player(id).is_some_and(|player| {
+                !player.is_human && !player.is_reserved_neutral() && !player.map_side.is_skirmish_ai
+            }))
+            .map(|id| (id, Vec::new()))
+            .collect();
+        if rows.is_empty() {
+            return;
+        }
+        for object in self.host_objects().registered_values().rev() {
+            let Some(entries) = self
+                .player_owner_for_host_object(object)
+                .and_then(|owner| rows.get_mut(&owner))
+            else {
+                continue;
+            };
+            if AIPlayer::has_factory_production_interface(object) {
+                let mut entry = AIBuildingInfo::new(
+                    object.template_name.clone(), object.get_position(), 0,
+                );
+                entry.object_id = Some(object.id);
+                entry.is_built = object.is_constructed();
+                entries.push(entry);
+            }
+        }
+        for (id, mut preplaced) in rows {
+            let has_authored_rows = self.get_player(id)
+                .is_some_and(|player| !player.map_side.build_list.is_empty());
+            let ai = self.ai_manager.ai_players.get_mut(&id).expect("map AI owner");
+            if has_authored_rows {
+                preplaced.append(&mut ai.building_queue);
+            }
+            ai.building_queue = preplaced;
+            // The ordinary controller must not later apply
+            // AISkirmishPlayer::adjustBuildList to these campaign factories.
+            ai.skirmish_new_map_applied = true;
+            self.compute_owned_ai_base_extent(id);
+        }
+    }
+
     /// Initial-map destruction and factory callbacks observe the installed AI.
     pub(crate) fn initialize_owned_skirmish_ai(&mut self, player: u32, data: &AiDataView) {
         self.initialize_owned_skirmish_ai_with_effects(player, data, &mut Default::default())
@@ -352,14 +405,19 @@ impl GameLogic {
                 prototype.get_execute_actions_on_create()
             };
             let orders = ai.build_team_work_orders(self, name);
-            if orders.is_empty() || !ai.team_factories_exist(self, &orders) {
-                return None;
-            }
             Some((factory, orders, execute))
         })();
         let Some((factory, orders, execute)) = prepared else {
             return false;
         };
+        let Some(mut ai) = self.ai_manager.ai_players.remove(&player) else {
+            return false;
+        };
+        let available = ai.team_factories_exist(self, &orders);
+        self.ai_manager.ai_players.insert(player, ai);
+        if !available {
+            return false;
+        }
         if let Err(error) = self.require_owned_team_creation_interpreter(name, true, interpreter) {
             log::error!("AI queued Team creation failed: {error}");
             return false;
@@ -705,6 +763,176 @@ impl GameLogic {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn write_factory_campaign_map(path: &std::path::Path) {
+        use game_engine::common::{
+            dict::Dict, name_key_generator::NameKeyGenerator, system::DataChunkOutput,
+            well_known_keys::*,
+        };
+
+        let mut map = DataChunkOutput::new();
+        map.open_data_chunk("HeightMapData", 3);
+        for value in [51, 51, 0, 2601] {
+            map.write_int(value);
+        }
+        for _ in 0..2601 {
+            map.write_byte(0);
+        }
+        map.close_data_chunk();
+        map.open_data_chunk("SidesList", 2);
+        map.write_int(3);
+        for (name, human) in [("Human", true), ("Commander", false), ("Captor", true)] {
+            let mut player = Dict::new();
+            player.set_ascii_string(key_player_name(), name);
+            player.set_unicode_string(key_player_display_name(), name);
+            player.set_ascii_string(key_player_faction(), "FactionAmerica");
+            player.set_bool(key_player_is_human(), human);
+            map.write_dict(&player);
+            map.write_int(0); // no authored BuildList before preplaced admission
+        }
+        map.write_int(0); // normal map admission supplies the default Teams
+        map.close_data_chunk();
+        map.open_data_chunk("ObjectsList", 3);
+        for x in [90.0, 210.0, 330.0] {
+            map.open_data_chunk("Object", 3);
+            for component in [x, 120.0, 0.0, 0.0] {
+                map.write_real(component);
+            }
+            map.write_int(0);
+            map.write_ascii_string("AmericaBarracks");
+            let mut object = Dict::new();
+            object.set_ascii_string(
+                NameKeyGenerator::name_to_key("originalOwner"),
+                "teamCommander",
+            );
+            map.write_dict(&object);
+            map.close_data_chunk();
+        }
+        map.close_data_chunk();
+        std::fs::write(path, map.into_ckmp_bytes()).unwrap();
+    }
+
+    #[test]
+    fn mounted_campaign_factory_lookup_uses_preplaced_rows_and_clears_only_visited_captures() {
+        crate::game_logic::game_logic::pose_owner_tests::isolated_at(
+            module_path!(),
+            "mounted_campaign_factory_lookup_uses_preplaced_rows_and_clears_only_visited_captures",
+            || {
+                const RANGER: &str = "AmericaInfantryRanger";
+                let startup = crate::parallel_harness::RetailWorldDefinitions::load().unwrap();
+                let directory = tempfile::tempdir().unwrap();
+                let map = directory.path().join("FactoryOrderCampaign.map");
+                let mut world = GameLogic::new();
+                world.with_own_services_mut(|world| {
+                    startup.admit(world).unwrap();
+                    write_factory_campaign_map(&map);
+                });
+                world
+                    .start_new_game_in_campaign_session(GameMode::SinglePlayer, true, false)
+                    .unwrap();
+                // The current Main campaign bootstrap does not install the
+                // base AI controller. Supply the receiving controller here;
+                // the real map loader must build its factory rows.
+                world
+                    .ai_manager
+                    .add_ai_player(2, Team::USA, AIDifficulty::Medium);
+                assert!(world.load_map(map.to_str().unwrap()));
+                assert_eq!(
+                    world.get_player(2).unwrap().script_identity(),
+                    Some("Commander")
+                );
+                assert!(world.get_player(2).unwrap().map_side.build_list.is_empty());
+                let mut ai = world.ai_manager.ai_players.remove(&2).unwrap();
+                let factories: Vec<_> = world
+                    .host_objects()
+                    .registered_values()
+                    .rev()
+                    .filter_map(|object| {
+                        (object.owner_player_id == Some(2)
+                            && object.template_name == "AmericaBarracks")
+                            .then_some(object.id)
+                    })
+                    .collect();
+                assert_eq!(factories.len(), 3);
+                assert_eq!(
+                    ai.building_queue
+                        .iter()
+                        .map(|row| row.object_id.unwrap())
+                        .collect::<Vec<_>>(),
+                    factories,
+                    "ordinary newMap prepends the preplaced factories in birth order"
+                );
+                assert!(ai.building_queue.iter().all(|row| row.max_rebuilds == 0));
+                let [first, middle, last]: [ObjectId; 3] = factories.try_into().unwrap();
+                let owner = world.get_player_mut(2).unwrap();
+                owner.resources.supplies = 50_000;
+                owner.set_can_build_units(true);
+                assert_eq!(
+                    ai.find_factory_for_unit_ex(&world, RANGER, false),
+                    Some(first)
+                );
+
+                for factory in [first, middle, last] {
+                    assert!(world.enqueue_production(factory, RANGER.into()));
+                }
+                let unlisted = world
+                    .create_object_for_player("AmericaBarracks", 2, Vec3::new(440.0, 0.0, 120.0))
+                    .unwrap();
+                assert_eq!(ai.find_factory_for_unit_ex(&world, RANGER, false), None);
+                assert_eq!(
+                    ai.find_factory_for_unit_ex(&world, RANGER, true),
+                    Some(last)
+                );
+                assert!(AIPlayer::factory_is_idle(
+                    world.host_object(unlisted).unwrap()
+                ));
+
+                assert!(world.transfer_object_to_player(first, 3).unwrap());
+                assert!(world.transfer_object_to_player(last, 3).unwrap());
+                world
+                    .host_object_mut(middle)
+                    .unwrap()
+                    .building_data
+                    .as_mut()
+                    .unwrap()
+                    .production_queue
+                    .clear();
+                let order = AIWorkOrder::new(RANGER.into(), 1, 100);
+                ai.team_queue.push_front(AITeamQueue::new(
+                    "Admitted factory".into(),
+                    vec![order],
+                    true,
+                    0,
+                ));
+                ai.process_team_queue(&mut world, 0.0);
+                assert_eq!(ai.team_queue[0].work_orders[0].factory_id, Some(middle));
+                assert_eq!(ai.building_queue[0].object_id, None);
+                assert_eq!(ai.building_queue[0].destroyed_at_time, None);
+                assert_eq!(
+                    ai.building_queue[2].object_id,
+                    Some(last),
+                    "first idle ends the walk"
+                );
+                assert!(AIPlayer::factory_is_idle(
+                    world.host_object(unlisted).unwrap()
+                ));
+
+                let second = AIWorkOrder::new(RANGER.into(), 1, 100);
+                ai.team_queue.push_front(AITeamQueue::new(
+                    "Idle producer required".into(),
+                    vec![second],
+                    false,
+                    0,
+                ));
+                ai.process_team_queue(&mut world, 0.1);
+                assert_eq!(ai.team_queue[0].work_orders[0].factory_id, None);
+                assert_eq!(ai.building_queue[2].object_id, None);
+                assert_eq!(ai.building_queue[2].destroyed_at_time, None);
+            },
+        );
+    }
+
+
     use crate::game_logic::{Player, ThingTemplate};
     use gamelogic::scripting::core::{
         Parameter, ParameterType, Script, ScriptAction, ScriptActionType, ScriptList,

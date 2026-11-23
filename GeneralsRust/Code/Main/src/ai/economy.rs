@@ -252,6 +252,7 @@ impl AIPlayer {
     fn first_dozer_template_with_factory(
         &self,
         world: &GameLogic,
+        mut capture: impl FnMut(usize),
     ) -> Option<(String, crate::game_logic::ObjectId)> {
         let mut names: Vec<_> = world
             .templates
@@ -263,7 +264,7 @@ impl AIPlayer {
         // stable across runs when several Dozer kinds share one catalog.
         names.sort_unstable();
         names.into_iter().find_map(|name| {
-            self.find_factory_for_unit_ex(world, name, true)
+            self.find_factory_visiting_captures(world, name, true, &mut capture)
                 .map(|factory| (name.to_owned(), factory))
         })
     }
@@ -276,7 +277,10 @@ impl AIPlayer {
             return;
         }
         let started = DozerQueueAttempt::start(game_logic, self.player_id, |world| {
-            self.prepare_dozer_queue(world)
+            let mut captured = Vec::new();
+            let attempt = self.prepare_dozer_queue(world, |index| captured.push(index));
+            self.clear_factory_captures(captured);
+            attempt
         });
         if let Some((attempt, queued)) = started {
             self.finish_dozer_queue(attempt, queued, current_time);
@@ -286,8 +290,9 @@ impl AIPlayer {
     pub(super) fn prepare_dozer_queue(
         &self,
         world: &GameLogic,
+        capture: impl FnMut(usize),
     ) -> Option<super::economic_owner::DozerQueueAttempt> {
-        let (template, factory) = self.first_dozer_template_with_factory(world)?;
+        let (template, factory) = self.first_dozer_template_with_factory(world, capture)?;
         Some(super::economic_owner::DozerQueueAttempt { template, factory })
     }
 

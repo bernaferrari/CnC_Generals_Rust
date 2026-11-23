@@ -1456,6 +1456,7 @@ impl GameLogic {
         // GameLogic.cpp:2069-2071 final step: PlayerList::newMap, unless
         // loading a saved game.
         if !self.is_loading_saved_snapshot() {
+            self.admit_preplaced_campaign_factories();
             self.new_map_owned_skirmish_ai_with_effects(
                 &mut native
                     .as_mut()

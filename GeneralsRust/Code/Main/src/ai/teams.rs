@@ -107,7 +107,7 @@ impl AIPlayer {
                     )
                 })
             } else {
-                self.find_factory_for_unit_ex(
+                self.find_factory_and_clear_captures(
                     game_logic,
                     &template_name,
                     priority_build,
@@ -1505,15 +1505,15 @@ impl AIPlayer {
         let mut good: Vec<(String, i32)> = Vec::new();
         let mut hi_pri = INVALID_PRI;
         for (name, pri) in candidates {
-            let eligible = match conditions {
-                Some(results) => self.is_a_good_idea_with_condition(
-                    game_logic,
-                    &name,
-                    ai_data,
-                    results.get(&name).copied().unwrap_or(false),
-                ),
-                None => self.is_a_good_idea_to_build_team_with_ai_data(game_logic, &name, ai_data),
+            let allowed = match conditions {
+                Some(results) => results.get(&name).copied().unwrap_or(false),
+                None => self.team_production_condition_allowed(game_logic, &name),
             };
+            let mut captured = Vec::new();
+            let eligible = self.is_a_good_idea_with_condition(
+                game_logic, &name, ai_data, allowed, |index| captured.push(index),
+            );
+            self.clear_factory_captures(captured);
             if eligible {
                 if pri > hi_pri {
                     hi_pri = pri;
@@ -1642,15 +1642,22 @@ impl AIPlayer {
         team_name: &str,
         ai_data: &AiDataView,
     ) -> bool {
-        let allowed = self
-            .team_factory
+        let allowed = self.team_production_condition_allowed(game_logic, team_name);
+        self.is_a_good_idea_with_condition(game_logic, team_name, ai_data, allowed, |_| {})
+    }
+
+    fn team_production_condition_allowed(
+        &self,
+        game_logic: &(impl AiReadSource + ?Sized),
+        team_name: &str,
+    ) -> bool {
+        self.team_factory
             .lock()
             .ok()
             .and_then(|factory| factory.find_team_prototype(team_name))
             .is_some_and(|prototype| {
                 prototype.evaluate_production_condition_at_frame(game_logic.logic_frame())
-            });
-        self.is_a_good_idea_with_condition(game_logic, team_name, ai_data, allowed)
+            })
     }
 
     fn is_a_good_idea_with_condition(
@@ -1659,6 +1666,7 @@ impl AIPlayer {
         team_name: &str,
         ai_data: &AiDataView,
         allowed: bool,
+        captured: impl FnMut(usize),
     ) -> bool {
         if !allowed {
             return false;
@@ -1681,7 +1689,12 @@ impl AIPlayer {
             return false;
         }
         drop(guard);
-        self.is_possible_to_build_team_with_ai_data(game_logic, team_name, ai_data)
+        // AIPlayer.cpp:1439–1456 observes factory rows before comparing
+        // the accumulated team cost. Capture cleanup therefore still runs
+        // when a candidate team will be rejected for insufficient money.
+        self.team_factories_ready_for_names(
+            game_logic, &self.team_unit_template_names(game_logic, team_name), captured,
+        ) && self.can_afford_team_start_with_ai_data(game_logic, team_name, ai_data)
     }
 
     /// C++ `AIPlayer::selectTeamToReinforce` (`AIPlayer.cpp:1513-1625`).
@@ -1736,7 +1749,7 @@ impl AIPlayer {
                     if count >= unit.max_units as u32 {
                         continue;
                     }
-                    if self.find_factory_for_unit_ex(game_logic, &unit.thing, false).is_none()
+                    if self.find_factory_and_clear_captures(game_logic, &unit.thing, false).is_none()
                     {
                         continue;
                     }
@@ -2532,7 +2545,7 @@ impl AIPlayer {
 
     /// C++ `isPossibleToBuildTeam(..., requireIdleFactory=false)` factory residual.
     pub(super) fn team_factories_exist(
-        &self,
+        &mut self,
         game_logic: &(impl AiReadSource + ?Sized),
         orders: &[AIWorkOrder],
     ) -> bool {
@@ -2541,7 +2554,7 @@ impl AIPlayer {
             return false;
         }
         orders.iter().all(|order| {
-            self.find_factory_for_unit_ex(game_logic, &order.template_name, true).is_some()
+            self.find_factory_and_clear_captures(game_logic, &order.template_name, true).is_some()
         })
     }
 
@@ -2649,16 +2662,61 @@ impl AIPlayer {
             .unwrap_or(true)
     }
 
-    /// Find constructed factory; `busy_ok=false` requires idle queue (C++ findFactory).
+    /// Read-only lookup for callers that stage their own production action.
     pub(super) fn find_factory_for_unit_ex(
         &self,
         game_logic: &(impl AiReadSource + ?Sized),
         unit_template_name: &str,
         busy_ok: bool,
     ) -> Option<ObjectId> {
+        self.find_factory_visiting_captures(game_logic, unit_template_name, busy_ok, |_| {})
+    }
+
+    pub(super) fn find_factory_and_clear_captures(
+        &mut self,
+        game_logic: &(impl AiReadSource + ?Sized),
+        unit_template_name: &str,
+        busy_ok: bool,
+    ) -> Option<ObjectId> {
+        let mut captured = Vec::new();
+        let factory = self.find_factory_visiting_captures(
+            game_logic, unit_template_name, busy_ok, |index| captured.push(index),
+        );
+        self.clear_factory_captures(captured);
+        factory
+    }
+
+    pub(super) fn clear_factory_captures(&mut self, captured: Vec<usize>) {
+        for index in captured {
+            let row = &mut self.building_queue[index];
+            // AIPlayer::findFactory clears only the ID. is_built is a
+            // Rust projection of that live binding, without a rebuild timer.
+            row.object_id = None;
+            row.is_built = false;
+        }
+    }
+
+    pub(super) fn find_factory_visiting_captures(
+        &self,
+        game_logic: &(impl AiReadSource + ?Sized),
+        unit_template_name: &str,
+        busy_ok: bool,
+        mut captured: impl FnMut(usize),
+    ) -> Option<ObjectId> {
         let game_logic = &AiWorldView::new(game_logic);
+        if game_logic.has_admitted_map_build_list() {
+            return self.find_factory_on_build_list(
+                game_logic, unit_template_name, busy_ok, &mut captured,
+            );
+        }
         if game_logic.has_build_eligibility_catalog() {
-            return self.find_factory_cpp(game_logic, unit_template_name, busy_ok);
+            if self.building_queue.iter().any(|row| row.object_id.is_some()) {
+                return self.find_factory_on_build_list(
+                    game_logic, unit_template_name, busy_ok, &mut captured,
+                );
+            }
+            // Standalone typed fixtures with no map or bound BuildList.
+            return self.find_fixture_factory(game_logic, unit_template_name, busy_ok);
         }
         // Fixture worlds without a command-set catalog keep the name table.
         let factory_name = Self::factory_template_for_unit(unit_template_name, self.team)?;
@@ -2704,11 +2762,52 @@ impl AIPlayer {
         .map(|(id, _, _)| id)
     }
 
-    /// C++ AIPlayer::findFactory (AIPlayer.cpp:1388): constructed, unsold,
-    /// producing objects for which BuildAssistant::isPossibleToMakeUnit
-    /// holds; an idle one (productionCount==0) wins, else a busy one if
-    /// `busy_ok`. Ties keep the lowest id for a stable build-list order.
-    fn find_factory_cpp(
+    /// C++ AIPlayer::findFactory (AIPlayer.cpp:1388–1421). Visiting a live
+    /// captured factory clears that binding even if its production no longer
+    /// qualifies. It returns at the first eligible idle row, with the last
+    /// eligible busy row kept only when the walk reaches the end.
+    fn find_factory_on_build_list(
+        &self,
+        game_logic: &AiWorldView<'_>,
+        unit_template_name: &str,
+        busy_ok: bool,
+        mut captured: impl FnMut(usize),
+    ) -> Option<ObjectId> {
+        let mut busy = None;
+        for (index, row) in self.building_queue.iter().enumerate() {
+            let Some(id) = row.object_id else { continue };
+            let Some(factory) = game_logic.host_object(id) else { continue };
+            if !game_logic.object_owned_by_player(factory, self.player_id) {
+                captured(index);
+                continue;
+            }
+            if factory.status.under_construction
+                || factory.status.sold
+                || !Self::has_factory_production_interface(factory)
+                || !game_logic.is_possible_to_make_unit(id, unit_template_name)
+            {
+                continue;
+            }
+            if Self::factory_is_idle(factory) {
+                return Some(id);
+            }
+            if busy_ok {
+                busy = Some(id);
+            }
+        }
+        busy
+    }
+
+    pub(super) fn has_factory_production_interface(factory: &Object) -> bool {
+        factory.thing().template.receiving_client_template.as_ref().map_or(
+            factory.building_data.is_some(),
+            |template| template.has_behavior_module("ProductionUpdate"),
+        )
+    }
+
+    /// Standalone compatibility for typed worlds without map admission or
+    /// explicit factory rows. Native maps use the ordered BuildList above.
+    fn find_fixture_factory(
         &self,
         game_logic: &AiWorldView<'_>,
         unit_template_name: &str,
@@ -2754,13 +2853,22 @@ impl AIPlayer {
         if names.is_empty() {
             return false;
         }
+        self.team_factories_ready_for_names(game_logic, &names, |_| {})
+    }
+
+    fn team_factories_ready_for_names(
+        &self,
+        game_logic: &AiWorldView<'_>,
+        names: &[String],
+        mut captured: impl FnMut(usize),
+    ) -> bool {
         let mut any_idle = false;
-        for name in &names {
+        for name in names {
             // Must have some factory that can produce this unit (busy ok for existence).
-            if self.find_factory_for_unit_ex(game_logic, name, true).is_none() {
+            if self.find_factory_visiting_captures(game_logic, name, true, &mut captured).is_none() {
                 return false;
             }
-            if self.find_factory_for_unit_ex(game_logic, name, false).is_some() {
+            if self.find_factory_visiting_captures(game_logic, name, false, &mut captured).is_some() {
                 any_idle = true;
             }
         }
