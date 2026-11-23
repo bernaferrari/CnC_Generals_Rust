@@ -8,6 +8,10 @@
 
 use crate::game_logic::GameLogic;
 
+#[cfg(feature = "game_client")]
+#[path = "fixture_content/supply_status.rs"]
+pub(crate) mod supply_status;
+
 pub(crate) fn retail_content_root() -> std::path::PathBuf {
     std::env::var_os("GENERALS_RETAIL_CONTENT_ROOT")
         .map(std::path::PathBuf::from)

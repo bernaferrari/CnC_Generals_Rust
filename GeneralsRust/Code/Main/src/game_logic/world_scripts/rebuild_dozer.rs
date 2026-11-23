@@ -1408,41 +1408,30 @@ impl GameLogic {
         crate::game_logic::host_repair::dozer_bored_range(is_computer)
     }
 
-    /// C++ `WorkerAIUpdate::aiDoCommand` drop-boxes-on-clear-mines tail.
-    /// `isClearingMines` requires OBJECT_STATUS_IS_ATTACKING + ANTI_MINE, so
-    /// the initial mine-clear order keeps carried boxes.
-    pub(crate) fn drop_worker_supply_boxes_for_mine_clear(&mut self, id: ObjectId) {
-        if !self.worker_is_clearing_mines(id) {
-            return;
-        }
-        let Some(obj) = self.objects.get_mut(&id) else {
+    /// WorkerAIUpdate.cpp:1005–1012 observes the active attack after the
+    /// accepted AI order. AIUpdate.cpp:3120–3135 tests the current weapon mask.
+    pub(crate) fn drop_worker_supply_after_mine_attack(
+        &mut self,
+        id: ObjectId,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
+        let Some(worker) = self.objects.get_mut(&id) else {
             return;
         };
-        if !obj.has_positive_supply_cargo() {
+        if !worker.worker_ai_update || !worker.status.attacking || worker.carried_supply_boxes() <= 0 {
             return;
         }
-        if !(obj.is_resource_collector()
-            || obj.template_name.to_ascii_lowercase().contains("worker"))
-        {
+        let Some(metadata) = worker.get_template().supply_truck_metadata else {
             return;
-        }
-        if obj.thing().template.supply_truck_metadata.is_some() {
-            obj.set_carried_supply_boxes(0);
-        } else {
-            obj.set_stored_supplies(0);
-        }
-    }
-
-    /// C++ `AIUpdateInterface::isClearingMines` (AIUpdate.cpp:3120-3135).
-    pub(crate) fn worker_is_clearing_mines(&self, id: ObjectId) -> bool {
-        let Some(obj) = self.objects.get(&id) else {
-            return false;
         };
-        let attacking = obj.status.attacking || matches!(obj.ai_state(), AIState::Attacking);
-        if !attacking {
-            return false;
+        let anti_mine = worker
+            .selected_weapon_slot()
+            .and_then(|slot| worker.selected_native_weapon_rule(slot))
+            .is_some_and(|rule| rule.get_anti_mask() & gamelogic::weapon::WeaponAntiMask::MINE != 0);
+        if anti_mine {
+            worker.set_carried_supply_boxes(0);
+            self.update_receiving_drawable_supply_status(id, metadata.max_boxes, 0, effects);
         }
-        obj.test_weapon_condition(8)
     }
 
     /// C++ WorkerStateMachine AS_SUPPLY_TRUCK — dozer brain is not updated.

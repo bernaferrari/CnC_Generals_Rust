@@ -1154,6 +1154,8 @@ impl<'a> CommandExecutor<'a> {
             };
 
             if fired {
+                self.game_logic
+                    .drop_worker_supply_after_mine_attack(unit_id, &mut self.ui);
                 any = true;
                 debug!(
                     "Unit {} firing weapon {:?} at {:?}",

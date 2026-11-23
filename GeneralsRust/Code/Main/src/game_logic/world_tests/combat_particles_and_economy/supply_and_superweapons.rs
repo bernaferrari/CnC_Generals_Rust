@@ -839,54 +839,9 @@ fn supply_deposit_fixture_ini(
 #[cfg(feature = "game_client")]
 #[test]
 fn supply_center_pays_each_removed_box_and_skips_empty_drawable_callbacks() {
-    use crate::game_logic::{
-        NativeBodyVisualChange, NativeFactoryDrawableSource, NativeObjectRetirement,
-        NativeSlaveSource, NativeViewEffects, ScriptPresentationEffects, SupplyTruckState,
-    };
-    use crate::presentation_frame::camera::build::SlaveCameraSample;
-    use game_engine::common::thing::{module_factory::ModuleFactory, thing_template::ModuleInfo};
-
-    #[derive(Default)]
-    struct SupplyView(Vec<(ObjectId, i32, i32, bool)>);
-    impl NativeViewEffects for SupplyView {
-        fn local_player_id(&self) -> u32 { 0 }
-        fn host_epoch(&self) -> u64 { 1 }
-        fn sample_slave(&mut self, _: &NativeSlaveSource, _: &str) -> SlaveCameraSample {
-            SlaveCameraSample::MissingDrawable
-        }
-        fn body_visual_changed(
-            &mut self,
-            _: &NativeBodyVisualChange,
-            _: Option<&mut dyn game_client::drawable::drawable::NativeAmbientAudio>,
-        ) -> Result<bool, String> {
-            Ok(false)
-        }
-        fn retire_physical_object_drawable(&mut self, _: &NativeObjectRetirement<'_>) -> Result<(), String> {
-            Ok(())
-        }
-        fn admit_factory_drawable(
-            &mut self,
-            _: NativeFactoryDrawableSource,
-            _: game_client::core::game_client::NativeDrawableBirthContext,
-            _: &mut ModuleFactory,
-        ) -> Result<(), String> {
-            Ok(())
-        }
-        fn update_drawable_supply_status(
-            &mut self,
-            source: &NativeSlaveSource,
-            draws: &ModuleInfo,
-            _: &parking_lot::RwLock<game_engine::common::global_data::GlobalData>,
-            maximum: i32,
-            remaining: i32,
-        ) -> bool {
-            assert_eq!(source.template_name, "BoxTruck");
-            assert_eq!(draws.iter().count(), 1);
-            let carrying = 1u128 << game_engine::common::bit_flags::ModelConditionFlags::CARRYING;
-            self.0.push((ObjectId(source.identity.object_id()), maximum, remaining, source.condition_bits & carrying != 0));
-            true
-        }
-    }
+    use crate::fixture_content::supply_status::SupplyStatusRecorder;
+    use crate::game_logic::{ScriptPresentationEffects, SupplyTruckState};
+    use game_engine::common::bit_flags::ModelConditionFlags;
 
     let truck_draw = " Draw = W3DModelDraw TruckDraw
   DefaultConditionState
@@ -905,7 +860,7 @@ fn supply_center_pays_each_removed_box_and_skips_empty_drawable_callbacks() {
     let truck = world.create_object_for_player("BoxTruck", 0, Vec3::X * 12.5).unwrap();
     let cash_before = world.get_player(0).unwrap().resources.supplies;
     let box_value = world.supply_box_value() as u32;
-    let mut view = SupplyView::default();
+    let mut view = SupplyStatusRecorder::default();
 
     for (cargo, expected) in [
         (3, vec![(truck, 4, 2, true), (truck, 4, 1, true), (truck, 4, 0, false)]),
@@ -930,7 +885,12 @@ fn supply_center_pays_each_removed_box_and_skips_empty_drawable_callbacks() {
                 &mut ScriptPresentationEffects { view: Some(&mut view), ..Default::default() },
             )
             .unwrap();
-        assert_eq!(std::mem::take(&mut view.0), expected);
+        let callbacks: Vec<_> = view.calls.drain(..).map(|call| {
+            assert_eq!(call.draw_modules, 1);
+            let carrying = call.condition_bits & (1u128 << ModelConditionFlags::CARRYING) != 0;
+            (call.object_id, call.maximum, call.current, carrying)
+        }).collect();
+        assert_eq!(callbacks, expected);
         assert_eq!(world.host_object(truck).unwrap().carried_supply_boxes(), 0);
         assert_eq!(world.get_player(0).unwrap().resources.supplies, cash_before + 3 * box_value);
         let payouts = world.take_supply_dropoff_events();

@@ -2730,25 +2730,6 @@ fn supply_center_accepts_deposit_same_player_only() {
     assert!(!logic.supply_center_accepts_deposit_for_test(cid, Team::USA, Some(1)));
 }
 
-#[test]
-fn worker_mine_clear_dumps_carried_boxes() {
-    use crate::game_logic::{GameLogic, Object, ObjectId, Team, ThingTemplate};
-    let mut logic = GameLogic::new();
-    let t = ThingTemplate::new("GLAWorker");
-    let id = ObjectId(8802);
-    let mut worker = Object::new(t, id, Team::GLA);
-    worker.stored_resources.supplies = 3;
-    worker.set_weapon_condition_at_frame(8, true, 0);
-    // C++ WorkerAIUpdate ctor: arming the detail alone never spends boxes.
-    assert_eq!(worker.stored_resources.supplies, 3);
-    // C++ WorkerAIUpdate::aiDoCommand tail (WorkerAIUpdate.cpp:1005-1014):
-    // isClearingMines() — attacking + WEAPONSET_MINE_CLEARING — drops them.
-    worker.status.attacking = true;
-    logic.objects.insert(id, worker);
-    logic.drop_worker_supply_boxes_for_mine_clear(id);
-    assert_eq!(logic.objects[&id].stored_resources.supplies, 0);
-}
-
 /// hq-2qedt.49: C++ pitch is only checked against an Object victim
 /// (Weapon::isWithinTargetPitch(source, victim) via WeaponSet.cpp:414
 /// isAnyWithinTargetPitch and :842 chooseBestWeaponForTarget). The

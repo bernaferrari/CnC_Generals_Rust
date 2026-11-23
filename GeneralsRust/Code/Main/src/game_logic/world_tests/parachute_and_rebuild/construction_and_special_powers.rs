@@ -411,44 +411,6 @@ fn worker_build_or_repair_releases_supply_dock() {
 }
 
 #[test]
-fn mine_clear_drops_worker_supply_boxes() {
-    // C++ WorkerAIUpdate.cpp:1004-1015 + AIUpdate.cpp:3120-3135.
-    use crate::game_logic::{KindOf, Team, ThingTemplate};
-    let mut logic = GameLogic::new();
-    logic.add_player(Player::new(0, Team::GLA, "GLA", true));
-    let mut worker_t = ThingTemplate::new("GLAInfantryWorker");
-    worker_t
-        .add_kind_of(KindOf::Dozer)
-        .add_kind_of(KindOf::Harvester)
-        .set_health(100.0);
-    logic.templates.insert("GLAInfantryWorker".into(), worker_t);
-    let wid = logic
-        .create_object("GLAInfantryWorker", Team::GLA, glam::Vec3::ZERO)
-        .expect("worker");
-    if let Some(w) = logic.host_object_mut(wid) {
-        w.set_stored_supplies(2);
-        w.set_weapon_condition_at_frame(8, true, 0);
-    }
-    logic.drop_worker_supply_boxes_for_mine_clear(wid);
-    assert_eq!(
-        logic.host_object(wid).unwrap().stored_resources.supplies,
-        2,
-        "hq-6je29: not attacking yet — keep boxes"
-    );
-    let ai_entry_frame = logic.frame;
-    if let Some(w) = logic.host_object_mut(wid) {
-        w.set_ai_state(
-            AIState::Attacking,
-            ai_entry_frame,
-            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
-        );
-        w.status.attacking = true;
-    }
-    logic.drop_worker_supply_boxes_for_mine_clear(wid);
-    assert_eq!(logic.host_object(wid).unwrap().stored_resources.supplies, 0);
-}
-
-#[test]
 fn cancel_construction_clears_dozer_actively_constructing() {
     use crate::game_logic::host_enum_table_residual::{
         actively_constructing_model_bit, host_model_condition_has,

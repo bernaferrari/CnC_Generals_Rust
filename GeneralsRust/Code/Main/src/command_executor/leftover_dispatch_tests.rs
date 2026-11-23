@@ -1126,54 +1126,124 @@ fn new_task_snaps_action_dock_off_pad_via_find_position_around() {
     );
 }
 
+#[cfg(feature = "game_client")]
 #[test]
-fn mine_clear_order_keeps_boxes_until_already_attacking() {
-    // hq-6je29: initial clear-mines does not drop; mid-attack command does.
-    use crate::game_logic::ThingTemplate;
+fn worker_mine_weapon_drops_cargo_only_after_its_accepted_attack() {
+    use crate::fixture_content::supply_status::SupplyStatusRecorder;
+    use crate::fixture_content::{FixtureObject, FixtureWeapon, admit_fixture_content};
+    use crate::game_logic::ScriptPresentationEffects;
+    use game_engine::common::bit_flags::ModelConditionFlags;
+
+    // The retail Worker has one box and a separate mine-clearing PRIMARY.
+    // The second authored row proves the detail flag is not the anti mask.
+    let worker_template = |name, weapon| {
+        FixtureObject::new(name)
+            .kind_of("INFANTRY DOZER HARVESTER SELECTABLE")
+            .health(100.0)
+            .walker()
+            .module("Behavior = WorkerAIUpdate WorkerAI\n MaxBoxes = 1\nEnd")
+            .model("NONE")
+            .module(format!(
+                "WeaponSet\n Conditions = NONE\n Weapon = PRIMARY None\nEnd\n\
+                 WeaponSet\n Conditions = MINE_CLEARING_DETAIL\n Weapon = PRIMARY {weapon}\n End"
+            ))
+    };
+
     let mut logic = GameLogic::new();
-    logic.frame = 8;
-    logic
-        .get_players_mut()
-        .insert(0, Player::new(0, Team::GLA, "P0", true));
-    let mut worker_tpl = ThingTemplate::new("GLAWorkerMineBox");
-    worker_tpl
-        .add_kind_of(KindOf::Infantry)
-        .add_kind_of(KindOf::Selectable)
-        .add_kind_of(KindOf::Dozer)
-        .add_kind_of(KindOf::Worker)
-        .add_kind_of(KindOf::Harvester)
-        .set_health(100.0);
-    logic
-        .templates
-        .insert("GLAWorkerMineBox".into(), worker_tpl);
+    logic.add_player(Player::new(0, Team::GLA, "GLA", true));
+    admit_fixture_content(
+        &mut logic,
+        &[
+            worker_template("StockWorkerShape", "WorkerMineDisarmingWeapon"),
+            worker_template("OtherWeaponWorker", "FixtureNonMineWeapon"),
+        ],
+        &[
+            FixtureWeapon::new("WorkerMineDisarmingWeapon")
+                .damage(1.0)
+                .range(5.0)
+                .damage_type("DISARM")
+                .field("AntiGround = No")
+                .field("AntiMine = Yes"),
+            FixtureWeapon::new("FixtureNonMineWeapon")
+                .damage(1.0)
+                .range(5.0)
+                .field("AntiGround = Yes")
+                .field("AntiMine = No"),
+        ],
+    );
     let worker = logic
-        .create_object_for_player("GLAWorkerMineBox", 0, Vec3::ZERO)
-        .expect("worker");
-    if let Some(w) = logic.host_object_mut(worker) {
-        w.set_stored_supplies(75);
-        w.set_weapon_condition_at_frame(8, true, 0);
+        .create_object_for_player("StockWorkerShape", 0, Vec3::ZERO)
+        .unwrap();
+    let non_mine = logic
+        .create_object_for_player("OtherWeaponWorker", 0, Vec3::Z * 2.0)
+        .unwrap();
+    for id in [worker, non_mine] {
+        logic.host_object_mut(id).unwrap().set_carried_supply_boxes(1);
     }
-    logic.drop_worker_supply_boxes_for_mine_clear(worker);
-    assert_eq!(
-        logic.host_object(worker).unwrap().stored_resources.supplies,
-        75,
-        "hq-6je29: initial order is not isClearingMines"
-    );
-    let frame = logic.frame;
-    if let Some(w) = logic.host_object_mut(worker) {
-        w.set_ai_state(
-            AIState::Attacking,
-            frame,
-            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
-        );
-        w.status.attacking = true;
-    }
-    logic.drop_worker_supply_boxes_for_mine_clear(worker);
-    assert_eq!(
-        logic.host_object(worker).unwrap().stored_resources.supplies,
-        0,
-        "hq-6je29: mid-attack command drops boxes"
-    );
+    let mut view = SupplyStatusRecorder::default();
+    let issue = |logic: &mut GameLogic, view: &mut SupplyStatusRecorder, order, ids| {
+        CommandExecutor::new_with_effects(
+            logic,
+            0,
+            ScriptPresentationEffects {
+                view: Some(view),
+                ..Default::default()
+            },
+        )
+        .execute_command(command(0, order, ids))
+        .unwrap()
+    };
+    let shoot = |weapon_slot| CommandType::DoWeapon {
+        weapon_slot,
+        max_shots_to_fire: -1,
+        target: WeaponTarget::Location(Vec3::X * 2.0),
+    };
+    assert!(issue(
+        &mut logic,
+        &mut view,
+        CommandType::SetMineClearingDetail { enabled: true },
+        vec![worker, non_mine],
+    ) == CommandResult::Success);
+    assert!(view.calls.is_empty());
+    assert_eq!(logic.host_object(worker).unwrap().carried_supply_boxes(), 1);
+    assert!(!logic.host_object(worker).unwrap().status.attacking);
+    assert!(issue(
+        &mut logic,
+        &mut view,
+        shoot(WeaponSlot::Primary),
+        vec![worker, non_mine],
+    ) == CommandResult::Success);
+    assert!(logic.host_object(worker).unwrap().status.attacking);
+    assert!(logic.host_object(non_mine).unwrap().status.attacking);
+    let callbacks: Vec<_> = view.calls.drain(..).map(|call| {
+        assert_eq!(call.draw_modules, 1);
+        let attacking = call.condition_bits & (1u128 << ModelConditionFlags::ATTACKING) != 0;
+        (call.object_id, call.maximum, call.current, attacking)
+    }).collect();
+    assert_eq!(callbacks, [(worker, 1, 0, true)]);
+    assert_eq!(logic.host_object(worker).unwrap().carried_supply_boxes(), 0);
+    assert_eq!(logic.host_object(non_mine).unwrap().carried_supply_boxes(), 1);
+
+    // A rejected slot and an accepted Stop must never observe the outgoing
+    // mine attack as though it were the command's post-dispatch state.
+    logic.host_object_mut(worker).unwrap().set_carried_supply_boxes(1);
+    assert!(issue(
+        &mut logic,
+        &mut view,
+        shoot(WeaponSlot::Secondary),
+        vec![worker],
+    ) == CommandResult::InvalidCommand);
+    assert!(logic.host_object(worker).unwrap().status.attacking);
+    assert!(issue(
+        &mut logic,
+        &mut view,
+        CommandType::Stop,
+        vec![worker, non_mine],
+    ) == CommandResult::Success);
+    assert!(view.calls.is_empty());
+    assert!(!logic.host_object(worker).unwrap().status.attacking);
+    assert_eq!(logic.host_object(worker).unwrap().carried_supply_boxes(), 1);
+    assert_eq!(logic.host_object(non_mine).unwrap().carried_supply_boxes(), 1);
 }
 
 #[test]

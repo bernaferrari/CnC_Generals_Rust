@@ -713,14 +713,6 @@ impl<'a> CommandExecutor<'a> {
                     .dozer_cancel_current_task_from_player(unit_id)?;
             }
         }
-        // C++ WorkerAIUpdate::aiDoCommand tail: drop boxes only if already
-        // isClearingMines. Runs before the new order mutates attack state.
-        if Self::player_command_clears_dozer_constructing(&command.command_type) {
-            for &unit_id in &command.selected_units {
-                self.game_logic
-                    .drop_worker_supply_boxes_for_mine_clear(unit_id);
-            }
-        }
         // C++ WorkerStateMachine readyToLeave: player move/attack is ST_BUSY
         // then AS_DOZER. Live Idle must not re-enter Wanting.
         if Self::player_command_parks_worker_ferry(&command.command_type) {
