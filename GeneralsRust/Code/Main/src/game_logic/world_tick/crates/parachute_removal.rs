@@ -51,9 +51,11 @@ impl GameLogic {
         if !original(self) {
             return Ok(());
         }
-        let rider = self.objects.get_mut(&rider_id).unwrap();
-        rider.set_status_disabled_held(false);
-        rider.set_status_parachuting(false);
+        self.set_owned_passenger_held(rider_id, false, effects);
+        if !original(self) {
+            return Ok(());
+        }
+        self.objects.get_mut(&rider_id).unwrap().set_status_parachuting(false);
         self.objects
             .get_mut(&container_id)
             .unwrap()

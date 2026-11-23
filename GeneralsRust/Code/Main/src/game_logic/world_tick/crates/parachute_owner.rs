@@ -129,9 +129,12 @@ impl GameLogic {
             return Ok(());
         }
         self.play_container_on_containing_sound(chute_id, effects);
+        self.set_owned_passenger_held(rider_id, true, effects);
+        if !original(self) {
+            return Ok(());
+        }
         {
             let rider = self.objects.get_mut(&rider_id).unwrap();
-            rider.set_status_disabled_held(true);
             rider.set_status_parachuting(true);
             let para = crate::game_logic::host_enum_table_residual::model_condition_bit_name_index(
                 "PARACHUTING",

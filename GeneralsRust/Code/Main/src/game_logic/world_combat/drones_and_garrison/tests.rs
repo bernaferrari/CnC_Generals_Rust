@@ -6,6 +6,55 @@ use super::firepoints::{
 use crate::game_logic::{AIState, ContainModuleKind, GameLogic, KindOf, Player, Team, ThingTemplate};
 use glam::Vec3;
 
+#[test]
+fn authored_transport_held_updates_passenger_power_before_next_tick() {
+    const SOURCE: &str = r#"
+Object TransportHoldCarrier
+ KindOf = VEHICLE
+ Behavior = TransportContain Contain
+  Slots = 2
+  AllowInsideKindOf = INFANTRY
+ End
+End
+Object TransportHoldPassenger
+ KindOf = INFANTRY
+ TransportSlotCount = 1
+ EnergyProduction = 20
+End
+"#;
+    let fixture = || {
+        let mut world = GameLogic::new();
+        world.add_player(Player::new(1, Team::USA, "Transport owner", true));
+        world
+            .admit_receiving_module_content(
+                crate::assets::ReceivingObjectContent::from_sources([(
+                    "transport-held.ini".into(),
+                    SOURCE.into(),
+                )])
+                .unwrap(),
+            )
+            .unwrap();
+        let transport = world.create_object_for_player("TransportHoldCarrier", 1, Vec3::ZERO).unwrap();
+        let passenger = world.create_object_for_player("TransportHoldPassenger", 1, Vec3::ZERO).unwrap();
+        (world, transport, passenger)
+    };
+    let (mut owner, transport, passenger) = fixture();
+    let (peer, peer_transport, peer_passenger) = fixture();
+    assert_eq!((transport, passenger), (peer_transport, peer_passenger));
+    assert_eq!(owner.players[&1].power_produced, 20);
+    assert!(owner.unit_command_order_enter(passenger, transport));
+    owner.update_support_states(&[passenger], 1.0 / 30.0).unwrap();
+    assert_eq!(owner.objects[&passenger].contained_by, Some(transport));
+    assert!(owner.objects[&passenger].is_held_disabled(), "TransportContain::onContaining");
+    assert_eq!(owner.players[&1].power_produced, 0, "boarding callback removes power immediately");
+    assert!(owner.evacuate_container_now(transport, false).unwrap());
+    assert_eq!(owner.objects[&passenger].contained_by, None);
+    assert!(!owner.objects[&passenger].is_held_disabled(), "TransportContain::onRemoving");
+    assert_eq!(owner.players[&1].power_produced, 20, "unloading callback restores power immediately");
+    assert_eq!(peer.players[&1].power_produced, 20);
+    assert_eq!(peer.objects[&passenger].contained_by, None);
+}
+
 /// C++ NeutonBlastBehavior.cpp:124-127 — unmanned vehicles are aiIdle'd
 /// and deselectObject'd so they do not stay selected or keep orders.
 #[test]

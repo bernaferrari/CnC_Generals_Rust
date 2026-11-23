@@ -11,26 +11,58 @@ impl GameLogic {
         self.notify_owned_weapon_bonus_change(id);
     }
 
-    pub(in crate::game_logic) fn apply_helix_contain_on_enter(&mut self, container: ObjectId, rider: ObjectId) {
-        if self.objects.get(&container).is_some_and(|object| {
-            object.is_helix_transport && object.overlord_portable_occupant != Some(rider)
-        }) {
-            // TransportContain::onContaining precedes the Helix extension.
-            if let Some(object) = self.objects.get_mut(&rider) {
-                object.set_status_disabled_held(true);
-            }
-            if let Some(object) = self.objects.get_mut(&container) {
-                if object.contained_unit_ids().len() == 1 {
-                    object.model_condition_bits |=
-                        1u128 << crate::game_logic::host_enum_table_residual::loaded_model_bit();
-                }
-            }
-            self.refresh_battle_bus_armed_riders_weapon_set(container);
-            self.set_owned_garrison_bonus(rider, true);
-            if let Some(object) = self.objects.get_mut(&rider) {
-                object.set_status_disabled_held(true);
-            }
+    pub(in crate::game_logic) fn uses_owned_transport_contain_callback(&self, id: ObjectId) -> bool {
+        self.objects.get(&id).is_some_and(|object| {
+            object.is_helix_transport
+                || matches!(
+                    object.get_template().contain_module.kind,
+                    ContainModuleKind::Transport | ContainModuleKind::InternetHack
+                )
+        })
+    }
+
+    pub(in crate::game_logic) fn apply_owned_transport_contain_on_enter(
+        &mut self,
+        container: ObjectId,
+        rider: ObjectId,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> bool {
+        let Some(hull) = self.objects.get(&container) else { return false };
+        let Some(passenger) = self.objects.get(&rider) else { return false };
+        let (hull_birth, rider_birth) = (hull.visual_object_generation, passenger.visual_object_generation);
+        let epoch = self.visual_world_epoch;
+        let helix = hull.is_helix_transport;
+        if !self.uses_owned_transport_contain_callback(container)
+            || (helix && hull.overlord_portable_occupant == Some(rider))
+        {
+            return true;
         }
+        let original = |world: &Self| {
+            world.spawn_identity_matches(container, hull_birth, epoch)
+                && world.spawn_identity_matches(rider, rider_birth, epoch)
+        };
+        // TransportContain::onContaining applies HELD before the LOADED
+        // condition and weapon-set change. Helix repeats HELD after its bonus.
+        self.set_owned_passenger_held(rider, true, effects);
+        if !original(self) {
+            return false;
+        }
+        let hull = self.objects.get_mut(&container).unwrap();
+        if hull.contained_unit_ids().len() == 1 {
+            hull.model_condition_bits |=
+                1u128 << crate::game_logic::host_enum_table_residual::loaded_model_bit();
+        }
+        self.refresh_battle_bus_armed_riders_weapon_set(container);
+        if helix {
+            self.set_owned_garrison_bonus(rider, true);
+            self.set_owned_passenger_held(rider, true, effects);
+        }
+        original(self)
+    }
+
+    #[cfg(test)]
+    pub(in crate::game_logic) fn apply_helix_contain_on_enter(&mut self, container: ObjectId, rider: ObjectId) {
+        self.apply_owned_transport_contain_on_enter(container, rider, &mut Default::default());
     }
 
     /// GarrisonContain::onRemoving clears the bonus before HELD and owner
@@ -41,20 +73,25 @@ impl GameLogic {
         rider: ObjectId,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> bool {
+        let transport = self.uses_owned_transport_contain_callback(container_id);
         let Some(container) = self.objects.get_mut(&container_id) else { return false };
         if container.is_helix_transport {
             return self.remove_owned_helix_occupant(container_id, rider, effects);
         }
-        if !container.is_garrison_contain() {
-            return container.remove_occupant_with_partition_owner(
+        if transport || !container.is_garrison_contain() {
+            let removed = container.remove_occupant_with_partition_owner(
                 rider, &mut self.ownership_events, &mut self.partition_manager,
             );
+            if removed && transport && self.prepare_open_contain_removal(container_id, rider, effects) {
+                self.set_owned_passenger_held(rider, false, effects);
+            }
+            return removed;
         }
         let enclosing = container.is_enclosing_garrison_container();
         if !container.unlink_occupant_with_partition_context(rider, Some(&self.partition_manager)) {
             return false;
         }
-        if !self.prepare_bonus_container_removal(container_id, rider, effects) {
+        if !self.prepare_open_contain_removal(container_id, rider, effects) {
             return true;
         }
         self.play_container_removing_template_sounds(container_id, rider, effects);
@@ -68,11 +105,15 @@ impl GameLogic {
             return true;
         }
         self.set_owned_garrison_bonus(rider, false);
-        if let Some(object) = self.objects.get_mut(&rider) {
-            object.set_status_disabled_held(false);
-        }
-        if let Some(container) = self.objects.get_mut(&container_id) {
-            container.restore_garrison_original_team_if_empty_with_partition_owner(
+        let Some(container_birth) = self.objects.get(&container_id)
+            .map(|object| object.visual_object_generation)
+        else {
+            return true;
+        };
+        let epoch = self.visual_world_epoch;
+        self.set_owned_passenger_held(rider, false, effects);
+        if self.spawn_identity_matches(container_id, container_birth, epoch) {
+            self.objects.get_mut(&container_id).unwrap().restore_garrison_original_team_if_empty_with_partition_owner(
                 &mut self.ownership_events, &mut self.partition_manager,
             );
         }
@@ -81,7 +122,7 @@ impl GameLogic {
 
     /// OpenContain::removeFromContainViaIterator exposes/repositions the
     /// rider and changes its layer before the derived onRemoving callback.
-    fn prepare_bonus_container_removal(
+    fn prepare_open_contain_removal(
         &mut self, container_id: ObjectId, rider: ObjectId,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> bool {
@@ -122,6 +163,7 @@ impl GameLogic {
         let Some(object) = self.objects.get(&rider) else { return false };
         let birth = object.visual_object_generation;
         let container_birth = container.visual_object_generation;
+        let epoch = self.visual_world_epoch;
         let position = container.get_position();
         let yaw = container.get_orientation();
         let airborne = container.is_above_terrain_for_exit();
@@ -152,11 +194,16 @@ impl GameLogic {
         });
         self.objects.get_mut(&container_id).unwrap()
             .unlink_occupant_with_partition_context(rider, Some(&self.partition_manager));
-        if !self.prepare_bonus_container_removal(container_id, rider, effects) {
+        if !self.prepare_open_contain_removal(container_id, rider, effects) {
             return true;
         }
         self.play_container_removing_template_sounds(container_id, rider, effects);
-        self.objects.get_mut(&rider).unwrap().set_status_disabled_held(false);
+        self.set_owned_passenger_held(rider, false, effects);
+        if !self.spawn_identity_matches(container_id, container_birth, epoch)
+            || !self.spawn_identity_matches(rider, birth, epoch)
+        {
+            return true;
+        }
         if let Some(exit_position) = exit_position {
             self.set_owned_object_position_with_effects(rider, exit_position, self.frame, effects);
         }
@@ -207,9 +254,7 @@ impl GameLogic {
         self.refresh_battle_bus_armed_riders_weapon_set(container_id);
         self.transfer_kell_snipe_reload_from_bike(container_id, rider);
         self.set_owned_garrison_bonus(rider, false);
-        if let Some(object) = self.objects.get_mut(&rider) {
-            object.set_status_disabled_held(false);
-        }
+        self.set_owned_passenger_held(rider, false, effects);
         true
     }
 
@@ -717,9 +762,16 @@ impl GameLogic {
         if !container.is_garrison_contain() {
             return Ok(());
         }
+        let container_birth = container.visual_object_generation;
+        let Some(rider) = self.objects.get(&occupant_id) else { return Ok(()) };
+        let rider_birth = rider.visual_object_generation;
+        let epoch = self.visual_world_epoch;
         self.ensure_garrison_bones(container_id);
-        if let Some(occupant) = self.objects.get_mut(&occupant_id) {
-            occupant.set_status_disabled_held(true);
+        self.set_owned_passenger_held(occupant_id, true, presentation_effects);
+        if !self.spawn_identity_matches(container_id, container_birth, epoch)
+            || !self.spawn_identity_matches(occupant_id, rider_birth, epoch)
+        {
+            return Ok(());
         }
         if let Some(container) = self.objects.get_mut(&container_id) {
             container.set_garrison_can_attack(true);

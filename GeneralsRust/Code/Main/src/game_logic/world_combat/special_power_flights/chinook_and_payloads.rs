@@ -318,11 +318,11 @@ impl GameLogic {
         let is_combat_chinook = container.is_combat_chinook_style_container();
         let is_listening_outpost = container.is_listening_outpost_style_container();
         let is_battle_bus = container.is_battle_bus_style_container();
-        let occupant_ids = container.contained_units();
+        let occupant_ids = container.contained_unit_ids();
         let was_upgraded = container.test_weapon_condition(3);
 
         let mut any_armed = false;
-        for oid in &occupant_ids {
+        for oid in occupant_ids {
             if let Some(rider) = self.objects.get(oid) {
                 let infantry =
                     gamelogic::object::contain::transport_contain_passenger_kind_allowed_to_fire(

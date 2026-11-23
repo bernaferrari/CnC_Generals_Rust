@@ -61,6 +61,28 @@ impl GameLogic {
         self.apply_owned_initial_disabled(id, DisableUntil { effect: TimedDisable::Held, deadline });
     }
 
+    /// Contain callbacks release a passenger with clearDisabled, which
+    /// clears inherited masks before firing the recovering passenger's edge.
+    pub(in crate::game_logic) fn set_owned_passenger_held(
+        &mut self,
+        id: ObjectId,
+        held: bool,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
+        if held {
+            self.apply_owned_initial_disabled_with_effects(
+                id,
+                DisableUntil {
+                    effect: TimedDisable::Held,
+                    deadline: game_engine::common::game_common::FOREVER,
+                },
+                effects,
+            );
+        } else {
+            self.clear_owned_disabled(id, TimedDisable::Held);
+        }
+    }
+
     pub(in crate::game_logic) fn set_owned_script_disable(
         &mut self,
         id: ObjectId,

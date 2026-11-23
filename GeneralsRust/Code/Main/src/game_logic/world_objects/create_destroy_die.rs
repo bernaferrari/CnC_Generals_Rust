@@ -2555,7 +2555,7 @@ impl GameLogic {
                 // OverlordContain forwards both validation and insertion once
                 // its first rider supplies a contain interface.
                 let destination = self.redirected_containment_owner(id);
-                let (attach_portable, is_transport, admitted) = {
+                let (attach_portable, admitted) = {
                     let parent = &self.objects[&destination];
                     let child = &self.objects[&payload];
                     let portable = child.is_kind_of(KindOf::PortableStructure);
@@ -2572,8 +2572,7 @@ impl GameLogic {
                         && used.saturating_add(slots) <= parent.transport_capacity();
                     let attach_portable = portable && free_portable
                         && (parent.is_helix_transport || parent.is_overlord_style_container());
-                    (attach_portable, parent.thing().template.contain_module.kind
-                        == crate::game_logic::ContainModuleKind::Transport, special_helix || ordinary)
+                    (attach_portable, special_helix || ordinary)
                 };
                 if !admitted {
                     continue;
@@ -2587,14 +2586,11 @@ impl GameLogic {
                         &mut self.objects, &mut self.partition_manager, &mut self.ai_groups,
                         &mut self.pathfinding_system, payload, Some(destination), true,
                     );
-                    if is_transport {
-                        self.objects.get_mut(&payload).unwrap().set_status_disabled_held(true);
-                        let bit = crate::game_logic::host_enum_table_residual::loaded_model_bit();
-                        self.objects.get_mut(&destination).unwrap().model_condition_bits |= 1u128 << bit;
-                        self.refresh_battle_bus_armed_riders_weapon_set(destination);
+                    let survived = self.apply_owned_transport_contain_on_enter(destination, payload, ui);
+                    verify_factory_birth!();
+                    if survived {
+                        self.stamp_player_who_entered(destination, payload);
                     }
-                    self.apply_helix_contain_on_enter(destination, payload);
-                    self.stamp_player_who_entered(destination, payload);
                 }
             }
 

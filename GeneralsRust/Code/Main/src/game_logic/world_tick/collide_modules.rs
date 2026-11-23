@@ -264,7 +264,9 @@ impl super::super::GameLogic {
                         us.set_status_disabled_held(true);
                     }
                 }
-                self.apply_helix_contain_on_enter(other_id, self_id);
+                if !self.apply_owned_transport_contain_on_enter(other_id, self_id, effects) {
+                    return Ok(());
+                }
                 self.admit_object_drawable_deselection(self_id);
                 if is_garrison {
                     self.record_garrison_residual_enter();

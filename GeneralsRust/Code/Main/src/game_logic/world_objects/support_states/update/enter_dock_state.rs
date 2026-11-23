@@ -763,6 +763,9 @@ impl GameLogic {
             .get(&container_id)
             .map(|c| c.is_enclosing_garrison_container())
             .unwrap_or(true);
+        let transport_birth = self.uses_owned_transport_contain_callback(container_id)
+            .then(|| self.objects[&container_id].visual_object_generation);
+        let epoch = self.visual_world_epoch;
         let occupant_owner = self.objects.get(&object_id).and_then(|o| o.owner_player_id);
         if let Some(obj) = self.objects.get_mut(&object_id) {
             obj.stop_moving(&mut crate::game_logic::ObjectAudio::queue(
@@ -773,12 +776,18 @@ impl GameLogic {
             obj.set_status_force_attack(false);
             obj.target = Some(container_id);
             let containment_actor_id = obj.id;
-            self.set_owned_containment_with_track_effects(
-                containment_actor_id,
-                container_id,
-                enclosing_garrison,
-                effects,
-            );
+            let new_transport_passenger = transport_birth.filter(|_| obj.contained_by != Some(container_id));
+            if new_transport_passenger.is_some() {
+                if enclosing_garrison {
+                    self.change_owned_containment_world_membership_with_track_effects(
+                        containment_actor_id, false, effects,
+                    );
+                }
+            } else {
+                self.set_owned_containment_with_track_effects(
+                    containment_actor_id, container_id, enclosing_garrison, effects,
+                );
+            }
             // C++ onContaining snaps enclosing occupants to the building
             // origin. Fire Base (IsEnclosingContainer=No) stays at stations.
             if enclosing_garrison || !container_is_structure {
@@ -790,6 +799,19 @@ impl GameLogic {
                 ) {
                     return Ok(());
                 }
+            }
+            if let Some(transport_birth) = new_transport_passenger {
+                // OpenContain redeploys before TransportContain::onContaining.
+                // Object::onContainedBy publishes the reference afterwards.
+                if !self.spawn_identity_matches(container_id, transport_birth, epoch)
+                    || !self.apply_owned_transport_contain_on_enter(container_id, object_id, effects)
+                {
+                    return Ok(());
+                }
+                self.objects.get_mut(&object_id).unwrap()
+                    .finish_containment_reference_with_partition_owner(
+                        Some(container_id), enclosing_garrison, &mut self.partition_manager,
+                    );
             }
             let Some(obj) = self.objects.get_mut(&containment_actor_id) else {
                 return Ok(());
@@ -820,7 +842,6 @@ impl GameLogic {
         if container_is_cave {
             self.play_container_load_sound(container_id, effects);
         }
-        self.apply_helix_contain_on_enter(container_id, object_id);
         self.admit_object_drawable_deselection(object_id);
         if container_is_tunnel_network {
             // Enter counter already incremented in record_enter.
@@ -841,7 +862,6 @@ impl GameLogic {
         } else if container_is_battle_bus {
             // GLA Battle Bus residual load (Slots=8 infantry transport).
             self.record_battle_bus_residual_load();
-            self.refresh_battle_bus_armed_riders_weapon_set(container_id);
         } else if container_is_technical {
             // GLA Technical residual load (Slots=5 infantry; no passenger fire).
             self.record_technical_residual_load();
@@ -852,22 +872,19 @@ impl GameLogic {
         } else if container_is_combat_chinook {
             // AirF Combat Chinook residual load (Slots=8 + passenger fire).
             self.record_combat_chinook_residual_load();
-            self.refresh_battle_bus_armed_riders_weapon_set(container_id);
         } else if container_is_listening_outpost {
             // China Listening Outpost residual load (Slots=2 + passenger fire).
             self.record_listening_outpost_residual_load();
-            self.refresh_battle_bus_armed_riders_weapon_set(container_id);
         } else if container_is_troop_crawler {
             // China Troop Crawler residual load (Slots=8; exit-to-fight).
             self.record_troop_crawler_residual_load();
         } else {
             // Vehicle transport residual load (Humvee / generic transport).
             self.record_transport_residual_load();
-            // Humvee-style PassengersAllowedToFire still refreshes weapon set
-            // when ArmedRidersUpgradeMyWeaponSet is set.
-            if !self.objects.get(&container_id).is_some_and(|object| object.is_helix_transport) {
-                self.refresh_battle_bus_armed_riders_weapon_set(container_id);
-            }
+        }
+        // Unauthored residual hulls still use their original refresh route.
+        if transport_birth.is_none() && !container_is_structure {
+            self.refresh_battle_bus_armed_riders_weapon_set(container_id);
         }
         Ok(())
     }

@@ -12,9 +12,14 @@ impl crate::assets::pristine_bones::PristineBoneAssets for ActualMissingBones {
     }
 }
 fn fixture() -> (GameLogic, ObjectId) {
-    let source = r#"
+    fixture_with_energy(0)
+}
+
+fn fixture_with_energy(energy: i32) -> (GameLogic, ObjectId) {
+    let source = format!(r#"
 Object ArbitraryAirRider
  KindOf = INFANTRY
+ EnergyProduction = {energy}
  Body = ActiveBody ModuleTag_Body
   MaxHealth = 100
   InitialHealth = 100
@@ -34,10 +39,10 @@ Object AuthoredAirContainer
   ParachuteOpenDist = 100
  End
 End
-"#;
+"#);
     let content = crate::assets::ReceivingObjectContent::from_sources([(
         "actual-air-contain.ini".into(),
-        source.to_owned(),
+        source,
     )])
     .unwrap();
     let mut world = GameLogic::new();
@@ -62,6 +67,29 @@ End
         .expect("actual receiving fixture admission")
         .expect("authored rider exists");
     (world, rider)
+}
+
+#[test]
+fn authored_parachute_held_updates_passenger_power_during_containment() {
+    let (mut owner, rider) = fixture_with_energy(20);
+    let (peer, peer_rider) = fixture_with_energy(20);
+    assert_eq!(rider, peer_rider);
+    assert_eq!(owner.players[&1].power_produced, 20);
+    let mut effects = ScriptPresentationEffects {
+        pristine_bones: Some(&ActualMissingBones),
+        ..Default::default()
+    };
+    owner
+        .put_hijacker_in_airborne_parachute_with_effects(rider, Vec3::new(30., 12., 40.), &mut effects)
+        .unwrap();
+    let chute = owner.objects[&rider].contained_by.unwrap();
+    assert!(owner.objects[&rider].is_held_disabled());
+    assert_eq!(owner.players[&1].power_produced, 0, "parachute HELD removes power immediately");
+    owner.remove_direct_contained_child_with_effects(chute, rider, &mut effects).unwrap();
+    assert!(!owner.objects[&rider].is_held_disabled());
+    assert_eq!(owner.players[&1].power_produced, 20, "parachute release restores power immediately");
+    assert_eq!(peer.players[&1].power_produced, 20);
+    assert!(!peer.objects[&rider].is_held_disabled());
 }
 
 #[test]
