@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Fail if a diff from <base> touches a sealed path without an Unseal line.
+# Fail if a diff from <base> touches or removes a seal without an Unseal line.
 # Usage: scripts/check_sealed_diff.sh <base-ref>
 # Unseal form (in a commit message in base..HEAD):
 #   Unseal: <path> — <reason>
@@ -13,58 +13,50 @@ if [[ -z "$BASE" ]]; then
   exit 2
 fi
 
-python3 - "$ROOT" "$REPO" "$BASE" <<'PY'
-import os, re, sys, subprocess
+python3 - "$REPO" "$BASE" <<'PYTHON'
+import re, sys, subprocess
 
-root, repo, base = sys.argv[1], sys.argv[2], sys.argv[3]
-toml_path = os.path.join(root, "sealed_modules.toml")
-text = open(toml_path, encoding="utf-8").read()
-modules = []
-current = None
-for raw in text.splitlines():
-    line = raw.split("#", 1)[0].rstrip()
-    if not line.strip():
-        continue
-    if line.strip() == "[[module]]":
-        if current and "path" in current:
-            modules.append(current)
-        current = {}
-        continue
-    if current is None:
-        continue
-    m = re.match(r'^([A-Za-z_][A-Za-z0-9_]*)\s*=\s*"(.*)"\s*$', line.strip())
-    if m:
-        current[m.group(1)] = m.group(2)
-if current and "path" in current:
-    modules.append(current)
+repo, base = sys.argv[1:]
+git = ["git", "-C", repo]
+registry = "GeneralsRust/sealed_modules.toml"
+merge_base = subprocess.check_output(git + ["merge-base", base, "HEAD"], text=True).strip()
 
-if not modules:
+def sealed_paths_at(revision):
+    # Older commits may predate the registry. If HEAD removes an entry,
+    # the committed base registry still supplies the protected path.
+    result = subprocess.run(
+        git + ["show", f"{revision}:{registry}"],
+        capture_output=True,
+        text=True,
+    )
+    return {
+        match.group(1).strip().strip("/")
+        for match in re.finditer(r'^\s*path\s*=\s*"([^"]+)"', result.stdout, re.MULTILINE)
+    }
+
+previous_paths = sealed_paths_at(merge_base)
+current_paths = sealed_paths_at("HEAD")
+sealed_paths = previous_paths | current_paths
+if not sealed_paths:
     print("no sealed modules; diff check ok")
     sys.exit(0)
 
-sealed_paths = [m["path"].strip().strip("/") for m in modules]
-
 # Changed files under GeneralsRust/ relative to GeneralsRust
 diff = subprocess.check_output(
-    ["git", "-C", repo, "diff", "--name-only", f"{base}...HEAD"],
+    git + ["diff", "--name-only", "--no-renames", "-z", merge_base, "HEAD"],
     text=True,
 )
-changed = []
-for line in diff.splitlines():
-    line = line.strip()
-    if not line:
-        continue
-    if line.startswith("GeneralsRust/"):
-        changed.append(line[len("GeneralsRust/"):])
-    elif line.startswith("generalsrust/"):
-        changed.append(line[len("generalsrust/"):])
+changed = [
+    path[len("GeneralsRust/"):]
+    for path in diff.split("\0")
+    if path.lower().startswith("generalsrust/")
+]
 
-touched = []
-for ch in changed:
-    for sp in sealed_paths:
-        if ch == sp or ch.startswith(sp.rstrip("/") + "/"):
-            touched.append((ch, sp))
-            break
+touched = {(path, path) for path in previous_paths - current_paths}
+for path in changed:
+    for sealed in sealed_paths:
+        if path == sealed or path.startswith(sealed + "/"):
+            touched.add((path, sealed))
 
 if not touched:
     print("no sealed paths touched; ok")
@@ -72,7 +64,7 @@ if not touched:
 
 # Collect Unseal lines from commits in range
 log = subprocess.check_output(
-    ["git", "-C", repo, "log", "--format=%B", f"{base}..HEAD"],
+    git + ["log", "--format=%B", f"{merge_base}..HEAD"],
     text=True,
 )
 # Unseal: path — reason   (em-dash or double-hyphen or ASCII ---)
@@ -84,14 +76,8 @@ for m in unseal_re.finditer(log):
     unsealed.add(m.group(1).strip().strip("/"))
 
 failed = False
-for ch, sp in touched:
-    allowed = any(
-        sp == u or sp.startswith(u.rstrip("/") + "/") or u == sp or u.startswith(sp.rstrip("/") + "/")
-        for u in unsealed
-    )
-    # Also allow exact sealed path listed in Unseal
-    if sp in unsealed or any(ch == u or ch.startswith(u.rstrip("/") + "/") for u in unsealed):
-        allowed = True
+for ch, sp in sorted(touched):
+    allowed = any(ch == path or ch.startswith(path + "/") for path in unsealed)
     if not allowed:
         print(
             f"FAIL: sealed path touched without Unseal: {ch} (sealed as {sp})",
@@ -107,4 +93,4 @@ if failed:
     sys.exit(1)
 
 print("sealed touches covered by Unseal; ok")
-PY
+PYTHON
