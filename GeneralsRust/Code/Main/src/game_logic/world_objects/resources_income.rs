@@ -64,7 +64,7 @@ impl GameLogic {
                 > 0
     }
 
-    fn accumulate_object_power((produced, consumed): &mut (i32, i32), object: &Object) {
+    fn accumulate_object_power(produced: &mut i32, consumed: &mut i32, object: &Object) {
         // Object::friend_adjustPowerForPlayer excludes disabled producers.
         // Persisted production already includes any Overcharge bonus.
         if !Self::omit_disabled_production_from_grid(object) {
@@ -74,33 +74,47 @@ impl GameLogic {
     }
 
     fn power_totals_for_player(&self, player_id: u32) -> (i32, i32) {
-        let mut totals = (0, 0);
+        let (mut produced, mut consumed) = (0, 0);
         for object in self.objects.registered_values() {
             if object.owner_player_id == Some(player_id) && Self::object_contributes_power(object) {
-                Self::accumulate_object_power(&mut totals, object);
+                Self::accumulate_object_power(&mut produced, &mut consumed, object);
             }
         }
-        totals
+        (produced, consumed)
     }
 
-    fn all_player_power_totals(
-        &self,
-    ) -> game_engine::common::fast_hash::FxHashMap<u32, (i32, i32)> {
-        let mut totals: game_engine::common::fast_hash::FxHashMap<_, _> =
-            self.players.keys().map(|&id| (id, (0, 0))).collect();
+    fn rebuild_player_power(&mut self) {
+        // This pass has no callbacks. Accumulate directly into the receiving
+        // Players and finish their projections before publishing any results.
+        for player in self.players.values_mut() {
+            player.power_produced = 0;
+            player.power_consumed = 0;
+        }
         // Read each Object once and keep the saturating fold in registration
         // order for each individual controller, including same-faction Players.
         for object in self.objects.registered_values() {
             if object.power_provided == 0 && object.power_consumed == 0 {
                 continue;
             }
-            if let Some(owner_totals) = object.owner_player_id.and_then(|id| totals.get_mut(&id)) {
-                if Self::object_contributes_power(object) {
-                    Self::accumulate_object_power(owner_totals, object);
-                }
+            if Self::object_contributes_power(object)
+                && let Some(player) = object
+                    .owner_player_id
+                    .and_then(|id| self.players.get_mut(&id))
+            {
+                Self::accumulate_object_power(
+                    &mut player.power_produced,
+                    &mut player.power_consumed,
+                    object,
+                );
             }
         }
-        totals
+        for player in self.players.values_mut() {
+            Self::apply_derived_power(
+                player,
+                (player.power_produced, player.power_consumed),
+                self.frame,
+            );
+        }
     }
 
     fn apply_derived_power(player: &mut Player, (produced, consumed): (i32, i32), frame: u32) {
@@ -121,9 +135,11 @@ impl GameLogic {
         }
         // PowerPlantUpgrade and OverchargeBehavior loadPostProcess credit
         // the current controller even when its producer is disabled.
-        for object in self.objects.registered_values().filter(|object| {
-            object.has_disabled_type() && Self::omit_disabled_production_from_grid(object)
-        }) {
+        for object in self
+            .objects
+            .registered_values()
+            .filter(|object| Self::omit_disabled_production_from_grid(object))
+        {
             if let Some(player) = object
                 .owner_player_id
                 .and_then(|id| self.players.get_mut(&id))
@@ -133,10 +149,7 @@ impl GameLogic {
                     .wrapping_add(object.active_plant_power_bonus_output());
             }
         }
-        let totals = self.all_player_power_totals();
-        for (id, player) in &mut self.players {
-            Self::apply_derived_power(player, totals[id], self.frame);
-        }
+        self.rebuild_player_power();
     }
 
     pub(super) fn record_power_projection(&mut self, player_id: u32) {
@@ -150,10 +163,8 @@ impl GameLogic {
     }
 
     pub(in super::super) fn update_player_resources(&mut self, _dt: f32) {
-        let totals = self.all_player_power_totals();
-        for (id, player) in &mut self.players {
-            Self::apply_derived_power(player, totals[id], self.frame);
-
+        self.rebuild_player_power();
+        for player in self.players.values() {
             // Shadow economy channel: effective supplies + power after host tick residual.
             self.economy_events.record(
                 player.id,

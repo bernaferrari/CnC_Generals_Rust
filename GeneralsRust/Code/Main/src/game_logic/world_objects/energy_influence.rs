@@ -497,6 +497,36 @@ impl GameLogic {
 mod tests {
     use super::*;
 
+    #[test]
+    fn rebuilding_grid_keeps_signed_power_in_registration_order() {
+        let mut world = GameLogic::new();
+        world.add_player(Player::new(1, Team::USA, "Grid", true));
+        world.add_player(Player::new(2, Team::USA, "EmptyGrid", false));
+        world.players.get_mut(&1).unwrap().power_production_adjustment = 2;
+        world.players.get_mut(&2).unwrap().power_produced = 99;
+
+        // The registry prepends each lifetime. Its newest two producers
+        // saturate before the oldest actor subtracts its signed contribution.
+        for (id, provided, consumed) in [(9, -7, 3), (2, 10, 4), (17, i32::MAX, 0)] {
+            let id = ObjectId(id);
+            let mut actor = Object::new(ThingTemplate::new("GridFixture"), id, Team::USA);
+            actor.owner_player_id = Some(1);
+            actor.construction_percent = 1.0;
+            actor.power_provided = provided;
+            actor.power_consumed = consumed;
+            world.objects.admit(id, actor);
+        }
+
+        for _ in 0..2 {
+            world.update_player_resources(0.0);
+            let player = &world.players[&1];
+            assert_eq!(player.power_produced, i32::MAX - 5);
+            assert_eq!(player.power_consumed, 7);
+            assert_eq!(player.power_available, i32::MAX - 12);
+            assert_eq!(world.players[&2].power_available, 0);
+        }
+    }
+
     fn spawned_radar_world() -> (GameLogic, [ObjectId; 3]) {
         let source = r#"
 Object DisableNest
