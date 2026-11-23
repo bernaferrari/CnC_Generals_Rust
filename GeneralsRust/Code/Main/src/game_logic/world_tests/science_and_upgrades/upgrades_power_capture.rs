@@ -424,6 +424,150 @@ fn authored_power_plant_upgrade_adds_energy_bonus_once_by_module_not_name() {
 }
 
 #[test]
+fn authored_plant_bonuses_reach_the_receiving_grid_at_each_callback() {
+    use crate::game_logic::{Player, Team};
+    let fixture = |multiple_rod_modules: bool| {
+        let mut logic = GameLogic::new();
+        let source = "
+Object CallbackPlant
+  KindOf = STRUCTURE FS_POWER
+  EnergyProduction = 20
+  EnergyBonus = 5
+  Body = ActiveBody BodyTag
+    MaxHealth = 100
+    InitialHealth = 100
+  End
+  Behavior = PowerPlantUpgrade ControlRods
+    TriggeredBy = Upgrade_CallbackRods
+  End
+  Behavior = OverchargeBehavior Overcharge
+    HealthPercentToDrainPerSecond = 0%
+    NotAllowedWhenHealthBelowPercent = 0%
+  End
+End
+Object CallbackLoad
+  KindOf = STRUCTURE POWERED
+  EnergyProduction = -24
+End";
+        let source = if multiple_rod_modules {
+            source.replace(
+                "  Behavior = OverchargeBehavior Overcharge",
+                "  Behavior = PowerPlantUpgrade SecondRods\n    TriggeredBy = Upgrade_CallbackRods\n  End\n  Behavior = OverchargeBehavior Overcharge",
+            )
+        } else {
+            source.to_owned()
+        };
+        logic
+            .admit_receiving_module_content(
+                crate::assets::ReceivingObjectContent::from_sources([(
+                    "power-bonus-callbacks.ini".into(),
+                    source,
+                )])
+                .unwrap(),
+            )
+            .unwrap();
+        for (id, name) in [(0, "PowerOwner"), (1, "NewOwner")] {
+            let mut player = Player::new(id, Team::USA, name, true);
+            player.add_radar(false);
+            logic.add_player(player);
+        }
+        let plant = logic
+            .create_object_for_player("CallbackPlant", 0, Vec3::ZERO)
+            .unwrap();
+        let consumer = logic
+            .create_object_for_player("CallbackLoad", 0, Vec3::X)
+            .unwrap();
+        (logic, plant, consumer)
+    };
+    let (mut world, plant, consumer) = fixture(false);
+    let (mut restored, restored_plant, _) = fixture(false);
+    assert_eq!(plant, restored_plant);
+    assert_eq!(world.players[&0].power_produced, 20);
+    assert!(!world.players[&0].has_radar());
+    assert!(
+        world.apply_authored_power_plant_upgrades(plant, |name| name == "Upgrade_CallbackRods")
+    );
+    assert_eq!(
+        world.players[&0].power_produced, 25,
+        "Control Rods is a synchronous Energy callback"
+    );
+    assert!(world.players[&0].has_radar());
+    assert!(!world.objects[&consumer].status.disabled_underpowered);
+    assert!(world.toggle_overcharge_object(plant));
+    assert_eq!(world.players[&0].power_produced, 30);
+    assert!(world.toggle_overcharge_object(plant));
+    assert_eq!(world.players[&0].power_produced, 25);
+    assert!(world.toggle_overcharge_object(plant));
+
+    let builder = crate::save_load::snapshot::SnapshotBuilder::new();
+    let snapshot = builder.create_world_snapshot(&world).unwrap();
+    let bytes = bincode_legacy::serialize(&snapshot).unwrap();
+    let decoded = crate::save_load::snapshot::decode_bincode_world_snapshot(&bytes).unwrap();
+    builder
+        .restore_from_snapshot(&decoded, &mut restored)
+        .unwrap();
+    assert_eq!(restored.players[&0].power_produced, 30);
+    restored.economy_events.complete_boundary();
+    restored.economy_events.take_completed();
+
+    assert!(restored.transfer_object_to_player(plant, 1).unwrap());
+    assert_eq!(restored.players[&0].power_produced, 0);
+    assert_eq!(restored.players[&1].power_produced, 30);
+    assert!(restored.objects[&consumer].status.disabled_underpowered);
+    assert!(!restored.players[&0].has_radar());
+    assert_eq!(world.players[&0].power_produced, 30);
+    assert_eq!(world.players[&1].power_produced, 0);
+    restored.economy_events.complete_boundary();
+    let bonus_updates: Vec<_> = restored
+        .economy_events
+        .take_completed()
+        .into_iter()
+        .map(|event| (event.player_id, event.power_available))
+        .collect();
+    assert_eq!(bonus_updates, [(0, -19), (1, 25), (0, -24), (1, 30)]);
+
+    restored.destroy_object(plant).unwrap();
+    assert!(restored.objects.contains_key(&plant));
+    assert_eq!(
+        restored.players[&1].power_produced, 20,
+        "onDelete removes both bonuses before Team unlink"
+    );
+    assert!(!restored.objects[&plant].overcharge_enabled);
+    restored.process_destroy_list();
+    assert_eq!(restored.players[&1].power_produced, 0);
+    assert!(!restored.objects.contains_key(&plant));
+
+    let (mut multiple, plant, _) = fixture(true);
+    assert!(
+        multiple.apply_authored_power_plant_upgrades(plant, |name| name == "Upgrade_CallbackRods")
+    );
+    assert_eq!(multiple.players[&0].power_produced, 30);
+    assert_eq!(multiple.objects[&plant].power_provided, 30);
+    assert!(!multiple.apply_authored_power_plant_upgrades(plant, |_| true));
+    // Earlier Main saves recorded both module latches with only one credit.
+    multiple.objects.get_mut(&plant).unwrap().power_provided = 25;
+    let snapshot = builder.create_world_snapshot(&multiple).unwrap();
+    let (mut legacy, _, _) = fixture(true);
+    builder
+        .restore_from_snapshot(&snapshot, &mut legacy)
+        .unwrap();
+    assert!(legacy.transfer_object_to_player(plant, 1).unwrap());
+    assert_eq!(legacy.players[&0].power_produced, 0);
+    assert_eq!(legacy.players[&1].power_produced, 25);
+    // Old saves can also have a pending deletion with its bonus still active.
+    legacy.objects.get_mut(&plant).unwrap().status.destroyed = true;
+    legacy.restore_pending_object_removals(vec![
+        crate::game_logic::kill_credit::PendingObjectRemoval {
+            id: plant,
+            killer: None,
+            after_death: false,
+        },
+    ]);
+    legacy.process_destroy_list();
+    assert_eq!(legacy.players[&1].power_produced, 0);
+}
+
+#[test]
 fn completed_player_upgrade_reaches_power_plant_built_afterwards() {
     use crate::game_logic::Team;
     // C++ Object::initObject -> updateUpgradeModules: a plant created while
@@ -778,8 +922,8 @@ End
     assert_eq!(disabled.model_condition_bits & (1u128 << upgraded), 0);
 
     // A lethal retail drain at its 0% threshold starts ordinary death but
-    // does not call the threshold/exhaustion disable branch.  The active
-    // module remains until the normal destroy/onDelete route removes it.
+    // does not call the threshold/exhaustion disable branch. DestroyDie
+    // runs onDelete while the reactor is still installed.
     {
         let mut executor = CommandExecutor::new(&mut logic, 0);
         assert!(
@@ -802,12 +946,12 @@ End
     assert!(dead_plant.structure_topple_data.is_none());
     assert!(dead_plant.structure_collapse_data.is_none());
     assert!(
-        dead_plant.overcharge_enabled,
-        "the 0% threshold must not run the exhaustion disable while ordinary destruction owns cleanup"
+        !dead_plant.overcharge_enabled,
+        "DestroyDie runs OverchargeBehavior::onDelete before physical retirement"
     );
     assert_eq!(
-        dead_plant.power_provided, 15,
-        "the active bonus remains until normal deletion"
+        dead_plant.power_provided, 10,
+        "onDelete withdraws the boost while base Team power is still installed"
     );
     assert_eq!(logic.overcharge_exhaustions, 0);
     assert!(

@@ -226,6 +226,35 @@ impl GameLogic {
         }
     }
 
+    /// Admit a signed EnergyBonus to its exact Player, then settle radar and
+    /// powered objects before returning to the caller's module callback.
+    pub(super) fn signal_power_bonus(&mut self, owner: Option<u32>, delta: i32) {
+        let Some(owner) = owner else { return };
+        let Some(player) = self.players.get_mut(&owner) else {
+            return;
+        };
+        let brownout = player.adjust_power_bonus(delta, self.frame);
+        self.admit_player_energy_brownout(owner, brownout);
+        self.record_power_projection(owner);
+    }
+
+    /// Update the active bonus before the caller completes the module latch.
+    /// Disabled plants currently keep their bonus only in the saved output,
+    /// where it becomes available again on the normal reenable callback.
+    pub(in crate::game_logic) fn change_object_power_bonus(
+        &mut self,
+        id: ObjectId,
+        delta: i32,
+    ) -> Option<&mut Object> {
+        let object = self.objects.get(&id)?;
+        if !object.has_disabled_type() {
+            self.signal_power_bonus(object.owner_player_id, delta);
+        }
+        let object = self.objects.get_mut(&id)?;
+        object.power_provided = object.power_provided.wrapping_add(delta);
+        Some(object)
+    }
+
     /// SabotagePowerPlantCrateCollide.cpp:112–120 applies the outage on contact.
     pub(in crate::game_logic) fn sabotage_player_power(&mut self, owner: u32, deadline: u32) {
         let Some(player) = self.players.get_mut(&owner) else {

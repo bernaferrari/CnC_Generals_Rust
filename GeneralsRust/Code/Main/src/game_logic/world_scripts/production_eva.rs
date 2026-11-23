@@ -1318,18 +1318,16 @@ impl GameLogic {
         energy_bonus: i32,
         has_power_plant_update: bool,
     ) -> bool {
+        if !self.objects.get(&object_id).is_some_and(|obj| obj.overcharge_enabled) {
+            return false;
+        }
         if has_power_plant_update {
             let _ = self.retract_power_plant_rods(object_id);
         }
-        let Some(obj) = self.objects.get_mut(&object_id) else {
+        let Some(object) = self.change_object_power_bonus(object_id, energy_bonus.wrapping_neg()) else {
             return false;
         };
-        if !obj.overcharge_enabled {
-            return false;
-        }
-        obj.power_provided = obj.power_provided.saturating_sub(energy_bonus);
-
-        obj.set_overcharge_enabled(false);
+        object.set_overcharge_enabled(false);
         true
     }
 
@@ -1363,14 +1361,12 @@ impl GameLogic {
             if has_power_plant_update {
                 let _ = self.begin_power_plant_rods_extend(object_id);
             }
-            let Some(obj) = self.objects.get_mut(&object_id) else {
-                return false;
-            };
             // No click-time health threshold: C++ evaluates the strict `<`
             // threshold only in OverchargeBehavior::update after damage.
-            obj.power_provided = obj.power_provided.saturating_add(energy_bonus);
-
-            obj.set_overcharge_enabled(true);
+            let Some(object) = self.change_object_power_bonus(object_id, energy_bonus) else {
+                return false;
+            };
+            object.set_overcharge_enabled(true);
             true
         };
         if changed {

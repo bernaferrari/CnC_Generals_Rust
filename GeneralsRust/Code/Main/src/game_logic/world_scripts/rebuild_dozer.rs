@@ -426,7 +426,7 @@ impl GameLogic {
         new_team: Team,
         owner_changed: bool,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-        cost_modifier_capture: Option<(std::sync::Weak<()>, Option<u32>, Option<u32>)>,
+        capture_context: Option<(std::sync::Weak<()>, Option<u32>, Option<u32>)>,
     ) -> gamelogic::GameLogicResult<()> {
         let Some(object) = self.objects.get(&object_id) else {
             return Ok(());
@@ -475,8 +475,9 @@ impl GameLogic {
         // receiving-side capture callback residuals below. The receipt keeps
         // this transition tied to the original object birth and owners if
         // either earlier phase reenters the world.
-        if let Some((birth, old_owner, new_owner)) = cost_modifier_capture {
+        if let Some((birth, old_owner, new_owner)) = capture_context {
             self.cost_modifier_on_capture(object_id, &birth, old_owner, new_owner);
+            self.capture_plant_power_bonuses(object_id, &birth, old_owner, new_owner);
         }
 
         // Module callbacks run even for different teams controlled by one player.

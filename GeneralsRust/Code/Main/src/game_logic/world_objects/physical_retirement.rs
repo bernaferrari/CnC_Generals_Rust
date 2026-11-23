@@ -30,6 +30,8 @@ impl GameLogic {
                     .into(),
             ));
         }
+        // Old pending-deletion records can still contain an active bonus.
+        self.remove_plant_power_bonuses_on_delete(id);
         // RadarUpgrade::onDelete belongs to the still-installed phase. This
         // defensive admission is idempotent when onDelete already consumed it.
         self.remove_host_radar_provider(id);

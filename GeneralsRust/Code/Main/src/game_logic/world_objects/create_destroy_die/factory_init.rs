@@ -331,8 +331,8 @@ impl GameLogic {
                 self.locomotor_definitions.receiving(),
             );
         }
-        if let Some(bonus) = power_plant_bonus {
-            self.complete_power_plant_upgrade(id, bonus);
+        if let Some((bonus, executed)) = power_plant_bonus {
+            self.complete_power_plant_upgrade(id, bonus, executed);
         }
     }
 }

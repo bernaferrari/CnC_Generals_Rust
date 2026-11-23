@@ -69,6 +69,7 @@ impl GameLogic {
         self.cost_modifier_on_delete(id);
         self.remove_propaganda_tower_influence(id);
         self.detach_destroyed_object_from_contain(id, effects)?;
+        self.remove_plant_power_bonuses_on_delete(id);
         self.delete_direct_containment_with_effects(id, effects)?;
         // SpawnBehavior::onDelete destroys live required children directly,
         // unlike onDie which kills them through their death modules.

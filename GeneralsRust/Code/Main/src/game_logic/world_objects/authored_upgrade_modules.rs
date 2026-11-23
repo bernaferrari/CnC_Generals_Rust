@@ -8,6 +8,20 @@
 //! unit or template name selects a recipient.
 use super::super::*;
 
+enum PlantPowerBonus {
+    ControlRods(String),
+    Overcharge,
+}
+
+const CONTROL_RODS_UPGRADE_KEY_PREFIX: &str = "PowerPlantUpgrade#";
+
+fn control_rods_upgrade_key(index: usize, tag: Option<&str>) -> String {
+    match tag {
+        Some(tag) => format!("{CONTROL_RODS_UPGRADE_KEY_PREFIX}{tag}"),
+        None => format!("{CONTROL_RODS_UPGRADE_KEY_PREFIX}PowerPlantUpgrade{index}"),
+    }
+}
+
 /// Parse the C++ `UpgradeMuxData` trigger fields of one authored module.
 pub(crate) fn upgrade_mux_data(
     module: &crate::assets::ini_parser::BehaviorModuleDefinition,
@@ -280,32 +294,77 @@ impl GameLogic {
 impl Object {
     /// Run this Object's authored `PowerPlantUpgrade` modules whose UpgradeMux
     /// triggers `has` satisfies (PowerPlantUpgrade.cpp `upgradeImplementation`),
-    /// each at most once. Returns the template's `EnergyBonus` (what
-    /// `Player::addPowerBonus` adds) when any module executed.
+    /// each at most once. Returns the template's bonus and the number of
+    /// modules that earned it.
     pub(crate) fn run_authored_power_plant_upgrades(
         &mut self,
         has: impl Fn(&str) -> bool,
-    ) -> Option<i32> {
+    ) -> Option<(i32, usize)> {
         let definition = self.thing().template.receiving_object_definition.clone()?;
-        let mut executed = false;
+        let mut executed = 0;
         for (index, module) in definition
             .behavior_modules
             .iter()
             .filter(|module| module.class_name.eq_ignore_ascii_case("PowerPlantUpgrade"))
             .enumerate()
         {
-            let key = format!(
-                "PowerPlantUpgrade#{}",
-                module
-                    .module_tag
-                    .clone()
-                    .unwrap_or_else(|| format!("PowerPlantUpgrade{index}"))
-            );
+            let key = control_rods_upgrade_key(index, module.module_tag.as_deref());
             if upgrade_mux_triggers(module, &has) && self.applied_upgrades.insert(key) {
-                executed = true;
+                executed += 1;
             }
         }
-        executed.then(|| self.thing().template.energy_bonus.unwrap_or(0))
+        (executed != 0).then(|| (self.get_template().energy_bonus.unwrap_or(0), executed))
+    }
+
+    /// Visit credited bonuses in behavior order. Older saves could latch
+    /// several Control Rods modules in one pass but credit the bonus once.
+    /// Their saved gross output bounds the number of credits we can move.
+    fn active_plant_power_bonuses(&self) -> impl Iterator<Item = PlantPowerBonus> + '_ {
+        let has_control_rods = self
+            .applied_upgrades
+            .iter()
+            .any(|key| key.starts_with(CONTROL_RODS_UPGRADE_KEY_PREFIX));
+        let template = self.get_template();
+        let bonus = template.energy_bonus.unwrap_or(0);
+        let credited = if bonus == 0 {
+            usize::MAX
+        } else {
+            self.power_provided
+                .wrapping_sub(template.energy_production.unwrap_or(0))
+                .checked_div(bonus)
+                .unwrap_or(0)
+                .max(0) as usize
+        };
+        let mut overcharge =
+            self.overcharge_enabled && template.supports_overcharge() && credited != 0;
+        let mut rods_left = credited.saturating_sub(usize::from(overcharge));
+        let mut rod_index = 0;
+        template
+            .receiving_object_definition
+            .iter()
+            .filter(move |_| has_control_rods || overcharge)
+            .flat_map(|definition| &definition.behavior_modules)
+            .filter_map(move |module| {
+                if has_control_rods
+                    && rods_left != 0
+                    && module.class_name.eq_ignore_ascii_case("PowerPlantUpgrade")
+                {
+                    let key = control_rods_upgrade_key(rod_index, module.module_tag.as_deref());
+                    rod_index += 1;
+                    if self.applied_upgrades.contains(&key) {
+                        rods_left -= 1;
+                        Some(PlantPowerBonus::ControlRods(key))
+                    } else {
+                        None
+                    }
+                } else if overcharge && module.class_name.eq_ignore_ascii_case("OverchargeBehavior")
+                {
+                    overcharge = false;
+                    Some(PlantPowerBonus::Overcharge)
+                } else {
+                    None
+                }
+            })
     }
 }
 
@@ -317,25 +376,79 @@ impl GameLogic {
         id: ObjectId,
         has: impl Fn(&str) -> bool,
     ) -> bool {
-        let Some(bonus) = self
+        let Some((bonus, executed)) = self
             .objects
             .get_mut(&id)
             .and_then(|object| object.run_authored_power_plant_upgrades(has))
         else {
             return false;
         };
-        self.complete_power_plant_upgrade(id, bonus);
+        self.complete_power_plant_upgrade(id, bonus, executed);
         true
     }
 
     /// Player::addPowerBonus + PowerPlantUpdate::extendRods(TRUE).
-    pub(in crate::game_logic) fn complete_power_plant_upgrade(&mut self, id: ObjectId, bonus: i32) {
-        if let Some(object) = self.objects.get_mut(&id) {
-            object.power_provided = object.power_provided.saturating_add(bonus);
+    pub(in crate::game_logic) fn complete_power_plant_upgrade(
+        &mut self,
+        id: ObjectId,
+        bonus: i32,
+        executed: usize,
+    ) {
+        for _ in 0..executed {
+            self.change_object_power_bonus(id, bonus);
+            let _ = self.begin_power_plant_rods_extend(id);
         }
-        let _ = self.begin_power_plant_rods_extend(id);
     }
 
+    /// Capture runs after base Team influence is moved to the new Player.
+    pub(in crate::game_logic) fn capture_plant_power_bonuses(
+        &mut self,
+        id: ObjectId,
+        birth: &std::sync::Weak<()>,
+        old_owner: Option<u32>,
+        new_owner: Option<u32>,
+    ) {
+        let Some(object) = self.objects.get(&id).filter(|object| {
+            object.owner_player_id == new_owner
+                && birth.ptr_eq(&std::sync::Arc::downgrade(
+                    &object.visual_draw_identity_token,
+                ))
+                && !object.has_disabled_type()
+        }) else {
+            return;
+        };
+        let bonus = object.get_template().energy_bonus.unwrap_or(0);
+        let count = object.active_plant_power_bonuses().count();
+        for _ in 0..count {
+            self.signal_power_bonus(old_owner, bonus.wrapping_neg());
+            self.signal_power_bonus(new_owner, bonus);
+        }
+    }
+
+    /// PowerPlantUpgrade and OverchargeBehavior both remove their active
+    /// bonus from the installed Object during onDelete, before base retirement.
+    pub(super) fn remove_plant_power_bonuses_on_delete(&mut self, id: ObjectId) {
+        let Some(object) = self.objects.get(&id) else {
+            return;
+        };
+        let delta = object
+            .get_template()
+            .energy_bonus
+            .unwrap_or(0)
+            .wrapping_neg();
+        let bonuses: Vec<_> = object.active_plant_power_bonuses().collect();
+        for bonus in bonuses {
+            let Some(object) = self.change_object_power_bonus(id, delta) else {
+                return;
+            };
+            match bonus {
+                PlantPowerBonus::ControlRods(key) => {
+                    object.applied_upgrades.remove(&key);
+                }
+                PlantPowerBonus::Overcharge => object.set_overcharge_enabled(false),
+            }
+        }
+    }
 }
 
 #[cfg(test)]

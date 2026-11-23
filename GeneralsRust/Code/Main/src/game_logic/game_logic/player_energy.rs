@@ -42,6 +42,13 @@ impl Player {
         self.power_available = self.energy_available_at(frame);
     }
 
+    /// Energy.cpp:157–205 treats EnergyBonus as a signed production delta.
+    pub(in crate::game_logic) fn adjust_power_bonus(&mut self, delta: i32, frame: u32) -> bool {
+        self.power_produced = self.power_produced.wrapping_add(delta);
+        self.refresh_energy_projection_at(frame);
+        !self.has_sufficient_energy_at(frame)
+    }
+
     /// Energy::objectEnteringInfluence: every nonzero signed template delta
     /// signals onPowerBrownOutChange, even when sufficiency has not changed.
     pub(in crate::game_logic) fn add_template_energy(
