@@ -1,5 +1,5 @@
 //! Synchronous native Drawable mutations admitted to the existing RenderObj owner.
-use super::installed_draw_pose::{InstalledDrawObject, InstalledDrawPose};
+use super::installed_draw_pose::InstalledDrawObject;
 use super::native_draw_source::NativeDrawSource;
 use super::*;
 use game_client::core::game_client::PresentationDrawableMutation;
@@ -429,6 +429,11 @@ impl super::native_pose_loan::NativeInstalledPoseLoan<'_> {
                         .or_default();
                     state.native_host_identity = source.identity.cloned();
                     state.native_source_template = source.template.to_owned();
+                    #[cfg(feature = "game_client")]
+                    {
+                        state.native_supply_draw = receiving.module_class_name(index)
+                            .is_some_and(|class| class.eq_ignore_ascii_case("W3DSupplyDraw"));
+                    }
                     state.native_instance_scale =
                         source.mesh_scale.is_finite().then_some(source.mesh_scale);
                     state.native_condition_bits = Some(0);
@@ -601,6 +606,11 @@ impl super::native_pose_loan::NativeInstalledPoseLoan<'_> {
             return;
         };
         let template = state.native_source_template.clone();
+        #[cfg(feature = "game_client")]
+        let supply_replaced_prototype = state.native_supply_draw
+            && state.native_selected_condition.as_ref().is_some_and(|current| {
+                !current.model_key.eq_ignore_ascii_case(&selected.model_key)
+            });
         state.native_selected_condition = Some(selected.clone());
         if selected.model_key.is_empty() {
             state.installed_draw_pose = InstalledDrawObject::NoRenderObject;
@@ -651,6 +661,8 @@ impl super::native_pose_loan::NativeInstalledPoseLoan<'_> {
             }
             _ => false,
         };
+        #[cfg(feature = "game_client")]
+        let retain = retain && !supply_replaced_prototype;
         if identity.animation.is_some() && binding.is_none() {
             state.installed_draw_pose = InstalledDrawObject::AwaitingAdmission;
             return;
@@ -687,6 +699,12 @@ impl super::native_pose_loan::NativeInstalledPoseLoan<'_> {
             let InstalledDrawObject::Ready(pose) = &mut state.installed_draw_pose else {
                 unreachable!()
             };
+            #[cfg(feature = "game_client")]
+            if state.native_supply_draw {
+                // W3DModelDraw.cpp:3139–3157 writes only the new row to the
+                // retained RenderObj. Other previous child writes survive.
+                pose.apply_supply_condition_visibility(&selected);
+            }
             // Source adjustAnimation with no entries leaves installed HAnim.
             if !selected.animations.is_empty() {
                 pose.animation_binding = binding;
@@ -694,8 +712,7 @@ impl super::native_pose_loan::NativeInstalledPoseLoan<'_> {
             }
         } else {
             state.installed_draw_pose = InstalledDrawObject::Ready(
-                InstalledDrawPose::created(model, world, &selected, binding)
-                    .with_asset_scale(state.native_instance_scale),
+                state.create_installed_draw_pose(model, world, &selected, binding),
             );
             // nukeCurrentRender resets the module pause latch on recreation.
             state.animation_paused = false;

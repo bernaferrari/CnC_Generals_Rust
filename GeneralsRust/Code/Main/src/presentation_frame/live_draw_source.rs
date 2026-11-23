@@ -157,6 +157,7 @@ pub(super) fn object_condition_facts(
         destroyed: destroyed,
         disabled: obj.is_disabled(),
         disguised: obj.status.disguised,
+        dock_kind: obj.thing().template.dock_kind,
         enemy_near: obj
             .enemy_near
             .as_ref()

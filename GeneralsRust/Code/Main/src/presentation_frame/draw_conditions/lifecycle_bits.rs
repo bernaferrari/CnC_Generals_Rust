@@ -115,15 +115,17 @@ impl DrawConditionFacts {
             } else {
                 bits &= !(1u128 << cheer_b);
             }
-            let carry_b = carrying_model_bit();
-            // C++ W3DModelDraw::updateDrawModuleSupplyStatus — boxes > 0.
-            // Infantry ability residual remains for flag/crate poses without supplies.
-            if self.stored_supplies > 0
-                || (self.using_ability && infantry && !self.attacking && !self.is_firing_weapon)
-            {
-                bits |= 1u128 << carry_b;
-            } else {
-                bits &= !(1u128 << carry_b);
+            // A warehouse's live Drawable call wrote CARRYING into the
+            // source bank. Its economy stock and a carrier's cargo differ.
+            if self.dock_kind != crate::game_logic::DockKind::SupplyWarehouse {
+                let carry_b = carrying_model_bit();
+                if self.stored_supplies > 0
+                    || (self.using_ability && infantry && !self.attacking && !self.is_firing_weapon)
+                {
+                    bits |= 1u128 << carry_b;
+                } else {
+                    bits &= !(1u128 << carry_b);
+                }
             }
         }
         // Wave 512: continuous-fire / prone / preattack / turret-rotate residual bits.

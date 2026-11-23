@@ -1426,9 +1426,16 @@ impl W3DModel {
 
     #[cfg(feature = "game_client")]
     pub(crate) fn has_rigid_render_child_named(&self, name: &str) -> bool {
-        self.rigid_hlod_static_lod_context().is_some_and(|(hlod, lod, _)| {
-            Self::rigid_hlod_subobject_for_authored_directive(hlod, lod, name).is_some()
-        })
+        self.rigid_render_child_name(name).is_some()
+    }
+
+    /// Resolve the full identity of an installed HLOD child. Full and leaf
+    /// spellings for the same target must share its latest visibility write.
+    #[cfg(feature = "game_client")]
+    pub(crate) fn rigid_render_child_name(&self, name: &str) -> Option<&str> {
+        let (hlod, lod, _) = self.rigid_hlod_static_lod_context()?;
+        Self::rigid_hlod_subobject_for_authored_directive(hlod, lod, name)
+            .map(|child| child.name.as_str())
     }
 
     /// Only retained child names can change an installed RenderObj. Enumerate

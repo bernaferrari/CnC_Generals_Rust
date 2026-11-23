@@ -401,7 +401,7 @@ pub(crate) fn visibility_hlod_fixture() -> Vec<u8> {
 /// A source-shaped single-HLOD fixture with a parent, a descendant, and a
 /// sibling.  Mesh and pivot names intentionally differ; only retained
 /// `HLOD.Name.Child -> BoneIndex` records are legal visibility bindings.
-fn hide_show_subobjects_hlod_model() -> W3DModel {
+pub(crate) fn hide_show_subobjects_hlod_model() -> W3DModel {
     let mut model = W3DModel::new("hide_show_subobjects".to_string());
     model.hierarchy = Some(W3dHierarchy {
         name: "VIS_HIER".to_string(),

@@ -574,30 +574,6 @@ impl RenderPipeline {
                     .native_draw_world
                     .pending_client_drawable_imports
                     .remove(&(object_id.0, draw_module_index));
-                // C++ applies static Draw directives first, then broadcasts
-                // weapon clip feedback in slot order. Preserve that exact
-                // ordering before the HLOD resolver handles last-write wins.
-                #[cfg(feature = "game_client")]
-                let supply_visibility = u.receiving_draw_models.as_ref()
-                    .and_then(|draws| draws.module_class_name(draw_module_index))
-                    .filter(|class| class.eq_ignore_ascii_case("W3DSupplyDraw"))
-                    .and_then(|_| self.native_draw_world.drawable_visual_states
-                        .get(&(NativeDrawOwnerId::Actor(object_id.0), draw_module_index)))
-                    .filter(|state| state.native_host_identity.as_ref() == u.draw_playback_identity.as_ref())
-                    .filter(|state| state.native_selected_condition.as_ref().is_some_and(|selected| {
-                        selected.model_key.eq_ignore_ascii_case(&draw_model.model_key)
-                    }))
-                    .and_then(|state| match &state.installed_draw_pose {
-                        installed_draw_pose::InstalledDrawObject::Ready(pose) => Some(pose.supply_visibility.as_slice()),
-                        _ => None,
-                    })
-                    .unwrap_or_default();
-                #[cfg(feature = "game_client")]
-                let authored_subobject_visibility =
-                    u.authored_subobject_visibility_with_supply(draw_model, supply_visibility);
-                #[cfg(not(feature = "game_client"))]
-                let authored_subobject_visibility =
-                    u.authored_subobject_visibility_for_draw_model(draw_model);
                 let authored_primary_turret = draw_model.primary_turret.clone();
                 let model_name_owned = draw_model.model_key.clone();
                 if model_name_owned.trim().is_empty() {
@@ -705,6 +681,33 @@ impl RenderPipeline {
                                         .iter()
                                         .any(|control| control.recoil_pivot_index.is_some()),
                             );
+
+                            // Native W3DSupplyDraw carries the retained object's
+                            // child state across rows. Direct meshes and the fog
+                            // copy use the same child writes and final upgrades.
+                            #[cfg(feature = "game_client")]
+                            let installed_children = self.native_draw_world.drawable_visual_states
+                                .get(&(NativeDrawOwnerId::Actor(object_id.0), draw_module_index))
+                                .filter(|state| state.native_supply_draw)
+                                .filter(|state| state.native_host_identity.as_ref().is_some_and(|identity| {
+                                    Some(identity) == u.draw_playback_identity.as_ref()
+                                }))
+                                .filter(|state| state.native_selected_condition.as_ref().is_some_and(|selected| {
+                                    selected.model_key.eq_ignore_ascii_case(&draw_model.model_key)
+                                }))
+                                .and_then(|state| match &state.installed_draw_pose {
+                                    installed_draw_pose::InstalledDrawObject::Ready(pose)
+                                        if Arc::ptr_eq(&pose.model, &w3d_model)
+                                            && pose.turret_names.matches(&draw_model.primary_turret) =>
+                                            Some(pose.supply_child_visibility.as_slice()),
+                                    _ => None,
+                                });
+                            #[cfg(feature = "game_client")]
+                            let authored_subobject_visibility = u
+                                .authored_subobject_visibility_with_installed_children(draw_model, installed_children);
+                            #[cfg(not(feature = "game_client"))]
+                            let authored_subobject_visibility =
+                                u.authored_subobject_visibility_for_draw_model(draw_model);
 
                             let mesh_pose_at = |frame| {
                                 w3d_model.draw_mesh_pose(

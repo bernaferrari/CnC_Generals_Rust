@@ -1,6 +1,6 @@
 //! W3DSupplyDraw's stock status update on the receiving Drawable lifetime.
 use super::*;
-use crate::assets::{AuthoredDrawSubobjectVisibility, W3DModel, W3dRenderObjectPrototypeKind};
+use crate::assets::{W3DModel, W3dRenderObjectPrototypeKind};
 use crate::game_logic::NativeSlaveSource;
 use game_client::core::PresentationDirectDrawableBindingKey;
 use game_engine::common::thing::thing_template::ModuleInfo;
@@ -105,15 +105,7 @@ impl NativeInstalledPoseLoan<'_> {
             if let InstalledDrawObject::Ready(pose) = &mut module.installed_draw_pose {
                 for (ordinal, name) in pose.model.supply_child_indices(&latch.prefix) {
                     if ordinal > low && ordinal <= high {
-                        // Keep write order when different authored children
-                        // are ancestors of one another.
-                        if let Some(old) =
-                            pose.supply_visibility.iter().position(|d| d.name == name)
-                        {
-                            pose.supply_visibility.remove(old);
-                        }
-                        pose.supply_visibility
-                            .push(AuthoredDrawSubobjectVisibility { name, hidden });
+                        pose.write_supply_child_visibility(&name, hidden);
                     }
                 }
             }
@@ -278,7 +270,7 @@ impl RenderPipeline {
             .as_ref()
             .map(|latch| (latch.total, latch.shown));
         let writes = pose
-            .supply_visibility
+            .supply_child_visibility
             .iter()
             .map(|op| op.name.clone())
             .collect();
@@ -304,7 +296,7 @@ impl RenderPipeline {
             })
             .filter(|(index, _)| {
                 pose.model
-                    .mesh_visible_for_authored_subobject_directives(*index, &pose.supply_visibility)
+                    .mesh_visible_for_authored_subobject_directives(*index, &pose.supply_child_visibility)
             })
             .map(|(_, mesh)| mesh.name.to_ascii_uppercase())
             .collect();

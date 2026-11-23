@@ -776,6 +776,10 @@ impl RenderPipeline {
             let native_host_identity = state.native_host_identity.clone();
             #[cfg(feature = "game_client")]
             let native_client_binding = state.native_client_binding;
+            #[cfg(feature = "game_client")]
+            let native_supply_draw = state.native_supply_draw;
+            #[cfg(feature = "game_client")]
+            let supply_bones = state.supply_bones.take();
             *state = ObjectVisualState {
                 animation: retained_animation,
                 installed_draw_pose,
@@ -790,6 +794,10 @@ impl RenderPipeline {
                 native_host_identity,
                 #[cfg(feature = "game_client")]
                 native_client_binding,
+                #[cfg(feature = "game_client")]
+                native_supply_draw,
+                #[cfg(feature = "game_client")]
+                supply_bones,
                 identity: Some(identity.clone()),
                 animation_paused,
                 animation_resume_mode,

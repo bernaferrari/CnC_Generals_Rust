@@ -2764,6 +2764,10 @@ Object SupplySwapWarehouse
         ConditionState = CARRYING
             Model = ZBSupplyWH_B
         End
+        ConditionState = CARRYING USER_1
+            Model = ZBSupplyWH_B
+            ShowSubObject = ZBSupplyWH_B.SUP19
+        End
         ExtraPublicBone = SUP
         SupplyBonePrefix = SUP
     End
@@ -2837,10 +2841,27 @@ End
     assert!(visible.contains(&"SUP18".to_owned()));
     assert!(!visible.contains(&"SUP19".to_owned()));
 
+    let carrying = swapping_world.current_native_slave_source(swapping_id, 0).unwrap();
+    use game_engine::common::bit_flags::ModelConditionFlags;
+    let carry = 1u128 << ModelConditionFlags::CARRYING;
+    let user = 1u128 << ModelConditionFlags::USER_1;
+    assert_ne!(carrying.condition_bits & carry, 0, "live projection preserves the receiving bit");
+    for bits in [carrying.condition_bits | user, carrying.condition_bits] {
+        let mut poses = pipeline.borrow_native_installed_poses();
+        poses.mark_receiving_drawable_conditions(&carrying, bits, &mut graphics);
+        poses.consume_native_camera_conditions(swapping_id, &mut graphics);
+        let (latch, visible, writes) = observe(pipeline);
+        assert_eq!(latch, Some((35, 18)));
+        assert_eq!(visible.len(), 19);
+        assert!(visible.contains(&"SUP19".to_owned()));
+        assert!(!visible.contains(&"SUP20".to_owned()));
+        assert_eq!(writes.len(), 17, "full/leaf alias keeps just one latest target");
+    }
+
     status(0, &mut swapping_world, &mut swapping_client, pipeline, &mut graphics, &mut retirement);
     let (latch, visible, writes) = observe(pipeline);
     assert_eq!(latch, Some((35, 0)));
-    assert!(visible.is_empty());
+    assert_eq!(visible, ["SUP19"], "a later delta does not touch SUP19");
     assert_eq!(writes.len(), 35, "later decrement still edits the old 35-child RenderObj");
     pipeline.borrow_native_installed_poses().consume_native_camera_conditions(swapping_id, &mut graphics);
     let (latch, visible, writes) = observe(pipeline);

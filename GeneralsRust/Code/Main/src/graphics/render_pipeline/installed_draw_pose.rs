@@ -26,6 +26,8 @@ pub(super) struct ObjectVisualState {
     pub installed_draw_pose: installed_draw_pose::InstalledDrawObject,
     #[cfg(feature = "game_client")]
     pub(super) supply_bones: Option<super::supply_draw::SupplyBoneLatch>,
+    #[cfg(feature = "game_client")]
+    pub(super) native_supply_draw: bool,
     pub identity: Option<FrozenVisualDrawIdentity>,
     pub animation: Option<ObjectAnimationState>,
     pub animation_paused: bool,
@@ -53,7 +55,7 @@ pub(super) enum InstalledDrawObject {
 pub(super) struct InstalledDrawPose {
     pub(super) model: Arc<crate::assets::W3DModel>,
     #[cfg(feature = "game_client")]
-    pub(super) supply_visibility: Vec<crate::assets::AuthoredDrawSubobjectVisibility>,
+    pub(super) supply_child_visibility: Vec<crate::assets::AuthoredDrawSubobjectVisibility>,
     asset_scale: f32,
     /// The inner option caches unsupported constructor bounds as well as sizes.
     #[cfg(feature = "game_client")]
@@ -101,7 +103,7 @@ impl PartialEq for InstalledDrawPose {
         Arc::ptr_eq(&self.model, &other.model)
             && {
                 #[cfg(feature = "game_client")]
-                { self.supply_visibility == other.supply_visibility }
+                { self.supply_child_visibility == other.supply_child_visibility }
                 #[cfg(not(feature = "game_client"))]
                 { true }
             }
@@ -135,7 +137,7 @@ impl InstalledDrawPose {
         Self {
             model,
             #[cfg(feature = "game_client")]
-            supply_visibility: Vec::new(),
+            supply_child_visibility: Vec::new(),
             asset_scale: 1.0,
             #[cfg(feature = "game_client")]
             projected_decal_size: None,
@@ -149,6 +151,34 @@ impl InstalledDrawPose {
             hierarchy_transforms: Vec::new(),
         }
     }
+    /// W3DModelDraw.cpp:2318–2360. Supply and condition-state mutations
+    /// affect the same RenderObj. Retain the latest write for each exact
+    /// child, in order, since a later write to an ancestor also affects it.
+    #[cfg(feature = "game_client")]
+    pub(super) fn write_supply_child_visibility(&mut self, name: &str, hidden: bool) {
+        let Some(name) = self.model.rigid_render_child_name(name) else {
+            return;
+        };
+        let writes = &mut self.supply_child_visibility;
+        if let Some(old) = writes.iter().position(|write| write.name == name) {
+            writes.remove(old);
+        }
+        writes.push(crate::assets::AuthoredDrawSubobjectVisibility {
+            name: name.to_owned(),
+            hidden,
+        });
+    }
+
+    #[cfg(feature = "game_client")]
+    pub(super) fn apply_supply_condition_visibility(
+        &mut self,
+        selected: &crate::assets::AuthoredDrawModel,
+    ) {
+        for write in &selected.subobject_visibility {
+            self.write_supply_child_visibility(&write.name, write.hidden);
+        }
+    }
+
     pub(super) fn with_asset_scale(mut self, instance_scale: Option<f32>) -> Self {
         // W3DAssetManager creates a scaled asset only outside scale_epsilon.
         self.asset_scale = instance_scale
@@ -288,8 +318,7 @@ impl RenderPipeline {
         };
         if needs_recreation {
             state.installed_draw_pose = InstalledDrawObject::Ready(
-                InstalledDrawPose::created(model, world, draw_model, binding.clone())
-                    .with_asset_scale(state.native_instance_scale),
+                state.create_installed_draw_pose(model, world, draw_model, binding.clone()),
             );
         }
         let InstalledDrawObject::Ready(pose) = &mut state.installed_draw_pose else {
@@ -330,6 +359,26 @@ impl RenderPipeline {
 }
 
 impl ObjectVisualState {
+    pub(super) fn create_installed_draw_pose(
+        &self,
+        model: Arc<crate::assets::W3DModel>,
+        world: Mat4,
+        selected: &crate::assets::AuthoredDrawModel,
+        animation: Option<crate::assets::W3dAnimationBinding>,
+    ) -> InstalledDrawPose {
+        let pose = InstalledDrawPose::created(model, world, selected, animation)
+            .with_asset_scale(self.native_instance_scale);
+        #[cfg(feature = "game_client")]
+        let pose = {
+            let mut pose = pose;
+            if self.native_supply_draw {
+                pose.apply_supply_condition_visibility(selected);
+            }
+            pose
+        };
+        pose
+    }
+
     pub(super) fn retained_installed_binding(&self) -> Option<crate::assets::W3dAnimationBinding> {
         if self.force_bind_pose || self.identity.as_ref()?.animation.is_some() {
             return None;

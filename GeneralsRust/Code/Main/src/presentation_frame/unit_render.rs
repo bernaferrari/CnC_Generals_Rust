@@ -693,20 +693,19 @@ impl UnitRenderInput {
         &self,
         draw_model: &crate::assets::AuthoredDrawModel,
     ) -> Vec<crate::assets::AuthoredDrawSubobjectVisibility> {
-        self.authored_subobject_visibility_with_supply(draw_model, &[])
+        self.authored_subobject_visibility_with_installed_children(draw_model, None)
     }
 
-    pub(crate) fn authored_subobject_visibility_with_supply(
+    pub(crate) fn authored_subobject_visibility_with_installed_children(
         &self,
         draw_model: &crate::assets::AuthoredDrawModel,
-        supply: &[crate::assets::AuthoredDrawSubobjectVisibility],
+        installed: Option<&[crate::assets::AuthoredDrawSubobjectVisibility]>,
     ) -> Vec<crate::assets::AuthoredDrawSubobjectVisibility> {
-        let mut directives = draw_model.subobject_visibility.clone();
+        let mut directives = installed.unwrap_or(&draw_model.subobject_visibility).to_vec();
         directives.extend(authored_projectile_clip_subobject_visibility(
             draw_model,
             &self.projectile_clip_statuses,
         ));
-        directives.extend_from_slice(supply);
         // C++ SubObjectsUpgrade::upgradeImplementation / forceRefresh runs
         // after ConditionState hide/show. Skip while disguised: the live
         // visual is the replacement template, which has no Bombload children.
@@ -882,6 +881,7 @@ impl UnitRenderInput {
             destroyed: self.destroyed,
             disabled: self.disabled,
             disguised: self.disguised,
+            dock_kind: self.dock_kind,
             enemy_near: self.enemy_near,
             front_crushed: self.front_crushed,
             is_deployed: self.is_deployed,
@@ -1437,7 +1437,7 @@ mod tests {
             .expect("wh")
             .set_warehouse_boxes(5);
         let frame = crate::presentation_frame::PresentationFrame::build_from_logic(&mut logic, 0);
-        let input = frame
+        let mut input = frame
             .unit_render_inputs()
             .into_iter()
             .find(|u| u.id == id)
@@ -1447,6 +1447,19 @@ mod tests {
         let draw_model = crate::assets::AuthoredDrawModel::default();
         let dirs = input.authored_subobject_visibility_for_draw_model(&draw_model);
         assert!(dirs.is_empty(), "only the installed W3DSupplyDraw writes visibility");
+
+        let child = crate::assets::AuthoredDrawSubobjectVisibility {
+            name: "SUP19".into(),
+            hidden: false,
+        };
+        input.sub_object_visibility.hidden.insert(child.name.clone());
+        let directives = input.authored_subobject_visibility_with_installed_children(
+            &draw_model,
+            Some(std::slice::from_ref(&child)),
+        );
+        assert_eq!(directives.first(), Some(&child));
+        assert_eq!(directives.last().map(|write| (write.name.as_str(), write.hidden)),
+            Some(("SUP19", true)));
     }
 
     #[test]

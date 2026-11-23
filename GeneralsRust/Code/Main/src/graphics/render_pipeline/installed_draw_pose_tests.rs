@@ -306,3 +306,55 @@ fn alt_bone_change_invalidates_installed_pose_reuse_hq_2qedt_107() {
     c.primary_turret.alternate_pitch_bone_present = false;
     assert!(!pose.can_reuse_for(model.as_ref(), &c), "ALT pitch differs: no reuse");
 }
+
+
+#[cfg(feature = "game_client")]
+#[test]
+fn retained_supply_child_writes_follow_last_applicable_ancestor() {
+    use crate::assets::{AuthoredDrawModel, AuthoredDrawSubobjectVisibility};
+
+    let model = Arc::new(crate::assets::models::tests::hide_show_subobjects_hlod_model());
+    let owner = ObjectVisualState {
+        native_supply_draw: true,
+        ..Default::default()
+    };
+    let first = AuthoredDrawModel {
+        subobject_visibility: vec![AuthoredDrawSubobjectVisibility {
+            name: "SiblingMesh".into(),
+            hidden: true,
+        }],
+        ..Default::default()
+    };
+    let mut pose = owner.create_installed_draw_pose(Arc::clone(&model), Mat4::IDENTITY, &first, None);
+    let visibility = |pose: &InstalledDrawPose| {
+        [0, 1, 2, 3].map(|index| {
+            pose.model.mesh_visible_for_authored_subobject_directives(
+                index,
+                &pose.supply_child_visibility,
+            )
+        })
+    };
+
+    pose.write_supply_child_visibility("ParentMesh", true);
+    pose.write_supply_child_visibility("ChildMesh", true);
+    assert_eq!(visibility(&pose), [false, true, false, false]);
+    let next = AuthoredDrawModel {
+        // Fully qualified name resolves to the same parent as the earlier
+        // leaf. Its later Show also wins over the child's own previous Hide.
+        subobject_visibility: vec![AuthoredDrawSubobjectVisibility {
+            name: "vis_hlod.PARENTMESH".into(),
+            hidden: false,
+        }],
+        ..Default::default()
+    };
+    pose.apply_supply_condition_visibility(&next);
+    assert_eq!(visibility(&pose), [true, true, true, false]);
+    assert_eq!(pose.supply_child_visibility.len(), 3);
+
+    let clean = AuthoredDrawModel::default();
+    pose.apply_supply_condition_visibility(&clean);
+    assert_eq!(visibility(&pose), [true, true, true, false]);
+    let new_pose = owner.create_installed_draw_pose(model, Mat4::IDENTITY, &clean, None);
+    assert_eq!(visibility(&new_pose), [true; 4]);
+    assert!(new_pose.supply_child_visibility.is_empty());
+}

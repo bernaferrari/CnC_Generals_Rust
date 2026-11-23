@@ -24,6 +24,7 @@ pub(super) struct DrawConditionFacts {
     pub destroyed: bool,
     pub disabled: bool,
     pub disguised: bool,
+    pub dock_kind: crate::game_logic::DockKind,
     pub enemy_near: bool,
     pub front_crushed: bool,
     pub is_deployed: bool,
