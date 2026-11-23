@@ -718,19 +718,27 @@ impl Object {
     pub fn set_position(&mut self, position: &Coord3D) -> Result<(), String> {
         let moved = is_position_different(self.geometry_info.position, *position);
 
+        let services = self
+            .owning_world_services()
+            .or_else(crate::system::engine_stores::try_active_services);
+        let terrain_handle = services
+            .as_ref()
+            .map(|services| Arc::clone(services.terrain()))
+            .unwrap_or_else(crate::terrain::get_terrain_logic);
+        // Bounds and altitude describe the same receiving terrain, and both
+        // must be available before pose or any transform callbacks change.
+        let terrain = terrain_handle
+            .try_read()
+            .map_err(|_| "Object position terrain is already borrowed")?;
+        let height_at_pose = |position: Coord3D| {
+            position.z - crate::helpers::TheTerrainLogic::get_layer_height_in(
+                &terrain, position.x, position.y, self.layer,
+            )
+        };
         if self.is_kind_of(KindOf::StickToTerrainSlope) {
-            let services = self
-                .owning_world_services()
-                .or_else(crate::system::engine_stores::try_active_services);
-            let terrain_handle = services
-                .as_ref()
-                .map(|services| Arc::clone(services.terrain()))
-                .unwrap_or_else(crate::terrain::get_terrain_logic);
-            let terrain = terrain_handle
-                .try_read()
-                .map_err(|_| "Object position terrain is already borrowed")?;
             let mut matrix = Matrix3D::IDENTITY;
             terrain.align_on_terrain(self.geometry_info.angle, position, true, &mut matrix);
+            let height = height_at_pose(matrix.w_axis.truncate());
             let extent = active_compatibility_extent(&terrain);
             drop(terrain);
             self.set_transform_matrix_with_pose_and_extent(
@@ -738,22 +746,18 @@ impl Object {
                 None,
                 None,
                 &mut |id| crate::helpers::TheGameLogic::queue_objects_changed_trigger_areas(id),
-                &mut Self::calculate_height_above_terrain,
+                &mut |_| height,
                 |_| Some(extent),
             );
             return Ok(());
         }
-        // C++ only refreshes OFF_MAP when isPosDifferent crosses its 0.01
-        // threshold. Resolve the owning terrain first so contention cannot
-        // leave a committed pose paired with a stale status bit.
-        let extent = if moved {
-            checked_receiving_terrain_extent(self)?
-        } else {
-            None
-        };
-        self.transform_matrix.w_axis = glam::Vec4::new(position.x, position.y, position.z, 1.0);
-        self.geometry_info.position = position.clone();
-        self.geometry_info.height_above_terrain = self.calculate_height_above_terrain();
+        // Object.cpp only refreshes OFF_MAP after a component crosses 0.01.
+        let extent = (moved && services.is_some()).then(|| active_compatibility_extent(&terrain));
+        let height = height_at_pose(*position);
+        drop(terrain);
+        self.transform_matrix.w_axis = position.extend(1.0);
+        self.geometry_info.position = *position;
+        self.geometry_info.height_above_terrain = height;
         let geom = Self::collision_geometry_from_bounds(
             &self.geometry_info,
             self.get_template_geometry_type(),

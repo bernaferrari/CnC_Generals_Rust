@@ -55,6 +55,15 @@ impl TheTerrainLogic {
         let Ok(guard) = terrain.try_read() else {
             return 0.0;
         };
+        Self::get_layer_height_in(&guard, x, y, layer)
+    }
+
+    pub(crate) fn get_layer_height_in(
+        terrain: &crate::terrain::TerrainLogic,
+        x: Real,
+        y: Real,
+        layer: PathfindLayerEnum,
+    ) -> Real {
         let terrain_layer = match layer {
             PathfindLayerEnum::Air => crate::path::PathfindLayerEnum::Top,
             PathfindLayerEnum::Tunnel | PathfindLayerEnum::Water | PathfindLayerEnum::Last => {
@@ -62,7 +71,7 @@ impl TheTerrainLogic {
             }
             other => crate::path::PathfindLayerEnum::from_u32(other as u32),
         };
-        guard.get_layer_height(x, y, terrain_layer, None, true)
+        terrain.get_layer_height(x, y, terrain_layer, None, true)
     }
 
     /// Get highest layer for destination (bridges to TerrainLogic when available).

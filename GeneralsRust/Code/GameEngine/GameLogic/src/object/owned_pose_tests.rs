@@ -278,3 +278,58 @@ fn cpp_bone_point_and_matrix_are_independent_without_double_translation() {
     assert_eq!(position_only.y_axis, world.y_axis);
     assert_eq!(position_only.z_axis, world.z_axis);
 }
+
+#[test]
+fn compatibility_position_caches_height_from_the_receiving_map() {
+    let _lock = crate::test_sync::lock();
+    fn world_with_height(raw_height: u8) -> Arc<crate::system::engine_stores::EngineStores> {
+        let mut map = crate::system::map_loader::MapData::new();
+        map.width = 10;
+        map.height = 10;
+        map.heightmap = vec![raw_height; 100];
+        map.boundaries = vec![crate::common::ICoord2D::new(10, 10)];
+        let world = crate::system::engine_stores::new_for_world();
+        world
+            .services()
+            .terrain()
+            .write()
+            .unwrap()
+            .load_map_data(map);
+        world
+    }
+
+    let owner = world_with_height(32);
+    let foreign = world_with_height(0);
+    let destination = Coord3D::new(25.0, 25.0, 100.0);
+    let ground = owner
+        .services()
+        .terrain()
+        .read()
+        .unwrap()
+        .get_ground_height(destination.x, destination.y, None);
+    assert!(ground > 0.0);
+
+    for slope in [false, true] {
+        let mut template = DefaultThingTemplate::new("ReceivingPoseHeight".into());
+        if slope {
+            template.add_kind_of(KindOf::StickToTerrainSlope);
+        }
+        let mut object = Object::new_raw(Arc::new(template), 7, ObjectStatusMaskType::none(), None);
+        object.ambient_lifecycle_admitted = false;
+        object.bind_owner_world_for_test(owner.services());
+
+        crate::system::engine_stores::with_active_stores(&foreign, || {
+            object.set_position(&destination).unwrap();
+            let position = object.get_position();
+            if slope {
+                assert_eq!(
+                    position.z, ground,
+                    "the slope branch snaps to its own ground"
+                );
+            } else {
+                assert_eq!(*position, destination);
+            }
+            assert_eq!(object.get_height_above_terrain(), position.z - ground);
+        });
+    }
+}
