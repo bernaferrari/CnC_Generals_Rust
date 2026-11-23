@@ -30,9 +30,19 @@ struct Snap {
 }
 
 impl Snap {
-    fn benchmark_frames(&self, windowed: bool) -> Option<u64> {
+    /// GPU frames include offscreen occlusion fallbacks; keep this counter
+    /// separate from the real surface-present completion gate below.
+    fn rendered_frames(&self, windowed: bool) -> Option<u64> {
         if windowed {
             self.windowed_presented_frames
+        } else {
+            Some(u64::from(self.frame))
+        }
+    }
+
+    fn completion_frames(&self, windowed: bool) -> Option<u64> {
+        if windowed {
+            self.windowed_surface_presents
         } else {
             Some(u64::from(self.frame))
         }
@@ -135,13 +145,13 @@ struct BenchNumbers {
     avg_collect_ms: f64,
     avg_terrain_ms: f64,
     avg_forward_ms: f64,
+    measure_elapsed_secs: f64,
     sample_path: Option<PathBuf>,
 }
 
 impl BenchNumbers {
     fn surface_fps(&self) -> Option<f64> {
-        let surface_fraction = self.surface_presents? as f64 / self.frames as f64;
-        Some(surface_fraction * (1000.0 / self.ms_per_frame))
+        Some(self.surface_presents? as f64 / self.measure_elapsed_secs)
     }
 }
 
@@ -249,8 +259,9 @@ fn run_mode(
     let mut measure_start: Option<Instant> = None;
     let mut start_logic = 0u32;
     let mut start_frame = 0u64;
-    let mut start_surface_presents = None;
-    let mut last_timed_frame = 0u64;
+    let mut start_completion_frame = 0u64;
+    let mut last_rendered_frame = 0u64;
+    let mut last_completion_frame = 0u64;
     let mut present_samples: Vec<f32> = Vec::new();
     let mut collect_samples: Vec<f32> = Vec::new();
     let mut terrain_samples: Vec<f32> = Vec::new();
@@ -317,12 +328,16 @@ fn run_mode(
                         }
                         // Let AI settle a few frames, then measure.
                         if measure_start.is_none() {
-                            if snap.logic_frame > 30 && let Some(frame) = snap.benchmark_frames(windowed) {
+                            if snap.logic_frame > 30
+                                && let Some(frame) = snap.rendered_frames(windowed)
+                                && let Some(completion_frame) = snap.completion_frames(windowed)
+                            {
                                 measure_start = Some(Instant::now());
                                 start_logic = snap.logic_frame;
                                 start_frame = frame;
-                                start_surface_presents = snap.windowed_surface_presents;
-                                last_timed_frame = frame;
+                                start_completion_frame = completion_frame;
+                                last_rendered_frame = frame;
+                                last_completion_frame = completion_frame;
                                 // A sampling process can alter the timing run.
                                 if capture_sample {
                                     if let Ok(sample) = which_sample() {
@@ -343,17 +358,25 @@ fn run_mode(
                                     }
                                 }
                             }
-                        } else if let Some(frame) = snap.benchmark_frames(windowed) {
-                            if frame > last_timed_frame && snap.present_ms > 0.0 {
+                        } else if let Some(frame) = snap.rendered_frames(windowed)
+                            && let Some(completion_frame) = snap.completion_frames(windowed)
+                        {
+                            // Status polls can skip frames. When the two deltas
+                            // agree, the latest GPU timing is from a real present.
+                            let rendered = frame.saturating_sub(last_rendered_frame);
+                            let presented = completion_frame.saturating_sub(last_completion_frame);
+                            if presented > 0 && presented == rendered && snap.present_ms > 0.0 {
                                 present_samples.push(snap.present_ms);
                                 collect_samples.push(snap.present_collect_ms);
                                 terrain_samples.push(snap.present_terrain_ms);
                                 forward_samples.push(snap.present_forward_ms);
                             }
-                            last_timed_frame = frame;
+                            last_rendered_frame = frame;
+                            last_completion_frame = completion_frame;
                             let logic_delta = snap.logic_frame.saturating_sub(start_logic);
-                            let frame_delta = frame.saturating_sub(start_frame);
-                            if logic_delta >= n_ticks && frame_delta >= u64::from(n_frames) {
+                            let completion_delta =
+                                completion_frame.saturating_sub(start_completion_frame);
+                            if logic_delta >= n_ticks && completion_delta >= u64::from(n_frames) {
                                 finished = Some((Instant::now(), snap));
                                 break;
                             }
@@ -380,10 +403,13 @@ fn run_mode(
         .unwrap_or_default()
         .as_secs_f64();
     let logic_delta = final_snap.logic_frame.saturating_sub(start_logic);
-    let frame_delta = final_snap.benchmark_frames(windowed).unwrap_or(0).saturating_sub(start_frame);
+    let frame_delta = final_snap.rendered_frames(windowed).unwrap_or(0).saturating_sub(start_frame);
+    let completion_delta = final_snap
+        .completion_frames(windowed)
+        .unwrap_or(0)
+        .saturating_sub(start_completion_frame);
     let surface_presents = if windowed {
-        final_snap.windowed_surface_presents.zip(start_surface_presents)
-            .map(|(end, start)| end.saturating_sub(start))
+        Some(completion_delta)
     } else {
         None
     };
@@ -429,9 +455,10 @@ fn run_mode(
     let _ = child.kill();
     let _ = child.wait();
 
-    if !completed || logic_delta < n_ticks || frame_delta < u64::from(n_frames) {
+    if !completed || logic_delta < n_ticks || completion_delta < u64::from(n_frames) {
+        let required = if windowed { "surface_presents" } else { "host_frames" };
         return Err(format!(
-            "{launch}: benchmark incomplete (state={}, ticks={logic_delta}/{n_ticks}, frames={frame_delta}/{n_frames}, cmd={})",
+            "{launch}: benchmark incomplete (state={}, ticks={logic_delta}/{n_ticks}, total_frames={frame_delta}, {required}={completion_delta}/{n_frames}, cmd={})",
             final_snap.state, final_snap.last_gameplay_cmd
         ));
     }
@@ -453,8 +480,29 @@ fn run_mode(
         avg_collect_ms: mean(&collect_samples),
         avg_terrain_ms: mean(&terrain_samples),
         avg_forward_ms: mean(&forward_samples),
+        measure_elapsed_secs: measure_elapsed,
         sample_path,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Snap;
+
+    #[test]
+    fn windowed_gpu_and_surface_counters_have_distinct_roles() {
+        let snap = Snap {
+            frame: 7,
+            windowed_presented_frames: Some(12),
+            windowed_surface_presents: Some(4),
+            ..Snap::default()
+        };
+
+        assert_eq!(snap.rendered_frames(true), Some(12));
+        assert_eq!(snap.completion_frames(true), Some(4));
+        assert_eq!(snap.rendered_frames(false), Some(7));
+        assert_eq!(snap.completion_frames(false), Some(7));
+    }
 }
 
 fn which_sample() -> Result<PathBuf, ()> {
@@ -471,7 +519,7 @@ fn write_docs(path: &Path, rows: &[BenchNumbers], notes: &str) -> std::io::Resul
     writeln!(f)?;
     writeln!(
         f,
-        "Captured by `lone_eagle_bench` after InGame settles. Windowed frames include surface presents and occlusion fallback. Headless frames count host updates."
+        "Captured by `lone_eagle_bench` after InGame settles. Windowed `frames` count all rendered GPU frames (including occlusion fallback); `surface presents` count only successfully acquired window surfaces and gate windowed completion. Present-stage averages include samples from surface-present frames only. Headless frames count host updates."
     )?;
     writeln!(f)?;
     writeln!(
@@ -643,7 +691,7 @@ fn main() {
         std::process::exit(1);
     }
     println!("lone_eagle_bench: wrote {}", docs_path.display());
-    if rows.is_empty() {
+    if rows.len() != 2 {
         std::process::exit(1);
     }
 }
