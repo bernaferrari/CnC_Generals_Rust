@@ -380,67 +380,105 @@ impl GameLogic {
     /// `deleteAllUnmanned`. Leftover queues [`gamelogic::scripting::HostScriptUnmannedRequest`].
     pub(in crate::game_logic::game_logic) fn apply_host_unmanned_script_requests(&mut self) {
         self.apply_host_unmanned_script_requests_with_effects(&mut Default::default())
+            .expect("scripted unmanned requests must complete")
     }
 
     pub(in crate::game_logic::game_logic) fn apply_host_unmanned_script_requests_with_effects(
         &mut self,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
-        use gamelogic::scripting::HostScriptUnmannedRequest;
-        for req in gamelogic::scripting::take_host_script_unmanned_requests() {
-            match req {
-                HostScriptUnmannedRequest::Named { unit } => {
-                    if let Some(id) = self.host_object_id_by_script_name(&unit) {
-                        self.host_script_set_unmanned(id);
-                    }
+    ) -> gamelogic::GameLogicResult<()> {
+        for request in gamelogic::scripting::take_host_script_unmanned_requests() {
+            self.apply_owned_script_unmanned_request(&request, None, None, None, effects)?;
+        }
+        Ok(())
+    }
+
+    pub(super) fn apply_owned_script_unmanned_request(
+        &mut self,
+        request: &gamelogic::scripting::HostScriptUnmannedRequest,
+        this_object: Option<ObjectId>,
+        calling_team: Option<u32>,
+        condition_team: Option<u32>,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> gamelogic::GameLogicResult<()> {
+        use gamelogic::scripting::HostScriptUnmannedRequest as Request;
+        let targets: Vec<_> = match request {
+            Request::Named { unit } => {
+                if let Some(id) = self.owned_named_script_object(unit, this_object) {
+                    self.host_script_set_unmanned(id, effects)?;
                 }
-                HostScriptUnmannedRequest::Team { team } => {
-                    for id in self.host_script_team_member_ids(&team) {
-                        self.host_script_set_unmanned(id);
-                    }
-                }
-                HostScriptUnmannedRequest::DeleteAll => {
-                    let ids: Vec<ObjectId> = self
-                        .objects
-                        .registered_values()
-                        .filter(|obj| obj.status.disabled_unmanned && !obj.status.destroyed)
-                        .map(|obj| obj.id)
-                        .collect();
-                    for id in ids {
-                        self.destroy_object_with_effects(id, effects);
-                    }
-                }
+                return Ok(());
+            }
+            Request::Team { team } => {
+                let Some((_, members)) = self.resolve_owned_script_team(team, calling_team, condition_team)?
+                else {
+                    return Ok(());
+                };
+                // The C++ iterator advances before capture removes its current member.
+                members.into_iter().filter_map(|id| {
+                    let id = ObjectId(id);
+                    let object = self.objects.get(&id)?;
+                    Some((id, std::sync::Arc::downgrade(&object.visual_draw_identity_token)))
+                }).collect()
+            }
+            Request::DeleteAll => self.objects.registered_values()
+                .filter(|object| object.is_unmanned())
+                .map(|object| (object.id, std::sync::Arc::downgrade(&object.visual_draw_identity_token)))
+                .collect(),
+        };
+        for (id, birth) in targets {
+            if !self.object_birth_matches(id, &birth) {
+                continue;
+            }
+            if matches!(request, Request::DeleteAll) {
+                self.destroy_object_with_effects(id, effects)?;
+            } else {
+                self.host_script_set_unmanned(id, effects)?;
             }
         }
+        Ok(())
     }
 
     /// C++ `setDisabled(DISABLED_UNMANNED)` + `deselectObject(PLAYERMASK_ALL)` +
     /// `setTeam(Neutral default team)`.
-    pub(super) fn host_script_set_unmanned(&mut self, id: ObjectId) {
-        {
-            let Some(obj) = self.objects.get_mut(&id) else {
-                return;
-            };
-            if !obj.is_alive() || obj.status.destroyed {
-                return;
-            }
-            obj.apply_kill_pilot_unmanned_at_frame(
-                &mut self.health_events,
-                &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
-                self.frame,
-            );
-            obj.deselect();
-            obj.set_team_with_partition_owner(
-                Team::Neutral,
-                &mut self.ownership_events,
-                &mut self.partition_manager,
-            );
+    fn host_script_set_unmanned(
+        &mut self,
+        id: ObjectId,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> gamelogic::GameLogicResult<()> {
+        let Some(object) = self.objects.get_mut(&id) else {
+            return Ok(());
+        };
+        let birth = std::sync::Arc::downgrade(&object.visual_draw_identity_token);
+        if !object.is_unmanned() {
+            object.status.unmanned_owner_team = Some(object.team);
+            object.status.unmanned_owner_player_id = object.owner_player_id;
         }
-        self.admit_host_radar_disabled_edges(id);
+        self.set_owned_unmanned(id, effects)?;
+        if !self.object_birth_matches(id, &birth) {
+            return Ok(());
+        }
+        self.objects.get_mut(&id).unwrap().deselect();
         self.admit_local_drawable_deselected(id);
         for player in self.players.values_mut() {
             player.selected_objects.retain(|sid| *sid != id);
         }
+        if let Some(neutral) = self.players.values()
+            .filter(|player| player.is_reserved_neutral())
+            .map(|player| player.id)
+            .min()
+        {
+            let team = self.host_default_team_id(neutral).ok_or_else(|| {
+                gamelogic::GameLogicError::Configuration("Neutral player has no default Team".into())
+            })?;
+            self.set_host_object_team_with_effects(id, team, effects)?;
+        } else {
+            // Detached fixtures can run actions before any map-side Team exists.
+            self.objects.get_mut(&id).unwrap().set_team_with_partition_owner(
+                Team::Neutral, &mut self.ownership_events, &mut self.partition_manager,
+            );
+        }
+        Ok(())
     }
 
     /// C++ `doObjectRadarCreateEvent` / `doTeamRadarCreateEvent`.

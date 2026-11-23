@@ -509,7 +509,7 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
         use gamelogic::scripting::engine::ScriptObjectEffect;
         use gamelogic::scripting::{
             HostScriptObjectSoundRequest as Sound, HostScriptRadarEventRequest as Radar,
-            HostScriptStealthEnabledRequest as Stealth, HostScriptUnmannedRequest as Unmanned,
+            HostScriptStealthEnabledRequest as Stealth,
         };
         let named = |world: &GameLogic, name: &str| {
             world.owned_named_script_object(name, this_object.map(ObjectId))
@@ -556,27 +556,9 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
                     }
                 }
                 ScriptObjectEffect::Unmanned(request) => {
-                    let ids = match request {
-                        Unmanned::Named { unit } => {
-                            named(self.world, unit).into_iter().map(|id| id.0).collect()
-                        }
-                        Unmanned::Team { team } => members(self.world, team)?,
-                        Unmanned::DeleteAll => self
-                            .world
-                            .host_objects()
-                            .registered_values()
-                            .filter(|o| o.status.disabled_unmanned && !o.status.destroyed)
-                            .map(|o| o.id.0)
-                            .collect(),
-                    };
-                    for id in ids {
-                        if matches!(request, Unmanned::DeleteAll) {
-                            self.world
-                                .destroy_object_with_effects(ObjectId(id), &mut self.ui);
-                        } else {
-                            self.world.host_script_set_unmanned(ObjectId(id));
-                        }
-                    }
+                    self.world.apply_owned_script_unmanned_request(
+                        request, this_object.map(ObjectId), calling, condition, &mut self.ui,
+                    )?;
                 }
                 ScriptObjectEffect::Stealth(request) => {
                     let (ids, enabled) = match request {
