@@ -873,10 +873,13 @@ impl BehaviorModuleDefinition {
     /// appear once per phase; HashMap last-wins would drop INITIAL when FINAL
     /// follows. Concatenate with newlines.
     pub(super) fn insert_attribute(&mut self, key: String, value: String) {
+        // Repeatable keys join repeated rows with '\n' in source order
+        // (C++ std::vector fields like OCLSpecialPower::m_upgradeOCL).
         let repeatable = key.eq_ignore_ascii_case("AngleFX")
             || key.eq_ignore_ascii_case("FX")
             || key.eq_ignore_ascii_case("FXList")
             || key.eq_ignore_ascii_case("OCL")
+            || key.eq_ignore_ascii_case("UpgradeOCL")
             || key.eq_ignore_ascii_case("Weapon")
             || key.eq_ignore_ascii_case("PayloadTemplateName");
         if let Some((_, existing)) = self

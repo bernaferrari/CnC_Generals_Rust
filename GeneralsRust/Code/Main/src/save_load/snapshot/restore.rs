@@ -1878,9 +1878,10 @@ impl SnapshotBuilder {
                 snapshot.remnant_objects_spawned,
                 snapshot.remnant_damage_applications_total,
             );
-        // Carpet's actor components and pending drops survive snapshots; its
-        // persisted live flag must continue to suppress the registry blast.
-        // The remaining non-A10 flight ownership still falls back here.
+        // Carpet and Anthrax transport/payload continuations survive
+        // snapshots; their persisted live flags must keep suppressing the
+        // registry blast. The remaining non-A10 flight ownership still falls
+        // back here.
         game_logic
             .special_power_strikes_mut()
             .fail_live_delivery_ownership_back_to_registry();

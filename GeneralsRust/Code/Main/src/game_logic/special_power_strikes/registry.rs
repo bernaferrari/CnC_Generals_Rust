@@ -541,15 +541,13 @@ impl HostSpecialPowerStrikeRegistry {
     }
 
     /// Restore ownership for flight paths whose remaining actor state is not
-    /// yet captured by the snapshot. Carpet's pending drops and live payload
-    /// components are persisted, so its warheads must remain the owner.
+    /// yet captured by the snapshot.
     pub fn fail_live_delivery_ownership_back_to_registry(&mut self) {
         for strike in self.strikes.values_mut() {
             strike.live_neutron_delivery = false;
             strike.live_scud_delivery = false;
-            // Carpet transports, payloads and pending drops survive restore.
             strike.live_a10_delivery = false;
-            strike.live_anthrax_delivery = false;
+            // Carpet and Anthrax transport/payload continuations are saved.
         }
     }
 

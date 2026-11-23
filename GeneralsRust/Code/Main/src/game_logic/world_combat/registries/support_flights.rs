@@ -734,6 +734,89 @@ impl GameLogic {
         Ok(())
     }
 
+    /// C++ OCLSpecialPower.cpp:102-119 + Player.cpp:2729-2733: a bound source's
+    /// Anthrax Bomb module resolves the first UpgradeOCL science the owning
+    /// player holds, else its own OCL, and the admitted DeliverPayload nugget
+    /// carries the payload tier. A missing/unsupported list fails closed.
+    fn admitted_anthrax_delivery_tier(
+        &self,
+        source: &Object,
+    ) -> Option<crate::game_logic::host_anthrax_bomb_flight::AnthraxBombPayloadTier> {
+        use crate::game_logic::host_anthrax_bomb_flight::{
+            ANTHRAX_BOMB_GAMMA_OBJECT, ANTHRAX_BOMB_OBJECT, ANTHRAX_TRANSPORT,
+            AnthraxBombPayloadTier,
+        };
+        use crate::game_logic::host_ocl_special_power::ANTHRAX_BOMB_SPECIAL_POWER;
+        use gamelogic::object_creation_list::DeliverPayloadNugget;
+
+        let module = source
+            .thing()
+            .template
+            .receiving_object_definition
+            .as_ref()?
+            .behavior_modules
+            .iter()
+            .find(|module| {
+                module.class_name.eq_ignore_ascii_case("OCLSpecialPower")
+                    && module
+                        .attribute("SpecialPowerTemplate")
+                        .and_then(|value| value.split_whitespace().next())
+                        .is_some_and(|name| name.eq_ignore_ascii_case(ANTHRAX_BOMB_SPECIAL_POWER))
+            })?;
+        let player = self
+            .player_owner_for_host_object(source)
+            .and_then(|pid| self.players.get(&pid));
+        let override_ocl = module
+            .attribute("UpgradeOCL")
+            .into_iter()
+            .flat_map(str::lines)
+            .filter_map(|line| {
+                let mut tokens = line.split_whitespace();
+                Some((tokens.next()?, tokens.next()?))
+            })
+            .find_map(|(science, ocl)| {
+                player
+                    .is_some_and(|p| {
+                        p.unlocked_sciences
+                            .iter()
+                            .any(|owned| owned.eq_ignore_ascii_case(science))
+                    })
+                    .then_some(ocl)
+            });
+        let name = override_ocl.or_else(|| {
+            module
+                .attribute("OCL")
+                .and_then(|value| value.lines().next_back())
+                .and_then(|line| line.split_whitespace().next())
+        })?;
+        let list = self.object_creation_list_definition(name)?;
+        let [nugget] = list.nuggets() else {
+            return None;
+        };
+        let deliver = nugget.as_any().downcast_ref::<DeliverPayloadNugget>()?;
+        if !deliver.transport_name.eq_ignore_ascii_case(ANTHRAX_TRANSPORT)
+            || deliver.formation_size != 1
+        {
+            return None;
+        }
+        let [payload] = deliver.payload.as_slice() else {
+            return None;
+        };
+        if payload.payload_count != 1 {
+            return None;
+        }
+        if payload.payload_name.eq_ignore_ascii_case(ANTHRAX_BOMB_OBJECT) {
+            Some(AnthraxBombPayloadTier::Base)
+        } else if payload
+            .payload_name
+            .eq_ignore_ascii_case(ANTHRAX_BOMB_GAMMA_OBJECT)
+        {
+            Some(AnthraxBombPayloadTier::Gamma)
+        } else {
+            None
+        }
+    }
+
     /// C++ SUPERWEAPON_AnthraxBomb / AnthraxBombGamma GLAJetCargoPlane residual.
     pub fn spawn_anthrax_bomb_flight(
         &mut self,
@@ -773,30 +856,41 @@ impl GameLogic {
             } else {
                 (Team::Neutral, target, None, String::new())
             };
-        let mut names: Vec<String> = Vec::new();
-        if let Some(pid) = owner_pid {
-            if let Some(p) = self.players.get(&pid) {
-                names.extend(p.unlocked_sciences.iter().cloned());
-                names.extend(p.completed_upgrades.iter().cloned());
+        let bound = self
+            .objects
+            .get(&source_id)
+            .is_some_and(|o| o.thing().template.receiving_object_definition.is_some());
+        let tier = if bound {
+            // Authored path: the module + admitted DeliverPayload decide the
+            // tier; no name/science guessing, no fallback.
+            self.admitted_anthrax_delivery_tier(self.objects.get(&source_id)?)?
+        } else {
+            let mut names: Vec<String> = Vec::new();
+            if let Some(pid) = owner_pid {
+                if let Some(p) = self.players.get(&pid) {
+                    names.extend(p.unlocked_sciences.iter().cloned());
+                    names.extend(p.completed_upgrades.iter().cloned());
+                }
+                if let Some(ident) = self.player_template_identity(pid) {
+                    names.push(ident.template_name.clone());
+                }
             }
-            if let Some(ident) = self.player_template_identity(pid) {
-                names.push(ident.template_name.clone());
+            names.push(source_template.clone());
+            // C++ Chem_GLACommandCenter default OCL=SUPERWEAPON_AnthraxBombGamma.
+            // Leftover findOCL + Chem identity; never hardcode Base.
+            let ocl = resolve_anthrax_bomb_ocl(&source_template, names.iter().map(|s| s.as_str()));
+            let mut tier = AnthraxBombPayloadTier::from_ocl(&ocl);
+            if let Some(deliver) = deliver_payload_for_ocl(&ocl) {
+                tier = AnthraxBombPayloadTier::from_ocl(&deliver.ocl_name);
+                if deliver
+                    .payload
+                    .eq_ignore_ascii_case(ANTHRAX_BOMB_GAMMA_OBJECT)
+                {
+                    tier = AnthraxBombPayloadTier::Gamma;
+                }
             }
-        }
-        names.push(source_template.clone());
-        // C++ Chem_GLACommandCenter default OCL=SUPERWEAPON_AnthraxBombGamma.
-        // Leftover findOCL + Chem identity; never hardcode Base.
-        let ocl = resolve_anthrax_bomb_ocl(&source_template, names.iter().map(|s| s.as_str()));
-        let mut tier = AnthraxBombPayloadTier::from_ocl(&ocl);
-        if let Some(deliver) = deliver_payload_for_ocl(&ocl) {
-            tier = AnthraxBombPayloadTier::from_ocl(&deliver.ocl_name);
-            if deliver
-                .payload
-                .eq_ignore_ascii_case(ANTHRAX_BOMB_GAMMA_OBJECT)
-            {
-                tier = AnthraxBombPayloadTier::Gamma;
-            }
-        }
+            tier
+        };
         // C++ CREATE_AT_EDGE_NEAR_SOURCE: TerrainLogic::findClosestEdgePoint(owner).
         let mut edge = self.closest_map_edge_point(source_pos);
         edge.y = 150.0;
@@ -823,13 +917,26 @@ impl GameLogic {
             self.templates
                 .insert(ANTHRAX_BOMB_GAMMA_OBJECT.to_string(), t);
         }
-        let tid = self.create_object_with_script_effects(
-            ANTHRAX_TRANSPORT,
-            team,
-            edge,
-            None,
-            presentation_effects,
-        )?;
+        let tid = if bound {
+            // Authored transport keeps the exact owning player of the bound
+            // source rather than faction-name ownership.
+            self.create_object_for_owner_or_team_with_effects(
+                ANTHRAX_TRANSPORT,
+                team,
+                owner_pid,
+                edge,
+                None,
+                presentation_effects,
+            )?
+        } else {
+            self.create_object_with_script_effects(
+                ANTHRAX_TRANSPORT,
+                team,
+                edge,
+                None,
+                presentation_effects,
+            )?
+        };
         if let Some(o) = self.objects.get_mut(&tid) {
             o.note_producer(source_id);
             let mut data = HostAnthraxBombFlightData::start(edge, target, tier);

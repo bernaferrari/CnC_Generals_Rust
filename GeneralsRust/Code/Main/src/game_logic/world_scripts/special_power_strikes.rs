@@ -326,13 +326,20 @@ impl GameLogic {
         // C++ AnthraxBomb DeliverPayload residual (GLAJetCargoPlane + bomb).
         // C++ one FireWeaponWhenDead — flight leftover owns the blast + toxin.
         if kind == HostSuperweaponKind::AnthraxBomb {
-            if self
+            // An authored (bound) source owns its OCL outcome even when the
+            // module resolves no flight — marking live also suppresses the
+            // invented click blast for that authored no-op.
+            let authored = self
+                .objects
+                .get(&source_object)
+                .is_some_and(|o| o.thing().template.receiving_object_definition.is_some());
+            let launched = self
                 .spawn_anthrax_bomb_flight_with_effects(source_object, target_position, effects)
-                .is_some()
+                .is_some();
+            if (authored || launched)
+                && let Some(s) = self.special_power_strikes.get_mut(id)
             {
-                if let Some(s) = self.special_power_strikes.get_mut(id) {
-                    s.live_anthrax_delivery = true;
-                }
+                s.live_anthrax_delivery = true;
             }
         }
         // C++ OCL FireWeaponNugget / AttackNugget residual (Neutron / Cruise / ScudStorm).
