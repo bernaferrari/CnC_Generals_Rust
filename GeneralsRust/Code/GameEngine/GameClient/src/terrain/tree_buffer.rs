@@ -453,7 +453,6 @@ pub struct W3DTreeBuffer {
     source_tiles: Vec<Vec<u8>>,
     atlas_mips: Vec<Vec<u8>>,
     atlas_lod: i32,
-    last_tile_images: Vec<TreeTileImageSpec>,
     pending_fx_events: Vec<TreeFxEvent>,
     cpu_draw_generation: u64,
     birth: TreeBufferBirth,
@@ -495,7 +494,6 @@ impl W3DTreeBuffer {
             source_tiles: Vec::new(),
             atlas_mips: Vec::new(),
             atlas_lod: 0,
-            last_tile_images: Vec::new(),
             pending_fx_events: Vec::new(),
             cpu_draw_generation: 0,
             birth: TreeBufferBirth::default(),
@@ -602,7 +600,6 @@ impl W3DTreeBuffer {
     ///
     /// `images` stand in for TGA open+header; missing names match C++ "file not found".
     pub fn update_texture(&mut self, images: &[TreeTileImageSpec]) {
-        self.last_tile_images = images.to_vec();
         let previous_tiles = std::mem::take(&mut self.source_tiles);
         self.tile_locations.clear();
         self.atlas_mips.clear();
@@ -682,7 +679,6 @@ impl W3DTreeBuffer {
             &mut self.tile_locations,
             self.num_tiles,
         );
-        self.ensure_source_tile_pixels();
         self.need_to_update_texture = false;
         self.anything_changed = true;
     }
@@ -705,7 +701,6 @@ impl W3DTreeBuffer {
     /// C++ `W3DTreeTextureClass::update` + `SetLOD(textureReductionFactor)`.
     /// Returns atlas height (C++ `surface_desc.Height`).
     pub fn update_tree_texture_class(&mut self, lod: i32) -> i32 {
-        self.ensure_source_tile_pixels();
         let width = self.texture_width.max(1);
         let height = self.texture_height.max(1);
         let mut level0 = vec![0u8; (width as usize) * (height as usize) * TILE_BYTES_PER_PIXEL];
@@ -737,8 +732,7 @@ impl W3DTreeBuffer {
     /// the pack is dirty or tiles exist with no CPU mips yet.
     pub fn sync_tree_atlas_for_draw(&mut self, lod: i32) -> i32 {
         if self.need_to_update_texture {
-            let images = self.images_for_texture_update();
-            self.update_texture(&images);
+            self.refresh_tree_texture_sources(&mut read_game_fs_bytes);
         }
         let tiles_exist = self.num_tiles > 0 && !self.tile_locations.is_empty();
         if tiles_exist && self.atlas_mips.is_empty() {
@@ -860,7 +854,6 @@ impl W3DTreeBuffer {
         self.source_tiles.clear();
         self.atlas_mips.clear();
         self.atlas_lod = 0;
-        self.last_tile_images.clear();
         self.need_to_update_texture = false;
         self.pending_fx_events.clear();
     }
@@ -1720,77 +1713,49 @@ impl W3DTreeBuffer {
         }
     }
 
-    fn images_for_texture_update(&self) -> Vec<TreeTileImageSpec> {
-        let mut images = self.last_tile_images.clone();
-        for tree_type in &self.tree_types {
-            let name = tree_type.data.texture_name.trim();
+    fn refresh_tree_texture_sources(
+        &mut self,
+        read_virtual_file: &mut impl FnMut(&str) -> Option<Vec<u8>>,
+    ) {
+        let mut textures = HashMap::new();
+        let mut images = Vec::new();
+        for tree in &self.tree_types {
+            let name = tree.data.texture_name.as_str();
             if name.is_empty() {
                 continue;
             }
-            if images
-                .iter()
-                .any(|image| image.texture_name.eq_ignore_ascii_case(name))
+            // An absent texture is shared by all tree types using its name
+            // just like a successfully decoded texture.
+            if let std::collections::hash_map::Entry::Vacant(entry) =
+                textures.entry(name.to_ascii_lowercase())
             {
+                let source = load_tree_texture_source(name, read_virtual_file);
+                if let Some((header, _)) = &source {
+                    images.push(TreeTileImageSpec {
+                        texture_name: name.to_owned(),
+                        header: *header,
+                    });
+                } else {
+                    log::warn!("Tree texture '{name}' is missing or invalid");
+                }
+                entry.insert(source);
+            }
+        }
+        self.update_texture(&images);
+        for tree in &self.tree_types {
+            if tree.num_tiles == 0 {
                 continue;
             }
-            let header = probe_tree_tga_header(name)
-                .unwrap_or_else(|| TreeTgaHeader::truecolor(TILE_PIXEL_EXTENT, TILE_PIXEL_EXTENT));
-            images.push(TreeTileImageSpec {
-                texture_name: name.to_string(),
-                header,
-            });
-        }
-        images
-    }
-
-    fn ensure_source_tile_pixels(&mut self) {
-        if self.num_tiles <= 0 {
-            return;
-        }
-        let needed = self.num_tiles as usize;
-        if self.source_tiles.len() < needed {
-            self.source_tiles.resize(needed, Vec::new());
-        }
-        let mut loaded_by_name: HashMap<String, Vec<Vec<u8>>> = HashMap::new();
-        for ndx in 0..needed {
-            if self.source_tiles[ndx].len() == TREE_TILE_DATA_LEN {
-                continue;
-            }
-            let Some(type_ndx) = self.tree_type_index_for_tile(ndx) else {
+            let Some(Some((_, tiles))) = textures.remove(&tree.data.texture_name.to_ascii_lowercase())
+            else {
                 continue;
             };
-            let texture_name = self.tree_types[type_ndx].data.texture_name.clone();
-            if texture_name.is_empty() {
-                continue;
+            let start = tree.first_tile as usize;
+            let end = start + tree.num_tiles as usize;
+            for (destination, tile) in self.source_tiles[start..end].iter_mut().zip(tiles) {
+                *destination = tile;
             }
-            let first_tile = self.tree_types[type_ndx].first_tile.max(0) as usize;
-            let tile_width = self.tree_types[type_ndx].tile_width.max(1);
-            let local_ndx = ndx.saturating_sub(first_tile);
-            let cache_key = texture_name.to_ascii_lowercase();
-            if !loaded_by_name.contains_key(&cache_key) {
-                if let Some(tiles) = load_tree_texture_tiles(&texture_name, tile_width) {
-                    loaded_by_name.insert(cache_key.clone(), tiles);
-                }
-            }
-            if let Some(tiles) = loaded_by_name.get(&cache_key) {
-                if let Some(tile) = tiles.get(local_ndx) {
-                    if tile.len() == TREE_TILE_DATA_LEN {
-                        self.source_tiles[ndx] = tile.clone();
-                        continue;
-                    }
-                }
-            }
-            self.source_tiles[ndx] = stand_in_tile_bgra(&texture_name, local_ndx);
         }
-    }
-
-    fn tree_type_index_for_tile(&self, ndx: usize) -> Option<usize> {
-        let ndx = ndx as i32;
-        self.tree_types.iter().position(|tree_type| {
-            tree_type.num_tiles > 0
-                && ndx >= tree_type.first_tile
-                && ndx < tree_type.first_tile + tree_type.num_tiles
-        })
     }
 
     /// C++ `drawTrees` VB fill: cull then `loadTreesInVertexAndIndexBuffers`.
@@ -2034,60 +1999,35 @@ fn ensure_game_fs_backends() {
     });
 }
 
-fn tree_texture_path_candidates(texture_name: &str) -> Vec<String> {
-    let name = texture_name.trim();
-    if name.is_empty() {
-        return Vec::new();
+fn load_tree_texture_source(
+    name: &str,
+    read_virtual_file: &mut impl FnMut(&str) -> Option<Vec<u8>>,
+) -> Option<(TreeTgaHeader, Vec<Vec<u8>>)> {
+    // CPP W3DTreeBuffer.cpp:438–442. Only failure to open the terrain
+    // path tries Art/Textures. An opened but invalid file owns this lookup.
+    let mut bytes = read_virtual_file(&format!("Art/Terrain/{name}"))
+        .or_else(|| read_virtual_file(&format!("Art/Textures/{name}")))?;
+    let bytes_header = bytes.get_mut(..18)?;
+    let header = TreeTgaHeader {
+        color_map_type: bytes_header[1],
+        image_type: bytes_header[2],
+        pixel_depth: bytes_header[16],
+        image_width: i16::from_le_bytes([bytes_header[12], bytes_header[13]]) as i32,
+        image_height: i16::from_le_bytes([bytes_header[14], bytes_header[15]]) as i32,
+    };
+    let width = square_width_from_tile_count(count_tree_tiles(header).0);
+    if width == 0 {
+        return None;
     }
-    let mut candidates = vec![name.to_string()];
-    let has_sep = name.contains('/') || name.contains('\\');
-    if !has_sep {
-        candidates.push(format!("Art/Terrain/{name}"));
-        candidates.push(format!("Art/Textures/{name}"));
-    }
-    candidates
-}
 
-/// Loose file first, then the game file system (`TerrainZH.big` carries the
-/// retail `PT*.tga` tree billboards).
-fn read_tree_texture_bytes(path: &str) -> Option<Vec<u8>> {
-    if let Ok(bytes) = std::fs::read(path) {
-        return Some(bytes);
-    }
-    read_game_fs_bytes(path)
-}
-
-fn probe_tree_tga_header(texture_name: &str) -> Option<TreeTgaHeader> {
-    for path in tree_texture_path_candidates(texture_name) {
-        let Some(bytes) = read_tree_texture_bytes(&path) else {
-            continue;
-        };
-        if bytes.len() < 18 {
-            continue;
-        }
-        return Some(TreeTgaHeader {
-            color_map_type: bytes[1],
-            image_type: bytes[2],
-            pixel_depth: bytes[16],
-            image_width: i16::from_le_bytes([bytes[12], bytes[13]]) as i32,
-            image_height: i16::from_le_bytes([bytes[14], bytes[15]]) as i32,
-        });
-    }
-    None
-}
-
-fn load_tree_texture_tiles(texture_name: &str, tile_width: i32) -> Option<Vec<Vec<u8>>> {
-    let rows = tile_width.max(1) as usize;
-    for path in tree_texture_path_candidates(texture_name) {
-        let Some(bytes) = read_tree_texture_bytes(&path) else {
-            continue;
-        };
-        let Ok(image) = image::load_from_memory(&bytes) else {
-            continue;
-        };
-        return Some(split_image_into_tree_tiles(&image.to_rgba8(), rows));
-    }
-    None
+    // CPP WorldHeightMap::readTiles reads file-order rows. The atlas pack
+    // reverses tile rows and the blit reverses each tile's rows. Bypass the
+    // image decoder's orientation normalization so those flips happen once.
+    bytes_header[17] = (bytes_header[17] & !0x30) | 0x20;
+    let image = image::load_from_memory_with_format(&bytes, image::ImageFormat::Tga)
+        .ok()?
+        .into_rgba8();
+    Some((header, split_image_into_tree_tiles(&image, width as usize)))
 }
 
 fn split_image_into_tree_tiles(image: &image::RgbaImage, rows: usize) -> Vec<Vec<u8>> {
@@ -2114,24 +2054,6 @@ fn split_image_into_tree_tiles(image: &image::RgbaImage, rows: usize) -> Vec<Vec
         }
     }
     tiles
-}
-
-pub(crate) fn stand_in_tile_bgra(texture_name: &str, local_ndx: usize) -> Vec<u8> {
-    let mut tile = vec![0u8; TREE_TILE_DATA_LEN];
-    let mut hash = 2166136261u32 ^ local_ndx as u32;
-    for byte in texture_name.bytes() {
-        hash = hash.wrapping_mul(16777619) ^ u32::from(byte);
-    }
-    let b = hash as u8;
-    let g = (hash >> 8) as u8;
-    let r = (hash >> 16) as u8;
-    for pixel in tile.chunks_exact_mut(TILE_BYTES_PER_PIXEL) {
-        pixel[0] = b;
-        pixel[1] = g;
-        pixel[2] = r;
-        pixel[3] = 0xFF;
-    }
-    tile
 }
 
 /// C++ `WorldHeightMap::countTiles` (width/height in pixels, no stream).
@@ -2902,6 +2824,11 @@ mod game_fs_tree_tests {
     use super::*;
 
     fn assets_root() -> Option<std::path::PathBuf> {
+        if let Some(retail) = std::env::var_os("GENERALS_RETAIL_DIR") {
+            let root = std::path::PathBuf::from(retail).join("Data");
+            assert!(root.join("TerrainZH.big").is_file(), "mounted retail terrain archive");
+            return Some(root);
+        }
         let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../Main/assets");
         root.join("TerrainZH.big").is_file().then_some(root)
     }
@@ -2917,17 +2844,82 @@ mod game_fs_tree_tests {
         };
         add_game_fs_search_roots(&[assets], true);
 
-        let bytes = read_game_fs_bytes("Art/Terrain/PTBlossom01.tga")
-            .expect("PTBlossom01.tga must read from TerrainZH.big");
-        assert!(bytes.len() > 18);
+        // NatureProp.ini's CINETreeDogwood1/2 share PTDogwod01.tga even
+        // though their model material textures differ. Blossom spans four
+        // atlas tiles, so it also witnesses the reversal of packed tile rows.
+        let cases = [
+            ("PTBlossom01", "PTBlossom01.tga", 128),
+            ("PTDogwodHI1", "PTDogwod01.tga", 64),
+            ("PTDogwodHI2", "PTDogwod01.tga", 64),
+            ("PTPine02", "PTPine02.tga", 64),
+        ];
+        let mut buffer = W3DTreeBuffer::new();
+        for (model, texture, _) in cases {
+            buffer.add_tree_type(TreeModuleData {
+                model_name: model.into(),
+                texture_name: texture.into(),
+                ..Default::default()
+            }, TreeSphere::default()).unwrap();
+        }
+        buffer.sync_tree_atlas_for_draw(0);
+        let (atlas_width, _) = buffer.texture_size();
+        let atlas = &buffer.atlas_upload_levels()[0];
+        for (i, (_, texture, width)) in cases.iter().enumerate() {
+            let bytes = read_game_fs_bytes(&format!("Art/Terrain/{texture}"))
+                .or_else(|| read_game_fs_bytes(&format!("Art/Textures/{texture}")))
+                .expect("authored TextureName in retail terrain assets");
+            assert_eq!((bytes[0], bytes[2], bytes[16], bytes[17]), (0, 2, 32, 8));
+            assert_eq!(u16::from_le_bytes([bytes[12], bytes[13]]) as usize, *width);
+            assert_eq!(u16::from_le_bytes([bytes[14], bytes[15]]) as usize, *width);
+            let (x, y) = buffer.tree_types()[i].texture_origin;
+            let stride = width * 4;
+            let rows = bytes[18..18 + stride * width].chunks_exact(stride).rev();
+            for (row, expected) in rows.enumerate() {
+                let offset = ((y as usize + row) * atlas_width as usize + x as usize) * 4;
+                assert_eq!(&atlas[offset..offset + stride], expected, "{texture} atlas row {row}");
+            }
+        }
+        assert_eq!(buffer.tree_types()[1].texture_origin, buffer.tree_types()[2].texture_origin);
+    }
 
-        let header = probe_tree_tga_header("PTBlossom01")
-            .expect("tree TGA header must resolve via the game FS");
-        assert!((8..=32).contains(&header.pixel_depth));
+    #[test]
+    fn missing_tree_texture_does_not_invent_an_atlas_tile() {
+        crate::test_support::ensure_ambient_host();
+        let mut buffer = W3DTreeBuffer::new();
+        buffer.add_tree_type(TreeModuleData {
+            model_name: "MissingTreeArtFixture".into(),
+            texture_name: "MissingTreeArtFixture.tga".into(),
+            ..Default::default()
+        }, TreeSphere::default()).unwrap();
+        buffer.sync_tree_atlas_for_draw(0);
+        assert_eq!(buffer.tree_types()[0].num_tiles, 0);
+        assert_eq!(buffer.tree_types()[0].tile_width, 0);
+        assert!(buffer.atlas_upload_levels().is_empty());
+    }
 
-        let tiles = load_tree_texture_tiles("PTBlossom01", 2)
-            .expect("tree texture tiles must decode from TerrainZH.big");
-        assert_eq!(tiles.len(), 4);
-        assert!(tiles.iter().all(|tile| tile.len() == TREE_TILE_DATA_LEN));
+    #[test]
+    fn tree_texture_uses_the_texture_directory_only_when_terrain_art_cannot_be_opened() {
+        let mut tga = vec![0; 18 + TREE_TILE_DATA_LEN];
+        tga[2] = 2;
+        tga[12] = 64;
+        tga[14] = 64;
+        tga[16] = 32;
+        tga[17] = 8;
+
+        let mut opened = Vec::new();
+        let result = load_tree_texture_source("Fixture.tga", &mut |path| {
+            opened.push(path.to_owned());
+            (path == "Art/Textures/Fixture.tga").then(|| tga.clone())
+        });
+        assert!(result.is_some());
+        assert_eq!(opened, ["Art/Terrain/Fixture.tga", "Art/Textures/Fixture.tga"]);
+
+        opened.clear();
+        let result = load_tree_texture_source("Fixture.tga", &mut |path| {
+            opened.push(path.to_owned());
+            Some(Vec::new())
+        });
+        assert!(result.is_none());
+        assert_eq!(opened, ["Art/Terrain/Fixture.tga"]);
     }
 }

@@ -2332,8 +2332,8 @@ impl TerrainVisualImpl {
         };
         let levels = self.tree_buffer.atlas_upload_levels();
         if levels.is_empty() {
-            self.tree_atlas_texture = Some(Self::create_fallback_tree_atlas(device, queue));
-            self.bind_tree_atlas_group();
+            self.tree_atlas_texture = None;
+            self.tree_atlas_bind_group = None;
             return;
         }
         let lod = self.tree_buffer.atlas_upload_mip_index() as u32;
@@ -2377,46 +2377,6 @@ impl TerrainVisualImpl {
         }
         self.tree_atlas_texture = Some(texture);
         self.bind_tree_atlas_group();
-    }
-
-    fn create_fallback_tree_atlas(device: &wgpu::Device, queue: &wgpu::Queue) -> wgpu::Texture {
-        const PIXELS: [u8; 16] = [
-            40, 90, 28, 255, 32, 78, 22, 255, 36, 84, 24, 255, 28, 70, 18, 255,
-        ];
-        let texture = device.create_texture(&wgpu::TextureDescriptor {
-            label: Some("W3D Tree Atlas Fallback"),
-            size: wgpu::Extent3d {
-                width: 2,
-                height: 2,
-                depth_or_array_layers: 1,
-            },
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::Bgra8Unorm,
-            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
-            view_formats: &[],
-        });
-        queue.write_texture(
-            wgpu::TexelCopyTextureInfo {
-                texture: &texture,
-                mip_level: 0,
-                origin: wgpu::Origin3d::ZERO,
-                aspect: wgpu::TextureAspect::All,
-            },
-            &PIXELS,
-            wgpu::TexelCopyBufferLayout {
-                offset: 0,
-                bytes_per_row: Some(8),
-                rows_per_image: Some(2),
-            },
-            wgpu::Extent3d {
-                width: 2,
-                height: 2,
-                depth_or_array_layers: 1,
-            },
-        );
-        texture
     }
 
     fn bind_tree_atlas_group(&mut self) {

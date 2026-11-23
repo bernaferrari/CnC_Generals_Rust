@@ -1134,10 +1134,8 @@ impl TerrainVisualImpl {
             _ => return Ok(0),
         };
         // C++ reads tile textures from the mounted art archives; this install
-        // may not carry Art/Terrain TGAs. Mirror the 3D tree-buffer fallback:
-        // synthesize a deterministic stand-in tile per class name so the radar
-        // band shows the same terrain coloring as the world view instead of
-        // black / unresolved samples.
+        // may not carry every Art/Terrain TGA. The terrain renderer uses a
+        // deterministic stand-in color for a missing material slot.
         let (image_width, image_height, available_tiles) = match resolved_image.as_ref() {
             Some(image) => {
                 let w = image.width() as usize;
@@ -1184,14 +1182,17 @@ impl TerrainVisualImpl {
                         }
                     }
                 } else {
-                    // Same generator the 3D tree buffer uses for missing
-                    // textures, so the world view keeps its placeholder art.
                     // Flagged so the radar paint source reports "no art"
                     // (C++ getSourceTile null path) instead of sampling the
                     // hash placeholder as a terrain color.
-                    let stand_in =
-                        crate::terrain::tree_buffer::stand_in_tile_bgra(&class.name, count);
-                    tile.data.copy_from_slice(&stand_in);
+                    let mut hash = 2166136261u32 ^ count as u32;
+                    for byte in class.name.bytes() {
+                        hash = hash.wrapping_mul(16777619) ^ u32::from(byte);
+                    }
+                    let [blue, green, red, _] = hash.to_le_bytes();
+                    for pixel in tile.data.chunks_exact_mut(4) {
+                        pixel.copy_from_slice(&[blue, green, red, u8::MAX]);
+                    }
                     self.stand_in_source_tiles[first_tile + count] = true;
                 }
                 tile.tile_location_in_texture = ((tile_col * 64) as i32, (tile_row * 64) as i32);
