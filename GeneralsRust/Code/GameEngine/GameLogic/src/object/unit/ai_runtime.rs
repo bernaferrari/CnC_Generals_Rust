@@ -497,7 +497,6 @@ impl UnitAiRuntime {
     }
     pub(super) fn destroy_path(&mut self) {
         self.data.current_path_snapshot = None;
-        self.data.installed_path_layers.clear();
         self.data.waiting_for_path = false;
         self.data.is_attack_path = false;
         self.set_locomotor_goal_none();
@@ -2885,9 +2884,6 @@ impl UnitAiRuntime {
         match self.data.current_path_snapshot.as_mut() {
             Some(path) => {
                 path.append_node(goal, AiPathLayer::Ground);
-                if !self.data.installed_path_layers.is_empty() {
-                    self.data.installed_path_layers.push(1);
-                }
             }
             None => self.set_current_path_snapshot_from_coords(&[*goal]),
         }
@@ -2948,53 +2944,38 @@ impl UnitAiRuntime {
             .remove_goal_cells(pathfinder, unit_id, radius, center_in_cell)
     }
     pub(super) fn set_current_path_snapshot_from_coords(&mut self, path: &[Coord3D]) {
-        self.data.set_current_path_snapshot_from_coords(path)
+        self.data.set_current_path_snapshot(path, &[], None)
     }
     pub(super) fn set_ignore_collision_time(&mut self, duration_frames: UnsignedInt) {
         self.data.ignore_collisions_until =
             TheGameLogic::get_frame().saturating_add(duration_frames);
     }
     pub(super) fn set_path_from_coords(&mut self, path: &[Coord3D]) -> Result<(), String> {
-        let installed_path = self.path_with_cpp_final_node(path)?;
-        let last = *installed_path
-            .last()
-            .ok_or_else(|| "set_path_from_coords missing path points".to_string())?;
-        self.data.blocked_frames = 0;
-        self.data.blocked_and_stuck = false;
-        self.data.queue_for_path_frame = 0;
-        self.data.path_timestamp = TheGameLogic::get_frame();
-        self.data.movement_complete = false;
-        self.data.locomotor_goal_type = 1;
-        self.data.locomotor_goal_data = Coord3D::ZERO;
-        if let Some(loco) = self.data.locomotor_set.get_active_mut() {
-            loco.clear_path();
-        }
-        self.set_current_path_snapshot_from_coords(&installed_path);
+        self.set_path_from_coords_with_layers(path, &[])
+    }
+    pub(super) fn set_path_from_coords_with_layers(
+        &mut self,
+        path: &[Coord3D],
+        layers: &[ClassicPathLayer],
+    ) -> Result<(), String> {
+        let last = self.install_path_snapshot(path, layers, None)?;
         if self.data.is_final_goal && self.is_doing_ground_movement() {
-            let layer = TheTerrainLogic::get()
-                .map(|terrain| terrain.get_layer_for_destination(&last))
-                .unwrap_or(crate::common::PathfindLayerEnum::Ground);
+            let layer = Self::goal_layer_for_installed_path(&last, path, layers);
             self.update_goal_position(&last, layer)?;
         }
         Ok(())
     }
-    pub(super) fn set_path_from_coords_with_pathfinder(
+    fn install_path_snapshot(
         &mut self,
         path: &[Coord3D],
-        pathfinder: &mut crate::ai::pathfind_complete::PathfindingSystem,
-    ) -> Result<(), String> {
-        self.set_path_from_coords_with_pathfinder_at(path, pathfinder, None)
-    }
-    pub(super) fn set_path_from_coords_with_pathfinder_at(
-        &mut self,
-        path: &[Coord3D],
-        pathfinder: &mut crate::ai::pathfind_complete::PathfindingSystem,
+        layers: &[ClassicPathLayer],
         frame: Option<u32>,
-    ) -> Result<(), String> {
-        let installed_path = self.path_with_cpp_final_node(path)?;
-        let last = *installed_path
-            .last()
-            .ok_or_else(|| "set_path_from_coords missing path points".to_string())?;
+    ) -> Result<Coord3D, String> {
+        let last = *path.last().ok_or("set_path_from_coords missing path points")?;
+        let exact_destination = self
+            .data
+            .current_locomotor_is_ultra_accurate()
+            .then_some(self.data.requested_destination);
         self.data.blocked_frames = 0;
         self.data.blocked_and_stuck = false;
         self.data.queue_for_path_frame = 0;
@@ -3005,14 +2986,46 @@ impl UnitAiRuntime {
         if let Some(loco) = self.data.locomotor_set.get_active_mut() {
             loco.clear_path();
         }
-        self.set_current_path_snapshot_from_coords(&installed_path);
+        self.data.set_current_path_snapshot(path, layers, exact_destination);
+        Ok(exact_destination.unwrap_or(last))
+    }
+    pub(super) fn set_path_from_coords_with_pathfinder(
+        &mut self,
+        path: &[Coord3D],
+        pathfinder: &mut crate::ai::pathfind_complete::PathfindingSystem,
+    ) -> Result<(), String> {
+        self.set_path_from_coords_with_pathfinder_at(path, &[], pathfinder, None)
+    }
+    pub(super) fn set_path_from_coords_with_pathfinder_at(
+        &mut self,
+        path: &[Coord3D],
+        layers: &[ClassicPathLayer],
+        pathfinder: &mut crate::ai::pathfind_complete::PathfindingSystem,
+        frame: Option<u32>,
+    ) -> Result<(), String> {
+        let last = self.install_path_snapshot(path, layers, frame)?;
         if frame.is_none() && self.data.is_final_goal && self.is_doing_ground_movement() {
-            let layer = TheTerrainLogic::get()
-                .map(|terrain| terrain.get_layer_for_destination(&last))
-                .unwrap_or(crate::common::PathfindLayerEnum::Ground);
+            let layer = Self::goal_layer_for_installed_path(&last, path, layers);
             self.update_goal_position_with_pathfinder(&last, layer, pathfinder)?;
         }
         Ok(())
+    }
+    fn goal_layer_for_installed_path(
+        last: &Coord3D,
+        path: &[Coord3D],
+        layers: &[ClassicPathLayer],
+    ) -> crate::common::PathfindLayerEnum {
+        // C++ doPathfind reserves the exact layer returned on the last node.
+        // Coordinate-only callers still resolve the destination against terrain.
+        layers
+            .last()
+            .filter(|_| layers.len() == path.len())
+            .map(|layer| crate::common::PathfindLayerEnum::from_u32(*layer as u32))
+            .unwrap_or_else(|| {
+                TheTerrainLogic::get()
+                    .map(|terrain| terrain.get_layer_for_destination(last))
+                    .unwrap_or(crate::common::PathfindLayerEnum::Ground)
+            })
     }
     pub(super) fn update_aircraft_goal_cells(
         &mut self,
@@ -3187,22 +3200,6 @@ impl UnitAiRuntime {
                 .then_some(self.data.ignore_obstacle_id),
             is_human: false,
         })
-    }
-    pub(super) fn path_with_cpp_final_node(
-        &self,
-        path: &[Coord3D],
-    ) -> Result<Vec<Coord3D>, String> {
-        if path.is_empty() {
-            return Err("set_path_from_coords missing path points".to_string());
-        }
-
-        let mut installed_path = path.to_vec();
-        if self.data.current_locomotor_is_ultra_accurate() {
-            if let Some(last) = installed_path.last_mut() {
-                *last = self.data.requested_destination;
-            }
-        }
-        Ok(installed_path)
     }
     pub(super) fn compute_pathfind_radius_and_center(unit: &Unit) -> (i32, bool) {
         let radius = unit

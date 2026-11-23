@@ -79,28 +79,6 @@ impl UnitAIUpdate {
         self.runtime
             .set_path_from_coords_with_pathfinder(path, pathfinder)
     }
-    pub(super) fn remember_result_layers(&mut self, waypoints: &[Coord3D], layers: &[u8]) {
-        self.runtime.data.remember_result_layers(waypoints, layers)
-    }
-    pub(super) fn apply_final_ground_path_layer(
-        &mut self,
-        waypoints: &[Coord3D],
-    ) -> Result<(), String> {
-        if !(self.runtime.data.is_final_goal && self.is_doing_ground_movement()) {
-            return Ok(());
-        }
-        let Some(ordinal) = self.runtime.data.installed_path_layers.last().copied() else {
-            return Ok(());
-        };
-        let installed = self.path_with_cpp_final_node(waypoints)?;
-        let Some(last) = installed.last().copied() else {
-            return Ok(());
-        };
-        self.update_goal_position(
-            &last,
-            crate::common::PathfindLayerEnum::from_u32(u32::from(ordinal)),
-        )
-    }
     pub(super) fn append_current_path_snapshot_goal(&mut self, goal: &Coord3D) {
         self.runtime.append_current_path_snapshot_goal(goal)
     }
@@ -168,12 +146,6 @@ impl UnitAIUpdate {
     pub(super) fn current_locomotor_is_ultra_accurate(&self) -> bool {
         self.runtime.data.current_locomotor_is_ultra_accurate()
     }
-    pub(super) fn path_with_cpp_final_node(
-        &self,
-        path: &[Coord3D],
-    ) -> Result<Vec<Coord3D>, String> {
-        self.runtime.path_with_cpp_final_node(path)
-    }
     pub(super) fn try_install_closest_path_for_invalid_destination(
         &mut self,
         destination: &Coord3D,
@@ -221,16 +193,8 @@ impl UnitAIUpdate {
             return Ok(true);
         };
         if result.success && !result.waypoints.is_empty() {
-            self.set_path_from_coords(&result.waypoints)?;
-            self.remember_result_layers(
-                &result.waypoints,
-                &result
-                    .layers
-                    .iter()
-                    .map(|layer| *layer as u8)
-                    .collect::<Vec<_>>(),
-            );
-            self.apply_final_ground_path_layer(&result.waypoints)?;
+            self.runtime
+                .set_path_from_coords_with_layers(&result.waypoints, &result.layers)?;
             Ok(true)
         } else {
             self.runtime.data.path_timestamp = TheGameLogic::get_frame();
@@ -367,16 +331,8 @@ impl UnitAIUpdate {
 
         if let Some(result) = path_result {
             if result.success && !result.waypoints.is_empty() {
-                self.set_path_from_coords(&result.waypoints)?;
-                self.remember_result_layers(
-                    &result.waypoints,
-                    &result
-                        .layers
-                        .iter()
-                        .map(|layer| *layer as u8)
-                        .collect::<Vec<_>>(),
-                );
-                self.apply_final_ground_path_layer(&result.waypoints)?;
+                self.runtime
+                    .set_path_from_coords_with_layers(&result.waypoints, &result.layers)?;
                 return Ok(true);
             }
         }
@@ -406,16 +362,8 @@ impl UnitAIUpdate {
             });
         if let Some(result) = closest_result {
             if result.success && !result.waypoints.is_empty() {
-                self.set_path_from_coords(&result.waypoints)?;
-                self.remember_result_layers(
-                    &result.waypoints,
-                    &result
-                        .layers
-                        .iter()
-                        .map(|layer| *layer as u8)
-                        .collect::<Vec<_>>(),
-                );
-                self.apply_final_ground_path_layer(&result.waypoints)?;
+                self.runtime
+                    .set_path_from_coords_with_layers(&result.waypoints, &result.layers)?;
                 return Ok(true);
             }
         }
@@ -535,9 +483,7 @@ impl UnitAIUpdate {
                 if self
                     .runtime
                     .data
-                    .installed_path_layers
-                    .last()
-                    .copied()
+                    .installed_path_last_layer()
                     .is_some_and(|layer| layer != PathfindLayerEnum::Ground as u8)
                 {
                     return Err("supplied final waypoint result is not a ground path".into());
@@ -685,41 +631,10 @@ impl UnitAIUpdate {
     ) -> Result<(), String> {
         self.runtime.set_path_from_coords_with_pathfinder_at(
             &result.waypoints,
+            &result.layers,
             pathfinder,
             frame,
-        )?;
-        self.runtime.data.remember_result_layers(
-            &result.waypoints,
-            &result
-                .layers
-                .iter()
-                .map(|layer| *layer as u8)
-                .collect::<Vec<_>>(),
-        );
-        if frame.is_some() {
-            return Ok(());
-        }
-        self.apply_final_ground_path_layer_with_pathfinder(&result.waypoints, pathfinder)
-    }
-
-    fn apply_final_ground_path_layer_with_pathfinder(
-        &mut self,
-        waypoints: &[Coord3D],
-        pathfinder: &mut crate::ai::pathfind_complete::PathfindingSystem,
-    ) -> Result<(), String> {
-        if !(self.runtime.data.is_final_goal && self.is_doing_ground_movement()) {
-            return Ok(());
-        }
-        let Some(ordinal) = self.runtime.data.installed_path_layers.last().copied() else {
-            return Ok(());
-        };
-        let installed = self.runtime.path_with_cpp_final_node(waypoints)?;
-        let Some(last) = installed.last().copied() else {
-            return Ok(());
-        };
-        let layer = crate::common::PathfindLayerEnum::from_u32(u32::from(ordinal));
-        self.runtime
-            .update_goal_position_with_pathfinder(&last, layer, pathfinder)
+        )
     }
 
     fn native_should_force_direct_path_for_off_map_start(&self, destination: &Coord3D) -> bool {
@@ -1215,16 +1130,8 @@ impl UnitAIUpdate {
 
         if let Some(result) = closest_result {
             if result.success && !result.waypoints.is_empty() {
-                self.set_path_from_coords(&result.waypoints)?;
-                self.remember_result_layers(
-                    &result.waypoints,
-                    &result
-                        .layers
-                        .iter()
-                        .map(|layer| *layer as u8)
-                        .collect::<Vec<_>>(),
-                );
-                self.apply_final_ground_path_layer(&result.waypoints)?;
+                self.runtime
+                    .set_path_from_coords_with_layers(&result.waypoints, &result.layers)?;
                 return Ok(true);
             }
         }
@@ -1288,16 +1195,8 @@ impl UnitAIUpdate {
 
         if let Some(result) = safe_result {
             if result.success && !result.waypoints.is_empty() {
-                self.set_path_from_coords(&result.waypoints)?;
-                self.remember_result_layers(
-                    &result.waypoints,
-                    &result
-                        .layers
-                        .iter()
-                        .map(|layer| *layer as u8)
-                        .collect::<Vec<_>>(),
-                );
-                self.apply_final_ground_path_layer(&result.waypoints)?;
+                self.runtime
+                    .set_path_from_coords_with_layers(&result.waypoints, &result.layers)?;
                 return Ok(true);
             }
         }

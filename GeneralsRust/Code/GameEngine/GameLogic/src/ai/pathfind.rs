@@ -287,9 +287,11 @@ impl Path {
 
     /// Position at the tail of the exact owned path (C++ `getLastNode`).
     pub fn get_last_node_position(&self) -> Option<&Coord3D> {
-        self.tail
-            .and_then(|key| self.nodes.get(key))
-            .map(PathNode::get_position)
+        self.get_last_node().map(PathNode::get_position)
+    }
+
+    pub(crate) fn get_last_node(&self) -> Option<&PathNode> {
+        self.tail.and_then(|key| self.nodes.get(key))
     }
 
     /// Iterate path from head to tail, calling `f` for each (key, node) pair.
@@ -434,12 +436,10 @@ impl Path {
     /// Use only when the input nodes are already the pathfinder's optimized
     /// waypoint result; unlike `optimize`, this does not recompute geometry.
     pub(crate) fn connect_waypoints_as_optimized(&mut self) {
-        let keys = self.ordered_keys();
-        for pair in keys.windows(2) {
-            self.set_opti_link(pair[0], Some(pair[1]));
-        }
-        if let Some(&last) = keys.last() {
-            self.set_opti_link(last, None);
+        let mut current = self.head;
+        while let Some(key) = current {
+            current = self.nodes[key].next;
+            self.set_opti_link(key, current);
         }
         self.is_optimized = true;
         self.cpop_recent_start = None;

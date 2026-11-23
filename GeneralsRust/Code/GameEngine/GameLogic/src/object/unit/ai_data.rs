@@ -62,8 +62,6 @@ pub(super) struct UnitAiData {
     pub(super) pathfind_goal_cell: ICoord2D,
     pub(super) pathfind_cur_cell: ICoord2D,
     pub(super) pathfind_goal_layer: ClassicPathLayer,
-    /// Astar ordinals zipped with the installed waypoints. Not xfer'd. Not `AiPath`.
-    pub(super) installed_path_layers: Vec<u8>,
     pub(super) move_out_of_way_1: ObjectID,
     pub(super) move_out_of_way_2: ObjectID,
     pub(super) repulsor1: ObjectID,
@@ -151,7 +149,6 @@ impl Default for UnitAiData {
             pathfind_goal_cell: ICoord2D::new(-1, -1),
             pathfind_cur_cell: ICoord2D::new(-1, -1),
             pathfind_goal_layer: ClassicPathLayer::Invalid,
-            installed_path_layers: Vec::new(),
             move_out_of_way_1: INVALID_ID,
             move_out_of_way_2: INVALID_ID,
             repulsor1: INVALID_ID,

@@ -3,22 +3,65 @@
 use super::ai_data::UnitAiData;
 use super::imports::*;
 
+#[test]
+fn searched_bridge_layers_survive_the_installed_path_snapshot() {
+    use game_engine::common::system::{xfer_load::XferLoad, xfer_save::XferSave};
+    use std::io::Cursor;
+
+    let positions = [
+        Coord3D::new(25.0, 35.0, 6.0),
+        Coord3D::new(65.0, 35.0, 11.0),
+    ];
+    let layers = [ClassicPathLayer::Ground, ClassicPathLayer::Layer4];
+    let mut live = UnitAiData::default();
+    live.set_current_path_snapshot(&positions, &layers, None);
+    assert_eq!(live.installed_path_last_layer(), Some(ClassicPathLayer::Layer4 as u8));
+    let mut bytes = Vec::new();
+    live.current_path_snapshot
+        .as_mut()
+        .unwrap()
+        .xfer(&mut XferSave::new(Cursor::new(&mut bytes), 1))
+        .unwrap();
+
+    let mut loaded = AiPath::new();
+    loaded
+        .xfer(&mut XferLoad::new(Cursor::new(bytes), 1))
+        .unwrap();
+    assert_eq!(loaded.get_first_node().unwrap().get_layer(), AiPathLayer::Ground);
+    assert_eq!(loaded.get_last_node_position(), positions.last());
+    assert_eq!(loaded.get_last_node().unwrap().get_layer(), AiPathLayer::Bridge2);
+    let mut restored = UnitAiData::default();
+    restored.current_path_snapshot = Some(loaded);
+    assert_eq!(
+        restored.installed_path_last_layer(),
+        Some(ClassicPathLayer::Layer4 as u8),
+        "the receiving AI must read the original bridge layer from the restored Path",
+    );
+}
+
 impl UnitAiData {
-    pub(super) fn set_current_path_snapshot_from_coords(&mut self, path: &[Coord3D]) {
-        self.installed_path_layers.clear();
+    pub(super) fn set_current_path_snapshot(
+        &mut self,
+        path: &[Coord3D],
+        result_layers: &[ClassicPathLayer],
+        final_position: Option<Coord3D>,
+    ) {
+        let layers = if result_layers.len() == path.len() { result_layers } else { &[] };
         let mut snapshot = AiPath::new();
-        for pos in path {
-            snapshot.append_node(pos, AiPathLayer::Ground);
+        for (index, position) in path.iter().enumerate() {
+            let position = if index + 1 == path.len() {
+                final_position.as_ref().unwrap_or(position)
+            } else {
+                position
+            };
+            let layer = layers
+                .get(index)
+                .map(|layer| AiPathLayer::from_u32(*layer as u32))
+                .unwrap_or(AiPathLayer::Ground);
+            snapshot.append_node(position, layer);
         }
         snapshot.connect_waypoints_as_optimized();
         self.current_path_snapshot = Some(snapshot);
-    }
-    pub(super) fn remember_result_layers(&mut self, waypoints: &[Coord3D], layers: &[u8]) {
-        if layers.len() != waypoints.len() {
-            self.installed_path_layers.clear();
-            return;
-        }
-        self.installed_path_layers = layers.to_vec();
     }
     pub(super) fn current_locomotor_is_ultra_accurate(&self) -> bool {
         self.locomotor_set
@@ -100,7 +143,10 @@ impl UnitAiData {
             .is_some_and(|loco| loco.get_legal_surfaces() != 0)
     }
     pub(super) fn installed_path_last_layer(&self) -> Option<u8> {
-        self.installed_path_layers.last().copied()
+        self.current_path_snapshot
+            .as_ref()?
+            .get_last_node()
+            .map(|node| node.get_layer() as u8)
     }
     pub(super) fn get_retry_path(&self) -> bool {
         self.retry_path

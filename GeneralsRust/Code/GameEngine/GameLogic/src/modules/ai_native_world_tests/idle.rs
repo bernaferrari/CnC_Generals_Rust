@@ -306,6 +306,7 @@ fn scheduled_repulsor_escape_queues_and_installs_a_receiving_path() {
         assert_eq!(restored_path.0, away);
         assert!(restored_path.1);
         assert_eq!(restored_path.2, Some(end));
+        assert_eq!(restored_path.4, layer);
 
         // The next scheduled update must consume the path without replacing it
         // with a normal move request to the old goal.
@@ -368,9 +369,10 @@ fn scheduled_repulsor_escape_queues_and_installs_a_receiving_path() {
             arrival_frame + 1,
         );
         let resumed_wander = restore_with_sound(&saved, arrival_frame + 1, wander);
-        let (_, restored_has_path, restored_end, _, _) = installed_path_observation(&resumed_wander);
-        let (_, has_path, end, _, _) = installed_path_observation(&receiver);
-        assert_eq!((restored_has_path, restored_end), (has_path, end));
+        let (_, restored_has_path, restored_end, _, restored_layer) =
+            installed_path_observation(&resumed_wander);
+        let (_, has_path, end, _, layer) = installed_path_observation(&receiver);
+        assert_eq!((restored_has_path, restored_end, restored_layer), (has_path, end, layer));
         assert_eq!(
             resumed_wander.source.read().unwrap().get_position(),
             receiver.source.read().unwrap().get_position(),
