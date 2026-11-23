@@ -142,8 +142,10 @@ impl GameLogic {
             // airborne removal/falling damage precedes OpenContain's gate.
             let parachute_override = matches!(&declaration.kind, NativeDieKind::Contain { .. })
                 && object.thing().template.contain_module.kind == ContainModuleKind::Parachute;
+            // NeutronBlastBehavior implements Die directly, without DieMux.
             if !jet_ground
                 && !parachute_override
+                && !matches!(&declaration.kind, NativeDieKind::NeutronBlast(_))
                 && !declaration.gate.allows(object, input.death_type)
             {
                 continue;
@@ -197,6 +199,9 @@ impl GameLogic {
                 // its damage callback already performed any virtual blasts.
                 NativeDieKind::Minefield => {
                     self.destroy_object_with_effects(id, presentation_effects)?;
+                }
+                NativeDieKind::NeutronBlast(definition) => {
+                    self.run_authored_neutron_blast(id, *definition, presentation_effects)?;
                 }
                 NativeDieKind::Destroy => {
                     self.request_object_destruction_with_effects(id, killer, presentation_effects)?;

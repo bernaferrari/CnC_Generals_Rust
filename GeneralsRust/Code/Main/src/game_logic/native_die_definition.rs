@@ -111,6 +111,7 @@ pub(crate) enum NativeDieKind {
     Keep,
     Destroy,
     Minefield,
+    NeutronBlast(super::host_neutron_shell::NeutronBlastDefinition),
     Instant {
         config: super::host_instant_death::HostInstantDeathIni,
         creations: Vec<Option<NativeDieCreate>>,
@@ -172,6 +173,30 @@ pub(crate) fn bind(modules: &[BehaviorModuleDefinition]) -> Vec<NativeDieDeclara
                 "keepobjectdie" => NativeDieKind::Keep,
                 "destroydie" => NativeDieKind::Destroy,
                 "minefieldbehavior" => NativeDieKind::Minefield,
+                "neutronblastbehavior" => {
+                    use super::host_neutron_shell::{
+                        NEUTRON_AFFECT_AIRBORNE_DEFAULT, NEUTRON_AFFECT_ALLIES,
+                        NEUTRON_BLAST_DEFAULT_RADIUS, NeutronBlastDefinition,
+                    };
+                    use game_engine::common::ini::INI;
+                    let radius = module
+                        .attribute("BlastRadius")
+                        .map_or(Ok(NEUTRON_BLAST_DEFAULT_RADIUS), INI::parse_real)
+                        .ok()?;
+                    let affect_airborne = module
+                        .attribute("AffectAirborne")
+                        .map_or(Ok(NEUTRON_AFFECT_AIRBORNE_DEFAULT), INI::parse_bool)
+                        .ok()?;
+                    let affect_allies = module
+                        .attribute("AffectAllies")
+                        .map_or(Ok(NEUTRON_AFFECT_ALLIES), INI::parse_bool)
+                        .ok()?;
+                    NativeDieKind::NeutronBlast(NeutronBlastDefinition {
+                        radius,
+                        affect_airborne,
+                        affect_allies,
+                    })
+                }
                 "instantdeathbehavior" => {
                     let config =
                         super::host_instant_death::instant_death_ini_from_behavior_attrs(&attrs);

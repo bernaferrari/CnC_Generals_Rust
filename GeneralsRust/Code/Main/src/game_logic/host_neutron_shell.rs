@@ -65,6 +65,14 @@ pub const NEUTRON_AFFECT_ALLIES: bool = true;
 /// Retail NeutronBlastObject AffectAllies residual = No.
 pub const NEUTRON_BLAST_OBJECT_AFFECT_ALLIES: bool = false;
 
+/// Immutable values read by the original NeutronBlastBehavior onDie callback.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct NeutronBlastDefinition {
+    pub(crate) radius: f32,
+    pub(crate) affect_airborne: bool,
+    pub(crate) affect_allies: bool,
+}
+
 /// Retail NukeCannonNeutronWeapon AttackRange residual.
 pub const NEUTRON_WEAPON_ATTACK_RANGE: f32 = 350.0;
 
@@ -160,7 +168,7 @@ pub fn is_legal_neutron_blast_target(
     if !is_alive {
         return false;
     }
-    if is_aircraft || (is_airborne && !affect_airborne) {
+    if !affect_airborne && (is_aircraft || is_airborne) {
         return false;
     }
     if same_team_ally && !affect_allies {
@@ -205,7 +213,7 @@ pub fn neutron_effect_for_target(
 pub fn in_neutron_blast_radius_2d(center: (f32, f32), target: (f32, f32), radius: f32) -> bool {
     let dx = center.0 - target.0;
     let dz = center.1 - target.1;
-    dx * dx + dz * dz <= radius * radius
+    dx * dx + dz * dz < radius * radius
 }
 
 /// Shell impact primary residual damage at distance (PrimaryDamageRadius ring).
@@ -377,8 +385,8 @@ pub fn honesty_neutron_blast_residual_ok() -> bool {
         && NEUTRON_AFFECT_AIRBORNE_DEFAULT
         && NEUTRON_AFFECT_ALLIES
         && !NEUTRON_BLAST_OBJECT_AFFECT_ALLIES
-        && in_neutron_blast_radius_2d((0.0, 0.0), (70.0, 0.0), HOST_NEUTRON_BLAST_RADIUS)
-        && !in_neutron_blast_radius_2d((0.0, 0.0), (71.0, 0.0), HOST_NEUTRON_BLAST_RADIUS)
+        && in_neutron_blast_radius_2d((0.0, 0.0), (69.0, 0.0), HOST_NEUTRON_BLAST_RADIUS)
+        && !in_neutron_blast_radius_2d((0.0, 0.0), (70.0, 0.0), HOST_NEUTRON_BLAST_RADIUS)
         && (neutron_shell_primary_damage_at(5.0) - 1.0).abs() < 0.01
         && neutron_shell_primary_damage_at(15.0).abs() < 0.01
 }

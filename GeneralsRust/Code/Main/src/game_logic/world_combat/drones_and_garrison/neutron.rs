@@ -1,7 +1,8 @@
 use super::super::super::*;
 use crate::game_logic::combat::DamageType;
 use crate::game_logic::host_neutron_shell::{
-    HOST_NEUTRON_BLAST_RADIUS, NEUTRON_SHELL_AUDIO, NeutronEffect, in_neutron_blast_radius_2d,
+    HOST_NEUTRON_BLAST_RADIUS, NEUTRON_AFFECT_AIRBORNE, NEUTRON_SHELL_AUDIO,
+    NeutronBlastDefinition, NeutronEffect, in_neutron_blast_radius_2d,
     is_legal_neutron_blast_target, neutron_effect_for_target,
 };
 use crate::game_logic::host_usa_pilot::HostDeathType;
@@ -125,46 +126,115 @@ impl GameLogic {
         caster_id: Option<ObjectId>,
         affect_allies: bool,
     ) -> gamelogic::GameLogicResult<(u32, u32, u32)> {
-        self.apply_neutron_blast_at_with_effects(
-            impact,
-            caster_team,
-            caster_id,
-            affect_allies,
-            &mut Default::default(),
-        )
-    }
-
-    pub(crate) fn apply_neutron_blast_at_with_effects(
-        &mut self,
-        impact: glam::Vec3,
-        caster_team: Team,
-        caster_id: Option<ObjectId>,
-        affect_allies: bool,
-        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<(u32, u32, u32)> {
         let center = (impact.x, impact.z);
-        let candidates: Vec<_> = self
+        let off_map = caster_id
+            .and_then(|id| self.objects.get(&id))
+            .map(|source| source.status.off_map);
+        // The explicit-position adapter also serves fixtures without a
+        // partition phase. Authored Die callbacks use the map's COI iterator.
+        let candidates = self
             .objects
             .registered()
             .filter_map(|(&id, object)| {
-                // Enclosed passengers have left the C++ partition. They are hit
-                // through their container even if their registration comes first.
-                if caster_id == Some(id)
-                    || !object.is_alive()
-                    || (object.contained_by.is_some() && object.status.masked)
-                {
-                    return None;
-                }
                 let pos = object.get_position();
-                if !in_neutron_blast_radius_2d(center, (pos.x, pos.z), HOST_NEUTRON_BLAST_RADIUS) {
-                    return None;
-                }
+                (Some(id) != caster_id
+                    && object.is_alive()
+                    && !(object.contained_by.is_some() && object.status.masked)
+                    && off_map.is_none_or(|off_map| off_map == object.status.off_map)
+                    && in_neutron_blast_radius_2d(
+                        center,
+                        (pos.x, pos.z),
+                        HOST_NEUTRON_BLAST_RADIUS,
+                    ))
+                .then(|| {
+                    (
+                        id,
+                        std::sync::Arc::downgrade(&object.visual_draw_identity_token),
+                    )
+                })
+            })
+            .collect();
+        let result = self.dispatch_neutron_blast(
+            caster_team,
+            caster_id,
+            NeutronBlastDefinition {
+                radius: HOST_NEUTRON_BLAST_RADIUS,
+                affect_airborne: NEUTRON_AFFECT_AIRBORNE,
+                affect_allies,
+            },
+            candidates,
+            &mut Default::default(),
+        )?;
+        let (infantry_kills, vehicles_unmanned, _) = result;
+        self.neutron_shell_residual_blasts = self.neutron_shell_residual_blasts.saturating_add(1);
+        self.neutron_shell_residual_infantry_kills = self
+            .neutron_shell_residual_infantry_kills
+            .saturating_add(infantry_kills);
+        self.neutron_shell_residual_vehicles_unmanned = self
+            .neutron_shell_residual_vehicles_unmanned
+            .saturating_add(vehicles_unmanned);
+        self.queue_audio_event(
+            AudioEventRequest::new(NEUTRON_SHELL_AUDIO)
+                .with_position(impact)
+                .with_priority(155),
+        );
+        Ok(result)
+    }
+
+    /// Original Die callback. FireFX and weapon audio belong to their
+    /// authored weapon, outside this target effect.
+    pub(in crate::game_logic) fn run_authored_neutron_blast(
+        &mut self,
+        emitter: ObjectId,
+        definition: NeutronBlastDefinition,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> gamelogic::GameLogicResult<()> {
+        let Some(source) = self.objects.get(&emitter) else {
+            return Ok(());
+        };
+        let impact = source.get_position();
+        let caster_team = source.team;
+        let off_map = source.status.off_map;
+        let center = (impact.x, impact.z);
+        // Original FROM_CENTER_2D / ITER_FASTEST applies Alive and SameMapStatus
+        // while building the iterator. Enclosed passengers aren't in this grid.
+        let candidates = self
+            .partition_manager
+            .ids_in_radius_iterator_order(impact.x, impact.z, definition.radius, |raw| {
+                let id = ObjectId(raw);
+                id != emitter
+                    && self.objects.get_registered(&id).is_some_and(|object| {
+                        let pos = object.get_position();
+                        !object.status.effectively_dead
+                            && off_map == object.status.off_map
+                            && in_neutron_blast_radius_2d(center, (pos.x, pos.z), definition.radius)
+                    })
+            })
+            .into_iter()
+            .filter_map(|raw| {
+                let id = ObjectId(raw);
+                let object = self.objects.get_registered(&id)?;
                 Some((
                     id,
                     std::sync::Arc::downgrade(&object.visual_draw_identity_token),
                 ))
             })
             .collect();
+        self.dispatch_neutron_blast(caster_team, Some(emitter), definition, candidates, effects)?;
+        Ok(())
+    }
+
+    fn dispatch_neutron_blast(
+        &mut self,
+        caster_team: Team,
+        caster_id: Option<ObjectId>,
+        definition: NeutronBlastDefinition,
+        candidates: Vec<(ObjectId, std::sync::Weak<()>)>,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> gamelogic::GameLogicResult<(u32, u32, u32)> {
+        let source_birth = caster_id
+            .and_then(|id| self.objects.get(&id))
+            .map(|source| std::sync::Arc::downgrade(&source.visual_draw_identity_token));
 
         let (mut infantry_kills, mut vehicles_unmanned, mut vehicle_kills) = (0u32, 0u32, 0u32);
         for (id, birth) in candidates {
@@ -172,29 +242,28 @@ impl GameLogic {
                 continue;
             }
             let object = &self.objects[&id];
-            let source = caster_id.and_then(|id| self.objects.get(&id));
-            if source.is_some_and(|source| source.status.off_map != object.status.off_map) {
-                continue;
-            }
-            let allied = !affect_allies
-                && source.map_or(object.team == caster_team, |source| {
-                    self.object_relationship(source, object)
-                        == gamelogic::common::Relationship::Allies
-                });
+            let allied = !definition.affect_allies
+                && caster_id
+                    .zip(source_birth.as_ref())
+                    .filter(|(id, birth)| self.object_birth_matches(*id, birth))
+                    .map_or(object.team == caster_team, |(id, _)| {
+                        self.object_relationship(&self.objects[&id], object)
+                            == gamelogic::common::Relationship::Allies
+                    });
             let infantry = object.is_kind_of(KindOf::Infantry);
             let vehicle = object.is_kind_of(KindOf::Vehicle);
             let drone = object.is_kind_of(KindOf::Drone);
             if !is_legal_neutron_blast_target(
-                object.is_alive(),
+                true,
                 infantry,
                 vehicle,
                 object.is_kind_of(KindOf::Aircraft),
                 object.is_kind_of(KindOf::Structure),
                 drone,
                 object.status.airborne_target,
-                false,
+                definition.affect_airborne,
                 allied,
-                affect_allies,
+                definition.affect_allies,
             ) {
                 continue;
             }
@@ -251,20 +320,6 @@ impl GameLogic {
             }
         }
 
-        self.neutron_shell_residual_blasts = self.neutron_shell_residual_blasts.saturating_add(1);
-        self.neutron_shell_residual_infantry_kills = self
-            .neutron_shell_residual_infantry_kills
-            .saturating_add(infantry_kills);
-        self.neutron_shell_residual_vehicles_unmanned = self
-            .neutron_shell_residual_vehicles_unmanned
-            .saturating_add(vehicles_unmanned);
-
-        self.queue_audio_event(
-            AudioEventRequest::new(NEUTRON_SHELL_AUDIO)
-                .with_position(impact)
-                .with_priority(155),
-        );
-        // C++ Weapon.cpp FireFX is fire-time only (shared dispatch owns the muzzle).
         Ok((infantry_kills, vehicles_unmanned, vehicle_kills))
     }
 }

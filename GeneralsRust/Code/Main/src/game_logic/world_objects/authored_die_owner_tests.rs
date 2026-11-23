@@ -599,3 +599,77 @@ fn actual_death_weapon_runs_after_kill_credit_before_outer_armor_fx() {
         },
     );
 }
+
+#[test]
+fn authored_neutron_die_dispatches_radius_and_air_filters_after_destroy_die() {
+    use crate::fixture_content::{FixtureObject, admit_fixture_objects};
+    use crate::game_logic::Player;
+    use crate::game_logic::game_logic::PlayerSideRole;
+
+    let mut world = GameLogic::new();
+    let mut map = gamelogic::system::map_loader::MapData::new();
+    map.width = 32;
+    map.height = 32;
+    map.heightmap = vec![0; 1024];
+    map.boundaries = vec![gamelogic::common::ICoord2D::new(32, 32)];
+    world.world_services.terrain().write().unwrap().try_load_map_geometry(map).unwrap();
+    world.initialize_receiving_partition_grid().unwrap();
+    admit_fixture_objects(
+        &mut world,
+        &[
+            FixtureObject::new("AuthoredNeutronEmitter")
+                .kind_of("PROJECTILE")
+                .health(100.0)
+                .module("Behavior = DestroyDie Retire\nEnd")
+                .module(
+                    "Behavior = NeutronBlastBehavior Pulse\nBlastRadius = 20\n\
+                     AffectAirborne = No\nAffectAllies = No\nEnd",
+                ),
+            FixtureObject::new("AuthoredNeutronVictim")
+                .kind_of("VEHICLE SELECTABLE")
+                .health(100.0)
+                .energy(20),
+            FixtureObject::new("AuthoredNeutronAircraft")
+                .kind_of("VEHICLE AIRCRAFT")
+                .health(100.0),
+        ],
+    );
+    for (id, team, alliance) in [(0, Team::China, 0), (1, Team::USA, 0), (2, Team::GLA, 1)] {
+        let mut player = Player::new(id, team, "neutron fixture", true);
+        player.alliance_team = alliance;
+        world.add_player(player);
+    }
+    let mut neutral = Player::new(9, Team::Neutral, "Neutral", false);
+    neutral.map_side.role = PlayerSideRole::Neutral;
+    world.add_player(neutral);
+    let neutral_team = world.host_default_team_id(9).unwrap();
+
+    let center = Vec3::new(100.0, 0.0, 100.0);
+    let spawn = |world: &mut GameLogic, name, owner, x| {
+        world
+            .create_object_for_player(name, owner, center + Vec3::new(x, 0.0, 0.0))
+            .unwrap()
+    };
+    let emitter = spawn(&mut world, "AuthoredNeutronEmitter", 0, 0.0);
+    let victim = spawn(&mut world, "AuthoredNeutronVictim", 2, 19.0);
+    let out_of_range = spawn(&mut world, "AuthoredNeutronVictim", 2, 20.0);
+    let ally = spawn(&mut world, "AuthoredNeutronVictim", 1, 2.0);
+    let aircraft = spawn(&mut world, "AuthoredNeutronAircraft", 2, 1.0);
+    assert_eq!(world.get_player(2).unwrap().power_produced, 40);
+    world.update_owned_partition_with_effects(&mut Default::default()).unwrap();
+    assert!(world.partition_manager.is_registered(victim.0));
+
+    let result = world
+        .apply_owned_kill(emitter, DamageType::Unresistable, HostDeathType::Detonated)
+        .unwrap()
+        .unwrap();
+    assert!(result.destroyed());
+    let husk = world.host_object(victim).unwrap();
+    assert!(husk.is_unmanned(), "authored Die slot must run after DestroyDie");
+    assert_eq!(husk.team_instance_id, Some(neutral_team));
+    assert_eq!(husk.health.current, 100.0);
+    assert_eq!(world.get_player(2).unwrap().power_produced, 20);
+    for id in [out_of_range, ally, aircraft] {
+        assert!(!world.host_object(id).unwrap().is_unmanned());
+    }
+}
