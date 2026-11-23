@@ -45,3 +45,39 @@ fn independent_players_open_retail_movie() {
     }
     std::fs::remove_dir_all(root).expect("remove retail movie fixture tree");
 }
+
+#[test]
+#[ignore = "requires GENERALS_BINK_SMOKE_MOVIE pointing to retail EA_LOGO.BIK"]
+fn retail_ea_logo_decoded_audio_length_uses_pcm_bytes() {
+    use game_client_rust::bink::BinkDecoder;
+    use game_client_rust::bink_audio::{
+        BinkAudioDecoder, parse_audio_layout, split_frame_audio_and_video,
+    };
+
+    let path = std::env::var_os("GENERALS_BINK_SMOKE_MOVIE")
+        .expect("set GENERALS_BINK_SMOKE_MOVIE to the retail EA_LOGO.BIK");
+    let bytes = std::fs::read(path).expect("read the retail EA logo");
+    let layout = parse_audio_layout(&bytes, 1, false);
+    let track = &layout.tracks[0];
+    assert_eq!((track.sample_rate, track.channels), (48_000, 2));
+    let mut audio = BinkAudioDecoder::new(track.clone());
+    let decoder = BinkDecoder::from_bytes(bytes).expect("open the real Bink container");
+    assert_eq!(decoder.header().audio_track_count, 1);
+
+    for (frame, declared_bytes) in [(0, 145_920), (1, 7_680)] {
+        let (packets, _) = split_frame_audio_and_video(decoder.packet(frame), layout.tracks.len());
+        let packet = packets[0];
+        let pcm_bytes = u32::from_le_bytes(packet[..4].try_into().unwrap()) as usize;
+        assert_eq!(pcm_bytes, declared_bytes);
+        let pcm = audio.decode_packet(packet);
+        assert_eq!(
+            pcm.len(),
+            pcm_bytes / std::mem::size_of::<i16>(),
+            "retail EA logo audio packet {frame}",
+        );
+        assert!(pcm.iter().any(|&sample| sample != 0.0));
+    }
+
+    let impossible_size = [0xfc, 0xff, 0xff, 0xff, 0x00];
+    assert!(audio.decode_packet(&impossible_size).is_empty());
+}

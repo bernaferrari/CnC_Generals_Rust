@@ -286,18 +286,27 @@ impl BinkAudioDecoder {
             return Vec::new();
         }
         let mut br = BitReader::new(packet);
-        let nsamples = br.read(32).unwrap_or(0) as usize;
-        if nsamples == 0 {
+        // The packet prefix counts decoded 16-bit PCM bytes across all channels.
+        let pcm_bytes = br.read(32).unwrap_or(0) as usize;
+        let ch = usize::from(self.track.channels);
+        let bytes_per_sample = std::mem::size_of::<i16>();
+        if pcm_bytes == 0 || ch == 0 || !pcm_bytes.is_multiple_of(ch * bytes_per_sample) {
             return Vec::new();
         }
-        let ch = self.track.channels as usize;
+        let nsamples = pcm_bytes / bytes_per_sample;
+        let samples_per_subframe = self.duration.max(1) * ch;
+        // Even an otherwise empty block encodes two initial coefficients.
+        // Reject impossible sizes before allocating from the packet header.
+        let min_coefficient_bits = if self.track.version_b { 64 } else { 58 };
+        if nsamples.div_ceil(samples_per_subframe)
+            > (packet.len() - 4).saturating_mul(8) / min_coefficient_bits
+        {
+            return Vec::new();
+        }
         let mut planar = vec![0.0f32; nsamples.max(self.duration * ch)];
         let mut off0 = 0usize;
-        let mut off1 = nsamples / ch.max(1);
-        if ch == 1 {
-            off1 = 0;
-        }
-        let num_subframes = (nsamples / self.duration.max(1) / ch.max(1)).max(1);
+        let mut off1 = if ch > 1 { nsamples / ch } else { 0 };
+        let num_subframes = (nsamples / samples_per_subframe).max(1);
         for _ in 0..num_subframes {
             if self.track.use_dct {
                 let _ = br.skip(2);
