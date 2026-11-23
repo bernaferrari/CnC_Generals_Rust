@@ -595,20 +595,24 @@ impl Player {
         if self.energy.get_power_sabotaged_till_frame() != 0
             && let Some(brownout) = self.expire_power_sabotage_at(TheGameLogic::get_frame())
         {
+            self.set_brownout_radar(brownout);
             Self::apply_power_brownout_to_owned_objects(self.player_index, brownout);
         }
     }
 
-    /// Player.cpp:698–701 clears sabotage strictly after the saved deadline.
-    pub(crate) fn expire_power_sabotage_at(&mut self, frame: u32) -> Option<bool> {
+    pub(crate) fn power_sabotage_expires_at(&self, frame: u32) -> bool {
         let sabotage_frame = self.energy.get_power_sabotaged_till_frame();
-        if sabotage_frame == 0 || frame <= sabotage_frame {
+        sabotage_frame != 0 && frame > sabotage_frame
+    }
+
+    /// Player.cpp:698–701 clears sabotage strictly after the saved deadline.
+    /// The caller delivers the resulting radar and object effects.
+    pub(crate) fn expire_power_sabotage_at(&mut self, frame: u32) -> Option<bool> {
+        if !self.power_sabotage_expires_at(frame) {
             return None;
         }
         self.energy.set_power_sabotaged_till_frame(0);
-        let brownout = self.energy.production < self.energy.consumption;
-        self.set_brownout_radar(brownout);
-        Some(brownout)
+        Some(!self.energy.has_sufficient_power_at(frame))
     }
 
     /// Called when a new map is loaded

@@ -189,6 +189,12 @@ fn core_frame_completes_the_receiving_dozer_scaffold_once_and_sends_it_to_end_do
     let peer_progress = peer.target.read().unwrap().get_construction_percent();
     let player = game.players.get_player(0).unwrap().clone();
     let peer_player = peer.players.get_player(0).unwrap().clone();
+    {
+        let mut player = player.write().unwrap();
+        player.get_energy_mut().add_power_consumption(2);
+        player.add_radar(false);
+        player.disable_radar();
+    }
     let initial_power = player.read().unwrap().get_energy().get_power();
     let initial_score = player.read().unwrap().get_score_keeper().get_total_buildings_built();
     let peer_power = peer_player.read().unwrap().get_energy().get_power();
@@ -233,6 +239,7 @@ fn core_frame_completes_the_receiving_dozer_scaffold_once_and_sends_it_to_end_do
     assert!(!game.target.read().unwrap().test_status(ObjectStatusTypes::UnderConstruction));
     assert_eq!(player.read().unwrap().get_score_keeper().get_total_buildings_built(), initial_score + 1);
     assert_eq!(player.read().unwrap().get_energy().get_power(), initial_power + 12);
+    assert_eq!(game.power_radar_edges, [(0, true, finished_at)]);
     let finish_position = *game.source.read().unwrap().get_position();
     let departure_goal = runtime.lock().unwrap().get_goal_position().expect("completion must issue an inherited MoveTo");
     assert!(departure_goal.distance(end_dock) <= 10.0, "unexpected departure goal {departure_goal:?} for dock {end_dock:?}");
@@ -247,6 +254,7 @@ fn core_frame_completes_the_receiving_dozer_scaffold_once_and_sends_it_to_end_do
     assert_eq!(peer.target.read().unwrap().get_construction_percent(), peer_progress);
     assert_eq!(peer_player.read().unwrap().get_energy().get_power(), peer_power);
     assert_eq!(peer_player.read().unwrap().get_score_keeper().get_total_buildings_built(), peer_score);
+    assert!(peer.power_radar_edges.is_empty());
 }
 
 fn save(game: &NativeMatch) -> Vec<u8> {

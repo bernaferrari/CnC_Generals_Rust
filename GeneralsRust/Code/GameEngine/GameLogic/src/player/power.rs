@@ -197,6 +197,14 @@ impl OwnedPowerBrownout<'_> {
                 return Err("power receiver belongs to another TeamFactory".into());
             }
         }
+        self.validate_roster(player, Some(borrowed))
+    }
+
+    pub(crate) fn validate_player_brownout(&self, player: PlayerIndex) -> Result<(), String> {
+        self.validate_roster(player, None)
+    }
+
+    fn validate_roster(&self, player: PlayerIndex, borrowed: Option<&Object>) -> Result<(), String> {
         for team in self.roster(player)? {
             let members = team
                 .read()
@@ -204,27 +212,22 @@ impl OwnedPowerBrownout<'_> {
                 .get_members()
                 .to_vec();
             for id in members {
-                if id == borrowed.get_id() {
-                    if borrowed.is_kind_of(crate::common::KindOf::Powered) {
-                        borrowed.validate_power_disable_owned(
-                            self.frame,
-                            self.objects.world().is_some(),
-                        )?;
-                        self.validate_spy(borrowed)?;
-                        self.validate_dozer(borrowed)?;
-                    }
+                if let Some(borrowed) = borrowed.filter(|object| object.get_id() == id) {
+                    self.validate_powered_member(borrowed)?;
                 } else if let Some(object) = self.objects.object(id) {
                     let object = object.read().map_err(|_| "power object poisoned")?;
-                    if object.is_kind_of(crate::common::KindOf::Powered) {
-                        object.validate_power_disable_owned(
-                            self.frame,
-                            self.objects.world().is_some(),
-                        )?;
-                        self.validate_spy(&object)?;
-                        self.validate_dozer(&object)?;
-                    }
+                    self.validate_powered_member(&object)?;
                 }
             }
+        }
+        Ok(())
+    }
+
+    fn validate_powered_member(&self, object: &Object) -> Result<(), String> {
+        if object.is_kind_of(crate::common::KindOf::Powered) {
+            object.validate_power_disable_owned(self.frame, self.objects.world().is_some())?;
+            self.validate_spy(object)?;
+            self.validate_dozer(object)?;
         }
         Ok(())
     }
@@ -363,39 +366,12 @@ impl OwnedPowerBrownout<'_> {
         };
         Ok(nested.map(|nested| (controller as PlayerIndex, nested)))
     }
-}
 
-impl PowerBrownoutServices for OwnedPowerBrownout<'_> {
-    fn frame(&self) -> u32 {
-        self.frame
-    }
-
-    fn radar_services(&mut self) -> &mut dyn RadarEdgeServices {
-        self.radar
-    }
-    fn validate_source(&self, source: &Arc<RwLock<Object>>) -> Result<(), String> {
-        let id = source.read().map_err(|_| "power source poisoned")?.get_id();
-        if self
-            .objects
-            .object(id)
-            .is_some_and(|owned| Arc::ptr_eq(&owned, source))
-        {
-            Ok(())
-        } else {
-            Err("power source belongs to another ObjectFactory".into())
-        }
-    }
-    fn apply_brownout_from_handle(
+    fn set_player_radar_brownout(
         &mut self,
         player: PlayerIndex,
         brownout: bool,
-        source: &Arc<RwLock<Object>>,
     ) -> Result<(), String> {
-        self.validate_source(source)?;
-        self.validate(
-            player,
-            &*source.read().map_err(|_| "power source poisoned")?,
-        )?;
         {
             let player = self
                 .players
@@ -408,6 +384,17 @@ impl PowerBrownoutServices for OwnedPowerBrownout<'_> {
                 player.enable_radar_owned(self.radar);
             }
         }
+        Ok(())
+    }
+
+    /// The frame operation has already admitted the receiving roster before
+    /// updating energy. The object loan ends before every reentrant callback.
+    pub(crate) fn apply_admitted_player_brownout(
+        &mut self,
+        player: PlayerIndex,
+        brownout: bool,
+    ) -> Result<(), String> {
+        self.set_player_radar_brownout(player, brownout)?;
         for team in self.roster(player)? {
             let members = team
                 .read()
@@ -487,11 +474,47 @@ impl PowerBrownoutServices for OwnedPowerBrownout<'_> {
                     None
                 };
                 if let Some((controller, next)) = nested {
-                    self.apply_brownout_from_handle(controller, next, source)?;
+                    self.validate_player_brownout(controller)?;
+                    self.apply_admitted_player_brownout(controller, next)?;
                 }
             }
         }
         Ok(())
+    }
+}
+
+impl PowerBrownoutServices for OwnedPowerBrownout<'_> {
+    fn frame(&self) -> u32 {
+        self.frame
+    }
+
+    fn radar_services(&mut self) -> &mut dyn RadarEdgeServices {
+        self.radar
+    }
+    fn validate_source(&self, source: &Arc<RwLock<Object>>) -> Result<(), String> {
+        let id = source.read().map_err(|_| "power source poisoned")?.get_id();
+        if self
+            .objects
+            .object(id)
+            .is_some_and(|owned| Arc::ptr_eq(&owned, source))
+        {
+            Ok(())
+        } else {
+            Err("power source belongs to another ObjectFactory".into())
+        }
+    }
+    fn apply_brownout_from_handle(
+        &mut self,
+        player: PlayerIndex,
+        brownout: bool,
+        source: &Arc<RwLock<Object>>,
+    ) -> Result<(), String> {
+        self.validate_source(source)?;
+        self.validate(
+            player,
+            &*source.read().map_err(|_| "power source poisoned")?,
+        )?;
+        self.apply_admitted_player_brownout(player, brownout)
     }
     fn validate_team(&self, team: &Arc<RwLock<crate::team::Team>>) -> Result<(), String> {
         let id = team.read().map_err(|_| "power team poisoned")?.get_id();
@@ -568,18 +591,7 @@ impl PowerBrownoutServices for OwnedPowerBrownout<'_> {
         borrowed: &mut Object,
     ) -> Result<(), String> {
         self.validate_borrowed_membership(player, borrowed)?;
-        {
-            let player = self
-                .players
-                .get_player(player)
-                .ok_or("power player absent")?;
-            let mut player = player.write().map_err(|_| "power player poisoned")?;
-            if brownout {
-                player.disable_radar_owned(self.radar);
-            } else {
-                player.enable_radar_owned(self.radar);
-            }
-        }
+        self.set_player_radar_brownout(player, brownout)?;
         for team in self.roster(player)? {
             let members = team
                 .read()

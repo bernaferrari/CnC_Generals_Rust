@@ -265,6 +265,7 @@ impl AdmissionMatch {
                         &game_engine::common::global_data::GlobalData::default(),
                     ),
                 radar: &mut radar,
+                power: None,
                 death_notifications: &mut death_notifications,
                 rank_info: &ranks,
                 rank_level_limit: i32::MAX,

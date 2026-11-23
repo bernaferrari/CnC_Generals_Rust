@@ -36,6 +36,7 @@ impl PlayerList {
         for player in roster.into_iter().flatten() {
             let change = player.write().ok().and_then(|mut player| {
                 let brownout = player.expire_power_sabotage_at(frame)?;
+                player.set_brownout_radar(brownout);
                 Some((player.get_player_index(), brownout))
             });
             if let Some((index, brownout)) = change {

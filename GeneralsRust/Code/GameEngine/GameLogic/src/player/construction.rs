@@ -17,13 +17,7 @@ impl Player {
             return None;
         }
         self.energy.adjust_power(power, true);
-        let brownout = !self.energy.has_sufficient_power_at(frame);
-        if brownout {
-            self.disable_radar();
-        } else {
-            self.enable_radar();
-        }
-        Some((self.player_index, brownout))
+        Some((self.player_index, !self.energy.has_sufficient_power_at(frame)))
     }
 
     pub(crate) fn score_structure_construction(
@@ -126,7 +120,9 @@ impl Player {
                     |world| world.logic_frame(),
                 );
                 let brownout = owner.write().ok().and_then(|mut owner| {
-                    owner.apply_construction_power_influence(power, disabled, frame)
+                    let effect = owner.apply_construction_power_influence(power, disabled, frame)?;
+                    owner.set_brownout_radar(effect.1);
+                    Some(effect)
                 });
                 if let Some((owner_index, brownout)) = brownout {
                     Self::apply_power_brownout_to_owned_objects(owner_index, brownout);

@@ -24,6 +24,11 @@ impl AiNativeServices<'_> {
             historic_damage_limit: self.historic_damage_limit,
             physics_rules: self.physics_rules,
             radar: self.radar,
+            power: self.power.as_mut().map(|power| NativePowerServices {
+                radar_edges: &mut *power.radar_edges,
+                misc_audio: power.misc_audio,
+                special_power_uses_delay: power.special_power_uses_delay,
+            }),
             death_notifications: self.death_notifications,
             rank_info: self.rank_info,
             rank_level_limit: self.rank_level_limit,

@@ -253,6 +253,7 @@ pub(super) fn prepare_with_templates(
         kill_awards: Vec::new(),
         deposit_sound: Default::default(),
         radar: Default::default(),
+        power_radar_edges: Vec::new(),
         death_notifications: Vec::new(),
         groups: Vec::new(),
         disposal: crate::modules::ai_native_world::owned_disposal::NativeDisposalState::new()

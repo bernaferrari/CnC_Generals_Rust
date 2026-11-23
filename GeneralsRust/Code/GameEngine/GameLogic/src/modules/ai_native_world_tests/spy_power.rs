@@ -103,6 +103,58 @@ fn packed(bytes: &[u8]) -> u32 {
 }
 
 #[test]
+fn scheduled_sabotage_expiry_reenables_the_receiving_spy() {
+    let mut game = NativeMatch::with_source_template(150.0, container_template(), true, spy_template());
+    let mut peer = NativeMatch::with_source_template(150.0, container_template(), true, spy_template());
+    let deadline = 40;
+    for game in [&mut game, &mut peer] {
+        register(game);
+        let source = game.source.clone();
+        game.operate(20, |world| world.activate_spy_vision_owned(&source, 100)).unwrap();
+        assert!(game.target.read().unwrap().is_vision_spied_by_player(0));
+        let player = game.players.get_player(0).unwrap();
+        {
+            let mut player = player.write().unwrap();
+            player.add_radar(false);
+            player.get_energy_mut().add_power_production(20);
+            player.get_energy_mut().set_power_sabotaged_till_frame(deadline);
+        }
+        power(game, 21, true).unwrap();
+        assert!(!game.target.read().unwrap().is_vision_spied_by_player(0));
+    }
+    assert_eq!(
+        game.source.read().unwrap().get_id(),
+        peer.source.read().unwrap().get_id(),
+    );
+    let peer_before = saved(&peer);
+    let drive = |game: &mut NativeMatch, frame| {
+        game.with_native_services(frame, |factory, players, services, scheduler| {
+            crate::modules::ai_native_world::update_game_logic_with_native_modules(
+                factory, players, services, scheduler, || None,
+            )
+        }).unwrap();
+    };
+    drive(&mut game, deadline);
+    let underpowered = |game: &NativeMatch| {
+        game.source.read().unwrap().is_disabled_by_type(DisabledType::DisabledUnderpowered)
+    };
+    assert!(underpowered(&game));
+    assert_eq!(saved(&game), peer_before);
+    assert!(game.power_radar_edges.is_empty());
+    drive(&mut game, deadline + 1);
+    assert!(!underpowered(&game));
+    let restored = saved(&game);
+    assert_eq!(packed(&restored), ((deadline + 2) << 2) | 2);
+    assert_eq!(u32::from_le_bytes(restored[15..19].try_into().unwrap()), deadline + 1);
+    assert!(game.players.get_player(0).unwrap().read().unwrap().has_radar());
+    assert_eq!(game.power_radar_edges, [(0, true, deadline + 1)]);
+    assert!(underpowered(&peer));
+    assert_eq!(saved(&peer), peer_before);
+    assert!(!peer.players.get_player(0).unwrap().read().unwrap().has_radar());
+    assert!(peer.power_radar_edges.is_empty());
+}
+
+#[test]
 fn installed_active_spy_power_edges_change_only_driving_vision_and_preserve_saved_continuation() {
     let mut game =
         NativeMatch::with_source_template(150.0, container_template(), true, spy_template());

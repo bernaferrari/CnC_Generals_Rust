@@ -42,7 +42,7 @@ impl BorrowedAiWorld<'_> {
                 return Err("construction completion no longer has its scheduled owners".into());
             }
         }
-        let (mines, player) = {
+        let (mines, player, has_power_influence) = {
             let scaffold = scaffold
                 .try_read()
                 .map_err(|_| "construction scaffold borrowed")?;
@@ -58,8 +58,21 @@ impl BorrowedAiWorld<'_> {
             } else {
                 Vec::new()
             };
-            (mines, self.controller(&scaffold))
+            (
+                mines,
+                self.controller(&scaffold),
+                scaffold.get_template().get_energy_production() != 0,
+            )
         };
+        if has_power_influence {
+            if let Some(player) = &player {
+                let index = player
+                    .read()
+                    .map_err(|_| "construction player poisoned")?
+                    .get_player_index();
+                self.with_native_power(|power| power.validate_player_brownout(index))?;
+            }
+        }
         // DozerAIUpdate.cpp:540–545 / Object.cpp:985–1011. Mines see the
         // UnderConstruction bit cleared while the separate rebuild bit remains.
         let was_under_construction = scaffold
@@ -232,7 +245,9 @@ impl BorrowedAiWorld<'_> {
             .map_err(|_| "construction player poisoned")?
             .apply_construction_power_influence(power, disabled, frame);
         if let Some((index, is_brownout)) = brownout {
-            self.apply_native_player_brownout(index, is_brownout)?;
+            self.with_native_power(|power| {
+                power.apply_admitted_player_brownout(index, is_brownout)
+            })?;
         }
         if let Some(world) = world.as_ref() {
             if let Some(manager) = world
@@ -262,18 +277,6 @@ impl BorrowedAiWorld<'_> {
             for event in events {
                 let _ = crate::helpers::TheEva::set_should_play_from(world.as_ref(), event);
             }
-        }
-        Ok(())
-    }
-
-    pub(super) fn apply_native_player_brownout(&self, index: i32, is_brownout: bool) -> Result<(), String> {
-        // Resolve each object after the preceding synchronous disable edge.
-        for id in self.services.spatial_objects.get_objects_owned_by_player(index as u32) {
-            let Some(object) = self.object(id) else {
-                continue;
-            };
-            let mut object = object.write().map_err(|_| "powered object poisoned")?;
-            Player::apply_brownout_to_powered_object(&mut object, is_brownout);
         }
         Ok(())
     }

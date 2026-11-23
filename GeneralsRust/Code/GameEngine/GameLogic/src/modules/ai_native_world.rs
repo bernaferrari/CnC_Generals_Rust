@@ -22,6 +22,13 @@ pub enum NativeDeathNotification {
     UnitLost { player: i32 },
 }
 
+/// Receiving presentation and timer policy for synchronous power callbacks.
+pub struct NativePowerServices<'a> {
+    pub radar_edges: &'a mut dyn crate::player::RadarEdgeServices,
+    pub misc_audio: Option<&'a game_engine::common::ini::ini_misc_audio::MiscAudio>,
+    pub special_power_uses_delay: bool,
+}
+
 /// Actual driving-instance native owners. Output lists are original-phase
 /// trigger notifications and semantic presentation messages, not queued game
 /// mutations; Object trigger flags change synchronously during the operation.
@@ -30,6 +37,7 @@ pub struct AiNativeServices<'a> {
     pub historic_damage_limit: u32,
     pub physics_rules: crate::object::behavior::physics_update::PhysicsRules,
     pub radar: &'a mut game_engine::common::system::radar::RadarSystem,
+    pub power: Option<NativePowerServices<'a>>,
     pub death_notifications: &'a mut Vec<NativeDeathNotification>,
     pub rank_info: &'a crate::system::rank_info::RankInfoStore,
     pub rank_level_limit: i32,
@@ -1855,6 +1863,7 @@ mod owned_destroy;
 #[path = "ai_native_world/owned_dozer.rs"]
 mod owned_dozer;
 mod owned_construction;
+mod owned_power;
 mod owned_construction_wall;
 mod owned_updates;
 pub use owned_updates::update_game_logic_with_native_modules;

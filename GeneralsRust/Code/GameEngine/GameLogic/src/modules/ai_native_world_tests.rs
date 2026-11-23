@@ -214,11 +214,35 @@ impl AudioLocalityResolver for LocalPlayers<'_> {
         }
     }
 }
+struct PowerRadarTrace<'a> {
+    frame: u32,
+    edges: &'a mut Vec<(i32, bool, u32)>,
+}
+
+impl crate::player::RadarEdgeServices for PowerRadarTrace<'_> {
+    fn has_single_player_been_defeated(&self, _: &Player) -> bool {
+        false
+    }
+    fn client_quiet(&self) -> bool {
+        false
+    }
+    fn in_logic_update(&self) -> bool {
+        true
+    }
+    fn frame(&self) -> u32 {
+        self.frame
+    }
+    fn play_radar_edge(&mut self, player: i32, online: bool) {
+        self.edges.push((player, online, self.frame));
+    }
+}
+
 struct NativeMatch {
     weapon_store: crate::weapon::WeaponStore,
     historic_damage_limit: u32,
     physics_rules: crate::object::behavior::physics_update::PhysicsRules,
     radar: game_engine::common::system::radar::RadarSystem,
+    power_radar_edges: Vec<(i32, bool, u32)>,
     death_notifications: Vec<super::ai_native_world::NativeDeathNotification>,
     ranks: crate::system::rank_info::RankInfoStore,
     deposit_sound: game_engine::common::audio::AudioEventRts,
@@ -468,6 +492,7 @@ impl NativeMatch {
             deposit_sound: Default::default(),
             kill_awards: Vec::new(),
             radar: Default::default(),
+            power_radar_edges: Vec::new(),
             death_notifications: Vec::new(),
             groups: Vec::new(),
             scheduler,
@@ -526,11 +551,20 @@ impl NativeMatch {
         ) -> R,
     ) -> R {
         let locality = LocalPlayers(&self.players);
+        let mut radar_edges = PowerRadarTrace {
+            frame,
+            edges: &mut self.power_radar_edges,
+        };
         let services = AiNativeServices {
             weapon_store: &mut self.weapon_store,
             historic_damage_limit: self.historic_damage_limit,
             physics_rules: self.physics_rules,
             radar: &mut self.radar,
+            power: Some(super::ai_native_world::NativePowerServices {
+                radar_edges: &mut radar_edges,
+                misc_audio: None,
+                special_power_uses_delay: true,
+            }),
             death_notifications: &mut self.death_notifications,
             rank_info: &self.ranks,
             rank_level_limit: i32::MAX,

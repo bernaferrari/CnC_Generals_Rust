@@ -61,16 +61,28 @@ impl NativeFrameDriver for ReceivingNativeFrame<'_, '_> {
 }
 
 impl BorrowedAiWorld<'_> {
-    fn update_player_power_sabotage(&self) -> Result<(), String> {
-        for player in self.players.iter() {
-            let change = {
-                let mut player = player.write().map_err(|_| "receiving AI player poisoned")?;
-                player.expire_power_sabotage_at(self.services.frame)
-                    .map(|brownout| (player.get_player_index(), brownout))
+    fn update_player_power_sabotage(&mut self) -> Result<(), String> {
+        let frame = self.services.frame;
+        let players = self.players;
+        for player in players.iter() {
+            let index = {
+                let player = player.read().map_err(|_| "receiving AI player poisoned")?;
+                if !player.power_sabotage_expires_at(frame) {
+                    continue;
+                }
+                player.get_player_index()
             };
-            if let Some((index, brownout)) = change {
-                self.apply_native_player_brownout(index, brownout)?;
-            }
+            self.with_native_power(|power| {
+                power.validate_player_brownout(index)?;
+                let change = player
+                    .write()
+                    .map_err(|_| "receiving AI player poisoned")?
+                    .expire_power_sabotage_at(frame);
+                if let Some(brownout) = change {
+                    power.apply_admitted_player_brownout(index, brownout)?;
+                }
+                Ok(())
+            })?;
         }
         Ok(())
     }
