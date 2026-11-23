@@ -762,21 +762,23 @@ if let Ok(mut list) = __arc_bind.write() {
     pub(crate) fn is_underwater_at(&self, world_pos: Vec3) -> bool {
         let owner = self.world_services.terrain();
         let terrain = owner.read().unwrap_or_else(|e| e.into_inner());
-        self.is_underwater_with_terrain_logic(world_pos, &terrain)
+        self.underwater_surface_with_terrain_logic(world_pos, &terrain)
+            .is_some()
     }
 
-    fn is_underwater_with_terrain_logic(
+    fn underwater_surface_with_terrain_logic(
         &self,
         world_pos: Vec3,
         terrain: &gamelogic::terrain::TerrainLogic,
-    ) -> bool {
-        if terrain.has_height_map() || terrain.get_water_handle(world_pos.x, world_pos.z).is_some()
-        {
-            return terrain.is_underwater(world_pos.x, world_pos.z, None, None);
+    ) -> Option<f32> {
+        if let Some(height) = terrain.water_height_at_location(world_pos.x, world_pos.z) {
+            let ground = terrain.get_ground_height(world_pos.x, world_pos.z, None);
+            return (ground < height).then_some(height);
         }
-        self.terrain
-            .as_ref()
-            .is_some_and(|t| t.is_underwater_at_world(world_pos))
+        if terrain.has_height_map() {
+            return None;
+        }
+        self.terrain.as_ref()?.underwater_surface_at_world(world_pos)
     }
 
     pub(crate) fn water_surface_at(&self, world_pos: Vec3) -> Option<f32> {
@@ -790,9 +792,7 @@ if let Ok(mut list) = __arc_bind.write() {
         world_pos: Vec3,
         terrain: &gamelogic::terrain::TerrainLogic,
     ) -> Option<f32> {
-        if terrain.get_water_handle(world_pos.x, world_pos.z).is_some() {
-            let mut height = 0.0;
-            terrain.is_underwater(world_pos.x, world_pos.z, Some(&mut height), None);
+        if let Some(height) = terrain.water_height_at_location(world_pos.x, world_pos.z) {
             return Some(height);
         }
         if terrain.has_height_map() {
@@ -803,18 +803,25 @@ if let Ok(mut list) = __arc_bind.write() {
             .and_then(|t| t.water_surface_at_world(world_pos))
     }
 
-    /// C++ `Locomotor::getSurfaceHtAtPt` — use one receiving terrain read
-    /// loan for the underwater, water-surface, and ground decisions. This
-    /// keeps the three samples on one world state and avoids re-locking it.
+    /// C++ `Locomotor::getSurfaceHtAtPt`. Search water once and use the
+    /// receiving ground or bridge height when there is no submerged surface.
     pub fn surface_ht_at(&self, world_pos: Vec3) -> Option<f32> {
         let owner = self.world_services.terrain();
         let terrain = owner.read().unwrap_or_else(|e| e.into_inner());
-        if self.is_underwater_with_terrain_logic(world_pos, &terrain) {
-            if let Some(water_y) = self.water_surface_with_terrain_logic(world_pos, &terrain) {
-                return Some(water_y);
-            }
-        }
-        self.terrain_height_at_with_terrain_logic(world_pos, Some(&terrain))
+        self.underwater_surface_with_terrain_logic(world_pos, &terrain)
+            .or_else(|| self.terrain_height_at_with_terrain_logic(world_pos, Some(&terrain)))
+    }
+
+    /// Movement needs both heights from the same receiving terrain loan.
+    pub(in crate::game_logic) fn terrain_and_surface_height_at(
+        &self,
+        world_pos: Vec3,
+    ) -> (Option<f32>, Option<f32>) {
+        let owner = self.world_services.terrain();
+        let terrain = owner.read().unwrap_or_else(|e| e.into_inner());
+        let land = self.terrain_height_at_with_terrain_logic(world_pos, Some(&terrain));
+        let surface = self.underwater_surface_with_terrain_logic(world_pos, &terrain).or(land);
+        (land, surface)
     }
 
     /// C++ `PartitionManager::getGroundOrStructureHeight` (`PartitionManager.cpp:4674`).

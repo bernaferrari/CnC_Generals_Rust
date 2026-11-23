@@ -24,20 +24,13 @@ impl TerrainLogic {
         water_z: Option<&mut f32>,
         terrain_z: Option<&mut f32>,
     ) -> bool {
-        let Some(water_handle) = self.get_water_handle(x, y) else {
+        let Some(w_z) = self.water_height_at_location(x, y) else {
             // TerrainLogic.cpp:2128–2133 still reports an explicitly requested
             // terrain height on dry ground. Predicate-only callers can stop here.
             if let Some(tz) = terrain_z {
                 *tz = self.get_ground_height(x, y, None);
             }
             return false;
-        };
-
-        let is_grid = std::ptr::eq(water_handle, &self.grid_water_handle);
-        let w_z = if is_grid {
-            self.water_grid.height_at(x, y).unwrap_or(0.0)
-        } else {
-            self.get_water_height(water_handle)
         };
 
         if let Some(wz) = water_z {
@@ -61,6 +54,17 @@ impl TerrainLogic {
             self.map_dy,
             self.border_size,
         )
+    }
+
+    /// Sample the authoritative logical water height in one search.
+    pub fn water_height_at_location(&self, x: f32, y: f32) -> Option<f32> {
+        match self.water_surface_at(x, y, || self.water_grid.height_at(x, y))? {
+            WaterSurface::Grid(height) => Some(height),
+            WaterSurface::Polygon { trigger_id, .. } => self
+                .water_handles_by_trigger_id
+                .get(&trigger_id)
+                .map(|handle| self.get_water_height(handle)),
+        }
     }
 
     /// Get water handle at location

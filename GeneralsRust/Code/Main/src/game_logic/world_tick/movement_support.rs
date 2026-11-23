@@ -1025,15 +1025,13 @@ impl GameLogic {
                     obj.loco_behavior_z,
                     LocomotorBehaviorZ::SmoothRelativeToHighestLayer
                 );
-                let gy = if smooth {
-                    flight_terrain.raw_ground(pos, obj.ground_height)
+                let (gy, sy) = if smooth {
+                    let ground = flight_terrain.raw_ground(pos, obj.ground_height);
+                    (ground, ground)
                 } else {
-                    self.terrain_height_at(pos).unwrap_or(obj.ground_height)
-                };
-                let sy = if smooth {
-                    gy
-                } else {
-                    self.surface_ht_at(pos).unwrap_or(gy)
+                    let (land, surface) = self.terrain_and_surface_height_at(pos);
+                    let ground = land.unwrap_or(obj.ground_height);
+                    (ground, surface.unwrap_or(ground))
                 };
                 let sy = if matches!(
                     obj.loco_behavior_z,

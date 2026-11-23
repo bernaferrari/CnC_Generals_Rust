@@ -467,18 +467,16 @@ impl TerrainData {
     /// only inside the highest containing water polygon. With no polygons, fall
     /// back to `water_plane_y` so existing host residuals stay usable.
     pub fn is_underwater_at_world(&self, world: Vec3) -> bool {
-        let Some(water_y) = self.water_surface_at_world(world) else {
-            return false;
-        };
+        self.underwater_surface_at_world(world).is_some()
+    }
+
+    pub(crate) fn underwater_surface_at_world(&self, world: Vec3) -> Option<f32> {
+        let water_y = self.water_surface_at_world(world)?;
         #[cfg(feature = "game_client")]
-        {
-            let terrain_y = self.height_at_world(world);
-            return terrain_y < water_y;
-        }
+        let terrain_y = self.height_at_world(world);
         #[cfg(not(feature = "game_client"))]
-        {
-            world.y < water_y
-        }
+        let terrain_y = world.y;
+        (terrain_y < water_y).then_some(water_y)
     }
 
     pub fn water_surface_at_world(&self, world: Vec3) -> Option<f32> {
