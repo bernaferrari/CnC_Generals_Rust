@@ -6,7 +6,9 @@ use super::super::*;
 impl GameLogic {
     pub(crate) fn presentation_crate_flags(&self, object: &Object) -> (bool, bool) {
         let legacy = self.host_money_crates.get(object.id);
-        let is_salvage = object.authored_salvage_crate_collides().is_some()
+        let is_salvage = object
+            .authored_crate_collides()
+            .is_some_and(|collides| collides.iter().any(|collide| collide.is_salvage()))
             || (object.get_template().receiving_client_template.is_none()
                 && legacy.is_some_and(|entry| entry.is_salvage));
         (
@@ -80,6 +82,14 @@ impl GameLogic {
             } else {
                 SUPPLY_DROP_PAYLOAD_RESIDUAL_TEMPLATE.to_string()
             };
+
+            let authored_money_crate = plan.is_final_item
+                && self.templates.get(&template_name).is_some_and(|template| {
+                    template
+                        .receiving_client_template
+                        .as_ref()
+                        .is_some_and(|data| data.has_money_crate_collide())
+                });
 
             // A deferred cargo mission must retain the player that initiated it:
             // using `source_team` here used to attach every USA payload to the
@@ -172,7 +182,10 @@ impl GameLogic {
             // BuildingPickup residual bulk cash when final item lands
             // (zone path; crates remain for unit MoneyCrateCollide residual
             // only if not marked paid — mark paid after bulk to avoid double).
-            if plan.is_final_item && plan.kind.credits_building_pickup_cash() {
+            if plan.is_final_item
+                && plan.kind.credits_building_pickup_cash()
+                && !authored_money_crate
+            {
                 let owner_player_id =
                     self.player_owner_for_event(plan.source_owner_player_id, plan.source_team);
                 let has_supply_lines = owner_player_id
@@ -275,7 +288,7 @@ impl GameLogic {
                 self.host_money_crates.forget(id);
                 continue;
             };
-            if obj.authored_salvage_crate_collides().is_some() {
+            if obj.authored_crate_collides().is_some() {
                 // The native Collide module handles actual partition contacts.
                 continue;
             }

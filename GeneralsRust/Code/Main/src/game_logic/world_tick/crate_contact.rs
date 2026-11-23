@@ -1,17 +1,22 @@
-//! Main's receiving SalvageCrateCollide callback at the native partition contact.
+//! Authored MoneyCrateCollide and SalvageCrateCollide at the receiving partition contact.
 use crate::game_logic::{
     AudioEventRequest, GameLogic, ObjectId, ScriptPresentationEffects, VeterancyLevel,
-    host_money_crate::HostMoneyCrateRegistry,
+    host_money_crate::HostMoneyCrateRegistry, host_upgrades::UPGRADE_AMERICA_SUPPLY_LINES,
+    thing::AuthoredCrateCollide,
 };
 use game_engine::common::rts::science::SCIENCE_INVALID;
-use gamelogic::object::collide::crate_collide::salvage_crate_collide::SalvageCrateCollideModuleData;
+use game_engine::common::system::kind_of::KindOfMask;
+use gamelogic::object::collide::crate_collide::{
+    money_crate_collide::MoneyCrateCollideModuleData,
+    salvage_crate_collide::SalvageCrateCollideModuleData,
+};
 
 impl GameLogic {
-    pub(super) fn dispatch_owned_salvage_crate_contact(
+    pub(super) fn dispatch_owned_crate_contact(
         &mut self,
         crate_id: ObjectId,
         picker_id: ObjectId,
-        collides: &[SalvageCrateCollideModuleData],
+        collides: &[AuthoredCrateCollide],
         effects: &mut ScriptPresentationEffects<'_>,
     ) -> gamelogic::GameLogicResult<bool> {
         let Some(crate_object) = self.objects.get(&crate_id) else {
@@ -38,10 +43,8 @@ impl GameLogic {
                 || picker.kind_of_cpp_mask(),
                 |template| template.authored_kind_of_bits(),
             );
-        use game_engine::common::system::kind_of::KindOfMask;
         if player.is_reserved_neutral()
             || picker.status.effectively_dead
-            || kinds & KindOfMask::SALVAGER.bits() == 0
             || kinds & KindOfMask::PARACHUTE.bits() != 0
         {
             return Ok(false);
@@ -51,9 +54,10 @@ impl GameLogic {
         let crate_owner = self.player_owner_for_host_object(crate_object);
         let position = crate_object.get_position();
         let some_valid = collides.iter().find(|data| {
-            let base = &data.base;
+            let base = data.base();
             let building_attempt = base.is_building_pickup && is_structure;
-            (has_ai || building_attempt)
+            (!data.is_salvage() || kinds & KindOfMask::SALVAGER.bits() != 0)
+                && (has_ai || building_attempt)
                 && kinds & base.required_kind_of == base.required_kind_of
                 && kinds & base.forbidden_kind_of == 0
                 && (building_attempt || position.y <= self.raw_terrain_ground_height_at(position))
@@ -76,6 +80,118 @@ impl GameLogic {
 
         let crate_birth = crate_object.visual_object_generation;
         let epoch = self.visual_world_epoch;
+        let base = data.base();
+        match data {
+            AuthoredCrateCollide::Money(data) => self.pay_authored_money_crate(
+                data,
+                crate_id,
+                picker_id,
+                player_id,
+                base.is_building_pickup && is_structure,
+            ),
+            AuthoredCrateCollide::Salvage(data) => {
+                self.execute_authored_salvage_pickup(data, crate_id, picker_id, player_id, kinds);
+            }
+        }
+        if let Some(fx) = &base.execute_fx {
+            self.dispatch_fx_list_at_host_object_with_effects(fx, picker_id, None, effects);
+        }
+        if self.spawn_identity_matches(crate_id, crate_birth, epoch) {
+            self.destroy_object_with_effects(crate_id, effects)?;
+        }
+        if self.get_draw_icon_ui() && self.spawn_identity_matches(crate_id, crate_birth, epoch) {
+            let pos = self.objects[&crate_id].get_position();
+            let view = &mut self.session_view;
+            if let Some(animation) = view
+                .definitions
+                .animation_templates()
+                .find(&base.execution_animation_template)
+            {
+                view.world_animations.admit(
+                    crate::presentation_frame::PresentationWorldAnim {
+                        identity: 0,
+                        initial_frame: 0,
+                        template: base.execution_animation_template.clone(),
+                        position: pos,
+                        display_time_seconds: base.execute_animation_display_time_seconds,
+                        z_rise_per_second: base.execute_animation_z_rise_per_second,
+                        // CrateCollide.cpp:116 passes WORLD_ANIM_FADE_ON_EXPIRE.
+                        fades: true,
+                        spawn_frame: self.frame,
+                        crate_id,
+                        picker_id,
+                    },
+                    animation,
+                    &mut view.client_random,
+                );
+            }
+        }
+        Ok(true)
+    }
+
+    fn queue_authored_crate_sound(&mut self, picker_id: ObjectId, salvage_upgrade: bool) {
+        if let Some(event) = self.session_view.definitions.salvage_sound(salvage_upgrade) {
+            let event = AudioEventRequest::new(event).with_object(picker_id);
+            self.queue_audio_event(event);
+        }
+    }
+
+    fn pay_authored_money_crate(
+        &mut self,
+        data: &MoneyCrateCollideModuleData,
+        crate_id: ObjectId,
+        picker_id: ObjectId,
+        player_id: u32,
+        building_pickup: bool,
+    ) {
+        let completed = &self.players[&player_id].completed_upgrades;
+        // Apply the first completed, receiving-authored upgrade. The original
+        // function-static lookup reused the first entry for every subsequent row.
+        let (boost, supply_lines_boost) = data
+            .upgrade_boosts
+            .iter()
+            .find_map(|row| {
+                let upgrade = self.upgrade_template(&row.upgrade_type)?;
+                let name = upgrade.get_name().as_str();
+                completed.contains(name).then(|| {
+                    let supply_lines_boost = if name == UPGRADE_AMERICA_SUPPLY_LINES {
+                        row.amount.max(0) as u32
+                    } else {
+                        0
+                    };
+                    (row.amount, supply_lines_boost)
+                })
+            })
+            .unwrap_or_default();
+        // C++ adds a signed boost to UnsignedInt; a zero amount still consumes
+        // the crate, runs its pickup sound, and executes the base callbacks.
+        let amount = data.money_provided.wrapping_add_signed(boost);
+        if let Some((player, economy)) = self.player_and_economy_events_mut(player_id) {
+            player.credit_supplies(amount, economy);
+            player.add_money_earned(amount);
+        }
+        self.host_money_crates.record_authored_money_pickup(
+            crate_id,
+            amount,
+            supply_lines_boost,
+            building_pickup,
+        );
+        self.supply_lines_bonus_cash_total = self
+            .supply_lines_bonus_cash_total
+            .saturating_add(supply_lines_boost);
+        self.queue_authored_crate_sound(picker_id, false);
+    }
+
+    fn execute_authored_salvage_pickup(
+        &mut self,
+        data: &SalvageCrateCollideModuleData,
+        crate_id: ObjectId,
+        picker_id: ObjectId,
+        player_id: u32,
+        kinds: u128,
+    ) {
+        let picker = &self.objects[&picker_id];
+        let position = self.objects[&crate_id].get_position();
         let can_upgrade_armor =
             kinds & KindOfMask::ARMOR_SALVAGER.bits() != 0 && picker.armor_crate_upgrade < 2;
         let can_upgrade_weapon =
@@ -114,48 +230,11 @@ impl GameLogic {
             Some(false)
         };
         if let Some(upgrade) = play_sound {
-            if let Some(event) = self.session_view.definitions.salvage_sound(upgrade) {
-                let event = AudioEventRequest::new(event).with_object(picker_id);
-                self.queue_audio_event(event);
-            }
+            self.queue_authored_crate_sound(picker_id, upgrade);
         }
         if let Some(player) = self.players.get_mut(&player_id) {
             player.academy_stats.record_salvage_collected();
         }
-        if let Some(fx) = &data.base.execute_fx {
-            self.dispatch_fx_list_at_host_object_with_effects(fx, picker_id, None, effects);
-        }
-        if self.spawn_identity_matches(crate_id, crate_birth, epoch) {
-            self.destroy_object_with_effects(crate_id, effects)?;
-        }
-        if self.get_draw_icon_ui() && self.spawn_identity_matches(crate_id, crate_birth, epoch) {
-            let pos = self.objects[&crate_id].get_position();
-            let view = &mut self.session_view;
-            if let Some(animation) = view
-                .definitions
-                .animation_templates()
-                .find(&data.base.execution_animation_template)
-            {
-                view.world_animations.admit(
-                    crate::presentation_frame::PresentationWorldAnim {
-                        identity: 0,
-                        initial_frame: 0,
-                        template: data.base.execution_animation_template.clone(),
-                        position: pos,
-                        display_time_seconds: data.base.execute_animation_display_time_seconds,
-                        z_rise_per_second: data.base.execute_animation_z_rise_per_second,
-                        // CrateCollide.cpp:116 passes WORLD_ANIM_FADE_ON_EXPIRE.
-                        fades: true,
-                        spawn_frame: self.frame,
-                        crate_id,
-                        picker_id,
-                    },
-                    animation,
-                    &mut view.client_random,
-                );
-            }
-        }
-        Ok(true)
     }
 
     fn test_authored_salvage_chance(&self, chance: f32) -> bool {

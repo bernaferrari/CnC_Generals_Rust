@@ -774,6 +774,27 @@ impl HostMoneyCrateRegistry {
         if self.crates.remove(&crate_id).is_none() {
             return false;
         }
+        self.record_money_pickup(amount, supply_lines_boost, via_building_pickup);
+        true
+    }
+
+    pub(crate) fn record_authored_money_pickup(
+        &mut self,
+        crate_id: ObjectId,
+        amount: u32,
+        supply_lines_boost: u32,
+        via_building_pickup: bool,
+    ) {
+        self.crates.remove(&crate_id);
+        self.record_money_pickup(amount, supply_lines_boost, via_building_pickup);
+    }
+
+    fn record_money_pickup(
+        &mut self,
+        amount: u32,
+        supply_lines_boost: u32,
+        via_building_pickup: bool,
+    ) {
         self.pickups = self.pickups.saturating_add(1);
         self.cash_total = self.cash_total.saturating_add(amount);
         self.supply_lines_boost_cash_total = self
@@ -784,7 +805,6 @@ impl HostMoneyCrateRegistry {
         } else {
             self.unit_pickups = self.unit_pickups.saturating_add(1);
         }
-        true
     }
 
     /// Record residual MoneyPickUp Anim2D presentation after a successful pickup.

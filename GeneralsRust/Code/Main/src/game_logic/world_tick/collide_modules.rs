@@ -22,7 +22,7 @@ impl super::super::GameLogic {
         if self_id == other_id {
             return Ok(());
         }
-        let (entering_other, crate_other, pilot_targets_other, salvage) = {
+        let (entering_other, crate_other, pilot_targets_other, crate_collides) = {
             let Some(us) = self.objects.get(&self_id) else {
                 return Ok(());
             };
@@ -32,16 +32,16 @@ impl super::super::GameLogic {
             let entering = matches!(us.ai_state(), AIState::Entering)
                 && (us.target == Some(other_id) || us.container_id() == Some(other_id))
                 && other.can_contain();
-            let is_crate = other.authored_salvage_crate_collides().is_none()
+            let is_crate = other.authored_crate_collides().is_none()
                 && other.template_name.as_bytes().windows(b"crate".len())
                     .any(|part| part.eq_ignore_ascii_case(b"crate"));
             let pilot_targets_other = us.target == Some(other_id)
                 && us.get_template().veterancy_crate_collide.is_some();
-            let salvage = us.authored_salvage_crate_collides().cloned();
-            (entering, is_crate, pilot_targets_other, salvage)
+            let crate_collides = us.authored_crate_collides().cloned();
+            (entering, is_crate, pilot_targets_other, crate_collides)
         };
-        if let Some(salvage) = salvage
-            && self.dispatch_owned_salvage_crate_contact(self_id, other_id, &salvage, effects)?
+        if let Some(collides) = crate_collides
+            && self.dispatch_owned_crate_contact(self_id, other_id, &collides, effects)?
         {
             return Ok(());
         }

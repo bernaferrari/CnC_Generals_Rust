@@ -13,7 +13,7 @@ mod attack;
 mod collide_dispatch;
 pub(in crate::game_logic) use collide_dispatch::{host_geom_collides, host_object_footprint};
 mod collide_modules;
-mod salvage_contact;
+mod crate_contact;
 
 mod combat;
 mod combat_fire_fx;

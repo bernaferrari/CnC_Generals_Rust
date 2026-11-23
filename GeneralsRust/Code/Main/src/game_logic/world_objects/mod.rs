@@ -21,6 +21,8 @@ mod hotkey_squads;
 mod internal_move;
 #[cfg(test)]
 mod native_lifecycle_owner_tests;
+#[cfg(test)]
+mod native_money_crate_tests;
 mod object_ai_combat;
 mod object_queries;
 mod object_upgrade_callbacks;

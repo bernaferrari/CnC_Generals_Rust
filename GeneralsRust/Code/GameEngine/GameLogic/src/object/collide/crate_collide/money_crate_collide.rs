@@ -44,6 +44,12 @@ pub struct MoneyCrateCollideModuleData {
 }
 
 impl MoneyCrateCollideModuleData {
+    /// Copy the typed INI row installed by strict receiving admission.
+    pub fn from_authored_handle(handle: &ModuleDataHandle) -> Option<Self> {
+        let adapter = handle.read().into_downcast::<CrateCollideDataAdapter<Self>>()?;
+        Some(adapter.data.clone())
+    }
+
     pub fn new() -> Self {
         Self {
             base: CrateCollideModuleData::new(),

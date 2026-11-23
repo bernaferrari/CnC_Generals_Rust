@@ -239,10 +239,32 @@ impl ReceivingDrawModels {
 #[derive(Debug, Clone)]
 pub(crate) struct ReceivingClientTemplate(
     std::sync::Arc<game_engine::common::thing::thing_template::AdmittedReceivingTemplate>,
-    Option<std::sync::Arc<[SalvageCrateCollideModuleData]>>,
+    Option<std::sync::Arc<[AuthoredCrateCollide]>>,
 );
 
-use gamelogic::object::collide::crate_collide::salvage_crate_collide::SalvageCrateCollideModuleData;
+use gamelogic::object::collide::crate_collide::{
+    crate_collide::CrateCollideModuleData, money_crate_collide::MoneyCrateCollideModuleData,
+    salvage_crate_collide::SalvageCrateCollideModuleData,
+};
+
+#[derive(Debug, Clone)]
+pub(crate) enum AuthoredCrateCollide {
+    Money(MoneyCrateCollideModuleData),
+    Salvage(SalvageCrateCollideModuleData),
+}
+
+impl AuthoredCrateCollide {
+    pub(crate) fn base(&self) -> &CrateCollideModuleData {
+        match self {
+            Self::Money(data) => &data.base,
+            Self::Salvage(data) => &data.base,
+        }
+    }
+
+    pub(crate) fn is_salvage(&self) -> bool {
+        matches!(self, Self::Salvage(_))
+    }
+}
 
 impl PartialEq for ReceivingClientTemplate {
     fn eq(&self, other: &Self) -> bool {
@@ -251,10 +273,14 @@ impl PartialEq for ReceivingClientTemplate {
 }
 
 impl ReceivingClientTemplate {
-    pub(crate) fn salvage_crate_collides(
-        &self,
-    ) -> Option<&std::sync::Arc<[SalvageCrateCollideModuleData]>> {
+    pub(crate) fn crate_collides(&self) -> Option<&std::sync::Arc<[AuthoredCrateCollide]>> {
         self.1.as_ref()
+    }
+
+    pub(crate) fn has_money_crate_collide(&self) -> bool {
+        self.1.as_ref().is_some_and(|collides| {
+            collides.iter().any(|collide| matches!(collide, AuthoredCrateCollide::Money(_)))
+        })
     }
 
     pub(crate) fn authored_kind_of_bits(&self) -> u128 {
@@ -579,14 +605,24 @@ impl ReceivingClientTemplate {
             game_engine::common::thing::thing_template::AdmittedReceivingTemplate,
         >,
     ) -> Self {
-        let salvage_collides: Vec<_> = template
+        let crate_collides: Vec<_> = template
             .behavior_modules()
             .iter()
-            .filter(|entry| entry.name.as_str().eq_ignore_ascii_case("SalvageCrateCollide"))
-            .filter_map(|entry| SalvageCrateCollideModuleData::from_authored_handle(&entry.data))
+            .filter_map(|entry| {
+                let name = entry.name.as_str();
+                if name.eq_ignore_ascii_case("MoneyCrateCollide") {
+                    MoneyCrateCollideModuleData::from_authored_handle(&entry.data)
+                        .map(AuthoredCrateCollide::Money)
+                } else if name.eq_ignore_ascii_case("SalvageCrateCollide") {
+                    SalvageCrateCollideModuleData::from_authored_handle(&entry.data)
+                        .map(AuthoredCrateCollide::Salvage)
+                } else {
+                    None
+                }
+            })
             .collect();
-        let salvage_collides = (!salvage_collides.is_empty()).then(|| salvage_collides.into());
-        Self(template, salvage_collides)
+        let crate_collides = (!crate_collides.is_empty()).then(|| crate_collides.into());
+        Self(template, crate_collides)
     }
 
     pub(crate) fn audio_event(

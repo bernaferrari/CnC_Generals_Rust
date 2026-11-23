@@ -26,7 +26,7 @@ pub use template::{
     HordeUpdateRules, ModelConditionUpgradeRule, SubObjectsUpgradeRule, ThingTemplate,
     UpgradeMuxTriggers,
 };
-pub(crate) use template::{ReceivingClientTemplate, ReceivingDrawModels};
+pub(crate) use template::{AuthoredCrateCollide, ReceivingClientTemplate, ReceivingDrawModels};
 mod build_prerequisites;
 pub(crate) use build_prerequisites::PrerequisiteDefinitions;
 
