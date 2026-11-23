@@ -158,12 +158,6 @@ impl GameLogic {
         {
             self.update_money_crate_collides_with_effects(&mut ui);
         }
-        // Wave 817: host-sole unless movement authority live: crate lifetime owned by GW expire + logs.
-        {
-            if let Err(error) = self.update_crate_deletion_updates_with_effects(&mut ui) {
-                return SimulationStepOutcome::Failed(error);
-            }
-        }
 
         // Host GLA Rebel Ambush residual: leftover OCLSpecialPower CreateObject
         // (science UpgradeOCL) plus FadeIn/DiesOnBadLand after the fire-frame spawn.

@@ -124,11 +124,6 @@ impl GameLogic {
                 if let Some(name) = self.objects.get(&id).map(|o| o.template_name.clone()) {
                     self.host_money_crates.apply_crate_collide_gates(id, &name);
                 }
-                self.host_money_crates.arm_default_deletion(
-                    id,
-                    self.frame,
-                    id.0.wrapping_add(self.frame),
-                );
                 // AmericaCrateParachute residual: freefall → OpenDist → open → land.
                 if let Some(obj) = self.objects.get_mut(&id) {
                     obj.apply_crate_parachuting();
@@ -232,27 +227,6 @@ impl GameLogic {
     ///
     /// Fail-closed: not full CollideModule partition pairs / Anim2D GPU / EVA text.
 
-    /// C++ DeletionUpdate::update residual for money/salvage crates.
-    ///
-    /// Destroys (NOT kills) crates whose dieFrame has elapsed.
-    pub fn update_crate_deletion_updates(&mut self) -> gamelogic::GameLogicResult<()> {
-        self.update_crate_deletion_updates_with_effects(&mut Default::default())
-    }
-
-    pub(crate) fn update_crate_deletion_updates_with_effects(
-        &mut self,
-        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
-        let expired = self.host_money_crates.expired_ids(self.frame);
-        for id in expired {
-            self.host_money_crates.forget(id);
-            // Destroy object if still present (C++ destroyObject, not kill).
-            if self.objects.contains_key(&id) {
-                self.mark_object_for_destruction_with_effects(id, None, effects)?;
-            }
-        }
-        Ok(())
-    }
     pub fn update_money_crate_collides(&mut self) {
         self.update_money_crate_collides_with_effects(&mut Default::default())
     }

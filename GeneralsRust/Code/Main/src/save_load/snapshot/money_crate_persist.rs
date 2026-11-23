@@ -1,16 +1,8 @@
-//! Persist live money / salvage crate expire + pickup registry.
+//! Persist the money/salvage crate pickup registry. Object lifecycle Xfer
+//! carries authored DeletionUpdate state independently (DeletionUpdate.cpp:101–114).
 //!
-//! C++ `DeletionUpdate::xfer` (`DeletionUpdate.cpp:101-114`) writes v1
-//! UpdateModule base plus `m_dieFrame`. Crate objects carry DeletionUpdate
-//! and CrateCollide; leftover `DeletionUpdate::xfer` already writes
-//! `delete_frame`. Live crates are host objects plus
-//! `GameLogic.host_money_crates` (expires_frame + collide kind). Spawn
-//! registers then `arm_default_deletion`; pickup iterates `ids()`. The
-//! registry was live-only — a mid-crate save left the drawable but empty
-//! registry, so units could not pick it up and it never expired.
-//!
-//! Append a tagged suffix after the historical v9 contain/producer payload
-//! so older decoders ignore the extra bytes. No WorldSnapshot version bump.
+//! This versioned suffix follows the contain/producer payload in the world
+//! snapshot lifecycle tail.
 
 use crate::game_logic::host_money_crate::HostMoneyCrateRegistry;
 use crate::game_logic::GameLogic;
@@ -18,7 +10,7 @@ use crate::save_load::{SaveLoadError, SaveLoadResult};
 use serde::{Deserialize, Serialize};
 
 const MCRT_MAGIC: &[u8; 4] = b"MCRT";
-const MCRT_VERSION: u32 = 1;
+const MCRT_VERSION: u32 = 2;
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 struct MoneyCratePersistPayload {
@@ -93,11 +85,10 @@ fn take_u32(rest: &mut &[u8]) -> SaveLoadResult<u32> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::game_logic::host_money_crate::MONEY_CRATE_DELETION_MIN_FRAMES;
     use crate::game_logic::ObjectId;
 
     #[test]
-    fn snapshot_round_trips_money_crate_expire_and_pickup() {
+    fn snapshot_round_trips_money_crate_pickup() {
         let mut source = GameLogic::new();
         let money_id = ObjectId(42);
         let salvage_id = ObjectId(43);
@@ -106,13 +97,7 @@ mod tests {
             .register_supply_drop_crate(money_id);
         source
             .host_money_crates
-            .arm_default_deletion(money_id, 10, 0);
-        source
-            .host_money_crates
             .register_salvage_crate(salvage_id, 50);
-        source
-            .host_money_crates
-            .arm_default_deletion(salvage_id, 20, 0);
         source.host_money_crates.pickups = 2;
 
         let builder = super::super::SnapshotBuilder::new();
@@ -137,16 +122,12 @@ mod tests {
         ids.sort_by_key(|id| id.0);
         assert_eq!(ids, vec![money_id, salvage_id]);
         let money = reg.get(money_id).expect("money crate");
-        assert_eq!(money.expires_frame, 10 + MONEY_CRATE_DELETION_MIN_FRAMES);
+        assert!(money.building_pickup);
         assert!(!money.is_salvage);
         let salvage = reg.get(salvage_id).expect("salvage crate");
         assert!(salvage.is_salvage);
         assert_eq!(salvage.money_provided, 50);
-        assert!(salvage.expires_frame > 20);
         assert!(reg.contains(money_id));
-        assert!(reg
-            .expired_ids(10 + MONEY_CRATE_DELETION_MIN_FRAMES)
-            .contains(&money_id));
     }
 
     #[test]

@@ -1234,13 +1234,29 @@ impl GameWorldShadow {
             obj.hive_slaves[1].hp,
             obj.hive_slaves[2].hp,
         ];
-        if let Some(ce) = logic.host_money_crates.get(oid) {
-            e.money_crate = true;
-            e.money_crate_expires_frame = ce.expires_frame;
+        e.money_crate = logic.host_money_crates.contains(oid);
+        e.money_crate_expires_frame = if e.money_crate {
+            obj.native_lifecycle
+                .as_ref()
+                .and_then(|runtime| {
+                    runtime
+                        .states
+                        .iter()
+                        .filter_map(|state| {
+                            match state {
+                    crate::game_logic::native_lifecycle::NativeLifecycleState::Deletion {
+                        die_frame,
+                        active: true,
+                    } => Some(*die_frame),
+                    _ => None,
+                }
+                        })
+                        .min()
+                })
+                .unwrap_or(0)
         } else {
-            e.money_crate = false;
-            e.money_crate_expires_frame = 0;
-        }
+            0
+        };
         if let Some(fs) = obj.fire_spread.as_ref() {
             e.fire_spread_active = fs.active;
             e.fire_spread_state = match fs.state {

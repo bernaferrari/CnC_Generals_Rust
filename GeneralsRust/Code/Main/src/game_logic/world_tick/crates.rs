@@ -2276,12 +2276,6 @@ impl GameLogic {
             }
             self.host_money_crates
                 .apply_crate_collide_gates(crate_id, &req.object_name);
-            // C++ DeletionUpdate residual on crate object.
-            self.host_money_crates.arm_default_deletion(
-                crate_id,
-                self.frame,
-                crate_id.0.wrapping_add(self.frame),
-            );
             if let Some(kid) = killer_id {
                 let _ = self.notify_computer_killer_of_crate(kid, crate_id);
             }

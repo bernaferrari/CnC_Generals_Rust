@@ -192,6 +192,129 @@ fn admitted_empty_lifecycle_ai_needs_no_legacy_terrain_sample() {
 }
 
 #[test]
+fn authored_crate_births_use_one_object_clock_or_none() {
+    use crate::game_logic::host_deliver_payload::HostDeliverPayloadKind;
+    use crate::save_load::snapshot::SnapshotBuilder;
+    use game_engine::common::ini::{ParsedCrateCreationEntry, ParsedCrateTemplate};
+
+    const FIXED: &str = "ClockFixedCrate";
+    const RANGED: &str = "ClockRangedCrate";
+    const CLOCKLESS: &str = "SupplyDropZoneCrate";
+    const BIRTH: u32 = 120;
+
+    let fixture = || {
+        let mut world = GameLogic::new();
+        let mut ini = String::new();
+        for (name, range) in [
+            (FIXED, Some((1_000, 1_000))),
+            (RANGED, Some((60_000, 62_000))),
+            (CLOCKLESS, None),
+        ] {
+            ini.push_str(&format!(
+                "Object {name}\nKindOf = CRATE PARACHUTABLE\nBody = ActiveBody BodyTag\nMaxHealth = 100\nInitialHealth = 100\nEnd\n"
+            ));
+            if let Some((min, max)) = range {
+                ini.push_str(&format!(
+                    "Behavior = DeletionUpdate TimerTag\nMinLifetime = {min}\nMaxLifetime = {max}\nEnd\n"
+                ));
+            }
+            ini.push_str("End\n");
+        }
+        world
+            .admit_object_ini_sources([("authored-crate-clocks.ini".into(), ini)])
+            .unwrap();
+        world.add_player(Player::new(1, Team::USA, "CargoOwner", false));
+        world.frame = BIRTH;
+        world
+    };
+
+    let mut world = fixture();
+    let mut expected = world.logic_random.snapshot();
+    let mut clocks = Vec::new();
+    for (name, lo, hi) in [(FIXED, 30, 30), (RANGED, 1800, 1860)] {
+        let key = format!("{name}Data");
+        let mut data = ParsedCrateTemplate::new(key.clone());
+        data.creation_chance = 1.0;
+        data.possible_crates.push(ParsedCrateCreationEntry {
+            crate_name: name.into(),
+            crate_chance: 1.0,
+        });
+        world
+            .world_services
+            .common()
+            .ini
+            .crate_system
+            .write()
+            .insert(data);
+        assert_eq!(
+            world.try_create_crates_on_die(ObjectId(1234), Vec3::ZERO, Team::USA, &[key], None,),
+            1,
+        );
+        let object = world
+            .host_objects()
+            .registered_values()
+            .find(|object| object.template_name == name)
+            .unwrap();
+        let frame = BIRTH + expected.next_int(lo, hi) as u32;
+        assert_eq!(
+            object.native_lifecycle.as_ref().unwrap().states[0],
+            NativeLifecycleState::Deletion {
+                die_frame: frame,
+                active: true
+            },
+        );
+        clocks.push((object.id, frame));
+    }
+
+    let kind = HostDeliverPayloadKind::SupplyDropZoneCrate;
+    let mission = world.host_deliver_payloads.queue_for_owner(
+        kind,
+        ObjectId(1235),
+        Team::USA,
+        Some(1),
+        Vec3::new(70., 0., 80.),
+        0,
+        CLOCKLESS,
+    );
+    world.update_deliver_payloads();
+    let cargo = world
+        .host_deliver_payloads
+        .get(mission)
+        .unwrap()
+        .spawned_payload_ids[0];
+    let object = world.host_object(cargo).unwrap();
+    assert_eq!(object.template_name, CLOCKLESS);
+    assert!(object.native_lifecycle.as_ref().unwrap().states.is_empty());
+    assert_eq!(world.logic_random.seed_words(), expected.seed_words());
+
+    let builder = SnapshotBuilder::new();
+    let snapshot = builder.create_world_snapshot(&world).unwrap();
+    let mut loaded = fixture();
+    builder
+        .restore_from_snapshot(&snapshot, &mut loaded)
+        .unwrap();
+    assert_eq!(loaded.logic_random.seed_words(), expected.seed_words());
+    let [(fixed, fixed_due), (ranged, ranged_due)] = clocks.try_into().unwrap();
+    for (frame, fixed_live, ranged_live) in [
+        (fixed_due - 1, true, true),
+        (fixed_due, false, true),
+        (BIRTH + 1350, false, true),
+        (ranged_due - 1, false, true),
+        (ranged_due, false, false),
+    ] {
+        loaded.set_current_frame(u64::from(frame));
+        loaded.tick_logic_frame(1. / 30., None, Some(1));
+        assert_eq!(loaded.frame, frame + 1);
+        assert_eq!(loaded.host_object(fixed).is_some(), fixed_live);
+        assert_eq!(loaded.host_object(ranged).is_some(), ranged_live);
+        assert!(loaded.host_object(cargo).is_some());
+    }
+    assert!(!loaded.host_money_crates.contains(fixed));
+    assert!(!loaded.host_money_crates.contains(ranged));
+    assert!(loaded.host_money_crates.contains(cargo));
+}
+
+#[test]
 fn authored_height_die_uses_its_own_clock_and_sample_through_ai() {
     let (mut world, id) = authored(
         "NativeAltitudeOwner",

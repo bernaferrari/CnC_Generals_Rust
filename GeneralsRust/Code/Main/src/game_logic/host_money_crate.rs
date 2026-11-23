@@ -111,13 +111,6 @@ pub const MONEY_CRATE_GEOMETRY_HEIGHT: f32 = 12.0;
 /// Retail PhysicsBehavior Mass residual.
 pub const MONEY_CRATE_PHYSICS_MASS: f32 = 75.0;
 
-/// Retail SalvageCrate DeletionUpdate MinLifetime 30000 ms → 900 frames @ 30 FPS.
-pub const SALVAGE_CRATE_DELETION_MIN_FRAMES: u32 = 900;
-/// Retail SalvageCrate DeletionUpdate MaxLifetime 35000 ms → 1050 frames @ 30 FPS.
-pub const SALVAGE_CRATE_DELETION_MAX_FRAMES: u32 = 1050;
-/// Retail dollar/supply drop crate DeletionUpdate residual (fail-closed 45s fixed).
-pub const MONEY_CRATE_DELETION_MIN_FRAMES: u32 = 1350;
-pub const MONEY_CRATE_DELETION_MAX_FRAMES: u32 = 1350;
 /// Retail KindOf residual tokens.
 pub const MONEY_CRATE_KIND_OF: &str = "PARACHUTABLE CRATE";
 
@@ -261,9 +254,6 @@ pub struct HostMoneyCrateEntry {
     /// C++ SalvageCrateCollide residual (not MoneyCrateCollide).
     #[serde(default)]
     pub is_salvage: bool,
-    /// C++ DeletionUpdate m_dieFrame residual (0 = never / not armed).
-    #[serde(default)]
-    pub expires_frame: u32,
     /// C++ VeterancyCrateCollide residual.
     #[serde(default)]
     pub is_veterancy: bool,
@@ -386,32 +376,6 @@ pub struct HostMoneyCrateRegistry {
     pub forbidden_kindof_rejects: u32,
 }
 
-/// C++ DeletionUpdate::calcSleepDelay residual for crates.
-pub fn crate_deletion_delay_frames(min_frames: u32, max_frames: u32, random_draw: u32) -> u32 {
-    let lo = min_frames.min(max_frames);
-    let hi = min_frames.max(max_frames);
-    let delay = if lo == hi {
-        lo
-    } else {
-        lo + (random_draw % (hi - lo + 1))
-    };
-    delay.max(1)
-}
-
-/// Absolute expire frame from current frame + delay.
-pub fn crate_expires_at(
-    current_frame: u32,
-    min_frames: u32,
-    max_frames: u32,
-    random_draw: u32,
-) -> u32 {
-    current_frame.saturating_add(crate_deletion_delay_frames(
-        min_frames,
-        max_frames,
-        random_draw,
-    ))
-}
-
 impl HostMoneyCrateRegistry {
     pub fn new() -> Self {
         Self::default()
@@ -455,7 +419,6 @@ impl HostMoneyCrateRegistry {
                 supply_lines_boost: 0,
                 building_pickup_residual_paid: false,
                 is_salvage: false,
-                expires_frame: 0,
                 is_veterancy: false,
                 veterancy_effect_range: 0.0,
                 veterancy_levels: 1,
@@ -482,7 +445,6 @@ impl HostMoneyCrateRegistry {
                 supply_lines_boost: 0,
                 building_pickup_residual_paid: false,
                 is_salvage: false,
-                expires_frame: 0,
                 is_veterancy: false,
                 veterancy_effect_range: 0.0,
                 veterancy_levels: 1,
@@ -510,7 +472,6 @@ impl HostMoneyCrateRegistry {
                 supply_lines_boost: 0,
                 building_pickup_residual_paid: false,
                 is_salvage: false,
-                expires_frame: 0,
                 is_veterancy: false,
                 veterancy_effect_range: 0.0,
                 veterancy_levels: 1,
@@ -539,7 +500,6 @@ impl HostMoneyCrateRegistry {
                 supply_lines_boost: 0,
                 building_pickup_residual_paid: false,
                 is_salvage: false,
-                expires_frame: 0,
                 is_veterancy: true,
                 veterancy_effect_range: effect_range.max(0.0),
                 veterancy_levels: levels,
@@ -567,7 +527,6 @@ impl HostMoneyCrateRegistry {
                 supply_lines_boost: 0,
                 building_pickup_residual_paid: false,
                 is_salvage: true,
-                expires_frame: 0,
                 is_veterancy: false,
                 veterancy_effect_range: 0.0,
                 veterancy_levels: 1,
@@ -600,7 +559,6 @@ impl HostMoneyCrateRegistry {
                 supply_lines_boost,
                 building_pickup_residual_paid: false,
                 is_salvage: false,
-                expires_frame: 0,
                 is_veterancy: false,
                 veterancy_effect_range: 0.0,
                 veterancy_levels: 1,
@@ -637,55 +595,6 @@ impl HostMoneyCrateRegistry {
             entry.required_kind_of = required;
             entry.forbidden_kind_of = forbidden;
         }
-    }
-
-    /// C++ DeletionUpdate arm residual after crate spawn.
-    pub fn arm_deletion_update(
-        &mut self,
-        object_id: ObjectId,
-        current_frame: u32,
-        min_frames: u32,
-        max_frames: u32,
-        random_draw: u32,
-    ) {
-        if let Some(e) = self.crates.get_mut(&object_id) {
-            e.expires_frame = crate_expires_at(current_frame, min_frames, max_frames, random_draw);
-        }
-    }
-
-    /// Default arm: salvage vs money lifetime residual.
-    pub fn arm_default_deletion(
-        &mut self,
-        object_id: ObjectId,
-        current_frame: u32,
-        random_draw: u32,
-    ) {
-        let salvage = self
-            .crates
-            .get(&object_id)
-            .map(|e| e.is_salvage)
-            .unwrap_or(false);
-        let (lo, hi) = if salvage {
-            (
-                SALVAGE_CRATE_DELETION_MIN_FRAMES,
-                SALVAGE_CRATE_DELETION_MAX_FRAMES,
-            )
-        } else {
-            (
-                MONEY_CRATE_DELETION_MIN_FRAMES,
-                MONEY_CRATE_DELETION_MAX_FRAMES,
-            )
-        };
-        self.arm_deletion_update(object_id, current_frame, lo, hi, random_draw);
-    }
-
-    /// Collect crate ids whose DeletionUpdate dieFrame has passed.
-    pub fn expired_ids(&self, current_frame: u32) -> Vec<ObjectId> {
-        self.crates
-            .iter()
-            .filter(|(_, e)| e.expires_frame > 0 && current_frame >= e.expires_frame)
-            .map(|(id, _)| *id)
-            .collect()
     }
 
     pub fn forget(&mut self, object_id: ObjectId) {
@@ -1220,32 +1129,5 @@ mod tests {
         assert!(honesty_money_crate_ocl_residual_ok());
         assert!(honesty_money_crate_presentation_residual_ok());
         assert!(honesty_money_crate_residual_pack_ok());
-    }
-}
-
-#[cfg(test)]
-mod deletion_tests {
-    use super::*;
-
-    #[test]
-    fn salvage_lifetime_frames_match_retail_ms() {
-        assert_eq!(SALVAGE_CRATE_DELETION_MIN_FRAMES, 900);
-        assert_eq!(SALVAGE_CRATE_DELETION_MAX_FRAMES, 1050);
-        let d = crate_deletion_delay_frames(900, 1050, 0);
-        assert!(d >= 900 && d <= 1050);
-        assert_eq!(crate_deletion_delay_frames(10, 10, 99), 10);
-        assert_eq!(crate_deletion_delay_frames(0, 0, 0), 1);
-    }
-
-    #[test]
-    fn arm_and_expire_salvage_crate() {
-        let mut reg = HostMoneyCrateRegistry::new();
-        let id = ObjectId(9);
-        reg.register_salvage_crate(id, 50);
-        reg.arm_default_deletion(id, 100, 0);
-        let exp = reg.get(id).unwrap().expires_frame;
-        assert!(exp >= 100 + 900);
-        assert!(reg.expired_ids(exp - 1).is_empty());
-        assert_eq!(reg.expired_ids(exp), vec![id]);
     }
 }

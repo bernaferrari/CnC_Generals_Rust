@@ -116,6 +116,9 @@ impl GameLogic {
             self.stop_fire_spread_burning_sound(id, position, &fire.burning_sound_name);
         }
 
+        // Retire the host CrateCollide entry with its Object.
+        self.host_money_crates.forget(id);
+
         // Object.cpp665 follows current destructor obligations. Ordinary
         // death and direct deletion converge here on the same Object birth.
         if !object.name.is_empty() {

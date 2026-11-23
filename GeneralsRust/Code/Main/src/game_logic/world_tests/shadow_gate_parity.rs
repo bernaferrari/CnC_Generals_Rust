@@ -76,22 +76,23 @@ fn coupled_shadow_base_regen_heals_on_host_and_probe_stays_green() {
 #[test]
 fn coupled_shadow_crate_lifetime_expires_on_host() {
     let mut logic = GameLogic::new();
-    let mut t = ThingTemplate::new("SalvageCrate");
-    t.set_health(50.0);
-    logic.templates.insert("SalvageCrate".into(), t);
+    logic
+        .admit_object_ini_sources([(
+            "crate-host-tick.ini".into(),
+            "Object SalvageCrate\nKindOf = CRATE\nBody = ActiveBody BodyTag\nMaxHealth = 50\nInitialHealth = 50\nEnd\nBehavior = DeletionUpdate ClockTag\nMinLifetime = 100\nMaxLifetime = 100\nEnd\nEnd\n".into(),
+        )])
+        .unwrap();
     let cid = logic
         .create_object("SalvageCrate", Team::Neutral, glam::Vec3::ZERO)
         .expect("crate");
     logic.host_money_crates.register_salvage_crate(cid, 40);
-    // Force expires_frame via arm with min=max=1 from frame 0.
-    logic.frame = 0;
-    logic.host_money_crates.arm_deletion_update(cid, 0, 1, 1, 0);
-    assert_eq!(logic.host_money_crates.get(cid).unwrap().expires_frame, 1);
 
     let mut shadow = GameWorldShadow::new(64);
-    for _ in 0..4 {
+    for _ in 0..3 {
         owned_frame(&mut shadow, &mut logic);
+        assert!(logic.host_object(cid).is_some());
     }
+    owned_frame(&mut shadow, &mut logic);
     assert!(
         !logic.host_money_crates.contains(cid),
         "crate DeletionUpdate lifetime must expire on the host tick while coupled"
