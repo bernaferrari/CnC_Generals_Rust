@@ -727,7 +727,8 @@ impl PathfindingSystem {
         let mut can_optimize = Vec::with_capacity(grid_path.len() + 1);
         let mut blocked_by_ally = blocked;
         let mut previous: Option<(GridCoord, PathfindLayerEnum, PathfindCellType)> = None;
-        // The final parentless cell is handled after this loop, as in C++.
+        // C++ prepends to a linked list. Collect from goal to start and
+        // reverse once to avoid shifting the Rust vectors on every node.
         for idx in (1..grid_path.len()).rev() {
             let (coord, layer) = grid_path[idx];
             self.zones.set_passable(coord.x, coord.y, true);
@@ -746,7 +747,7 @@ impl PathfindingSystem {
                 .unwrap_or(PathfindCellType::Clear);
             if let Some((prev_coord, prev_layer, _)) = previous {
                 if prev_coord == coord {
-                    if let Some(first_layer) = layers.first_mut() {
+                    if let Some(first_layer) = layers.last_mut() {
                         *first_layer = if layer == PathfindLayerEnum::Ground {
                             prev_layer
                         } else {
@@ -760,16 +761,16 @@ impl PathfindingSystem {
             let mut can_opt = true;
             if ctype == PathfindCellType::Cliff {
                 if previous.is_some_and(|(_, _, ctype)| ctype != PathfindCellType::Cliff) {
-                    if let Some(first) = can_optimize.first_mut() {
+                    if let Some(first) = can_optimize.last_mut() {
                         *first = false;
                     }
                 }
             } else if previous.is_some_and(|(_, _, ctype)| ctype == PathfindCellType::Cliff) {
                 can_opt = false;
             }
-            waypoints.insert(0, pos);
-            layers.insert(0, layer);
-            can_optimize.insert(0, can_opt);
+            waypoints.push(pos);
+            layers.push(layer);
+            can_optimize.push(can_opt);
             if object_id != INVALID_ID
                 && self.cell_blocked_by_ally_with_observations(
                     coord,
@@ -796,13 +797,16 @@ impl PathfindingSystem {
             layers.push(start_layer);
             can_optimize.push(true);
         }
-        if let Some(first) = waypoints.first() {
-            if from_world.x != first.x || from_world.y != first.y {
-                waypoints.insert(0, *from_world);
-                layers.insert(0, start_layer);
-                can_optimize.insert(0, true);
+        if let Some(nearest) = waypoints.last() {
+            if from_world.x != nearest.x || from_world.y != nearest.y {
+                waypoints.push(*from_world);
+                layers.push(start_layer);
+                can_optimize.push(true);
             }
         }
+        waypoints.reverse();
+        layers.reverse();
+        can_optimize.reverse();
         PathResult {
             success: !waypoints.is_empty(),
             waypoints,
