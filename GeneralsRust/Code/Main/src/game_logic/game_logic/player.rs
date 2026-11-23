@@ -1628,6 +1628,10 @@ impl Player {
         self.map_side.role == PlayerSideRole::Neutral
     }
 
+    pub(crate) fn is_computer(&self) -> bool {
+        !self.is_human && !self.is_reserved_neutral() && !self.is_replay_observer()
+    }
+
     /// The map-create path deposits authored money after template initialization.
     /// Lobby owners already received their GameInfo cash (`apply_money=false`).
     /// PlayerName/role is admitted before publication and default Team lookup.

@@ -236,7 +236,7 @@ impl GameLogic {
         match template.buildable_status {
             BSTATUS_NO => return false,
             BSTATUS_IGNORE_PREREQUISITES => return true,
-            BSTATUS_ONLY_BY_AI if player.is_human => return false,
+            BSTATUS_ONLY_BY_AI if !player.is_computer() => return false,
             _ => {}
         }
         template.prerequisites_satisfied(self, player)

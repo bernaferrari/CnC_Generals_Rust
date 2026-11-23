@@ -2695,8 +2695,7 @@ impl GameLogic {
         if status == BSTATUS_NO {
             return (false, ignore_prereq);
         }
-        let is_computer = self.ai_manager.ai_players.contains_key(&player.id);
-        if status == BSTATUS_ONLY_BY_AI && !is_computer {
+        if status == BSTATUS_ONLY_BY_AI && !player.is_computer() {
             return (false, ignore_prereq);
         }
         (true, ignore_prereq)

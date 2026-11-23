@@ -19,9 +19,7 @@ impl GameLogic {
         let mut computer_players: Vec<_> = self
             .get_players()
             .values()
-            .filter(|player| {
-                !player.is_human && !player.is_reserved_neutral() && !player.is_replay_observer()
-            })
+            .filter(|player| player.is_computer())
             .map(|player| player.id)
             .collect();
         computer_players.sort_unstable();

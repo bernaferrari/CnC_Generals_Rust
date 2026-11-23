@@ -333,13 +333,16 @@ impl GameLogic {
         &mut self,
         player: u32,
         now: f32,
-        data: &AiDataView,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> gamelogic::GameLogicResult<()> {
         let Some(mut ai) = self.ai_manager.ai_players.remove(&player) else {
             return Ok(());
         };
-        let result = ai.process_team_queue_with_ai_data(self, now, data);
-        self.ai_manager.ai_players.insert(player, ai);
+        let epoch = self.host_visual_world_epoch();
+        let result = ai.process_ordinary_team_queue(self, now, effects);
+        if self.host_visual_world_epoch() == epoch {
+            self.ai_manager.ai_players.insert(player, ai);
+        }
         result
     }
 
@@ -377,7 +380,7 @@ impl GameLogic {
             return Ok(());
         }
 
-        self.run_owned_ordinary_ai_queue_units(player, now, data)?;
+        self.run_owned_ordinary_ai_queue_units(player, now, ui)?;
         let candidates = self
             .ai_manager
             .ai_players
@@ -434,7 +437,7 @@ impl GameLogic {
             }
         };
         let result = if selected {
-            self.run_owned_ordinary_ai_queue_units(player, now, data)
+            self.run_owned_ordinary_ai_queue_units(player, now, ui)
         } else {
             Ok(())
         };
@@ -1506,6 +1509,117 @@ mod tests {
                 &mut Default::default(),
             )
             .unwrap();
+    }
+
+    #[test]
+    fn ordinary_work_orders_recruit_again_after_an_active_singleton_trains() {
+        const RANGER: &str = "AmericaInfantryRanger";
+        const LOW: &str = "CampaignSingleton";
+        const HIGH: &str = "CampaignUrgent";
+        let mut world = callback_world();
+        world
+            .create_object_for_player("AmericaBarracks", 1, Vec3::new(80., 0., 0.))
+            .unwrap();
+        let template = world.templates.get_mut(RANGER).unwrap();
+        template.set_cost(225, 0);
+        template.buildable_status =
+            crate::game_logic::host_production_buildable_command_residual::BSTATUS_ONLY_BY_AI;
+        template.set_authored_ai_update_interface(Some(true));
+        let recruit = world
+            .create_object_for_player(RANGER, 1, Vec3::new(25., 0., 30.))
+            .unwrap();
+        let unit = world.host_object_mut(recruit).unwrap();
+        unit.is_recruitable = true;
+        unit.last_command_source = crate::game_logic::HUNT_CMD_FROM_SCRIPT;
+
+        prototype(&mut world, LOW, "CurrentOwner", "");
+        prototype(&mut world, HIGH, "CurrentOwner", "");
+        let low_id = {
+            let mut factory = world.team_factory.lock().unwrap();
+            for (name, priority, count) in [(LOW, 10, 2), (HIGH, 20, 1)] {
+                let mut prototype = (*factory.find_team_prototype(name).unwrap()).clone();
+                assert!(!prototype.has_home_location());
+                prototype.set_singleton(name == LOW);
+                prototype.set_ai_recruitable(name == LOW);
+                prototype.set_production_priority(priority);
+                prototype.set_units_info(
+                    0,
+                    gamelogic::team::CreateUnitsInfo {
+                        min_units: count,
+                        max_units: count,
+                        unit_thing_name: RANGER.into(),
+                    },
+                );
+                factory.replace_team_prototype(prototype);
+            }
+            let low = factory
+                .create_inactive_team_with_owned_effects(LOW)
+                .unwrap()
+                .0;
+            low.write().unwrap().set_active();
+            let id = low.read().unwrap().get_id();
+            id
+        };
+
+        let base = Vec3::new(113., 0., 62.);
+        let ai = world.ai_manager.ai_players.get_mut(&1).unwrap();
+        ai.team_queue.clear();
+        ai.base_center = base;
+        ai.base_center_set = true;
+        ai.ordinary_timing = Some(OrdinaryAiTiming {
+            ready_to_build_team: false,
+            ready_to_build_structure: false,
+            team_timer: 500,
+            structure_timer: 500,
+            build_delay: 500,
+            team_delay: 0,
+            team_seconds: 20,
+            frame_last_building_built: 0,
+            bridge_timer: 0,
+        });
+        assert!(world.build_owned_specific_ai_team(1, HIGH, false, None));
+        assert!(world.build_owned_specific_ai_team(1, LOW, true, None));
+        let ai = &world.ai_manager.ai_players[&1];
+        assert_eq!(ai.team_queue[0].team_id, Some(low_id));
+        let high_id = ai.team_queue[1].team_id.unwrap();
+        let cash = world.host_authoritative_cash(1).unwrap();
+
+        let mut definitions = world.ai_definitions.data().clone();
+        definitions.max_recruit_distance = 200.;
+        world.set_ai_definition_base(definitions);
+        let data = AiDataView::from_world(&world);
+        tick_ordinary_team(&mut world, &data);
+
+        let ai = &world.ai_manager.ai_players[&1];
+        let low = &ai.team_queue[0].work_orders[0];
+        let high = &ai.team_queue[1].work_orders[0];
+        assert_eq!(low.num_completed, 1);
+        let producing = low
+            .factory_id
+            .expect("the first order starts its one remaining unit");
+        assert_eq!(
+            world
+                .host_object(producing)
+                .unwrap()
+                .building_data
+                .as_ref()
+                .unwrap()
+                .production_queue
+                .len(),
+            1
+        );
+        assert_eq!(high.num_completed, 1);
+        assert_eq!(high.factory_id, None);
+        assert_eq!(world.host_authoritative_cash(1), Some(cash - 225));
+        assert!(ai.leftover_instance_member_ids(Some(low_id)).is_empty());
+        assert_eq!(ai.leftover_instance_member_ids(Some(high_id)), [recruit.0]);
+        let unit = world.host_object(recruit).unwrap();
+        assert_eq!(unit.team_instance_id, Some(high_id));
+        assert_eq!(
+            unit.last_command_source,
+            crate::game_logic::HUNT_CMD_FROM_AI
+        );
+        assert_eq!(unit.capture_base_ai_continuation().goals.position, base);
     }
 
     #[test]

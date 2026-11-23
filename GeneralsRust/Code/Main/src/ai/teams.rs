@@ -20,135 +20,162 @@ impl AIPlayer {
         current_time: f32,
         ai_data: &AiDataView,
     ) -> gamelogic::GameLogicResult<()> {
-        let ordinary = self.ordinary_timing.is_some();
-        if !ordinary {
-            // The existing Skirmish queue retries lost producers immediately.
-            for team in &mut self.team_queue {
-                for order in &mut team.work_orders {
-                    if order.factory_id.is_some_and(|id| {
-                        !game_logic
-                            .host_object(id)
-                            .is_some_and(|factory| factory.is_alive())
-                    }) {
-                        order.factory_id = None;
-                        order.queued_count = 0;
-                    }
+        if self.ordinary_timing.is_some() {
+            return self.process_ordinary_team_queue(
+                game_logic,
+                current_time,
+                &mut Default::default(),
+            );
+        }
+        // Existing skirmish orders retry destroyed producers in this pass.
+        for team in &mut self.team_queue {
+            for order in &mut team.work_orders {
+                if order.factory_id.is_some_and(|id| {
+                    !game_logic
+                        .host_object(id)
+                        .is_some_and(|factory| factory.is_alive())
+                }) {
+                    order.factory_id = None;
+                    order.queued_count = 0;
                 }
             }
         }
-        // Retail queueUnits invokes queueSupplyTruck before walking the usual
-        // TeamInQueue work orders.  Its priority order therefore gets an idle
-        // SupplyCenter and pays through ordinary ProductionUpdate immediately.
         self.queue_supply_truck(game_logic, current_time)?;
         let can_build_units = game_logic
             .get_player(self.player_id)
             .map(|p| p.can_build_units)
             .unwrap_or(true);
         if can_build_units {
-            // C++ queueUnits: tryToRecruit existing map units before startTraining.
             self.recruit_waiting_work_orders_with_ai_data(game_logic, ai_data);
         }
 
-        // Collect all factory assignments needed
         let mut factory_assignments = Vec::new();
-        let mut completed_teams = Vec::new();
-
         for (team_index, team) in self.team_queue.iter_mut().enumerate() {
-            let mut all_complete = true;
+            for (order_index, order) in team.work_orders.iter().enumerate() {
+                if order.num_completed < order.num_required
+                    && order.factory_id.is_none()
+                    && (can_build_units
+                        || game_logic.production_template_is_dozer(&order.template_name)
+                        || order.is_resource_gatherer)
+                {
+                    factory_assignments.push((team_index, order_index));
+                }
+            }
+            team.completed |= team.is_all_built();
+        }
+        for (team, order) in factory_assignments {
+            self.start_work_order_training(game_logic, team, order);
+        }
+        Ok(())
+    }
 
-            for (order_index, work_order) in team.work_orders.iter_mut().enumerate() {
-                let waiting = work_order.num_completed < work_order.num_required;
-                all_complete &= !waiting;
-                // AIPlayer.cpp:2652–2689, 3688–3700. A bound order
-                // validates on this visit. An invalid receipt can retry on
-                // the next pass, after other orders have had their turn.
-                if let Some(factory) = work_order.factory_id {
-                    if ordinary
-                        && !game_logic.host_object(factory).is_some_and(|factory| {
-                            game_logic.player_owner_for_host_object(factory) == Some(self.player_id)
-                        })
-                    {
-                        work_order.factory_id = None;
-                        work_order.queued_count = 0;
+    /// AIPlayer.cpp:2633–2691. Finish each linked work order's recruit,
+    /// training or validation before observing the next order.
+    pub(super) fn process_ordinary_team_queue(
+        &mut self,
+        game_logic: &mut GameLogic,
+        now: f32,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> gamelogic::GameLogicResult<()> {
+        let epoch = game_logic.host_visual_world_epoch();
+        self.queue_supply_truck(game_logic, now)?;
+        let distance = game_logic.ai_definitions.data().max_recruit_distance;
+        let mut recruited_by_order = HashSet::new();
+        for team_index in 0..self.team_queue.len() {
+            for order_index in 0..self.team_queue[team_index].work_orders.len() {
+                let team = &self.team_queue[team_index];
+                let order = &team.work_orders[order_index];
+                if let Some(factory) = order.factory_id {
+                    if !game_logic.host_object(factory).is_some_and(|factory| {
+                        game_logic.player_owner_for_host_object(factory) == Some(self.player_id)
+                    }) {
+                        let order = &mut self.team_queue[team_index].work_orders[order_index];
+                        order.factory_id = None;
+                        order.queued_count = 0;
                     }
                     continue;
                 }
-                if waiting
-                    && (can_build_units
-                        || game_logic.production_template_is_dozer(&work_order.template_name)
-                        || work_order.is_resource_gatherer)
-                {
-                    factory_assignments.push((
-                        team_index,
-                        order_index,
-                        work_order.template_name.clone(),
-                        team.priority_build,
-                        work_order.is_resource_gatherer,
-                        work_order.supply_center_id,
-                    ));
+                if order.num_completed >= order.num_required {
+                    continue;
                 }
-            }
 
-            if all_complete && !team.completed {
-                team.completed = true;
-                completed_teams.push(team_index);
-            }
-        }
-
-        // Process factory assignments and enqueue production on the host path.
-        let mut produced = 0u64;
-        for (
-            team_index,
-            order_index,
-            template_name,
-            priority_build,
-            is_resource_gatherer,
-            supply_center_id,
-        ) in factory_assignments
-        {
-            // C++ `startTraining(order, team->m_priorityBuild, ...)` only
-            // permits a busy factory for a priority build.  Normal skirmish
-            // teams must wait for an idle producer; otherwise a pre-existing
-            // matching unit could be misattributed to this work order.
-            let factory_id = if is_resource_gatherer {
-                supply_center_id.and_then(|center_id| {
-                    Self::supply_center_factory_for_collector(
+                if let Some(team_id) = team.team_id
+                    && !order.is_resource_gatherer
+                {
+                    let team_name = team.name.clone();
+                    let template = order.template_name.clone();
+                    let (home, has_home) = self.team_recruit_home(&team_name);
+                    recruited_by_order.clear();
+                    // Immediate membership is visible to later work. An
+                    // active, recruitable singleton can lose the recruit to
+                    // a higher-priority order later in this very pass.
+                    while let Some(unit) = self.try_to_recruit_excluding(
                         game_logic,
-                        center_id,
-                        &template_name,
-                        self.team,
-                    )
-                })
-            } else {
-                self.find_factory_and_clear_captures(
-                    game_logic,
-                    &template_name,
-                    priority_build,
-                )
-            };
-            if let Some(factory_id) = factory_id {
-                let queued = game_logic.enqueue_production(factory_id, template_name.clone());
-                if let Some(team) = self.team_queue.get_mut(team_index) {
-                    if let Some(work_order) = team.work_orders.get_mut(order_index) {
-                        // Only a successful request binds this order. Factory
-                        // delivery, not preexisting producer-linked objects,
-                        // advances completion at the synchronous callback.
-                        if queued {
-                            work_order.factory_id = Some(factory_id);
-                            work_order.queued_count = work_order.queued_count.saturating_add(1);
-                            produced = produced.saturating_add(1);
+                        &team_name,
+                        &template,
+                        home,
+                        distance,
+                        &recruited_by_order,
+                    ) {
+                        recruited_by_order.insert(unit);
+                        let joined =
+                            game_logic.set_host_object_team_with_effects(unit, team_id, effects)?;
+                        if game_logic.host_visual_world_epoch() != epoch {
+                            return Ok(());
+                        }
+                        if !joined {
+                            continue;
+                        }
+                        let order = &mut self.team_queue[team_index].work_orders[order_index];
+                        order.num_completed += 1;
+                        order.observed_unit_ids.push(unit);
+                        let complete = order.num_completed >= order.num_required;
+                        if has_home {
+                            game_logic.unit_command_ai_move_to(unit, home);
                         } else {
-                            work_order.factory_id = None;
+                            game_logic.unit_command_ai_idle_owned(unit)?;
+                        }
+                        if complete {
+                            break;
                         }
                     }
                 }
-            }
-        }
-        self.activity_count = self.activity_count.saturating_add(produced);
 
-        // C++ checkQueuedTeams (not queueUnits) promotes completed teams.
-        let _ = completed_teams;
+                let order = &self.team_queue[team_index].work_orders[order_index];
+                if order.num_completed < order.num_required {
+                    self.start_work_order_training(game_logic, team_index, order_index);
+                }
+            }
+            let team = &mut self.team_queue[team_index];
+            team.completed |= team.is_all_built();
+        }
         Ok(())
+    }
+
+    fn start_work_order_training(
+        &mut self,
+        game_logic: &mut GameLogic,
+        team_index: usize,
+        order_index: usize,
+    ) {
+        let team = &self.team_queue[team_index];
+        let order = &team.work_orders[order_index];
+        let template = order.template_name.clone();
+        let producer = if order.is_resource_gatherer {
+            order.supply_center_id.and_then(|center| {
+                Self::supply_center_factory_for_collector(game_logic, center, &template, self.team)
+            })
+        } else {
+            self.find_factory_and_clear_captures(game_logic, &template, team.priority_build)
+        };
+        if let Some(producer) = producer
+            && game_logic.enqueue_production(producer, template)
+        {
+            let order = &mut self.team_queue[team_index].work_orders[order_index];
+            order.factory_id = Some(producer);
+            order.queued_count = order.queued_count.saturating_add(1);
+            self.activity_count = self.activity_count.saturating_add(1);
+        }
     }
 
     /// C++ `isPossibleToBuildTeam` unit-cost residual:
@@ -1877,6 +1904,10 @@ impl AIPlayer {
     }
 
     pub(super) fn team_home_or_base(&self, team_name: &str) -> Vec3 {
+        self.team_recruit_home(team_name).0
+    }
+
+    fn team_recruit_home(&self, team_name: &str) -> (Vec3, bool) {
         // Leftover Coord3D (X east, Y north, Z up) → host Vec3 (X, Y=up, Z=north).
         // Recruit rank uses leftover XY only (`leftover_recruit_dist_sqr`); leftover
         // Z/up must not flip nearest or push a default-team fallback past maxDist.
@@ -1884,11 +1915,11 @@ impl AIPlayer {
             if let Some(proto) = factory.find_team_prototype(team_name) {
                 if proto.has_home_location() {
                     let loc = proto.home_location();
-                    return Vec3::new(loc.x, loc.z, loc.y);
+                    return (Vec3::new(loc.x, loc.z, loc.y), true);
                 }
             }
         }
-        self.base_center
+        (self.base_center, self.base_center_set)
     }
 
     /// C++/leftover `Team::tryToRecruit`: `dx = home.x-pos.x; dy = home.y-pos.y`.
@@ -1958,7 +1989,11 @@ impl AIPlayer {
     }
 
     /// `(active, proto_ai_recruitable, recruitability_set, priority, override_recruitable)`.
-    pub(super) fn leftover_source_team_state(&self, name: &str) -> (bool, bool, bool, i32, bool) {
+    fn leftover_source_team_state(
+        &self,
+        name: &str,
+        team_id: Option<u32>,
+    ) -> (bool, bool, bool, i32, bool) {
         let Ok(factory) = self.team_factory.lock() else {
             return (true, false, false, 0, false);
         };
@@ -1971,7 +2006,12 @@ impl AIPlayer {
             .as_ref()
             .map(|p| p.is_ai_recruitable())
             .unwrap_or(false);
-        if let Some(team) = factory.find_team_instances(name).into_iter().next() {
+        let team = if let Some(id) = team_id {
+            factory.find_team_by_id(id)
+        } else {
+            factory.find_team_instances(name).into_iter().next()
+        };
+        if let Some(team) = team {
             if let Ok(tg) = team.read() {
                 return (
                     tg.is_active(),
@@ -2032,8 +2072,9 @@ impl AIPlayer {
                 object.team_instance_name.clone()
             };
             let is_default = Self::source_is_default_team(game_logic, object);
+            let source_instance = self.ordinary_timing.and(object.team_instance_id);
             let (active, proto_ai, recruitability_set, source_priority, override_recruitable) =
-                self.leftover_source_team_state(&source_name);
+                self.leftover_source_team_state(&source_name, source_instance);
             // C++: do not steal from a team still building (Team.cpp:2333-2335).
             if !active {
                 continue;

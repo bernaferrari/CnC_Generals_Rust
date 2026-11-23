@@ -235,7 +235,7 @@ impl GameLogic {
         self.set_host_object_team_with_effects(id, requested, &mut Default::default())
     }
 
-    pub(in crate::game_logic) fn set_host_object_team_with_effects(
+    pub(crate) fn set_host_object_team_with_effects(
         &mut self,
         id: ObjectId,
         requested: u32,
