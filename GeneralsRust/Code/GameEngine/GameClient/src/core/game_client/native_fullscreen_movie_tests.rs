@@ -146,6 +146,108 @@ fn native_receiving_movie_is_client_owned_and_advances_through_main_fx() {
 }
 
 #[test]
+fn score_screen_ok_then_main_menu_init_preserves_only_receiving_movie_until_stop() {
+    use game_engine::common::name_key_generator::NameKeyGenerator;
+
+    crate::test_support::ensure_ambient_host();
+    let root = std::env::temp_dir().join(format!("score-mainmenu-movie-{}", std::process::id()));
+    let movie_path = root.join("Data/Movies/CLIP.BIK");
+    std::fs::create_dir_all(movie_path.parent().unwrap()).unwrap();
+    std::fs::write(&movie_path, b"fixture").unwrap();
+    let close_a = Arc::new(AtomicUsize::new(0));
+    let close_b = Arc::new(AtomicUsize::new(0));
+    let decode_a = Arc::new(AtomicUsize::new(0));
+    let decode_b = Arc::new(AtomicUsize::new(0));
+    let mut a = GameClient::new().unwrap();
+    let mut b = GameClient::new().unwrap();
+    for client in [&mut a, &mut b] {
+        let campaigns = client.campaign_manager_mut();
+        campaigns.new_campaign("movie-campaign".into());
+        campaigns.set_campaign("movie-campaign");
+        assert!(campaigns.get_current_campaign().is_some());
+    }
+    a.script_display
+        .bind_video_player_slot(player_slot(&root, close_a.clone(), decode_a.clone()));
+    b.script_display
+        .bind_video_player_slot(player_slot(&root, close_b.clone(), decode_b.clone()));
+
+    assert!(crate::core::script_action_handler::play_script_display_movie(
+        a.script_display_receiver(),
+        "CampaignEnd"
+    ));
+    assert!(crate::core::script_action_handler::play_script_display_movie(
+        b.script_display_receiver(),
+        "CampaignEnd"
+    ));
+    a.update_display_only().unwrap();
+    b.update_display_only().unwrap();
+    assert_eq!(decode_a.load(Ordering::SeqCst), 1);
+    assert_eq!(decode_b.load(Ordering::SeqCst), 1);
+
+    // Exercise the ordinary ScoreScreen WND OK route, then MainMenuInit on the
+    // same receiving client. MainMenuInit resets the break flag; it does not
+    // own or stop the asynchronous native movie.
+    a.with_window_event_effects(None, |effects| {
+        const OK_BUTTON: &str = "ScoreScreen.wnd:ButtonOk";
+        let ok_id = NameKeyGenerator::name_to_key(OK_BUTTON) as i32;
+        let owner = effects.window_manager_owner.expect("receiving window owner");
+        let button = owner.with_manager(|manager| {
+            let button = manager
+                .test_create_window(None, 10, 40, 80, 24)
+                .expect("ScoreScreen OK button");
+            {
+                let mut window = button.borrow_mut();
+                window.set_name(OK_BUTTON);
+                window.set_id(ok_id);
+                let _ = window.hide_without_manager_side_effects(false);
+            }
+            button
+        });
+        assert!(crate::gui::callbacks::score_screen::simulate_score_screen_bind_controls(
+            effects
+        ));
+        let button_ok_id = button.borrow().get_id() as crate::gui::WindowMsgData;
+        let handled = crate::gui::callbacks::score_screen::score_screen_system(
+            &mut button.borrow_mut(),
+            crate::gui::WindowMessage::GadgetSelected,
+            button_ok_id,
+            0,
+            effects,
+        );
+        assert_eq!(handled, crate::gui::WindowMsgHandled::Handled);
+        assert!(
+            effects
+                .campaign_manager
+                .as_deref()
+                .unwrap()
+                .get_current_campaign()
+                .is_none()
+        );
+        effects.with_main_menu(|menu, effects| {
+            menu.init(&(), None, effects).expect("MainMenuInit");
+        });
+    });
+
+    assert!(b.campaign_manager().get_current_campaign().is_some());
+    assert_eq!(close_a.load(Ordering::SeqCst), 0);
+    assert_eq!(close_b.load(Ordering::SeqCst), 0);
+    assert!(a.script_display.fx().current_movie_frame().is_some());
+    assert!(b.script_display.fx().current_movie_frame().is_some());
+    assert!(crate::core::script_action_handler::stop_script_display_movie(
+        a.script_display_receiver()
+    ));
+    assert_eq!(close_a.load(Ordering::SeqCst), 1);
+    assert!(a.script_display.fx().current_movie_frame().is_none());
+    assert!(crate::core::script_action_handler::is_script_display_movie_playing(
+        b.script_display_receiver()
+    ));
+    b.update_display_only().unwrap();
+    assert_eq!(decode_b.load(Ordering::SeqCst), 2);
+    assert_eq!(close_b.load(Ordering::SeqCst), 0);
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[test]
 fn native_fullscreen_receives_pixels_from_the_retail_provider() {
     use crate::video_player::{VideoIniCatalogSources, init_video_player_slot};
 
