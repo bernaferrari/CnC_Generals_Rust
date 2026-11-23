@@ -147,6 +147,11 @@ pub fn initialize_global_audio_manager() -> Arc<Mutex<AudioManager>> {
     // C++ `AudioManager::init` (GameAudio.cpp) copies preferred slider volumes.
     // `new()` leaves effective music/sound/speech volumes at 0 until init.
     created.init();
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        created.movie_pcm_output =
+            get_rodio_stream_handle().map(movie_pcm::MoviePcmOutput::from_device);
+    }
     let manager = Arc::new(Mutex::new(created));
     {
         let mut slot = services

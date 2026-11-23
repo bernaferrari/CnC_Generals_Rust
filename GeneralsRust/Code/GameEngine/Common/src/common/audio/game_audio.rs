@@ -14,6 +14,8 @@ mod music_tracks;
 mod locality_limits;
 mod playing_list;
 mod rodio_hook;
+mod movie_pcm;
+pub use movie_pcm::MoviePcmVoice;
 mod animation_bridge;
 #[cfg(not(target_arch = "wasm32"))]
 pub use rodio_hook::register_rodio_playback_hook;
@@ -687,6 +689,8 @@ pub struct AudioManager {
     audio_random: RandomState,
     /// Optional receiving backend. Absence retains the legacy installed backend.
     playback_recipient: playback::PlaybackRecipient,
+    #[cfg(not(target_arch = "wasm32"))]
+    movie_pcm_output: Option<movie_pcm::MoviePcmOutput>,
     // Settings and configuration
     audio_settings: AudioSettings,
     misc_audio: MiscAudio,
@@ -746,6 +750,28 @@ pub struct AudioManager {
 }
 
 impl AudioManager {
+    /// Receive decoded movie audio on an already running application mixer.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn bind_movie_pcm_mixer(&mut self, mixer: rodio::mixer::Mixer) {
+        self.movie_pcm_output = Some(movie_pcm::MoviePcmOutput::from_mixer(mixer));
+    }
+
+    pub fn open_movie_pcm(&self, sample_rate: u32, channels: u8, gain: f32) -> Option<MoviePcmVoice> {
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            if sample_rate == 0 || channels == 0 {
+                return None;
+            }
+            let output = self.movie_pcm_output.as_ref()?;
+            Some(MoviePcmVoice::new(output.mixer.clone(), sample_rate, channels, gain))
+        }
+        #[cfg(target_arch = "wasm32")]
+        {
+            let _ = (sample_rate, channels, gain);
+            None
+        }
+    }
+
     /// Audio stream of this manager (seeded by the owner at C++ `InitRandom`).
     pub fn audio_random_mut(&mut self) -> &mut RandomState {
         &mut self.audio_random
@@ -755,6 +781,8 @@ impl AudioManager {
         AudioManager {
             audio_random: RandomState::default(),
             playback_recipient: playback::PlaybackRecipient::default(),
+            #[cfg(not(target_arch = "wasm32"))]
+            movie_pcm_output: None,
             audio_settings: AudioSettings::default(),
             misc_audio: MiscAudio::default(),
             music_manager: Some(create_music_manager()),

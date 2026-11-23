@@ -26,6 +26,14 @@ pub trait VideoStreamInterface: Send {
     fn next_mut(&mut self) -> Option<&mut dyn VideoStreamInterface>;
     fn update(&mut self);
     fn close(self: Box<Self>);
+    /// Release the picture after natural completion and let submitted audio drain.
+    fn finish(self: Box<Self>) {
+        self.close();
+    }
+    fn take_audio_tail(&mut self) -> Option<game_engine::common::audio::game_audio::MoviePcmVoice> {
+        None
+    }
+    fn cancel_audio(&mut self) {}
     fn is_frame_ready(&self) -> Bool;
     fn has_decode_failed(&self) -> bool {
         false

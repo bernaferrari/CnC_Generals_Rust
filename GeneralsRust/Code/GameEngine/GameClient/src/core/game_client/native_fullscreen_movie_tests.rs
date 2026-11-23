@@ -247,6 +247,7 @@ fn score_screen_ok_then_main_menu_init_preserves_only_receiving_movie_until_stop
     let _ = std::fs::remove_dir_all(root);
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn native_fullscreen_receives_pixels_from_the_retail_provider() {
     use crate::video_player::{VideoIniCatalogSources, init_video_player_slot};
@@ -267,6 +268,14 @@ fn native_fullscreen_receives_pixels_from_the_retail_provider() {
         &catalog,
     );
     client.script_display.bind_video_player_slot(slot);
+    let (mixer, mut callback) = rodio::mixer::mixer(
+        std::num::NonZeroU16::new(2).unwrap(),
+        std::num::NonZeroU32::new(48_000).unwrap(),
+    );
+    let mut audio = game_engine::common::audio::AudioManager::new();
+    audio.init();
+    audio.bind_movie_pcm_mixer(mixer);
+    client.bind_native_audio_device(Arc::new(Mutex::new(audio)));
     assert!(client.subsystem_manager.display.is_none());
     assert!(
         crate::core::script_action_handler::play_script_display_movie(
@@ -280,7 +289,15 @@ fn native_fullscreen_receives_pixels_from_the_retail_provider() {
     assert_eq!((width, height), (720, 486));
     assert_eq!(rgba.len(), width as usize * height as usize * 4);
     assert!(rgba.chunks_exact(4).any(|pixel| pixel != &rgba[..4]));
+    let peak = (0..24_000)
+        .map(|_| callback.next().unwrap_or(0.0).abs())
+        .fold(0.0, f32::max);
+    assert!(peak > 1e-4, "native fullscreen PCM reached the receiving output");
     client.reset().unwrap();
+    for _ in 0..960 {
+        callback.next(); // Rodio samples controls at callback cadence.
+    }
+    assert!((0..960).all(|_| callback.next().unwrap_or(0.0) == 0.0));
     assert!(
         !crate::core::script_action_handler::is_script_display_movie_playing(
             client.script_display_receiver()

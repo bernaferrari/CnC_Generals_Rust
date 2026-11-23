@@ -285,7 +285,11 @@ pub fn advance_load_screen_prelude_with_pump(
                 )?;
             }
             with_window_video_manager(runtime.videos(), |manager| {
-                manager.finish_load_movie(&movie, kind == LoadScreenKind::SinglePlayer)
+                manager.finish_load_movie(
+                    &movie,
+                    kind == LoadScreenKind::SinglePlayer,
+                    outcome == LoadScreenPreludeOutcome::Complete,
+                )
             });
             if kind == LoadScreenKind::SinglePlayer {
                 // This final static-background draw is outside the focus gate and

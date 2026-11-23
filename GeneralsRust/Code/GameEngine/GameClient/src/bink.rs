@@ -1,6 +1,8 @@
 use std::fs;
 use std::path::Path;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
+
+use game_engine::common::audio::{AudioAffect, AudioManager, game_audio::MoviePcmVoice};
 use std::time::{Duration, Instant};
 
 use self::bink_decoder::BinkVideoDecoder;
@@ -93,23 +95,11 @@ impl BinkHeader {
 
 pub use crate::bink_audio::{
     apply_speech_slider_volume as bink_volume_from_speech_slider, has_bink_audio_bitstream_parser,
-    BinkAudioState,
 };
 
 use crate::bink_audio::{
     BinkAudioDecoder, BinkAudioLayout, parse_audio_layout, split_frame_audio_and_video,
 };
-
-fn speech_slider_volume() -> f32 {
-    game_engine::common::audio::game_audio::get_global_audio_manager()
-        .and_then(|audio| {
-            audio
-                .lock()
-                .ok()
-                .map(|guard| guard.get_volume(game_engine::common::audio::AudioAffect::Speech))
-        })
-        .unwrap_or(1.0)
-}
 
 #[derive(Debug, Clone)]
 pub struct BinkFramePacket {
@@ -125,8 +115,6 @@ pub struct BinkDecoder {
     current_frame: u32,
     video_decoder: BinkVideoDecoder,
     audio_layout: BinkAudioLayout,
-    audio_decoders: Vec<BinkAudioDecoder>,
-    audio: BinkAudioState,
 }
 
 impl BinkDecoder {
@@ -162,13 +150,6 @@ impl BinkDecoder {
             header.width as usize,
             header.height as usize,
         );
-        let audio_decoders = audio_layout
-            .tracks
-            .iter()
-            .cloned()
-            .map(BinkAudioDecoder::new)
-            .collect();
-
         Ok(Self {
             bytes,
             header,
@@ -176,8 +157,6 @@ impl BinkDecoder {
             current_frame: 0,
             video_decoder,
             audio_layout,
-            audio_decoders,
-            audio: BinkAudioState::default(),
         })
     }
 
@@ -220,37 +199,29 @@ impl BinkDecoder {
     }
 
     pub fn decode_frame_rgba(&mut self, frame_index: u32) -> Result<Vec<u8>, String> {
-        let packet = self.packet(frame_index).to_vec();
+        self.decode_frame(frame_index, None)
+    }
+
+    fn decode_frame(
+        &mut self,
+        frame_index: u32,
+        soundtrack: Option<&mut BinkSoundtrack>,
+    ) -> Result<Vec<u8>, String> {
+        let packet =
+            &self.frame_packets[frame_index.min(self.frame_count().saturating_sub(1)) as usize];
+        let bytes = &self.bytes[packet.offset..packet.offset + packet.size];
         let (audio_packets, video_packet) =
-            split_frame_audio_and_video(&packet, self.audio_layout.tracks.len());
+            split_frame_audio_and_video(bytes, self.audio_layout.tracks.len());
         let rgba = self
             .video_decoder
             .decode_frame(video_packet)
             .map_err(|error| format!("Bink frame {frame_index}: {error}"))?;
-        self.play_frame_audio(&audio_packets);
-        Ok(rgba)
-    }
-
-    fn play_frame_audio(&mut self, audio_packets: &[&[u8]]) {
-        if !self.audio.soundtrack_is_bound() {
-            return;
-        }
-        let volume = speech_slider_volume();
-        for (decoder, packet) in self.audio_decoders.iter_mut().zip(audio_packets.iter()) {
-            let pcm = decoder.decode_packet(packet);
-            if !pcm.is_empty() {
-                self.audio.play_bink_pcm_through_miles(
-                    &pcm,
-                    decoder.sample_rate(),
-                    decoder.channels(),
-                    volume,
-                );
+        if let Some(soundtrack) = soundtrack {
+            if let Some(packet) = audio_packets.get(soundtrack.track_index) {
+                soundtrack.pending = soundtrack.decoder.decode_packet(packet);
             }
         }
-    }
-
-    pub fn audio_mut(&mut self) -> &mut BinkAudioState {
-        &mut self.audio
+        Ok(rgba)
     }
 
     pub fn seek(&mut self, frame_index: u32) {
@@ -268,6 +239,13 @@ impl BinkDecoder {
     }
 }
 
+struct BinkSoundtrack {
+    track_index: usize,
+    decoder: BinkAudioDecoder,
+    voice: MoviePcmVoice,
+    pending: Vec<f32>,
+}
+
 /// Bink-backed [`VideoStreamInterface`] wrapping [`BinkDecoder`].
 /// Matches C++ `BinkVideoStream` (BinkVideoPlayer.h).
 pub struct BinkVideoStream {
@@ -276,25 +254,65 @@ pub struct BinkVideoStream {
     decoded_frame: Option<u32>,
     next_frame_ready: Instant,
     state: PlaybackState,
-    volume: f32,
+    soundtrack: Option<BinkSoundtrack>,
 }
 
 impl BinkVideoStream {
     pub fn open(path: &Path) -> Result<Self, String> {
+        Self::open_with_audio(path, None)
+    }
+
+    fn open_with_audio(path: &Path, audio: Option<&Mutex<AudioManager>>) -> Result<Self, String> {
         let mut decoder = BinkDecoder::open(path)?;
-        let _ = decoder.audio_mut().initialize_bink_with_miles();
+        // BinkVideoPlayer.cpp selects authored soundtrack 0.
+        let mut soundtrack = decoder
+            .audio_layout
+            .tracks
+            .iter()
+            .enumerate()
+            .find(|(_, track)| track.id == 0)
+            .and_then(|(track_index, track)| {
+                let device = audio?.lock().ok()?;
+                let gain = bink_volume_from_speech_slider(device.get_volume(AudioAffect::Speech));
+                let voice = device.open_movie_pcm(track.sample_rate, track.channels, gain)?;
+                drop(device);
+                Some(BinkSoundtrack {
+                    track_index,
+                    decoder: BinkAudioDecoder::new(track.clone()),
+                    voice,
+                    pending: Vec::new(),
+                })
+            });
         let current_rgba = decoder
-            .decode_current_frame_rgba()
+            .decode_frame(0, soundtrack.as_mut())
             .map_err(|error| format!("{}: {error}", path.display()))?;
-        let speech = speech_slider_volume();
         Ok(Self {
             decoder,
             current_rgba,
             decoded_frame: Some(0),
             next_frame_ready: Instant::now(),
             state: PlaybackState::Playing,
-            volume: bink_volume_from_speech_slider(speech),
+            soundtrack,
         })
+    }
+
+    fn decode_current_frame(&mut self) {
+        let index = self.decoder.current_frame_index();
+        if self.has_decode_failed() || self.decoded_frame == Some(index) {
+            return;
+        }
+        match self.decoder.decode_frame(index, self.soundtrack.as_mut()) {
+            Ok(rgba) => {
+                self.current_rgba = rgba;
+                self.decoded_frame = Some(index);
+            }
+            Err(error) => {
+                log::warn!("Skipping unreadable movie: {error}");
+                self.soundtrack = None;
+                self.current_rgba.clear();
+                self.state = PlaybackState::Complete;
+            }
+        }
     }
 }
 
@@ -324,21 +342,22 @@ impl VideoStreamInterface for BinkVideoStream {
         self.current_rgba.is_empty()
     }
 
-    fn frame_decompress(&mut self) {
-        let index = self.decoder.current_frame_index();
-        if self.has_decode_failed() || self.decoded_frame == Some(index) {
-            return;
+    fn take_audio_tail(&mut self) -> Option<MoviePcmVoice> {
+        let voice = self.soundtrack.take()?.voice;
+        voice.has_pending_samples().then_some(voice)
+    }
+
+    fn cancel_audio(&mut self) {
+        if let Some(soundtrack) = self.soundtrack.as_mut() {
+            soundtrack.voice.discard();
+            soundtrack.pending.clear();
         }
-        match self.decoder.decode_current_frame_rgba() {
-            Ok(rgba) => {
-                self.current_rgba = rgba;
-                self.decoded_frame = Some(index);
-            }
-            Err(error) => {
-                log::warn!("Skipping unreadable movie: {error}");
-                self.current_rgba.clear();
-                self.state = PlaybackState::Complete;
-            }
+    }
+
+    fn frame_decompress(&mut self) {
+        self.decode_current_frame();
+        if let Some(soundtrack) = self.soundtrack.as_mut() {
+            soundtrack.voice.enqueue(std::mem::take(&mut soundtrack.pending));
         }
     }
 
@@ -389,6 +408,9 @@ impl VideoStreamInterface for BinkVideoStream {
         };
         if self.decoder.advance() {
             self.decoder.video_decoder.clear_reference_frames();
+            if let Some(soundtrack) = self.soundtrack.as_mut() {
+                soundtrack.decoder.reset_prediction();
+            }
             self.decoded_frame = None;
         }
         // Decompress when the presenter is ready. At wrap the window can hold
@@ -407,13 +429,27 @@ impl VideoStreamInterface for BinkVideoStream {
         if self.has_decode_failed() {
             return;
         }
+        self.cancel_audio();
         self.decoder.seek(index.max(0) as u32);
+        if let Some(soundtrack) = self.soundtrack.as_mut() {
+            soundtrack.decoder.reset_prediction();
+            if self.decoded_frame == Some(self.decoder.current_frame_index()) {
+                // Keep the displayed picture and rebuild only its cached audio.
+                let (packets, _) = split_frame_audio_and_video(
+                    self.decoder.packet(self.decoder.current_frame_index()),
+                    self.decoder.audio_layout.tracks.len(),
+                );
+                if let Some(packet) = packets.get(soundtrack.track_index) {
+                    soundtrack.pending = soundtrack.decoder.decode_packet(packet);
+                }
+            }
+        }
         if self.decoder.current_frame_index() == 0 && self.decoded_frame != Some(0) {
             self.decoder.video_decoder.clear_reference_frames();
         }
         self.next_frame_ready = Instant::now();
         self.state = PlaybackState::Paused;
-        self.frame_decompress();
+        self.decode_current_frame();
     }
 
     fn height(&self) -> i32 {
@@ -449,7 +485,9 @@ impl VideoStreamInterface for BinkVideoStream {
 
     fn set_volume(&mut self, volume: f32) {
         // C++ BinkVideoPlayer::createStream never lets volume go to 0.
-        self.volume = bink_volume_from_speech_slider(volume);
+        if let Some(soundtrack) = self.soundtrack.as_mut() {
+            soundtrack.voice.set_gain(bink_volume_from_speech_slider(volume));
+        }
     }
 
     fn playback_state(&self) -> PlaybackState {
@@ -470,7 +508,16 @@ impl VideoStreamProvider for BuiltInBinkVideoProvider {
         movie_title: &str,
         resolved_path: &Path,
     ) -> Option<Box<dyn VideoStreamInterface>> {
-        match BinkVideoStream::open(resolved_path) {
+        self.open_with_audio(movie_title, resolved_path, None)
+    }
+
+    fn open_with_audio(
+        &self,
+        movie_title: &str,
+        resolved_path: &Path,
+        audio: Option<&Mutex<AudioManager>>,
+    ) -> Option<Box<dyn VideoStreamInterface>> {
+        match BinkVideoStream::open_with_audio(resolved_path, audio) {
             Ok(stream) => Some(Box::new(stream)),
             Err(error) => {
                 log::warn!(
@@ -635,7 +682,7 @@ mod tests {
             decoded_frame: Some(0),
             next_frame_ready: Instant::now(),
             state: PlaybackState::Playing,
-            volume: 1.0,
+            soundtrack: None,
         };
         for (format, even, odd) in [
             (VideoBufferType::R8G8B8, &[255, 128, 0][..], &[255, 128, 0][..]),
@@ -752,34 +799,10 @@ mod tests {
     }
 
     #[test]
-    fn bink_has_audio_bitstream_parser_wired_to_miles() {
-        crate::test_support::ensure_ambient_host();
-        let bytes = make_bink_blob(*b"BIKi");
-        let header = BinkHeader::parse(&bytes).expect("header");
-        assert_eq!(header.audio_track_count, 0);
-        assert!(
-            has_bink_audio_bitstream_parser(),
-            "Bink audio bitstream parser must be present for Miles/kira soundtrack"
-        );
-        let mut audio = BinkAudioState::default();
-        audio.notify_video_player_of_new_provider(false);
-        assert!(
-            !audio.soundtrack_is_bound(),
-            "lost audio device mutes soundtrack but parser stays available"
-        );
-    }
-
-    #[test]
     fn bink_speech_slider_matches_create_stream_formula() {
         crate::test_support::ensure_ambient_host();
-        // C++ BinkVideoPlayer::createStream (BinkVideoPlayer.cpp:88-96)
-        // mod = (speechVolume*0.8*100)+1; volume = 32768*mod/100.
-        let expected = |speech: f32| {
-            let modifier = (speech.clamp(0.0, 1.0) * 0.8 * 100.0) + 1.0;
-            32768.0 * modifier / 100.0 / 32768.0
-        };
-        assert!((bink_volume_from_speech_slider(1.0) - expected(1.0)).abs() < 1e-6);
-        assert!((bink_volume_from_speech_slider(0.0) - expected(0.0)).abs() < 1e-6);
-        assert!((bink_volume_from_speech_slider(0.5) - expected(0.5)).abs() < 1e-6);
+        assert_eq!(bink_volume_from_speech_slider(1.0), 26542.0 / 32768.0);
+        assert_eq!(bink_volume_from_speech_slider(0.0), 327.0 / 32768.0);
+        assert_eq!(bink_volume_from_speech_slider(0.5), 13434.0 / 32768.0);
     }
 }

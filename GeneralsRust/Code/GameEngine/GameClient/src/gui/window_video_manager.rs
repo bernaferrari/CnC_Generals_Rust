@@ -273,6 +273,9 @@ impl WindowVideoManager {
                             // entries until reset; InGameUI.cpp:1605 closes its
                             // own completed radar stream immediately.
                             if !observe_window_visibility {
+                                if let Some(stream) = win_video.video_stream.take() {
+                                    stream.finish();
+                                }
                                 remove_keys.push(key);
                             }
                         }
@@ -878,15 +881,26 @@ impl WindowVideoManager {
         }
     }
 
-    pub(crate) fn finish_load_movie(&mut self, name: &str, discard: bool) {
+    pub(crate) fn finish_load_movie(&mut self, name: &str, discard: bool, completed: bool) {
         let key = self
             .playing_videos
             .iter()
             .find_map(|(key, video)| video.movie_name.eq_ignore_ascii_case(name).then_some(*key));
         if let Some(key) = key {
             if discard {
-                self.playing_videos.remove(&key); // Drop closes the stream and clears its window buffer.
+                if let Some(mut video) = self.playing_videos.remove(&key) {
+                    if completed {
+                        if let Some(stream) = video.video_stream.take() {
+                            stream.finish();
+                        }
+                    }
+                }
             } else if let Some(video) = self.playing_videos.get_mut(&key) {
+                if !completed {
+                    if let Some(stream) = video.video_stream.as_mut() {
+                        stream.cancel_audio();
+                    }
+                }
                 video.state = WindowVideoState::Pause;
             }
         }
@@ -1055,7 +1069,7 @@ pub(crate) mod load_movie_tests {
             LoadMovieStep::Skipped
         );
         assert!(trace.lock().unwrap().is_empty());
-        manager.finish_load_movie("Campaign", true);
+        manager.finish_load_movie("Campaign", true, false);
         assert_eq!(*trace.lock().unwrap(), vec![("close", 1)]);
         assert!(!manager.is_movie_playing("Campaign"));
     }
@@ -1102,7 +1116,7 @@ pub(crate) mod load_movie_tests {
             selected.lock().unwrap().is_empty(),
             "the original loop excludes its final frame"
         );
-        manager.finish_load_movie("Challenge", false);
+        manager.finish_load_movie("Challenge", false, true);
         assert!(manager.movie_progress("Challenge").is_some());
         assert_eq!(manager.playing_videos[&1].state, WindowVideoState::Pause);
     }

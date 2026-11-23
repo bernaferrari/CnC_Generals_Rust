@@ -1,10 +1,5 @@
 //! Bink audio bitstream parser and DCT/RDFT decoder.
 //!
-//! C++ `BinkVideoPlayer::initializeBinkWithMiles` / `BinkSetVolume` feed the
-//! RAD audio track through Miles. This module parses per-track headers and
-//! decodes the DCT/RDFT bitstream (NihAV / FFmpeg algorithm) so the Miles/kira
-//! hook can play campaign briefing soundtracks.
-
 use std::f32::consts::PI;
 
 mod dct;
@@ -20,23 +15,6 @@ const RUN_TAB: [usize; 16] = [2, 3, 4, 5, 6, 8, 9, 10, 11, 12, 13, 14, 15, 16, 3
 const BINK_AUD_16BITS: u16 = 0x4000;
 const BINK_AUD_STEREO: u16 = 0x2000;
 const BINK_AUD_USEDCT: u16 = 0x1000;
-
-/// Per-stream Miles+kira soundtrack binding (was process TLS/atomics).
-pub struct BinkAudioState {
-    soundtrack_bound: bool,
-    miles_hook: BinkMilesHook,
-    kira: Option<KiraPlayback>,
-}
-
-impl Default for BinkAudioState {
-    fn default() -> Self {
-        Self {
-            soundtrack_bound: false,
-            miles_hook: BinkMilesHook::new(),
-            kira: None,
-        }
-    }
-}
 
 #[derive(Debug, Clone)]
 pub struct BinkAudioTrack {
@@ -57,100 +35,12 @@ pub fn has_bink_audio_bitstream_parser() -> bool {
     true
 }
 
-impl BinkAudioState {
-    pub fn soundtrack_is_bound(&self) -> bool {
-        self.soundtrack_bound
-    }
-
-    pub fn initialize_bink_with_miles(&mut self) -> bool {
-        let ok = match kira::AudioManager::<kira::DefaultBackend>::new(
-            kira::AudioManagerSettings::default(),
-        ) {
-            Ok(manager) => {
-                self.store_kira_manager(manager);
-                true
-            }
-            Err(_) => false,
-        };
-        self.miles_hook.bound = ok;
-        self.soundtrack_bound = ok;
-        ok
-    }
-
-    pub fn get_handle_for_bink(&mut self) -> bool {
-        self.initialize_bink_with_miles()
-    }
-
-    pub fn release_handle_for_bink(&mut self) {
-        self.soundtrack_bound = false;
-        self.miles_hook.bound = false;
-        self.stop_playback();
-    }
-
-    pub fn notify_video_player_of_new_provider(&mut self, now_has_valid: bool) {
-        if now_has_valid {
-            let _ = self.initialize_bink_with_miles();
-        } else {
-            self.release_handle_for_bink();
-        }
-    }
-
-    fn store_kira_manager(&mut self, manager: kira::AudioManager<kira::DefaultBackend>) {
-        self.kira = Some(KiraPlayback {
-            manager,
-            handle: None,
-        });
-    }
-
-    fn stop_playback(&mut self) {
-        if let Some(playback) = self.kira.as_mut() {
-            if let Some(handle) = playback.handle.as_mut() {
-                let _ = handle.stop(kira::Tween::default());
-            }
-            playback.handle = None;
-        }
-    }
-
-    pub fn play_bink_pcm_through_miles(
-        &mut self,
-        samples: &[f32],
-        sample_rate: u32,
-        channels: u8,
-        volume: f32,
-    ) {
-        if !self.soundtrack_bound || samples.is_empty() {
-            return;
-        }
-        let frames = pcm_to_frames(samples, channels);
-        if frames.is_empty() {
-            return;
-        }
-        let data = kira::sound::static_sound::StaticSoundData {
-            sample_rate,
-            frames: frames.into(),
-            settings: kira::sound::static_sound::StaticSoundSettings::new()
-                .volume(kira_amplitude(volume.max(0.0001) as f64)),
-            slice: None,
-        };
-        let Some(playback) = self.kira.as_mut() else {
-            return;
-        };
-        if let Some(handle) = playback.handle.as_mut() {
-            let _ = handle.stop(kira::Tween::default());
-        }
-        playback.handle = match playback.manager.play(data) {
-            Ok(handle) => Some(handle),
-            Err(_) => None,
-        };
-    }
-}
-
 /// C++ `BinkVideoPlayer::createStream` volume mapping.
 pub fn apply_speech_slider_volume(speech_volume: f32) -> f32 {
     let speech = speech_volume.clamp(0.0, 1.0);
-    let modifier = (speech * 0.8 * 100.0) + 1.0;
-    let bink_units = 32768.0 * modifier / 100.0;
-    (bink_units / 32768.0).clamp(0.0, 1.0)
+    let percent = (speech * 0.8 * 100.0) as i32 + 1;
+    let bink_units = 32768 * percent / 100;
+    bink_units as f32 / 32768.0
 }
 
 pub fn parse_audio_layout(
@@ -291,6 +181,11 @@ impl BinkAudioDecoder {
 
     pub fn channels(&self) -> u8 {
         self.track.channels
+    }
+
+    pub fn reset_prediction(&mut self) {
+        self.delay.fill([0.0; 256]);
+        self.first_frm = true;
     }
 
     pub fn decode_packet(&mut self, packet: &[u8]) -> Vec<f32> {
@@ -656,49 +551,6 @@ impl<'a> BitReader<'a> {
     }
 }
 
-struct KiraPlayback {
-    manager: kira::AudioManager<kira::DefaultBackend>,
-    handle: Option<kira::sound::static_sound::StaticSoundHandle>,
-}
-
-fn kira_amplitude(amp: f64) -> kira::Decibels {
-    if amp <= 0.0001 {
-        kira::Decibels::SILENCE
-    } else {
-        kira::Decibels(20.0 * (amp as f32).log10())
-    }
-}
-
-struct BinkMilesHook {
-    bound: bool,
-    #[cfg(feature = "not_used")]
-    _pad: (),
-}
-
-impl BinkMilesHook {
-    fn new() -> Self {
-        Self { bound: false }
-    }
-}
-
-fn pcm_to_frames(samples: &[f32], channels: u8) -> Vec<kira::Frame> {
-    if channels >= 2 {
-        samples
-            .chunks(2)
-            .map(|pair| kira::Frame {
-                left: pair[0],
-                right: pair.get(1).copied().unwrap_or(pair[0]),
-            })
-            .collect()
-    } else {
-        samples
-            .iter()
-            .copied()
-            .map(kira::Frame::from_mono)
-            .collect()
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -712,17 +564,9 @@ mod tests {
     #[test]
     fn speech_slider_never_hits_zero() {
         crate::test_support::ensure_ambient_host();
-        let silent = apply_speech_slider_volume(0.0);
-        assert!(silent > 0.0);
-        assert!((apply_speech_slider_volume(1.0) - 0.81).abs() < 0.02);
-    }
-
-    #[test]
-    fn notify_false_does_not_claim_bound_soundtrack() {
-        crate::test_support::ensure_ambient_host();
-        let mut audio = BinkAudioState::default();
-        audio.notify_video_player_of_new_provider(false);
-        assert!(!audio.soundtrack_is_bound());
+        assert_eq!(apply_speech_slider_volume(0.0), 327.0 / 32768.0);
+        assert_eq!(apply_speech_slider_volume(0.552), 14745.0 / 32768.0);
+        assert_eq!(apply_speech_slider_volume(1.0), 26542.0 / 32768.0);
     }
 
     #[test]

@@ -161,7 +161,6 @@ impl RodioSinkState {
 #[cfg(not(target_arch = "wasm32"))]
 impl RodioPlaybackHook {
     fn new() -> Self {
-        let _ = get_rodio_stream_handle();
         Self {
             sinks: Mutex::new(HashMap::new()),
             listener_position: Mutex::new(Coord3D::ZERO),

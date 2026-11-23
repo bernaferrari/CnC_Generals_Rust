@@ -230,6 +230,9 @@ impl GameClient {
                 .unwrap_or_else(|poisoned| poisoned.into_inner())
                 .bind_common_audio_device(std::sync::Arc::clone(&device));
         }
+        if let Some(slot) = self.video_player_slot.as_ref() {
+            crate::video_player::bind_video_slot_movie_audio_device(slot, &device);
+        }
         self.native_audio_device = Some(device);
     }
 
@@ -838,6 +841,9 @@ impl GameClient {
             &video_search_paths,
             video_catalog,
         );
+        if let Some(device) = self.native_audio_device.as_ref() {
+            crate::video_player::bind_video_slot_movie_audio_device(&video_player_slot, device);
+        }
         self.script_display
             .bind_video_player_slot(video_player_slot.clone());
         self.window_videos.bind_video_player_slot(video_player_slot);
@@ -1239,11 +1245,13 @@ impl GameClient {
             });
 
         if self.subsystem_manager.video_player.is_none() {
-            let mut video_player = VideoPlayerSubsystem::new(
-                self.ensure_video_player_slot(),
-                self.video_search_paths(),
-            );
+            let slot = self.ensure_video_player_slot();
+            let mut video_player =
+                VideoPlayerSubsystem::new(slot.clone(), self.video_search_paths());
             video_player.init()?;
+            if let Some(device) = self.native_audio_device.as_ref() {
+                crate::video_player::bind_video_slot_movie_audio_device(&slot, device);
+            }
             self.subsystem_manager.video_player = Some(Arc::new(Mutex::new(video_player)));
         }
 

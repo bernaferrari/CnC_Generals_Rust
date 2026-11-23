@@ -6,6 +6,7 @@ use std::sync::{Arc, Mutex, Weak};
 
 use crate::bink::BuiltInBinkVideoProvider;
 use crate::video_stream::{PlaybackState, VideoStream, VideoStreamInterface};
+use game_engine::common::audio::{AudioManager, game_audio::MoviePcmVoice};
 use log::warn;
 
 type Bool = bool;
@@ -99,6 +100,15 @@ pub trait VideoStreamProvider: Send + Sync {
         resolved_path: &Path,
     ) -> Option<Box<dyn VideoStreamInterface>>;
 
+    fn open_with_audio(
+        &self,
+        movie_title: &str,
+        resolved_path: &Path,
+        _audio: Option<&Mutex<AudioManager>>,
+    ) -> Option<Box<dyn VideoStreamInterface>> {
+        self.open(movie_title, resolved_path)
+    }
+
     fn load(
         &self,
         movie_title: &str,
@@ -177,7 +187,8 @@ impl VideoIniCatalogSources {
 pub struct VideoPlayer {
     videos_available_for_play: Vec<Video>,
     first_stream: Option<Box<VideoStream>>,
-    active_streams: Vec<Weak<Mutex<ManagedVideoStreamState>>>,
+    active_streams: Vec<Arc<Mutex<ManagedVideoStreamState>>>,
+    movie_audio_device: Option<Weak<Mutex<AudioManager>>>,
     provider: Option<Box<dyn VideoStreamProvider>>,
     provider_is_valid: Bool,
     has_focus: Bool,
@@ -190,6 +201,7 @@ impl VideoPlayer {
             videos_available_for_play: Vec::new(),
             first_stream: None,
             active_streams: Vec::new(),
+            movie_audio_device: None,
             provider: None,
             provider_is_valid: false,
             has_focus: true,
@@ -261,46 +273,36 @@ impl VideoPlayer {
         self.search_paths = Some(paths);
     }
 
+    pub(crate) fn bind_movie_audio_device(&mut self, device: &Arc<Mutex<AudioManager>>) {
+        self.movie_audio_device = Some(Arc::downgrade(device));
+    }
+
     fn track_stream(
         &mut self,
         inner: Box<dyn VideoStreamInterface>,
     ) -> Box<dyn VideoStreamInterface> {
         self.active_streams
-            .retain(|stream| stream.upgrade().is_some());
+            .retain(|stream| stream.lock().is_ok_and(|state| !state.is_closed()));
         let state = Arc::new(Mutex::new(ManagedVideoStreamState::new(inner)));
-        self.active_streams.push(Arc::downgrade(&state));
+        self.active_streams.push(Arc::clone(&state));
         Box::new(ManagedVideoStreamHandle::new(state))
     }
 
     fn update_tracked_streams(&mut self) {
         self.active_streams.retain(|stream| {
-            let Some(stream) = stream.upgrade() else {
-                return false;
-            };
-
-            let keep = if let Ok(mut guard) = stream.lock() {
-                guard.update();
-                !guard.is_closed()
-            } else {
-                false
-            };
-            keep
+            stream.lock().is_ok_and(|mut state| {
+                state.update();
+                !state.is_closed()
+            })
         });
     }
 
     fn close_tracked_streams(&mut self) {
-        self.active_streams.retain(|stream| {
-            let Some(stream) = stream.upgrade() else {
-                return false;
-            };
-
-            if let Ok(mut guard) = stream.lock() {
-                guard.close_inner();
-            }
-            false
-        });
+        for stream in self.active_streams.drain(..) {
+            let mut state = stream.lock().unwrap_or_else(|error| error.into_inner());
+            state.cancel();
+        }
     }
-
 
     fn provider_is_valid(&self) -> Bool {
         self.provider_is_valid
@@ -354,11 +356,12 @@ impl VideoPlayerInterface for VideoPlayer {
             return None;
         };
         let provider = self.provider.as_ref()?;
+        let audio = self.movie_audio_device.as_ref().and_then(Weak::upgrade);
         let stream = self
             .search_paths
             .as_ref()?
             .movie_candidates(&video.filename, provider.file_extension())
-            .find_map(|path| provider.open(&movie_title, &path))?;
+            .find_map(|path| provider.open_with_audio(&movie_title, &path, audio.as_deref()))?;
         Some(self.track_stream(stream))
     }
 
@@ -418,6 +421,9 @@ impl VideoPlayerInterface for VideoPlayer {
     }
 
     fn notify_video_player_of_new_provider(&mut self, now_has_valid: Bool) {
+        if !now_has_valid {
+            self.close_tracked_streams();
+        }
         self.provider_is_valid = now_has_valid;
     }
 
@@ -425,13 +431,7 @@ impl VideoPlayerInterface for VideoPlayer {
         if let Some(stream) = self.first_stream.as_deref_mut() {
             stream.play();
         }
-        for stream_ref in &self.active_streams {
-            if let Some(stream) = stream_ref.upgrade() {
-                if let Ok(mut guard) = stream.lock() {
-                    guard.update();
-                }
-            }
-        }
+        self.update_tracked_streams();
     }
 
     fn pause(&mut self) {
@@ -444,26 +444,14 @@ impl VideoPlayerInterface for VideoPlayer {
         if let Some(stream) = self.first_stream.as_deref_mut() {
             stream.stop();
         }
-        for stream_ref in &self.active_streams {
-            if let Some(stream) = stream_ref.upgrade() {
-                if let Ok(mut guard) = stream.lock() {
-                    guard.update();
-                }
-            }
-        }
+        self.update_tracked_streams();
     }
 
     fn set_volume(&mut self, volume: f32) {
         if let Some(stream) = self.first_stream.as_deref_mut() {
             stream.set_volume(volume);
         }
-        for stream_ref in &self.active_streams {
-            if let Some(stream) = stream_ref.upgrade() {
-                if let Ok(mut guard) = stream.lock() {
-                    guard.update();
-                }
-            }
-        }
+        self.update_tracked_streams();
     }
 
     fn playback_state(&self) -> PlaybackState {
@@ -513,6 +501,17 @@ pub fn init_video_player_slot(
     }
 }
 
+pub(crate) fn bind_video_slot_movie_audio_device(
+    slot: &VideoPlayerHandle,
+    device: &Arc<Mutex<AudioManager>>,
+) {
+    if let Ok(mut guard) = slot.lock() {
+        if let Some(player) = guard.as_mut() {
+            player.bind_movie_audio_device(device);
+        }
+    }
+}
+
 pub fn init_video_player() {
     let Some(player) = video_player_handle() else { return };
     if let Ok(mut guard) = player.lock() {
@@ -554,17 +553,35 @@ impl Drop for VideoPlayer {
 
 struct ManagedVideoStreamState {
     inner: Option<Box<dyn VideoStreamInterface>>,
+    audio_tail: Option<MoviePcmVoice>,
 }
 
 impl ManagedVideoStreamState {
     fn new(inner: Box<dyn VideoStreamInterface>) -> Self {
-        Self { inner: Some(inner) }
+        Self {
+            inner: Some(inner),
+            audio_tail: None,
+        }
     }
 
     fn update(&mut self) {
         if let Some(inner) = self.inner.as_mut() {
             inner.update();
+        } else if self.audio_tail.as_ref().is_some_and(|tail| !tail.has_pending_samples()) {
+            self.audio_tail = None;
         }
+    }
+
+    fn finish_picture(&mut self) {
+        if let Some(mut inner) = self.inner.take() {
+            self.audio_tail = inner.take_audio_tail();
+            inner.close();
+        }
+    }
+
+    fn cancel(&mut self) {
+        self.audio_tail = None;
+        self.close_inner();
     }
 
     fn close_inner(&mut self) {
@@ -574,7 +591,7 @@ impl ManagedVideoStreamState {
     }
 
     fn is_closed(&self) -> bool {
-        self.inner.is_none()
+        self.inner.is_none() && self.audio_tail.is_none()
     }
 }
 
@@ -613,7 +630,21 @@ impl VideoStreamInterface for ManagedVideoStreamHandle {
 
     fn close(self: Box<Self>) {
         if let Ok(mut state) = self.state.lock() {
-            state.close_inner();
+            state.cancel();
+        }
+    }
+
+    fn finish(self: Box<Self>) {
+        if let Ok(mut state) = self.state.lock() {
+            state.finish_picture();
+        }
+    }
+
+    fn cancel_audio(&mut self) {
+        if let Ok(mut state) = self.state.lock() {
+            if let Some(inner) = state.inner.as_mut() {
+                inner.cancel_audio();
+            }
         }
     }
 
@@ -1243,3 +1274,7 @@ mod tests {
         assert!(!player.provider_is_valid());
     }
 }
+
+#[cfg(all(test, not(target_arch = "wasm32")))]
+#[path = "video_movie_pcm_tests.rs"]
+mod movie_pcm_tests;

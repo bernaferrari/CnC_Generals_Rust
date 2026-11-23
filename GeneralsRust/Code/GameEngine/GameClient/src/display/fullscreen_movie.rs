@@ -179,6 +179,13 @@ impl FullscreenMovie {
         };
 
         if should_stop {
+            if let Some((stream, _)) = self.playing.take() {
+                if stream.has_decode_failed() {
+                    stream.close();
+                } else {
+                    stream.finish();
+                }
+            }
             self.stop(fx);
         }
     }
