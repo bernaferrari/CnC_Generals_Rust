@@ -3,6 +3,12 @@ use super::*;
 #[cfg(test)]
 use gamelogic::object::update::ai_update::dozer_ai_update::DozerTask;
 
+pub(super) enum BaseBuildingAction {
+    Wait,
+    QueueDozer,
+    Scaffold(ScaffoldAttempt),
+}
+
 pub(super) struct ScaffoldAttempt {
     pub player: u32,
     pub token: u64,
@@ -121,16 +127,19 @@ impl GameLogic {
         self.resume_owned_ai_construction(player, repair, sites, |world| {
             world.admit_owned_ai_dozer(player, now);
         })?;
-        self.queue_owned_ai_dozer(player, now);
         let Some(mut ai) = self.ai_manager.ai_players.remove(&player) else {
             return Ok(());
         };
-        let attempt = ai.prepare_scaffold_attempt(self, now, data);
+        let action = ai.prepare_base_building_action(self, now, data);
         self.ai_manager.ai_players.insert(player, ai);
-        if let Some(attempt) = attempt {
-            if let Some(object) = attempt.execute_with_effects(self, ui)? {
-                if let Some(ai) = self.ai_manager.ai_players.get_mut(&player) {
-                    ai.finish_scaffold_attempt(&attempt, object);
+        match action {
+            BaseBuildingAction::Wait => {}
+            BaseBuildingAction::QueueDozer => self.admit_owned_ai_dozer(player, now),
+            BaseBuildingAction::Scaffold(attempt) => {
+                if let Some(object) = attempt.execute_with_effects(self, ui)? {
+                    if let Some(ai) = self.ai_manager.ai_players.get_mut(&player) {
+                        ai.finish_scaffold_attempt(&attempt, object);
+                    }
                 }
             }
         }
@@ -180,14 +189,6 @@ impl GameLogic {
             }
         }
         Ok(())
-    }
-
-    pub(super) fn queue_owned_ai_dozer(&mut self, player: u32, now: f32) {
-        if self.ai_manager.ai_players.contains_key(&player)
-            && !AIPlayer::player_has_any_dozer(self, player)
-        {
-            self.admit_owned_ai_dozer(player, now);
-        }
     }
 
     pub(super) fn admit_owned_ai_dozer(&mut self, player: u32, now: f32) {
@@ -281,6 +282,159 @@ mod tests {
         ai.add_building("OwnedEconomyCommandCenter", position, 1);
         ai.building_queue.last_mut().unwrap().object_id = Some(factory);
         factory
+    }
+
+    #[test]
+    fn mounted_automatic_base_rows_train_for_ferrying_or_reserved_workers() {
+        crate::game_logic::game_logic::pose_owner_tests::isolated_at(
+            module_path!(),
+            "mounted_automatic_base_rows_train_for_ferrying_or_reserved_workers",
+            || {
+                let definitions = crate::parallel_harness::RetailWorldDefinitions::load()
+                    .expect("mounted Zero Hour startup definitions");
+                let mut world = GameLogic::new();
+                world
+                    .with_own_services_mut(|world| definitions.admit(world))
+                    .unwrap();
+                world.add_player(Player::new(0, Team::Neutral, "Neutral", false));
+                world.frame = 1;
+                let mut factories = Vec::new();
+                let mut workers = Vec::new();
+                for id in 1..=5 {
+                    let mut player = Player::new(id, Team::GLA, &format!("GLA {id}"), false);
+                    player.resources.supplies = 400;
+                    world.add_player(player);
+                    world.add_ai_opponent(id, Team::GLA, AIDifficulty::Medium);
+                    let x = id as f32 * 1000.0;
+                    let factory_position = Vec3::new(x, 0.0, 100.0);
+                    let factory = world
+                        .create_object_for_player("GLACommandCenter", id, factory_position)
+                        .unwrap();
+                    factories.push(factory);
+                    if id != 3 {
+                        let worker = world
+                            .create_object_for_player(
+                                "GLAInfantryWorker",
+                                id,
+                                Vec3::new(x + 100.0, 0.0, 100.0),
+                            )
+                            .unwrap();
+                        assert!(world.host_object(worker).unwrap().worker_ai_update);
+                        workers.push(worker);
+                    }
+                    let ai = world.ai_manager.ai_players.get_mut(&id).unwrap();
+                    ai.building_queue.clear();
+                    ai.add_building("GLACommandCenter", factory_position, 1);
+                    ai.building_queue[0].object_id = Some(factory);
+                    if id != 3 {
+                        ai.add_layout_building("GLABarracks", Vec3::new(x + 200.0, 0.0, 120.0), 0);
+                        let pad = ai.building_queue.last_mut().unwrap();
+                        pad.rebuild_count = pad.max_rebuilds;
+                        assert!(pad.automatic_build);
+                        assert!(!pad.is_buildable());
+                    }
+                }
+
+                // The neutral map warehouse accepts a real WorkerAI dock
+                // order and puts player 1's worker into forced Wanting.
+                let warehouse = world
+                    .create_object("SupplyDock", Team::Neutral, Vec3::new(1100.0, 0.0, 150.0))
+                    .expect("retail neutral SupplyDock");
+                assert!(world.unit_command_dock_at_supply_warehouse(workers[0], warehouse));
+                assert_eq!(
+                    world.host_object(workers[0]).unwrap().supply_truck_state,
+                    SupplyTruckState::Wanting
+                );
+                assert!(
+                    world
+                        .host_object(workers[0])
+                        .unwrap()
+                        .supply_truck_force_pending
+                );
+
+                // Player 2 owns a lone worker reserved for AI bridge repair.
+                world
+                    .ai_manager
+                    .ai_players
+                    .get_mut(&2)
+                    .unwrap()
+                    .repair_dozer = Some(workers[1]);
+                // Player 3 has no live builder and only a completed factory
+                // row. Players 4 and 5 have Workers already holding Build.
+                for (id, worker) in [(4, workers[2]), (5, workers[3])] {
+                    let ongoing = world
+                        .create_object_under_construction_for_player(
+                            "GLABarracks",
+                            id,
+                            Vec3::new(id as f32 * 1000.0 + 220.0, 0.0, 180.0),
+                            0.0,
+                        )
+                        .unwrap()
+                        .unwrap();
+                    assert!(world.resume_construction(&[worker], ongoing).unwrap());
+                    assert_eq!(
+                        world.host_object(worker).unwrap().dozer_task_build_target(),
+                        Some(ongoing),
+                    );
+                }
+                // A captured faction building can consume a GLA player's
+                // power. Brownout enables the automatic row's separate
+                // queueDozer fallback even when a busy builder exists.
+                world
+                    .create_object_for_player("AmericaWarFactory", 5, Vec3::new(5300.0, 0.0, 200.0))
+                    .unwrap();
+
+                let data = AiDataView::from_world(&world);
+                for (index, factory) in factories.into_iter().enumerate() {
+                    let id = index as u32 + 1;
+                    assert_eq!(
+                        world
+                            .get_player(id)
+                            .unwrap()
+                            .has_sufficient_energy_at(world.frame),
+                        id != 5,
+                    );
+                    world.update_owned_ai_economy(id, 0.0, &data).unwrap();
+                    let queue = &world
+                        .host_object(factory)
+                        .unwrap()
+                        .building_data
+                        .as_ref()
+                        .unwrap()
+                        .production_queue;
+                    let ai = &world.ai_manager.ai_players[&id];
+                    let pays_for_builder = id <= 2 || id == 5;
+                    let expected = usize::from(pays_for_builder);
+                    assert_eq!(
+                        queue.len(),
+                        expected,
+                        "paid worker production for player {id}"
+                    );
+                    assert_eq!(
+                        ai.team_queue.len(),
+                        expected,
+                        "priority orders for player {id}"
+                    );
+                    if let Some(queued) = queue.first() {
+                        assert_eq!(queued.template_name, "GLAInfantryWorker");
+                        let order = &ai.team_queue[0].work_orders[0];
+                        assert_eq!(order.factory_id, Some(factory));
+                        assert!(!order.is_resource_gatherer);
+                    }
+                    assert_eq!(
+                        world.get_player(id).unwrap().resources.supplies,
+                        if pays_for_builder { 200 } else { 400 }
+                    );
+                    assert!(
+                        ai.building_queue
+                            .iter()
+                            .skip(1)
+                            .all(|pad| pad.object_id.is_none()),
+                        "automatic pads probe for a builder without selecting a scaffold"
+                    );
+                }
+            },
+        );
     }
 
     #[test]
@@ -424,7 +578,11 @@ mod tests {
         let (mut world, dozer) = world();
         let data = AiDataView::from_world(&world);
         let mut ai = world.ai_manager.ai_players.remove(&1).unwrap();
-        let attempt = ai.prepare_scaffold_attempt(&world, 0.0, &data).unwrap();
+        let BaseBuildingAction::Scaffold(attempt) =
+            ai.prepare_base_building_action(&world, 0.0, &data)
+        else {
+            panic!("authored priority pad should begin with its available Dozer");
+        };
         world.ai_manager.ai_players.insert(1, ai);
         // A synchronous owner effect can reorder the authored list. The
         // continuation identifies its row rather than trusting an old index.

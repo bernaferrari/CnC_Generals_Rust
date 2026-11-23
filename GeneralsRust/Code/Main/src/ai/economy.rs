@@ -1,6 +1,17 @@
 use super::*;
 use gamelogic::object::update::ai_update::dozer_ai_update::DozerTask;
 
+struct DozerReadiness {
+    available: Option<ObjectId>,
+    needs_dozer: bool,
+}
+
+#[derive(Default)]
+struct BaseBuildingPlans {
+    selected: Option<usize>,
+    first_automatic: Option<usize>,
+}
+
 impl AIPlayer {
     /// Update economic management (base building, resource optimization)
     pub(super) fn update_economic_management(
@@ -141,25 +152,39 @@ impl AIPlayer {
         target: Vec3,
         skip: Option<ObjectId>,
     ) -> Option<ObjectId> {
+        Self::scan_dozer_readiness(game_logic, player, target, skip).available
+    }
+
+    fn scan_dozer_readiness(
+        game_logic: &(impl AiReadSource + ?Sized),
+        player: u32,
+        target: Vec3,
+        repair_dozer: Option<ObjectId>,
+    ) -> DozerReadiness {
         let game_logic = &AiWorldView::new(game_logic);
         let mut closest = None;
         let mut first_busy = None;
+        let mut needs_dozer = true;
         for object in game_logic.host_objects().registered_values() {
-            if skip == Some(object.id)
-                || !object.is_alive()
-                || !object.can_construct()
+            if !object.is_alive()
+                || !object.is_kind_of(KindOf::Dozer)
                 || !game_logic.object_owned_by_player(object, player)
-                || object.dozer_tasks.requests[DozerTask::Build as usize].target.is_some()
             {
                 continue;
             }
-            if object.dozer_tasks.requests.iter().any(|task| task.target.is_some()) {
-                first_busy.get_or_insert(object.id);
+            let has_dozer_interface = object.thing().template.receiving_client_template
+                .as_ref()
+                .map_or_else(
+                    || object.can_construct(),
+                    |template| template.dozer_ai_is_worker().is_some(),
+                );
+            if !has_dozer_interface {
                 continue;
             }
-            // WorkerAIUpdate implements SupplyTruckAIInterface. Ordinary Dozers
-            // may be moving with an empty derived task list and stay eligible.
-            if object.worker_ai_update
+            let has_task = object.dozer_tasks.requests.iter().any(|task| task.target.is_some());
+            // WorkerAIUpdate implements SupplyTruckAIInterface. A worker
+            // already on a Dozer task bypasses the ferry/forced-Wanting gate.
+            if !has_task && object.worker_ai_update
                 && (object.supply_truck_force_pending
                     || matches!(
                         object.supply_truck_state,
@@ -170,6 +195,21 @@ impl AIPlayer {
             {
                 continue;
             }
+            if repair_dozer == Some(object.id) {
+                continue;
+            }
+            // AIPlayer.cpp:3230–3236 records that a Dozer exists before it
+            // excludes the current builders from candidate selection.
+            needs_dozer = false;
+            if !object.can_construct()
+                || object.dozer_tasks.requests[DozerTask::Build as usize].target.is_some()
+            {
+                continue;
+            }
+            if has_task {
+                first_busy.get_or_insert(object.id);
+                continue;
+            }
             let position = object.get_position();
             let dx = position.x - target.x;
             let dz = position.z - target.z;
@@ -178,22 +218,10 @@ impl AIPlayer {
                 closest = Some((object.id, distance));
             }
         }
-        closest.map(|(id, _)| id).or(first_busy)
-    }
-
-    pub(super) fn player_has_any_dozer(
-        game_logic: &(impl AiReadSource + ?Sized),
-        player: u32,
-    ) -> bool {
-        let game_logic = &AiWorldView::new(game_logic);
-        game_logic
-            .host_objects()
-            .registered_values()
-            .any(|object| {
-                game_logic.object_owned_by_player(object, player)
-                    && object.is_alive()
-                    && object.can_construct()
-            })
+        DozerReadiness {
+            available: closest.map(|(id, _)| id).or(first_busy),
+            needs_dozer,
+        }
     }
 
     /// C++ queueDozer / work-order gates use KINDOF_DOZER, never a name peel.
@@ -375,42 +403,79 @@ impl AIPlayer {
         game_logic.resume_owned_ai_construction(self.player_id, self.repair_dozer, sites, |world| {
             self.queue_dozer(world, current_time);
         })?;
-        if !Self::player_has_any_dozer(game_logic, self.player_id) {
-            self.queue_dozer(game_logic, current_time);
-        }
-        if let Some(attempt) = self.prepare_scaffold_attempt(game_logic, current_time, ai_data) {
-            if let Some(object) = attempt.execute(game_logic)? {
-                self.finish_scaffold_attempt(&attempt, object);
+        use super::economic_owner::BaseBuildingAction;
+        match self.prepare_base_building_action(game_logic, current_time, ai_data) {
+            BaseBuildingAction::Wait => {}
+            BaseBuildingAction::QueueDozer => self.queue_dozer(game_logic, current_time),
+            BaseBuildingAction::Scaffold(attempt) => {
+                if let Some(object) = attempt.execute(game_logic)? {
+                    self.finish_scaffold_attempt(&attempt, object);
+                }
             }
         }
         self.sync_build_list_object_status(game_logic, current_time);
         Ok(())
     }
 
-    pub(super) fn prepare_scaffold_attempt(
+    pub(super) fn prepare_base_building_action(
         &mut self,
         game_logic: &GameLogic,
         current_time: f32,
         ai_data: &AiDataView,
-    ) -> Option<super::economic_owner::ScaffoldAttempt> {
-        let under_powered = game_logic
-            .get_player(self.player_id)
-            .is_some_and(|player| !player.has_sufficient_energy_at(game_logic.get_frame()));
-        let index = self.select_priority_or_power_build_with_ai_data(
+    ) -> super::economic_owner::BaseBuildingAction {
+        use super::economic_owner::BaseBuildingAction;
+        let Some(player) = game_logic.get_player(self.player_id) else {
+            return BaseBuildingAction::Wait;
+        };
+        let under_powered = !player.has_sufficient_energy_at(game_logic.get_frame());
+        let plans = self.eligible_base_building_plans(
             game_logic,
             current_time,
             under_powered,
             ai_data,
-        )?;
-        self.relocate_defense_if_illegal(game_logic, index);
-        let building = self.building_queue.get(index)?;
-        let template_name = building.template_name.clone();
-        let position = building.position;
+        );
+        let Some(probe_index) = plans.selected.or(plans.first_automatic) else {
+            return BaseBuildingAction::Wait;
+        };
+        // Either automatic-row findDozer or the final selected-plan findDozer
+        // can request a replacement. Which actor is closest depends on the
+        // target. Whether one exists, or is only busy building, does not.
+        let readiness = Self::scan_dozer_readiness(
+            game_logic,
+            self.player_id,
+            self.building_queue[probe_index].position,
+            self.repair_dozer,
+        );
+        // AISkirmishPlayer.cpp:199–205 asks again on brownout when all
+        // eligible Dozers are already building. queueDozer deduplicates work.
+        if readiness.needs_dozer
+            || (plans.first_automatic.is_some() && under_powered && readiness.available.is_none())
+        {
+            return BaseBuildingAction::QueueDozer;
+        }
+        let (Some(index), Some(dozer)) = (plans.selected, readiness.available) else {
+            return BaseBuildingAction::Wait;
+        };
+        self.prepare_scaffold_at(game_logic, index, dozer)
+            .map_or(BaseBuildingAction::Wait, BaseBuildingAction::Scaffold)
+    }
+
+    fn prepare_scaffold_at(
+        &mut self,
+        game_logic: &GameLogic,
+        index: usize,
+        dozer: ObjectId,
+    ) -> Option<super::economic_owner::ScaffoldAttempt> {
+        let template_name = self.building_queue.get(index)?.template_name.clone();
         let mut cost = game_logic.templates.get(&template_name)?.build_cost;
         cost.supplies =
             game_logic.modified_build_cost_supplies(self.player_id, &template_name, cost.supplies);
-        let dozer =
-            Self::find_available_dozer(game_logic, self.player_id, position, self.repair_dozer)?;
+        // AIPlayer.cpp:494–501 calls findDozer before checking funds.
+        if !game_logic.get_player(self.player_id)?.can_afford(&cost) {
+            return None;
+        }
+        self.relocate_defense_if_illegal(game_logic, index);
+        let position = self.building_queue.get(index)?.position;
         let legal = |candidate| {
             game_logic.is_location_legal_to_build_for_ai(
                 self.player_id,
@@ -456,7 +521,11 @@ impl AIPlayer {
             return;
         };
         building.object_id = Some(object);
-        building.decrement_num_rebuilds();
+        // C++ BuildListInfo::decrementNumRebuilds stops at zero, even
+        // when a priority or power plan reaches construction anyway.
+        if building.is_buildable() {
+            building.decrement_num_rebuilds();
+        }
         building.destroyed_at_time = None;
         self.activity_count = self.activity_count.saturating_add(1);
     }
@@ -558,27 +627,22 @@ impl AIPlayer {
         is_under_powered: bool,
     ) -> Option<usize> {
         let ai_data = AiDataView::from_source(game_logic);
-        self.select_priority_or_power_build_with_ai_data(
-            game_logic,
-            current_time,
-            is_under_powered,
-            &ai_data,
-        )
+        self.eligible_base_building_plans(game_logic, current_time, is_under_powered, &ai_data)
+            .selected
     }
 
-    pub(super) fn select_priority_or_power_build_with_ai_data(
+    fn eligible_base_building_plans(
         &self,
         game_logic: &(impl AiReadSource + ?Sized),
         current_time: f32,
         is_under_powered: bool,
         ai_data: &AiDataView,
-    ) -> Option<usize> {
+    ) -> BaseBuildingPlans {
         let game_logic = &AiWorldView::new(game_logic);
-        let Some(player) = game_logic.get_player(self.player_id) else {
-            return None;
-        };
-        let mut selected: Option<usize> = None;
-        let mut selected_priority = false;
+        let mut plans = BaseBuildingPlans::default();
+        if game_logic.get_player(self.player_id).is_none() {
+            return plans;
+        }
         let mut power_idx: Option<usize> = None;
         let mut power_under_construction = false;
 
@@ -593,8 +657,8 @@ impl AIPlayer {
                     continue;
                 }
             }
-            if building.is_built
-                || !building.is_buildable()
+            if building.object_id.is_some()
+                || building.is_built
                 || !building.rebuild_delay_elapsed(current_time, Self::REBUILD_DELAY_SECONDS)
             {
                 continue;
@@ -602,41 +666,38 @@ impl AIPlayer {
             let Some(template) = game_logic.template(&building.template_name) else {
                 continue;
             };
-            if !player.can_afford(&{
-                let mut cost = template.build_cost;
-                cost.supplies = game_logic.modified_build_cost_supplies(
-                    self.player_id,
-                    &building.template_name,
-                    template.build_cost.supplies,
-                );
-                cost
-            }) {
-                continue;
-            }
-            if !self.is_location_safe_in_view(
-                game_logic,
-                building.position,
-                Some(template),
-                ai_data,
-            ) {
+            let priority_candidate = building.is_priority && plans.selected.is_none();
+            let power_candidate = power_idx.is_none()
+                && (is_under_powered || building.automatic_build)
+                && Self::template_is_power_plan(game_logic, &building.template_name);
+            let automatic_probe = building.automatic_build && plans.first_automatic.is_none();
+            // Safety is a read-only world query. Once an automatic row
+            // reaches findDozer, repeating the same availability query
+            // cannot change the replacement decision in this pass.
+            if !(priority_candidate || power_candidate || automatic_probe)
+                || !self.is_location_safe_in_view(
+                    game_logic,
+                    building.position,
+                    Some(template),
+                    ai_data,
+                )
+            {
                 continue;
             }
 
-            if building.is_priority && !selected_priority {
-                selected = Some(index);
-                selected_priority = true;
+            if priority_candidate {
+                plans.selected = Some(index);
             }
-            if power_idx.is_none()
-                && Self::template_is_power_plan(game_logic, &building.template_name)
-                && (is_under_powered || building.automatic_build)
-            {
+            if power_candidate {
                 power_idx = Some(index);
             }
-            // AISkirmishPlayer.cpp:206 checks bldgPlan, NOT curPlan.
-            // With no selection, BuildAssistant.cpp:1283-1284 rejects NULL;
-            // with a selection, the later `bldgPlan == NULL` branch cannot
-            // replace it. Thus this automatic branch never selects a pad.
-            // Preserve the independent power override below.
+            // AISkirmishPlayer.cpp:196–218 probes Dozer availability even
+            // when the current row has no rebuilds or cannot be afforded.
+            // Its canMakeUnit(dozer, bldgPlan) rejects a null selected plan,
+            // so an ordinary automatic row never becomes the chosen plan.
+            if automatic_probe {
+                plans.first_automatic = Some(index);
+            }
         }
         // C++: `if (powerPlan && powerInfo && !powerPlan->isEquivalentTo(bldgPlan))`
         // — while no FS_POWER scaffold is under construction, the power plan
@@ -645,10 +706,10 @@ impl AIPlayer {
         // plan, which changes nothing).
         if let Some(power) = power_idx {
             if !power_under_construction {
-                selected = Some(power);
+                plans.selected = Some(power);
             }
         }
-        selected
+        plans
     }
     /// C++ `AISkirmishPlayer::buildSpecificAIBuilding` — mark an existing
     /// unbuilt list entry as priority. Does not invent a new pad.
@@ -666,7 +727,6 @@ impl AIPlayer {
                 continue;
             }
             building.is_priority = true;
-            building.automatic_build = false;
             return true;
         }
         let _ = found;
