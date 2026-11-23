@@ -503,6 +503,7 @@ fn mounted_stock_scorpion_collects_authored_salvage_at_partition_contact() {
                 .map(std::path::PathBuf::from)
                 .or_else(crate::map_frame_scenario::find_lone_eagle_retail_install)
                 .expect("a real mounted retail install is required");
+            let install = crate::parallel_harness::explicit_retail_install(&install).unwrap();
             let startup =
                 crate::parallel_harness::RetailWorldDefinitions::load_from_install(Some(&install))
                     .unwrap_or_else(|error| panic!("{}: {error}", install.display()));
@@ -605,10 +606,10 @@ fn mounted_stock_scorpion_collects_authored_salvage_at_partition_contact() {
             assert!(scorpion.test_weapon_condition(WeaponSetType::CrateUpgradeOne as u8));
             assert!(!scorpion.test_weapon_condition(WeaponSetType::CrateUpgradeTwo as u8));
             assert_eq!(
-                scorpion.weapon_name_for_slot(0),
+                scorpion.selected_weapon_name(0),
                 Some("ScorpionTankGunPlusOne")
             );
-            assert_eq!(scorpion.weapon_name_for_slot(1), None);
+            assert_eq!(scorpion.selected_weapon_name(1), None);
             assert!(world.queued_audio_events.iter().any(|event| {
                 event.event_type == "SalvageUpgrade" && event.object_id == Some(picker)
             }));
@@ -623,7 +624,7 @@ fn mounted_stock_scorpion_collects_authored_salvage_at_partition_contact() {
             assert!(!scorpion.test_weapon_condition(WeaponSetType::CrateUpgradeOne as u8));
             assert!(scorpion.test_weapon_condition(WeaponSetType::CrateUpgradeTwo as u8));
             assert_eq!(
-                scorpion.weapon_name_for_slot(0),
+                scorpion.selected_weapon_name(0),
                 Some("ScorpionTankGunPlusOne")
             );
             assert_retired(&mut world, second);

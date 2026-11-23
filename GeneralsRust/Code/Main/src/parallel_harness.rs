@@ -167,7 +167,7 @@ impl std::fmt::Display for HarnessAssetError {
     }
 }
 
-fn explicit_retail_install(path: &Path) -> Result<PathBuf, HarnessAssetError> {
+pub(crate) fn explicit_retail_install(path: &Path) -> Result<PathBuf, HarnessAssetError> {
     use game_engine::common::system::install_layout::find_file_case_insensitive;
 
     let root = path.canonicalize().map_err(|error| {

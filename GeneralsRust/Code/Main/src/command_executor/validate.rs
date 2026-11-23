@@ -164,12 +164,9 @@ impl<'a> CommandExecutor<'a> {
         };
         let warehouse_is_not_enemy = match (unit.owner_player_id, target.owner_player_id) {
             (Some(_), Some(_)) => {
-                // Skirmish reality behind `ActionManager::canTransferSuppliesAt`:
-                // two distinct controlling players are Allies only through an
-                // explicit alliance (shared `alliance_team` / diplomacy map).
-                // Faction equality alone is ENEMIES-or-NEUTRAL, and a Neutral
-                // label must not open another player's warehouse.
-                self.game_logic.object_relationship(target, unit) == Relationship::Allies
+                // ActionManager::canTransferSuppliesAt checks the warehouse's
+                // relationship toward the collector. Neutral warehouses accept it.
+                self.game_logic.object_relationship(target, unit) != Relationship::Enemies
             }
             // `Object::getRelationship` treats an ownerless map object as
             // neutral. Do not manufacture hostility from its faction label.

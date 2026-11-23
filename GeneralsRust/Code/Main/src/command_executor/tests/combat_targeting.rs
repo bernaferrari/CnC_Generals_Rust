@@ -1528,6 +1528,7 @@ fn move_delays_mood_for_unstealthed_stealth_unit() {
 fn dock_uses_controlling_player_for_centers_and_relationship_for_warehouses() {
     use super::CommandExecutor;
     use crate::game_logic::{DockKind, GameLogic, KindOf, Player, Team, ThingTemplate};
+    use gamelogic::common::Relationship;
     use glam::Vec3;
 
     let mut logic = GameLogic::new();
@@ -1553,6 +1554,7 @@ fn dock_uses_controlling_player_for_centers_and_relationship_for_warehouses() {
     let mut warehouse = ThingTemplate::new("DockOwnerWarehouse");
     warehouse.add_kind_of(KindOf::Structure).set_health(1_000.0);
     warehouse.dock_kind = DockKind::SupplyWarehouse;
+    warehouse.dock_starting_boxes = Some(1);
     logic
         .templates
         .insert("DockOwnerWarehouse".to_string(), warehouse);
@@ -1576,19 +1578,34 @@ fn dock_uses_controlling_player_for_centers_and_relationship_for_warehouses() {
     for id in [center_id, warehouse_id] {
         let target = logic.host_object_mut(id).expect("dock target");
         target.owner_player_id = Some(1);
-        target.stored_resources.supplies = 1;
     }
+    logic
+        .get_player_mut(1)
+        .expect("slot 1")
+        .set_map_relationship(0, Relationship::Enemies);
 
     // C++ ActionManager::canTransferSuppliesAt: SupplyCenter checks pointer
     // equality of controlling players, not faction/alliance equality.
     {
         let exec = CommandExecutor::new(&mut logic, 0);
         assert_eq!(exec.can_issue_dock(collector_id, center_id), None);
-        // The two player slots have no alliance, so the same-faction warehouse
-        // is an enemy target and must be refused by its relationship gate.
+        // An enemy warehouse remains refused even with the same faction.
         assert_eq!(exec.can_issue_dock(collector_id, warehouse_id), None);
     }
 
+    logic
+        .get_player_mut(1)
+        .expect("slot 1")
+        .set_map_relationship(0, Relationship::Neutral);
+    assert_eq!(
+        CommandExecutor::new(&mut logic, 0).can_issue_dock(collector_id, warehouse_id),
+        Some(DockKind::SupplyWarehouse)
+    );
+
+    logic
+        .get_player_mut(1)
+        .expect("slot 1")
+        .set_map_relationship(0, Relationship::Allies);
     logic.get_player_mut(0).expect("slot 0").alliance_team = 7;
     logic.get_player_mut(1).expect("slot 1").alliance_team = 7;
     let exec = CommandExecutor::new(&mut logic, 0);

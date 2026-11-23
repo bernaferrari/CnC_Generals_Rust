@@ -2940,7 +2940,7 @@ fn physical_rmb_dock_uses_exact_controller_not_same_faction_friendliness() {
         CommandSystem, CommandType, ModifierKeys, MouseButton, MouseCommandContext,
         PresentationSelectedUnitHint, PresentationTargetHint,
     };
-    use crate::game_logic::{DockKind, Player};
+    use crate::game_logic::{DockKind, Player, SupplyTruckMetadata};
     use crate::presentation_frame::PresentationFrame;
 
     fn dock_context(
@@ -3068,6 +3068,13 @@ fn physical_rmb_dock_uses_exact_controller_not_same_faction_friendliness() {
         .add_kind_of(KindOf::Harvester)
         .add_kind_of(KindOf::Selectable)
         .set_health(100.0);
+    collector.supply_truck_metadata = Some(SupplyTruckMetadata {
+        max_boxes: 1,
+        warehouse_scan_distance: 0.0,
+        warehouse_delay_frames: 0,
+        center_delay_frames: 0,
+        upgraded_supply_boost: 0,
+    });
     game_logic
         .templates
         .insert("DockRmbCollector".to_string(), collector);
