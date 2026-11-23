@@ -187,8 +187,7 @@ fn load_pristine_draw(
         return Ok(Vec::new());
     }
     let prototype = assets
-        .resolve_w3d_render_object_prototype_blocking(&draw.model_key)
-        .ok_or_else(|| format!("pristine authored prototype unavailable: {}", draw.model_key))?;
+        .resolve_w3d_render_object_prototype_blocking_result(&draw.model_key)?;
     if matches!(prototype.kind(), W3dRenderObjectPrototypeKind::Null { .. }) {
         return Ok(Vec::new());
     }

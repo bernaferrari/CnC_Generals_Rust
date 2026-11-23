@@ -80,6 +80,8 @@ impl<'a> HostScriptExecutionDriver<'a> {
             audio: None,
             terrain: None,
             ui: ui,
+            #[cfg(feature = "game_client")]
+            headless_particles: None,
             view: None,
         };
         Self::with_effects(world, interpreter, effects)
@@ -3836,6 +3838,8 @@ impl GameLogic {
             ui: ui
                 .as_mut()
                 .map(|ui| &mut **ui as &mut dyn crate::game_logic::ScriptUiEffects),
+            #[cfg(feature = "game_client")]
+            headless_particles: None,
             view: None,
         };
         self.run_object_script_with_effects(engine, name, object, &mut effects)

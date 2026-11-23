@@ -1798,6 +1798,8 @@ impl CnCGameEngine {
             terrain: terrain
                 .map(|terrain| terrain as &mut dyn crate::game_logic::NativeTerrainEffects),
             ui: Some(&mut ui),
+            #[cfg(feature = "game_client")]
+            headless_particles: None,
             view: Some(&mut view),
         };
         #[cfg(not(feature = "game_client"))]

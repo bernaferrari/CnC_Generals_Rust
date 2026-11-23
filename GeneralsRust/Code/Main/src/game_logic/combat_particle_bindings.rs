@@ -166,7 +166,7 @@ impl<T: ParticleBindingAccess + ?Sized> ParticleBindingAccess for Option<&mut T>
 impl ParticleBindingAccess for crate::game_logic::ScriptPresentationEffects<'_> {
     #[cfg(feature = "game_client")]
     fn particle_systems_mut(&mut self) -> Option<&mut game_client::effects::ParticleSystemManager> {
-        self.view.as_deref_mut()?.particle_systems_mut()
+        self.particle_systems_mut()
     }
 }
 impl ReceivingParticlePoseAccess for () {}

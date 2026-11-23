@@ -202,6 +202,8 @@ fn actual_authored_input_resets_receiving_native_fields_before_next_action_witho
                 audio: None,
                 terrain: None,
                 ui: Some(&mut observer),
+                #[cfg(feature = "game_client")]
+                headless_particles: None,
                 view: None,
                         pristine_bones: None,
 };
@@ -280,6 +282,8 @@ fn missing_native_input_capability_rejects_without_ambient_handler_or_owner_writ
         audio: None,
         terrain: None,
         ui: Some(&mut observer),
+        #[cfg(feature = "game_client")]
+        headless_particles: None,
         view: None,
                 pristine_bones: None,
 };

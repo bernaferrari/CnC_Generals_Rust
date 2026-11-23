@@ -870,9 +870,7 @@ impl GameLogic {
             #[cfg(feature = "game_client")]
             {
                 let manager = effects
-                    .view
-                    .as_deref_mut()
-                    .and_then(|view| view.particle_systems_mut())
+                    .particle_systems_mut()
                     .ok_or_else(|| {
                         gamelogic::GameLogicError::Configuration(
                             "GameLogic reset requires its live receiving particle manager".into(),
@@ -1088,11 +1086,7 @@ impl GameLogic {
         self.accepted_gather_commands.clear();
         self.supply_dropoff_events.clear();
         #[cfg(feature = "game_client")]
-        if let Some(manager) = effects
-            .view
-            .as_deref_mut()
-            .and_then(|view| view.particle_systems_mut())
-        {
+        if let Some(manager) = effects.particle_systems_mut() {
             self.combat_particles
                 .clear_with_client_manager_checked(manager)
                 .map_err(gamelogic::GameLogicError::Configuration)?;

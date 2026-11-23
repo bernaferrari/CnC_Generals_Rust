@@ -1078,6 +1078,8 @@ impl CnCGameEngine {
                     trigger_world: None,
                     audio: None,
                     ui: None,
+                    #[cfg(feature = "game_client")]
+                    headless_particles: None,
                     view: None,
                     terrain,
                 },

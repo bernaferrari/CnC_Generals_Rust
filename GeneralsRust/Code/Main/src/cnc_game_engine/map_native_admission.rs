@@ -201,6 +201,8 @@ impl crate::game_logic::NativeMapAdmission for NativeMapCandidate {
             trigger_world: None,
             audio: Some(&mut self.audio),
             ui: None,
+            #[cfg(feature = "game_client")]
+            headless_particles: None,
             view: None,
             terrain: self
                 .visual
@@ -589,6 +591,8 @@ impl crate::game_logic::NativeMapAdmission for NativeMapAttempt<'_> {
             trigger_world: None,
             audio: Some(self.audio),
             ui: None,
+            #[cfg(feature = "game_client")]
+            headless_particles: None,
             view: Some(&mut self.view),
             terrain: self
                 .visual

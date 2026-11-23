@@ -256,7 +256,7 @@ impl ObjectFxServices<'_, '_> {
     pub(crate) fn particle_systems_mut(
         &mut self,
     ) -> Option<&mut game_client::effects::ParticleSystemManager> {
-        self.effects.view.as_deref_mut()?.particle_systems_mut()
+        self.effects.particle_systems_mut()
     }
 
     pub fn position(
@@ -521,9 +521,7 @@ impl GameClientFxRuntime for ObjectFxRuntime<'_, '_, '_, '_> {
         let terrain = services.terrain;
         let manager = services
             .effects
-            .view
-            .as_deref_mut()
-            .and_then(|view| view.particle_systems_mut())
+            .particle_systems_mut()
             .ok_or("Object FX has no receiving particle owner")?;
         manager
             .admit_effective_definitions()

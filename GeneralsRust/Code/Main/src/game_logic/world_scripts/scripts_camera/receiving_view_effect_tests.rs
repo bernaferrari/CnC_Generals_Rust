@@ -110,6 +110,8 @@ fn authored_enable_slave_then_home_samples_current_receiving_owner_before_walk_r
                     audio: None,
                     terrain: None,
                     ui: None,
+                    #[cfg(feature = "game_client")]
+                    headless_particles: None,
                     view: Some(&mut backend),
                             pristine_bones: None,
 },
@@ -194,6 +196,8 @@ fn actual_radar_command_borrows_receiving_slave_view_without_peer_delivery() {
             audio: None,
             terrain: None,
             ui: None,
+            #[cfg(feature = "game_client")]
+            headless_particles: None,
             view: Some(&mut receiving),
                     pristine_bones: None,
 },

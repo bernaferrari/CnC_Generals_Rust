@@ -199,6 +199,8 @@ impl AIManager {
             ui: ui
                 .as_mut()
                 .map(|ui| &mut **ui as &mut dyn crate::game_logic::ScriptUiEffects),
+            #[cfg(feature = "game_client")]
+            headless_particles: None,
             view: None,
         };
         Self::update_owned_with_effects(game_logic, current_time, &mut effects)

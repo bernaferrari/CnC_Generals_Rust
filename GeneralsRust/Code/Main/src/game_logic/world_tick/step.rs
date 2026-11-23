@@ -323,6 +323,8 @@ impl GameLogic {
             audio: None,
             terrain: None,
             ui: ui,
+            #[cfg(feature = "game_client")]
+            headless_particles: None,
             view: None,
         };
         self.tick_logic_frame_with_script_effects(
@@ -348,6 +350,27 @@ impl GameLogic {
 
     pub(in super::super) fn step_simulation(&mut self, delta_time: f32) {
         self.step_simulation_with_budget(delta_time, None);
+    }
+
+    /// Advance the standalone world using its receiving CPU effects.
+    pub(crate) fn update_with_script_effects(
+        &mut self,
+        mut effects: crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> gamelogic::GameLogicResult<()> {
+        self.refresh_owned_bridge_pathfinder_states();
+        let pending = self.step_simulation_with_callbacks(
+            LOGIC_FRAME_TIMESTEP,
+            None,
+            None,
+            |logic, dt| logic.update_simulation_with_script_effects(dt, effects.reborrow()),
+            |_| {},
+        )?;
+        if pending.is_some() {
+            return Err(gamelogic::GameLogicError::Configuration(
+                "standalone update reached a native command boundary".into(),
+            ));
+        }
+        Ok(())
     }
 
     /// Admit a seed at this match/replay setup boundary, without broadcasting.

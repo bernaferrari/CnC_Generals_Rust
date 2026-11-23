@@ -45,6 +45,8 @@ impl GameLogic {
             ui: ui
                 .as_mut()
                 .map(|ui| &mut **ui as &mut dyn crate::game_logic::ScriptUiEffects),
+            #[cfg(feature = "game_client")]
+            headless_particles: None,
             view: None,
         };
         self.update_match_ai_with_effects(&mut effects)

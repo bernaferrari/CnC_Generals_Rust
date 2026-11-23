@@ -754,8 +754,21 @@ impl AssetManager {
         })
     }
 
-    /// Initialize the asset manager
+    /// Initialize archive/content data without creating graphics resources.
+    /// Used by the headless campaign runner's exact source-bone queries.
+    pub(crate) async fn init_cpu_content(&mut self) -> Result<()> {
+        self.init_content(None).await
+    }
+
+    /// Initialize the asset manager and its receiving graphics resources.
     pub async fn init(&mut self, device: &wgpu::Device, queue: &wgpu::Queue) -> Result<()> {
+        self.init_content(Some((device, queue))).await
+    }
+
+    async fn init_content(
+        &mut self,
+        graphics: Option<(&wgpu::Device, &wgpu::Queue)>,
+    ) -> Result<()> {
         debug!("Initializing AssetManager");
 
         // Add asset search paths before initializing
@@ -823,12 +836,16 @@ impl AssetManager {
             warn!("Startup maintenance failed: {}. Continuing.", e);
         }
 
-        // Initialize texture manager with MAGENTA fallback for missing textures
-        if let Err(e) = self.texture_manager.init(device, queue) {
-            warn!(
-                "Failed to initialize texture manager: {}. Continuing without GPU textures.",
-                e
-            );
+        // Pristine bone sampling uses the exact mounted source W3D model and
+        // does not need a texture device. Normal application startup still
+        // initializes textures at this exact point in its ordered setup.
+        if let Some((device, queue)) = graphics {
+            if let Err(e) = self.texture_manager.init(device, queue) {
+                warn!(
+                    "Failed to initialize texture manager: {}. Continuing without GPU textures.",
+                    e
+                );
+            }
         }
 
         // Initialize WW3D Asset Manager - Load object definitions from INIZH.big
@@ -2199,23 +2216,50 @@ impl AssetManager {
         &mut self,
         full_name: &str,
     ) -> Option<W3dRenderObjectPrototype> {
+        match self.resolve_w3d_render_object_prototype_blocking_result(full_name) {
+            Ok(prototype) => Some(prototype),
+            Err(error) => {
+                debug!("Strict W3D render-object lookup: {error}");
+                None
+            }
+        }
+    }
+
+    /// Resolve one exact prototype and retain the actual source-stem failure
+    /// for gameplay asset diagnostics instead of collapsing it to an Option.
+    pub(crate) fn resolve_w3d_render_object_prototype_blocking_result(
+        &mut self,
+        full_name: &str,
+    ) -> std::result::Result<W3dRenderObjectPrototype, String> {
+        let mut load_error = None;
         let (registry, archive_system, model_loader) = (
             &mut self.w3d_render_object_prototypes,
             &mut self.archive_system,
             &self.model_loader,
         );
-        resolve_w3d_render_object_prototype_with_loader(registry, full_name, |source_stem| {
-            match load_exact_w3d_render_object_source(model_loader, archive_system, source_stem) {
+        let prototype = resolve_w3d_render_object_prototype_with_loader(
+            registry,
+            full_name,
+            |source_stem| match load_exact_w3d_render_object_source(
+                model_loader,
+                archive_system,
+                source_stem,
+            ) {
                 Ok(model) => Some(model),
                 Err(error) => {
-                    debug!(
-                        "Strict W3D render-object source '{}' did not resolve '{}': {}",
-                        source_stem, full_name, error
-                    );
+                    load_error = Some(format!(
+                        "prototype '{full_name}', source '{source_stem}.w3d': {error}"
+                    ));
                     None
                 }
+            },
+        );
+        prototype.ok_or_else(|| load_error.unwrap_or_else(|| {
+            match w3d_render_object_source_stem(full_name) {
+                Some(stem) => format!("source '{stem}.w3d' did not register exact prototype '{full_name}'"),
+                None => format!("invalid exact W3D render-object identity '{full_name}'"),
             }
-        })
+        }))
     }
 
     /// Borrow the exact immutable source model associated with a strict

@@ -11,11 +11,13 @@
 //! Usage:
 //!   golden_campaign_gate [--map NAME] [--frames N]
 //!
-//! Exit 0 on campaign_playable_claim && status=success.
+//! The default gate requires a mounted retail map with installed scripts.
+//! The host-safe opt-out accepts smoke coverage without retail content.
 //! Exit 1 otherwise.
 
 use generals_main::golden_campaign::{
-    DEFAULT_CAMPAIGN_FRAME_ADVANCE, format_campaign_report, run_golden_campaign,
+    DEFAULT_CAMPAIGN_FRAME_ADVANCE, format_campaign_report, prefer_retail_campaign_load,
+    run_golden_campaign_ex,
 };
 
 fn main() -> gamelogic::GameLogicResult<()> {
@@ -53,12 +55,24 @@ fn main() -> gamelogic::GameLogicResult<()> {
         }
     }
 
-    let result = run_golden_campaign(map.as_deref(), frames)?;
+    let require_retail = prefer_retail_campaign_load();
+    let result = run_golden_campaign_ex(map.as_deref(), frames, require_retail)?;
     println!("{}", format_campaign_report(&result));
 
-    if result.campaign_playable_claim && result.status == "success" {
+    let retail_start_ok = result.retail_campaign_map_loaded
+        && result.campaign_sit_through_ok
+        && result.mission_scripts_installed_count > 0;
+    if result.campaign_playable_claim
+        && result.status == "success"
+        && (!require_retail || retail_start_ok)
+    {
         println!(
-            "golden_campaign_gate: PASS campaign_playable_claim=true retail_campaign_map_loaded={} scripts={} scripts_installed={} objectives={} from_campaign={} frames={}",
+            "golden_campaign_gate: PASS mode={} retail_campaign_map_loaded={} scripts={} scripts_installed={} objectives={} from_campaign={} frames={}",
+            if require_retail {
+                "retail-start"
+            } else {
+                "host-smoke"
+            },
             result.retail_campaign_map_loaded,
             result.campaign_script_count,
             result.mission_scripts_installed_count,
@@ -94,7 +108,9 @@ fn main() -> gamelogic::GameLogicResult<()> {
     }
 
     eprintln!(
-        "golden_campaign_gate: FAIL claim={} status={} started={} scripts_tick={} victory_eval={} frames={}",
+        "golden_campaign_gate: FAIL require_retail={} retail_start_ok={} claim={} status={} started={} scripts_tick={} victory_eval={} frames={}",
+        require_retail,
+        retail_start_ok,
         result.campaign_playable_claim,
         result.status,
         result.campaign_started,

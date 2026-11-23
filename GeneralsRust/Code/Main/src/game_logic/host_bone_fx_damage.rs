@@ -1307,9 +1307,7 @@ pub(crate) fn play_bone_fx_event_with_effects(
         };
         let hidden = object.drawable_hidden;
         let manager = effects
-            .view
-            .as_deref_mut()
-            .and_then(|view| view.particle_systems_mut())
+            .particle_systems_mut()
             .ok_or_else(|| {
                 gamelogic::GameLogicError::Configuration(
                     "BoneFX requires receiving particle manager".into(),

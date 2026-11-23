@@ -104,6 +104,8 @@ impl GameLogic {
             ui: ui
                 .as_mut()
                 .map(|ui| &mut **ui as &mut dyn crate::game_logic::ScriptUiEffects),
+            #[cfg(feature = "game_client")]
+            headless_particles: None,
             view: None,
         };
         Ok(self.update_construction_with_effects(object_ids, dt, &mut effects)?)

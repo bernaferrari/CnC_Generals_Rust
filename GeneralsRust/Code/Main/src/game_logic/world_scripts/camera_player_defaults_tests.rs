@@ -149,6 +149,8 @@ fn short_mmb_defaults_keep_first_setter_motion_then_cancel_second_and_sample_pos
             audio: None,
             terrain: None,
             ui: None,
+            #[cfg(feature = "game_client")]
+            headless_particles: None,
             view: Some(&mut view),
                     pristine_bones: None,
 };
@@ -239,6 +241,8 @@ fn short_mmb_defaults_keep_first_setter_motion_then_cancel_second_and_sample_pos
                 audio: None,
                 terrain: None,
                 ui: None,
+                #[cfg(feature = "game_client")]
+                headless_particles: None,
                 view: Some(&mut second_view),
                         pristine_bones: None,
 })
@@ -288,6 +292,8 @@ fn reset_and_mmb_default_share_minimum_hag_floor_without_mutating_peer() {
             audio: None,
             terrain: None,
             ui: None,
+            #[cfg(feature = "game_client")]
+            headless_particles: None,
             view: Some(&mut view),
                     pristine_bones: None,
 })

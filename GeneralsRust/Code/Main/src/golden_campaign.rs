@@ -344,6 +344,32 @@ pub fn run_golden_campaign_ex(
         resolve_first_existing(HOST_SAFE_MAP_CANDIDATES).or_else(|| campaign_resolved.clone())
     };
 
+    // Retail BoneFX uses the receiving source model for current authored bone
+    // queries. A headless gate owns the same mounted content service as Main,
+    // but deliberately does not initialize a WGPU texture/device subsystem.
+    let pristine_assets = if host_resolved
+        .as_ref()
+        .is_some_and(|(identity, _)| is_retail_campaign_identity(identity))
+    {
+        let assets = logic
+            .with_own_services(|| {
+                // Startup's existing localization and INI callbacks resolve
+                // this game's services during this synchronous operation.
+                let mut assets = crate::assets::AssetManager::new()?;
+                pollster::block_on(assets.init_cpu_content())?;
+                Ok::<_, anyhow::Error>(std::sync::Arc::new(std::sync::Mutex::new(assets)))
+            })
+            .map_err(|error| {
+                gamelogic::GameLogicError::Configuration(format!(
+                    "campaign gate CPU asset/content initialization failed: {error}"
+                ))
+            })?;
+        logic.bind_application_assets(std::sync::Arc::clone(&assets));
+        Some(assets)
+    } else {
+        None
+    };
+
     // Register mission under both the host map path (for load_map victory configure)
     // and a stable key used when only scripts are installed.
     let victory_map_key = host_resolved
@@ -486,10 +512,33 @@ pub fn run_golden_campaign_ex(
             .registered_values()
             .any(|o| !o.name.is_empty());
 
+    #[cfg(feature = "game_client")]
+    let mut headless_particles = if pristine_assets.is_some() {
+        let mut particles = game_client::effects::ParticleSystemManager::new();
+        logic
+            .with_own_services(|| particles.admit_effective_definitions())
+            .map_err(|error| {
+                gamelogic::GameLogicError::Configuration(format!(
+                    "campaign gate particle content initialization failed: {error}"
+                ))
+            })?;
+        Some(particles)
+    } else {
+        None
+    };
     let script_counter_before = logic.mission_script_counter;
     let frame_before = logic.get_frame();
     for _ in 0..frames {
-        logic.update();
+        if let Some(assets) = pristine_assets.as_deref() {
+            logic.update_with_script_effects(crate::game_logic::ScriptPresentationEffects {
+                pristine_bones: Some(assets),
+                #[cfg(feature = "game_client")]
+                headless_particles: headless_particles.as_mut(),
+                ..Default::default()
+            })?;
+        } else {
+            logic.update();
+        }
         logic.headless_camera_view_offer(33)?;
     }
     let frame_after = logic.get_frame();

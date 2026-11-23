@@ -752,6 +752,10 @@ pub(crate) struct ScriptPresentationEffects<'a> {
     pub(crate) script_events: Option<super::ScriptEventRecipient<'a>>,
     pub(crate) ui: Option<&'a mut dyn super::ScriptUiEffects>,
     pub(crate) view: Option<&'a mut dyn NativeViewEffects>,
+    /// CPU-only client effects use their own particle manager without an
+    /// installed RenderObj or graphics device.
+    #[cfg(feature = "game_client")]
+    pub(crate) headless_particles: Option<&'a mut game_client::effects::ParticleSystemManager>,
     /// Immutable decoded content capability, usable independently of a GPU.
     pub(crate) pristine_bones: Option<&'a dyn crate::assets::pristine_bones::PristineBoneAssets>,
     pub(crate) terrain: Option<&'a mut dyn NativeTerrainEffects>,
@@ -766,6 +770,16 @@ pub(crate) struct ScriptPresentationEffects<'a> {
     pub(crate) trigger_world: Option<&'a std::sync::Mutex<gamelogic::scripting::HostTriggerWorld>>,
 }
 impl ScriptPresentationEffects<'_> {
+    #[cfg(feature = "game_client")]
+    pub(crate) fn particle_systems_mut(
+        &mut self,
+    ) -> Option<&mut game_client::effects::ParticleSystemManager> {
+        match self.view.as_deref_mut() {
+            Some(view) => view.particle_systems_mut(),
+            None => self.headless_particles.as_deref_mut(),
+        }
+    }
+
     #[cfg(feature = "game_client")]
     pub(in crate::game_logic) fn cap_owned_drawable_tracks(
         &mut self,
@@ -833,6 +847,8 @@ impl ScriptPresentationEffects<'_> {
             trigger_world: self.trigger_world,
             script_events: self.script_events,
             pristine_bones: self.pristine_bones,
+            #[cfg(feature = "game_client")]
+            headless_particles: self.headless_particles.as_deref_mut(),
             partition: self.partition.as_deref_mut(),
             audio: self
                 .audio
