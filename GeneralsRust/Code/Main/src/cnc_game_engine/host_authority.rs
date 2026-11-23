@@ -2146,6 +2146,30 @@ impl CnCGameEngine {
         result
     }
 
+    pub(super) fn host_save_campaign_checkpoint(
+        &mut self,
+        checkpoint: game_client::gui::campaign_launch_host_bridge::CampaignCheckpoint,
+    ) {
+        let (path, result) = self.save_file_manager.save_campaign_checkpoint(
+            &checkpoint.next_map,
+            &checkpoint.description,
+            &checkpoint.state,
+        );
+        let result = result.map_err(|error| error.to_string());
+        if let Err(error) = &result {
+            log::warn!("Mission checkpoint failed for '{}': {error}", path.display());
+        }
+        self.surface_save_game_ui_feedback(&path, &result);
+        let facts = self.receiving_menu_world_facts();
+        self.game_client.with_window_event_effects(Some(facts), |effects| {
+            game_client::gui::callbacks::score_screen::complete_mission_checkpoint(
+                &checkpoint.score_parent,
+                result.is_ok(),
+                effects,
+            );
+        });
+    }
+
     /// C++ `GameState::saveGame` user feedback (`GameState.cpp:547-597`).
     fn surface_save_game_ui_feedback(
         &mut self,

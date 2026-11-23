@@ -57,6 +57,15 @@ impl Default for ShellMapSettings {
     }
 }
 
+/// The advanced campaign state owned by this score screen's save request.
+#[derive(Debug)]
+pub struct CampaignCheckpoint {
+    pub next_map: String,
+    pub description: String,
+    pub state: game_engine::System::CampaignManagerXferState,
+    pub score_parent: std::rc::Weak<std::cell::RefCell<crate::gui::GameWindow>>,
+}
+
 /// A source lifecycle action, delivered after the current UI loans end.
 #[derive(Clone, Copy, Debug)]
 pub enum MenuLaunchSource {
@@ -79,6 +88,7 @@ pub enum MenuHostRequest {
         source: MenuLaunchSource,
         main_menu_layout: Option<std::rc::Weak<std::cell::RefCell<crate::gui::WindowLayout>>>,
     },
+    SaveCampaignCheckpoint(CampaignCheckpoint),
     SeedLogic(u32),
     Quit,
     SignalUiInteract(&'static str),

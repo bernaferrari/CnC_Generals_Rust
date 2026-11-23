@@ -5,6 +5,8 @@ mod camera_ownership;
 mod campaign_ownership;
 mod client_candidate;
 mod control_group_ownership;
+#[cfg(all(feature = "game_client", not(target_arch = "wasm32")))]
+mod mission_checkpoint;
 mod particle_candidate;
 mod particle_capture_failure;
 mod script_candidate;

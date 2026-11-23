@@ -7,7 +7,7 @@ use crate::core::script_action_handler::{
 use crate::game_text::GameText;
 use crate::gui::callbacks::popup_replay::popup_replay_update;
 use crate::gui::campaign_launch_host_bridge::{
-    HostCampaignLaunchDescriptor, MenuHostRequest, MenuLaunchSource,
+    CampaignCheckpoint, HostCampaignLaunchDescriptor, MenuHostRequest, MenuLaunchSource,
 };
 use crate::gui::campaign_manager::{
     Campaign, CampaignManager, GameDifficulty as CampaignDifficulty,
@@ -120,6 +120,7 @@ pub struct ScoreScreenState {
     last_replay_filename: String,
     can_save_replay: bool,
     need_finish_singleplayer_init: bool,
+    waiting_for_mission_checkpoint: bool,
     button_is_finish_campaign: bool,
     pending_final_victory_movie: Option<String>,
     waiting_for_final_victory_movie: bool,
@@ -427,7 +428,12 @@ fn init_single_player(effects: &mut WindowEventEffects<'_>) {
         }
     }
     effects.with_manager(|manager, effects| {
-        grab_single_player_info(effects.score_screen_mut(), manager)
+        let state = effects.score_screen_mut();
+        grab_single_player_info(state, manager);
+        // C++ covers these controls with BlankWindow until initialization
+        // and its synchronous checkpoint or movie have finished.
+        hide_window(&state.button_ok, true, manager);
+        hide_window(&state.button_continue, true, manager);
     });
     {
         let value = true;
@@ -770,6 +776,46 @@ fn current_mission_save_description(manager: &CampaignManager) -> String {
     format_mission_save_description(&format, &campaign_label, mission_number)
 }
 
+fn show_game_saved_text(effects: &mut WindowEventEffects<'_>) {
+    effects.with_manager(|manager, effects| {
+        hide_window(
+            &effects.score_screen().static_text_game_saved.clone(),
+            false,
+            manager,
+        )
+    });
+}
+
+/// Resume the same score screen after Main writes the mission checkpoint and
+/// delivers the normal save feedback. C++ ScoreScreen.cpp:880-882, 911-926.
+pub fn complete_mission_checkpoint(
+    score_parent: &std::rc::Weak<RefCell<GameWindow>>,
+    saved: bool,
+    effects: &mut WindowEventEffects<'_>,
+) {
+    let state = effects.score_screen_mut();
+    let same_layout = state.parent.as_ref().is_some_and(|parent| {
+        Rc::as_ptr(parent) == score_parent.as_ptr()
+    });
+    if !same_layout || !std::mem::take(&mut state.waiting_for_mission_checkpoint) {
+        return;
+    }
+    let layout = state
+        .parent
+        .as_ref()
+        .and_then(|parent| parent.borrow().get_layout());
+    if saved {
+        show_game_saved_text(effects);
+    }
+    finalize_single_player_init(effects);
+    update_score_screen_music(effects);
+    if let Some(layout) = layout {
+        effects.with_manager(|manager, _effects| {
+            populate_owned_academy_widgets(&layout.borrow(), manager)
+        });
+    }
+}
+
 fn finish_single_player_init(effects: &mut WindowEventEffects<'_>) {
     let Some(victorious) = effects
         .campaign_manager
@@ -947,8 +993,29 @@ fn finish_single_player_init(effects: &mut WindowEventEffects<'_>) {
             if let Some(button_continue) = effects.score_screen().button_continue.clone().as_ref() {
                 set_text(button_continue, &GameText::fetch("GUI:SaveAndContinue"));
             }
-            // C++ ScoreScreen.cpp:880 TheGameState->missionSave()
-            // GameState.cpp:616-618 GUI:MissionSave + campaignNameLabel + missionNumber+1.
+            // ScoreScreen.cpp:880 calls missionSave after advancing the campaign.
+            if effects.input_authority()
+                == crate::core::game_client::ClientInputAuthority::NativeHosted
+            {
+                let state = effects
+                    .campaign_manager
+                    .as_deref()
+                    .expect("native ScoreScreen requires its receiving campaign")
+                    .capture_logic_chunk_state();
+                let score = effects.score_screen_mut();
+                let score_parent =
+                    Rc::downgrade(score.parent.as_ref().expect("native ScoreScreen parent"));
+                score.waiting_for_mission_checkpoint = true;
+                effects.request_menu_host(MenuHostRequest::SaveCampaignCheckpoint(
+                    CampaignCheckpoint {
+                        next_map,
+                        description: mission_description,
+                        state,
+                        score_parent,
+                    },
+                ));
+                return;
+            }
             let mut game_state = game_engine::get_game_state();
             let _ = game_state.save_game(
                 String::new(),
@@ -956,13 +1023,7 @@ fn finish_single_player_init(effects: &mut WindowEventEffects<'_>) {
                 game_engine::SaveFileType::Mission,
                 game_engine::SnapshotType::SaveLoad,
             );
-            effects.with_manager(|manager, effects| {
-                hide_window(
-                    &effects.score_screen().static_text_game_saved.clone(),
-                    false,
-                    manager,
-                )
-            });
+            show_game_saved_text(effects);
         }
     } else {
         if let Some(button_continue) = effects.score_screen().button_continue.clone().as_ref() {
@@ -2448,6 +2509,7 @@ pub fn score_screen_init(
         let value = false;
         effects.score_screen_mut().waiting_for_final_victory_movie = value
     };
+    effects.score_screen_mut().waiting_for_mission_checkpoint = false;
 
     if let Ok(recorder) = get_recorder().lock() {
         {
@@ -2627,6 +2689,9 @@ pub fn score_screen_update(
         };
     }
 
+    if effects.score_screen().waiting_for_mission_checkpoint {
+        return;
+    }
     update_final_victory_movie_wait(effects);
     update_score_screen_music(effects);
 
@@ -2692,6 +2757,13 @@ pub fn score_screen_system(
     }
     match msg {
         WindowMessage::GadgetSelected => {
+            let state = effects.score_screen();
+            if state.need_finish_singleplayer_init
+                || state.waiting_for_mission_checkpoint
+                || state.waiting_for_final_victory_movie
+            {
+                return WindowMsgHandled::Handled;
+            }
             let control_id = data1 as i32;
             effects.with_manager(|manager, effects| {
                 manager.transition_remove("ScoreScreenShow", true, Some(&mut *_window))

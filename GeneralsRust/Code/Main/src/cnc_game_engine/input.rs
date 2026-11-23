@@ -3472,6 +3472,9 @@ impl CnCGameEngine {
                             break;
                         }
                     }
+                    MenuHostRequest::SaveCampaignCheckpoint(checkpoint) => {
+                        self.host_save_campaign_checkpoint(checkpoint);
+                    }
                     MenuHostRequest::SeedLogic(seed) => {
                         self.game_logic.set_logic_random_seed(seed);
                     }

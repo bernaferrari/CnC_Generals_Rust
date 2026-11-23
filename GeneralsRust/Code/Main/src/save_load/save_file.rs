@@ -852,6 +852,68 @@ impl SaveFileManager {
         Ok(())
     }
 
+    /// Between missions only the campaign and header survive the outgoing world.
+    pub(crate) fn save_campaign_checkpoint(
+        &self,
+        next_map: &str,
+        description: &str,
+        state: &game_engine::System::CampaignManagerXferState,
+    ) -> (PathBuf, SaveLoadResult<()>) {
+        let (campaign_side, mission_number) = campaign_header_from_campaign_manager(Some(state));
+        let info = SaveGameInfo {
+            filename: String::new(),
+            display_name: description.to_owned(),
+            description: description.to_owned(),
+            map_name: next_map.to_owned(),
+            pristine_map_name: None,
+            campaign_side,
+            mission_number,
+            save_date: SystemTime::now(),
+            game_version: env!("CARGO_PKG_VERSION").to_owned(),
+            play_time: std::time::Duration::ZERO,
+            difficulty: campaign_difficulty(state),
+            save_type: SaveFileType::Mission,
+        };
+        let mut destination = self.save_directory.clone();
+        let result = (|| {
+            let encoded = Self::write_mission_checkpoint_bytes(&info, state)?;
+            self.publish_numbered_checkpoint(&encoded, &mut destination)
+        })();
+        (destination, result)
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    fn publish_numbered_checkpoint(
+        &self,
+        bytes: &[u8],
+        destination: &mut PathBuf,
+    ) -> SaveLoadResult<()> {
+        std::fs::create_dir_all(&self.save_directory)?;
+        let mut staged = tempfile::NamedTempFile::new_in(&self.save_directory)?;
+        staged.write_all(bytes)?;
+        // GameState.cpp:416-507 chooses the lowest free eight-digit save name.
+        for number in 0..=99_999_999 {
+            *destination = self.get_save_path(&format!("{number:08}"));
+            match staged.persist_noclobber(&*destination) {
+                Ok(_) => return Ok(()),
+                Err(error) if error.error.kind() == std::io::ErrorKind::AlreadyExists => {
+                    staged = error.file;
+                }
+                Err(error) => return Err(error.error.into()),
+            }
+        }
+        Err(std::io::Error::new(
+            std::io::ErrorKind::AlreadyExists,
+            "all numbered save slots are occupied",
+        )
+        .into())
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    fn publish_numbered_checkpoint(&self, _: &[u8], _: &mut PathBuf) -> SaveLoadResult<()> {
+        Err(std::io::Error::from(std::io::ErrorKind::Unsupported).into())
+    }
+
     /// Save game to file
     pub fn save_game(
         &mut self,
@@ -1521,6 +1583,9 @@ impl SaveFileManager {
         supplied_game_mode: i32,
         campaign_state: &game_engine::System::CampaignManagerXferState,
     ) -> SaveLoadResult<Vec<u8>> {
+        if save_info.save_type == SaveFileType::Mission {
+            return Self::write_mission_checkpoint_bytes(save_info, campaign_state);
+        }
         validate_direct_world_snapshot_version(world_snapshot.version)?;
         crate::save_load::snapshot::validate_world_path_links(world_snapshot)?;
         let logic_payload = bincode_legacy::serialize(world_snapshot)
@@ -1535,6 +1600,23 @@ impl SaveFileManager {
             supplied_game_mode,
             campaign_state,
         )
+    }
+
+    fn write_mission_checkpoint_bytes(
+        save_info: &SaveGameInfo,
+        campaign_state: &game_engine::System::CampaignManagerXferState,
+    ) -> SaveLoadResult<Vec<u8>> {
+        // GameState.cpp:1339-1346 writes exactly these two named chunks.
+        let mut cursor = Cursor::new(Vec::new());
+        let mut xfer = CommonXferSave::new(&mut cursor, SAVE_FILE_VERSION);
+        write_named_block(&mut xfer, CHUNK_GAME_STATE, |xfer| {
+            write_game_state_header(xfer, save_info)
+        })?;
+        write_named_block(&mut xfer, CHUNK_CAMPAIGN, |xfer| {
+            write_campaign_block(xfer, campaign_state)
+        })?;
+        write_ascii(&mut xfer, SAVE_FILE_EOF)?;
+        Ok(cursor.into_inner())
     }
 
     /// Shared 17-block container writer. Logic payload is kept separate so
@@ -1569,6 +1651,9 @@ impl SaveFileManager {
         supplied_game_mode: i32,
         campaign_state: &game_engine::System::CampaignManagerXferState,
     ) -> SaveLoadResult<Vec<u8>> {
+        if save_info.save_type == SaveFileType::Mission {
+            return Self::write_mission_checkpoint_bytes(save_info, campaign_state);
+        }
         let initial = crate::save_load::snapshot::initial_skirmish::read(world_snapshot)?;
         let source_game_info =
             crate::save_load::snapshot::initial_skirmish::source(world_snapshot)?;
@@ -1577,18 +1662,14 @@ impl SaveFileManager {
         } else {
             supplied_game_mode
         };
-        if save_info.save_type != SaveFileType::Mission {
-            map_admission::validate_native(
-                world_snapshot,
-                mode,
-                source_game_info.as_ref(),
-                str::to_owned,
-            )?;
-        }
+        map_admission::validate_native(
+            world_snapshot,
+            mode,
+            source_game_info.as_ref(),
+            str::to_owned,
+        )?;
         let player_team_chunks = player_team_chunks_from_world(world_snapshot)?;
-        if save_info.save_type != SaveFileType::Mission {
-            validate_host_alliances(world_snapshot, &player_team_chunks)?;
-        }
+        validate_host_alliances(world_snapshot, &player_team_chunks)?;
         let ghost_bytes = match world_snapshot.w3d_ghost_companion.as_deref() {
             Some(bytes) => bytes.to_vec(),
             None => capture_w3d_ghost_xfer_bytes(&Default::default())?,
@@ -1598,13 +1679,6 @@ impl SaveFileManager {
             .as_deref()
             .unwrap_or_default();
         let terrain_visual_bytes = supplied_terrain_visual_bytes.unwrap_or_default().to_vec();
-        let block_names: &[&str] = if save_info.save_type == SaveFileType::Mission {
-            // C++ `xferSaveData` (`GameState.cpp:1339-1346`) writes only
-            // CHUNK_GameState + CHUNK_Campaign for SAVE_FILE_TYPE_MISSION.
-            &[CHUNK_GAME_STATE, CHUNK_CAMPAIGN]
-        } else {
-            SAVELOAD_BLOCK_NAMES
-        };
         let mut cursor = Cursor::new(Vec::<u8>::new());
         {
             let mut xfer = CommonXferSave::new(&mut cursor, SAVE_FILE_VERSION);
@@ -1614,7 +1688,7 @@ impl SaveFileManager {
                         .map_err(|error| SaveLoadError::Serialization(error.to_string()))
                 })?;
             }
-            for &name in block_names {
+            for &name in SAVELOAD_BLOCK_NAMES {
                 write_named_block(&mut xfer, name, |xfer| match name {
                     CHUNK_GAME_STATE => write_game_state_header(xfer, save_info),
                     CHUNK_GAME_LOGIC => {
