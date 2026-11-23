@@ -156,22 +156,43 @@ impl GameLogic {
         let Some(pilot) = self.objects.get(&pilot_id) else {
             return;
         };
+        let Some(runtime) = pilot.status.pilot_find_vehicle else {
+            return;
+        };
+        if !pilot.is_alive() || runtime.next_wake_frame.is_none_or(|wake| wake > self.frame) {
+            return;
+        }
         let Some(scan) = pilot.get_template().pilot_find_vehicle else {
             return;
         };
-        if !self.frame.is_multiple_of(scan.scan_frames.max(1)) || pilot.ai_state() != AIState::Idle {
-            return;
-        }
-        let Some(owner) = self.player_owner_for_host_object(pilot) else {
+        let disabled = pilot.has_disabled_type();
+        let computer_owner = self.player_owner_for_host_object(pilot).filter(|&owner| {
+            pilot.has_ai_update_interface() && !self.player_is_human(owner)
+        });
+        // GameLogic.cpp:3715-3738 waits one frame when disabled, even when
+        // the module would otherwise sleep for its configured scan interval.
+        let next_wake_frame = if disabled {
+            Some(self.frame.saturating_add(1))
+        } else {
+            computer_owner.map(|_| self.frame.saturating_add(scan.scan_frames.max(1)))
+        };
+        let idle = pilot.ai_state() == AIState::Idle;
+        self.objects
+            .get_mut(&pilot_id)
+            .expect("receiving pilot is still installed")
+            .status
+            .pilot_find_vehicle = Some(crate::game_logic::PilotFindVehicleState {
+                next_wake_frame,
+                ..runtime
+            });
+        let Some(owner) = computer_owner.filter(|_| !disabled && idle) else {
             return;
         };
-        if !pilot.is_alive() || !pilot.has_ai_update_interface() || self.player_is_human(owner) {
-            return;
-        }
+        let pilot = &self.objects[&pilot_id];
         let pilot_pos = pilot.get_position();
         let pilot_team = pilot.team;
         let pilot_off_map = pilot.status.off_map;
-        let did_move_to_base = pilot.status.pilot_did_move_to_base;
+        let did_move_to_base = runtime.did_move_to_base;
 
         let mut best = None;
         let range_sq = scan.scan_range * scan.scan_range;
@@ -239,7 +260,9 @@ impl GameLogic {
                     &mut crate::game_logic::ScriptPresentationEffects::default()
                         .reborrow_for_world(&mut self.partition_manager, &self.host_trigger_world),
                 );
-                pilot.set_status_pilot_did_move_to_base(false);
+                if let Some(runtime) = pilot.status.pilot_find_vehicle.as_mut() {
+                    runtime.did_move_to_base = false;
+                }
                 pilot.set_ai_state(
                     AIState::Entering,
                     self.frame,
@@ -280,7 +303,9 @@ impl GameLogic {
             pilot.clear_target(&mut crate::game_logic::ObjectAudio::queue(
                 &mut self.queued_audio_events,
             ));
-            pilot.set_status_pilot_did_move_to_base(true);
+            if let Some(runtime) = pilot.status.pilot_find_vehicle.as_mut() {
+                runtime.did_move_to_base = true;
+            }
         }
         self.path_approach_with_state(pilot_id, base_pos, AIState::Moving);
         self.usa_pilot.record_base_center_move();

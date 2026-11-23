@@ -501,6 +501,14 @@ impl KindOf {
     }
 }
 
+/// Runtime of the installed C++ PilotFindVehicleUpdate module.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub(crate) struct PilotFindVehicleState {
+    /// None is UPDATE_SLEEP_FOREVER for a human or a pilot without AI.
+    pub next_wake_frame: Option<u32>,
+    pub did_move_to_base: bool,
+}
+
 /// Object status flags
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
 pub struct ObjectStatus {
@@ -698,10 +706,9 @@ pub struct ObjectStatus {
     /// Absolute host logic frame when eject InvulnerableTime expires (0 = inactive).
     #[serde(default)]
     pub eject_invulnerable_until_frame: u32,
-    /// C++ PilotFindVehicleUpdate::m_didMoveToBase residual.
-    /// AI pilot attempts base-center fallback once when no recrewable vehicle is found.
-    #[serde(default)]
-    pub pilot_did_move_to_base: bool,
+    /// The PilotFindVehicleUpdate wake and base latch are written by OXOB.
+    #[serde(skip)]
+    pub(crate) pilot_find_vehicle: Option<PilotFindVehicleState>,
     /// C++ OBJECT_STATUS_PARACHUTING residual (OCL_EjectPilotViaParachute /
     /// AmericaParachute host residual). Pilot sinks until ground.
     #[serde(default)]

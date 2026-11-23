@@ -758,8 +758,8 @@ impl Object {
         self.status.eject_invulnerable = v;
     }
 
-    pub fn set_status_pilot_did_move_to_base(&mut self, v: bool) {
-        self.status.pilot_did_move_to_base = v;
+    pub(crate) fn pilot_did_move_to_base(&self) -> bool {
+        self.status.pilot_find_vehicle.is_some_and(|pilot| pilot.did_move_to_base)
     }
 
     pub fn set_status_parachuting(&mut self, v: bool) {

@@ -149,6 +149,13 @@ impl Object {
         let initial_drawable_scale =
             crate::assets::mesh_asset_resolve::mesh_scale_from_template(&template);
         let template_name = template.name.clone();
+        // PilotFindVehicleUpdate sets UPDATE_SLEEP_NONE (one frame) at birth.
+        initial_status.pilot_find_vehicle = template.pilot_find_vehicle.map(|_| {
+            crate::game_logic::PilotFindVehicleState {
+                next_wake_frame: Some(logic_frame.saturating_add(1)),
+                did_move_to_base: false,
+            }
+        });
         let authors_horde_update = template.horde_update.is_some();
         let inactive_body =
             template.body_kind == Some(crate::game_logic::thing::BodyKind::Inactive);

@@ -351,7 +351,7 @@ impl GameWorldShadow {
         e.booby_trapped = obj.status.booby_trapped;
         e.eject_invulnerable = obj.status.eject_invulnerable;
         e.eject_invulnerable_until_frame = obj.status.eject_invulnerable_until_frame;
-        e.pilot_did_move_to_base = obj.status.pilot_did_move_to_base;
+        e.pilot_did_move_to_base = obj.pilot_did_move_to_base();
         e.parachuting = obj.status.parachuting;
         e.parachute_open = obj.status.parachute_open;
         e.parachute_landing_override_set = obj.status.parachute_landing_override_set;

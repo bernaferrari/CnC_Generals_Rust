@@ -108,7 +108,7 @@ fn pilot_find_vehicle_base_center_fallback_residual() {
             ai_entry_frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
-        assert!(!p.status.pilot_did_move_to_base);
+        assert!(!p.pilot_did_move_to_base());
     }
 
     assert!(!game_logic.honesty_pilot_base_center_ok());
@@ -127,7 +127,7 @@ fn pilot_find_vehicle_base_center_fallback_residual() {
             .host_object(pilot_id)
             .expect("pilot after fallback");
         assert!(
-            p.status.pilot_did_move_to_base,
+            p.pilot_did_move_to_base(),
             "m_didMoveToBase residual must latch after fallback"
         );
         assert_eq!(

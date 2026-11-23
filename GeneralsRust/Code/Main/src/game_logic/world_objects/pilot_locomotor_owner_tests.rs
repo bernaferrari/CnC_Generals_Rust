@@ -383,3 +383,100 @@ fn ai_pilot_selects_closest_eligible_occupied_vehicle() {
     world.try_pilot_find_vehicle_residual(pilot);
     assert_eq!(world.host_object(pilot).unwrap().target, Some(nearest));
 }
+
+#[test]
+fn pilot_scan_uses_birth_relative_wake_frame_across_save() {
+    use crate::save_load::snapshot::{SnapshotBuilder, decode_bincode_world_snapshot};
+
+    let mut source = admitted_world("CrusaderLocomotor", "VEHICLE SELECTABLE", "Yes");
+    let scan_frames = source.templates["OwnedPilot"]
+        .pilot_find_vehicle
+        .unwrap()
+        .scan_frames;
+    let birth_frame = 17;
+    source.frame = birth_frame;
+    let pilot = source
+        .create_object_for_player("OwnedPilot", 1, Vec3::ZERO)
+        .unwrap();
+    let first_scan = birth_frame + 1;
+    source.frame = first_scan;
+    source.try_pilot_find_vehicle_residual(pilot);
+    assert_eq!(source.host_object(pilot).unwrap().target, None);
+
+    let vehicle = source
+        .create_object_for_player("OwnedVehicle", 1, Vec3::new(40.0, 0.0, 0.0))
+        .unwrap();
+    source
+        .update_owned_partition_with_effects(&mut Default::default())
+        .unwrap();
+    source.frame = scan_frames;
+    let snapshot = SnapshotBuilder::new()
+        .create_world_snapshot(&source)
+        .unwrap();
+    let bytes = bincode_legacy::serialize(&snapshot).unwrap();
+    let decoded = decode_bincode_world_snapshot(&bytes).unwrap();
+    let mut restored = admitted_world("CrusaderLocomotor", "VEHICLE SELECTABLE", "Yes");
+    SnapshotBuilder::new()
+        .restore_from_snapshot(&decoded, &mut restored)
+        .unwrap();
+    assert_eq!(restored.frame, source.frame);
+
+    for world in [&mut source, &mut restored] {
+        for early_frame in [scan_frames, scan_frames + 1, first_scan + scan_frames - 1] {
+            world.frame = early_frame;
+            world.try_pilot_find_vehicle_residual(pilot);
+            assert_eq!(
+                world.host_object(pilot).unwrap().target,
+                None,
+                "pilot scanned too early at frame {early_frame}"
+            );
+        }
+        world.frame = first_scan + scan_frames;
+        world.try_pilot_find_vehicle_residual(pilot);
+        assert_eq!(world.host_object(pilot).unwrap().target, Some(vehicle));
+    }
+}
+
+#[test]
+fn disabled_pilot_retries_next_frame_and_human_pilot_stays_asleep() {
+    for human in [false, true] {
+        let mut world = admitted_world("CrusaderLocomotor", "VEHICLE SELECTABLE", "Yes");
+        world.get_player_mut(1).unwrap().is_human = human;
+        world.frame = 17;
+        let pilot = world
+            .create_object_for_player("OwnedPilot", 1, Vec3::ZERO)
+            .unwrap();
+        let vehicle = world
+            .create_object_for_player("OwnedVehicle", 1, Vec3::X)
+            .unwrap();
+        world
+            .update_owned_partition_with_effects(&mut Default::default())
+            .unwrap();
+        world
+            .host_object_mut(pilot)
+            .unwrap()
+            .set_status_disabled_emp(!human);
+
+        world.frame = 18;
+        world.try_pilot_find_vehicle_residual(pilot);
+        assert_eq!(world.host_object(pilot).unwrap().target, None);
+
+        world.get_player_mut(1).unwrap().is_human = false;
+        world
+            .host_object_mut(pilot)
+            .unwrap()
+            .set_status_disabled_emp(false);
+        world.frame = 19;
+        world.try_pilot_find_vehicle_residual(pilot);
+        assert_eq!(
+            world.host_object(pilot).unwrap().target,
+            (!human).then_some(vehicle)
+        );
+
+        if human {
+            world.frame = 60;
+            world.try_pilot_find_vehicle_residual(pilot);
+            assert_eq!(world.host_object(pilot).unwrap().target, None);
+        }
+    }
+}

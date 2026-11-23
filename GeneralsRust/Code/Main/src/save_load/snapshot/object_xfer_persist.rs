@@ -41,7 +41,8 @@ const OXOB_MAGIC: &[u8; 4] = b"OXOB";
 /// guard/hunt scan and quick-exit deadlines; v25 drops their duplicate here).
 /// v26 drops the always-true Locomotor-body presence flags: the active
 /// Locomotor's xfer scalars are always saved (C++ Locomotor::xfer).
-const OXOB_VERSION: u32 = 26;
+/// v27 retains PilotFindVehicleUpdate's inherited wake and base-move latch.
+const OXOB_VERSION: u32 = 27;
 
 #[cfg(test)]
 mod tests;
@@ -105,6 +106,7 @@ struct ObjectScriptStatusPersist {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct ObjectXferPersist {
     object_id: u32,
+    pilot_find_vehicle: Option<crate::game_logic::PilotFindVehicleState>,
     disabled_held: bool,
     single_use_command_used: bool,
     ai_attitude: i8,
@@ -477,16 +479,24 @@ pub(super) fn apply(
             "incomplete saved body damage-info owners".into(),
         ));
     }
-    if game_logic.locomotor_definitions.is_admitted() {
-        for entry in &payload.objects {
-            if let Some(name) = entry.cur_locomotor_name.as_deref() {
-                if game_logic.resolve_receiving_locomotor(name).is_none() {
-                    return Err(SaveLoadError::Corrupted(format!(
-                        "saved object {} references an unavailable receiving locomotor {name}",
-                        entry.object_id
-                    )));
-                }
-            }
+    for entry in &payload.objects {
+        let receiving_pilot = game_logic
+            .host_object(ObjectId(entry.object_id))
+            .is_some_and(|object| object.status.pilot_find_vehicle.is_some());
+        if entry.pilot_find_vehicle.is_some() != receiving_pilot {
+            return Err(SaveLoadError::Corrupted(format!(
+                "saved object {} does not match the receiving PilotFindVehicleUpdate module",
+                entry.object_id
+            )));
+        }
+        if game_logic.locomotor_definitions.is_admitted()
+            && let Some(name) = entry.cur_locomotor_name.as_deref()
+            && game_logic.resolve_receiving_locomotor(name).is_none()
+        {
+            return Err(SaveLoadError::Corrupted(format!(
+                "saved object {} references an unavailable receiving locomotor {name}",
+                entry.object_id
+            )));
         }
     }
     // Only reset receiving clocks and script state after validation succeeds.
@@ -510,6 +520,7 @@ fn capture(game_logic: &GameLogic) -> ObjectXferPersistPayload {
     for (id, object) in game_logic.host_objects().registered() {
         objects.push(ObjectXferPersist {
             object_id: id.0,
+            pilot_find_vehicle: object.status.pilot_find_vehicle,
             disabled_held: object.status.disabled_held,
             single_use_command_used: object.single_use_command_used,
             ai_attitude: object.ai_attitude,
@@ -922,6 +933,7 @@ fn apply_payload(
             .as_deref()
             .and_then(|name| game_logic.resolve_receiving_locomotor(name));
         if let Some(object) = game_logic.objects.get_mut(&id) {
+            object.status.pilot_find_vehicle = entry.pilot_find_vehicle;
             object.set_held_mask_without_callbacks(entry.disabled_held);
             object.single_use_command_used = entry.single_use_command_used;
             object.ai_attitude = entry.ai_attitude;
