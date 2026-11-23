@@ -1135,7 +1135,8 @@ impl<'a> CommandExecutor<'a> {
                 any = true;
             } else if let Some(obj) = self.game_logic.host_object_mut(unit_id) {
                 if let Some(ai) = obj.chinook_ai.as_mut() {
-                    ai.arrive_for_combat_drop();
+                    let entry = ai.arrive_for_combat_drop();
+                    self.game_logic.apply_chinook_flight_entry(unit_id, entry, &mut self.ui)?;
                 }
                 any = true;
                 self.game_logic.evacuate_container_now_with_effects(

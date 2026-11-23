@@ -515,26 +515,6 @@ pub fn honesty_combat_chinook_residual_pack_ok() -> bool {
 /// C++ `ChinookTakeoffOrLandingState` / `ChinookMoveToBldgState` 3-unit threshold.
 pub const HOST_CHINOOK_ARRIVE_THRESH: f32 = 3.0;
 
-/// C++ `while (ai->loseOneBox())` on transport landing / combat drop
-/// (`ChinookAIUpdate.cpp:213-216`, `:473-475`).
-///
-pub fn lose_all_chinook_object_boxes(obj: &mut crate::game_logic::Object) {
-    if obj.thing().template.supply_truck_metadata.is_some() {
-        obj.set_carried_supply_boxes(0);
-    } else {
-        obj.set_stored_supplies(0);
-    }
-}
-
-/// True when C++ `ChinookTakeoffOrLandingState` / `ChinookCombatDropState`
-/// would have just run `while (loseOneBox())`.
-pub fn chinook_flight_dumps_carried_boxes(status: HostChinookFlightStatus) -> bool {
-    matches!(
-        status,
-        HostChinookFlightStatus::Landing | HostChinookFlightStatus::DoingCombatDrop
-    )
-}
-
 /// C++ `ChinookFlightStatus` residual.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum HostChinookFlightStatus {
@@ -565,6 +545,16 @@ pub enum HostChinookAIState {
     HeadOffMap,
     MoveToCombatDrop,
     DoCombatDrop,
+}
+
+/// The receiving Object consumes this result at the state entry boundary.
+/// Landing can complete in the same call, so flight status cannot report it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum HostChinookFlightEntry {
+    #[default]
+    None,
+    Landing,
+    CombatDrop,
 }
 
 /// Immediate C++ ChinookEvacuateState entry action, performed by the owner.
@@ -726,10 +716,11 @@ impl HostChinookAI {
     }
 
     /// Hover arrived: enter `DO_COMBAT_DROP` (C++ ChinookMoveToBldg → CombatDrop).
-    pub fn arrive_for_combat_drop(&mut self) {
+    pub fn arrive_for_combat_drop(&mut self) -> HostChinookFlightEntry {
         if self.state == HostChinookAIState::MoveToCombatDrop {
-            self.enter_state(HostChinookAIState::DoCombatDrop);
+            return self.enter_state(HostChinookAIState::DoCombatDrop);
         }
+        HostChinookFlightEntry::None
     }
 
     /// C++ `now >= nextDropTime` on a rope.
@@ -748,14 +739,15 @@ impl HostChinookAI {
     /// C++ idle + `hasObjectsWantingToEnterOrExit` + not landed → `LANDING`.
     /// C++ uses the base AI state's idleness, so active flight states cannot
     /// be replaced by this idle contain policy merely because their path is empty.
-    pub fn tick_idle_auto_land(&mut self) {
+    pub fn tick_idle_auto_land(&mut self) -> HostChinookFlightEntry {
         if self.state != HostChinookAIState::Idle {
-            return;
+            return HostChinookFlightEntry::None;
         }
         let landed = self.flight_status == HostChinookFlightStatus::Landed;
         if chinook::chinook_should_auto_land(self.parent_idle, self.wanting_enter_or_exit, landed) {
-            self.enter_state(HostChinookAIState::Landing);
-        } else if chinook::chinook_should_auto_takeoff(
+            return self.enter_state(HostChinookAIState::Landing);
+        }
+        if chinook::chinook_should_auto_takeoff(
             self.parent_idle,
             self.wanting_enter_or_exit,
             landed,
@@ -763,6 +755,7 @@ impl HostChinookAI {
         ) {
             self.enter_state(HostChinookAIState::TakingOff);
         }
+        HostChinookFlightEntry::None
     }
 
     /// C++ `AICMD_MOVE_TO_POSITION_AND_EVACUATE[_AND_EXIT]`.
@@ -832,7 +825,7 @@ impl HostChinookAI {
         self.enter_state(HostChinookAIState::MoveToCombatDrop);
     }
 
-    fn enter_state(&mut self, state: HostChinookAIState) {
+    fn enter_state(&mut self, state: HostChinookAIState) -> HostChinookFlightEntry {
         self.state = state;
         match state {
             HostChinookAIState::Idle => {}
@@ -843,13 +836,14 @@ impl HostChinookAI {
             | HostChinookAIState::LandAndEvac
             | HostChinookAIState::LandAndEvacAndExit => {
                 self.enter_takeoff_or_landing(true);
+                return HostChinookFlightEntry::Landing;
             }
             HostChinookAIState::MoveToAndLand
             | HostChinookAIState::MoveToAndEvac
             | HostChinookAIState::MoveToAndEvacAndExit => {}
             HostChinookAIState::MoveToAndEvacAndExitInit => {
                 self.original_pos = self.pos;
-                self.enter_state(HostChinookAIState::MoveToAndEvacAndExit);
+                return self.enter_state(HostChinookAIState::MoveToAndEvacAndExit);
             }
             HostChinookAIState::EvacAndTakeoff | HostChinookAIState::EvacAndExit => {
                 // C++ removes the actual contain list while still landed,
@@ -868,8 +862,10 @@ impl HostChinookAI {
                 // The receiving Object owns and clears the carrier's cargo.
                 self.combat_drop_next_release_frame = 0;
                 self.combat_drop_releases = 0;
+                return HostChinookFlightEntry::CombatDrop;
             }
         }
+        HostChinookFlightEntry::None
     }
 
     /// C++ `ChinookTakeoffOrLandingState::onEnter`: dump boxes, pad search, layer.
@@ -905,7 +901,7 @@ impl HostChinookAI {
         dx * dx + dy * dy <= HOST_CHINOOK_ARRIVE_THRESH * HOST_CHINOOK_ARRIVE_THRESH
     }
 
-    fn succeed(&mut self) {
+    fn succeed(&mut self) -> HostChinookFlightEntry {
         let next = match self.state {
             HostChinookAIState::TakingOff => {
                 self.flight_status = HostChinookFlightStatus::Flying;
@@ -946,24 +942,23 @@ impl HostChinookAI {
             }
         };
         if next != self.state {
-            self.enter_state(next);
-        } else {
-            self.state = HostChinookAIState::Idle;
+            return self.enter_state(next);
         }
+        self.state = HostChinookAIState::Idle;
+        HostChinookFlightEntry::None
     }
 
     /// Evaluate flight transitions at the pose sampled from the owning Object.
     /// C++ state updates issue locomotor goals; the locomotor alone integrates motion.
     pub fn update_from_observed_pose(&mut self) -> Option<HostChinookEvacuation> {
-        self.update_from_observed_pose_after_idle_replay(false)
+        self.prepare_observed_update(false);
+        self.advance_observed_state().1
     }
 
-    pub(crate) fn update_from_observed_pose_after_idle_replay(
-        &mut self,
-        replayed_idle: bool,
-    ) -> Option<HostChinookEvacuation> {
+    /// ChinookAIUpdate.cpp:1067–1088 runs before the parent state update.
+    pub(crate) fn prepare_observed_update(&mut self, replayed_idle: bool) -> HostChinookFlightEntry {
         if self.destroyed {
-            return None;
+            return HostChinookFlightEntry::None;
         }
         // C++ checks base idleness and reconstitutes pending commands before
         // auto-land, then advances the state machine in the parent update.
@@ -974,8 +969,18 @@ impl HostChinookAI {
                 self.pending_evac_and_exit = false;
                 self.command_evac(dest, and_exit);
             } else {
-                self.tick_idle_auto_land();
+                return self.tick_idle_auto_land();
             }
+        }
+        HostChinookFlightEntry::None
+    }
+
+    pub(crate) fn advance_observed_state(
+        &mut self,
+    ) -> (HostChinookFlightEntry, Option<HostChinookEvacuation>) {
+        let mut entry = HostChinookFlightEntry::None;
+        if self.destroyed {
+            return (entry, None);
         }
         if self.flight_status == HostChinookFlightStatus::Landed && self.airfield_id.is_some() {
             self.healee = true;
@@ -988,14 +993,14 @@ impl HostChinookAI {
             | HostChinookAIState::LandAndEvacAndExit
             | HostChinookAIState::TakeoffAndExit => {
                 if self.arrived_3d(self.dest) {
-                    self.succeed();
+                    entry = self.succeed();
                 }
             }
             HostChinookAIState::MoveToAndLand
             | HostChinookAIState::MoveToAndEvac
             | HostChinookAIState::MoveToAndEvacAndExit => {
                 if self.arrived_2d(self.dest) {
-                    self.succeed();
+                    entry = self.succeed();
                 }
             }
             HostChinookAIState::MoveToCombatDrop => {
@@ -1005,7 +1010,7 @@ impl HostChinookAI {
                     self.pos[2],
                     self.combat_drop_dest_z,
                 ) {
-                    self.succeed();
+                    entry = self.succeed();
                 }
             }
             HostChinookAIState::HeadOffMap => {
@@ -1020,18 +1025,19 @@ impl HostChinookAI {
                     || self.pos[1] > self.map_hi[1]
                 {
                     self.destroyed = true;
-                    self.succeed();
+                    entry = self.succeed();
                 }
             }
             HostChinookAIState::EvacAndTakeoff
             | HostChinookAIState::EvacAndExit
             | HostChinookAIState::MoveToAndEvacAndExitInit => {}
         }
-        match self.state {
+        let evacuation = match self.state {
             HostChinookAIState::EvacAndTakeoff => Some(HostChinookEvacuation::Takeoff),
             HostChinookAIState::EvacAndExit => Some(HostChinookEvacuation::TakeoffAndExit),
             _ => None,
-        }
+        };
+        (entry, evacuation)
     }
 
     /// Commit the entry action only after the owner reports its real contain
@@ -1499,7 +1505,8 @@ mod tests {
             if let Some(ai) = obj.chinook_ai.as_mut() {
                 ai.flight_status = HostChinookFlightStatus::Flying;
                 ai.state = HostChinookAIState::MoveToCombatDrop;
-                ai.arrive_for_combat_drop();
+                ai.dest = ai.pos;
+                ai.combat_drop_dest_z = ai.pos[2];
             }
         }
         logic

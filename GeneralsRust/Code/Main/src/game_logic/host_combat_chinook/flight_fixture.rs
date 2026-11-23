@@ -66,6 +66,11 @@ Object Hq46k12CombatChinook
     PassengersAllowedToFire = Yes
   End
   Locomotor = SET_NORMAL Hq46k12ChinookLocomotor
+  Draw = W3DModelDraw ModuleTag_Draw
+    DefaultConditionState
+      Model = NONE
+    End
+  End
 End
 Object Hq46k12Rappeller
   KindOf = PRELOAD SELECTABLE INFANTRY CAN_RAPPEL

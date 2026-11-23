@@ -1,6 +1,7 @@
 //! Chinook, listening outpost and troop crawler flows.
 
 use super::*;
+use crate::game_logic::host_combat_chinook::HostChinookFlightEntry;
 
 impl GameLogic {
     /// Residual Combat Chinook honesty: successful load count.
@@ -39,6 +40,94 @@ impl GameLogic {
             _dt,
             &mut crate::game_logic::ScriptPresentationEffects::default(),
         )
+    }
+
+    /// ChinookAIUpdate.cpp:207–269,460–475. Consume the actual entry result
+    /// before an arrival check or a receiving passenger removal can run.
+    pub(crate) fn apply_chinook_flight_entry(
+        &mut self,
+        id: ObjectId,
+        entry: HostChinookFlightEntry,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> gamelogic::GameLogicResult<()> {
+        if entry == HostChinookFlightEntry::None {
+            return Ok(());
+        }
+        let Some(object) = self.objects.get_mut(&id) else {
+            return Ok(());
+        };
+        if object.get_template().supply_truck_metadata.is_some() {
+            self.drain_receiving_supply_boxes(id, effects);
+        } else {
+            object.set_stored_supplies(0);
+        }
+        if entry != HostChinookFlightEntry::Landing {
+            return Ok(());
+        }
+        let Some(object) = self.objects.get_mut(&id) else {
+            return Ok(());
+        };
+        // Scrub drift and choose NORMAL before searching. The locomotor alone
+        // performs movement; entry contributes only properties and a goal.
+        object.scrub_velocity_2d(0.0);
+        if let Some(locomotors) = self.locomotor_definitions.receiving() {
+            use crate::game_logic::host_upgrade_module_residuals::{
+                HostLocomotorSetKind, apply_locomotor_set_kind_for_surfaces_in,
+            };
+            let _ = apply_locomotor_set_kind_for_surfaces_in(
+                object,
+                HostLocomotorSetKind::Normal,
+                0,
+                Some(locomotors),
+            );
+        }
+        object.set_precise_z_and_ultra_accurate(true);
+        let from = object.get_position();
+        let fallback_ground = object.ground_height;
+        let radius = object.geometry_info().bounding_circle_radius();
+
+        let landing_surface = |pos: Vec3| {
+            let view = crate::game_logic::game_logic::FlightTerrainView {
+                grid: &self.pathfinding_system.grid,
+                logical: Some(self.world_services.terrain().as_ref()),
+                terrain: self.terrain.as_ref(),
+                samples: self.pathfinding_height_samples.as_ref(),
+            };
+            let ground = view.raw_ground(pos, fallback_ground);
+            let layer = view.highest_layer(pos, ground, true);
+            (layer, view.grid.layer_height_unclipped(pos, layer, ground))
+        };
+        let (_, seed_height) = landing_surface(from);
+        let seed = Vec3::new(from.x, seed_height, from.z);
+        let found = self.find_owned_chinook_landing_position(seed, radius)?;
+        let mut dest = if let Some(found) = found {
+            let ground_owner = self.world_services.terrain();
+            let ground = ground_owner.read().unwrap_or_else(|error| error.into_inner());
+            let source = crate::game_logic::pathfinding::PathfindingGround::for_terrain(
+                &ground,
+                self.map_loaded,
+                self.terrain.as_ref(),
+                self.pathfinding_height_samples.as_ref(),
+                &self.pathfinding_system.grid,
+            );
+            self.pathfinding_system.adjust_to_landing_destination_radius(
+                from, found, radius, &source,
+            )
+        } else {
+            seed
+        };
+        // The partition search returns a ground point. Recheck healthy bridge
+        // layers at the adjusted XZ using the aircraft's original altitude.
+        let (layer, height) = landing_surface(Vec3::new(dest.x, from.y, dest.z));
+        dest.y = height;
+        self.set_owned_pathfinder_layer(id, layer);
+        if let Some(object) = self.objects.get_mut(&id) {
+            if let Some(ai) = object.chinook_ai.as_mut() {
+                ai.dest = [dest.x, dest.z, dest.y];
+            }
+            object.set_locomotor_goal_position_explicit(dest);
+        }
+        Ok(())
     }
 
     pub(crate) fn tick_chinook_ai_with_effects(
@@ -87,7 +176,7 @@ impl GameLogic {
                 }
                 self.unit_command_ai_idle_owned_with_effects(id, presentation_effects)?;
             }
-            let (was_landing, was_taking_off, previous_state, effect) = {
+            let (was_landing, was_taking_off, previous_state, entry) = {
                 let Some(obj) = self.objects.get_mut(&id) else {
                     continue;
                 };
@@ -110,9 +199,16 @@ impl GameLogic {
                     crate::game_logic::host_combat_chinook::HostChinookFlightStatus::TakingOff
                 );
                 let previous_state = ai.state;
-                let effect = ai.update_from_observed_pose_after_idle_replay(replay_idle);
-                (was_landing, was_taking_off, previous_state, effect)
+                let entry = ai.prepare_observed_update(replay_idle);
+                (was_landing, was_taking_off, previous_state, entry)
             };
+            self.apply_chinook_flight_entry(id, entry, presentation_effects)?;
+            let was_landing = was_landing || entry == HostChinookFlightEntry::Landing;
+            let Some(ai) = self.objects.get_mut(&id).and_then(|obj| obj.chinook_ai.as_mut()) else {
+                continue;
+            };
+            let (entry, effect) = ai.advance_observed_state();
+            self.apply_chinook_flight_entry(id, entry, presentation_effects)?;
             // OnRemoving may access the owner and passengers. Never hold an
             // Object borrow while invoking the immediate contain-domain action.
             if let Some(effect) = effect {
@@ -143,9 +239,7 @@ impl GameLogic {
                 crate::game_logic::host_combat_chinook::HostChinookFlightStatus::TakingOff
             );
             let precise_now = landing_now || taking_off_now;
-            let landing_from = glam::Vec3::new(ai.pos[0], ai.pos[2], ai.pos[1]);
             let landing_dest = glam::Vec3::new(ai.dest[0], ai.dest[2], ai.dest[1]);
-            let apply_landing_dest = landing_now && !was_landing;
             let path_fly = matches!(
                 ai.state,
                 crate::game_logic::host_combat_chinook::HostChinookAIState::MoveToAndLand
@@ -178,16 +272,6 @@ impl GameLogic {
                 ai.preferred_height
             };
             let destroyed = ai.destroyed;
-            let dump_crates =
-                crate::game_logic::host_combat_chinook::chinook_flight_dumps_carried_boxes(
-                    ai.flight_status,
-                );
-            drop(ai);
-
-            if dump_crates {
-                crate::game_logic::host_combat_chinook::lose_all_chinook_object_boxes(obj);
-            }
-
             obj.loco_preferred_height = preferred;
             if head_off_map {
                 // C++ ChinookHeadOffMapState::onEnter: original-position
@@ -237,46 +321,7 @@ impl GameLogic {
             }
             drop(obj);
             self.resolve_installed_path_layers(id);
-            if apply_landing_dest {
-                // C++ ChinookTakeoffOrLandingState::onEnter: findPositionAround
-                // (max radius = bounding circle * 100) picks a spot clear of other
-                // objects, then adjustToLandingDestination runs only when it found one.
-                let bounding_radius = self
-                    .objects
-                    .get(&id)
-                    .map_or(0.0, |o| o.geometry_info().bounding_circle_radius());
-                let found = self.find_owned_chinook_landing_position(landing_dest, bounding_radius)?;
-                let landing_dest = found.unwrap_or(landing_dest);
-                let adj = if found.is_none() {
-                    landing_dest
-                } else {
-                    let ground_owner = self.world_services.terrain();
-                    let ground_loan = ground_owner
-                        .read()
-                        .unwrap_or_else(|error| error.into_inner());
-                    let ground_source =
-                        crate::game_logic::pathfinding::PathfindingGround::for_terrain(
-                            &ground_loan,
-                            self.map_loaded,
-                            self.terrain.as_ref(),
-                            self.pathfinding_height_samples.as_ref(),
-                            &self.pathfinding_system.grid,
-                        );
-                    self.pathfinding_system.adjust_to_landing_destination_radius(
-                        landing_from,
-                        landing_dest,
-                        bounding_radius,
-                        &ground_source,
-                    )
-                };
-                if let Some(obj) = self.objects.get_mut(&id) {
-                    if let Some(ai) = obj.chinook_ai.as_mut() {
-                        ai.dest = [adj.x, adj.z, adj.y];
-                    }
-                    obj.set_locomotor_goal_position_explicit(adj);
-                    obj.set_precise_z_and_ultra_accurate(true);
-                }
-            } else if precise_now {
+            if precise_now {
                 // C++ setLocomotorGoalPositionExplicit(m_destLoc) each update.
                 if let Some(obj) = self.objects.get_mut(&id) {
                     obj.set_locomotor_goal_position_explicit(landing_dest);

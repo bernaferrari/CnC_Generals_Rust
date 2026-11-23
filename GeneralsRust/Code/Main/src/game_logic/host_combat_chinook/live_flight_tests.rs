@@ -460,3 +460,70 @@ fn live_host_chinooks_unstack_landing_dest() {
         );
     });
 }
+
+
+#[cfg(all(feature = "game_client", not(target_arch = "wasm32")))]
+#[test]
+fn near_ground_chinook_resolves_occupied_pad_after_ordered_cargo_loss() {
+    use crate::fixture_content::supply_status::SupplyStatusRecorder;
+    use crate::game_logic::ScriptPresentationEffects;
+
+    isolated("near_ground_chinook_resolves_occupied_pad_after_ordered_cargo_loss", || {
+        let (mut logic, blocker, _) = authored_match();
+        let (object, partition) = logic.host_object_and_partition_mut(blocker).unwrap();
+        let at = Vec3::new(40.0, 0.0, 40.0);
+        object.set_position_with_partition_owner(at, 0, &mut Default::default(), partition);
+
+        let close = at + Vec3::Y * 2.0;
+        let arriving = logic
+            .create_object("Hq46k12CombatChinook", Team::USA, close)
+            .unwrap();
+        let waiting = logic
+            .create_object("Hq46k12Rappeller", Team::USA, at + Vec3::X * 30.0)
+            .unwrap();
+        assert!(logic.unit_command_set_order_target(waiting, Some(arriving)));
+        let frame = logic.frame;
+        logic.host_object_mut(waiting).unwrap().set_ai_state(
+            AIState::Entering,
+            frame,
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
+        );
+        let carrier = logic.host_object_mut(arriving).unwrap();
+        carrier.set_carried_supply_boxes(3);
+        assert_eq!(carrier.get_position(), close);
+        assert_eq!(carrier.chinook_ai.as_ref().unwrap().state, HostChinookAIState::Idle);
+        assert_eq!(carrier.chinook_ai.as_ref().unwrap().flight_status, HostChinookFlightStatus::Flying);
+        logic.update_owned_partition_with_effects(&mut Default::default()).unwrap();
+
+        let one_pad_search = game_engine::common::random_value::SessionRandom::from_state(
+            logic.logic_random.snapshot(),
+        );
+        one_pad_search.next_u32();
+        let after_entry_random = one_pad_search.snapshot();
+        let mut view = SupplyStatusRecorder::default();
+        for expected in [
+            vec![(arriving, 8, 2), (arriving, 8, 1), (arriving, 8, 0)],
+            Vec::new(),
+        ] {
+            logic.tick_chinook_ai_with_effects(
+                1.0 / 30.0,
+                &mut ScriptPresentationEffects { view: Some(&mut view), ..Default::default() },
+            ).unwrap();
+            let callbacks: Vec<_> = view.calls.drain(..).map(|call| {
+                assert_eq!(call.draw_modules, 1);
+                (call.object_id, call.maximum, call.current)
+            }).collect();
+            assert_eq!(callbacks, expected);
+            assert_eq!(logic.logic_random.snapshot(), after_entry_random);
+            let carrier = logic.host_object(arriving).unwrap();
+            let ai = carrier.chinook_ai.as_ref().unwrap();
+            assert_eq!(carrier.carried_supply_boxes(), 0);
+            assert_eq!(ai.flight_status, HostChinookFlightStatus::Landing);
+            let target = Vec3::new(ai.dest[0], ai.dest[2], ai.dest[1]);
+            assert!(target.distance(close) > 3.0);
+            assert_eq!(carrier.locomotor_goal_type, LocoGoalType::PositionExplicit);
+            assert_eq!(carrier.movement.target_position, Some(target));
+            assert!(logic.host_object(waiting).unwrap().contained_by.is_none());
+        }
+    });
+}

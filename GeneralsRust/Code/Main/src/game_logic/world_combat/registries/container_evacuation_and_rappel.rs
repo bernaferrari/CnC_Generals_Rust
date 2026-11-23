@@ -219,17 +219,16 @@ impl GameLogic {
         }
 
         if is_chinook_dropper && mode == TransportEvacuationMode::Command {
+            use crate::game_logic::host_combat_chinook::HostChinookFlightEntry;
+            let mut entry = HostChinookFlightEntry::None;
             if let Some(c) = self.objects.get_mut(&container_id) {
                 let p = c.get_position();
                 if let Some(ai) = c.chinook_ai.as_mut() {
                     ai.pos = [p.x, p.z, p.y];
-                    if ai.state
-                        == crate::game_logic::host_combat_chinook::HostChinookAIState::MoveToCombatDrop
-                    {
-                        ai.arrive_for_combat_drop();
-                    }
+                    entry = ai.arrive_for_combat_drop();
                 }
             }
+            self.apply_chinook_flight_entry(container_id, entry, presentation_effects)?;
             let doing_drop = self.objects.get(&container_id).is_some_and(|c| {
                 c.chinook_ai.as_ref().is_some_and(|ai| {
                     ai.flight_status
@@ -259,6 +258,7 @@ impl GameLogic {
                 })
             });
             if wait {
+                let mut entry = HostChinookFlightEntry::None;
                 if let Some(c) = self.objects.get_mut(&container_id) {
                     let p = c.get_position();
                     let contained = c.contained_units().len() as u32;
@@ -270,12 +270,13 @@ impl GameLogic {
                         if and_exit {
                             ai.command_evac([p.x, p.z, 0.0], true);
                         } else {
-                            ai.tick_idle_auto_land();
+                            entry = ai.tick_idle_auto_land();
                         }
                     }
                     c.pending_evacuate_on_stop = true;
                     c.pending_exit_after_evacuate = and_exit;
                 }
+                self.apply_chinook_flight_entry(container_id, entry, presentation_effects)?;
                 return Ok(false);
             }
         }
@@ -738,6 +739,8 @@ impl GameLogic {
             })
         });
         let Some(pid) = rappeller else {
+            use crate::game_logic::host_combat_chinook::HostChinookFlightEntry;
+            let mut entry = HostChinookFlightEntry::None;
             if let Some(c) = self.objects.get_mut(&container_id) {
                 let remaining = c.contained_units().len() as u32;
                 if let Some(ai) = c.chinook_ai.as_mut() {
@@ -745,12 +748,13 @@ impl GameLogic {
                     ai.contained_count = remaining;
                     ai.wanting_enter_or_exit = remaining > 0;
                     if remaining > 0 {
-                        ai.tick_idle_auto_land();
+                        entry = ai.tick_idle_auto_land();
                     }
                 }
                 c.pending_evacuate_on_stop = remaining > 0;
                 c.pending_exit_after_evacuate = and_exit && remaining == 0;
             }
+            self.apply_chinook_flight_entry(container_id, entry, presentation_effects)?;
             return Ok(false);
         };
         let can_release = self.objects.get(&container_id).is_some_and(|c| {
