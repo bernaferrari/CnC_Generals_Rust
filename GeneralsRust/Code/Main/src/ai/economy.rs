@@ -133,8 +133,8 @@ impl AIPlayer {
 
     /// Pick a real, available construction unit as C++ `AIPlayer::findDozer`
     /// does before `AISkirmishPlayer::processBaseBuilding` starts a structure.
-    /// Prefer an idle dozer, then the nearest other eligible one. Never steal
-    /// `m_repairDozer`.
+    /// Prefer the closest dozer with no derived task, then the first eligible
+    /// busy dozer. Registration order breaks distance ties.
     pub(super) fn find_available_dozer(
         game_logic: &(impl AiReadSource + ?Sized),
         player: u32,
@@ -142,49 +142,43 @@ impl AIPlayer {
         skip: Option<ObjectId>,
     ) -> Option<ObjectId> {
         let game_logic = &AiWorldView::new(game_logic);
-        game_logic
-            .host_objects()
-            .registered_values()
-            .filter(|object| {
-                if !game_logic.object_owned_by_player(object, player)
-                    || !object.is_alive()
-                    || !object.can_construct()
-                {
-                    return false;
-                }
-                if skip == Some(object.id) {
-                    return false;
-                }
-                // C++ AIPlayer::findDozer (AIPlayer.cpp:3187): a dozer with a
-                // pending DOZER_TASK_BUILD is "already building".
-                if object.dozer_tasks.requests[DozerTask::Build as usize].target.is_some() {
-                    return false;
-                }
-                !matches!(
-                    object.ai_state(),
-                    AIState::Constructing
-                        | AIState::Repairing
-                        | AIState::Gathering
-                        | AIState::ReturningResources
-                        | AIState::Docking
-                )
-            })
-            .map(|object| {
-                let position = object.get_position();
-                let dx = position.x - target.x;
-                let dz = position.z - target.z;
-                // C++ prefers a dozer with no task pending.
-                let any_task = object.dozer_tasks.requests.iter().any(|r| r.target.is_some());
-                let busy_rank = u8::from(any_task || object.ai_state() != AIState::Idle);
-                (busy_rank, dx * dx + dz * dz, object.id)
-            })
-            .min_by(|left, right| {
-                left.0
-                    .cmp(&right.0)
-                    .then_with(|| left.1.total_cmp(&right.1))
-                    .then_with(|| left.2.cmp(&right.2))
-            })
-            .map(|(_, _, id)| id)
+        let mut closest = None;
+        let mut first_busy = None;
+        for object in game_logic.host_objects().registered_values() {
+            if skip == Some(object.id)
+                || !object.is_alive()
+                || !object.can_construct()
+                || !game_logic.object_owned_by_player(object, player)
+                || object.dozer_tasks.requests[DozerTask::Build as usize].target.is_some()
+            {
+                continue;
+            }
+            if object.dozer_tasks.requests.iter().any(|task| task.target.is_some()) {
+                first_busy.get_or_insert(object.id);
+                continue;
+            }
+            // WorkerAIUpdate implements SupplyTruckAIInterface. Ordinary Dozers
+            // may be moving with an empty derived task list and stay eligible.
+            if object.worker_ai_update
+                && (object.supply_truck_force_pending
+                    || matches!(
+                        object.supply_truck_state,
+                        SupplyTruckState::Wanting
+                            | SupplyTruckState::DockingWarehouse
+                            | SupplyTruckState::DockingCenter
+                    ))
+            {
+                continue;
+            }
+            let position = object.get_position();
+            let dx = position.x - target.x;
+            let dz = position.z - target.z;
+            let distance = dx * dx + dz * dz;
+            if closest.is_none_or(|(_, best_distance)| distance < best_distance) {
+                closest = Some((object.id, distance));
+            }
+        }
+        closest.map(|(id, _)| id).or(first_busy)
     }
 
     pub(super) fn player_has_any_dozer(

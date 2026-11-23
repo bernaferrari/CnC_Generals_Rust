@@ -206,6 +206,10 @@ mod tests {
                     .kind_of("DOZER SELECTABLE")
                     .walker()
                     .dozer(),
+                FixtureObject::new("OwnedEconomyWorker")
+                    .kind_of("INFANTRY DOZER HARVESTER SELECTABLE")
+                    .walker()
+                    .module("Behavior = WorkerAIUpdate FixtureWorkerAI\nEnd"),
                 FixtureObject::new("OwnedEconomyPad")
                     .kind_of("STRUCTURE")
                     .build_cost(100),
@@ -315,5 +319,68 @@ mod tests {
         assert_eq!(world.get_player(1).unwrap().resources.supplies, 9900);
         assert_eq!(world.get_player(2).unwrap().resources.supplies, 10000);
         assert_eq!(world.ai_manager.ai_players.len(), 2);
+    }
+
+    #[test]
+    fn owned_economy_prefers_the_closest_dozer_without_a_derived_task() {
+        let (mut world, far) = world();
+        let near = world
+            .create_object_for_player("OwnedEconomyDozer", 1, Vec3::new(70.0, 0.0, 100.0))
+            .unwrap();
+        world.frame = 1;
+        assert!(world.unit_command_move_to_moving(near, Vec3::new(65.0, 0.0, 75.0)));
+        let moving = world.host_object(near).unwrap();
+        assert_eq!(moving.ai_state(), AIState::Moving);
+        assert!(moving.dozer_tasks.requests.iter().all(|task| task.target.is_none()));
+
+        let data = AiDataView::from_world(&world);
+        world.update_owned_ai_economy(1, 0.0, &data).unwrap();
+        let scaffold = world.ai_manager.ai_players[&1].building_queue[0].object_id.unwrap();
+        assert_eq!(
+            world.host_object(near).unwrap().dozer_tasks.requests[DozerTask::Build as usize].target,
+            Some(scaffold),
+        );
+        assert!(world.host_object(far).unwrap().dozer_tasks.requests[DozerTask::Build as usize].target.is_none());
+    }
+
+    #[test]
+    fn owned_economy_keeps_registration_order_when_dozer_distances_tie() {
+        let (mut world, older) = world();
+        let newer = world
+            .create_object_for_player("OwnedEconomyDozer", 1, Vec3::new(175.0, 0.0, 175.0))
+            .unwrap();
+        world.frame = 1;
+        let data = AiDataView::from_world(&world);
+        world.update_owned_ai_economy(1, 0.0, &data).unwrap();
+        let scaffold = world.ai_manager.ai_players[&1].building_queue[0].object_id.unwrap();
+        assert_eq!(
+            world.host_object(newer).unwrap().dozer_tasks.requests[DozerTask::Build as usize].target,
+            Some(scaffold),
+        );
+        assert!(world.host_object(older).unwrap().dozer_tasks.requests[DozerTask::Build as usize].target.is_none());
+    }
+
+    #[test]
+    fn owned_economy_leaves_a_closer_worker_on_its_supply_order() {
+        let (mut world, dozer) = world();
+        let worker = world
+            .create_object_for_player("OwnedEconomyWorker", 1, Vec3::new(70.0, 0.0, 100.0))
+            .unwrap();
+        let dock = world
+            .create_object_for_player("OwnedEconomyPad", 1, Vec3::new(50.0, 0.0, 150.0))
+            .unwrap();
+        world.frame = 1;
+        assert!(world.unit_command_return_supplies(worker, dock));
+        assert!(world.host_object(worker).unwrap().worker_ai_update);
+        let data = AiDataView::from_world(&world);
+        world.update_owned_ai_economy(1, 0.0, &data).unwrap();
+        let scaffold = world.ai_manager.ai_players[&1].building_queue[0].object_id.unwrap();
+        assert_eq!(
+            world.host_object(dozer).unwrap().dozer_tasks.requests[DozerTask::Build as usize].target,
+            Some(scaffold),
+        );
+        let active_worker = world.host_object(worker).unwrap();
+        assert!(active_worker.supply_truck_force_pending);
+        assert_eq!(active_worker.preferred_dock_id, Some(dock));
     }
 }
