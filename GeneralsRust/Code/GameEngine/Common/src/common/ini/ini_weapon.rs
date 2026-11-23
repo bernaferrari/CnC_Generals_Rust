@@ -918,7 +918,11 @@ impl WeaponStore {
 
     /// Find a template by name
     pub fn find_template(&self, name: &AsciiString) -> Option<&WeaponTemplate> {
-        self.templates.get(name.as_str())
+        self.find_template_by_name(name.as_str())
+    }
+
+    pub fn find_template_by_name(&self, name: &str) -> Option<&WeaponTemplate> {
+        self.templates.get(name)
     }
 
     pub fn iter_templates(&self) -> impl Iterator<Item = &WeaponTemplate> {

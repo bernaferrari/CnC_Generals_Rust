@@ -1,5 +1,6 @@
 use super::*;
-use gamelogic::common::TurretType;
+use game_engine::common::bit_flags::WeaponSetFlags;
+use gamelogic::common::{TurretType, WeaponSlotType};
 
 impl Object {
     /// Loan each same-owner damaged module's live state and immutable rules
@@ -82,7 +83,47 @@ impl Object {
         slot: Option<u8>,
         target_anti_mask: u32,
     ) -> bool {
-        use gamelogic::weapon::{WeaponAntiMask, with_weapon_store};
+        self.weapon_allows_target_anti_mask_with_lookup(
+            weapon,
+            slot,
+            target_anti_mask,
+            |name| {
+                gamelogic::weapon::with_weapon_store(|store| {
+                    store
+                        .find_weapon_template(name)
+                        .map(|template| template.get_anti_mask())
+                })
+                .ok()
+                .flatten()
+            },
+        )
+    }
+
+    /// Same C++ WeaponSet anti-mask check, explicitly borrowing the receiving
+    /// world's store for legacy objects that have no admitted native row.
+    pub(in crate::game_logic) fn weapon_allows_target_anti_mask_for_services(
+        &self,
+        services: &gamelogic::system::engine_stores::WorldServices,
+        weapon: &Weapon,
+        slot: Option<u8>,
+        target_anti_mask: u32,
+    ) -> bool {
+        self.weapon_allows_target_anti_mask_with_lookup(
+            weapon,
+            slot,
+            target_anti_mask,
+            |name| gamelogic::weapon::weapon_anti_mask_for_services(services, name),
+        )
+    }
+
+    fn weapon_allows_target_anti_mask_with_lookup(
+        &self,
+        weapon: &Weapon,
+        slot: Option<u8>,
+        target_anti_mask: u32,
+        lookup_named_mask: impl FnOnce(&str) -> Option<u32>,
+    ) -> bool {
+        use gamelogic::weapon::WeaponAntiMask;
 
         if target_anti_mask == 0 {
             return false;
@@ -94,18 +135,11 @@ impl Object {
         // several legacy readiness paths, but that fallback is not a second
         // C++ WeaponSet declaration and must not make a hand-authored
         // secondary inherit PRIMARY's AntiMask.
-        if let Some(template_mask) = selected.map(|rule| rule.get_anti_mask()).or_else(|| {
+        let template_mask = selected.map(|rule| rule.get_anti_mask()).or_else(|| {
             slot.and_then(|slot| self.authored_weapon_name_for_slot(slot))
-                .and_then(|name| {
-                    with_weapon_store(|store| {
-                        store
-                            .find_weapon_template(name)
-                            .map(|template| template.get_anti_mask())
-                    })
-                    .ok()
-                    .flatten()
-                })
-        }) {
+                .and_then(lookup_named_mask)
+        });
+        if let Some(template_mask) = template_mask {
             if (template_mask & target_anti_mask) != 0 {
                 return true;
             }
@@ -115,8 +149,8 @@ impl Object {
             // victim lookup still requires that exact MINE mask, so this
             // admits the target-position route without letting the mine
             // weapon harm ordinary ground objects.
-            if slot == Some(0)
-                && self.test_weapon_condition(8)
+            if slot == Some(WeaponSlotType::Primary as u8)
+                && self.test_weapon_condition(WeaponSetFlags::MINE_CLEARING_DETAIL as u8)
                 && self.weapon.is_some()
                 && target_anti_mask == WeaponAntiMask::GROUND
                 && (template_mask & WeaponAntiMask::MINE) != 0

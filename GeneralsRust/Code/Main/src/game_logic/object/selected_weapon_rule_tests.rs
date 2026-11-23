@@ -17,6 +17,75 @@ fn row() -> WeaponTemplate {
     rule.max_delay_between_shots = 0;
     rule
 }
+
+#[test]
+fn hand_built_same_name_antimask_lookup_uses_receiving_world_while_peer_is_active() {
+    fn source(rule: &WeaponTemplate) -> Object {
+        let mut template = ThingTemplate::new("LegacyAntiMaskOwner");
+        template.primary_weapon_name = Some(rule.name.clone());
+        let mut object = Object::new(template, ObjectId(99011), Team::USA);
+        object.weapon = Some(ThingTemplate::weapon_from_template_at(rule, 0).unwrap());
+        object
+    }
+
+    fn initialize_core_store(world: &crate::game_logic::GameLogic) {
+        world.with_own_services(|| {
+            gamelogic::weapon::initialize_weapon_store().unwrap();
+        });
+    }
+
+    fn add_common_rule(world: &crate::game_logic::GameLogic, anti_mask: u32) {
+        game_engine::common::common_services::with_common_services(
+            world.world_services.common(),
+            || {
+                let mut store = game_engine::common::ini::ini_weapon::get_weapon_store().unwrap();
+                store
+                    .new_template(game_engine::common::ascii_string::AsciiString::from(
+                        "SameReceivingWeapon",
+                    ))
+                    .anti_mask = anti_mask;
+            },
+        );
+    }
+
+    let mut allows = row();
+    allows.anti_mask = WeaponAntiMask::new(WeaponAntiMask::GROUND);
+    let mut rejects = allows.clone();
+    rejects.anti_mask = WeaponAntiMask::new(0);
+    let a = crate::game_logic::GameLogic::new();
+    let b = crate::game_logic::GameLogic::new();
+    initialize_core_store(&a);
+    initialize_core_store(&b);
+    assert_eq!(
+        gamelogic::weapon::weapon_anti_mask_for_services(&a.world_services, "SameReceivingWeapon"),
+        None
+    );
+    add_common_rule(&a, WeaponAntiMask::GROUND);
+    add_common_rule(&b, 0);
+    let a_source = source(&allows);
+    let b_source = source(&rejects);
+
+    b.with_own_services(|| {
+        assert!(a_source.weapon_allows_target_anti_mask_for_services(
+            &a.world_services,
+            a_source.weapon.as_ref().unwrap(),
+            Some(0),
+            WeaponAntiMask::GROUND,
+        ));
+        assert!(!a_source.weapon_allows_target_anti_mask(
+            a_source.weapon.as_ref().unwrap(),
+            Some(0),
+            WeaponAntiMask::GROUND,
+        ));
+        assert!(!b_source.weapon_allows_target_anti_mask_for_services(
+            &b.world_services,
+            b_source.weapon.as_ref().unwrap(),
+            Some(0),
+            WeaponAntiMask::GROUND,
+        ));
+    });
+}
+
 #[test]
 fn same_name_receiving_rows_keep_authoritative_zero_false_and_opposing_eligibility() {
     let mut first = row();

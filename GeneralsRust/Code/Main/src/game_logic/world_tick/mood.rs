@@ -1286,7 +1286,12 @@ impl GameLogic {
             };
             let target_anti_mask = v.weapon_target_anti_mask();
             let kind_ok = |slot: u8, weapon: &crate::game_logic::Weapon| {
-                source.weapon_allows_target_anti_mask(weapon, Some(slot), target_anti_mask)
+                source.weapon_allows_target_anti_mask_for_services(
+                    &self.world_services,
+                    weapon,
+                    Some(slot),
+                    target_anti_mask,
+                )
             };
             let owner_relationship_known = self.has_object_ownership_provenance(source, v);
             let allied = if owner_relationship_known {
@@ -1371,7 +1376,8 @@ impl GameLogic {
         } else if let Some(p) = pos {
             let has_legal_anti = candidate_slots.iter().copied().any(|slot| {
                 source.weapon_slot(slot).is_some_and(|weapon| {
-                    source.weapon_allows_target_anti_mask(
+                    source.weapon_allows_target_anti_mask_for_services(
+                        &self.world_services,
                         weapon,
                         Some(slot),
                         gamelogic::weapon::WeaponAntiMask::GROUND,

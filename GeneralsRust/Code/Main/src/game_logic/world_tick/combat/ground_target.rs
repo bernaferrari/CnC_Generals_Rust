@@ -80,7 +80,8 @@ impl GameLogic {
                             .2;
                         attacker.can_fire_slot_at_frame_with_owned_rof(slot, self.frame, rof)
                             && attacker.has_max_shots_remaining()
-                            && attacker.weapon_allows_target_anti_mask(
+                            && attacker.weapon_allows_target_anti_mask_for_services(
+                                &self.world_services,
                                 weapon,
                                 Some(slot),
                                 gamelogic::weapon::WeaponAntiMask::GROUND,
@@ -480,65 +481,43 @@ impl GameLogic {
         firing_slot: u8,
     ) -> Option<ObjectId> {
         let attacker = self.objects.get(&attacker_id)?;
+        let weapon = attacker.weapon_slot(firing_slot)?;
         let force_attack = attacker.force_attack;
         let attacker_team = attacker.team;
         const GROUND_IMPACT_RADIUS: f32 = 12.0;
 
         // Pure residual acquire: nearest attackable victim near ground impact (3D).
-        let candidate_ids: Vec<ObjectId> = self
+        let candidates = self
             .objects
             .registered()
-            .filter_map(|(&candidate_id, candidate)| {
-                if candidate_id == attacker_id
+            .filter_map(|(&id, candidate)| {
+                let disarmable = candidate.is_disarmable_mine();
+                if id == attacker_id
                     || !candidate.is_alive()
-                    || (!candidate.is_attackable() && !candidate.is_disarmable_mine())
+                    || (!candidate.is_attackable() && !disarmable)
                     || candidate.contained_by.is_some()
+                    || (!force_attack && candidate.team == attacker_team)
                 {
                     return None;
                 }
-                if !force_attack && candidate.team == attacker_team {
-                    return None;
-                }
-                Some(candidate_id)
-            })
-            .collect();
 
-        let candidates: Vec<_> = candidate_ids
-            .into_iter()
-            .filter_map(|id| {
-                let candidate = self.objects.get(&id)?;
-                if attacker.selected_native_weapon_rule(firing_slot).is_some() {
-                    let weapon=attacker.weapon_slot(firing_slot)?;
-                    if !attacker.weapon_allows_target_anti_mask(weapon,Some(firing_slot),candidate.weapon_target_anti_mask()) { return None; }
-                }
                 let air =
                     candidate.is_kind_of(KindOf::Aircraft) || candidate.status.airborne_target;
-                if air {
-                    let can_air = attacker
-                        .weapon_slot(firing_slot)
-                        .map(|w| w.can_target_air)
-                        .unwrap_or(false);
-                    if !can_air {
-                        return None;
-                    }
-                }
-                if candidate.is_eject_invulnerable() {
-                    return None;
-                }
-                if candidate.status.under_construction && !attacker.force_attack {
-                    return None;
-                }
-                if candidate.status.sold {
-                    return None;
-                }
-                if attacker.producer_id == Some(id) {
+                if (air && !weapon.can_target_air)
+                    || candidate.is_eject_invulnerable()
+                    || (candidate.status.under_construction && !force_attack)
+                    || candidate.status.sold
+                    || attacker.producer_id == Some(id)
+                {
                     return None;
                 }
                 let mask = candidate.weapon_target_anti_mask();
-                let Some(weapon) = attacker.weapon_slot(firing_slot).cloned() else {
-                    return None;
-                };
-                if !attacker.weapon_allows_target_anti_mask(&weapon, Some(firing_slot), mask) {
+                if !attacker.weapon_allows_target_anti_mask_for_services(
+                    &self.world_services,
+                    weapon,
+                    Some(firing_slot),
+                    mask,
+                ) {
                     return None;
                 }
                 Some(
@@ -553,16 +532,13 @@ impl GameLogic {
                         // partition manager without a stealth gate, so a hidden
                         // mine must not be skipped by residual acquire either.
                         effectively_stealthed: candidate.is_effectively_stealthed()
-                            && !(attacker.slot_uses_disarm(firing_slot)
-                                && candidate.is_disarmable_mine()),
-                        is_air: candidate.is_kind_of(KindOf::Aircraft)
-                            || candidate.status.airborne_target,
+                            && !(disarmable && attacker.slot_uses_disarm(firing_slot)),
+                        is_air: air,
                         combat_kind: true,
-                        eject_invulnerable: candidate.is_eject_invulnerable(),
+                        eject_invulnerable: false,
                     },
                 )
-            })
-            .collect();
+            });
 
         crate::game_logic::host_residual_acquire::pick_nearest_residual_target(
             attacker_id,

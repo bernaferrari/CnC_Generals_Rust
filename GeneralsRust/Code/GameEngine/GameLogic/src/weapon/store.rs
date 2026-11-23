@@ -710,6 +710,34 @@ fn weapon_store_cell() -> GameLogicResult<std::sync::Arc<RwLock<Option<WeaponSto
     })
 }
 
+/// Read the named rule in the receiving world's runtime or Weapon.ini store.
+/// The anti-mask is copied verbatim on admission. A query can borrow that
+/// one field without importing every definition or generating names.
+pub fn weapon_anti_mask_for_services(
+    services: &crate::system::engine_stores::WorldServices,
+    name: &str,
+) -> Option<u32> {
+    if name.is_empty() || name.eq_ignore_ascii_case("None") {
+        return None;
+    }
+    let admitted_mask = services
+        .weapon_store()
+        .read()
+        .ok()?
+        .as_ref()?
+        .find_weapon_template(name)
+        .map(|template| template.get_anti_mask());
+    admitted_mask.or_else(|| {
+        services
+            .common()
+            .ini
+            .weapon
+            .read()
+            .find_template_by_name(name)
+            .map(|template| template.anti_mask)
+    })
+}
+
 /// Initialize the per-world weapon store
 pub fn initialize_weapon_store() -> GameLogicResult<()> {
     let cell = weapon_store_cell()?;
