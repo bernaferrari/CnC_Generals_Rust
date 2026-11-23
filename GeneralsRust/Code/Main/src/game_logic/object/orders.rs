@@ -15,22 +15,19 @@ impl Object {
     }
 
     pub(crate) fn has_disabled_type_except_held(&self) -> bool {
-        [
-            self.status.disabled_underpowered,
-            self.status.disabled_unmanned,
-            self.status.disabled_hacked,
-            self.status.disabled_emp,
-            self.status.disabled_paralyzed,
-            self.status.disabled_subdued,
-            self.status.disabled_freefall,
-            self.status.disabled_default,
-            self.status.disabled_script_disabled,
-            self.status.disabled_script_underpowered,
-            self.status.disabled_awestruck,
-            self.status.disabled_brainwashed,
-        ]
-        .into_iter()
-        .any(|disabled| disabled)
+        let status = &self.status;
+        status.disabled_underpowered
+            || status.disabled_unmanned
+            || status.disabled_hacked
+            || status.disabled_emp
+            || status.disabled_paralyzed
+            || status.disabled_subdued
+            || status.disabled_freefall
+            || status.disabled_default
+            || status.disabled_script_disabled
+            || status.disabled_script_underpowered
+            || status.disabled_awestruck
+            || status.disabled_brainwashed
     }
 
     // Command system compatibility methods
