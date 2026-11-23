@@ -1228,6 +1228,38 @@ impl crate::game_logic::GameLogic {
         true
     }
 
+    /// SupplyTruckAIUpdate.cpp:116–128 and WorkerAIUpdate.cpp:1029–1042.
+    /// A deposit or transport diversion drains successful box losses in order.
+    pub(crate) fn drain_receiving_supply_boxes(
+        &mut self,
+        id: ObjectId,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> u32 {
+        let Some(carrier) = self.objects.get_mut(&id) else {
+            return 0;
+        };
+        let Some(metadata) = carrier.get_template().supply_truck_metadata else {
+            return 0;
+        };
+        let carried = carrier.carried_supply_boxes();
+        if carried <= 0 || effects.view.is_none() {
+            // The detached/headless path observes only the final cargo. A
+            // negative restored count retains the existing Main normalization.
+            if carried != 0 {
+                carrier.set_carried_supply_boxes(0);
+            }
+            return carried.max(0) as u32;
+        }
+        for remaining in (0..carried).rev() {
+            self.objects
+                .get_mut(&id)
+                .expect("box callback cannot replace its host carrier")
+                .set_carried_supply_boxes(remaining);
+            self.update_receiving_drawable_supply_status(id, metadata.max_boxes, remaining, effects);
+        }
+        carried as u32
+    }
+
     /// SupplyWarehouseDockUpdate.cpp:104/158 and SupplyTruckAIUpdate.cpp:125.
     /// The signed gameplay count is already installed before the Drawable call.
     pub(crate) fn update_receiving_drawable_supply_status(

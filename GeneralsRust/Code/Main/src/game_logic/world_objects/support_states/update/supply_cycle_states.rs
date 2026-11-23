@@ -389,13 +389,18 @@ impl GameLogic {
             // getUpgradedSupplyBoost (Supply Lines / Worker Shoes).
             // Never leave the exclusive dock claimed.
             let value_per_box = self.supply_box_value() as u32;
-            let deposit_amount = self.objects.get(&object_id).map_or(0, |object| {
-                if collector_metadata.is_some() {
-                    value_per_box.wrapping_mul(object.carried_supply_boxes().max(0) as u32)
-                } else {
-                    object.stored_resources.supplies
-                }
-            });
+            let deposit_amount = if collector_metadata.is_some() {
+                // SupplyCenterDockUpdate.cpp:79–81 invokes the Drawable
+                // synchronously for each successful box loss before payout.
+                let removed = self.drain_receiving_supply_boxes(object_id, effects);
+                value_per_box.wrapping_mul(removed)
+            } else {
+                self.objects.get_mut(&object_id).map_or(0, |object| {
+                    let amount = object.stored_resources.supplies;
+                    object.set_stored_supplies(0);
+                    amount
+                })
+            };
 
             // Snapshot carrier for C++ getUpgradedSupplyBoost identity.
             let (
@@ -454,17 +459,6 @@ impl GameLogic {
                 })
                                 .unwrap_or((0, false, false, 0, false));
 
-            // Clear carried resources.
-            if let Some(obj) = self.objects.get_mut(&object_id) {
-                if collector_metadata.is_some() {
-                    obj.set_carried_supply_boxes(0);
-                } else {
-                    obj.set_stored_supplies(0);
-                }
-            }
-            if let Some(metadata) = collector_metadata {
-                self.update_receiving_drawable_supply_status(object_id, metadata.max_boxes, 0, effects);
-            }
             // C++ ChinookAIUpdate::getUpgradedSupplyBoost
             // (ChinookAIUpdate.cpp:1644-1652): the CARRIER's
             // controlling player must have completed
