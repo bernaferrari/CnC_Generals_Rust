@@ -6,10 +6,6 @@ use std::sync::{Arc, Mutex, Weak};
 
 use crate::bink::BuiltInBinkVideoProvider;
 use crate::video_stream::{PlaybackState, VideoStream, VideoStreamInterface};
-#[cfg(test)]
-use game_engine::common::ini::get_global_data;
-#[cfg(test)]
-use game_engine::common::ini::ini_webpage_url::get_registry_language;
 use log::warn;
 
 type Bool = bool;
@@ -94,6 +90,9 @@ pub trait VideoPlayerInterface {
 }
 
 pub trait VideoStreamProvider: Send + Sync {
+    /// File extension used for an authored Video.ini filename.
+    fn file_extension(&self) -> &str;
+
     fn open(
         &self,
         movie_title: &str,
@@ -127,7 +126,11 @@ impl VideoSearchPaths {
         }
     }
 
-    fn movie_candidates<'a>(&'a self, filename: &'a str) -> impl Iterator<Item = PathBuf> + 'a {
+    fn movie_candidates<'a>(
+        &'a self,
+        filename: &'a str,
+        extension: &'a str,
+    ) -> impl Iterator<Item = PathBuf> + 'a {
         let language = self.language.trim();
         let game_root = self.game_root.as_path();
         let mod_root = self.mod_dir.as_deref().filter(|path| !path.as_os_str().is_empty());
@@ -143,7 +146,7 @@ impl VideoSearchPaths {
                 Some(language) => resolve_case_insensitive_dir(root, &["Data", language, "Movies"]),
                 None => resolve_case_insensitive_dir(root, &["Data", "Movies"]),
             }?;
-            find_movie_file_in_dir(&dir, filename)
+            find_movie_file_in_dir(&dir, filename, extension)
         })
     }
 }
@@ -253,20 +256,6 @@ impl VideoPlayer {
         self.search_paths = Some(paths);
     }
 
-    pub fn resolve_movie_paths(&self, movie_title: &str) -> Vec<PathBuf> {
-        self.search_paths
-            .as_ref()
-            .zip(self.get_video_by_name(movie_title))
-            .map_or_else(Vec::new, |(paths, video)| {
-                paths.movie_candidates(&video.filename).collect()
-            })
-    }
-
-    pub fn resolve_movie_path(&self, movie_title: &str) -> Option<PathBuf> {
-        let video = self.get_video_by_name(movie_title)?;
-        self.search_paths.as_ref()?.movie_candidates(&video.filename).next()
-    }
-
     fn track_stream(
         &mut self,
         inner: Box<dyn VideoStreamInterface>,
@@ -363,7 +352,7 @@ impl VideoPlayerInterface for VideoPlayer {
         let stream = self
             .search_paths
             .as_ref()?
-            .movie_candidates(&video.filename)
+            .movie_candidates(&video.filename, provider.file_extension())
             .find_map(|path| provider.open(&movie_title, &path))?;
         Some(self.track_stream(stream))
     }
@@ -631,6 +620,12 @@ impl VideoStreamInterface for ManagedVideoStreamHandle {
             .unwrap_or(false)
     }
 
+    fn has_decode_failed(&self) -> bool {
+        self.state.lock().ok().is_some_and(|state| {
+            state.inner.as_ref().is_some_and(|inner| inner.has_decode_failed())
+        })
+    }
+
     fn frame_decompress(&mut self) {
         if let Ok(mut state) = self.state.lock() {
             if let Some(inner) = state.inner.as_mut() {
@@ -737,55 +732,6 @@ impl VideoStreamInterface for ManagedVideoStreamHandle {
 }
 
 
-#[cfg(test)]
-fn resolve_movie_asset_path(movie_filename: &str) -> Option<PathBuf> {
-    let movie_filename = movie_filename.trim();
-    if movie_filename.is_empty() {
-        return None;
-    }
-
-    let direct_path = PathBuf::from(movie_filename);
-    if direct_path.is_file() {
-        return Some(direct_path);
-    }
-
-    let language = get_registry_language().as_str().trim().to_string();
-    let mut candidate_roots = Vec::new();
-
-    if let Some(global_data) = get_global_data() {
-        let guard = global_data.read();
-        let mod_dir = guard.mod_dir.trim();
-        if !mod_dir.is_empty() {
-            candidate_roots.push(PathBuf::from(mod_dir));
-        }
-    }
-
-    candidate_roots.push(PathBuf::new());
-    candidate_roots.push(PathBuf::from(
-        "windows_game/Command & Conquer Generals Zero Hour",
-    ));
-    if let Ok(assets) = std::env::var("GENERALS_ASSETS_DIR") {
-        candidate_roots.push(PathBuf::from(assets));
-    }
-
-    for root in candidate_roots {
-        if !language.is_empty() {
-            if let Some(dir) = resolve_case_insensitive_dir(&root, &["Data", &language, "Movies"]) {
-                if let Some(path) = find_movie_file_in_dir(&dir, movie_filename) {
-                    return Some(path);
-                }
-            }
-        }
-        if let Some(dir) = resolve_case_insensitive_dir(&root, &["Data", "Movies"]) {
-            if let Some(path) = find_movie_file_in_dir(&dir, movie_filename) {
-                return Some(path);
-            }
-        }
-    }
-
-    None
-}
-
 fn resolve_case_insensitive_dir(root: &Path, components: &[&str]) -> Option<PathBuf> {
     let mut current = if root.as_os_str().is_empty() { PathBuf::from(".") } else { root.to_path_buf() };
     for component in components {
@@ -810,7 +756,7 @@ fn resolve_case_insensitive_dir(root: &Path, components: &[&str]) -> Option<Path
     Some(current)
 }
 
-fn find_movie_file_in_dir(dir: &Path, movie_filename: &str) -> Option<PathBuf> {
+fn find_movie_file_in_dir(dir: &Path, movie_filename: &str, extension: &str) -> Option<PathBuf> {
     if !dir.is_dir() {
         return None;
     }
@@ -832,10 +778,10 @@ fn find_movie_file_in_dir(dir: &Path, movie_filename: &str) -> Option<PathBuf> {
             continue;
         }
 
-        let Some(extension) = path.extension().and_then(|ext| ext.to_str()) else {
+        let Some(file_extension) = path.extension().and_then(|ext| ext.to_str()) else {
             continue;
         };
-        if !extension.eq_ignore_ascii_case("bik") {
+        if !file_extension.eq_ignore_ascii_case(extension) {
             continue;
         }
 
@@ -962,6 +908,10 @@ mod tests {
     }
 
     impl VideoStreamProvider for MockProvider {
+        fn file_extension(&self) -> &str {
+            "bik"
+        }
+
         fn open(
             &self,
             _movie_title: &str,
@@ -981,6 +931,10 @@ mod tests {
         closes: Arc<AtomicUsize>,
     }
     impl VideoStreamProvider for OrderedProvider {
+        fn file_extension(&self) -> &str {
+            "testvideo"
+        }
+
         fn open(&self, _title: &str, path: &Path) -> Option<Box<dyn VideoStreamInterface>> {
             let mut attempts = self.attempts.lock().unwrap();
             attempts.push(path.to_path_buf());
@@ -1078,7 +1032,7 @@ mod tests {
         };
         let movie_dir = resolve_case_insensitive_dir(&root, &["Data", "English", "Movies"])
             .expect("GENERALS_RETAIL_VIDEO_ROOT must contain Data/English/Movies");
-        let path = find_movie_file_in_dir(&movie_dir, "EA_LOGO.BIK")
+        let path = find_movie_file_in_dir(&movie_dir, "EA_LOGO.BIK", "bik")
             .expect("GENERALS_RETAIL_VIDEO_ROOT requires mounted EA_LOGO.BIK");
         let mut player = VideoPlayer::new();
         player.set_search_paths(VideoSearchPaths::new(None, root, "English"));
@@ -1126,85 +1080,13 @@ mod tests {
     }
 
 
-    /// Retail cutscene BIKs live under Data/<lang>/Movies. This install may omit
-    /// them; asset-backed tests return early instead of failing the suite.
-    fn retail_movie_asset_available() -> bool {
-        resolve_movie_asset_path("EA_LOGO").is_some()
-            || PathBuf::from(
-                "windows_game/Command & Conquer Generals Zero Hour/Data/English/Movies/EA_LOGO.BIK",
-            )
-            .is_file()
-    }
-
     #[test]
-    fn resolve_movie_asset_path_finds_localized_movie_file() {
-        crate::test_support::ensure_ambient_host();
-        if !retail_movie_asset_available() {
-            return;
-        }
-        let path = resolve_movie_asset_path("EA_LOGO").expect("expected movie file to resolve");
-        let normalized = path.to_string_lossy().replace('\\', "/");
-
-        assert!(normalized.to_ascii_lowercase().ends_with("data/english/movies/ea_logo.bik"));
-    }
-
-    #[test]
-    fn resolve_movie_path_uses_video_registry_filename() {
-        crate::test_support::ensure_ambient_host();
-        if !retail_movie_asset_available() {
-            return;
-        }
-        let movie = resolve_movie_asset_path("EA_LOGO").expect("mounted movie");
-        let game_root = movie.parent().and_then(Path::parent).and_then(Path::parent)
-            .and_then(Path::parent).expect("movie under Data/<lang>/Movies").to_path_buf();
-        let mut player = VideoPlayer::new();
-        player.set_search_paths(VideoSearchPaths::new(None, game_root, "English"));
-        player.init();
-
-        let path = player
-            .resolve_movie_path("EALogoMovie")
-            .expect("expected registry-backed movie path");
-        let normalized = path.to_string_lossy().replace('\\', "/");
-
-        assert!(normalized.to_ascii_lowercase().ends_with("data/english/movies/ea_logo.bik"));
-    }
-
-    #[test]
-    fn resolve_movie_asset_path_accepts_bik_extension() {
-        crate::test_support::ensure_ambient_host();
-        if !retail_movie_asset_available() {
-            return;
-        }
-        let path =
-            resolve_movie_asset_path("EA_LOGO.BIK").expect("expected .bik movie file to resolve");
-        let normalized = path.to_string_lossy().replace('\\', "/");
-
-        assert!(normalized.to_ascii_lowercase().ends_with("data/english/movies/ea_logo.bik"));
-    }
-
-    #[test]
-    fn resolve_movie_path_rejects_unregistered_raw_names() {
+    fn player_open_rejects_unregistered_raw_names() {
         crate::test_support::ensure_ambient_host();
         let mut player = VideoPlayer::new();
         player.set_search_paths(VideoSearchPaths::new(None, PathBuf::from("."), "English"));
-        assert!(player.resolve_movie_path("EA_LOGO.BIK").is_none());
+        player.init();
         assert!(player.open("EA_LOGO.BIK".to_string()).is_none());
-    }
-
-    #[test]
-    fn resolve_movie_asset_path_accepts_existing_direct_path() {
-        crate::test_support::ensure_ambient_host();
-        if !retail_movie_asset_available() {
-            return;
-        }
-        let path = PathBuf::from(
-            "windows_game/Command & Conquer Generals Zero Hour/Data/English/Movies/EA_LOGO.BIK",
-        );
-        assert!(path.is_file(), "expected extracted movie asset to exist");
-
-        let resolved = resolve_movie_asset_path(path.to_str().expect("utf-8 path"))
-            .expect("expected direct path to resolve");
-        assert_eq!(resolved, path);
     }
 
     #[test]
@@ -1246,10 +1128,11 @@ mod tests {
         crate::test_support::ensure_ambient_host();
         let root = std::env::temp_dir().join(format!("video-order-{}", std::process::id()));
         let mod_root = root.join("mod");
-        let mod_file = mod_root.join("Data/Movies/CLIP.BIK");
-        let localized = root.join("install/Data/English/Movies/CLIP.BIK");
-        let shared = root.join("install/Data/Movies/CLIP.BIK");
-        for file in [&mod_file, &localized, &shared] {
+        let mod_file = mod_root.join("Data/Movies/CLIP.TESTVIDEO");
+        let localized = root.join("install/Data/English/Movies/CLIP.TESTVIDEO");
+        let shared = root.join("install/Data/Movies/CLIP.TESTVIDEO");
+        let different_codec = mod_file.with_extension("BIK");
+        for file in [&mod_file, &localized, &shared, &different_codec] {
             fs::create_dir_all(file.parent().unwrap()).unwrap();
             fs::write(file, b"fixture").unwrap();
         }

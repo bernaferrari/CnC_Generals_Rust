@@ -11,8 +11,6 @@ use crate::video_stream::{PlaybackState, VideoStreamInterface};
 #[path = "bink_decoder.rs"]
 mod bink_decoder;
 
-pub const ENABLE_REAL_BINK1_DECODER: bool = true;
-
 const BINK_HEADER_SIZE: usize = 44;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -125,7 +123,7 @@ pub struct BinkDecoder {
     header: BinkHeader,
     frame_packets: Vec<BinkFramePacket>,
     current_frame: u32,
-    video_decoder: Option<BinkVideoDecoder>,
+    video_decoder: BinkVideoDecoder,
     audio_layout: BinkAudioLayout,
     audio_decoders: Vec<BinkAudioDecoder>,
     audio: BinkAudioState,
@@ -140,23 +138,30 @@ impl BinkDecoder {
     pub fn from_bytes(bytes: Vec<u8>) -> Result<Self, String> {
         let bytes: Arc<[u8]> = Arc::from(bytes.into_boxed_slice());
         let header = BinkHeader::parse(&bytes)?;
+        if header.version == BinkVersion::Bink2 {
+            return Err("Bink2 video decoding is unsupported".to_owned());
+        }
+        if header.has_alpha() {
+            return Err("Bink1 alpha-plane decoding is unsupported".to_owned());
+        }
+        if !(1..=7680).contains(&header.width) || !(1..=4800).contains(&header.height) {
+            return Err(format!(
+                "Invalid Bink dimensions {}x{}",
+                header.width, header.height
+            ));
+        }
+        if header.audio_track_count > 256 {
+            return Err(format!("Too many Bink audio tracks: {}", header.audio_track_count));
+        }
         let version_b = header.magic[3] == b'b';
         let audio_layout = parse_audio_layout(&bytes, header.audio_track_count, version_b);
-        let frame_packets = extract_frame_packets(&bytes, &header, audio_layout.frame_table_offset);
-
-        if frame_packets.is_empty() {
-            return Err("Bink file contains no extractable frame packets".to_string());
-        }
-
-        let video_decoder = (ENABLE_REAL_BINK1_DECODER && header.version == BinkVersion::Bink1)
-            .then(|| {
-                BinkVideoDecoder::new(
-                    header.magic[3],
-                    header.video_flags,
-                    header.width.max(1) as usize,
-                    header.height.max(1) as usize,
-                )
-            });
+        let frame_packets = extract_frame_packets(&bytes, &header, audio_layout.frame_table_offset)?;
+        let video_decoder = BinkVideoDecoder::new(
+            header.magic[3],
+            header.video_flags,
+            header.width as usize,
+            header.height as usize,
+        );
         let audio_decoders = audio_layout
             .tracks
             .iter()
@@ -210,38 +215,20 @@ impl BinkDecoder {
         &self.bytes[packet.offset..packet.offset + packet.size]
     }
 
-    pub fn decode_current_frame_rgba(&mut self) -> Vec<u8> {
+    pub fn decode_current_frame_rgba(&mut self) -> Result<Vec<u8>, String> {
         self.decode_frame_rgba(self.current_frame_index())
     }
 
-    pub fn decode_frame_rgba(&mut self, frame_index: u32) -> Vec<u8> {
+    pub fn decode_frame_rgba(&mut self, frame_index: u32) -> Result<Vec<u8>, String> {
         let packet = self.packet(frame_index).to_vec();
         let (audio_packets, video_packet) =
             split_frame_audio_and_video(&packet, self.audio_layout.tracks.len());
+        let rgba = self
+            .video_decoder
+            .decode_frame(video_packet)
+            .map_err(|error| format!("Bink frame {frame_index}: {error}"))?;
         self.play_frame_audio(&audio_packets);
-        match self.header.version {
-            BinkVersion::Bink1 => {
-                if let Some(decoder) = self.video_decoder.as_mut() {
-                    if let Ok(rgba) = decoder.decode_frame(video_packet) {
-                        return rgba;
-                    }
-                }
-                pseudo_decode_paletted_frame(
-                    video_packet,
-                    self.width(),
-                    self.height(),
-                    frame_index,
-                    self.header.has_alpha(),
-                )
-            }
-            BinkVersion::Bink2 => pseudo_decode_yuv_frame(
-                video_packet,
-                self.width(),
-                self.height(),
-                frame_index,
-                self.header.has_alpha(),
-            ),
-        }
+        Ok(rgba)
     }
 
     fn play_frame_audio(&mut self, audio_packets: &[&[u8]]) {
@@ -286,8 +273,8 @@ impl BinkDecoder {
 pub struct BinkVideoStream {
     decoder: BinkDecoder,
     current_rgba: Vec<u8>,
-    frame_accumulator: Duration,
-    last_update: Instant,
+    decoded_frame: Option<u32>,
+    next_frame_ready: Instant,
     state: PlaybackState,
     volume: f32,
 }
@@ -296,13 +283,15 @@ impl BinkVideoStream {
     pub fn open(path: &Path) -> Result<Self, String> {
         let mut decoder = BinkDecoder::open(path)?;
         let _ = decoder.audio_mut().initialize_bink_with_miles();
-        let current_rgba = decoder.decode_current_frame_rgba();
+        let current_rgba = decoder
+            .decode_current_frame_rgba()
+            .map_err(|error| format!("{}: {error}", path.display()))?;
         let speech = speech_slider_volume();
         Ok(Self {
             decoder,
             current_rgba,
-            frame_accumulator: Duration::ZERO,
-            last_update: Instant::now(),
+            decoded_frame: Some(0),
+            next_frame_ready: Instant::now(),
             state: PlaybackState::Playing,
             volume: bink_volume_from_speech_slider(speech),
         })
@@ -319,25 +308,8 @@ impl VideoStreamInterface for BinkVideoStream {
     }
 
     fn update(&mut self) {
-        if self.state != PlaybackState::Playing {
-            self.last_update = Instant::now();
-            return;
-        }
-
-        let now = Instant::now();
-        let elapsed = now.saturating_duration_since(self.last_update);
-        self.last_update = now;
-        self.frame_accumulator += elapsed;
-
-        let frame_duration = self.decoder.frame_duration();
-        while self.frame_accumulator >= frame_duration {
-            self.frame_accumulator -= frame_duration;
-            if self.decoder.advance() {
-                self.state = PlaybackState::Complete;
-                break;
-            }
-            self.frame_decompress();
-        }
+        // BinkVideoPlayer.cpp:293 only services BinkWait here. The Display or
+        // window that presents the movie owns the frameNext transition.
     }
 
     fn close(self: Box<Self>) {
@@ -345,11 +317,29 @@ impl VideoStreamInterface for BinkVideoStream {
     }
 
     fn is_frame_ready(&self) -> bool {
-        self.state != PlaybackState::Complete
+        self.state != PlaybackState::Complete && Instant::now() >= self.next_frame_ready
+    }
+
+    fn has_decode_failed(&self) -> bool {
+        self.current_rgba.is_empty()
     }
 
     fn frame_decompress(&mut self) {
-        self.current_rgba = self.decoder.decode_current_frame_rgba();
+        let index = self.decoder.current_frame_index();
+        if self.has_decode_failed() || self.decoded_frame == Some(index) {
+            return;
+        }
+        match self.decoder.decode_current_frame_rgba() {
+            Ok(rgba) => {
+                self.current_rgba = rgba;
+                self.decoded_frame = Some(index);
+            }
+            Err(error) => {
+                log::warn!("Skipping unreadable movie: {error}");
+                self.current_rgba.clear();
+                self.state = PlaybackState::Complete;
+            }
+        }
     }
 
     fn frame_render(&mut self, buffer: &mut dyn VideoBuffer) {
@@ -383,10 +373,26 @@ impl VideoStreamInterface for BinkVideoStream {
     }
 
     fn frame_next(&mut self) {
-        if self.decoder.advance() {
-            self.state = PlaybackState::Complete;
-        }
+        // A caller may advance a hidden frame without presenting it. Decode
+        // the current packet first so its prediction is available to the next.
         self.frame_decompress();
+        if self.has_decode_failed() {
+            return;
+        }
+        let now = Instant::now();
+        let frame_duration = self.decoder.frame_duration();
+        let following_frame = self.next_frame_ready + frame_duration;
+        self.next_frame_ready = if following_frame <= now {
+            now + frame_duration
+        } else {
+            following_frame
+        };
+        if self.decoder.advance() {
+            self.decoder.video_decoder.clear_reference_frames();
+            self.decoded_frame = None;
+        }
+        // Decompress when the presenter is ready. At wrap the window can hold
+        // the last frame without decoding or playing the next iteration's audio.
     }
 
     fn frame_index(&self) -> i32 {
@@ -398,9 +404,16 @@ impl VideoStreamInterface for BinkVideoStream {
     }
 
     fn frame_goto(&mut self, index: i32) {
+        if self.has_decode_failed() {
+            return;
+        }
         self.decoder.seek(index.max(0) as u32);
-        self.frame_decompress();
+        if self.decoder.current_frame_index() == 0 && self.decoded_frame != Some(0) {
+            self.decoder.video_decoder.clear_reference_frames();
+        }
+        self.next_frame_ready = Instant::now();
         self.state = PlaybackState::Paused;
+        self.frame_decompress();
     }
 
     fn height(&self) -> i32 {
@@ -414,7 +427,7 @@ impl VideoStreamInterface for BinkVideoStream {
     fn play(&mut self) {
         if self.state != PlaybackState::Complete {
             self.state = PlaybackState::Playing;
-            self.last_update = Instant::now();
+            self.next_frame_ready = Instant::now();
         }
     }
 
@@ -425,10 +438,13 @@ impl VideoStreamInterface for BinkVideoStream {
     }
 
     fn stop(&mut self) {
-        self.decoder.seek(0);
-        self.frame_accumulator = Duration::ZERO;
-        self.frame_decompress();
-        self.state = PlaybackState::Stopped;
+        if self.has_decode_failed() {
+            return;
+        }
+        self.frame_goto(0);
+        if !self.has_decode_failed() {
+            self.state = PlaybackState::Stopped;
+        }
     }
 
     fn set_volume(&mut self, volume: f32) {
@@ -445,14 +461,25 @@ impl VideoStreamInterface for BinkVideoStream {
 pub struct BuiltInBinkVideoProvider;
 
 impl VideoStreamProvider for BuiltInBinkVideoProvider {
+    fn file_extension(&self) -> &str {
+        "bik"
+    }
+
     fn open(
         &self,
-        _movie_title: &str,
+        movie_title: &str,
         resolved_path: &Path,
     ) -> Option<Box<dyn VideoStreamInterface>> {
-        BinkVideoStream::open(resolved_path)
-            .map(|stream| Box::new(stream) as Box<dyn VideoStreamInterface>)
-            .ok()
+        match BinkVideoStream::open(resolved_path) {
+            Ok(stream) => Some(Box::new(stream)),
+            Err(error) => {
+                log::warn!(
+                    "Skipping movie {movie_title:?} at {}: {error}",
+                    resolved_path.display()
+                );
+                None
+            }
+        }
     }
 }
 
@@ -468,164 +495,34 @@ fn extract_frame_packets(
     bytes: &[u8],
     header: &BinkHeader,
     table_offset: usize,
-) -> Vec<BinkFramePacket> {
+) -> Result<Vec<BinkFramePacket>, String> {
     let frame_count = header.frame_count as usize;
-    let table_len = frame_count.saturating_mul(4);
-    let table_end = table_offset.saturating_add(table_len).min(bytes.len());
-
-    if table_end <= table_offset || table_end - table_offset < 4 {
-        return vec![BinkFramePacket {
-            index: 0,
-            offset: BINK_HEADER_SIZE.min(bytes.len()),
-            size: bytes
-                .len()
-                .saturating_sub(BINK_HEADER_SIZE.min(bytes.len())),
-        }];
+    if frame_count == 0 {
+        return Err("Bink file declares no video frames".to_owned());
     }
-
-    let raw_offsets: Vec<usize> = bytes[table_offset..table_end]
+    let table_end = frame_count
+        .checked_mul(4)
+        .and_then(|length| table_offset.checked_add(length))
+        .filter(|&end| end <= bytes.len())
+        .ok_or_else(|| "Bink frame index is truncated".to_owned())?;
+    let offsets = bytes[table_offset..table_end]
         .chunks_exact(4)
-        // Bink stores the keyframe flag in bit zero of each file offset.
+        // Bit zero indicates a keyframe, independently of its file offset.
         .map(|chunk| (u32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]) & !1) as usize)
-        .collect();
+        .chain(std::iter::once(bytes.len()));
 
-    let mut packets = Vec::new();
-    for (index, offset) in raw_offsets.iter().copied().enumerate() {
-        if offset >= bytes.len() {
-            continue;
-        }
-
-        let next_offset = raw_offsets
-            .iter()
-            .copied()
-            .skip(index + 1)
-            .find(|candidate| *candidate > offset)
-            .unwrap_or(bytes.len());
-        let size = next_offset.saturating_sub(offset);
-        if size == 0 {
-            continue;
+    let mut packets = Vec::with_capacity(frame_count);
+    for (index, (offset, end)) in offsets.clone().zip(offsets.skip(1)).enumerate() {
+        if offset < table_end || end <= offset || end > bytes.len() {
+            return Err(format!("Invalid Bink packet bounds for frame {index}"));
         }
         packets.push(BinkFramePacket {
             index: index as u32,
             offset,
-            size,
+            size: end - offset,
         });
     }
-
-    if packets.is_empty() {
-        packets.push(BinkFramePacket {
-            index: 0,
-            offset: table_end,
-            size: bytes.len().saturating_sub(table_end),
-        });
-    }
-
-    packets
-}
-
-fn pseudo_decode_paletted_frame(
-    packet: &[u8],
-    width: u32,
-    height: u32,
-    frame_index: u32,
-    has_alpha: bool,
-) -> Vec<u8> {
-    // PARITY_NOTE: Full Bink1 block/DCT decode is not available without RAD's
-    // SDK. We extract the real frame packet and deterministically expand it
-    // into RGBA so playback timing, buffering, and rendering stay wired.
-    let palette_len = 256 * 3;
-    let (palette_bytes, index_bytes) = if packet.len() > palette_len {
-        packet.split_at(palette_len)
-    } else {
-        (&[][..], packet)
-    };
-
-    let mut out = vec![0u8; (width * height * 4) as usize];
-    for pixel_index in 0..(width as usize * height as usize) {
-        let palette_index = index_bytes
-            .get((pixel_index + frame_index as usize) % index_bytes.len().max(1))
-            .copied()
-            .unwrap_or((pixel_index as u8).wrapping_add(frame_index as u8));
-        let palette_base = (palette_index as usize % 256) * 3;
-
-        let r = palette_bytes
-            .get(palette_base)
-            .copied()
-            .unwrap_or(palette_index.wrapping_mul(3));
-        let g = palette_bytes
-            .get(palette_base + 1)
-            .copied()
-            .unwrap_or(palette_index.wrapping_mul(5));
-        let b = palette_bytes
-            .get(palette_base + 2)
-            .copied()
-            .unwrap_or(palette_index.wrapping_mul(7));
-        let alpha = if has_alpha {
-            128u8.saturating_add((palette_index >> 1) & 0x7F)
-        } else {
-            255
-        };
-
-        let dst = pixel_index * 4;
-        out[dst] = r;
-        out[dst + 1] = g;
-        out[dst + 2] = b;
-        out[dst + 3] = alpha;
-    }
-    out
-}
-
-fn pseudo_decode_yuv_frame(
-    packet: &[u8],
-    width: u32,
-    height: u32,
-    frame_index: u32,
-    has_alpha: bool,
-) -> Vec<u8> {
-    // PARITY_NOTE: This is a packet-driven YUV approximation, not full Bink2
-    // entropy/vector/DCT reconstruction. It preserves stream extraction and GPU
-    // upload flow until a complete decoder replaces it.
-    let mut out = vec![0u8; (width * height * 4) as usize];
-    for pixel_index in 0..(width as usize * height as usize) {
-        let base = ((pixel_index * 3) + frame_index as usize * 11) % packet.len().max(3);
-        let y = packet
-            .get(base)
-            .copied()
-            .unwrap_or((pixel_index & 0xFF) as u8);
-        let u = packet
-            .get((base + 1) % packet.len().max(1))
-            .copied()
-            .unwrap_or(128);
-        let v = packet
-            .get((base + 2) % packet.len().max(1))
-            .copied()
-            .unwrap_or(128);
-        let (r, g, b) = yuv_to_rgb(y, u, v);
-        let alpha = if has_alpha {
-            packet
-                .get((base + 3) % packet.len().max(1))
-                .copied()
-                .unwrap_or(255)
-        } else {
-            255
-        };
-        let dst = pixel_index * 4;
-        out[dst] = r;
-        out[dst + 1] = g;
-        out[dst + 2] = b;
-        out[dst + 3] = alpha;
-    }
-    out
-}
-
-fn yuv_to_rgb(y: u8, u: u8, v: u8) -> (u8, u8, u8) {
-    let y = y as f32;
-    let u = u as f32 - 128.0;
-    let v = v as f32 - 128.0;
-    let r = (y + 1.402 * v).clamp(0.0, 255.0) as u8;
-    let g = (y - 0.344_136 * u - 0.714_136 * v).clamp(0.0, 255.0) as u8;
-    let b = (y + 1.772 * u).clamp(0.0, 255.0) as u8;
-    (r, g, b)
+    Ok(packets)
 }
 
 fn bytes_per_pixel(format: VideoBufferType) -> usize {
@@ -668,29 +565,16 @@ fn write_pixel(dst: &mut [u8], format: VideoBufferType, rgba: &[u8]) {
 }
 
 #[cfg(test)]
+#[path = "../tests/support/bink_fixture.rs"]
+pub(crate) mod bink_fixture;
+
+#[cfg(test)]
 mod tests {
     use super::*;
 
     fn make_bink_blob(magic: [u8; 4]) -> Vec<u8> {
-        let mut bytes = vec![0u8; 44 + 8 + 32];
-        bytes[0..4].copy_from_slice(&magic);
-        let len = bytes.len() as u32;
-        bytes[4..8].copy_from_slice(&len.to_le_bytes());
-        bytes[8..12].copy_from_slice(&2u32.to_le_bytes());
-        bytes[12..16].copy_from_slice(&32u32.to_le_bytes());
-        bytes[20..24].copy_from_slice(&4u32.to_le_bytes());
-        bytes[24..28].copy_from_slice(&4u32.to_le_bytes());
-        bytes[28..32].copy_from_slice(&30u32.to_le_bytes());
-        bytes[32..36].copy_from_slice(&1u32.to_le_bytes());
-        bytes[36..40].copy_from_slice(&0u32.to_le_bytes());
-        // Zero audio tracks so the frame index table begins at offset 44
-        // (parse_audio_layout otherwise skips per-track headers first).
-        bytes[40..44].copy_from_slice(&0u32.to_le_bytes());
-        bytes[44..48].copy_from_slice(&52u32.to_le_bytes());
-        bytes[48..52].copy_from_slice(&68u32.to_le_bytes());
-        for (i, byte) in bytes[52..].iter_mut().enumerate() {
-            *byte = i as u8;
-        }
+        let mut bytes = bink_fixture::two_frames();
+        bytes[..4].copy_from_slice(&magic);
         bytes
     }
 
@@ -702,8 +586,9 @@ mod tests {
         let decoder = BinkDecoder::from_bytes(bytes).unwrap();
         let first = &decoder.frame_packets[0];
         let second = &decoder.frame_packets[1];
-        assert_eq!((first.offset, first.size), (52, 16));
-        assert_eq!((second.offset, second.size), (68, 16));
+        let packet_size = bink_fixture::frame(96).len();
+        assert_eq!((first.offset, first.size), (52, packet_size));
+        assert_eq!((second.offset, second.size), (52 + packet_size, packet_size));
     }
 
     #[test]
@@ -747,8 +632,8 @@ mod tests {
             current_rgba: (0..16)
                 .flat_map(|i| [255, 128, 0, if i % 2 == 0 { 127 } else { 128 }])
                 .collect(),
-            frame_accumulator: Duration::ZERO,
-            last_update: Instant::now(),
+            decoded_frame: Some(0),
+            next_frame_ready: Instant::now(),
             state: PlaybackState::Playing,
             volume: 1.0,
         };
@@ -789,23 +674,54 @@ mod tests {
     }
 
     #[test]
-    fn extracts_frame_packets() {
-        crate::test_support::ensure_ambient_host();
+    fn rejects_unsupported_bink2_and_invalid_frame_index() {
         let bytes = make_bink_blob(*b"KB2i");
-        let decoder = BinkDecoder::from_bytes(bytes).expect("decoder should parse");
-        assert_eq!(decoder.header().version, BinkVersion::Bink2);
-        assert_eq!(decoder.frame_count(), 2);
-        assert_eq!(decoder.packet(0).len(), 16);
+        assert_eq!(BinkHeader::parse(&bytes).unwrap().version, BinkVersion::Bink2);
+        let error = BinkDecoder::from_bytes(bytes).err().expect("reject Bink2");
+        assert!(error.contains("Bink2 video decoding is unsupported"), "{error}");
+
+        let mut bytes = bink_fixture::two_frames();
+        bytes[48..52].copy_from_slice(&u32::MAX.to_le_bytes());
+        let error = BinkDecoder::from_bytes(bytes).err().expect("reject packet bounds");
+        assert!(error.contains("Invalid Bink packet bounds for frame 0"), "{error}");
     }
 
     #[test]
-    fn pseudo_decode_outputs_rgba() {
-        crate::test_support::ensure_ambient_host();
-        let bytes = make_bink_blob(*b"BIKi");
-        let mut decoder = BinkDecoder::from_bytes(bytes).expect("decoder should parse");
-        let rgba = decoder.decode_current_frame_rgba();
-        assert_eq!(rgba.len(), 4 * 4 * 4);
-        assert!(rgba.iter().any(|byte| *byte != 0));
+    fn real_binki_decodes_exact_pixels_and_reports_read_errors() {
+        let mut decoder = BinkDecoder::from_bytes(bink_fixture::two_frames()).unwrap();
+        for (index, color) in [(0, 96), (1, 110)] {
+            let rgba = decoder.decode_frame_rgba(index).unwrap();
+            assert_eq!(rgba, [color, color, color, 255].repeat(16));
+        }
+
+        let bytes = bink_fixture::clip(&[vec![0; 4]]);
+        let mut decoder = BinkDecoder::from_bytes(bytes).unwrap();
+        let error = decoder.decode_current_frame_rgba().unwrap_err();
+        assert!(error.contains("Bink frame 0"), "{error}");
+    }
+
+    #[test]
+    fn video_stream_stops_on_bad_packet_without_rendering_a_replacement() {
+        use crate::video_buffer::SoftwareVideoBuffer;
+
+        let path = std::env::temp_dir().join(format!("bink_bad_packet_{}.bik", std::process::id()));
+        fs::write(&path, bink_fixture::clip(&[bink_fixture::frame(96), vec![0; 4]])).unwrap();
+        let mut stream = BinkVideoStream::open(&path).unwrap();
+        fs::remove_file(path).unwrap();
+        stream.play();
+        stream.frame_next();
+        stream.frame_decompress();
+        assert!(stream.has_decode_failed());
+        assert_eq!(stream.playback_state(), PlaybackState::Complete);
+        assert!(!stream.is_frame_ready());
+
+        let mut buffer = SoftwareVideoBuffer::new(VideoBufferType::X8R8G8B8);
+        assert!(buffer.allocate(4, 4));
+        buffer.lock().unwrap().fill(0x55);
+        buffer.unlock();
+        stream.frame_render(&mut buffer);
+        assert!(buffer.lock().unwrap().iter().all(|&byte| byte == 0x55));
+        buffer.unlock();
     }
 
     #[test]
@@ -819,10 +735,14 @@ mod tests {
         assert_eq!(stream.frame_index(), 1);
         assert_eq!(stream.playback_state(), PlaybackState::Playing);
 
+        stream.frame_decompress();
+        assert_eq!(stream.current_rgba, [110, 110, 110, 255].repeat(16));
         stream.frame_next();
         assert_eq!(stream.frame_index(), 0);
-        assert_eq!(stream.playback_state(), PlaybackState::Complete);
-        assert!(!stream.is_frame_ready());
+        assert_eq!(stream.playback_state(), PlaybackState::Playing);
+        assert_eq!(stream.current_rgba, [110, 110, 110, 255].repeat(16));
+        stream.frame_decompress();
+        assert_eq!(stream.current_rgba, [96, 96, 96, 255].repeat(16));
 
         stream.stop();
         assert_eq!(stream.frame_index(), 0);

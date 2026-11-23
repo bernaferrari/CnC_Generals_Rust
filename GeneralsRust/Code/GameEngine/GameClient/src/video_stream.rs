@@ -27,6 +27,9 @@ pub trait VideoStreamInterface: Send {
     fn update(&mut self);
     fn close(self: Box<Self>);
     fn is_frame_ready(&self) -> Bool;
+    fn has_decode_failed(&self) -> bool {
+        false
+    }
     fn frame_decompress(&mut self);
     fn frame_render(&mut self, buffer: &mut dyn VideoBuffer);
     fn frame_next(&mut self);

@@ -407,6 +407,10 @@ impl Default for BinkVideoProvider {
 }
 
 impl VideoStreamProvider for BinkVideoProvider {
+    fn file_extension(&self) -> &str {
+        "bik"
+    }
+
     fn open(
         &self,
         movie_title: &str,

@@ -815,17 +815,23 @@ impl Display {
     }
 
     fn update_movie_playback(&mut self, fx: &mut display_fx::DisplayFxState) {
-        let should_stop = {
+        let should_stop = 'frame: {
             let (stream, buffer) = match (self.video_stream.as_mut(), self.video_buffer.as_mut()) {
                 (Some(stream), Some(buffer)) => (stream, buffer),
                 _ => return,
             };
 
+            if stream.has_decode_failed() {
+                break 'frame true;
+            }
             if !stream.is_frame_ready() {
                 return;
             }
 
             stream.frame_decompress();
+            if stream.has_decode_failed() {
+                break 'frame true;
+            }
             stream.frame_render(buffer.as_mut());
             if let Some((w, h, rgba)) = display_fx::video_buffer_rgba_mut(buffer.as_mut()) {
                 fx.store_movie_frame(w, h, rgba.clone());
@@ -833,7 +839,7 @@ impl Display {
 
             if stream.frame_index() != stream.frame_count() - 1 {
                 stream.frame_next();
-                return;
+                break 'frame stream.has_decode_failed();
             }
 
             if self.copyright_hold_time_ms >= 0 || self.movie_hold_time_ms >= 0 {

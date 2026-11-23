@@ -1882,6 +1882,12 @@ impl BinkVideoDecoder {
         Ok(())
     }
 
+    pub(super) fn clear_reference_frames(&mut self) {
+        self.prev_y = None;
+        self.prev_u = None;
+        self.prev_v = None;
+    }
+
     pub fn decode_frame(&mut self, packet: &[u8]) -> Result<Vec<u8>, String> {
         let mut br = BitReader::new(packet);
 

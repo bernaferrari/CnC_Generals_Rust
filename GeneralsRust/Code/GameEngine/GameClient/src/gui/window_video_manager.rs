@@ -250,12 +250,21 @@ impl WindowVideoManager {
                 continue;
             };
 
-            if stream.is_frame_ready() {
+            let ready = stream.is_frame_ready();
+            if ready {
                 stream.frame_decompress();
-                let mut buffer = buffer_handle.lock();
-                stream.frame_render(&mut *buffer);
-                stream.frame_next();
-
+                if !stream.has_decode_failed() {
+                    let mut buffer = buffer_handle.lock();
+                    stream.frame_render(&mut *buffer);
+                    stream.frame_next();
+                }
+            }
+            if stream.has_decode_failed() {
+                win_video.set_window_state(WindowVideoState::Stop);
+                remove_keys.push(key);
+                continue;
+            }
+            if ready {
                 if stream.frame_index() == 0 {
                     match play_type {
                         WindowVideoPlayType::Once => {
@@ -410,6 +419,9 @@ impl WindowVideoManager {
                 return None;
             }
             let stream = video.video_stream()?;
+            if stream.has_decode_failed() {
+                return None;
+            }
             Some(WindowMovieProgress {
                 frame_index: stream.frame_index(),
                 frame_count: stream.frame_count(),
@@ -582,6 +594,10 @@ mod tests {
     }
     struct ClientProviderProbe { updates: std::sync::Arc<std::sync::atomic::AtomicUsize>, closes: std::sync::Arc<std::sync::atomic::AtomicUsize> }
     impl crate::video_player::VideoStreamProvider for ClientProviderProbe {
+        fn file_extension(&self) -> &str {
+            "bik"
+        }
+
         fn open(&self, _title: &str, _path: &std::path::Path) -> Option<Box<dyn VideoStreamInterface>> {
             Some(Box::new(ClientStreamProbe { updates: self.updates.clone(), closes: self.closes.clone() }))
         }
@@ -636,6 +652,67 @@ mod tests {
         subsystem_a.reset().unwrap();
         assert_eq!(closes_a.load(Ordering::SeqCst), 1);
         let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn real_binki_window_loop_wraps_while_show_last_frame_holds() {
+        use crate::bink::bink_fixture;
+        use crate::video_player::{Video, VideoPlayer, VideoSearchPaths};
+        use std::time::{Duration, Instant};
+
+        crate::test_support::ensure_ambient_host();
+        let root = std::env::temp_dir().join(format!("bink_window_wrap_{}", std::process::id()));
+        let mod_root = root.join("mod");
+        let path = mod_root.join("Data/Movies/CLIP.BIK");
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, bink_fixture::two_frames()).unwrap();
+        let mut player = VideoPlayer::new();
+        player.set_search_paths(VideoSearchPaths::new(
+            Some(mod_root),
+            root.join("install"),
+            "English",
+        ));
+        player.init();
+        player.add_video(Video::new("CLIP".into(), "Movie".into(), String::new()));
+        let player = std::sync::Arc::new(std::sync::Mutex::new(Some(player)));
+        let mut manager = WindowVideoManager::new();
+        manager.bind_video_player_slot(player.clone());
+        let loop_window = make_window();
+        let hold_window = make_window();
+        assert!(manager.play_movie(
+            loop_window.clone(),
+            "Movie".into(),
+            WindowVideoPlayType::Loop,
+        ));
+        assert!(manager.play_movie(
+            hold_window.clone(),
+            "Movie".into(),
+            WindowVideoPlayType::ShowLastFrame,
+        ));
+
+        let first_pixel = |window: &Rc<RefCell<GameWindow>>| {
+            let buffer = window.borrow().video_buffer().unwrap();
+            let mut guard = buffer.lock();
+            let pixel = guard.lock().unwrap()[..4].to_vec();
+            guard.unlock();
+            pixel
+        };
+        for loop_pixel in [[96, 96, 96, 255], [110, 110, 110, 255], [96, 96, 96, 255]] {
+            let deadline = Instant::now() + Duration::from_secs(1);
+            loop {
+                player.lock().unwrap().as_mut().unwrap().update();
+                manager.update();
+                if first_pixel(&loop_window) == loop_pixel {
+                    break;
+                }
+                assert!(Instant::now() < deadline, "loop timed out at {loop_pixel:?}");
+                std::thread::sleep(Duration::from_millis(1));
+            }
+        }
+        assert_eq!(manager.get_win_state(&loop_window), WindowVideoState::Play);
+        assert_eq!(manager.get_win_state(&hold_window), WindowVideoState::Pause);
+        assert_eq!(first_pixel(&hold_window), [110, 110, 110, 255]);
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
@@ -833,7 +910,9 @@ impl WindowVideoManager {
         let Some(stream) = video.video_stream.as_mut() else {
             return LoadMovieStep::Complete;
         };
-        if stream.frame_index() >= stream.frame_count().saturating_sub(1) {
+        if stream.has_decode_failed()
+            || stream.frame_index() >= stream.frame_count().saturating_sub(1)
+        {
             return LoadMovieStep::Complete;
         }
         if !stream.is_frame_ready() {
@@ -846,6 +925,9 @@ impl WindowVideoManager {
                     return LoadMovieStep::Complete;
                 };
                 stream.frame_decompress();
+                if stream.has_decode_failed() {
+                    return LoadMovieStep::Complete;
+                }
                 stream.frame_render(&mut *buffer.lock());
                 stream.frame_next();
             }
@@ -853,6 +935,9 @@ impl WindowVideoManager {
                 stream.frame_next();
                 stream.frame_decompress();
             }
+        }
+        if stream.has_decode_failed() {
+            return LoadMovieStep::Complete;
         }
         LoadMovieStep::Advanced {
             frame_index: stream.frame_index(),
