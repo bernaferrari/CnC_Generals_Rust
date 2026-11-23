@@ -1374,3 +1374,352 @@ fn mounted_crusader_death_notifies_the_gla_salvager_of_its_authored_crate_once()
         },
     );
 }
+
+/// FireOCLAfterWeaponCooldownUpdate.cpp:78-172 — the authored module counts
+/// consecutive shots on its configured slot through the per-object native
+/// lifecycle, and runs its OCL when the weapon could have fired but did not.
+/// The fixture renames the sprayer so nothing can be peeled from a template
+/// name, and the stock toxin-truck name carries no module at all.
+#[test]
+fn authored_fire_ocl_after_cooldown_counts_slot_shots_through_snapshot() {
+    use crate::assets::ini_template_loader::{
+        WeaponDefinitionLoadType, parse_weapon_definitions_ini_into,
+    };
+    use crate::game_logic::game_logic::accepted_projectile_owner_tests::patriot_retail_battery_tests::{
+        base_ini, definition,
+    };
+    use crate::save_load::snapshot::SnapshotBuilder;
+
+    const SPRAYER: &str = "SprayUnitRenamed";
+    const LOOKALIKE: &str = "GLAVehicleToxinTruck";
+    const CHILD_A: &str = "SprayFieldChildA";
+    const CHILD_B: &str = "SprayFieldChildB";
+    const GATE: &str = "Upgrade_SprayFieldGate";
+    const PRIMARY_WEAPON: &str = "ToxinTruckGun";
+    const SECONDARY_WEAPON: &str = "ToxinTruckSprayer";
+
+    fn fixture() -> (GameLogic, ObjectId, ObjectId) {
+        let mut world = GameLogic::new();
+        world.add_player(Player::new(0, Team::USA, "Owner", true));
+        world.add_player(Player::new(1, Team::GLA, "Peer", false));
+        world.frame = 100;
+        world
+            .admit_object_creation_list_sources([
+                r#"
+ObjectCreationList OCL_SprayFieldA
+  CreateObject
+    ObjectNames = SprayFieldChildA
+    Count = 1
+  End
+End
+ObjectCreationList OCL_SprayFieldB
+  CreateObject
+    ObjectNames = SprayFieldChildB
+    Count = 1
+  End
+End
+"#
+                .to_string(),
+            ])
+            .unwrap();
+        world
+            .admit_object_ini_sources([(
+                "fire-ocl-sprayer.ini".to_string(),
+                format!(
+                    r#"
+Object {SPRAYER}
+  KindOf = IMMOBILE INERT NO_COLLIDE
+  Body = ActiveBody BodyTag
+    MaxHealth = 500
+    InitialHealth = 500
+  End
+  WeaponSet
+    Conditions = None
+    Weapon = PRIMARY {PRIMARY_WEAPON}
+    Weapon = SECONDARY {SECONDARY_WEAPON}
+  End
+  Behavior = FireOCLAfterWeaponCooldownUpdate SprayCooldownA
+    WeaponSlot = SECONDARY
+    OCL = OCL_SprayFieldA
+    MinShotsToCreateOCL = 2
+    OCLLifetimePerSecond = 1000
+    OCLLifetimeMaxCap = 100
+  End
+  Behavior = FireOCLAfterWeaponCooldownUpdate SprayCooldownB
+    WeaponSlot = SECONDARY
+    OCL = OCL_SprayFieldB
+    MinShotsToCreateOCL = 3
+    OCLLifetimePerSecond = 1000
+    OCLLifetimeMaxCap = 100
+    TriggeredBy = {GATE}
+  End
+End
+Object {CHILD_A}
+  KindOf = IMMOBILE INERT NO_COLLIDE
+  Body = ActiveBody BodyTag
+    MaxHealth = 10
+    InitialHealth = 10
+  End
+  Behavior = LifetimeUpdate LifetimeTag
+    MinLifetime = 9000
+    MaxLifetime = 9000
+  End
+End
+Object {CHILD_B}
+  KindOf = IMMOBILE INERT NO_COLLIDE
+  Body = ActiveBody BodyTag
+    MaxHealth = 10
+    InitialHealth = 10
+  End
+  Behavior = LifetimeUpdate LifetimeTag
+    MinLifetime = 9000
+    MaxLifetime = 9000
+  End
+End
+Object {LOOKALIKE}
+  KindOf = VEHICLE
+  Body = ActiveBody BodyTag
+    MaxHealth = 500
+    InitialHealth = 500
+  End
+End
+"#
+                ),
+            )])
+            .unwrap();
+        let weapon_source = base_ini("Weapon.ini");
+        let mut weapons = std::collections::HashMap::new();
+        for name in [PRIMARY_WEAPON, SECONDARY_WEAPON] {
+            let source = definition(&weapon_source, &format!("Weapon {name}"));
+            assert_eq!(
+                parse_weapon_definitions_ini_into(
+                    &mut weapons,
+                    &source,
+                    WeaponDefinitionLoadType::Normal,
+                ),
+                1
+            );
+        }
+        world
+            .admit_weapon_content_snapshot(
+                weapons
+                    .into_values()
+                    .map(|rule| (rule.name.clone(), rule))
+                    .collect(),
+                &[],
+            )
+            .unwrap();
+        let sprayer = world
+            .create_object_for_player(SPRAYER, 0, Vec3::ZERO)
+            .unwrap();
+        let lookalike = world
+            .create_object_for_player(LOOKALIKE, 0, Vec3::new(50.0, 0.0, 0.0))
+            .unwrap();
+        (world, sprayer, lookalike)
+    }
+    fn shot(world: &mut GameLogic, id: ObjectId, frame: u32) {
+        world
+            .host_object_mut(id)
+            .unwrap()
+            .weapon_slot_mut(1)
+            .unwrap()
+            .last_fire_frame = frame - 1;
+        drive(world, id, frame);
+    }
+    fn set_ready(world: &mut GameLogic, id: ObjectId, next_frame: u32) {
+        world
+            .host_object_mut(id)
+            .unwrap()
+            .weapon_slot_mut(1)
+            .unwrap()
+            .next_fire_frame = next_frame;
+    }
+    fn count(world: &GameLogic, name: &str) -> usize {
+        world
+            .host_objects()
+            .registered_values()
+            .filter(|object| object.template_name == name)
+            .count()
+    }
+    fn cooldown(world: &GameLogic, id: ObjectId, index: usize) -> (bool, u32) {
+        match &world
+            .host_object(id)
+            .unwrap()
+            .native_lifecycle
+            .as_ref()
+            .unwrap()
+            .states[index]
+        {
+            NativeLifecycleState::FireOclAfterCooldown {
+                valid,
+                consecutive_shots,
+                ..
+            } => (*valid, *consecutive_shots),
+            state => panic!("expected FireOclAfterCooldown state, got {state:?}"),
+        }
+    }
+
+    let (mut world, sprayer, lookalike) = fixture();
+    // Both authored modules bound in source order on the renamed sprayer; the
+    // stock-name lookalike carries no module, no secondary weapon and no state.
+    {
+        let runtime = world
+            .host_object(sprayer)
+            .unwrap()
+            .native_lifecycle
+            .as_ref()
+            .unwrap();
+        assert_eq!(runtime.states.len(), 2);
+        for (index, (min_shots, ocl)) in
+            [(0usize, (2u32, "OCL_SprayFieldA")), (1, (3, "OCL_SprayFieldB"))]
+        {
+            match &runtime.definitions[index].kind {
+                crate::game_logic::native_lifecycle_definition::NativeLifecycleKind::FireOclAfterCooldown(definition) => {
+                    assert_eq!(definition.slot, 1);
+                    assert_eq!(definition.min_shots, min_shots);
+                    assert_eq!(definition.ocl.as_deref(), Some(ocl));
+                    // 100ms authored cap -> 3 logic frames.
+                    assert_eq!(definition.max_frames, 3);
+                }
+                kind => panic!("expected FireOclAfterCooldown definition, got {kind:?}"),
+            }
+        }
+    }
+    let lookalike_object = world.host_object(lookalike).unwrap();
+    assert!(
+        lookalike_object
+            .native_lifecycle
+            .as_ref()
+            .is_none_or(|runtime| runtime.states.is_empty())
+    );
+    assert!(lookalike_object.weapon_slot(1).is_none());
+
+    // The configured slot is SECONDARY; select it so the modules are valid.
+    world
+        .host_object_mut(sprayer)
+        .unwrap()
+        .set_active_weapon_slot(1);
+    assert_eq!(
+        world.host_object(sprayer).unwrap().selected_weapon_slot(),
+        Some(1)
+    );
+    // The gated module stays invalid until the player upgrade completes.
+    assert_eq!(cooldown(&world, sprayer, 0), (false, 0));
+    assert_eq!(cooldown(&world, sprayer, 1), (false, 0));
+
+    // Accumulate: each driven frame where the weapon fired the previous frame
+    // adds one consecutive shot. The first shot lands on the invalid->valid
+    // transition, and the C++ resetStats that follows the per-frame logic
+    // consumes it.
+    shot(&mut world, sprayer, 101);
+    assert_eq!(cooldown(&world, sprayer, 0), (true, 0));
+    assert_eq!(cooldown(&world, sprayer, 1), (false, 0));
+    shot(&mut world, sprayer, 102);
+    assert_eq!(cooldown(&world, sprayer, 0), (true, 1));
+
+    // Round-trip while accumulating: streak and start frame persist.
+    let builder = SnapshotBuilder::new();
+    let snapshot = builder.create_world_snapshot(&world).unwrap();
+    let mut loaded = fixture().0;
+    builder.restore_from_snapshot(&snapshot, &mut loaded).unwrap();
+    assert_eq!(cooldown(&loaded, sprayer, 0), (true, 1));
+    let mut world = loaded;
+
+    shot(&mut world, sprayer, 103);
+    shot(&mut world, sprayer, 104);
+    shot(&mut world, sprayer, 105);
+    assert_eq!(cooldown(&world, sprayer, 0), (true, 4));
+    assert_eq!(cooldown(&world, sprayer, 1), (false, 0));
+    assert_eq!(count(&world, CHILD_A), 0);
+
+    // Exact deadline equality does not emit; the first frame strictly past
+    // the committed deadline does (Weapon.cpp possible-next-shot check).
+    set_ready(&mut world, sprayer, 106);
+    drive(&mut world, sprayer, 106);
+    assert_eq!(count(&world, CHILD_A), 0);
+    assert_eq!(cooldown(&world, sprayer, 0), (true, 4));
+    drive(&mut world, sprayer, 107);
+    assert_eq!(count(&world, CHILD_A), 1);
+    assert_eq!(count(&world, CHILD_B), 0);
+    // Streak is consumed by the fire, and the child carries producer identity
+    // plus the caller lifetime capped at the authored 3 frames.
+    assert_eq!(cooldown(&world, sprayer, 0), (true, 0));
+    {
+        let child = world
+            .host_objects()
+            .registered_values()
+            .find(|object| object.template_name == CHILD_A)
+            .unwrap();
+        assert_eq!(child.producer_id, Some(sprayer));
+        match &child.native_lifecycle.as_ref().unwrap().states[0] {
+            NativeLifecycleState::Lifetime { die_frame, .. } => {
+                // Raw streak 5 frames (107-102) is capped at 3 -> 107 + 3.
+                assert_eq!(*die_frame, 110);
+            }
+            state => panic!("expected Lifetime state on the OCL child, got {state:?}"),
+        }
+    }
+    // No repeated emission once the streak is consumed.
+    drive(&mut world, sprayer, 108);
+    drive(&mut world, sprayer, 109);
+    assert_eq!(count(&world, CHILD_A), 1);
+
+    // Weapon switch away from the configured slot flushes the accumulated
+    // streak while the watched slot still has its weapon.
+    shot(&mut world, sprayer, 110);
+    shot(&mut world, sprayer, 111);
+    world
+        .host_object_mut(sprayer)
+        .unwrap()
+        .set_active_weapon_slot(0);
+    drive(&mut world, sprayer, 112);
+    assert_eq!(count(&world, CHILD_A), 2);
+    assert_eq!(count(&world, CHILD_B), 0);
+    // Switching back re-validates the module; the streak restarts.
+    world
+        .host_object_mut(sprayer)
+        .unwrap()
+        .set_active_weapon_slot(1);
+    drive(&mut world, sprayer, 113);
+    assert_eq!(cooldown(&world, sprayer, 0), (true, 0));
+
+    // The gated module becomes valid once the controlling player completes
+    // the authored trigger upgrade.
+    world.add_completed_player_upgrade(0, GATE);
+    drive(&mut world, sprayer, 114);
+    assert_eq!(cooldown(&world, sprayer, 1), (true, 0));
+    shot(&mut world, sprayer, 115);
+    shot(&mut world, sprayer, 116);
+    // Module A fires at its own threshold; B's larger threshold holds.
+    drive(&mut world, sprayer, 117);
+    assert_eq!(count(&world, CHILD_A), 3);
+    assert_eq!(count(&world, CHILD_B), 0);
+    assert_eq!(cooldown(&world, sprayer, 1), (true, 2));
+    shot(&mut world, sprayer, 118);
+    drive(&mut world, sprayer, 119);
+    assert_eq!(count(&world, CHILD_A), 3);
+    assert_eq!(count(&world, CHILD_B), 1);
+    {
+        let child = world
+            .host_objects()
+            .registered_values()
+            .find(|object| object.template_name == CHILD_B)
+            .unwrap();
+        assert_eq!(child.producer_id, Some(sprayer));
+        match &child.native_lifecycle.as_ref().unwrap().states[0] {
+            NativeLifecycleState::Lifetime { die_frame, .. } => {
+                assert_eq!(*die_frame, 122);
+            }
+            state => panic!("expected Lifetime state on the gated OCL child, got {state:?}"),
+        }
+    }
+    drive(&mut world, sprayer, 120);
+    drive(&mut world, sprayer, 121);
+    assert_eq!(count(&world, CHILD_B), 1);
+
+    // The stock-name lookalike never accumulates or emits without the module.
+    drive(&mut world, lookalike, 122);
+    drive(&mut world, lookalike, 123);
+    assert_eq!(count(&world, CHILD_A), 3);
+    assert_eq!(count(&world, CHILD_B), 1);
+}

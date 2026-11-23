@@ -2332,9 +2332,6 @@ pub struct Object {
     /// Absolute host frame until which coast keeps spin-up (0 = none).
     #[serde(default)]
     pub continuous_fire_coast_until_frame: u32,
-    /// C++ FireOCLAfterWeaponCooldownUpdate residual (toxin spray secondary).
-    pub fire_ocl_after_cooldown:
-        Option<crate::game_logic::host_toxin_tractor::HostFireOclAfterCooldownData>,
     /// Absolute host logic frame when FAERIE_FIRE residual expires (0 = none).
     /// C++ StatusDamageHelper m_frameToHeal residual (Avenger paint).
     #[serde(default)]

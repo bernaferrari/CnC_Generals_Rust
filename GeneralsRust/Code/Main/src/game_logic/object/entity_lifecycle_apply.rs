@@ -234,9 +234,6 @@ fn apply_one(
         TAG_FIRING_TRACKER => {
             decode_firing_tracker(payload)?.apply(object);
         }
-        TAG_FIRE_OCL_AFTER_COOLDOWN => {
-            object.fire_ocl_after_cooldown = Some(decode_payload(payload)?);
-        }
         TAG_ASSAULT_TRANSPORT => object.assault_transport = Some(decode_payload(payload)?),
         TAG_DEPLOY_STYLE => object.deploy_style = Some(decode_payload(payload)?),
         TAG_SLAVED_UPDATE => object.slaved_update = Some(decode_payload(payload)?),

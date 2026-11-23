@@ -297,11 +297,6 @@ pub(crate) fn collect_module_states(
             payload: firing_tracker_persist::encode(object)?,
         });
     }
-    push_opt(
-        &mut out,
-        TAG_FIRE_OCL_AFTER_COOLDOWN,
-        &object.fire_ocl_after_cooldown,
-    )?;
     push_opt(&mut out, TAG_ASSAULT_TRANSPORT, &object.assault_transport)?;
     push_opt(&mut out, TAG_DEPLOY_STYLE, &object.deploy_style)?;
     push_opt(&mut out, TAG_SLAVED_UPDATE, &object.slaved_update)?;

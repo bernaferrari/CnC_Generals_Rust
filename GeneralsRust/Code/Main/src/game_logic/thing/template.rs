@@ -1158,10 +1158,6 @@ pub struct ThingTemplate {
     /// after a store miss (Strategy Center artillery starts turret-disabled).
     #[serde(default)]
     pub primary_auto_choose_none: bool,
-    /// C++ `FireOCLAfterWeaponCooldownUpdate` is present on the Object INI.
-    /// Create installs the residual module from this flag, not a unit name.
-    #[serde(default)]
-    pub has_fire_ocl_after_weapon_cooldown: bool,
     /// Source-ordered `FireWeaponWhenDamagedBehavior` module data.  This is
     /// retained separately from ordinary WeaponSet slots because C++ creates
     /// up to eight independent PRIMARY `Weapon` instances per module.  Main
@@ -1645,7 +1641,6 @@ impl ThingTemplate {
             auto_choose_masks: default_auto_choose_masks(),
             weapon_lock_shared_across_sets: false,
             primary_auto_choose_none: false,
-            has_fire_ocl_after_weapon_cooldown: false,
             fire_weapon_when_damaged_behaviors: Vec::new(),
             fire_weapon_when_dead_behaviors: Vec::new(),
             locomotor_name: None,
@@ -2220,15 +2215,13 @@ impl ThingTemplate {
     }
 
     /// C++ `AutoChooseSources = SECONDARY NONE` (Jarmen snipe / Missile Defender
-    /// laser / Toxin Tractor sprayer). Stamp only while the slot is still the
-    /// WeaponTemplateSet::clear default so authored INI bits win.
+    /// laser). Stamp only while the slot is still the WeaponTemplateSet::clear
+    /// default so authored INI bits win.
     pub fn apply_retail_button_only_auto_choose(&mut self) {
         if self.auto_choose_masks.get(1).copied() != Some(u32::MAX) {
             return;
         }
-        if crate::game_logic::host_missile_defender::is_missile_defender_template(&self.name)
-            || crate::game_logic::host_toxin_tractor::is_toxin_tractor_template(&self.name)
-        {
+        if crate::game_logic::host_missile_defender::is_missile_defender_template(&self.name) {
             self.auto_choose_masks[1] = 0;
         }
     }
@@ -2249,9 +2242,7 @@ impl ThingTemplate {
         // Missing INI still must not auto-pick retail button-only secondaries.
         if slot == 1
             && mask == u32::MAX
-            && (crate::game_logic::host_missile_defender::is_missile_defender_template(
-                &self.name,
-            ) || crate::game_logic::host_toxin_tractor::is_toxin_tractor_template(&self.name))
+            && crate::game_logic::host_missile_defender::is_missile_defender_template(&self.name)
         {
             return false;
         }

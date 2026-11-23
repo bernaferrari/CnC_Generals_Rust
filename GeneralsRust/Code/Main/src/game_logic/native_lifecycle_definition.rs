@@ -17,6 +17,7 @@ pub(crate) enum NativeLifecycleKind {
     HeightDie(HeightDieDefinition),
     FireWeapon(FireWeaponUpdateDefinition),
     Emp(EmpUpdateDefinition),
+    FireOclAfterCooldown(FireOclAfterCooldownDefinition),
 }
 
 impl NativeLifecycleDefinition {
@@ -33,6 +34,8 @@ impl NativeLifecycleDefinition {
             }
             NativeLifecycleKind::FireWeapon(_) => true,
             NativeLifecycleKind::Emp(emp) => emp.is_valid(),
+            // C++ PRIMARY/SECONDARY/TERTIARY are the only authored slots.
+            NativeLifecycleKind::FireOclAfterCooldown(definition) => definition.slot < 3,
         };
         if valid {
             Ok(())
@@ -66,6 +69,24 @@ pub(crate) struct FireWeaponUpdateDefinition {
     pub(crate) weapon_name: String,
     pub(crate) initial_delay: u32,
     pub(crate) exclusive_delay: u32,
+}
+
+/// C++ FireOCLAfterWeaponCooldownUpdateModuleData authored fields
+/// (FireOCLAfterWeaponCooldownUpdate.cpp:37-63).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub(crate) struct FireOclAfterCooldownDefinition {
+    /// Authored `WeaponSlot`; 0=PRIMARY, 1=SECONDARY, 2=TERTIARY.
+    pub(crate) slot: u8,
+    /// `OCL` nugget name; `None` when authored as `None` or omitted.
+    pub(crate) ocl: Option<String>,
+    /// `MinShotsToCreateOCL` (default 1).
+    pub(crate) min_shots: u32,
+    /// `OCLLifetimePerSecond` in milliseconds (default 1000).
+    pub(crate) lifetime_per_second: u32,
+    /// `OCLLifetimeMaxCap` in logic frames (default 1000).
+    pub(crate) max_frames: u32,
+    /// UpgradeMuxData `TriggeredBy`/`ConflictsWith`/`RequiresAllTriggers`.
+    pub(crate) upgrades: super::thing::UpgradeMuxTriggers,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -210,6 +231,39 @@ pub(crate) fn parse_native_lifecycle_definitions(
             name if name.eq_ignore_ascii_case("EMPUpdate") => {
                 NativeLifecycleKind::Emp(EmpUpdateDefinition::parse(module)?)
             }
+            name if name.eq_ignore_ascii_case("FireOCLAfterWeaponCooldownUpdate") => {
+                let token = |field| {
+                    module
+                        .attribute(field)
+                        .and_then(|value| value.split_whitespace().next())
+                };
+                // INI::parseLookupList over TheWeaponSlotTypeNamesLookupList.
+                let slot = match token("WeaponSlot") {
+                    None => 0,
+                    Some(value) if value.eq_ignore_ascii_case("PRIMARY") => 0,
+                    Some(value) if value.eq_ignore_ascii_case("SECONDARY") => 1,
+                    Some(value) if value.eq_ignore_ascii_case("TERTIARY") => 2,
+                    Some(_) => return Err(invalid(module, "WeaponSlot")),
+                };
+                let ocl = token("OCL")
+                    .filter(|name| !name.eq_ignore_ascii_case("None"))
+                    .map(str::to_owned);
+                let max_frames = if module.attribute("OCLLifetimeMaxCap").is_none() {
+                    1000
+                } else {
+                    duration(module, "OCLLifetimeMaxCap")?
+                };
+                NativeLifecycleKind::FireOclAfterCooldown(FireOclAfterCooldownDefinition {
+                    slot,
+                    ocl,
+                    min_shots: unsigned(module, "MinShotsToCreateOCL", 1)?,
+                    lifetime_per_second: unsigned(module, "OCLLifetimePerSecond", 1000)?,
+                    max_frames,
+                    upgrades: crate::game_logic::world_objects::authored_upgrade_modules::upgrade_mux_data(
+                        module,
+                    ),
+                })
+            }
             _ => continue,
         };
         result.push(NativeLifecycleDefinition {
@@ -238,18 +292,39 @@ fn parse_range(module: &BehaviorModuleDefinition) -> Result<LifetimeFrameRange, 
     Ok(LifetimeFrameRange { minimum, maximum })
 }
 
+/// C++ scanUnsignedInt accepts a decimal prefix (e.g. 95ms, or 1s);
+/// the suffix does not change the parsed value.
+fn unsigned_prefix(
+    module: &BehaviorModuleDefinition,
+    field: &str,
+    value: &str,
+) -> Result<u32, String> {
+    let token = value.trim_start();
+    let token = token.strip_prefix('+').unwrap_or(token);
+    let end = token.bytes().take_while(u8::is_ascii_digit).count();
+    token[..end]
+        .parse::<u32>()
+        .map_err(|_| invalid(module, field))
+}
+
+/// INI::parseUnsignedInt with a caller default for an absent field.
+fn unsigned(
+    module: &BehaviorModuleDefinition,
+    field: &str,
+    default: u32,
+) -> Result<u32, String> {
+    let Some(value) = module.attribute(field) else {
+        return Ok(default);
+    };
+    unsigned_prefix(module, field, value)
+}
+
 fn duration(module: &BehaviorModuleDefinition, field: &str) -> Result<u32, String> {
     let Some(value) = module.attribute(field) else {
         return Ok(0);
     };
-    // C++ scanUnsignedInt accepts a decimal prefix (e.g. 95ms, or 1s).
     // Units in the suffix do not change the millisecond interpretation.
-    let token = value.trim_start();
-    let token = token.strip_prefix('+').unwrap_or(token);
-    let end = token.bytes().take_while(u8::is_ascii_digit).count();
-    let milliseconds = token[..end]
-        .parse::<u32>()
-        .map_err(|_| invalid(module, field))?;
+    let milliseconds = unsigned_prefix(module, field, value)?;
     // GameCommon.h: Real multiplication by LOGICFRAMES_PER_MSEC_REAL;
     // INI.cpp:1693 uses ceilf, retaining original f32 conversion order.
     let frames = (milliseconds as f32 * (30.0_f32 / 1000.0_f32)).ceil();

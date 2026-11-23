@@ -330,28 +330,47 @@ End
         )
     };
 
+    let fire_ocl_count = |template: &ThingTemplate| {
+        template
+            .native_lifecycle_definitions
+            .as_deref()
+            .map_or(0, |definitions| {
+                definitions
+                    .iter()
+                    .filter(|definition| {
+                        matches!(
+                            definition.kind,
+                            crate::game_logic::native_lifecycle_definition::NativeLifecycleKind::FireOclAfterCooldown(_)
+                        )
+                    })
+                    .count()
+            })
+    };
+
     let strategy = parsed("AmericaStrategyCenter");
     assert!(
         strategy.primary_auto_choose_none,
         "authored AutoChooseSources=PRIMARY NONE must land on the template"
     );
-    assert!(!strategy.has_fire_ocl_after_weapon_cooldown);
+    assert_eq!(fire_ocl_count(&strategy), 0);
     assert_eq!(
         strategy.primary_weapon_name.as_deref(),
         Some("StrategyCenterGun")
     );
 
     let toxin = parsed("GLAVehicleToxinTruck");
-    assert!(
-        toxin.has_fire_ocl_after_weapon_cooldown,
-        "FireOCLAfterWeaponCooldownUpdate must install from the Behavior, not the unit name"
+    assert_eq!(
+        fire_ocl_count(&toxin),
+        1,
+        "FireOCLAfterWeaponCooldownUpdate must parse from the Behavior, not the unit name"
     );
     assert!(!toxin.primary_auto_choose_none);
 
     let spill = parsed("ChemSpillSprayer");
-    assert!(
-        spill.has_fire_ocl_after_weapon_cooldown,
-        "a non-toxin-tractor name with the module must still carry FireOCL create policy"
+    assert_eq!(
+        fire_ocl_count(&spill),
+        1,
+        "a non-toxin-tractor name with the module must still parse the FireOCL lifecycle"
     );
 
     let bunker = parsed("OrdinaryAttackableBunker");
@@ -411,9 +430,24 @@ End
         .expect("spill sprayer");
     {
         let spill = logic.host_object(spill_id).expect("spill");
-        assert!(
-            spill.fire_ocl_after_cooldown.is_some(),
-            "FireOCL module data must install without a toxin-tractor template name"
+        assert_eq!(
+            spill
+                .native_lifecycle
+                .as_ref()
+                .map_or(0, |runtime| {
+                    runtime
+                        .states
+                        .iter()
+                        .filter(|state| {
+                            matches!(
+                                state,
+                                crate::game_logic::native_lifecycle::NativeLifecycleState::FireOclAfterCooldown { .. }
+                            )
+                        })
+                        .count()
+                }),
+            1,
+            "FireOCL module state must install without a toxin-tractor template name"
         );
         assert!(
             spill.secondary_weapon.is_none(),
@@ -428,8 +462,16 @@ End
         logic
             .host_object(toxin_id)
             .expect("toxin")
-            .fire_ocl_after_cooldown
-            .is_some()
+            .native_lifecycle
+            .as_ref()
+            .is_some_and(|runtime| {
+                runtime.states.iter().any(|state| {
+                    matches!(
+                        state,
+                        crate::game_logic::native_lifecycle::NativeLifecycleState::FireOclAfterCooldown { .. }
+                    )
+                })
+            })
     );
 
     let quad_id = logic
@@ -451,13 +493,12 @@ End
     // authored world above keeps its receiving owner; an uncaptured
     // template cannot be added to that owner's immutable namespace.
     let mut logic = GameLogic::new();
-    // Name residual still binds when Object INI never supplied the module.
     let mut fallback = ThingTemplate::new("TestToxinTruck");
     fallback
         .add_kind_of(KindOf::Vehicle)
         .add_kind_of(KindOf::Attackable)
         .set_health(240.0);
-    assert!(!fallback.has_fire_ocl_after_weapon_cooldown);
+    assert!(fallback.native_lifecycle_definitions.is_none());
     logic
         .templates
         .insert("TestToxinTruck".to_string(), fallback);
@@ -467,12 +508,12 @@ End
     {
         let fallback = logic.host_object(fallback_id).expect("fallback toxin");
         assert!(
-            fallback.fire_ocl_after_cooldown.is_some(),
-            "missing-INI toxin name still installs FireOCL residual"
+            fallback.native_lifecycle.is_none(),
+            "a missing authored module installs no synthetic FireOCL runtime"
         );
         assert!(
-            fallback.secondary_weapon.is_some(),
-            "missing-INI toxin name still binds spray residual"
+            fallback.secondary_weapon.is_none(),
+            "a missing module does not seed a secondary weapon from the unit name"
         );
     }
 }

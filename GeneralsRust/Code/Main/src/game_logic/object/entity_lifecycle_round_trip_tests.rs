@@ -19,7 +19,7 @@ fn present_groups(
     railroad: Option<&crate::game_logic::host_railroad::HostRailroadCar>,
 ) -> Vec<&'static str> {
     let mut out = Vec::new();
-    let pairs: [(&'static str, bool); 70] = [
+    let pairs: [(&'static str, bool); 69] = [
         (TAG_STATUS_BITS, true),
         (
             TAG_WEAPON_SLOTS,
@@ -142,10 +142,6 @@ fn present_groups(
         (
             TAG_FIRING_TRACKER,
             super::entity_lifecycle_inventory::FiringTrackerPersist::present(object),
-        ),
-        (
-            TAG_FIRE_OCL_AFTER_COOLDOWN,
-            object.fire_ocl_after_cooldown.is_some(),
         ),
         (TAG_ASSAULT_TRANSPORT, object.assault_transport.is_some()),
         (TAG_DEPLOY_STYLE, object.deploy_style.is_some()),

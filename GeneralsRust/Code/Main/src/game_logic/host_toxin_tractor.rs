@@ -590,11 +590,6 @@ pub fn is_legal_toxin_target(
     is_alive && !is_self && !under_construction && is_combat_kind && !is_airborne
 }
 
-/// Reload time seconds residual for delay frames @ 30 FPS.
-pub fn delay_frames_to_reload_secs(delay_frames: u32) -> f32 {
-    (delay_frames.max(1) as f32) / 30.0
-}
-
 /// One active residual poison field (medium spray or small death).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct HostToxinTractorPoisonZone {
@@ -647,63 +642,6 @@ pub struct HostToxinTractorPoisonTickPlan {
     pub source_team: super::Team,
     pub hits: Vec<HostToxinTractorPoisonHit>,
     pub death_type: crate::game_logic::host_usa_pilot::HostDeathType,
-}
-
-/// C++ FireOCLAfterWeaponCooldownUpdate residual state (toxin spray secondary).
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct HostFireOclAfterCooldownData {
-    pub consecutive_shots: u32,
-    pub start_frame: u32,
-    pub last_shot_frame: u32,
-    pub valid: bool,
-    pub ocl_spawns: u32,
-}
-
-impl HostFireOclAfterCooldownData {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    /// Record a secondary spray shot this frame.
-    pub fn record_shot(&mut self, current_frame: u32) {
-        if self.consecutive_shots == 0 {
-            self.start_frame = current_frame;
-        }
-        self.consecutive_shots = self.consecutive_shots.saturating_add(1);
-        self.last_shot_frame = current_frame;
-        self.valid = true;
-    }
-
-    /// Called when secondary is idle past coast; returns Some(lifetime_frames) if OCL should fire.
-    pub fn try_fire_ocl_on_cooldown(&mut self, current_frame: u32) -> Option<u32> {
-        if !self.valid {
-            return None;
-        }
-        if self.consecutive_shots < TOXIN_SPRAY_MIN_SHOTS_TO_CREATE_OCL {
-            self.reset();
-            return None;
-        }
-        let lifetime = ocl_lifetime_frames(self.start_frame, current_frame);
-        self.reset();
-        Some(lifetime.max(1))
-    }
-
-    pub fn reset(&mut self) {
-        self.consecutive_shots = 0;
-        self.start_frame = 0;
-        self.last_shot_frame = 0;
-        self.valid = false;
-    }
-}
-
-/// C++ fireOCL lifetime: (now-start)*seconds * (lifetimePerSecond_ms/1000) → frames, capped.
-pub fn ocl_lifetime_frames(start_frame: u32, now_frame: u32) -> u32 {
-    let elapsed = now_frame.saturating_sub(start_frame).max(1) as f32;
-    let seconds = elapsed / 30.0;
-    let life_sec = seconds * (TOXIN_SPRAY_OCL_LIFETIME_PER_SECOND_MS as f32) * 0.001;
-    let frames = (life_sec * 30.0).round() as u32;
-    let max_frames = ((TOXIN_SPRAY_OCL_LIFETIME_MAX_CAP_MS as f32) * 30.0 / 1000.0).round() as u32;
-    frames.min(max_frames.max(1)).max(1)
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -760,10 +698,6 @@ impl HostToxinTractorRegistry {
     pub fn record_stream_fire(&mut self, units_hit: u32) {
         self.stream_fires = self.stream_fires.saturating_add(1);
         self.stream_units_hit = self.stream_units_hit.saturating_add(units_hit);
-    }
-
-    pub fn record_fire_ocl_spawn(&mut self) {
-        self.fire_ocl_spawns = self.fire_ocl_spawns.saturating_add(1);
     }
 
     pub fn record_spray_fire(&mut self, units_hit: u32) {
@@ -1132,24 +1066,6 @@ pub fn honesty_toxin_tractor_residual_pack_ok() -> bool {
 
 #[cfg(test)]
 mod tests {
-    #[test]
-    fn fire_ocl_min_shots_and_lifetime() {
-        let mut d = super::HostFireOclAfterCooldownData::new();
-        assert!(d.try_fire_ocl_on_cooldown(10).is_none());
-        for f in 0..3u32 {
-            d.record_shot(f);
-        }
-        // Only 3 shots < 4.
-        assert!(d.try_fire_ocl_on_cooldown(20).is_none());
-        for f in 0..4u32 {
-            d.record_shot(100 + f);
-        }
-        let life = d.try_fire_ocl_on_cooldown(110).expect("ocl");
-        assert!(life >= 1);
-        // 10 frames = 1/3 sec * 10 lifetime_per_sec = ~3.33 sec → ~100 frames, capped.
-        assert!(life <= 5400); // max cap 180s
-    }
-
     use super::*;
     use crate::game_logic::Team;
 

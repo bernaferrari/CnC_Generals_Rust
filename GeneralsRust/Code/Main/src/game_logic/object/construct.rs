@@ -980,7 +980,6 @@ impl Object {
             auto_reload_when_idle_frames: tracker.auto_reload_when_idle_frames,
             frame_to_force_reload: 0,
             continuous_fire_coast_until_frame: 0,
-            fire_ocl_after_cooldown: None,
 
             faerie_fire_until_frame: 0,
             subdual_damage: 0.0,
@@ -1813,7 +1812,6 @@ impl Object {
             auto_reload_when_idle_frames: tracker.auto_reload_when_idle_frames,
             frame_to_force_reload: 0,
             continuous_fire_coast_until_frame: 0,
-            fire_ocl_after_cooldown: None,
 
             faerie_fire_until_frame: 0,
             subdual_damage: 0.0,

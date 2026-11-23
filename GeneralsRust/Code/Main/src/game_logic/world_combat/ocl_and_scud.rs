@@ -240,6 +240,38 @@ impl GameLogic {
         interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> OclExecutionOutcome {
+        self.execute_parsed_weapon_ocl_with_lifetime_and_births(
+            ocl_name,
+            source_id,
+            source_team,
+            source_veterancy,
+            source_orientation,
+            source_velocity,
+            origin,
+            secondary,
+            0,
+            interpreter,
+            presentation_effects,
+        )
+    }
+
+    /// `ObjectCreationList::create` `lifetimeFrames`: a nonzero caller value
+    /// overrides the authored nugget lifetime on an existing LifetimeUpdate
+    /// only (ObjectCreationList.cpp:917-933); zero keeps the nugget rule.
+    pub(in crate::game_logic) fn execute_parsed_weapon_ocl_with_lifetime_and_births(
+        &mut self,
+        ocl_name: &str,
+        source_id: Option<ObjectId>,
+        source_team: Team,
+        source_veterancy: VeterancyLevel,
+        source_orientation: f32,
+        source_velocity: Vec3,
+        origin: Vec3,
+        secondary: Option<(ObjectId, &crate::assets::LiveDrawPlaybackIdentity)>,
+        lifetime_frames: u32,
+        interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
+        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> OclExecutionOutcome {
         use gamelogic::object_creation_list::{
             DebrisDisposition, GenericObjectCreationNugget, ObjectCreationNugget,
         };
@@ -345,6 +377,7 @@ impl GameLogic {
                     source_birth.expect("source birth captured"),
                     source_team,
                     origin,
+                    lifetime_frames,
                     presentation_effects,
                 );
                 created.extend(debris.created);
@@ -544,7 +577,18 @@ impl GameLogic {
                 let Some(object) = self.objects.get_mut(&created_id) else {
                     continue;
                 };
-                if generic.max_frames > 0 && object.native_lifecycle.is_some() {
+                if lifetime_frames != 0 {
+                    // Caller lifetime overrides the nugget lifetime on an
+                    // existing LifetimeUpdate only; no timer is synthesized.
+                    let _ = object.set_native_lifetime_range(
+                        self.frame,
+                        crate::game_logic::native_lifecycle_definition::LifetimeFrameRange {
+                            minimum: lifetime_frames,
+                            maximum: lifetime_frames,
+                        },
+                        &self.logic_random,
+                    );
+                } else if generic.max_frames > 0 && object.native_lifecycle.is_some() {
                     object.set_native_lifetime_range(
                         self.frame,
                         crate::game_logic::native_lifecycle_definition::LifetimeFrameRange {
@@ -775,6 +819,7 @@ impl GameLogic {
         source_birth: (u64, u64),
         source_team: Team,
         origin: Vec3,
+        lifetime_frames: u32,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> OclExecutionOutcome {
         use gamelogic::object_creation_list::DebrisDisposition as D;
@@ -906,10 +951,21 @@ impl GameLogic {
                 self.set_owned_pathfinder_layer(id, source_layer);
             }
             if let Some(object) = self.objects.get_mut(&id) {
-                // C++ doStuffToObj: override the first existing LifetimeUpdate
-                // only when the nugget authored a positive maximum. The setter
-                // consumes this receiving world's RNG after factory creation.
-                if generic.max_frames > 0 {
+                // C++ doStuffToObj: a nonzero caller lifetime overrides the
+                // nugget lifetime on the first existing LifetimeUpdate; the
+                // nugget maximum applies only when no override was passed.
+                // The setter consumes this receiving world's RNG after
+                // factory creation.
+                if lifetime_frames != 0 {
+                    let _ = object.set_native_lifetime_range(
+                        self.frame,
+                        crate::game_logic::native_lifecycle_definition::LifetimeFrameRange {
+                            minimum: lifetime_frames,
+                            maximum: lifetime_frames,
+                        },
+                        &self.logic_random,
+                    );
+                } else if generic.max_frames > 0 {
                     let _ = object.set_native_lifetime_range(
                         self.frame,
                         crate::game_logic::native_lifecycle_definition::LifetimeFrameRange {

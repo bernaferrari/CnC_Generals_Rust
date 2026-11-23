@@ -570,7 +570,6 @@ impl GameLogic {
             #[cfg(test)]
             residual_gate_seam::note(&residual_gate_seam::NUKE_CANNON_ZONES);
         }
-        self.tick_fire_ocl_after_weapon_cooldown();
         // Wave 825: host-sole unless movement authority live: zone/field damage sole-ticks after GW writeback.
         {
             if let Err(error) = self.update_toxin_tractor_poison_zones_with_effects(&mut ui) {

@@ -1,8 +1,8 @@
 //! Object-owned authored update modules. Each slot retains its own continuation;
 //! immediate engine effects run after ending the bounded Object borrow.
 use super::native_lifecycle_definition::{
-    EmpUpdateDefinition, HeightDieDefinition, LifetimeFrameRange, NativeLifecycleDefinition,
-    NativeLifecycleKind,
+    EmpUpdateDefinition, FireOclAfterCooldownDefinition, HeightDieDefinition, LifetimeFrameRange,
+    NativeLifecycleDefinition, NativeLifecycleKind,
 };
 use super::{GameLogic, KindOf, Object, ObjectId};
 use glam::Vec3;
@@ -29,6 +29,12 @@ pub(crate) enum NativeLifecycleState {
         weapon: Option<crate::game_logic::host_temporary_weapon_behavior::TemporaryWeaponRuntimeState>,
     },
     Emp(EmpUpdateState),
+    /// C++ FireOCLAfterWeaponCooldownUpdate `m_valid` + resetStats fields.
+    FireOclAfterCooldown {
+        valid: bool,
+        consecutive_shots: u32,
+        start_frame: u32,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -76,7 +82,8 @@ impl NativeLifecycleRuntime {
             }
             NativeLifecycleState::HeightDie { .. }
             | NativeLifecycleState::FireWeapon { .. }
-            | NativeLifecycleState::Emp(_) => return None,
+            | NativeLifecycleState::Emp(_)
+            | NativeLifecycleState::FireOclAfterCooldown { .. } => return None,
         };
         if !*active || frame < *die_frame {
             return None;
@@ -129,6 +136,10 @@ impl NativeLifecycleRuntime {
                                         || state.die_frame.wrapping_sub(state.fade_frame)
                                             == definition.lifetime_frames - definition.start_fade_frames)
                             }
+                            (
+                                NativeLifecycleKind::FireOclAfterCooldown(_),
+                                NativeLifecycleState::FireOclAfterCooldown { .. },
+                            ) => true,
                             _ => false,
                         }
                 })
@@ -227,6 +238,15 @@ impl Object {
                     NativeLifecycleState::FireWeapon {
                         initial_delay_frame: frame.wrapping_add(definition.initial_delay),
                         weapon,
+                    }
+                }
+                // FireOCLAfterWeaponCooldownUpdate.cpp:68-73 — constructor binds
+                // m_valid=false and resetStats; no clock or RNG draw.
+                NativeLifecycleKind::FireOclAfterCooldown(_) => {
+                    NativeLifecycleState::FireOclAfterCooldown {
+                        valid: false,
+                        consecutive_shots: 0,
+                        start_frame: 0,
                     }
                 }
                 NativeLifecycleKind::Emp(definition) => {
@@ -381,10 +401,144 @@ impl GameLogic {
                         self.tick_native_emp_with_effects(id, index, &identity, &definition, effects)?;
                     }
                 }
+                NativeLifecycleKind::FireOclAfterCooldown(definition) => {
+                    if !timers_only {
+                        self.tick_native_fire_ocl_after_cooldown(id, index, &definition, effects)?;
+                    }
+                }
             }
         }
         Ok(())
     }
+
+    /// C++ FireOCLAfterWeaponCooldownUpdate::update (lines 78–146) and fireOCL
+    /// (lines 156–172): count consecutive shots on the configured slot, and
+    /// create the authored OCL when the weapon could have fired but did not.
+    fn tick_native_fire_ocl_after_cooldown(
+        &mut self,
+        id: ObjectId,
+        index: usize,
+        def: &FireOclAfterCooldownDefinition,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> gamelogic::GameLogicResult<()> {
+        let frame = self.frame;
+        let (
+            last_shot,
+            next_shot,
+            selected,
+            can_fire,
+            team,
+            veterancy,
+            orientation,
+            velocity,
+            position,
+            identity,
+        ) = {
+            let Some(object) = self.objects.get(&id) else {
+                return Ok(());
+            };
+            let weapon = object.weapon_slot(def.slot);
+            let selected = object.selected_weapon_slot() == Some(def.slot);
+            // C++ maskToCheck = controlling player's completed upgrades plus
+            // the object's completed upgrades; name-keyed masks are
+            // case-insensitive.
+            let player = object
+                .owner_player_id
+                .and_then(|pid| self.get_player(pid));
+            let has = |name: &str| {
+                object
+                    .applied_upgrades
+                    .iter()
+                    .any(|owned| owned.eq_ignore_ascii_case(name))
+                    || player.is_some_and(|player| {
+                        player
+                            .completed_upgrades
+                            .iter()
+                            .any(|owned| owned.eq_ignore_ascii_case(name))
+                    })
+            };
+            // UpgradeModule.cpp:150-186 — empty triggers pass absent conflicts.
+            let can_fire = !def.upgrades.conflicts_with.iter().any(|name| has(name))
+                && (def.upgrades.triggered_by.is_empty()
+                    || def.upgrades.satisfied_by(&has));
+            (
+                weapon.map(|weapon| weapon.last_fire_frame),
+                weapon.map(|weapon| weapon.next_fire_frame),
+                selected,
+                can_fire,
+                object.team,
+                object.experience.level,
+                object.get_orientation(),
+                object.movement.velocity,
+                object.get_position(),
+                self.live_draw_playback_identity(object),
+            )
+        };
+        let valid_now = selected && can_fire;
+        let lifetime = {
+            let Some(object) = self.objects.get_mut(&id) else {
+                return Ok(());
+            };
+            let Some(runtime) = object.native_lifecycle.as_mut() else {
+                return Ok(());
+            };
+            let Some(NativeLifecycleState::FireOclAfterCooldown {
+                valid,
+                consecutive_shots,
+                start_frame,
+            }) = runtime.states.get_mut(index)
+            else {
+                return Ok(());
+            };
+            // A weapon that still cannot fire (no weapon or the committed
+            // deadline is not yet past) only accumulates shots.
+            let fire = if valid_now {
+                if last_shot == Some(frame.wrapping_sub(1)) {
+                    *consecutive_shots = consecutive_shots.wrapping_add(1);
+                    if *consecutive_shots == 1 {
+                        *start_frame = frame;
+                    }
+                    false
+                } else {
+                    next_shot.is_some_and(|next| next < frame)
+                        && *consecutive_shots >= def.min_shots
+                }
+            } else {
+                !selected && last_shot.is_some() && *consecutive_shots >= def.min_shots
+            };
+            // C++ fireOCL: lifetime scales with the firing streak duration.
+            let lifetime = fire.then(|| {
+                let seconds = frame.wrapping_sub(*start_frame) as f32 * (1.0_f32 / 30.0_f32);
+                let seconds = seconds * (def.lifetime_per_second as f32 * 0.001_f32);
+                ((seconds * 30.0_f32) as u32).min(def.max_frames)
+            });
+            if fire || *valid != valid_now {
+                *consecutive_shots = 0;
+                *start_frame = 0;
+            }
+            *valid = valid_now;
+            lifetime
+        };
+        let (Some(lifetime), Some(ocl)) = (lifetime, def.ocl.as_deref()) else {
+            return Ok(());
+        };
+        // ObjectCreationList::create(m_ocl, obj, obj, oclFrames).
+        let outcome = self.execute_parsed_weapon_ocl_with_lifetime_and_births(
+            ocl,
+            Some(id),
+            team,
+            veterancy,
+            orientation,
+            velocity,
+            position,
+            Some((id, &identity)),
+            lifetime,
+            None,
+            effects,
+        );
+        outcome.error.map_or(Ok(()), Err)
+    }
+
     fn native_height_die_surface(
         &self,
         id: ObjectId,

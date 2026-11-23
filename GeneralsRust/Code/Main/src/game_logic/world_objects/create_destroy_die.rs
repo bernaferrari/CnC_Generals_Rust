@@ -1954,7 +1954,6 @@ impl GameLogic {
             // from ThingTemplate INI (AutoChooseSources, FireOCLAfterWeaponCooldown).
             // Name residuals below are missing-INI fallbacks only.
             let primary_auto_choose_none = template.primary_auto_choose_none;
-            let has_fire_ocl_after_weapon_cooldown = template.has_fire_ocl_after_weapon_cooldown;
             let partition_cash = template.build_cost.supplies;
             let partition_threat = u32::from(template.get_threat_value());
             let mut initial_status = ObjectStatus::default();
@@ -2061,52 +2060,6 @@ impl GameLogic {
                         w.can_target_ground = false;
                     }
                 }
-            }
-
-            // FireOCLAfterWeaponCooldownUpdate: crate module init from the
-            // authored Behavior. Name residual is missing-INI fallback for
-            // hand-built GLAVehicleToxinTruck fixtures (C++ GLAVehicle.ini:3697).
-            if has_fire_ocl_after_weapon_cooldown
-                || crate::game_logic::host_toxin_tractor::is_toxin_tractor_template(template_name)
-            {
-                object.fire_ocl_after_cooldown = Some(
-                    crate::game_logic::host_toxin_tractor::HostFireOclAfterCooldownData::new(),
-                );
-                // Retail ToxinTruckSprayer PrimaryDamage=0 fails
-                // weapon_from_store; host seed uses 0.001. Missing-INI only.
-                if object.secondary_weapon.is_none()
-                    && crate::game_logic::host_toxin_tractor::is_toxin_tractor_template(
-                        template_name,
-                    )
-                {
-                    use crate::game_logic::host_toxin_tractor::{
-                        TOXIN_SPRAY_DELAY_FRAMES, TOXIN_SPRAY_RANGE, delay_frames_to_reload_secs,
-                    };
-                    object.secondary_weapon = Some(Weapon {
-                        damage: 0.001,
-                        range: TOXIN_SPRAY_RANGE,
-                        min_range: 0.0,
-                        reload_time: delay_frames_to_reload_secs(TOXIN_SPRAY_DELAY_FRAMES),
-                        last_fire_time: 0.0,
-                        last_fire_frame: 0,
-                        ammo: None,
-                        clip_size: 0,
-                        clip_reload_time: 0.0,
-                        can_target_air: false,
-                        can_target_ground: true,
-                        projectile_speed: 600.0,
-                        pre_attack_delay: 0.0,
-                        splash_radius: 0.0,
-                        suspend_fx_frame: 0,
-                        reloading_clip: false,
-                        last_bonus_rof: 0.0,
-                        next_fire_frame: 0,
-                        reload_started_frame: 0,
-                        frame_clock_active: false,
-                        frame_clock_status: Default::default(),
-                    });
-                }
-                object.template_mut().apply_retail_button_only_auto_choose();
             }
 
             // Locomotor catalog → host Movement + braking/wander/damaged.

@@ -11,7 +11,7 @@ use gamelogic::world::entities::{
     TemplateRef, Transform,
 };
 
-const EXPECTED_INVENTORY_LEN: usize = 74;
+const EXPECTED_INVENTORY_LEN: usize = 73;
 
 pub(super) const EXPECTED_INVENTORY_TAGS: &[&str] = &[
     "StatusBits",
@@ -68,7 +68,6 @@ pub(super) const EXPECTED_INVENTORY_TAGS: &[&str] = &[
     "MinefieldBehavior",
     "SpawnBehavior",
     "FiringTracker",
-    "FireOclAfterCooldown",
     "AssaultTransport",
     "DeployStyleAIUpdate",
     "SlavedUpdate",
