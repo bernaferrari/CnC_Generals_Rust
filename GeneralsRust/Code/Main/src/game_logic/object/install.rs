@@ -1,10 +1,12 @@
 use super::*;
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 pub(in crate::game_logic) enum TimedDisable {
     Emp,
     Hacked,
     Paralyzed,
+    Awestruck,
+    Brainwashed,
 }
 
 impl TimedDisable {
@@ -22,6 +24,14 @@ impl TimedDisable {
             Self::Paralyzed => (
                 &mut status.disabled_paralyzed,
                 &mut status.disabled_paralyzed_until_frame,
+            ),
+            Self::Awestruck => (
+                &mut status.disabled_awestruck,
+                &mut status.disabled_awestruck_until_frame,
+            ),
+            Self::Brainwashed => (
+                &mut status.disabled_brainwashed,
+                &mut status.disabled_brainwashed_until_frame,
             ),
         }
     }
@@ -946,6 +956,14 @@ impl Object {
                 self.status.disabled_paralyzed,
                 self.status.disabled_paralyzed_until_frame,
             ),
+            TimedDisable::Awestruck => (
+                self.status.disabled_awestruck,
+                self.status.disabled_awestruck_until_frame,
+            ),
+            TimedDisable::Brainwashed => (
+                self.status.disabled_brainwashed,
+                self.status.disabled_brainwashed_until_frame,
+            ),
         };
         active.then_some(deadline)
     }
@@ -956,7 +974,11 @@ impl Object {
         frame: u32,
     ) -> bool {
         self.timed_disable_deadline(effect)
-            .is_some_and(|deadline| deadline != 0 && frame >= deadline)
+            .is_some_and(|deadline| {
+                frame >= deadline
+                    && (deadline != 0
+                        || matches!(effect, TimedDisable::Awestruck | TimedDisable::Brainwashed))
+            })
     }
 
     pub(in crate::game_logic) fn queue_timed_disable_reenabled_audio(
@@ -973,17 +995,22 @@ impl Object {
         }
     }
 
-    pub(in crate::game_logic) fn clear_timed_disable(&mut self, effect: TimedDisable) -> bool {
+    /// The owning world's clearDisabled checks other due flags before the
+    /// recovery callback. Standalone object callers dispatch their local edge.
+    pub(in crate::game_logic) fn clear_timed_disable_mask(&mut self, effect: TimedDisable) -> bool {
         let (active, deadline) = effect.state_mut(&mut self.status);
         if !*active {
             return false;
         }
         *active = false;
         *deadline = 0;
-        if !self.has_disabled_type() {
+        true
+    }
+
+    fn clear_timed_disable(&mut self, effect: TimedDisable) {
+        if self.clear_timed_disable_mask(effect) && !self.has_disabled_type() {
             self.on_disabled_edge(false);
         }
-        true
     }
 
     pub fn tick_disabled_hacked(
@@ -1068,6 +1095,11 @@ impl Object {
         {
             return;
         }
+        self.queue_radar_disabled_callback(becoming_disabled);
+    }
+
+    /// A dispatched Object::onDisabledEdge may repeat after a nested clear.
+    pub(in crate::game_logic) fn queue_radar_disabled_callback(&mut self, becoming_disabled: bool) {
         if let Some(rules) = &self.thing.template.radar_upgrade_rules {
             for (module_index, rule) in rules.iter().enumerate().take(1) {
                 if self

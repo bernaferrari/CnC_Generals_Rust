@@ -161,7 +161,7 @@ impl GameLogic {
         self.admit_host_radar_disabled_edges(id);
         if disable_callback {
             if matches!(request, DisableUntil::NamedHeld { .. }) {
-                self.admit_named_held_energy_callback(id);
+                self.admit_producer_energy_without_mask_change(id, true);
             } else {
                 self.admit_owned_producer_energy_edge(id, true);
             }
@@ -176,7 +176,13 @@ impl GameLogic {
         0
     }
 
-    fn admit_named_held_energy_callback(&mut self, id: ObjectId) {
+    /// Apply an original callback whose mask change has already been accounted
+    /// for, including a named HELD command or an outer clearDisabled callback.
+    pub(in crate::game_logic) fn admit_producer_energy_without_mask_change(
+        &mut self,
+        id: ObjectId,
+        disabled: bool,
+    ) {
         let Some((owner, energy)) = self.objects.get(&id).and_then(|object| {
             object
                 .owner_player_id
@@ -184,12 +190,11 @@ impl GameLogic {
         }) else {
             return;
         };
-        // The named deadline already accounted for its mask change.
-        self.signal_producer_energy_edge(owner, energy, 0, false);
+        self.signal_producer_energy_edge(owner, energy, 0, !disabled);
         self.record_power_projection(owner);
     }
 
-    fn containment_disable_rider(&self, owner: ObjectId) -> Option<ObjectId> {
+    pub(in crate::game_logic) fn containment_disable_rider(&self, owner: ObjectId) -> Option<ObjectId> {
         let object = self.host_object(owner)?;
         if object.get_template().contain_module.kind == crate::game_logic::ContainModuleKind::RiderChange {
             let &rider = object.contained_unit_ids().first()?;
@@ -642,6 +647,53 @@ End
             world.objects[&child].is_held_disabled(),
             "an unchanged parent deadline does not revisit its children"
         );
+    }
+
+    #[test]
+    fn same_frame_disable_expiry_delivers_each_recursive_recovery_callback() {
+        let (mut world, ids) = spawned_radar_world();
+        let (mut restored, restored_ids) = spawned_radar_world();
+        let (mut peer, peer_ids) = spawned_radar_world();
+        assert_eq!(ids, restored_ids);
+        assert_eq!(ids, peer_ids);
+        let [_, plant, spawned] = ids;
+
+        assert!(world.apply_owned_hacked_disabled(plant, 6));
+        assert!(world.apply_owned_emp_disabled(plant, 6));
+        assert!(peer.apply_owned_emp_disabled(plant, 6));
+        assert_eq!(world.players[&1].power_produced, 0);
+        assert_eq!(world.players[&1].radar_count, 0);
+
+        let builder = crate::save_load::snapshot::SnapshotBuilder::new();
+        let snapshot = builder.create_world_snapshot(&world).unwrap();
+        let bytes = bincode_legacy::serialize(&snapshot).unwrap();
+        let decoded = crate::save_load::snapshot::decode_bincode_world_snapshot(&bytes).unwrap();
+        builder.restore_from_snapshot(&decoded, &mut restored).unwrap();
+
+        for owner in [&mut world, &mut restored] {
+            owner.set_current_frame(5);
+            owner.expire_owned_disabled_statuses();
+            assert_eq!(owner.players[&1].power_produced, 0);
+            assert_eq!(owner.players[&1].radar_count, 0);
+            owner.set_current_frame(6);
+            owner.expire_owned_disabled_statuses();
+            for id in [plant, spawned] {
+                assert!(!owner.objects[&id].has_disabled_type());
+            }
+            // Clear HACKED -> checkDisabledStatus -> clear EMP -> enable,
+            // then the suspended HACKED clear observes the empty mask too.
+            assert_eq!(owner.players[&1].power_produced, 40);
+            assert_eq!(owner.players[&1].radar_count, 2);
+            owner.update_player_resources(0.);
+            owner.expire_owned_disabled_statuses();
+            assert_eq!(owner.players[&1].power_produced, 40);
+            assert_eq!(owner.players[&1].radar_count, 2);
+        }
+
+        peer.set_current_frame(6);
+        peer.expire_owned_disabled_statuses();
+        assert_eq!(peer.players[&1].power_produced, 20);
+        assert_eq!(peer.players[&1].radar_count, 1);
     }
 
     #[test]

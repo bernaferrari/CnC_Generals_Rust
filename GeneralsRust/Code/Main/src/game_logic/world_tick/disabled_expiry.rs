@@ -2,6 +2,15 @@
 use super::super::*;
 use crate::game_logic::object::TimedDisable;
 
+// Relative order from C++ DisabledTypes.h for the modeled deadlines.
+const TIMED_DISABLE_ORDER: [TimedDisable; 5] = [
+    TimedDisable::Hacked,
+    TimedDisable::Emp,
+    TimedDisable::Paralyzed,
+    TimedDisable::Awestruck,
+    TimedDisable::Brainwashed,
+];
+
 impl GameLogic {
     pub(in super::super) fn expire_owned_disabled_statuses(&mut self) {
         self.expire_owned_disabled_statuses_with_effects(&mut Default::default())
@@ -16,8 +25,8 @@ impl GameLogic {
         // its Player callbacks; no object is temporarily removed from its store.
         let ids: Vec<_> = self.objects.registered_keys().copied().collect();
         let epoch = self.visual_world_epoch;
-        let mut ancestors = Vec::new();
-        'actor: for id in ids {
+        let mut clearing = Vec::new();
+        for id in ids {
             if self.visual_world_epoch != epoch {
                 return;
             }
@@ -25,35 +34,36 @@ impl GameLogic {
                 continue;
             };
             let birth = object.visual_object_generation;
-            for effect in [TimedDisable::Hacked, TimedDisable::Emp, TimedDisable::Paralyzed] {
-                let due = self.objects.get(&id).is_some_and(|object| {
-                    object.timed_disable_expires_at(effect, self.frame)
-                });
-                if due {
-                    self.clear_owned_timed_disable(id, effect, &mut ancestors);
-                    if self.visual_world_epoch != epoch {
-                        return;
-                    }
-                    if !self
-                        .objects
-                        .get(&id)
-                        .is_some_and(|object| object.visual_object_generation == birth)
-                    {
-                        continue 'actor;
-                    }
-                }
+            self.expire_object_disable_deadlines(id, birth, epoch, &mut clearing);
+            if self.spawn_identity_matches(id, birth, epoch) {
+                self.admit_host_radar_provider_with_effects(id, effects);
             }
+        }
+    }
 
-            let Some(object) = self.objects.get_mut(&id) else {
-                continue;
-            };
-            let was_disabled = object.has_disabled_type();
-            object.tick_remaining_disabled(self.frame);
-            let reenabled = was_disabled && !object.has_disabled_type();
-            self.admit_host_radar_provider_with_effects(id, effects);
-            if reenabled {
-                self.admit_owned_producer_energy_edge(id, false);
+    fn expire_object_disable_deadlines(
+        &mut self,
+        id: ObjectId,
+        birth: u64,
+        epoch: u64,
+        clearing: &mut Vec<(ObjectId, TimedDisable)>,
+    ) {
+        let mut remaining = TIMED_DISABLE_ORDER.into_iter();
+        loop {
+            if self.visual_world_epoch != epoch {
+                return;
             }
+            let Some(object) = self.objects.get(&id)
+                .filter(|object| object.visual_object_generation == birth)
+            else {
+                return;
+            };
+            let Some(effect) = remaining.find(|&effect| {
+                object.timed_disable_expires_at(effect, self.frame)
+            }) else {
+                return;
+            };
+            self.clear_owned_timed_disable(id, effect, clearing);
         }
     }
 
@@ -64,29 +74,41 @@ impl GameLogic {
         &mut self,
         id: ObjectId,
         effect: TimedDisable,
-        ancestors: &mut Vec<ObjectId>,
+        clearing: &mut Vec<(ObjectId, TimedDisable)>,
     ) {
-        if ancestors.contains(&id) {
+        let key = (id, effect);
+        if clearing.contains(&key) {
             return;
         }
         let epoch = self.visual_world_epoch;
-        let (birth, children) = {
+        let (birth, deadline) = {
             let Some(object) = self.objects.get(&id) else {
                 return;
             };
-            if object.timed_disable_deadline(effect).is_none() {
+            let Some(deadline) = object.timed_disable_deadline(effect) else {
+                return;
+            };
+            object.queue_timed_disable_reenabled_audio(effect, &mut self.health_events);
+            (object.visual_object_generation, deadline)
+        };
+        if deadline == game_engine::common::game_common::FOREVER
+            && let Some(rider) = self.containment_disable_rider(id)
+        {
+            clearing.push(key);
+            self.clear_owned_timed_disable(rider, effect, clearing);
+            clearing.pop();
+            if !self.spawn_identity_matches(id, birth, epoch) {
                 return;
             }
-            object.queue_timed_disable_reenabled_audio(effect, &mut self.health_events);
-            let children = if object.is_spawns_are_the_weapons() {
-                object.spawn_behavior_children()
-            } else {
-                Vec::new()
-            };
-            (object.visual_object_generation, children)
-        };
+        }
+        let children = self
+            .objects
+            .get(&id)
+            .filter(|object| object.is_spawns_are_the_weapons())
+            .map(Object::spawn_behavior_children)
+            .unwrap_or_default();
         if !children.is_empty() {
-            ancestors.push(id);
+            clearing.push(key);
             for (child, child_birth) in children {
                 if !self.spawn_identity_matches(id, birth, epoch) {
                     break;
@@ -95,24 +117,37 @@ impl GameLogic {
                     parent.contains_spawn_behavior_child(child, &child_birth)
                 });
                 if still_child && self.spawn_identity_matches(child, child_birth, epoch) {
-                    self.clear_owned_timed_disable(child, effect, ancestors);
+                    self.clear_owned_timed_disable(child, effect, clearing);
                 }
             }
-            ancestors.pop();
+            clearing.pop();
             if !self.spawn_identity_matches(id, birth, epoch) {
                 return;
             }
         }
-        let reenabled = {
+        let mask_became_clear = {
             let object = self.objects.get_mut(&id).unwrap();
-            if !object.clear_timed_disable(effect) {
+            if !object.clear_timed_disable_mask(effect) {
                 return;
             }
             !object.has_disabled_type()
         };
+        // Object.cpp:2304–2308 checks from the start again after each clear.
+        // An inner clear can dispatch an enable callback before this one.
+        self.expire_object_disable_deadlines(id, birth, epoch, clearing);
+        if !self.spawn_identity_matches(id, birth, epoch) {
+            return;
+        }
+        let object = self.objects.get_mut(&id).unwrap();
+        if object.has_disabled_type() {
+            return;
+        }
+        object.queue_radar_disabled_callback(false);
         self.admit_host_radar_disabled_edges(id);
-        if reenabled {
+        if mask_became_clear {
             self.admit_owned_producer_energy_edge(id, false);
+        } else {
+            self.admit_producer_energy_without_mask_change(id, false);
         }
     }
 }
