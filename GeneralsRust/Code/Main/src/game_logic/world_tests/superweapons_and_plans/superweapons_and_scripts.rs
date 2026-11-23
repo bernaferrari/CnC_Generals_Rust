@@ -2709,6 +2709,95 @@ fn script_disable_unit_construction_and_techtree_override_write_live() {
 }
 
 #[test]
+fn named_held_releases_the_mask_without_replaying_the_enable_callback() {
+    use gamelogic::scripting::core::{Parameter, ParameterType, ScriptActionType};
+
+    let fixture = || {
+        let mut world = GameLogic::new();
+        let ini = "
+Object NamedHoldPlant
+ KindOf = STRUCTURE
+ EnergyProduction = 20
+End
+Object NamedHoldConsumer
+ KindOf = STRUCTURE POWERED
+ EnergyProduction = -30
+End";
+        world
+            .admit_receiving_module_content(
+                crate::assets::ReceivingObjectContent::from_sources([(
+                    "named-hold.ini".into(),
+                    ini.into(),
+                )])
+                .unwrap(),
+            )
+            .unwrap();
+        let mut player = Player::new(0, Team::USA, "NamedHoldOwner", true);
+        player.add_radar(false);
+        world.add_player(player);
+        let plant = world
+            .create_object_for_player("NamedHoldPlant", 0, glam::Vec3::ZERO)
+            .unwrap();
+        world
+            .create_object_for_player("NamedHoldPlant", 0, glam::Vec3::X)
+            .unwrap();
+        let consumer = world
+            .create_object_for_player("NamedHoldConsumer", 0, glam::Vec3::Z)
+            .unwrap();
+        world.set_host_object_name(plant, "HeldPlant");
+        world.initialize_receiving_named_cache_for_fixture();
+        (world, plant, consumer)
+    };
+    let set_held = |world: &mut GameLogic, held| {
+        execute_owned_fixture_action(
+            world,
+            ScriptActionType::NamedSetHeld,
+            vec![
+                Parameter::with_string(ParameterType::Unit, "HeldPlant".into()),
+                Parameter::with_int(ParameterType::Int, i32::from(held)),
+            ],
+        );
+    };
+    let (mut world, plant, consumer) = fixture();
+    let (peer, peer_plant, peer_consumer) = fixture();
+    assert_eq!((plant, consumer), (peer_plant, peer_consumer));
+    assert_eq!(world.players[&0].power_produced, 40);
+
+    set_held(&mut world, true);
+    assert!(world.objects[&plant].is_held_disabled());
+    assert_eq!(world.players[&0].power_produced, 20, "setDisabledUntil(FOREVER)");
+    assert!(world.objects[&consumer].status.disabled_underpowered);
+    assert!(!world.players[&0].has_radar());
+    set_held(&mut world, true);
+    assert_eq!(world.players[&0].power_produced, 20);
+
+    set_held(&mut world, false);
+    assert!(!world.objects[&plant].is_held_disabled());
+    assert_eq!(world.players[&0].power_produced, 20, "setDisabledUntil(NEVER)");
+    world.update_player_resources(0.);
+    assert_eq!(world.players[&0].power_produced, 20, "after resource update");
+
+    // An already active object still takes onDisabledEdge(true) when the
+    // script calls setDisabledUntil(NEVER) again. The mask stays clear.
+    set_held(&mut world, false);
+    assert!(!world.objects[&plant].has_disabled_type());
+    assert_eq!(world.players[&0].power_produced, 0);
+    world.update_player_resources(0.);
+    assert_eq!(world.players[&0].power_produced, 0);
+    assert_eq!(peer.players[&0].power_produced, 40);
+    assert!(peer.players[&0].has_radar());
+
+    let builder = crate::save_load::snapshot::SnapshotBuilder::new();
+    let snapshot = builder.create_world_snapshot(&world).unwrap();
+    let bytes = bincode_legacy::serialize(&snapshot).unwrap();
+    let decoded = crate::save_load::snapshot::decode_bincode_world_snapshot(&bytes).unwrap();
+    let (mut restored, _, _) = fixture();
+    builder.restore_from_snapshot(&decoded, &mut restored).unwrap();
+    assert!(!restored.objects[&plant].has_disabled_type());
+    assert_eq!(restored.players[&0].power_produced, 40, "derived Energy on load");
+}
+
+#[test]
 fn script_disable_applies_producer_energy_before_the_next_action() {
     use crate::game_logic::{Player, Team};
     use gamelogic::scripting::core::{Parameter, ParameterType, ScriptActionType, THIS_PLAYER};

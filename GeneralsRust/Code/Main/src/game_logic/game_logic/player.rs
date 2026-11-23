@@ -115,11 +115,11 @@ pub struct Player {
     pub power_produced: i32,
     /// Total power consumed by this player's buildings (for energy ratio).
     pub power_consumed: i32,
-    /// Signed module credits outside the live producer fold. Disabled plant
-    /// callbacks affect Energy immediately and disabled capture leaves them
-    /// with the previous controller. Energy::xfer reconstructs these credits
-    /// from installed modules, so their runtime history is omitted from saves.
-    pub(crate) disabled_plant_bonus_adjustment: i32,
+    /// Signed callback deltas outside the live object fold. Disabled plant
+    /// bonuses and named HELD can change the relation between the mask and the
+    /// totals. Energy::xfer omits this runtime history.
+    pub(crate) power_production_adjustment: i32,
+    pub(crate) power_consumption_adjustment: i32,
     pub income_accumulator: f32,
     pub selected_objects: Vec<ObjectId>,
     /// C++ Player::m_squads. These ordered object-ID lists are the sole live
@@ -721,7 +721,8 @@ impl Player {
             power_available: 0,
             power_produced: 0,
             power_consumed: 0,
-            disabled_plant_bonus_adjustment: 0,
+            power_production_adjustment: 0,
+            power_consumption_adjustment: 0,
             income_accumulator: 0.0,
             selected_objects: Vec::new(),
             hotkey_squads: std::array::from_fn(|_| Vec::new()),

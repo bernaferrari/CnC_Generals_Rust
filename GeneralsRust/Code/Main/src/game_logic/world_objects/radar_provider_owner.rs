@@ -249,6 +249,7 @@ impl GameLogic {
 
     /// Run a bounded object status mutation and admit its callbacks before the
     /// next script/behavior observes Player radar. No ambient owner selection.
+    #[cfg(test)]
     pub(crate) fn with_owned_radar_disabled_operation<R>(
         &mut self,
         id: ObjectId,

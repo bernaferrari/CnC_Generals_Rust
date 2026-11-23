@@ -120,10 +120,7 @@ impl<'a> HostScriptExecutionDriver<'a> {
         };
         match request {
             Request::Held { held, .. } => {
-                self.world
-                    .with_owned_radar_disabled_operation(id, |object| {
-                        object.set_status_disabled_held(held)
-                    });
+                self.world.set_owned_named_held(id, held);
             }
             Request::Repulsor { enabled, .. } => {
                 if let Some(object) = self.world.host_object_mut(id) {

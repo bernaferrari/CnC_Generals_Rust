@@ -2,6 +2,12 @@
 use super::super::*;
 use crate::game_logic::object::TimedDisable;
 
+#[derive(Clone, Copy)]
+enum DisableUntil {
+    Timed { effect: TimedDisable, deadline: u32 },
+    NamedHeld { deadline: u32 },
+}
+
 impl GameLogic {
     /// EMPUpdate calls Object::setDisabledUntil on the installed target.
     pub(in crate::game_logic) fn apply_owned_emp_disabled(
@@ -9,7 +15,13 @@ impl GameLogic {
         id: ObjectId,
         until: u32,
     ) -> bool {
-        self.apply_owned_initial_disabled(id, until, TimedDisable::Emp)
+        self.apply_owned_initial_disabled(
+            id,
+            DisableUntil::Timed {
+                effect: TimedDisable::Emp,
+                deadline: until,
+            },
+        )
     }
 
     /// SpecialAbilityUpdate calls Object::setDisabledUntil on its target.
@@ -18,7 +30,13 @@ impl GameLogic {
         id: ObjectId,
         until: u32,
     ) -> bool {
-        self.apply_owned_initial_disabled(id, until, TimedDisable::Hacked)
+        self.apply_owned_initial_disabled(
+            id,
+            DisableUntil::Timed {
+                effect: TimedDisable::Hacked,
+                deadline: until,
+            },
+        )
     }
 
     /// BattlePlanUpdate calls Object::setDisabledUntil on the affected unit.
@@ -27,36 +45,71 @@ impl GameLogic {
         id: ObjectId,
         until: u32,
     ) -> bool {
-        self.apply_owned_initial_disabled(id, until, TimedDisable::Paralyzed)
+        self.apply_owned_initial_disabled(
+            id,
+            DisableUntil::Timed {
+                effect: TimedDisable::Paralyzed,
+                deadline: until,
+            },
+        )
+    }
+
+    /// ScriptActions.cpp:3875–3880 uses setDisabledUntil for both values.
+    pub(in crate::game_logic) fn set_owned_named_held(&mut self, id: ObjectId, held: bool) {
+        use game_engine::common::game_common::{FOREVER, NEVER};
+        let deadline = if held { FOREVER } else { NEVER };
+        self.apply_owned_initial_disabled(id, DisableUntil::NamedHeld { deadline });
     }
 
     fn apply_owned_initial_disabled(
         &mut self,
         id: ObjectId,
-        until: u32,
-        effect: TimedDisable,
+        request: DisableUntil,
     ) -> bool {
         let epoch = self.visual_world_epoch;
-        let (birth, became_disabled, deadline_changed) = {
+        let (birth, disable_callback, deadline_changed, held_power) = {
             let Some(object) = self.objects.get_mut(&id) else {
                 return false;
             };
             let was_disabled = object.has_disabled_type();
-            if effect.is_power_style() && !object.is_power_style_disabled() {
-                object.queue_power_disable_misc_audio(true, &mut self.health_events);
-            }
-            let mut audio = crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events);
-            let changed = object.begin_timed_disable(effect, until, &mut audio);
-            (
-                object.visual_object_generation,
-                !was_disabled && object.has_disabled_type(),
-                changed,
-            )
+            let (changed, disable_callback, held_power) = match request {
+                DisableUntil::Timed { effect, deadline } => {
+                    if effect.is_power_style() && !object.is_power_style_disabled() {
+                        object.queue_power_disable_misc_audio(true, &mut self.health_events);
+                    }
+                    let mut audio =
+                        crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events);
+                    let changed = object.begin_timed_disable(effect, deadline, &mut audio);
+                    (changed, !was_disabled && object.has_disabled_type(), None)
+                }
+                DisableUntil::NamedHeld { deadline } => {
+                    let before = Self::folded_named_held_production(object);
+                    let changed = object.set_named_held_deadline(deadline, self.frame);
+                    let after = Self::folded_named_held_production(object);
+                    // Object.cpp:2184 tests the mask at entry to setDisabledUntil.
+                    // A NEVER command may clear HELD without an enable callback,
+                    // or send a disable callback when the mask was already clear.
+                    let held_power = object
+                        .owner_player_id
+                        .map(|owner| (owner, before.wrapping_sub(after)));
+                    (changed, !was_disabled, held_power)
+                }
+            };
+            (object.visual_object_generation, disable_callback, changed, held_power)
         };
+        if let Some((owner, adjustment)) = held_power
+            && adjustment != 0
+            && let Some(player) = self.players.get_mut(&owner)
+        {
+            // A status change alone has no Energy effect. Cancel its effect on
+            // the legacy fold before child callbacks can observe the new mask.
+            player.power_production_adjustment =
+                player.power_production_adjustment.wrapping_add(adjustment);
+        }
         if deadline_changed {
             // C++ ContainModuleInterface::friend_getRider precedes SpawnBehavior.
             if let Some(rider) = self.containment_disable_rider(id) {
-                self.apply_owned_initial_disabled(rider, until, effect);
+                self.apply_owned_initial_disabled(rider, request);
                 if !self.spawn_identity_matches(id, birth, epoch) {
                     return true;
                 }
@@ -67,7 +120,9 @@ impl GameLogic {
                 .map(Object::spawn_behavior_children)
                 .filter(|children| !children.is_empty())
             {
-                self.apply_owned_spawn_children_disabled_until(id, birth, epoch, children, until, effect);
+                self.apply_owned_spawn_children_disabled_until(
+                    id, birth, epoch, children, request,
+                );
                 if !self.spawn_identity_matches(id, birth, epoch) {
                     return true;
                 }
@@ -76,7 +131,7 @@ impl GameLogic {
 
         // Object::setDisabledUntil calls onDisabledEdge after the children.
         // An earlier queued edge could be drained by a child's brownout.
-        if became_disabled {
+        if disable_callback {
             // Object::onDisabledEdge cancels an entered Dozer task before Radar and Energy.
             use gamelogic::object::update::ai_update::dozer_ai_update::DozerTask;
             let dozer_task = self.host_object(id).and_then(|object| {
@@ -104,10 +159,41 @@ impl GameLogic {
         }
 
         self.admit_host_radar_disabled_edges(id);
-        if became_disabled {
+        if disable_callback {
+            if matches!(request, DisableUntil::NamedHeld { .. }) {
+                self.record_named_held_energy_callback(id);
+            }
             self.admit_owned_producer_energy_edge(id, true);
         }
         true
+    }
+
+    fn folded_named_held_production(object: &Object) -> i32 {
+        if Self::object_contributes_power(object) && !object.has_disabled_type() {
+            return object.producer_energy_on_disabled_edge().unwrap_or(0);
+        }
+        0
+    }
+
+    fn record_named_held_energy_callback(&mut self, id: ObjectId) {
+        let Some((owner, energy)) = self.objects.get(&id).and_then(|object| {
+            object
+                .owner_player_id
+                .zip(object.producer_energy_on_disabled_edge())
+        }) else {
+            return;
+        };
+        if let Some(player) = self.players.get_mut(&owner) {
+            // The actual signed callback is independent of the HELD mask
+            // change above. Carry that delta into the next compatibility fold.
+            if energy > 0 {
+                player.power_production_adjustment =
+                    player.power_production_adjustment.wrapping_sub(energy);
+            } else {
+                player.power_consumption_adjustment =
+                    player.power_consumption_adjustment.wrapping_add(energy);
+            }
+        }
     }
 
     fn containment_disable_rider(&self, owner: ObjectId) -> Option<ObjectId> {
@@ -133,8 +219,7 @@ impl GameLogic {
         parent_birth: u64,
         epoch: u64,
         children: Vec<(ObjectId, u64)>,
-        until: u32,
-        effect: TimedDisable,
+        request: DisableUntil,
     ) {
         for (child_id, child_birth) in children {
             if !self.spawn_identity_matches(parent_id, parent_birth, epoch) {
@@ -164,7 +249,7 @@ impl GameLogic {
                     continue;
                 }
             }
-            self.apply_owned_initial_disabled(child_id, until, effect);
+            self.apply_owned_initial_disabled(child_id, request);
         }
     }
 
@@ -270,8 +355,8 @@ impl GameLogic {
             && Self::omit_disabled_production_from_grid(object)
             && let Some(player) = owner.and_then(|id| self.players.get_mut(&id))
         {
-            player.disabled_plant_bonus_adjustment =
-                player.disabled_plant_bonus_adjustment.wrapping_add(delta);
+            player.power_production_adjustment =
+                player.power_production_adjustment.wrapping_add(delta);
         }
         Some(object)
     }
@@ -505,6 +590,29 @@ End
                 assert!(!world.host_object(id).unwrap().has_disabled_type());
             }
         }
+    }
+
+    #[test]
+    fn named_held_propagates_to_spawn_children_and_preserves_their_callback_effects() {
+        let (mut world, ids) = spawned_radar_world();
+        let [parent, child, _] = ids;
+        world.set_owned_named_held(parent, true);
+        assert!(ids.iter().all(|id| world.objects[id].is_held_disabled()));
+        assert_eq!(world.players[&1].radar_count, 0);
+        assert_eq!(world.players[&1].power_produced, 0);
+
+        world.set_owned_named_held(parent, false);
+        assert!(ids.iter().all(|id| !world.objects[id].has_disabled_type()));
+        assert_eq!(world.players[&1].radar_count, 0);
+        world.update_player_resources(0.);
+        assert_eq!(world.players[&1].power_produced, 0);
+
+        world.set_owned_named_held(child, true);
+        world.set_owned_named_held(parent, false);
+        assert!(
+            world.objects[&child].is_held_disabled(),
+            "an unchanged parent deadline does not revisit its children"
+        );
     }
 
     #[test]

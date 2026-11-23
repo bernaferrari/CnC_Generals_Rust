@@ -26,7 +26,7 @@ impl GameLogic {
     /// BuildAssistant retains UNDER_CONSTRUCTION on instant structures.
     /// Only the explicit Player completion operation admits their power; full
     /// factory HP/percent during ordinary onCreate does not establish completion.
-    fn object_contributes_power(object: &Object) -> bool {
+    pub(super) fn object_contributes_power(object: &Object) -> bool {
         // Object::~Object removes the Team contribution, after onDie/onDelete.
         // The resource phase can run in between while the actor is still installed.
         object.is_constructed() || object.construction_power_admitted
@@ -104,8 +104,8 @@ impl GameLogic {
     }
 
     fn apply_derived_power(player: &mut Player, (produced, consumed): (i32, i32), frame: u32) {
-        player.power_produced = produced.wrapping_add(player.disabled_plant_bonus_adjustment);
-        player.power_consumed = consumed;
+        player.power_produced = produced.wrapping_add(player.power_production_adjustment);
+        player.power_consumed = consumed.wrapping_add(player.power_consumption_adjustment);
         // Preserve canonical production while exposing only the sabotage mask.
         // C++ getProduction/hasSufficientPower recover at frame == deadline.
         player.refresh_energy_projection_at(frame);
@@ -116,7 +116,8 @@ impl GameLogic {
     /// This boundary does not age sabotage, publish economy events, or tick.
     pub(crate) fn restore_player_power(&mut self) {
         for player in self.players.values_mut() {
-            player.disabled_plant_bonus_adjustment = 0;
+            player.power_production_adjustment = 0;
+            player.power_consumption_adjustment = 0;
         }
         // PowerPlantUpgrade and OverchargeBehavior loadPostProcess credit
         // the current controller even when its producer is disabled.
@@ -127,8 +128,8 @@ impl GameLogic {
                 .owner_player_id
                 .and_then(|id| self.players.get_mut(&id))
             {
-                player.disabled_plant_bonus_adjustment = player
-                    .disabled_plant_bonus_adjustment
+                player.power_production_adjustment = player
+                    .power_production_adjustment
                     .wrapping_add(object.active_plant_power_bonus_output());
             }
         }

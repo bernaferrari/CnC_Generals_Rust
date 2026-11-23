@@ -1056,9 +1056,7 @@ impl GameLogic {
 
         for req in gamelogic::scripting::take_host_script_held_requests() {
             if let Some(id) = self.host_object_id_by_script_name(&req.unit) {
-                self.with_owned_radar_disabled_operation(id, |object| {
-                    object.set_status_disabled_held(req.held)
-                });
+                self.set_owned_named_held(id, req.held);
             }
         }
 

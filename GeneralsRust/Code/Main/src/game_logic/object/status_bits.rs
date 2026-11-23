@@ -499,6 +499,17 @@ impl Object {
         self.note_disabled_status_transition(was_disabled);
     }
 
+    /// The named script uses FOREVER or NEVER and dispatches its own callbacks.
+    pub(in crate::game_logic) fn set_named_held_deadline(&mut self, deadline: u32, frame: u32) -> bool {
+        use game_engine::common::game_common::{FOREVER, NEVER};
+        let previous = if self.status.disabled_held { FOREVER } else { NEVER };
+        if previous == deadline {
+            return false;
+        }
+        self.status.disabled_held = deadline > frame;
+        true
+    }
+
     /// C++ OBJECT_STATUS_MISSILE_KILLING_SELF residual.
     pub fn set_status_missile_killing_self(&mut self, v: bool) {
         self.status.missile_killing_self = v;
