@@ -2621,7 +2621,30 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
                 player,
                 building,
                 cash,
+                current_player,
             } => {
+                let ordinary = self
+                    .world
+                    .host_player_id_for_script_token(player)
+                    .filter(|id| {
+                        self.world.ai_manager.ai_players.get(id)
+                            .is_some_and(|ai| ai.ordinary_timing.is_some())
+                    });
+                if let Some(id) = ordinary {
+                    let Some(build) = self.world.prepare_ordinary_script_supply_build(id, building, cash)
+                    else {
+                        return Some(Ok(()));
+                    };
+                    let enemy = if build.toward_enemy {
+                        self.supply_build_script_enemy(current_player)
+                    } else {
+                        None
+                    };
+                    self.world.admit_ordinary_script_supply_build(
+                        id, building, build, enemy, &mut self.ui,
+                    );
+                    return Some(Ok(()));
+                }
                 self.world
                     .apply_owned_script_supply_build(player, building, cash);
             }

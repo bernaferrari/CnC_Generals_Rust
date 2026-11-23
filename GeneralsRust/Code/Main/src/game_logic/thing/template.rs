@@ -1334,6 +1334,14 @@ impl ThingTemplate {
         })
     }
 
+    pub(crate) fn is_authored_cash_generator(&self) -> bool {
+        use game_engine::common::system::kind_of::KindOfMask;
+
+        self.receiving_client_template.as_ref().is_some_and(|typed| {
+            typed.0.template().is_kind_of_mask(KindOfMask::CASH_GENERATOR.bits())
+        })
+    }
+
     pub(crate) fn is_map_shrubbery(&self) -> bool {
         self.is_kind_of(crate::game_logic::KindOf::Shrubbery)
     }

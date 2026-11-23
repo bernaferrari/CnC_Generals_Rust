@@ -15,6 +15,29 @@ impl GameLogic {
         position: Vec3,
         effects: &mut ScriptPresentationEffects<'_>,
     ) -> Option<(Vec3, f32)> {
+        self.ordinary_script_build_site(player, building, position, false, effects)
+    }
+
+    /// AIPlayer.cpp:1826–1945 retains the warehouse-relative point if the
+    /// first location passes or if the entire relocation search fails.
+    pub(crate) fn ordinary_supply_build_site(
+        &self,
+        player: u32,
+        building: &str,
+        position: Vec3,
+        effects: &mut ScriptPresentationEffects<'_>,
+    ) -> Option<(Vec3, f32)> {
+        self.ordinary_script_build_site(player, building, position, true, effects)
+    }
+
+    fn ordinary_script_build_site(
+        &self,
+        player: u32,
+        building: &str,
+        position: Vec3,
+        retain_original: bool,
+        effects: &mut ScriptPresentationEffects<'_>,
+    ) -> Option<(Vec3, f32)> {
         let team = self.get_player(player)?.team;
         let angle = self
             .templates
@@ -43,7 +66,7 @@ impl GameLogic {
             wiggle_ordinary_build_position(position, 20, |point| legal(point, checks, effects))
         };
         self.clear_placement_highlight_bibs_with_effects(effects);
-        let mut position = corrected?;
+        let mut position = corrected.or(retain_original.then_some(position))?;
         position.y = 0.0;
         Some((position, angle))
     }

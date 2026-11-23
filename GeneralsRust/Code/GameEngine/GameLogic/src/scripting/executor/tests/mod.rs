@@ -318,6 +318,7 @@ impl ScriptExecutionDriver for OwnedAiActions {
                 player,
                 building,
                 cash,
+                ..
             } => (
                 "supply".into(),
                 vec![player.into(), building.into(), cash.to_string()],

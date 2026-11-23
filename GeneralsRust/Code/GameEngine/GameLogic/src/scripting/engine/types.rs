@@ -223,6 +223,7 @@ pub enum ScriptAiPlayerRequest<'a> {
         player: &'a str,
         building: &'a str,
         cash: i32,
+        current_player: Option<&'a str>,
     },
     RepairNamed {
         player: &'a str,

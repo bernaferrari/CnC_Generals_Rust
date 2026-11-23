@@ -1,6 +1,31 @@
 //! ScriptActions.cpp:1082–1087,2284–2310: owned AI build/recruit admission.
 use super::*;
 
+#[path = "script_ordinary_supply_build.rs"]
+mod script_ordinary_supply_build;
+
+pub(super) struct OrdinarySupplyBuild {
+    warehouse: ObjectId,
+    pub(super) toward_enemy: bool,
+}
+
+fn ordinary_priority_build_row(
+    building: &str,
+    position: Vec3,
+    angle: f32,
+) -> crate::ai::AIBuildingInfo {
+    use gamelogic::build_list_info::BuildListInfo;
+    use gamelogic::common::Coord3D;
+
+    let mut entry = BuildListInfo::new();
+    entry.set_template_name(building.into());
+    entry.set_location(Coord3D::new(position.x, position.z, position.y));
+    entry.set_angle(angle);
+    entry.set_num_rebuilds(1);
+    entry.mark_priority_build();
+    crate::ai::AIBuildingInfo::from_campaign_build_list(&entry)
+}
+
 impl GameLogic {
     pub(super) fn apply_owned_script_team_build(
         &mut self,
@@ -94,26 +119,12 @@ impl GameLogic {
             if let Some((position, angle)) =
                 self.ordinary_nearest_team_build_site(player, building, position, effects)
             {
-                use gamelogic::build_list_info::BuildListInfo;
-                use gamelogic::common::Coord3D;
-
-                // Player::addToPriorityBuildList prepends a default row
-                // with one build and an authored priority stamp.
-                let mut entry = BuildListInfo::new();
-                entry.set_template_name(building.into());
-                entry.set_location(Coord3D::new(position.x, position.z, position.y));
-                entry.set_angle(angle);
-                entry.set_num_rebuilds(1);
-                entry.mark_priority_build();
                 self.ai_manager
                     .ai_players
                     .get_mut(&player)
                     .unwrap()
                     .building_queue
-                    .insert(
-                        0,
-                        crate::ai::AIBuildingInfo::from_campaign_build_list(&entry),
-                    );
+                    .insert(0, ordinary_priority_build_row(building, position, angle));
             }
             return Ok(());
         }

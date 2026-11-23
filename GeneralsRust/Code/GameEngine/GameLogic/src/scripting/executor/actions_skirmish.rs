@@ -844,11 +844,13 @@ impl ScriptActionDispatcher<'_> {
         };
         let building_type = self.get_string_param(action, 1)?;
         let cash = self.get_int_param(action, 2)?;
+        let current_player = self.context.borrowed_engine().get_current_player_name();
         if let Some(result) = driver.ai_player(
             crate::scripting::engine::ScriptAiPlayerRequest::BuildSupplyCenter {
                 player: &player_name,
                 building: &building_type,
                 cash,
+                current_player: current_player.as_deref(),
             },
         ) {
             if let Err(error) = result {

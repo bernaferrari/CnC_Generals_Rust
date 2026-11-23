@@ -41,24 +41,33 @@ impl HostScriptExecutionDriver<'_> {
                     .get(&current)
                     .and_then(|ai| ai.enemy_player_id)
                     .filter(|id| self.world.players.contains_key(id))
-                    .or_else(|| {
-                        self.world
-                            .players
-                            .values()
-                            .filter(|p| {
-                                p.is_human
-                                    && !(self.world.is_challenge_session()
-                                        && Self::player_script_name(p) == THE_PLAYER)
-                            })
-                            .min_by_key(|p| p.id)
-                            .map(|p| p.id)
-                    })
+                    .or_else(|| self.first_human_script_enemy())
             }
             // Retain the existing Challenge classification. Campaign metadata
             // ownership is separate from this query's player/geometry owner.
             THE_PLAYER if self.world.is_challenge_session() => self.world.local_player_id(),
             _ => self.world.authored_script_player_id(token),
         }
+    }
+
+    fn first_human_script_enemy(&self) -> Option<u32> {
+        use gamelogic::scripting::core::THE_PLAYER;
+
+        self.world.players.values()
+            .filter(|p| p.is_human && !(self.world.is_challenge_session()
+                && Self::player_script_name(p) == THE_PLAYER))
+            .min_by_key(|p| p.id)
+            .map(|p| p.id)
+    }
+
+    /// ScriptEngine.cpp:5779–5807. Defensive placement asks the script's
+    /// actual current Player for its enemy, independently of the action's
+    /// named receiving Player. Ordinary players have no acquired enemy.
+    pub(super) fn supply_build_script_enemy(&mut self, current_player: Option<&str>) -> Option<u32> {
+        let current = self.world.authored_script_player_id(current_player?)?;
+        self.world.query_owned_ai_enemy(current)
+            .filter(|&enemy| self.world.get_player(enemy).is_some())
+            .or_else(|| self.first_human_script_enemy())
     }
 
     pub(super) fn query_script_player_id(

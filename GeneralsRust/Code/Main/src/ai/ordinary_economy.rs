@@ -6,6 +6,17 @@ use game_engine::common::ini::AIData;
 
 const LOGIC_SECOND: i32 = LOGIC_FRAMES_PER_SECOND as i32;
 
+impl AIPlayer {
+    pub(crate) fn remembered_supply_warehouse(&self) -> Option<ObjectId> {
+        self.current_warehouse_id
+    }
+
+    pub(crate) fn admit_ordinary_supply_row(&mut self, row: AIBuildingInfo, warehouse: ObjectId) {
+        self.building_queue.insert(0, row);
+        self.current_warehouse_id = Some(warehouse);
+    }
+}
+
 impl GameLogic {
     /// C++ AIPlayer.cpp:2699–2723. The receiving PlayerList calls this once
     /// per logic frame, before any ready or queued Team callbacks.

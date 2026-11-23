@@ -351,6 +351,206 @@ fn ai_match_phase_queues_research_only_after_the_authored_action() {
 }
 
 #[test]
+fn ordinary_script_supply_uses_warehouse_and_script_enemy_context_for_priority_rows() {
+    use crate::ai::{AIDifficulty, OrdinaryAiTiming};
+    use crate::fixture_content::{FixtureObject, admit_fixture_content_with_actions};
+    use gamelogic::common::Relationship;
+
+    let mut world = GameLogic::new();
+    world.override_world_size(1000.0, 1000.0);
+    admit_fixture_content_with_actions(
+        &mut world,
+        &[
+            FixtureObject::new("CampaignSupplyWarehouse")
+                .kind_of("STRUCTURE IMMOBILE SUPPLY_SOURCE")
+                .field("Geometry = CYLINDER")
+                .field("GeometryMajorRadius = 10")
+                .module(
+                    "Behavior = SupplyWarehouseDockUpdate Dock
+ StartingBoxes = 4
+ End",
+                ),
+            FixtureObject::new("CampaignSupplyFake").kind_of("STRUCTURE IMMOBILE SUPPLY_SOURCE"),
+            FixtureObject::new("CampaignSupplyCenter")
+                .kind_of("STRUCTURE IMMOBILE CASH_GENERATOR")
+                .field("Geometry = BOX")
+                .field("GeometryMajorRadius = 4")
+                .field("GeometryMinorRadius = 3")
+                .field("PlacementViewAngle = 30"),
+            FixtureObject::new("CampaignSupplyGuard")
+                .kind_of("STRUCTURE IMMOBILE")
+                .field("Geometry = BOX")
+                .field("GeometryMajorRadius = 4")
+                .field("GeometryMinorRadius = 3")
+                .field("PlacementViewAngle = 60"),
+            FixtureObject::new("CampaignSupplyCover")
+                .kind_of("STRUCTURE IMMOBILE")
+                .field("Geometry = BOX")
+                .field("GeometryMajorRadius = 220")
+                .field("GeometryMinorRadius = 220"),
+        ],
+        &[],
+        "",
+    );
+    for (id, faction, name, human) in [
+        (1, Team::USA, "SupplyBuilder", false),
+        (2, Team::USA, "SameFactionEnemy", false),
+        (3, Team::China, "SupplyCaller", false),
+        (4, Team::GLA, "FirstHuman", true),
+        (5, Team::China, "EnemyCacheDecoy", true),
+    ] {
+        world.add_player(Player::new(id, faction, name, human).with_script_identity(name));
+    }
+    world
+        .get_player_mut(1)
+        .unwrap()
+        .set_map_relationship(2, Relationship::Enemies);
+    world
+        .get_player_mut(1)
+        .unwrap()
+        .set_map_relationship(3, Relationship::Allies);
+    world.get_player_mut(1).unwrap().can_build_base = false;
+    world
+        .ai_manager
+        .add_ai_player(1, Team::USA, AIDifficulty::Medium);
+    let ai = world.ai_manager.ai_players.get_mut(&1).unwrap();
+    ai.building_queue.clear();
+    ai.base_center = Vec3::ZERO;
+    ai.enemy_player_id = Some(5);
+    ai.ordinary_timing = Some(OrdinaryAiTiming {
+        ready_to_build_team: false,
+        ready_to_build_structure: false,
+        team_timer: 2,
+        structure_timer: 2,
+        build_delay: 11,
+        team_delay: 0,
+        team_seconds: 10,
+        frame_last_building_built: 0,
+        bridge_timer: 0,
+    });
+    let fake = world
+        .create_object_for_player("CampaignSupplyFake", 3, Vec3::new(50.0, 0.0, 30.0))
+        .unwrap();
+    world.host_object_mut(fake).unwrap().set_stored_supplies(900);
+    world
+        .create_object_for_player("CampaignSupplyWarehouse", 2, Vec3::new(70.0, 0.0, 0.0))
+        .unwrap();
+    let earlier = world
+        .create_object_for_player("CampaignSupplyWarehouse", 3, Vec3::new(200.0, 0.0, 80.0))
+        .unwrap();
+    let warehouse_position = Vec3::new(200.0, 0.0, -80.0);
+    let warehouse = world
+        .create_object_for_player("CampaignSupplyWarehouse", 3, warehouse_position)
+        .unwrap();
+    assert_eq!(
+        world
+            .host_object(warehouse)
+            .unwrap()
+            .stored_resources
+            .supplies,
+        300
+    );
+    for x in [-310.0, -280.0, -110.0] {
+        world
+            .create_object_for_player("CampaignSupplyGuard", 4, Vec3::new(x, 0.0, -80.0))
+            .unwrap();
+    }
+    world
+        .create_object_for_player("CampaignSupplyGuard", 5, Vec3::new(420.0, 0.0, -80.0))
+        .unwrap();
+
+    let engine = ScriptEngine::new_in_published_world().unwrap();
+    let caller = world
+        .get_player(3)
+        .unwrap()
+        .default_team_id
+        .expect("owned caller Team");
+    let supply_action = |building: &str, cash| {
+        let mut order = action(
+            ScriptActionType::AiPlayerBuildSupplyCenter,
+            ParameterType::Side,
+            "SupplyBuilder",
+        );
+        order
+            .add_parameter(Parameter::with_string(
+                ParameterType::ObjectType,
+                building.into(),
+            ))
+            .unwrap();
+        order
+            .add_parameter(Parameter::with_int(ParameterType::Int, cash))
+            .unwrap();
+        order
+    };
+
+    // 550 halves to 275, admitting the two authored 300-cash allied piles.
+    // Their tie keeps the first world-record member, the newer Object.
+    run(
+        &engine,
+        &mut world,
+        &supply_action("CampaignSupplyCenter", 550),
+    );
+    let ai = &world.ai_manager.ai_players[&1];
+    assert_eq!(ai.capture_queue_persist().current_warehouse_id, Some(warehouse.0));
+    let [site] = ai.building_queue.as_slice() else {
+        panic!("expected a single supply site");
+    };
+    assert!(site.is_priority);
+    assert_eq!(site.max_rebuilds, 1);
+    assert_eq!(site.position.y, 0.0);
+    let expected = warehouse_position - warehouse_position.normalize() * 30.0;
+    assert!(site.position.distance(expected) < 0.001);
+    let angle = site.ordinary.as_deref().unwrap().angle;
+    assert!((angle - std::f32::consts::FRAC_PI_6).abs() < 0.00001);
+
+    world
+        .host_object_mut(warehouse)
+        .unwrap()
+        .set_stored_supplies(0);
+    world
+        .host_object_mut(earlier)
+        .unwrap()
+        .set_stored_supplies(900);
+    let guard = supply_action("CampaignSupplyGuard", 550);
+    let context = gamelogic::scripting::executor::ScriptContext::at_frame(world.frame);
+    engine.friend_execute_action_with_driver(
+        &guard,
+        Some(caller),
+        context,
+        &mut HostScriptExecutionDriver::new(&mut world),
+    );
+    let ai = &world.ai_manager.ai_players[&1];
+    assert_eq!(ai.capture_queue_persist().current_warehouse_id, Some(warehouse.0));
+    let [guard_site, supply_site] = ai.building_queue.as_slice() else {
+        panic!("the defensive row should precede the supply row");
+    };
+    assert_eq!(guard_site.template_name, "CampaignSupplyGuard");
+    assert_eq!(supply_site.template_name, "CampaignSupplyCenter");
+    // Pure west through the real script context's first human. The 10-unit
+    // offset overlaps the warehouse, so the ring walk accepts its first corner.
+    assert_eq!(guard_site.position, Vec3::new(180.0, 0.0, -90.0));
+    assert!(guard_site.is_priority);
+    assert_eq!(guard_site.max_rebuilds, 1);
+    let angle = guard_site.ordinary.as_deref().unwrap().angle;
+    assert!((angle - std::f32::consts::FRAC_PI_3).abs() < 0.00001);
+
+    world
+        .create_object_for_player("CampaignSupplyCover", 3, Vec3::new(190.0, 0.0, -80.0))
+        .unwrap();
+    let context = gamelogic::scripting::executor::ScriptContext::at_frame(world.frame);
+    engine.friend_execute_action_with_driver(
+        &guard,
+        Some(caller),
+        context,
+        &mut HostScriptExecutionDriver::new(&mut world),
+    );
+    let ai = &world.ai_manager.ai_players[&1];
+    assert_eq!(ai.building_queue.len(), 3);
+    assert_eq!(ai.building_queue[0].position, Vec3::new(190.0, 0.0, -80.0));
+    assert_eq!(ai.ordinary_timing.unwrap().build_delay, 11);
+}
+
+#[test]
 fn ordinary_script_nearest_team_queues_one_typed_priority_pad_only_after_relocation() {
     use super::condition_cursor_control_tests::admit;
     use crate::ai::{AIBuildingInfo, AIDifficulty, OrdinaryAiTiming};
