@@ -1,5 +1,23 @@
 use super::*;
 
+/// C++ `SupplyWarehouseDockUpdate::action` action range
+/// (`SupplyWarehouseDockUpdate.cpp:74-86`): the horizontal surface gap
+/// between the bounding circles against one docker diameter.
+fn warehouse_action_out_of_range(docker: &Object, warehouse: &Object) -> bool {
+    use crate::game_logic::host_supply_gather::{host_bounding_circle_radius, warehouse_too_far_2d};
+    let radius = |object: &Object| {
+        let geometry = object.geometry_info();
+        host_bounding_circle_radius(
+            geometry.authored,
+            geometry.bounding_circle_radius(),
+            object.thing().geometry.radius,
+        )
+    };
+    let a = docker.get_position();
+    let b = warehouse.get_position();
+    warehouse_too_far_2d((a.x, a.z), (b.x, b.z), radius(docker), radius(warehouse))
+}
+
 impl GameLogic {
     #[allow(clippy::too_many_arguments)]
     pub(super) fn tick_gathering_support_state(
@@ -55,70 +73,14 @@ impl GameLogic {
             return Ok(());
         }
 
-        let collector_metadata_early = self
+        let collector_metadata = self
             .objects
             .get(&object_id)
             .and_then(|object| object.thing().template.supply_truck_metadata);
-        if source_is_warehouse && collector_metadata_early.is_some() {
-            let docker_r = self
-                .objects
-                .get(&object_id)
-                .map(|o| {
-                    crate::game_logic::host_supply_gather::host_bounding_circle_radius(
-                        (*o.geometry_info()).authored,
-                        (*o.geometry_info()).bounding_circle_radius(),
-                        o.thing().geometry.radius,
-                    )
-                })
-                .unwrap_or(1.0);
-            let warehouse_r = self
-                .objects
-                .get(&source_id)
-                .map(|o| {
-                    crate::game_logic::host_supply_gather::host_bounding_circle_radius(
-                        (*o.geometry_info()).authored,
-                        (*o.geometry_info()).bounding_circle_radius(),
-                        o.thing().geometry.radius,
-                    )
-                })
-                .unwrap_or(0.0);
-            if crate::game_logic::host_supply_gather::warehouse_too_far_2d(
-                (position.x, position.z),
-                (source_pos.x, source_pos.z),
-                docker_r,
-                warehouse_r,
-            ) {
-                // C++ aiDock: path to the reserved approach, and only
-                // transfer a box once that claim is ClearToAct.
-                if !(self.try_claim_dock(source_id, object_id)?) {
-                    let close = docker_r * 2.0;
-                    if !(can_move && position.distance(source_pos) > close + 1.0) {
-                        let (dx, dz) =
-                            crate::game_logic::host_supply_gather::warehouse_twitch_delta(
-                                crate::game_logic::host_supply_gather::twitch_seed(
-                                    object_id, self.frame,
-                                ),
-                                1,
-                            );
-                        if let Some(mut pos) = self
-                            .objects
-                            .get(&object_id)
-                            .map(|object| object.get_position())
-                        {
-                            pos.x += dx;
-                            pos.z += dz;
-                            self.set_owned_object_position_with_effects(
-                                object_id,
-                                pos,
-                                tree_move_frame,
-                                effects,
-                            );
-                        }
-                    }
-                    return Ok(());
-                }
-            }
-        } else if can_move && position.distance(source_pos) > INTERACT_RANGE {
+        if (!source_is_warehouse || collector_metadata.is_none())
+            && can_move
+            && position.distance(source_pos) > INTERACT_RANGE
+        {
             self.path_approach_with_state(object_id, source_pos, AIState::Gathering);
             return Ok(());
         }
@@ -130,10 +92,6 @@ impl GameLogic {
         // delay, then SupplyWarehouseDockUpdate transfers one
         // box. Only an authored SupplyTruckAIUpdate uses this
         // path; the older generic harvest command remains intact.
-        let collector_metadata = self
-            .objects
-            .get(&object_id)
-            .and_then(|object| object.thing().template.supply_truck_metadata);
         if let Some(metadata) = collector_metadata {
             let (state, next_frame) = self
                 .objects
@@ -159,6 +117,15 @@ impl GameLogic {
             }
         }
 
+        let warehouse_too_far = source_is_warehouse
+            && self
+                .objects
+                .get(&object_id)
+                .zip(self.objects.get(&source_id))
+                .is_some_and(|(docker, warehouse)| {
+                    warehouse_action_out_of_range(docker, warehouse)
+                });
+
         if source_is_warehouse {
             let crippled = self.objects.get(&source_id).is_some_and(|s| {
                 matches!(
@@ -172,34 +139,7 @@ impl GameLogic {
                     .objects
                     .get(&object_id)
                     .is_some_and(|o| o.is_kind_of(KindOf::Aircraft) || o.status.airborne_target);
-                let docker_r = self
-                    .objects
-                    .get(&object_id)
-                    .map(|o| {
-                        crate::game_logic::host_supply_gather::host_bounding_circle_radius(
-                            (*o.geometry_info()).authored,
-                            (*o.geometry_info()).bounding_circle_radius(),
-                            o.thing().geometry.radius,
-                        )
-                    })
-                    .unwrap_or(1.0);
-                let warehouse_r = self
-                    .objects
-                    .get(&source_id)
-                    .map(|o| {
-                        crate::game_logic::host_supply_gather::host_bounding_circle_radius(
-                            (*o.geometry_info()).authored,
-                            (*o.geometry_info()).bounding_circle_radius(),
-                            o.thing().geometry.radius,
-                        )
-                    })
-                    .unwrap_or(0.0);
-                let inside = !crate::game_logic::host_supply_gather::warehouse_too_far_2d(
-                    (position.x, position.z),
-                    (source_pos.x, source_pos.z),
-                    docker_r,
-                    warehouse_r,
-                );
+                let inside = !warehouse_too_far;
                 match crate::game_logic::host_supply_gather::dock_cripple_victim_action(
                                 true, inside, airborne,
                             ) {
@@ -234,6 +174,25 @@ impl GameLogic {
                 self.release_dock_if_holder(source_id, object_id);
                 return Ok(());
             };
+            // C++ SupplyWarehouseDockUpdate.cpp:80-89: a stocked
+            // warehouse whose docker sits outside the action range
+            // burns two inclusive integer draws (x then z), teleports
+            // the docker, and the failed action ends the dock session.
+            if warehouse_boxes != 0 && warehouse_too_far {
+                let range = crate::game_logic::host_supply_gather::WAREHOUSE_TWITCH_RANGE as i32;
+                let mut new_pos = position;
+                new_pos.x += self.logic_random.next_int(-range, range) as f32;
+                new_pos.z += self.logic_random.next_int(-range, range) as f32;
+                self.set_owned_object_position_with_effects(
+                    object_id,
+                    new_pos,
+                    tree_move_frame,
+                    effects,
+                );
+                self.release_dock_if_holder(source_id, object_id);
+                self.route_supply_wanting(object_id, team, owner_player_id, new_pos, can_move)?;
+                return Ok(());
+            }
             let (remaining, next_carried, accepted) =
                 crate::game_logic::host_supply_gather::warehouse_action_transfer_one_box(
                     warehouse_boxes, carried, metadata.max_boxes,

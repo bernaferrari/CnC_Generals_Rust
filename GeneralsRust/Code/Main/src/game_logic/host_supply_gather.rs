@@ -729,23 +729,6 @@ pub fn host_bounding_circle_radius(
     }
 }
 
-/// Deterministic C++ `GameLogicRandomValue(-range, range)` twitch pair.
-pub fn warehouse_twitch_delta(seed: u32, draw: u32) -> (f32, f32) {
-    let x = crate::game_logic::host_rng_residual::pure_logic_random_real(
-        seed,
-        draw,
-        -WAREHOUSE_TWITCH_RANGE,
-        WAREHOUSE_TWITCH_RANGE,
-    );
-    let z = crate::game_logic::host_rng_residual::pure_logic_random_real(
-        seed,
-        draw.wrapping_add(1),
-        -WAREHOUSE_TWITCH_RANGE,
-        WAREHOUSE_TWITCH_RANGE,
-    );
-    (x, z)
-}
-
 /// C++ `gainOneBox` depleted-voice: play when no next warehouse, or next is
 /// farther than `getWarehouseScanDistance()/4` (AI scan already 2×).
 pub fn should_play_supplies_depleted_voice(
@@ -877,11 +860,6 @@ pub fn killer_matches_kindof_mask(killer_kindof_names: &[&str], mask: u64) -> bo
         }
     }
     true
-}
-
-/// Host object id used as a twitch RNG seed.
-pub fn twitch_seed(object: ObjectId, frame: u32) -> u32 {
-    object.0.wrapping_mul(2654435761).wrapping_add(frame)
 }
 
 /// C++ `SabotageSupplyCenterCrateCollide`: `min(desired, victimMoney)`; 0 if broke.

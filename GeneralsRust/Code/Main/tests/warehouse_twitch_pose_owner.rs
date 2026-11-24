@@ -1,11 +1,14 @@
 use game_engine::common::system::DataChunkOutput;
 use generals_main::game_logic::{
     AIState, DockKind, GameLogic, GameMode, HostGeometryInfo, HostGeometryType, ObjectId, Player,
-    SupplyTruckMetadata, SupplyTruckState, Team, host_supply_gather,
+    SupplyTruckMetadata, SupplyTruckState, Team,
 };
 use generals_main::save_load::SnapshotBuilder;
 use glam::Vec3;
 use std::path::Path;
+
+const TRUCK_START: Vec3 = Vec3::new(120.0, 0.0, 100.0);
+const WAREHOUSE_STOCK: i32 = 10;
 
 fn map_file(root: &Path, area: (f32, f32), area_name: &str) -> std::path::PathBuf {
     let mut out = DataChunkOutput::new();
@@ -88,14 +91,12 @@ fn world(map: &Path) -> GameLogic {
         .expect("warehouse template");
     warehouse.geometry_info = geometry;
     warehouse.dock_kind = DockKind::SupplyWarehouse;
+    warehouse.dock_starting_boxes = Some(WAREHOUSE_STOCK);
 
     world
 }
 
-fn prepare_world(mut world: GameLogic, idle_frames: u32) -> (GameLogic, ObjectId) {
-    for _ in 0..idle_frames {
-        assert_eq!(world.update_with_dt(1.0 / 30.0).steps_run, 1);
-    }
+fn prepare_world(mut world: GameLogic) -> (GameLogic, ObjectId) {
     let warehouse = world
         .create_object(
             "TwitchWarehouse",
@@ -104,23 +105,9 @@ fn prepare_world(mut world: GameLogic, idle_frames: u32) -> (GameLogic, ObjectId
         )
         .unwrap();
     let truck = world
-        .create_object_for_player("TwitchTruck", 1, Vec3::new(100.7, 0.0, 100.0))
+        .create_object_for_player("TwitchTruck", 1, TRUCK_START)
         .unwrap();
-    let blocker = world
-        .create_object_for_player("TwitchTruck", 1, Vec3::new(100.0, 0.0, 100.0))
-        .unwrap();
-    assert_eq!(
-        (warehouse, truck, blocker),
-        (ObjectId(1), ObjectId(2), ObjectId(3))
-    );
-    world
-        .host_object_mut(warehouse)
-        .unwrap()
-        .set_stored_supplies(400);
-
-    world
-        .unit_command_set_ai_state(blocker, AIState::Gathering)
-        .unwrap();
+    assert_eq!((warehouse, truck), (ObjectId(1), ObjectId(2)));
     world
         .unit_command_set_ai_state(truck, AIState::Gathering)
         .unwrap();
@@ -129,51 +116,80 @@ fn prepare_world(mut world: GameLogic, idle_frames: u32) -> (GameLogic, ObjectId
         let object = world.host_object_mut(truck).unwrap();
         object.target = Some(warehouse);
         object.supply_truck_state = SupplyTruckState::DockingWarehouse;
-        object.supply_truck_next_dock_action_frame = frame;
+        // The authored action delay makes the first tick wait; the step
+        // runs at the pre-increment frame, so frame + 1 is due on the
+        // second update.
+        object.supply_truck_next_dock_action_frame = frame + 1;
     }
-    {
-        let object = world.host_object_mut(blocker).unwrap();
-        object.target = Some(warehouse);
-        object.supply_truck_state = SupplyTruckState::DockingWarehouse;
-        object.supply_truck_next_dock_action_frame = frame;
-    }
-    world.host_object_mut(warehouse).unwrap().dock_active_docker = Some(blocker);
+    world.host_object_mut(warehouse).unwrap().dock_active_docker = Some(truck);
     (world, truck)
 }
 
 #[test]
 fn live_warehouse_twitch_updates_only_the_receiving_world_trigger() {
-    let twitch_frame = (0..128)
-        .find(|frame| {
-            let seed = host_supply_gather::twitch_seed(ObjectId(2), *frame);
-            let (dx, dz) = host_supply_gather::warehouse_twitch_delta(seed, 1);
-            dx.abs() > 1.5 && dz.abs() > 1.5
-        })
-        .expect("find deterministic twitch outside the initial pose");
-    let (dx, dz) = host_supply_gather::warehouse_twitch_delta(
-        host_supply_gather::twitch_seed(ObjectId(2), twitch_frame),
-        1,
-    );
-    let expected = (100.7 + dx, 100.0 + dz);
     let root = tempfile::tempdir().unwrap();
+
+    // An identical fixture on a neutral map exposes the exact logic
+    // stream position the due action consumes: polygon coordinates
+    // draw nothing, so every prepared world shares the same stream.
+    let reference_map = map_file(root.path(), (0.0, 0.0), "ReferenceArea");
+    let (mut reference, _) = prepare_world(world(&reference_map));
+    assert_eq!(reference.update_with_dt(1.0 / 30.0).steps_run, 1);
+    let initial = SnapshotBuilder::new()
+        .create_world_snapshot(&reference)
+        .unwrap()
+        .logic_rng_seed_words;
+    let mut random = game_engine::common::random_value::RandomState::default();
+    random.set_seed_words(initial);
+    let expected = (
+        TRUCK_START.x + random.next_int(-4, 4) as f32,
+        TRUCK_START.z + random.next_int(-4, 4) as f32,
+    );
+    let expected_words = random.seed_words();
+
     let owner_map = map_file(root.path(), expected, "OwnerWarehouseTwitchArea");
     let peer_map = map_file(
         root.path(),
         (expected.0 + 70.0, expected.1 + 70.0),
         "PeerWarehouseTwitchArea",
     );
-    let mut owner = prepare_world(world(&owner_map), twitch_frame);
-    let mut peer = prepare_world(world(&peer_map), twitch_frame);
+    let mut owner = prepare_world(world(&owner_map));
+    let mut peer = prepare_world(world(&peer_map));
     assert_eq!(owner.1, peer.1);
-    assert_eq!(owner.0.get_frame(), twitch_frame);
-    assert_eq!(peer.0.get_frame(), twitch_frame);
 
     for (logic, truck) in [(&mut owner.0, owner.1), (&mut peer.0, peer.1)] {
+        // The authored delay consumes one tick before the dock action:
+        // the holder stays put, no box transfers, and the logic stream
+        // is untouched.
+        assert_eq!(logic.update_with_dt(1.0 / 30.0).steps_run, 1);
+        assert_eq!(
+            logic.host_object(truck).unwrap().get_position(),
+            TRUCK_START
+        );
+        assert_eq!(
+            logic
+                .host_object(ObjectId(1))
+                .unwrap()
+                .drawable_supply_boxes,
+            WAREHOUSE_STOCK
+        );
+        assert_eq!(logic.host_object(truck).unwrap().drawable_supply_boxes, 0);
+        let snapshot = SnapshotBuilder::new().create_world_snapshot(logic).unwrap();
+        assert_eq!(
+            snapshot.logic_rng_seed_words, initial,
+            "the waiting action delay must not draw from the logic stream"
+        );
+    }
+
+    for (logic, truck) in [(&mut owner.0, owner.1), (&mut peer.0, peer.1)] {
+        // The due action is out of range: exactly two inclusive integer
+        // draws twitch the docker on x then z, release its claim, and
+        // leave every box with the warehouse.
         assert_eq!(logic.update_with_dt(1.0 / 30.0).steps_run, 1);
         assert_eq!(
             logic.host_object(ObjectId(1)).unwrap().dock_active_docker,
-            Some(ObjectId(3)),
-            "the competing docker must retain its valid warehouse claim"
+            None,
+            "the failed dock action must release the holder claim"
         );
         let position = logic.host_object(truck).unwrap().get_position();
         assert!(
@@ -183,6 +199,19 @@ fn live_warehouse_twitch_updates_only_the_receiving_world_trigger() {
         assert!(
             (position.z - expected.1).abs() < 0.001,
             "{position:?} {expected:?}"
+        );
+        assert_eq!(
+            logic
+                .host_object(ObjectId(1))
+                .unwrap()
+                .drawable_supply_boxes,
+            WAREHOUSE_STOCK
+        );
+        assert_eq!(logic.host_object(truck).unwrap().drawable_supply_boxes, 0);
+        let snapshot = SnapshotBuilder::new().create_world_snapshot(logic).unwrap();
+        assert_eq!(
+            snapshot.logic_rng_seed_words, expected_words,
+            "the dock action must consume exactly two integer draws"
         );
     }
 
