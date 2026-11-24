@@ -20,4 +20,5 @@ use super::helpers::*;
 
 // Behavior-named suites keep each test file below the 4k LOC ceiling.
 mod lasers_and_bunker_busters;
+mod timed_charges;
 mod transport_mines_and_defenses;
