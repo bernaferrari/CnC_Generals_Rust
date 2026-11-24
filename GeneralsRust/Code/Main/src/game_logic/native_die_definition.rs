@@ -323,7 +323,9 @@ pub(crate) enum NativeDieKind {
     Collapse,
     DeadWeapon,
     Production,
-    Completion,
+    /// C++ SpecialPowerCompletionDieModuleData::m_specialPowerName
+    /// (`SpecialPowerTemplate`).
+    Completion { power: String },
     Dam,
     Pilot,
     Spawn,
@@ -464,7 +466,13 @@ pub(crate) fn bind(modules: &[BehaviorModuleDefinition]) -> Vec<NativeDieDeclara
                 "fireweaponwhendeadbehavior" => NativeDieKind::DeadWeapon,
                 "productionupdate" => NativeDieKind::Production,
                 "parkingplacebehavior" => NativeDieKind::Parking,
-                "specialpowercompletiondie" => NativeDieKind::Completion,
+                "specialpowercompletiondie" => NativeDieKind::Completion {
+                    power: module
+                        .attribute("SpecialPowerTemplate")
+                        .and_then(|value| value.split_whitespace().next())
+                        .unwrap_or_default()
+                        .to_owned(),
+                },
                 "damdie" => NativeDieKind::Dam,
                 "ejectpilotdie" => NativeDieKind::Pilot,
                 "spawnbehavior" => NativeDieKind::Spawn,

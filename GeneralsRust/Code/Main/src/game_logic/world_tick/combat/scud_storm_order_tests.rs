@@ -357,6 +357,9 @@ const STORM_DEATH_MISSILE: &str = "Object StormDeathMissile\n\
   End\n\
   Behavior = DestroyDie DestroyTag\n\
   End\n\
+  Behavior = SpecialPowerCompletionDie CompletionTag\n\
+  SpecialPowerTemplate = SuperweaponScudStorm\n\
+  End\n\
   Behavior = FireWeaponWhenDeadBehavior FireWhenDeadTag\n\
   StartsActive = Yes\n\
   DeathWeapon = StormDeathWitness\n\
@@ -392,17 +395,41 @@ fn health(world: &GameLogic, id: ObjectId) -> f32 {
     world.host_object(id).unwrap().health.current
 }
 
-/// The canonical chain end to end: the authored Attack order launches one
-/// real missile, the missile's own HeightDieUpdate kills it on the dive,
-/// and its FireWeaponWhenDeadBehavior discharges the authored DeathWeapon —
-/// one StormDeathWitnessField birth and one 23-damage radius application.
-/// The synthetic ScudStorm registry never schedules a missile or damage.
+const STORM_COMPLETION_POWER: &str = "SuperweaponScudStorm";
+const PAD_COMPLETION_CREATOR: u32 = 77;
+
+/// The real missile's HeightDieUpdate fires its authored death weapon and
+/// reports completion with the pad's ID. The strike registry does neither.
 #[test]
 fn authored_scud_storm_height_death_fires_its_own_weapon() {
+    assert_authored_scud_storm_delivery(false);
+}
+
+/// Weapon.cpp:1078-1117 — a shooter with an installed
+/// SpecialPowerCompletionDie is notified at launch from its existing
+/// creator receipt; the projectile is stamped INVALID so its own die
+/// stays silent. Without one, the shooter's ID is stamped on the child
+/// and the child's die reports at death.
+#[test]
+fn authored_scud_storm_completing_shooter_notifies_at_launch() {
+    assert_authored_scud_storm_delivery(true);
+}
+
+fn assert_authored_scud_storm_delivery(shooter_completes: bool) {
+    let mut pad_ini = pad_definition_with("StormOrderOnce", "StormDeathLauncher");
+    if shooter_completes {
+        let end = pad_ini.trim_end().len() - "End".len();
+        pad_ini.insert_str(
+            end,
+            "Behavior = SpecialPowerCompletionDie PadCompletion\n\
+             SpecialPowerTemplate = SuperweaponScudStorm\n\
+             End\n",
+        );
+    }
     let mut world = world_with_objects(
         &format!(
             "{}{}{}{}",
-            pad_definition_with("StormOrderOnce", "StormDeathLauncher"),
+            pad_ini,
             STORM_DEATH_MISSILE,
             STORM_DEATH_FIELD,
             STORM_VICTIM,
@@ -430,10 +457,19 @@ fn authored_scud_storm_height_death_fires_its_own_weapon() {
         player.alliance_team = alliance;
         world.add_player(player);
     }
+    world.install_owned_script_engine(
+        gamelogic::scripting::engine::ScriptEngine::new_in_published_world().unwrap(),
+    );
 
     let pad = world
         .create_object("TestStormPad", Team::GLA, Vec3::new(200.0, 0.0, 200.0))
         .unwrap();
+    if shooter_completes {
+        world
+            .host_object_mut(pad)
+            .unwrap()
+            .set_special_power_completion(STORM_COMPLETION_POWER, PAD_COMPLETION_CREATOR);
+    }
     let near = world
         .create_object("StormVictim", Team::USA, Vec3::new(1000.0, 0.0, 230.0))
         .unwrap();
@@ -474,6 +510,30 @@ fn authored_scud_storm_height_death_fires_its_own_weapon() {
                 .registered()
                 .find(|(_, object)| object.template_name == "StormDeathMissile")
                 .map(|(id, _)| *id);
+            if missile_id.is_some() {
+                assert_eq!(
+                    world.special_power_completion_log.notifications,
+                    u32::from(shooter_completes),
+                    "a completing shooter notifies at launch, never at death",
+                );
+                let engine = world.owned_script_engine.as_ref().unwrap();
+                assert!(
+                    !engine
+                        .is_special_power_complete(0, STORM_COMPLETION_POWER, false, pad.0),
+                    "the pad object itself is never the completion source",
+                );
+                if shooter_completes {
+                    assert!(
+                        engine.is_special_power_complete(
+                            0,
+                            STORM_COMPLETION_POWER,
+                            false,
+                            PAD_COMPLETION_CREATOR,
+                        ),
+                        "the pad's creator receipt owns the launch completion",
+                    );
+                }
+            }
         }
         if count_objects(&world, "StormDeathWitnessField") > 0 {
             death_frame = Some(frame);
@@ -536,6 +596,29 @@ fn authored_scud_storm_height_death_fires_its_own_weapon() {
         477.0,
         "no duplicate damage from the registry or the death weapon",
     );
+    assert_eq!(
+        world.special_power_completion_log.notifications, 1,
+        "exactly one completion notification across launch and death",
+    );
+    let engine = world.owned_script_engine.as_ref().unwrap();
+    let expected_creator = if shooter_completes {
+        PAD_COMPLETION_CREATOR
+    } else {
+        pad.0
+    };
+    assert!(engine.is_special_power_complete(
+        0,
+        STORM_COMPLETION_POWER,
+        true,
+        expected_creator,
+    ));
+    assert!(!engine.is_special_power_complete(0, STORM_COMPLETION_POWER, false, pad.0));
+    assert!(!engine.is_special_power_complete(
+        0,
+        STORM_COMPLETION_POWER,
+        false,
+        PAD_COMPLETION_CREATOR,
+    ));
 }
 
 /// An authored pad whose OCL is missing leaves a registry record only for

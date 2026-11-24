@@ -102,6 +102,50 @@ impl GameLogic {
             recipient.notify(player, power, source, triggered, completed);
         }
     }
+    /// Transfer completion responsibility before launch or placement.
+    /// A shooter with a completion module notifies now; its projectile must not.
+    pub(super) fn bind_weapon_projectile_completion(
+        &mut self,
+        shooter: ObjectId,
+        projectile: ObjectId,
+        effects: &ScriptPresentationEffects<'_>,
+    ) {
+        use super::native_die_definition::NativeDieKind;
+        let shooter_has_completion = self
+            .objects
+            .get(&shooter)
+            .and_then(|object| object.get_template().native_die_declarations.as_deref())
+            .is_some_and(|modules| {
+                modules
+                    .iter()
+                    .any(|module| matches!(&module.kind, NativeDieKind::Completion { .. }))
+            });
+        let creator = if shooter_has_completion {
+            self.maybe_notify_special_power_completion(shooter, effects);
+            gamelogic::common::INVALID_OBJECT_ID
+        } else {
+            shooter.0
+        };
+        let Some(actor) = self.objects.get_mut(&projectile) else {
+            return;
+        };
+        let power = actor
+            .get_template()
+            .native_die_declarations
+            .as_deref()
+            .and_then(|modules| {
+                modules.iter().find_map(|module| match &module.kind {
+                    NativeDieKind::Completion { power } => Some(power),
+                    _ => None,
+                })
+            })
+            .filter(|power| !power.is_empty())
+            .cloned();
+        if let Some(power) = power {
+            actor.set_special_power_completion(power, creator);
+        }
+    }
+
     pub(crate) fn maybe_notify_special_power_completion(
         &mut self,
         id: ObjectId,

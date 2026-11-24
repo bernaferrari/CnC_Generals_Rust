@@ -1948,6 +1948,8 @@ impl GameLogic {
                 if self.spawn_identity_matches(id, birth.0, birth.1) {
                     let actor = self.objects.get_mut(&id).expect("receiving projectile birth");
                     actor.producer_id = Some(shooter_id);
+                    self.bind_weapon_projectile_completion(shooter_id, id, effects);
+                    let actor = self.objects.get_mut(&id).expect("receiving projectile birth");
                     actor.set_position_with_partition_owner(
                         at, self.frame, effects, &mut self.partition_manager,
                     );
@@ -1963,6 +1965,7 @@ impl GameLogic {
                 // the launch pose and flight callbacks.
                 let actor = self.objects.get_mut(&id).expect("receiving projectile birth");
                 actor.producer_id = Some(shooter_id);
+                self.bind_weapon_projectile_completion(shooter_id, id, effects);
             }
             if !missile && valid {
                 if let Some(projectile) = self.combat_system.projectile_mut(id) {
