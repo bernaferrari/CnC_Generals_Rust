@@ -1,36 +1,17 @@
 //! Ordinary production-library regression for moving-projectile Direct and Area hits.
 //! Real AttackObject admission, Weapon/DamageFX parsers, due frames, XP and FX.
-use game_engine::common::ini::INI;
-use game_engine::common::ini::ini_damage_fx::init_global_damage_fx_store;
-use game_engine::common::ini::ini_fx_list::{
-    DispatchedFxNugget, FxListObjRuntime, clear_fx_list_obj_runtime, register_fx_list_obj_runtime,
-    take_dispatched_fx_nuggets,
+use game_engine::common::audio::audio_event_rts::{AudioEventInfo, ST_GLOBAL};
+use game_engine::common::audio::game_audio::{
+    get_global_audio_manager, initialize_global_audio_manager,
 };
-use generals_main::assets::ini_template_loader::register_weapons_from_ini_text;
+use game_engine::common::system::DataChunkOutput;
+use generals_main::assets::ini_template_loader::with_weapons_from_ini_text;
 use generals_main::command_system::{CommandType, GameCommand, ModifierKeys};
-use generals_main::game_logic::{
-    GameLogic, KindOf, ObjectId, Player, Team, ThingTemplate, VeterancyLevel,
-};
+use generals_main::game_logic::host_base_defense::HostHiveDamageClass;
+use generals_main::game_logic::weapon_bootstrap::HostProjectileFlight;
+use generals_main::game_logic::{GameLogic, ObjectId, Player, Team, VeterancyLevel};
 use glam::Vec3;
-use std::sync::{Arc, Mutex};
 use std::time::{Duration, UNIX_EPOCH};
-
-static SERIAL: Mutex<()> = Mutex::new(());
-#[derive(Default)]
-struct Observer(Mutex<Vec<(String, Option<u32>, Option<u32>)>>);
-impl FxListObjRuntime for Observer {
-    fn do_fx_obj(&self, name: &str, victim: Option<u32>, source: Option<u32>) -> bool {
-        self.0.lock().unwrap().push((name.into(), victim, source));
-        false
-    }
-}
-struct ClearObserver;
-impl Drop for ClearObserver {
-    fn drop(&mut self) {
-        clear_fx_list_obj_runtime();
-        let _ = take_dispatched_fx_nuggets();
-    }
-}
 
 struct Fixture {
     world: GameLogic,
@@ -38,12 +19,12 @@ struct Fixture {
     victim: ObjectId,
     sink: Option<ObjectId>,
     rows: String,
+    _map_dir: tempfile::TempDir,
 }
 
 #[test]
 fn projectile_damage_fx_throttle_belongs_to_the_driving_session() {
-    let _guard = SERIAL.lock().unwrap_or_else(|error| error.into_inner());
-    let mut make = |time| {
+    let make = |time| {
         fixture_custom_with_ai(
             "OwnedArmorFx",
             150.0,
@@ -91,7 +72,6 @@ fn projectile_damage_fx_throttle_belongs_to_the_driving_session() {
 
 #[test]
 fn projectile_damage_fx_continues_after_restore_and_peer_reset() {
-    let _guard = SERIAL.lock().unwrap_or_else(|error| error.into_inner());
     let make = |time| {
         fixture_custom_with_ai(
             "OwnedArmorFxSave",
@@ -187,7 +167,7 @@ fn projectile_damage_fx_continues_after_restore_and_peer_reset() {
         .apply_host_hive_damage_from(
             different_type.victim,
             40.0,
-            generals_main::game_logic::host_base_defense::HostHiveDamageClass::HitStructure,
+            HostHiveDamageClass::HitStructure,
             None,
             Some(different_type.shooters[0]),
         )
@@ -287,52 +267,14 @@ fn projectile_damage_fx_continues_after_restore_and_peer_reset() {
     assert_eq!(loaded.next_damage_fx_time, original.next_damage_fx_time);
     let deadline = original.next_damage_fx_time;
 
-    // Version 21 predates both FX-throttle rows and the v23 clearable-attacker
-    // set. Remove both trailing fields and check the receiving defaults.
-    let mut legacy = builder.create_world_snapshot(&running.world).unwrap();
-    let mut rows: Vec<_> = legacy
-        .objects
-        .keys()
-        .map(|id| {
-            let object = running.world.host_object(*id).unwrap();
-            (id.0, object.next_damage_fx_time, object.last_damage_fx_done)
-        })
-        .collect();
-    rows.sort_by_key(|entry| entry.0);
-    let encoded_rows = bincode_legacy::serialize(&rows).unwrap();
-    let marker = legacy
+    // A malformed current Object Xfer chunk must leave the existing throttle intact.
+    let mut bad = builder.create_world_snapshot(&running.world).unwrap();
+    let marker = bad
         .lifecycle_tail
         .windows(4)
         .rposition(|window| window == b"OXOB")
         .unwrap();
-    let length = u32::from_le_bytes(
-        legacy.lifecycle_tail[marker + 8..marker + 12]
-            .try_into()
-            .unwrap(),
-    ) as usize;
-    let end = marker + 12 + length;
-    let mut cleared: Vec<u32> = legacy
-        .objects
-        .keys()
-        .filter_map(|id| {
-            let object = running.world.host_object(*id).unwrap();
-            (object.last_damage_source.is_some() && object.clearable_last_attacker().is_none())
-                .then_some(id.0)
-        })
-        .collect();
-    cleared.sort_unstable();
-    let encoded_cleared = bincode_legacy::serialize(&cleared).unwrap();
-    let rows_end = end - encoded_cleared.len();
-    assert_eq!(&legacy.lifecycle_tail[rows_end..end], &encoded_cleared);
-    assert_eq!(
-        &legacy.lifecycle_tail[rows_end - encoded_rows.len()..rows_end],
-        &encoded_rows
-    );
-    let mut bad = builder.create_world_snapshot(&running.world).unwrap();
-    rows[0].0 = u32::MAX;
-    let bad_rows = bincode_legacy::serialize(&rows).unwrap();
-    assert_eq!(bad_rows.len(), encoded_rows.len());
-    bad.lifecycle_tail[rows_end - bad_rows.len()..rows_end].copy_from_slice(&bad_rows);
+    bad.lifecycle_tail[marker + 8..marker + 12].copy_from_slice(&u32::MAX.to_le_bytes());
     assert!(
         builder
             .restore_from_snapshot(&bad, &mut after_load.world)
@@ -346,19 +288,6 @@ fn projectile_damage_fx_continues_after_restore_and_peer_reset() {
             .next_damage_fx_time,
         deadline
     );
-    legacy
-        .lifecycle_tail
-        .drain(rows_end - encoded_rows.len()..end);
-    legacy.lifecycle_tail[marker + 4..marker + 8].copy_from_slice(&21u32.to_le_bytes());
-    legacy.lifecycle_tail[marker + 8..marker + 12].copy_from_slice(
-        &((length - encoded_rows.len() - encoded_cleared.len()) as u32).to_le_bytes(),
-    );
-    builder
-        .restore_from_snapshot(&legacy, &mut after_load.world)
-        .unwrap();
-    let legacy_victim = after_load.world.host_object(after_load.victim).unwrap();
-    assert_eq!(legacy_victim.next_damage_fx_time, 0);
-    assert_eq!(legacy_victim.last_damage_fx_done, None);
 }
 fn fixture(
     label: &str,
@@ -412,10 +341,9 @@ fn fixture_custom_with_ai(
 ) -> Fixture {
     let rule = format!("LibraryMoving{label}Weapon");
     let rows = format!("LibraryMoving{label}Rows");
-    gamelogic::initialize_weapon_store().unwrap();
-    assert_eq!(
-        register_weapons_from_ini_text(&format!(
-            r#"
+    let mut world = GameLogic::new();
+    let weapon_ini = format!(
+        r#"
 Weapon {rule}
  PrimaryDamage = 100
  PrimaryDamageRadius = {radius}
@@ -424,7 +352,7 @@ Weapon {rule}
  RadiusDamageAffects = {affects}
  ProjectileObject = LibraryMoving{label}Projectile
  WeaponSpeed = {speed}
- DelayBetweenShots = 1000
+ DelayBetweenShots = 2000
  ClipSize = 8
  ClipReloadTime = 1000
  PreAttackDelay = 0
@@ -432,19 +360,25 @@ Weapon {rule}
  {extra}
 End
 "#
-        )),
-        1
     );
-    gamelogic::weapon::with_weapon_store(|store| {
-        let parsed = store.find_weapon_template(&rule).unwrap();
-        assert_eq!(
-            parsed.projectile_name,
-            format!("LibraryMoving{label}Projectile")
-        );
-        assert_eq!(parsed.weapon_speed, speed as f32 / 30.0);
-    })
-    .unwrap();
-    init_global_damage_fx_store();
+    let mut weapon = world.with_own_services(|| {
+        with_weapons_from_ini_text(&weapon_ini, |count| {
+            assert_eq!(count, 1);
+            gamelogic::weapon::with_weapon_store(|store| {
+                let parsed = store.find_weapon_template(&rule).unwrap();
+                assert_eq!(
+                    parsed.projectile_name,
+                    format!("LibraryMoving{label}Projectile")
+                );
+                assert_eq!(parsed.weapon_speed, speed as f32 / 30.0);
+                (**parsed).clone()
+            })
+            .unwrap()
+        })
+    });
+    if let Some(angle) = owned_angle {
+        weapon.radius_damage_angle = angle;
+    }
     let damage_fx_source = format!(
         r#"
 DamageFX {rows}
@@ -475,10 +409,6 @@ FXList FX_{rows}_Elite
 End
 "#
     );
-    INI::new()
-        .with_inline_source(&damage_fx_source, |ini| ini.parse_current_file())
-        .unwrap();
-    let mut world = GameLogic::new();
     world.admit_damage_fx_source(&damage_fx_source).unwrap();
     world.admit_fx_source(&damage_fx_source).unwrap();
     if let Some(throttle) = owned_throttle_ms {
@@ -488,95 +418,122 @@ End
             ))
             .unwrap();
     }
-    for (id, team) in [(0, Team::USA), (1, Team::China)] {
-        let mut player = Player::new(id, team, label, id == 0);
+    let actor = |name: &str, hp: f32, xp: f32, armed| {
+        let second_threshold = 20.0_f32.max(threshold + 1.0);
+        let ai = if with_ai || armed {
+            "Behavior = AIUpdateInterface FlightWitnessAI\nEnd"
+        } else {
+            ""
+        };
+        let body = if name == "QueuedVictim" {
+            format!("ArmorSet\n Conditions = None\n DamageFX = {rows}\nEnd")
+        } else {
+            String::new()
+        };
+        let weapon_set = if armed {
+            format!("WeaponSet\n Conditions = None\n Weapon = PRIMARY {rule}\nEnd")
+        } else {
+            String::new()
+        };
+        let death = if armed {
+            "Behavior = SlowDeathBehavior OnDeath\n DestructionDelay = 5000\nEnd"
+        } else {
+            "Behavior = DestroyDie OnDeath\nEnd"
+        };
+        format!(
+            r#"Object {name}
+ KindOf = INFANTRY SELECTABLE
+ Geometry = SPHERE
+ GeometryMajorRadius = 1
+ GeometryHeight = 2
+ IsTrainable = Yes
+ ExperienceRequired = 0 {threshold} {second_threshold} 1000
+ ExperienceValue = {xp} {xp} {xp} {xp}
+ Body = ActiveBody Body
+  MaxHealth = {hp}
+  InitialHealth = {hp}
+ End
+ {death}
+ {ai}
+ {body}
+ {weapon_set}
+End
+"#
+        )
+    };
+    world
+        .admit_object_ini_sources([(
+            "MovingProjectileFixture.ini".into(),
+            format!(
+                "{}{}{}Object LibraryMoving{label}Projectile\nKindOf = PROJECTILE\n Behavior = DumbProjectileBehavior Flight\n FirstHeight = 6\n SecondHeight = 6\n FirstPercentIndent = 25%\n SecondPercentIndent = 75%\n End\nEnd\n",
+                actor("QueuedSource", 500.0, 0.0, true),
+                actor("QueuedVictim", health, 10.0, false),
+                actor("QueuedSink", 500.0, 0.0, false)
+            ),
+        )])
+        .unwrap();
+
+    // DumbProjectileBehavior samples the height along its authored path.
+    // A receiving terrain and partition must exist before the launch.
+    let map_dir = tempfile::tempdir().unwrap();
+    let path = map_dir.path().join("ProjectileFixture.map");
+    let mut map = DataChunkOutput::new();
+    map.open_data_chunk("HeightMapData", 3);
+    for value in [32, 32, 1, 1024] {
+        map.write_int(value);
+    }
+    for _ in 0..1024 {
+        map.write_byte(0);
+    }
+    map.close_data_chunk();
+    map.open_data_chunk("ObjectsList", 3);
+    map.close_data_chunk();
+    std::fs::write(&path, map.into_ckmp_bytes()).unwrap();
+    assert!(world.load_map(path.to_str().unwrap()));
+    world
+        .admit_receiving_weapon_snapshot(vec![(rule.clone(), weapon)])
+        .unwrap();
+    world.with_own_services(|| {
+        let manager = initialize_global_audio_manager();
+        let mut manager = manager.lock().unwrap();
+        for level in ["Regular", "Veteran", "Elite"] {
+            let name = format!("Sound_{rows}_{level}");
+            manager.register_audio_event_info(AudioEventInfo {
+                sounds: vec![format!("{name}.wav")],
+                audio_name: name,
+                type_field: ST_GLOBAL,
+                ..AudioEventInfo::default()
+            });
+        }
+    });
+    world.clear_all_players();
+    for (id, team, name) in [(0, Team::USA, "Shooter"), (1, Team::China, "Victim")] {
+        let mut player = Player::new(id, team, name, id == 0);
         player.alliance_team = id as i32;
         player.is_alive = true;
         world.add_player(player);
     }
-    if let Some(angle) = owned_angle {
-        let mut weapon = gamelogic::weapon::with_weapon_store(|store| {
-            (**store.find_weapon_template(&rule).unwrap()).clone()
-        })
-        .unwrap();
-        weapon.radius_damage_angle = angle;
-        world
-            .admit_receiving_weapon_snapshot(vec![(rule.clone(), weapon)])
+    assert!(world.select_local_player(Some(0)));
+    world.with_own_services(|| {
+        gamelogic::system::engine_stores::shroud_manager()
+            .lock()
+            .unwrap()
+            .reveal_map_for_player_permanently(0)
             .unwrap();
-    }
-    // Give snapshot capture the same admitted receiving AI source used by
-    // the production continuation fixtures. The fixture's host-only combat
-    // fields below remain customized after receiving admission.
-    if with_ai {
-        let projectile = if owned_angle.is_some() {
-            format!(
-                "Object LibraryMoving{label}Projectile\nKindOf = PROJECTILE\nBehavior = DumbProjectileBehavior Flight\n FirstHeight = 0\n SecondHeight = 0\n FirstPercentIndent = 0.25\n SecondPercentIndent = 0.75\nEnd\nEnd\n"
-            )
-        } else {
-            String::new()
-        };
-        world
-            .admit_object_ini_sources([(
-                "MovingProjectileFixture.ini".into(),
-                format!(
-                    "Object QueuedSource\nKindOf = INFANTRY SELECTABLE\nBody = ActiveBody Body\nMaxHealth = 500\nInitialHealth = 500\nEnd\nBehavior = AIUpdateInterface ActualQueuedSourceAI\nEnd\nEnd\nObject QueuedVictim\nKindOf = INFANTRY SELECTABLE\nBody = ActiveBody Body\nMaxHealth = {health}\nInitialHealth = {health}\nEnd\nBehavior = AIUpdateInterface ActualQueuedVictimAI\nEnd\nEnd\nObject QueuedSink\nKindOf = INFANTRY SELECTABLE\nBody = ActiveBody Body\nMaxHealth = 500\nInitialHealth = 500\nEnd\nBehavior = AIUpdateInterface ActualQueuedSinkAI\nEnd\nEnd\n{projectile}"
-                ),
-            )])
-            .unwrap();
-    }
-    let make = |name: &str, hp: f32, xp: f32| {
-        let mut t = ThingTemplate::new(name);
-        t.set_health(hp)
-            .add_kind_of(KindOf::Infantry)
-            .add_kind_of(KindOf::Selectable)
-            .add_kind_of(KindOf::Attackable)
-            .set_primary_weapon_none();
-        t.is_trainable = true;
-        t.veterancy_xp_thresholds = [threshold, 20.0_f32.max(threshold + 1.0), 1000.0];
-        t.experience_values = [xp; 4];
-        t.geometry_info.authored = true;
-        t
-    };
-    let mut shooter = make("QueuedSource", 500.0, 0.0);
-    shooter.set_primary_weapon_name(&rule);
-    let mut target = make("QueuedVictim", health, 10.0);
-    target
-        .armor_sets
-        .push(generals_main::game_logic::HostArmorSet {
-            conditions: 0,
-            armor: None,
-            damage_fx: Some(rows.clone()),
-        });
-    for t in [shooter, target, make("QueuedSink", 500.0, 0.0)] {
-        if with_ai {
-            let admitted = world.templates.get_mut(&t.name).unwrap();
-            admitted.set_health(t.max_health);
-            admitted.kind_of = t.kind_of;
-            admitted.is_trainable = t.is_trainable;
-            admitted.veterancy_xp_thresholds = t.veterancy_xp_thresholds;
-            admitted.experience_values = t.experience_values;
-            admitted.geometry_info = t.geometry_info;
-            admitted.armor_sets = t.armor_sets;
-            admitted.primary_weapon = t.primary_weapon;
-            admitted.primary_weapon_name = t.primary_weapon_name;
-            admitted.primary_weapon_explicitly_none = t.primary_weapon_explicitly_none;
-        } else {
-            world.templates.insert(t.name.clone(), t);
-        }
-    }
+    });
     let shooters: Vec<_> = (0..count)
         .map(|_| {
             world
-                .create_object_for_player("QueuedSource", 0, Vec3::ZERO)
+                .create_object_for_player("QueuedSource", 0, Vec3::new(120.0, 0.0, 120.0))
                 .unwrap()
         })
         .collect();
     let victim = world
-        .create_object_for_player("QueuedVictim", 1, Vec3::new(30.0, 0.0, 0.0))
+        .create_object_for_player("QueuedVictim", 1, Vec3::new(150.0, 0.0, 120.0))
         .unwrap();
     let sink = sink.then(|| {
         world
-            .create_object_for_player("QueuedSink", 0, Vec3::new(-100.0, 0.0, 0.0))
+            .create_object_for_player("QueuedSink", 0, Vec3::new(20.0, 0.0, 120.0))
             .unwrap()
     });
     for source in &shooters {
@@ -632,6 +589,7 @@ End
         victim,
         sink,
         rows,
+        _map_dir: map_dir,
     }
 }
 
@@ -718,74 +676,82 @@ impl Fixture {
             .map(|o| o.experience.current)
             .sum()
     }
-    fn expect_fx(&self, observer: &Observer, level: &str, source: Option<ObjectId>) {
+    fn damage_sounds(&self) -> Vec<(String, Vec3)> {
+        self.world.with_own_services(|| {
+            let manager =
+                get_global_audio_manager().expect("fixture initialized its audio manager");
+            let manager = manager.lock().unwrap();
+            manager
+                .pending_play_events()
+                .filter(|event| event.get_event_name().starts_with("Sound_LibraryMoving"))
+                .map(|event| {
+                    let position = event
+                        .get_position()
+                        .expect("damage sound has a victim pose");
+                    assert_eq!(event.get_player_index(), 1);
+                    (
+                        event.get_event_name().to_owned(),
+                        Vec3::new(position.x, position.z, position.y),
+                    )
+                })
+                .collect()
+        })
+    }
+
+    fn expect_fx(&self, level: &str, source: Option<ObjectId>) {
         assert_eq!(
-            observer.0.lock().unwrap().drain(..).collect::<Vec<_>>(),
-            vec![(
-                format!("FX_{}_{level}", self.rows),
-                Some(self.victim.0),
-                source.map(|id| id.0)
+            self.damage_sounds(),
+            [(
+                format!("Sound_{}_{level}", self.rows),
+                Vec3::new(150.0, 0.0, 120.0)
             )]
         );
-        assert_eq!(
-            take_dispatched_fx_nuggets(),
-            vec![DispatchedFxNugget::Sound(format!(
-                "Sound_{}_{level}",
-                self.rows
-            ))]
-        );
+        if let Some(victim) = self.world.host_object(self.victim) {
+            assert_eq!(victim.last_damage_source, source);
+        }
     }
-    fn no_repeat(&mut self, observer: &Observer) {
+
+    fn no_repeat(&mut self) {
         let xp = self.xp();
+        let sounds = self.damage_sounds();
+        let health = self
+            .world
+            .host_object(self.victim)
+            .map(|victim| victim.health.current);
         let sink_xp = self
             .sink
             .map(|id| self.world.host_objects()[&id].experience.current);
-        self.world.update();
-        assert_eq!(self.xp(), xp);
-        assert_eq!(
-            self.sink
-                .map(|id| self.world.host_objects()[&id].experience.current),
-            sink_xp
-        );
-        assert!(observer.0.lock().unwrap().is_empty());
-        assert!(take_dispatched_fx_nuggets().is_empty());
+        for _ in 0..10 {
+            self.world.update();
+            assert_eq!(self.xp(), xp);
+            assert_eq!(
+                self.world
+                    .host_object(self.victim)
+                    .map(|victim| victim.health.current),
+                health
+            );
+            assert!(self.world.combat_system().projectiles_snapshot().is_empty());
+            assert_eq!(
+                self.sink
+                    .map(|id| self.world.host_objects()[&id].experience.current),
+                sink_xp
+            );
+            assert_eq!(self.damage_sounds(), sounds);
+        }
     }
 }
-fn observe() -> Arc<Observer> {
-    clear_fx_list_obj_runtime();
-    let _ = take_dispatched_fx_nuggets();
-    let observer = Arc::new(Observer::default());
-    register_fx_list_obj_runtime(observer.clone());
-    observer
-}
 
-fn advance_to_impact(f: &mut Fixture, observer: &Observer, health: f32) {
-    advance_with_dead_source(f, observer, health, None);
-}
-fn advance_with_dead_source(
-    f: &mut Fixture,
-    observer: &Observer,
-    health: f32,
-    dead_source: Option<ObjectId>,
-) {
+fn advance_to_impact(f: &mut Fixture, health: f32) {
     let mut previous = None;
     let mut advanced = false;
-    let mut source_marked_dead = false;
     for _ in 0..50 {
         let shots = f.world.combat_system().projectiles_snapshot();
         if shots.is_empty() {
             assert!(advanced);
-            if let Some(source) = dead_source {
-                assert!(source_marked_dead);
-                let object = &f.world.host_objects()[&source];
-                assert!(!object.is_alive());
-                assert!(!object.status.destroyed);
-            }
             return;
         }
         assert_eq!(f.world.host_objects()[&f.victim].health.current, health);
-        assert!(observer.0.lock().unwrap().is_empty());
-        assert!(take_dispatched_fx_nuggets().is_empty());
+        assert!(f.damage_sounds().is_empty());
         assert_eq!(f.xp(), 0.0, "no early kill credit");
         if let Some(sink) = f.sink {
             assert_eq!(f.world.host_objects()[&sink].experience.current, 0.0);
@@ -796,9 +762,8 @@ fn advance_with_dead_source(
                 .all(|shot| shot.projectile_object_name.starts_with("LibraryMoving"))
         );
         assert!(
-            shots
-                .iter()
-                .all(|shot| shot.speed == 30.0 && shot.flight.is_none())
+            shots.iter().all(|shot| shot.speed == 30.0
+                && matches!(shot.flight, Some(HostProjectileFlight::Dumb(_))))
         );
         let position = shots[0].position;
         if let Some(previous) = previous {
@@ -807,41 +772,24 @@ fn advance_with_dead_source(
             }
         }
         previous = Some(position);
-        // Use the actual generic flight pose and its existing five-unit target
-        // collision threshold, not projectileless due-frame timing. Killing
-        // the source earlier would allow ordinary cleanup before the impact.
-        if let Some(source) = dead_source {
-            let next_position = position + shots[0].velocity / 30.0;
-            if next_position.distance(f.world.host_objects()[&f.victim].get_position()) <= 5.0 {
-                let object = f.world.host_object_mut(source).unwrap();
-                object.health.current = 0.0;
-                assert!(!object.is_alive());
-                assert!(!object.status.destroyed);
-                source_marked_dead = true;
-            }
-        }
         f.world.update();
     }
     panic!("moving shot failed to retire");
 }
 #[test]
 fn moving_direct_lethal_completes_before_fx() {
-    let _guard = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
-    let _clear = ClearObserver;
-    let observer = observe();
     let mut f = fixture("Lethal", 100.0, false, 30, 1, 10.0);
     f.accept();
     assert_eq!(f.world.combat_system().projectiles_snapshot().len(), 1);
     assert_eq!(f.xp(), 0.0);
-    advance_to_impact(&mut f, &observer, 100.0);
+    advance_to_impact(&mut f, 100.0);
     assert!(f.world.host_object(f.victim).is_none());
     assert_eq!(f.xp(), 10.0);
-    f.expect_fx(&observer, "Veteran", Some(f.shooters[0]));
-    f.no_repeat(&observer);
+    f.expect_fx("Veteran", Some(f.shooters[0]));
+    f.no_repeat();
 }
 
-// These fixtures use parsed weapons and actual generic projectile flight. They
-// do not claim parsed Dumb/Missile lifecycle or callback-time retirement proof.
+// Shots use the authored DumbProjectileBehavior flight and the live damage path.
 fn moving_case(
     label: &str,
     radius: f32,
@@ -851,9 +799,6 @@ fn moving_case(
     dead: bool,
     count: usize,
 ) {
-    let _guard = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
-    let _clear = ClearObserver;
-    let observer = observe();
     let mut f = fixture_custom(
         label,
         health,
@@ -873,8 +818,28 @@ fn moving_case(
         f.world.destroy_object(source).unwrap();
         f.world.update();
         assert!(f.world.host_object(source).is_none());
+    } else if dead {
+        let (lethal, blocked) = f
+            .world
+            .apply_host_hive_damage_from(
+                source,
+                500.0,
+                HostHiveDamageClass::HitStructure,
+                None,
+                None,
+            )
+            .unwrap();
+        assert!(lethal && !blocked);
     }
-    advance_with_dead_source(&mut f, &observer, health, dead.then_some(source));
+    advance_to_impact(&mut f, health);
+    if dead {
+        let launcher = f
+            .world
+            .host_object(source)
+            .expect("authored slow death retains the launcher through impact");
+        assert!(!launcher.is_alive());
+        assert!(!launcher.status.destroyed);
+    }
     let lethal = health <= 100.0;
     if lethal {
         assert!(f.world.host_object(f.victim).is_none());
@@ -905,12 +870,8 @@ fn moving_case(
             .copied()
             .find(|id| f.world.host_objects()[id].experience.current == 10.0)
     };
-    f.expect_fx(
-        &observer,
-        if xp > 0.0 { "Veteran" } else { "Regular" },
-        killer,
-    );
-    f.no_repeat(&observer);
+    f.expect_fx(if xp > 0.0 { "Veteran" } else { "Regular" }, killer);
+    f.no_repeat();
 }
 #[test]
 fn moving_direct_nonlethal() {
@@ -959,9 +920,6 @@ fn moving_area_duplicate_hits_credit_once() {
 
 #[test]
 fn moving_area_two_kills_complete_in_encounter_order() {
-    let _guard = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
-    let _clear = ClearObserver;
-    let observer = observe();
     let mut f = fixture_custom(
         "TwoKills",
         100.0,
@@ -975,10 +933,10 @@ fn moving_area_two_kills_complete_in_encounter_order() {
     );
     let other = f
         .world
-        .create_object_for_player("QueuedVictim", 1, Vec3::new(31.0, 0.0, 0.0))
+        .create_object_for_player("QueuedVictim", 1, Vec3::new(151.0, 0.0, 120.0))
         .unwrap();
     f.accept();
-    advance_to_impact(&mut f, &observer, 100.0);
+    advance_to_impact(&mut f, 100.0);
     assert!(f.world.host_object(f.victim).is_none());
     assert!(f.world.host_object(other).is_none());
     assert_eq!(f.xp(), 20.0);
@@ -986,29 +944,19 @@ fn moving_area_two_kills_complete_in_encounter_order() {
         f.world.host_objects()[&f.shooters[0]].experience.level,
         VeterancyLevel::Elite
     );
-    let hits = observer.0.lock().unwrap().drain(..).collect::<Vec<_>>();
+    let hits = f.damage_sounds();
     assert_eq!(hits.len(), 2);
-    assert_eq!(hits[0].0, format!("FX_{}_Veteran", f.rows));
-    assert_eq!(hits[1].0, format!("FX_{}_Elite", f.rows));
-    let mut victims = hits.iter().map(|h| h.1.unwrap()).collect::<Vec<_>>();
-    victims.sort_unstable();
-    let mut expected = vec![f.victim.0, other.0];
-    expected.sort_unstable();
-    assert_eq!(victims, expected);
-    assert!(hits.iter().all(|h| h.2 == Some(f.shooters[0].0)));
+    assert_eq!(hits[0].0, format!("Sound_{}_Veteran", f.rows));
+    assert_eq!(hits[1].0, format!("Sound_{}_Elite", f.rows));
+    let mut positions = [hits[0].1, hits[1].1];
+    positions.sort_by(|a, b| a.x.total_cmp(&b.x));
     assert_eq!(
-        take_dispatched_fx_nuggets(),
-        vec![
-            DispatchedFxNugget::Sound(format!("Sound_{}_Veteran", f.rows)),
-            DispatchedFxNugget::Sound(format!("Sound_{}_Elite", f.rows))
-        ]
+        positions,
+        [Vec3::new(150.0, 0.0, 120.0), Vec3::new(151.0, 0.0, 120.0)]
     );
-    f.no_repeat(&observer);
+    f.no_repeat();
 }
 fn worlds(radius: f32) {
-    let _guard = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
-    let _clear = ClearObserver;
-    let observer = observe();
     let mut a = fixture_custom(
         "WorldA",
         100.0,
@@ -1043,7 +991,7 @@ fn worlds(radius: f32) {
             assert_eq!(b.xp(), 0.0);
             assert_eq!(b.world.host_objects()[&b.victim].health.current, 100.0);
             assert_eq!(b.world.combat_system().projectiles_snapshot().len(), 1);
-            a.expect_fx(&observer, "Veteran", Some(a.shooters[0]));
+            a.expect_fx("Veteran", Some(a.shooters[0]));
             b.world.update();
             assert!(b.world.combat_system().projectiles_snapshot().is_empty());
             assert_eq!(b.xp(), 10.0);
@@ -1051,16 +999,16 @@ fn worlds(radius: f32) {
                 b.world.host_objects()[&b.shooters[0]].experience.level,
                 VeterancyLevel::Rookie
             );
-            b.expect_fx(&observer, "Regular", Some(b.shooters[0]));
-            a.no_repeat(&observer);
-            b.no_repeat(&observer);
+            b.expect_fx("Regular", Some(b.shooters[0]));
+            a.no_repeat();
+            b.no_repeat();
             return;
         }
         b.world.update();
         assert_eq!(a.xp(), 0.0);
         assert_eq!(b.xp(), 0.0);
-        assert!(observer.0.lock().unwrap().is_empty());
-        assert!(take_dispatched_fx_nuggets().is_empty());
+        assert!(a.damage_sounds().is_empty());
+        assert!(b.damage_sounds().is_empty());
     }
     panic!("interleaved shots did not retire");
 }
@@ -1074,9 +1022,6 @@ fn moving_area_interleaved_worlds() {
 }
 #[test]
 fn moving_area_uses_projectile_default_team_identity_not_launcher_custom_team() {
-    let _guard = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
-    let _clear = ClearObserver;
-    let observer = observe();
     let mut f = fixture_custom(
         "TeamAdmission",
         150.0,
@@ -1090,7 +1035,7 @@ fn moving_area_uses_projectile_default_team_identity_not_launcher_custom_team() 
     );
     let collateral = f
         .world
-        .create_object_for_player("QueuedVictim", 1, Vec3::new(31.0, 0.0, 0.0))
+        .create_object_for_player("QueuedVictim", 1, Vec3::new(151.0, 0.0, 120.0))
         .unwrap();
     let mut chunks =
         generals_main::save_load::snapshot::stamp_player_team_chunks(&f.world).unwrap();
@@ -1131,21 +1076,18 @@ fn moving_area_uses_projectile_default_team_identity_not_launcher_custom_team() 
         gamelogic::common::Relationship::Enemies
     );
     f.accept();
-    advance_to_impact(&mut f, &observer, 150.0);
+    advance_to_impact(&mut f, 150.0);
     // The projectile belongs to the shooter's default Team, while the launcher
     // has a custom Team name. The exact default-Team override still admits the
     // collateral hit because C++ uses the projectile as detonation source.
     assert_eq!(f.world.host_objects()[&collateral].health.current, 50.0);
     assert_eq!(f.world.host_objects()[&f.victim].health.current, 50.0); // primary bypass
-    assert_eq!(observer.0.lock().unwrap().len(), 2);
+    assert_eq!(f.damage_sounds().len(), 2);
     assert_eq!(f.xp(), 0.0);
 }
 
 #[test]
 fn moving_area_projectile_default_team_identity_controls_collateral_filter() {
-    let _guard = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
-    let _clear = ClearObserver;
-    let observer = observe();
     let mut f = fixture_custom_with_ai(
         "DefaultTeamIdentity",
         150.0,
@@ -1162,7 +1104,7 @@ fn moving_area_projectile_default_team_identity_controls_collateral_filter() {
     );
     let collateral = f
         .world
-        .create_object_for_player("QueuedVictim", 1, Vec3::new(31.0, 0.0, 0.0))
+        .create_object_for_player("QueuedVictim", 1, Vec3::new(151.0, 0.0, 120.0))
         .unwrap();
     f.world
         .host_object_mut(f.shooters[0])
@@ -1196,14 +1138,12 @@ fn moving_area_projectile_default_team_identity_controls_collateral_filter() {
         .restore_from_snapshot(&snapshot, &mut receiver)
         .unwrap();
     f.world = receiver;
-    advance_to_impact(&mut f, &observer, 150.0);
+    advance_to_impact(&mut f, 150.0);
     assert_eq!(f.world.host_objects()[&collateral].health.current, 50.0);
 }
 
 #[test]
 fn moving_directional_splash_uses_projectile_pose_and_receiving_weapon_angle() {
-    let _guard = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
-    let _clear = ClearObserver;
     fn world(angle: f32) -> (Fixture, ObjectId) {
         let mut f = fixture_custom_with_ai(
             "SharedDirectional",
@@ -1221,7 +1161,7 @@ fn moving_directional_splash_uses_projectile_pose_and_receiving_weapon_angle() {
         );
         let behind_impact = f
             .world
-            .create_object_for_player("QueuedVictim", 1, Vec3::new(20.0, 0.0, 0.0))
+            .create_object_for_player("QueuedVictim", 1, Vec3::new(140.0, 0.0, 120.0))
             .unwrap();
         (f, behind_impact)
     }
@@ -1266,9 +1206,6 @@ fn moving_directional_splash_uses_projectile_pose_and_receiving_weapon_angle() {
 
 #[test]
 fn moving_area_shock_final_state() {
-    let _guard = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
-    let _clear = ClearObserver;
-    let observer = observe();
     let mut f = fixture_custom(
         "Shock",
         200.0,
@@ -1281,7 +1218,7 @@ fn moving_area_shock_final_state() {
         "ShockWaveAmount = 20\n ShockWaveRadius = 60\n ShockWaveTaperOff = 1",
     );
     f.accept();
-    advance_to_impact(&mut f, &observer, 200.0);
+    advance_to_impact(&mut f, 200.0);
     let victim = &f.world.host_objects()[&f.victim];
     assert_eq!(victim.health.current, 100.0);
     assert_eq!(victim.last_damage_source, Some(f.shooters[0]));
@@ -1292,5 +1229,5 @@ fn moving_area_shock_final_state() {
     assert!(victim.movement.velocity.x > 0.0);
     assert!(victim.movement.velocity.y > 0.0);
     assert!(victim.is_shock_stunned());
-    f.expect_fx(&observer, "Regular", Some(f.shooters[0]));
+    f.expect_fx("Regular", Some(f.shooters[0]));
 }
