@@ -202,10 +202,11 @@ fn restore_fixture_native(
         ..
     } = stage_native(saves, slot, live).unwrap();
     logic.finish_saved_snapshot_admission().unwrap();
-    let committed = runtime_world.preflight_native().unwrap().install_globals();
-    let previous = std::mem::replace(live, Box::new(logic));
-    committed.finish_after_logic_commit();
-    previous
+    runtime_world
+        .preflight_native(&logic.world_services)
+        .unwrap()
+        .publish_services();
+    std::mem::replace(live, Box::new(logic))
 }
 
 fn rewrite_logic(path: &std::path::Path, change: impl FnOnce(&mut WorldSnapshot)) {

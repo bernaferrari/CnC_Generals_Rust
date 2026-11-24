@@ -5,11 +5,11 @@
 
 /// RAII guard for TeamFactory that flushes pending create-actions after unlock.
 pub struct TeamFactoryGuard<'a> {
-    inner: Option<MutexGuard<'a, TeamFactory>>,
+    inner: Option<MutexGuard<'a, TeamFactoryState>>,
 }
 
 impl<'a> TeamFactoryGuard<'a> {
-    fn new(inner: MutexGuard<'a, TeamFactory>) -> Self {
+    fn new(inner: MutexGuard<'a, TeamFactoryState>) -> Self {
         Self { inner: Some(inner) }
     }
 }
@@ -18,17 +18,21 @@ impl Deref for TeamFactoryGuard<'_> {
     type Target = TeamFactory;
 
     fn deref(&self) -> &Self::Target {
-        self.inner
+        &self
+            .inner
             .as_deref()
             .expect("TeamFactoryGuard missing inner")
+            .factory
     }
 }
 
 impl DerefMut for TeamFactoryGuard<'_> {
     fn deref_mut(&mut self) -> &mut Self::Target {
-        self.inner
+        &mut self
+            .inner
             .as_deref_mut()
             .expect("TeamFactoryGuard missing inner")
+            .factory
     }
 }
 
@@ -37,35 +41,40 @@ impl Drop for TeamFactoryGuard<'_> {
         let Some(mut guard) = self.inner.take() else {
             return;
         };
-        let pending = guard.drain_pending_create_action_scripts();
-        let pending_generic = guard.drain_pending_generic_script_evals();
-        drop(guard);
-
-        // A staged Main-world restore temporarily installs an isolated set of
-        // C++-style singleton contents.  Running these callbacks while that
-        // scope is active would let a map bootstrap action escape into the
-        // active host/shadow world through the legacy script bridge.  The
-        // transaction boundary deliberately defers them instead: they execute
-        // only after Main installs the matching staged host world, never
-        // through whichever world happens to be live at guard drop.
-        let effects = TeamFactoryDeferredEffects::new(pending, pending_generic);
-        match crate::runtime_world_transaction::defer_team_factory_effects_if_staging(effects) {
-            Ok(()) => return,
-            Err(effects) => effects.execute_after_world_commit(),
+        let pending = guard.factory.drain_pending_create_action_scripts();
+        let pending_generic = guard.factory.drain_pending_generic_script_evals();
+        if pending.is_empty() && pending_generic.is_empty() {
+            return;
         }
+        let effects = TeamFactoryDeferredEffects::new(pending, pending_generic);
+        if let Some(staged) = &mut guard.staged_effects {
+            staged.push(effects);
+            return;
+        }
+        drop(guard);
+        effects.execute_after_unlock();
     }
+}
+
+#[derive(Debug)]
+struct TeamFactoryState {
+    factory: TeamFactory,
+    staged_effects: Option<Vec<TeamFactoryDeferredEffects>>,
 }
 
 /// Mutex wrapper that returns TeamFactoryGuard with post-unlock flush semantics.
 #[derive(Debug)]
 pub struct TeamFactoryMutex {
-    inner: Mutex<TeamFactory>,
+    inner: Mutex<TeamFactoryState>,
 }
 
 impl TeamFactoryMutex {
     fn new() -> Self {
         Self {
-            inner: Mutex::new(TeamFactory::new()),
+            inner: Mutex::new(TeamFactoryState {
+                factory: TeamFactory::new(),
+                staged_effects: None,
+            }),
         }
     }
 
@@ -103,7 +112,7 @@ impl TeamFactoryMutex {
             Ok(guard) => guard,
             Err(poisoned) => poisoned.into_inner(),
         };
-        std::mem::replace(&mut *guard, next)
+        std::mem::replace(&mut guard.factory, next)
     }
 }
 
@@ -131,6 +140,40 @@ impl TeamFactoryHandle {
         self.inner.try_lock()
     }
 
+    pub(crate) fn begin_save_stage(&self) -> bool {
+        let mut state = self
+            .inner
+            .inner
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        if state.staged_effects.is_some() {
+            return false;
+        }
+        state.staged_effects = Some(Vec::new());
+        true
+    }
+
+    pub(crate) fn finish_save_stage(&self) -> Vec<TeamFactoryDeferredEffects> {
+        let mut state = self
+            .inner
+            .inner
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        state
+            .staged_effects
+            .take()
+            .expect("TeamFactory has no active save stage")
+    }
+
+    pub(crate) fn save_stage_active(&self) -> bool {
+        let state = self
+            .inner
+            .inner
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        state.staged_effects.is_some()
+    }
+
     /// Inspect this factory without draining its deferred callbacks. Ordinary
     /// `lock` owns a callback boundary; an observation must not create one.
     pub fn with_read_without_flushing<R>(
@@ -138,8 +181,8 @@ impl TeamFactoryHandle {
         read: impl FnOnce(&TeamFactory) -> R,
     ) -> LockResult<R> {
         match self.inner.inner.lock() {
-            Ok(factory) => Ok(read(&factory)),
-            Err(poisoned) => Err(PoisonError::new(read(&poisoned.into_inner()))),
+            Ok(state) => Ok(read(&state.factory)),
+            Err(poisoned) => Err(PoisonError::new(read(&poisoned.into_inner().factory))),
         }
     }
 
@@ -151,12 +194,14 @@ impl TeamFactoryHandle {
         team_id: TeamID,
         controller: u32,
     ) -> Result<Option<TeamPrototypeControllerTransfer>, String> {
-        let mut factory = self
+        let mut state = self
             .inner
             .inner
             .lock()
             .map_err(|_| "receiving TeamFactory lock poisoned".to_string())?;
-        Ok(factory.transfer_team_prototype_controller(team_id, controller))
+        Ok(state
+            .factory
+            .transfer_team_prototype_controller(team_id, controller))
     }
 
     /// Run one controller's Team generic-script phase with the receiving
@@ -372,7 +417,7 @@ impl TeamFactoryHandle {
             .inner
             .lock()
             .map_err(|_| "team definition catalog poisoned")?;
-        guard.detached_definition_catalog(names)
+        guard.factory.detached_definition_catalog(names)
     }
 
     /// Replace contents only at an explicit whole-world boundary.
@@ -387,14 +432,10 @@ impl Default for TeamFactoryHandle {
     }
 }
 
-/// Post-unlock team callbacks captured by a whole-world staging transaction.
-///
-/// `TeamFactoryGuard` ordinarily executes these synchronously after releasing
-/// the factory mutex.  During save staging they must instead remain ordered
-/// with the staged world and run only once Main has installed both that world
-/// and its singleton contents.  This is intentionally opaque outside the
-/// transaction module: callers cannot execute one callback against a mixture
-/// of old and staged globals.
+/// Legacy Core callbacks produced by a TeamFactoryGuard. A staged native
+/// factory retains these for preflight because native admission runs its
+/// authored actions directly with the receiving interpreter.
+#[derive(Debug)]
 pub(crate) struct TeamFactoryDeferredEffects {
     create_action_scripts: Vec<String>,
     generic_script_evals: Vec<PendingTeamGenericScriptEval>,
@@ -411,8 +452,6 @@ impl TeamFactoryDeferredEffects {
         }
     }
 
-    /// Empty guard-drop receipts carry no script work. The outer staging
-    /// vector may contain many such receipts, so admission checks payloads.
     pub(crate) fn pending_callback_counts(&self) -> (usize, usize) {
         (
             self.create_action_scripts.len(),
@@ -420,7 +459,7 @@ impl TeamFactoryDeferredEffects {
         )
     }
 
-    pub(crate) fn execute_after_world_commit(self) {
+    fn execute_after_unlock(self) {
         execute_pending_team_create_action_scripts(self.create_action_scripts);
         execute_pending_team_generic_script_evals(self.generic_script_evals);
     }
@@ -461,7 +500,11 @@ impl TeamFactoryDeferredEffects {
 /// caller outside a published world has no TeamFactory, as in C++ before
 /// GameEngine::init creates the subsystem.
 pub fn get_team_factory() -> Arc<TeamFactoryMutex> {
-    Arc::clone(&crate::system::engine_stores::active_services().team_factory().inner)
+    Arc::clone(
+        &crate::system::engine_stores::active_services()
+            .team_factory()
+            .inner,
+    )
 }
 
 /// Convenience alias for C++ compatibility
@@ -490,7 +533,10 @@ impl TeamArcExt for Arc<RwLock<Team>> {
 /// `f` runs so object creation under a team cannot re-enter it.
 pub fn with_team<R>(team_id: TeamID, f: impl FnOnce(&mut Team) -> R) -> Option<R> {
     let published_team_factory = get_team_factory();
-    let team = published_team_factory.lock().ok()?.find_team_by_id(team_id)?;
+    let team = published_team_factory
+        .lock()
+        .ok()?
+        .find_team_by_id(team_id)?;
     let mut guard = team.write().ok()?;
     Some(f(&mut guard))
 }
@@ -508,7 +554,7 @@ mod detached_definition_tests {
     fn definition_catalog_keeps_ids_order_controllers_without_runtime_aliases_or_callbacks() {
         let handle = TeamFactoryHandle::new();
         {
-            let mut factory = handle.inner.inner.lock().unwrap();
+            let factory = &mut handle.inner.inner.lock().unwrap().factory;
             let mut definition = TeamPrototype::new("OwnedDefinition".into());
             definition.set_id(37);
             definition.owner_name = "actual_owner".into();
@@ -531,7 +577,7 @@ mod detached_definition_tests {
         }
         let names = vec!["OwnedDefinition".to_string()];
         let detached = handle.detached_definition_catalog(Some(&names)).unwrap();
-        let original = handle.inner.inner.lock().unwrap();
+        let original = &handle.inner.inner.lock().unwrap().factory;
         assert_eq!(original.pending_create_action_scripts, ["do_not_flush"]);
         assert!(detached.pending_create_action_scripts.is_empty());
         assert_eq!(detached.prototype_order, original.prototype_order);
@@ -576,7 +622,7 @@ mod detached_definition_tests {
         let handle = TeamFactoryHandle::new();
         let team_id = 17;
         {
-            let mut factory = handle.inner.inner.lock().unwrap();
+            let factory = &mut handle.inner.inner.lock().unwrap().factory;
             let team = Arc::new(RwLock::new(Team::new("OwnedTeam".into(), team_id)));
             factory.teams.insert(team_id, Arc::clone(&team));
             factory.instance_order.push(team_id);
@@ -601,7 +647,7 @@ mod detached_definition_tests {
         assert_eq!(handle.team_entered_or_exited(team_id + 1), None);
         assert!(!handle.mark_team_entered_exited(team_id + 1));
 
-        let factory = handle.inner.inner.lock().unwrap();
+        let factory = &handle.inner.inner.lock().unwrap().factory;
         assert_eq!(
             factory.pending_create_action_scripts,
             ["pending create callback"]
@@ -620,7 +666,13 @@ mod published_world_factory_tests {
     use crate::system::engine_stores::{WorldServices, with_world_services};
 
     fn has_prototype(name: &str) -> bool {
-        get_team_factory().inner.lock().unwrap().prototypes.contains_key(name)
+        get_team_factory()
+            .inner
+            .lock()
+            .unwrap()
+            .factory
+            .prototypes
+            .contains_key(name)
     }
 
     #[test]
@@ -633,16 +685,26 @@ mod published_world_factory_tests {
                 .inner
                 .lock()
                 .unwrap()
+                .factory
                 .prototypes
-                .insert("OnlyInA".into(), Arc::new(TeamPrototype::new("OnlyInA".into())));
+                .insert(
+                    "OnlyInA".into(),
+                    Arc::new(TeamPrototype::new("OnlyInA".into())),
+                );
         });
         for _ in 0..2 {
             with_world_services(&b, || {
                 assert!(Arc::ptr_eq(&get_team_factory(), &b.team_factory().inner));
-                assert!(!has_prototype("OnlyInA"), "B never sees A's team prototypes");
+                assert!(
+                    !has_prototype("OnlyInA"),
+                    "B never sees A's team prototypes"
+                );
             });
             with_world_services(&a, || {
-                assert!(has_prototype("OnlyInA"), "A keeps its own factory between turns");
+                assert!(
+                    has_prototype("OnlyInA"),
+                    "A keeps its own factory between turns"
+                );
             });
         }
     }

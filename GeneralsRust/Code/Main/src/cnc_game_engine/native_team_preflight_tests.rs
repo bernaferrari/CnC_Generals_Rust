@@ -14,12 +14,11 @@ fn native_team_preflight_empty_guard_batches_finish_without_global_script_discov
             let expected = owner.session_view.target;
             let peer_target = peer.session_view.target;
             let stage = HostRuntimeWorldStage::begin(&owner.world_services);
-            // Real guard drop defers a receipt even though no callback is pending.
-            drop(gamelogic::team::get_team_factory().lock().unwrap());
-            drop(gamelogic::team::get_team_factory().lock().unwrap());
-            let candidate = stage.finish_and_restore_live(&owner.world_services);
-            let checked = candidate.preflight_native().unwrap();
-            checked.install_globals().finish_after_logic_commit();
+            drop(owner.world_services.team_factory().lock().unwrap());
+            drop(owner.world_services.team_factory().lock().unwrap());
+            let candidate = stage.finish();
+            let checked = candidate.preflight_native(&owner.world_services).unwrap();
+            checked.publish_services();
             assert_eq!(owner.session_view.target, expected);
             assert_eq!(peer.session_view.target, peer_target);
             assert!(
@@ -49,46 +48,50 @@ fn native_team_preflight_unexpected_create_rejects_before_live_session_or_camera
             peer.session_view.target = glam::Vec3::new(-5.0, 9.0, 80.0);
             let owner_target = owner.session_view.target;
             let peer_target = peer.session_view.target;
-            let foreign = ScriptEngine::new_in_published_world().unwrap();
-            foreign.set_counter("ForeignCallback", 41).unwrap();
-            *get_script_engine().write().unwrap() = Some(foreign);
-            let stage = HostRuntimeWorldStage::begin(&owner.world_services);
-            let mut definition = Dict::new();
-            definition.set_bool(key_team_executes_actions_on_create(), true);
-            definition.set_ascii_string(key_team_production_condition(), "ForeignCallback");
-            {
-                let published_team_factory = gamelogic::team::get_team_factory();
-                let mut factory = published_team_factory.lock().unwrap();
-                assert!(
-                    factory
-                        .init_team(
-                            "UnexpectedCoreTeam".into(),
-                            "".into(),
-                            true,
-                            Some(&definition)
-                        )
-                        .is_some()
+            peer.with_own_services(|| {
+                let foreign = ScriptEngine::new_in_published_world().unwrap();
+                foreign.set_counter("ForeignCallback", 41).unwrap();
+                *get_script_engine().write().unwrap() = Some(foreign);
+                let stage = HostRuntimeWorldStage::begin(&owner.world_services);
+                let mut definition = Dict::new();
+                definition.set_bool(key_team_executes_actions_on_create(), true);
+                definition.set_ascii_string(key_team_production_condition(), "ForeignCallback");
+                {
+                    let mut factory = owner.world_services.team_factory().lock().unwrap();
+                    assert!(
+                        factory
+                            .init_team(
+                                "UnexpectedCoreTeam".into(),
+                                "".into(),
+                                true,
+                                Some(&definition)
+                            )
+                            .is_some()
+                    );
+                }
+                let candidate = stage.finish();
+                let error = match candidate.preflight_native(&owner.world_services) {
+                    Ok(_) => panic!("unexpected Core payload must fail before native installation"),
+                    Err(error) => error,
+                };
+                assert!(error.contains("1 create, 0 generic"), "{error}");
+                assert!(gamelogic::system::engine_stores::is_services_active(
+                    &peer.world_services
+                ));
+                assert_eq!(owner.session_view.target, owner_target);
+                assert_eq!(peer.session_view.target, peer_target);
+                let handle = get_script_engine();
+                let interpreter = handle.read().unwrap();
+                assert_eq!(
+                    interpreter
+                        .as_ref()
+                        .unwrap()
+                        .get_counter("ForeignCallback")
+                        .unwrap()
+                        .value,
+                    41
                 );
-            }
-            let candidate = stage.finish_and_restore_live(&owner.world_services);
-            let error = match candidate.preflight_native() {
-                Ok(_) => panic!("unexpected Core payload must fail before native installation"),
-                Err(error) => error,
-            };
-            assert!(error.contains("1 create, 0 generic"), "{error}");
-            assert_eq!(owner.session_view.target, owner_target);
-            assert_eq!(peer.session_view.target, peer_target);
-            let handle = get_script_engine();
-            let interpreter = handle.read().unwrap();
-            assert_eq!(
-                interpreter
-                    .as_ref()
-                    .unwrap()
-                    .get_counter("ForeignCallback")
-                    .unwrap()
-                    .value,
-                41
-            );
+            });
         },
     );
 }

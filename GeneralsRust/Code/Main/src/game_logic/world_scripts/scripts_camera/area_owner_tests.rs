@@ -87,7 +87,7 @@ fn receiving_area_queries_and_map_install_never_publish_or_consume_foreign_track
                 !owner.host_script_point_in_trigger(glam::Vec3::new(2.0, 0.0, 2.0), "OwnedArea")
             );
             assert!(peer.host_script_area_center("OwnedArea").is_some());
-            let candidate = stage.finish_and_restore_live(&owner.world_services);
+            let candidate = stage.finish();
             drop(candidate);
             assert_eq!(tracker.get_area_aabb("OwnedArea"), before);
         },

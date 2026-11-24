@@ -7,6 +7,11 @@ fn stage_decoded(
     source: &GameLogic,
     slot: &str,
 ) -> Result<StagedRestoreWorld, RestoreStagingFailure> {
+    use gamelogic::runtime_world_transaction::world_runtime_staging_active_in;
+    use gamelogic::system::engine_stores::{active_services, is_services_active};
+
+    let peer = active_services();
+    assert!(!Arc::ptr_eq(&peer, &source.world_services));
     let crate::save_load::DecodedGameSave {
         campaign_state,
         snapshot,
@@ -49,9 +54,15 @@ fn stage_decoded(
         source.session_view.camera.input_policy,
         &source.world_services,
         |saved, candidate| {
-            saves
+            assert!(is_services_active(&peer));
+            assert!(!world_runtime_staging_active_in(&peer));
+            assert!(!world_runtime_staging_active_in(&source.world_services));
+            assert!(world_runtime_staging_active_in(&candidate.world_services));
+            let result = saves
                 .restore_game_snapshot(saved, candidate)
-                .map_err(|error| error.to_string())
+                .map_err(|error| error.to_string());
+            assert!(is_services_active(&peer));
+            result
         },
     )
     .map(|mut staged| {
@@ -102,7 +113,9 @@ fn actual_main_holds_a_while_staging_b_and_malformed_c_then_drops_b_commits_a_an
             live.frame = 99;
             let before = crate::authoritative_world::AuthorityProbe::capture(&live, 0);
             let live_services = Arc::clone(&live.world_services);
-            let a = stage_decoded(&mut saves, decoded_a, &live, "held_a")
+            let peer = GameLogic::new();
+            let a = peer
+                .with_own_services(|| stage_decoded(&mut saves, decoded_a, &live, "held_a"))
                 .unwrap_or_else(|failure| panic!("stage A: {}", failure.reason));
             assert_eq!(a.logic.frame, 41);
             assert_eq!(a.logic.session_sell_percentage, 0.37);
@@ -115,7 +128,8 @@ fn actual_main_holds_a_while_staging_b_and_malformed_c_then_drops_b_commits_a_an
             assert!(!gamelogic::runtime_world_transaction::world_runtime_staging_active());
 
             // A's actual Main decoded candidate remains held during this whole call.
-            let b = stage_decoded(&mut saves, decoded_b, &live, "held_b")
+            let b = peer
+                .with_own_services(|| stage_decoded(&mut saves, decoded_b, &live, "held_b"))
                 .unwrap_or_else(|failure| panic!("stage B while A held: {}", failure.reason));
             assert_eq!(b.logic.frame, 42);
             assert_eq!(b.logic.session_sell_percentage, 0.37);
@@ -124,7 +138,9 @@ fn actual_main_holds_a_while_staging_b_and_malformed_c_then_drops_b_commits_a_an
                 crate::authoritative_world::AuthorityProbe::capture(&live, 0),
                 before
             );
-            let failure = match stage_decoded(&mut saves, malformed_c, &live, "malformed_c") {
+            let failure = match peer.with_own_services(|| {
+                stage_decoded(&mut saves, malformed_c, &live, "malformed_c")
+            }) {
                 Ok(_) => panic!("unsupported actual snapshot version must reject"),
                 Err(failure) => failure,
             };
@@ -166,10 +182,10 @@ fn actual_main_holds_a_while_staging_b_and_malformed_c_then_drops_b_commits_a_an
                 ..
             } = a;
             logic.finish_saved_snapshot_admission().unwrap();
-            let checked = runtime_world.preflight_native().unwrap();
+            let checked = runtime_world.preflight_native(&logic.world_services).unwrap();
             live.destroy_all_objects_immediate_with_effects_checked(&mut Default::default())
                 .unwrap();
-            let committed = checked.install_globals();
+            checked.publish_services();
             admit_staged_session_view(
                 &mut live.session_view,
                 &mut logic.session_view,
@@ -177,7 +193,6 @@ fn actual_main_holds_a_while_staging_b_and_malformed_c_then_drops_b_commits_a_an
             );
             let previous = std::mem::replace(&mut live, logic);
             drop(previous);
-            committed.finish_after_logic_commit();
             assert_eq!(
                 crate::authoritative_world::AuthorityProbe::capture(&live, 0),
                 expected_a

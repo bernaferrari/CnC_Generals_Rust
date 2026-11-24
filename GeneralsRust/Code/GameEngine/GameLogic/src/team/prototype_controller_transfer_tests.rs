@@ -161,7 +161,7 @@ fn restoring_unknown_prototype_controller_is_rejected_without_changing_owner() {
 fn prototype_controller_transfer_keeps_unrelated_factory_callbacks_pending() {
     let handle = TeamFactoryHandle::new();
     let team_id = {
-        let mut factory = handle.inner.inner.lock().unwrap();
+        let factory = &mut handle.inner.inner.lock().unwrap().factory;
         factory.init_team_owned("Owned".into(), "First".into(), true, None, Some(1));
         let team_id = factory.find_team_instances("Owned")[0]
             .read()
@@ -179,7 +179,7 @@ fn prototype_controller_transfer_keeps_unrelated_factory_callbacks_pending() {
             .unwrap()
             .is_some()
     );
-    let factory = handle.inner.inner.lock().unwrap();
+    let factory = &handle.inner.inner.lock().unwrap().factory;
     assert_eq!(
         factory.admitted_prototype_controller("Owned"),
         Some(Some(2))

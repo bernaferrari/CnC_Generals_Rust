@@ -1,214 +1,106 @@
 use super::*;
+use crate::player::Player;
+use std::sync::RwLock;
 
-struct RestoreGlobals {
-    bundle: Arc<WorldServices>,
-    original: Option<HostRuntimeGlobals>,
-}
-impl Drop for RestoreGlobals {
-    fn drop(&mut self) {
-        let _lock = world_runtime_transaction_lock();
-        let current = HostRuntimeGlobals::take_from_singletons(&self.bundle);
-        drop(current);
-        drop(
-            self.original
-                .take()
-                .unwrap()
-                .install_into_singletons(&self.bundle),
+#[test]
+fn save_stage_marker_belongs_to_receiving_factory_even_with_foreign_world_published() {
+    let receiving = Arc::new(WorldServices::new_for_world());
+    let foreign = Arc::new(WorldServices::new_for_world());
+
+    engine_stores::with_world_services(&foreign, || {
+        let stage = HostRuntimeWorldStage::begin(&receiving);
+        assert!(
+            !world_runtime_staging_active(),
+            "foreign world must remain unstaged"
         );
-    }
+        engine_stores::with_world_services(&receiving, || {
+            assert!(
+                world_runtime_staging_active(),
+                "receiving world must be staged"
+            );
+        });
+        drop(stage);
+        assert!(!world_runtime_staging_active());
+        engine_stores::with_world_services(&receiving, || {
+            assert!(
+                !world_runtime_staging_active(),
+                "rollback clears the receiving stage"
+            );
+        });
+    });
 }
-fn seed(marker: u32) {
-    player_list()
+
+fn seed(services: &WorldServices, marker: u32) {
+    services
+        .players()
         .write()
         .unwrap()
-        .add_player(Arc::new(std::sync::RwLock::new(
-            crate::player::Player::new(marker as i32),
-        )));
-    let mut engine = ScriptEngine::new_in_published_world().unwrap();
-    engine
-        .set_counter("ReservationMarker", marker as i32)
-        .unwrap();
-    *get_script_engine().write().unwrap() = Some(engine);
-    let mut dict = game_engine::common::dict::Dict::new();
-    dict.set_ascii_string(
-        game_engine::common::well_known_keys::key_team_on_unit_destroyed_script(),
-        "NotExecutedByNativeCommit",
-    );
-    let published_team_factory = get_team_factory();
-    let mut factory = published_team_factory.lock().unwrap();
-    let prototype = factory
-        .init_team("ReservationTeam".into(), "".into(), false, Some(&dict))
-        .unwrap();
-    let team = factory
-        .create_team_on_prototype_with_id(&prototype, marker + 20)
-        .unwrap();
-    factory.set_next_team_id(marker + 100);
-    drop(factory);
-    team.write().unwrap().notify_team_of_object_death();
+        .add_player(Arc::new(RwLock::new(Player::new(marker as i32))));
+    services
+        .team_factory()
+        .lock()
+        .unwrap()
+        .set_next_team_id(marker);
 }
-fn observe(marker: u32) {
+
+fn expect_marker(services: &WorldServices, marker: u32) {
     assert!(
-        player_list()
+        services
+            .players()
             .read()
             .unwrap()
             .get_player(marker as i32)
             .is_some()
     );
     assert_eq!(
-        get_team_factory().lock().unwrap().get_next_team_id(),
-        marker + 100
-    );
-    assert_eq!(
-        get_script_engine()
-            .read()
-            .unwrap()
-            .as_ref()
-            .unwrap()
-            .get_counter("ReservationMarker")
-            .unwrap()
-            .value,
-        marker as i32
-    );
-    let queue = take_pending_team_script_events_for_world_boundary();
-    assert_eq!(queue.event_count_for_world_transaction_test(), 1);
-    let replaced = replace_pending_team_script_events_for_world_boundary(queue);
-    assert_eq!(replaced.event_count_for_world_transaction_test(), 0);
-}
-fn empty_receipt() {
-    assert!(
-        defer_team_factory_effects_if_staging(
-            TeamFactoryDeferredEffects::empty_for_world_transaction_test()
-        )
-        .is_ok()
+        services.team_factory().lock().unwrap().get_next_team_id(),
+        marker
     );
 }
 
 #[test]
-fn detached_a_allows_b_failed_c_drop_and_commit_interleavings_without_reserving_singletons() {
-    let _serial = crate::test_sync::lock();
+fn independent_candidates_keep_their_metadata_and_rollback_clears_only_its_stage() {
     let live = Arc::new(WorldServices::new_for_world());
-    // The C++ singleton counterparts now belong to this engine. The staging
-    // boundary snapshots `live`; seed and observe must target that same owner,
-    // not the test-ambient engine created by a free accessor.
+    let a = Arc::new(WorldServices::new_for_world());
+    let b = Arc::new(WorldServices::new_for_world());
+    seed(&live, 1);
+
     engine_stores::with_world_services(&live, || {
-    let original = HostRuntimeGlobals::take_from_singletons(&live);
-    let _restore = RestoreGlobals {
-        bundle: Arc::clone(&live),
-        original: Some(original),
-    };
-    seed(1);
-    // C++ loads the next world into the one TheThingFactory/ThePlayerList
-    // engine: the stage swaps the live engine's metadata aside and the map load
-    // runs in place (HostRuntimeWorldStage::finish_and_restore_live(&live)).
-    let a_stage = HostRuntimeWorldStage::begin(&live);
-    seed(2);
-    empty_receipt();
-    empty_receipt();
-    let a = a_stage.finish_and_restore_live(&live);
-    assert!(
-        WorldRuntimeTransactionLock::is_free(),
-        "detached A must not reserve stores"
-    );
-    assert!(!world_runtime_staging_active());
-    observe(1);
-    // seed's TeamFactoryGuard drops one legitimate empty receipt, followed
-    // by the two explicit empty receipts; preserve every original visit.
-    assert_eq!(a.team_factory_effects.len(), 3);
-    assert!(
-        a.team_factory_effects
-            .iter()
-            .all(|e| e.pending_callback_counts() == (0, 0))
-    );
-    assert_eq!(
-        a.globals
-            .pending_team_script_events
-            .event_count_for_world_transaction_test(),
-        1
-    );
+        let a_stage = HostRuntimeWorldStage::begin(&a);
+        seed(&a, 2);
+        let b_stage = HostRuntimeWorldStage::begin(&b);
+        seed(&b, 3);
+        expect_marker(&live, 1);
+        assert!(engine_stores::is_services_active(&live));
 
-    let b_stage = HostRuntimeWorldStage::begin(&live);
-    seed(3);
-    empty_receipt();
-    let b = b_stage.finish_and_restore_live(&live);
-    observe(1);
-    // One seed guard receipt followed by the explicit empty receipt.
-    assert_eq!(b.team_factory_effects.len(), 2);
-    assert!(
-        b.team_factory_effects
-            .iter()
-            .all(|e| e.pending_callback_counts() == (0, 0))
-    );
-    // Failed C rolls back while both detached tokens remain held.
-    let c_stage = HostRuntimeWorldStage::begin(&live);
-    seed(4);
-    assert!(
-        defer_team_factory_effects_if_staging(
-            TeamFactoryDeferredEffects::pending_for_world_transaction_test(true, true)
-        )
-        .is_ok()
-    );
-    drop(c_stage);
-    observe(1);
-    assert!(!world_runtime_staging_active());
-    assert!(
-        WorldRuntimeStageScope::enter().finish().is_empty(),
-        "C rollback discards both seed's empty receipt and its pending callback receipt"
-    );
-    drop(b);
-    observe(1);
+        let a_candidate = a_stage.finish();
+        assert!(!world_runtime_staging_active_in(&a));
+        assert!(world_runtime_staging_active_in(&b));
+        drop(b_stage);
+        assert!(!world_runtime_staging_active_in(&b));
+        expect_marker(&a, 2);
+        expect_marker(&live, 1);
+        assert!(engine_stores::is_services_active(&live));
 
-    let committed = a.preflight_native().unwrap().install_globals();
-    assert!(
-        !WorldRuntimeTransactionLock::is_free(),
-        "raw install retains exclusion until Main commit completes"
-    );
-    observe(2);
-    committed.finish_after_logic_commit();
-    assert!(WorldRuntimeTransactionLock::is_free());
-    // A later reset-stage rollback preserves the just-committed A values.
-    let reset = HostRuntimeWorldStage::begin(&live);
-    seed(5);
-    drop(reset);
-    observe(2);
+        a_candidate.preflight_native(&a).unwrap().publish_services();
+        assert!(engine_stores::is_services_active(&a));
+        expect_marker(&a, 2);
+        assert!(engine_stores::uninstall_services(&a));
+        assert!(engine_stores::is_services_active(&live));
     });
 }
 
 #[test]
-fn native_rejection_drops_detached_receipts_without_callbacks_and_releases_reservation() {
-    let _serial = crate::test_sync::lock();
+fn save_preflight_rejects_a_candidate_for_a_different_owner_before_publication() {
     let live = Arc::new(WorldServices::new_for_world());
-    // The C++ singleton counterparts now belong to this engine. The staging
-    // boundary snapshots `live`; seed and observe must target that same owner,
-    // not the test-ambient engine created by a free accessor.
+    let candidate = Arc::new(WorldServices::new_for_world());
     engine_stores::with_world_services(&live, || {
-    let original = HostRuntimeGlobals::take_from_singletons(&live);
-    let _restore = RestoreGlobals {
-        bundle: Arc::clone(&live),
-        original: Some(original),
-    };
-    seed(1);
-    let stage = HostRuntimeWorldStage::begin(&live);
-    seed(2);
-    assert!(
-        defer_team_factory_effects_if_staging(
-            TeamFactoryDeferredEffects::pending_for_world_transaction_test(true, true)
-        )
-        .is_ok()
-    );
-    let candidate = stage.finish_and_restore_live(&live);
-    assert!(WorldRuntimeTransactionLock::is_free());
-    assert_eq!(candidate.team_factory_effects.len(), 2);
-    assert_eq!(
-        candidate.team_factory_effects[0].pending_callback_counts(),
-        (0, 0)
-    );
-    assert_eq!(
-        candidate.team_factory_effects[1].pending_callback_counts(),
-        (1, 1)
-    );
-    assert!(candidate.preflight_native().is_err());
-    observe(1);
-    assert!(WorldRuntimeTransactionLock::is_free());
-    observe(1);
+        let staged = HostRuntimeWorldStage::begin(&candidate).finish();
+        let result = staged.preflight_native(&live);
+        assert_eq!(
+            result.err().as_deref(),
+            Some("native save stage belongs to a different world")
+        );
+        assert!(engine_stores::is_services_active(&live));
     });
 }

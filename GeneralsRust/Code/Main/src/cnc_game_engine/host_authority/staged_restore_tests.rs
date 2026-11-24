@@ -746,7 +746,8 @@ fn forced_post_restore_failure_restores_globals_and_tls_effect_queues() {
                     assert!(staged.isInGame(), "failure is injected after map load");
                     assert_eq!(staged.ai_definitions.baseline().resources_poor, 7654);
                     assert_eq!(staged.production_energy_rules().min_speed, 0.5);
-                    assert!(gamelogic::runtime_world_transaction::world_runtime_staging_active());
+                    assert!(gamelogic::runtime_world_transaction::world_runtime_staging_active_in(&staged.world_services));
+                    assert!(!gamelogic::runtime_world_transaction::world_runtime_staging_active_in(&source.world_services));
                     assert!(
                         staged.host_objects().registered_is_empty(),
                         "map foundation Objects retire before saved Object admission"
@@ -2255,17 +2256,18 @@ End
                     &mut native_graphics,
                     &mut native_pipeline,
                 );
-                // Match the production boundary: globals, installed host,
-                // then checked native finish. No Core AI participates.
+                // Publish the checked services at the host replacement boundary.
                 let StagedRestoreWorld {
                     logic,
                     runtime_world,
                     ..
                 } = staged;
-                let effects = runtime_world.preflight_native().unwrap().install_globals();
+                runtime_world
+                    .preflight_native(&logic.world_services)
+                    .unwrap()
+                    .publish_services();
                 let old = std::mem::replace(&mut source, logic);
                 drop(old);
-                effects.finish_after_logic_commit();
                 assert!(source.isInGame());
                 assert_eq!(source.get_players().len(), saved_player_count);
                 assert!(source.get_player(0).unwrap().is_human);

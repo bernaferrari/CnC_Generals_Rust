@@ -1623,11 +1623,8 @@ impl CnCGameEngine {
 
     /// Install a fully staged save world and its GameClient companion.
     ///
-    /// Unlike `host_replace_game_logic`, this also owns the legacy singleton
-    /// bundle mutated by map loading.  The order is intentional: invalidate
-    /// old UI/log ownership, install candidate globals, install matching host
-    /// logic, then finish the preflight-checked callback-free native commit
-    /// before rebuilding the shadow from host authority.
+    /// Retire the outgoing UI and world, then publish the validated beginning
+    /// of the replacement's lifetime before installing its matching GameLogic.
     fn host_replace_staged_restore_world(
         &mut self,
         staged: StagedRestoreWorld,
@@ -1659,7 +1656,7 @@ impl CnCGameEngine {
             owns_session_camera,
             logic_rng_seed_words,
         } = staged;
-        let runtime_world = match runtime_world.preflight_native() {
+        let runtime_world = match runtime_world.preflight_native(&logic.world_services) {
             Ok(world) => world,
             Err(error) => {
                 #[cfg(feature = "game_client")]
@@ -1759,7 +1756,7 @@ impl CnCGameEngine {
         #[cfg(not(feature = "game_client"))]
         let pending_map_audio = native_map.install_visuals(&mut self.render_pipeline);
 
-        let native_commit = runtime_world.install_globals();
+        runtime_world.publish_services();
         // Only admitted replacement cancels a source prepared start. Failed
         // staging/preflight above retains its live pending owner and windows.
         self.pending_match_start = None;
@@ -1958,7 +1955,6 @@ impl CnCGameEngine {
                 visual.admit_map_water_configuration(&configured);
             }
         }
-        native_commit.finish_after_logic_commit();
         // Movement receipts belong to runtime output, not the save wire. Map
         // admission must not replay movement
         // cues when the newly installed world first publishes presentation.
@@ -2426,12 +2422,6 @@ impl CnCGameEngine {
         Ok(staged)
     }
 
-    /// Stage a decoded save behind a raw singleton/TLS transaction boundary.
-    ///
-    /// `restore_snapshot` is deliberately injected only at this private seam:
-    /// the focused test can force an error *after* map loading has mutated all
-    /// candidate globals, proving rollback preserves the active world.  It is
-    /// not a production failpoint and does not alter save schema/versioning.
     /// Direct logical save admission uses the same exact-map candidate kernel
     /// as the native Engine, but has no native renderer/client receiver.
     pub(crate) fn restore_decoded_logical_save(
@@ -2515,7 +2505,7 @@ impl CnCGameEngine {
                 manager, logic, reason,
             ));
         }
-        let checked = match runtime_world.preflight_native() {
+        let checked = match runtime_world.preflight_native(&logic.world_services) {
             Ok(checked) => checked,
             Err(reason) => {
                 return Err(Self::reject_logical_restore_candidate(
@@ -2534,7 +2524,7 @@ impl CnCGameEngine {
                 format!("outgoing logical Object retirement: {error}"),
             ));
         }
-        let committed = checked.install_globals();
+        checked.publish_services();
         admit_staged_session_view(
             &mut live.session_view,
             &mut logic.session_view,
@@ -2542,7 +2532,6 @@ impl CnCGameEngine {
         );
         let previous = std::mem::replace(live, logic);
         drop(previous);
-        committed.finish_after_logic_commit();
         live.admit_campaign_session(
             campaign_state
                 .as_ref()
@@ -2583,11 +2572,11 @@ impl CnCGameEngine {
         let definitions = live
             .team_factory
             .detached_definition_catalog(definition_names.as_deref())?;
-        let transaction = gamelogic::runtime_world_transaction::HostRuntimeWorldStage::begin(
-            &live.world_services,
-        );
         let mut candidate = crate::game_logic::GameLogic::in_application(
             &live.world_services.common().application,
+        );
+        let stage = gamelogic::runtime_world_transaction::HostRuntimeWorldStage::begin(
+            &candidate.world_services,
         );
         let preparation = (|| -> Result<_, String> {
             candidate.receiving_module_content = live.receiving_module_content.clone();
@@ -2691,8 +2680,8 @@ impl CnCGameEngine {
                 ));
             }
         };
-        let staged = transaction.finish_and_restore_live(&candidate.world_services);
-        let checked = match staged.preflight_native() {
+        let staged = stage.finish();
+        let checked = match staged.preflight_native(&candidate.world_services) {
             Ok(checked) => checked,
             Err(reason) => {
                 return Err(Self::reject_logical_restore_candidate(
@@ -2709,7 +2698,7 @@ impl CnCGameEngine {
                 format!("outgoing logical Object retirement: {error}"),
             ));
         }
-        let committed = checked.install_globals();
+        checked.publish_services();
         admit_staged_session_view(
             &mut live.session_view,
             &mut candidate.session_view,
@@ -2717,7 +2706,6 @@ impl CnCGameEngine {
         );
         let previous = std::mem::replace(live, candidate);
         drop(previous);
-        committed.finish_after_logic_commit();
         live.admit_campaign_session(
             decoded
                 .campaign_state
@@ -2908,17 +2896,13 @@ impl CnCGameEngine {
             .ok_or_else(|| format!("saved map '{saved_map}' has a non-UTF-8 path"))?
             .to_string();
 
-        // Map loading and snapshot restore still write shared metadata (sides,
-        // players, teams, scripts and named/area trackers). Terrain, shroud,
-        // visuals and Main AI belong to their world and are not swapped.
-        // Move shared metadata out before constructing the candidate so
-        // failure cannot poison the still-playable host match. Core/native
-        // transaction state is restored before installing the candidate.
-        let runtime_stage =
-            gamelogic::runtime_world_transaction::HostRuntimeWorldStage::begin(live_services);
+        // The candidate owns map and snapshot state. Hold legacy Core team
+        // callbacks on that candidate for the native commit preflight.
         let mut staged = crate::game_logic::GameLogic::in_application(
             &live_services.common().application,
         );
+        let runtime_stage =
+            gamelogic::runtime_world_transaction::HostRuntimeWorldStage::begin(&staged.world_services);
         // TerrainLogic::enableWaterGrid reads the receiving application's
         // authored GameData. Keep the candidate's copy detached until commit.
         let receiving_game_data = live_services
@@ -3137,10 +3121,8 @@ impl CnCGameEngine {
             }
         };
 
-        // Restore the active singleton/TLS state before exposing the candidate
-        // to the caller.  The returned opaque bundle is installed only by the
-        // no-fail combined commit below.
-        let runtime_world = runtime_stage.finish_and_restore_live(&staged.world_services);
+        // Collect the candidate's callback receipts for preflight.
+        let runtime_world = runtime_stage.finish();
         Ok(StagedRestoreWorld {
             campaign_state: None,
             native_map: Default::default(),

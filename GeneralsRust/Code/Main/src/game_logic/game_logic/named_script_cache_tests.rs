@@ -270,22 +270,21 @@ mod initial_and_stage_tests {
             module_path!(),
             "main_stage_does_not_take_or_publish_standalone_named_tracker",
             || {
-                let (owner, _) = world("LiveName");
                 let tracker = gamelogic::scripting::engine::get_named_object_tracker();
                 tracker
                     .register_named_object("ForeignNamed".into(), 999)
                     .unwrap();
-                let stage = gamelogic::runtime_world_transaction::HostRuntimeWorldStage::begin(
-                    &owner.world_services,
-                );
                 assert_eq!(tracker.get_object_id("ForeignNamed").unwrap(), Some(999));
                 let (mut candidate, id) = world("CandidateName");
+                let stage = gamelogic::runtime_world_transaction::HostRuntimeWorldStage::begin(
+                    &candidate.world_services,
+                );
                 first_update(&mut candidate);
                 assert_eq!(
                     candidate.host_object_id_by_script_name("CandidateName"),
                     Some(id)
                 );
-                let pending = stage.finish_and_restore_live(&candidate.world_services);
+                let pending = stage.finish();
                 drop(pending);
                 assert_eq!(tracker.get_object_id("ForeignNamed").unwrap(), Some(999));
                 assert_eq!(tracker.get_object_id("CandidateName").unwrap(), None);

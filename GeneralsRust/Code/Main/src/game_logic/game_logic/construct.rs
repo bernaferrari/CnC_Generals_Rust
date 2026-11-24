@@ -1709,7 +1709,10 @@ mod ownership_tests {
         ));
 
         {
-            let _stage = gamelogic::runtime_world_transaction::WorldRuntimeStageScope::enter();
+            let candidate = GameLogic::new();
+            let _stage = gamelogic::runtime_world_transaction::HostRuntimeWorldStage::begin(
+                &candidate.world_services,
+            );
             let staged = GameLogic::initialize();
             assert!(Arc::ptr_eq(
                 &gamelogic::system::engine_stores::active_services(),

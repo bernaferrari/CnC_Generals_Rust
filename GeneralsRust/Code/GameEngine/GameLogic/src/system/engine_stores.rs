@@ -169,12 +169,6 @@ pub struct WorldServices {
 
 
 
-    /// Nested world-stage depth for the published services (was process TLS).
-    staging_depth: AtomicU32,
-    staging_deferred_team_effects:
-        Mutex<Vec<crate::team::TeamFactoryDeferredEffects>>,
-    /// Serializes host staging that still touches process-wide wrappers.
-    runtime_transaction_lock: Arc<parking_lot::Mutex<()>>,
     /// C++ `TheScriptEngine` and its named-object/area/event side tables for
     /// this world (formerly process statics in `scripting::engine::types`).
     scripts: crate::scripting::engine::WorldScriptState,
@@ -294,9 +288,6 @@ impl WorldServices {
             sub_object_name_hook: RwLock::new(None),
             w3d_ghost_snapshot_capture_hook: RwLock::new(None),
             w3d_ghost_snapshot_capture_source_hook: RwLock::new(None),
-            staging_depth: AtomicU32::new(0),
-            staging_deferred_team_effects: Mutex::new(Vec::new()),
-            runtime_transaction_lock: Arc::new(parking_lot::Mutex::new(())),
             scripts: crate::scripting::engine::WorldScriptState::default(),
         };
         // The registry's script-side cleanup belongs to this world's engine.
@@ -509,20 +500,9 @@ impl WorldServices {
     ) -> &Mutex<Option<crate::modules::UpdateModulePtr>> {
         &self.cur_update_module
     }
-    pub(crate) fn staging_depth(&self) -> &AtomicU32 {
-        &self.staging_depth
-    }
-    pub(crate) fn staging_deferred_team_effects(
-        &self,
-    ) -> &Mutex<Vec<crate::team::TeamFactoryDeferredEffects>> {
-        &self.staging_deferred_team_effects
-    }
     /// This world's script engine slot and script side tables.
     pub fn scripts(&self) -> &crate::scripting::engine::WorldScriptState {
         &self.scripts
-    }
-    pub(crate) fn runtime_transaction_lock(&self) -> &Arc<parking_lot::Mutex<()>> {
-        &self.runtime_transaction_lock
     }
     pub(crate) fn selection(&self) -> &Arc<RwLock<crate::commands::selection::SelectionManager>> {
         &self.selection

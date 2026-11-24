@@ -29,6 +29,14 @@ at the call site and keep the original timing. Save continuations belong
 to the subsystems that resume them. The world restore path validates
 identities and installs those continuations in dependency order.
 
+Native save admission prepares a separate match through reset, map
+foundation, snapshot restoration, and post-processing. This follows the
+phase order of C++ `GameState::loadGame` while keeping the running match
+intact during validation. A candidate's team factory captures any legacy
+Core script callbacks. Preflight checks the candidate's world identity
+and rejects unexpected callbacks before retirement of the live match.
+The host publishes the replacement's compatibility binding at commit.
+
 Match original C++ symbols to their reachable Rust owners in
 `PORT_PROVENANCE_REVIEWED.json`. One C++ symbol can have several Rust owners,
 and several original symbols can use one Rust implementation. Record an
