@@ -238,6 +238,9 @@ fn native_garrison_hit_uses_building_pose_and_suppresses_normal_detonation() {
                     intended_target.then_some(building),
                 );
                 p.speed = 0.;
+                // The normal warhead fires at the contact position.
+                // Its radius supplies damage when garrison clearing is disabled.
+                p.explosion_radius = 1.0;
                 p.projectile_collides =
                     crate::game_logic::weapon_bootstrap::PROJECTILE_COLLIDE_STRUCTURES
                         | crate::game_logic::weapon_bootstrap::PROJECTILE_COLLIDE_CONTROLLED_STRUCTURES;
@@ -381,6 +384,7 @@ fn detonation_fx_flushes_before_body_damage_and_empties_deferred_queue() {
                 Some(victim),
             );
             p.speed = 0.;
+            p.explosion_radius = 1.0;
             p.detonation_fx_name = "FX_ReceivingProjectile".into();
             p.flight = Some(HostProjectileFlight::Dumb(HostDumbProjectileFlight {
                 ..Default::default()
@@ -390,10 +394,7 @@ fn detonation_fx_flushes_before_body_damage_and_empties_deferred_queue() {
             let retired = owner.update_owned_projectile_impacts(1. / 30.).unwrap();
             assert_eq!(retired, vec![projectile], "projectile must detonate");
             let after = owner.objects[&victim].health.current;
-            assert!(
-                after < before,
-                "Body damage applies in the owned impact path; before={before} after={after}"
-            );
+            assert_eq!(after, before - 40.0, "positional damage reaches the Body");
             assert!(
                 owner.combat_system.take_impact_fx().is_empty(),
                 "flush-before-damage must drain the deferred end-phase impact_fx queue"

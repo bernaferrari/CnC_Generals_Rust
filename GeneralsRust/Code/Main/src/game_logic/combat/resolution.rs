@@ -373,10 +373,14 @@ impl CombatSystem {
         } else {
             projectile.shooter_id
         };
-        // Projectileless damage position and primary ID were fixed when the
-        // firing owner accepted the shot. A moving detonation's self-position
-        // rule is resolved later from this world's effective weapon content.
-        let primary_victim = projectile.target_id;
+        // Both authored flight modules call WeaponStore::handleProjectileDetonation
+        // with a position. Weapon::fireProjectileDetonationWeapon passes a null
+        // victim, so every candidate is subject to RadiusDamageAffects.
+        let primary_victim = if moving_projectile && projectile.flight.is_some() {
+            None
+        } else {
+            projectile.target_id
+        };
         // A moving projectile is created on the firing player's default team
         // (Weapon.cpp:1080). Neutral is a real team, not a missing value:
         // looking up the launcher here can bind a later object with the same ID.

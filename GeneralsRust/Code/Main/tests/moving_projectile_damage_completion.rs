@@ -1,4 +1,4 @@
-//! Ordinary production-library regression for moving-projectile Direct and Area hits.
+//! Ordinary production-library regression for moving-projectile small- and large-radius hits.
 //! Real AttackObject admission, Weapon/DamageFX parsers, due frames, XP and FX.
 use game_engine::common::audio::audio_event_rts::{AudioEventInfo, ST_GLOBAL};
 use game_engine::common::audio::game_audio::{
@@ -12,6 +12,8 @@ use generals_main::game_logic::weapon_bootstrap::HostProjectileFlight;
 use generals_main::game_logic::{GameLogic, ObjectId, Player, Team, VeterancyLevel};
 use glam::Vec3;
 use std::time::{Duration, UNIX_EPOCH};
+
+const TIGHT_SPLASH_RADIUS: f32 = 5.0;
 
 struct Fixture {
     world: GameLogic,
@@ -32,7 +34,7 @@ fn projectile_damage_fx_throttle_belongs_to_the_driving_session() {
             30,
             1,
             10.0,
-            0.0,
+            TIGHT_SPLASH_RADIUS,
             "ENEMIES NEUTRALS",
             "",
             false,
@@ -80,7 +82,7 @@ fn projectile_damage_fx_continues_after_restore_and_peer_reset() {
             30,
             1,
             10.0,
-            0.0,
+            TIGHT_SPLASH_RADIUS,
             "ENEMIES NEUTRALS",
             "DelayBetweenShots = 100",
             true,
@@ -304,7 +306,7 @@ fn fixture(
         speed,
         count,
         threshold,
-        0.0,
+        TIGHT_SPLASH_RADIUS,
         "ENEMIES NEUTRALS",
         "",
     )
@@ -777,7 +779,41 @@ fn advance_to_impact(f: &mut Fixture, health: f32) {
     panic!("moving shot failed to retire");
 }
 #[test]
-fn moving_direct_lethal_completes_before_fx() {
+fn authored_shell_contact_uses_position_and_the_splash_mask() {
+    for (radius, affects, expected_health) in [
+        (0.0, "ENEMIES NEUTRALS", 150.0),
+        (10.0, "ALLIES", 150.0),
+        (10.0, "ENEMIES", 50.0),
+    ] {
+        let mut f = fixture_custom(
+            "PositionalContact",
+            150.0,
+            false,
+            30,
+            1,
+            10.0,
+            radius,
+            affects,
+            "",
+        );
+        f.accept();
+        advance_to_impact(&mut f, 150.0);
+        assert_eq!(
+            f.world.host_objects()[&f.victim].health.current,
+            expected_health,
+            "DumbProjectileBehavior::detonate fires at a position with radius {radius} and mask {affects}"
+        );
+        if expected_health == 150.0 {
+            assert!(f.damage_sounds().is_empty());
+        } else {
+            f.expect_fx("Regular", Some(f.shooters[0]));
+        }
+        f.no_repeat();
+    }
+}
+
+#[test]
+fn moving_tight_splash_lethal_completes_before_fx() {
     let mut f = fixture("Lethal", 100.0, false, 30, 1, 10.0);
     f.accept();
     assert_eq!(f.world.combat_system().projectiles_snapshot().len(), 1);
@@ -874,24 +910,64 @@ fn moving_case(
     f.no_repeat();
 }
 #[test]
-fn moving_direct_nonlethal() {
-    moving_case("DirectNonlethal", 0.0, 150.0, false, false, false, 1);
+fn moving_tight_splash_nonlethal() {
+    moving_case(
+        "TightSplashNonlethal",
+        TIGHT_SPLASH_RADIUS,
+        150.0,
+        false,
+        false,
+        false,
+        1,
+    );
 }
 #[test]
-fn moving_direct_sink() {
-    moving_case("DirectSink", 0.0, 100.0, true, false, false, 1);
+fn moving_tight_splash_sink() {
+    moving_case(
+        "TightSplashSink",
+        TIGHT_SPLASH_RADIUS,
+        100.0,
+        true,
+        false,
+        false,
+        1,
+    );
 }
 #[test]
-fn moving_direct_missing_source() {
-    moving_case("DirectMissing", 0.0, 100.0, false, true, false, 1);
+fn moving_tight_splash_missing_source() {
+    moving_case(
+        "TightSplashMissing",
+        TIGHT_SPLASH_RADIUS,
+        100.0,
+        false,
+        true,
+        false,
+        1,
+    );
 }
 #[test]
-fn moving_direct_dead_installed_source() {
-    moving_case("DirectDead", 0.0, 100.0, false, false, true, 1);
+fn moving_tight_splash_dead_installed_source() {
+    moving_case(
+        "TightSplashDead",
+        TIGHT_SPLASH_RADIUS,
+        100.0,
+        false,
+        false,
+        true,
+        1,
+    );
 }
 #[test]
-fn moving_direct_duplicate_hits_credit_once() {
-    moving_case("DirectDuplicate", 0.0, 100.0, false, false, false, 2);
+fn moving_tight_splash_duplicate_hits_credit_once() {
+    moving_case(
+        "TightSplashDuplicate",
+        TIGHT_SPLASH_RADIUS,
+        100.0,
+        false,
+        false,
+        false,
+        2,
+    );
 }
 #[test]
 fn moving_area_lethal() {
@@ -1013,8 +1089,8 @@ fn worlds(radius: f32) {
     panic!("interleaved shots did not retire");
 }
 #[test]
-fn moving_direct_interleaved_worlds() {
-    worlds(0.0);
+fn moving_tight_splash_interleaved_worlds() {
+    worlds(TIGHT_SPLASH_RADIUS);
 }
 #[test]
 fn moving_area_interleaved_worlds() {
@@ -1081,7 +1157,7 @@ fn moving_area_uses_projectile_default_team_identity_not_launcher_custom_team() 
     // has a custom Team name. The exact default-Team override still admits the
     // collateral hit because C++ uses the projectile as detonation source.
     assert_eq!(f.world.host_objects()[&collateral].health.current, 50.0);
-    assert_eq!(f.world.host_objects()[&f.victim].health.current, 50.0); // primary bypass
+    assert_eq!(f.world.host_objects()[&f.victim].health.current, 50.0);
     assert_eq!(f.damage_sounds().len(), 2);
     assert_eq!(f.xp(), 0.0);
 }

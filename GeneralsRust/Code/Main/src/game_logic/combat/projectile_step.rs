@@ -509,7 +509,9 @@ impl CombatSystem {
                         impact,
                         true,
                     ));
-                } else if !projectile.no_damage {
+                } else if !projectile.no_damage && projectile.flight.is_none() {
+                    // C++ positional detonation with no radius has no victim.
+                    // Only the standalone flight contract delivers direct damage.
                     damage_events.push(DamageEvent::Direct {
                         target_id,
                         position: impact,
@@ -527,7 +529,7 @@ impl CombatSystem {
                         position: impact,
                         shooter_id: projectile.shooter_id,
                         detonation_projectile: Some(projectile.id),
-                        target_id: Some(target_id),
+                        target_id: projectile.flight.is_none().then_some(target_id),
                         detonation_fx_name: projectile.detonation_fx_name.clone(),
                         detonation_ocl_name: projectile.detonation_ocl_name.clone(),
                         source_team: projectile.source_team,
