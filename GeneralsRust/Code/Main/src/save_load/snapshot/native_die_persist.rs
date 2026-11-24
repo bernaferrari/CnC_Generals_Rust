@@ -1,4 +1,4 @@
-//! NDIE v4: Die receipts and authored SlowDeath flight continuation.
+//! NDIE v5: Die receipts and authored SlowDeath flight continuations.
 //! Historical positional Object/World records remain unchanged.
 use super::{ObjectSnapshot, WorldSnapshot};
 use crate::game_logic::native_die_definition::{
@@ -11,7 +11,7 @@ use std::borrow::Cow;
 use std::collections::HashMap;
 
 const TAG: &[u8; 4] = b"NDIE";
-const VERSION: u32 = 4;
+const VERSION: u32 = 5;
 const MAX_BYTES: usize = 16 * 1024 * 1024;
 #[derive(Serialize, Deserialize)]
 struct Record {
@@ -42,8 +42,19 @@ struct OldSlowDeath {
     source_index: u32,
     midpoint_frame: u32,
 }
-#[derive(Serialize, Deserialize)]
+#[derive(Deserialize)]
 struct PayloadV4 {
+    deaths: PayloadV2,
+    slow_deaths: Vec<(u32, SlowDeathV4)>,
+}
+#[derive(Deserialize)]
+struct SlowDeathV4 {
+    source_index: u32,
+    midpoint_frame: u32,
+    flight: SlowDeathFlight,
+}
+#[derive(Serialize, Deserialize)]
+struct PayloadV5 {
     deaths: PayloadV2,
     slow_deaths: Vec<(u32, NativeSlowDeath)>,
 }
@@ -121,6 +132,14 @@ fn validate_slow_death_continuation(
         let jet_selected = matches!(receipt.family_in(declarations), Some(NativeSlowFamily::Jet(_)));
         if jet_selected != has_jet {
             return Err(corrupted("SlowDeath selected slot and Jet continuation disagree"));
+        }
+        if receipt.helicopter.is_some_and(|flight| {
+            !flight.forward_angle.is_finite()
+                || !flight.forward_speed.is_finite()
+                || !flight.self_spin.is_finite()
+                || (flight.retired && flight.hit_ground.is_none())
+        }) {
+            return Err(corrupted("invalid authored helicopter crash state"));
         }
         if receipt.midpoint_frame.wrapping_sub(start) > destruction.wrapping_sub(start) {
             return Err(corrupted("SlowDeath midpoint falls outside its admitted lifetime"));
@@ -213,7 +232,7 @@ pub(super) fn append(bytes: &mut Vec<u8>, world: &GameLogic) -> SaveLoadResult<(
             ));
         }
     }
-    let payload = bincode_legacy::serialize(&PayloadV4 {
+    let payload = bincode_legacy::serialize(&PayloadV5 {
         deaths: PayloadV2 { records, removals },
         slow_deaths,
     }).map_err(corrupted)?;
@@ -293,11 +312,24 @@ pub(super) fn decode(bytes: &[u8]) -> SaveLoadResult<Decoded<'_>> {
                     source_index: receipt.source_index,
                     midpoint_frame: receipt.midpoint_frame,
                     flight: SlowDeathFlight::NotFlung,
+                    helicopter: None,
+                })
+            }).collect();
+            (old.deaths, slow_deaths, consumed)
+        } else if version == 4 {
+            let (old, consumed): (PayloadV4, usize) =
+                bincode::serde::decode_from_slice(payload, config).map_err(corrupted)?;
+            let slow_deaths = old.slow_deaths.into_iter().map(|(id, receipt)| {
+                (id, NativeSlowDeath {
+                    source_index: receipt.source_index,
+                    midpoint_frame: receipt.midpoint_frame,
+                    flight: receipt.flight,
+                    helicopter: None,
                 })
             }).collect();
             (old.deaths, slow_deaths, consumed)
         } else {
-            let (decoded, consumed): (PayloadV4, usize) =
+            let (decoded, consumed): (PayloadV5, usize) =
                 bincode::serde::decode_from_slice(payload, config).map_err(corrupted)?;
             (decoded.deaths, decoded.slow_deaths, consumed)
         };

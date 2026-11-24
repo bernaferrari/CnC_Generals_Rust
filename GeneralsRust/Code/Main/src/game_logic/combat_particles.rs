@@ -272,7 +272,9 @@ impl CombatParticleRegistry {
             .systems
             .values()
             .filter(|entry| {
-                if self.client_bindings.get(&entry.id).is_some() {
+                if self.client_bindings.get(&entry.id).is_some()
+                    || (entry.kind == CombatParticleKind::DeathSmoke && entry.attachment.is_some())
+                {
                     return false;
                 }
                 let Some(lifetime) = entry.kind.sweep_system_lifetime() else {
@@ -1414,13 +1416,16 @@ impl CombatParticleRegistry {
         objects: &super::HostObjectStore,
     ) {
         for entry in self.systems.values_mut() {
+            let crash_smoke =
+                entry.kind == CombatParticleKind::DeathSmoke && entry.attachment.is_some();
             if !entry.active
-                || !matches!(
-                    entry.kind,
-                    CombatParticleKind::BodyFire
-                        | CombatParticleKind::BodySmoke
-                        | CombatParticleKind::DisableFx
-                )
+                || !(crash_smoke
+                    || matches!(
+                        entry.kind,
+                        CombatParticleKind::BodyFire
+                            | CombatParticleKind::BodySmoke
+                            | CombatParticleKind::DisableFx
+                    ))
             {
                 continue;
             }
@@ -1430,11 +1435,17 @@ impl CombatParticleRegistry {
             else {
                 continue;
             };
-            entry.position = rotate_yaw_host(
-                object.get_position(),
-                object.get_orientation(),
-                entry.attach_offset,
-            );
+            entry.position = if crash_smoke {
+                // ParticleSystem::update transforms the local mount by the
+                // complete pose, including the wreck's roll and pitch.
+                object.get_transform_matrix().transform_point3(entry.attach_offset)
+            } else {
+                rotate_yaw_host(
+                    object.get_position(),
+                    object.get_orientation(),
+                    entry.attach_offset,
+                )
+            };
         }
     }
 
@@ -1454,6 +1465,8 @@ impl CombatParticleRegistry {
                         | CombatParticleKind::BodyFire
                         | CombatParticleKind::BodySmoke
                         | CombatParticleKind::DisableFx => entry.source_object == Some(owner),
+                        CombatParticleKind::DeathSmoke => entry.attachment
+                            .as_ref().is_some_and(|attachment| attachment.owner == owner),
                         CombatParticleKind::ProjectileExhaust => {
                             entry.target_object == Some(owner)
                                 || (entry.target_object.is_none()

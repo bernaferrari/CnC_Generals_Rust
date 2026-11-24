@@ -13,12 +13,27 @@ pub(crate) struct NativeDieRuntime {
     pub(crate) slow_death: Option<NativeSlowDeath>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub(crate) struct NativeSlowDeath {
     pub(crate) source_index: u32,
     pub(crate) midpoint_frame: u32,
     pub(crate) flight: SlowDeathFlight,
+    pub(crate) helicopter: Option<NativeHelicopterFlight>,
 }
+
+/// Mutable values retained by HelicopterSlowDeathBehavior::xfer.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub(crate) struct NativeHelicopterFlight {
+    pub(crate) forward_angle: f32,
+    pub(crate) forward_speed: f32,
+    pub(crate) self_spin: f32,
+    pub(crate) spin_towards_maximum: bool,
+    pub(crate) last_spin_update: u32,
+    pub(crate) blade_frames: u32,
+    pub(crate) hit_ground: Option<u32>,
+    pub(crate) retired: bool,
+}
+
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) enum SlowDeathFlight {
@@ -142,15 +157,15 @@ fn bind_creation(list: &str, transfer: bool) -> Option<NativeDieCreate> {
 pub(crate) enum NativeSlowFamily {
     Ordinary(std::sync::Arc<NativeSlowDeathBase>),
     Jet(std::sync::Arc<NativeJetSlowDeath>),
-    Helicopter(super::host_helicopter_slow_death::HostHelicopterSlowDeathFx),
+    Helicopter(std::sync::Arc<NativeHelicopterSlowDeath>),
 }
 
 impl NativeSlowFamily {
-    pub(crate) fn base(&self) -> Option<&std::sync::Arc<NativeSlowDeathBase>> {
+    pub(crate) fn base(&self) -> &std::sync::Arc<NativeSlowDeathBase> {
         match self {
-            Self::Ordinary(base) => Some(base),
-            Self::Jet(jet) => Some(&jet.base),
-            Self::Helicopter(_) => None,
+            Self::Ordinary(base) => base,
+            Self::Jet(jet) => &jet.base,
+            Self::Helicopter(helicopter) => &helicopter.base,
         }
     }
 }
@@ -163,6 +178,67 @@ pub(crate) struct NativeJetSlowDeath {
     pub(crate) roll_rate_delta: f32,
     pub(crate) pitch_rate: f32,
     pub(crate) fall_how_fast: f32,
+}
+
+#[derive(Debug)]
+pub(crate) struct NativeHelicopterSlowDeath {
+    pub(crate) base: std::sync::Arc<NativeSlowDeathBase>,
+    pub(crate) effects: super::host_helicopter_slow_death::HostHelicopterSlowDeathFx,
+    pub(crate) spiral_turn_rate: f32,
+    pub(crate) forward_speed: f32,
+    pub(crate) forward_damping: f32,
+    pub(crate) min_spin: f32,
+    pub(crate) max_spin: f32,
+    pub(crate) spin_update_delay: f32,
+    pub(crate) spin_update_amount: f32,
+    pub(crate) fall_how_fast: f32,
+    /// Host Locomotor stores deceleration in world units/sec².
+    pub(crate) braking: f32,
+    pub(crate) blade_delay: (f32, f32),
+    pub(crate) blade_bone: Option<String>,
+    pub(crate) particle_bone: Option<String>,
+    pub(crate) particle_location: glam::Vec3,
+    pub(crate) eject_pilot: Option<String>,
+}
+
+impl NativeHelicopterSlowDeath {
+    fn bind(base: std::sync::Arc<NativeSlowDeathBase>, attrs: &[(&str, &str)]) -> Self {
+        use game_engine::common::ini::INI;
+        let get = |key: &str| {
+            attrs.iter().find(|(name, _)| name.eq_ignore_ascii_case(key)).map(|(_, v)| *v)
+        };
+        let number = |key, parse: fn(&str) -> Result<f32, _>, default| {
+            get(key).and_then(|value| parse(value).ok()).unwrap_or(default)
+        };
+        let name = |key| {
+            get(key).map(str::trim).filter(|s| !s.is_empty() && !s.eq_ignore_ascii_case("None")).map(str::to_owned)
+        };
+        let duration = |key| number(key, INI::parse_duration_real, 0.0);
+        let mut effects = super::host_helicopter_slow_death::heli_slow_death_fx_from_behavior_attrs(attrs);
+        effects.delay_from_ground_frames = duration("DelayFromGroundToFinalDeath");
+        let particle_location = get("AttachParticleLoc")
+            .and_then(|value| INI::parse_coord_3d(&value.split_whitespace().collect::<Vec<_>>()).ok())
+            .map_or(glam::Vec3::ZERO, |(x, y, z)| glam::Vec3::new(x, z, y));
+        let fps = game_engine::common::game_common::LOGICFRAMES_PER_SECOND as f32;
+        Self {
+            base,
+            effects,
+            spiral_turn_rate: number("SpiralOrbitTurnRate", INI::parse_angular_velocity_real, 0.0),
+            forward_speed: number("SpiralOrbitForwardSpeed", INI::parse_velocity_real, 0.0),
+            forward_damping: number("SpiralOrbitForwardSpeedDamping", INI::parse_real, 1.0),
+            min_spin: number("MinSelfSpin", INI::parse_angular_velocity_real, 0.0),
+            max_spin: number("MaxSelfSpin", INI::parse_angular_velocity_real, 0.0),
+            spin_update_delay: duration("SelfSpinUpdateDelay"),
+            spin_update_amount: number("SelfSpinUpdateAmount", INI::parse_angle_real, 0.0) / fps,
+            fall_how_fast: number("FallHowFast", INI::parse_percent_to_real, 0.0),
+            braking: number("MaxBraking", INI::parse_real, 99_999.0 * fps * fps),
+            blade_delay: (duration("MinBladeFlyOffDelay"), duration("MaxBladeFlyOffDelay")),
+            blade_bone: name("BladeBoneName"),
+            particle_bone: name("AttachParticleBone"),
+            particle_location,
+            eject_pilot: name("OCLEjectPilot"),
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -375,8 +451,9 @@ pub(crate) fn bind(modules: &[BehaviorModuleDefinition]) -> Vec<NativeDieDeclara
                             fall_how_fast: percent("FallHowFast", 0.0),
                         }))
                     } else if module.class_name.eq_ignore_ascii_case("HelicopterSlowDeathBehavior") {
-                        use super::host_helicopter_slow_death::heli_slow_death_fx_from_behavior_attrs;
-                        NativeSlowFamily::Helicopter(heli_slow_death_fx_from_behavior_attrs(&attrs))
+                        NativeSlowFamily::Helicopter(std::sync::Arc::new(
+                            NativeHelicopterSlowDeath::bind(base(), &attrs),
+                        ))
                     } else {
                         NativeSlowFamily::Ordinary(base())
                     };
@@ -458,9 +535,9 @@ impl NativeDieRuntime {
         (!self.ai_dead || has_ai)
             && self.slow_death.is_none_or(|slow| {
                 slow.family_in(declarations)
-                    .and_then(NativeSlowFamily::base)
-                    .is_some_and(|base| {
-                        slow.flight == SlowDeathFlight::NotFlung || base.fling.is_some()
+                    .is_some_and(|family| {
+                        (slow.flight == SlowDeathFlight::NotFlung || family.base().fling.is_some())
+                            && matches!(family, NativeSlowFamily::Helicopter(_)) == slow.helicopter.is_some()
                     })
             })
             && self.completed.iter().all(|index| {

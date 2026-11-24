@@ -56905,7 +56905,9 @@
       "blockers": [
         "unreviewed_symbol_ownership",
         "unreviewed_source_range_ownership",
-        "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/behavior/jet_slow_death_behavior.rs"
+        "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/behavior/jet_slow_death_behavior.rs",
+        "duplicate_implementation_destination:GeneralsRust/Code/Main/src/game_logic/native_die_definition.rs",
+        "duplicate_implementation_destination:GeneralsRust/Code/Main/src/game_logic/world_objects/create_destroy_die/death/slow_death.rs"
       ],
       "id": "game_engine:Source/GameLogic/Object/Behavior/JetSlowDeathBehavior.cpp",
       "inventory_class": "required_runtime",
@@ -62144,7 +62146,6 @@
         "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/update/bone_fx_update.rs",
         "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/update/command_button_hunt_update.rs",
         "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/update/fire_spread_update.rs",
-        "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/update/helicopter_slow_death_update.rs",
         "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/update/laser_owned.rs",
         "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/update/laser_update.rs",
         "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/update/missile_ai_update.rs",
@@ -70387,9 +70388,10 @@
         "status": "not_verified"
       },
       "blockers": [
-        "unreviewed_mapping",
         "unreviewed_symbol_ownership",
-        "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/update/helicopter_slow_death_update.rs"
+        "unreviewed_source_range_ownership",
+        "duplicate_implementation_destination:GeneralsRust/Code/Main/src/game_logic/native_die_definition.rs",
+        "duplicate_implementation_destination:GeneralsRust/Code/Main/src/game_logic/world_objects/create_destroy_die/death/slow_death.rs"
       ],
       "id": "game_engine:Source/GameLogic/Object/Update/HelicopterSlowDeathUpdate.cpp",
       "inventory_class": "required_runtime",
@@ -70398,17 +70400,59 @@
         "destinations": [
           {
             "cargo_reachable": true,
+            "classification": "shim",
+            "owned_source_ranges": [],
+            "owned_symbols": [],
+            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/behavior/helicopter_slow_death_update.rs"
+          },
+          {
+            "cargo_reachable": true,
             "classification": "implementation",
             "owned_source_ranges": [],
             "owned_symbols": [],
-            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/update/helicopter_slow_death_update.rs"
+            "path": "GeneralsRust/Code/Main/src/game_logic/native_die_definition.rs"
+          },
+          {
+            "cargo_reachable": true,
+            "classification": "implementation",
+            "owned_source_ranges": [],
+            "owned_symbols": [],
+            "path": "GeneralsRust/Code/Main/src/game_logic/world_objects/create_destroy_die/death/helicopter_slow_death.rs"
+          },
+          {
+            "cargo_reachable": true,
+            "classification": "implementation",
+            "owned_source_ranges": [],
+            "owned_symbols": [],
+            "path": "GeneralsRust/Code/Main/src/game_logic/world_objects/create_destroy_die/death/slow_death.rs"
+          },
+          {
+            "cargo_reachable": true,
+            "classification": "test",
+            "owned_source_ranges": [],
+            "owned_symbols": [],
+            "path": "GeneralsRust/Code/Main/src/save_load/snapshot/native_die_body_admission_tests.rs"
+          },
+          {
+            "cargo_reachable": true,
+            "classification": "implementation",
+            "owned_source_ranges": [],
+            "owned_symbols": [],
+            "path": "GeneralsRust/Code/Main/src/save_load/snapshot/native_die_persist.rs"
+          },
+          {
+            "cargo_reachable": true,
+            "classification": "test",
+            "owned_source_ranges": [],
+            "owned_symbols": [],
+            "path": "GeneralsRust/Code/Main/src/save_load/snapshot/native_die_persist_tests.rs"
           }
         ],
-        "mode": "stem_inferred",
+        "mode": "explicit",
         "ownership_diagnostics": [],
-        "range_validation": "not_required",
-        "review_state": "unreviewed",
-        "reviewed_path_implementation": false,
+        "range_validation": "unreviewed",
+        "review_state": "reviewed",
+        "reviewed_path_implementation": true,
         "stale_reviewed_destinations": [],
         "symbol_validation": "unreviewed"
       },
@@ -70421,8 +70465,45 @@
         "path": "GeneralsMD/Code/GameEngine/Source/GameLogic/Object/Update/HelicopterSlowDeathUpdate.cpp",
         "sha256": "338813cc95dc64f27d6c5b682fabbca01797000d2584b4ada4342f10b9f8c86e",
         "symbol_extraction_diagnostics": [],
-        "symbol_extraction_status": "not_requested",
-        "symbols": []
+        "symbol_extraction_status": "parsed",
+        "symbols": [
+          {
+            "line": 43,
+            "name": "HelicopterSlowDeathBehaviorModuleData::HelicopterSlowDeathBehaviorModuleData"
+          },
+          {
+            "line": 82,
+            "name": "HelicopterSlowDeathBehaviorModuleData::buildFieldParse"
+          },
+          {
+            "line": 136,
+            "name": "HelicopterSlowDeathBehavior::HelicopterSlowDeathBehavior"
+          },
+          {
+            "line": 153,
+            "name": "HelicopterSlowDeathBehavior::~HelicopterSlowDeathBehavior"
+          },
+          {
+            "line": 160,
+            "name": "HelicopterSlowDeathBehavior::beginSlowDeath"
+          },
+          {
+            "line": 261,
+            "name": "HelicopterSlowDeathBehavior::update"
+          },
+          {
+            "line": 483,
+            "name": "HelicopterSlowDeathBehavior::crc"
+          },
+          {
+            "line": 496,
+            "name": "HelicopterSlowDeathBehavior::xfer"
+          },
+          {
+            "line": 536,
+            "name": "HelicopterSlowDeathBehavior::loadPostProcess"
+          }
+        ]
       },
       "unit_kind": "translation_unit"
     },
@@ -161062,7 +161143,7 @@
     }
   ],
   "generator": "GeneralsRust/Code/Main/scripts/generate_port_provenance.py",
-  "input_digest": "737e2522042f9460a57389e8f22a3893bfca4d742111952817a4a278f8bb834c",
+  "input_digest": "b72ab6d3302d4fb36c7e9582e157d644d526c502e0579908ae8d461985e74178",
   "metric_contract": {
     "behavior_requires_explicit_evidence": true,
     "candidate_mapping_is_reviewed": false,
@@ -161081,10 +161162,10 @@
     "record_count": 3
   },
   "reviewed_mapping_input": {
-    "mapping_count": 12,
+    "mapping_count": 13,
     "ownership_record_count": 3,
     "path": "PORT_PROVENANCE_REVIEWED.json",
-    "sha256": "5927d683a7fed21c3efc9ea3e82ea972cdb990c70a395e7065bed58417914c1f"
+    "sha256": "418113765f0e438d11ed5650142da0e3a1b004a7a6811e02e24b26114ace46f8"
   },
   "rust_file_index": [
     {
@@ -206254,7 +206335,7 @@
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/behavior/helicopter_slow_death_update.rs",
       "sha256": "642df46fe3189057bdf03676284dd161cf4a621d63565deec8b6b3967097e5ae",
-      "symbol_index_status": "awaiting_mapping_review",
+      "symbol_index_status": "indexed",
       "symbols": []
     },
     {
@@ -221928,11 +222009,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 515,
+        "end_line": 592,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/Main/src/game_logic/native_die_definition.rs",
-      "sha256": "29f6a6272aa4a6408d8a4da4b1cc26cf1ac856d5500d092ae865ac00cf5d4e1c",
+      "sha256": "407cf59a604b4f35b727b198b6c1d60b1487aa57007b1738eae3603219eb8dd8",
       "symbol_index_status": "indexed",
       "symbols": [
         {
@@ -221946,133 +222027,148 @@
           "name": "NativeSlowDeath"
         },
         {
+          "kind": "struct",
+          "line": 26,
+          "name": "NativeHelicopterFlight"
+        },
+        {
           "kind": "enum",
-          "line": 24,
+          "line": 39,
           "name": "SlowDeathFlight"
         },
         {
           "kind": "fn",
-          "line": 35,
+          "line": 50,
           "name": "is_airborne"
         },
         {
           "kind": "fn",
-          "line": 38,
+          "line": 53,
           "name": "apply_model"
         },
         {
           "kind": "struct",
-          "line": 56,
+          "line": 71,
           "name": "NativeDieDeclaration"
         },
         {
           "kind": "struct",
-          "line": 64,
+          "line": 79,
           "name": "NativeDieGate"
         },
         {
           "kind": "fn",
-          "line": 71,
+          "line": 86,
           "name": "allows"
         },
         {
           "kind": "struct",
-          "line": 91,
+          "line": 106,
           "name": "NativeDieFx"
         },
         {
           "kind": "fn",
-          "line": 101,
+          "line": 116,
           "name": "configuration"
         },
         {
           "kind": "struct",
-          "line": 116,
+          "line": 131,
           "name": "NativeDieCreate"
         },
         {
           "kind": "fn",
-          "line": 122,
+          "line": 137,
           "name": "standalone_configuration"
         },
         {
           "kind": "fn",
-          "line": 133,
+          "line": 148,
           "name": "bind_creation"
         },
         {
           "kind": "enum",
-          "line": 142,
+          "line": 157,
           "name": "NativeSlowFamily"
         },
         {
           "kind": "fn",
-          "line": 149,
+          "line": 164,
           "name": "base"
         },
         {
           "kind": "struct",
-          "line": 159,
+          "line": 174,
           "name": "NativeJetSlowDeath"
         },
         {
           "kind": "struct",
-          "line": 169,
+          "line": 184,
+          "name": "NativeHelicopterSlowDeath"
+        },
+        {
+          "kind": "fn",
+          "line": 205,
+          "name": "bind"
+        },
+        {
+          "kind": "struct",
+          "line": 245,
           "name": "NativeSlowDeathBase"
         },
         {
           "kind": "struct",
-          "line": 175,
+          "line": 251,
           "name": "SlowDeathFling"
         },
         {
           "kind": "enum",
-          "line": 183,
+          "line": 259,
           "name": "SlowDeathEffectPhase"
         },
         {
           "kind": "struct",
-          "line": 190,
+          "line": 266,
           "name": "SlowDeathEffects"
         },
         {
           "kind": "fn",
-          "line": 195,
+          "line": 271,
           "name": "parse_slow_death_effects"
         },
         {
           "kind": "enum",
-          "line": 226,
+          "line": 302,
           "name": "NativeDieKind"
         },
         {
           "kind": "fn",
-          "line": 265,
+          "line": 341,
           "name": "bind"
         },
         {
           "kind": "fn",
-          "line": 447,
+          "line": 524,
           "name": "family_in"
         },
         {
           "kind": "fn",
-          "line": 457,
+          "line": 534,
           "name": "validate"
         },
         {
           "kind": "fn",
-          "line": 482,
+          "line": 559,
           "name": "bound_creation_identity"
         },
         {
           "kind": "fn",
-          "line": 483,
+          "line": 560,
           "name": "identity"
         },
         {
           "kind": "fn",
-          "line": 501,
+          "line": 578,
           "name": "persistence_identity"
         }
       ]
@@ -222081,11 +222177,59 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 257,
+        "end_line": 399,
+        "start_line": 1
+      },
+      "path": "GeneralsRust/Code/Main/src/game_logic/world_objects/create_destroy_die/death/helicopter_slow_death.rs",
+      "sha256": "eb0367df5e7ce51000359ff807a3a771dd955dc3ac1f6b864cfacbbba48d813e",
+      "symbol_index_status": "indexed",
+      "symbols": [
+        {
+          "kind": "fn",
+          "line": 12,
+          "name": "begin_authored_helicopter_slow_death"
+        },
+        {
+          "kind": "fn",
+          "line": 80,
+          "name": "helicopter_local_bone_offset"
+        },
+        {
+          "kind": "fn",
+          "line": 98,
+          "name": "tick_authored_helicopter_slow_death"
+        },
+        {
+          "kind": "fn",
+          "line": 155,
+          "name": "advance_authored_helicopter_spin"
+        },
+        {
+          "kind": "fn",
+          "line": 215,
+          "name": "run_authored_helicopter_blade"
+        },
+        {
+          "kind": "fn",
+          "line": 275,
+          "name": "check_authored_helicopter_contact"
+        },
+        {
+          "kind": "fn",
+          "line": 340,
+          "name": "finish_authored_helicopter_crash"
+        }
+      ]
+    },
+    {
+      "cargo_reachable": true,
+      "classification": "implementation",
+      "file_range": {
+        "end_line": 227,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/Main/src/game_logic/world_objects/create_destroy_die/death/jet_slow_death.rs",
-      "sha256": "99ec820a21899f881677bb67e23ae31cd9bebb0b921ddefc456ba1b3700293c1",
+      "sha256": "19d3f9c5ae70a9ccce63b3548f923fa7f86778d45884cf8d4d950ff9019adb4b",
       "symbol_index_status": "indexed",
       "symbols": [
         {
@@ -222107,11 +222251,6 @@
           "kind": "fn",
           "line": 91,
           "name": "tick_authored_jet_slow_death"
-        },
-        {
-          "kind": "fn",
-          "line": 229,
-          "name": "run_authored_jet_effects"
         }
       ]
     },
@@ -222119,11 +222258,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 415,
+        "end_line": 446,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/Main/src/game_logic/world_objects/create_destroy_die/death/slow_death.rs",
-      "sha256": "32c1fd37f8c9fa90ee3f5aaadb423fc4dfbadb687c4a56e639aa9981c498139b",
+      "sha256": "a02e32c02f2f446b0a7df5ba0484d02b6dd8ebff4fadf25b8b25563be47fd71a",
       "symbol_index_status": "indexed",
       "symbols": [
         {
@@ -222138,38 +222277,307 @@
         },
         {
           "kind": "fn",
-          "line": 101,
+          "line": 102,
           "name": "run_authored_slow_death_phase"
         },
         {
           "kind": "fn",
-          "line": 188,
+          "line": 189,
           "name": "begin_authored_slow_death_flight"
         },
         {
           "kind": "const",
-          "line": 209,
+          "line": 210,
           "name": "MIN_ALTITUDE"
         },
         {
           "kind": "fn",
-          "line": 249,
+          "line": 250,
           "name": "set_authored_slow_death_flight"
         },
         {
           "kind": "fn",
-          "line": 262,
+          "line": 263,
           "name": "advance_authored_slow_death_flight"
         },
         {
           "kind": "fn",
-          "line": 323,
+          "line": 324,
           "name": "tick_authored_slow_death_base"
         },
         {
           "kind": "fn",
-          "line": 398,
+          "line": 399,
           "name": "sink_authored_slow_death"
+        },
+        {
+          "kind": "fn",
+          "line": 418,
+          "name": "run_authored_death_fx_and_ocl"
+        }
+      ]
+    },
+    {
+      "cargo_reachable": true,
+      "classification": "test",
+      "file_range": {
+        "end_line": 132,
+        "start_line": 1
+      },
+      "path": "GeneralsRust/Code/Main/src/save_load/snapshot/native_die_body_admission_tests.rs",
+      "sha256": "8fca8cb8207ffe22edd3970f5992a627ca784fb40ac16f3034c2f91a31cd083c",
+      "symbol_index_status": "indexed",
+      "symbols": [
+        {
+          "kind": "fn",
+          "line": 3,
+          "name": "inactive"
+        },
+        {
+          "kind": "fn",
+          "line": 27,
+          "name": "replace_receipt"
+        },
+        {
+          "kind": "fn",
+          "line": 68,
+          "name": "native_die_saved_inactive_unset_receiving_body_restores_present_and_absent_receipts"
+        },
+        {
+          "kind": "fn",
+          "line": 91,
+          "name": "native_die_saved_inactive_unset_receiving_body_rejects_forged_fx_before_mutation"
+        }
+      ]
+    },
+    {
+      "cargo_reachable": true,
+      "classification": "implementation",
+      "file_range": {
+        "end_line": 562,
+        "start_line": 1
+      },
+      "path": "GeneralsRust/Code/Main/src/save_load/snapshot/native_die_persist.rs",
+      "sha256": "99fa99f2a749ba8cd82688712515de01172aea4850e2e666449889f3d3008513",
+      "symbol_index_status": "indexed",
+      "symbols": [
+        {
+          "kind": "const",
+          "line": 12,
+          "name": "TAG"
+        },
+        {
+          "kind": "const",
+          "line": 14,
+          "name": "VERSION"
+        },
+        {
+          "kind": "const",
+          "line": 15,
+          "name": "MAX_BYTES"
+        },
+        {
+          "kind": "struct",
+          "line": 17,
+          "name": "Record"
+        },
+        {
+          "kind": "struct",
+          "line": 25,
+          "name": "RecordV1"
+        },
+        {
+          "kind": "struct",
+          "line": 31,
+          "name": "PayloadV2"
+        },
+        {
+          "kind": "struct",
+          "line": 36,
+          "name": "PayloadV3"
+        },
+        {
+          "kind": "struct",
+          "line": 41,
+          "name": "OldSlowDeath"
+        },
+        {
+          "kind": "struct",
+          "line": 46,
+          "name": "PayloadV4"
+        },
+        {
+          "kind": "struct",
+          "line": 51,
+          "name": "SlowDeathV4"
+        },
+        {
+          "kind": "struct",
+          "line": 57,
+          "name": "PayloadV5"
+        },
+        {
+          "kind": "struct",
+          "line": 62,
+          "name": "Validated"
+        },
+        {
+          "kind": "struct",
+          "line": 66,
+          "name": "Decoded"
+        },
+        {
+          "kind": "fn",
+          "line": 72,
+          "name": "identity"
+        },
+        {
+          "kind": "fn",
+          "line": 86,
+          "name": "validate_temporal"
+        },
+        {
+          "kind": "fn",
+          "line": 121,
+          "name": "validate_slow_death_continuation"
+        },
+        {
+          "kind": "fn",
+          "line": 155,
+          "name": "append"
+        },
+        {
+          "kind": "fn",
+          "line": 249,
+          "name": "decode"
+        },
+        {
+          "kind": "fn",
+          "line": 363,
+          "name": "validate"
+        },
+        {
+          "kind": "fn",
+          "line": 534,
+          "name": "apply"
+        },
+        {
+          "kind": "fn",
+          "line": 555,
+          "name": "corrupted"
+        }
+      ]
+    },
+    {
+      "cargo_reachable": true,
+      "classification": "test",
+      "file_range": {
+        "end_line": 756,
+        "start_line": 1
+      },
+      "path": "GeneralsRust/Code/Main/src/save_load/snapshot/native_die_persist_tests.rs",
+      "sha256": "8f30a8fa0904f1208db7ec3d34fafed750c6a912809008ec481f860663f608a1",
+      "symbol_index_status": "indexed",
+      "symbols": [
+        {
+          "kind": "fn",
+          "line": 5,
+          "name": "validate_fixture"
+        },
+        {
+          "kind": "fn",
+          "line": 15,
+          "name": "owner"
+        },
+        {
+          "kind": "fn",
+          "line": 38,
+          "name": "recreate_receipt_owner"
+        },
+        {
+          "kind": "fn",
+          "line": 48,
+          "name": "native_die_capsule_roundtrip_retains_receipts_without_touching_equal_id_peer"
+        },
+        {
+          "kind": "fn",
+          "line": 90,
+          "name": "native_die_capsule_wrong_receiving_identity_rejects_before_world_mutation"
+        },
+        {
+          "kind": "fn",
+          "line": 111,
+          "name": "native_die_legacy_zero_health_live_is_allowed_but_saved_started_is_rejected"
+        },
+        {
+          "kind": "fn",
+          "line": 184,
+          "name": "native_die_capsule_rejects_pending_create_and_invalid_completed_slot"
+        },
+        {
+          "kind": "fn",
+          "line": 222,
+          "name": "native_die_capsule_rejects_unknown_version_and_truncated_payload"
+        },
+        {
+          "kind": "fn",
+          "line": 237,
+          "name": "native_die_capsule_forged_completed_or_ai_receipt_rejects_detached_candidate"
+        },
+        {
+          "kind": "fn",
+          "line": 273,
+          "name": "native_die_capsule_completed_live_slot_rejects_capture_and_detached_restore"
+        },
+        {
+          "kind": "fn",
+          "line": 350,
+          "name": "native_die_capsule_actual_standalone_local_receipt_survives_without_world_latch"
+        },
+        {
+          "kind": "fn",
+          "line": 433,
+          "name": "native_die_capsule_ai_receipt_requires_world_latch_despite_receiving_interface"
+        },
+        {
+          "kind": "fn",
+          "line": 473,
+          "name": "native_die_capsule_actual_physics_crush_receipt_survives_without_world_latch"
+        },
+        {
+          "kind": "fn",
+          "line": 535,
+          "name": "replace_ndie"
+        },
+        {
+          "kind": "fn",
+          "line": 570,
+          "name": "v1"
+        },
+        {
+          "kind": "fn",
+          "line": 583,
+          "name": "v1_unscored_live_owner_imports_without_fabricating_full_score"
+        },
+        {
+          "kind": "fn",
+          "line": 600,
+          "name": "v1_ambiguous_dead_owner_rejects_before_queue_cache_or_owner_mutation"
+        },
+        {
+          "kind": "fn",
+          "line": 642,
+          "name": "v2_malformed_pending_removal_graph_rejects_before_live_mutation"
+        },
+        {
+          "kind": "fn",
+          "line": 704,
+          "name": "save_rejects_inflight_score_and_lifecycle_phases_without_draining_them"
+        },
+        {
+          "kind": "fn",
+          "line": 729,
+          "name": "v1_initial_inactive_body_is_not_misclassified_as_an_ambiguous_death"
         }
       ]
     },
@@ -227698,13 +228106,13 @@
     },
     "behavior_verified": 1,
     "blockers_by_kind": {
-      "duplicate_implementation_destination": 734,
+      "duplicate_implementation_destination": 736,
       "missing_mapping": 104,
       "no_reachable_implementation": 686,
       "ownership_range": 1,
       "ownership_symbol": 6,
-      "unreviewed_mapping": 1380,
-      "unreviewed_source_range_ownership": 68,
+      "unreviewed_mapping": 1379,
+      "unreviewed_source_range_ownership": 69,
       "unreviewed_symbol_ownership": 1388
     },
     "by_scope": {
@@ -227714,7 +228122,7 @@
         "deferred_network": 47,
         "reachable_implementation_candidates": 489,
         "required": 539,
-        "reviewed_path_implementations": 9,
+        "reviewed_path_implementations": 10,
         "source_range_ownership_reviewed": 2,
         "symbol_ownership_reviewed": 1,
         "translation_units": 586
@@ -227765,13 +228173,13 @@
       }
     },
     "deferred_network_translation_units": 47,
-    "duplicate_implementation_destinations": 345,
+    "duplicate_implementation_destinations": 346,
     "orphan_ownership_records": 0,
     "reachable_implementation_candidates": 703,
     "required_translation_units": 1389,
-    "reviewed_path_implementations": 9,
+    "reviewed_path_implementations": 10,
     "source_range_ownership_reviewed": 2,
-    "strict_blockers": 4367,
+    "strict_blockers": 4369,
     "symbol_ownership_reviewed": 1,
     "translation_units": 1436
   }

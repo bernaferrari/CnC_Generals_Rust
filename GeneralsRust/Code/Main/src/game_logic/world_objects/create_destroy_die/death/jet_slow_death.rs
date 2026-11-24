@@ -35,7 +35,7 @@ impl GameLogic {
             self.objects[&id].visual_object_generation,
             self.visual_world_epoch,
         );
-        if self.run_authored_jet_effects(
+        if self.run_authored_death_fx_and_ocl(
             id,
             jet.effects.fx_on_ground_death.as_deref(),
             jet.effects.ocl_on_ground_death.as_deref(),
@@ -65,7 +65,7 @@ impl GameLogic {
             fall_how_fast: jet.fall_how_fast,
             ..Default::default()
         });
-        if !self.run_authored_jet_effects(
+        if !self.run_authored_death_fx_and_ocl(
             id,
             jet.effects.fx_initial_death.as_deref(),
             jet.effects.ocl_initial_death.as_deref(),
@@ -131,7 +131,7 @@ impl GameLogic {
                 state.done = true;
                 state.active = false;
                 let credit = object.deferred_destruction_credit;
-                if self.run_authored_jet_effects(
+                if self.run_authored_death_fx_and_ocl(
                     id,
                     fx.fx_final_blow_up.as_deref(),
                     fx.ocl_final_blow_up.as_deref(),
@@ -186,7 +186,7 @@ impl GameLogic {
                         .stopping_object_loop(),
                 );
             }
-            if !self.run_authored_jet_effects(
+            if !self.run_authored_death_fx_and_ocl(
                 id,
                 fx.fx_hit_ground.as_deref(),
                 fx.ocl_hit_ground.as_deref(),
@@ -203,7 +203,7 @@ impl GameLogic {
         }
         // C++ evaluates this even on the first ground contact frame.
         if secondary_due
-            && self.run_authored_jet_effects(
+            && self.run_authored_death_fx_and_ocl(
                 id,
                 fx.fx_secondary.as_deref(),
                 fx.ocl_secondary.as_deref(),
@@ -222,35 +222,5 @@ impl GameLogic {
             state.secondary_fired = true;
         }
         Ok(base_done)
-    }
-
-    /// Both authored effect calls run on the installed object and its current
-    /// pose. FX and OCL can synchronously invoke other lifecycle callbacks.
-    fn run_authored_jet_effects(
-        &mut self,
-        id: ObjectId,
-        fx: Option<&str>,
-        ocl: Option<&str>,
-        interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
-        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<bool> {
-        let birth = (
-            self.objects[&id].visual_object_generation,
-            self.visual_world_epoch,
-        );
-        if let Some(fx) = fx {
-            self.dispatch_fx_list_at_host_object_with_effects(fx, id, None, effects);
-        }
-        if !self.spawn_identity_matches(id, birth.0, birth.1) {
-            return Ok(false);
-        }
-        if let Some(ocl) = ocl {
-            let outcome =
-                self.execute_receiving_object_ocl_with_births(ocl, id, interpreter, effects);
-            if let Some(error) = outcome.error {
-                return Err(error);
-            }
-        }
-        Ok(self.spawn_identity_matches(id, birth.0, birth.1))
     }
 }

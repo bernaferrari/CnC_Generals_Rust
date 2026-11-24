@@ -1,0 +1,33 @@
+41 HeliBaseInitial
+41 ambient_stop
+41 loop_start
+41 blade_draw
+41 lift -0.250
+41 brake 3.000
+41 particle_create
+41 particle_pos 1.000 0.000 0.000
+41 particle_attach
+42 base_update
+42 rotation 0.250
+42 motive 2.000 0.000 0.000
+42 bridge
+43 base_update
+43 rotation 1.000
+43 motive -0.000 1.000 0.000
+43 blade_fx 8.556 23.304 12.500
+43 HeliBlade 8.556 23.304 12.500
+43 HeliPilot
+43 bridge
+43 contact_fx
+43 HeliContact
+43 held
+43 special_damaged
+43 loop_stop
+44 base_update
+45 base_update
+45 HeliBaseFinal
+45 final_fx
+45 HeliFinal
+45 HeliRubble
+45 rotation 1.000
+45 retire

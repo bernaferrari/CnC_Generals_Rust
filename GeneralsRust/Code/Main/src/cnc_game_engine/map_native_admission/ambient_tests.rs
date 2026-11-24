@@ -522,10 +522,10 @@ fn authored_helicopter_slow_death_stops_only_its_drawable_ambient() {
                         world
                             .host_object(actor)
                             .unwrap()
-                            .helicopter_slow_death
-                            .as_ref()
-                            .unwrap()
-                            .is_active()
+                            .native_die_runtime
+                            .slow_death
+                            .and_then(|death| death.helicopter)
+                            .is_some_and(|flight| !flight.retired)
                     );
                     let rubble = mixer
                         .pending_play_events()

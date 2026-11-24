@@ -58,6 +58,7 @@ FULL_GATES = (
             "--",
             "attack_team_persist_never_bleeds_into_same_faction_team",
             "authored_jet_",
+            "authored_helicopter_",
             "--test-threads=1",
         ],
     ),

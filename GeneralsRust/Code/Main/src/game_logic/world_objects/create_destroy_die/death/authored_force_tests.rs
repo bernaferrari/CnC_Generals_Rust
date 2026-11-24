@@ -1020,3 +1020,225 @@ fn saved_slow_death_resumes_selected_clock_without_replaying_midpoint() {
         source.logic_random.seed_words()
     );
 }
+
+#[test]
+fn authored_helicopter_keeps_blade_and_contact_callbacks_on_the_same_tick_after_restore() {
+    struct RotorBones;
+    impl crate::assets::pristine_bones::PristineBoneAssets for RotorBones {
+        fn pristine_bones_for_draws(
+            &self,
+            _: &crate::assets::pristine_bones::PristineBoneSource<'_>,
+            name: &str,
+            _: i32,
+            _: usize,
+        ) -> Result<Vec<glam::Mat4>, String> {
+            assert_eq!(name, "Blade");
+            Ok(vec![glam::Mat4::from_translation(Vec3::new(2., 3., 4.))])
+        }
+    }
+    let death = r"Draw = W3DModelDraw DrawTag
+ DefaultConditionState
+  Model = CrashRotor
+ End
+End
+Behavior = AIUpdateInterface Brain
+End
+Behavior = HelicopterSlowDeathBehavior DeathTag
+ DestructionDelay = 133
+ OCL = INITIAL HeliBaseInitial
+ OCL = FINAL HeliBaseFinal
+ MinBladeFlyOffDelay = 91
+ MaxBladeFlyOffDelay = 91
+ BladeBoneName = Blade
+ AttachParticle = HeliCrashSmoke
+ AttachParticleLoc = X:1 Y:0 Z:0
+ OCLBlade = HeliBlade
+ OCLEjectPilot = HeliPilot
+ OCLHitGround = HeliContact
+ OCLFinalBlowUp = HeliFinal
+ DelayFromGroundToFinalDeath = 50
+ SpiralOrbitForwardSpeed = 60
+ SpiralOrbitTurnRate = 2700
+ SpiralOrbitForwardSpeedDamping = 0.5
+ MinSelfSpin = 429.71835
+ MaxSelfSpin = 1289.155
+ SelfSpinUpdateDelay = 50
+ SelfSpinUpdateAmount = 1718.8734
+ FallHowFast = 125%
+ FinalRubbleObject = HeliRubble
+End";
+    let names = [
+        "HeliBaseInitial",
+        "HeliBaseFinal",
+        "HeliBlade",
+        "HeliPilot",
+        "HeliContact",
+        "HeliFinal",
+        "HeliRubble",
+    ];
+    let fixture = || {
+        let definitions = names.map(|name| format!("Object {name}\nKindOf = IMMOBILE\nEnd\n"));
+        let mut world =
+            force_world_with_objects("VEHICLE AIRCRAFT", 50, true, death, &definitions.join(""));
+        let lists = names.map(|name| {
+            format!(
+                "ObjectCreationList {name}\nCreateObject\nObjectNames = {name}\nCount = 1\nEnd\nEnd"
+            )
+        });
+        world.apply_receiving_ocl_overrides(&lists).unwrap();
+        world
+    };
+    let read = |world: &GameLogic| {
+        let mut spawned: Vec<_> = world
+            .objects
+            .registered()
+            .filter_map(|(id, object)| {
+                let name = object.template_name.as_str();
+                names.contains(&name).then_some((id.0, name))
+            })
+            .collect();
+        spawned.sort_unstable_by_key(|(id, _)| *id);
+        spawned
+            .into_iter()
+            .map(|(_, name)| name.to_owned())
+            .collect::<Vec<_>>()
+    };
+    let stamp_bridge = |world: &mut GameLogic| {
+        let owner = world.world_services.terrain();
+        let terrain = owner.read().unwrap();
+        let ground = crate::game_logic::pathfinding::PathfindingGround::for_terrain(
+            &terrain,
+            world.map_loaded,
+            world.terrain.as_ref(),
+            world.pathfinding_height_samples.as_ref(),
+            &world.pathfinding_system.grid,
+        );
+        world.pathfinding_system.grid.stamp_bridge_deck(
+            Vec3::new(5., 8., 5.),
+            Vec3::new(35., 8., 5.),
+            Vec3::new(5., 8., 35.),
+            Vec3::new(35., 8., 35.),
+            false,
+            &ground,
+        );
+        world
+            .pathfinding_system
+            .grid
+            .first_bridge_layer_id()
+            .unwrap()
+    };
+    let mut source = fixture();
+    let source_bridge = stamp_bridge(&mut source);
+    source.frame = 41;
+    let id = source
+        .create_object("AuthoredWreck", Team::GLA, Vec3::new(10., 25., 20.))
+        .unwrap();
+    source.objects.get_mut(&id).unwrap().experience.level =
+        crate::game_logic::VeterancyLevel::Veteran;
+    kill(&mut source, id);
+    assert_eq!(read(&source), ["HeliBaseInitial"]);
+    let tick = |world: &mut GameLogic, frame| {
+        world.frame = frame;
+        let mut effects = crate::game_logic::ScriptPresentationEffects {
+            pristine_bones: Some(&RotorBones),
+            ..Default::default()
+        };
+        world
+            .update_ai_with_effects(&[id], 1.0 / 30.0, &mut effects)
+            .unwrap();
+    };
+    tick(&mut source, 42);
+    let check_heading = |world: &GameLogic, angle: f32| {
+        let x_axis = world.objects[&id].get_transform_matrix().x_axis;
+        assert!((x_axis.z.atan2(x_axis.x) - angle).abs() < 1e-5);
+    };
+    check_heading(&source, 0.25);
+    let builder = crate::save_load::SnapshotBuilder::new();
+    let bytes =
+        bincode_legacy::serialize(&builder.create_world_snapshot(&source).unwrap()).unwrap();
+    let snapshot = crate::save_load::snapshot::decode_bincode_world_snapshot(&bytes).unwrap();
+    let mut restored = fixture();
+    builder
+        .restore_from_snapshot(&snapshot, &mut restored)
+        .unwrap();
+
+    let restored_bridge = stamp_bridge(&mut restored);
+    for (world, bridge) in [
+        (&mut source, source_bridge),
+        (&mut restored, restored_bridge),
+    ] {
+        let contact = Vec3::new(10., 8.5, 20.);
+        assert!(world.set_owned_object_position_with_effects(
+            id,
+            contact,
+            43,
+            &mut Default::default()
+        ));
+        tick(world, 43);
+        assert_eq!(
+            read(world),
+            ["HeliBaseInitial", "HeliBlade", "HeliPilot", "HeliContact"]
+        );
+        assert_eq!(world.objects[&id].pathfind_layer, bridge);
+        let blade = world
+            .objects
+            .registered()
+            .find_map(|(_, object)| (object.template_name == "HeliBlade").then_some(object))
+            .unwrap();
+        let expected_bone = Vec3::new(8.556, 12.5, 23.304);
+        assert!((blade.get_position() - expected_bone).length() < 0.001);
+        check_heading(world, 1.0);
+        world.sync_live_state_particles(&mut ());
+        let smoke = world
+            .combat_particles
+            .systems_of_kind(crate::game_logic::combat_particles::CombatParticleKind::DeathSmoke)
+            .into_iter()
+            .find(|smoke| smoke.active && smoke.template_name == "HeliCrashSmoke")
+            .expect("crash smoke must outlive draw-bone reconciliation and save/load");
+        assert_eq!(
+            smoke.position,
+            world.objects[&id]
+                .get_transform_matrix()
+                .transform_point3(Vec3::X)
+        );
+        assert_eq!(world.objects[&id].get_position(), contact);
+        assert!(world.objects[&id].status.disabled_held);
+        assert_ne!(
+            world.objects[&id].model_condition_bits
+                & (1 << crate::game_logic::host_enum_table_residual::special_damaged_model_bit()),
+            0
+        );
+        tick(world, 44);
+        assert_eq!(
+            read(world).len(),
+            4,
+            "the final delay uses strict greater-than"
+        );
+        tick(world, 45);
+        let cpp_order = include_str!("helicopter_slow_death.trace")
+            .lines()
+            .filter_map(|row| row.split_whitespace().nth(1))
+            .filter(|name| names.contains(name))
+            .collect::<Vec<_>>();
+        assert_eq!(read(world), cpp_order);
+        let rubble = world
+            .objects
+            .registered()
+            .find_map(|(_, object)| (object.template_name == "HeliRubble").then_some(object))
+            .unwrap();
+        assert_eq!(
+            rubble.get_transform_matrix(),
+            world.objects[&id].get_transform_matrix()
+        );
+        assert!(
+            world
+                .pending_object_removal_snapshot()
+                .iter()
+                .any(|event| event.id == id)
+        );
+    }
+    assert_eq!(
+        source.logic_random.seed_words(),
+        restored.logic_random.seed_words()
+    );
+}

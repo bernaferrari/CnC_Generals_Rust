@@ -61,6 +61,16 @@
       ]
     },
     {
+      "source": "GeneralsMD/Code/GameEngine/Source/GameLogic/Object/Update/HelicopterSlowDeathUpdate.cpp",
+      "destinations": [
+        "GeneralsRust/Code/GameEngine/GameLogic/src/object/behavior/helicopter_slow_death_update.rs",
+        "GeneralsRust/Code/Main/src/game_logic/native_die_definition.rs",
+        "GeneralsRust/Code/Main/src/game_logic/world_objects/create_destroy_die/death/helicopter_slow_death.rs",
+        "GeneralsRust/Code/Main/src/game_logic/world_objects/create_destroy_die/death/slow_death.rs",
+        "GeneralsRust/Code/Main/src/save_load/snapshot/native_die_persist.rs"
+      ]
+    },
+    {
       "source": "GeneralsMD/Code/GameEngine/Source/Common/BitFlags.cpp",
       "destinations": [
         "GeneralsRust/Code/GameEngine/Common/src/common/bit_flags.rs"

@@ -263,41 +263,19 @@ impl GameLogic {
                     else {
                         continue;
                     };
-                    if let Some(base) = family.base() {
-                        let started = self.begin_authored_slow_death_base(
-                            id, source_index, config, base, interpreter, presentation_effects,
-                        )?;
-                        // Weighted dispatch invokes beginSlowDeath directly,
-                        // even when another slot's onDie selected the jet.
-                        if started && let NativeSlowFamily::Jet(jet) = family {
-                            self.begin_authored_jet_slow_death(
-                                id, jet, interpreter, presentation_effects,
-                            )?;
-                        }
-                    } else if let NativeSlowFamily::Helicopter(fx) = family {
-                        let deletion_queued =
-                            self.objects_to_destroy.iter().any(|event| event.id == id);
-                        let Some(object) = self.objects.get_mut(&id) else { continue };
-                        let start = object.begin_helicopter_slow_death_with_fx(
-                            fx.clone(),
-                            deletion_queued,
-                            &mut crate::game_logic::ObjectAudio::queue(
-                                &mut self.queued_audio_events,
-                            ),
-                        );
-                        self.commit_slow_death_idle_owned(id, start, presentation_effects)?;
-                        let fx = self
-                            .objects
-                            .get_mut(&id)
-                            .and_then(|object| object.pending_death_fx.take());
-                        if let Some(fx) = fx {
-                            self.run_authored_named_die_fx_with_effects(
-                                id, None, &fx, true, presentation_effects,
-                            );
-                        }
-                        if start.stop_ambient_playback {
-                            self.stop_native_drawable_ambient_playback(id, presentation_effects)?;
-                        }
+                    if !self.begin_authored_slow_death_base(
+                        id, source_index, config, family.base(), interpreter, presentation_effects,
+                    )? {
+                        continue;
+                    }
+                    // Weighted dispatch calls beginSlowDeath on the selected slot.
+                    match family {
+                        NativeSlowFamily::Ordinary(_) => {}
+                        NativeSlowFamily::Jet(jet) => self.begin_authored_jet_slow_death(
+                            id, jet, interpreter, presentation_effects,
+                        )?,
+                        NativeSlowFamily::Helicopter(helicopter) => self
+                            .begin_authored_helicopter_slow_death(id, helicopter, presentation_effects)?,
                     }
                 }
                 NativeDieKind::Topple | NativeDieKind::Collapse => {

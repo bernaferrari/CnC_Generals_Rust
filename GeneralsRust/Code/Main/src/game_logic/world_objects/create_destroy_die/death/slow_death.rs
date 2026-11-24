@@ -83,6 +83,7 @@ impl GameLogic {
             source_index,
             midpoint_frame: deadlines.midpoint,
             flight: SlowDeathFlight::NotFlung,
+            helicopter: None,
         });
 
         if let Some(fling) = base.fling
@@ -119,7 +120,7 @@ impl GameLogic {
             .native_die_declarations
             .as_deref()
             .and_then(|slots| runtime.family_in(slots))
-            .and_then(NativeSlowFamily::base)
+            .map(NativeSlowFamily::base)
             .cloned();
         let Some(data) = data else {
             return Err(gamelogic::GameLogicError::Configuration(
@@ -410,5 +411,35 @@ impl GameLogic {
         let position = self.objects[&id].get_position() - Vec3::Y * sink_rate;
         self.set_owned_object_position_with_effects(id, position, self.frame, effects)
             && self.spawn_identity_matches(id, birth.0, birth.1)
+    }
+
+    /// Both authored effect calls run on the installed object and its current
+    /// pose. FX and OCL can synchronously invoke other lifecycle callbacks.
+    pub(super) fn run_authored_death_fx_and_ocl(
+        &mut self,
+        id: ObjectId,
+        fx: Option<&str>,
+        ocl: Option<&str>,
+        interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> gamelogic::GameLogicResult<bool> {
+        let birth = (
+            self.objects[&id].visual_object_generation,
+            self.visual_world_epoch,
+        );
+        if let Some(fx) = fx {
+            self.dispatch_fx_list_at_host_object_with_effects(fx, id, None, effects);
+        }
+        if !self.spawn_identity_matches(id, birth.0, birth.1) {
+            return Ok(false);
+        }
+        if let Some(ocl) = ocl {
+            let outcome =
+                self.execute_receiving_object_ocl_with_births(ocl, id, interpreter, effects);
+            if let Some(error) = outcome.error {
+                return Err(error);
+            }
+        }
+        Ok(self.spawn_identity_matches(id, birth.0, birth.1))
     }
 }
