@@ -236,20 +236,8 @@ impl GameLogic {
             return Ok(());
         }
         if let Some(name) = &definition.effects.ocl_blade {
-            let object = &self.objects[&id];
-            // The explicit-position overload retains the source for ownership.
-            // Object-only nuggets, such as ApplyRandomForce, cannot act on it.
-            let outcome = self.execute_parsed_weapon_ocl_with_births(
-                name,
-                Some(id),
-                object.team,
-                object.experience.level,
-                object.get_orientation(),
-                object.movement.velocity,
-                position,
-                None,
-                effects,
-            );
+            let outcome =
+                self.execute_receiving_positional_ocl_with_births(name, id, position, effects);
             if let Some(error) = outcome.error {
                 return Err(error);
             }

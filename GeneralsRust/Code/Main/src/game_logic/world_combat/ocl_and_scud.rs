@@ -18,12 +18,14 @@ pub(crate) struct OclExecutionOutcome {
     pub(crate) error: Option<gamelogic::GameLogicError>,
 }
 
-/// Distinguish the C++ object overload from location-based effects. A location
-/// can carry a source ID for ownership while acting on a separate position.
+/// The OCL overload controls which source data affects a created object's pose.
 #[derive(Clone, Copy)]
 pub(in crate::game_logic) enum OclPrimary {
     Object,
+    /// A world position with an owning object and an independently supplied angle.
     Position,
+    /// Deferred effects that carry the source heading with the recorded origin.
+    FrozenSource,
 }
 
 impl OclExecutionOutcome {
@@ -52,9 +54,7 @@ fn supports_host_weapon_generic_ocl(
     nugget: &gamelogic::object_creation_list::GenericObjectCreationNugget,
 ) -> bool {
     use gamelogic::object_creation_list::DebrisDisposition;
-    let unsupported_disposition = DebrisDisposition::SEND_IT_FLYING
-        | DebrisDisposition::SEND_IT_UP
-        | DebrisDisposition::SEND_IT_OUT
+    let unsupported_disposition = DebrisDisposition::SEND_IT_OUT
         | DebrisDisposition::FLOATING
         | DebrisDisposition::WHIRLING;
 
@@ -248,7 +248,7 @@ impl GameLogic {
     ) -> OclExecutionOutcome {
         self.execute_parsed_weapon_ocl_with_lifetime_and_births(
             ocl_name,
-            OclPrimary::Position,
+            OclPrimary::FrozenSource,
             source_id,
             source_team,
             source_veterancy,
@@ -285,6 +285,34 @@ impl GameLogic {
             None,
             0,
             interpreter,
+            effects,
+        )
+    }
+
+    /// ObjectCreationList::create(list, source, position, NULL, INVALID_ANGLE).
+    /// Generic nuggets use zero for the omitted angle and receive no matrix.
+    pub(in crate::game_logic) fn execute_receiving_positional_ocl_with_births(
+        &mut self,
+        ocl_name: &str,
+        id: ObjectId,
+        origin: Vec3,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> OclExecutionOutcome {
+        let Some(object) = self.objects.get(&id) else {
+            return OclExecutionOutcome::success(Vec::new());
+        };
+        self.execute_parsed_weapon_ocl_with_lifetime_and_births(
+            ocl_name,
+            OclPrimary::Position,
+            Some(id),
+            object.team,
+            object.experience.level,
+            0.0,
+            object.movement.velocity,
+            origin,
+            None,
+            0,
+            None,
             effects,
         )
     }
@@ -327,7 +355,7 @@ impl GameLogic {
         });
 
         let Some(ocl) = self.object_creation_list_definition(ocl_name) else {
-            if matches!(primary, OclPrimary::Position) {
+            if !matches!(primary, OclPrimary::Object) {
                 log::warn!("receiving OCL `{ocl_name}` was not admitted for this GameLogic");
             }
             return OclExecutionOutcome::success(Vec::new());
@@ -432,6 +460,7 @@ impl GameLogic {
                     source_birth.expect("source birth captured"),
                     source_team,
                     origin,
+                    matches!(primary, OclPrimary::Position).then_some(source_orientation),
                     lifetime_frames,
                     presentation_effects,
                 );
@@ -496,17 +525,17 @@ impl GameLogic {
                     continue;
                 }
 
-                // C++ `GenericObjectCreationNugget::doStuffToObj` transforms
-                // `Offset` through the primary object's matrix before adding
-                // it to the source position (ObjectCreationList.cpp:953-960).
-                // `Coord3D` is (X, Y-horizontal, Z-up), whereas the host is
-                // X/Z-horizontal with Y-up, so convert first and then apply
-                // the frozen source yaw.  Leaving this unrotated puts every
-                // directional FireOCL/debris spawn on the same world side of
-                // its source regardless of facing.
+                // ObjectCreationList.cpp:953-960 applies a matrix only
+                // when the overload supplied one. Deferred weapon producers
+                // still carry the source's recorded heading.
                 let local_offset = Vec3::new(generic.offset.x, generic.offset.z, generic.offset.y);
-                let rotated_offset = glam::Mat3::from_rotation_y(source_orientation) * local_offset;
-                let mut spawn_position = origin + rotated_offset;
+                let offset = match primary {
+                    OclPrimary::Position => local_offset,
+                    OclPrimary::Object | OclPrimary::FrozenSource => {
+                        glam::Mat3::from_rotation_y(source_orientation) * local_offset
+                    }
+                };
+                let mut spawn_position = origin + offset;
                 let on_ground = generic
                     .disposition
                     .has(DebrisDisposition::ON_GROUND_ALIGNED);
@@ -689,7 +718,11 @@ impl GameLogic {
                     );
                 }
                 // C++ ObjectCreationList.cpp:1086/1121-1124 ExtraFriction/Bounciness/BounceSound.
-                if generic.disposition.has(DebrisDisposition::RANDOM_FORCE) {
+                if generic.disposition.has(
+                    DebrisDisposition::RANDOM_FORCE
+                        | DebrisDisposition::SEND_IT_FLYING
+                        | DebrisDisposition::SEND_IT_UP,
+                ) {
                     // C++ doStuffToObj guards the whole flight block on the
                     // created object having a PhysicsBehavior: a physics-less
                     // template still births but draws no force and keeps
@@ -722,12 +755,6 @@ impl GameLogic {
                     }
                 } else {
                     object.set_extra_friction(generic.extra_friction);
-                    if generic.disposition.has(
-                        DebrisDisposition::SEND_IT_FLYING | DebrisDisposition::SEND_IT_UP,
-                    ) {
-                        object.set_extra_bounciness(generic.extra_bounciness);
-                        object.set_allow_bouncing(true);
-                    }
                     if !generic.bounce_sound.is_empty() {
                         object.set_bounce_sound(generic.bounce_sound.clone());
                     }
@@ -874,6 +901,7 @@ impl GameLogic {
         source_birth: (u64, u64),
         source_team: Team,
         origin: Vec3,
+        positional_orientation: Option<f32>,
         lifetime_frames: u32,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> OclExecutionOutcome {
@@ -939,6 +967,7 @@ impl GameLogic {
         } else {
             Team::Neutral
         };
+        let orientation = positional_orientation.unwrap_or(source_orientation);
         self.ocl_create_debris_reg
             .record_plan(host_ocl_disposition_bits(generic.disposition));
 
@@ -968,11 +997,15 @@ impl GameLogic {
             // same way every other authored model-space offset is (INI X =
             // forward, INI Y = left, INI Z = up); feeding (x, y, z) straight
             // into the host matrix would rotate "y" as if it were height.
-            let position = crate::game_logic::host_production_buildable_command_residual::transform_model_exit_offset(
-                origin,
-                source_forward,
-                (generic.offset.x, generic.offset.y, generic.offset.z),
-            );
+            let position = if positional_orientation.is_some() {
+                origin + Vec3::new(generic.offset.x, generic.offset.z, generic.offset.y)
+            } else {
+                crate::game_logic::host_production_buildable_command_residual::transform_model_exit_offset(
+                    origin,
+                    source_forward,
+                    (generic.offset.x, generic.offset.y, generic.offset.z),
+                )
+            };
             let creation = self.create_object_for_owner_or_team_with_birth_checked(
                 "GenericDebris",
                 team,
@@ -1058,42 +1091,16 @@ impl GameLogic {
                 object.extra_friction = generic.extra_friction;
                 object.set_allow_bouncing(true);
                 object.bounce_sound_name = generic.bounce_sound.clone();
-                let spin = if generic.spin_rate >= 0.0 {
-                    generic.spin_rate
-                } else {
-                    (std::f32::consts::PI / 32.0) * generic.disposition_intensity
-                };
-                let yaw_rate = if generic.yaw_rate >= 0.0 {
-                    generic.yaw_rate
-                } else {
-                    spin
-                };
-                let roll_rate = if generic.roll_rate >= 0.0 {
-                    generic.roll_rate
-                } else {
-                    spin
-                };
-                let pitch_rate = if generic.pitch_rate >= 0.0 {
-                    generic.pitch_rate
-                } else {
-                    spin
-                };
-                object.shock_yaw_rate = self.logic_random.next_real(-yaw_rate, yaw_rate);
-                object.shock_roll_rate = self.logic_random.next_real(-roll_rate, roll_rate);
-                object.shock_pitch_rate = self.logic_random.next_real(-pitch_rate, pitch_rate);
-                let horizontal = 4.0 * generic.disposition_intensity;
-                let vertical = 3.0 * generic.disposition_intensity;
-                let force_x = self.logic_random.next_real(-horizontal, horizontal);
-                let force_y = self.logic_random.next_real(-horizontal, horizontal);
-                let force_z = self.logic_random.next_real(vertical * 0.33, vertical);
-                // Draw in C++ Coord3D x/y/z order, then map the vertical
-                // component to this host's Y-up force vector.
-                let force = Vec3::new(force_x, force_z, force_y);
-                object.apply_physics_force(force, self.frame);
+                let (force, [yaw, roll, pitch]) =
+                    generic.draw_flight(|lo, hi| self.logic_random.next_real(lo, hi));
+                object.apply_physics_force(Vec3::new(force.x, force.z, force.y), self.frame);
                 object.set_orientation_with_partition_owner(
-                    source_orientation,
+                    orientation,
                     &mut self.partition_manager,
                 );
+                object.shock_yaw_rate = yaw;
+                object.shock_roll_rate = roll;
+                object.shock_pitch_rate = pitch;
             }
             self.ocl_create_debris_reg
                 .record_spawn(host_ocl_disposition_bits(generic.disposition));

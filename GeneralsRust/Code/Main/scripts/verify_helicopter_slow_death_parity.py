@@ -4,7 +4,7 @@ import argparse
 import subprocess
 import tempfile
 
-from verify_ocl_force_parity import ROOT, definition
+from verify_ocl_force_parity import OCL_SOURCE, ROOT, definition
 from verify_slow_death_parity import FIXTURES
 
 SOURCE = ROOT / "GeneralsMD/Code/GameEngine/Source/GameLogic/Object/Update/HelicopterSlowDeathUpdate.cpp"
@@ -17,6 +17,7 @@ STUBS = r"""
 using Bool = bool;
 using Real = float;
 using ObjectID = unsigned;
+using UnsignedInt = unsigned;
 using UpdateSleepTime = int;
 constexpr bool TRUE = true, FALSE = false;
 constexpr int DISABLED_HELD = 1, MODELCONDITION_SPECIAL_DAMAGED = 2;
@@ -24,6 +25,7 @@ constexpr int KINDOF_SHRUBBERY = 1, UPDATE_SLEEP_NONE = 0, LEVEL_REGULAR = 0;
 constexpr int LOGICFRAMES_PER_SECOND = 30;
 constexpr Real INVALID_ANGLE = -999.0f;
 #define DEBUG_ASSERTCRASH(condition, message) assert(condition)
+#define DEBUG_CRASH(message) assert(false)
 #define DOUBLE_TO_REAL(x) static_cast<float>(x)
 #define Cos(x) std::cos(x)
 #define Sin(x) std::sin(x)
@@ -86,13 +88,14 @@ struct Object {
     Drawable drawable{&matrix};
     AI ai;
     unsigned getID() { return 7; }
-    const Coord3D* getPosition() { return &position; }
-    const Matrix3D* getTransformMatrix() { return &matrix; }
+    const Coord3D* getPosition() const { return &position; }
+    const Matrix3D* getTransformMatrix() const { return &matrix; }
     void setTransformMatrix(const Matrix3D* value) {
         matrix = *value;
         std::printf("%u rotation %.3f\n", frame, matrix.rotation());
     }
-    Real getOrientation() { return 0; }
+    Real getOrientation() const { return 0; }
+    bool isSignificantlyAboveTerrain() const { return position.z > 9; }
     Drawable* getDrawable() { return &drawable; }
     AI* getAIUpdateInterface() { return &ai; }
     PhysicsBehavior* getPhysics() { return &physics; }
@@ -142,12 +145,27 @@ struct FXList {
     static void doFXObj(const FXList* fx, Object*) { trace(fx->name); }
     static void doFXPos(const FXList* fx, const Coord3D* p) { trace_position(fx->name, *p); }
 };
+void adjustVector(Coord3D*, const Matrix3D*) { assert(false); }
+struct GenericObjectCreationNugget {
+    const Coord3D m_offset{1, 2, 3};
+    bool m_skipIfSignificantlyAirborne = false;
+    Object* reallyCreate(
+        const Coord3D* pos, const Matrix3D* mtx, Real orientation, const Object*, UnsignedInt
+    ) const {
+        assert(mtx == nullptr && orientation == 0.0f);
+        @GENERIC_OFFSET@
+        trace_position("HeliBlade", chunkPos);
+        return nullptr;
+    }
+    @GENERIC_OVERLOADS@
+};
 struct ObjectCreationList {
     const char* name;
     static void create(const ObjectCreationList* list, Object*, void*) { trace(list->name); }
     static void create(const ObjectCreationList* list, Object* object, const Coord3D* p, void*, Real orientation) {
         assert(object->getID() == 7 && orientation == INVALID_ANGLE);
-        trace_position(list->name, *p);
+        assert(list->name[4] == 'B');
+        GenericObjectCreationNugget().create(object, p, nullptr, orientation);
     }
 };
 struct EjectPilotDie {
@@ -250,10 +268,19 @@ def main() -> None:
         definition(source, r"void HelicopterSlowDeathBehavior::beginSlowDeath\("),
         definition(source, r"UpdateSleepTime HelicopterSlowDeathBehavior::update\("),
     ]
+    ocl = OCL_SOURCE.read_text()
+    generic = ocl.index("class GenericObjectCreationNugget")
+    start = ocl.index("virtual Object* create(const Object* primary,", generic)
+    end = ocl.index("static const FieldParse* getCommonFieldParse()", start)
+    offset = ocl.index("Coord3D offset = m_offset;", end)
+    offset_end = ocl.index("if (!m_particleSysName.isEmpty())", offset)
+    stubs = STUBS.replace("@GENERIC_OVERLOADS@", ocl[start:end]).replace(
+        "@GENERIC_OFFSET@", ocl[offset:offset_end]
+    )
     with tempfile.TemporaryDirectory(prefix="heli-death-original-") as directory:
         root = Path(directory)
         cpp, exe = root / "probe.cpp", root / "probe"
-        cpp.write_text("\n".join([STUBS, *callbacks, MAIN]))
+        cpp.write_text("\n".join([stubs, *callbacks, MAIN]))
         subprocess.run([options.cxx, "-std=c++17", cpp, "-o", exe], check=True)
         observed = subprocess.check_output([exe], text=True)
     if options.print_trace:

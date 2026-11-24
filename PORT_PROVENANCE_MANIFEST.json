@@ -161143,7 +161143,7 @@
     }
   ],
   "generator": "GeneralsRust/Code/Main/scripts/generate_port_provenance.py",
-  "input_digest": "b72ab6d3302d4fb36c7e9582e157d644d526c502e0579908ae8d461985e74178",
+  "input_digest": "a781a5f964610788762689358cf12dfc8531012e32a75799f4c680dbf440af92",
   "metric_contract": {
     "behavior_requires_explicit_evidence": true,
     "candidate_mapping_is_reviewed": false,
@@ -222177,11 +222177,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 399,
+        "end_line": 387,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/Main/src/game_logic/world_objects/create_destroy_die/death/helicopter_slow_death.rs",
-      "sha256": "eb0367df5e7ce51000359ff807a3a771dd955dc3ac1f6b864cfacbbba48d813e",
+      "sha256": "f5f0456df9dec72a6687179365cb6780e254c0ce09f84509d2191cc49d71af7a",
       "symbol_index_status": "indexed",
       "symbols": [
         {
@@ -222211,12 +222211,12 @@
         },
         {
           "kind": "fn",
-          "line": 275,
+          "line": 263,
           "name": "check_authored_helicopter_contact"
         },
         {
           "kind": "fn",
-          "line": 340,
+          "line": 328,
           "name": "finish_authored_helicopter_crash"
         }
       ]

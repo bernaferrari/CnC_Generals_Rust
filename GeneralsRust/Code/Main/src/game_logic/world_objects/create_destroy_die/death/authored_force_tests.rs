@@ -1077,13 +1077,23 @@ End";
         "HeliRubble",
     ];
     let fixture = || {
-        let definitions = names.map(|name| format!("Object {name}\nKindOf = IMMOBILE\nEnd\n"));
+        let definitions = names.map(|name| {
+            let physics = if name == "HeliBlade" {
+                "Behavior = PhysicsBehavior BladePhysics\nMass = 2\nEnd\n"
+            } else {
+                ""
+            };
+            format!("Object {name}\nKindOf = IMMOBILE\n{physics}End\n")
+        });
         let mut world =
             force_world_with_objects("VEHICLE AIRCRAFT", 50, true, death, &definitions.join(""));
         let lists = names.map(|name| {
-            format!(
-                "ObjectCreationList {name}\nCreateObject\nObjectNames = {name}\nCount = 1\nEnd\nEnd"
-            )
+            let launch = if name == "HeliBlade" {
+                "Disposition = SEND_IT_FLYING\nDispositionIntensity = 1\nSpinRate = 50\nOffset = X:1 Y:2 Z:3\n"
+            } else {
+                ""
+            };
+            format!("ObjectCreationList {name}\nCreateObject\nObjectNames = {name}\nCount = 1\n{launch}End\nEnd")
         });
         world.apply_receiving_ocl_overrides(&lists).unwrap();
         world
@@ -1185,8 +1195,18 @@ End";
             .registered()
             .find_map(|(_, object)| (object.template_name == "HeliBlade").then_some(object))
             .unwrap();
-        let expected_bone = Vec3::new(8.556, 12.5, 23.304);
-        assert!((blade.get_position() - expected_bone).length() < 0.001);
+        let mut blade_position = include_str!("helicopter_slow_death.trace")
+            .lines()
+            .find_map(|line| line.strip_prefix("43 HeliBlade "))
+            .unwrap()
+            .split_whitespace()
+            .map(|value| value.parse::<f32>().unwrap());
+        let x = blade_position.next().unwrap();
+        let z = blade_position.next().unwrap();
+        let y = blade_position.next().unwrap();
+        assert_ne!(blade.physics_accel, Vec3::ZERO);
+        assert_eq!(blade.get_orientation(), 0.0);
+        assert!((blade.get_position() - Vec3::new(x, y, z)).length() < 0.001);
         check_heading(world, 1.0);
         world.sync_live_state_particles(&mut ());
         let smoke = world
