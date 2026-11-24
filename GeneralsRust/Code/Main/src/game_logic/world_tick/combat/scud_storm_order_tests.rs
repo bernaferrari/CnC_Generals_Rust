@@ -415,7 +415,9 @@ fn authored_scud_storm_completing_shooter_notifies_at_launch() {
     assert_authored_scud_storm_delivery(true);
 }
 
-fn assert_authored_scud_storm_delivery(shooter_completes: bool) {
+const STORM_DEATH_TARGET: Vec3 = Vec3::new(1000.0, 0.0, 200.0);
+
+fn storm_death_world(shooter_completes: bool) -> GameLogic {
     let mut pad_ini = pad_definition_with("StormOrderOnce", "StormDeathLauncher");
     if shooter_completes {
         let end = pad_ini.trim_end().len() - "End".len();
@@ -460,29 +462,37 @@ fn assert_authored_scud_storm_delivery(shooter_completes: bool) {
     world.install_owned_script_engine(
         gamelogic::scripting::engine::ScriptEngine::new_in_published_world().unwrap(),
     );
+    world
+}
 
+fn spawn_storm_death_actors(world: &mut GameLogic) -> (ObjectId, ObjectId, ObjectId) {
     let pad = world
         .create_object("TestStormPad", Team::GLA, Vec3::new(200.0, 0.0, 200.0))
         .unwrap();
-    if shooter_completes {
-        world
-            .host_object_mut(pad)
-            .unwrap()
-            .set_special_power_completion(STORM_COMPLETION_POWER, PAD_COMPLETION_CREATOR);
-    }
     let near = world
         .create_object("StormVictim", Team::USA, Vec3::new(1000.0, 0.0, 230.0))
         .unwrap();
     let far = world
         .create_object("StormVictim", Team::USA, Vec3::new(1400.0, 0.0, 200.0))
         .unwrap();
-    let target = Vec3::new(1000.0, 0.0, 200.0);
+    (pad, near, far)
+}
+
+fn assert_authored_scud_storm_delivery(shooter_completes: bool) {
+    let mut world = storm_death_world(shooter_completes);
+    let (pad, near, far) = spawn_storm_death_actors(&mut world);
+    if shooter_completes {
+        world
+            .host_object_mut(pad)
+            .unwrap()
+            .set_special_power_completion(STORM_COMPLETION_POWER, PAD_COMPLETION_CREATOR);
+    }
 
     world.set_current_frame(10);
     let strike = world.queue_special_power_strike(
         &crate::command_system::SpecialPowerType::ScudStorm,
         pad,
-        target,
+        STORM_DEATH_TARGET,
     );
     assert!(strike.is_some());
     assert!(world.scud_storm_missile_flight_reg.pending.is_empty());
@@ -619,6 +629,134 @@ fn assert_authored_scud_storm_delivery(shooter_completes: bool) {
         false,
         PAD_COMPLETION_CREATOR,
     ));
+}
+
+/// A live missile must resume on the same frame after loading, including
+/// its HeightDie deadline and the launcher ID used for script completion.
+#[test]
+fn authored_scud_storm_resumes_live_missile_after_encoded_restore() {
+    use crate::save_load::{SnapshotBuilder, snapshot::decode_bincode_world_snapshot};
+
+    let mut source = storm_death_world(false);
+    let (pad, near, far) = spawn_storm_death_actors(&mut source);
+    assert!(
+        source
+            .queue_special_power_strike(
+                &crate::command_system::SpecialPowerType::ScudStorm,
+                pad,
+                STORM_DEATH_TARGET,
+            )
+            .is_some()
+    );
+
+    let step = |world: &mut GameLogic| {
+        assert_eq!(world.update_with_dt(LOGIC_FRAME_TIMESTEP).steps_run, 1)
+    };
+    let flight = |world: &GameLogic, id: ObjectId| {
+        let actor = world.host_object(id)?;
+        let projectile = world.combat_system.get_projectiles().get(&id)?;
+        Some((actor.get_position(), projectile.velocity))
+    };
+
+    // This fixture has no model launch bone. Wait for the missile to be
+    // moving above ground so the snapshot exercises live flight.
+    let mut missile = None;
+    for _ in 0..300 {
+        step(&mut source);
+        missile = source
+            .combat_system
+            .get_projectiles()
+            .iter()
+            .find(|(id, projectile)| {
+                projectile.owns_receiving_actor()
+                    && projectile.missile_motion.is_some()
+                    && source.host_object(**id).is_some_and(|actor| {
+                        actor.template_name == "StormDeathMissile"
+                            && actor.is_alive()
+                            && actor.get_position().y > 10.0
+                    })
+                    && projectile.velocity.length_squared() > 0.0
+            })
+            .map(|(&id, _)| id);
+        if missile.is_some() {
+            break;
+        }
+    }
+    let missile = missile.expect(
+        "the authored attack must produce a live airborne missile",
+    );
+    assert_eq!(count_objects(&source, "StormDeathWitnessField"), 0);
+    assert_eq!(health(&source, near), 500.0);
+    assert_eq!(source.special_power_completion_log.notifications, 0);
+
+    let builder = SnapshotBuilder::new();
+    let bytes =
+        bincode_legacy::serialize(&builder.create_world_snapshot(&source).unwrap()).unwrap();
+    let decoded = decode_bincode_world_snapshot(&bytes).unwrap();
+    let mut restored = storm_death_world(false);
+    // The shared fixture already seeded the sorted team prototypes (0 then 1).
+    restored.clear_all_players();
+    builder
+        .restore_from_snapshot(&decoded, &mut restored)
+        .unwrap();
+    assert_eq!(restored.frame, source.frame);
+    assert_eq!(flight(&restored, missile), flight(&source, missile));
+
+    let mut impact = None;
+    for _ in 0..900 {
+        step(&mut source);
+        step(&mut restored);
+        assert_eq!(restored.frame, source.frame);
+        assert_eq!(
+            flight(&restored, missile),
+            flight(&source, missile),
+            "at frame {}",
+            source.frame,
+        );
+        for victim in [near, far] {
+            assert_eq!(
+                health(&restored, victim),
+                health(&source, victim),
+                "at frame {}",
+                source.frame,
+            );
+        }
+        let fields = count_objects(&source, "StormDeathWitnessField");
+        assert_eq!(count_objects(&restored, "StormDeathWitnessField"), fields);
+        if fields == 1 {
+            impact.get_or_insert(source.frame);
+        }
+        if impact.is_some_and(|frame| source.frame >= frame + 40) {
+            break;
+        }
+    }
+    assert!(
+        impact.is_some(),
+        "resumed live missile must reach its authored impact",
+    );
+
+    for world in [&mut source, &mut restored] {
+        assert_eq!(health(world, near), 477.0);
+        assert_eq!(health(world, far), 500.0);
+        assert_eq!(count_objects(world, "StormDeathWitnessField"), 1);
+        assert!(flight(world, missile).is_none());
+        assert!(world.scud_storm_missile_flight_reg.pending.is_empty());
+        assert_eq!(world.special_power_strikes.toxin_fields_spawned_total(), 0);
+        assert_eq!(world.special_power_completion_log.notifications, 1);
+        let scripts = world.owned_script_engine.as_ref().unwrap();
+        assert!(scripts.is_special_power_complete(
+            0,
+            STORM_COMPLETION_POWER,
+            true,
+            pad.0
+        ));
+        assert!(!scripts.is_special_power_complete(
+            0,
+            STORM_COMPLETION_POWER,
+            false,
+            pad.0
+        ));
+    }
 }
 
 /// An authored pad whose OCL is missing leaves a registry record only for
