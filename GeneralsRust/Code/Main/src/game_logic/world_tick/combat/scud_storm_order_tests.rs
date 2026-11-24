@@ -269,6 +269,48 @@ fn authored_scud_storm_with_missing_list_does_nothing() {
         .any(|(_, object)| object.template_name == "StormOrderMissile"));
 }
 
+/// A second authored Attack nugget with no DeliveryDecal still runs
+/// `RadiusDecalUpdate::createRadiusDecal` (ObjectCreationList.cpp:163-195):
+/// the template create returns empty, which clears the previous marker and
+/// wakes nothing, while `killWhenNoLongerAttacking` is set regardless.
+#[test]
+fn authored_scud_storm_later_empty_decal_clears_previous_marker() {
+    let list = STORM_ORDER
+        .trim_end()
+        .strip_suffix("End")
+        .unwrap()
+        .to_owned()
+        + "  Attack
+  NumberOfShots = 1
+  WeaponSlot = PRIMARY
+  End
+End
+";
+    let mut world = world_with("StormOrder", &[list]);
+    world.add_player(Player::new(0, Team::GLA, "GLA", true));
+    let pad = world
+        .create_object("TestStormPad", Team::GLA, Vec3::ZERO)
+        .unwrap();
+    world.set_current_frame(10);
+    assert!(
+        world
+            .queue_special_power_strike(
+                &crate::command_system::SpecialPowerType::ScudStorm,
+                pad,
+                Vec3::new(300.0, 0.0, 40.0),
+            )
+            .is_some()
+    );
+
+    let pad = world.host_object(pad).unwrap();
+    assert_eq!(pad.weapon_lock_slot, 0);
+    assert_eq!(pad.max_shots_to_fire, 1);
+    let decal = pad.radius_decal_update.as_ref().unwrap();
+    assert!(decal.delivery_decal.is_empty());
+    assert!(!decal.awake);
+    assert!(decal.kill_when_no_longer_attacking);
+}
+
 /// One-shot variant of the authored attack order for the death-weapon
 /// flight test; no delivery decal is needed to watch the missile die.
 const STORM_ORDER_ONCE: &str = "ObjectCreationList StormOrderOnce\n\
@@ -494,4 +536,72 @@ fn authored_scud_storm_height_death_fires_its_own_weapon() {
         477.0,
         "no duplicate damage from the registry or the death weapon",
     );
+}
+
+/// An authored pad whose OCL is missing leaves a registry record only for
+/// the activation receipt: no synthetic impact plan ever resolves for it —
+/// not before the save, and not after restore hands live-delivery ownership
+/// back to the registry. The authored Attack order (when present) and the
+/// native projectile are saved through their own state.
+#[test]
+fn authored_scud_storm_missing_list_stays_inert_after_restore() {
+    use crate::save_load::{SnapshotBuilder, snapshot::decode_bincode_world_snapshot};
+
+    let objects = format!(
+        "{}{}{}",
+        pad_definition("MissingStormOrder"),
+        MISSILE,
+        STORM_VICTIM
+    );
+    let mut source = world_with_objects(&objects, &[]);
+    for (id, team, alliance) in [(0, Team::GLA, 0), (1, Team::USA, 1)] {
+        let mut player = Player::new(id, team, "storm fixture", true);
+        player.alliance_team = alliance;
+        source.add_player(player);
+    }
+    let target = Vec3::new(300.0, 0.0, 40.0);
+    let pad = source
+        .create_object("TestStormPad", Team::GLA, Vec3::ZERO)
+        .unwrap();
+    let victim = source
+        .create_object("StormVictim", Team::USA, target)
+        .unwrap();
+    source.set_current_frame(10);
+    assert!(
+        source
+            .queue_special_power_strike(
+                &crate::command_system::SpecialPowerType::ScudStorm,
+                pad,
+                target,
+            )
+            .is_some()
+    );
+
+    let builder = SnapshotBuilder::new();
+    let bytes =
+        bincode_legacy::serialize(&builder.create_world_snapshot(&source).unwrap()).unwrap();
+    let decoded = decode_bincode_world_snapshot(&bytes).unwrap();
+    // Seed the receiver's team factory with the same prototypes, then clear:
+    // restore owns the runtime roster, not the prototype definitions.
+    let mut restored = world_with_objects(&objects, &[]);
+    let mut player_ids: Vec<_> = source.players.keys().copied().collect();
+    player_ids.sort_unstable();
+    for id in player_ids {
+        restored.add_player(source.players[&id].clone());
+    }
+    restored.clear_all_players();
+    builder
+        .restore_from_snapshot(&decoded, &mut restored)
+        .unwrap();
+
+    for world in [&mut restored, &mut source] {
+        world.set_current_frame(1000);
+        world.update_special_power_strikes().unwrap();
+        assert!(
+            world.special_power_strikes.completed_this_frame().is_empty(),
+            "no synthetic ScudStorm wave resolves for an authored dispatch",
+        );
+        assert_eq!(health(world, victim), 500.0);
+        assert_eq!(world.special_power_strikes.toxin_fields_spawned_total(), 0);
+    }
 }

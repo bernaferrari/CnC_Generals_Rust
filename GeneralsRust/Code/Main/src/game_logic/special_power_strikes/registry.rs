@@ -853,10 +853,13 @@ impl HostSpecialPowerStrikeRegistry {
             spectre_tier,
             ScudStormAnthraxTier::Base,
             A10StrikeScienceTier::Level1,
+            HostStrikePhase::Queued,
         )
     }
 
     /// Queue with Artillery + Spectre + ScudStorm anthrax residual tiers.
+    /// `Queued` schedules a registry-owned impact plan; `Completed` records
+    /// the dispatch only (activation receipt, no registry-owned impact).
     pub fn queue_with_all_tiers(
         &mut self,
         kind: HostSuperweaponKind,
@@ -868,11 +871,16 @@ impl HostSpecialPowerStrikeRegistry {
         spectre_tier: SpectreGunshipScienceTier,
         scud_anthrax_tier: ScudStormAnthraxTier,
         a10_tier: A10StrikeScienceTier,
+        phase: HostStrikePhase,
     ) -> u32 {
         let id = self.next_id;
         self.next_id = self.next_id.saturating_add(1).max(1);
         // First multi-strike shell/bomb/missile due frame residual.
-        let impact_frame = activate_frame.saturating_add(kind.impact_delay_frames());
+        let impact_frame = if phase == HostStrikePhase::Queued {
+            activate_frame.saturating_add(kind.impact_delay_frames())
+        } else {
+            activate_frame
+        };
         let mut strike = HostSpecialPowerStrike {
             id,
             kind,
@@ -883,7 +891,7 @@ impl HostSpecialPowerStrikeRegistry {
             target_position,
             activate_frame,
             impact_frame,
-            phase: HostStrikePhase::Queued,
+            phase,
             total_damage_applied: 0.0,
             objects_hit: 0,
             objects_destroyed: 0,
@@ -989,7 +997,7 @@ impl HostSpecialPowerStrikeRegistry {
         };
         // Once-at-queue multi-strike OCL residual: store epicenters + shell
         // frames so plan_due reuses the same ADC draws (retail once-at-create).
-        if kind.is_multi_strike() {
+        if phase == HostStrikePhase::Queued && kind.is_multi_strike() {
             let points = if kind.is_line_multi_strike() {
                 carpet_bomb_points_for_tier(target_position, strike.carpet_tier)
             } else {
@@ -1018,7 +1026,7 @@ impl HostSpecialPowerStrikeRegistry {
             }
         }
         // Seed ScudStorm PreAttack + Chem FX residual at activate.
-        if kind == HostSuperweaponKind::ScudStorm {
+        if phase == HostStrikePhase::Queued && kind == HostSuperweaponKind::ScudStorm {
             strike.scud_pre_attack_active = true;
             strike.scud_chem_fx_bones = SCUD_STORM_CHEM_FX_BONE_COUNT;
             strike.scud_launch_bone_applications = 1;

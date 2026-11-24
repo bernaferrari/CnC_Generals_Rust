@@ -1986,6 +1986,7 @@ fn scud_storm_anthrax_upgrade_secondary_and_poison_residual() {
         SpectreGunshipScienceTier::Level2,
         ScudStormAnthraxTier::AnthraxBeta,
         A10StrikeScienceTier::Level1,
+        HostStrikePhase::Queued,
     );
     assert_eq!(
         reg.get(id).unwrap().scud_anthrax_tier,

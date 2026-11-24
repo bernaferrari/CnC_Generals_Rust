@@ -49,8 +49,8 @@ impl GameLogic {
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> Option<u32> {
         use crate::game_logic::special_power_strikes::{
-            A10StrikeScienceTier, ArtilleryBarrageScienceTier, HostSuperweaponKind,
-            ScudStormAnthraxTier, SpectreGunshipScienceTier,
+            A10StrikeScienceTier, ArtilleryBarrageScienceTier, HostStrikePhase,
+            HostSuperweaponKind, ScudStormAnthraxTier, SpectreGunshipScienceTier,
         };
         let kind = HostSuperweaponKind::from_command_power(power)?;
         // C++ ObjectCreationList.cpp:163-195 — an authored pad delivers the
@@ -134,6 +134,8 @@ impl GameLogic {
         } else {
             A10StrikeScienceTier::Level1
         };
+        // Authored SCUD dispatches an AI order now; its weapon owns all
+        // later effects. Completed = dispatch recorded, no registry impact.
         let id = self.special_power_strikes.queue_with_all_tiers(
             kind,
             source_object,
@@ -144,14 +146,12 @@ impl GameLogic {
             spectre_tier,
             scud_anthrax_tier,
             a10_tier,
+            if authored_scud {
+                HostStrikePhase::Completed
+            } else {
+                HostStrikePhase::Queued
+            },
         );
-        // Authored delivery owns the warheads even when its list fails
-        // closed — mark live so residual HP/poison never lands on top.
-        if authored_scud
-            && let Some(strike) = self.special_power_strikes.get_mut(id)
-        {
-            strike.live_scud_delivery = true;
-        }
         if let Some(settings) = particle_manual_drive_settings {
             if let Some(strike) = self.special_power_strikes.get_mut(id) {
                 strike.manual_drive_settings = settings;
@@ -541,14 +541,13 @@ impl GameLogic {
                 );
             }
             // The decal is stamped unconditionally — a failed order still
-            // creates it (ObjectCreationList.cpp:188-193).
+            // creates it (ObjectCreationList.cpp:188-193), and the template
+            // create is allowed to produce an empty decal.
             let decal = &attack.delivery_decal_template;
-            if attack.delivery_decal_radius <= 0.0
-                || decal.texture_name.is_empty()
-                || !declares_decal
-            {
+            if !declares_decal {
                 continue;
             }
+            // Even an empty decal replaces the previous marker.
             let Some(source) = self.objects.get_mut(&source_id) else {
                 continue;
             };
