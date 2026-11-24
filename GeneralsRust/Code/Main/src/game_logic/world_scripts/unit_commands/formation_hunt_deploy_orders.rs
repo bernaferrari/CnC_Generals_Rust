@@ -600,6 +600,31 @@ impl GameLogic {
         Ok(self.apply_owned_attack_position(id, goal, shot_limit, false))
     }
 
+    /// C++ AttackNugget::create (ObjectCreationList.cpp:179-182): temp-lock
+    /// the authored slot, then aiAttackPosition(CMD_FROM_AI). Stock attack
+    /// list weapons carry no ContinueAttackRange/contact resolution.
+    pub(in crate::game_logic) fn order_ocl_attack_position(
+        &mut self,
+        id: ObjectId,
+        slot: gamelogic::common::WeaponSlotType,
+        location: Vec3,
+        shots: i32,
+    ) -> bool {
+        let Some(unit) = self
+            .objects
+            .get_mut(&id)
+            .filter(|unit| unit.is_alive() && unit.has_ai_update_interface())
+        else {
+            return false;
+        };
+        unit.set_weapon_lock(slot as u8, WeaponLockType::LockedTemporarily);
+        unit.last_command_source = crate::game_logic::host_command_button_hunt::HUNT_CMD_FROM_AI;
+        if unit.transport_return_state.is_none() {
+            unit.set_movement_goal_object(None);
+        }
+        self.apply_owned_attack_position(id, location, shots, false)
+    }
+
     pub(super) fn apply_owned_attack_position(
         &mut self,
         id: ObjectId,

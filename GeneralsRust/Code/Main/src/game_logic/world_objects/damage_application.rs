@@ -1958,11 +1958,16 @@ impl GameLogic {
         };
         if let Some((id, birth)) = birth {
             let valid = self.spawn_identity_matches(id, birth.0, birth.1);
+            if valid {
+                // Weapon.cpp:1080-1081 — producer binds at fire time, before
+                // the launch pose and flight callbacks.
+                let actor = self.objects.get_mut(&id).expect("receiving projectile birth");
+                actor.producer_id = Some(shooter_id);
+            }
             if !missile && valid {
                 if let Some(projectile) = self.combat_system.projectile_mut(id) {
                     projectile.projectile_actor_birth = Some(birth);
                     let actor = self.objects.get_mut(&id).expect("receiving projectile birth");
-                    actor.producer_id = Some(shooter_id);
                     actor.set_experience_sink(Some(shooter_id));
                     if let Some(pose) = transform {
                         actor.set_transform_matrix_with_partition_owner(

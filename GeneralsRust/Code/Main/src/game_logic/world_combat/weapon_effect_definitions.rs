@@ -41,6 +41,57 @@ impl GameLogic {
         self.weapon_effect_definitions.ocl(name)
     }
 
+    /// C++ OCLSpecialPower::findOCL — first owned UpgradeOCL else the OCL
+    /// token on the module matching `power_template`, resolved against this
+    /// session's receiving store only.
+    pub(in crate::game_logic) fn receiving_special_power_ocl(
+        &self,
+        source: &super::super::Object,
+        power_template: &str,
+    ) -> Option<ObjectCreationList> {
+        let module = source
+            .thing()
+            .template
+            .receiving_object_definition
+            .as_ref()?
+            .behavior_modules
+            .iter()
+            .find(|module| {
+                module.class_name.eq_ignore_ascii_case("OCLSpecialPower")
+                    && module
+                        .attribute("SpecialPowerTemplate")
+                        .and_then(|value| value.split_whitespace().next())
+                        .is_some_and(|name| name.eq_ignore_ascii_case(power_template))
+            })?;
+        let player = self
+            .player_owner_for_host_object(source)
+            .and_then(|pid| self.players.get(&pid));
+        let override_ocl = module
+            .attribute("UpgradeOCL")
+            .into_iter()
+            .flat_map(str::lines)
+            .filter_map(|line| {
+                let mut tokens = line.split_whitespace();
+                Some((tokens.next()?, tokens.next()?))
+            })
+            .find_map(|(science, ocl)| {
+                player
+                    .is_some_and(|p| {
+                        p.unlocked_sciences
+                            .iter()
+                            .any(|owned| owned.eq_ignore_ascii_case(science))
+                    })
+                    .then_some(ocl)
+            });
+        let name = override_ocl.or_else(|| {
+            module
+                .attribute("OCL")
+                .and_then(|value| value.lines().next_back())
+                .and_then(|line| line.split_whitespace().next())
+        })?;
+        self.object_creation_list_definition(name)
+    }
+
     /// One immutable application definition set is captured before match workers.
     /// Map/Solo replaces named lists on a private effective map, never this base.
     pub(crate) fn admit_ocl_application_sources(

@@ -103,3 +103,7 @@ mod selected_weapon_owner_tests;
 #[cfg(test)]
 #[path = "combat/authored_continuous_fire_tests.rs"]
 mod authored_continuous_fire_tests;
+
+#[cfg(test)]
+#[path = "combat/scud_storm_order_tests.rs"]
+mod scud_storm_order_tests;

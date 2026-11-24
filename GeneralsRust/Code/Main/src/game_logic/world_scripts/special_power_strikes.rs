@@ -53,6 +53,15 @@ impl GameLogic {
             ScudStormAnthraxTier, SpectreGunshipScienceTier,
         };
         let kind = HostSuperweaponKind::from_command_power(power)?;
+        // C++ ObjectCreationList.cpp:163-195 — an authored pad delivers the
+        // strike through its own receiving Attack nuggets.
+        let authored_scud = kind == HostSuperweaponKind::ScudStorm
+            && self
+                .objects
+                .get(&source_object)
+                .is_some_and(|object| {
+                    object.get_template().receiving_object_definition.is_some()
+                });
         let source_team = self
             .objects
             .get(&source_object)
@@ -136,6 +145,13 @@ impl GameLogic {
             scud_anthrax_tier,
             a10_tier,
         );
+        // Authored delivery owns the warheads even when its list fails
+        // closed — mark live so residual HP/poison never lands on top.
+        if authored_scud
+            && let Some(strike) = self.special_power_strikes.get_mut(id)
+        {
+            strike.live_scud_delivery = true;
+        }
         if let Some(settings) = particle_manual_drive_settings {
             if let Some(strike) = self.special_power_strikes.get_mut(id) {
                 strike.manual_drive_settings = settings;
@@ -193,7 +209,7 @@ impl GameLogic {
         }
 
         // C++ OCL DeliveryDecal via RadiusDecalUpdate on SCUD Storm host.
-        if kind == HostSuperweaponKind::ScudStorm {
+        if kind == HostSuperweaponKind::ScudStorm && !authored_scud {
             let _ = self.create_delivery_radius_decal_with_effects(
                 source_object,
                 target_position,
@@ -343,7 +359,10 @@ impl GameLogic {
             }
         }
         // C++ OCL FireWeaponNugget / AttackNugget residual (Neutron / Cruise / ScudStorm).
-        if let Some(nugget) =
+        // Authored ScudStorm pads consume their own receiving Attack nuggets.
+        if authored_scud {
+            self.execute_receiving_scud_attack(source_object, target_position, effects);
+        } else if let Some(nugget) =
             crate::game_logic::host_ocl_fire_weapon_attack::ocl_nugget_for_host_kind(kind.label())
         {
             use crate::game_logic::host_ocl_fire_weapon_attack::OclNuggetKind;
@@ -472,6 +491,89 @@ impl GameLogic {
         self.record_academy_special_power_used(source_object, power);
         self.drain_puc_loop_audio();
         Some(id)
+    }
+
+    /// C++ AttackNugget::create (ObjectCreationList.cpp:163-195) per receiving
+    /// nugget in declaration order: temp-lock the authored slot, order
+    /// aiAttackPosition(CMD_FROM_AI), then stamp the authored RadiusDecalUpdate
+    /// delivery decal. Missing/unsupported lists fail closed.
+    fn execute_receiving_scud_attack(
+        &mut self,
+        source_id: ObjectId,
+        target: Vec3,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
+        use crate::game_logic::host_radius_decal_update::HostRadiusDecalTemplate;
+        use gamelogic::object_creation_list::advanced_nuggets::AttackNugget;
+
+        let Some(source) = self.objects.get(&source_id) else {
+            return;
+        };
+        let Some(list) = self.receiving_special_power_ocl(source, "SuperweaponScudStorm")
+        else {
+            return;
+        };
+        // C++ findUpdateModule(RadiusDecalUpdate) on the same primary object.
+        let declares_decal = source
+            .get_template()
+            .receiving_object_definition
+            .as_ref()
+            .is_some_and(|definition| {
+                definition.behavior_modules.iter().any(|module| {
+                    module.class_name.eq_ignore_ascii_case("RadiusDecalUpdate")
+                })
+            });
+        let owner_player_id = source.owner_player_id;
+        let players = self.radius_decal_player_view(owner_player_id);
+        let frame = self.frame;
+        for nugget in list.nuggets() {
+            let Some(attack) = nugget.as_any().downcast_ref::<AttackNugget>() else {
+                continue;
+            };
+            if let Some(slot) =
+                gamelogic::common::WeaponSlotType::from_u32(attack.weapon_slot as u32)
+            {
+                self.order_ocl_attack_position(
+                    source_id,
+                    slot,
+                    target,
+                    attack.number_of_shots,
+                );
+            }
+            // The decal is stamped unconditionally — a failed order still
+            // creates it (ObjectCreationList.cpp:188-193).
+            let decal = &attack.delivery_decal_template;
+            if attack.delivery_decal_radius <= 0.0
+                || decal.texture_name.is_empty()
+                || !declares_decal
+            {
+                continue;
+            }
+            let Some(source) = self.objects.get_mut(&source_id) else {
+                continue;
+            };
+            let rd = source
+                .radius_decal_update
+                .get_or_insert_with(Default::default);
+            rd.create_radius_decal_with_player_view_and_effects(
+                HostRadiusDecalTemplate {
+                    name: decal.texture_name.as_str().to_owned(),
+                    texture: decal.texture_name.as_str().to_owned(),
+                    opacity_min: decal.min_opacity,
+                    opacity_max: decal.max_opacity,
+                    throb_frames: decal.opacity_throb_time,
+                    only_visible_to_owner: decal.only_visible_to_owning_player,
+                    color: decal.color,
+                },
+                attack.delivery_decal_radius,
+                target,
+                frame,
+                owner_player_id.map(|id| id as i32),
+                players,
+                effects,
+            );
+            rd.set_kill_when_no_longer_attacking(true);
+        }
     }
 
     /// C++ SpecialPowerModule::initiateIntentToDoSpecialPower →
