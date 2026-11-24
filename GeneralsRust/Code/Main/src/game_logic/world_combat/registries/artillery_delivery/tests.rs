@@ -1,7 +1,7 @@
 use super::*;
 use crate::command_system::SpecialPowerType;
 use crate::game_logic::special_power_strikes::HostStrikePhase;
-use crate::save_load::SnapshotBuilder;
+use crate::save_load::{SnapshotBuilder, Xfer, XferData, XferLoad, XferSave};
 
 fn world() -> GameLogic {
     use crate::assets::ini_template_loader::{
@@ -160,9 +160,19 @@ fn authored_artillery_release_follows_carrier_through_save_load_and_destruction(
     world.frame = 30;
     world.update_artillery_barrage_flights().unwrap();
     let builder = SnapshotBuilder::new();
-    let snapshot = builder.create_world_snapshot(&world).unwrap();
-    let bytes = bincode_legacy::serialize(&snapshot).unwrap();
-    let decoded = crate::save_load::snapshot::decode_bincode_world_snapshot(&bytes).unwrap();
+    let mut snapshot = builder.create_world_snapshot(&world).unwrap();
+    let mut bytes = std::io::Cursor::new(Vec::new());
+    {
+        let mut writer = XferSave::new(&mut bytes);
+        snapshot.xfer(&mut writer).unwrap();
+        writer.xfer_u32(&mut 0x4137_11e0).unwrap();
+    }
+    let mut decoded = crate::save_load::snapshot::WorldSnapshot::default();
+    let mut reader = XferLoad::new(std::io::Cursor::new(bytes.into_inner()));
+    decoded.xfer(&mut reader).unwrap();
+    let mut sentinel = 0;
+    reader.xfer_u32(&mut sentinel).unwrap();
+    assert_eq!(sentinel, 0x4137_11e0);
     let mut restored = self::world();
     builder
         .restore_from_snapshot(&decoded, &mut restored)
@@ -227,4 +237,5 @@ fn authored_artillery_release_follows_carrier_through_save_load_and_destruction(
     assert_eq!(result.phase, HostStrikePhase::Completed);
     assert_eq!(result.multi_strike_applied, 1);
     assert_eq!(restored.artillery_barrage_flight_reg.shells_dropped, 1);
+    assert!(result.total_damage_applied <= 105.0);
 }

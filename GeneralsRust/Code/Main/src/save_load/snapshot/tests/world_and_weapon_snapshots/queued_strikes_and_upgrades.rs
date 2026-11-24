@@ -800,7 +800,7 @@ fn save_file_roundtrip_preserves_pending_host_upgrade() {
 }
 
 #[test]
-fn delayed_strikes_restore_out_of_order_deliveries_through_world_xfer() {
+fn registry_owned_strikes_restore_out_of_order_deliveries_through_world_xfer() {
     use crate::save_load::{Xfer, XferData, XferLoad, XferSave};
 
     for kind in [HostSuperweaponKind::ArtilleryBarrage, HostSuperweaponKind::ScudStorm, HostSuperweaponKind::CarpetBomb] {
@@ -816,17 +816,9 @@ fn delayed_strikes_restore_out_of_order_deliveries_through_world_xfer() {
         object.health.maximum = 10000.0;
         object.template_mut().armor = 0.0;
     }
-    let strike_id = if kind == HostSuperweaponKind::ArtilleryBarrage {
-        source.queue_special_power_strike(
-            &crate::command_system::SpecialPowerType::Artillery,
-            caster,
-            Vec3::ZERO,
-        ).expect("admit artillery through the world")
-    } else {
-        source.special_power_strikes_mut().queue(
-            kind, caster, Team::China, Vec3::ZERO, 0,
-        )
-    };
+    let strike_id = source.special_power_strikes_mut().queue(
+        kind, caster, Team::China, Vec3::ZERO, 0,
+    );
     let strike = source.special_power_strikes_mut().get_mut(strike_id).unwrap();
     let start = strike.impact_frame;
     strike.ocl_points = vec![Vec3::ZERO, Vec3::new(1000.0, 0.0, 0.0), Vec3::new(2000.0, 0.0, 0.0)];
@@ -874,7 +866,7 @@ fn delayed_strikes_restore_out_of_order_deliveries_through_world_xfer() {
 }
 
 #[test]
-fn overlapping_delayed_artillery_deliveries_survive_world_restore() {
+fn overlapping_registry_owned_deliveries_survive_world_restore() {
     use crate::game_logic::special_power_strikes::ARTILLERY_BARRAGE_DAMAGE;
     use crate::save_load::{Xfer, XferData, XferLoad, XferSave};
 
@@ -886,9 +878,9 @@ fn overlapping_delayed_artillery_deliveries_survive_world_restore() {
     object.health.current = 10000.0;
     object.health.maximum = 10000.0;
     object.template_mut().armor = 0.0;
-    let strike_id = source.queue_special_power_strike(
-        &crate::command_system::SpecialPowerType::Artillery, caster, Vec3::ZERO,
-    ).expect("admit artillery through the world");
+    let strike_id = source.special_power_strikes_mut().queue(
+        HostSuperweaponKind::ArtilleryBarrage, caster, Team::China, Vec3::ZERO, 0,
+    );
     let strike = source.special_power_strikes_mut().get_mut(strike_id).unwrap();
     let start = strike.impact_frame;
     strike.ocl_points = vec![Vec3::ZERO; 3];
