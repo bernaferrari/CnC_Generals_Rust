@@ -12,6 +12,161 @@ use gamelogic::helpers::HostFxObjectPose;
 use glam::Vec3;
 use std::sync::mpsc::{Receiver, Sender, channel};
 
+#[test]
+fn authored_pilot_die_executes_its_named_list_on_the_receiving_air_or_ground_actor() {
+    use crate::assets::pristine_bones::{PristineBoneAssets, PristineBoneSource};
+    use crate::game_logic::{Player, ScriptPresentationEffects};
+
+    struct EmptyBones;
+    impl PristineBoneAssets for EmptyBones {
+        fn pristine_bones_for_draws(
+            &self,
+            _: &PristineBoneSource<'_>,
+            _: &str,
+            _: i32,
+            _: usize,
+        ) -> Result<Vec<glam::Mat4>, String> {
+            Ok(Vec::new())
+        }
+    }
+
+    let fixture = |height| {
+        let mut world = GameLogic::new();
+        world
+            .admit_object_ini_sources([(
+                "receiving-ejection.ini".into(),
+                "Object Carrier
+ KindOf = VEHICLE
+ Body = ActiveBody SourceBody
+  MaxHealth = 100
+  InitialHealth = 100
+ End
+ UnitSpecificSounds
+  VoiceEject = EjectVoice
+  SoundEject = EjectSound
+ End
+ Behavior = EjectPilotDie Eject
+  AirCreationList = OCL_ReceivingAir
+  GroundCreationList = OCL_ReceivingGround
+  InvulnerableTime = 9000
+ End
+ Behavior = DestroyDie Retire
+ End
+End
+Object AirCrew
+ KindOf = INFANTRY
+End
+Object GroundCrew
+ KindOf = INFANTRY
+End
+Object AuthoredCanopy
+ KindOf = PARACHUTE
+ Behavior = ParachuteContain Canopy
+  AllowInsideKindOf = INFANTRY
+ End
+End"
+                .into(),
+            )])
+            .unwrap();
+        world
+            .admit_object_creation_list_sources(["ObjectCreationList OCL_ReceivingAir
+ CreateObject
+  ObjectNames = AirCrew
+  PutInContainer = AuthoredCanopy
+  Offset = X:2 Y:3 Z:4
+  Disposition = LIKE_EXISTING
+  RequiresLivePlayer = Yes
+  InvulnerableTime = 1000
+ End
+End
+ObjectCreationList OCL_ReceivingGround
+ CreateObject
+  ObjectNames = GroundCrew
+  Disposition = LIKE_EXISTING
+  RequiresLivePlayer = Yes
+ End
+End"
+            .into()])
+            .unwrap();
+        world.add_player(Player::new(1, Team::USA, "Owner", true).with_script_identity("Owner"));
+        let source = world
+            .create_object_for_player("Carrier", 1, Vec3::new(30.0, height, 45.0))
+            .unwrap();
+        (world, source)
+    };
+    let kill = |world: &mut GameLogic, id| {
+        world
+            .apply_owned_kill_with_effects(
+                id,
+                DamageType::Unresistable,
+                HostDeathType::Normal,
+                &mut ScriptPresentationEffects {
+                    pristine_bones: Some(&EmptyBones),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+    };
+
+    let (mut air, source) = fixture(60.0);
+    let (mut ground, peer) = fixture(0.0);
+    assert_eq!(source, peer);
+    kill(&mut air, source);
+    let pilot = air
+        .objects
+        .registered_values()
+        .find(|object| object.template_name == "AirCrew")
+        .expect("the source's named air list creates its authored rider");
+    let chute = &air.objects[&pilot
+        .contained_by
+        .expect("the actual parachute contains its rider")];
+    assert_eq!(chute.template_name, "AuthoredCanopy");
+    assert!(pilot.is_held_disabled());
+    assert_eq!(pilot.producer_id, Some(source));
+    assert_eq!(pilot.owner_player_id, Some(1));
+    assert_eq!(pilot.get_position(), Vec3::new(32.0, 64.0, 48.0));
+    assert_eq!(chute.get_position(), pilot.get_position());
+    assert_eq!(pilot.status.eject_invulnerable_until_frame, air.frame + 30);
+    assert_eq!(ground.objects.registered_values().count(), 1);
+    let sounds = |world: &GameLogic| {
+        world
+            .queued_audio_events
+            .iter()
+            .filter(|event| ["EjectVoice", "EjectSound"].contains(&event.event_type.as_str()))
+            .map(|event| (event.event_type.clone(), event.player_index, event.position))
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(
+        sounds(&air),
+        [
+            (
+                "EjectVoice".into(),
+                Some(1),
+                Some(Vec3::new(30.0, 60.0, 45.0))
+            ),
+            ("EjectSound".into(), None, Some(Vec3::new(30.0, 60.0, 45.0))),
+        ]
+    );
+    air.process_destroy_list();
+    assert_eq!(sounds(&air).len(), 2);
+
+    kill(&mut ground, peer);
+    let pilot = ground
+        .objects
+        .registered_values()
+        .find(|object| object.template_name == "GroundCrew")
+        .expect("the receiving ground list creates its own rider");
+    assert_eq!(pilot.contained_by, None);
+    assert_eq!(pilot.get_position(), Vec3::new(30.0, 0.0, 45.0));
+    assert_eq!(pilot.status.eject_invulnerable_until_frame, 0);
+
+    let (mut defeated, victim) = fixture(60.0);
+    defeated.get_player_mut(1).unwrap().is_alive = false;
+    kill(&mut defeated, victim);
+    assert_eq!(defeated.objects.registered_values().count(), 1);
+    assert_eq!(sounds(&defeated).len(), 2);
+}
+
 const FIRST: &str = "FX_AuthoredDieFirst";
 const SECOND: &str = "FX_AuthoredDieSecond";
 const CHILD: &str = "FX_AuthoredDieChildTransfer";

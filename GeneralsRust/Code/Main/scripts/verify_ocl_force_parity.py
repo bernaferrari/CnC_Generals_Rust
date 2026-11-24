@@ -546,6 +546,95 @@ int main() {
     print("Original OCL creates the container first and initializes it after both riders")
 
 
+def verify_eject_pilot(cxx: str, temp: Path) -> None:
+    source = (OCL_SOURCE.parent / "Die/EjectPilotDie.cpp").read_text()
+    eject = definition(source, r"void EjectPilotDie::ejectPilot\(")
+    die = definition(source, r"void EjectPilotDie::onDie\(")
+    cpp = temp / "eject_pilot.cpp"
+    binary = temp / "eject_pilot"
+    cpp.write_text(
+        r"""
+#include <cassert>
+#include <cstring>
+#include <string>
+std::string events;
+struct AudioEventRTS {
+    char cue;
+    int player = -1;
+    void setPosition(const int* position) { assert(*position == 50); }
+    void setPlayerIndex(int index) { player = index; }
+};
+struct Template {
+    const AudioEventRTS* getPerUnitSound(const char* slot) const {
+        static const AudioEventRTS voice{'V'}, sound{'S'};
+        return std::strcmp(slot, "VoiceEject") == 0 ? &voice : &sound;
+    }
+};
+struct Player { int getPlayerIndex() const { return 2; } };
+struct Object {
+    int position = 50;
+    bool above = false;
+    Template model;
+    Player player;
+    bool isSignificantlyAboveTerrain() const { return above; }
+    const int* getPosition() const { return &position; }
+    const Template* getTemplate() const { return &model; }
+    const Player* getControllingPlayer() const { return &player; }
+} victim, attacker;
+struct ObjectCreationList {
+    char name;
+    static void create(const ObjectCreationList* list, const Object* main, const Object* other) {
+        assert(main == &victim && other == &attacker);
+        events += list->name;
+    }
+} air{'A'}, ground{'G'};
+struct EjectPilotDieModuleData {
+    const ObjectCreationList* m_oclInAir = &air;
+    const ObjectCreationList* m_oclOnGround = &ground;
+};
+struct DamageInfo { struct { int m_sourceID; } in; };
+struct GameLogic {
+    Object* findObjectByID(int id) const { assert(id == 7); return &attacker; }
+} logic, *TheGameLogic = &logic;
+struct Audio {
+    void addAudioEvent(const AudioEventRTS* cue) {
+        assert(cue->player == (cue->cue == 'V' ? 2 : -1));
+        events += cue->cue;
+    }
+} audio, *TheAudio = &audio;
+struct EjectPilotDie {
+    EjectPilotDieModuleData data;
+    bool applicable = true;
+    bool isDieApplicable(const DamageInfo*) const { return applicable; }
+    Object* getObject() const { return &victim; }
+    const EjectPilotDieModuleData* getEjectPilotDieModuleData() const { return &data; }
+    static void ejectPilot(const ObjectCreationList*, const Object*, const Object*);
+    void onDie(const DamageInfo* info);
+};
+"""
+        + eject + "\n"
+        + die
+        + r"""
+int main() {
+    EjectPilotDie module;
+    DamageInfo death{{7}};
+    module.onDie(&death);
+    victim.above = true;
+    module.onDie(&death);
+    module.data.m_oclInAir = nullptr;
+    module.onDie(&death);
+    module.applicable = false;
+    victim.above = false;
+    module.onDie(&death);
+    assert(events == "GVSAVS");
+}
+"""
+    )
+    subprocess.run([cxx, "-std=c++17", cpp, "-o", binary], check=True)
+    subprocess.run([binary], check=True)
+    print("Original pilot death selects its authored list, then queues voice and sound")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--cxx", default="c++")
@@ -565,6 +654,7 @@ def main() -> int:
         verify_object_placement(args.cxx, temp)
         verify_ocl_player_eligibility(args.cxx, temp)
         verify_put_in_container(args.cxx, temp)
+        verify_eject_pilot(args.cxx, temp)
         verify_detonation_rank(args.cxx, temp)
         verify_detonation_fx_position(args.cxx, temp)
     if len(original) != len(CASES) or len(ported) != len(CASES):

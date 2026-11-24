@@ -97,10 +97,15 @@ impl GameLogic {
                 .retain(|_, ability| ability.target_id() != event.id);
 
             self.cancel_all_production(event.id);
-            // Damage authority / an old snapshot can enqueue a death without
-            // passing through mark_object_for_destruction.  Keep the one
-            // typed EjectPilotDie onDie path live before removing the object.
-            self.maybe_apply_eject_pilot_die_with_effects(event.id, presentation_effects);
+            // Authored Die callbacks already ran in module order. Physical
+            // retirement, including after load, must not emit them again.
+            if self.objects.get(&event.id).is_some_and(|object| {
+                object.thing().template.native_die_declarations.is_none()
+            }) {
+                self.maybe_apply_eject_pilot_die_with_effects(
+                    event.id, None, None, presentation_effects,
+                )?;
+            }
 
             // C++ Object::onDie RECONSTRUCTING residual (lost rebuild → hole).
             let handled_recon =

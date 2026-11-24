@@ -250,7 +250,23 @@ impl GameLogic {
         interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> OclExecutionOutcome {
-        self.execute_object_ocl_with_pose(ocl_name, id, None, interpreter, effects)
+        self.execute_object_ocl_with_pose(ocl_name, id, None, None, interpreter, effects)
+    }
+
+    /// ObjectCreationList::create(list, primary, secondary).
+    pub(in crate::game_logic) fn execute_receiving_object_ocl_with_secondary(
+        &mut self,
+        ocl_name: &str,
+        id: ObjectId,
+        secondary: Option<ObjectId>,
+        interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> OclExecutionOutcome {
+        let secondary = secondary
+            .and_then(|id| self.objects.get(&id))
+            .map(|object| (object.id, self.live_draw_playback_identity(object)));
+        let secondary = secondary.as_ref().map(|(id, identity)| (*id, identity));
+        self.execute_object_ocl_with_pose(ocl_name, id, None, secondary, interpreter, effects)
     }
 
     fn execute_object_ocl_with_pose(
@@ -258,6 +274,7 @@ impl GameLogic {
         ocl_name: &str,
         id: ObjectId,
         pre_physics_pose: Option<glam::Mat4>,
+        secondary: Option<(ObjectId, &crate::assets::LiveDrawPlaybackIdentity)>,
         interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> OclExecutionOutcome {
@@ -273,7 +290,7 @@ impl GameLogic {
             object.get_orientation(),
             object.movement.velocity,
             object.get_position(),
-            None,
+            secondary,
             0,
             interpreter,
             effects,
@@ -874,6 +891,7 @@ impl GameLogic {
                             ocl_name,
                             *id,
                             *pre_physics_pose,
+                            None,
                             None,
                             presentation_effects,
                         ).error

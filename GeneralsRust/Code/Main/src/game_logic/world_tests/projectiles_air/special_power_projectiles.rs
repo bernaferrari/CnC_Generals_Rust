@@ -2814,8 +2814,12 @@ fn retail_eject_pilot_metadata_drives_death_and_hijacker_interface() {
         if name == "AmericaVehicleHumvee" {
             source.push_str("UnitSpecificSounds\nVoiceEject = HumveeVoiceEject\nSoundEject = HumveeSoundEject\nEnd\n");
         }
+        if name == EJECT_PILOT_TEMPLATE {
+            source.push_str("IsTrainable = Yes\nExperienceRequired = 0 10 20 1000\n");
+        }
         source.push_str("End\n");
     }
+    source.push_str("Object AmericaParachute\nKindOf = PARACHUTE\nBehavior = ParachuteContain ChuteTag\nAllowInsideKindOf = INFANTRY\nEnd\nEnd\n");
     source.push_str("Object ParserShapedUnknownEject\nKindOf = VEHICLE\nBody = ActiveBody UnknownBody\nMaxHealth = 200\nInitialHealth = 200\nEnd\nBehavior = EjectPilotDie ModuleTag_01\nGroundCreationList = OCL_NotSupportedByHost\nEnd\nEnd\n");
     game_logic
         .admit_receiving_module_content(
@@ -2907,9 +2911,18 @@ fn retail_eject_pilot_metadata_drives_death_and_hijacker_interface() {
             .host_object_mut(raptor_id)
             .expect("Raptor object");
         raptor.experience.level = VeterancyLevel::Veteran;
-        raptor.status.destroyed = true;
     }
-    game_logic.mark_object_for_destruction(raptor_id, Some(Team::GLA));
+    game_logic
+        .apply_owned_kill_with_effects(
+            raptor_id,
+            crate::game_logic::combat::DamageType::Unresistable,
+            crate::game_logic::host_usa_pilot::HostDeathType::Normal,
+            &mut crate::game_logic::ScriptPresentationEffects {
+                pristine_bones: Some(&NoPristineBones),
+                ..Default::default()
+            },
+        )
+        .unwrap();
     game_logic.process_destroy_list();
     assert!(
         game_logic.objects.registered_values().any(|object| {
@@ -2917,6 +2930,9 @@ fn retail_eject_pilot_metadata_drives_death_and_hijacker_interface() {
                 && object.template_name == EJECT_PILOT_TEMPLATE
                 && object.owner_player_id == Some(0)
                 && object.is_parachuting()
+                && object.contained_by.is_some_and(|id| {
+                    game_logic.objects[&id].template_name == "AmericaParachute"
+                })
         }),
         "retail aircraft EjectPilotDie must select OCL_EjectPilotViaParachute"
     );

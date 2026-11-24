@@ -45,6 +45,10 @@ impl GameLogic {
         self.weapon_effect_definitions.ocl(name)
     }
 
+    pub(in crate::game_logic) fn has_object_creation_list(&self, name: &str) -> bool {
+        self.weapon_effect_definitions.ocls.contains_key(name.trim())
+    }
+
     /// C++ OCLSpecialPower::findOCL — first owned UpgradeOCL else the OCL
     /// token on the module matching `power_template`, resolved against this
     /// session's receiving store only.

@@ -1201,6 +1201,7 @@ pub(super) fn ensure_eject_pilot_residual_fixture(game_logic: &mut GameLogic) {
             .add_kind_of(KindOf::Infantry)
             .add_kind_of(KindOf::Selectable)
             .set_health(100.0);
+        pilot_tpl.is_trainable = true;
         game_logic
             .templates
             .insert(eject_pilot_template.to_string(), pilot_tpl);

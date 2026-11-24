@@ -248,15 +248,7 @@ impl GameLogic {
         if let Some(name) = &definition.eject_pilot
             && self.objects[&id].experience.level != VeterancyLevel::Rookie
         {
-            let outcome = self.execute_receiving_object_ocl_with_births(name, id, None, effects);
-            if let Some(error) = outcome.error {
-                return Err(error);
-            }
-            if self.spawn_identity_matches(id, birth.0, birth.1) {
-                let player = self.objects[&id].owner_player_id.map(|id| id as i32);
-                self.queue_resolved_per_unit_sound(id, "VoiceEject", false, true, player, 170);
-                self.queue_resolved_per_unit_sound(id, "SoundEject", false, true, None, 170);
-            }
+            self.execute_receiving_eject_pilot_list(id, name, None, None, effects)?;
         }
         Ok(())
     }

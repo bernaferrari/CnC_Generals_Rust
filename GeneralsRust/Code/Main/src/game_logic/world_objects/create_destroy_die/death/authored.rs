@@ -307,8 +307,15 @@ impl GameLogic {
                     self.maybe_notify_special_power_completion(id, presentation_effects)
                 }
                 NativeDieKind::Dam => self.maybe_apply_dam_die(id),
-                NativeDieKind::Pilot => {
-                    self.maybe_apply_eject_pilot_die_with_effects(id, presentation_effects)
+                NativeDieKind::Pilot { ground_creation_list, air_creation_list } => {
+                    self.run_receiving_eject_pilot_with_effects(
+                        id,
+                        ground_creation_list.as_deref(),
+                        air_creation_list.as_deref(),
+                        input.source,
+                        interpreter,
+                        presentation_effects,
+                    )?;
                 }
                 NativeDieKind::Spawn => {
                     self.apply_spawned_require_spawner_on_die_with_effects(id, presentation_effects)?;

@@ -168,61 +168,20 @@ fn strategy_center_turret_mood_matrix_sleep_passive_residual() {
 }
 
 #[test]
-fn eject_pilot_parachute_open_dist_residual() {
-    use crate::game_logic::VeterancyLevel;
+fn standalone_pilot_parachute_open_dist_residual() {
     use crate::game_logic::host_usa_pilot::{
         EJECT_PILOT_TEMPLATE, PARACHUTE_OPEN_DIST, significantly_above_terrain_threshold,
     };
 
     let mut game_logic = GameLogic::new();
-    // Retail ejection fixture: OCL store entries, AmericaInfantryPilot target
-    // template, and a live source controller (C++ EjectPilotDie
-    // RequiresLivePlayer + ObjectCreationList.ini OCL_EjectPilotViaParachute).
-    ensure_eject_pilot_residual_fixture(&mut game_logic);
-    let mut humvee_tpl = ThingTemplate::new("AmericaVehicleHumvee");
-    humvee_tpl
-        .add_kind_of(KindOf::Vehicle)
-        .add_kind_of(KindOf::Selectable)
-        .add_kind_of(KindOf::Attackable)
-        .set_health(200.0);
-    // Module presence is the C++ eject interface (EjectPilotDie.cpp).
-    author_eject_pilot_die_module(
-        &mut humvee_tpl,
-        crate::game_logic::EjectPilotDeathTypes::All,
-        crate::game_logic::EjectPilotVeterancyLevels::All,
-        crate::game_logic::EjectPilotExemptStatus::None,
-    );
-    game_logic
-        .templates
-        .insert("AmericaVehicleHumvee".to_string(), humvee_tpl);
-
-    let thr = significantly_above_terrain_threshold();
-    let air_y = thr + PARACHUTE_OPEN_DIST + 80.0;
-    let humvee_id = game_logic
-        .create_object(
-            "AmericaVehicleHumvee",
-            Team::USA,
-            Vec3::new(0.0, air_y, 0.0),
-        )
-        .expect("airborne humvee");
-    {
-        let (h, health_events) = game_logic
-            .host_object_and_health_events_mut(humvee_id)
-            .expect("humvee");
-        h.experience.level = VeterancyLevel::Veteran;
-        h.status.airborne_target = true;
-        let _ = h.take_damage(h.max_health * 2.0, 0, health_events);
-        h.status.destroyed = true;
-    }
-    game_logic.mark_object_for_destruction(humvee_id, Some(Team::GLA));
-    game_logic.process_destroy_list();
-
+    let mut template = ThingTemplate::new(EJECT_PILOT_TEMPLATE);
+    template.add_kind_of(KindOf::Infantry).set_health(100.0);
+    game_logic.templates.insert(EJECT_PILOT_TEMPLATE.into(), template);
+    let air_y = significantly_above_terrain_threshold() + PARACHUTE_OPEN_DIST + 80.0;
     let pilot_id = game_logic
-        .objects
-        .registered()
-        .find(|(_, o)| o.is_alive() && o.template_name == EJECT_PILOT_TEMPLATE)
-        .map(|(id, _)| *id)
-        .expect("ejected pilot");
+        .create_object(EJECT_PILOT_TEMPLATE, Team::USA, Vec3::new(0.0, air_y, 0.0))
+        .unwrap();
+    game_logic.host_object_mut(pilot_id).unwrap().apply_eject_parachuting();
     let start_y = game_logic.host_object(pilot_id).unwrap().get_position().y;
     assert!(
         !game_logic
@@ -232,7 +191,7 @@ fn eject_pilot_parachute_open_dist_residual() {
         "starts freefall closed"
     );
 
-    // Tick freefall until OpenDist residual opens chute (before land).
+    // Tick freefall until OpenDist opens the standalone chute.
     let ids = [pilot_id];
     let mut opened_y = None;
     for _ in 0..20 {
@@ -286,61 +245,21 @@ fn eject_pilot_parachute_open_dist_residual() {
 }
 
 #[test]
-fn eject_pilot_parachute_pitch_roll_sway_residual() {
-    use crate::game_logic::VeterancyLevel;
+fn standalone_pilot_parachute_pitch_roll_sway_residual() {
     use crate::game_logic::host_usa_pilot::{
         EJECT_PILOT_TEMPLATE, PARACHUTE_OPEN_DIST, parachute_initial_pitch_rate,
         parachute_initial_roll_rate, significantly_above_terrain_threshold,
     };
 
     let mut game_logic = GameLogic::new();
-    // Retail ejection fixture (see open-dist test): OCLs, pilot template,
-    // live controller, and the authored EjectPilotDie module.
-    ensure_eject_pilot_residual_fixture(&mut game_logic);
-    let mut humvee_tpl = ThingTemplate::new("AmericaVehicleHumvee");
-    humvee_tpl
-        .add_kind_of(KindOf::Vehicle)
-        .add_kind_of(KindOf::Selectable)
-        .add_kind_of(KindOf::Attackable)
-        .set_health(200.0);
-    author_eject_pilot_die_module(
-        &mut humvee_tpl,
-        crate::game_logic::EjectPilotDeathTypes::All,
-        crate::game_logic::EjectPilotVeterancyLevels::All,
-        crate::game_logic::EjectPilotExemptStatus::None,
-    );
-    game_logic
-        .templates
-        .insert("AmericaVehicleHumvee".to_string(), humvee_tpl);
-
-    let thr = significantly_above_terrain_threshold();
-    // Tall freefall so chute opens well above ground and sway has time to step.
-    let air_y = thr + PARACHUTE_OPEN_DIST + 200.0;
-    let humvee_id = game_logic
-        .create_object(
-            "AmericaVehicleHumvee",
-            Team::USA,
-            Vec3::new(0.0, air_y, 0.0),
-        )
-        .expect("airborne humvee");
-    {
-        let (h, health_events) = game_logic
-            .host_object_and_health_events_mut(humvee_id)
-            .expect("humvee");
-        h.experience.level = VeterancyLevel::Veteran;
-        h.status.airborne_target = true;
-        let _ = h.take_damage(h.max_health * 2.0, 0, health_events);
-        h.status.destroyed = true;
-    }
-    game_logic.mark_object_for_destruction(humvee_id, Some(Team::GLA));
-    game_logic.process_destroy_list();
-
+    let mut template = ThingTemplate::new(EJECT_PILOT_TEMPLATE);
+    template.add_kind_of(KindOf::Infantry).set_health(100.0);
+    game_logic.templates.insert(EJECT_PILOT_TEMPLATE.into(), template);
+    let air_y = significantly_above_terrain_threshold() + PARACHUTE_OPEN_DIST + 200.0;
     let pilot_id = game_logic
-        .objects
-        .registered()
-        .find(|(_, o)| o.is_alive() && o.template_name == EJECT_PILOT_TEMPLATE)
-        .map(|(id, _)| *id)
-        .expect("ejected pilot");
+        .create_object(EJECT_PILOT_TEMPLATE, Team::USA, Vec3::new(0.0, air_y, 0.0))
+        .unwrap();
+    game_logic.host_object_mut(pilot_id).unwrap().apply_eject_parachuting();
     let ids = [pilot_id];
 
     // Freefall residual: pitch/roll stay 0 until open.

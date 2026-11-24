@@ -327,7 +327,10 @@ pub(crate) enum NativeDieKind {
     /// (`SpecialPowerTemplate`).
     Completion { power: String },
     Dam,
-    Pilot,
+    Pilot {
+        ground_creation_list: Option<String>,
+        air_creation_list: Option<String>,
+    },
     Spawn,
     /// C++ UpgradeDieModuleData::m_upgradeName (`UpgradeToRemove`).
     Upgrade {
@@ -474,7 +477,19 @@ pub(crate) fn bind(modules: &[BehaviorModuleDefinition]) -> Vec<NativeDieDeclara
                         .to_owned(),
                 },
                 "damdie" => NativeDieKind::Dam,
-                "ejectpilotdie" => NativeDieKind::Pilot,
+                "ejectpilotdie" => {
+                    let ocl = |field: &str| {
+                        module.attribute(field)
+                            .and_then(|value| value.split(';').next())
+                            .and_then(|value| value.split_whitespace().next())
+                            .filter(|name| !name.eq_ignore_ascii_case("None"))
+                            .map(str::to_owned)
+                    };
+                    NativeDieKind::Pilot {
+                        ground_creation_list: ocl("GroundCreationList"),
+                        air_creation_list: ocl("AirCreationList"),
+                    }
+                }
                 "spawnbehavior" => NativeDieKind::Spawn,
                 "upgradedie" => NativeDieKind::Upgrade {
                     upgrade_to_remove: module
