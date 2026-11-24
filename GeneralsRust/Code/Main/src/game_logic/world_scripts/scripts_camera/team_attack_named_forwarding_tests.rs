@@ -84,6 +84,18 @@ fn team_attack_named_forwards_owned_passengers_then_locked_hive_in_near_to_far_o
         .map(|(slave, _)| slave)
         .collect();
     assert_eq!(slaves.len(), 1, "the site spawned its slave");
+    // aiForceAttackObject has no passenger/WeaponSet preflight: an unarmed
+    // slave still accepts the target (SpawnBehavior.cpp:304-318).
+    owner.host_object_mut(slaves[0]).unwrap().weapon = None;
+    // Sharing the hive's producer_id alone is not roster membership.
+    let unrelated = owner
+        .create_object_for_player(
+            "ForwardStingerSoldier",
+            1,
+            Vec3::new(52.0, 0.0, 50.0),
+        )
+        .unwrap();
+    owner.host_object_mut(unrelated).unwrap().producer_id = Some(hive);
     // Reverse insertion order calibrates the original near-to-far pass.
     roster(&owner, &[far, hive, near]);
     roster(&peer, &[peer_far, peer_near]);
@@ -120,10 +132,21 @@ fn team_attack_named_forwards_owned_passengers_then_locked_hive_in_near_to_far_o
             .collect::<Vec<_>>()
     );
     // SpawnBehavior::orderSlavesToAttackTarget force-attacks each m_spawnIDs
-    // slave (SpawnBehavior.cpp).
+    // slave (SpawnBehavior.cpp) with the script command source.
     for slave in &slaves {
-        assert_eq!(owner.host_object(*slave).unwrap().target, Some(target));
+        let object = owner.host_object(*slave).unwrap();
+        assert_eq!(object.target, Some(target));
+        assert!(object.force_attack);
+        assert_eq!(
+            object.last_command_source,
+            crate::game_logic::host_command_button_hunt::HUNT_CMD_FROM_SCRIPT
+        );
     }
+    assert_eq!(
+        owner.host_object(unrelated).unwrap().target,
+        None,
+        "same producer attribution is not spawn roster membership"
+    );
     // Held excludes a whole owner's forwarding before the sort, while subdued
     // garrison disables passenger forwarding without changing its roster.
     owner.host_object_mut(near).unwrap().status.disabled_held = true;

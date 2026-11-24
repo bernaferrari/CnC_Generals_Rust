@@ -1,5 +1,6 @@
 //! CPP AIGroup.cpp2102–2174: per-member passenger, slave, owner attack phases.
 use super::*;
+use crate::game_logic::host_command_button_hunt::HUNT_CMD_FROM_SCRIPT;
 impl GameLogic {
     pub(super) fn apply_owned_team_attack_named(
         &mut self,
@@ -78,29 +79,14 @@ impl GameLogic {
             }
             // C++ SpawnBehavior::orderSlavesToAttackTarget walks m_spawnIDs
             // in admission order and calls aiForceAttackObject synchronously.
-            let owner_birth = self.host_object(id).map(|owner| owner.visual_object_generation);
-            let epoch = self.visual_world_epoch;
-            let slaves = self
-                .host_object(id)
-                .filter(|owner| Self::spawn_behavior_orders_slaves(owner))
-                .map(|owner| owner.spawn_behavior_children())
-                .unwrap_or_default();
-            for (slave_id, birth) in slaves {
-                if !owner_birth.is_some_and(|birth| self.spawn_identity_matches(id, birth, epoch)) { break; }
-                let admitted_birth = self
-                    .host_object(id)
-                    .zip(self.host_object(slave_id))
-                    .is_some_and(|(owner, slave)| {
-                        owner.spawn_behavior_child_birth_matches(slave_id, &birth, slave)
-                            && slave.has_ai_update_interface()
-                    });
-                if admitted_birth
-                    && self.unit_command_force_attack_with_effects(slave_id, target, effects)?
-                {
-                    self.stinger_slave_order_attack_count =
-                        self.stinger_slave_order_attack_count.saturating_add(1);
-                }
-            }
+            let ordered = self.order_spawn_children_to_attack_target(
+                id,
+                target,
+                HUNT_CMD_FROM_SCRIPT,
+                effects,
+            )?;
+            self.stinger_slave_order_attack_count =
+                self.stinger_slave_order_attack_count.saturating_add(ordered);
             if id != target
                 && self
                     .host_object(id)

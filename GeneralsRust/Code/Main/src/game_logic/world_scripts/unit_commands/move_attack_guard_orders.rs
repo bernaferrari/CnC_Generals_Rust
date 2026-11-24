@@ -340,6 +340,57 @@ impl GameLogic {
         Ok(true)
     }
 
+    /// C++ SpawnBehavior::orderSlavesToAttackTarget (SpawnBehavior.cpp:304-318,
+    /// reached from AIGroup.cpp:2156-2174): force-attacks every admitted
+    /// m_spawnIDs child with the caller's command source. Shared by player and
+    /// script attack orders; no WeaponSet or passenger eligibility preflight.
+    pub(crate) fn order_spawn_children_to_attack_target(
+        &mut self,
+        owner_id: ObjectId,
+        target_id: ObjectId,
+        source: u32,
+        effects: &mut ScriptPresentationEffects<'_>,
+    ) -> gamelogic::GameLogicResult<u32> {
+        let Some(owner) = self
+            .host_object(owner_id)
+            .filter(|owner| Self::spawn_behavior_orders_slaves(owner))
+        else {
+            return Ok(0);
+        };
+        let epoch = self.visual_world_epoch;
+        let owner_birth = owner.visual_object_generation;
+        let children = owner.spawn_behavior_children();
+        let mut ordered = 0;
+        for (child_id, child_birth) in children {
+            if !self.spawn_identity_matches(owner_id, owner_birth, epoch) {
+                break;
+            }
+            let admitted = self
+                .host_object(owner_id)
+                .zip(self.host_object(child_id))
+                .is_some_and(|(owner, child)| {
+                    owner.contains_spawn_behavior_child(child_id, &child_birth)
+                        && owner.spawn_behavior_child_birth_matches(
+                            child_id,
+                            &child_birth,
+                            child,
+                        )
+                        && child.has_ai_update_interface()
+                });
+            if admitted
+                && self.unit_command_spawn_force_attack_with_effects(
+                    child_id,
+                    target_id,
+                    source,
+                    effects,
+                )?
+            {
+                ordered += 1;
+            }
+        }
+        Ok(ordered)
+    }
+
     /// Wave 230/232: force-attack target (records host attack log).
     pub fn unit_command_force_attack(
         &mut self,
@@ -350,16 +401,23 @@ impl GameLogic {
     }
     /// AIGroup's SpawnBehavior dispatch calls the child's AI directly, without
     /// the passenger/command-translator weapon eligibility preflight.
-    pub(crate) fn unit_command_spawn_force_attack_with_effects(
+    fn unit_command_spawn_force_attack_with_effects(
         &mut self,
         id: ObjectId,
         target_id: ObjectId,
+        source: u32,
         effects: &mut ScriptPresentationEffects<'_>,
     ) -> gamelogic::GameLogicResult<bool> {
         if !self.objects.contains_key(&target_id) {
             return Ok(false);
         }
-        self.stamp_player_command_source(id);
+        if let Some(unit) = self.objects.get_mut(&id) {
+            unit.last_command_source = source;
+            // StateMachine::setGoalObject also preserves a locked parent goal.
+            if unit.transport_return_state.is_none() {
+                unit.set_movement_goal_object(None);
+            }
+        }
         if self.note_hacker_ai_command(
             id,
             crate::game_logic::host_hacker_income::PendingHackerCommand::Attack(target_id),

@@ -6,6 +6,7 @@ use crate::command_system::{
     SpecialPowerType, WeaponSlot, WeaponTarget,
 };
 use crate::game_logic::game_logic::AudioEventRequest;
+use crate::game_logic::host_command_button_hunt::HUNT_CMD_FROM_PLAYER;
 use crate::game_logic::{
     AIState, AbleToAttackType, CanAttackResult, GameLogic, KindOf, ObjectId, ObjectType,
     PendingSpecialAbility, Resources, Team, radar_notifications::RadarKind,
@@ -266,35 +267,14 @@ impl<'a> CommandExecutor<'a> {
             }
             // SpawnBehavior::orderSlavesToAttackTarget always uses force
             // attack, even when the group's own order is not forced.
-            let owner_birth = self.game_logic.host_object(unit_id).map(|owner| owner.visual_object_generation);
-            let epoch = self.game_logic.host_visual_world_epoch();
-            let children = self
+            any_attacker |= self
                 .game_logic
-                .host_object(unit_id)
-                .filter(|owner| GameLogic::spawn_behavior_orders_slaves(owner))
-                .map(|owner| owner.spawn_behavior_children())
-                .unwrap_or_default();
-            for (child_id, birth) in children {
-                if !owner_birth.is_some_and(|birth| self.game_logic.spawn_identity_matches(unit_id, birth, epoch)) { break; }
-                let admitted = self
-                    .game_logic
-                    .host_object(unit_id)
-                    .zip(self.game_logic.host_object(child_id))
-                    .is_some_and(|(owner, child)| {
-                        owner.spawn_behavior_child_birth_matches(child_id, &birth, child)
-                            && owner.contains_spawn_behavior_child(child_id, &birth)
-                            && child.has_ai_update_interface()
-                    });
-                if admitted
-                    && self.game_logic.unit_command_spawn_force_attack_with_effects(
-                        child_id,
-                        target_id,
-                        &mut self.ui,
-                    )?
-                {
-                    any_attacker = true;
-                }
-            }
+                .order_spawn_children_to_attack_target(
+                    unit_id,
+                    target_id,
+                    HUNT_CMD_FROM_PLAYER,
+                    &mut self.ui,
+                )? != 0;
             if unit_id == target_id {
                 continue;
             }
