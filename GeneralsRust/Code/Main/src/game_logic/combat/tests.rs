@@ -2179,7 +2179,7 @@ pub(in crate::game_logic) mod tests {
     }
 
     #[test]
-    fn splash_kills_self_deals_huge_damage() {
+    fn moving_splash_applies_kills_self_to_projectile_and_spares_launcher() {
         let mut _ownership_output = crate::game_logic::host_owner_log::OwnershipEvents::default();
 
         let mut health_events = crate::game_logic::HostHealthEvents::default();
@@ -2226,23 +2226,30 @@ pub(in crate::game_logic) mod tests {
             0.0,
             false,
         );
-        if let Some(p) = combat.projectile_mut(pid) {
-            p.explosion_radius = 20.0;
-            p.radius_damage_affects =
-                crate::game_logic::host_ai_path_combat_residual_wave105::WEAPON_AFFECTS_ENEMIES
-                    | crate::game_logic::host_ai_path_combat_residual_wave105::WEAPON_AFFECTS_NEUTRALS
-                    | crate::game_logic::host_ai_path_combat_residual_wave105::WEAPON_KILLS_SELF;
-        }
+        // Weapon.cpp:1321 compares the victim to the detonating Object.
+        // Install that source separately from its producer. The fixture's
+        // normal health exceeds the weapon's authored splash damage.
+        objects.insert(pid, make_obj(
+            "DetonatingShell", pid, Team::GLA, Vec3::new(3.0, 0.0, 0.0),
+            &[KindOf::Projectile], 5.0,
+        ));
+        let launcher_health = objects[&atk].health.current;
+        let projectile = combat.projectile_mut(pid).unwrap();
+        projectile.damage_type = DamageType::Unresistable;
+        projectile.explosion_radius = 20.0;
+        projectile.source_team = Team::GLA;
+        projectile.radius_damage_affects =
+            crate::game_logic::host_ai_path_combat_residual_wave105::WEAPON_AFFECTS_ENEMIES
+                | crate::game_logic::host_ai_path_combat_residual_wave105::WEAPON_AFFECTS_NEUTRALS
+                | crate::game_logic::host_ai_path_combat_residual_wave105::WEAPON_KILLS_SELF;
         let _ = combat.update_projectiles(
             1.0 / 30.0,
             &mut objects,
             &mut health_events,
             &mut _ownership_output,
         );
-        assert!(
-            !objects.get(&atk).unwrap().is_alive(),
-            "WEAPON_KILLS_SELF must destroy the shooter"
-        );
+        assert!(!objects[&pid].is_alive());
+        assert_eq!(objects[&atk].health.current, launcher_health);
     }
 
     #[test]
