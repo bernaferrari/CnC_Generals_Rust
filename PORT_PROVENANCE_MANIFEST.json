@@ -29504,6 +29504,13 @@
             "classification": "implementation",
             "owned_source_ranges": [],
             "owned_symbols": [],
+            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/draw/weapon_recoil.rs"
+          },
+          {
+            "cargo_reachable": true,
+            "classification": "implementation",
+            "owned_source_ranges": [],
+            "owned_symbols": [],
             "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/drawable.rs"
           },
           {
@@ -64244,6 +64251,13 @@
             "owned_source_ranges": [],
             "owned_symbols": [],
             "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/draw/w3d_truck_draw.rs"
+          },
+          {
+            "cargo_reachable": true,
+            "classification": "implementation",
+            "owned_source_ranges": [],
+            "owned_symbols": [],
+            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/draw/weapon_recoil.rs"
           },
           {
             "cargo_reachable": true,
@@ -161143,7 +161157,7 @@
     }
   ],
   "generator": "GeneralsRust/Code/Main/scripts/generate_port_provenance.py",
-  "input_digest": "e9e47c6527878647ace9110265cdc9653d73e7311878d5ca531a8ac05efdb470",
+  "input_digest": "821418946f8def3161856a27c66848a7c01ee97fc8d1563c7500460dbd6e68d3",
   "metric_contract": {
     "behavior_requires_explicit_evidence": true,
     "candidate_mapping_is_reviewed": false,
@@ -208977,11 +208991,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 74,
+        "end_line": 75,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/draw/mod.rs",
-      "sha256": "c5e5bf922f540e94d90dd34f1d171ca56d5c9e00c8ba12a5a37eda70c8d3017d",
+      "sha256": "3b6cf8a27daa20fccb945687c4e1f11769e7e9f6268c1f22aef8ea98d4c681e7",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -209133,11 +209147,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 1365,
+        "end_line": 1363,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/draw/w3d_model_draw_impl/draw.rs",
-      "sha256": "41c2e97ee2c9ed705d025d0f278eb0e44b53c6f2f07579dc26c37a43276af2ac",
+      "sha256": "13f8c9183b233c08bee9ba06ec693612675d1410206cecf8eef20bfb13b8406c",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -209169,11 +209183,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 920,
+        "end_line": 887,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/draw/w3d_model_draw_impl/impl_anim.rs",
-      "sha256": "9fa034bf18b28a421a14cd46eca1526dd4a2b07ff01c69ff74b04051971c3f68",
+      "sha256": "ad3d2ea4ff39674b91e70956ad485f6b8eb1fbd5c6fc920ba2132600a92a237e",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -209181,11 +209195,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 72,
+        "end_line": 73,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/draw/w3d_model_draw_impl/mod.rs",
-      "sha256": "8613e82983e1ad0e9af69bc5fabc7b1c0c694fd42d36512e5985bd24cb4256f5",
+      "sha256": "bbf3b98bbd7904c5e8279271e45880a6637a39bc2c7534411fb8ff362da2fed9",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -209277,11 +209291,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 109,
+        "end_line": 60,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/draw/w3d_model_draw_impl/recoil.rs",
-      "sha256": "98126f2978d308c00fc6b635886f755e25be79f5616ace06c5b4262ee52cd47c",
+      "sha256": "5570b7e1a099ca2fc325c899e995a6556fbd1ae5630387f8c11d9360ed97a108",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -209341,7 +209355,7 @@
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/draw/w3d_model_draw_impl/snapshot.rs",
-      "sha256": "ef633c402afdc3686c131c7f91f46b2eb75b1d6a653fd661756afb699590467e",
+      "sha256": "4aef01569d5b420015e8d8d613b33fb6d40c85154bd01f9eab5818af350da6e9",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -209353,7 +209367,7 @@
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/draw/w3d_model_draw_impl/tests.rs",
-      "sha256": "eb9e483195699d6e5251b5533d5cc01c8a4d89700038ffeb12d9a674c5e71b5b",
+      "sha256": "eac2dd68e1ebd6cc5277dbc7351e3e8a4ffd199503a9e0237c953df2480f32a7",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -209361,11 +209375,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 704,
+        "end_line": 703,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/draw/w3d_model_draw_impl/trait_impl.rs",
-      "sha256": "0f644024f068dc006f2100b6d657c5789107a5567f893c82b4c2009bff641de1",
+      "sha256": "c272fc5a9a527588dc9cd97b7de9884d1fd651a7b18e7ed6d9a757d9943b9b5c",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -209582,6 +209596,18 @@
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/draw/w3d_truck_draw.rs",
       "sha256": "d256adbbd09497028a3c0da3a4e3532b484baf338121d93bad825fd1cfd4430d",
+      "symbol_index_status": "awaiting_mapping_review",
+      "symbols": []
+    },
+    {
+      "cargo_reachable": true,
+      "classification": "implementation",
+      "file_range": {
+        "end_line": 73,
+        "start_line": 1
+      },
+      "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/draw/weapon_recoil.rs",
+      "sha256": "0de6ac719488428e0bb77e083033feafcfacf2920da85b6d9e7bdd812f04a7a0",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },

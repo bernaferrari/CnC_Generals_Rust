@@ -53209,6 +53209,11 @@
             {
               "cargo_reachable": true,
               "classification": "implementation",
+              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/draw/weapon_recoil.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "implementation",
               "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/drawable.rs"
             },
             {
@@ -189953,7 +189958,7 @@
       ]
     }
   ],
-  "provenance_input_digest": "e9e47c6527878647ace9110265cdc9653d73e7311878d5ca531a8ac05efdb470",
+  "provenance_input_digest": "821418946f8def3161856a27c66848a7c01ee97fc8d1563c7500460dbd6e68d3",
   "schema_version": 1,
   "summary": {
     "maximum_packet_size": 15,
