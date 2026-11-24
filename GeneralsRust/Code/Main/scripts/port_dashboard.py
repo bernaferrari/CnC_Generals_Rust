@@ -63,6 +63,8 @@ FULL_GATES = (
             "accepted_fire_ocl_uses_the_source_object_basis",
             "owned_impact_ocl_",
             "fuel_detonation_carries_the_pose",
+            "detonation_effects_use_projectile_veterancy",
+            "detonation_empty_projectile_rank",
             "--test-threads=1",
         ],
     ),

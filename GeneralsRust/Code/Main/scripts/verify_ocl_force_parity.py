@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Compare original OCL force draws and Object-overload placement with Rust."""
+"""Compare original OCL forces, Object placement, and terminal weapon selection with Rust."""
 
 import argparse
 import math
@@ -12,6 +12,8 @@ import tempfile
 ROOT = Path(__file__).resolve().parents[4]
 WWMATH = ROOT / "GeneralsMD/Code/Libraries/Source/WWVegas/WWMath"
 OCL_SOURCE = ROOT / "GeneralsMD/Code/GameEngine/Source/GameLogic/Object/ObjectCreationList.cpp"
+WEAPON_SOURCE = OCL_SOURCE.with_name("Weapon.cpp")
+WEAPON_HEADER = ROOT / "GeneralsMD/Code/GameEngine/Include/GameLogic/Weapon.h"
 RUST_SOURCE = ROOT / "GeneralsRust/Code/GameEngine/GameLogic/src/object_creation_list/nuggets.rs"
 
 CASES = [
@@ -215,6 +217,81 @@ int main() {
     print("Original OCL matched the full Object basis and offset")
 
 
+def verify_detonation_rank(cxx: str, temp: Path) -> None:
+    source = WEAPON_SOURCE.read_text()
+    rank_read = "VeterancyLevel v = sourceObj->getVeterancyLevel();"
+    fx_start = source.rindex(rank_read, 0, source.index(
+        "const FXList* fx = isProjectileDetonation ? getProjectileDetonateFX"
+    ))
+    fx = source[fx_start:source.index(";", source.index("getFireFX(v);", fx_start)) + 1]
+    ocl_start = source.index("if( sourceObj )", source.index("// Now do the FireOCL"))
+    ocl = source[ocl_start:source.index("\n\t}", ocl_start) + len("\n\t}")]
+    getters = re.findall(
+        r"^\s*inline const (?:FXList|ObjectCreationList)\* "
+        r"(?:getFireFX|getProjectileDetonateFX|getFireOCL|getProjectileDetonationOCL)"
+        r"\(VeterancyLevel v\) const \{[^\n]+\}",
+        WEAPON_HEADER.read_text(),
+        re.MULTILINE,
+    )
+    if len(getters) != 4:
+        raise ValueError("Missing ranked weapon effect lookup")
+    cpp = temp / "detonation_rank.cpp"
+    binary = temp / "detonation_rank"
+    cpp.write_text(r"""
+#include <cassert>
+#include <cstdio>
+
+enum VeterancyLevel { Regular, Veteran, Elite, Heroic };
+struct Object {
+    VeterancyLevel rank;
+    VeterancyLevel getVeterancyLevel() const { return rank; }
+};
+struct FXList {};
+struct ObjectCreationList {
+    static void create(const ObjectCreationList*, Object* source, void*) {
+        assert(source->rank == Veteran);
+        std::puts("OCL_RankedImpact");
+    }
+};
+struct WeaponTemplate {
+    FXList veteran_fx;
+    ObjectCreationList veteran_ocl;
+    const FXList* m_fireFXs[4]{};
+    const FXList* m_projectileDetonateFXs[4]{nullptr, &veteran_fx};
+    const ObjectCreationList* m_fireOCLs[4]{};
+    const ObjectCreationList* m_projectileDetonationOCLs[4]{nullptr, &veteran_ocl};
+"""
+        + "\n".join(getters) + r"""
+    void detonate(Object* sourceObj, VeterancyLevel rank_after_fx) {
+        const bool isProjectileDetonation = true;
+        {
+"""
+        + fx + r"""
+            std::printf("%s ", fx == &veteran_fx ? "FX_RankedImpact" : "None");
+            sourceObj->rank = rank_after_fx;
+        }
+"""
+        + ocl + r"""
+        if (sourceObj->rank != Veteran)
+            std::puts("None");
+    }
+};
+int main() {
+    WeaponTemplate weapon;
+    Object projectile{Veteran};
+    weapon.detonate(&projectile, Veteran);
+    weapon.detonate(&projectile, Elite);
+    weapon.detonate(&projectile, Elite);
+}
+""")
+    subprocess.run([cxx, "-std=c++17", cpp, "-o", binary], check=True)
+    output = subprocess.check_output([binary], text=True)
+    expected = "FX_RankedImpact OCL_RankedImpact\nFX_RankedImpact None\nNone None\n"
+    if output != expected:
+        raise RuntimeError(f"Original weapon's detonation rank selection differs:\n{output}")
+    print("Original detonation uses its actor's rank separately for FX and OCL")
+
+
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
@@ -233,6 +310,7 @@ def main() -> int:
         subprocess.run([args.rustc, "--edition=2024", rust, "-o", port], check=True)
         original, ported = observed(originals), observed(port)
         verify_object_placement(args.cxx, temp)
+        verify_detonation_rank(args.cxx, temp)
     if len(original) != len(CASES) or len(ported) != len(CASES):
         raise RuntimeError("Unexpected vector count")
     for scenario, expected, actual in zip(CASES, original, ported, strict=True):

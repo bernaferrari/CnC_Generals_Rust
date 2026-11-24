@@ -156,6 +156,106 @@ fn owned_impact_ocl_cannot_use_a_replacement_with_the_same_id() {
         .any(|o| o.template_name == DETONATION_CHILD));
 }
 
+fn ranked_detonation_world(marker: &str) -> (GameLogic, ObjectId, ObjectId) {
+    use crate::assets::ini_template_loader::{
+        WeaponDefinitionLoadType, parse_weapon_definitions_ini_into,
+    };
+    let mut world = configured_world();
+    world.templates.insert(marker.into(), ThingTemplate::new(marker));
+    world.admit_object_creation_list_sources([format!(
+        "ObjectCreationList OCL_{marker}\nCreateObject\nObjectNames = {marker}\nCount = 1\nEnd\nEnd"
+    )]).unwrap();
+    let mut rows = std::collections::HashMap::new();
+    assert_eq!(parse_weapon_definitions_ini_into(
+        &mut rows,
+        &format!("Weapon RankedImpact\n VeterancyProjectileDetonationOCL = VETERAN OCL_{marker}\n VeterancyProjectileDetonationFX = VETERAN FX_RankedImpact\n VeterancyProjectileDetonationOCL = ELITE None\n VeterancyProjectileDetonationFX = ELITE None\nEnd\n"),
+        WeaponDefinitionLoadType::Normal,
+    ), 1);
+    world.admit_weapon_content_snapshot(rows.into_iter().collect(), &[]).unwrap();
+    #[cfg(feature = "game_client")]
+    world.admit_fx_source("FXList FX_RankedImpact\n ViewShake\n Type = NORMAL\n End\nEnd").unwrap();
+
+    let position = Vec3::new(20.0, 4.0, 30.0);
+    world.session_view.target = position;
+    let launcher = world.create_object_for_player(
+        "CallbackSource", 1, Vec3::new(50.0, 0.0, 0.0),
+    ).unwrap();
+    let id = world.create_object_for_player("CallbackSource", 1, position).unwrap();
+    world.objects.get_mut(&id).unwrap().experience.level = VeterancyLevel::Veteran;
+    let mut projectile = shell(id, launcher);
+    projectile.historic_weapon_key = "RankedImpact".into();
+    projectile.projectile_object_name = "CallbackSource".into();
+    projectile.position = position;
+    projectile.flight = Some(HostProjectileFlight::Dumb(Default::default()));
+    projectile.projectile_actor_birth = Some((
+        world.objects[&id].visual_object_generation, world.visual_world_epoch,
+    ));
+    projectile.projectile_lifecycle = Some(HostProjectileLifecycle::DumbProjectile {
+        max_lifespan_frames: 1,
+        detonate_calls_kill: false,
+    });
+    // Both launch-time names are empty. C++ only reads the weapon slot after
+    // the projectile reaches the detonation callback.
+    world.combat_system.projectiles.insert(id, projectile);
+    (world, launcher, id)
+}
+
+#[cfg(feature = "game_client")]
+fn reveal_ranked_impact(world: &GameLogic) {
+    let player = world.local_player_id().expect("the fixture has a local player");
+    let mut shroud = world.world_services.shroud().lock().unwrap();
+    shroud.init_shroud_grid(256.0, 256.0);
+    shroud.reveal_map_for_player_permanently(player).unwrap();
+}
+
+#[test]
+fn detonation_effects_use_projectile_veterancy_and_receiving_weapon_after_restore() {
+    let (mut world, launcher, id) = ranked_detonation_world("FirstRankedChild");
+    let (mut peer, peer_launcher, peer_id) = ranked_detonation_world("SecondRankedChild");
+    assert_eq!((launcher, id), (peer_launcher, peer_id));
+    assert_eq!(world.objects[&launcher].experience.level, VeterancyLevel::Rookie);
+    let builder = crate::save_load::SnapshotBuilder::new();
+    let saved = builder.create_world_snapshot(&world).unwrap();
+    let bytes = bincode_legacy::serialize(&saved).unwrap();
+    let saved = crate::save_load::snapshot::decode_bincode_world_snapshot(&bytes).unwrap();
+    let (mut restored, _, _) = ranked_detonation_world("FirstRankedChild");
+    builder.restore_from_snapshot(&saved, &mut restored).unwrap();
+
+    for (world, marker) in [
+        (&mut peer, "SecondRankedChild"),
+        (&mut world, "FirstRankedChild"),
+        (&mut restored, "FirstRankedChild"),
+    ] {
+        #[cfg(feature = "game_client")]
+        reveal_ranked_impact(world);
+        assert_eq!(world.objects[&id].experience.level, VeterancyLevel::Veteran);
+        assert_eq!(world.update_owned_projectile_impacts(1.0 / 30.0).unwrap(), vec![id]);
+        let child = world.host_objects().registered_values()
+            .find(|object| object.template_name == marker)
+            .expect("the receiving definition supplies the projectile's Veteran list");
+        assert_eq!(child.producer_id, Some(id));
+        #[cfg(feature = "game_client")]
+        assert!(world.session_view.impulse.intensity > 0.0, "the Veteran FX must also run");
+    }
+}
+
+#[test]
+fn detonation_empty_projectile_rank_does_not_use_frozen_launch_effects() {
+    let (mut world, _, id) = ranked_detonation_world("ForbiddenRankedChild");
+    #[cfg(feature = "game_client")]
+    reveal_ranked_impact(&world);
+    world.objects.get_mut(&id).unwrap().experience.level = VeterancyLevel::Elite;
+    let shot = world.combat_system.projectiles.get_mut(&id).unwrap();
+    shot.source_veterancy = VeterancyLevel::Veteran;
+    shot.detonation_ocl_name = "OCL_ForbiddenRankedChild".into();
+    shot.detonation_fx_name = "FX_RankedImpact".into();
+    assert_eq!(world.update_owned_projectile_impacts(1.0 / 30.0).unwrap(), vec![id]);
+    assert!(!world.host_objects().registered_values()
+        .any(|object| object.template_name == "ForbiddenRankedChild"));
+    #[cfg(feature = "game_client")]
+    assert_eq!(world.session_view.impulse.intensity, 0.0);
+}
+
 #[test]
 fn impact_callback_error_cannot_replay_retired_shells() {
     use gamelogic::effects::ObjectCreationList;

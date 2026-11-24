@@ -55,7 +55,7 @@ pub enum DamageEvent {
     },
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub(in crate::game_logic) enum ProjectileDetonationSource {
     DelayedDamage,
     VirtualProjectile(ObjectId),
@@ -64,6 +64,7 @@ pub(in crate::game_logic) enum ProjectileDetonationSource {
         generation: u64,
         epoch: u64,
         pre_physics_pose: Option<glam::Mat4>,
+        weapon_key: String,
     },
 }
 
@@ -96,13 +97,21 @@ impl ProjectileImpactFx {
         target_id: Option<ObjectId>,
         pre_physics_pose: Option<glam::Mat4>,
     ) -> Option<Self> {
-        if projectile.detonation_fx_name.is_empty() && projectile.detonation_ocl_name.is_empty() {
+        // The launch rank can leave both names empty while the live actor's
+        // detonation rank has an authored list. Deliver its weapon identity.
+        let has_authored_source =
+            projectile.projectile_actor_birth.is_some() && !projectile.historic_weapon_key.is_empty();
+        if !has_authored_source
+            && projectile.detonation_fx_name.is_empty()
+            && projectile.detonation_ocl_name.is_empty()
+        {
             return None;
         }
         let id = projectile.id;
         let detonation_source = match projectile.projectile_actor_birth {
             Some((generation, epoch)) => ProjectileDetonationSource::Object {
                 id, generation, epoch, pre_physics_pose,
+                weapon_key: projectile.historic_weapon_key.to_ascii_lowercase(),
             },
             None => ProjectileDetonationSource::VirtualProjectile(id),
         };

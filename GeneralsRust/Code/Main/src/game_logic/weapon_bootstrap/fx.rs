@@ -2,7 +2,7 @@ use super::*;
 
 /// Convert the host world's rank enum into the canonical GameLogic enum used
 /// by the WeaponStore. Keep this exhaustive instead of casting ordinal values.
-fn game_logic_veterancy(
+pub(in crate::game_logic) fn game_logic_veterancy(
     level: crate::game_logic::VeterancyLevel,
 ) -> gamelogic::common::VeterancyLevel {
     match level {

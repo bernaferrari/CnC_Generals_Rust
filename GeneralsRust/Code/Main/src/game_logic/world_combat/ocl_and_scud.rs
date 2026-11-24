@@ -1232,33 +1232,37 @@ impl GameLogic {
         &mut self,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> gamelogic::GameLogicResult<()> {
+        use crate::game_logic::combat::ProjectileDetonationSource;
+        use crate::game_logic::weapon_bootstrap::game_logic_veterancy;
+
         let impacts = self.combat_system.take_impact_fx();
         for impact in impacts {
-            // C++ executes ProjectileDetonationFX and
-            // ProjectileDetonationOCL independently.  An OCL-only weapon
-            // (common poison/radiation field pattern) therefore still reaches
-            // the real host object-creation path.
-            if impact.detonation_fx_name.is_empty()
-                && impact.detonation_ocl_name.is_empty()
-                && impact.projectile_die_effects.is_empty()
-            {
-                continue;
-            }
+            let ranked_weapon = match &impact.detonation_source {
+                ProjectileDetonationSource::Object { id, generation, epoch, weapon_key, .. } => {
+                    if !self.spawn_identity_matches(*id, *generation, *epoch) {
+                        continue;
+                    }
+                    self.weapon_definitions.as_ref()
+                        .and_then(|definitions| definitions.get(weapon_key))
+                        .map(|rule| (rule.clone(), self.objects[id].experience.level))
+                }
+                _ => None,
+            };
             // C++ Weapon.cpp:889-949 — ProjectileDetonationFX (drawable/doFXPos)
-            // before ProjectileDetonationOCL. Keep independent empty-name skips.
-            if !impact.detonation_fx_name.trim().is_empty()
-                && !impact
-                    .detonation_fx_name
-                    .trim()
-                    .eq_ignore_ascii_case("None")
-            {
+            // before ProjectileDetonationOCL. A named weapon's empty slot
+            // is authoritative, including a rank-specific None.
+            let fx_name = ranked_weapon.as_ref().map_or(impact.detonation_fx_name.as_str(),
+                |(rule, rank)| rule.get_projectile_detonate_fx(game_logic_veterancy(*rank))
+                    .map_or("", |fx| fx.name()),
+            ).trim();
+            if !fx_name.is_empty() && !fx_name.eq_ignore_ascii_case("None") {
                 let radius = host_fire_fx_override_radius(self.objects.get(&impact.shooter_id));
                 let matrix = self
                     .objects
                     .get(&impact.shooter_id)
                     .map(|o| o.get_transform_matrix());
                 let _ = self.dispatch_fx_list_at_host_position_oriented_with_effects(
-                    &impact.detonation_fx_name,
+                    fx_name,
                     impact.position,
                     Some(impact.position),
                     0.0,
@@ -1267,56 +1271,59 @@ impl GameLogic {
                     presentation_effects,
                 );
             }
-            if !impact.detonation_ocl_name.is_empty() {
-                use crate::game_logic::combat::ProjectileDetonationSource;
-                let error = match impact.detonation_source {
-                    ProjectileDetonationSource::Object { id, generation, epoch, pre_physics_pose } => {
-                        // Weapon.cpp:943–949 invokes the Object overload on
-                        // the actual projectile before its Body retires it.
-                        if self.spawn_identity_matches(id, generation, epoch) {
-                            self.execute_object_ocl_with_pose(
-                                &impact.detonation_ocl_name,
-                                id,
-                                pre_physics_pose,
-                                None,
-                                presentation_effects,
-                            ).error
-                        } else {
-                            None
-                        }
-                    }
-                    source => {
-                        let outcome = self.execute_parsed_weapon_ocl_with_births(
-                            &impact.detonation_ocl_name,
-                            Some(impact.shooter_id),
-                            impact.source_team,
-                            impact.source_veterancy,
-                            impact.source_orientation,
-                            impact.source_velocity,
-                            impact.position,
+            let error = match &impact.detonation_source {
+                ProjectileDetonationSource::Object { id, generation, epoch, pre_physics_pose, .. } => {
+                    // Weapon.cpp:943–949 invokes the Object overload on
+                    // the actual projectile and rereads rank after FX.
+                    if self.spawn_identity_matches(*id, *generation, *epoch) {
+                        let ocl_name = ranked_weapon.as_ref().map_or(impact.detonation_ocl_name.as_str(),
+                            |(rule, _)| rule.get_projectile_detonation_ocl_name(
+                                game_logic_veterancy(self.objects[id].experience.level),
+                            ).unwrap_or_default(),
+                        );
+                        self.execute_object_ocl_with_pose(
+                            ocl_name,
+                            *id,
+                            *pre_physics_pose,
                             None,
                             presentation_effects,
-                        );
-                        let producer = match source {
-                            ProjectileDetonationSource::VirtualProjectile(id) => Some(id),
-                            _ => None,
-                        };
-                        for &(id, (generation, epoch)) in &outcome.created {
-                            if self.spawn_identity_matches(id, generation, epoch)
-                                && let Some(object) = self.objects.get_mut(&id)
-                                && object.has_native_emp_update()
-                            {
-                                // Virtual flights lack an Object overload.
-                                // Preserve the producer used by the pulse at fade.
-                                object.producer_id = producer;
-                            }
-                        }
-                        outcome.error
+                        ).error
+                    } else {
+                        None
                     }
-                };
-                if let Some(error) = error {
-                    return Err(error);
                 }
+                source if !impact.detonation_ocl_name.is_empty() => {
+                    let outcome = self.execute_parsed_weapon_ocl_with_births(
+                        &impact.detonation_ocl_name,
+                        Some(impact.shooter_id),
+                        impact.source_team,
+                        impact.source_veterancy,
+                        impact.source_orientation,
+                        impact.source_velocity,
+                        impact.position,
+                        None,
+                        presentation_effects,
+                    );
+                    let producer = match source {
+                        ProjectileDetonationSource::VirtualProjectile(id) => Some(*id),
+                        _ => None,
+                    };
+                    for &(id, (generation, epoch)) in &outcome.created {
+                        if self.spawn_identity_matches(id, generation, epoch)
+                            && let Some(object) = self.objects.get_mut(&id)
+                            && object.has_native_emp_update()
+                        {
+                            // Virtual flights lack an Object overload.
+                            // Preserve the producer used by the pulse at fade.
+                            object.producer_id = producer;
+                        }
+                    }
+                    outcome.error
+                }
+                _ => None,
+            };
+            if let Some(error) = error {
+                return Err(error);
             }
             for effect in &impact.projectile_die_effects {
                 match effect {
