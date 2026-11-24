@@ -161,7 +161,10 @@ fn ranked_detonation_world(marker: &str) -> (GameLogic, ObjectId, ObjectId) {
         WeaponDefinitionLoadType, parse_weapon_definitions_ini_into,
     };
     let mut world = configured_world();
-    world.templates.insert(marker.into(), ThingTemplate::new(marker));
+    world.admit_object_ini_sources([("ranked-detonation.ini".into(), format!(
+        "Object CallbackSource\n KindOf = INFANTRY\n Body = ActiveBody CallbackBody\n MaxHealth = 100\n InitialHealth = 100\n End\nEnd\n\
+         Object {marker}\n Draw = W3DModelDraw CallbackDraw\n DefaultConditionState\n Model = DetonationMarkerModel\n End\n End\nEnd\n"
+    ))]).unwrap();
     world.admit_object_creation_list_sources([format!(
         "ObjectCreationList OCL_{marker}\nCreateObject\nObjectNames = {marker}\nCount = 1\nEnd\nEnd"
     )]).unwrap();
@@ -254,6 +257,111 @@ fn detonation_empty_projectile_rank_does_not_use_frozen_launch_effects() {
         .any(|object| object.template_name == "ForbiddenRankedChild"));
     #[cfg(feature = "game_client")]
     assert_eq!(world.session_view.impulse.intensity, 0.0);
+}
+
+#[test]
+#[cfg(feature = "game_client")]
+fn detonation_fx_uses_projectile_pose_and_only_gates_the_visual_effect() {
+    use game_client::effects::particle_manager::{
+        EmissionVolume, EmissionVolumeType, ParticleSystemManager, ParticleSystemTemplate,
+    };
+
+    struct Particles(ParticleSystemManager);
+    impl crate::game_logic::NativeViewEffects for Particles {
+        fn particle_systems_mut(&mut self) -> Option<&mut ParticleSystemManager> {
+            Some(&mut self.0)
+        }
+        fn local_player_id(&self) -> u32 {
+            1
+        }
+        fn host_epoch(&self) -> u64 {
+            1
+        }
+        fn body_visual_changed(
+            &mut self,
+            _: &crate::game_logic::NativeBodyVisualChange,
+            _: Option<&mut dyn game_client::drawable::drawable::NativeAmbientAudio>,
+        ) -> Result<bool, String> {
+            Ok(false)
+        }
+        fn sample_slave(
+            &mut self,
+            _: &crate::game_logic::NativeSlaveSource,
+            _: &str,
+        ) -> crate::presentation_frame::camera::build::SlaveCameraSample {
+            unreachable!("the FX callback does not sample a camera")
+        }
+        fn retire_physical_object_drawable(
+            &mut self,
+            _: &crate::game_logic::NativeObjectRetirement<'_>,
+        ) -> Result<(), String> {
+            unreachable!("the FX callback does not retire drawables")
+        }
+        fn admit_factory_drawable(
+            &mut self,
+            _: crate::game_logic::NativeFactoryDrawableSource,
+            _: game_client::core::game_client::NativeDrawableBirthContext,
+            _: &mut game_engine::common::thing::module_factory::ModuleFactory,
+        ) -> Result<(), String> {
+            Ok(())
+        }
+    }
+
+    let pose = glam::Mat4::from_cols(
+        Vec3::Y.extend(0.0),
+        Vec3::Z.extend(0.0),
+        Vec3::X.extend(0.0),
+        Vec3::new(10.0, 4.0, 12.0).extend(1.0),
+    );
+    let impact_position = Vec3::new(40.0, 4.0, 32.0);
+    for (range, has_drawable, delay, expected_position) in [
+        (100, true, 0, Some(Vec3::new(12.0, 15.0, 5.0))),
+        (5, true, 0, Some(Vec3::new(42.0, 35.0, 5.0))),
+        (100, false, 0, None),
+        (100, true, 1000, None),
+    ] {
+        let (mut world, _, id) = ranked_detonation_world("DetonationFxChild");
+        world.apply_receiving_weapon_overrides(&[format!(
+            "Weapon RankedImpact\n AttackRange = {range}\n SuspendFXDelay = {delay}\n PrimaryDamageRadius = 20\nEnd\n"
+        )]).unwrap();
+        let mut catalog = game_client::fx_list::FXListStore::new();
+        assert_eq!(catalog.apply_source(
+            "FXList FX_RankedImpact\n ParticleSystem\n Name = DetonationFxParticle\n Offset = X:1 Y:2 Z:3\n UseCallersRadius = Yes\n End\nEnd\n"
+        ).unwrap(), 1);
+        world.admit_fx_catalog(catalog);
+        reveal_ranked_impact(&world);
+        world.objects.get_mut(&id).unwrap().has_drawable = has_drawable;
+        let projectile = world.combat_system.projectiles.get_mut(&id).unwrap();
+        projectile.explosion_radius = 40.0;
+        let impact = ProjectileImpactFx::weapon_detonation(projectile, impact_position, None, Some(pose)).unwrap();
+        world.combat_system.impact_fx.push(impact);
+
+        let mut particles = Particles(ParticleSystemManager::new());
+        let mut template = ParticleSystemTemplate::new("DetonationFxParticle".into());
+        template.info_mut().emission_volume_type = EmissionVolumeType::Sphere;
+        template.info_mut().emission_volume = EmissionVolume::Sphere { radius: 2.0 };
+        template.info_mut().is_emission_volume_hollow = true;
+        particles.0.register_template(std::sync::Arc::new(template));
+        particles.0.finish_definition_admission();
+        let mut effects = crate::game_logic::ScriptPresentationEffects {
+            view: Some(&mut particles),
+            ..Default::default()
+        };
+        world.flush_projectile_impact_fx_with_effects(&mut effects).unwrap();
+        let positions: Vec<_> = particles.0.all_particle_systems().map(|system| system.position()).collect();
+        assert_eq!(positions, Vec::from_iter(expected_position), "range={range}, drawable={has_drawable}, delay={delay}");
+        if let Some(expected) = expected_position {
+            let system_id = particles.0.all_particle_systems().next().unwrap().system_id();
+            let system = particles.0.find_particle_system_mut(system_id).unwrap();
+            // Observe the authored burst before capacity and LOD admission.
+            system.begin_frame_emit(1, 1);
+            let emissions = system.take_pending_emissions();
+            let particle = emissions.first().expect("the first emission");
+            assert!((particle.position.distance(expected) - 40.0).abs() < 0.001);
+        }
+        assert!(world.host_objects().registered_values()
+            .any(|object| object.template_name == "DetonationFxChild" && object.producer_id == Some(id)));
+    }
 }
 
 #[test]

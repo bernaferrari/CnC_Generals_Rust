@@ -292,6 +292,71 @@ int main() {
     print("Original detonation uses its actor's rank separately for FX and OCL")
 
 
+def verify_detonation_fx_position(cxx: str, temp: Path) -> None:
+    source = WEAPON_SOURCE.read_text()
+    start = source.index("if (handled == false && fx != NULL)")
+    end = source.index("\n\t\t}", start) + len("\n\t\t}")
+    fallback = source[start:end]
+    cpp = temp / "detonation_fx_position.cpp"
+    binary = temp / "detonation_fx_position"
+    cpp.write_text(r"""
+#include <cstdio>
+
+struct Coord3D { int x, y, z; };
+struct Matrix3D {
+    // Local axes of the tilting projectile, in original Z-up coordinates.
+    Coord3D x{0,0,1}, y{1,0,0}, z{0,1,0};
+};
+struct Drawable {
+    Coord3D position{10,12,4};
+    Matrix3D pose;
+    const Coord3D* getPosition() const { return &position; }
+    const Matrix3D* getTransformMatrix() const { return &pose; }
+};
+struct Object {
+    Drawable drawable;
+    const Drawable* getDrawable() const { return &drawable; }
+};
+struct FXList {
+    static void doFXPos(const FXList*, const Coord3D* pos, const Matrix3D* mtx,
+                        int speed, const Coord3D* target, int radius) {
+        // Witness a particle with authored X:1 Y:2 Z:3 offset.
+        std::printf("%d %d %d %d %d %d %d %d\n",
+            pos->x + mtx->x.x + 2*mtx->y.x + 3*mtx->z.x,
+            pos->y + mtx->x.y + 2*mtx->y.y + 3*mtx->z.y,
+            pos->z + mtx->x.z + 2*mtx->y.z + 3*mtx->z.z,
+            target->x, target->y, target->z, speed, radius);
+    }
+};
+struct WeaponTemplate {
+    bool contact;
+    bool isContactWeapon() const { return contact; }
+    int getWeaponSpeed() const { return 13; }
+    int getPrimaryDamageRadius(int bonus) const { return 20 * bonus; }
+    void detonate(const Object* sourceObj) const {
+        const Coord3D targetPos{40,32,4};
+        const bool handled = false;
+        const FXList selected;
+        const auto* fx = &selected;
+        const int bonus = 2;
+"""
+        + fallback + r"""
+    }
+};
+int main() {
+    const Object projectile;
+    WeaponTemplate{false}.detonate(&projectile);
+    WeaponTemplate{true}.detonate(&projectile);
+}
+""")
+    subprocess.run([cxx, "-std=c++17", cpp, "-o", binary], check=True)
+    output = subprocess.check_output([binary], text=True)
+    expected = "12 15 5 40 32 4 13 40\n42 35 5 40 32 4 13 40\n"
+    if output != expected:
+        raise RuntimeError(f"Original weapon's detonation FX placement differs:\n{output}")
+    print("Original detonation FX uses the drawable basis and switches origin for contact weapons")
+
+
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
@@ -311,6 +376,7 @@ def main() -> int:
         original, ported = observed(originals), observed(port)
         verify_object_placement(args.cxx, temp)
         verify_detonation_rank(args.cxx, temp)
+        verify_detonation_fx_position(args.cxx, temp)
     if len(original) != len(CASES) or len(ported) != len(CASES):
         raise RuntimeError("Unexpected vector count")
     for scenario, expected, actual in zip(CASES, original, ported, strict=True):

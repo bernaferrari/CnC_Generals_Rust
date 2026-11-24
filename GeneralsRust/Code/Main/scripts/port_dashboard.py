@@ -65,6 +65,7 @@ FULL_GATES = (
             "fuel_detonation_carries_the_pose",
             "detonation_effects_use_projectile_veterancy",
             "detonation_empty_projectile_rank",
+            "detonation_fx_uses_projectile_pose",
             "--test-threads=1",
         ],
     ),

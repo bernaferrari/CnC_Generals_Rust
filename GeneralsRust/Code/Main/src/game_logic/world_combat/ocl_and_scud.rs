@@ -1256,18 +1256,10 @@ impl GameLogic {
                     .map_or("", |fx| fx.name()),
             ).trim();
             if !fx_name.is_empty() && !fx_name.eq_ignore_ascii_case("None") {
-                let radius = host_fire_fx_override_radius(self.objects.get(&impact.shooter_id));
-                let matrix = self
-                    .objects
-                    .get(&impact.shooter_id)
-                    .map(|o| o.get_transform_matrix());
-                let _ = self.dispatch_fx_list_at_host_position_oriented_with_effects(
+                self.dispatch_projectile_detonation_fx(
+                    &impact,
                     fx_name,
-                    impact.position,
-                    Some(impact.position),
-                    0.0,
-                    radius,
-                    matrix,
+                    ranked_weapon.as_ref().map(|(rule, _)| rule.as_ref()),
                     presentation_effects,
                 );
             }
@@ -1381,6 +1373,66 @@ impl GameLogic {
             }
         }
         Ok(())
+    }
+
+    fn dispatch_projectile_detonation_fx(
+        &mut self,
+        impact: &crate::game_logic::combat::ProjectileImpactFx,
+        name: &str,
+        rule: Option<&gamelogic::weapon::WeaponTemplate>,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
+        use crate::game_logic::combat::ProjectileDetonationSource;
+        use crate::presentation_frame::{FrozenWeaponVisualFxRoute, FrozenWeaponVisualSourceGate};
+
+        let (position, matrix, speed, radius) = match &impact.detonation_source {
+            ProjectileDetonationSource::Object {
+                id, pre_physics_pose, primary_damage_radius, ..
+            } => {
+                // The caller has validated the live projectile's birth.
+                let actor = &self.objects[id];
+                let gate = FrozenWeaponVisualSourceGate {
+                    source_has_drawable: actor.has_drawable,
+                    source_is_locally_controlled: super::weapon_visual_capture::source_is_locally_controlled(
+                        actor.owner_player_id, self.local_player_id(),
+                    ),
+                    source_is_stealthed: actor.status.stealthed,
+                    source_is_detected: actor.status.detected,
+                    source_is_disguised: actor.status.disguised,
+                    source_is_mine: actor.is_kind_of(KindOf::Mine),
+                    weapon_plays_fx_when_stealthed: rule.is_some_and(|rule| rule.play_fx_when_stealthed),
+                    selected_fx_is_present: true,
+                    logic_frame: self.frame,
+                    // WeaponStore::handleProjectileDetonation constructs a
+                    // temporary weapon this frame (Weapon.cpp:1504,1742).
+                    suspend_fx_frame: self.frame.wrapping_add(rule.map_or(0, |rule| rule.suspend_fx_delay)),
+                };
+                if gate.fx_route() != Some(FrozenWeaponVisualFxRoute::BroadcastWithFireFx) {
+                    return;
+                }
+                // Weapon.cpp:936–939, when the Drawable did not handle FX.
+                // A contact weapon changes the primary point, not its basis.
+                let pose = pre_physics_pose.unwrap_or_else(|| actor.get_transform_matrix());
+                let position = if rule.is_some_and(gamelogic::weapon::WeaponTemplate::is_contact_weapon) {
+                    impact.position
+                } else {
+                    pose.w_axis.truncate()
+                };
+                (position, Some(pose), rule.map_or(0.0, |rule| rule.weapon_speed), *primary_damage_radius)
+            }
+            _ => {
+                let shooter = self.objects.get(&impact.shooter_id);
+                (
+                    impact.position,
+                    shooter.map(Object::get_transform_matrix),
+                    0.0,
+                    host_fire_fx_override_radius(shooter),
+                )
+            }
+        };
+        let _ = self.dispatch_fx_list_at_host_position_oriented_with_effects(
+            name, position, Some(impact.position), speed, radius, matrix, effects,
+        );
     }
 
 }

@@ -65,6 +65,7 @@ pub(in crate::game_logic) enum ProjectileDetonationSource {
         epoch: u64,
         pre_physics_pose: Option<glam::Mat4>,
         weapon_key: String,
+        primary_damage_radius: f32,
     },
 }
 
@@ -112,6 +113,7 @@ impl ProjectileImpactFx {
             Some((generation, epoch)) => ProjectileDetonationSource::Object {
                 id, generation, epoch, pre_physics_pose,
                 weapon_key: projectile.historic_weapon_key.to_ascii_lowercase(),
+                primary_damage_radius: projectile.explosion_radius,
             },
             None => ProjectileDetonationSource::VirtualProjectile(id),
         };
