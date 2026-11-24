@@ -161000,7 +161000,7 @@
     }
   ],
   "generator": "GeneralsRust/Code/Main/scripts/generate_port_provenance.py",
-  "input_digest": "3ac216186c6c2204b6c74978fe22d4c8b96f0f2af809856e326f8a3142bbba9f",
+  "input_digest": "f1ec960803566a490622703e8d65a5576f62bd3336c5b3945eed9dc0ef67bf50",
   "metric_contract": {
     "behavior_requires_explicit_evidence": true,
     "candidate_mapping_is_reviewed": false,
@@ -213291,11 +213291,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 1439,
+        "end_line": 1438,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object_creation_list/advanced_nuggets.rs",
-      "sha256": "b0bc1c870dc5be5690086c1fb36817f3a9bb61f1c66aba6207fa0aa904d73a7e",
+      "sha256": "9a97c4a642a8d55738a75faf45e3c34df41334aab9ca1b3d8e11d594657977c2",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -213339,11 +213339,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 2661,
+        "end_line": 2642,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object_creation_list/nuggets.rs",
-      "sha256": "3c37734522840895f87c7b4af331deab69863d872ac01c6f90f3fb543bb3224d",
+      "sha256": "4bf4ccaae4ce87095b44fd074b45fb2e605c301352e2759b1b378f564e724e1a",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
