@@ -13,6 +13,7 @@ fn multiplayer_local_general_presentation(
     template: Option<&PlayerTemplate>,
     fallback_side_name: &str,
     generals: &ChallengeGenerals,
+    mut text: impl FnMut(&str) -> String,
 ) -> MultiplayerLocalGeneralPresentation {
     let Some(template) = template else {
         return MultiplayerLocalGeneralPresentation {
@@ -28,16 +29,16 @@ fn multiplayer_local_general_presentation(
         template_name: template.name.clone(),
         name: template.get_display_name().to_string(),
         features: if template.features.is_empty() {
-            GameText::fetch("GUI:PlayerObserver")
+            text("GUI:PlayerObserver")
         } else {
-            GameText::fetch(&template.features)
+            text(&template.features)
         },
         portrait: None,
         load_screen_music: template.load_screen_music.clone(),
     };
 
     if let Some(general) = generals.general_by_template_name(&template.name) {
-        presentation.name = GameText::fetch(general.bio_name());
+        presentation.name = text(general.bio_name());
         presentation.portrait = general.bio_portrait_large().map(str::to_string);
     }
 

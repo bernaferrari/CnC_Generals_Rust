@@ -70,6 +70,12 @@ struct StagedRestoreWorld {
     logic_rng_seed_words: [u32; 6],
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum SaveLoadEntry {
+    Authority,
+    UserInterface,
+}
+
 /// A staging error leaves the old match intact. An error after world install
 /// requires the C++ GameState load-failure reset before the menu can render.
 #[derive(Debug)]
@@ -1625,6 +1631,7 @@ impl CnCGameEngine {
     fn host_replace_staged_restore_world(
         &mut self,
         staged: StagedRestoreWorld,
+        entry: SaveLoadEntry,
     ) -> Result<(), String> {
         // Reject unexplained Core callbacks before invalidating the old UI,
         // replacing its world, or admitting the candidate camera continuation.
@@ -1708,9 +1715,16 @@ impl CnCGameEngine {
         #[cfg(feature = "game_client")]
         self.host_invalidate_active_popup_for_world_boundary();
 
-        if let Err(error) = self.with_native_camera_input_effects(|world, effects, _| {
-            world.destroy_all_objects_immediate_with_effects_checked(effects)
-        }) {
+        let retire_outgoing = (|| {
+            if entry == SaveLoadEntry::UserInterface {
+                self.enter_accepted_save_loading()
+                    .map_err(gamelogic::GameLogicError::Configuration)?;
+            }
+            self.with_native_camera_input_effects(|world, effects, _| {
+                world.destroy_all_objects_immediate_with_effects_checked(effects)
+            })
+        })();
+        if let Err(error) = retire_outgoing {
             #[cfg(feature = "game_client")]
             {
                 let cleanup = self.reject_receiving_world_candidate(logic, native_map);
@@ -1789,6 +1803,10 @@ impl CnCGameEngine {
         if let Some(local) = saved_local {
             self.current_player_id = local;
             self.host_match_local_player_id = Some(local);
+        }
+        #[cfg(feature = "game_client")]
+        if entry == SaveLoadEntry::UserInterface && !self.runtime_host_headless {
+            self.show_accepted_saved_load_screen()?;
         }
         self.host_admit_snow_for_world();
         #[cfg(feature = "game_client")]
@@ -3142,7 +3160,7 @@ impl CnCGameEngine {
         &mut self,
         slot: &str,
     ) -> Result<SaveGameInfo, HostLoadFailure> {
-        self.host_try_load_game_authority(slot)
+        self.host_try_load_game_authority(slot, SaveLoadEntry::Authority)
     }
 
     fn validate_staged_native_fade(
@@ -3157,6 +3175,7 @@ impl CnCGameEngine {
     fn host_try_load_game_authority(
         &mut self,
         slot: &str,
+        entry: SaveLoadEntry,
     ) -> Result<SaveGameInfo, HostLoadFailure> {
         let save_info = self
             .save_file_manager
@@ -3318,7 +3337,7 @@ impl CnCGameEngine {
             return Err(HostLoadFailure::Staging(reason));
         }
         let save_info = staged.info.clone();
-        if let Err(err) = self.host_replace_staged_restore_world(staged) {
+        if let Err(err) = self.host_replace_staged_restore_world(staged, entry) {
             return Err(HostLoadFailure::Committed(err));
         }
         #[cfg(feature = "game_client")]
@@ -3722,7 +3741,10 @@ impl CnCGameEngine {
             // partly installed world as a playable InGame state.
             self.return_to_main_menu_after_match()?;
         } else {
-            self.transition_to_state(Self::staged_load_failure_return_state(prior_state))?;
+            let return_state = Self::staged_load_failure_return_state(prior_state);
+            if self.current_state != return_state {
+                self.transition_to_state(return_state)?;
+            }
         }
         // C++ GameState.cpp:695-712 resets the engine before showing
         // GUI:ErrorLoadingGame. A committed failure's menu teardown
@@ -3739,22 +3761,15 @@ impl CnCGameEngine {
             return Err("empty save slot".into());
         }
 
-        // Capture this before load-screen preparation changes the state to
-        // Loading. The staging helper below owns no live GameLogic/renderer
-        // references, so this is the only state needed for rollback.
+        // Detached archive/map validation leaves the live UI and mixer in
+        // place. The accepted swap chooses the loading screen from the save.
         let prior_state = self.current_state;
 
         // Headless host residual: skip load-screen SFX / GPU rebinds that block the
         // control loop for many seconds after snapshot restore.
         let headless_host = self.runtime_host_headless;
 
-        if !headless_host {
-            #[cfg(feature = "game_client")]
-            // Prefer presentation game_mode residual when installed.
-            self.prepare_cpp_load_screen_for_mode(self.presentation_or_live_game_mode(), true);
-        }
-        self.transition_to_state(GameState::Loading)?;
-        match self.host_load_game_authority(slot) {
+        match self.host_try_load_game_authority(slot, SaveLoadEntry::UserInterface) {
             Ok(save_info) => {
                 if self.pending_match_start.is_some() {
                     // Mission save posted MSG_NEW_GAME and parked startNewGame.

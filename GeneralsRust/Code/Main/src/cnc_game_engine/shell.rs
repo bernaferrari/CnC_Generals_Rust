@@ -1,5 +1,10 @@
 #![allow(unused_imports, unused_variables, dead_code, non_snake_case)]
 use super::*;
+
+#[cfg(feature = "game_client")]
+#[path = "shell/saved_load_screen.rs"]
+mod saved_load_screen;
+
 impl CnCGameEngine {
     pub(super) fn enter_shell_menu_from_runtime_host(
         &mut self,
@@ -287,51 +292,46 @@ impl CnCGameEngine {
                     self.select_cpp_load_screen(self.presentation_or_live_game_mode(), false)
                 })
                 .unwrap_or(game_client::gui::load_screen::LoadScreenKind::ShellGame);
-            self.active_load_screen = Some(kind);
-
             let context = self.load_screen_init_context();
-            let owner = self.game_client.window_manager_owner();
-            // C++ GameWindowManagerScript layouts always scale against the
-            // live display, not the CREATIONRESOLUTION default. Seed the WM
-            // screen size with the logical window size before creating the
-            // loading-screen layout, mirroring show_shell_menu, or the boot
-            // overlay scales against the 800x600 default and stays wrong.
-            {
-                let scale = self.window.scale_factor().max(0.0001);
-                let size = self.window.inner_size();
-                let logical_w = ((size.width as f64) / scale).round().max(1.0) as i32;
-                let logical_h = ((size.height as f64) / scale).round().max(1.0) as i32;
-                owner.with_manager(|manager| {
-                    manager.set_screen_size(logical_w, logical_h);
-                });
-            }
-            let created = match self
-                .with_native_load_screen_presentation(|load, pump| load.init(kind, &context, pump))
-            {
-                Ok(created) => created,
-                Err(error) => {
-                    self.with_receiving_load_screen_audio(|runtime| {
-                        game_client::gui::load_screen::reset_load_screen(kind, runtime)
-                    });
-                    self.active_load_screen = None;
-                    return Err(error);
-                }
-            };
-            if !created {
-                self.with_receiving_load_screen_audio(|runtime| {
-                    game_client::gui::load_screen::reset_load_screen(kind, runtime)
-                });
-                self.active_load_screen = None;
-                return Err(format!(
-                    "Failed to create {kind:?} receiving load-screen layout"
-                ));
-            }
-
-            self.loading_overlay_active = true;
-            info!("Loading screen overlay created as {:?}", kind);
+            self.initialize_shell_loading_overlay(kind, &context)?;
         }
 
         Ok(())
+    }
+
+    #[cfg(feature = "game_client")]
+    fn initialize_shell_loading_overlay(
+        &mut self,
+        kind: game_client::gui::load_screen::LoadScreenKind,
+        context: &game_client::gui::load_screen::LoadScreenInitContext,
+    ) -> Result<(), String> {
+        self.active_load_screen = Some(kind);
+        // GameWindowManagerScript scales against the live logical display size.
+        let scale = self.window.scale_factor().max(0.0001);
+        let size = self.window.inner_size();
+        self.game_client.window_manager_owner().with_manager(|manager| {
+            manager.set_screen_size(
+                ((size.width as f64) / scale).round().max(1.0) as i32,
+                ((size.height as f64) / scale).round().max(1.0) as i32,
+            );
+        });
+        let result = self.with_native_load_screen_presentation(|load, pump| {
+            if load.init(kind, context, pump)? {
+                Ok(())
+            } else {
+                Err(format!("Failed to create {kind:?} receiving load-screen layout"))
+            }
+        });
+        if result.is_err() {
+            self.with_receiving_load_screen_audio(|runtime| {
+                game_client::gui::load_screen::reset_load_screen(kind, runtime)
+            });
+            self.active_load_screen = None;
+        } else {
+            self.loading_overlay_active = true;
+            info!("Loading screen overlay created as {:?}", kind);
+        }
+        result
     }
 
     /// One loading UI operation; the canonical client state survives between

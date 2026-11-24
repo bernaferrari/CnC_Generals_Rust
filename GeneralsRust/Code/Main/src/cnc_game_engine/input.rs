@@ -1344,6 +1344,28 @@ impl CnCGameEngine {
     /// Execute state transition with proper setup/cleanup
     /// Matches C++ GameEngine reset() and initialization patterns
     pub(super) fn host_transition_to_state(&mut self, new_state: GameState) -> Result<(), String> {
+        self.host_transition_with_load_setup(new_state, |engine| {
+            engine.ensure_shell_loading_overlay()?;
+            engine.update_shell_loading_progress(0.0, Some("Loading assets..."))
+        })
+    }
+
+    /// Move to the loading state only after the saved world has passed preflight.
+    /// The receiving roster will install its screen after outgoing audio resets.
+    pub(super) fn enter_accepted_save_loading(&mut self) -> Result<(), String> {
+        self.host_transition_with_load_setup(GameState::Loading, |engine| {
+            if engine.current_state != GameState::Loading {
+                engine.hide_shell_loading_overlay();
+            }
+            engine.update_shell_loading_progress(0.0, Some("Restoring saved game"))
+        })
+    }
+
+    fn host_transition_with_load_setup(
+        &mut self,
+        new_state: GameState,
+        setup_loading: impl FnOnce(&mut Self) -> Result<(), String>,
+    ) -> Result<(), String> {
         if new_state == GameState::Exiting {
             self.abandon_startup_load_worker();
         }
@@ -1419,8 +1441,7 @@ impl CnCGameEngine {
             }
             GameState::Loading => {
                 info!("Entering Loading state");
-                self.ensure_shell_loading_overlay()?;
-                self.update_shell_loading_progress(0.0, Some("Loading assets..."))?;
+                setup_loading(self)?;
                 self.ui_manager.suspend_for_shell_overlay();
                 self.set_runtime_ui_state_projection(Screen::Loading);
                 self.last_slow_menu_tick_log = None;

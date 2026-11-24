@@ -507,28 +507,42 @@ pub fn load_screen_init_context_from_game_info(
         } else {
             None
         };
-        let local_general_presentation = multiplayer_local_general_presentation(
-            local_template.as_ref(),
-            &local_slot.side_name,
-            generals,
-        );
-        LoadScreenInitContext {
+        let mut context = LoadScreenInitContext {
             local_player_name: local_slot.player_name.clone(),
             local_side_name: local_slot.side_name.clone(),
-            local_template_name: local_general_presentation.template_name,
-            local_general_name: local_general_presentation.name,
-            local_general_features: local_general_presentation.features,
-            local_general_portrait: local_general_presentation.portrait,
-            local_load_screen_music: local_general_presentation.load_screen_music,
             local_team_number: local_slot.player_id,
-            shell_game_did_mem_pass: game_engine::common::game_lod::did_mem_pass(),
             map_name: load_screen_map_name_from_game_info(game_info),
             start_positions,
             slots,
-        }
+            ..LoadScreenInitContext::default()
+        };
+        set_multiplayer_load_screen_general(
+            &mut context,
+            local_template.as_ref(),
+            generals,
+            |key| GameText::fetch(key),
+        );
+        context
     } else {
         LoadScreenInitContext::default()
     }
+}
+
+/// Populate the local portrait, feature text and faction cue from the
+/// receiving PlayerTemplate chosen by the lobby or accepted save.
+pub fn set_multiplayer_load_screen_general(
+    context: &mut LoadScreenInitContext,
+    template: Option<&PlayerTemplate>,
+    generals: &ChallengeGenerals,
+    text: impl FnMut(&str) -> String,
+) {
+    let presentation =
+        multiplayer_local_general_presentation(template, &context.local_side_name, generals, text);
+    context.local_template_name = presentation.template_name;
+    context.local_general_name = presentation.name;
+    context.local_general_features = presentation.features;
+    context.local_general_portrait = presentation.portrait;
+    context.local_load_screen_music = presentation.load_screen_music;
 }
 
 fn load_screen_map_name_from_game_info(
