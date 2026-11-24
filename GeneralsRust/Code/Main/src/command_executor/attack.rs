@@ -190,6 +190,33 @@ impl<'a> CommandExecutor<'a> {
             .game_logic
             .attack_voice_slot(units, Some(target_id), false, false, None);
 
+        let any_attacker = self.order_group_attack_object(units, target_id, forced, -1, false)?;
+
+        if any_attacker {
+            // C++ MSG_DO_ATTACK_OBJECT VoiceAttack / VoiceAttackAir, then specialty
+            // upgrade (`CommandXlat.cpp:496-567`).
+            self.game_logic.queue_picked_unit_voice(units, voice);
+            Ok(CommandResult::Success)
+        } else {
+            Ok(CommandResult::CannotAttackTarget)
+        }
+    }
+
+    /// The shared member pass of `groupAttackObjectPrivate`
+    /// (AIGroup.cpp:2100-2174): passengers, then locked spawn roster, then
+    /// the member itself, ordered near-to-far. `max_shots` carries the
+    /// finite DoWeapon limit through every branch (-1 is the unlimited
+    /// ordinary order). `specialty` (DoWeapon only) runs the worker
+    /// mine-attack supply drop at each accepted order site so skipped HELD
+    /// members keep their cargo.
+    pub(super) fn order_group_attack_object(
+        &mut self,
+        units: &[ObjectId],
+        target_id: ObjectId,
+        forced: bool,
+        max_shots: i32,
+        specialty: bool,
+    ) -> gamelogic::GameLogicResult<bool> {
         let target_pos = self
             .game_logic
             .host_object(target_id)
@@ -258,11 +285,19 @@ impl<'a> CommandExecutor<'a> {
                             passenger, target_id, &mut self.ui,
                         )?
                     } else {
-                        self.game_logic.unit_command_attack_with_effects(
-                            passenger, target_id, &mut self.ui,
+                        self.game_logic.unit_command_attack_with_shots_and_effects(
+                            passenger, target_id, max_shots, &mut self.ui,
                         )?
                     };
-                    any_attacker |= ok;
+                    if ok {
+                        any_attacker = true;
+                        if specialty {
+                            self.game_logic.drop_worker_supply_after_mine_attack(
+                                passenger,
+                                &mut self.ui,
+                            );
+                        }
+                    }
                 }
             }
             // SpawnBehavior::orderSlavesToAttackTarget always uses force
@@ -272,6 +307,7 @@ impl<'a> CommandExecutor<'a> {
                 .order_spawn_children_to_attack_target(
                     unit_id,
                     target_id,
+                    max_shots,
                     HUNT_CMD_FROM_PLAYER,
                     &mut self.ui,
                 )? != 0;
@@ -287,14 +323,19 @@ impl<'a> CommandExecutor<'a> {
                     &mut self.ui,
                 )?
             } else {
-                self.game_logic.unit_command_attack_with_effects(
+                self.game_logic.unit_command_attack_with_shots_and_effects(
                     unit_id,
                     target_id,
+                    max_shots,
                     &mut self.ui,
                 )?
             };
             if ok {
                 any_attacker = true;
+                if specialty {
+                    self.game_logic
+                        .drop_worker_supply_after_mine_attack(unit_id, &mut self.ui);
+                }
                 continue;
             }
             let has_ai = self
@@ -310,21 +351,18 @@ impl<'a> CommandExecutor<'a> {
                     unit_id,
                     target_id,
                     forced,
+                    max_shots,
                     &mut self.ui,
                 )
             {
                 any_attacker = true;
+                if specialty {
+                    self.game_logic
+                        .drop_worker_supply_after_mine_attack(unit_id, &mut self.ui);
+                }
             }
         }
-
-        if any_attacker {
-            // C++ MSG_DO_ATTACK_OBJECT VoiceAttack / VoiceAttackAir, then specialty
-            // upgrade (`CommandXlat.cpp:496-567`).
-            self.game_logic.queue_picked_unit_voice(units, voice);
-            Ok(CommandResult::Success)
-        } else {
-            Ok(CommandResult::CannotAttackTarget)
-        }
+        Ok(any_attacker)
     }
 
     /// C++ AIGroup::groupGuardObject residual helper.
@@ -391,6 +429,46 @@ impl<'a> CommandExecutor<'a> {
         max_shots: i32,
     ) -> gamelogic::GameLogicResult<CommandResult> {
         let _bind = self.bind_services();
+        let any = self.order_group_attack_position(units, location, max_shots, false)?;
+
+        Ok(if any {
+            // C++ CommandXlat.cpp:460-508 MSG_DO_FORCE_ATTACK_GROUND:
+            // PerUnitSound VoiceBombard when valid, else ThingTemplate VoiceAttack.
+            // MSG_DO_WEAPON_AT_LOCATION / AttackPosition also start from VoiceAttack.
+            let bombard = units.iter().any(|&id| {
+                self.game_logic.host_object(id).is_some_and(|o| {
+                    crate::game_logic::audio_dispatch_impl::resolve_receiving_unit_voice(
+                        o.get_template(),
+                        crate::game_logic::audio_dispatch_impl::UnitVoiceSlot::Bombard,
+                    )
+                    .is_some()
+                })
+            });
+            let slot = if bombard {
+                crate::game_logic::audio_dispatch_impl::UnitVoiceSlot::Bombard
+            } else {
+                crate::game_logic::audio_dispatch_impl::UnitVoiceSlot::Attack
+            };
+            self.game_logic.queue_picked_unit_voice(units, slot);
+            CommandResult::Success
+        } else {
+            CommandResult::InvalidCommand
+        })
+    }
+
+    /// The shared member pass of `groupAttackPosition`
+    /// (AIGroup.cpp:2199-2256): passengers, then the locked spawn roster in
+    /// m_spawnIDs order, then the member itself, in selection order.
+    /// `max_shots` carries the finite DoWeapon limit (-1 unlimited).
+    /// `specialty` (DoWeapon only) runs the worker mine-attack supply drop
+    /// at each accepted order site.
+    pub(super) fn order_group_attack_position(
+        &mut self,
+        units: &[ObjectId],
+        location: Option<Vec3>,
+        max_shots: i32,
+        specialty: bool,
+    ) -> gamelogic::GameLogicResult<bool> {
         let mut any = false;
         for &unit_id in units {
             let attack_pos = match location {
@@ -450,6 +528,12 @@ impl<'a> CommandExecutor<'a> {
                             .unit_command_attack_position(passenger, attack_pos, max_shots)?
                     {
                         any = true;
+                        if specialty {
+                            self.game_logic.drop_worker_supply_after_mine_attack(
+                                passenger,
+                                &mut self.ui,
+                            );
+                        }
                     }
                 }
             }
@@ -494,6 +578,10 @@ impl<'a> CommandExecutor<'a> {
                     .unit_command_attack_position(unit_id, attack_pos, max_shots)?;
             if ordered {
                 any = true;
+                if specialty {
+                    self.game_logic
+                        .drop_worker_supply_after_mine_attack(unit_id, &mut self.ui);
+                }
             }
             // Face/path residual: movable units approach the ground point if far.
             let target_is_object = ordered
@@ -527,30 +615,7 @@ impl<'a> CommandExecutor<'a> {
                 let _ = self.path_to_goal_with_state(unit_id, dest, AIState::AttackingGround);
             }
         }
-
-        Ok(if any {
-            // C++ CommandXlat.cpp:460-508 MSG_DO_FORCE_ATTACK_GROUND:
-            // PerUnitSound VoiceBombard when valid, else ThingTemplate VoiceAttack.
-            // MSG_DO_WEAPON_AT_LOCATION / AttackPosition also start from VoiceAttack.
-            let bombard = units.iter().any(|&id| {
-                self.game_logic.host_object(id).is_some_and(|o| {
-                    crate::game_logic::audio_dispatch_impl::resolve_receiving_unit_voice(
-                        o.get_template(),
-                        crate::game_logic::audio_dispatch_impl::UnitVoiceSlot::Bombard,
-                    )
-                    .is_some()
-                })
-            });
-            let slot = if bombard {
-                crate::game_logic::audio_dispatch_impl::UnitVoiceSlot::Bombard
-            } else {
-                crate::game_logic::audio_dispatch_impl::UnitVoiceSlot::Attack
-            };
-            self.game_logic.queue_picked_unit_voice(units, slot);
-            CommandResult::Success
-        } else {
-            CommandResult::InvalidCommand
-        })
+        Ok(any)
     }
 
     /// S issues the C++ groupIdle member pass for each selection entry

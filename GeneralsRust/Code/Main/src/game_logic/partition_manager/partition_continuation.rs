@@ -570,6 +570,7 @@ mod tests {
                     jet,
                     victim,
                     false,
+                    -1,
                     &mut Default::default()
                 ));
                 assert!(

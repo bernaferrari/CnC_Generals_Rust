@@ -511,7 +511,7 @@ impl GameLogic {
         max_shots: i32,
     ) -> gamelogic::GameLogicResult<bool> {
         self.stamp_player_command_source(id);
-        let Some((range, contact, source_birth, source_off_map)) =
+        let Some((range, contact, source_off_map)) =
             self.host_object(id).map(|source| {
                 let range = source.selected_weapon_slot().map_or(0.0, |slot| {
                     source.selected_native_weapon_rule(slot).map_or_else(
@@ -535,12 +535,7 @@ impl GameLogic {
                         |weapon| weapon.is_contact_weapon(),
                     )
                 });
-                (
-                    range,
-                    contact,
-                    std::sync::Arc::downgrade(&source.visual_draw_identity_token),
-                    source.status.off_map,
-                )
+                (range, contact, source.status.off_map)
             })
         else {
             return Ok(false);
@@ -576,19 +571,16 @@ impl GameLogic {
                 source.set_status_ignoring_stealth(false);
             }
             if let Some(target) = best {
-                let accepted = self.unit_command_attack_with_source(
+                // The common object order installs the shot limit after the
+                // attack enter, same as the ordinary ground path below.
+                return self.unit_command_attack_with_source(
                     id,
                     target,
                     true,
                     true,
+                    max_shots,
                     &mut Default::default(),
-                )?;
-                if accepted && self.object_birth_matches(id, &source_birth) {
-                    if let Some(source) = self.host_object_mut(id) {
-                        source.set_max_shots_to_fire(max_shots);
-                    }
-                }
-                return Ok(accepted);
+                );
             }
             shot_limit = 1;
         }

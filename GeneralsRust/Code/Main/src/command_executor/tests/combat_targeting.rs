@@ -448,12 +448,14 @@ fn do_weapon_locks_the_requested_secondary_slot_before_targeting() {
     }
 
     let target = Vec3::new(75.0, 0.0, 25.0);
-    let result = CommandExecutor::new(&mut logic, 0).execute_weapon(
-        &[unit_id],
-        &WeaponSlot::Secondary,
-        1,
-        &WeaponTarget::Location(target),
-    );
+    let result = CommandExecutor::new(&mut logic, 0)
+        .execute_weapon(
+            &[unit_id],
+            &WeaponSlot::Secondary,
+            1,
+            &WeaponTarget::Location(target),
+        )
+        .unwrap();
     assert!(result == CommandResult::Success);
 
     let unit = logic.host_object(unit_id).expect("unit");
@@ -521,12 +523,14 @@ fn do_weapon_preserves_permanent_slot_and_still_fires() {
         .unwrap()
         .set_weapon_lock(0, WeaponLockType::LockedPermanently));
     logic.set_current_frame(100);
-    let result = CommandExecutor::new(&mut logic, 0).execute_weapon(
-        &[attacker],
-        &WeaponSlot::Secondary,
-        1,
-        &WeaponTarget::Location(target),
-    );
+    let result = CommandExecutor::new(&mut logic, 0)
+        .execute_weapon(
+            &[attacker],
+            &WeaponSlot::Secondary,
+            1,
+            &WeaponTarget::Location(target),
+        )
+        .unwrap();
     assert!(result == CommandResult::Success);
     let object = logic.host_object(attacker).unwrap();
     assert_eq!(object.weapon_lock_type, WeaponLockType::LockedPermanently);
@@ -588,13 +592,19 @@ fn do_weapon_uses_the_real_tertiary_slot_without_secondary_aliasing() {
         );
     }
 
-    let target = ObjectId(999);
-    let result = CommandExecutor::new(&mut logic, 0).execute_weapon(
-        &[unit_id],
-        &WeaponSlot::Slot(gamelogic::common::WeaponSlotType::Tertiary as u32),
-        -1,
-        &WeaponTarget::Object(target),
-    );
+    // The dispatch resolves the object before any member lock
+    // (GameLogicDispatch.cpp:614-629), so a present target is required.
+    let target = logic
+        .create_object("DW_TERTIARY", Team::GLA, Vec3::new(50.0, 0.0, 0.0))
+        .expect("victim");
+    let result = CommandExecutor::new(&mut logic, 0)
+        .execute_weapon(
+            &[unit_id],
+            &WeaponSlot::Slot(gamelogic::common::WeaponSlotType::Tertiary as u32),
+            -1,
+            &WeaponTarget::Object(target),
+        )
+        .unwrap();
     assert!(result == CommandResult::Success);
 
     let _ = logic.host_object_mut(unit_id).expect("unit");
@@ -643,12 +653,14 @@ fn do_weapon_rejects_unrepresented_slots_without_primary_fallback() {
         ..Weapon::default()
     });
 
-    let result = CommandExecutor::new(&mut logic, 0).execute_weapon(
-        &[unit_id],
-        &WeaponSlot::Tertiary,
-        -1,
-        &WeaponTarget::Location(Vec3::new(75.0, 0.0, 25.0)),
-    );
+    let result = CommandExecutor::new(&mut logic, 0)
+        .execute_weapon(
+            &[unit_id],
+            &WeaponSlot::Tertiary,
+            -1,
+            &WeaponTarget::Location(Vec3::new(75.0, 0.0, 25.0)),
+        )
+        .unwrap();
     assert!(result == CommandResult::InvalidCommand);
 
     let unit = logic.host_object(unit_id).expect("unit");
@@ -657,16 +669,171 @@ fn do_weapon_rejects_unrepresented_slots_without_primary_fallback() {
     assert_eq!(unit.target_location, None);
 
     for invalid in [WeaponSlot::AntiAir, WeaponSlot::Slot(3), WeaponSlot::Slot(u32::MAX)] {
-        let result = CommandExecutor::new(&mut logic, 0).execute_weapon(
-            &[unit_id],
-            &invalid,
-            -1,
-            &WeaponTarget::Location(Vec3::new(80.0, 0.0, 30.0)),
-        );
+        let result = CommandExecutor::new(&mut logic, 0)
+            .execute_weapon(
+                &[unit_id],
+                &invalid,
+                -1,
+                &WeaponTarget::Location(Vec3::new(80.0, 0.0, 30.0)),
+            )
+            .unwrap();
         assert!(result == CommandResult::InvalidCommand, "{invalid:?}");
         let unit = logic.host_object(unit_id).expect("unit");
         assert_eq!(unit.target_location, None);
         assert_eq!(unit.weapon_lock_type, WeaponLockType::NotLocked);
+    }
+}
+
+#[test]
+fn do_weapon_locks_the_whole_selection_then_orders_one_group_attack() {
+    // C++ GameLogicDispatch.cpp:557-582,614-633: resolve the target once,
+    // lock the requested slot on EVERY member, then dispatch the shared
+    // unforced group attack for the entire selection — including members
+    // whose lock request failed.
+    use super::{CommandExecutor, dispatch_test_command};
+    use crate::command_system::{CommandResult, CommandType, WeaponSlot, WeaponTarget};
+    use crate::fixture_content::{FixtureObject, FixtureWeapon, admit_fixture_content};
+    use crate::game_logic::{GameLogic, ObjectId, Player, Team, WeaponLockType};
+    use glam::Vec3;
+
+    let order = |logic: &mut GameLogic, units: Vec<ObjectId>, target: WeaponTarget| {
+        CommandExecutor::new(logic, 0)
+            .execute_command(dispatch_test_command(
+                CommandType::DoWeapon {
+                    weapon_slot: WeaponSlot::Secondary,
+                    max_shots_to_fire: 2,
+                    target,
+                },
+                0,
+                units,
+            ))
+            .unwrap()
+    };
+
+    for object_target in [true, false] {
+        let mut logic = GameLogic::new();
+        logic.add_player(Player::new(0, Team::USA, "gunner", true));
+        logic.add_player(Player::new(1, Team::GLA, "target", false));
+        logic
+            .get_player_mut(0)
+            .unwrap()
+            .set_map_relationship(1, gamelogic::common::Relationship::Enemies);
+        admit_fixture_content(
+            &mut logic,
+            &[
+                FixtureObject::new("GroupPrimaryOnly")
+                    .kind_of("VEHICLE SELECTABLE CAN_ATTACK")
+                    .health(100.0)
+                    .walker()
+                    .armed("GroupPrimaryGun"),
+                FixtureObject::new("GroupSecondary")
+                    .kind_of("VEHICLE SELECTABLE CAN_ATTACK")
+                    .health(100.0)
+                    .walker()
+                    .armed("GroupPrimaryGun")
+                    .weapon("SECONDARY", "GroupSecondaryGun"),
+                FixtureObject::new("GroupWitness")
+                    .kind_of("VEHICLE SELECTABLE")
+                    .health(500.0),
+            ],
+            &[
+                FixtureWeapon::new("GroupPrimaryGun")
+                    .damage(17.0)
+                    .radius(8.0)
+                    .range(100.0)
+                    .damage_type("UNRESISTABLE")
+                    .field("WeaponSpeed = 999999"),
+                FixtureWeapon::new("GroupSecondaryGun")
+                    .damage(31.0)
+                    .radius(8.0)
+                    .range(100.0)
+                    .damage_type("UNRESISTABLE")
+                    .field("WeaponSpeed = 999999"),
+            ],
+        );
+        let far = logic
+            .create_object_for_player("GroupSecondary", 0, Vec3::ZERO)
+            .unwrap();
+        let near = logic
+            .create_object_for_player("GroupPrimaryOnly", 0, Vec3::new(25.0, 0.0, 0.0))
+            .unwrap();
+        let other = logic
+            .create_object_for_player("GroupSecondary", 0, Vec3::new(-10.0, 0.0, 0.0))
+            .unwrap();
+        let victim_pos = Vec3::new(45.0, 0.0, 0.0);
+        let victim = logic
+            .create_object_for_player("GroupWitness", 1, victim_pos)
+            .unwrap();
+        let target = if object_target {
+            WeaponTarget::Object(victim)
+        } else {
+            WeaponTarget::Location(victim_pos)
+        };
+
+        // A member that lacks the requested slot cannot take the command alone.
+        let result = order(&mut logic, vec![near], target.clone());
+        assert_eq!(result, CommandResult::InvalidCommand);
+        {
+            let unit = logic.host_object(near).unwrap();
+            assert_eq!(unit.weapon_lock_type, WeaponLockType::NotLocked);
+            assert_eq!(unit.target, None);
+            assert_eq!(unit.target_location, None);
+        }
+
+        // One member accepts the slot: the whole selection still receives
+        // the shared unforced group attack with the finite shot count.
+        let result = order(&mut logic, vec![far, near, other], target.clone());
+        assert_eq!(result, CommandResult::Success);
+        {
+            // Both duals lock — proving the lock pass applies to every
+            // member rather than stopping at the first acceptance.
+            for dual in [far, other] {
+                let unit = logic.host_object(dual).unwrap();
+                assert_eq!(
+                    unit.weapon_lock_type,
+                    WeaponLockType::LockedTemporarily
+                );
+                assert_eq!(unit.weapon_lock_slot, 1);
+                assert_eq!(unit.max_shots_to_fire, 2);
+            }
+            let near_unit = logic.host_object(near).unwrap();
+            assert_eq!(near_unit.weapon_lock_type, WeaponLockType::NotLocked);
+            assert_eq!(near_unit.active_weapon_slot, 0);
+            assert_eq!(near_unit.max_shots_to_fire, 2);
+        }
+        if object_target {
+            for member in [far, near, other] {
+                assert_eq!(logic.host_object(member).unwrap().target, Some(victim));
+            }
+            logic.attack_events.complete_boundary();
+            let events = logic.attack_events.take_completed();
+            let index = |id| {
+                events
+                    .iter()
+                    .position(|event| event.attacker == id)
+                    .unwrap()
+            };
+            assert!(
+                index(near) < index(far),
+                "the near member attacks before the far member: {events:?}"
+            );
+
+            // A missing object target is rejected before any member lock.
+            let result = order(&mut logic, vec![far], WeaponTarget::Object(ObjectId(999)));
+            assert_eq!(result, CommandResult::InvalidTarget);
+            assert_eq!(
+                logic.host_object(far).unwrap().weapon_lock_type,
+                WeaponLockType::LockedTemporarily,
+                "the rejected command leaves the earlier temporary lock alone"
+            );
+        } else {
+            for member in [far, near, other] {
+                assert_eq!(
+                    logic.host_object(member).unwrap().target_location,
+                    Some(victim_pos)
+                );
+            }
+        }
     }
 }
 
@@ -772,12 +939,14 @@ fn ordinary_do_weapon_uses_authored_mine_detail_and_disarms_only_when_armed() {
     // The actual retail FIRE_WEAPON does not become usable merely because the
     // object owns a mine row.  The parsed option arms the persistent detail
     // bit first; an untyped/no-option command must fail closed here.
-    let result = CommandExecutor::new(&mut logic, 0).execute_weapon(
-        &[clearer_id],
-        &WeaponSlot::Primary,
-        -1,
-        &WeaponTarget::Location(Vec3::new(2.0, 0.0, 0.0)),
-    );
+    let result = CommandExecutor::new(&mut logic, 0)
+        .execute_weapon(
+            &[clearer_id],
+            &WeaponSlot::Primary,
+            -1,
+            &WeaponTarget::Location(Vec3::new(2.0, 0.0, 0.0)),
+        )
+        .unwrap();
     assert!(result == CommandResult::InvalidCommand);
     assert!(
         logic
@@ -806,7 +975,9 @@ fn ordinary_do_weapon_uses_authored_mine_detail_and_disarms_only_when_armed() {
                 &WeaponSlot::Primary,
                 -1,
                 &WeaponTarget::Location(Vec3::new(2.0, 0.0, 0.0)),
-            ) == CommandResult::Success);
+            )
+            .unwrap()
+            == CommandResult::Success);
     }
     let clearer = logic.host_object(clearer_id).expect("typed clearer");
     assert!(clearer.test_weapon_condition(8));

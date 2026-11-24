@@ -845,7 +845,7 @@ fn flying_quick_path_retargets_and_reuses_requested_destination() {
 fn object_attack_orders_passenger_fire() {
     // C++ groupAttackObjectPrivate (AIGroup.cpp:2131-2151) orders fire-capable passengers.
     use super::CommandExecutor;
-    use crate::command_system::CommandResult;
+    use crate::command_system::{CommandResult, WeaponSlot, WeaponTarget};
     use crate::game_logic::{GameLogic, KindOf, Team, ThingTemplate, Weapon};
     use glam::Vec3;
 
@@ -916,6 +916,44 @@ fn object_attack_orders_passenger_fire() {
         Some(enemy),
         "passenger allowed to fire must receive the object-attack order"
     );
+    let rider_id = rider.id;
+
+    // DoWeapon specialty order (GameLogicDispatch.cpp:557-582): SECONDARY is
+    // locked on the selected owner only, but the forwarded passenger order
+    // still carries the finite maxShotsToFire.
+    {
+        let h = logic.host_object_mut(humvee).unwrap();
+        crate::fixture_content::arm_slot_with_stats(
+            h,
+            1,
+            Weapon {
+                damage: 7.0,
+                range: 80.0,
+                ..Weapon::default()
+            },
+        );
+    }
+    {
+        let mut exec = CommandExecutor::new(&mut logic, 0);
+        assert!(
+            exec.execute_weapon(
+                &[humvee],
+                &WeaponSlot::Secondary,
+                2,
+                &WeaponTarget::Object(enemy),
+            )
+            .unwrap()
+                == CommandResult::Success);
+    }
+    let rider = logic.host_object(rider_id).unwrap();
+    assert_eq!(rider.target, Some(enemy));
+    assert_eq!(
+        rider.max_shots_to_fire, 2,
+        "forwarded passenger order must carry the finite DoWeapon shot count"
+    );
+    let owner = logic.host_object(humvee).unwrap();
+    assert_eq!(owner.max_shots_to_fire, 2);
+    assert_eq!(owner.active_weapon_slot, 1);
 }
 
 #[test]

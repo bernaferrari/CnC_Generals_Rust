@@ -1086,6 +1086,7 @@ impl GameLogic {
         id: ObjectId,
         target: ObjectId,
         forced: bool,
+        max_shots: i32,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> bool {
         let _ = self.host_object_mut(id);
@@ -1102,6 +1103,9 @@ impl GameLogic {
             self.frame,
             &mut effects.reborrow_for_world(&mut self.partition_manager, &self.host_trigger_world),
         );
+        if object.selected_weapon_slot().is_some() {
+            object.set_max_shots_to_fire(max_shots);
+        }
         true
     }
 

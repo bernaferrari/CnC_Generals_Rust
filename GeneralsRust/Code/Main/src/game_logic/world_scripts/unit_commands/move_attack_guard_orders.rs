@@ -198,7 +198,7 @@ impl GameLogic {
         target_id: ObjectId,
     ) -> gamelogic::GameLogicResult<bool> {
         self.stamp_player_command_source(id);
-        self.unit_command_attack_with_source(id, target_id, true, false, &mut Default::default())
+        self.unit_command_attack_with_source(id, target_id, true, false, -1, &mut Default::default())
     }
 
     /// SCRIPT uses the same owned attack algorithm without player shroud gates.
@@ -211,7 +211,7 @@ impl GameLogic {
             unit.last_command_source =
                 crate::game_logic::host_command_button_hunt::HUNT_CMD_FROM_SCRIPT;
         }
-        self.unit_command_attack_with_source(id, target_id, false, false, &mut Default::default())
+        self.unit_command_attack_with_source(id, target_id, false, false, -1, &mut Default::default())
     }
 
     pub(crate) fn unit_command_attack_with_effects(
@@ -220,8 +220,20 @@ impl GameLogic {
         target_id: ObjectId,
         effects: &mut ScriptPresentationEffects<'_>,
     ) -> gamelogic::GameLogicResult<bool> {
+        self.unit_command_attack_with_shots_and_effects(id, target_id, -1, effects)
+    }
+
+    /// Player attack order carrying a finite `maxShotsToFire` (-1 unlimited),
+    /// installed after the attack state's onEnter like ordinary orders.
+    pub(crate) fn unit_command_attack_with_shots_and_effects(
+        &mut self,
+        id: ObjectId,
+        target_id: ObjectId,
+        max_shots: i32,
+        effects: &mut ScriptPresentationEffects<'_>,
+    ) -> gamelogic::GameLogicResult<bool> {
         self.stamp_player_command_source(id);
-        self.unit_command_attack_with_source(id, target_id, true, false, effects)
+        self.unit_command_attack_with_source(id, target_id, true, false, max_shots, effects)
     }
     pub(crate) fn unit_command_script_attack_with_effects(
         &mut self,
@@ -233,7 +245,7 @@ impl GameLogic {
             unit.last_command_source =
                 crate::game_logic::host_command_button_hunt::HUNT_CMD_FROM_SCRIPT;
         }
-        self.unit_command_attack_with_source(id, target_id, false, false, effects)
+        self.unit_command_attack_with_source(id, target_id, false, false, -1, effects)
     }
 
     pub(super) fn unit_command_attack_with_source(
@@ -242,6 +254,7 @@ impl GameLogic {
         target_id: ObjectId,
         from_player: bool,
         prevalidated: bool,
+        max_shots: i32,
         effects: &mut ScriptPresentationEffects<'_>,
     ) -> gamelogic::GameLogicResult<bool> {
         if self.note_hacker_ai_command(
@@ -306,7 +319,7 @@ impl GameLogic {
         else {
             return Ok(false);
         };
-        let engaged = self.private_attack_object_with_effects(id, target_id, -1, effects)?;
+        let engaged = self.private_attack_object_with_effects(id, target_id, max_shots, effects)?;
         if !self.objects.get(&id).is_some_and(|source| {
             std::sync::Arc::ptr_eq(&source.visual_draw_identity_token, &source_birth)
         }) || !self.objects.get(&target_id).is_some_and(|target| {
@@ -323,6 +336,9 @@ impl GameLogic {
                     self.frame,
                     &mut effects.reborrow_for_world(&mut self.partition_manager, &self.host_trigger_world),
                 );
+                if unit.selected_weapon_slot().is_some() {
+                    unit.set_max_shots_to_fire(max_shots);
+                }
             } else {
                 return Ok(false);
             }
@@ -348,6 +364,7 @@ impl GameLogic {
         &mut self,
         owner_id: ObjectId,
         target_id: ObjectId,
+        max_shots: i32,
         source: u32,
         effects: &mut ScriptPresentationEffects<'_>,
     ) -> gamelogic::GameLogicResult<u32> {
@@ -381,6 +398,7 @@ impl GameLogic {
                 && self.unit_command_spawn_force_attack_with_effects(
                     child_id,
                     target_id,
+                    max_shots,
                     source,
                     effects,
                 )?
@@ -405,6 +423,7 @@ impl GameLogic {
         &mut self,
         id: ObjectId,
         target_id: ObjectId,
+        max_shots: i32,
         source: u32,
         effects: &mut ScriptPresentationEffects<'_>,
     ) -> gamelogic::GameLogicResult<bool> {
@@ -446,8 +465,8 @@ impl GameLogic {
             &mut effects.reborrow_for_world(&mut self.partition_manager, &self.host_trigger_world),
         );
         unit.set_force_attack(true);
-        if unit.weapon.is_some() {
-            unit.set_max_shots_to_fire(-1);
+        if unit.selected_weapon_slot().is_some() {
+            unit.set_max_shots_to_fire(max_shots);
         }
         if unit.ignored_obstacle_id.is_some_and(|old| old != target_id) {
             unit.ignored_obstacle_id = None;

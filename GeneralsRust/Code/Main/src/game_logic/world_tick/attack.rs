@@ -3171,12 +3171,19 @@ impl GameLogic {
             Some(v) if v.is_alive() => v.get_position(),
             _ => return Ok(false),
         };
-        if !self.objects.contains_key(&unit_id) {
+        let Some(source_birth) = self
+            .objects
+            .get(&unit_id)
+            .map(|source| std::sync::Arc::downgrade(&source.visual_draw_identity_token))
+        else {
             return Ok(false);
-        }
+        };
         // C++ AIAttackState::onEnter residual via nested AttackStateMachine.
         let entered =
             self.attack_state_enter_with_effects(unit_id, victim_id, presentation_effects)?;
+        if !self.object_birth_matches(unit_id, &source_birth) {
+            return Ok(false);
+        }
         // AIUpdate.cpp:3412-3416: install maxShotsToFire *after* setState,
         // because AttackState::onEnter resets it. C++ installs regardless of
         // the entry outcome.

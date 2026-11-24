@@ -1350,7 +1350,7 @@ fn specialty_attack_voices_replace_voice_attack() {
                     &WeaponSlot::Tertiary,
                     -1,
                     &WeaponTarget::Location(Vec3::new(80.0, 0.0, 80.0)),
-                ) == CommandResult::Success);
+                ).unwrap() == CommandResult::Success);
         }
         assert!(
             logic
@@ -1379,7 +1379,7 @@ fn specialty_attack_voices_replace_voice_attack() {
                     &WeaponSlot::Secondary,
                     -1,
                     &WeaponTarget::Location(Vec3::new(60.0, 0.0, 60.0)),
-                ) == CommandResult::Success);
+                ).unwrap() == CommandResult::Success);
         }
         assert!(
             logic
@@ -1408,7 +1408,7 @@ fn specialty_attack_voices_replace_voice_attack() {
                     &WeaponSlot::Tertiary,
                     -1,
                     &WeaponTarget::Object(inf_id),
-                ) == CommandResult::Success);
+                ).unwrap() == CommandResult::Success);
         }
         assert!(
             logic

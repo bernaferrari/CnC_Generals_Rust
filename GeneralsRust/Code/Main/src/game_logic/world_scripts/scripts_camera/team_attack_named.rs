@@ -82,6 +82,7 @@ impl GameLogic {
             let ordered = self.order_spawn_children_to_attack_target(
                 id,
                 target,
+                -1,
                 HUNT_CMD_FROM_SCRIPT,
                 effects,
             )?;

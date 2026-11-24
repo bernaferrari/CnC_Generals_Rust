@@ -438,7 +438,8 @@ impl<'a> CommandExecutor<'a> {
                 weapon_slot,
                 *max_shots_to_fire,
                 target,
-            ),
+            )
+            .map_err(|error| error.to_string())?,
 
             // Transport and container
             CommandType::Enter { target_id } => self

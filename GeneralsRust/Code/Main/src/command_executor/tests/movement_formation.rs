@@ -1392,7 +1392,7 @@ fn attack_ground_does_not_order_synthetic_hive_without_spawn_roster() {
 #[test]
 fn player_attack_forwards_only_locked_spawn_roster_after_restore() {
     use super::CommandExecutor;
-    use crate::command_system::{CommandResult, CommandType};
+    use crate::command_system::{CommandResult, CommandType, WeaponSlot, WeaponTarget};
     use crate::game_logic::{GameLogic, ObjectId, Player, Team, Weapon};
     use crate::save_load::SnapshotBuilder;
     use glam::Vec3;
@@ -1553,6 +1553,67 @@ End
     let index = |id| events.iter().position(|event| event.attacker == id).unwrap();
     assert!(index(children[0]) < index(parents[0]));
     assert!(index(parents[0]) < index(parents[1]));
+
+    // DoWeapon specialty order (GameLogicDispatch.cpp:557-582): every
+    // selected member lock is attempted, then one shared unforced group
+    // attack reaches the locked spawn roster with the finite limit. The
+    // free-will roster is not forwarded.
+    {
+        let free_nest = restored.host_object_mut(parents[1]).unwrap();
+        crate::fixture_content::arm_slot_with_stats(
+            free_nest,
+            1,
+            Weapon {
+                damage: 10.0,
+                range: 200.0,
+                can_target_ground: true,
+                ..Weapon::default()
+            },
+        );
+        // The ordinary AttackObject witness deliberately disarmed the locked
+        // child above; SpawnBehavior still forwards DoWeapon, and the finite
+        // limit now lands on the re-armed slot.
+        restored.host_object_mut(children[0]).unwrap().weapon = Some(Weapon {
+            damage: 10.0,
+            range: 200.0,
+            can_target_ground: true,
+            ..Weapon::default()
+        });
+    }
+    order(
+        &mut restored,
+        CommandType::DoWeapon {
+            weapon_slot: WeaponSlot::Secondary,
+            max_shots_to_fire: 2,
+            target: WeaponTarget::Object(victim),
+        },
+        parents,
+    );
+    {
+        let locked_child = restored.host_object(children[0]).unwrap();
+        assert_eq!(locked_child.target, Some(victim));
+        assert!(locked_child.force_attack);
+        assert_eq!(locked_child.max_shots_to_fire, 2);
+        assert_eq!(restored.host_object(children[1]).unwrap().target, None);
+    }
+    order(
+        &mut restored,
+        CommandType::DoWeapon {
+            weapon_slot: WeaponSlot::Secondary,
+            max_shots_to_fire: 4,
+            target: WeaponTarget::Location(ground),
+        },
+        parents,
+    );
+    {
+        let locked_child = restored.host_object(children[0]).unwrap();
+        assert_eq!(locked_child.target_location, Some(ground));
+        assert_eq!(locked_child.max_shots_to_fire, 4);
+        assert_eq!(
+            restored.host_object(children[1]).unwrap().target_location,
+            None
+        );
+    }
 
     // Player group Stop runs AIGroup::groupIdle (AIGroup.cpp:2026-2087):
     // the member's own aiIdle, then orderSlavesToGoIdle on the exact

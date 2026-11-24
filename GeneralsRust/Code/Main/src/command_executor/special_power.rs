@@ -1098,21 +1098,39 @@ impl<'a> CommandExecutor<'a> {
         }
     }
 
+    /// C++ GameLogicDispatch.cpp:557-582,614-633: resolve the target first,
+    /// lock the requested slot on EVERY selected member, then dispatch the
+    /// shared unforced group attack for the entire selection. Members that
+    /// cannot take the slot still receive the group order with their own
+    /// weapon once any member accepts.
     pub(super) fn execute_weapon(
         &mut self,
         units: &[ObjectId],
         weapon_slot: &WeaponSlot,
         max_shots_to_fire: i32,
         target: &WeaponTarget,
-    ) -> CommandResult {
+    ) -> gamelogic::GameLogicResult<CommandResult> {
         let _bind = self.bind_services();
         let Some(slot) = weapon_slot.concrete() else {
             warn!(
                 "Rejecting unindexed weapon command {:?}: it has no host weapon-set slot",
                 weapon_slot
             );
-            return CommandResult::InvalidCommand;
+            return Ok(CommandResult::InvalidCommand);
         };
+
+        // The dispatch resolves the present object before any member lock,
+        // and the location helper rejects a non-finite point: no lock is
+        // attempted for either.
+        match target {
+            WeaponTarget::Object(id) if self.game_logic.host_object(*id).is_none() => {
+                return Ok(CommandResult::InvalidTarget);
+            }
+            WeaponTarget::Location(pos) if !pos.x.is_finite() || !pos.z.is_finite() => {
+                return Ok(CommandResult::InvalidLocation);
+            }
+            _ => {}
+        }
 
         let (target_id, at_location) = match target {
             WeaponTarget::Object(id) => (Some(*id), false),
@@ -1122,55 +1140,36 @@ impl<'a> CommandExecutor<'a> {
             self.game_logic
                 .attack_voice_slot(units, target_id, true, at_location, Some(slot));
 
-        // C++ GUI_COMMAND_FIRE_WEAPON locks the requested weapon slot temporarily
-        // before it issues the attack. Do this through GameLogic so a requested
-        // secondary/tertiary action cannot accidentally fire the unit's primary.
-        let mut any = false;
-        for &unit_id in units {
-            if !self
-                .game_logic
-                .unit_command_select_weapon_slot(unit_id, slot)
-            {
-                warn!(
-                    "Unit {} cannot use requested weapon slot {:?}",
-                    unit_id.0, weapon_slot
-                );
-                continue;
-            }
-
-            let fired = match target {
-                WeaponTarget::Object(target_id) => self.game_logic.unit_command_fire_weapon(
-                    unit_id,
-                    Some(*target_id),
-                    None,
-                    max_shots_to_fire,
-                ),
-                WeaponTarget::Location(pos) => self.game_logic.unit_command_fire_weapon(
-                    unit_id,
-                    None,
-                    Some(*pos),
-                    max_shots_to_fire,
-                ),
-            };
-
-            if fired {
-                self.game_logic
-                    .drop_worker_supply_after_mine_attack(unit_id, &mut self.ui);
-                any = true;
-                debug!(
-                    "Unit {} firing weapon {:?} at {:?}",
-                    unit_id.0, weapon_slot, target
-                );
-            }
+        // C++ GUI_COMMAND_FIRE_WEAPON locks the requested weapon slot
+        // temporarily on ALL members before it issues the attack — no
+        // short-circuit: a member that cannot take the slot still gets the
+        // shared order below with its own weapon.
+        let mut accepted = false;
+        for &id in units {
+            accepted |= self.game_logic.unit_command_select_weapon_slot(id, slot);
+        }
+        if !accepted {
+            return Ok(CommandResult::InvalidCommand);
         }
 
-        if any {
+        // The shared group orders run the worker mine-attack supply drop at
+        // each accepted member site (specialty=true), never for a HELD member
+        // the group pass skipped.
+        let ordered = match target {
+            WeaponTarget::Object(id) => {
+                self.order_group_attack_object(units, *id, false, max_shots_to_fire, true)?
+            }
+            WeaponTarget::Location(pos) => {
+                self.order_group_attack_position(units, Some(*pos), max_shots_to_fire, true)?
+            }
+        };
+        if ordered {
             // C++ MSG_DO_WEAPON_AT_OBJECT / MSG_DO_WEAPON_AT_LOCATION
             // (`CommandXlat.cpp:511-627`) — VoiceAttack then specialty upgrade.
             self.game_logic.queue_picked_unit_voice(units, voice);
-            CommandResult::Success
+            Ok(CommandResult::Success)
         } else {
-            CommandResult::InvalidCommand
+            Ok(CommandResult::InvalidCommand)
         }
     }
 
