@@ -1898,8 +1898,10 @@ impl GameLogic {
         let detonate_calls_kill = pending.projectile_lifecycle
             .or(profile_lifecycle)
             .is_some_and(crate::game_logic::weapon_bootstrap::HostProjectileLifecycle::detonate_calls_kill);
+        let has_self_damage = profile.is_some()
+            && crate::game_logic::combat::Projectile::warhead_kills_source(pending.radius_damage_affects);
         let shooter_id = pending.shooter_id;
-        let birth = if (missile || detonate_calls_kill) && has_aim {
+        let birth = if (missile || detonate_calls_kill || has_self_damage) && has_aim {
             if missile && transform.is_none() {
                 return Err(gamelogic::GameLogicError::Configuration(format!(
                     "Missile {projectile_name} has no launch transform"
@@ -1955,7 +1957,7 @@ impl GameLogic {
         };
         if let Some((id, birth)) = birth {
             let valid = self.spawn_identity_matches(id, birth.0, birth.1);
-            if detonate_calls_kill && !missile && valid {
+            if !missile && valid {
                 if let Some(projectile) = self.combat_system.projectile_mut(id) {
                     projectile.projectile_actor_birth = Some(birth);
                     self.objects.get_mut(&id).expect("receiving projectile birth").producer_id = Some(shooter_id);
@@ -2158,6 +2160,7 @@ impl GameLogic {
         let projectile = self.combat_system.get_projectiles().get(&id);
         let birth = projectile.and_then(|projectile| projectile.projectile_actor_birth);
         let detonate_calls_kill = projectile.is_some_and(|projectile| projectile.detonate_calls_kill());
+        let projectile_is_dumb = projectile.is_some_and(|p| p.missile_motion.is_none());
         let missile_calls_on_die = projectile
             .is_some_and(|p| p.missile_motion.is_some() && p.die_on_detonate);
         let self_damage_on_detonation = detonate_calls_kill || missile_calls_on_die;
@@ -2264,7 +2267,7 @@ impl GameLogic {
             &mut (),
         );
 
-        if self_damage_on_detonation
+        if (self_damage_on_detonation || projectile_is_dumb)
             && let Some((generation, epoch)) = birth
             && self.spawn_identity_matches(id, generation, epoch)
         {

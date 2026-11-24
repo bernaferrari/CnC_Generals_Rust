@@ -185,6 +185,41 @@ fn mark_missile_detonated(
 }
 
 impl CombatSystem {
+    fn detonation_damage_event(
+        projectile: &Projectile,
+        objects: HostObjectRead<'_>,
+        position: Vec3,
+        contact: Option<ObjectId>,
+    ) -> Option<DamageEvent> {
+        if projectile.no_damage {
+            return None;
+        }
+        if projectile.explosion_radius > 0.0 || projectile.secondary_damage_radius > 0.0 {
+            return Some(Self::splash_area_event(projectile, objects, position, true));
+        }
+        // Weapon.cpp:1296–1306 applies a radius-zero SUICIDE hit directly to
+        // the source Object, before the launcher attribution of the area loop.
+        let (target_id, shooter_id, damage) = if projectile.flight.is_some() {
+            if !Projectile::warhead_kills_source(projectile.radius_damage_affects)
+                || projectile.projectile_actor_birth.is_none()
+            {
+                return None;
+            }
+            (projectile.id, projectile.id, HUGE_DAMAGE_AMOUNT)
+        } else {
+            (contact?, projectile.shooter_id, projectile.damage)
+        };
+        Some(DamageEvent::Direct {
+            target_id,
+            position,
+            damage,
+            damage_type: projectile.damage_type,
+            death_type: projectile.death_type,
+            shooter_id,
+            damage_status_type: projectile.damage_status_type,
+        })
+    }
+
     pub(in crate::game_logic) fn prepare_projectile_impact(
         &mut self,
         proj_id: ObjectId,
@@ -422,16 +457,9 @@ impl CombatSystem {
                                 impact,
                                 objects.read(),
                             );
-                            if !projectile.no_damage
-                                && (projectile.explosion_radius > 0.0 || projectile.secondary_damage_radius > 0.0)
-                            {
-                                damage_events.push(Self::splash_area_event(
-                                    projectile,
-                                    objects.read(),
-                                    impact,
-                                    true,
-                                ));
-                            }
+                            damage_events.extend(Self::detonation_damage_event(
+                                projectile, objects.read(), impact, None,
+                            ));
                             if !projectile.detonation_fx_name.is_empty()
                                 || !projectile.detonation_ocl_name.is_empty()
                             {
@@ -500,28 +528,9 @@ impl CombatSystem {
                     impact,
                     objects.read(),
                 );
-                if !projectile.no_damage
-                    && (projectile.explosion_radius > 0.0 || projectile.secondary_damage_radius > 0.0)
-                {
-                    damage_events.push(Self::splash_area_event(
-                        projectile,
-                        objects.read(),
-                        impact,
-                        true,
-                    ));
-                } else if !projectile.no_damage && projectile.flight.is_none() {
-                    // C++ positional detonation with no radius has no victim.
-                    // Only the standalone flight contract delivers direct damage.
-                    damage_events.push(DamageEvent::Direct {
-                        target_id,
-                        position: impact,
-                        damage: projectile.damage,
-                        damage_type: projectile.damage_type,
-                        death_type: projectile.death_type,
-                        shooter_id: projectile.shooter_id,
-                        damage_status_type: projectile.damage_status_type,
-                    });
-                }
+                damage_events.extend(Self::detonation_damage_event(
+                    projectile, objects.read(), impact, Some(target_id),
+                ));
                 if !projectile.detonation_fx_name.is_empty()
                     || !projectile.detonation_ocl_name.is_empty()
                 {
@@ -567,16 +576,9 @@ impl CombatSystem {
                         impact,
                         objects.read(),
                     );
-                    if !projectile.no_damage
-                        && (projectile.explosion_radius > 0.0 || projectile.secondary_damage_radius > 0.0)
-                    {
-                        damage_events.push(Self::splash_area_event(
-                            projectile,
-                            objects.read(),
-                            impact,
-                            true,
-                        ));
-                    }
+                    damage_events.extend(Self::detonation_damage_event(
+                        projectile, objects.read(), impact, None,
+                    ));
                     if !projectile.detonation_fx_name.is_empty()
                         || !projectile.detonation_ocl_name.is_empty()
                     {

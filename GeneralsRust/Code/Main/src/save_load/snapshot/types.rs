@@ -54,8 +54,9 @@ pub const WORLD_SNAPSHOT_PARTICLE_DRIVE_SETTINGS_VERSION: u32 = 38;
 /// Version52 stores the JetAI engine ambient latch in the JTAI continuation.
 /// Version53 keeps defection cue delivery transient and persists flash color.
 /// Version54 stores the capture pulse phase in the SABL continuation.
-pub const WORLD_SNAPSHOT_BINCODE_VERSION: u32 = 54;
-pub const WORLD_SNAPSHOT_DIRECT_XFER_VERSION: u32 = 54;
+/// Version55 requires the receiving Object for a projectile with warhead self-damage.
+pub const WORLD_SNAPSHOT_BINCODE_VERSION: u32 = 55;
+pub const WORLD_SNAPSHOT_DIRECT_XFER_VERSION: u32 = 55;
 /// Version36 introduced mandatory exact original-Garrison-Team continuation.
 pub const WORLD_SNAPSHOT_GARRISON_TEAM_VERSION: u32 = 36;
 

@@ -968,12 +968,16 @@ pub(in crate::game_logic) fn materialize_accepted_projectile(
         projectile_lifecycle,
         Some(crate::game_logic::weapon_bootstrap::HostProjectileLifecycle::Missile { .. })
     );
-    let requires_actor = is_missile || projectile_lifecycle.is_some_and(
-        crate::game_logic::weapon_bootstrap::HostProjectileLifecycle::detonate_calls_kill,
-    );
-    let id = if requires_actor {
-        // The accepted flight must share the receiving Object's identity.
-        actor_id?
+    let requires_actor = is_missile
+        || projectile_lifecycle.is_some_and(
+            crate::game_logic::weapon_bootstrap::HostProjectileLifecycle::detonate_calls_kill,
+        )
+        || (profile.is_some() && Projectile::warhead_kills_source(p.radius_damage_affects));
+    // The accepted flight and its receiving Object share one identity.
+    let id = if let Some(id) = actor_id {
+        id
+    } else if requires_actor {
+        return None;
     } else {
         crate::game_logic::world_objects::allocate_live_object_id(next_object_id, objects, combat)
     };

@@ -409,6 +409,11 @@ FXList FX_{rows}_Elite
   Name = Sound_{rows}_Elite
  End
 End
+FXList FX_{rows}_BurnedShell
+ Sound
+  Name = Shell_{rows}_Burned
+ End
+End
 "#
     );
     world.admit_damage_fx_source(&damage_fx_source).unwrap();
@@ -467,7 +472,28 @@ End
         .admit_object_ini_sources([(
             "MovingProjectileFixture.ini".into(),
             format!(
-                "{}{}{}Object LibraryMoving{label}Projectile\nKindOf = PROJECTILE\n Behavior = DumbProjectileBehavior Flight\n FirstHeight = 6\n SecondHeight = 6\n FirstPercentIndent = 25%\n SecondPercentIndent = 75%\n End\nEnd\n",
+                r#"{}{}{}Object LibraryMoving{label}Projectile
+ KindOf = PROJECTILE
+ Geometry = SPHERE
+ GeometryMajorRadius = 1
+ Body = ActiveBody Body
+  MaxHealth = 100
+  InitialHealth = 100
+ End
+ Behavior = DumbProjectileBehavior Flight
+  FirstHeight = 6
+  SecondHeight = 6
+  FirstPercentIndent = 25%
+  SecondPercentIndent = 75%
+ End
+ Behavior = FXListDie BurnedShell
+  DeathTypes = NONE +BURNED
+  DeathFX = FX_{rows}_BurnedShell
+ End
+ Behavior = DestroyDie Retire
+ End
+End
+"#,
                 actor("QueuedSource", 500.0, 0.0, true),
                 actor("QueuedVictim", health, 10.0, false),
                 actor("QueuedSink", 500.0, 0.0, false)
@@ -507,6 +533,13 @@ End
                 ..AudioEventInfo::default()
             });
         }
+        let name = format!("Shell_{rows}_Burned");
+        manager.register_audio_event_info(AudioEventInfo {
+            sounds: vec![format!("{name}.wav")],
+            audio_name: name,
+            type_field: ST_GLOBAL,
+            ..AudioEventInfo::default()
+        });
     });
     world.clear_all_players();
     for (id, team, name) in [(0, Team::USA, "Shooter"), (1, Team::China, "Victim")] {
@@ -713,6 +746,17 @@ impl Fixture {
         }
     }
 
+    fn shell_death_sounds(&self) -> usize {
+        self.world.with_own_services(|| {
+            let manager =
+                get_global_audio_manager().expect("fixture initialized its audio manager");
+            manager
+                .lock()
+                .unwrap()
+                .pending_play_request_count_for(&format!("Shell_{}_Burned", self.rows))
+        })
+    }
+
     fn no_repeat(&mut self) {
         let xp = self.xp();
         let sounds = self.damage_sounds();
@@ -809,6 +853,94 @@ fn authored_shell_contact_uses_position_and_the_splash_mask() {
             f.expect_fx("Regular", Some(f.shooters[0]));
         }
         f.no_repeat();
+    }
+}
+
+#[test]
+fn projectile_suicide_applies_to_the_shell_inside_its_blast() {
+    for (radius, affects, launcher_hp, victim_hp) in [
+        (50.0, "SUICIDE ENEMIES", 500.0, 50.0),
+        (50.0, "SUICIDE SELF ALLIES ENEMIES", 400.0, 50.0),
+        (0.0, "SUICIDE ENEMIES", 500.0, 150.0),
+    ] {
+        let make = || {
+            fixture_custom(
+                "ShellSuicide",
+                150.0,
+                false,
+                30,
+                1,
+                10.0,
+                radius,
+                affects,
+                "DeathType = BURNED",
+            )
+        };
+        let mut f = make();
+        f.accept();
+        let shell = f.world.combat_system().projectiles_snapshot()[0].id;
+        assert_eq!(f.world.host_object(shell).unwrap().health.current, 100.0);
+        assert_eq!(f.shell_death_sounds(), 0);
+        let launch_position = f.world.host_object(shell).unwrap().get_position();
+        for _ in 0..4 {
+            f.world.update();
+        }
+        let flight_position = f.world.combat_system().projectiles_snapshot()[0].position;
+        let shell_object = f.world.host_object(shell).unwrap();
+        assert_ne!(flight_position, launch_position);
+        assert_eq!(shell_object.get_position(), flight_position);
+        assert_eq!(shell_object.producer_id, Some(f.shooters[0]));
+        let frame =
+            generals_main::presentation_frame::PresentationFrame::build_from_logic(&mut f.world, 0);
+        assert_eq!(
+            frame
+                .projectiles
+                .iter()
+                .filter(|shot| shot.id == shell)
+                .count(),
+            1
+        );
+        assert!(
+            frame
+                .direct_host_drawables
+                .iter()
+                .all(|item| item.object.id != shell)
+        );
+
+        let builder = generals_main::save_load::SnapshotBuilder::new();
+        let snapshot = builder.create_world_snapshot(&f.world).unwrap();
+        let bytes = bincode_legacy::serialize(&snapshot).unwrap();
+        let decoded = bincode_legacy::deserialize(&bytes).unwrap();
+        let mut restored = make();
+        builder
+            .restore_from_snapshot(&decoded, &mut restored.world)
+            .unwrap();
+        let restored_shell = restored.world.host_object(shell).unwrap();
+        assert_eq!(restored_shell.health.current, 100.0);
+        assert_eq!(restored_shell.get_position(), flight_position);
+        assert_eq!(restored_shell.producer_id, Some(restored.shooters[0]));
+
+        for session in [&mut f, &mut restored] {
+            advance_to_impact(session, 150.0);
+            let launcher = session.world.host_object(session.shooters[0]).unwrap();
+            assert_eq!(
+                launcher.health.current, launcher_hp,
+                "SUICIDE belongs to the shell"
+            );
+            assert_eq!(
+                session
+                    .world
+                    .host_object(session.victim)
+                    .unwrap()
+                    .health
+                    .current,
+                victim_hp
+            );
+            assert!(session.world.host_object(shell).is_none());
+            assert_eq!(session.shell_death_sounds(), 1);
+            session.no_repeat();
+            assert_eq!(session.shell_death_sounds(), 1);
+        }
     }
 }
 

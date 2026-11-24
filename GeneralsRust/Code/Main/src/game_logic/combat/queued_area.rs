@@ -116,7 +116,7 @@ impl<'a> AreaDamage<'a> {
             shock_wave_amount,
             shock_wave_radius,
             shock_wave_taper_off,
-            shooter_id,
+            shooter_id: _,
             radius_damage_affects,
             radius_source_present,
             radius_source_id,
@@ -140,12 +140,11 @@ impl<'a> AreaDamage<'a> {
         let shooter_dir_xz = self.shooter_dir_xz;
         let op = obj.get_position();
         let is_primary = self.primary_victim == Some(vid);
-        // C++ WEAPON_KILLS_SELF destroys the firing Object (launcher).
+        // Weapon.cpp compares the victim with the detonation source before
+        // it substitutes the launcher as the damage-credit source.
         let kills_self = *radius_source_present
-            && (*radius_damage_affects
-                & crate::game_logic::host_ai_path_combat_residual_wave105::WEAPON_KILLS_SELF)
-                != 0
-            && vid == *shooter_id;
+            && vid == *radius_source_id
+            && Projectile::warhead_kills_source(*radius_damage_affects);
         if *radius_source_present && !is_primary && !kills_self {
             let airborne = obj.is_significantly_above_terrain();
             use gamelogic::common::Relationship;

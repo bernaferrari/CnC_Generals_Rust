@@ -202,7 +202,13 @@ impl Projectile {
     }
 
     pub(crate) fn owns_receiving_actor(&self) -> bool {
-        self.missile_motion.is_some() || self.detonate_calls_kill()
+        self.missile_motion.is_some()
+            || self.detonate_calls_kill()
+            || (self.flight.is_some() && Self::warhead_kills_source(self.radius_damage_affects))
+    }
+
+    pub(in crate::game_logic) fn warhead_kills_source(affects: u32) -> bool {
+        affects & crate::game_logic::host_ai_path_combat_residual_wave105::WEAPON_KILLS_SELF != 0
     }
 
     pub fn new(

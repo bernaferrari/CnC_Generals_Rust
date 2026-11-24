@@ -419,7 +419,7 @@ impl PresentationFrame {
             .get_projectiles()
             .values()
             .filter(|projectile| {
-                projectile.detonate_calls_kill()
+                projectile.missile_motion.is_none()
                     && projectile.projectile_actor_birth.is_some_and(|(generation, epoch)| {
                         logic.spawn_identity_matches(projectile.id, generation, epoch)
                     })

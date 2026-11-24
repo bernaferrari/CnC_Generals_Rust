@@ -816,13 +816,9 @@ impl CombatSystem {
                             continue;
                         }
                         let is_primary = *primary_victim == Some(*vid);
-                        // C++ WEAPON_KILLS_SELF destroys the firing Object
-                        // (launcher), never the transient projectile identity.
                         let kills_self = *radius_source_present
-                            && (*radius_damage_affects
-                                & crate::game_logic::host_ai_path_combat_residual_wave105::WEAPON_KILLS_SELF)
-                                != 0
-                            && *vid == *shooter_id;
+                            && *vid == *radius_source_id
+                            && Projectile::warhead_kills_source(*radius_damage_affects);
                         if *radius_source_present && !is_primary && !kills_self {
                             let airborne = obj.is_significantly_above_terrain();
                             let same_tmpl =
