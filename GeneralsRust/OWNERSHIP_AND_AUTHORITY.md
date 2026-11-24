@@ -4,6 +4,58 @@
 
 Preserve C++ **behavior**. Do not preserve C++ **pointer ownership**.
 
+## Runtime interfaces and original-game comparisons
+
+The application owns mounted content and command channels. A match receives
+those channels explicitly and owns its objects, players, rules, clocks, RNG,
+and pending commands. Creation, ordinary updates, and restore should use
+the same owners. Pass a narrow mutable borrow during the 30 Hz simulation
+step. Keep synchronization at actual sharing points such as asset workers
+and audio playback. Preserve the original order of callbacks and effects.
+
+Here is the dependency direction for the remaining migrations.
+
+```text
+Input -> typed game commands -> match
+Match -> completed presentation facts -> UI / world renderer / audio
+Match -> subsystem save continuations
+```
+
+Move WGPU, model, texture, and widget handles into their consumers as the
+presentation interface is narrowed. A pixel renderer or a different UI
+should consume the same completed facts and submit the same commands.
+Where a synchronous callback needs presentation data, pass that capability
+at the call site and keep the original timing. Save continuations belong
+to the subsystems that resume them. The world restore path validates
+identities and installs those continuations in dependency order.
+
+Match original C++ symbols to their reachable Rust owners in
+`PORT_PROVENANCE_REVIEWED.json`. One C++ symbol can have several Rust owners,
+and several original symbols can use one Rust implementation. Record an
+accepted substitution on the applicable assignment. The provenance check
+flags missing or stale mappings, while `PORT_BEHAVIOR_EVIDENCE.json` pins
+the scenario, observed output, and executable comparison. Use the same
+ordered observations for both implementations. Good witnesses include
+logic-frame transitions, RNG state, damage and FX events, save continuation,
+and presentation facts. Use a declared tolerance for backend output when
+the comparison requires one. A bounded test proves its tested behavior.
+
+From the repository root, look up the original symbols and evidence behind
+the allocation-free circle iterator.
+
+```sh
+python3 GeneralsRust/Code/Main/scripts/generate_port_provenance.py \
+  --repo-root . \
+  --lookup GeneralsRust/Code/GameEngine/Common/src/common/discrete_circle.rs \
+  --symbol upper_spans
+```
+
+The same command accepts the original C++ path and qualified symbol.
+The result includes current blockers and the replay command when executable
+evidence exists. Run that command before refreshing a changed source pin.
+Keep the port comparable by testing behavior at the interface even when the
+Rust owner, algorithm, or file layout changes.
+
 Armor and object-creation-list fallback initialization is once per world;
 GameLogic audio resolver registration is once per CommonServices owner.
 Each VideoPlayer owns its provider registration. These changes prevent one

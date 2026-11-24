@@ -56,6 +56,7 @@ use production::DiscreteCircle;
 use std::io::{self, Read};
 
 fn main() {
+    let mode = std::env::args().nth(1);
     let mut input = String::new();
     io::stdin().read_to_string(&mut input).unwrap();
     let mut values = input.split_whitespace();
@@ -68,7 +69,16 @@ fn main() {
         for edge in circle.get_edges() {
             println!("edge {} {} {}", edge.x_start, edge.x_end, edge.y_pos);
         }
-        circle.draw_circle(|start, end, row| println!("draw {start} {end} {row}"));
+        let emit = |start, end, row| {
+            if mode.as_deref() != Some("drop-reflections") || row >= y {
+                println!("draw {start} {end} {row}");
+            }
+        };
+        if mode.as_deref() == Some("streaming") {
+            DiscreteCircle::draw_circle_at(x, y, radius, emit);
+        } else {
+            circle.draw_circle(emit);
+        }
         println!("end");
     }
 }
@@ -189,25 +199,15 @@ def main() -> int:
                 differing = [key for key in digest if golden.get(key) != digest[key]]
                 raise AssertionError(f"C++ golden digest mismatch: {', '.join(differing)}; "
                                      "review drift before --update-golden")
-        actual = records(run([str(rust_binary)], input_text=input_text), inputs)
-        difference = first_difference(expected, actual, inputs)
-        if difference:
-            print(f"FAIL: {difference}")
-            return 1
+        for mode in ("stored", "streaming"):
+            actual = records(run([str(rust_binary), mode], input_text=input_text), inputs)
+            if difference := first_difference(expected, actual, inputs):
+                print(f"FAIL ({mode}): {difference}")
+                return 1
 
-        # A deliberately broken temporary copy confirms the comparison detects
-        # callback-order/coverage regressions; the production file is untouched.
-        original = rust_source.read_text()
-        needle = "if edge.y_pos != self.y_center {"
-        if original.count(needle) != 1:
-            raise AssertionError("negative control cannot find production mirror branch")
-        mutant = work / "mutant.rs"
-        mutant.write_text(original.replace(needle, "if false && edge.y_pos != self.y_center {"))
-        rust_driver.write_text(RUST_DRIVER.replace("__RUST_SOURCE__", str(mutant)))
-        mutant_binary = work / "mutant"
-        run([args.rustc, "--edition=2024", "-A", "dead_code", str(rust_driver),
-             "-o", str(mutant_binary)])
-        mutated = records(run([str(mutant_binary)], input_text=input_text), inputs)
+        # Remove reflected callbacks at the observer. The control exercises
+        # the same comparator independent of the production code's shape.
+        mutated = records(run([str(rust_binary), "drop-reflections"], input_text=input_text), inputs)
         if first_difference(expected, mutated, inputs) is None:
             raise AssertionError("negative control failed to detect missing mirrored scanlines")
 
@@ -216,7 +216,7 @@ def main() -> int:
         golden_path.write_text(json.dumps(digest, indent=2) + "\n")
         print(f"Updated C++ golden digest: {golden_path}")
 
-    print(f"PASS: {len(inputs)} C++/Rust cases; ordered edges and draw calls match; "
+    print(f"PASS: {len(inputs)} C++/Rust cases; stored and streaming draw order match; "
           "negative control detected")
     return 0
 

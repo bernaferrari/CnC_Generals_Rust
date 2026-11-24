@@ -137,6 +137,14 @@ jobs:
             exit 1
           fi
 
+      - name: Keep shared presentation types independent of platform backends
+        run: |
+          dependencies="$(cargo tree --locked -p generals_presentation -e normal --prefix none)"
+          if grep -Eq '^(game-client-rust|gamelogic|generals_main|wgpu|winit|gpui) ' <<<"$dependencies"; then
+            echo "The shared presentation contract must stay independent of the host and its backends" >&2
+            exit 1
+          fi
+
       - name: Check supported non-network libraries
         run: >-
           cargo check --locked --lib

@@ -8,7 +8,7 @@
       "destinations": [
         {
           "path": "GeneralsRust/Code/GameEngine/Common/src/common/discrete_circle.rs",
-          "sha256": "6c97b402cb250257f0350cb31c7bf9ac2fc722cf8582390346e7e8e21137f1a9"
+          "sha256": "c1425a31d40337b20fcd3d736cee975210351509e77d103ed1839353f244ab84"
         }
       ],
       "records": [
@@ -29,6 +29,11 @@
               "role": "reference",
               "path": "GeneralsMD/Code/GameEngine/Include/Common/DiscreteCircle.h",
               "sha256": "3581c1cf29d7042e613667bafa2b16b3585d426a6b87743f733c39e1c4f747c4"
+            },
+            {
+              "role": "reference",
+              "path": "GeneralsRust/Code/Main/scripts/verify_discrete_circle_parity.py",
+              "sha256": "70cf7ed84ad19e0bcefd9105cc2daf3aac4d8f2896d8e33ae289170cfcb5a932"
             }
           ],
           "commands": [

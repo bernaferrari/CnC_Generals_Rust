@@ -94,9 +94,10 @@
           "assignments": [
             {
               "path": "GeneralsRust/Code/GameEngine/Common/src/common/discrete_circle.rs",
-              "sha256": "6c97b402cb250257f0350cb31c7bf9ac2fc722cf8582390346e7e8e21137f1a9",
+              "sha256": "c1425a31d40337b20fcd3d736cee975210351509e77d103ed1839353f244ab84",
               "symbols": [
-                "new"
+                "new",
+                "upper_spans"
               ],
               "deviation": null
             }
@@ -108,9 +109,11 @@
           "assignments": [
             {
               "path": "GeneralsRust/Code/GameEngine/Common/src/common/discrete_circle.rs",
-              "sha256": "6c97b402cb250257f0350cb31c7bf9ac2fc722cf8582390346e7e8e21137f1a9",
+              "sha256": "c1425a31d40337b20fcd3d736cee975210351509e77d103ed1839353f244ab84",
               "symbols": [
-                "draw_circle"
+                "draw_circle",
+                "draw_circle_at",
+                "draw_spans"
               ],
               "deviation": null
             }
@@ -122,9 +125,9 @@
           "assignments": [
             {
               "path": "GeneralsRust/Code/GameEngine/Common/src/common/discrete_circle.rs",
-              "sha256": "6c97b402cb250257f0350cb31c7bf9ac2fc722cf8582390346e7e8e21137f1a9",
+              "sha256": "c1425a31d40337b20fcd3d736cee975210351509e77d103ed1839353f244ab84",
               "symbols": [
-                "generate_edge_pairs"
+                "upper_spans"
               ],
               "deviation": null
             }
@@ -136,9 +139,9 @@
           "assignments": [
             {
               "path": "GeneralsRust/Code/GameEngine/Common/src/common/discrete_circle.rs",
-              "sha256": "6c97b402cb250257f0350cb31c7bf9ac2fc722cf8582390346e7e8e21137f1a9",
+              "sha256": "c1425a31d40337b20fcd3d736cee975210351509e77d103ed1839353f244ab84",
               "symbols": [
-                "remove_duplicates"
+                "upper_spans"
               ],
               "deviation": null
             }
@@ -150,7 +153,7 @@
           "start_line": 1,
           "end_line": 90,
           "path": "GeneralsRust/Code/GameEngine/Common/src/common/discrete_circle.rs",
-          "sha256": "6c97b402cb250257f0350cb31c7bf9ac2fc722cf8582390346e7e8e21137f1a9"
+          "sha256": "c1425a31d40337b20fcd3d736cee975210351509e77d103ed1839353f244ab84"
         }
       ]
     },

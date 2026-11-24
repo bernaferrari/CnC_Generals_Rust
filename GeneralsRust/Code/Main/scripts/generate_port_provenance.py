@@ -1423,6 +1423,71 @@ def verify_generated(repo_root: Path, output_root: Path) -> list[str]:
         ]
 
 
+def lookup_mappings(
+    manifest: dict[str, object],
+    ownership: dict[str, ReviewedOwnership],
+    path: str,
+    symbol: str | None = None,
+) -> list[dict[str, object]]:
+    """Find paths in either direction and show the exact reviewed symbol claims."""
+    matches = []
+    for entry in manifest["entries"]:
+        source = entry["source"]
+        mapping = entry["mapping"]
+        is_source = path == source["path"]
+        record = ownership.get(source["path"])
+        claims = []
+        for claim in record.symbols if record is not None else ():
+            if is_source and symbol is not None and claim.name != symbol:
+                continue
+            assignments = [
+                {
+                    "path": assignment.path,
+                    "symbols": list(assignment.symbols),
+                    "deviation": assignment.deviation,
+                }
+                for assignment in claim.assignments
+                if is_source or (
+                    assignment.path == path
+                    and (symbol is None or symbol in assignment.symbols)
+                )
+            ]
+            if assignments:
+                claims.append(
+                    {
+                        "cpp_symbol": claim.name,
+                        "cpp_line": claim.line,
+                        "rust_assignments": assignments,
+                    }
+                )
+
+        if is_source:
+            symbols = [
+                occurrence for occurrence in source["symbols"]
+                if symbol is None or occurrence["name"] == symbol
+            ]
+            if symbol is not None and not (symbols or claims):
+                continue
+        else:
+            symbols = []
+            has_candidate = any(
+                destination["path"] == path for destination in mapping["destinations"]
+            )
+            if not claims and (symbol is not None or not has_candidate):
+                continue
+
+        matches.append({
+            "source": source["path"],
+            "source_symbols": symbols,
+            "mapping": mapping,
+            "symbol_claims": claims,
+            "allowed_deviations": entry["allowed_deviations"],
+            "behavior": entry["behavior"],
+            "blockers": entry["blockers"],
+        })
+    return matches
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--repo-root", type=Path, required=True)
@@ -1437,9 +1502,31 @@ def main() -> None:
         action="store_true",
         help="exit non-zero when checked-in generated artifacts are stale",
     )
+    parser.add_argument(
+        "--lookup",
+        type=Path,
+        help="print current mappings and evidence for a C++ or Rust path without rewriting files",
+    )
+    parser.add_argument("--symbol", help="filter lookup by exact C++ or Rust symbol name")
     args = parser.parse_args()
     repo_root = args.repo_root.resolve()
     output_root = args.output_root.resolve() if args.output_root else repo_root
+    if args.symbol is not None and args.lookup is None:
+        parser.error("--symbol requires --lookup")
+    if args.lookup is not None:
+        if args.check or args.verify_generated or args.output_root:
+            parser.error("--lookup cannot be combined with generation or checks")
+        try:
+            path = (repo_root / args.lookup).resolve().relative_to(repo_root).as_posix()
+        except ValueError:
+            parser.error("--lookup requires a path inside the repository")
+        ownership = load_reviewed_ownership(repo_root)
+        manifest = build_manifest(repo_root, reviewed_ownership=ownership)
+        matches = lookup_mappings(manifest, ownership, path, args.symbol)
+        print(json.dumps({"path": path, "symbol": args.symbol, "matches": matches}, indent=2))
+        if not matches:
+            raise SystemExit(1)
+        return
     if args.verify_generated:
         stale = verify_generated(repo_root, output_root)
         if stale:

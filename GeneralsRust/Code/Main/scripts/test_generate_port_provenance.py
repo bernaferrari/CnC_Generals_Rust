@@ -464,6 +464,61 @@ class ReviewedOwnershipSchemaTests(unittest.TestCase):
         self.assertIn("ownership_symbol:unresolved_cpp_syntax", entry["blockers"])
         self.assertIn("unreviewed_symbol_ownership", entry["blockers"])
 
+    def test_lookup_preserves_split_symbols_and_distinguishes_stale_claims(self) -> None:
+        temporary, fixture = self.build_fixture()
+        self.addCleanup(temporary.cleanup)
+        ownership = {
+            self.FOO_CPP: self.ownership(
+                fixture,
+                self.FOO_CPP,
+                (
+                    symbol_record(
+                        "Foo::updateFoo",
+                        1,
+                        self.FOO_PART,
+                        file_sha(fixture.root, self.FOO_PART),
+                        ("update_foo",),
+                    ),
+                ),
+                (
+                    provenance.ReviewedRange(
+                        1, 1, self.FOO_PART, file_sha(fixture.root, self.FOO_PART)
+                    ),
+                ),
+            ),
+        }
+        mappings = {self.FOO_CPP: (self.FOO_MOD,)}
+        manifest = provenance.build_manifest(
+            fixture.root, mappings, reviewed_ownership=ownership,
+        )
+
+        forward, = provenance.lookup_mappings(
+            manifest, ownership, self.FOO_CPP, "Foo::updateFoo",
+        )
+        reverse, = provenance.lookup_mappings(
+            manifest, ownership, self.FOO_PART, "update_foo",
+        )
+        self.assertEqual(reverse["source"], self.FOO_CPP)
+        self.assertEqual(forward["symbol_claims"], reverse["symbol_claims"])
+        self.assertEqual(reverse["symbol_claims"][0]["cpp_line"], 1)
+        self.assertEqual(reverse["mapping"]["symbol_validation"], "reviewed")
+        self.assertEqual(reverse["behavior"]["status"], "not_verified")
+        self.assertEqual(
+            provenance.lookup_mappings(manifest, ownership, self.FOO_PART, "unrelated"),
+            [],
+        )
+
+        fixture.write(self.FOO_PART, "pub fn update_foo() { let _changed = 1; }\n")
+        manifest = provenance.build_manifest(
+            fixture.root, mappings, reviewed_ownership=ownership,
+        )
+        stale, = provenance.lookup_mappings(
+            manifest, ownership, self.FOO_PART, "update_foo",
+        )
+        self.assertEqual(stale["symbol_claims"], reverse["symbol_claims"])
+        self.assertEqual(stale["mapping"]["symbol_validation"], "invalid")
+        self.assertIn("unreviewed_symbol_ownership", stale["blockers"])
+
     def test_complete_valid_record_clears_both_ownership_blockers(self) -> None:
         temporary, fixture = self.build_fixture()
         self.addCleanup(temporary.cleanup)
