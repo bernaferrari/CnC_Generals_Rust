@@ -1,8 +1,8 @@
-//! NDIE v3: Die receipts and authored SlowDeath continuation identities.
+//! NDIE v4: Die receipts and authored SlowDeath flight continuation.
 //! Historical positional Object/World records remain unchanged.
 use super::{ObjectSnapshot, WorldSnapshot};
 use crate::game_logic::native_die_definition::{
-    NativeDieDeclaration, NativeDieKind, NativeDieRuntime, NativeSlowDeath,
+    NativeDieDeclaration, NativeDieKind, NativeDieRuntime, NativeSlowDeath, SlowDeathFlight,
 };
 use crate::game_logic::{GameLogic, Object, ObjectId};
 use crate::save_load::{SaveLoadError, SaveLoadResult};
@@ -11,7 +11,7 @@ use std::borrow::Cow;
 use std::collections::HashMap;
 
 const TAG: &[u8; 4] = b"NDIE";
-const VERSION: u32 = 3;
+const VERSION: u32 = 4;
 const MAX_BYTES: usize = 16 * 1024 * 1024;
 #[derive(Serialize, Deserialize)]
 struct Record {
@@ -32,8 +32,18 @@ struct PayloadV2 {
     records: Vec<Record>,
     removals: Vec<crate::game_logic::kill_credit::PendingObjectRemoval>,
 }
-#[derive(Serialize, Deserialize)]
+#[derive(Deserialize)]
 struct PayloadV3 {
+    deaths: PayloadV2,
+    slow_deaths: Vec<(u32, OldSlowDeath)>,
+}
+#[derive(Deserialize)]
+struct OldSlowDeath {
+    source_index: u32,
+    midpoint_frame: u32,
+}
+#[derive(Serialize, Deserialize)]
+struct PayloadV4 {
     deaths: PayloadV2,
     slow_deaths: Vec<(u32, NativeSlowDeath)>,
 }
@@ -101,11 +111,17 @@ fn validate_temporal(
 fn validate_slow_death_clock(
     receipt: Option<NativeSlowDeath>,
     clock: Option<(u32, u32)>,
+    object: Option<&Object>,
 ) -> SaveLoadResult<()> {
     if let Some(receipt) = receipt {
         let (start, destruction) = clock.ok_or_else(|| corrupted("SlowDeath receipt has no timer"))?;
         if receipt.midpoint_frame.wrapping_sub(start) > destruction.wrapping_sub(start) {
             return Err(corrupted("SlowDeath midpoint falls outside its admitted lifetime"));
+        }
+        if receipt.flight != SlowDeathFlight::NotFlung
+            && !object.is_some_and(|object| object.authors_behavior_module("PhysicsBehavior"))
+        {
+            return Err(corrupted("SlowDeath flight requires an authored PhysicsBehavior"));
         }
     }
     Ok(())
@@ -154,6 +170,7 @@ pub(super) fn append(bytes: &mut Vec<u8>, world: &GameLogic) -> SaveLoadResult<(
             validate_slow_death_clock(
                 Some(receipt),
                 object.slow_death.as_ref().map(|timer| (timer.begin_frame, timer.destroy_at_frame)),
+                Some(object),
             )?;
             slow_deaths.push((id.0, receipt));
         }
@@ -187,7 +204,7 @@ pub(super) fn append(bytes: &mut Vec<u8>, world: &GameLogic) -> SaveLoadResult<(
             ));
         }
     }
-    let payload = bincode_legacy::serialize(&PayloadV3 {
+    let payload = bincode_legacy::serialize(&PayloadV4 {
         deaths: PayloadV2 { records, removals },
         slow_deaths,
     }).map_err(corrupted)?;
@@ -258,14 +275,26 @@ pub(super) fn decode(bytes: &[u8]) -> SaveLoadResult<Decoded<'_>> {
         .map_err(corrupted)?;
         (decoded.records, decoded.removals, consumed)
     } else {
-        let (decoded, consumed): (PayloadV3, usize) = bincode::serde::decode_from_slice(
-            payload,
-            bincode::config::legacy().with_limit::<MAX_BYTES>(),
-        )
-        .map_err(corrupted)?;
-        let mut records = decoded.deaths.records;
+        let config = bincode::config::legacy().with_limit::<MAX_BYTES>();
+        let (deaths, slow_deaths, consumed) = if version == 3 {
+            let (old, consumed): (PayloadV3, usize) =
+                bincode::serde::decode_from_slice(payload, config).map_err(corrupted)?;
+            let slow_deaths = old.slow_deaths.into_iter().map(|(id, receipt)| {
+                (id, NativeSlowDeath {
+                    source_index: receipt.source_index,
+                    midpoint_frame: receipt.midpoint_frame,
+                    flight: SlowDeathFlight::NotFlung,
+                })
+            }).collect();
+            (old.deaths, slow_deaths, consumed)
+        } else {
+            let (decoded, consumed): (PayloadV4, usize) =
+                bincode::serde::decode_from_slice(payload, config).map_err(corrupted)?;
+            (decoded.deaths, decoded.slow_deaths, consumed)
+        };
+        let mut records = deaths.records;
         let mut by_id = HashMap::new();
-        for (id, receipt) in decoded.slow_deaths {
+        for (id, receipt) in slow_deaths {
             if by_id.insert(id, receipt).is_some() {
                 return Err(corrupted("duplicate SlowDeath receipt"));
             }
@@ -276,7 +305,7 @@ pub(super) fn decode(bytes: &[u8]) -> SaveLoadResult<Decoded<'_>> {
         if !by_id.is_empty() {
             return Err(corrupted("SlowDeath receipt belongs to an unknown owner"));
         }
-        (records, decoded.deaths.removals, consumed)
+        (records, deaths.removals, consumed)
     };
     if consumed != payload.len() || suffix[end..].starts_with(TAG) {
         return Err(corrupted("trailing or duplicate records"));
@@ -425,6 +454,7 @@ pub(super) fn validate(
         validate_slow_death_clock(
             record.runtime.slow_death,
             state.and_then(|state| state.ordinary_slow_death),
+            receiving.as_ref(),
         )?;
         validate_temporal(
             &record.runtime,
@@ -466,6 +496,9 @@ pub(super) fn apply(validated: Validated, world: &mut GameLogic) {
     }
     for (id, (runtime, score_completed)) in runtimes {
         if let Some(object) = world.objects.get_mut(&id) {
+            if let Some(slow_death) = runtime.slow_death {
+                slow_death.flight.apply_model(object);
+            }
             object.native_die_runtime = runtime;
             object.kill_score_phase = if score_completed {
                 crate::game_logic::kill_credit::KillScorePhase::Complete

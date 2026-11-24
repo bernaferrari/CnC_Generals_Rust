@@ -9,6 +9,16 @@ fn force_world(magnitude: u32, physics: bool, death: &str) -> GameLogic {
 }
 
 fn force_world_with_kinds(kinds: &str, magnitude: u32, physics: bool, death: &str) -> GameLogic {
+    force_world_with_objects(kinds, magnitude, physics, death, "")
+}
+
+fn force_world_with_objects(
+    kinds: &str,
+    magnitude: u32,
+    physics: bool,
+    death: &str,
+    extra_objects: &str,
+) -> GameLogic {
     let physics = if physics {
         "Behavior = PhysicsBehavior PhysicsTag\nMass = 5\nEnd\n"
     } else {
@@ -17,7 +27,7 @@ fn force_world_with_kinds(kinds: &str, magnitude: u32, physics: bool, death: &st
     let content = crate::assets::ReceivingObjectContent::from_sources([(
         "ocl-random-force.ini".to_owned(),
         format!(
-            "Object AuthoredWreck\nKindOf = {kinds}\nBody = ActiveBody BodyTag\nMaxHealth = 100\nInitialHealth = 100\nEnd\n{physics}{death}\nEnd\n"
+            "Object AuthoredWreck\nKindOf = {kinds}\nBody = ActiveBody BodyTag\nMaxHealth = 100\nInitialHealth = 100\nEnd\n{physics}{death}\nEnd\n{extra_objects}"
         ),
     )]).unwrap();
     let mut world = GameLogic::new();
@@ -228,6 +238,286 @@ End";
     scripted.with_own_services(|| kill(&mut ordinary, ordinary_id));
     let timer = ordinary.objects[&ordinary_id].slow_death.as_ref().unwrap();
     assert_eq!((timer.sink_at_frame, timer.destroy_at_frame), (71, 191));
+}
+
+#[test]
+fn authored_slow_death_fling_applies_receiving_force_in_cpp_draw_order() {
+    use crate::game_logic::host_enum_table_residual::exploded_flailing_model_bit;
+
+    let death = r"Behavior = SlowDeathBehavior DeathTag
+DestructionDelay = 1000
+FlingForce = 60
+FlingForceVariance = 20
+FlingPitch = 15
+FlingPitchVariance = 20
+End";
+    let mut owner = force_world(50, true, death);
+    let mut peer = force_world(50, false, death);
+    let spawn = |world: &mut GameLogic| {
+        world
+            .create_object("AuthoredWreck", Team::GLA, Vec3::ZERO)
+            .unwrap()
+    };
+    let id = spawn(&mut owner);
+    assert_eq!(id, spawn(&mut peer));
+    let seed = game_engine::common::random_value::RandomState::default().seed_words();
+    owner.logic_random.set_seed_words(seed);
+    peer.logic_random.set_seed_words(seed);
+    let mut expected = game_engine::common::random_value::RandomState::default();
+    expected.set_seed_words(seed);
+    expected.next_int(1, 10);
+    expected.next_int(0, 0);
+    expected.next_int(0, 0);
+    expected.next_int(10, 19);
+    let no_physics_seed = expected.seed_words();
+    let angle = expected.next_real(-std::f32::consts::PI, std::f32::consts::PI);
+    let pitch = expected.next_real(15.0_f32.to_radians(), 35.0_f32.to_radians());
+    let magnitude = expected.next_real(60.0, 80.0);
+    let horizontal = magnitude * pitch.cos();
+    let force = Vec3::new(
+        horizontal * angle.cos(),
+        magnitude * pitch.sin(),
+        horizontal * angle.sin(),
+    );
+    let initial_velocity = owner.objects[&id].movement.velocity;
+
+    peer.with_own_services(|| kill(&mut owner, id));
+    let wreck = &owner.objects[&id];
+    assert!(
+        wreck
+            .physics_accel
+            .abs_diff_eq(force / wreck.physics_get_mass(), 1e-5)
+    );
+    assert_eq!(wreck.movement.velocity, initial_velocity);
+    assert_eq!(wreck.get_position().y, 1.0);
+    assert!((wreck.get_orientation() - force.z.atan2(force.x)).abs() < 1e-6);
+    assert_eq!(wreck.extra_bounciness, -1.0);
+    assert!(wreck.allow_to_fall && wreck.shock_allow_bounce);
+    assert_ne!(
+        wreck.model_condition_bits & (1u128 << exploded_flailing_model_bit()),
+        0
+    );
+    assert_eq!(owner.logic_random.seed_words(), expected.seed_words());
+    assert_eq!(peer.logic_random.seed_words(), seed);
+
+    kill(&mut peer, id);
+    let wreck = &peer.objects[&id];
+    assert_eq!(wreck.get_position(), Vec3::ZERO);
+    assert_eq!(wreck.physics_accel, Vec3::ZERO);
+    assert_eq!(wreck.movement.velocity, initial_velocity);
+    assert_eq!(peer.logic_random.seed_words(), no_physics_seed);
+}
+
+#[test]
+fn authored_slow_death_sink_updates_the_world_pose_on_the_deadline() {
+    let death = r"Behavior = SlowDeathBehavior DeathTag
+SinkDelay = 100
+SinkRate = 30
+DestructionDelay = 1000
+DestructionAltitude = -0.1
+End";
+    let mut world = force_world(50, true, death);
+    world.frame = 41;
+    let id = world
+        .create_object("AuthoredWreck", Team::GLA, Vec3::ZERO)
+        .unwrap();
+    kill(&mut world, id);
+    world.frame = 43;
+    world
+        .tick_authored_ordinary_slow_death(id, &mut Default::default())
+        .unwrap();
+    assert_eq!(world.objects[&id].get_position(), Vec3::ZERO);
+    world.frame = 44;
+    world
+        .tick_authored_ordinary_slow_death(id, &mut Default::default())
+        .unwrap();
+    let wreck = &world.objects[&id];
+    assert_eq!(wreck.get_position(), -Vec3::Y);
+    assert!(wreck.status.disabled_held);
+    assert_eq!(wreck.slow_death.as_ref().unwrap().sink_offset, 0.0);
+}
+
+#[test]
+fn authored_slow_death_flight_continues_through_save_and_first_landing() {
+    use crate::game_logic::native_die_definition::SlowDeathFlight;
+    use crate::save_load::snapshot::SnapshotBuilder;
+
+    let death = r"Behavior = SlowDeathBehavior DeathTag
+SinkDelay = 500
+DestructionDelay = 1000
+FlingForce = 8
+FlingPitch = 30
+End";
+    let mut source = force_world(50, true, death);
+    let mut restored = force_world(50, true, death);
+    source.frame = 41;
+    let id = source
+        .create_object("AuthoredWreck", Team::GLA, Vec3::ZERO)
+        .unwrap();
+    kill(&mut source, id);
+    let read = |world: &GameLogic| {
+        let wreck = &world.objects[&id];
+        let timer = wreck.slow_death.as_ref().unwrap();
+        let receipt = wreck.native_die_runtime.slow_death.unwrap();
+        (
+            timer.sink_at_frame,
+            receipt.midpoint_frame,
+            timer.destroy_at_frame,
+            receipt.flight,
+        )
+    };
+    let (sink, midpoint, destruction, flight) = read(&source);
+    assert_eq!(flight, SlowDeathFlight::Flailing);
+    let check_trace = |world: &GameLogic, expected: &str| {
+        let (current_sink, current_midpoint, current_destruction, flight) = read(world);
+        let model = match flight {
+            SlowDeathFlight::Flailing => "flailing",
+            SlowDeathFlight::Bouncing => "bouncing",
+            phase => panic!("unexpected flight phase {phase:?}"),
+        };
+        assert_eq!(
+            format!(
+                "{} {} {} {model}",
+                current_sink - sink,
+                current_midpoint - midpoint,
+                current_destruction - destruction
+            ),
+            expected,
+        );
+    };
+    let mut trace = include_str!("slow_death_flight.trace").lines();
+    let flying = trace.next().unwrap();
+    let landing = trace.next().unwrap();
+    let settled = trace.next().unwrap();
+    source.frame = 42;
+    source
+        .tick_authored_ordinary_slow_death(id, &mut Default::default())
+        .unwrap();
+    check_trace(&source, flying);
+
+    let builder = SnapshotBuilder::new();
+    let snapshot = builder.create_world_snapshot(&source).unwrap();
+    builder
+        .restore_from_snapshot(&snapshot, &mut restored)
+        .unwrap();
+    assert_eq!(read(&source), read(&restored));
+    assert_eq!(
+        source.objects[&id].physics_accel,
+        restored.objects[&id].physics_accel
+    );
+    assert_eq!(
+        source.objects[&id].get_transform_matrix(),
+        restored.objects[&id].get_transform_matrix()
+    );
+    let check_model = |world: &GameLogic, active: u32, inactive: u32| {
+        let bits = world.objects[&id].model_condition_bits;
+        assert_ne!(bits & (1u128 << active), 0);
+        assert_eq!(bits & (1u128 << inactive), 0);
+    };
+    use crate::game_logic::host_enum_table_residual::{
+        exploded_bouncing_model_bit, exploded_flailing_model_bit,
+    };
+    check_model(
+        &restored,
+        exploded_flailing_model_bit(),
+        exploded_bouncing_model_bit(),
+    );
+    for world in [&mut restored, &mut source] {
+        world.frame = 43;
+        assert!(world.set_owned_object_position_with_effects(
+            id,
+            Vec3::ZERO,
+            world.frame,
+            &mut Default::default(),
+        ));
+        world
+            .tick_authored_ordinary_slow_death(id, &mut Default::default())
+            .unwrap();
+        check_trace(world, landing);
+        check_model(
+            world,
+            exploded_bouncing_model_bit(),
+            exploded_flailing_model_bit(),
+        );
+        world.frame = 44;
+        world
+            .tick_authored_ordinary_slow_death(id, &mut Default::default())
+            .unwrap();
+        check_trace(world, settled);
+    }
+    assert_eq!(
+        source.logic_random.seed_words(),
+        restored.logic_random.seed_words()
+    );
+}
+
+#[test]
+fn authored_slow_death_shrub_contact_on_landing_runs_before_retirement() {
+    use crate::game_logic::native_die_definition::SlowDeathFlight;
+    use game_engine::common::bit_flags::ModelConditionFlags as M;
+
+    let death = r"Behavior = SlowDeathBehavior DeathTag
+SinkDelay = 500
+SinkRate = 30
+DestructionDelay = 1000
+FlingForce = 8
+FlingPitch = 30
+End";
+    let shrub = r"Object FlingFixtureShrub
+KindOf = SHRUBBERY IMMOBILE
+Body = ActiveBody TreeBody
+MaxHealth = 100
+InitialHealth = 100
+End
+End";
+    let mut world = force_world_with_objects("VEHICLE", 50, true, death, shrub);
+    let tree = world
+        .create_object("FlingFixtureShrub", Team::Neutral, Vec3::Z)
+        .unwrap();
+    let id = world
+        .create_object("AuthoredWreck", Team::GLA, Vec3::ZERO)
+        .unwrap();
+    kill(&mut world, id);
+    world.frame += 1;
+    assert!(world.set_owned_object_position_with_effects(
+        id,
+        Vec3::ZERO,
+        world.frame,
+        &mut Default::default(),
+    ));
+    world.objects.get_mut(&id).unwrap().last_collidee = Some(tree);
+    assert!(
+        world
+            .tick_authored_ordinary_slow_death(id, &mut Default::default())
+            .unwrap()
+    );
+    let wreck = &world.objects[&id];
+    assert_eq!(
+        wreck.native_die_runtime.slow_death.unwrap().flight,
+        SlowDeathFlight::LandedInTree
+    );
+    assert_eq!(
+        wreck.model_condition_bits
+            & ((1u128 << M::EXPLODED_FLAILING) | (1u128 << M::EXPLODED_BOUNCING)),
+        0,
+    );
+    assert_ne!(wreck.model_condition_bits & (1u128 << M::PARACHUTING), 0);
+    let retired = world
+        .pending_object_removal_snapshot()
+        .iter()
+        .any(|event| event.id == id);
+    assert_eq!(
+        format!(
+            "{:.0} parachuting {} {}",
+            wreck.get_position().y,
+            u8::from(wreck.status.disabled_held),
+            u8::from(retired)
+        ),
+        include_str!("slow_death_flight.trace")
+            .lines()
+            .nth(3)
+            .unwrap(),
+    );
 }
 
 #[test]

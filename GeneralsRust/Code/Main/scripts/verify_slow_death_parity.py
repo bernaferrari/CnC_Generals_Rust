@@ -24,7 +24,7 @@ PROBES = r"""
 #include <vector>
 #define DEBUG_ASSERTCRASH(condition, message) assert(condition)
 #define DEBUG_CRASH(message) assert(false)
-#define MAKE_MODELCONDITION_MASK(flag) 0
+#define MAKE_MODELCONDITION_MASK(flag) flag
 using Real = float;
 using Int = int;
 using UnsignedInt = unsigned;
@@ -35,6 +35,11 @@ constexpr unsigned PLAYERMASK_ALL = ~0u;
 constexpr bool TRUE = true;
 enum { UPDATE_SLEEP_NONE, KINDOF_SHRUBBERY, DISABLED_HELD };
 enum { FLUNG_INTO_AIR, BOUNCED, MIDPOINT_EXECUTED };
+enum {
+    MODELCONDITION_EXPLODED_FLAILING = 1,
+    MODELCONDITION_EXPLODED_BOUNCING = 2,
+    MODELCONDITION_PARACHUTING = 4
+};
 enum SlowDeathPhaseType { SDPHASE_INITIAL, SDPHASE_MIDPOINT, SDPHASE_FINAL };
 struct Coord3D { float z = 0; };
 struct DamageInfo {
@@ -55,31 +60,45 @@ struct BehaviorModule {
     SlowDeathBehaviorInterface* death;
     SlowDeathBehaviorInterface* getSlowDeathBehaviorInterface() { return death; }
 };
-struct PhysicsBehavior { ObjectID getLastCollidee() { return 0; } };
+struct PhysicsBehavior {
+    ObjectID last = 0;
+    ObjectID getLastCollidee() { return last; }
+};
 struct Object {
     Coord3D position;
     Body body;
     AIUpdateInterface ai;
     BehaviorModule** modules = nullptr;
+    int model = 0;
+    bool shrub = false;
+    bool held = false;
+    bool retired = false;
+    PhysicsBehavior physics;
     Body* getBodyModule() { return &body; }
     AIUpdateInterface* getAIUpdateInterface() { return &ai; }
     BehaviorModule** getBehaviorModules() { return modules; }
     const Coord3D* getPosition() { return &position; }
-    void setPosition(const Coord3D*) {}
-    void setPositionZ(float) {}
-    bool isAboveTerrain() { return false; }
-    bool isKindOf(int) { return false; }
-    PhysicsBehavior* getPhysics() { return nullptr; }
-    void setDisabled(int) {}
-    void clearAndSetModelConditionFlags(int, int) {}
-    void clearModelConditionFlags(int) {}
-    void setModelConditionFlags(int) {}
+    void setPosition(const Coord3D* newPosition) { position = *newPosition; }
+    void setPositionZ(float z) { position.z = z; }
+    bool isAboveTerrain() { return position.z > 0.0f; }
+    bool isKindOf(int kind) { return shrub && kind == KINDOF_SHRUBBERY; }
+    PhysicsBehavior* getPhysics() { return &physics; }
+    void setDisabled(int disable) { if (disable == DISABLED_HELD) held = true; }
+    void clearAndSetModelConditionFlags(int clear, int set) { model = (model & ~clear) | set; }
+    void clearModelConditionFlags(int flags) { model &= ~flags; }
+    void setModelConditionFlags(int flags) { model |= flags; }
 };
 struct {
-    unsigned getFrame() { return 41; }
-    Object* findObjectByID(ObjectID) { return nullptr; }
+    unsigned frame = 41;
+    Object* tree = nullptr;
+    bool trace_retire = true;
+    unsigned getFrame() { return frame; }
+    Object* findObjectByID(ObjectID id) { return id == 1 ? tree : nullptr; }
     void deselectObject(Object*, unsigned, bool) {}
-    void destroyObject(Object*) { std::puts("retire"); }
+    void destroyObject(Object* owner) {
+        owner->retired = true;
+        if (trace_retire) std::puts("retire");
+    }
 } logic, *TheGameLogic = &logic;
 struct { float getSlowDeathScale() { return 1.0f; } } lod, *TheGameLODManager = &lod;
 struct FXList { static void doFXObj(const FXList*, Object*, Object*) {} };
@@ -151,7 +170,52 @@ static void select(float dealt) {
     overkill.onDie(&damage);
 }
 
-int main(int argc, char**) {
+static const char* flight_model(int flags) {
+    switch (flags) {
+        case MODELCONDITION_EXPLODED_FLAILING: return "flailing";
+        case MODELCONDITION_EXPLODED_BOUNCING: return "bouncing";
+        case MODELCONDITION_PARACHUTING: return "parachuting";
+        default: return "unexpected";
+    }
+}
+
+static void flight() {
+    SlowDeathBehavior death;
+    death.m_flags = 1 << FLUNG_INTO_AIR;
+    death.m_sinkFrame = 56;
+    death.m_midpointFrame = 58;
+    death.m_destructionFrame = 71;
+    death.object.model = MODELCONDITION_EXPLODED_FLAILING;
+    for (unsigned frame = 42; frame <= 44; ++frame) {
+        logic.frame = frame;
+        death.object.position.z = frame == 42 ? 1.0f : 0.0f;
+        death.update();
+        std::printf("%u %u %u %s\n", death.m_sinkFrame - 56,
+                    death.m_midpointFrame - 58, death.m_destructionFrame - 71,
+                    flight_model(death.object.model));
+    }
+    SlowDeathBehavior contact;
+    contact.m_flags = 1 << FLUNG_INTO_AIR;
+    contact.m_sinkFrame = 56;
+    contact.m_midpointFrame = 58;
+    contact.m_destructionFrame = 71;
+    contact.object.model = MODELCONDITION_EXPLODED_FLAILING;
+    contact.object.physics.last = 1;
+    contact.data.m_sinkRate = 1.0f;
+    Object tree;
+    tree.shrub = true;
+    logic.tree = &tree;
+    logic.trace_retire = false;
+    contact.update();
+    std::printf("%.0f %s %d %d\n", contact.object.position.z, flight_model(contact.object.model),
+                int(contact.object.held), int(contact.object.retired));
+}
+
+int main(int argc, char** argv) {
+    if (argc > 1 && argv[1][0] == 'f') {
+        flight();
+        return 0;
+    }
     if (argc > 1) {
         select(100.9f);
         select(102.5f);
@@ -189,6 +253,7 @@ def main() -> int:
         for fixture, extra in [
             ("slow_death_same_frame.trace", []),
             ("slow_death_selection.trace", ["select"]),
+            ("slow_death_flight.trace", ["flight"]),
         ]:
             observed = subprocess.check_output([exe, *extra], text=True)
             expected = (FIXTURES / fixture).read_text()
@@ -196,7 +261,7 @@ def main() -> int:
                 raise RuntimeError(
                     f"Original C++ trace differs in {fixture}:\n{observed}Expected:\n{expected}"
                 )
-    print("Original C++ matched the Rust SlowDeath selection and same-frame traces")
+    print("Original C++ matched the Rust SlowDeath selection, phase and flight traces")
     return 0
 
 

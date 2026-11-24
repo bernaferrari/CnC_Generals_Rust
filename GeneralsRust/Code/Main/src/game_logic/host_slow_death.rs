@@ -306,7 +306,8 @@ impl HostSlowDeathData {
             |deadlines| (deadlines.sink, deadlines.destruction),
         );
         let legacy_effects = authored.is_none().then_some(ini);
-        let sink_rate_per_frame = ini.sink_rate_per_sec / SLOW_DEATH_LOGIC_FPS;
+        let sink_rate_per_frame =
+            ini.sink_rate_per_sec * game_engine::common::game_common::SECONDS_PER_LOGICFRAME_REAL;
         let phase = if sink_rate_per_frame > 0.0 {
             HostSlowDeathPhase::WaitingToSink
         } else {
@@ -333,7 +334,7 @@ impl HostSlowDeathData {
             initial_played: false,
             final_played: false,
         };
-        if ini.fling_force > 0.0 {
+        if let Some(ini) = legacy_effects.filter(|ini| ini.fling_force > 0.0) {
             // Deterministic angle residual (object id supplied by caller via apply_fling).
             s.fling_vx = ini.fling_force * 0.15;
             s.fling_vy =

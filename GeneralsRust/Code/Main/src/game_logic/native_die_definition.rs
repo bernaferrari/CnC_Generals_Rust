@@ -17,6 +17,40 @@ pub(crate) struct NativeDieRuntime {
 pub(crate) struct NativeSlowDeath {
     pub(crate) source_index: u32,
     pub(crate) midpoint_frame: u32,
+    pub(crate) flight: SlowDeathFlight,
+}
+
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub(crate) enum SlowDeathFlight {
+    #[default]
+    NotFlung,
+    Flailing,
+    Snagged,
+    Bouncing,
+    BouncingWithParachute,
+    LandedInTree,
+}
+
+impl SlowDeathFlight {
+    pub(crate) fn is_airborne(self) -> bool {
+        matches!(self, Self::Flailing | Self::Snagged)
+    }
+
+    pub(crate) fn apply_model(self, object: &mut super::Object) {
+        use game_engine::common::bit_flags::ModelConditionFlags as M;
+        let flailing = 1u128 << M::EXPLODED_FLAILING;
+        let bouncing = 1u128 << M::EXPLODED_BOUNCING;
+        let parachuting = 1u128 << M::PARACHUTING;
+        let set = match self {
+            Self::NotFlung => return,
+            Self::Flailing => flailing,
+            Self::Snagged | Self::LandedInTree => parachuting,
+            Self::Bouncing => bouncing,
+            Self::BouncingWithParachute => bouncing | parachuting,
+        };
+        object.model_condition_bits =
+            (object.model_condition_bits & !(flailing | bouncing)) | set;
+    }
 }
 #[derive(Debug, Clone)]
 pub(crate) struct NativeDieDeclaration {
@@ -106,9 +140,23 @@ fn bind_creation(list: &str, transfer: bool) -> Option<NativeDieCreate> {
 }
 #[derive(Debug, Clone)]
 pub(crate) enum NativeSlowFamily {
-    Ordinary(std::sync::Arc<[SlowDeathEffects; 3]>),
+    Ordinary(std::sync::Arc<NativeOrdinarySlowDeath>),
     Jet(super::host_jet_slow_death::HostJetSlowDeathFx),
     Helicopter(super::host_helicopter_slow_death::HostHelicopterSlowDeathFx),
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct NativeOrdinarySlowDeath {
+    pub(crate) phases: [SlowDeathEffects; 3],
+    pub(crate) fling: Option<SlowDeathFling>,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct SlowDeathFling {
+    pub(crate) min_force: f32,
+    pub(crate) max_force: f32,
+    pub(crate) min_pitch: f32,
+    pub(crate) max_pitch: f32,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -264,13 +312,30 @@ pub(crate) fn bind(modules: &[BehaviorModuleDefinition]) -> Vec<NativeDieDeclara
                     NativeDieKind::Instant { config, creations }
                 }
                 "slowdeathbehavior" | "jetslowdeathbehavior" | "helicopterslowdeathbehavior" => {
+                    let config = super::host_slow_death::slow_death_ini_from_behavior_attrs(&attrs);
                     NativeDieKind::Slow {
                         family: match module.class_name.to_ascii_lowercase().as_str() {
                             "jetslowdeathbehavior" => NativeSlowFamily::Jet(super::host_jet_slow_death::jet_slow_death_fx_from_behavior_attrs(&attrs)),
                             "helicopterslowdeathbehavior" => NativeSlowFamily::Helicopter(super::host_helicopter_slow_death::heli_slow_death_fx_from_behavior_attrs(&attrs)),
-                            _ => NativeSlowFamily::Ordinary(std::sync::Arc::new(parse_slow_death_effects(&attrs))),
+                            _ => NativeSlowFamily::Ordinary(std::sync::Arc::new(NativeOrdinarySlowDeath {
+                                phases: parse_slow_death_effects(&attrs),
+                                fling: (config.fling_force > 0.0).then(|| {
+                                    use game_engine::common::ini::INI;
+                                    let radians_per_degree = std::f32::consts::PI / 180.0;
+                                    let pitch = config.fling_pitch_deg * radians_per_degree;
+                                    let pitch_variance = module.attribute("FlingPitchVariance")
+                                        .and_then(|value| INI::parse_angle_real(value).ok())
+                                        .unwrap_or(0.0);
+                                    SlowDeathFling {
+                                        min_force: config.fling_force,
+                                        max_force: config.fling_force + config.fling_force_variance,
+                                        min_pitch: pitch,
+                                        max_pitch: pitch + pitch_variance,
+                                    }
+                                }),
+                            })),
                         },
-                        config: super::host_slow_death::slow_death_ini_from_behavior_attrs(&attrs),
+                        config,
                     }
                 }
                 "structuretoppleupdate" => NativeDieKind::Topple,
@@ -337,12 +402,14 @@ pub(crate) fn bind(modules: &[BehaviorModuleDefinition]) -> Vec<NativeDieDeclara
 impl NativeDieRuntime {
     pub(crate) fn validate(&self, declarations: &[NativeDieDeclaration], has_ai: bool) -> bool {
         (!self.ai_dead || has_ai)
-            && self.slow_death.is_none_or(|slow| declarations.iter().any(|declaration|
-                declaration.source_index == slow.source_index
-                    && matches!(&declaration.kind, NativeDieKind::Slow {
-                        family: NativeSlowFamily::Ordinary(_), ..
-                    })
-            ))
+            && self.slow_death.is_none_or(|slow| {
+                declarations.iter().any(|declaration| {
+                    declaration.source_index == slow.source_index
+                        && matches!(&declaration.kind, NativeDieKind::Slow {
+                            family: NativeSlowFamily::Ordinary(data), ..
+                        } if slow.flight == SlowDeathFlight::NotFlung || data.fling.is_some())
+                })
+            })
             && self.completed.iter().all(|index| {
                 declarations
                     .iter()

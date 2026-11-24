@@ -587,7 +587,7 @@ impl Object {
         let mut sd = crate::game_logic::host_slow_death::HostSlowDeathData::from_ini_with_deadlines(
             current_frame, ini, deadlines,
         );
-        if ini.fling_force > 0.0 {
+        if deadlines.is_none() && ini.fling_force > 0.0 {
             let ang = (self.id.0 as f32) * 0.618_033_988;
             sd.apply_fling_angle(ang);
         }

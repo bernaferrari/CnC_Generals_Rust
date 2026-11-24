@@ -351,6 +351,7 @@ impl GameLogic {
                                             crate::game_logic::native_die_definition::NativeSlowDeath {
                                                 source_index,
                                                 midpoint_frame: deadlines.midpoint,
+                                                flight: Default::default(),
                                             },
                                         );
                                     }
@@ -380,6 +381,12 @@ impl GameLogic {
                         );
                     }
                     if authored_slow_death_started {
+                        if let NativeSlowFamily::Ordinary(data) = family
+                            && let Some(fling) = data.fling
+                            && !self.begin_authored_slow_death_flight(id, fling, presentation_effects)
+                        {
+                            break;
+                        }
                         self.run_authored_slow_death_phase(
                             id,
                             crate::game_logic::native_die_definition::SlowDeathEffectPhase::Initial,
