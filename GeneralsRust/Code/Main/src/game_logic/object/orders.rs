@@ -433,11 +433,11 @@ impl Object {
                 };
                 self.set_terrain_decal_size(major * 2.0, major * 2.0);
             }
-            self.terrain_decal_opacity = 1.0;
+            self.set_terrain_decal_opacity_immediate(1.0);
             self.terrain_decal_fade_rate = 0.0;
         } else if self.terrain_decal_type == TERRAIN_DECAL_CHEMSUIT {
             self.set_terrain_decal(TERRAIN_DECAL_NONE);
-            self.terrain_decal_opacity = 0.0;
+            self.set_terrain_decal_opacity_immediate(0.0);
         }
     }
 
@@ -447,6 +447,7 @@ impl Object {
             return;
         }
         self.terrain_decal_type = decal_type;
+        self.terrain_decal_draw_opacity = None;
     }
 
     /// C++ Drawable::getTerrainDecalType residual.
@@ -461,23 +462,42 @@ impl Object {
 
     /// C++ Drawable::setTerrainDecalFadeTarget residual.
     pub fn set_terrain_decal_fade_target(&mut self, target: f32, rate: f32) {
-        self.terrain_decal_fade_target = target;
-        self.terrain_decal_fade_rate = rate;
+        if self.terrain_decal_fade_target != target {
+            self.terrain_decal_fade_target = target;
+            self.terrain_decal_fade_rate = rate;
+        }
+    }
+
+    fn set_terrain_decal_opacity_immediate(&mut self, opacity: f32) {
+        self.terrain_decal_opacity = opacity;
+        self.terrain_decal_draw_opacity = None;
+    }
+
+    pub(crate) fn presentation_terrain_decal_opacity(&self) -> f32 {
+        self.terrain_decal_draw_opacity.unwrap_or(self.terrain_decal_opacity)
     }
 
     /// C++ `Drawable::update` LERP `m_decalOpacity` by fade rate; clear at 0.
     pub fn tick_terrain_decal_fade(&mut self) {
         use crate::game_logic::host_battlemaster::TERRAIN_DECAL_NONE;
-        if self.terrain_decal_type == TERRAIN_DECAL_NONE || self.terrain_decal_fade_rate == 0.0 {
+        if self.terrain_decal_type == TERRAIN_DECAL_NONE {
+            if self.terrain_decal_opacity != 0.0 {
+                self.set_terrain_decal_opacity_immediate(0.0);
+            }
             return;
         }
+        if self.terrain_decal_fade_rate == 0.0 {
+            return;
+        }
+        // Drawable::updateDrawable submits the current sample before stepping.
+        self.terrain_decal_draw_opacity = Some(self.terrain_decal_opacity);
         self.terrain_decal_opacity += self.terrain_decal_fade_rate;
         if self.terrain_decal_fade_rate < 0.0 && self.terrain_decal_opacity <= 0.0 {
-            self.terrain_decal_opacity = 0.0;
+            self.set_terrain_decal_opacity_immediate(0.0);
             self.terrain_decal_fade_rate = 0.0;
             self.set_terrain_decal(TERRAIN_DECAL_NONE);
         } else if self.terrain_decal_fade_rate > 0.0 && self.terrain_decal_opacity >= 1.0 {
-            self.terrain_decal_opacity = 1.0;
+            self.set_terrain_decal_opacity_immediate(1.0);
             self.terrain_decal_fade_rate = 0.0;
         }
     }
@@ -495,7 +515,7 @@ impl Object {
         let size = CRATE_DECAL_SIZE_MULT * major.max(1.0);
         self.set_terrain_decal(TERRAIN_DECAL_CRATE);
         self.set_terrain_decal_size(size, size);
-        self.terrain_decal_opacity = 0.0;
+        self.set_terrain_decal_opacity_immediate(0.0);
         self.set_terrain_decal_fade_target(1.0, CRATE_DECAL_FADE_IN_RATE);
     }
 
@@ -515,7 +535,7 @@ impl Object {
             };
             self.set_terrain_decal_size(major * 2.0, major * 2.0);
         }
-        self.terrain_decal_opacity = 1.0;
+        self.set_terrain_decal_opacity_immediate(1.0);
         self.terrain_decal_fade_rate = 0.0;
     }
 

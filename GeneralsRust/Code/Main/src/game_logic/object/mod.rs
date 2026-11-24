@@ -1351,6 +1351,9 @@ pub struct Object {
     /// C++ `Drawable::m_decalOpacity` residual.
     #[serde(default)]
     pub terrain_decal_opacity: f32,
+    /// Last opacity delivered to the draw module by the client tick.
+    #[serde(skip)]
+    pub(crate) terrain_decal_draw_opacity: Option<f32>,
 
     /// C++ SubObjectsUpgrade show/hide residual (Bombload / BombWing peels).
     #[serde(default)]

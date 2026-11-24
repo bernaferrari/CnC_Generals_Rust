@@ -2288,13 +2288,14 @@ impl PresentationFrame {
                 ro.shadow_type_bits = shadow_bits;
                 dirty = true;
             }
+            let terrain_decal_opacity = obj.presentation_terrain_decal_opacity();
             if ro.terrain_decal_type != obj.terrain_decal_type
                 || (ro.terrain_decal_size - obj.terrain_decal_size).abs() > 1e-5
-                || (ro.terrain_decal_opacity - obj.terrain_decal_opacity).abs() > 1e-5
+                || (ro.terrain_decal_opacity - terrain_decal_opacity).abs() > 1e-5
             {
                 ro.terrain_decal_type = obj.terrain_decal_type;
                 ro.terrain_decal_size = obj.terrain_decal_size;
-                ro.terrain_decal_opacity = obj.terrain_decal_opacity;
+                ro.terrain_decal_opacity = terrain_decal_opacity;
                 dirty = true;
             }
             let damage_fx = obj

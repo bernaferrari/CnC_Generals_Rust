@@ -337,6 +337,124 @@ End";
     assert_eq!(wreck.slow_death.as_ref().unwrap().sink_offset, 0.0);
 }
 
+const SINKING_VISUAL_DEATH: &str = r"Shadow = SHADOW_DECAL
+ShadowTexture = ShadowInfantry
+Draw = W3DModelDraw UnitDraw
+ DefaultConditionState
+  Model = TestInfantry
+ End
+End
+Behavior = SlowDeathBehavior DeathTag
+ SinkDelay = 3000
+ SinkRate = 1
+ DestructionDelay = 5000
+End";
+
+fn sinking_decal_world(kinds: &str, definition: &str) -> (GameLogic, ObjectId) {
+    use crate::game_logic::host_battlemaster::TERRAIN_DECAL_CRATE;
+
+    let mut world = force_world_with_kinds(kinds, 50, false, definition);
+    let id = world
+        .create_object("AuthoredWreck", Team::GLA, Vec3::ZERO)
+        .unwrap();
+    let object = world.objects.get_mut(&id).unwrap();
+    object.set_terrain_decal(TERRAIN_DECAL_CRATE);
+    object.set_terrain_decal_size(4.0, 4.0);
+    object.set_terrain_decal_fade_target(1.0, 0.25);
+    for _ in 0..4 {
+        world.update();
+    }
+    assert_eq!(world.objects[&id].terrain_decal_opacity, 1.0);
+    (world, id)
+}
+
+fn observe_sinking_visuals(world: &mut GameLogic, id: ObjectId) -> String {
+    use crate::presentation_frame::{PresentationFrame, live_terrain_decal_specs};
+
+    let frame = PresentationFrame::build_from_logic(world, 0);
+    let object = frame.objects.iter().find(|object| object.id == id).unwrap();
+    let rendered = live_terrain_decal_specs(&frame.objects, frame.local_team)
+        .into_iter()
+        .find(|item| item.object_id == id)
+        .map_or(0.0, |item| item.opacity);
+    assert_eq!(object.terrain_decal_opacity, rendered);
+    let state = &world.objects[&id];
+    format!(
+        "{} {:.3} {:.3} {:.3}",
+        u8::from(object.shadows_enabled),
+        rendered,
+        state.terrain_decal_opacity,
+        state.terrain_decal_fade_rate,
+    )
+}
+
+#[test]
+fn authored_slow_death_sinking_infantry_uses_original_shadow_and_decal_transition() {
+    use crate::save_load::snapshot::SnapshotBuilder;
+
+    let (mut owner, id) = sinking_decal_world("INFANTRY", SINKING_VISUAL_DEATH);
+    let (mut peer, peer_id) = sinking_decal_world("VEHICLE", SINKING_VISUAL_DEATH);
+    assert_eq!(id, peer_id);
+    let mut trace = include_str!("slow_death_visuals.trace").lines();
+    let before = trace.next().unwrap();
+    assert_eq!(observe_sinking_visuals(&mut owner, id), before);
+    peer.with_own_services(|| kill(&mut owner, id));
+    assert_eq!(
+        observe_sinking_visuals(&mut owner, id),
+        trace.next().unwrap()
+    );
+    assert_eq!(observe_sinking_visuals(&mut peer, id), before);
+    owner.update();
+    assert_eq!(
+        observe_sinking_visuals(&mut owner, id),
+        trace.next().unwrap()
+    );
+
+    let builder = SnapshotBuilder::new();
+    let snapshot = builder.create_world_snapshot(&owner).unwrap();
+    let mut restored = force_world_with_kinds("INFANTRY", 50, false, SINKING_VISUAL_DEATH);
+    builder
+        .restore_from_snapshot(&snapshot, &mut restored)
+        .unwrap();
+    assert!(!restored.objects[&id].presentation_shadows_enabled());
+    for expected in trace.by_ref().take(5) {
+        owner.update();
+        restored.update();
+        assert_eq!(observe_sinking_visuals(&mut owner, id), expected);
+        assert_eq!(observe_sinking_visuals(&mut restored, id), expected);
+    }
+
+    kill(&mut peer, id);
+    assert_eq!(
+        observe_sinking_visuals(&mut peer, id),
+        trace.next().unwrap()
+    );
+}
+
+#[test]
+fn authored_slow_death_leaves_same_target_decal_fade_rate_intact() {
+    let mut trace = include_str!("slow_death_visuals.trace").lines().rev();
+    let (mut world, id) = sinking_decal_world("INFANTRY", SINKING_VISUAL_DEATH);
+    world
+        .objects
+        .get_mut(&id)
+        .unwrap()
+        .set_terrain_decal_fade_target(0.0, -0.125);
+    kill(&mut world, id);
+    assert_eq!(
+        observe_sinking_visuals(&mut world, id),
+        trace.next().unwrap()
+    );
+
+    let death = SINKING_VISUAL_DEATH.replace("SinkRate = 1", "SinkRate = 0");
+    let (mut zero_sink, id) = sinking_decal_world("INFANTRY", &death);
+    kill(&mut zero_sink, id);
+    assert_eq!(
+        observe_sinking_visuals(&mut zero_sink, id),
+        trace.next().unwrap()
+    );
+}
+
 #[test]
 fn authored_slow_death_flight_continues_through_save_and_first_landing() {
     use crate::game_logic::native_die_definition::SlowDeathFlight;

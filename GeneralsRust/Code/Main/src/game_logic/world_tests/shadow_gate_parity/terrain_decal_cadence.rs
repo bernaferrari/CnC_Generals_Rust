@@ -104,11 +104,13 @@ fn terrain_decal_fade_advances_once_per_default_owned_frame() {
 #[test]
 fn terrain_decal_fade_clamps_then_clears_once_at_zero() {
     let (mut logic, id) = admitted_decal();
+    let owner = logic.host_object_mut(id).unwrap();
+    owner.set_terrain_decal_fade_target(1.0, 0.25);
+    assert_eq!(owner.terrain_decal_fade_rate, CRATE_DECAL_FADE_IN_RATE);
+    // Start a new fade by changing the target, as Drawable requires.
+    owner.set_terrain_decal_fade_target(0.0, -0.25);
+    owner.set_terrain_decal_fade_target(1.0, 0.25);
     // Four increments reach 1.0; the third remains below it.
-    logic
-        .host_object_mut(id)
-        .unwrap()
-        .set_terrain_decal_fade_target(1.0, 0.25);
     for frame in 1..=4 {
         logic.update();
         assert_opacity(&logic, id, frame as f32 * 0.25);

@@ -815,6 +815,7 @@ impl Object {
             terrain_decal_fade_target: 0.0,
             terrain_decal_fade_rate: 0.0,
             terrain_decal_opacity: if is_fs_fake { 1.0 } else { 0.0 },
+            terrain_decal_draw_opacity: None,
             sub_object_visibility: crate::game_logic::host_battlemaster::leftover_horde_flag_visibility(
                 authors_horde_update,
             ),
@@ -1650,6 +1651,7 @@ impl Object {
             terrain_decal_fade_target: 0.0,
             terrain_decal_fade_rate: 0.0,
             terrain_decal_opacity: if is_fs_fake { 1.0 } else { 0.0 },
+            terrain_decal_draw_opacity: None,
             sub_object_visibility: Default::default(),
             special_power_completion: None,
             power_plant_rods_extended: false,

@@ -732,7 +732,7 @@ impl PresentationFrame {
                 ),
                 terrain_decal_type: obj.terrain_decal_type,
                 terrain_decal_size: obj.terrain_decal_size,
-                terrain_decal_opacity: obj.terrain_decal_opacity,
+                terrain_decal_opacity: obj.presentation_terrain_decal_opacity(),
                 move_destination: auth_dest,
                 target_location: obj.target_location,
                 guard_target: obj.active_guard_target(),

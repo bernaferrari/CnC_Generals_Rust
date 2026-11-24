@@ -10,6 +10,7 @@ from verify_ocl_force_parity import ROOT, definition
 
 
 SOURCE = ROOT / "GeneralsMD/Code/GameEngine/Source/GameLogic/Object/Behavior/SlowDeathBehavior.cpp"
+DRAWABLE = ROOT / "GeneralsMD/Code/GameEngine/Source/GameClient/Drawable.cpp"
 FIXTURES = ROOT / (
     "GeneralsRust/Code/Main/src/game_logic/world_objects/create_destroy_die/"
     "death"
@@ -27,13 +28,16 @@ PROBES = r"""
 #define MAKE_MODELCONDITION_MASK(flag) flag
 using Real = float;
 using Int = int;
+using Bool = bool;
 using UnsignedInt = unsigned;
 using ObjectID = unsigned;
 using UpdateSleepTime = int;
 using std::max;
 constexpr unsigned PLAYERMASK_ALL = ~0u;
 constexpr bool TRUE = true;
-enum { UPDATE_SLEEP_NONE, KINDOF_SHRUBBERY, DISABLED_HELD };
+enum { UPDATE_SLEEP_NONE, KINDOF_SHRUBBERY, KINDOF_INFANTRY, DISABLED_HELD };
+enum { TERRAIN_DECAL_NONE, TERRAIN_DECAL_CRATE };
+constexpr unsigned DRAWABLE_STATUS_SHADOWS = 1;
 enum { FLUNG_INTO_AIR, BOUNCED, MIDPOINT_EXECUTED };
 enum {
     MODELCONDITION_EXPLODED_FLAILING = 1,
@@ -64,6 +68,30 @@ struct PhysicsBehavior {
     ObjectID last = 0;
     ObjectID getLastCollidee() { return last; }
 };
+struct DrawModule {
+    float opacity = 1.0f;
+    bool shadows = true;
+    void setTerrainDecalOpacity(float value) { opacity = value; }
+    void setShadowsEnabled(bool enabled) { shadows = enabled; }
+};
+struct Drawable {
+    DrawModule draw;
+    DrawModule* modules[2]{&draw, nullptr};
+    unsigned status = DRAWABLE_STATUS_SHADOWS;
+    int decal = TERRAIN_DECAL_CRATE;
+    Real m_decalOpacity = 1.0f, m_decalOpacityFadeTarget = 1.0f, m_decalOpacityFadeRate = 0.0f;
+    DrawModule** getDrawModules() { return modules; }
+    int getTerrainDecalType() const { return decal; }
+    void setTerrainDecal(int type) {
+        decal = type;
+        if (type == TERRAIN_DECAL_NONE) draw.opacity = 0.0f;
+    }
+    void setDrawableStatus(unsigned value) { status |= value; }
+    void clearDrawableStatus(unsigned value) { status &= ~value; }
+    void setTerrainDecalFadeTarget(Real target, Real rate);
+    void setShadowsEnabled(bool enabled);
+    void updateDecal();
+};
 struct Object {
     Coord3D position;
     Body body;
@@ -71,9 +99,11 @@ struct Object {
     BehaviorModule** modules = nullptr;
     int model = 0;
     bool shrub = false;
+    bool infantry = false;
     bool held = false;
     bool retired = false;
     PhysicsBehavior physics;
+    Drawable drawable;
     Body* getBodyModule() { return &body; }
     AIUpdateInterface* getAIUpdateInterface() { return &ai; }
     BehaviorModule** getBehaviorModules() { return modules; }
@@ -81,7 +111,10 @@ struct Object {
     void setPosition(const Coord3D* newPosition) { position = *newPosition; }
     void setPositionZ(float z) { position.z = z; }
     bool isAboveTerrain() { return position.z > 0.0f; }
-    bool isKindOf(int kind) { return shrub && kind == KINDOF_SHRUBBERY; }
+    bool isKindOf(int kind) {
+        return (shrub && kind == KINDOF_SHRUBBERY) || (infantry && kind == KINDOF_INFANTRY);
+    }
+    Drawable* getDrawable() { return &drawable; }
     PhysicsBehavior* getPhysics() { return &physics; }
     void setDisabled(int disable) { if (disable == DISABLED_HELD) held = true; }
     void clearAndSetModelConditionFlags(int clear, int set) { model = (model & ~clear) | set; }
@@ -141,6 +174,7 @@ struct SlowDeathBehavior : SlowDeathBehaviorInterface {
     void onDie(const DamageInfo*);
     void doPhaseStuff(SlowDeathPhaseType);
     UpdateSleepTime update();
+    void beginVisual();
 };
 int GameLogicRandomValue(int lo, int hi) {
     if (lo == 1) {
@@ -211,7 +245,47 @@ static void flight() {
                 int(contact.object.held), int(contact.object.retired));
 }
 
+static void emit_visual(const SlowDeathBehavior& death) {
+    const Drawable& drawable = death.object.drawable;
+    std::printf("%d %.3f %.3f %.3f\n", int(drawable.draw.shadows), drawable.draw.opacity,
+                drawable.m_decalOpacity, drawable.m_decalOpacityFadeRate);
+}
+
+static void visuals() {
+    SlowDeathBehavior infantry;
+    infantry.data.m_sinkRate = 1.0f;
+    infantry.object.infantry = true;
+    emit_visual(infantry);
+    infantry.beginVisual();
+    emit_visual(infantry);
+    for (int i = 0; i < 6; ++i) {
+        infantry.object.drawable.updateDecal();
+        emit_visual(infantry);
+    }
+
+    SlowDeathBehavior vehicle;
+    vehicle.data.m_sinkRate = 1.0f;
+    vehicle.beginVisual();
+    emit_visual(vehicle);
+
+    SlowDeathBehavior noSink;
+    noSink.object.infantry = true;
+    noSink.beginVisual();
+    emit_visual(noSink);
+
+    SlowDeathBehavior fading;
+    fading.object.infantry = true;
+    fading.data.m_sinkRate = 1.0f;
+    fading.object.drawable.setTerrainDecalFadeTarget(0.0f, -0.125f);
+    fading.beginVisual();
+    emit_visual(fading);
+}
+
 int main(int argc, char** argv) {
+    if (argc > 1 && argv[1][0] == 'v') {
+        visuals();
+        return 0;
+    }
     if (argc > 1 && argv[1][0] == 'f') {
         flight();
         return 0;
@@ -235,15 +309,29 @@ def main() -> int:
     parser.add_argument("--cxx", default="c++")
     args = parser.parse_args()
     original = SOURCE.read_text()
+    drawable = DRAWABLE.read_text()
     on_die = definition(original, r"void SlowDeathBehavior::onDie\(")
     # MSVC6 let the first for-loop variable escape its scope. Redeclare the
     # iterator in the second loop for standard C++ without changing either loop.
     on_die = on_die.replace("/* UpdateModuleInterface** */ update =", "BehaviorModule** update =")
+    begin = original.index("void SlowDeathBehavior::beginSlowDeath(")
+    visuals = original.index("if (d->m_sinkRate && obj->isKindOf(KINDOF_INFANTRY))", begin)
+    timing = original.index("// Ask game detail manager", visuals)
+    visual_prefix = original[visuals:timing]
+    update = drawable.index("void Drawable::updateDrawable(")
+    decal = drawable.index("if ( getTerrainDecalType() != TERRAIN_DECAL_NONE )", update)
+    decal_end = drawable.index("m_decalOpacity = 0;", decal) + len("m_decalOpacity = 0;")
     callbacks = [
         definition(original, r"void SlowDeathBehavior::doPhaseStuff\("),
         definition(original, r"UpdateSleepTime SlowDeathBehavior::update\("),
         definition(original, r"Int SlowDeathBehavior::getProbabilityModifier\("),
         on_die,
+        definition(drawable, r"void Drawable::setTerrainDecalFadeTarget\("),
+        definition(drawable, r"void Drawable::setShadowsEnabled\("),
+        "void Drawable::updateDecal() {\n" + drawable[decal:decal_end] + "\n}",
+        "void SlowDeathBehavior::beginVisual() {\n"
+        "auto* d = getSlowDeathBehaviorModuleData();\nauto* obj = getObject();\n"
+        + visual_prefix + "\n}",
     ]
     with tempfile.TemporaryDirectory(prefix="slow-death-parity-") as directory:
         cpp = Path(directory) / "original.cpp"
@@ -254,6 +342,7 @@ def main() -> int:
             ("slow_death_same_frame.trace", []),
             ("slow_death_selection.trace", ["select"]),
             ("slow_death_flight.trace", ["flight"]),
+            ("slow_death_visuals.trace", ["visuals"]),
         ]:
             observed = subprocess.check_output([exe, *extra], text=True)
             expected = (FIXTURES / fixture).read_text()
@@ -261,7 +350,7 @@ def main() -> int:
                 raise RuntimeError(
                     f"Original C++ trace differs in {fixture}:\n{observed}Expected:\n{expected}"
                 )
-    print("Original C++ matched the Rust SlowDeath selection, phase and flight traces")
+    print("Original C++ matched the Rust SlowDeath selection, phase, flight and visual traces")
     return 0
 
 

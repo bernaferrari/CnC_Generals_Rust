@@ -587,6 +587,9 @@ impl Object {
         let mut sd = crate::game_logic::host_slow_death::HostSlowDeathData::from_ini_with_deadlines(
             current_frame, ini, deadlines,
         );
+        if self.slow_death_hides_shadow(sd.sink_rate_per_frame) {
+            self.set_terrain_decal_fade_target(0.0, -0.2);
+        }
         if deadlines.is_none() && ini.fling_force > 0.0 {
             let ang = (self.id.0 as f32) * 0.618_033_988;
             sd.apply_fling_angle(ang);
@@ -1261,7 +1264,17 @@ impl Object {
             .unwrap_or((1.0, 0.0))
     }
 
+    fn slow_death_hides_shadow(&self, sink_rate: f32) -> bool {
+        sink_rate != 0.0 && self.is_kind_of(crate::game_logic::KindOf::Infantry)
+    }
+
     pub fn presentation_shadows_enabled(&self) -> bool {
+        // SlowDeathBehavior::beginSlowDeath disables the shadow at death admission.
+        if self.slow_death.as_ref().is_some_and(|death| {
+            (death.is_active() || death.is_done()) && self.slow_death_hides_shadow(death.sink_rate_per_frame)
+        }) {
+            return false;
+        }
         // C++ W3DModelDraw::allocateShadows / setModelState: Shadow == NONE allocates nothing.
         let bits = crate::game_logic::host_battlemaster::leftover_template_shadow_type(
             &self.template_name,
