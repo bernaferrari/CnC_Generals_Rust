@@ -133,6 +133,19 @@ impl NativeInstalledPoseLoan<'_> {
             .contains_key(&NativeDrawOwnerId::Actor(object))
     }
 
+    /// The Drawable itself can exist even when a Draw module has no mesh.
+    #[cfg(feature = "game_client")]
+    pub(crate) fn matches_object_drawable_binding(
+        &self,
+        identity: &crate::assets::LiveDrawPlaybackIdentity,
+        key: game_client::core::PresentationDirectDrawableBindingKey,
+    ) -> bool {
+        key.object_id == identity.object_id()
+            && self.native_drawable_lifetimes
+                .get(&NativeDrawOwnerId::Actor(identity.object_id()))
+                .is_some_and(|lifetime| lifetime.identity == *identity && lifetime.binding == Some(key))
+    }
+
     pub(crate) fn current_animation_sync_ms(&self) -> u32 {
         self.animation_sync_ms
     }

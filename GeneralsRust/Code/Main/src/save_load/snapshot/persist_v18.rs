@@ -116,6 +116,8 @@ pub struct DrawableIconPersist {
 pub struct DrawableXferPersist {
     pub object_id: u32,
     pub selection_flash_remaining: u32,
+    #[serde(default)]
+    pub selection_flash_color: Option<[f32; 3]>,
     pub decal_opacity_fade_target: f32,
     pub decal_opacity_fade_rate: f32,
     pub decal_opacity: f32,
@@ -162,6 +164,7 @@ impl Default for DrawableXferPersist {
         Self {
             object_id: 0,
             selection_flash_remaining: 0,
+            selection_flash_color: None,
             decal_opacity_fade_target: 0.0,
             decal_opacity_fade_rate: 0.0,
             decal_opacity: 0.0,
@@ -695,6 +698,7 @@ fn capture_persist_v18_bound(
         persist.drawable_xfer.push(DrawableXferPersist {
             object_id: id.0,
             selection_flash_remaining: object.selection_flash_remaining,
+            selection_flash_color: object.selection_flash_color,
             decal_opacity_fade_target: object.terrain_decal_fade_target,
             decal_opacity_fade_rate: object.terrain_decal_fade_rate,
             decal_opacity: object.terrain_decal_opacity,
@@ -977,6 +981,7 @@ pub(super) fn restore_persist_v18_with_scale_encoding(
             continue;
         };
         object.selection_flash_remaining = entry.selection_flash_remaining;
+        object.selection_flash_color = entry.selection_flash_color;
         object.terrain_decal_fade_target = entry.decal_opacity_fade_target;
         object.terrain_decal_fade_rate = entry.decal_opacity_fade_rate;
         object.terrain_decal_opacity = entry.decal_opacity;
@@ -2055,6 +2060,11 @@ mod tests {
             (logic, id)
         }
         let (mut playing, id) = world();
+        let color = [0.25, -0.1, 0.0];
+        playing
+            .host_object_mut(id)
+            .unwrap()
+            .flash_as_selected_with_color(color);
         let _ = PresentationFrame::build_from_logic(&mut playing, 0).unit_render_inputs();
         let saved = capture_persist_v18(&playing);
         let bytes = serde_json::to_vec(&saved).unwrap();
@@ -2066,6 +2076,9 @@ mod tests {
         let (mut candidate, candidate_id) = world();
         assert_eq!(id, candidate_id);
         restore_persist_v18(&decoded, &mut candidate).unwrap();
+        let restored = candidate.host_object(id).unwrap();
+        assert!(restored.is_selection_flashing());
+        assert_eq!(restored.selection_flash_color, Some(color));
         let after = capture_persist_v18(&playing);
         assert_eq!(
             before.drawable_xfer[0].tint_envelope, after.drawable_xfer[0].tint_envelope,

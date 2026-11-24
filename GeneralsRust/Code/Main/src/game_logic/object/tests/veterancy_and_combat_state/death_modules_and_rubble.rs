@@ -180,16 +180,16 @@ fn defection_timer_expires_and_blows_on_fire() {
     o.begin_undetected_defection(0, 30, true);
     assert!(o.is_undetected_defector());
     for f in 0..29 {
-        o.tick_defection_helper(f);
+        let _ = o.tick_defection_helper(f, true);
     }
     assert!(o.is_undetected_defector());
-    o.tick_defection_helper(30);
+    let _ = o.tick_defection_helper(30, true);
     assert!(!o.is_undetected_defector());
 
     o.begin_undetected_defection(0, DEFAULT_DEFECTION_PROTECTION_FRAMES, true);
     assert!(o.is_undetected_defector());
     o.status.is_firing_weapon = true;
-    o.tick_defection_helper(5);
+    let _ = o.tick_defection_helper(5, true);
     assert!(!o.is_undetected_defector());
 }
 

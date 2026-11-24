@@ -124,13 +124,12 @@ impl GameLogic {
             let mut poison_kill = false;
             let mut ai_dead_entered_this_tick = false;
             let mut pending_stump: Option<(String, glam::Vec3, f32, bool)> = None;
-            let mut defector_audio: Vec<String> = Vec::new();
             let mut disguise_halfpoint: Option<(glam::Vec3, bool, bool)> = None;
             let mut missile_idle_audio: Option<(Option<String>, bool, Option<String>, glam::Vec3)> =
                 None;
             let mut fire_weapon_power_shot = false;
-            let (height_die_terrain, frenzy_expired) = self.objects.get(&object_id).map_or(
-                (None, false),
+            let (height_die_terrain, frenzy_expired, defection_fx_available) = self.objects.get(&object_id).map_or(
+                (None, false, false),
                 |object| {
                     // Only a legacy HeightDie module needs this pre-callback
                     // sample. Authored lifecycle modules sample at their own update.
@@ -150,7 +149,11 @@ impl GameLogic {
                     let frenzy_expired = object.weapon_bonus_frenzy
                         && object.weapon_bonus_frenzy_until_frame > 0
                         && self.frame >= object.weapon_bonus_frenzy_until_frame;
-                    (height_die_terrain, frenzy_expired)
+                    let defection_fx_available =
+                        object.defection_helper.as_ref().is_some_and(|helper| {
+                            helper.undetected_defector && helper.do_defector_fx
+                        }) && self.accepts_defector_drawable(object, presentation_effects);
+                    (height_die_terrain, frenzy_expired, defection_fx_available)
                 },
             );
             if frenzy_expired {
@@ -181,12 +184,7 @@ impl GameLogic {
                 {
                     obj.tick_eject_invulnerable(self.frame);
                 }
-                // Wave 766: under coupled shadow, ObjectDefectionHelper timer is
-                // owned by GW tick_status_timer_expirations + writeback.
-                {
-                    // C++ ObjectDefectionHelper::update residual.
-                    obj.tick_defection_helper(self.frame);
-                }
+                let defection_flash = obj.tick_defection_helper(self.frame, defection_fx_available);
                 // Snapshot FireWeaponPower residual before further mut uses.
                 let fwp_shot = obj.fire_weapon_power.as_ref().and_then(|req| {
                     if req.shots_remaining == 0 {
@@ -209,6 +207,9 @@ impl GameLogic {
                     }
                 }
                 let _ = obj;
+                if let Some(flash) = defection_flash {
+                    self.present_defection_flash(object_id, flash);
+                }
                 if fire_weapon_power_shot {
                     self.unit_command_set_ai_state_with_effects(
                         object_id,
@@ -219,12 +220,6 @@ impl GameLogic {
                 let Some(obj) = self.objects.get_mut(&object_id) else {
                     continue;
                 };
-                // Drain defector audio residual (collect then queue outside obj borrow).
-                defector_audio = obj
-                    .defection_helper
-                    .as_mut()
-                    .map(|d| d.drain_audio())
-                    .unwrap_or_default();
                 // CPP PoisonedBehavior owns its timer on this Object. Movement
                 // authority only changes pose ownership; its diagnostic shadow
                 // does not schedule or apply another poison pulse.
@@ -935,13 +930,6 @@ impl GameLogic {
                 // The receiving kill driver already delivered onDie/retention.
                 // Never turn a retained corpse into a second forced destroy.
                 continue;
-            }
-            for a in defector_audio {
-                self.queue_audio_event(
-                    crate::game_logic::AudioEventRequest::new(a.as_str())
-                        .with_object(object_id)
-                        .with_priority(80),
-                );
             }
             if let Some((play, stop, stop_name, pos)) = missile_idle_audio {
                 if let Some(name) = play {

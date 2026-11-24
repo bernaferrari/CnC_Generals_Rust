@@ -1,20 +1,16 @@
-//! Host ObjectDefectionHelper residual (undetected defector timer + FX).
+//! Defection cover and timer effects for the live match.
 //!
-//! C++: after `defect()` / pilot invulnerable, object is UNDETECTED_DEFECTOR until
-//! timer ends. Helper flashes selection + tick audio as time runs out; attacking
-//! or dying blows cover early. Final ding + white flash when timer expires.
-//!
-//! Residual playability slice:
-//! - `start_defection_timer(frames, with_fx)` residual
-//! - Flash acceleration denominator **10s** (300 frames @ 30 FPS), not a duration cap
-//! - Blow cover on effectively-dead or IS_FIRING_WEAPON
-//! - Flash phase residual accelerates near end
-//! - Presentation: defector_flash + undetected_defector flags
-//!
-//! Fail-closed: not full relationship matrix / groupDoSpecialPower cover blow
-//! beyond firing bit / drawable flash white RGB path beyond residual events.
+//! C++ ObjectDefectionHelper checks expiry before observing firing or death.
+//! The flash cadence and authored audio require the current Drawable. A pilot
+//! can use the same timer for cover with its effects disabled.
 
 use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum DefectionFlash {
+    Selected,
+    Revealed,
+}
 
 /// C++ DEFECTION_DETECTION_TIME_MAX = LOGICFRAMES_PER_SECOND * 10.
 pub const DEFECTION_DETECTION_TIME_MAX: u32 = 30 * 10;
@@ -35,8 +31,6 @@ pub struct HostDefectionHelperData {
     pub flash_this_frame: bool,
     /// Presentation residual: final white flash when timer expires.
     pub final_white_flash: bool,
-    /// Audio residual keys for presentation drain.
-    pub pending_audio: Vec<String>,
 }
 
 impl Default for HostDefectionHelperData {
@@ -49,7 +43,6 @@ impl Default for HostDefectionHelperData {
             undetected_defector: false,
             flash_this_frame: false,
             final_white_flash: false,
-            pending_audio: Vec::new(),
         }
     }
 }
@@ -67,7 +60,6 @@ impl HostDefectionHelperData {
         self.do_defector_fx = with_fx;
         self.flash_this_frame = false;
         self.final_white_flash = false;
-        self.pending_audio.clear();
     }
 
     /// C++ friend_setUndetectedDefector changes only the private status bit.
@@ -85,28 +77,30 @@ impl HostDefectionHelperData {
         self.set_undetected_defector(false);
     }
 
-    /// C++ ObjectDefectionHelper::update residual.
-    ///
-    /// `is_firing` = OBJECT_STATUS_IS_FIRING_WEAPON; `effectively_dead` blows cover.
-    pub fn tick(&mut self, now: u32, is_firing: bool, effectively_dead: bool) {
+    /// C++ ObjectDefectionHelper::update. Cover expires even without a Drawable.
+    pub(crate) fn tick(
+        &mut self,
+        now: u32,
+        is_firing: bool,
+        effectively_dead: bool,
+        has_drawable: bool,
+    ) -> Option<DefectionFlash> {
         self.flash_this_frame = false;
         self.final_white_flash = false;
         if !self.undetected_defector {
-            return;
+            return None;
         }
+        let show_fx = has_drawable && self.do_defector_fx;
         if now >= self.detection_end {
             self.undetected_defector = false;
-            if self.do_defector_fx {
-                self.final_white_flash = true;
-                self.pending_audio.push("DefectorTimerDing".into());
-            }
-            return;
+            self.final_white_flash = show_fx;
+            return show_fx.then_some(DefectionFlash::Revealed);
         }
         if effectively_dead || is_firing {
             self.blow_cover();
-            return;
+            return None;
         }
-        if self.do_defector_fx {
+        if show_fx {
             let last_phase = (self.flash_phase as i32) & 1;
             let time_left = (self.detection_end - now) as f32;
             let max_t = DEFECTION_DETECTION_TIME_MAX as f32;
@@ -114,13 +108,90 @@ impl HostDefectionHelperData {
             let this_phase = (self.flash_phase as i32) & 1;
             if last_phase != 0 && this_phase == 0 {
                 self.flash_this_frame = true;
-                self.pending_audio.push("DefectorTimerTick".into());
+                return Some(DefectionFlash::Selected);
             }
         }
+        None
+    }
+}
+
+impl crate::game_logic::GameLogic {
+    /// A nullable C++ Drawable lookup mapped to this instance's current binding.
+    pub(in crate::game_logic) fn accepts_defector_drawable(
+        &self,
+        object: &crate::game_logic::Object,
+        effects: &crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> bool {
+        effects.view.as_deref().is_some_and(|view| {
+            view.has_current_drawable(&self.live_draw_playback_identity(object))
+        })
     }
 
-    pub fn drain_audio(&mut self) -> Vec<String> {
-        std::mem::take(&mut self.pending_audio)
+    /// Submit flash and authored MiscAudio after the caller admits the Drawable.
+    pub(in crate::game_logic) fn present_defection_flash(
+        &mut self,
+        id: crate::game_logic::ObjectId,
+        flash: DefectionFlash,
+    ) {
+        let Some(object) = self.host_object(id) else {
+            return;
+        };
+        let position = object.get_position();
+        let color = match flash {
+            DefectionFlash::Revealed => [1.0; 3],
+            DefectionFlash::Selected => {
+                let (use_house, saturation) = {
+                    let data = self
+                        .world_services
+                        .common()
+                        .system
+                        .runtime_global_data
+                        .read();
+                    (
+                        data.selection_flash_house_color,
+                        data.selection_flash_saturation_factor,
+                    )
+                };
+                let color = if use_house {
+                    let rgb = if let Some(raw) = object.custom_indicator_color {
+                        [(raw >> 16) as u8, (raw >> 8) as u8, raw as u8]
+                    } else {
+                        object
+                            .owner_player_id
+                            .and_then(|owner| self.get_player(owner))
+                            .map_or([0; 3], |player| {
+                                let (r, g, b) = player.color_rgb;
+                                [r, g, b]
+                            })
+                    };
+                    rgb.map(|value| f32::from(value) / 255.0)
+                } else {
+                    [1.0; 3]
+                };
+                crate::game_logic::host_hero_abilities::saturate_selection_flash_rgb(
+                    color, saturation,
+                )
+            }
+        };
+        if let Some(object) = self.host_object_mut(id) {
+            object.flash_as_selected_with_color(color);
+        }
+        let event = {
+            let misc = self.world_services.common().ini.misc_audio.read();
+            let configured = match flash {
+                DefectionFlash::Selected => &misc.defector_timer_tick_sound,
+                DefectionFlash::Revealed => &misc.defector_timer_ding_sound,
+            };
+            let name = configured.playable_event_name();
+            (!name.is_empty()).then(|| {
+                crate::game_logic::AudioEventRequest::new(name)
+                    .with_object(id)
+                    .with_position(position)
+            })
+        };
+        if let Some(event) = event {
+            self.queue_audio_event(event);
+        }
     }
 }
 
@@ -146,13 +217,15 @@ mod tests {
         d.start_defection_timer(0, 30, true);
         assert!(d.is_undetected_defector());
         for f in 0..29 {
-            d.tick(f, false, false);
+            let _ = d.tick(f, false, false, true);
             assert!(d.is_undetected_defector());
         }
-        d.tick(30, false, false);
+        assert_eq!(
+            d.tick(30, false, false, true),
+            Some(DefectionFlash::Revealed)
+        );
         assert!(!d.is_undetected_defector());
         assert!(d.final_white_flash);
-        assert!(d.drain_audio().iter().any(|a| a.contains("Ding")));
     }
 
     #[test]
@@ -160,7 +233,7 @@ mod tests {
         let mut d = HostDefectionHelperData::default();
         d.set_undetected_defector(true);
         d.start_defection_timer(0, 300, true);
-        d.tick(5, true, false);
+        assert_eq!(d.tick(5, true, false, true), None);
         assert!(!d.is_undetected_defector());
     }
 
@@ -170,7 +243,10 @@ mod tests {
         defect_team_residual(&mut d, 10, PILOT_INVULNERABLE_DEFECTION_FRAMES, false);
         assert!(d.is_undetected_defector());
         assert!(!d.do_defector_fx);
-        d.tick(10 + PILOT_INVULNERABLE_DEFECTION_FRAMES, false, false);
+        assert_eq!(
+            d.tick(10 + PILOT_INVULNERABLE_DEFECTION_FRAMES, false, false, true),
+            None
+        );
         assert!(!d.is_undetected_defector());
         assert!(!d.final_white_flash);
     }

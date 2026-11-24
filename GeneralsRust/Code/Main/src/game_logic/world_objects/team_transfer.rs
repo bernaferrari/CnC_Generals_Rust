@@ -477,17 +477,16 @@ impl GameLogic {
                     .with_priority(180),
             );
         }
-        if let Some(object) = self.objects.get_mut(&id) {
-            object.flash_as_selected();
+        if self
+            .objects
+            .get(&id)
+            .is_some_and(|object| self.accepts_defector_drawable(object, effects))
+        {
+            self.present_defection_flash(
+                id,
+                crate::game_logic::host_defection_helper::DefectionFlash::Selected,
+            );
         }
-        self.queue_audio_event(
-            AudioEventRequest::new(
-                crate::game_logic::host_defector_special_power::DEFECTOR_TIMER_TICK_AUDIO,
-            )
-            .with_object(id)
-            .with_position(position)
-            .with_priority(160),
-        );
         self.on_defect_kick_passengers_owned_with_effects(id, effects);
         self.defect_parked_units_owned_with_effects(id, destination, frames, effects)?;
         // Object.cpp:6203 visits produced mines in the canonical Object list.

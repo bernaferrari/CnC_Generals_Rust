@@ -13,6 +13,179 @@ use game_engine::common::{dict::Dict, system::DataChunkOutput, well_known_keys::
 use gamelogic::scripting::core::{Parameter, ParameterType, ScriptAction, ScriptActionType};
 use std::sync::{Arc, Mutex};
 
+#[test]
+fn defection_timer_uses_receiving_drawable_and_misc_audio() {
+    use crate::game_logic::{Player, Team};
+    use game_engine::common::ini::ini_misc_audio::AudioEventRTS;
+
+    crate::game_logic::game_logic::pose_owner_tests::isolated_at(
+        module_path!(),
+        "defection_timer_uses_receiving_drawable_and_misc_audio",
+        || {
+            let (_gpu, mut graphics, mut pipeline) = staged_native_fixture_gpu();
+            let fixture_world = |tick: &str, ding: &str| {
+                let mut world = GameLogic::new();
+                world
+                    .admit_receiving_module_content(
+                        crate::assets::ReceivingObjectContent::from_sources([(
+                            "defection-audio.ini".into(),
+                            "Object DefectionFixture\nKindOf = VEHICLE\nVoiceDefect = DefectionVoice\nBody = ActiveBody Body\nMaxHealth = 100\nInitialHealth = 100\nEnd\nEnd\n".into(),
+                        )]).unwrap(),
+                    )
+                    .unwrap();
+                world.start_new_game(GameMode::SinglePlayer).unwrap();
+                world.add_player(Player::new(0, Team::USA, "Owner", true));
+                let mut opponent = Player::new(1, Team::China, "Opponent", false);
+                opponent.alliance_team = 1;
+                world.add_player(opponent);
+                world
+                    .get_player_mut(0)
+                    .unwrap()
+                    .set_map_relationship(1, gamelogic::common::Relationship::Enemies);
+                {
+                    let mut misc = world.world_services.common().ini.misc_audio.write();
+                    misc.defector_timer_tick_sound = AudioEventRTS::from_event_name(tick.into());
+                    misc.defector_timer_ding_sound = AudioEventRTS::from_event_name(ding.into());
+                }
+                world
+                    .world_services
+                    .common()
+                    .system
+                    .runtime_global_data
+                    .write()
+                    .selection_flash_house_color = true;
+                world
+            };
+            let tick = "ReceivingDefectionTick";
+            let ding = "ReceivingDefectionDing";
+            let mut playing = fixture_world(tick, ding);
+            let mut peer = fixture_world("PeerDefectionTick", "PeerDefectionDing");
+            let mut candidate = NativeMapCandidate::with_epoch(992);
+            let mut retirement = NativeParticleRetirementService;
+            let mut attempt = candidate
+                .attempt(
+                    pipeline.borrow_native_draw_services(),
+                    &mut graphics,
+                    0,
+                    receiving_native_drawable_policy_for(&playing),
+                    &mut retirement,
+                    None,
+                )
+                .unwrap();
+            let create_actors =
+                |world: &mut GameLogic,
+                 effects: &mut crate::game_logic::ScriptPresentationEffects<'_>| {
+                    let caster = world
+                        .create_object_for_player("DefectionFixture", 0, glam::Vec3::ZERO)
+                        .unwrap();
+                    let victim = world
+                        .create_object_for_player_with_effects_checked(
+                            "DefectionFixture",
+                            1,
+                            glam::Vec3::X,
+                            None,
+                            effects,
+                        )
+                        .unwrap()
+                        .unwrap();
+                    world
+                        .host_object_mut(victim)
+                        .unwrap()
+                        .custom_indicator_color = Some(0xffff0000);
+                    (caster, victim)
+                };
+            let (caster, victim) = create_actors(&mut playing, &mut attempt.effects());
+            assert_eq!(
+                create_actors(&mut peer, &mut Default::default()),
+                (caster, victim)
+            );
+            // Pass the same real native loan to a peer with equal actor IDs.
+            // The foreign world must not inherit the installed Drawable or its cues.
+            for (world, has_drawable) in [(&mut playing, true), (&mut peer, false)] {
+                let cue_names = |world: &GameLogic| {
+                    world
+                        .queued_audio_events
+                        .iter()
+                        .map(|event| {
+                            assert_eq!(event.object_id, Some(victim));
+                            event.event_type.clone()
+                        })
+                        .collect::<Vec<_>>()
+                };
+                world.frame = 10;
+                world.queued_audio_events.clear();
+                assert!(
+                    world
+                        .activate_defector_with_effects(caster, victim, &mut attempt.effects())
+                        .unwrap()
+                );
+                let expected = if has_drawable {
+                    vec!["DefectionVoice", tick]
+                } else {
+                    vec!["DefectionVoice"]
+                };
+                assert_eq!(cue_names(world), expected);
+                let object = world.host_object(victim).unwrap();
+                assert_eq!(object.is_selection_flashing(), has_drawable);
+                assert_eq!(
+                    object.selection_flash_color,
+                    has_drawable.then_some([0.25, -0.25, -0.25])
+                );
+                assert!(object.is_undetected_defector());
+
+                world
+                    .host_object_mut(victim)
+                    .unwrap()
+                    .defection_helper
+                    .as_mut()
+                    .unwrap()
+                    .flash_phase = 1.75;
+                world.frame = 290;
+                world.queued_audio_events.clear();
+                world
+                    .update_ai_with_effects(&[victim], 1.0 / 30.0, &mut attempt.effects())
+                    .unwrap();
+                let helper = world
+                    .host_object(victim)
+                    .unwrap()
+                    .defection_helper
+                    .as_ref()
+                    .unwrap();
+                assert_eq!(helper.flash_this_frame, has_drawable);
+                if has_drawable {
+                    assert!(helper.flash_phase > 2.0);
+                    assert_eq!(cue_names(world), [tick]);
+                } else {
+                    assert_eq!(helper.flash_phase, 1.75);
+                    assert!(cue_names(world).is_empty());
+                }
+
+                world.frame = 310;
+                // Model the C++ status bit without executing the separate
+                // pre-fire or shot callback that can reveal the defector early.
+                world.host_object_mut(victim).unwrap().status.is_firing_weapon = true;
+                world.queued_audio_events.clear();
+                world
+                    .update_ai_with_effects(&[victim], 1.0 / 30.0, &mut attempt.effects())
+                    .unwrap();
+                let object = world.host_object(victim).unwrap();
+                let helper = object.defection_helper.as_ref().unwrap();
+                assert!(!helper.undetected_defector);
+                assert_eq!(helper.final_white_flash, has_drawable);
+                assert_eq!(
+                    object.selection_flash_color,
+                    has_drawable.then_some([1.0; 3])
+                );
+                if has_drawable {
+                    assert_eq!(cue_names(world), [ding]);
+                } else {
+                    assert!(cue_names(world).is_empty());
+                }
+            }
+        },
+    );
+}
+
 const AMBIENT_TEMPLATE: &str = "OwnedMapAmbientFixture";
 const ONE_SHOT: &str = "OwnedMapAmbientOneShot";
 const LOOP: &str = "OwnedMapAmbientLoop";

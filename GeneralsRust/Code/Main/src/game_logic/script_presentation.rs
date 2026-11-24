@@ -249,6 +249,10 @@ pub(crate) trait NativeProjectedRadiusAllocator {
 }
 
 pub(crate) trait NativeViewEffects {
+    fn has_current_drawable(&self, _identity: &LiveDrawPlaybackIdentity) -> bool {
+        false
+    }
+
     #[cfg(feature = "game_client")]
     fn apply_drawable_ambient(
         &mut self,

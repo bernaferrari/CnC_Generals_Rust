@@ -374,6 +374,12 @@ impl<'a> NativeRendererViewEffects<'a> {
 }
 #[cfg(feature = "game_client")]
 impl NativeViewEffects for NativeRendererViewEffects<'_> {
+    fn has_current_drawable(&self, identity: &crate::assets::LiveDrawPlaybackIdentity) -> bool {
+        self.drawables
+            .binding_key(self.host_epoch, identity.object_id())
+            .is_some_and(|key| self.poses.matches_object_drawable_binding(identity, key))
+    }
+
     fn apply_drawable_ambient(
         &mut self,
         identity: &crate::assets::LiveDrawPlaybackIdentity,

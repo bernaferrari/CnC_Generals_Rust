@@ -2058,14 +2058,18 @@ impl Object {
         }
     }
 
-    /// C++ ObjectDefectionHelper::update residual.
-    pub fn tick_defection_helper(&mut self, now: u32) {
+    /// C++ ObjectDefectionHelper::update.
+    pub(in crate::game_logic) fn tick_defection_helper(
+        &mut self,
+        now: u32,
+        has_drawable: bool,
+    ) -> Option<crate::game_logic::host_defection_helper::DefectionFlash> {
         let firing = self.status.is_firing_weapon;
         let dead =
             self.status.destroyed || self.status.effectively_dead || self.health.current <= 0.0;
-        if let Some(d) = self.defection_helper.as_mut() {
-            d.tick(now, firing, dead);
-        }
+        self.defection_helper
+            .as_mut()
+            .and_then(|helper| helper.tick(now, firing, dead, has_drawable))
     }
 
     /// C++ FireWeaponPower::doSpecialPower residual.
@@ -2702,7 +2706,7 @@ mod defection_timer_owner_tests {
     fn zero_duration_never_grants_cover_or_reinitializes_a_previous_timer() {
         let mut obj = object();
         obj.begin_undetected_defection(40, 60, true);
-        obj.tick_defection_helper(41);
+        let _ = obj.tick_defection_helper(41, true);
         let previous = obj.defection_helper.as_ref().unwrap().clone();
         obj.begin_undetected_defection(50, 0, true);
         assert!(!obj.is_undetected_defector());
@@ -2711,7 +2715,7 @@ mod defection_timer_owner_tests {
         assert_eq!(timer.detection_end, previous.detection_end);
         assert_eq!(timer.flash_phase.to_bits(), previous.flash_phase.to_bits());
         assert_eq!(timer.do_defector_fx, previous.do_defector_fx);
-        obj.tick_defection_helper(100);
+        let _ = obj.tick_defection_helper(100, true);
         assert!(!obj.defection_helper.as_ref().unwrap().final_white_flash);
 
         let mut fresh = object();
@@ -2725,11 +2729,11 @@ mod defection_timer_owner_tests {
         let mut obj = object();
         obj.begin_undetected_defection(20, 600, true);
         assert_eq!(obj.defection_helper.as_ref().unwrap().detection_end, 620);
-        obj.tick_defection_helper(320);
+        let _ = obj.tick_defection_helper(320, true);
         assert!(obj.is_undetected_defector());
-        obj.tick_defection_helper(619);
+        let _ = obj.tick_defection_helper(619, true);
         assert!(obj.is_undetected_defector());
-        obj.tick_defection_helper(620);
+        let _ = obj.tick_defection_helper(620, true);
         assert!(!obj.is_undetected_defector());
         let timer = obj.defection_helper.as_ref().unwrap();
         assert_eq!(timer.detection_end, 620);
@@ -2744,7 +2748,7 @@ mod defection_timer_owner_tests {
         assert!(obj.is_undetected_defector());
         assert_eq!(obj.defection_helper.as_ref().unwrap().detection_end, 0);
         // C++ compares now >= end, rather than using wrapping elapsed time.
-        obj.tick_defection_helper(now);
+        let _ = obj.tick_defection_helper(now, true);
         assert!(!obj.is_undetected_defector());
         assert!(obj.defection_helper.as_ref().unwrap().final_white_flash);
     }
@@ -2756,16 +2760,19 @@ mod defection_timer_owner_tests {
             obj.begin_undetected_defection(10, 30, true);
             obj.status.is_firing_weapon = true;
             obj.status.effectively_dead = dead;
-            obj.tick_defection_helper(40);
-            let timer = obj.defection_helper.as_mut().unwrap();
+            let flash = obj.tick_defection_helper(40, true);
+            let timer = obj.defection_helper.as_ref().unwrap();
             assert!(!timer.undetected_defector);
             assert!(timer.final_white_flash);
-            assert_eq!(timer.drain_audio(), ["DefectorTimerDing"]);
+            assert_eq!(
+                flash,
+                Some(crate::game_logic::host_defection_helper::DefectionFlash::Revealed)
+            );
         }
         let mut early = object();
         early.begin_undetected_defection(10, 30, true);
         early.status.effectively_dead = true;
-        early.tick_defection_helper(39);
+        let _ = early.tick_defection_helper(39, true);
         let timer = early.defection_helper.as_ref().unwrap();
         assert!(!timer.undetected_defector);
         assert!(!timer.final_white_flash);
@@ -2778,8 +2785,7 @@ mod defection_timer_owner_tests {
         let mut original = object();
         original.begin_undetected_defection(10, 60, true);
         for frame in 10..35 {
-            original.tick_defection_helper(frame);
-            original.defection_helper.as_mut().unwrap().drain_audio();
+            let _ = original.tick_defection_helper(frame, true);
         }
         let mut restored = object();
         restored.defection_helper = Some(
@@ -2789,8 +2795,10 @@ mod defection_timer_owner_tests {
             .unwrap(),
         );
         for frame in 35..=71 {
-            original.tick_defection_helper(frame);
-            restored.tick_defection_helper(frame);
+            assert_eq!(
+                original.tick_defection_helper(frame, true),
+                restored.tick_defection_helper(frame, true),
+            );
             assert_eq!(
                 serde_json::to_value(original.defection_helper.as_ref().unwrap()).unwrap(),
                 serde_json::to_value(restored.defection_helper.as_ref().unwrap()).unwrap(),
