@@ -206,6 +206,156 @@ fn residual_named_shooter_deals_exactly_its_authored_damage() {
     assert_eq!(hp(&world, victim), 475.0);
 }
 
+/// A live launcher shot leaves only its authored ProjectileDetonationOCL
+/// (Weapon.cpp ProjectileDetonationOCL at the missile's impact): any shooter
+/// name fires it when authored, and the retail SCUD name alone births no
+/// field and no synthetic poison zone when it is not.
+#[test]
+fn authored_scud_impact_uses_only_projectile_detonation_ocl() {
+    const FIELD: &str = "FixtureGammaField";
+    // MissileAIUpdate owns the flight; PhysicsBehavior + a THRUST locomotor
+    // are what MissileMotion::launch binds (same shape as Scr2ScudMissile).
+    let extras = concat!(
+        "Object AuthoredTestMissile\nKindOf = PROJECTILE SMALL_MISSILE\n\
+         Body = ActiveBody BodyTag\nMaxHealth = 100\nInitialHealth = 100\nEnd\n\
+         Locomotor = SET_NORMAL AuthoredMissileFlight\n\
+         Behavior = PhysicsBehavior PhysicsTag\nMass = 1\nEnd\n\
+         Behavior = MissileAIUpdate FlightTag\nTryToFollowTarget = Yes\nFuelLifetime = 3000\nIgnitionDelay = 0\nEnd\nEnd\n",
+        "Object FixtureGammaField\nKindOf = IMMOBILE\n\
+         Body = ActiveBody BodyTag\nMaxHealth = 10\nInitialHealth = 10\nEnd\n\
+         Behavior = LifetimeUpdate FieldLife\nMinLifetime = 6000\nMaxLifetime = 6000\nEnd\nEnd\n",
+    );
+    for (shooter_name, detonation_ocl, expected_fields) in [
+        ("SampleLauncher", "OCL_PoisonFieldGammaMedium", 1usize),
+        ("Chem_GLAVehicleScudLauncher", "None", 0usize),
+    ] {
+        // `world_with` order, plus the missile's locomotor first:
+        // locomotors must be admitted before Object content.
+        let mut world = GameLogic::new();
+        let mut locomotors =
+            game_engine::common::ini::ini_locomotor::LocomotorStore::new_owned();
+        locomotors
+            .apply_source(
+                "Locomotor AuthoredMissileFlight\n Surfaces = AIR\n Speed = 300\n\
+                 MinSpeed = 30\n Acceleration = 600\n TurnRate = 3600\n\
+                 Appearance = THRUST\nEnd\n",
+            )
+            .unwrap();
+        world.admit_locomotor_definitions(locomotors).unwrap();
+        world
+            .admit_receiving_module_content(
+                crate::assets::ReceivingObjectContent::from_sources([(
+                    "receiving-scud-shot.ini".into(),
+                    format!(
+                        "{}{}{}",
+                        object(shooter_name, Some("Chem_SCUDLauncherGunAnthraxGamma")),
+                        object("PlainVictim", None),
+                        extras,
+                    ),
+                )])
+                .unwrap(),
+            )
+            .unwrap();
+        world
+            .admit_object_creation_list_sources([
+                "ObjectCreationList OCL_PoisonFieldGammaMedium\nCreateObject\n\
+                 ObjectNames = FixtureGammaField\nCount = 1\nEnd\nEnd\n"
+                    .to_string(),
+            ])
+            .unwrap();
+        let mut weapons = std::collections::HashMap::new();
+        crate::assets::ini_template_loader::parse_weapon_definitions_ini_into(
+            &mut weapons,
+            &format!(
+                "Weapon Chem_SCUDLauncherGunAnthraxGamma\nPrimaryDamage = 25\n\
+                 PrimaryDamageRadius = 10\nAttackRange = 200\nDamageType = EXPLOSION\n\
+                 WeaponSpeed = 600\nDelayBetweenShots = 4000\n\
+                 ProjectileObject = AuthoredTestMissile\n\
+                 ProjectileDetonationOCL = {detonation_ocl}\nEnd\n"
+            ),
+            crate::assets::ini_template_loader::WeaponDefinitionLoadType::Normal,
+        );
+        world
+            .admit_receiving_weapon_snapshot(weapons.into_iter().collect())
+            .unwrap();
+
+        let shooter = world
+            .create_object(shooter_name, Team::GLA, Vec3::ZERO)
+            .unwrap();
+        let victim = world
+            .create_object("PlainVictim", Team::USA, Vec3::new(50.0, 0.0, 0.0))
+            .unwrap();
+        let field_count = |world: &GameLogic| {
+            world
+                .host_objects()
+                .registered()
+                .filter(|(_, object)| object.template_name == FIELD)
+                .count()
+        };
+
+        world.set_current_frame(100);
+        engage(&mut world, shooter, victim);
+        step(&mut world, &[shooter, victim]);
+        assert!(
+            !world.combat_system.get_projectiles().is_empty(),
+            "{shooter_name}: the authored missile must be in flight after the shot"
+        );
+        assert_eq!(
+            field_count(&world),
+            0,
+            "{shooter_name}: no field exists before impact"
+        );
+
+        // DelayBetweenShots 4000 ms = 120 frames: the missile must land
+        // before the next shot so the victim takes exactly one 25 hit.
+        let mut impacted = false;
+        for frame in 101..200 {
+            world.set_current_frame(frame);
+            step(&mut world, &[shooter, victim]);
+            if hp(&world, victim) < 500.0 || field_count(&world) > 0 {
+                impacted = true;
+                break;
+            }
+        }
+        assert!(
+            impacted,
+            "{shooter_name}: the authored missile must impact before the next shot"
+        );
+        assert_eq!(
+            hp(&world, victim),
+            475.0,
+            "{shooter_name}: only the authored 25 damage lands"
+        );
+        assert_eq!(
+            field_count(&world),
+            expected_fields,
+            "{shooter_name}: only the authored detonation OCL births a field"
+        );
+        let deadline = world
+            .host_objects()
+            .registered()
+            .find_map(|(_, object)| {
+                (object.template_name == FIELD).then(|| {
+                    object
+                        .native_lifecycle
+                        .as_ref()
+                        .and_then(|lifecycle| lifecycle.first_lifetime_deadline())
+                })
+            })
+            .flatten();
+        assert_eq!(
+            deadline.is_some(),
+            expected_fields == 1,
+            "{shooter_name}: the field object carries its authored LifetimeUpdate deadline"
+        );
+        assert_eq!(
+            world.scud_poison_zones().active_count(),
+            0,
+            "{shooter_name}: no synthetic SCUD poison zone"
+        );
+    }
+}
+
 #[test]
 fn direct_shot_admission_uses_the_horde_callback_integer_deadline() {
     let mut world = world("DeadlineProbe", "AuthoredInstantGun");
