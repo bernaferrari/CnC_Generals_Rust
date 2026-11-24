@@ -1394,7 +1394,10 @@ fn authored_timed_charge_expires_once_through_its_death_weapon() {
     assert!(
         crate::assets::ini_template_loader::parse_weapon_definitions_ini_into(
             &mut weapons,
-            "Weapon TimedChargeWitness\n PrimaryDamage = 31\n PrimaryDamageRadius = 20\n WeaponSpeed = 999999\n DamageType = UNRESISTABLE\n RadiusDamageAffects = ENEMIES\n ProjectileObject = NONE\nEnd\n",
+            // initStickyBomb makes the victim the charge's ProducerID, and
+            // Weapon.cpp:1333 skips producer victims unless AFFECTS_SELF —
+            // retail C4 weapons all author SELF (BurtonC4ChargeWeapon).
+            "Weapon TimedChargeWitness\n PrimaryDamage = 31\n PrimaryDamageRadius = 20\n WeaponSpeed = 999999\n DamageType = UNRESISTABLE\n RadiusDamageAffects = SELF ENEMIES\n ProjectileObject = NONE\nEnd\n",
             crate::assets::ini_template_loader::WeaponDefinitionLoadType::Normal,
         ) >= 1,
         "fixture weapons must parse"
@@ -1452,14 +1455,31 @@ fn authored_timed_charge_expires_once_through_its_death_weapon() {
         (data.detonate_at_frame, data.next_ping_frame)
     };
 
-    // StickyBombUpdate.cpp:145-175: each callback re-follows a mobile target
-    // at the charge's authored OffsetZ, not a flat constant.
-    world.update_sticky_bomb_attachments();
+    // StickyBombUpdate.cpp:76-135 initStickyBomb: placement itself lands a
+    // mobile target's charge at the authored OffsetZ and stores the target in
+    // generic ProducerID — no attachment update needs to run first.
     let victim_pos = world.host_object(victim).unwrap().get_position();
+    {
+        let placed = world.host_object(charge).unwrap();
+        assert_eq!(
+            placed.producer_id,
+            Some(victim),
+            "initStickyBomb stores the target in generic ProducerID"
+        );
+        assert_eq!(
+            placed.get_position(),
+            Vec3::new(victim_pos.x, victim_pos.y + 3.0, victim_pos.z),
+            "a mobile target is followed at the authored OffsetZ on placement"
+        );
+    }
+
+    // StickyBombUpdate.cpp:145-175: each attachment update then re-follows a
+    // moved victim at the same authored OffsetZ.
+    world.set_fixture_object_position(victim, Vec3::new(1.0, 0.0, 2.0));
+    world.update_sticky_bomb_attachments();
     assert_eq!(
         world.host_object(charge).unwrap().get_position(),
-        Vec3::new(victim_pos.x, victim_pos.y + 3.0, victim_pos.z),
-        "a mobile target is followed at the authored OffsetZ"
+        Vec3::new(1.0, 3.0, 2.0)
     );
 
     // Drawable.cpp:3492-3524: the timed icon counts down the StickyBombUpdate

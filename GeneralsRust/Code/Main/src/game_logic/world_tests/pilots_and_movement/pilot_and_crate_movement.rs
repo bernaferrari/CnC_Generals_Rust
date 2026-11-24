@@ -1316,6 +1316,82 @@ fn burton_charges_use_retail_c4_special_objects() {
     let _ = BURTON_MAX_TIMED_CHARGES;
 }
 
+/// C++ SpecialAbilityUpdate.cpp:1610-1647 + StickyBombUpdate.cpp:76-135:
+/// newObject on the planter's team, bomber pose + XP sink, then
+/// initStickyBomb — an exact KINDOF_IMMOBILE target puts the charge at the
+/// bomber's feet (XZ snapped to terrain); generic ProducerID holds the
+/// TARGET while the mine bond holds the planter.
+#[test]
+fn authored_remote_charge_anchors_at_planter_for_immobile_target() {
+    use crate::game_logic::{GameLogic, KindOf, Player, Team};
+
+    let mut world = GameLogic::new();
+    admit_retail_remote_c4(&mut world);
+    world.add_player(Player::new(0, Team::USA, "usa", true));
+    world.add_player(Player::new(1, Team::GLA, "gla", true));
+    // The retail roster fixture authors GLATunnelNetwork as STRUCTURE only;
+    // the remote-charge branch keys on exact KINDOF_IMMOBILE.
+    world
+        .templates
+        .get_mut("GLATunnelNetwork")
+        .expect("fixture tunnel template")
+        .add_kind_of(KindOf::Immobile);
+
+    let planter = world
+        .create_object(
+            "AmericaInfantryColonelBurton",
+            Team::USA,
+            Vec3::new(5.0, 15.0, 7.0),
+        )
+        .expect("burton");
+    {
+        let (burton, partition) = world.host_object_and_partition_mut(planter).unwrap();
+        burton.set_orientation_with_partition_owner(0.75, partition);
+    }
+    let target = world
+        .create_object(
+            "GLATunnelNetwork",
+            Team::GLA,
+            Vec3::new(50.0, 0.0, 55.0),
+        )
+        .expect("tunnel");
+
+    let charge = world
+        .place_remote_demo_charge(
+            Team::USA,
+            Vec3::new(50.0, 0.0, 55.0),
+            Some(planter),
+            Some(target),
+        )
+        .expect("authored RemoteC4Charge");
+    {
+        let placed = world.host_object(charge).unwrap();
+        // Immobile target: bomber XZ snapped to the fixture's flat terrain.
+        assert_eq!(placed.get_position(), Vec3::new(5.0, 0.0, 7.0));
+        assert_eq!(placed.get_orientation(), 0.75, "same yaw as the bomber");
+        // StickyBombUpdate.cpp:76-135 stores the TARGET in generic
+        // ProducerID; the planter bond lives in mine_data.
+        assert_eq!(placed.producer_id, Some(target));
+        assert_eq!(placed.remote_charge_planter(), Some(planter));
+        // Authored charges are not synthetic mine pads: no weapon strip,
+        // no invented stealth grant, no NO_ATTACK_FROM_AI flag.
+        assert!(
+            !placed.has_object_status_bit("NO_ATTACK_FROM_AI"),
+            "authored placement must not add the synthetic mine flag"
+        );
+    }
+    // initStickyBomb queues the authored StickyBombCreated at the final pose.
+    let final_pos = world.host_object(charge).unwrap().get_position();
+    assert!(
+        world.queued_audio_events.iter().any(|event| {
+            event.event_type == "ColonelBurtonSetDemoCharge"
+                && event.position == Some(final_pos)
+        }),
+        "authored StickyBombCreated at the final pose: {:?}",
+        world.queued_audio_events
+    );
+}
+
 #[test]
 fn sticky_bomb_destroyed_when_target_dies() {
     use crate::game_logic::{KindOf, Team, ThingTemplate};

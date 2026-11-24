@@ -234,19 +234,11 @@ impl GameLogic {
         &mut self,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) {
-        use crate::game_logic::host_mines::HostMineKind;
         let due: Vec<ObjectId> = self
             .objects
             .registered()
             .filter_map(|(id, obj)| {
-                let md = obj.mine_data.as_ref()?;
-                if md.detonated || !obj.is_alive() {
-                    return None;
-                }
-                if md.kind != HostMineKind::RemoteDemoCharge {
-                    return None;
-                }
-                let pid = md.producer_id.or(obj.producer_id)?;
+                let pid = obj.remote_charge_planter()?;
                 let owner_dead = self
                     .objects
                     .get(&pid)

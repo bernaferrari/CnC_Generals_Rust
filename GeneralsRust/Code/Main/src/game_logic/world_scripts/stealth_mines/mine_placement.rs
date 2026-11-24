@@ -631,7 +631,10 @@ impl GameLogic {
                     if md.detonated {
                         continue;
                     }
-                    let owned = md.producer_id == Some(pid) || o.producer_id == Some(pid);
+                    // C++ counts the planter's live special objects by the
+                    // mine_data bond; generic ProducerID is the charge's
+                    // target now, not the planter.
+                    let owned = md.producer_id == Some(pid);
                     if !owned {
                         continue;
                     }
@@ -675,53 +678,43 @@ impl GameLogic {
             }
         }
 
-        // A bound Object template is the authored special object; an
-        // unbound name still manufactures the residual fixture charge.
-        let authored_timed = kind == HostMineKind::TimedDemoCharge
+        // A bound Object template is the authored special object:
+        // SpecialAbilityUpdate.cpp:1610-1647 newObject on the planter's team +
+        // StickyBombUpdate.cpp:76-135 initStickyBomb handle pose, ProducerID
+        // and the authored sound. An unbound timed name still manufactures
+        // the residual fixture charge; remote charges require authored content.
+        let is_sticky = matches!(
+            kind,
+            HostMineKind::TimedDemoCharge | HostMineKind::RemoteDemoCharge
+        );
+        if is_sticky
             && self
                 .templates
                 .get(template_name)
-                .is_some_and(|template| template.receiving_object_definition.is_some());
-
-        // C++ SpecialAbilityUpdate looks up its authored SpecialObject; it
-        // cannot manufacture a remote charge when the factory lacks one.
-        if kind == HostMineKind::RemoteDemoCharge {
-            let sticky = self.receiving_module_content.as_ref()
-                .and_then(|content| content.admitted_template(template_name))
-                .is_some_and(|template| template.behavior_modules().iter().any(|module| {
-                    module.name.as_str().eq_ignore_ascii_case("StickyBombUpdate")
-                        && module.data.read().downcast_ref::<gamelogic::object::behavior::StickyBombUpdateModuleData>().is_some()
-                }));
-            if !sticky || !self.templates.contains_key(template_name) {
-                return None;
-            }
-        } else if !authored_timed {
-            self.ensure_residual_mine_template(template_name, kind);
-        }
-        // An authored timed charge keeps the planter's controlling player when
-        // one is bound; every other path births on the requested team.
-        let planter_owner = if authored_timed {
-            producer
-                .and_then(|pid| self.objects.get(&pid).and_then(|object| object.owner_player_id))
-        } else {
-            None
-        };
-        let id = match planter_owner {
-            Some(owner) => self.create_object_for_player_with_effects(
-                template_name,
-                owner,
-                position,
-                interpreter,
-                effects,
-            )?,
-            None => self.create_object_with_script_effects(
+                .is_some_and(|template| template.receiving_object_definition.is_some())
+        {
+            return self.place_authored_sticky_charge(
+                kind,
                 template_name,
                 team,
                 position,
+                producer,
+                attach_to,
                 interpreter,
                 effects,
-            )?,
-        };
+            );
+        }
+        if kind == HostMineKind::RemoteDemoCharge {
+            return None;
+        }
+        self.ensure_residual_mine_template(template_name, kind);
+        let id = self.create_object_with_script_effects(
+            template_name,
+            team,
+            position,
+            interpreter,
+            effects,
+        )?;
 
         // C++ GenerateMinefieldBehavior::placeMineAt (cpp:199-211): the factory
         // births the authored template; producer + LandMineInterface scoot are
@@ -753,47 +746,6 @@ impl GameLogic {
             return Some(id);
         }
 
-        // Bound StickyBombUpdate+LifetimeUpdate templates keep the
-        // factory-admitted runtime (StickyBombUpdate.cpp:34-43,83-104):
-        // LifetimeUpdate owns expiry and the authored die modules own the
-        // blast — no residual timer, MINE flag, weapon strip, stealth or
-        // invented place audio. Producer, attach and the deadline-aligned
-        // UnitBombPing countdown are the only placement mutations.
-        if authored_timed {
-            let charge = self.objects.get_mut(&id)?;
-            let die_frame = charge
-                .native_lifecycle
-                .as_ref()?
-                .first_lifetime_deadline()?;
-            let data = charge
-                .mine_data
-                .as_mut()
-                .filter(|data| data.kind == HostMineKind::TimedDemoCharge)?;
-            data.producer_id = producer;
-            data.attached_to = attach_to;
-            // Birthday is reserved by the factory; round the remaining time
-            // down to whole seconds for the first ping before the die frame.
-            let ping_interval = crate::game_logic::host_mines::UNIT_BOMB_PING_FRAMES;
-            let until_ping = die_frame.wrapping_sub(self.frame) % ping_interval;
-            data.next_ping_frame = Some(self.frame.wrapping_add(until_ping));
-            charge.producer_id = producer;
-            charge.set_experience_sink(producer);
-            self.mine_residual_places = self.mine_residual_places.saturating_add(1);
-            if attach_to.is_some() {
-                // C++ StickyBombUpdate::initStickyBomb:
-                // getPerUnitSound("StickyBombCreated") at bomb pos.
-                self.queue_resolved_per_unit_sound(
-                    id,
-                    crate::game_logic::host_mines::STICKY_BOMB_CREATED_AUDIO,
-                    false,
-                    true,
-                    None,
-                    155,
-                );
-            }
-            return Some(id);
-        }
-
         let mut data = match kind {
             crate::game_logic::host_mines::HostMineKind::LandMine => {
                 HostMineData::land_mine_for_template(template_name)
@@ -807,12 +759,8 @@ impl GameLogic {
                 d
             }
             crate::game_logic::host_mines::HostMineKind::RemoteDemoCharge => {
-                let mut d = HostMineData::remote_demo_charge();
-                d.next_ping_frame = Some(
-                    self.frame
-                        .saturating_add(crate::game_logic::host_mines::UNIT_BOMB_PING_FRAMES),
-                );
-                d
+                // Ruled out above: remote charges require authored content.
+                return None;
             }
         };
         if let Some(p) = producer {
@@ -827,11 +775,7 @@ impl GameLogic {
         let producer_pos =
             producer.and_then(|pid| self.objects.get(&pid).map(|o| o.get_position()));
         let dest_ground = self.terrain_height_at(position).unwrap_or(position.y);
-        let sink_to_planter = matches!(
-            kind,
-            crate::game_logic::host_mines::HostMineKind::TimedDemoCharge
-                | crate::game_logic::host_mines::HostMineKind::RemoteDemoCharge
-        );
+        let sink_to_planter = kind == crate::game_logic::host_mines::HostMineKind::TimedDemoCharge;
 
         if let Some(obj) = self.objects.get_mut(&id) {
             obj.mine_data = Some(data);
@@ -880,11 +824,7 @@ impl GameLogic {
                 .with_position(position)
                 .with_priority(150),
         );
-        if matches!(
-            kind,
-            crate::game_logic::host_mines::HostMineKind::TimedDemoCharge
-                | crate::game_logic::host_mines::HostMineKind::RemoteDemoCharge
-        ) {
+        if kind == crate::game_logic::host_mines::HostMineKind::TimedDemoCharge {
             // C++ StickyBombUpdate::initStickyBomb: getPerUnitSound("StickyBombCreated") at bomb pos.
             self.queue_resolved_per_unit_sound(
                 id,
@@ -895,6 +835,215 @@ impl GameLogic {
                 155,
             );
         }
+        Some(id)
+    }
+
+    /// C++ SpecialAbilityUpdate::createSpecialObject
+    /// (SpecialAbilityUpdate.cpp:1610-1647) + StickyBombUpdate::initStickyBomb
+    /// (StickyBombUpdate.cpp:76-135) for a bound timed/remote charge template.
+    /// Births on the planter's exact team, applies the bomber pose and XP
+    /// sink, stores the TARGET in generic ProducerID, keeps the planter bond
+    /// in mine_data, lands an immobile target's charge at the bomber's feet,
+    /// and queues the authored StickyBombCreated sound at the final pose.
+    /// No synthetic data, weapon strip, stealth grant, or invented flags.
+    fn place_authored_sticky_charge(
+        &mut self,
+        kind: crate::game_logic::host_mines::HostMineKind,
+        template_name: &str,
+        team: Team,
+        position: Vec3,
+        planter_id: Option<ObjectId>,
+        target_id: Option<ObjectId>,
+        interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> Option<ObjectId> {
+        use crate::game_logic::host_mines::{
+            HostMineKind, STICKY_BOMB_CREATED_AUDIO, UNIT_BOMB_PING_FRAMES,
+        };
+
+        // The typed immutable offset projection doubles as the
+        // StickyBombUpdate-authored gate: without it there is nothing to run.
+        self.templates.get(template_name)?.sticky_bomb_offset_z()?;
+
+        let participant_birth = |id| match id {
+            Some(id) => {
+                let object = self.objects.get(&id)?;
+                Some(Some((
+                    id,
+                    std::sync::Arc::downgrade(&object.visual_draw_identity_token),
+                )))
+            }
+            None => Some(None),
+        };
+        let planter_birth = participant_birth(planter_id)?;
+        let target_birth = participant_birth(target_id)?;
+        let planter = planter_id.and_then(|id| self.objects.get(&id));
+        let owner_player_id =
+            planter.and_then(|object| self.player_owner_for_host_object(object));
+        let exact_team = planter
+            .filter(|object| !object.team_instance_name.is_empty())
+            .and_then(|object| {
+                Some((
+                    object.team,
+                    object.team_instance_name.clone(),
+                    object.team_instance_id?,
+                ))
+            });
+        let birth_position = if planter_birth.is_some() {
+            // C++ newObject(thing, Team*) returns before callers set any pose.
+            Vec3::ZERO
+        } else {
+            position
+        };
+        let creation = match exact_team {
+            Some((planter_team, name, identity)) => self
+                .create_object_for_exact_team_with_birth_checked(
+                    template_name,
+                    planter_team,
+                    owner_player_id,
+                    &name,
+                    identity,
+                    birth_position,
+                    interpreter,
+                    effects,
+                ),
+            None => self.create_object_for_owner_or_team_with_birth_checked(
+                template_name,
+                team,
+                owner_player_id,
+                birth_position,
+                interpreter,
+                effects,
+            ),
+        };
+        let (id, birth) = match creation {
+            Ok(Some(receipt)) => receipt,
+            Ok(None) => return None,
+            Err(error) => {
+                if let Some((created_id, created_birth)) = error.committed {
+                    if self.spawn_identity_matches(created_id, created_birth.0, created_birth.1) {
+                        let _ = self.destroy_object_with_effects(created_id, effects);
+                    }
+                }
+                log::error!("Failed to create StickyBombUpdate charge: {}", error.error);
+                return None;
+            }
+        };
+
+        // Factory callbacks can replace a participant mid-call; continue only
+        // with the births C++ initStickyBomb would see.
+        let participants_match = |world: &Self| {
+            world.spawn_identity_matches(id, birth.0, birth.1)
+                && planter_birth
+                    .as_ref()
+                    .is_none_or(|(pid, birth)| world.object_birth_matches(*pid, birth))
+                && target_birth
+                    .as_ref()
+                    .is_none_or(|(tid, birth)| world.object_birth_matches(*tid, birth))
+        };
+        let initialized = (|| {
+            if !participants_match(self) {
+                return None;
+            }
+            if let Some((pid, _)) = &planter_birth {
+                // SpecialAbilityUpdate::createSpecialObject: setPosition,
+                // setOrientation, then setExperienceSink after newObject.
+                // Re-read the planter between pose operations because pose
+                // callbacks can run.
+                let planter_position = self.objects.get(pid)?.get_position();
+                if !self.set_owned_object_position_with_effects(
+                    id,
+                    planter_position,
+                    self.frame,
+                    effects,
+                ) {
+                    return None;
+                }
+                if !participants_match(self) {
+                    return None;
+                }
+                let angle = self.objects.get(pid)?.get_orientation();
+                self.objects
+                    .get_mut(&id)?
+                    .set_orientation_with_partition_owner(angle, &mut self.partition_manager);
+                if !participants_match(self) {
+                    return None;
+                }
+            }
+            let charge = self.objects.get_mut(&id)?;
+            // Timed ping rounds the remaining native lifetime down to whole
+            // seconds; remote pings one second out (StickyBombUpdate.cpp:83-104).
+            let next_ping = match kind {
+                HostMineKind::TimedDemoCharge => {
+                    let deadline =
+                        charge.native_lifecycle.as_ref()?.first_lifetime_deadline()?;
+                    self.frame
+                        .wrapping_add(deadline.wrapping_sub(self.frame) % UNIT_BOMB_PING_FRAMES)
+                }
+                HostMineKind::RemoteDemoCharge => {
+                    self.frame.wrapping_add(UNIT_BOMB_PING_FRAMES)
+                }
+                _ => return None,
+            };
+            let data = charge.mine_data.as_mut().filter(|data| data.kind == kind)?;
+            // StickyBombUpdate.cpp:76-135: generic ProducerID is the TARGET;
+            // the planter bond lives in mine_data.
+            data.producer_id = planter_id;
+            data.attached_to = target_id;
+            data.next_ping_frame = Some(next_ping);
+            charge.set_experience_sink(planter_id);
+            charge.producer_id = target_id;
+            if let Some((tid, _)) = &target_birth {
+                let offset = self
+                    .objects
+                    .get(&id)?
+                    .get_template()
+                    .sticky_bomb_offset_z()?;
+                let target = self.objects.get(tid)?;
+                // initStickyBomb: an exact IMMOBILE target keeps the charge at
+                // the bomber's XZ snapped to terrain; otherwise it rides the
+                // target at the authored OffsetZ.
+                let pose = match (target.is_kind_of(KindOf::Immobile), planter_id) {
+                    (true, Some(planter)) => {
+                        let pos = self.objects.get(&planter)?.get_position();
+                        Vec3::new(
+                            pos.x,
+                            self.terrain_ground_height_at(pos).unwrap_or(0.0),
+                            pos.z,
+                        )
+                    }
+                    _ => crate::game_logic::host_mines::sticky_vehicle_follow_pos(
+                        target.get_position(),
+                        offset,
+                    ),
+                };
+                if !self.set_owned_object_position_with_effects(id, pose, self.frame, effects) {
+                    return None;
+                }
+                if !participants_match(self) {
+                    return None;
+                }
+                // getPerUnitSound("StickyBombCreated") at the bomb's final
+                // position; unauthored slots stay silent.
+                self.queue_resolved_per_unit_sound(
+                    id,
+                    STICKY_BOMB_CREATED_AUDIO,
+                    false,
+                    true,
+                    None,
+                    155,
+                );
+            }
+            Some(())
+        })()
+        .is_some();
+        if !initialized {
+            if self.spawn_identity_matches(id, birth.0, birth.1) {
+                let _ = self.destroy_object_with_effects(id, effects);
+            }
+            return None;
+        }
+        self.mine_residual_places = self.mine_residual_places.saturating_add(1);
         Some(id)
     }
 }
