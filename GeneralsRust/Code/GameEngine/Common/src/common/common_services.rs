@@ -332,16 +332,27 @@ impl CommonServices {
         }
     }
 
-    /// Run NameKey-dependent store init after this bag is published on TLS.
-    pub fn finish_bootstrap_after_publish(&self) {
+    /// Initialize this owner's compatibility upgrade catalog before its first use.
+    pub fn initialize_lifetime_upgrades(&self) {
         let mut upgrade = self
             .system
             .upgrade_center_lifetime
             .write()
-            .unwrap_or_else(|e| e.into_inner());
-        if upgrade.get_upgrade_names().is_empty() {
-            upgrade.init();
-        }
+            .unwrap_or_else(|error| error.into_inner());
+        self.seed_upgrade_center(&mut upgrade);
+    }
+
+    /// Seed the original veterancy upgrades using this owner's name keys.
+    pub fn seed_upgrade_center(&self, upgrade: &mut crate::common::system::upgrade::UpgradeCenter) {
+        let mut namespace = None;
+        upgrade.init_with_interner(|name| {
+            // An already initialized center never needs the NameKey lock.
+            namespace
+                .get_or_insert_with(|| {
+                    self.name_key_namespace.lock().unwrap_or_else(|error| error.into_inner())
+                })
+                .name_to_key(name);
+        });
     }
 
     pub fn with_logic_rng_owner<R>(&self, owner: SessionRandom, f: impl FnOnce() -> R) -> R {
@@ -385,9 +396,14 @@ pub fn common_services() -> Arc<CommonServices> {
     )
 }
 
+/// Read the explicitly published owner without constructing a test fallback.
+pub fn published_common_services() -> Option<Arc<CommonServices>> {
+    ACTIVE_STACK.with(|stack| stack.borrow().last().cloned())
+}
+
 /// Active CommonServices for this thread, if published.
 pub fn try_common_services() -> Option<Arc<CommonServices>> {
-    let head = ACTIVE_STACK.with(|stack| stack.borrow().last().cloned());
+    let head = published_common_services();
     #[cfg(feature = "test-ambient-services")]
     if head.is_none() {
         return Some(test_ambient_services());
@@ -403,23 +419,18 @@ pub fn try_common_services() -> Option<Arc<CommonServices>> {
 fn test_ambient_services() -> Arc<CommonServices> {
     let services = Arc::new(CommonServices::new());
     install_common_services(Arc::clone(&services));
-    services.finish_bootstrap_after_publish();
     services
 }
 
 /// Push `services` as the active bind; returns the previous head if any.
 pub fn install_common_services(services: Arc<CommonServices>) -> Option<Arc<CommonServices>> {
-    let prior = ACTIVE_STACK.with(|stack| {
+    services.initialize_lifetime_upgrades();
+    ACTIVE_STACK.with(|stack| {
         let mut active = stack.borrow_mut();
         let prior = active.last().cloned();
-        active.push(Arc::clone(&services));
+        active.push(services);
         prior
-    });
-    // Veterancy NameKey interning needs this bind; safe / idempotent on re-install.
-    services
-        .system
-        .init_lifetime_upgrades_after_common_published();
-    prior
+    })
 }
 
 /// Pop only if `services` is the current head.
@@ -445,13 +456,11 @@ impl CommonServicesScope {
     pub fn new() -> Self {
         let services = Arc::new(CommonServices::new());
         install_common_services(Arc::clone(&services));
-        services.finish_bootstrap_after_publish();
         Self { services }
     }
 
     pub fn from_services(services: Arc<CommonServices>) -> Self {
         install_common_services(Arc::clone(&services));
-        services.finish_bootstrap_after_publish();
         Self { services }
     }
 

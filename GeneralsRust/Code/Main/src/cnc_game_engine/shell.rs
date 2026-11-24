@@ -1813,7 +1813,7 @@ impl CnCGameEngine {
                     // Admit its effective authored rows into the newly created
                     // match; that match must not consult the worker's active TLS.
                     let startup_ranks = _world_tls.common().ini.rank.read().clone();
-                    let mut game_logic = GameLogic::initialize();
+                    let mut game_logic = GameLogic::in_application(&_world_tls.common().application);
                     *game_logic.world_services.common().ini.rank.write() = startup_ranks;
                     game_logic.bind_application_assets(Arc::clone(&application_assets));
                     simulation_rules.admit_locomotors_before_objects(&mut game_logic)?;

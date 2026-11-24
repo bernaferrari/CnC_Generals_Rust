@@ -5,6 +5,41 @@ use generals_main::game_logic::GameLogic;
 use std::sync::Arc;
 
 #[test]
+fn constructing_a_world_on_a_fresh_thread_leaves_services_unpublished() {
+    use game_engine::common::common_services::published_common_services;
+    use game_engine::common::system::upgrade::{UpgradeType, get_upgrade_center};
+
+    std::thread::spawn(|| {
+        assert!(published_common_services().is_none());
+        let world = GameLogic::new();
+        let peer = GameLogic::initialize();
+        assert!(published_common_services().is_none());
+
+        for instance in [&world, &peer] {
+            instance.with_own_services(|| {
+                let common = published_common_services().unwrap();
+                let names = common.name_key_namespace.lock().unwrap();
+                let catalog = get_upgrade_center();
+                let catalog = catalog.read().unwrap();
+                let first = names.key_for_name("").unwrap();
+                for (bit, level) in ["VETERAN", "ELITE", "HEROIC"].iter().enumerate() {
+                    let template = catalog.find_veterancy_upgrade(level).unwrap();
+                    assert_eq!(template.get_mask().bits(), 1 << bit);
+                    assert_eq!(template.get_upgrade_type(), UpgradeType::Object);
+                    assert_eq!(
+                        names.key_for_name(template.get_name().as_str()),
+                        Some(first + bit as u32 + 1),
+                    );
+                }
+            });
+            assert!(published_common_services().is_none());
+        }
+    })
+    .join()
+    .unwrap();
+}
+
+#[test]
 fn world_construction_and_landmark_geometry_are_instance_owned() {
     generals_main::game_logic::ensure_world_ambient();
     let ambient_ai = game_engine::common::ini::ini_ai_data::process_lifetime_ai_data_store();

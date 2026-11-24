@@ -363,6 +363,9 @@ impl CnCGameEngine {
         // ensure_world_ambient installs a bootstrap bag (also publishes its
         // CommonServices for NameKey); the match-owned bag replaces it later.
         crate::game_logic::ensure_world_ambient();
+        let application_channels = Arc::clone(
+            &gamelogic::system::engine_stores::active_services().common().application,
+        );
         // Publish that accepted root around callbacks that still read common preferences.
         let mut subsystem_manager = crate::subsystem_manager::SubsystemManager::new();
         application_paths
@@ -705,7 +708,7 @@ impl CnCGameEngine {
                     .map_err(|error| anyhow::anyhow!("{path}: {error}"))
             },
         )?;
-        let mut game_logic = GameLogic::initialize();
+        let mut game_logic = GameLogic::in_application(&application_channels);
         game_logic.bind_application_assets(Arc::clone(&application_assets));
         game_logic.admit_combat_bonus_baseline(combat_bonus);
         game_logic.admit_tunnel_capacity_baseline(tunnel_capacity.max_capacity);

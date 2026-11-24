@@ -2586,7 +2586,9 @@ impl CnCGameEngine {
         let transaction = gamelogic::runtime_world_transaction::HostRuntimeWorldStage::begin(
             &live.world_services,
         );
-        let mut candidate = crate::game_logic::GameLogic::new_unpublished();
+        let mut candidate = crate::game_logic::GameLogic::in_application(
+            &live.world_services.common().application,
+        );
         let preparation = (|| -> Result<_, String> {
             candidate.receiving_module_content = live.receiving_module_content.clone();
             candidate.receiving_object_definitions = live.receiving_object_definitions.clone();
@@ -2914,7 +2916,9 @@ impl CnCGameEngine {
         // transaction state is restored before installing the candidate.
         let runtime_stage =
             gamelogic::runtime_world_transaction::HostRuntimeWorldStage::begin(live_services);
-        let mut staged = crate::game_logic::GameLogic::new_unpublished();
+        let mut staged = crate::game_logic::GameLogic::in_application(
+            &live_services.common().application,
+        );
         // TerrainLogic::enableWaterGrid reads the receiving application's
         // authored GameData. Keep the candidate's copy detached until commit.
         let receiving_game_data = live_services

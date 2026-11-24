@@ -302,7 +302,6 @@ fn worker_production_definition() -> game_engine::common::rts::player_template::
         let worker_services =
             std::sync::Arc::new(game_engine::common::common_services::CommonServices::new());
         game_engine::common::common_services::with_common_services(&worker_services, || {
-        worker_services.finish_bootstrap_after_publish();
         for index in 0..1_000 {
             NameKeyGenerator::name_to_key(&format!("main_worker_padding_{index}"));
         }

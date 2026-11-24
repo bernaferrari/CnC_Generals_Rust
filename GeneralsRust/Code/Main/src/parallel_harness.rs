@@ -11,6 +11,7 @@
 use crate::cnc_game_engine::{StandaloneStartupSources, load_standalone_startup_sources};
 use crate::game_logic::GameLogic;
 use crate::skirmish_config::{SkirmishMatchConfig, apply_skirmish_config, golden_skirmish_config_in};
+use game_engine::common::common_services::ApplicationChannels;
 use game_engine::common::ini::INILoadType;
 use game_engine::common::ini::ini_game_data::{CameraMovementRules, ProductionEnergyRules};
 use game_engine::common::ini::ini_locomotor::LocomotorStore;
@@ -271,13 +272,12 @@ impl SharedSkirmishAssets {
     }
 
     pub(crate) fn prepare_skirmish(&self, seed: u32) -> Result<GameLogic, String> {
-        crate::game_logic::ensure_world_ambient();
         let mut logic = {
-            let application = game_engine::common::common_services::CommonServicesScope::new();
+            let application = Arc::new(ApplicationChannels::new());
             // GameEngine.cpp:281-329 mounts loose and BIG files before INI
             // admission. SidesList.cpp:487 opens SkirmishScripts.scb from
             // these same application channels when the map lacks scripts.
-            let mut file_system = application.services().application.file_system
+            let mut file_system = application.file_system
                 .lock()
                 .map_err(|error| format!("cannot lock the skirmish filesystem: {error}"))?;
             if let Some(install) = &self.install_root {
@@ -295,7 +295,7 @@ impl SharedSkirmishAssets {
             crate::subsystem_manager::FileSystemSubsystem::mount_common_files(&mut file_system)
                 .map_err(|error| error.to_string())?;
             drop(file_system);
-            GameLogic::new()
+            GameLogic::in_application(&application)
         };
         logic.with_own_services_mut(|logic| -> Result<(), String> {
             self.definitions.admit_with_startup(logic, || {

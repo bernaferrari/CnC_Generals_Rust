@@ -68,10 +68,16 @@ impl UpgradeCenter {
     /// Rust worlds snapshot an already-initialized center, so a repeated
     /// `init` keeps the existing templates instead of duplicating them.
     pub fn init(&mut self) {
+        self.init_with_interner(|name| {
+            NameKeyGenerator::name_to_key(name);
+        });
+    }
+
+    pub(crate) fn init_with_interner(&mut self, mut intern: impl FnMut(&str)) {
         for level in ["VETERAN", "ELITE", "HEROIC"] {
             let name = format!("Upgrade_Veterancy_{level}");
             if self.find_upgrade(&name).is_none() {
-                self.create_veterancy_upgrade(level);
+                self.create_veterancy_upgrade(level, &mut intern);
             }
         }
     }
@@ -103,17 +109,31 @@ impl UpgradeCenter {
     /// (`parseUpgradeDefinition`) always look up first, so this only makes
     /// repeated programmatic registration idempotent.
     pub fn new_upgrade(&mut self, name: AsciiString) -> Arc<UpgradeTemplate> {
+        self.new_upgrade_with_interner(name, |name| {
+            NameKeyGenerator::name_to_key(name);
+        })
+    }
+
+    fn new_upgrade_with_interner(
+        &mut self,
+        name: AsciiString,
+        intern: impl FnOnce(&str),
+    ) -> Arc<UpgradeTemplate> {
         if !name.is_empty() {
             if let Some(existing) = self.find_upgrade(name.as_str()) {
                 return existing;
             }
         }
 
+        intern(name.as_str());
         let mut template = match self.find_upgrade(DEFAULT_UPGRADE_NAME) {
-            Some(default) => (*default).clone(),
-            None => UpgradeTemplate::new(name.clone()),
+            Some(default) => {
+                let mut template = (*default).clone();
+                template.assign_name(name);
+                template
+            }
+            None => UpgradeTemplate::new_uninterned(name),
         };
-        template.set_name(name);
 
         let bit = self.next_template_mask_bit as usize;
         self.next_template_mask_bit = self.next_template_mask_bit.saturating_add(1);
@@ -136,13 +156,13 @@ impl UpgradeCenter {
         template
     }
 
-    fn create_veterancy_upgrade(&mut self, level: &str) {
-        // C++: up = newUpgrade(""); up->friend_makeVeterancyUpgrade(level);
-        let template = self.new_upgrade(AsciiString::from(""));
+    fn create_veterancy_upgrade(&mut self, level: &str, intern: &mut impl FnMut(&str)) {
+        // Preserve the temporary name's key allocation before the final name.
+        let template = self.new_upgrade_with_interner(AsciiString::from(""), &mut *intern);
         let catalog = Arc::make_mut(&mut self.catalog);
         catalog.upgrades.remove(template.get_name().as_str());
         let mut owned = (*template).clone();
-        owned.friend_make_veterancy_upgrade(level);
+        owned.make_veterancy_upgrade(level, intern);
         let owned = Arc::new(owned);
         catalog.upgrades
             .insert(owned.get_name().as_str().to_owned(), owned.clone());

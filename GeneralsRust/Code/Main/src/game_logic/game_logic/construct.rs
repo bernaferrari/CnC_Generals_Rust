@@ -35,7 +35,19 @@ impl GameLogic {
     }
 
     pub fn new() -> Self {
-        crate::game_logic::ensure_world_ambient();
+        Self::from_world_services(gamelogic::system::engine_stores::new_world_services())
+    }
+
+    pub(crate) fn in_application(
+        application: &Arc<game_engine::common::common_services::ApplicationChannels>,
+    ) -> Self {
+        let services = gamelogic::system::engine_stores::WorldServices::in_application(
+            Arc::clone(application),
+        );
+        Self::from_world_services(Arc::new(services))
+    }
+
+    fn from_world_services(world_services: Arc<gamelogic::system::engine_stores::WorldServices>) -> Self {
         log::debug!("GameLogic::new() - creating new GameLogic instance");
         let world_width = 512.0;
         let world_height = 512.0;
@@ -51,21 +63,15 @@ impl GameLogic {
         // The same existing playback namespace also binds lookup registration.
         // Hoisting this one allocation creates no additional identity owner.
         let live_draw_playback_world = std::sync::Arc::new(());
-        let world_services = gamelogic::system::engine_stores::new_world_services();
         // C++ TheTeamFactory belongs to this world: logic and its containers
         // share the one factory the world owns.
         let team_factory = world_services.team_factory().clone();
         let main_services = std::sync::Arc::new(crate::main_services::MainServices::new());
-        // Temporarily bind World/Common/Main for UpgradeCenter::init / NameKey.
-        // Do not leave them published until Drop: two instances on one thread
-        // would otherwise share an ambient head. Method calls use
-        // with_own_services{,_mut}. Drop still uninstalls as a safety net.
-        gamelogic::system::engine_stores::install_services(std::sync::Arc::clone(&world_services));
-        crate::main_services::install_main_services(std::sync::Arc::clone(&main_services));
-        // The original UpgradeCenter::init reserves these three mask bits
-        // before authored content. Uses this instance's bound CommonServices.
+        // Upgrade.cpp:236–254 reserves the three bits before authored upgrades.
+        let common = world_services.common();
+        common.initialize_lifetime_upgrades();
         let mut upgrade_definitions = game_engine::common::system::upgrade::UpgradeCenter::new();
-        upgrade_definitions.init();
+        common.seed_upgrade_center(&mut upgrade_definitions);
         let mut instance = Self {
             w3d_ghosts: Default::default(),
             host_ghosts: Default::default(),
@@ -110,7 +116,6 @@ impl GameLogic {
             construction_events: Default::default(),
             // C++ engine-init order (GameEngine.cpp:468-481): immutable content
             // is admitted before the world. Main constructs no Core AI.
-            // new() publishes this bundle for free-function bridges; Drop pops it.
             world_services: std::sync::Arc::clone(&world_services),
             main_services: std::sync::Arc::clone(&main_services),
             application_assets: None,
@@ -752,7 +757,7 @@ impl GameLogic {
             pending_music_stop: false,
             pending_movie: None,
             pending_radar_movie: None,
-            mission_objectives: Self::seed_sample_objectives(),
+            mission_objectives: Self::seed_sample_objectives(&main_services),
             objective_lookup: HashMap::new(),
             last_map_settings: None,
             spawned_map_object_ids: Vec::new(),
@@ -769,17 +774,7 @@ impl GameLogic {
         };
         instance.refresh_pathfinding_ai_definitions();
         instance.rebuild_objective_lookup();
-        // Pop construction binds so ambient is clear between method calls.
-        let _ = gamelogic::system::engine_stores::uninstall_services(&instance.world_services);
-        let _ = crate::main_services::uninstall_main_services_if_current(&instance.main_services);
-        // WorldServices constructs a fresh shroud; it never copies prior state.
         instance
-    }
-
-    /// Staged-restore / inert candidate. Same as [`Self::new`]: construction
-    /// binds are temporary; the instance is not left on the ambient stacks.
-    pub fn new_unpublished() -> Self {
-        Self::new()
     }
 
     /// Admit the canonical ordered GameData result into this receiving match.
@@ -1489,7 +1484,7 @@ impl GameLogic {
         self.pending_radar_movie = None;
         self.spawned_map_object_ids.clear();
         self.pending_special_abilities.clear();
-        self.mission_objectives = Self::seed_sample_objectives();
+        self.mission_objectives = Self::seed_sample_objectives(&self.main_services);
         self.rebuild_objective_lookup();
         self.radar_notifications.clear(); // C++ InGameUI::reset/freeMessageResources.
         self.last_radar_event = None;

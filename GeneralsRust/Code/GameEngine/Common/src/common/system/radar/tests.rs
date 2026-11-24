@@ -6,7 +6,6 @@ pub(super) fn with_test_services<R>(body: impl FnOnce() -> R) -> R {
     use crate::common::common_services::{with_common_services, CommonServices};
     let services = std::sync::Arc::new(CommonServices::new());
     with_common_services(&services, || {
-        services.finish_bootstrap_after_publish();
         body()
     })
 }

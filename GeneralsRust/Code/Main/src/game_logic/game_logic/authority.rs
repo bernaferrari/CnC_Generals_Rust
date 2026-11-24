@@ -9,12 +9,19 @@ use super::script_camera::*;
 use super::*;
 
 impl GameLogic {
-    pub(super) fn seed_sample_objectives() -> Vec<ObjectiveDisplay> {
+    pub(super) fn seed_sample_objectives(
+        services: &crate::main_services::MainServices,
+    ) -> Vec<ObjectiveDisplay> {
+        let manager = localization::manager_in(services);
+        let manager = manager.read();
+        let localize = |key: &str, fallback: &str| {
+            manager.translate(key).unwrap_or_else(|| fallback.to_owned())
+        };
         vec![
             ObjectiveDisplay {
                 id: Some("sample_primary".to_string()),
-                title: localization::localize("objectives.primary.sample.title", "Secure the Area"),
-                description: localization::localize(
+                title: localize("objectives.primary.sample.title", "Secure the Area"),
+                description: localize(
                     "objectives.primary.sample.desc",
                     "Capture all nearby resource points.",
                 ),
@@ -24,11 +31,11 @@ impl GameLogic {
             },
             ObjectiveDisplay {
                 id: Some("sample_secondary".to_string()),
-                title: localization::localize(
+                title: localize(
                     "objectives.secondary.sample.title",
                     "Bonus: Destroy Radar",
                 ),
-                description: localization::localize(
+                description: localize(
                     "objectives.secondary.sample.desc",
                     "Take out the enemy radar installation.",
                 ),
@@ -163,7 +170,7 @@ impl GameLogic {
                 "No campaign mission metadata found for map '{}'; using sample objectives",
                 map_name
             );
-            return Self::seed_sample_objectives();
+            return Self::seed_sample_objectives(&self.main_services);
         };
 
         let mut displays = Vec::new();
@@ -183,7 +190,7 @@ impl GameLogic {
                 mission.name,
                 mission.id
             );
-            Self::seed_sample_objectives()
+            Self::seed_sample_objectives(&self.main_services)
         } else {
             log::info!(
                 "Loaded {} mission objectives for '{}' ({})",

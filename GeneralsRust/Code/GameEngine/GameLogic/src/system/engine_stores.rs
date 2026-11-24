@@ -201,7 +201,7 @@ fn fresh_common_for_world() -> Arc<CommonServices> {
 /// the whole run, across every match, so the new bag shares the publishing
 /// application's channels. A thread with no published application starts one.
 fn common_in_publishing_application() -> Arc<CommonServices> {
-    Arc::new(match common_services::try_common_services() {
+    Arc::new(match common_services::published_common_services() {
         Some(parent) => CommonServices::in_application(Arc::clone(&parent.application)),
         None => CommonServices::new(),
     })
@@ -209,15 +209,16 @@ fn common_in_publishing_application() -> Arc<CommonServices> {
 impl WorldServices {
     /// Snapshot engine content; fresh mutable per-world services. Inert.
     pub fn new_for_world() -> Self {
-        let services = Self::unbound_for_world();
-        // The registry's script-side cleanup belongs to this world's engine.
-        services.object_registry.bind_owning_scripts(services.scripts.engine());
-        services
+        Self::with_common(fresh_common_for_world())
     }
 
-    fn unbound_for_world() -> Self {
-        let common = fresh_common_for_world();
-        Self {
+    /// Create fresh match services in the specified application's channels.
+    pub fn in_application(application: Arc<common_services::ApplicationChannels>) -> Self {
+        Self::with_common(Arc::new(CommonServices::in_application(application)))
+    }
+
+    fn with_common(common: Arc<CommonServices>) -> Self {
+        let services = Self {
             // Only definitions are inherited. Visibility, cells and queued
             // reveals belong to this match (CPP PartitionManager.cpp:2515).
             shroud: Arc::new(Mutex::new(ShroudManager::new())),
@@ -297,7 +298,10 @@ impl WorldServices {
             staging_deferred_team_effects: Mutex::new(Vec::new()),
             runtime_transaction_lock: Arc::new(parking_lot::Mutex::new(())),
             scripts: crate::scripting::engine::WorldScriptState::default(),
-        }
+        };
+        // The registry's script-side cleanup belongs to this world's engine.
+        services.object_registry.bind_owning_scripts(services.scripts.engine());
+        services
     }
     pub fn terrain(&self) -> &Arc<RwLock<crate::terrain::TerrainLogic>> {
         &self.terrain
@@ -769,9 +773,7 @@ impl PublishedOwner {
         }
     }
     fn install_common(&self) {
-        let common = Arc::clone(self.services().common());
-        let _ = common_services::install_common_services(Arc::clone(&common));
-        common.finish_bootstrap_after_publish();
+        common_services::install_common_services(Arc::clone(self.services().common()));
         self.services().locomotor_store().sync_from_definitions();
         match self {
             Self::Core(core) => {
@@ -1049,9 +1051,7 @@ fn with_owner<R>(owner: PublishedOwner, f: impl FnOnce() -> R) -> R {
     }
     // Publish the world's own Common first: its UpgradeCenter and AIData slots
     // live in that Common (C++ TheUpgradeCenter / TheAI per GameEngine).
-    let common = Arc::clone(owner.services().common());
-    let prior_common = common_services::install_common_services(Arc::clone(&common));
-    common.finish_bootstrap_after_publish();
+    let prior_common = common_services::install_common_services(Arc::clone(owner.services().common()));
     let prior_upgrade = match &owner {
         PublishedOwner::Core(core) => {
             common_upgrade::install_upgrade_center(Arc::clone(core.upgrade_center()))

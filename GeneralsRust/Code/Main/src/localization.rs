@@ -145,7 +145,10 @@ impl LocalizationManager {
 }
 
 fn manager() -> Arc<RwLock<LocalizationManager>> {
-    let services = crate::main_services::main_services();
+    manager_in(&crate::main_services::main_services())
+}
+
+pub(crate) fn manager_in(services: &crate::main_services::MainServices) -> Arc<RwLock<LocalizationManager>> {
     let mut slot = services
         .localization
         .lock()

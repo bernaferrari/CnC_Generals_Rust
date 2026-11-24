@@ -63,7 +63,10 @@ impl UpgradeTemplate {
     pub fn new(name: AsciiString) -> Self {
         // C++ setUpgradeNameKey(nameToKey(name)): intern at definition time.
         let _ = NameKeyGenerator::name_to_key(&name);
+        Self::new_uninterned(name)
+    }
 
+    pub(super) fn new_uninterned(name: AsciiString) -> Self {
         Self {
             upgrade_type: UpgradeType::Player,
             name,
@@ -84,10 +87,16 @@ impl UpgradeTemplate {
     /// Matches C++ UpgradeTemplate::friend_makeVeterancyUpgrade.
     /// Mask is left as assigned by UpgradeCenter::newUpgrade.
     pub fn friend_make_veterancy_upgrade(&mut self, level: &str) {
+        self.make_veterancy_upgrade(level, |name| {
+            NameKeyGenerator::name_to_key(name);
+        });
+    }
+
+    pub(super) fn make_veterancy_upgrade(&mut self, level: &str, intern: impl FnOnce(&str)) {
         let mut name = AsciiString::from("Upgrade_Veterancy_");
         name.push_str(level);
         self.upgrade_type = UpgradeType::Object;
-        let _ = NameKeyGenerator::name_to_key(&name);
+        intern(name.as_str());
         self.name = name;
         self.display_name_label.clear();
         self.build_time = 0.0;
@@ -173,6 +182,10 @@ impl UpgradeTemplate {
 
     pub fn set_name(&mut self, name: AsciiString) {
         let _ = NameKeyGenerator::name_to_key(&name);
+        self.assign_name(name);
+    }
+
+    pub(super) fn assign_name(&mut self, name: AsciiString) {
         self.name = name;
     }
 
