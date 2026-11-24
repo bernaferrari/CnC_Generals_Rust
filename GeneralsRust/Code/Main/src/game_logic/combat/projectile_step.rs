@@ -327,36 +327,44 @@ impl CombatSystem {
                             frame,
                         );
                     }
-                    let target_exists = projectile
+                    let target = projectile
                         .target_id
-                        .map(|target_id| objects.contains_key(&target_id))
-                        .unwrap_or(true);
+                        .and_then(|target_id| objects.get(&target_id));
+                    let target_exists = projectile.target_id.is_none() || target.is_some();
                     // CPP getGoalObject uses registry presence even for a dead object.
                     // Refresh the registered target pose before this callback steps.
                     // C++ AIMoveToState::onEnter lifts projectile goals by target height.
-                    if projectile.is_homing {
-                        if let Some(tid) = projectile.target_id {
-                            if let Some(tgt) = objects.get(&tid) {
-                                projectile.target_position = projectile_goal_on_object(tgt);
-                            }
-                        }
+                    if projectile.is_homing && let Some(target) = target {
+                        projectile.target_position = projectile_goal_on_object(target);
                     }
+                    let kill_target = if projectile.is_homing && projectile.completed_missile_kill_move() {
+                        target.zip(objects.get(&proj_id)).map(|(target, missile)| {
+                            use crate::game_logic::partition_geometry::bounding_spheres_distance_squared;
+                            MissileKillTarget {
+                                origin: target.get_position(),
+                                edge_distance_squared: bounding_spheres_distance_squared(
+                                    missile.get_position(),
+                                    missile.geometry_info(),
+                                    target.get_position(),
+                                    target.geometry_info(),
+                                ),
+                            }
+                        })
+                    } else {
+                        None
+                    };
                     let mut retarget_failed = false;
                     if let Some(crate::game_logic::weapon_bootstrap::HostProjectileFlight::Dumb(dumb)) =
                         projectile.flight.as_ref()
                     {
-                        if dumb.flight_path_adjust_per_frame > 0.0 {
-                            if let Some(tid) = projectile.target_id {
-                                if let Some(tgt) = objects.get(&tid) {
-                                    retarget_failed = !crate::game_logic::weapon_bootstrap::adjust_flight_path_end(
-                                        &mut projectile.flight_runtime,
-                                        dumb,
-                                        dumb_projectile_target_center(tgt),
-                                        |start, end| partition.as_deref().and_then(|owner| owner.terrain_high_along_line(start, end)),
-                                    );
-                                    projectile.target_position = projectile.flight_runtime.path_end;
-                                }
-                            }
+                        if dumb.flight_path_adjust_per_frame > 0.0 && let Some(tgt) = target {
+                            retarget_failed = !crate::game_logic::weapon_bootstrap::adjust_flight_path_end(
+                                &mut projectile.flight_runtime,
+                                dumb,
+                                dumb_projectile_target_center(tgt),
+                                |start, end| partition.as_deref().and_then(|owner| owner.terrain_high_along_line(start, end)),
+                            );
+                            projectile.target_position = projectile.flight_runtime.path_end;
                         }
                     }
                     let step = if retarget_failed {
@@ -374,7 +382,10 @@ impl CombatSystem {
                         } else {
                             None
                         };
-                        projectile.update_with_terrain_runtime(dt, target_exists, terrain, actor, partition.as_deref_mut(), Some(frame), runtime)
+                        projectile.update_with_terrain_runtime(
+                            dt, target_exists, kill_target, terrain, actor,
+                            partition.as_deref_mut(), Some(frame), runtime,
+                        )
                     };
                     match step {
                         ProjectileStep::Alive => {

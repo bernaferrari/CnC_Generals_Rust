@@ -3,6 +3,12 @@ pub(in crate::game_logic) enum ProjectileFxObject<'a> {
     Projectile(&'a Projectile),
     Object(&'a Object),
 }
+
+struct MissileKillTarget {
+    origin: Vec3,
+    edge_distance_squared: f32,
+}
+
 pub(in crate::game_logic) trait ProjectilePresentationRuntime {
     fn fx(&mut self, name: &str, object: ProjectileFxObject<'_>);
     fn pose(&mut self, projectile: &Projectile);
@@ -471,7 +477,7 @@ impl Projectile {
         }
     }
 
-    fn lifecycle_step(&mut self, target_is_live: bool, entering_kill: bool) -> ProjectileStep {
+    fn lifecycle_step(&mut self, target_is_live: bool, defer_target_loss: bool) -> ProjectileStep {
         use crate::game_logic::weapon_bootstrap::HostProjectileLifecycle;
 
         let Some(lifecycle) = self.projectile_lifecycle else {
@@ -524,7 +530,7 @@ impl Projectile {
 
                 // Tracking follows the current AI goal, including a diverted
                 // flare, rather than the original designated victim.
-                if self.is_homing && self.target_id.is_some() && !target_is_live && !entering_kill {
+                if self.is_homing && self.target_id.is_some() && !target_is_live && !defer_target_loss {
                     self.missile_kill_self_started_frame = Some(frame);
                     return ProjectileStep::Hold;
                 }
@@ -586,6 +592,7 @@ impl Projectile {
         self.update_with_terrain_runtime(
             dt,
             target_is_live,
+            None,
             terrain,
             None,
             None,
@@ -593,10 +600,17 @@ impl Projectile {
             &mut ProjectileFxCallbacks { fx, pose: publish },
         )
     }
-    pub(in crate::game_logic) fn update_with_terrain_runtime(
+    fn completed_missile_kill_move(&self) -> bool {
+        self.flight_runtime.missile_phase
+            == crate::game_logic::weapon_bootstrap::HostMissilePhase::Kill
+            && self.missile_motion.as_ref().is_some_and(MissileMotion::is_move_idle)
+    }
+
+    fn update_with_terrain_runtime(
         &mut self,
         dt: f32,
         target_is_live: bool,
+        kill_target: Option<MissileKillTarget>,
         terrain: Option<&crate::game_logic::game_logic::FlightTerrainView<'_>>,
         mut actor: Option<&mut Object>,
         mut partition: Option<&mut crate::game_logic::partition_manager::PartitionManager>,
@@ -638,6 +652,7 @@ impl Projectile {
 
         let was_kill = self.flight_runtime.missile_phase
             == crate::game_logic::weapon_bootstrap::HostMissilePhase::Kill;
+        let completed_move = self.completed_missile_kill_move();
         // doAttackState (MissileAIUpdate.cpp:506-553) checks the retained
         // goal and returns on lock before it handles a vanished target.
         // Plan the transition here so lifecycle can still resolve fuel first.
@@ -658,7 +673,7 @@ impl Projectile {
             &self.flight,
             Some(crate::game_logic::weapon_bootstrap::HostProjectileFlight::Missile(_))
         ) {
-            let lifecycle_step = self.lifecycle_step(target_is_live, entering_kill);
+            let lifecycle_step = self.lifecycle_step(target_is_live, entering_kill || completed_move);
             if lifecycle_step != ProjectileStep::Alive {
                 if matches!(lifecycle_step, ProjectileStep::Hold | ProjectileStep::DetonateAndHold) {
                     let impact = self.position;
@@ -687,6 +702,9 @@ impl Projectile {
             if entering_kill {
                 self.flight_runtime.missile_phase =
                     crate::game_logic::weapon_bootstrap::HostMissilePhase::Kill;
+                if !self.is_homing {
+                    motion.restart_move();
+                }
             }
             if let Some(crate::game_logic::weapon_bootstrap::HostProjectileFlight::Missile(missile)) = &self.flight {
                 if !self.is_homing
@@ -705,6 +723,32 @@ impl Projectile {
                 _ => false,
             };
             let actor = actor.as_deref_mut().expect("missile motion requires its world Object");
+            let mut impact = None;
+            if completed_move {
+                match kill_target {
+                    None => impact = Some(self.position),
+                    Some(target) => {
+                        let close_enough = actor.movement.max_speed
+                            * gamelogic::common::SECONDS_PER_LOGICFRAME_REAL;
+                        if target.edge_distance_squared < close_enough * close_enough {
+                            // KILL snaps to the actual object origin, not the
+                            // height-adjusted MoveTo destination.
+                            let mut effects = crate::game_logic::ScriptPresentationEffects::default();
+                            if let Some(owner) = partition.as_deref_mut() {
+                                actor.set_position_with_partition_owner(target.origin, physics_frame, &mut effects, owner);
+                            } else {
+                                actor.set_position_with_effects(target.origin, physics_frame, &mut effects);
+                            }
+                            impact = Some(target.origin);
+                        } else {
+                            motion.restart_move();
+                        }
+                    }
+                }
+            }
+            if impact.is_none() {
+                motion.update_move(actor, goal);
+            }
             let steering = if was_kill {
                 MissileSteering::Braking
             } else if entering_kill {
@@ -717,6 +761,10 @@ impl Projectile {
             let ground_contact = motion.advance(actor, goal, true, !expired, steering, physics_frame, terrain, partition.as_deref_mut());
             self.position = actor.get_position();
             self.velocity = actor.movement.velocity;
+            if let Some(impact) = impact {
+                self.detonation_position = Some(impact);
+                return self.detonation_step();
+            }
             if ground_contact {
                 // MissileAIUpdate::projectileHandleCollision ignores a
                 // ground contact only when above and far from its AI goal.
@@ -725,9 +773,6 @@ impl Projectile {
                 if delta.y <= cell || delta.length_squared() <= (3.0 * cell).powi(2) {
                     return self.detonation_step();
                 }
-            }
-            if was_kill && self.position.distance_squared(goal) <= 0.001 * 0.001 {
-                return self.detonation_step();
             }
             return self.finish_flight_step(terrain);
         }

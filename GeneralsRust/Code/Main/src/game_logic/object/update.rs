@@ -370,6 +370,13 @@ impl Object {
             || self.object_type == ObjectType::Projectile
     }
 
+    /// Locomotor's authored arrival radius, with its original default.
+    pub(in crate::game_logic) fn host_close_enough_dist(&self) -> f32 {
+        self.close_enough_dist
+            .filter(|distance| distance.is_finite() && *distance >= 0.0)
+            .unwrap_or(1.0)
+    }
+
     /// Leftover unused `get_locomotor_distance_to_goal` metric to `goal`.
     /// 3D only when leftover flag or projectile; else 2D / aircraft flight-dist.
     pub fn host_locomotor_distance_to_goal(&self, current: Vec3, goal: Vec3) -> f32 {

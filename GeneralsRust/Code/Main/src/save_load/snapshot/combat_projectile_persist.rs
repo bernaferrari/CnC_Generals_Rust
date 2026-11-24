@@ -9,8 +9,8 @@ use serde::{Deserialize, Serialize};
 use std::borrow::Cow;
 
 const TAG: &[u8; 4] = b"CPRJ";
-// Version 9 records the authored DumbProjectile mortality flag in the arena.
-const VERSION: u32 = 9;
+// Version 10 records the parent MoveTo arrival state of live missiles.
+const VERSION: u32 = 10;
 
 /// The nested arena includes each flight's captured and live bonus conditions.
 /// Stream and Team bindings, geometry, and missile motion are kept in the outer frame.

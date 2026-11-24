@@ -120,6 +120,124 @@ fn advance_to_impact(world: &mut GameLogic, target: ObjectId) {
 }
 
 #[test]
+fn retail_patriot_coordinate_kill_waits_for_the_move_callback() {
+    let (mut world, source, target) = world();
+    let goal = Vec3::new(240.0, 45.0, 120.0);
+    world
+        .fire_owned_temporary_weapon_at(
+            source,
+            "PatriotMissileWeapon",
+            goal,
+            &mut crate::game_logic::ScriptPresentationEffects::default(),
+        )
+        .unwrap();
+    world.drain_pending_projectiles_into_combat();
+    let id = advance_to_kill(&mut world);
+    let shot = world.combat_system.projectiles_snapshot()[0];
+    assert_eq!(shot.target_id, None);
+    assert_eq!(shot.target_position, goal);
+    assert!(!shot.missile_drawable_hidden());
+
+    world.set_fixture_object_position(id, goal - 6.0 * Vec3::X);
+    world.objects.get_mut(&id).unwrap().movement.velocity = 240.0 * Vec3::X;
+    let _ = world.update_with_dt(1.0 / 30.0);
+    let shot = world.combat_system.projectiles_snapshot()[0];
+    assert_eq!(shot.position, goal, "braking reaches the coordinate");
+    assert!(
+        !shot.missile_drawable_hidden(),
+        "KILL sees the preceding move state"
+    );
+
+    let _ = world.update_with_dt(1.0 / 30.0);
+    assert!(
+        !world.combat_system.projectiles_snapshot()[0].missile_drawable_hidden(),
+        "the parent MoveTo callback recognizes arrival after the missile callback"
+    );
+
+    let builder = crate::save_load::SnapshotBuilder::new();
+    let saved = builder.create_world_snapshot(&world).unwrap();
+    let bytes = bincode_legacy::serialize(&saved).unwrap();
+    let decoded = crate::save_load::snapshot::decode_bincode_world_snapshot(&bytes).unwrap();
+    let (mut restored, _, _) = self::world();
+    builder.restore_from_snapshot(&decoded, &mut restored).unwrap();
+    for receiving in [&mut world, &mut restored] {
+        let _ = receiving.update_with_dt(1.0 / 30.0);
+        let shot = receiving.combat_system.projectiles_snapshot()[0];
+        assert_eq!(shot.id, id);
+        assert!(shot.missile_drawable_hidden());
+        assert_eq!(shot.position, goal);
+        assert_eq!(receiving.objects[&target].health.current, 1000.0);
+    }
+}
+
+#[test]
+fn retail_patriot_tracked_kill_resumes_move_or_snaps_to_target_origin() {
+    let (mut world, source, target) = world_for_with(
+        "PatriotMissileWeapon",
+        "PatriotMissile",
+        "PatriotMissileLocomotor",
+        |_, _, objects| {
+            *objects = objects.replace(
+                "Geometry = Sphere\nGeometryMajorRadius = 0",
+                "Geometry = Cylinder\nGeometryMajorRadius = 1\nGeometryHeight = 8",
+            );
+        },
+    );
+    // Hold the test target on the flat terrain instead of letting gravity
+    // move the aim point between these staged arrivals.
+    let target_ground = world.objects[&target].get_position().with_y(0.0);
+    world.set_fixture_object_position(target, target_ground);
+    launch(&mut world, source, target);
+    let id = advance_to_kill(&mut world);
+    // Isolate the MissileAI callback from the earlier object-contact path.
+    world.objects.get_mut(&id).unwrap().set_status_no_collisions(true);
+    let aim = world.combat_system.projectiles_snapshot()[0].target_position;
+    assert_eq!(aim, world.objects[&target].get_position() + 8.0 * Vec3::Y);
+    world.set_fixture_object_position(id, aim);
+    let _ = world.update_with_dt(1.0 / 30.0);
+    assert!(!world.combat_system.projectiles_snapshot()[0].missile_drawable_hidden());
+
+    let new_origin = world.objects[&target].get_position() + 40.0 * Vec3::Z;
+    world.set_fixture_object_position(target, new_origin);
+    let _ = world.update_with_dt(1.0 / 30.0);
+    let shot = world.combat_system.projectiles_snapshot()[0];
+    assert!(!shot.missile_drawable_hidden(), "target left one frame's reach");
+    assert!(shot.position.z > aim.z, "KILL issues another MoveToObject");
+    let new_aim = shot.target_position;
+    world.set_fixture_object_position(id, new_aim);
+    let _ = world.update_with_dt(1.0 / 30.0);
+    let shot = world.combat_system.projectiles_snapshot()[0];
+    assert!(!shot.missile_drawable_hidden());
+    assert_eq!(shot.position, new_aim);
+    assert_eq!(shot.target_position, new_aim);
+
+    let _ = world.update_with_dt(1.0 / 30.0);
+    let shot = world.combat_system.projectiles_snapshot()[0];
+    assert!(
+        shot.missile_drawable_hidden(),
+        "the idle missile at {:?} should detonate near its target at {:?}",
+        shot.position,
+        world.objects[&target].get_position()
+    );
+    assert_eq!(shot.position, new_origin);
+    assert_eq!(world.objects[&id].get_position(), new_origin);
+}
+
+fn advance_to_kill(world: &mut GameLogic) -> ObjectId {
+    use crate::game_logic::weapon_bootstrap::HostMissilePhase;
+
+    for _ in 0..100 {
+        let shot = world.combat_system.projectiles_snapshot()[0];
+        if shot.flight_runtime.missile_phase == HostMissilePhase::Kill {
+            assert!(!shot.missile_drawable_hidden());
+            return shot.id;
+        }
+        let _ = world.update_with_dt(1.0 / 30.0);
+    }
+    panic!("retail missile never entered KILL");
+}
+
+#[test]
 fn retail_patriot_fires_flies_and_impacts() {
     let (mut world, source, target) = world();
     launch(&mut world, source, target);

@@ -1536,7 +1536,7 @@ impl GameLogic {
                     let keep_goal_y = z_motive
                         || matches!(obj.loco_appearance, LocomotorAppearance::Climber)
                         || obj.host_uses_close_enough_dist_3d();
-                    let close_enough = host_close_enough_dist(obj);
+                    let close_enough = obj.host_close_enough_dist();
                     let close_enough_sanity =
                         4.0 * crate::game_logic::PATHFIND_CELL_SIZE_F_RESIDUAL;
 
@@ -3684,13 +3684,6 @@ fn valid_movement_terrain_at(
         return true;
     }
     (surfaces & valid_locomotor_surfaces_for_cell_type(ty)) != 0
-}
-
-/// C++ `Locomotor::getCloseEnoughDist` (default 1.0 at Locomotor.cpp:321).
-fn host_close_enough_dist(obj: &crate::game_logic::Object) -> f32 {
-    obj.close_enough_dist
-        .filter(|d| d.is_finite() && *d >= 0.0)
-        .unwrap_or(1.0)
 }
 
 /// C++ `Locomotor::fixInvalidPosition` (Locomotor.cpp:1500-1562).

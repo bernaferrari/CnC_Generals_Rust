@@ -1161,6 +1161,9 @@ fn apply_countermeasure_report_and_decoy(
                 {
                     projectile.target_id = Some(fid);
                     projectile.is_homing = true;
+                    if let Some(motion) = &mut projectile.missile_motion {
+                        motion.restart_move();
+                    }
                     if let Some(flare) = objects.lookup(&fid) {
                         projectile.target_position = flare.get_position();
                     }

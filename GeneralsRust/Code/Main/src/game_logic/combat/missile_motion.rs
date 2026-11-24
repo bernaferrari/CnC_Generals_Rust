@@ -1,5 +1,6 @@
 //! Missile-owned use of the same locomotor and physics kernels as live Objects.
 use super::*;
+use gamelogic::common::SECONDS_PER_LOGICFRAME_REAL;
 
 /// Locomotor commands for the update that is about to run. A frame that
 /// enters KILL retains the prior turn cap and skips the remaining ATTACK body.
@@ -23,12 +24,35 @@ pub(crate) struct MissileMotion {
     physics_initialized: bool,
     /// Locomotor limits left by the last MissileAI state, retained in KILL_SELF.
     last_controls: Option<(bool, bool, bool, bool)>,
+    /// The parent MoveTo state has finished and the locomotor is maintaining
+    /// position. MissileAI observes this state on its next callback.
+    idle_position: Option<Vec3>,
 }
 
 impl MissileMotion {
     pub(crate) fn validate(&self) -> bool {
         self.gravity.is_finite() && self.no_turn_distance.is_finite()
             && self.previous_position.is_finite() && self.dive_distance.is_finite()
+            && self.idle_position.is_none_or(|position| position.is_finite())
+    }
+
+    pub(super) fn is_move_idle(&self) -> bool {
+        self.idle_position.is_some()
+    }
+
+    pub(super) fn restart_move(&mut self) {
+        self.idle_position = None;
+    }
+
+    pub(super) fn update_move(&mut self, actor: &Object, goal: Vec3) {
+        // AIInternalMoveToState checks its three-dimensional path end
+        // before the locomotor moves this frame.
+        let position = actor.get_position();
+        if self.idle_position.is_none()
+            && position.distance(goal) < actor.host_close_enough_dist()
+        {
+            self.idle_position = Some(position);
+        }
     }
     pub(crate) fn launch_pose(transform: glam::Mat4, target: Vec3) -> Option<glam::Mat4> {
         let position = transform.w_axis.truncate();
@@ -87,7 +111,8 @@ impl MissileMotion {
         }
         Some(Self { gravity: profile.gravity, no_turn_distance: launch.distance_before_turning,
             previous_position: position, dive_distance: launch.distance_before_diving,
-            attack_turn_enabled: false, physics_initialized: false, last_controls: None })
+            attack_turn_enabled: false, physics_initialized: false, last_controls: None,
+            idle_position: None })
     }
 
     pub(super) fn advance(
@@ -178,10 +203,11 @@ impl MissileMotion {
         if steering == MissileSteering::Attack && self.no_turn_distance <= 0.0 {
             self.attack_turn_enabled = true;
         }
-        let speed = actor.movement.max_speed;
+        let goal = self.idle_position.unwrap_or(goal);
+        let speed = if self.is_move_idle() { actor.min_speed } else { actor.movement.max_speed };
         let ground = terrain.map_or(actor.ground_height, |view| view.highest_surface(actor));
         actor.move_towards_thrust_with_status_and_effects(goal, pos.distance(goal), speed,
-            1.0 / 30.0, frame, braking, ground, effects);
+            SECONDS_PER_LOGICFRAME_REAL, frame, braking, ground, effects);
         actor.movement.turn_rate = old_turn;
         actor.movement.turn_rate_damaged = old_turn_damaged;
         actor.movement.acceleration = old_accel;
@@ -191,7 +217,7 @@ impl MissileMotion {
         let mut next = if braking {
             // Locomotor's close-in movement is direct; Physics does not translate braking projectiles.
             let delta = goal - pos;
-            if delta.length_squared() > 0.001 * 0.001 {
+            if !self.is_move_idle() && delta.length_squared() > 0.001 * 0.001 {
                 pos + delta.clamp_length_max(braking_speed)
             } else {
                 pos
@@ -242,6 +268,7 @@ mod tests {
             attack_turn_enabled: false,
             physics_initialized: false,
             last_controls: None,
+            idle_position: None,
         };
         let goal = Vec3::new(0.0, 50.0, 100.0);
         let forward = actor.get_transform_matrix().x_axis;
@@ -277,6 +304,7 @@ mod tests {
             attack_turn_enabled: true,
             physics_initialized: false,
             last_controls: None,
+            idle_position: None,
         };
         assert!(motion.advance(&mut actor, Vec3::new(10.0, 0.0, 0.0), true, false, MissileSteering::Attack, 1, None, None));
         assert_eq!(actor.get_position().y, 0.0);
@@ -313,6 +341,7 @@ mod tests {
             gravity: 0.0, no_turn_distance: 0.0, previous_position: start,
             dive_distance: 0.0, attack_turn_enabled: true, physics_initialized: false,
             last_controls: Some((true, true, true, false)),
+            idle_position: None,
         });
         (projectile, actor)
     }
@@ -320,11 +349,11 @@ mod tests {
     #[test]
     fn ground_detonation_keeps_missile_for_authored_kill_self_delay() {
         let (mut projectile, mut actor) = falling_projectile(Vec3::Y, Vec3::ZERO);
-        assert_eq!(projectile.update_with_terrain_runtime(1.0 / 30.0, true, None, Some(&mut actor), None, None, &mut ()), ProjectileStep::DetonateAndHold);
+        assert_eq!(projectile.update_with_terrain_runtime(1.0 / 30.0, true, None, None, Some(&mut actor), None, None, &mut ()), ProjectileStep::DetonateAndHold);
         assert_eq!(projectile.position.y, 0.0);
-        assert_eq!(projectile.update_with_terrain_runtime(1.0 / 30.0, true, None, Some(&mut actor), None, None, &mut ()), ProjectileStep::Hold);
-        assert_eq!(projectile.update_with_terrain_runtime(1.0 / 30.0, true, None, Some(&mut actor), None, None, &mut ()), ProjectileStep::Hold);
-        assert_eq!(projectile.update_with_terrain_runtime(1.0 / 30.0, true, None, Some(&mut actor), None, None, &mut ()), ProjectileStep::Remove);
+        assert_eq!(projectile.update_with_terrain_runtime(1.0 / 30.0, true, None, None, Some(&mut actor), None, None, &mut ()), ProjectileStep::Hold);
+        assert_eq!(projectile.update_with_terrain_runtime(1.0 / 30.0, true, None, None, Some(&mut actor), None, None, &mut ()), ProjectileStep::Hold);
+        assert_eq!(projectile.update_with_terrain_runtime(1.0 / 30.0, true, None, None, Some(&mut actor), None, None, &mut ()), ProjectileStep::Remove);
     }
 
     #[test]
@@ -332,7 +361,7 @@ mod tests {
         let (mut projectile, mut actor) = falling_projectile(
             Vec3::new(40.0, 1.0, 0.0), Vec3::new(0.0, -15.0, 0.0),
         );
-        assert_eq!(projectile.update_with_terrain_runtime(1.0 / 30.0, true, None, Some(&mut actor), None, None, &mut ()), ProjectileStep::Alive);
+        assert_eq!(projectile.update_with_terrain_runtime(1.0 / 30.0, true, None, None, Some(&mut actor), None, None, &mut ()), ProjectileStep::Alive);
         assert_eq!(projectile.position.y, 0.0);
         assert_eq!(projectile.flight_runtime.missile_phase,
             crate::game_logic::weapon_bootstrap::HostMissilePhase::Kill);

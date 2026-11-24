@@ -151,7 +151,26 @@ pub(super) fn origin_in_bounding_geometry_range(
     } else {
         candidate_geometry.bounding_sphere_radius()
     };
-    let distance_squared = if radius > 0.0 {
+    sphere_edge_distance_squared(center_distance_squared, radius) < max_dist * max_dist
+}
+
+/// PartitionManager FROM_BOUNDINGSPHERE_3D for two registered objects.
+pub(super) fn bounding_spheres_distance_squared(
+    position_a: Vec3,
+    geometry_a: &HostGeometryInfo,
+    position_b: Vec3,
+    geometry_b: &HostGeometryInfo,
+) -> f32 {
+    let a = position_a + Vec3::Y * z_delta_to_center(geometry_a);
+    let b = position_b + Vec3::Y * z_delta_to_center(geometry_b);
+    sphere_edge_distance_squared(
+        a.distance_squared(b),
+        geometry_a.bounding_sphere_radius() + geometry_b.bounding_sphere_radius(),
+    )
+}
+
+fn sphere_edge_distance_squared(center_distance_squared: f32, radius: f32) -> f32 {
+    if radius > 0.0 {
         let distance = center_distance_squared.sqrt() - radius;
         if distance <= 0.0 {
             0.0
@@ -160,8 +179,7 @@ pub(super) fn origin_in_bounding_geometry_range(
         }
     } else {
         center_distance_squared
-    };
-    distance_squared < max_dist * max_dist
+    }
 }
 
 fn collision_info(position: Vec3, host: &HostGeometryInfo, orientation: f32) -> CollideInfo {
