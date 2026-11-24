@@ -118,13 +118,13 @@ pub const JET_WHEEL_SCREECH_SOUND: &str = "AircraftWheelScreech";
 /// C++ `zSlop = 0.25f` first-contact slop (JetAIUpdate.cpp:822).
 pub const JET_WHEEL_SCREECH_Z_SLOP: f32 = 0.25;
 
-/// Object-local death setup reports whether the World must enter Idle after
-/// the object borrow ends. The retained machine, onExit behavior, and Idle
-/// mood deadline belong to the owning GameLogic instance.
+/// Effects requested by object-local death setup after the object borrow ends.
+/// The owning GameLogic delivers the AI transition and Drawable operations.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub(crate) struct SlowDeathStart {
     pub defer_destruction: bool,
     pub enter_idle: bool,
+    pub stop_ambient_playback: bool,
 }
 
 impl Object {
@@ -160,7 +160,7 @@ impl Object {
         {
             return SlowDeathStart {
                 defer_destruction: self.jet_slow_death.as_ref().is_some_and(|j| j.is_active()),
-                enter_idle: false,
+                ..SlowDeathStart::default()
             };
         }
         let mut j = crate::game_logic::host_jet_slow_death::HostJetSlowDeathData::with_fx(fx);
@@ -180,6 +180,7 @@ impl Object {
         SlowDeathStart {
             defer_destruction: true,
             enter_idle: true,
+            ..SlowDeathStart::default()
         }
     }
 
@@ -279,7 +280,7 @@ impl Object {
                     .helicopter_slow_death
                     .as_ref()
                     .is_some_and(|h| h.is_active()),
-                enter_idle: false,
+                ..SlowDeathStart::default()
             };
         }
         let mut h =
@@ -294,6 +295,7 @@ impl Object {
         SlowDeathStart {
             defer_destruction: true,
             enter_idle: true,
+            stop_ambient_playback: true,
         }
     }
 

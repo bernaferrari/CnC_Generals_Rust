@@ -8,10 +8,11 @@ use game_engine::common::audio::script_policy::ScriptAudioPolicy;
 use game_engine::common::audio::{AudioInstance, AudioManager, AudioSubmissionLocality};
 use gamelogic::common::types::BodyDamageType;
 
-/// The authored map admission and the script enable command share one Drawable.
+/// Ambient operations on the receiving Drawable.
 pub enum NativeAmbientChange<'a> {
     Map(&'a MapAmbientProperties),
     ScriptEnabled(bool),
+    StopPlayback,
 }
 
 /// Synchronous receiving audio facts for the end of one native Drawable
@@ -300,6 +301,12 @@ impl BasicDrawable {
         let was_enabled = self.ambient_sound_enabled_from_script;
         let mut replaced_sound = false;
         let (enabled, retrigger) = match change {
+            NativeAmbientChange::StopPlayback => {
+                if let Some((audio, _)) = audio {
+                    self.stop_ambient_playback_with_audio(audio);
+                }
+                return Ok(());
+            }
             NativeAmbientChange::ScriptEnabled(enabled) => (Some(enabled), enabled),
             NativeAmbientChange::Map(properties) => {
                 let template = self.receiving_template.as_ref().ok_or(
@@ -381,7 +388,13 @@ impl BasicDrawable {
 
     /// Retires the actual previous handle through the same receiving manager.
     pub fn stop_ambient_sound_with_audio(&mut self, audio: &mut AudioManager) {
-        if let Some(event) = self.ambient_sound_event.take() {
+        self.stop_ambient_playback_with_audio(audio);
+        self.ambient_sound_event = None;
+    }
+
+    /// Drawable::stopAmbientSound keeps the event for the normal retry path.
+    fn stop_ambient_playback_with_audio(&self, audio: &mut AudioManager) {
+        if let Some(event) = &self.ambient_sound_event {
             audio.remove_audio_event(event.get_playing_handle());
         }
     }

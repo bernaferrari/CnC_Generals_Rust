@@ -2,6 +2,7 @@
 use super::*;
 use game_engine::common::audio::audio_event_rts::{AC_LOOP, ST_GLOBAL};
 use game_engine::common::audio::game_audio::AudioLocalityRelationship;
+use game_engine::common::audio::script_policy::ScriptAudioPolicy;
 use game_engine::common::audio::{AudioEventInfo, AudioLocalityResolver, SoundPlaybackHook};
 use game_engine::common::ini::INILoadType;
 use game_engine::common::name_key_generator::NameKeyNamespace;
@@ -101,6 +102,50 @@ fn make_recording_audio(
         ..Default::default()
     });
     audio
+}
+
+#[test]
+fn native_ambient_playback_stop_keeps_the_event_available_for_retry() {
+    crate::test_support::ensure_ambient_host();
+    let instance = AudioInstance::default();
+    let locality = AudioSubmissionLocality::from_resolver(1, &Players);
+    let mut actor = make_actor(17);
+    let device = std::sync::Arc::new(std::sync::Mutex::new(make_audio()));
+    {
+        let mut audio = device.lock().unwrap();
+        actor
+            .finish_native_constructor_ambient_with_audio(
+                false, false, TimeOfDay::Night, &mut audio, &instance, &locality,
+            )
+            .unwrap();
+        let handle = actor.owned_ambient_audio_handle().unwrap();
+        audio.process_request_list();
+        assert!(audio.contains_audio_handle(handle));
+        actor
+            .apply_native_ambient_change(
+                NativeAmbientChange::StopPlayback,
+                false,
+                TimeOfDay::Night,
+                Some((&mut audio, &instance)),
+                &locality,
+                &ScriptAudioPolicy::default(),
+            )
+            .unwrap();
+        audio.process_request_list();
+        assert!(!audio.contains_audio_handle(handle));
+        assert_eq!(actor.owned_ambient_audio_handle(), Some(handle));
+        assert!(actor.ambient_sound_enabled);
+        assert!(actor.ambient_sound_enabled_from_script);
+    }
+
+    let mut resolve = |_| locality;
+    NativeAmbientUpdate::new(Some(TimeOfDay::Night), &mut resolve)
+        .update_after_client_modules(&mut actor, Some(&device), &instance)
+        .unwrap();
+    let mut audio = device.lock().unwrap();
+    assert_eq!(audio.pending_play_request_count_for("OwnedPristine"), 1);
+    audio.process_request_list();
+    assert!(audio.contains_audio_handle(actor.owned_ambient_audio_handle().unwrap()));
 }
 
 #[test]

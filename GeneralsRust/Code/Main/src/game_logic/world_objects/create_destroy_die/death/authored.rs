@@ -406,6 +406,14 @@ impl GameLogic {
                                         presentation_effects,
                                     );
                                 }
+                                // HelicopterSlowDeathUpdate.cpp:160-176 stops
+                                // the Drawable after base INITIAL effects.
+                                if slow_death_start.stop_ambient_playback {
+                                    self.stop_native_drawable_ambient_playback(
+                                        id,
+                                        presentation_effects,
+                                    )?;
+                                }
                                 break;
                             }
                             roll -= probability;

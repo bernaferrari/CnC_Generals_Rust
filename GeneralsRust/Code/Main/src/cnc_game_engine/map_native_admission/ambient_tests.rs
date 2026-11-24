@@ -17,7 +17,7 @@ const AMBIENT_TEMPLATE: &str = "OwnedMapAmbientFixture";
 const ONE_SHOT: &str = "OwnedMapAmbientOneShot";
 const LOOP: &str = "OwnedMapAmbientLoop";
 
-fn write_map(path: &std::path::Path, volume: f32) {
+fn write_map(path: &std::path::Path, template: &str, volume: f32) {
     let mut map = DataChunkOutput::new();
     map.open_data_chunk("HeightMapData", 3);
     for value in [32, 32, 0, 1024] {
@@ -42,7 +42,7 @@ fn write_map(path: &std::path::Path, volume: f32) {
             map.write_real(value);
         }
         map.write_int(0);
-        map.write_ascii_string(AMBIENT_TEMPLATE);
+        map.write_ascii_string(template);
         let mut properties = Dict::new();
         properties.set_ascii_string(key_object_name(), &format!("AmbientPlacement{index}"));
         properties.set_ascii_string(key_object_sound_ambient(), name);
@@ -63,6 +63,167 @@ fn write_map(path: &std::path::Path, volume: f32) {
     }
     map.close_data_chunk();
     std::fs::write(path, map.into_ckmp_bytes()).unwrap();
+}
+
+#[test]
+fn authored_helicopter_slow_death_stops_only_its_drawable_ambient() {
+    const HELICOPTER: &str = "OwnedHelicopterAmbientFixture";
+    const RUBBLE: &str = "OwnedHelicopterRubbleLoop";
+    crate::game_logic::game_logic::pose_owner_tests::isolated_at(
+        module_path!(),
+        "authored_helicopter_slow_death_stops_only_its_drawable_ambient",
+        || {
+            let (_gpu, mut graphics, mut pipeline) = staged_native_fixture_gpu();
+            let directory = tempfile::tempdir().unwrap();
+            let file = directory.path().join("HelicopterAmbient.map");
+            write_map(&file, HELICOPTER, 0.5);
+            let path = file.to_str().unwrap();
+            let device = Arc::new(Mutex::new(AudioManager::new()));
+            {
+                let mut mixer = device.lock().unwrap();
+                mixer.init();
+                for name in [LOOP, RUBBLE] {
+                    mixer.register_audio_event_info(AudioEventInfo {
+                        audio_name: name.into(),
+                        sounds: vec!["helicopter_ambient_fixture".into()],
+                        type_field: ST_GLOBAL,
+                        control: AC_LOOP,
+                        loop_count: 0,
+                        ..Default::default()
+                    });
+                }
+            }
+            let mut peers = Vec::new();
+            let mut peer_playback = None;
+            for damage_amount in [10.0, 80.0] {
+                let mut world = GameLogic::new();
+                world.admit_receiving_module_content(
+                    crate::assets::ReceivingObjectContent::from_sources([(
+                        "helicopter-ambient-test.ini".into(),
+                        format!(
+                            "Object {HELICOPTER}\nKindOf = VEHICLE AIRCRAFT\nSoundAmbient = {LOOP}\nSoundAmbientRubble = {RUBBLE}\nBody = ActiveBody BodyTag\nMaxHealth = 40\nInitialHealth = 40\nEnd\nBehavior = HelicopterSlowDeathBehavior CrashTag\nEnd\nEnd\n"
+                        ),
+                    )]).unwrap(),
+                ).unwrap();
+                world.start_new_game(GameMode::SinglePlayer).unwrap();
+                world.require_native_drawable_owner();
+                let mut candidate = NativeMapCandidate::with_epoch(992);
+                let mut subsystems = SubsystemManager::new();
+                let mut receiving_audio = AudioManagerSubsystem::new();
+                receiving_audio.bind_common_audio_device(Arc::clone(&device));
+                let instance = receiving_audio.audio_instance().clone();
+                subsystems.add_subsystem(receiving_audio);
+                let mut retirement = NativeParticleRetirementService;
+                let mut attempt = candidate
+                    .attempt(
+                        pipeline.borrow_native_draw_services(),
+                        &mut graphics,
+                        0,
+                        receiving_native_drawable_policy_for(&world),
+                        &mut retirement,
+                        Some((Arc::clone(&device), &instance)),
+                    )
+                    .unwrap();
+                assert!(
+                    world
+                        .load_map_with_definition_source_and_water_delivery_and_native_checked(
+                            path,
+                            path,
+                            None,
+                            Some(&mut attempt),
+                        )
+                        .unwrap()
+                );
+                world.initialize_receiving_named_cache_for_fixture();
+                let actor = world
+                    .host_object_id_by_script_name("AmbientPlacement2")
+                    .unwrap();
+                let (drawable_id, ambient) = {
+                    let mut mixer = device.lock().unwrap();
+                    let event = mixer
+                        .pending_play_events()
+                        .find(|event| event.get_event_name().ends_with(LOOP))
+                        .unwrap();
+                    let result = (event.get_drawable_id(), event.get_playing_handle());
+                    mixer.process_request_list();
+                    assert!(mixer.contains_audio_handle(result.1));
+                    result
+                };
+                let mut receiving_audio = NativeAudioService::receiving(&mut subsystems).unwrap();
+                let mut effects = attempt.effects();
+                effects.audio = Some(&mut receiving_audio);
+                world
+                    .apply_owned_damage_with_effects(
+                        actor,
+                        damage_amount,
+                        None,
+                        crate::game_logic::combat::DamageType::Unresistable,
+                        crate::game_logic::host_usa_pilot::HostDeathType::Normal,
+                        None,
+                        &crate::game_logic::object::DamageHitContext::default(),
+                        &mut effects,
+                    )
+                    .unwrap()
+                    .unwrap();
+                let mut mixer = device.lock().unwrap();
+                if let Some((peer_actor, peer_drawable, peer_handle)) = peer_playback {
+                    assert_eq!((actor, drawable_id), (peer_actor, peer_drawable));
+                    assert!(
+                        world
+                            .host_object(actor)
+                            .unwrap()
+                            .helicopter_slow_death
+                            .as_ref()
+                            .unwrap()
+                            .is_active()
+                    );
+                    let rubble = mixer
+                        .pending_play_events()
+                        .find(|event| event.get_event_name() == RUBBLE)
+                        .unwrap()
+                        .get_playing_handle();
+                    mixer.process_request_list();
+                    let stop_requested = mixer
+                        .active_event_mut_for_test(rubble)
+                        .expect("the Body submitted the rubble sample before crash begin")
+                        .get_request_stop();
+                    let looped_after_completion = mixer.force_notify_completion_for_test(rubble);
+                    let (ambient_playing, rubble_playing, peer_playing) = (
+                        mixer.contains_audio_handle(ambient),
+                        mixer.contains_audio_handle(rubble),
+                        mixer.contains_audio_handle(peer_handle),
+                    );
+                    drop(mixer);
+                    assert!(!ambient_playing);
+                    assert!(
+                        stop_requested,
+                        "Crash begin asks Miles to stop the rubble sample after the current portion"
+                    );
+                    assert!(!looped_after_completion);
+                    assert!(
+                        !rubble_playing,
+                        "The completed rubble sample must leave the mixer"
+                    );
+                    assert!(
+                        peer_playing,
+                        "The same-ID aircraft in the other world keeps its loop"
+                    );
+                } else {
+                    let current = mixer
+                        .pending_play_events()
+                        .find(|event| event.get_event_name().ends_with(LOOP))
+                        .map_or(ambient, |event| event.get_playing_handle());
+                    mixer.process_request_list();
+                    let playing = mixer.contains_audio_handle(current);
+                    drop(mixer);
+                    assert!(playing);
+                    peer_playback = Some((actor, drawable_id, current));
+                }
+                drop(attempt);
+                peers.push((world, candidate, subsystems));
+            }
+        },
+    );
 }
 
 fn set_script_sound(
@@ -118,7 +279,7 @@ fn authored_map_ambient_uses_owned_drawable_overrides_and_one_shot_defaults() {
             let mut observations = Vec::new();
             for (index, volume) in [0.25, 0.5].into_iter().enumerate() {
                 let file = directory.path().join(format!("Ambient{index}.map"));
-                write_map(&file, volume);
+                write_map(&file, AMBIENT_TEMPLATE, volume);
                 let path = file.to_str().unwrap();
                 let mut world = GameLogic::new();
                 world

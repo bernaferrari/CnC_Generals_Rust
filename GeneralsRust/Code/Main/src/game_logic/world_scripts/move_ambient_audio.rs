@@ -31,6 +31,23 @@ impl GameLogic {
         )
     }
 
+    pub(in crate::game_logic) fn stop_native_drawable_ambient_playback(
+        &self,
+        id: ObjectId,
+        effects: &mut ScriptPresentationEffects<'_>,
+    ) -> gamelogic::GameLogicResult<()> {
+        #[cfg(feature = "game_client")]
+        self.apply_native_drawable_ambient(
+            id,
+            game_client::drawable::drawable::NativeAmbientChange::StopPlayback,
+            effects,
+        )
+        .map_err(gamelogic::GameLogicError::Configuration)?;
+        #[cfg(not(feature = "game_client"))]
+        let _ = (id, effects);
+        Ok(())
+    }
+
     pub(in crate::game_logic) fn apply_map_drawable_ambient(
         &mut self,
         id: ObjectId,

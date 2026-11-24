@@ -1285,6 +1285,9 @@ impl GameLogic {
             })
             .unwrap_or_default();
         self.commit_slow_death_idle_owned(id, start, effects)?;
+        if start.stop_ambient_playback {
+            self.stop_native_drawable_ambient_playback(id, effects)?;
+        }
         if start.defer_destruction {
             return Ok(true);
         }

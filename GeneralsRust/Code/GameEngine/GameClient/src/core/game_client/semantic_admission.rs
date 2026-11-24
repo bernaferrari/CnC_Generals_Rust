@@ -263,8 +263,8 @@ impl NativeDrawableOwner<'_> {
             .map(|state| state.binding_key)
     }
 
-    /// Apply authored ambient properties or a script command to the same
-    /// Drawable that owns playback and writes the client snapshot.
+    /// Apply an ambient operation to the Drawable that owns playback and
+    /// writes the client snapshot.
     pub fn apply_ambient_change(
         &mut self,
         key: PresentationDirectDrawableBindingKey,
