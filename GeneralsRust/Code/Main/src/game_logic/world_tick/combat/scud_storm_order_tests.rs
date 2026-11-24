@@ -104,6 +104,10 @@ fn world_with(ocl_name: &str, ocls: &[String]) -> GameLogic {
 }
 
 fn world_with_objects(objects: &str, ocls: &[String]) -> GameLogic {
+    world_with_storm_content(objects, ocls, WEAPONS)
+}
+
+fn world_with_storm_content(objects: &str, ocls: &[String], weapon_ini: &str) -> GameLogic {
     let mut world = GameLogic::new();
     let mut locomotors =
         game_engine::common::ini::ini_locomotor::LocomotorStore::new_owned();
@@ -133,7 +137,7 @@ fn world_with_objects(objects: &str, ocls: &[String]) -> GameLogic {
     let mut weapons = std::collections::HashMap::new();
     crate::assets::ini_template_loader::parse_weapon_definitions_ini_into(
         &mut weapons,
-        WEAPONS,
+        weapon_ini,
         crate::assets::ini_template_loader::WeaponDefinitionLoadType::Normal,
     );
     world
@@ -441,6 +445,11 @@ fn storm_death_world(shooter_completes: bool) -> GameLogic {
             STORM_FIELD_OCL.to_string(),
         ],
     );
+    prepare_storm_terrain_and_players(&mut world);
+    world
+}
+
+fn prepare_storm_terrain_and_players(world: &mut GameLogic) {
     let mut map = gamelogic::system::map_loader::MapData::new();
     map.width = 32;
     map.height = 32;
@@ -462,7 +471,6 @@ fn storm_death_world(shooter_completes: bool) -> GameLogic {
     world.install_owned_script_engine(
         gamelogic::scripting::engine::ScriptEngine::new_in_published_world().unwrap(),
     );
-    world
 }
 
 fn spawn_storm_death_actors(world: &mut GameLogic) -> (ObjectId, ObjectId, ObjectId) {
@@ -824,5 +832,290 @@ fn authored_scud_storm_missing_list_stays_inert_after_restore() {
         );
         assert_eq!(health(world, victim), 500.0);
         assert_eq!(world.special_power_strikes.toxin_fields_spawned_total(), 0);
+    }
+}
+
+/// Nine-shot retail-shaped salvo: the OCL orders PRIMARY x9 at the target,
+/// and each missile's own authored FireWeaponWhenDeadBehavior chain — a
+/// StartsActive base module with ConflictsWith plus a StartsActive=No
+/// TriggeredBy alternate — selects the death payload from the owning
+/// player's upgrades. The pad fires every missile as its producer and each
+/// stamped completion reports once with the pad's ID.
+const STORM_ORDER_NINE: &str = "ObjectCreationList StormOrderNine\n\
+  Attack\n\
+  WeaponSlot = PRIMARY\n\
+  NumberOfShots = 9\n\
+  End\n\
+  End\n";
+
+const STORM_SALVO_PAD: &str = "Object TestStormPad\n\
+  KindOf = STRUCTURE IMMOBILE SELECTABLE CAN_ATTACK\n\
+  WeaponSet\n\
+  Conditions = None\n\
+  Weapon = PRIMARY StormDeathLauncher\n\
+  End\n\
+  Body = ActiveBody BodyTag\n\
+  MaxHealth = 500\n\
+  InitialHealth = 500\n\
+  End\n\
+  Behavior = AIUpdateInterface PadAI\n\
+  End\n\
+  Behavior = OCLSpecialPower PadStormPower\n\
+  SpecialPowerTemplate = SuperweaponScudStorm\n\
+  OCL = StormOrderNine\n\
+  End\n\
+  Behavior = RadiusDecalUpdate PadDecal\n\
+  End\n\
+  End\n";
+
+const STORM_SALVO_LAUNCHER: &str = "Weapon StormDeathLauncher\n\
+  PrimaryDamage = 0\n\
+  PrimaryDamageRadius = 0\n\
+  AttackRange = 20000\n\
+  DamageType = EXPLOSION\n\
+  DeathType = NORMAL\n\
+  WeaponSpeed = 600\n\
+  ClipSize = 9\n\
+  DelayBetweenShots = Min:100 Max:1000\n\
+  ClipReloadTime = 10000\n\
+  AutoReloadsClip = Yes\n\
+  PreAttackDelay = 3000\n\
+  PreAttackType = PER_CLIP\n\
+  AcceptableAimDelta = 180\n\
+  ProjectileObject = StormDeathMissile\n\
+  End\n";
+
+const SALVO_FIELDS: [&str; 3] = [
+    "PoisonFieldLarge",
+    "PoisonFieldUpgradedLarge",
+    "PoisonFieldGammaLarge",
+];
+
+fn salvo_missile_ini(
+    default_weapon: &str,
+    upgrade: Option<(&str, &str)>,
+) -> String {
+    let (prefix, _) = STORM_DEATH_MISSILE
+        .split_once("Behavior = FireWeaponWhenDeadBehavior")
+        .unwrap();
+    let conflict = upgrade
+        .map(|(name, _)| format!("ConflictsWith = {name}\n"))
+        .unwrap_or_default();
+    let mut ini = format!(
+        "{prefix}Behavior = FireWeaponWhenDeadBehavior BaseDeath\n\
+           StartsActive = Yes\n\
+           DeathWeapon = {default_weapon}\n\
+           {conflict}End\n"
+    );
+    if let Some((upgrade_name, alt_weapon)) = upgrade {
+        ini.push_str(&format!(
+            "Behavior = FireWeaponWhenDeadBehavior UpgradedDeath\n\
+               StartsActive = No\n\
+               DeathWeapon = {alt_weapon}\n\
+               TriggeredBy = {upgrade_name}\n\
+               End\n"
+        ));
+    }
+    ini.push_str("End\n");
+    ini
+}
+
+fn salvo_weapon_ini() -> String {
+    let mut ini = STORM_SALVO_LAUNCHER.to_owned();
+    for (name, damage, radius, field) in [
+        ("ScudStormDamageWeapon", 500.0, 50.0, Some("PoisonFieldLarge")),
+        (
+            "ScudStormDamageWeaponUpgraded",
+            500.0,
+            50.0,
+            Some("PoisonFieldUpgradedLarge"),
+        ),
+        (
+            "Chem_ScudStormDamageWeaponGamma",
+            550.0,
+            50.0,
+            Some("PoisonFieldGammaLarge"),
+        ),
+        ("Demo_ScudStormDamageWeapon", 600.0, 75.0, None),
+    ] {
+        let fire_ocl = field
+            .map(|name| format!("FireOCL = OCL_{name}\n"))
+            .unwrap_or_default();
+        ini.push_str(&format!(
+            "Weapon {name}\n\
+               PrimaryDamage = {damage}\n\
+               PrimaryDamageRadius = {radius}\n\
+               DamageType = EXPLOSION\n\
+               DeathType = EXPLODED\n\
+               WeaponSpeed = 999999\n\
+               RadiusDamageAffects = ENEMIES\n\
+               {fire_ocl}\
+               ProjectileObject = NONE\n\
+               End\n"
+        ));
+    }
+    ini
+}
+
+#[test]
+fn authored_scud_storm_full_salvo_uses_each_missiles_authored_death_weapon() {
+    for (label, default_weapon, upgrade, grant_upgrade, expected_damage, expected_field) in [
+        (
+            "base",
+            "ScudStormDamageWeapon",
+            Some(("Upgrade_GLAAnthraxBeta", "ScudStormDamageWeaponUpgraded")),
+            false,
+            500.0,
+            Some("PoisonFieldLarge"),
+        ),
+        (
+            "beta",
+            "ScudStormDamageWeapon",
+            Some(("Upgrade_GLAAnthraxBeta", "ScudStormDamageWeaponUpgraded")),
+            true,
+            500.0,
+            Some("PoisonFieldUpgradedLarge"),
+        ),
+        (
+            "chem",
+            "ScudStormDamageWeaponUpgraded",
+            Some((
+                "Chem_Upgrade_GLAAnthraxGamma",
+                "Chem_ScudStormDamageWeaponGamma",
+            )),
+            false,
+            500.0,
+            Some("PoisonFieldUpgradedLarge"),
+        ),
+        (
+            "gamma",
+            "ScudStormDamageWeaponUpgraded",
+            Some((
+                "Chem_Upgrade_GLAAnthraxGamma",
+                "Chem_ScudStormDamageWeaponGamma",
+            )),
+            true,
+            550.0,
+            Some("PoisonFieldGammaLarge"),
+        ),
+        ("demo", "Demo_ScudStormDamageWeapon", None, false, 600.0, None),
+    ] {
+        let objects = format!(
+            "{}{}{}{}",
+            STORM_SALVO_PAD,
+            salvo_missile_ini(default_weapon, upgrade),
+            SALVO_FIELDS
+                .iter()
+                .map(|name| STORM_DEATH_FIELD.replace("StormDeathWitnessField", name))
+                .collect::<String>(),
+            STORM_VICTIM.replace("500", "10000"),
+        );
+        let mut ocls = vec![STORM_ORDER_NINE.to_string()];
+        ocls.extend(SALVO_FIELDS.iter().map(|name| {
+            format!(
+                "ObjectCreationList OCL_{name}\n\
+                   CreateObject\n\
+                   ObjectNames = {name}\n\
+                   Count = 1\n\
+                   End\n\
+                   End\n"
+            )
+        }));
+        let mut world = world_with_storm_content(&objects, &ocls, &salvo_weapon_ini());
+        prepare_storm_terrain_and_players(&mut world);
+        let (pad, near, far) = spawn_storm_death_actors(&mut world);
+        world.set_logic_random_seed(619);
+        if grant_upgrade {
+            world.add_completed_player_upgrade(0, upgrade.unwrap().0);
+        }
+
+        assert!(
+            world
+                .queue_special_power_strike(
+                    &crate::command_system::SpecialPowerType::ScudStorm,
+                    pad,
+                    STORM_DEATH_TARGET,
+                )
+                .is_some()
+        );
+        {
+            let pad_obj = world.host_object(pad).unwrap();
+            assert_eq!(pad_obj.weapon_lock_slot, 0, "{label}: authored PRIMARY slot");
+            assert_eq!(pad_obj.max_shots_to_fire, 9, "{label}: nine-shot budget");
+        }
+
+        let mut launches: Vec<(ObjectId, u32)> = Vec::new();
+        let mut seen: HashSet<ObjectId> = HashSet::new();
+        for _ in 0..1200 {
+            assert_eq!(world.update_with_dt(LOGIC_FRAME_TIMESTEP).steps_run, 1);
+            for (id, projectile) in world.combat_system.get_projectiles().iter() {
+                if !projectile.owns_receiving_actor() || projectile.missile_motion.is_none() {
+                    continue;
+                }
+                if seen.contains(id) {
+                    continue;
+                }
+                if let Some(actor) = world.host_object(*id) {
+                    if actor.template_name != "StormDeathMissile" || !actor.is_alive() {
+                        continue;
+                    }
+                    assert_eq!(
+                        actor.producer_id,
+                        Some(pad),
+                        "{label}: the pad owns every salvo missile",
+                    );
+                    seen.insert(*id);
+                    launches.push((*id, world.frame));
+                }
+            }
+        }
+
+        assert_eq!(launches.len(), 9, "{label}: authored nine-shot salvo");
+        let frames: HashSet<u32> = launches.iter().map(|(_, frame)| *frame).collect();
+        assert_eq!(frames.len(), 9, "{label}: nine distinct launch frames");
+        let first = launches.iter().map(|(_, frame)| *frame).min().unwrap();
+        assert!(
+            first >= 90,
+            "{label}: 3000ms PER_CLIP preattack gates the first launch; got frame {first}",
+        );
+
+        assert_eq!(
+            health(&world, near),
+            10000.0 - 9.0 * expected_damage,
+            "{label}: nine authored death payloads on the in-radius victim",
+        );
+        assert_eq!(health(&world, far), 10000.0, "{label}: out-of-radius victim");
+        for field in SALVO_FIELDS {
+            let expected = if expected_field == Some(field) { 9 } else { 0 };
+            assert_eq!(
+                count_objects(&world, field),
+                expected,
+                "{label}: field {field}",
+            );
+        }
+        assert_eq!(world.host_object(pad).unwrap().max_shots_to_fire, 0);
+        assert!(
+            world.scud_storm_missile_flight_reg.pending.is_empty(),
+            "{label}: registry fallback stays out of the authored delivery",
+        );
+        assert_eq!(world.special_power_strikes.toxin_fields_spawned_total(), 0);
+        assert_eq!(count_objects(&world, "StormDeathMissile"), 0);
+        assert_eq!(
+            world.special_power_completion_log.notifications, 9,
+            "{label}: one completion per authored missile death",
+        );
+        let scripts = world.owned_script_engine.as_ref().unwrap();
+        for _ in 0..9 {
+            assert!(scripts.is_special_power_complete(
+                0,
+                STORM_COMPLETION_POWER,
+                true,
+                pad.0,
+            ));
+        }
+        assert!(
+            !scripts.is_special_power_complete(0, STORM_COMPLETION_POWER, true, pad.0),
+            "{label}: no tenth completion event",
+        );
     }
 }
