@@ -129,8 +129,9 @@ ObjectCreationList FormationDelivery
 End
 ");
     let mut world = world_for(&list);
-    let caster = world.create_object_for_player("FormationCaster", 1, Vec3::ZERO).unwrap();
-    let click = Vec3::new(500.0, 0.0, 0.0);
+    let origin = world.world_min.with_y(0.0);
+    let caster = world.create_object_for_player("FormationCaster", 1, origin).unwrap();
+    let click = origin + Vec3::X * 500.0;
     let strike = world.queue_special_power_strike(
         &crate::command_system::SpecialPowerType::Airstrike, caster, click,
     ).unwrap();
@@ -143,18 +144,18 @@ End
     let actors = world.a10_strike_flight_reg.delivery_transport_ids(delivery);
     assert_eq!(actors.len(), 2, "the receiving OCL supplies the formation count");
     let wing = *actors.iter().find(|&&id| id != lead).unwrap();
-    assert_eq!(world.objects[&lead].get_position(), Vec3::new(-12.0, 0.0, 0.0));
+    assert_eq!(world.objects[&lead].get_position(), origin - Vec3::X * 12.0);
     let actor = &world.objects[&wing];
     assert_eq!(actor.owner_player_id, Some(1));
     assert_eq!(actor.producer_id, Some(caster));
     assert!(actor.is_script_targetable());
     let flight = actor.a10_strike_transport.as_ref().unwrap();
-    assert!((flight.launch - Vec3::new(-14.0, 0.0, -2.0)).length() < 0.0001);
-    assert!((flight.move_to - Vec3::new(498.0, 0.0, -2.0)).length() < 0.0001);
-    assert!((flight.target - Vec3::new(499.0, 0.0, -1.0)).length() < 0.0001);
+    assert!((flight.launch - (origin + Vec3::new(-14.0, 0.0, -2.0))).length() < 0.0001);
+    assert!((flight.move_to - (origin + Vec3::new(498.0, 0.0, -2.0))).length() < 0.0001);
+    assert!((flight.target - (origin + Vec3::new(499.0, 0.0, -1.0))).length() < 0.0001);
 
     let mut peer = world_for(&list.replace("FormationSize = 2", "FormationSize = 1"));
-    let peer_caster = peer.create_object_for_player("FormationCaster", 1, Vec3::ZERO).unwrap();
+    let peer_caster = peer.create_object_for_player("FormationCaster", 1, origin).unwrap();
     assert_eq!(peer_caster, caster);
     let peer_lead = peer.spawn_a10_strike_flight(peer_caster, click, A10StrikeScienceTier::Level3).unwrap();
     let peer_delivery = peer.a10_strike_flight_reg.delivery_for_transport(peer_lead).unwrap();
