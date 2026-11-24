@@ -153,14 +153,13 @@ pub fn is_bunker_structure_name(template_name: &str) -> bool {
 /// Whether residual attacker is a KILL_GARRISONED clearer (Microwave Tank residual).
 pub fn is_kill_garrisoned_clearer(template_name: &str) -> bool {
     let n = template_name.to_ascii_lowercase();
-    // Microwave clearer + flame/toxin/ranger residual clearers that retail marks
+    // Microwave clearer + flame/ranger residual clearers that retail marks
     // AllowAttackGarrisonedBldgs (KILL_GARRISONED / occupant-clear path).
     // Dragon garrison-clear comes from authored DragonTankFlameWeapon
     // (AllowAttackGarrisonedBldgs), not a chassis-name token (hq-2qedt.242).
     n.contains("microwave")
         || n == "testmicrowave"
         || n.contains("buildingclearer")
-        || n.contains("toxin")
         || n.contains("ranger")
         || n.contains("flame")
 }
@@ -359,7 +358,8 @@ mod tests {
     #[test]
     fn allow_garrisoned_units_are_kill_clearers() {
         assert!(!is_kill_garrisoned_clearer("AmericaTankDragon"));
-        assert!(is_kill_garrisoned_clearer("GLAVehicleToxinTractor"));
+        // Toxin Tractor clear-garrison is its authored weapon, not a name token.
+        assert!(!is_kill_garrisoned_clearer("GLAVehicleToxinTractor"));
         assert!(is_kill_garrisoned_clearer("AmericaInfantryRanger"));
         // Occupant-kill is leftover DamageType=KILL_GARRISONED, not AllowAttack.
         assert!(!is_kill_garrisoned_clearer_weapon("DragonTankFlameWeapon"));

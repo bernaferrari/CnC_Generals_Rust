@@ -82,83 +82,6 @@ impl GameLogic {
         n
     }
 
-    /// C++ Upgrade_GLAAnthraxBeta residual — toxin tractor + SCUD + scud storm tier.
-    pub(in super::super) fn apply_anthrax_beta_to_team(
-        &mut self,
-        recipients: UpgradeRecipients,
-        upgrade_name: &str,
-    ) -> u32 {
-        use crate::game_logic::host_scud_launcher::{
-            UPGRADE_GLA_ANTHRAX_BETA, authors_scud_gun,
-        };
-        use crate::game_logic::host_toxin_tractor::is_toxin_tractor_template;
-
-        let mut n = 0u32;
-        for obj in self.objects.registered_values_mut() {
-            if !recipients.matches_object(obj) || !obj.is_alive() {
-                continue;
-            }
-            let is_tt = is_toxin_tractor_template(&obj.template_name);
-            let is_scud = authors_scud_gun(obj.authored_primary_weapon_names());
-            if !is_tt && !is_scud {
-                continue;
-            }
-            if obj.has_upgrade_tag(UPGRADE_GLA_ANTHRAX_BETA) || obj.has_upgrade_tag(upgrade_name) {
-                continue;
-            }
-            obj.apply_upgrade_tag(upgrade_name);
-            obj.apply_upgrade_tag(UPGRADE_GLA_ANTHRAX_BETA);
-            obj.applied_upgrades
-                .insert(UPGRADE_GLA_ANTHRAX_BETA.to_string());
-            n = n.saturating_add(1);
-        }
-        for p in self.players.values_mut() {
-            if recipients.matches_player(p) {
-                p.unlocked_sciences
-                    .insert(UPGRADE_GLA_ANTHRAX_BETA.to_string());
-                p.unlocked_sciences.insert(upgrade_name.to_string());
-            }
-        }
-        n
-    }
-
-    /// C++ Upgrade_GLAToxinShells residual — enables SCUD toxin secondary path.
-    pub(in super::super) fn apply_toxin_shells_to_team(
-        &mut self,
-        recipients: UpgradeRecipients,
-        upgrade_name: &str,
-    ) -> u32 {
-        use crate::game_logic::host_scud_launcher::authors_scud_gun;
-        use crate::game_logic::host_upgrades::UPGRADE_GLA_TOXIN_SHELLS;
-
-        let mut n = 0u32;
-        for obj in self.objects.registered_values_mut() {
-            if !recipients.matches_object(obj) || !obj.is_alive() {
-                continue;
-            }
-            if !authors_scud_gun(obj.authored_primary_weapon_names()) {
-                continue;
-            }
-            if obj.has_upgrade_tag(UPGRADE_GLA_TOXIN_SHELLS) || obj.has_upgrade_tag(upgrade_name) {
-                continue;
-            }
-            obj.apply_upgrade_tag(upgrade_name);
-            obj.apply_upgrade_tag(UPGRADE_GLA_TOXIN_SHELLS);
-            obj.applied_upgrades
-                .insert(UPGRADE_GLA_TOXIN_SHELLS.to_string());
-            // Toxin shells residual also unlocks toxin secondary preference.
-            n = n.saturating_add(1);
-        }
-        for p in self.players.values_mut() {
-            if recipients.matches_player(p) {
-                p.unlocked_sciences
-                    .insert(UPGRADE_GLA_TOXIN_SHELLS.to_string());
-                p.unlocked_sciences.insert(upgrade_name.to_string());
-            }
-        }
-        n
-    }
-
     /// C++ Upgrade_AmericaLaserMissiles residual — Raptor jet damage.
     pub(in super::super) fn apply_laser_missiles_to_team(
         &mut self,
@@ -323,7 +246,13 @@ mod anthrax_gamma_authored_tests {
     use super::*;
 
     #[test]
-    fn gamma_completion_and_new_objects_use_authored_weapon_upgrade_only() {
+    fn anthrax_upgrades_on_existing_and_new_objects_use_authored_weapon_slots() {
+        for upgrade in ["Upgrade_GLAAnthraxBeta", "Chem_Upgrade_GLAAnthraxGamma"] {
+            assert_anthrax_weapon_upgrade(upgrade);
+        }
+    }
+
+    fn assert_anthrax_weapon_upgrade(upgrade: &str) {
         let mut world = GameLogic::new();
         world.add_player(Player::new(0, Team::GLA, "Owner", true));
         world.add_player(Player::new(7, Team::GLA, "Other", false));
@@ -334,19 +263,19 @@ mod anthrax_gamma_authored_tests {
         // Player::addUpgrade keys modules on the UpgradeTemplate mask; an
         // unknown name has no mask and triggers nothing.
         crate::game_logic::host_upgrade_rules::register_test_upgrade(
-            &mut world, "Chem_Upgrade_GLAAnthraxGamma", "PLAYER", 0, 1,
+            &mut world, upgrade, "PLAYER", 0, 1,
         );
         world.admit_receiving_module_content(
             crate::assets::ReceivingObjectContent::from_sources([(
-                "gamma-recipients.ini".into(),
-                "Object CustomToxinVehicle\nKindOf = VEHICLE SELECTABLE CAN_ATTACK\nBody = ActiveBody BodyTag\nMaxHealth = 100\nInitialHealth = 100\nEnd\n\
+                "anthrax-recipients.ini".into(),
+                format!("Object CustomToxinVehicle\nKindOf = VEHICLE SELECTABLE CAN_ATTACK\nBody = ActiveBody BodyTag\nMaxHealth = 100\nInitialHealth = 100\nEnd\n\
                  WeaponSet\nConditions = None\nWeapon = PRIMARY GammaTestBase\nEnd\n\
                  WeaponSet\nConditions = PLAYER_UPGRADE\nWeapon = PRIMARY GammaTestUpgraded\nEnd\n\
-                 Behavior = WeaponSetUpgrade GammaTag\nTriggeredBy = Chem_Upgrade_GLAAnthraxGamma\nEnd\nEnd\n\
+                 Behavior = WeaponSetUpgrade GammaTag\nTriggeredBy = {upgrade}\nEnd\nEnd\n\
                  Object Chem_GLAVehicleToxinTruck\nKindOf = VEHICLE SELECTABLE CAN_ATTACK\nBody = ActiveBody BodyTag\nMaxHealth = 100\nInitialHealth = 100\nEnd\n\
                  WeaponSet\nConditions = None\nWeapon = PRIMARY GammaTestBase\nEnd\n\
                  WeaponSet\nConditions = PLAYER_UPGRADE\nWeapon = PRIMARY GammaTestUpgraded\nEnd\nEnd\n\
-                 Object GammaTarget\nKindOf = VEHICLE SELECTABLE\nBody = ActiveBody BodyTag\nMaxHealth = 1000\nInitialHealth = 1000\nEnd\nEnd\n".into(),
+                 Object GammaTarget\nKindOf = VEHICLE SELECTABLE\nBody = ActiveBody BodyTag\nMaxHealth = 1000\nInitialHealth = 1000\nEnd\nEnd\n"),
             )]).unwrap(),
         ).unwrap();
         let mut definitions = std::collections::HashMap::new();
@@ -363,7 +292,7 @@ mod anthrax_gamma_authored_tests {
         let authored = world.create_object_for_player("CustomToxinVehicle", 0, glam::Vec3::ZERO).unwrap();
         let named = world.create_object_for_player("Chem_GLAVehicleToxinTruck", 0, glam::Vec3::ZERO).unwrap();
         let other = world.create_object_for_player("CustomToxinVehicle", 7, glam::Vec3::ZERO).unwrap();
-        world.add_completed_player_upgrade(0, "Chem_Upgrade_GLAAnthraxGamma");
+        world.add_completed_player_upgrade(0, upgrade);
         let later = world.create_object_for_player("CustomToxinVehicle", 0, glam::Vec3::ZERO).unwrap();
         let later_other = world.create_object_for_player("CustomToxinVehicle", 7, glam::Vec3::ZERO).unwrap();
         for (index, (id, damage)) in [(authored, 25.0), (later, 25.0), (named, 10.0), (other, 10.0), (later_other, 10.0)].into_iter().enumerate() {
@@ -481,44 +410,5 @@ mod authored_mig_gate_tests {
         assert!(!has(&gl, named));
         assert!(has(&gl, auth));
         assert!(has(&gl, king));
-    }
-
-    /// hq-2qedt.250: Anthrax Beta / Toxin Shells key on authored SCUD gun PRIMARY,
-    /// not template-name sniffing.
-    #[test]
-    fn scud_upgrades_key_on_authored_scud_gun_not_template_name() {
-        use crate::game_logic::host_scud_launcher::UPGRADE_GLA_ANTHRAX_BETA;
-        use crate::game_logic::host_upgrades::UPGRADE_GLA_TOXIN_SHELLS;
-        use crate::game_logic::weapon_bootstrap::SCUD_GUN_EXPLOSIVE;
-        let mut gl = GameLogic::new();
-        for (tpl_name, primary) in [
-            ("GLAVehicleScudLauncher", "HumveeGun"),
-            ("AuthoredRackS", SCUD_GUN_EXPLOSIVE),
-        ] {
-            let mut tpl = crate::game_logic::ThingTemplate::new(tpl_name);
-            tpl.add_kind_of(KindOf::Vehicle)
-                .set_health(200.0)
-                .set_primary_weapon_name(primary);
-            gl.templates.insert(tpl_name.to_string(), tpl);
-        }
-        let named = gl
-            .create_object("GLAVehicleScudLauncher", Team::GLA, Vec3::new(0.0, 0.0, 0.0))
-            .unwrap();
-        let auth = gl
-            .create_object("AuthoredRackS", Team::GLA, Vec3::new(0.0, 0.0, 0.0))
-            .unwrap();
-        assert_eq!(
-            gl.apply_anthrax_beta_to_team(UpgradeRecipients::Team(Team::GLA), UPGRADE_GLA_ANTHRAX_BETA),
-            1
-        );
-        assert_eq!(
-            gl.apply_toxin_shells_to_team(UpgradeRecipients::Team(Team::GLA), UPGRADE_GLA_TOXIN_SHELLS),
-            1
-        );
-        let has = |gl: &GameLogic, id, u: &str| gl.host_object(id).unwrap().applied_upgrades.contains(u);
-        assert!(!has(&gl, named, UPGRADE_GLA_ANTHRAX_BETA));
-        assert!(has(&gl, auth, UPGRADE_GLA_ANTHRAX_BETA));
-        assert!(!has(&gl, named, UPGRADE_GLA_TOXIN_SHELLS));
-        assert!(has(&gl, auth, UPGRADE_GLA_TOXIN_SHELLS));
     }
 }

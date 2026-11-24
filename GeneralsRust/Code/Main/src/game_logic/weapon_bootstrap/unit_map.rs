@@ -270,11 +270,10 @@ pub fn primary_weapon_name_for_unit(template_name: &str) -> Option<&'static str>
             // Rocket Buggy: explicit retail rows above only; no fuzzy name peel
             // (C++ PRIMARY comes from the authored WeaponSet, hq-2qedt.289).
             // SCUD: explicit retail rows above only (hq-2qedt.250).
+            // Toxin Tractor: explicit retail rows above only; no fuzzy name
+            // peel (C++ PRIMARY comes from the authored WeaponSet, hq-2qedt.251).
             if crate::game_logic::host_technical::is_technical_template(template_name) {
                 return Some(TECHNICAL_MACHINE_GUN);
-            }
-            if crate::game_logic::host_toxin_tractor::is_toxin_tractor_template(template_name) {
-                return Some(TOXIN_TRUCK_GUN);
             }
             // Raptor: explicit retail rows above only; no fuzzy name peel
             // (C++ PRIMARY comes from the authored WeaponSet, hq-2qedt.249).
@@ -443,13 +442,23 @@ mod name_peel_tests {
             "FixtureScudLauncherVariant",
             gl::host_scud_launcher::is_scud_launcher_template,
         );
-        // Toxin PRIMARY is still shadowed by the separate KILL_GARRISONED
-        // `contains("toxin")` clearer row (own bead); the toxin rows themselves
-        // must be gone.
-        let toxin = "FixtureToxinTractorVariant";
-        assert!(gl::host_toxin_tractor::is_toxin_tractor_template(toxin));
-        assert_ne!(primary_weapon_name_for_unit(toxin), Some(super::TOXIN_TRUCK_GUN));
-        assert_eq!(secondary_weapon_name_for_unit(toxin), None, "{toxin} SECONDARY");
+    }
+
+    /// hq-2qedt.251
+    #[test]
+    fn toxin_tractor_variant_name_has_no_unit_map_weapon() {
+        assert_unmapped(
+            "FixtureToxinTractorVariant",
+            gl::host_toxin_tractor::is_toxin_tractor_template,
+        );
+        assert_eq!(
+            primary_weapon_name_for_unit("GLAVehicleToxinTruck"),
+            Some(super::TOXIN_TRUCK_GUN)
+        );
+        assert_eq!(
+            secondary_weapon_name_for_unit("GLAVehicleToxinTruck"),
+            Some(super::TOXIN_TRUCK_SPRAYER)
+        );
     }
 
     /// hq-2qedt.229
