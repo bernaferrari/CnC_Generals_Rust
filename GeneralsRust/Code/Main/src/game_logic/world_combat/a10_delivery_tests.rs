@@ -5,12 +5,23 @@ use crate::game_logic::special_power_strikes::{
     A10_PAYLOAD_TEMPLATE, A10_TRANSPORT, A10StrikeScienceTier,
 };
 
+const FORMATION_CASTER: &str = r"
+Object FormationCaster
+ KindOf = STRUCTURE
+ Behavior = OCLSpecialPower Airstrike
+  SpecialPowerTemplate = SuperweaponA10ThunderboltMissileStrike
+  OCL = FormationDelivery
+  CreateLocation = CREATE_AT_EDGE_NEAR_SOURCE
+ End
+End
+";
+
 fn fixture_world(cue: Option<&str>) -> GameLogic {
     let sound = cue
         .map(|cue| format!("UnitSpecificSounds\nStartDive = {cue}\nEnd\n"))
         .unwrap_or_default();
     let text = format!(
-        "Object FlightSource\nKindOf = STRUCTURE\nBody = ActiveBody Body\nMaxHealth = 5000\nInitialHealth = 5000\nEnd\nEnd\nObject {A10_TRANSPORT}\nKindOf = VEHICLE AIRCRAFT\nBody = ActiveBody Body\nMaxHealth = 600\nInitialHealth = 600\nEnd\n{sound}End\nObject {A10_PAYLOAD_TEMPLATE}\nKindOf = PROJECTILE\nBody = ActiveBody Body\nMaxHealth = 40\nInitialHealth = 40\nEnd\nEnd\n"
+        "Object FlightSource\nKindOf = STRUCTURE\nBody = ActiveBody Body\nMaxHealth = 5000\nInitialHealth = 5000\nEnd\nEnd\nObject {A10_TRANSPORT}\nKindOf = VEHICLE AIRCRAFT\nBody = ActiveBody Body\nMaxHealth = 600\nInitialHealth = 600\nEnd\n{sound}End\nObject {A10_PAYLOAD_TEMPLATE}\nKindOf = PROJECTILE\nBody = ActiveBody Body\nMaxHealth = 40\nInitialHealth = 40\nEnd\nEnd\n{FORMATION_CASTER}"
     );
     let mut world = GameLogic::new();
     world
@@ -94,6 +105,76 @@ fn enter_dive(world: &mut GameLogic, jet: ObjectId) -> Vec3 {
         }
     }
     panic!("actual receiving flight never entered dive");
+}
+
+#[test]
+fn authored_a10_formation_keeps_course_and_aim_through_save_load() {
+    fn world_for(list: &str) -> GameLogic {
+        let mut world = fixture_world(None);
+        world.override_world_size(1000.0, 1000.0);
+        world.admit_object_creation_list_sources([list.into()]).unwrap();
+        world
+    }
+
+    let list = format!(r"
+ObjectCreationList FormationDelivery
+ DeliverPayload
+  Transport = {A10_TRANSPORT}
+  FormationSize = 2
+  FormationSpacing = 2.75
+  WeaponConvergenceFactor = 0.5
+  StartAtPreferredHeight = No
+  DeliveryDistance = 8
+ End
+End
+");
+    let mut world = world_for(&list);
+    let caster = world.create_object_for_player("FormationCaster", 1, Vec3::ZERO).unwrap();
+    let click = Vec3::new(500.0, 0.0, 0.0);
+    let strike = world.queue_special_power_strike(
+        &crate::command_system::SpecialPowerType::Airstrike, caster, click,
+    ).unwrap();
+    assert!(world.special_power_strikes.get(strike).unwrap().live_a10_delivery);
+    let lead = world.objects.registered()
+        .filter(|(_, object)| object.a10_strike_transport.is_some() && object.producer_id == Some(caster))
+        .map(|(&id, _)| id)
+        .min().unwrap();
+    let delivery = world.a10_strike_flight_reg.delivery_for_transport(lead).unwrap();
+    let actors = world.a10_strike_flight_reg.delivery_transport_ids(delivery);
+    assert_eq!(actors.len(), 2, "the receiving OCL supplies the formation count");
+    let wing = *actors.iter().find(|&&id| id != lead).unwrap();
+    assert_eq!(world.objects[&lead].get_position(), Vec3::new(-12.0, 0.0, 0.0));
+    let actor = &world.objects[&wing];
+    assert_eq!(actor.owner_player_id, Some(1));
+    assert_eq!(actor.producer_id, Some(caster));
+    assert!(actor.is_script_targetable());
+    let flight = actor.a10_strike_transport.as_ref().unwrap();
+    assert!((flight.launch - Vec3::new(-14.0, 0.0, -2.0)).length() < 0.0001);
+    assert!((flight.move_to - Vec3::new(498.0, 0.0, -2.0)).length() < 0.0001);
+    assert!((flight.target - Vec3::new(499.0, 0.0, -1.0)).length() < 0.0001);
+
+    let mut peer = world_for(&list.replace("FormationSize = 2", "FormationSize = 1"));
+    let peer_caster = peer.create_object_for_player("FormationCaster", 1, Vec3::ZERO).unwrap();
+    assert_eq!(peer_caster, caster);
+    let peer_lead = peer.spawn_a10_strike_flight(peer_caster, click, A10StrikeScienceTier::Level3).unwrap();
+    let peer_delivery = peer.a10_strike_flight_reg.delivery_for_transport(peer_lead).unwrap();
+    assert_eq!(peer.a10_strike_flight_reg.delivery_transport_ids(peer_delivery).len(), 1);
+
+    let builder = crate::save_load::SnapshotBuilder::new();
+    let snapshot = builder.create_world_snapshot(&world).unwrap();
+    let bytes = bincode_legacy::serialize(&snapshot).unwrap();
+    let raw = crate::save_load::snapshot::decode_bincode_world_snapshot(&bytes).unwrap();
+    let mut restored = world_for(&list);
+    builder.restore_from_snapshot(&raw, &mut restored).unwrap();
+    let resumed = restored.objects[&wing].a10_strike_transport.as_ref().unwrap();
+    assert_eq!(resumed.move_to, flight.move_to);
+    assert_eq!(resumed.target, flight.target);
+    assert_eq!(resumed.delivery_distance, 8.0);
+    let launch_z = flight.launch.z;
+    world.update_a10_strike_flights().unwrap();
+    restored.update_a10_strike_flights().unwrap();
+    assert_eq!(world.objects[&wing].get_position(), restored.objects[&wing].get_position());
+    assert!((restored.objects[&wing].get_position().z - launch_z).abs() < 0.0001);
 }
 
 #[test]

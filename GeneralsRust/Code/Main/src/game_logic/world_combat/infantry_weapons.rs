@@ -419,6 +419,45 @@ impl GameLogic {
         ok
     }
 
+    pub(super) fn create_authored_delivery_decal(
+        &mut self,
+        transport: ObjectId,
+        target: Vec3,
+        data: &gamelogic::object::update::DeliverPayloadData,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
+        use crate::game_logic::host_radius_decal_update::HostRadiusDecalTemplate;
+
+        let decal = &data.delivery_decal_template;
+        if data.delivery_decal_radius <= 0.0 || decal.texture_name.is_empty() {
+            return;
+        }
+        let owner = self.objects.get(&transport).and_then(|object| object.owner_player_id);
+        let players = self.radius_decal_player_view(owner);
+        if let Some(object) = self.objects.get_mut(&transport) {
+            let name = decal.texture_name.as_str();
+            let state = object.radius_decal_update.get_or_insert_with(Default::default);
+            state.create_radius_decal_with_player_view_and_effects(
+                HostRadiusDecalTemplate {
+                    name: name.into(),
+                    texture: name.into(),
+                    opacity_min: decal.min_opacity,
+                    opacity_max: decal.max_opacity,
+                    throb_frames: decal.opacity_throb_time,
+                    only_visible_to_owner: decal.only_visible_to_owning_player,
+                    color: decal.color,
+                },
+                data.delivery_decal_radius, target, self.frame,
+                owner.map(|id| id as i32), players, effects,
+            );
+            state.set_kill_when_no_longer_attacking(false);
+            if !state.delivery_decal.is_empty() {
+                self.radius_decal_update_reg.record_create();
+                object.status.attacking = true;
+            }
+        }
+    }
+
     /// C++ RadiusDecalUpdate::update residual.
     /// C++ CheckpointUpdate residual (open gate for allies when clear of enemies).
     /// C++ SpectreGunshipDeploymentUpdate::initiateIntent residual (default

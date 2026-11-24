@@ -150,6 +150,11 @@ pub struct HostA10StrikeFlightData {
     pub map_min: Vec3,
     #[serde(default)]
     pub map_max: Vec3,
+    /// DeliverPayloadAIUpdate holds course and weapon target separately.
+    pub move_to: Vec3,
+    pub delivery_distance: f32,
+    pub pre_open_distance: f32,
+    pub delay_until: Option<u32>,
 }
 
 fn host_a10_prev_dist_sq_default() -> f32 {
@@ -181,6 +186,10 @@ impl HostA10StrikeFlightData {
             prev_dist_sq: f32::MAX,
             map_min: Vec3::ZERO,
             map_max: Vec3::ZERO,
+            move_to: target,
+            delivery_distance: A10_DELIVERY_DISTANCE,
+            pre_open_distance: A10_PRE_OPEN_DISTANCE,
+            delay_until: None,
         }
     }
 
@@ -194,13 +203,13 @@ impl HostA10StrikeFlightData {
         use crate::game_logic::host_deliver_payload::{
             head_off_map_exit_point_residual, is_off_map_residual,
         };
-        let hx = self.target.x - self.launch.x;
-        let hz = self.target.z - self.launch.z;
+        let hx = self.move_to.x - self.launch.x;
+        let hz = self.move_to.z - self.launch.z;
         if !self.passed_target {
-            let dx = self.target.x - pos.x;
-            let dz = self.target.z - pos.z;
+            let dx = self.move_to.x - pos.x;
+            let dz = self.move_to.z - pos.z;
             if dx * dx + dz * dz <= 25.0
-                || (pos.x - self.target.x) * hx + (pos.z - self.target.z) * hz > 0.0
+                || (pos.x - self.move_to.x) * hx + (pos.z - self.move_to.z) * hz > 0.0
             {
                 self.passed_target = true;
             }
@@ -219,10 +228,10 @@ impl HostA10StrikeFlightData {
             } else if self.exit.length_squared() > 1.0 {
                 self.exit
             } else {
-                self.target
+                self.move_to
             }
         } else {
-            self.target
+            self.move_to
         };
         let dx = dest.x - pos.x;
         let dz = dest.z - pos.z;
@@ -266,8 +275,8 @@ impl HostA10StrikeFlightData {
         is_close_enough_to_target_squared_residual(
             current,
             previous,
-            A10_DELIVERY_DISTANCE,
-            A10_PRE_OPEN_DISTANCE,
+            self.delivery_distance,
+            self.pre_open_distance,
         )
     }
 

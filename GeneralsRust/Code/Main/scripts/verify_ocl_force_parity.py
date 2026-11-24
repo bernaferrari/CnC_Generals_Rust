@@ -571,6 +571,54 @@ int main() {
     print("Original recoil barrel flashes across three draws and muzzle-only barrel across one")
 
 
+def verify_delivery_formation(cxx: str, temp: Path) -> None:
+    source = OCL_SOURCE.read_text()
+    method = source.index("class DeliverPayloadNugget")
+    start = source.index("Real CCWx", method)
+    end = source.index("Object *transport;", start)
+    formation = source[start:end]
+    cpp = temp / "delivery_formation.cpp"
+    binary = temp / "delivery_formation"
+    cpp.write_text(r"""
+#include <cmath>
+#include <cstdlib>
+using Real = float;
+using Int = int;
+constexpr Real PI = 3.14159265358979323846f;
+Real Sin(Real x) { return std::sin(x); }
+Real Cos(Real x) { return std::cos(x); }
+Real GameLogicRandomValueReal(Real, Real) { std::abort(); }
+struct Coord3D {
+    Real x, y, z;
+    void zero() { x = y = z = 0; }
+    void add(const Coord3D* v) { x += v->x; y += v->y; z += v->z; }
+};
+struct Object {};
+bool close(Real a, Real b) { return std::fabs(a - b) < 0.0001f; }
+int main() {
+    const Coord3D origin{}, click{500.f, 0.f, 0.f};
+    const Coord3D *primary = &origin, *secondary = &click;
+    const Int m_formationSize = 2;
+    const Real m_formationSpacing = 2.75f, m_convergenceFactor = 0.5f, m_errorRadius = 0.f;
+    const struct { Real m_distToTarget; } m_data{8.f};
+""" + formation + r"""
+        if (formationIndex == 0) {
+            if (!close(startPos.x, -12.f) || !close(startPos.y, 0.f)
+                || !close(moveToPos.x, 500.f) || !close(targetPos.x, 500.f)) return 1;
+        } else {
+            if (!close(startPos.x, -14.f) || !close(startPos.y, -2.f)
+                || !close(moveToPos.x, 498.f) || !close(moveToPos.y, -2.f)
+                || !close(targetPos.x, 499.f) || !close(targetPos.y, -1.f)) return 2;
+        }
+        if (!close(orient, 0.f)) return 3;
+    }
+}
+""")
+    subprocess.run([cxx, "-std=c++17", cpp, "-o", binary], check=True)
+    subprocess.run([binary], check=True)
+    print("Original delivery formation keeps the lead line and separates wing course from weapon aim")
+
+
 def verify_ocl_player_eligibility(cxx: str, temp: Path) -> None:
     original = OCL_SOURCE.read_text()
     start = original.index("if (m_requiresLivePlayer &&")
@@ -920,6 +968,7 @@ def main() -> int:
         verify_detonation_fx_position(args.cxx, temp)
         verify_detonation_draw_order(args.cxx, temp)
         verify_recoil_duration(args.cxx, temp)
+        verify_delivery_formation(args.cxx, temp)
     if len(original) != len(CASES) or len(ported) != len(CASES):
         raise RuntimeError("Unexpected vector count")
     for scenario, expected, actual in zip(CASES, original, ported, strict=True):

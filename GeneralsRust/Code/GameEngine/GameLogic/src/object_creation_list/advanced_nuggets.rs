@@ -163,7 +163,9 @@ impl DeliverPayloadNugget {
             return Coord3D::new(0.0, 0.0, 0.0);
         }
 
-        let offset_multiplier = ((formation_index + 1) / 2) as Real * formation_spacing;
+        // ObjectCreationList.cpp assigns the product to Int after the
+        // member pair index is multiplied by authored spacing.
+        let offset_multiplier = (((formation_index + 1) / 2) as Real * formation_spacing) as Int as Real;
 
         if formation_index % 2 == 1 {
             // Odd - use CCW

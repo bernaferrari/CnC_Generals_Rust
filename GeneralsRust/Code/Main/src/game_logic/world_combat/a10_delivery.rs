@@ -55,7 +55,10 @@ impl GameLogic {
             else {
                 continue;
             };
-            if object.a10_strike_transport.is_none() {
+            let Some(data) = &object.a10_strike_transport else { continue };
+            if data.delay_until.is_some_and(|deadline| {
+                self.frame.wrapping_sub(deadline) >= (1_u32 << 31)
+            }) {
                 continue;
             }
 

@@ -1066,77 +1066,136 @@ impl GameLogic {
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> Option<ObjectId> {
         use crate::game_logic::host_a10_strike_flight::HostA10StrikeFlightData;
-        use crate::game_logic::special_power_strikes::{A10_FORMATIONION_SPACING, A10_TRANSPORT};
+        use crate::game_logic::special_power_strikes::{
+            A10_FORMATIONION_SPACING, A10_STRIKE_SPECIAL_POWER, A10_TRANSPORT,
+        };
         use crate::game_logic::{KindOf, ThingTemplate};
+        use gamelogic::object_creation_list::DeliverPayloadNugget;
 
-        let source = self
-            .objects
-            .get(&source_id)
-            .filter(|source| source.is_alive())?;
-        source.owner_player_id?;
+        let source = self.objects.get(&source_id).filter(|source| source.is_alive())?;
+        let owner = source.owner_player_id?;
         let source_identity = source.visual_draw_identity_token.clone();
         let source_pos = source.get_position();
-        let delivery_id = self
-            .a10_strike_flight_reg
-            .begin_delivery(source_id, tier, strike_id)?;
-        let edge = self.closest_map_edge_point(source_pos);
-        let dx = target.x - edge.x;
-        let dz = target.z - edge.z;
-        let exit = crate::game_logic::host_deliver_payload::head_off_map_exit_point_residual(
-            edge,
-            dx,
-            dz,
-            self.world_min.x,
-            self.world_min.z,
-            self.world_max.x,
-            self.world_max.z,
-        );
-        let dist = (dx * dx + dz * dz).sqrt().max(1.0);
-        let px = -dz / dist;
-        let pz = dx / dist;
-        if self.receiving_module_content.is_none() && !self.templates.contains_key(A10_TRANSPORT) {
-            let mut t = ThingTemplate::new(A10_TRANSPORT);
-            t.set_health(600.0)
-                .add_kind_of(KindOf::Aircraft)
-                .add_kind_of(KindOf::Vehicle);
-            self.templates.insert(A10_TRANSPORT.to_string(), t);
+        let authored_list = if source.authors_behavior_module("OCLSpecialPower") {
+            Some(self.receiving_special_power_ocl(source, A10_STRIKE_SPECIAL_POWER)?)
+        } else {
+            None
+        };
+        let definition = if let Some(list) = &authored_list {
+            let [nugget] = list.nuggets() else { return None };
+            Some(nugget.as_any().downcast_ref::<DeliverPayloadNugget>()?)
+        } else {
+            None
+        };
+        let jets = i32::try_from(definition.map_or(tier.formation_size(), |n| n.formation_size)).ok()?;
+        let delivery_id = self.a10_strike_flight_reg.begin_delivery(source_id, tier, strike_id)?;
+        use crate::game_logic::host_deliver_payload::find_closest_edge_point_residual;
+        let edge = if definition.is_some() {
+            let mut edge = find_closest_edge_point_residual(
+                source_pos, self.world_min.x, self.world_min.z,
+                self.world_max.x, self.world_max.z, 0.0,
+            );
+            edge.y = self.raw_terrain_ground_height_at(edge);
+            edge
+        } else {
+            self.closest_map_edge_point(source_pos)
+        };
+        let dir = (target - edge).with_y(0.0).try_normalize().unwrap_or(Vec3::X);
+        let primary = Vec3::new(edge.x, edge.z, edge.y);
+        let secondary = Vec3::new(target.x, target.z, target.y);
+        let transport_name = definition.map_or(A10_TRANSPORT, |n| n.transport_name.as_str());
+        if definition.is_none()
+            && self.receiving_module_content.is_none()
+            && !self.templates.contains_key(transport_name)
+        {
+            let mut template = ThingTemplate::new(transport_name);
+            template.set_health(600.0).add_kind_of(KindOf::Aircraft).add_kind_of(KindOf::Vehicle);
+            self.templates.insert(transport_name.into(), template);
         }
-        let jets = tier.formation_size().max(1);
-        let half = (jets as f32 - 1.0) * 0.5;
         let mut first = None;
-        for j in 0..jets {
-            let lat = (j as f32 - half) * A10_FORMATIONION_SPACING;
-            let launch = Vec3::new(edge.x + px * lat, 160.0, edge.z + pz * lat);
-            // A partial successful formation remains a real partial delivery;
-            // the launch_complete bit prevents snapshots during this callback
-            // cohort from claiming its factory stack can be resumed.
-            let Some(owner) = self
-                .objects
-                .get(&source_id)
-                .filter(|source| {
-                    std::sync::Arc::ptr_eq(&source.visual_draw_identity_token, &source_identity)
-                })
-                .and_then(|source| source.owner_player_id)
-            else {
+        for index in 0..jets {
+            if !self.objects.get(&source_id).is_some_and(|source| {
+                std::sync::Arc::ptr_eq(&source.visual_draw_identity_token, &source_identity)
+            }) {
+                break;
+            }
+            let (mut launch, move_to, aim, yaw) = if let Some(nugget) = definition {
+                let error = (index > 0 && nugget.error_radius > 1.0).then(|| {
+                    (
+                        self.logic_random.next_real(0.0, nugget.error_radius),
+                        self.logic_random.next_real(0.0, std::f32::consts::TAU),
+                    )
+                });
+                let pose = DeliverPayloadNugget::formation_flight_pose(
+                    &primary, &secondary, index, jets, nugget.formation_spacing,
+                    nugget.convergence_factor, nugget.data.dist_to_target, error,
+                );
+                let to_host = |pos: Vec3| Vec3::new(pos.x, pos.z, pos.y);
+                (to_host(pose.start_pos), to_host(pose.move_to_pos), to_host(pose.target_pos), pose.orient)
+            } else {
+                // Direct, template-only callers retain their existing layout.
+                let lateral = (index as f32 - (jets as f32 - 1.0) * 0.5) * A10_FORMATIONION_SPACING;
+                let offset = Vec3::new(-dir.z, 0.0, dir.x) * lateral;
+                (edge + offset, target, target, dir.z.atan2(dir.x))
+            };
+            let heading = Vec3::new(yaw.cos(), 0.0, yaw.sin());
+            let exit = crate::game_logic::host_deliver_payload::head_off_map_exit_point_residual(
+                launch, heading.x, heading.z,
+                self.world_min.x, self.world_min.z, self.world_max.x, self.world_max.z,
+            );
+            let Some(tid) = self.create_object_for_player_with_effects(
+                transport_name, owner, launch, None, presentation_effects,
+            ) else {
                 break;
             };
-            let Some(tid) = self.create_object_for_player_with_effects(
-                A10_TRANSPORT,
-                owner,
-                launch,
-                None,
-                presentation_effects,
-            ) else {
-                continue;
-            };
-            if let Some(o) = self.objects.get_mut(&tid) {
-                o.note_producer(source_id);
-                let mut data = HostA10StrikeFlightData::start_with_exit(launch, target, exit, tier);
-                data.map_min = self.world_min;
-                data.map_max = self.world_max;
-                o.a10_strike_transport = Some(data);
-                o.set_orientation_with_partition_owner(dz.atan2(dx), &mut self.partition_manager);
+            let Some(generation) = self.objects.get(&tid).map(|object| object.visual_object_generation)
+            else { break };
+            let epoch = self.visual_world_epoch;
+            let mut data = HostA10StrikeFlightData::start_with_exit(launch, aim, exit, tier);
+            data.move_to = move_to;
+            data.map_min = self.world_min;
+            data.map_max = self.world_max;
+            if let Some(nugget) = definition {
+                data.delivery_distance = nugget.data.dist_to_target;
+                data.pre_open_distance = nugget.data.pre_open_distance;
+                data.prev_dist_sq = 0.0;
+                if nugget.delay_delivery_frames_max > 0 {
+                    let max_delay = nugget.delay_delivery_frames_max.min(i32::MAX as u32) as i32;
+                    let delay = self.logic_random.next_int(0, max_delay) as u32;
+                    data.delay_until = Some(self.frame.wrapping_add(delay));
+                }
             }
+            if let Some(object) = self.objects.get_mut(&tid) {
+                object.note_producer(source_id);
+                object.set_script_targetable(true);
+                object.bind_special_power_completion_creator(if index == 0 {
+                    source_id.0
+                } else {
+                    gamelogic::common::INVALID_ID
+                });
+                object.set_orientation_with_partition_owner(yaw, &mut self.partition_manager);
+                if definition.is_some_and(|nugget| nugget.start_at_max_speed)
+                    && object.authors_behavior_module("PhysicsBehavior")
+                    && let Some(locomotor) = object.selected_locomotor_definition
+                {
+                    // Host speeds are per second, while PhysicsBehavior uses logic-frame force.
+                    let speed = locomotor.movement.max_speed
+                        * game_engine::common::game_common::SECONDS_PER_LOGICFRAME_REAL;
+                    object.apply_motive_force(heading * speed * object.physics_get_mass(), self.frame);
+                }
+            }
+            if definition.is_some_and(|nugget| nugget.start_at_preferred_height) {
+                let preferred = self.objects[&tid].loco_preferred_height;
+                launch.y = self.raw_terrain_ground_height_at(launch) + preferred;
+                if !self.set_owned_object_position_with_effects(tid, launch, self.frame, presentation_effects) {
+                    continue;
+                }
+            }
+            if !self.spawn_identity_matches(tid, generation, epoch) {
+                continue;
+            }
+            data.launch = launch;
+            self.objects.get_mut(&tid).unwrap().a10_strike_transport = Some(data);
             let bound = self.a10_strike_flight_reg.bind_transport(delivery_id, tid);
             assert!(bound, "new A10 transport ID must bind exactly once");
             let identity = &self
@@ -1151,12 +1210,14 @@ impl GameLogic {
             );
             if first.is_none() {
                 first = Some(tid);
-                let _ = self.create_delivery_radius_decal_with_effects(
-                    tid,
-                    target,
-                    crate::game_logic::special_power_strikes::A10_DELIVERY_DECAL_RADIUS,
-                    presentation_effects,
-                );
+                if let Some(nugget) = definition {
+                    self.create_authored_delivery_decal(tid, aim, &nugget.data, presentation_effects);
+                } else {
+                    let _ = self.create_delivery_radius_decal_with_effects(
+                        tid, target, crate::game_logic::special_power_strikes::A10_DELIVERY_DECAL_RADIUS,
+                        presentation_effects,
+                    );
+                }
             }
         }
         let _ = self

@@ -518,6 +518,14 @@ fn validate_registry(
                 let residual: crate::game_logic::host_a10_strike_flight::HostA10StrikeFlightData =
                     bincode_legacy::deserialize(&module.payload)
                         .map_err(|e| corrupted(format!("A10 transport residual decode: {e}")))?;
+                if !residual.move_to.is_finite()
+                    || !residual.target.is_finite()
+                    || !residual.launch.is_finite()
+                    || !residual.delivery_distance.is_finite()
+                    || !residual.pre_open_distance.is_finite()
+                {
+                    return Err(corrupted("invalid A10 delivery course"));
+                }
                 let active = row.active_transports.contains(transport);
                 if !active
                     && !object.status.destroyed
