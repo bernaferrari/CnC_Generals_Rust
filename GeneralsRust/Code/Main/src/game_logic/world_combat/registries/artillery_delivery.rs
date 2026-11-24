@@ -221,13 +221,13 @@ impl GameLogic {
         &mut self,
         effects: &mut ScriptPresentationEffects<'_>,
     ) -> gamelogic::GameLogicResult<()> {
-        let mut carriers: Vec<_> = self
+        // Preserve the world's registration order when several carriers are ready.
+        let carriers: Vec<_> = self
             .objects
             .registered()
             .filter(|(_, object)| object.artillery_barrage_transport.is_some() && object.is_alive())
             .map(|(id, _)| *id)
             .collect();
-        carriers.sort_unstable();
         let mut pending = std::collections::BTreeSet::new();
         for id in carriers {
             let Some(object) = self.objects.get_mut(&id).filter(|object| object.is_alive()) else {

@@ -490,8 +490,7 @@ impl GameLogic {
                 return SimulationStepOutcome::Failed(error);
             }
         }
-        // Wave 793: host-sole unless movement authority live: ArtilleryBarrage flight is owned by
-        // GW tick_status_timer_expirations + drop/detonate logs.
+        // The artillery carrier releases its payload into the shared projectile system.
         {
             if let Err(error) = self.update_artillery_barrage_flights_with_effects(&mut ui) {
                 return SimulationStepOutcome::Failed(error);

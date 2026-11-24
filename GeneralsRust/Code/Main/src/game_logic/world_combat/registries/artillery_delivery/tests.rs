@@ -1,7 +1,8 @@
 use super::*;
 use crate::command_system::SpecialPowerType;
 use crate::game_logic::special_power_strikes::HostStrikePhase;
-use crate::save_load::{SnapshotBuilder, Xfer, XferData, XferLoad, XferSave};
+use crate::save_load::snapshot::{Snapshot, WorldSnapshot};
+use crate::save_load::{SnapshotBuilder, Xfer, XferLoad, XferSave};
 
 fn world() -> GameLogic {
     use crate::assets::ini_template_loader::{
@@ -167,7 +168,7 @@ fn authored_artillery_release_follows_carrier_through_save_load_and_destruction(
         snapshot.xfer(&mut writer).unwrap();
         writer.xfer_u32(&mut 0x4137_11e0).unwrap();
     }
-    let mut decoded = crate::save_load::snapshot::WorldSnapshot::default();
+    let mut decoded = WorldSnapshot::default();
     let mut reader = XferLoad::new(std::io::Cursor::new(bytes.into_inner()));
     decoded.xfer(&mut reader).unwrap();
     let mut sentinel = 0;
