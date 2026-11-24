@@ -283,17 +283,21 @@ impl AudioManager {
         self.fading_audio = retained;
     }
     pub fn fade_music_for_handles(&mut self, handles: &[AudioHandle]) {
-        self.begin_music_fade_selected(Some(handles));
+        self.begin_music_fade_where(|event| handles.contains(&event.get_playing_handle()));
+    }
+
+    pub fn fade_music_for_instance(&mut self, instance: &AudioInstance) {
+        self.begin_music_fade_where(|event| event.belongs_to_instance(instance));
     }
     pub(super) fn begin_music_fade(&mut self) {
-        self.begin_music_fade_selected(None);
+        self.begin_music_fade_where(|_| true);
     }
-    pub(super) fn begin_music_fade_selected(&mut self, handles: Option<&[AudioHandle]>) {
+    fn begin_music_fade_where(&mut self, selected: impl Fn(&AudioEventRts) -> bool) {
         let music_events: Vec<AudioEventRts> = self
             .active_audio_events
             .values()
             .filter(|event| {
-                handles.is_none_or(|handles| handles.contains(&event.get_playing_handle()))
+                selected(event)
                     && event
                         .get_audio_event_info()
                         .is_some_and(|info| info.sound_type == AudioType::Music)
@@ -455,7 +459,8 @@ impl AudioManager {
         visible: &mut dyn FnMut(&Coord3D) -> bool,
     ) -> bool {
         // C++ MilesAudioManager::notifyOfAudioCompletion (MilesAudioManager.cpp:1507-1566).
-        if self.disallow_speech
+        if event.receiving_instance.is_none()
+            && self.disallow_speech
             && event
                 .get_audio_event_info()
                 .is_some_and(|info| info.sound_type == AudioType::Streaming)

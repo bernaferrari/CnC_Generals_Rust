@@ -1,5 +1,6 @@
 //! SoundFXNugget admission with actual receiving audio definitions and locality.
 use super::Coord3D;
+use game_engine::common::audio::AudioInstance;
 use game_engine::common::audio::audio_event_rts::{
     AudioEventRts, AudioEventSelection, Coord3D as AudioCoord3D,
 };
@@ -33,6 +34,7 @@ pub fn submit_sound_fx_owned(
     position: Option<&Coord3D>,
     player: Option<i32>,
     manager: &mut AudioManager,
+    instance: &AudioInstance,
     locality: &AudioSubmissionLocality,
     selection: &mut dyn AudioEventSelection,
 ) -> Result<u32, String> {
@@ -45,6 +47,7 @@ pub fn submit_sound_fx_owned(
     let mut event = sound_fx_event(name, position, player);
     event.set_volume(info.volume);
     event.set_audio_event_info(info);
+    event.admit_instance(instance);
     Ok(manager.add_audio_event_with_locality_and_selection(&event, locality, selection))
 }
 pub fn submit_sound_fx_with_policy(
@@ -52,6 +55,7 @@ pub fn submit_sound_fx_with_policy(
     position: Option<&Coord3D>,
     player: Option<i32>,
     manager: &mut AudioManager,
+    instance: Option<&AudioInstance>,
     locality: &AudioSubmissionLocality,
     selection: &mut dyn AudioEventSelection,
     policy: &game_engine::common::audio::script_policy::ScriptAudioPolicy,
@@ -65,6 +69,9 @@ pub fn submit_sound_fx_with_policy(
     let mut event = sound_fx_event(name, position, player);
     event.set_volume(info.volume);
     event.set_audio_event_info(info);
+    if let Some(instance) = instance {
+        event.admit_instance(instance);
+    }
     Ok(manager.add_audio_event_with_policy(&event, locality, selection, policy, false))
 }
 
@@ -112,6 +119,7 @@ mod tests {
             audio_name: "OwnedSound".into(),
             sounds: vec!["owned_sound".into()],
             type_field: ST_PLAYER,
+            limit: 1,
             ..Default::default()
         });
         manager
@@ -131,11 +139,14 @@ mod tests {
         let pos = Coord3D::new(1.0, 2.0, 3.0);
         let local = AudioSubmissionLocality::from_resolver(3, &Players(3));
         let remote = AudioSubmissionLocality::from_resolver(3, &Players(4));
+        let first_instance = AudioInstance::default();
+        let peer_instance = AudioInstance::default();
         submit_sound_fx_owned(
             "OwnedSound",
             Some(&pos),
             Some(3),
             &mut first,
+            &first_instance,
             &local,
             &mut selection,
         )
@@ -145,6 +156,7 @@ mod tests {
             Some(&pos),
             Some(3),
             &mut peer,
+            &peer_instance,
             &remote,
             &mut selection,
         )
@@ -166,12 +178,14 @@ mod tests {
             audio: &mut audio,
         };
         let local = AudioSubmissionLocality::from_resolver(3, &Players(3));
+        let instance = AudioInstance::default();
         assert!(
             submit_sound_fx_owned(
                 "MissingSound",
                 None,
                 Some(3),
                 &mut manager,
+                &instance,
                 &local,
                 &mut selection
             )
@@ -179,5 +193,38 @@ mod tests {
             .contains("MissingSound")
         );
         assert_eq!(manager.pending_play_request_count(), 0);
+    }
+
+    #[test]
+    fn policy_fx_limits_the_cue_per_receiving_instance_on_one_mixer() {
+        crate::test_support::ensure_ambient_host();
+        let mut mixer = manager();
+        let first = AudioInstance::default();
+        let peer = AudioInstance::default();
+        let mut logic = RandomState::default();
+        let mut audio = RandomState::default();
+        let mut selection = AudioSelectionStreams {
+            logic: &mut logic,
+            audio: &mut audio,
+        };
+        let locality = AudioSubmissionLocality::from_resolver(3, &Players(3));
+        let policy = game_engine::common::audio::script_policy::ScriptAudioPolicy::default();
+        let mut submit = |instance: &AudioInstance| {
+            submit_sound_fx_with_policy(
+                "OwnedSound",
+                None,
+                Some(3),
+                &mut mixer,
+                Some(instance),
+                &locality,
+                &mut selection,
+                &policy,
+            )
+            .unwrap()
+        };
+        assert_ne!(submit(&first), AHSV_NO_SOUND);
+        assert_eq!(submit(&first), AHSV_NO_SOUND);
+        assert_ne!(submit(&peer), AHSV_NO_SOUND);
+        assert_eq!(mixer.pending_play_request_count_for("OwnedSound"), 2);
     }
 }

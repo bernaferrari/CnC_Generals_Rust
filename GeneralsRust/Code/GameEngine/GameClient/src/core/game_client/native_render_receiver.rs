@@ -9,7 +9,10 @@ struct NativeRenderReceiver<'a, 'ambient> {
     frame: u32,
     local_player_id: i32,
     input_authority: ClientInputAuthority,
-    ambient_update: Option<&'a mut crate::drawable::drawable::NativeAmbientUpdate<'ambient>>,
+    ambient_update: Option<(
+        &'a mut crate::drawable::drawable::NativeAmbientUpdate<'ambient>,
+        &'a game_engine::common::audio::AudioInstance,
+    )>,
 }
 impl<'a, 'ambient> NativeRenderReceiver<'a, 'ambient> {
     fn new(
@@ -46,6 +49,7 @@ impl<'a, 'ambient> NativeRenderReceiver<'a, 'ambient> {
         local_player_id: i32,
         input_authority: ClientInputAuthority,
         ambient_update: &'a mut crate::drawable::drawable::NativeAmbientUpdate<'ambient>,
+        audio_instance: &'a game_engine::common::audio::AudioInstance,
     ) -> Self {
         let mut receiver = Self::new(
             drawables,
@@ -56,7 +60,7 @@ impl<'a, 'ambient> NativeRenderReceiver<'a, 'ambient> {
             local_player_id,
             input_authority,
         );
-        receiver.ambient_update = Some(ambient_update);
+        receiver.ambient_update = Some((ambient_update, audio_instance));
         receiver
     }
     fn run_native_views_with_keys(
@@ -375,12 +379,13 @@ impl<'a, 'ambient> NativeRenderReceiver<'a, 'ambient> {
                 basic
                     .update_native_client_modules(particles.as_deref_mut(), host_projection, assets)
                     .map_err(GameClientError::InvalidOperation)?;
-                if let Some(ambient) = self.ambient_update.as_deref_mut() {
+                if let Some((ambient, instance)) = self.ambient_update.as_mut() {
                     basic
                         .update_after_client_modules_with_ambient(
                             frames.logic_frame,
                             ambient,
                             self.audio_device,
+                            instance,
                         )
                         .map_err(GameClientError::InvalidOperation)?;
                 } else {
@@ -665,9 +670,10 @@ impl GameClient {
         &mut crate::render_bridge::RenderBridge,
         NativeDrawableOwner<'_>,
     ) {
-        let audio_device = self.native_audio_device.as_ref();
-        let mut drawables = self.drawables.borrow_native();
-        drawables.audio_device = audio_device;
+        let drawables = self.drawables.borrow_native_with_audio(
+            self.native_audio_device.as_ref(),
+            Some(&self.native_audio_instance),
+        );
         (&mut self.render_bridge, drawables)
     }
 }
@@ -779,6 +785,7 @@ impl GameClient {
                     .as_mut()
                     .expect("GameClient particle manager"),
                 audio_device: self.native_audio_device.as_ref(),
+                audio_instance: Some(&self.native_audio_instance),
             },
             self.ui_renderer.as_mut(),
             &self.window_manager_owner,

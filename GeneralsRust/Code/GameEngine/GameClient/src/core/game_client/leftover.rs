@@ -1986,7 +1986,7 @@ impl GameClient {
                 drawable.load_post_process_with_audio(
                     time_of_day,
                     &locality,
-                    Some(&mut audio),
+                    Some((&mut audio, &self.native_audio_instance)),
                     transform,
                 )?;
             } else {

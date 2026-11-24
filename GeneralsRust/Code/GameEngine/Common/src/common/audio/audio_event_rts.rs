@@ -390,6 +390,10 @@ fn audio_file_exists(filename: &str) -> bool {
     Path::new(filename).exists() || Path::new(&filename.replace('\\', "/")).exists()
 }
 
+/// Stable playback namespace of one receiver on the application audio device.
+#[derive(Clone, Debug, Default)]
+pub struct AudioInstance(Arc<()>);
+
 /// This is called AudioEventRts because AudioEvent is a typedef in ww3d
 /// Enhanced with async capabilities and modern Rust patterns
 #[derive(Debug)]
@@ -408,6 +412,8 @@ pub struct AudioEventRts {
     pub(crate) owned_mix_dirty: bool,
     /// Exact current device observation for backend delivery; never a global relookup.
     pub(crate) playback_sliders: Option<MilesVolumeSliders>,
+    /// Identity of the match or UI owner submitting to a shared mixer.
+    pub(crate) receiving_instance: Option<Weak<()>>,
     pub time_of_day: TimeOfDay,
     pub position_of_audio: Coord3D,
     /// Birth token for an attached object admitted by a native receiving world.
@@ -503,6 +509,7 @@ impl Clone for AudioEventRts {
             owned_script_volumes: self.owned_script_volumes,
             owned_mix_dirty: self.owned_mix_dirty,
             playback_sliders: self.playback_sliders,
+            receiving_instance: self.receiving_instance.clone(),
             time_of_day: self.time_of_day,
             position_of_audio: Coord3D {
                 x: self.position_of_audio.x,
@@ -535,6 +542,28 @@ impl Clone for AudioEventRts {
 }
 
 impl AudioEventRts {
+    /// Bind this submission to the owning session's cue and voice limits.
+    pub fn admit_instance(&mut self, instance: &AudioInstance) {
+        if !self.belongs_to_instance(instance) {
+            self.receiving_instance = Some(Arc::downgrade(&instance.0));
+            self.set_handle_to_kill(0);
+        }
+    }
+
+    pub(crate) fn belongs_to_instance(&self, instance: &AudioInstance) -> bool {
+        self.receiving_instance
+            .as_ref()
+            .is_some_and(|owner| owner.as_ptr() == Arc::as_ptr(&instance.0))
+    }
+
+    pub(crate) fn shares_instance_with(&self, other: &Self) -> bool {
+        match (&self.receiving_instance, &other.receiving_instance) {
+            (Some(a), Some(b)) => Weak::ptr_eq(a, b),
+            (None, None) => true,
+            _ => false,
+        }
+    }
+
     pub fn admit_script_policy(&mut self, policy: &super::script_policy::ScriptAudioPolicy) {
         self.owned_script_volumes = Some(policy.volumes);
         if let Some(volume) = policy.override_for(self.get_event_name()) {
@@ -559,6 +588,7 @@ impl AudioEventRts {
             owned_script_volumes: None,
             owned_mix_dirty: false,
             playback_sliders: None,
+            receiving_instance: None,
             time_of_day: TIME_OF_DAY_AFTERNOON,
             position_of_audio: Coord3D::ZERO,
             receiving_object_identity: None,

@@ -219,7 +219,7 @@ impl NativeDrawableOwner<'_> {
                     policy,
                     logic_frame,
                 )?;
-                if let Some(audio_device) = self.audio_device {
+                if let Some((audio_device, instance)) = self.audio_device.zip(self.audio_instance) {
                     let locality = locality.ok_or_else(|| {
                         GameClientError::InvalidOperation(
                             "bound receiving audio requires auxiliary Drawable locality".into(),
@@ -231,7 +231,7 @@ impl NativeDrawableOwner<'_> {
                         )
                     })?;
                     draw.finish_native_constructor_ambient_with_audio(
-                        birth.loading_map, birth.in_load_game, tod, &mut audio, locality,
+                        birth.loading_map, birth.in_load_game, tod, &mut audio, instance, locality,
                     ).map_err(GameClientError::InvalidOperation)?;
                 } else {
                     draw.finish_native_constructor_ambient_at(

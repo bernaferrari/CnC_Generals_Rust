@@ -74,7 +74,8 @@ impl AudioManager {
         let mut oldest = None;
         let mut total_playing_count = 0;
         for playing in self.active_audio_events.values() {
-            if Self::is_playing_sample(playing)
+            if event.shares_instance_with(playing)
+                && Self::is_playing_sample(playing)
                 && playing.get_event_name() == event_name
                 && playing.is_positional_audio() == positional
             {
@@ -90,7 +91,9 @@ impl AudioManager {
             }
             if request
                 .get_pending_event()
-                .is_some_and(|pending| pending.get_event_name() == event_name)
+                .is_some_and(|pending| {
+                    event.shares_instance_with(pending) && pending.get_event_name() == event_name
+                })
             {
                 total_request_count += 1;
                 total_playing_count += 1;
@@ -130,7 +133,10 @@ impl AudioManager {
         let positional = event.is_positional_audio();
 
         let playing_is_lower = |playing: &AudioEventRts| {
-            if !Self::is_playing_sample(playing) || playing.is_positional_audio() != positional {
+            if !event.shares_instance_with(playing)
+                || !Self::is_playing_sample(playing)
+                || playing.is_positional_audio() != positional
+            {
                 return false;
             }
             Self::sample_event_priority(playing) < event_priority
@@ -185,7 +191,10 @@ impl AudioManager {
         let positional = event.is_positional_audio();
         let mut lowest: Option<(AudioPriority, AudioHandle)> = None;
         for playing in self.active_audio_events.values() {
-            if !Self::is_playing_sample(playing) || playing.is_positional_audio() != positional {
+            if !event.shares_instance_with(playing)
+                || !Self::is_playing_sample(playing)
+                || playing.is_positional_audio() != positional
+            {
                 continue;
             }
             let playing_priority = Self::sample_event_priority(playing);
@@ -218,7 +227,8 @@ impl AudioManager {
         let positional = event.is_positional_audio();
 
         self.active_audio_events.values().any(|playing| {
-            Self::is_playing_sample(playing)
+            event.shares_instance_with(playing)
+                && Self::is_playing_sample(playing)
                 && playing.get_event_name() == event_name
                 && playing.is_positional_audio() == positional
         })
@@ -227,37 +237,32 @@ impl AudioManager {
     /// Check if a specific object is currently playing a voice sound.
     /// Used to prevent multiple voice sounds from the same object.
     pub fn is_object_playing_voice(&self, object_id: ObjectId) -> Bool {
-        const ST_VOICE: u32 = 0x00000010;
+        self.object_voice_is_playing(object_id, None)
+    }
 
+    pub(super) fn is_object_playing_voice_for(&self, event: &AudioEventRts) -> Bool {
+        self.object_voice_is_playing(event.get_object_id(), Some(event))
+    }
+
+    fn object_voice_is_playing(&self, object_id: ObjectId, event: Option<&AudioEventRts>) -> Bool {
+        const ST_VOICE: u32 = 0x00000010;
+        let matches_voice = |playing: &AudioEventRts| {
+            playing.get_object_id() == object_id
+                && playing.get_audio_event_info().is_some_and(|info| info.type_field & ST_VOICE != 0)
+                && event.is_none_or(|event| {
+                    event.shares_instance_with(playing)
+                        && match (&event.receiving_object_identity, &playing.receiving_object_identity) {
+                            (Some(a), Some(b)) => Weak::ptr_eq(a, b),
+                            _ => true,
+                        }
+                })
+        };
         self.playback_recipient
             .with_hook(|hook| {
-                self.active_audio_events
-                    .values()
-                    .filter_map(|e| {
-                        let is_voice = e
-                            .get_audio_event_info()
-                            .map(|info| (info.type_field & ST_VOICE) != 0)
-                            .unwrap_or(false);
-                        if is_voice
-                            && e.get_object_id() == object_id
-                            && hook.is_playing(e.get_playing_handle())
-                        {
-                            Some(())
-                        } else {
-                            None
-                        }
-                    })
-                    .next()
-                    .is_some()
-            })
-            .unwrap_or_else(|| {
-                self.active_audio_events.values().any(|e| {
-                    let is_voice = e
-                        .get_audio_event_info()
-                        .map(|info| (info.type_field & ST_VOICE) != 0)
-                        .unwrap_or(false);
-                    is_voice && e.get_object_id() == object_id
+                self.active_audio_events.values().any(|playing| {
+                    matches_voice(playing) && hook.is_playing(playing.get_playing_handle())
                 })
             })
+            .unwrap_or_else(|| self.active_audio_events.values().any(matches_voice))
     }
 }

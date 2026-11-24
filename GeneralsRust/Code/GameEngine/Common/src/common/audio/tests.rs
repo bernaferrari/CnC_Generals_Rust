@@ -3,6 +3,9 @@ use super::*;
 #[path = "tests/audio_path_settings_owner_tests.rs"]
 mod audio_path_settings_owner_tests;
 
+#[path = "tests/receiving_instance_tests.rs"]
+mod receiving_instance_tests;
+
 #[test]
 fn audio_affect_system_setting_combinations_match_cpp_flags() {
     assert_eq!(

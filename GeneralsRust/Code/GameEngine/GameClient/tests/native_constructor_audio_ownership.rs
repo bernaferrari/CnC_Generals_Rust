@@ -10,6 +10,7 @@ use game_engine::common::audio::audio_event_rts::{AC_LOOP, ST_GLOBAL};
 use game_engine::common::audio::dynamic_audio_event_info::DynamicAudioEventInfo;
 use game_engine::common::audio::game_audio::{AudioLocalityRelationship, AudioLocalityResolver};
 use game_engine::common::audio::{AudioEventInfo, AudioManager, SoundPlaybackHook};
+use game_engine::common::common_services::CommonServicesScope;
 use game_engine::common::ini::INILoadType;
 use game_engine::common::name_key_generator::NameKeyNamespace;
 use game_engine::common::system::xfer_load::XferLoad;
@@ -204,6 +205,7 @@ fn tod_recording_audio(
 
 #[test]
 fn native_xfer_custom_ambient_isolated_for_same_id_clients_sharing_manager() {
+    let _services = CommonServicesScope::new();
     let played = Arc::new(Mutex::new(Vec::new()));
     let device = Arc::new(Mutex::new(shared_custom_audio(Arc::clone(&played))));
     let mut a = client(Arc::clone(&device));
@@ -421,11 +423,13 @@ fn assert_native_custom_retry_respects_saved_ambient_flags(
 
 #[test]
 fn native_custom_retry_honors_both_saved_ambient_enable_flags() {
+    let _services = CommonServicesScope::new();
     assert_native_custom_retry_respects_saved_ambient_flags(false, true);
     assert_native_custom_retry_respects_saved_ambient_flags(true, false);
 }
 #[test]
 fn native_custom_retry_keeps_post_load_permanent_only_gate() {
+    let _services = CommonServicesScope::new();
     let played = Arc::new(Mutex::new(Vec::new()));
     let device = Arc::new(Mutex::new(shared_custom_audio(Arc::clone(&played))));
     let mut world = client(Arc::clone(&device));
@@ -626,6 +630,7 @@ fn client(audio: Arc<Mutex<AudioManager>>) -> GameClient {
 
 #[test]
 fn authored_prop_mutation_is_emitted_once_per_receiving_client() {
+    let _services = CommonServicesScope::new();
     use game_client_rust::core::game_client::PresentationDrawableMutation;
     use game_engine::common::thing::thing_template::{
         ObjectIniFields, ReceivingTemplateKind, ThingTemplate,
@@ -755,6 +760,7 @@ fn authored_prop_mutation_is_emitted_once_per_receiving_client() {
 
 #[test]
 fn gameclient_constructor_routes_same_id_ambient_to_each_bound_manager() {
+    let _services = CommonServicesScope::new();
     let device_a = Arc::new(Mutex::new(audio()));
     let device_b = Arc::new(Mutex::new(audio()));
     let mut a = client(Arc::clone(&device_a));
@@ -815,7 +821,61 @@ fn gameclient_constructor_routes_same_id_ambient_to_each_bound_manager() {
 }
 
 #[test]
+fn gameclient_constructor_ambient_limits_follow_the_receiver_on_one_mixer() {
+    let _services = CommonServicesScope::new();
+    let mut mixer = audio();
+    mixer.register_audio_event_info(AudioEventInfo {
+        audio_name: "OwnedPristine".into(),
+        sounds: vec!["owned_sample".into()],
+        type_field: ST_GLOBAL,
+        control: AC_LOOP,
+        loop_count: 0,
+        limit: 1,
+        ..Default::default()
+    });
+    let device = Arc::new(Mutex::new(mixer));
+    let mut a = client(Arc::clone(&device));
+    let mut b = client(Arc::clone(&device));
+    let (mut content_a, plan_a) = admitted();
+    let (mut content_b, plan_b) = admitted();
+    let policy = ReceivingDrawablePolicy {
+        time_of_day: Some(game_client_rust::system::TimeOfDay::Night),
+        use_draw_module_lod: true,
+        static_game_lod: StaticGameLodLevel::High,
+        use_tree_sway: true,
+    };
+    let mut second_a = entry(Arc::clone(&plan_a));
+    second_a.object_id = 78;
+    a.sync_presentation_drawables_observed_with_content(
+        [entry(plan_a), second_a],
+        0,
+        content_a.module_factory_mut(),
+        policy,
+        |_| {},
+    )
+    .unwrap();
+    assert_eq!(
+        device.lock().unwrap().pending_play_request_count_for("OwnedPristine"),
+        1
+    );
+    b.sync_presentation_drawables_observed_with_content(
+        [entry(plan_b)],
+        0,
+        content_b.module_factory_mut(),
+        policy,
+        |_| {},
+    )
+    .unwrap();
+    assert_eq!(a.get_drawable_for_object(77), b.get_drawable_for_object(77));
+    assert_eq!(
+        device.lock().unwrap().pending_play_request_count_for("OwnedPristine"),
+        2
+    );
+}
+
+#[test]
 fn auxiliary_retirement_stops_only_on_its_bound_manager() {
+    let _services = CommonServicesScope::new();
     let events_a = Arc::new(Mutex::new(Vec::new()));
     let events_b = Arc::new(Mutex::new(Vec::new()));
     let device_a = Arc::new(Mutex::new(recording_audio(Arc::clone(&events_a))));
@@ -889,6 +949,7 @@ fn auxiliary_retirement_stops_only_on_its_bound_manager() {
 
 #[test]
 fn shared_device_retirement_stops_only_the_same_id_client_handle() {
+    let _services = CommonServicesScope::new();
     let events = Arc::new(Mutex::new(Vec::new()));
     let device = Arc::new(Mutex::new(recording_audio(Arc::clone(&events))));
     let mut a = client(Arc::clone(&device));
@@ -955,6 +1016,7 @@ fn shared_device_retirement_stops_only_the_same_id_client_handle() {
 
 #[test]
 fn admitted_silent_drawable_can_retire_without_an_audio_device() {
+    let _services = CommonServicesScope::new();
     let mut world =
         GameClient::new_with_input_authority(ClientInputAuthority::NativeHosted).unwrap();
     world.particle_systems_mut().finish_definition_admission();
@@ -986,6 +1048,7 @@ fn admitted_silent_drawable_can_retire_without_an_audio_device() {
 
 #[test]
 fn live_ambient_retirement_preflights_unavailable_owner_and_retries() {
+    let _services = CommonServicesScope::new();
     let events = Arc::new(Mutex::new(Vec::new()));
     let device = Arc::new(Mutex::new(recording_audio(Arc::clone(&events))));
     let mut world = client(Arc::clone(&device));
@@ -1053,6 +1116,7 @@ fn live_ambient_retirement_preflights_unavailable_owner_and_retries() {
 
 #[test]
 fn drawable_xfer_restore_stops_and_restarts_only_on_receiving_world_audio() {
+    let _services = CommonServicesScope::new();
     let events_a = Arc::new(Mutex::new(Vec::new()));
     let events_b = Arc::new(Mutex::new(Vec::new()));
     let device_a = Arc::new(Mutex::new(recording_audio(Arc::clone(&events_a))));
@@ -1167,6 +1231,7 @@ fn drawable_xfer_restore_stops_and_restarts_only_on_receiving_world_audio() {
 
 #[test]
 fn drawable_load_post_process_applies_receiving_transform_without_audio_device() {
+    let _services = CommonServicesScope::new();
     let mut client =
         GameClient::new_with_input_authority(ClientInputAuthority::NativeHosted).unwrap();
     client.particle_systems_mut().finish_definition_admission();
@@ -1227,6 +1292,7 @@ fn drawable_load_post_process_applies_receiving_transform_without_audio_device()
 
 #[test]
 fn map_loading_suppresses_constructor_audio_without_tod_or_locality() {
+    let _services = CommonServicesScope::new();
     let device = Arc::new(Mutex::new(audio()));
     let mut client = client(Arc::clone(&device));
     let (mut content, plan) = admitted();
@@ -1264,6 +1330,7 @@ fn map_loading_suppresses_constructor_audio_without_tod_or_locality() {
 
 #[test]
 fn map_loading_owner_starts_at_level_start_and_retires_on_same_manager() {
+    let _services = CommonServicesScope::new();
     let events_a = Arc::new(Mutex::new(Vec::new()));
     let events_b = Arc::new(Mutex::new(Vec::new()));
     let device_a = Arc::new(Mutex::new(recording_audio(Arc::clone(&events_a))));
@@ -1367,6 +1434,7 @@ fn map_loading_owner_starts_at_level_start_and_retires_on_same_manager() {
 
 #[test]
 fn native_update_restarts_dropped_ambient_on_each_receiving_manager() {
+    let _services = CommonServicesScope::new();
     let events_a = Arc::new(Mutex::new(Vec::new()));
     let events_b = Arc::new(Mutex::new(Vec::new()));
     let device_a = Arc::new(Mutex::new(recording_audio_with_state(
@@ -1502,6 +1570,7 @@ fn native_update_restarts_dropped_ambient_on_each_receiving_manager() {
 
 #[test]
 fn public_tick_retry_keeps_queued_tod_when_receiving_context_changes() {
+    let _services = CommonServicesScope::new();
     let mut client =
         GameClient::new_with_input_authority(ClientInputAuthority::NativeHosted).unwrap();
     client.particle_systems_mut().finish_definition_admission();
@@ -1571,6 +1640,7 @@ fn public_tick_retry_keeps_queued_tod_when_receiving_context_changes() {
 
 #[test]
 fn compatibility_visual_can_be_admitted_without_an_ambient_template() {
+    let _services = CommonServicesScope::new();
     let device = Arc::new(Mutex::new(audio()));
     let mut client = client(Arc::clone(&device));
     let (_, plan) = admitted();
@@ -1592,6 +1662,7 @@ fn compatibility_visual_can_be_admitted_without_an_ambient_template() {
 
 #[test]
 fn native_xfer_restore_defers_constructor_audio_and_restarts_only_permanent_ambient() {
+    let _services = CommonServicesScope::new();
     let source_events = Arc::new(Mutex::new(Vec::new()));
     let source_device = Arc::new(Mutex::new(recording_audio(Arc::clone(&source_events))));
     register_one_shot(&mut source_device.lock().unwrap());
@@ -1709,6 +1780,7 @@ fn native_xfer_restore_defers_constructor_audio_and_restarts_only_permanent_ambi
 
 #[test]
 fn beacon_authored_admission_uses_receiving_logic_frame_and_xfer_restores_it() {
+    let _services = CommonServicesScope::new();
     use game_client_rust::drawable::BasicDrawable;
     use game_client_rust::drawable::BeaconClientUpdateModule;
 

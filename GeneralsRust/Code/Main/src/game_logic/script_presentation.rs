@@ -174,7 +174,7 @@ impl NativeAudioEffects for game_engine::common::audio::AudioManager {
         policy: &game_engine::common::audio::script_policy::ScriptAudioPolicy,
     ) -> Result<(), String> {
         game_client::fx_list::submit_sound_fx_with_policy(
-            name, position, player, self, locality, selection, policy,
+            name, position, player, self, None, locality, selection, policy,
         )
         .map(|_| ())
     }

@@ -1,8 +1,10 @@
+use game_engine::common::common_services::CommonServicesScope;
 use generals_main::game_logic::{GameLogic, Player, Team};
 use glam::Vec3;
 
 #[test]
 fn missing_session_death_fx_does_not_play_a_foreign_global_sound() {
+    let _services = CommonServicesScope::new();
     // Offer a same-named Sound list through the GameClient store accessor.
     // C++ FXListDie.cpp:41-70 only invokes its authored list; an absent
     // receiving list must never synthesize a sound from any other catalog.
@@ -42,6 +44,7 @@ fn missing_session_death_fx_does_not_play_a_foreign_global_sound() {
 
 #[test]
 fn authored_object_fx_delivers_each_owned_sound_in_order() {
+    let _services = CommonServicesScope::new();
     use game_client::display::view::View;
     use game_client::effects::particle_manager::ParticleSystemManager;
     use game_client::fx_list::{DisplayLightScene, FXListStore, FxExecution, FxInvocation};
@@ -93,10 +96,12 @@ fn authored_object_fx_delivers_each_owned_sound_in_order() {
     let mut scorches = TerrainScorchBuffer::new();
     let mut lights = DisplayLightScene::default();
     let mut ground = |_| Some(0.0);
+    let audio_instance = game_engine::common::audio::AudioInstance::default();
     let mut execution = FxExecution {
         catalog: &catalog,
         particles: &mut particles,
         audio: &mut audio,
+        audio_instance: &audio_instance,
         audio_locality: &Players,
         logic_random: &mut logic_random,
         audio_random: &mut audio_random,

@@ -5,6 +5,7 @@ use crate::display::view::View;
 use crate::effects::particle_manager::ParticleSystemManager;
 use crate::terrain::scorch_mesh::TerrainScorchBuffer;
 use game_engine::common::audio::audio_event_rts::AudioSelectionStreams;
+use game_engine::common::audio::AudioInstance;
 use game_engine::common::audio::game_audio::{
     AudioLocalityResolver, AudioManager, AudioSubmissionLocality,
 };
@@ -100,6 +101,7 @@ pub struct FxExecution<'a> {
     pub catalog: &'a FXListStore,
     pub particles: &'a mut ParticleSystemManager,
     pub audio: &'a mut AudioManager,
+    pub audio_instance: &'a AudioInstance,
     pub audio_locality: &'a dyn AudioLocalityResolver,
     pub logic_random: &'a mut RandomState,
     pub audio_random: &'a mut RandomState,
@@ -212,6 +214,7 @@ impl super::GameClientFxRuntime for BorrowedFxRuntime<'_, '_, '_> {
             input.primary.as_ref(),
             player,
             self.owner.audio,
+            self.owner.audio_instance,
             &locality,
             &mut selection,
         )

@@ -121,6 +121,8 @@ pub struct GameClient {
     /// retirement appends stops to this service's existing request queue.
     pub(crate) native_audio_device:
         Option<std::sync::Arc<std::sync::Mutex<game_engine::common::audio::AudioManager>>>,
+    /// Cue admission identity shared by the engine's receiving audio producers.
+    pub(crate) native_audio_instance: game_engine::common::audio::AudioInstance,
     /// Presentation companion for the driving GameLogic instance. Bound by
     /// the engine only when a world becomes active, never by construction.
     visual_world: Option<gamelogic::helpers::ClientVisualHandle>,

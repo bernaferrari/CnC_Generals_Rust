@@ -1,15 +1,15 @@
 //! Native owner binds the shared production menu-audio backend once.
 //! Canonical handles/retirement/selection policy live in GameClient's service.
 use game_client::gui::menu_audio::{CommonMenuAudio, CommonMenuAudioService};
-use game_engine::common::audio::{AudioManager, AudioSubmissionLocality};
+use game_engine::common::audio::{AudioInstance, AudioManager, AudioSubmissionLocality};
 use game_engine::common::random_value::RandomState;
 use std::sync::{Arc, Mutex};
 
 #[derive(Default)]
 pub(crate) struct NativeMenuAudioService(CommonMenuAudioService);
 impl NativeMenuAudioService {
-    pub(super) fn bind(&mut self, device: Arc<Mutex<AudioManager>>) {
-        self.0.bind(device);
+    pub(super) fn bind_instance(&mut self, device: Arc<Mutex<AudioManager>>, instance: AudioInstance) {
+        self.0.bind_instance(device, instance);
     }
     pub(super) fn require_bound(&self) -> Result<(), String> {
         self.0.require_bound()

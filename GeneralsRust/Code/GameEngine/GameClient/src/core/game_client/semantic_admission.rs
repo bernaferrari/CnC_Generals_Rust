@@ -67,6 +67,7 @@ pub struct NativeDrawableOwner<'a> {
     particles: &'a mut crate::effects::particle_manager::ParticleSystemManager,
     audio_device:
         Option<&'a std::sync::Arc<std::sync::Mutex<game_engine::common::audio::AudioManager>>>,
+    audio_instance: Option<&'a game_engine::common::audio::AudioInstance>,
 }
 impl NativeDrawableWorld {
     pub fn borrow_native(&mut self) -> NativeDrawableOwner<'_> {
@@ -78,6 +79,7 @@ impl NativeDrawableWorld {
                 .as_mut()
                 .expect("NativeDrawableWorld particle manager"),
             audio_device: None,
+            audio_instance: None,
         }
     }
 
@@ -88,9 +90,11 @@ impl NativeDrawableWorld {
         audio_device: Option<
             &'a std::sync::Arc<std::sync::Mutex<game_engine::common::audio::AudioManager>>,
         >,
+        audio_instance: Option<&'a game_engine::common::audio::AudioInstance>,
     ) -> NativeDrawableOwner<'a> {
         let mut owner = self.borrow_native();
         owner.audio_device = audio_device;
+        owner.audio_instance = audio_instance;
         owner
     }
 }
@@ -98,9 +102,10 @@ impl GameClient {
     /// Borrow this client's actual DrawableWorld for one synchronous native
     /// presentation operation.
     pub fn borrow_native_drawable_owner(&mut self) -> NativeDrawableOwner<'_> {
-        let mut owner = self.drawables.borrow_native();
-        owner.audio_device = self.native_audio_device.as_ref();
-        owner
+        self.drawables.borrow_native_with_audio(
+            self.native_audio_device.as_ref(),
+            Some(&self.native_audio_instance),
+        )
     }
 }
 /// Signed Drawable color operations authored by a logic update.
@@ -186,6 +191,7 @@ impl NativeDrawableOwner<'_> {
             drawables: &mut *self.drawables,
             particles: &mut *self.particles,
             audio_device: self.audio_device,
+            audio_instance: self.audio_instance,
         }
     }
     pub fn particle_systems(&self) -> &crate::effects::particle_manager::ParticleSystemManager {
@@ -649,7 +655,7 @@ impl NativeDrawableOwner<'_> {
         let audio = if loading_map {
             None
         } else {
-            Some(audio.ok_or_else(|| {
+            Some(audio.zip(self.audio_instance).ok_or_else(|| {
                 GameClientError::InvalidOperation(
                     "native Body ambient transition requires its captured audio service".into(),
                 )
@@ -657,9 +663,9 @@ impl NativeDrawableOwner<'_> {
         };
         // Flags may invoke Draw modules. No AudioManager guard spans that walk.
         receiver.react_to_body_damage_state_change(state);
-        if let Some(audio) = audio {
+        if let Some((audio, instance)) = audio {
             audio
-                .restart_ambient(receiver, state, time_of_day, locality, policy)
+                .restart_ambient(receiver, state, time_of_day, instance, locality, policy)
                 .map_err(GameClientError::InvalidOperation)?;
         }
         Ok(())
@@ -807,7 +813,9 @@ impl NativeDrawableOwner<'_> {
                         // C++ suppresses constructor ambient audio for map and
                         // save/load construction. Do not acquire an owner or
                         // require presentation-only TOD/locality in this phase.
-                    } else if let Some(audio_device) = self.audio_device {
+                    } else if let Some((audio_device, instance)) =
+                        self.audio_device.zip(self.audio_instance)
+                    {
                         let tod = receiving_tod.ok_or_else(|| {
                             GameClientError::InvalidOperation(
                                 "bound receiving audio requires Drawable time of day".into(),
@@ -829,6 +837,7 @@ impl NativeDrawableOwner<'_> {
                                 birth.in_load_game,
                                 tod,
                                 &mut audio,
+                                instance,
                                 locality,
                             )
                             .map_err(GameClientError::InvalidOperation)?;
@@ -854,7 +863,9 @@ impl NativeDrawableOwner<'_> {
                         // A compatibility visual has no receiving template
                         // from which to select ambient audio. It can still be
                         // drawn, but must not discover another world's audio.
-                    } else if let Some(audio_device) = self.audio_device {
+                    } else if let Some((audio_device, instance)) =
+                        self.audio_device.zip(self.audio_instance)
+                    {
                         let tod = receiving_tod.ok_or_else(|| {
                             GameClientError::InvalidOperation(
                                 "bound receiving audio requires Drawable time of day".into(),
@@ -873,7 +884,7 @@ impl NativeDrawableOwner<'_> {
                         })?;
                         drawable
                             .start_ambient_sound_current_state_with_audio(
-                                false, tod, &mut audio, locality,
+                                false, tod, &mut audio, instance, locality,
                             )
                             .map_err(GameClientError::InvalidOperation)?;
                     } else if let Some(tod) = receiving_tod {
@@ -1075,8 +1086,8 @@ mod semantic_admission_tests {
             audio
         }));
         let mut world = NativeDrawableWorld::new();
-        let mut owner = world.borrow_native();
-        owner.audio_device = Some(&device);
+        let instance = game_engine::common::audio::AudioInstance::default();
+        let mut owner = world.borrow_native_with_audio(Some(&device), Some(&instance));
         let key = owner
             .admit_semantic_drawable_with_content(
                 entry(52, plan),
@@ -1510,6 +1521,7 @@ mod semantic_admission_tests {
                 drawable: &mut BasicDrawable,
                 state: BodyDamageType,
                 tod: TimeOfDay,
+                _: &game_engine::common::audio::AudioInstance,
                 _: &AudioSubmissionLocality,
                 _policy: &game_engine::common::audio::script_policy::ScriptAudioPolicy,
             ) -> Result<(), String> {

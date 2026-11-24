@@ -552,7 +552,10 @@ impl BasicDrawable {
         &mut self,
         time_of_day: Option<TimeOfDay>,
         locality: &game_engine::common::audio::AudioSubmissionLocality,
-        mut audio: Option<&mut game_engine::common::audio::AudioManager>,
+        audio: Option<(
+            &mut game_engine::common::audio::AudioManager,
+            &game_engine::common::audio::AudioInstance,
+        )>,
         receiving_object_transform: Option<glam::Mat4>,
     ) -> Result<(), String> {
         // C++ Drawable.cpp:5400-5403 restores the receiving Object matrix
@@ -572,9 +575,11 @@ impl BasicDrawable {
             self.base_transform = rotation;
         }
 
-        if let (Some(tod), Some(audio)) = (time_of_day, audio.as_deref_mut()) {
+        if let (Some(tod), Some((audio, instance))) = (time_of_day, audio) {
             if self.ambient_sound_enabled && self.ambient_sound_enabled_from_script {
-                self.start_ambient_sound_current_state_with_audio(true, tod, audio, locality)?;
+                self.start_ambient_sound_current_state_with_audio(
+                    true, tod, audio, instance, locality,
+                )?;
             } else {
                 self.stop_ambient_sound_with_audio(audio);
             }

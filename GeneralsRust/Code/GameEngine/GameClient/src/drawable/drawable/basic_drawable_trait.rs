@@ -409,7 +409,10 @@ impl Drawable for BasicDrawable {
         &mut self,
         time_of_day: Option<crate::system::TimeOfDay>,
         locality: &game_engine::common::audio::AudioSubmissionLocality,
-        audio: Option<&mut game_engine::common::audio::AudioManager>,
+        audio: Option<(
+            &mut game_engine::common::audio::AudioManager,
+            &game_engine::common::audio::AudioInstance,
+        )>,
         receiving_object_transform: Option<glam::Mat4>,
     ) -> Result<(), String> {
         BasicDrawable::load_post_process_with_audio(

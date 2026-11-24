@@ -267,8 +267,10 @@ impl GameClient {
         &mut crate::snow::SnowManager,
         NativeDrawableOwner<'_>,
     ) {
-        let mut drawable_owner = self.drawables.borrow_native();
-        drawable_owner.audio_device = self.native_audio_device.as_ref();
+        let drawable_owner = self.drawables.borrow_native_with_audio(
+            self.native_audio_device.as_ref(),
+            Some(&self.native_audio_instance),
+        );
         (
             ClientFrameWriter {
                 frame: &mut self.frame,
@@ -285,8 +287,10 @@ impl GameClient {
         NativeDrawableOwner<'_>,
         &mut crate::gui::campaign_manager::CampaignManager,
     ) {
-        let mut drawable_owner = self.drawables.borrow_native();
-        drawable_owner.audio_device = self.native_audio_device.as_ref();
+        let drawable_owner = self.drawables.borrow_native_with_audio(
+            self.native_audio_device.as_ref(),
+            Some(&self.native_audio_instance),
+        );
         (
             ClientFrameWriter {
                 frame: &mut self.frame,
@@ -305,8 +309,10 @@ impl GameClient {
         &mut crate::gui::campaign_manager::CampaignManager,
         &mut crate::gui::command_hints::CommandHintState,
     ) {
-        let mut drawable_owner = self.drawables.borrow_native();
-        drawable_owner.audio_device = self.native_audio_device.as_ref();
+        let drawable_owner = self.drawables.borrow_native_with_audio(
+            self.native_audio_device.as_ref(),
+            Some(&self.native_audio_instance),
+        );
         (
             ClientFrameWriter {
                 frame: &mut self.frame,
@@ -333,8 +339,10 @@ impl GameClient {
         &'a std::sync::RwLock<crate::game_text::GameText>,
     ) {
         let client_frame = self.frame;
-        let mut drawable_owner = self.drawables.borrow_native();
-        drawable_owner.audio_device = self.native_audio_device.as_ref();
+        let drawable_owner = self.drawables.borrow_native_with_audio(
+            self.native_audio_device.as_ref(),
+            Some(&self.native_audio_instance),
+        );
         self.script_display
             .bind(self.subsystem_manager.display.as_ref());
         let text = self.game_text_store.get_or_insert_with(|| {

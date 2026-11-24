@@ -402,9 +402,14 @@ impl CnCGameEngine {
             audio.bind_common_audio_device(std::sync::Arc::clone(&native_audio_device));
         }
         #[cfg(feature = "game_client")]
+        let audio_instance = subsystem_manager
+            .get::<AudioManagerSubsystem>()
+            .map(|audio| audio.audio_instance().clone())
+            .unwrap_or_default();
+        #[cfg(feature = "game_client")]
         let menu_audio = {
             let mut owner = super::menu_audio::NativeMenuAudioService::default();
-            owner.bind(std::sync::Arc::clone(&native_audio_device));
+            owner.bind_instance(std::sync::Arc::clone(&native_audio_device), audio_instance.clone());
             owner
         };
         // C++ Eva::init loads these definitions before they are used. Each
@@ -1064,7 +1069,10 @@ impl CnCGameEngine {
                         game_client::core::game_client::ClientInputAuthority::NativeHosted,
                     )
                     .map_err(|e| anyhow::anyhow!("Failed to create GameClient: {e}"))?;
-                client.bind_native_audio_device(std::sync::Arc::clone(&native_audio_device));
+                client.bind_native_audio_instance(
+                    std::sync::Arc::clone(&native_audio_device),
+                    audio_instance,
+                );
                 client
             },
             #[cfg(feature = "game_client")]

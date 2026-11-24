@@ -390,6 +390,7 @@ impl GameClient {
                     local_player_id,
                     self.input_authority,
                     ambient,
+                    &self.native_audio_instance,
                 )
                 .tick_mapped_drawables_with_particles(
                     frames,

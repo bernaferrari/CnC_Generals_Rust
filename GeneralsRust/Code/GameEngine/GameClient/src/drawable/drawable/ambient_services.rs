@@ -3,7 +3,7 @@
 use super::basic_core::ambient_sound_is_in_range;
 use super::*;
 use crate::system::TimeOfDay;
-use game_engine::common::audio::{AudioManager, AudioSubmissionLocality};
+use game_engine::common::audio::{AudioInstance, AudioManager, AudioSubmissionLocality};
 use gamelogic::common::types::BodyDamageType;
 
 /// Synchronous receiving audio facts for the end of one native Drawable
@@ -29,6 +29,7 @@ impl<'a> NativeAmbientUpdate<'a> {
         &mut self,
         drawable: &mut BasicDrawable,
         audio_device: Option<&std::sync::Arc<std::sync::Mutex<AudioManager>>>,
+        instance: &AudioInstance,
     ) -> Result<(), String> {
         use game_engine::common::bit_flags::{ModelConditionFlags, create_model_condition_flags};
 
@@ -148,6 +149,7 @@ impl<'a> NativeAmbientUpdate<'a> {
                 time_of_day,
                 false,
                 &mut audio,
+                instance,
                 &locality,
             );
             apply_pending_model_tod(drawable);
@@ -175,6 +177,7 @@ impl<'a> NativeAmbientUpdate<'a> {
                     time_of_day,
                     true,
                     &mut audio,
+                    instance,
                     &locality,
                 )?;
                 apply_pending_model_tod(drawable);
@@ -201,6 +204,7 @@ impl<'a> NativeAmbientUpdate<'a> {
                 time_of_day,
                 false,
                 &mut audio,
+                instance,
                 &locality,
             );
             apply_pending_model_tod(drawable);
@@ -227,6 +231,7 @@ impl<'a> NativeAmbientUpdate<'a> {
                 time_of_day,
                 false,
                 &mut audio,
+                instance,
                 &locality,
             )?;
         }
@@ -245,6 +250,7 @@ pub trait NativeAmbientAudio {
         drawable: &mut BasicDrawable,
         state: BodyDamageType,
         time_of_day: TimeOfDay,
+        instance: &AudioInstance,
         locality: &AudioSubmissionLocality,
         policy: &game_engine::common::audio::script_policy::ScriptAudioPolicy,
     ) -> Result<(), String>;
@@ -255,6 +261,7 @@ impl NativeAmbientAudio for AudioManager {
         drawable: &mut BasicDrawable,
         state: BodyDamageType,
         time_of_day: TimeOfDay,
+        instance: &AudioInstance,
         locality: &AudioSubmissionLocality,
         policy: &game_engine::common::audio::script_policy::ScriptAudioPolicy,
     ) -> Result<(), String> {
@@ -263,6 +270,7 @@ impl NativeAmbientAudio for AudioManager {
             time_of_day,
             false,
             self,
+            instance,
             locality,
             Some(policy),
         )
@@ -300,6 +308,7 @@ impl BasicDrawable {
         time_of_day: TimeOfDay,
         only_if_permanent: bool,
         audio: &mut AudioManager,
+        instance: &AudioInstance,
         locality: &AudioSubmissionLocality,
     ) -> Result<(), String> {
         self.start_ambient_sound_for_state_with_audio_policy(
@@ -307,6 +316,7 @@ impl BasicDrawable {
             time_of_day,
             only_if_permanent,
             audio,
+            instance,
             locality,
             None,
         )
@@ -317,6 +327,7 @@ impl BasicDrawable {
         time_of_day: TimeOfDay,
         only_if_permanent: bool,
         audio: &mut AudioManager,
+        instance: &AudioInstance,
         locality: &AudioSubmissionLocality,
         policy: Option<&game_engine::common::audio::script_policy::ScriptAudioPolicy>,
     ) -> Result<(), String> {
@@ -397,6 +408,7 @@ impl BasicDrawable {
                 }
                 TimeOfDay::Night => game_engine::common::audio::audio_event_rts::TimeOfDay::Night,
             });
+            event.admit_instance(instance);
             if let Some(policy) = policy {
                 event.admit_script_policy(policy);
             }
@@ -415,6 +427,7 @@ impl BasicDrawable {
         loading_map: bool,
         time_of_day: TimeOfDay,
         audio: &mut AudioManager,
+        instance: &AudioInstance,
         locality: &AudioSubmissionLocality,
     ) -> Result<(), String> {
         if self.receiving_template.is_none() {
@@ -427,6 +440,7 @@ impl BasicDrawable {
                 time_of_day,
                 false,
                 audio,
+                instance,
                 locality,
             )?;
         }
@@ -440,10 +454,17 @@ impl BasicDrawable {
         in_load_game: bool,
         time_of_day: TimeOfDay,
         audio: &mut AudioManager,
+        instance: &AudioInstance,
         locality: &AudioSubmissionLocality,
     ) -> Result<(), String> {
         if !loading_map && !in_load_game {
-            self.start_ambient_sound_current_state_with_audio(false, time_of_day, audio, locality)?;
+            self.start_ambient_sound_current_state_with_audio(
+                false,
+                time_of_day,
+                audio,
+                instance,
+                locality,
+            )?;
         }
         Ok(())
     }

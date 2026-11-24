@@ -205,6 +205,7 @@ pub fn play_sound_through_the_audio_at(
 /// Attached spatial tracking remains the independent hq-4gta5s boundary.
 pub(crate) fn play_admitted_sound_at(
     manager: &mut game_engine::common::audio::AudioManager,
+    instance: &game_engine::common::audio::AudioInstance,
     event_name: &str,
     position_host_yup: Option<(f32, f32, f32)>,
     object_id: Option<u32>,
@@ -214,6 +215,7 @@ pub(crate) fn play_admitted_sound_at(
     selection: &mut dyn game_engine::common::audio::audio_event_rts::AudioEventSelection,
 ) -> Option<u32> {
     let mut event = game_engine::common::audio::AudioEventRts::new();
+    event.admit_instance(instance);
     event.set_event_name(event_name.to_owned());
     if let Some(player) = player_index {
         event.set_player_index(player);

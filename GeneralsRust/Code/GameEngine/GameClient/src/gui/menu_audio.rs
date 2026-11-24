@@ -47,8 +47,8 @@ pub trait MenuAudioEffects {
     fn stop(&mut self, handle: MenuAudioHandle) -> MenuAudioStop;
     fn pump(&mut self);
     fn fade_out_music(&mut self);
-    /// C++ `TheAudio->removeAudioEvent(AHSV_StopTheMusicFade)`: fade every
-    /// playing music track on this client's device, not only menu-owned ones.
+    /// C++ `TheAudio->removeAudioEvent(AHSV_StopTheMusicFade)`: fade the
+    /// receiving instance's music, including tracks submitted outside the menu.
     fn stop_the_music_fade(&mut self);
     /// C++ `TheAudio->setVolume(volume, affect | AudioAffect_SystemSetting)`
     /// on this client's device.
@@ -85,7 +85,9 @@ impl MenuAudioEffects for SilentMenuAudio {
 
 use game_engine::common::audio::audio_event_rts::{AudioEventSelection, Coord3D};
 use game_engine::common::audio::game_audio::AudioViewObservation;
-use game_engine::common::audio::{AudioEventRts, AudioManager, AudioSubmissionLocality};
+use game_engine::common::audio::{
+    AudioEventRts, AudioInstance, AudioManager, AudioSubmissionLocality,
+};
 use game_engine::common::random_value::RandomState;
 use std::sync::Mutex;
 
@@ -98,16 +100,23 @@ pub trait MenuAudioView {
 #[derive(Default)]
 pub struct CommonMenuAudioService {
     device: Option<Arc<Mutex<AudioManager>>>,
+    instance: AudioInstance,
     lifetime: MenuAudioLifetime,
     handles: Vec<u32>,
 }
 impl CommonMenuAudioService {
     pub fn bind(&mut self, device: Arc<Mutex<AudioManager>>) {
+        self.bind_instance(device, self.instance.clone());
+    }
+
+    /// Share cue admission with the other producers in the receiving engine.
+    pub fn bind_instance(&mut self, device: Arc<Mutex<AudioManager>>, instance: AudioInstance) {
         assert!(
             self.device.is_none(),
             "menu audio binds only at explicit native init"
         );
         self.device = Some(device);
+        self.instance = instance;
     }
     pub fn require_bound(&self) -> Result<(), String> {
         self.device
@@ -186,6 +195,7 @@ impl<V: MenuAudioView> CommonMenuAudio<'_, V> {
         let mut event = AudioEventRts::new();
         event.set_event_name(name.to_owned());
         event.set_should_fade(fade);
+        event.admit_instance(&self.service.instance);
         // No logical flag: C++ menu audio is presentation, never a gameplay draw.
         let handle = self
             .service
@@ -270,7 +280,7 @@ impl<V: MenuAudioView> MenuAudioEffects for CommonMenuAudio<'_, V> {
             .expect("bound menu audio service")
             .lock()
             .expect("receiving menu audio device poisoned")
-            .remove_audio_event(game_engine::common::audio::game_audio::AHSV_STOP_THE_MUSIC_FADE);
+            .fade_music_for_instance(&self.service.instance);
     }
     fn set_system_volume(&mut self, volume: f32, affect: game_engine::common::audio::AudioAffect) {
         self.service

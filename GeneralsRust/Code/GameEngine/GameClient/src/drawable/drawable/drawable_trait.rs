@@ -268,7 +268,10 @@ pub trait Drawable: std::fmt::Debug + Send + Sync + DrawableDowncast {
         &mut self,
         _time_of_day: Option<TimeOfDay>,
         _locality: &game_engine::common::audio::AudioSubmissionLocality,
-        _audio: Option<&mut game_engine::common::audio::AudioManager>,
+        _audio: Option<(
+            &mut game_engine::common::audio::AudioManager,
+            &game_engine::common::audio::AudioInstance,
+        )>,
         _receiving_object_transform: Option<glam::Mat4>,
     ) -> Result<(), String> {
         Ok(())

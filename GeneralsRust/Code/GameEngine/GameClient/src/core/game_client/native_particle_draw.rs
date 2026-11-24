@@ -513,7 +513,11 @@ impl NativeDrawableOwner<'_> {
                 })?;
             let locality = locality_for_object(basic.object_id());
             basic
-                .on_level_start_with_audio_at(tod, audio.as_deref_mut(), &locality)
+                .on_level_start_with_audio_at(
+                    tod,
+                    audio.as_deref_mut().zip(self.audio_instance),
+                    &locality,
+                )
                 .map_err(GameClientError::InvalidOperation)?;
         }
         Ok(())

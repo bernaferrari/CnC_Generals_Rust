@@ -237,9 +237,7 @@ impl CnCGameEngine {
                 self.current_player_id,
                 policy,
                 &mut retirement,
-                self.subsystem_manager
-                    .get::<crate::subsystem_manager::AudioManagerSubsystem>()
-                    .and_then(|audio| audio.receiving_audio_device()),
+                super::map_native_admission::receiving_candidate_audio(&self.subsystem_manager),
             )?
             .with_pristine_bones(self.application_assets.as_ref());
         world
@@ -3184,9 +3182,7 @@ impl CnCGameEngine {
                     self.current_player_id,
                     policy,
                     &mut retirement,
-                    self.subsystem_manager
-                        .get::<crate::subsystem_manager::AudioManagerSubsystem>()
-                        .and_then(|audio| audio.receiving_audio_device()),
+                    super::map_native_admission::receiving_candidate_audio(&self.subsystem_manager),
                 )?
                 .with_pristine_bones(self.application_assets.as_ref());
             let result = Self::stage_saved_world_for_restore_with_native(

@@ -543,6 +543,7 @@ pub struct AudioManagerSubsystem {
     /// Explicit app device capability, bound once; receipts remain per world.
     common_audio_device:
         Option<std::sync::Arc<std::sync::Mutex<game_engine::common::audio::AudioManager>>>,
+    audio_instance: game_engine::common::audio::AudioInstance,
     common_audio_handles: Vec<u32>,
 }
 
@@ -563,6 +564,7 @@ impl AudioManagerSubsystem {
             looping_object_audio: HashMap::new(),
             sound_effects_table: None,
             common_audio_device: None,
+            audio_instance: game_engine::common::audio::AudioInstance::default(),
             common_audio_handles: Vec::new(),
         }
     }
@@ -594,16 +596,21 @@ impl AudioManagerSubsystem {
         &mut self,
     ) -> Option<(
         &std::sync::Arc<std::sync::Mutex<game_engine::common::audio::AudioManager>>,
+        &game_engine::common::audio::AudioInstance,
         &mut Vec<u32>,
         &mut Vec<crate::game_logic::audio_dispatch_impl::AdmittedAudioRequest>,
     )> {
         self.common_audio_device.as_ref().map(|device| {
             (
                 device,
+                &self.audio_instance,
                 &mut self.common_audio_handles,
                 &mut self.queued_events,
             )
         })
+    }
+    pub(crate) fn audio_instance(&self) -> &game_engine::common::audio::AudioInstance {
+        &self.audio_instance
     }
     pub(crate) fn receiving_audio_device(
         &self,
@@ -810,6 +817,7 @@ impl AudioManagerSubsystem {
                                 .unwrap_or_else(|poisoned| poisoned.into_inner());
                             crate::assets::audio::play_admitted_sound_at(
                                 &mut manager,
+                                &self.audio_instance,
                                 event.event_type.as_str(),
                                 position,
                                 event.object_id.map(|id| id.0),
@@ -2704,6 +2712,52 @@ mod tests {
         assert_eq!(requests.len(), 1);
         assert_eq!(requests[0].object_id, Some(crate::game_logic::ObjectId(41)));
         assert_eq!(requests[0].event_type, "AuthoredWorldA");
+    }
+
+    #[test]
+    fn native_semantic_audio_limit_is_shared_with_direct_cues_only_inside_one_receiver() {
+        use crate::cnc_game_engine::native_audio_effects::NativeAudioService;
+        use crate::game_logic::{AudioEventRequest, NativeAudioEffects};
+        use game_engine::common::audio::{AudioEventInfo, AudioEventRts, AudioManager, AudioType};
+        use std::sync::{Arc, Mutex};
+
+        let mut audio = AudioManager::new();
+        audio.init();
+        audio.register_audio_event_info(AudioEventInfo {
+            audio_name: "SharedSemanticCue".into(),
+            sound_type: AudioType::SoundEffect,
+            volume: 1.0,
+            limit: 1,
+            ..Default::default()
+        });
+        let device = Arc::new(Mutex::new(audio));
+        let session = || {
+            let mut owner = AudioManagerSubsystem::new();
+            owner.bind_common_audio_device(Arc::clone(&device));
+            let mut manager = SubsystemManager::new();
+            manager.add_subsystem(owner);
+            manager
+        };
+        let mut first = session();
+        let mut second = session();
+        let mut request = AudioEventRequest::new("SharedSemanticCue");
+        request.script_audio_policy = Some(Default::default());
+        let left = first.get_mut::<AudioManagerSubsystem>().unwrap();
+        left.queue_event(request);
+        left.update_receiving_audio(None, &mut Default::default()).unwrap();
+        let left_handle = left.common_audio_handles[0];
+
+        let cue = AudioEventRts::with_event_name("SharedSemanticCue");
+        let locality = crate::game_logic::audio_dispatch_impl::receiving_submission_locality(-1, None);
+        NativeAudioService::receiving(&mut first).unwrap().add_audio_event(&cue, &locality);
+        NativeAudioService::receiving(&mut second).unwrap().add_audio_event(&cue, &locality);
+        device.lock().unwrap().process_request_list();
+        assert_eq!(device.lock().unwrap().active_event_count(), 2);
+
+        second.get_mut::<AudioManagerSubsystem>().unwrap().reset().unwrap();
+        let audio = device.lock().unwrap();
+        assert_eq!(audio.active_event_count(), 1);
+        assert!(audio.contains_audio_handle(left_handle));
     }
 
     #[test]

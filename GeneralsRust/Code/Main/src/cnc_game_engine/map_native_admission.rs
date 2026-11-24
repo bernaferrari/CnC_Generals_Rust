@@ -1,6 +1,23 @@
 //! CPU native map state owned by one detached admission operation.
 use super::*;
 
+#[cfg(feature = "game_client")]
+use game_engine::common::audio::{AudioInstance, AudioManager};
+
+#[cfg(feature = "game_client")]
+pub(super) type CandidateAudioService<'a> = (
+    std::sync::Arc<std::sync::Mutex<AudioManager>>,
+    &'a AudioInstance,
+);
+
+#[cfg(feature = "game_client")]
+pub(super) fn receiving_candidate_audio(
+    subsystems: &crate::subsystem_manager::SubsystemManager,
+) -> Option<CandidateAudioService<'_>> {
+    let audio = subsystems.get::<crate::subsystem_manager::AudioManagerSubsystem>()?;
+    Some((audio.receiving_audio_device()?, audio.audio_instance()))
+}
+
 #[derive(Clone, Copy, Default)]
 enum CandidateRetirement {
     #[default]
@@ -16,6 +33,8 @@ pub(crate) struct NativeMapCandidate {
     #[cfg(feature = "game_client")]
     audio_device:
         Option<std::sync::Arc<std::sync::Mutex<game_engine::common::audio::AudioManager>>>,
+    #[cfg(feature = "game_client")]
+    audio_instance: Option<AudioInstance>,
     #[cfg(feature = "game_client")]
     drawables: game_client::core::game_client::NativeDrawableWorld,
     draw: crate::graphics::render_pipeline::native_draw_world::NativeDrawWorld,
@@ -131,7 +150,7 @@ impl NativeMapCandidate {
 impl crate::game_logic::NativeMapAdmission for NativeMapCandidate {
     fn discard_attempt(&mut self) -> Result<(), String> {
         self.drawables
-            .borrow_native_with_audio(self.audio_device.as_ref())
+            .borrow_native_with_audio(self.audio_device.as_ref(), self.audio_instance.as_ref())
             .try_clear_for_map_attempt(None)
             .map_err(|error| error.to_string())?;
         self.draw = Default::default();
@@ -149,7 +168,7 @@ impl crate::game_logic::NativeMapAdmission for NativeMapCandidate {
             return Err("saved object Drawables require the lexical native map attempt".into());
         }
         self.drawables
-            .borrow_native_with_audio(self.audio_device.as_ref())
+            .borrow_native_with_audio(self.audio_device.as_ref(), self.audio_instance.as_ref())
             .try_clear_for_map_attempt(None)
             .map_err(|error| error.to_string())?;
         self.draw = Default::default();
@@ -160,7 +179,7 @@ impl crate::game_logic::NativeMapAdmission for NativeMapCandidate {
             .time_of_day
             .ok_or_else(|| "native candidate requires receiving time of day".to_owned())?;
         self.drawables
-            .borrow_native_with_audio(self.audio_device.as_ref())
+            .borrow_native_with_audio(self.audio_device.as_ref(), self.audio_instance.as_ref())
             .on_level_start_with_audio_at(tod, |object_id| {
                 let source = object_id
                     .and_then(|id| world.host_object(crate::game_logic::ObjectId(id)))
@@ -382,21 +401,21 @@ impl NativeMapCandidate {
         local_player_id: u32,
         policy: game_client::core::game_client::ReceivingDrawablePolicy,
         retirement: &'a mut dyn game_client::core::game_client::NativeDrawableRetirement,
-        audio_device: Option<
-            std::sync::Arc<std::sync::Mutex<game_engine::common::audio::AudioManager>>,
-        >,
+        audio_service: Option<CandidateAudioService<'_>>,
     ) -> Result<NativeMapAttempt<'a>, String> {
         let epoch = self
             .epoch
             .ok_or("map birth requires a reserved candidate epoch")?;
-        self.audio.capture_sound_service(audio_device.clone());
-        self.audio_device = audio_device;
+        let (device, instance) = audio_service.unzip();
+        self.audio.capture_sound_service(device.clone());
+        self.audio_device = device;
+        self.audio_instance = instance.cloned();
         let poses = services.bind_world(&mut self.draw);
         let view = super::native_view_effects::NativeRendererViewEffects::new(
             poses,
             graphics,
             self.drawables
-                .borrow_native_with_audio(self.audio_device.as_ref()),
+                .borrow_native_with_audio(self.audio_device.as_ref(), self.audio_instance.as_ref()),
             epoch,
             local_player_id,
             policy,

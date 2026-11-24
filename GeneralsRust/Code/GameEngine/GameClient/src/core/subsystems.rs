@@ -32,6 +32,7 @@ use crate::{
 };
 use game_engine::System::XferVersion;
 use game_engine::common::ascii_string::AsciiString;
+use game_engine::common::audio::{AudioInstance, AudioManager};
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::{Snapshot as XferSnapshotTrait, Xfer, XferMode, XferStatus};
 use gamelogic::commands::command::CommandType;
@@ -2122,8 +2123,11 @@ pub enum RadarPingKind {
 pub struct AudioSubsystem {
     debug_state: AudioDebugState,
     /// Application service belonging to this receiving GameClient.
-    common_audio_device:
-        Option<std::sync::Arc<std::sync::Mutex<game_engine::common::audio::AudioManager>>>,
+    common_audio_device: Option<Arc<Mutex<AudioManager>>>,
+    instance: AudioInstance,
+    // A client-only reset retires these submissions without stopping other
+    // producers that share the same admission scope.
+    direct_handles: Vec<u32>,
 }
 
 impl AudioSubsystem {
@@ -2131,14 +2135,38 @@ impl AudioSubsystem {
         Ok(Self {
             debug_state: AudioDebugState::new(),
             common_audio_device: None,
+            instance: AudioInstance::default(),
+            direct_handles: Vec::new(),
         })
     }
 
-    pub fn bind_common_audio_device(
+    pub fn bind_common_audio_device(&mut self, device: Arc<Mutex<AudioManager>>) {
+        self.bind_common_audio_instance(device, AudioInstance::default());
+    }
+
+    pub(crate) fn bind_common_audio_instance(
         &mut self,
-        device: std::sync::Arc<std::sync::Mutex<game_engine::common::audio::AudioManager>>,
+        device: Arc<Mutex<AudioManager>>,
+        instance: AudioInstance,
     ) {
+        self.retire_direct_audio();
         self.common_audio_device = Some(device);
+        self.instance = instance;
+    }
+
+    fn retire_direct_audio(&mut self) {
+        if self.direct_handles.is_empty() {
+            return;
+        }
+        if let Some(device) = &self.common_audio_device {
+            let mut device = device
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            self.direct_handles
+                .retain(|handle| device.contains_audio_handle(*handle));
+            device.retire_audio_handles(&self.direct_handles);
+        }
+        self.direct_handles.clear();
     }
 
     pub fn debug_snapshot(&self) -> AudioDebugSnapshot {
@@ -2171,6 +2199,7 @@ impl SubsystemInterface for AudioSubsystem {
     }
 
     fn reset(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+        self.retire_direct_audio();
         Ok(())
     }
 
@@ -2188,6 +2217,12 @@ impl SubsystemInterface for AudioSubsystem {
     }
 }
 
+impl Drop for AudioSubsystem {
+    fn drop(&mut self) {
+        self.retire_direct_audio();
+    }
+}
+
 impl crate::audio::GameAudio for AudioSubsystem {
     fn play_event(
         &mut self,
@@ -2202,6 +2237,7 @@ impl crate::audio::GameAudio for AudioSubsystem {
         };
         let mut audio_event =
             game_engine::common::audio::AudioEventRts::with_event_name(translated);
+        audio_event.admit_instance(&self.instance);
         if let Some(pos) = position.as_ref() {
             audio_event.set_position(&game_engine::common::audio::Coord3D {
                 x: pos.x,
@@ -2215,7 +2251,12 @@ impl crate::audio::GameAudio for AudioSubsystem {
                 "receiving Common AudioManager lock poisoned",
             )
         })?;
-        audio.add_audio_event(&audio_event);
+        self.direct_handles
+            .retain(|handle| audio.contains_audio_handle(*handle));
+        let handle = audio.add_audio_event(&audio_event);
+        if (1000..0xFFFF_FFF0).contains(&handle) {
+            self.direct_handles.push(handle);
+        }
 
         Ok(())
     }

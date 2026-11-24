@@ -167,7 +167,8 @@ fn scripted_music_completion_uses_receiving_device_receipts_and_reset() {
         device.lock().unwrap().test_insert_active_audio_event(event);
         let mut subsystem = AudioManagerSubsystem::new();
         subsystem.bind_common_audio_device(Arc::clone(&device));
-        subsystem.receiving_audio_parts().unwrap().1.push(handle);
+        let (_, _, receipts, _) = subsystem.receiving_audio_parts().unwrap();
+        receipts.push(handle);
         owner.add_subsystem(subsystem);
     }
     let mut worlds = [GameLogic::new(), GameLogic::new()];

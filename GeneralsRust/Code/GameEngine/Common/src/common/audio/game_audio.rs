@@ -43,7 +43,7 @@ use crate::common::audio::{
     audio_cache::AudioFileCache,
     audio_event_rts::{
         miles_event_world_position, miles_get_effective_volume, miles_positional_gain,
-        miles_positional_ranges, AudioEventInfo, AudioEventRts, AudioHandle, AudioPriority,
+        miles_positional_ranges, AudioEventInfo, AudioEventRts, AudioHandle, AudioInstance, AudioPriority,
         AudioType, Coord3D, MilesVolumeSliders, ObjectId, PortionToPlay, AC_INTERRUPT, AC_LOOP,
         ST_GLOBAL,
     },
@@ -201,6 +201,7 @@ impl AudioSubmissionLocality {
 enum AudioSubmission<'a> {
     Ambient(Option<Int>),
     Explicit(&'a AudioSubmissionLocality),
+    Receiving(&'a AudioSubmissionLocality, &'a AudioInstance),
 }
 
 // AUDIO_LOCALITY_RESOLVER → SystemStores.audio_locality_resolver
@@ -890,12 +891,13 @@ impl AudioManager {
             return;
         }
         for &handle in handles {
+            if let Some(event) = self.active_audio_events.shift_remove(&handle) {
+                self.notify_sample_completion_if_effect(&event);
+            }
             if handle >= AHSV_FIRST_HANDLE && handle < 0xFFFF_FFF0 {
                 let _ = self.playback_recipient.with_hook(|hook| hook.stop(handle));
             }
         }
-        self.active_audio_events
-            .retain(|handle, _| !handles.contains(handle));
         self.fading_audio
             .retain(|fade| !handles.contains(&fade.event.get_playing_handle()));
         self.audio_force_played
@@ -908,6 +910,15 @@ impl AudioManager {
             });
             !handle.is_some_and(|handle| handles.contains(&handle))
         });
+    }
+
+    /// A queued, playing or fading receipt still belongs to the mixer even
+    /// when the playback backend has no active voice for it yet.
+    pub fn contains_audio_handle(&self, handle: AudioHandle) -> bool {
+        self.active_audio_events.contains_key(&handle)
+            || self.pending_play_events().any(|event| event.get_playing_handle() == handle)
+            || self.fading_audio.iter().any(|fade| fade.event.get_playing_handle() == handle)
+            || self.audio_force_played.iter().any(|event| event.get_playing_handle() == handle)
     }
 
     pub fn reset(&mut self) {
@@ -1023,6 +1034,15 @@ impl AudioManager {
         )
     }
 
+    pub fn add_audio_event_for_instance(
+        &mut self,
+        event: &AudioEventRts,
+        locality: &AudioSubmissionLocality,
+        instance: &AudioInstance,
+    ) -> AudioHandle {
+        self.add_audio_event_with_submission(event, AudioSubmission::Receiving(locality, instance))
+    }
+
     fn add_audio_event_with_submission(
         &mut self,
         event_to_add: &AudioEventRts,
@@ -1052,7 +1072,28 @@ impl AudioManager {
         event: &AudioEventRts,
         selection: &mut dyn super::audio_event_rts::AudioEventSelection,
     ) -> Result<Option<AudioEventRts>, String> {
+        self.prepare_audio_event(event, selection, None)
+    }
+
+    pub fn prepare_audio_event_for_instance(
+        &self,
+        event: &AudioEventRts,
+        selection: &mut dyn super::audio_event_rts::AudioEventSelection,
+        instance: &AudioInstance,
+    ) -> Result<Option<AudioEventRts>, String> {
+        self.prepare_audio_event(event, selection, Some(instance))
+    }
+
+    fn prepare_audio_event(
+        &self,
+        event: &AudioEventRts,
+        selection: &mut dyn super::audio_event_rts::AudioEventSelection,
+        instance: Option<&AudioInstance>,
+    ) -> Result<Option<AudioEventRts>, String> {
         let mut event = event.clone();
+        if let Some(instance) = instance {
+            event.admit_instance(instance);
+        }
         if event.get_audio_event_info().is_none() {
             let info = self
                 .find_audio_event_info(event.get_event_name())
@@ -1068,7 +1109,7 @@ impl AudioManager {
             AudioType::SoundEffect => {
                 self.is_on(AudioAffect::Sound) && self.is_on(AudioAffect::Sound3D)
             }
-            AudioType::Streaming => self.is_on(AudioAffect::Speech) && !self.disallow_speech,
+            AudioType::Streaming => self.is_on(AudioAffect::Speech) && !self.speech_locked(&event),
         };
         if !enabled {
             return Ok(None);
@@ -1084,10 +1125,27 @@ impl AudioManager {
         event: &AudioEventRts,
         locality: &AudioSubmissionLocality,
     ) -> AudioHandle {
+        self.add_prepared_audio_event(event, AudioSubmission::Explicit(locality))
+    }
+
+    pub fn add_prepared_audio_event_for_instance(
+        &mut self,
+        event: &AudioEventRts,
+        locality: &AudioSubmissionLocality,
+        instance: &AudioInstance,
+    ) -> AudioHandle {
+        self.add_prepared_audio_event(event, AudioSubmission::Receiving(locality, instance))
+    }
+
+    fn add_prepared_audio_event(
+        &mut self,
+        event: &AudioEventRts,
+        submission: AudioSubmission<'_>,
+    ) -> AudioHandle {
         let mut audio_random = std::mem::take(&mut self.audio_random);
         let handle = self.add_audio_event_with_submission_and_selection(
             event,
-            AudioSubmission::Explicit(locality),
+            submission,
             &mut super::audio_event_rts::AmbientAudioSelection(&mut audio_random),
             true,
             None,
@@ -1122,6 +1180,9 @@ impl AudioManager {
         }
 
         let mut audio_event = event_to_add.clone();
+        if let AudioSubmission::Receiving(_, instance) = submission {
+            audio_event.admit_instance(instance);
+        }
         if audio_event.get_audio_event_info().is_none() {
             if let Some(info) = self.find_audio_event_info(event_to_add.get_event_name()) {
                 audio_event.set_audio_event_info(info);
@@ -1170,7 +1231,7 @@ impl AudioManager {
         }
 
         // Check if we're disallowing speech
-        if self.disallow_speech && sound_type == AudioType::Streaming {
+        if sound_type == AudioType::Streaming && self.speech_locked(&audio_event) {
             return AHSV_NO_SOUND;
         }
 
@@ -1203,7 +1264,9 @@ impl AudioManager {
                 AudioSubmission::Ambient(owner_player_index) => {
                     self.should_play_locally_for_player(&audio_event, owner_player_index)
                 }
-                AudioSubmission::Explicit(locality) => locality.should_play_locally(&resolved_info),
+                AudioSubmission::Explicit(locality) | AudioSubmission::Receiving(locality, _) => {
+                    locality.should_play_locally(&resolved_info)
+                }
             }
         {
             return AHSV_NOT_FOR_LOCAL;
@@ -1655,7 +1718,7 @@ impl AudioManager {
     fn play_now_queries(&self, event: &AudioEventRts, violates_limit: bool) -> PlayNowAudioQueries {
         let object_id = event.get_object_id();
         PlayNowAudioQueries {
-            object_playing_voice: object_id != 0 && self.is_object_playing_voice(object_id),
+            object_playing_voice: object_id != 0 && self.is_object_playing_voice_for(event),
             playing_lower_priority: self.is_playing_lower_priority(event),
             playing_already: self.is_playing_already(event),
             violates_limit,
@@ -1857,14 +1920,29 @@ impl AudioManager {
         self.disallow_speech = disallow_speech;
     }
 
+    fn speech_locked(&self, event: &AudioEventRts) -> bool {
+        if event.receiving_instance.is_none() {
+            return self.disallow_speech;
+        }
+        self.active_audio_events.values().any(|playing| {
+            event.shares_instance_with(playing)
+                && playing.get_uninterruptable()
+                && playing.get_audio_event_info().is_some_and(|info| info.sound_type == AudioType::Streaming)
+        })
+    }
+
     /// C++ `MilesAudioManager::stopAllSpeech` (MilesAudioManager.cpp:1243-1260)
     /// `releasePlayingAudio` hard-stops AT_Streaming and erases the playing entry.
     pub fn stop_all_speech(&mut self) {
+        self.stop_selected_speech(|_| true);
+    }
+
+    fn stop_selected_speech(&mut self, selected: impl Fn(&AudioEventRts) -> bool) {
         let handles: Vec<AudioHandle> = self
             .active_audio_events
             .iter()
             .filter_map(|(handle, event)| {
-                event
+                selected(event).then_some(event)?
                     .get_audio_event_info()
                     .filter(|info| info.sound_type == AudioType::Streaming)
                     .map(|_| *handle)
@@ -1927,11 +2005,13 @@ impl AudioManager {
         let uninterruptable = event.get_uninterruptable();
 
         if sound_type == AudioType::Streaming && uninterruptable {
-            self.stop_all_speech();
+            self.stop_selected_speech(|playing| event.shares_instance_with(playing));
         }
 
         let handle_to_kill = event.get_handle_to_kill();
-        if handle_to_kill != 0 {
+        if handle_to_kill != 0 && self.active_audio_events.get(&handle_to_kill)
+            .is_some_and(|playing| event.shares_instance_with(playing))
+        {
             // C++ playAudioEvent handleToKill (MilesAudioManager.cpp:735-813)
             // releasePlayingAudio hard-stops the channel before reuse.
             self.release_playing_handle(handle_to_kill);
@@ -1959,7 +2039,7 @@ impl AudioManager {
             return;
         }
 
-        if sound_type == AudioType::Streaming && uninterruptable {
+        if sound_type == AudioType::Streaming && uninterruptable && event.receiving_instance.is_none() {
             self.set_disallow_speech(true);
         }
 

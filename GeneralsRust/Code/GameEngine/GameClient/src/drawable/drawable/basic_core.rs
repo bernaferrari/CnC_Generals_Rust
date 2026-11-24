@@ -141,6 +141,7 @@ impl BasicDrawable {
         only_if_permanent: bool,
         tod: TimeOfDay,
         audio: &mut game_engine::common::audio::AudioManager,
+        instance: &game_engine::common::audio::AudioInstance,
         locality: &game_engine::common::audio::AudioSubmissionLocality,
     ) -> Result<(), String> {
         if !self.ambient_sound_enabled || !self.ambient_sound_enabled_from_script {
@@ -153,6 +154,7 @@ impl BasicDrawable {
             tod,
             only_if_permanent,
             audio,
+            instance,
             locality,
         )
     }
@@ -176,7 +178,10 @@ impl BasicDrawable {
     pub(crate) fn on_level_start_with_audio_at(
         &mut self,
         tod: TimeOfDay,
-        audio: Option<&mut game_engine::common::audio::AudioManager>,
+        audio: Option<(
+            &mut game_engine::common::audio::AudioManager,
+            &game_engine::common::audio::AudioInstance,
+        )>,
         locality: &game_engine::common::audio::AudioSubmissionLocality,
     ) -> Result<(), String> {
         if self.receiving_template.is_none() {
@@ -187,11 +192,13 @@ impl BasicDrawable {
             !event.get_event_name().is_empty()
                 && !audio
                     .as_ref()
-                    .is_some_and(|device| device.is_currently_playing(event.get_playing_handle()))
+                    .is_some_and(|(device, _)| device.is_currently_playing(event.get_playing_handle()))
         });
         if self.ambient_sound_enabled && self.ambient_sound_enabled_from_script && needs_start {
-            if let Some(audio) = audio {
-                self.start_ambient_sound_current_state_with_audio(false, tod, audio, locality)?;
+            if let Some((audio, instance)) = audio {
+                self.start_ambient_sound_current_state_with_audio(
+                    false, tod, audio, instance, locality,
+                )?;
             }
         }
         Ok(())

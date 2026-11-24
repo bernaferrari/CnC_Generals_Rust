@@ -66,7 +66,7 @@ fn resolve_pending_combat_drop_command(
 
 /// C++ PlaceEventTranslator illegal place: VoiceNoBuild + NoCanDoSound.
 fn play_host_illegal_place_feedback(
-    engine: &CnCGameEngine,
+    engine: &mut CnCGameEngine,
     builder_id: crate::game_logic::ObjectId,
 ) {
     let template = engine
@@ -78,11 +78,10 @@ fn play_host_illegal_place_feedback(
                 .host_object(builder_id)
                 .map(|o| o.template_name.clone())
         });
-    let audio = gamelogic::helpers::TheAudio::of(&engine.game_logic.world_services);
     if let Some(name) = template.as_deref().and_then(resolve_voice_no_build) {
-        let _ = crate::assets::audio::play_sound_through_the_audio(&audio, &name);
+        engine.play_receiving_ui_cue(&name, None);
     }
-    let _ = crate::assets::audio::play_sound_through_the_audio(&audio, "NoCanDoSound");
+    engine.play_receiving_ui_cue("NoCanDoSound", None);
 }
 
 /// Shared construct-builder identity predicate (audit-7 S-3): mirrors
@@ -1310,9 +1309,7 @@ impl CnCGameEngine {
             self.current_player_id,
             policy,
             &mut retirement,
-            self.subsystem_manager
-                .get::<crate::subsystem_manager::AudioManagerSubsystem>()
-                .and_then(|audio| audio.receiving_audio_device()),
+            super::map_native_admission::receiving_candidate_audio(&self.subsystem_manager),
         ) {
             Ok(attempt) => attempt.with_pristine_bones(self.application_assets.as_ref())
                 .with_game_text(map_text)
@@ -1554,9 +1551,9 @@ impl CnCGameEngine {
                             self.current_player_id,
                             policy,
                             &mut retirement,
-                            self.subsystem_manager
-                                .get::<crate::subsystem_manager::AudioManagerSubsystem>()
-                                .and_then(|audio| audio.receiving_audio_device()),
+                            super::map_native_admission::receiving_candidate_audio(
+                                &self.subsystem_manager,
+                            ),
                         )?
                         .with_pristine_bones(self.application_assets.as_ref());
                     self.game_logic
@@ -2653,12 +2650,7 @@ impl CnCGameEngine {
         if self.pending_structure_placement.is_some() {
             self.cancel_structure_placement_from_ui();
         }
-        play_named_command_button_unit_specific_sound(
-            &gamelogic::helpers::TheAudio::of(&self.game_logic.world_services),
-            &self.game_logic.command_definitions(),
-            "Command_ViewCommandCenter",
-            self.local_player_id_for_ui(),
-        );
+        play_named_command_button_unit_specific_sound(self, "Command_ViewCommandCenter");
         self.with_native_camera_input_effects(|world, effects, _input| {
             execute_named_view_command_center(world, effects)
         })
@@ -2680,12 +2672,7 @@ impl CnCGameEngine {
         }
         // C++ ControlBarCommandProcessing.cpp:183-189 — every command-button
         // activation plays UnitSpecificSound with the local player index.
-        play_named_command_button_unit_specific_sound(
-            &gamelogic::helpers::TheAudio::of(&self.game_logic.world_services),
-            &self.game_logic.command_definitions(),
-            command_name,
-            self.local_player_id_for_ui(),
-        );
+        play_named_command_button_unit_specific_sound(self, command_name);
 
         // C++ ControlBar: AttackMove/Guard/SetRally wait for map click residual.
         match command_type {
@@ -2976,17 +2963,15 @@ impl CnCGameEngine {
 
 /// C++ ControlBarCommandProcessing.cpp:183-189.
 fn play_named_command_button_unit_specific_sound(
-    audio: &gamelogic::helpers::TheAudio,
-    definitions: &game_engine::common::ini::command_definitions::CommandDefinitions,
+    engine: &mut CnCGameEngine,
     command_name: &str,
-    player_id: u32,
 ) {
-    let Some(event_name) = named_command_unit_specific_sound(definitions, command_name) else {
+    let Some(event_name) =
+        named_command_unit_specific_sound(&engine.game_logic.command_definitions(), command_name)
+    else {
         return;
     };
-    let mut event = gamelogic::common::audio::AudioEventRts::new(&event_name);
-    event.set_player_index(player_id);
-    let _ = audio.add_audio_event(&event);
+    engine.play_receiving_ui_cue(&event_name, Some(engine.local_player_id_for_ui()));
 }
 
 /// The receiving catalog's `UnitSpecificSound` event for a command button.

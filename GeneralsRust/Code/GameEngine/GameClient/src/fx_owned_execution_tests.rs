@@ -35,10 +35,12 @@ fn execute(
     let mut view = View::new();
     let rules = GlobalData::default();
     let mut ground = |_| Some(91.0);
+    let audio_instance = AudioInstance::default();
     let mut fx = FxExecution {
         catalog,
         particles,
         audio,
+        audio_instance: &audio_instance,
         audio_locality: &Players,
         logic_random: &mut logic,
         audio_random: &mut audio_random,

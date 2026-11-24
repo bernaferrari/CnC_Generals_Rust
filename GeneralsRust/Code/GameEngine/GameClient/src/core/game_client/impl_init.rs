@@ -176,6 +176,7 @@ impl GameClient {
             native_particle_capability_gaps: Vec::new(),
             local_player_id: 0,
             native_audio_device: None,
+            native_audio_instance: Default::default(),
             visual_world: None,
             last_applied_military_caption: None,
             last_applied_military_caption_remaining_ms: None,
@@ -224,16 +225,26 @@ impl GameClient {
         &mut self,
         device: std::sync::Arc<std::sync::Mutex<game_engine::common::audio::AudioManager>>,
     ) {
+        self.bind_native_audio_instance(device, Default::default());
+    }
+
+    /// Bind the native device and the scope shared by this engine's audio producers.
+    pub fn bind_native_audio_instance(
+        &mut self,
+        device: std::sync::Arc<std::sync::Mutex<game_engine::common::audio::AudioManager>>,
+        instance: game_engine::common::audio::AudioInstance,
+    ) {
         if let Some(audio) = self.subsystem_manager.audio.as_ref() {
             audio
                 .lock()
                 .unwrap_or_else(|poisoned| poisoned.into_inner())
-                .bind_common_audio_device(std::sync::Arc::clone(&device));
+                .bind_common_audio_instance(std::sync::Arc::clone(&device), instance.clone());
         }
         if let Some(slot) = self.video_player_slot.as_ref() {
             crate::video_player::bind_video_slot_movie_audio_device(slot, &device);
         }
         self.native_audio_device = Some(device);
+        self.native_audio_instance = instance;
     }
 
     /// Initializes all subsystems and resources
@@ -1060,7 +1071,10 @@ impl GameClient {
             let mut audio = AudioSubsystem::new()
                 .map_err(|e| GameClientError::SubsystemError(format!("Audio init failed: {e}")))?;
             if let Some(device) = self.native_audio_device.as_ref() {
-                audio.bind_common_audio_device(std::sync::Arc::clone(device));
+                audio.bind_common_audio_instance(
+                    std::sync::Arc::clone(device),
+                    self.native_audio_instance.clone(),
+                );
             }
             audio.init()?;
             let audio_arc = Arc::new(Mutex::new(audio));

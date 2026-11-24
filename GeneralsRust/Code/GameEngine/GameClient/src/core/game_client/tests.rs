@@ -70,10 +70,164 @@ use crate::message_stream::game_message::GameMessageType;
         assert_eq!(second.lock().unwrap().pending_play_request_count_for("ReboundDirectCue"), 0);
 
         client.bind_native_audio_device(Arc::clone(&second));
-        first.lock().unwrap().remove_all_audio_requests();
         audio.lock().unwrap().play_event("ReboundDirectCue", None).unwrap();
         assert_eq!(first.lock().unwrap().pending_play_request_count_for("ReboundDirectCue"), 0);
         assert_eq!(second.lock().unwrap().pending_play_request_count_for("ReboundDirectCue"), 1);
+    }
+
+    #[test]
+    fn direct_and_menu_cues_share_one_client_scope_on_a_shared_device() {
+        use crate::audio::GameAudio;
+        use crate::gui::menu_audio::{CommonMenuAudioService, MenuAudioEffects, MenuAudioView};
+        use crate::system::SubsystemInterface;
+        use game_engine::common::audio::game_audio::{
+            AudioLocalityRelationship, AudioLocalityResolver, AudioViewObservation,
+        };
+        use game_engine::common::audio::script_policy::ScriptAudioPolicy;
+        use game_engine::common::audio::{
+            AudioEventInfo, AudioInstance, AudioManager, AudioSubmissionLocality, AudioType,
+            Coord3D as AudioCoord, ST_GLOBAL,
+        };
+        use game_engine::common::random_value::RandomState;
+        use std::sync::Mutex;
+
+        struct View;
+        impl MenuAudioView for View {
+            fn observation(&self) -> AudioViewObservation {
+                AudioViewObservation {
+                    ground_position: AudioCoord::ZERO,
+                    heading: 0.0,
+                    camera_position: AudioCoord::ZERO,
+                    ground_height: 0.0,
+                }
+            }
+            fn is_on_screen(&self, _: &AudioCoord) -> bool {
+                true
+            }
+        }
+        impl AudioLocalityResolver for View {
+            fn get_local_player_index(&self) -> Option<i32> {
+                None
+            }
+            fn is_player_active(&self, _: i32) -> bool {
+                false
+            }
+            fn player_exists(&self, _: i32) -> bool {
+                false
+            }
+            fn has_default_team(&self, _: i32) -> bool {
+                false
+            }
+            fn get_relationship_to_local_team(&self, _: i32, _: i32) -> AudioLocalityRelationship {
+                AudioLocalityRelationship::Neutral
+            }
+        }
+
+        crate::test_support::ensure_ambient_host();
+        let mut manager = AudioManager::new();
+        manager.init();
+        manager.register_audio_event_info(AudioEventInfo {
+            audio_name: "SharedDirectCue".into(),
+            sounds: vec!["owned_sample".into()],
+            type_field: ST_GLOBAL,
+            limit: 1,
+            volume: 1.0,
+            ..Default::default()
+        });
+        manager.register_audio_event_info(AudioEventInfo {
+            audio_name: "SharedMenuMusic".into(),
+            sound_type: AudioType::Music,
+            filename: "owned_track.mp3".into(),
+            volume: 1.0,
+            ..Default::default()
+        });
+        let device = Arc::new(Mutex::new(manager));
+        let instance = AudioInstance::default();
+        let mut client =
+            GameClient::new_with_input_authority(ClientInputAuthority::NativeHosted).unwrap();
+        client.bind_native_audio_instance(Arc::clone(&device), instance.clone());
+        client.init_audio_subsystems().unwrap();
+        let direct = client.subsystem_manager.audio.as_ref().unwrap();
+        let mut menu = CommonMenuAudioService::default();
+        menu.bind_instance(Arc::clone(&device), instance);
+        let mut peer_menu = CommonMenuAudioService::default();
+        peer_menu.bind(Arc::clone(&device));
+        let mut audio_random = RandomState::default();
+        let policy = ScriptAudioPolicy::default();
+        let locality = AudioSubmissionLocality::from_resolver(-1, &View);
+        let pending = || {
+            device
+                .lock()
+                .unwrap()
+                .pending_play_request_count_for("SharedDirectCue")
+        };
+
+        direct
+            .lock()
+            .unwrap()
+            .play_event("SharedDirectCue", None)
+            .unwrap();
+        assert!(
+            menu.lend(&mut audio_random, &policy, locality, View)
+                .play("SharedDirectCue")
+                .is_none()
+        );
+        assert!(
+            peer_menu
+                .lend(&mut audio_random, &policy, locality, View)
+                .play("SharedDirectCue")
+                .is_some()
+        );
+        assert_eq!(pending(), 2);
+
+        direct.lock().unwrap().reset().unwrap();
+        assert_eq!(pending(), 1);
+        assert!(
+            menu.lend(&mut audio_random, &policy, locality, View)
+                .play("SharedDirectCue")
+                .is_some()
+        );
+        assert_eq!(pending(), 2);
+        menu.reset();
+        assert_eq!(pending(), 1);
+
+        let play_direct_music = || {
+            direct
+                .lock()
+                .unwrap()
+                .play_event("SharedMenuMusic", None)
+                .unwrap();
+        };
+        play_direct_music();
+        assert!(
+            peer_menu
+                .lend(&mut audio_random, &policy, locality, View)
+                .play("SharedMenuMusic")
+                .is_some()
+        );
+        let [direct_music, peer_music] = {
+            let mut device = device.lock().unwrap();
+            let handles: Vec<_> = device
+                .pending_play_events()
+                .filter(|event| event.get_event_name() == "SharedMenuMusic")
+                .map(|event| event.get_playing_handle())
+                .collect();
+            device.process_request_list();
+            let handles: [u32; 2] = handles.try_into().unwrap();
+            assert!(
+                handles
+                    .iter()
+                    .all(|handle| device.active_event_loop_count(*handle).is_some())
+            );
+            handles
+        };
+        play_direct_music();
+        menu.lend(&mut audio_random, &policy, locality, View)
+            .stop_the_music_fade();
+        let device = device.lock().unwrap();
+        assert!(device.active_event_loop_count(direct_music).is_none());
+        assert!(device.active_event_loop_count(peer_music).is_some());
+        assert_eq!(device.pending_play_request_count_for("SharedMenuMusic"), 1);
     }
 
     struct StubCommandTranslator;

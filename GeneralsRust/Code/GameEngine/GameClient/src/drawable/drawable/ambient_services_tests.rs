@@ -117,13 +117,17 @@ fn native_retirement_queues_stop_on_the_bound_application_audio_owner() {
     let locality = AudioSubmissionLocality::from_resolver(1, &Players);
     let mut actor_a = make_actor(17);
     let mut actor_b = make_actor(17);
-    for (actor, device, tod) in [
-        (&mut actor_a, &device_a, TimeOfDay::Night),
-        (&mut actor_b, &device_b, TimeOfDay::Morning),
+    let instance_a = AudioInstance::default();
+    let instance_b = AudioInstance::default();
+    for (actor, device, instance, tod) in [
+        (&mut actor_a, &device_a, &instance_a, TimeOfDay::Night),
+        (&mut actor_b, &device_b, &instance_b, TimeOfDay::Morning),
     ] {
         let mut audio = device.lock().unwrap();
         actor
-            .finish_native_constructor_ambient_with_audio(false, false, tod, &mut audio, &locality)
+            .finish_native_constructor_ambient_with_audio(
+                false, false, tod, &mut audio, instance, &locality,
+            )
             .unwrap();
         audio.process_request_list();
     }
@@ -167,6 +171,8 @@ fn receiving_body_transition_and_snapshot_restamps_have_distinct_audio_effects()
     let mut peer = make_actor(17);
     let mut audio = make_audio();
     let mut peer_audio = make_audio();
+    let instance = AudioInstance::default();
+    let peer_instance = AudioInstance::default();
     let locality = AudioSubmissionLocality::from_resolver(1, &Players);
     actor
         .finish_native_constructor_ambient_with_audio(
@@ -174,6 +180,7 @@ fn receiving_body_transition_and_snapshot_restamps_have_distinct_audio_effects()
             false,
             TimeOfDay::Night,
             &mut audio,
+            &instance,
             &locality,
         )
         .unwrap();
@@ -182,6 +189,7 @@ fn receiving_body_transition_and_snapshot_restamps_have_distinct_audio_effects()
         false,
         TimeOfDay::Morning,
         &mut peer_audio,
+        &peer_instance,
         &locality,
     )
     .unwrap();
@@ -226,6 +234,7 @@ fn receiving_body_transition_and_snapshot_restamps_have_distinct_audio_effects()
             false,
             TimeOfDay::Night,
             &mut audio,
+            &instance,
             &locality,
         )
         .unwrap();
@@ -253,6 +262,7 @@ fn receiving_body_transition_and_snapshot_restamps_have_distinct_audio_effects()
             true,
             TimeOfDay::Night,
             &mut audio,
+            &instance,
             &locality,
         )
         .unwrap();
@@ -271,6 +281,7 @@ fn receiving_body_transition_and_snapshot_restamps_have_distinct_audio_effects()
 #[test]
 fn explicit_constructor_load_gates_and_missing_resources_do_not_invent_audio() {
     crate::test_support::ensure_ambient_host();
+    let instance = AudioInstance::default();
     let locality = AudioSubmissionLocality::from_resolver(1, &Players);
     for (loading, saved) in [(true, false), (false, true), (true, true)] {
         let mut actor = make_actor(19);
@@ -281,6 +292,7 @@ fn explicit_constructor_load_gates_and_missing_resources_do_not_invent_audio() {
                 saved,
                 TimeOfDay::Afternoon,
                 &mut audio,
+                &instance,
                 &locality,
             )
             .unwrap();
@@ -295,6 +307,7 @@ fn explicit_constructor_load_gates_and_missing_resources_do_not_invent_audio() {
             false,
             TimeOfDay::Night,
             &mut unavailable,
+            &instance,
             &locality,
         )
         .unwrap();
@@ -307,6 +320,7 @@ fn explicit_constructor_load_gates_and_missing_resources_do_not_invent_audio() {
 #[test]
 fn native_ambient_tod_restart_retries_after_missing_owner_facts() {
     crate::test_support::ensure_ambient_host();
+    let instance = AudioInstance::default();
     let mut actor = make_actor(22);
     actor.model_condition_flags.set(
         game_engine::common::bit_flags::ModelConditionFlags::DAMAGED,
@@ -320,7 +334,7 @@ fn native_ambient_tod_restart_retries_after_missing_owner_facts() {
     // missing manager leaves the audio restart obligation pending.
     let mut no_device = NativeAmbientUpdate::new(Some(TimeOfDay::Night), &mut locality_for_object);
     no_device
-        .update_after_client_modules(&mut actor, None)
+        .update_after_client_modules(&mut actor, None, &instance)
         .unwrap();
     assert!(
         actor
@@ -350,7 +364,7 @@ fn native_ambient_tod_restart_retries_after_missing_owner_facts() {
     );
     let mut ready = NativeAmbientUpdate::new(Some(TimeOfDay::Morning), &mut locality_for_object);
     ready
-        .update_after_client_modules(&mut actor, Some(&device))
+        .update_after_client_modules(&mut actor, Some(&device), &instance)
         .unwrap();
     assert!(!actor.ambient_tod_changed);
     assert!(actor.pending_ambient_tod.is_none());
@@ -382,6 +396,7 @@ fn native_ambient_tod_restart_retries_after_missing_owner_facts() {
 #[test]
 fn queued_tod_restart_bypasses_ambient_enable_gates() {
     crate::test_support::ensure_ambient_host();
+    let instance = AudioInstance::default();
     let mut actor = make_actor(23);
     actor.ambient_sound_enabled = false;
     actor.ambient_sound_enabled_from_script = false;
@@ -394,7 +409,7 @@ fn queued_tod_restart_bypasses_ambient_enable_gates() {
     // C++ setTimeOfDay calls the explicit startAmbientSound(dt, tod) overload,
     // which bypasses enableAmbientSound's convenience-overload gates.
     ambient
-        .update_after_client_modules(&mut actor, Some(&device))
+        .update_after_client_modules(&mut actor, Some(&device), &instance)
         .unwrap();
     assert!(actor.ambient_sound_is_active());
     assert_eq!(
@@ -410,6 +425,7 @@ fn queued_tod_restart_bypasses_ambient_enable_gates() {
 #[test]
 fn receiving_world_tod_transition_is_not_a_passive_snapshot_restamp() {
     crate::test_support::ensure_ambient_host();
+    let instance = AudioInstance::default();
     let mut actor = make_actor(24);
     actor.admit_receiving_time_of_day(Some(TimeOfDay::Afternoon));
     actor.model_condition_flags.set(
@@ -429,7 +445,7 @@ fn receiving_world_tod_transition_is_not_a_passive_snapshot_restamp() {
     let device = std::sync::Arc::new(std::sync::Mutex::new(make_audio()));
     let mut ambient = NativeAmbientUpdate::new(Some(TimeOfDay::Night), &mut locality_for_object);
     ambient
-        .update_after_client_modules(&mut actor, Some(&device))
+        .update_after_client_modules(&mut actor, Some(&device), &instance)
         .unwrap();
 
     // Main transfers the local TOD request into GameLogic, then projects the
@@ -453,6 +469,7 @@ fn receiving_world_tod_transition_is_not_a_passive_snapshot_restamp() {
 #[test]
 fn explicit_constructor_audio_preserves_ambient_enable_gates() {
     crate::test_support::ensure_ambient_host();
+    let instance = AudioInstance::default();
     let locality = AudioSubmissionLocality::from_resolver(1, &Players);
     let mut actor = make_actor(21);
     actor.ambient_sound_enabled_from_script = false;
@@ -463,6 +480,7 @@ fn explicit_constructor_audio_preserves_ambient_enable_gates() {
             false,
             TimeOfDay::Night,
             &mut audio,
+            &instance,
             &locality,
         )
         .unwrap();
@@ -472,6 +490,7 @@ fn explicit_constructor_audio_preserves_ambient_enable_gates() {
 #[test]
 fn receiving_state_fallback_rubble_and_custom_off_follow_original_selection() {
     crate::test_support::ensure_ambient_host();
+    let instance = AudioInstance::default();
     let mut actor = make_actor(21);
     let mut audio = make_audio();
     let locality = AudioSubmissionLocality::from_resolver(1, &Players);
@@ -481,6 +500,7 @@ fn receiving_state_fallback_rubble_and_custom_off_follow_original_selection() {
             TimeOfDay::Evening,
             false,
             &mut audio,
+            &instance,
             &locality,
         )
         .unwrap();
@@ -495,6 +515,7 @@ fn receiving_state_fallback_rubble_and_custom_off_follow_original_selection() {
             TimeOfDay::Evening,
             false,
             &mut audio,
+            &instance,
             &locality,
         )
         .unwrap();
@@ -505,6 +526,7 @@ fn receiving_state_fallback_rubble_and_custom_off_follow_original_selection() {
             TimeOfDay::Evening,
             false,
             &mut audio,
+            &instance,
             &locality,
         )
         .unwrap();
@@ -516,6 +538,7 @@ fn receiving_state_fallback_rubble_and_custom_off_follow_original_selection() {
 #[test]
 fn valid_nonpermanent_or_out_of_range_events_remain_owned_without_play() {
     crate::test_support::ensure_ambient_host();
+    let instance = AudioInstance::default();
     let locality = AudioSubmissionLocality::from_resolver(1, &Players);
     let mut actor = make_actor(22);
     let mut audio = AudioManager::new();
@@ -532,6 +555,7 @@ fn valid_nonpermanent_or_out_of_range_events_remain_owned_without_play() {
             TimeOfDay::Afternoon,
             true,
             &mut audio,
+            &instance,
             &locality,
         )
         .unwrap();
@@ -553,6 +577,7 @@ fn valid_nonpermanent_or_out_of_range_events_remain_owned_without_play() {
             TimeOfDay::Afternoon,
             false,
             &mut audio,
+            &instance,
             &locality,
         )
         .unwrap();

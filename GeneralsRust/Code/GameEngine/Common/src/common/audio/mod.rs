@@ -59,7 +59,7 @@ pub mod streaming; // Audio streaming for large files // Sound effects managemen
 
 // Re-export commonly used types and functions
 pub use audio_event_rts::{
-    AC_ALL, AC_INTERRUPT, AC_LOOP, AudioEventInfo, AudioEventRts, AudioHandle, AudioPriority,
+    AC_ALL, AC_INTERRUPT, AC_LOOP, AudioEventInfo, AudioEventRts, AudioHandle, AudioInstance, AudioPriority,
     AudioType, Coord3D, DynamicAudioEventRts, MilesVolumeSliders, OwnerType, PortionToPlay,
     ST_ALLIES, ST_ENEMIES, ST_EVERYONE, ST_GLOBAL, ST_PLAYER, ST_SHROUDED, ST_UI, ST_WORLD,
     TimeOfDay, miles_get_effective_volume, miles_positional_gain, miles_positional_ranges,

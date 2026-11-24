@@ -158,7 +158,7 @@ impl BasicDrawable {
     }
 
     pub(crate) fn update_after_client_modules(&mut self, logic_frame: u32) {
-        let _ = self.update_after_client_modules_inner(logic_frame, None, None);
+        let _ = self.update_after_client_modules_inner(logic_frame, None);
     }
 
     pub(crate) fn update_after_client_modules_with_ambient(
@@ -168,17 +168,19 @@ impl BasicDrawable {
         audio_device: Option<
             &std::sync::Arc<std::sync::Mutex<game_engine::common::audio::AudioManager>>,
         >,
+        instance: &game_engine::common::audio::AudioInstance,
     ) -> Result<(), String> {
-        self.update_after_client_modules_inner(logic_frame, Some(ambient), audio_device)
+        self.update_after_client_modules_inner(logic_frame, Some((ambient, audio_device, instance)))
     }
 
     fn update_after_client_modules_inner(
         &mut self,
         logic_frame: u32,
-        mut ambient: Option<&mut crate::drawable::drawable::NativeAmbientUpdate<'_>>,
-        audio_device: Option<
-            &std::sync::Arc<std::sync::Mutex<game_engine::common::audio::AudioManager>>,
-        >,
+        ambient: Option<(
+            &mut crate::drawable::drawable::NativeAmbientUpdate<'_>,
+            Option<&std::sync::Arc<std::sync::Mutex<game_engine::common::audio::AudioManager>>>,
+            &game_engine::common::audio::AudioInstance,
+        )>,
     ) -> Result<(), String> {
         self.update_fade();
 
@@ -238,8 +240,8 @@ impl BasicDrawable {
         }
 
         self.publish_wheel_info_to_logic();
-        if let Some(ambient) = ambient.as_deref_mut() {
-            ambient.update_after_client_modules(self, audio_device)?;
+        if let Some((ambient, audio_device, instance)) = ambient {
+            ambient.update_after_client_modules(self, audio_device, instance)?;
         } else {
             self.apply_pending_time_of_day();
             self.restart_ambient_if_dropped();

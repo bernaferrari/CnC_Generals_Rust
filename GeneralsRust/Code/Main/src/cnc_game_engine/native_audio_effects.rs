@@ -1,11 +1,37 @@
 //! Borrow the existing application audio service only at a native operation root.
 //! No lock spans a simulation walk: legacy callbacks may submit other audio.
 use game_engine::common::audio::audio_event_rts::AudioType;
-use game_engine::common::audio::{AudioEventRts, AudioManager, AudioSubmissionLocality};
+use game_engine::common::audio::{AudioEventRts, AudioInstance, AudioManager, AudioSubmissionLocality};
 use std::sync::{Arc, Mutex};
+
+impl super::CnCGameEngine {
+    pub(super) fn play_receiving_ui_cue(&mut self, name: &str, player: Option<u32>) {
+        use crate::game_logic::NativeAudioEffects;
+
+        let player = player.map_or(-1, |id| id as i32);
+        let locality = self.game_logic.receiving_audio_locality_for_player(player);
+        if let Some(mut audio) = NativeAudioService::receiving(&mut self.subsystem_manager) {
+            let mut event = AudioEventRts::with_event_name(name);
+            event.set_player_index(player);
+            let mut selection = crate::game_logic::SessionAudioSelection {
+                logic: &self.game_logic.logic_random,
+                audio: &mut self.game_logic.session_view.audio_random,
+            };
+            if let Err(error) = audio.submit_selected_audio(
+                &event,
+                &locality,
+                &mut selection,
+                self.game_logic.queued_audio_events.policy(),
+            ) {
+                log::debug!("Could not submit receiving UI cue {name:?}: {error}");
+            }
+        }
+    }
+}
 
 pub(crate) struct NativeAudioService<'a> {
     device: &'a Arc<Mutex<AudioManager>>,
+    instance: &'a AudioInstance,
     receipts: &'a mut Vec<u32>,
     queued_events: &'a mut Vec<crate::game_logic::audio_dispatch_impl::AdmittedAudioRequest>,
 }
@@ -13,11 +39,12 @@ impl<'a> NativeAudioService<'a> {
     pub(crate) fn receiving(
         subsystems: &'a mut crate::subsystem_manager::SubsystemManager,
     ) -> Option<Self> {
-        let (device, receipts, queued_events) = subsystems
+        let (device, instance, receipts, queued_events) = subsystems
             .get_mut::<crate::subsystem_manager::AudioManagerSubsystem>()?
             .receiving_audio_parts()?;
         Some(Self {
             device,
+            instance,
             receipts,
             queued_events,
         })
@@ -64,6 +91,7 @@ impl<'a> NativeAudioService<'a> {
                 return Ok(());
             };
             let mut event = AudioEventRts::with_event_name(&track);
+            event.admit_instance(self.instance);
             event.set_player_index(player as i32);
             event.set_volume(info.volume);
             event.set_audio_event_info(info);
@@ -146,6 +174,7 @@ impl game_client::eva::EvaPlayback for NativeEvaPlayback<'_> {
         speech.set_should_fade(event.should_fade());
         speech.set_is_logical_audio(event.is_logical_audio());
         speech.set_uninterruptable(event.is_uninterruptable());
+        speech.admit_instance(service.instance);
         if event.has_caller_volume() {
             speech.set_volume(event.volume);
         }
@@ -260,7 +289,7 @@ impl crate::game_logic::NativeAudioEffects for NativeAudioService<'_> {
     ) -> Result<(), String> {
         let handle = {
             let mut device = self.device.lock().expect("native audio device poisoned");
-            let Some(mut prepared) = device.prepare_audio_event_with_selection(event, selection)?
+            let Some(mut prepared) = device.prepare_audio_event_for_instance(event, selection, self.instance)?
             else {
                 return Ok(());
             };
@@ -279,7 +308,7 @@ impl crate::game_logic::NativeAudioEffects for NativeAudioService<'_> {
             .device
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
-            .add_prepared_audio_event_with_locality(event, locality);
+            .add_prepared_audio_event_for_instance(event, locality, self.instance);
         self.record(handle);
     }
 
@@ -299,7 +328,7 @@ impl crate::game_logic::NativeAudioEffects for NativeAudioService<'_> {
                 .lock()
                 .unwrap_or_else(|poisoned| poisoned.into_inner());
             game_client::fx_list::submit_sound_fx_with_policy(
-                name, position, player, &mut audio, locality, selection, policy,
+                name, position, player, &mut audio, Some(self.instance), locality, selection, policy,
             )?
         };
         self.record(handle);
@@ -317,7 +346,7 @@ impl crate::game_logic::NativeAudioEffects for NativeAudioService<'_> {
             .device
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
-            .add_audio_event_with_locality(event, locality);
+            .add_audio_event_for_instance(event, locality, self.instance);
         self.record(handle);
     }
 }
@@ -536,6 +565,7 @@ impl game_client::drawable::drawable::NativeAmbientAudio for NativeAudioService<
         drawable: &mut game_client::drawable::drawable::BasicDrawable,
         state: gamelogic::common::types::BodyDamageType,
         time_of_day: game_client::system::TimeOfDay,
+        _instance: &AudioInstance,
         locality: &AudioSubmissionLocality,
         policy: &game_engine::common::audio::script_policy::ScriptAudioPolicy,
     ) -> Result<(), String> {
@@ -550,6 +580,7 @@ impl game_client::drawable::drawable::NativeAmbientAudio for NativeAudioService<
             time_of_day,
             false,
             &mut audio,
+            self.instance,
             locality,
             Some(policy),
         )
@@ -661,6 +692,7 @@ mod music_completion_tests {
         let mut queued = Vec::new();
         let mut audio = NativeAudioService {
             device: &device,
+            instance: &AudioInstance::default(),
             receipts: &mut receipts,
             queued_events: &mut queued,
         };
@@ -668,6 +700,7 @@ mod music_completion_tests {
         let mut peer_queued = Vec::new();
         let mut peer = NativeAudioService {
             device: &device,
+            instance: &AudioInstance::default(),
             receipts: &mut peer_receipts,
             queued_events: &mut peer_queued,
         };
@@ -760,6 +793,7 @@ mod music_completion_tests {
             let mut queued_events = Vec::new();
             let mut service = NativeAudioService {
                 device: &device,
+                instance: &AudioInstance::default(),
                 receipts: &mut receipts,
                 queued_events: &mut queued_events,
             };
@@ -767,6 +801,7 @@ mod music_completion_tests {
             let mut peer_events = Vec::new();
             let mut peer = NativeAudioService {
                 device: &device,
+                instance: &AudioInstance::default(),
                 receipts: &mut peer_receipts,
                 queued_events: &mut peer_events,
             };
@@ -807,6 +842,7 @@ mod music_completion_tests {
         let mut queued_events = Vec::new();
         let mut service = NativeAudioService {
             device: &device,
+            instance: &AudioInstance::default(),
             receipts: &mut receipts,
             queued_events: &mut queued_events,
         };
@@ -887,6 +923,7 @@ mod music_completion_tests {
         let mut queued_events = Vec::new();
         let mut audio = NativeAudioService {
             device: &device,
+            instance: &AudioInstance::default(),
             receipts: &mut receipts,
             queued_events: &mut queued_events,
         };
@@ -945,6 +982,7 @@ mod music_completion_tests {
         let mut mine = vec![handles[0]];
         let mut service = NativeAudioService {
             device: &device,
+            instance: &AudioInstance::default(),
             receipts: &mut mine,
             queued_events: &mut queued,
         };
@@ -955,6 +993,7 @@ mod music_completion_tests {
         let mut queued_peer = Vec::new();
         let mut peer = NativeAudioService {
             device: &device,
+            instance: &AudioInstance::default(),
             receipts: &mut none,
             queued_events: &mut queued_peer,
         };
