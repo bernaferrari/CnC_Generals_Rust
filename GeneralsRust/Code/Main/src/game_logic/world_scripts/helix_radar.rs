@@ -844,7 +844,6 @@ impl GameLogic {
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) {
         let tree_move_frame = self.frame;
-        const STICKY_OFFSET_Y: f32 = 8.0;
         let pairs: Vec<(ObjectId, ObjectId)> = self
             .objects
             .registered()
@@ -872,8 +871,9 @@ impl GameLogic {
                 destroy.push(cid);
                 continue;
             }
-            let p = structure.get_position();
-            moves.push((cid, glam::Vec3::new(p.x, p.y + STICKY_OFFSET_Y, p.z)));
+            if let Some(charge) = self.objects.get(&cid) {
+                moves.push((cid, self.sticky_attachment_position(charge, structure)));
+            }
         }
         for (cid, pos) in moves {
             self.set_owned_object_position_with_effects(cid, pos, tree_move_frame, effects);

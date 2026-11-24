@@ -240,6 +240,7 @@ impl ReceivingDrawModels {
 pub(crate) struct ReceivingClientTemplate(
     std::sync::Arc<game_engine::common::thing::thing_template::AdmittedReceivingTemplate>,
     Option<std::sync::Arc<[AuthoredCrateCollide]>>,
+    Option<f32>, // StickyBombUpdate vertical attachment offset
 );
 
 use gamelogic::object::collide::crate_collide::{
@@ -622,7 +623,15 @@ impl ReceivingClientTemplate {
             })
             .collect();
         let crate_collides = (!crate_collides.is_empty()).then(|| crate_collides.into());
-        Self(template, crate_collides)
+        let sticky_bomb_offset_z = template.behavior_modules().iter().find_map(|entry| {
+            if !entry.name.as_str().eq_ignore_ascii_case("StickyBombUpdate") {
+                return None;
+            }
+            let data = entry.data.read();
+            data.downcast_ref::<gamelogic::object::behavior::StickyBombUpdateModuleData>()
+                .map(|sticky| sticky.offset_z)
+        });
+        Self(template, crate_collides, sticky_bomb_offset_z)
     }
 
     pub(crate) fn audio_event(
@@ -1428,6 +1437,13 @@ impl ThingTemplate {
         self.receiving_client_template
             .as_ref()
             .map(ReceivingClientTemplate::factory_exit_widths)
+    }
+
+    /// StickyBombUpdate authored OffsetZ, projected once at admission.
+    pub(crate) fn sticky_bomb_offset_z(&self) -> Option<f32> {
+        self.receiving_client_template
+            .as_ref()
+            .and_then(|template| template.2)
     }
 
     pub(crate) fn particle_manual_drive_settings(

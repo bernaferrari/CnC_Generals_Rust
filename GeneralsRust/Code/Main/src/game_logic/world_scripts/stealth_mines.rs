@@ -41,12 +41,25 @@ impl GameLogic {
         )
     }
 
-    /// Advance residual mines: dozer clear + proximity scan + timed detonation.
-    ///
-    /// Clear residual (C++ DozerMineDisarmingWeapon DAMAGE_DISARM): only when
-    /// WEAPONSET_MINE_CLEARING_DETAIL is armed (MSG_SET_MINE_CLEARING_DETAIL).
-    /// Demo-trap skip is DISARM-while-attacking only (DemoTrapUpdate.cpp:181-191).
-    /// Proximity fuse is ENEMIES only (DemoTrapUpdate.cpp:196).
+    /// C++ StickyBombUpdate.cpp:145-175 attachment pose: an exact
+    /// KINDOF_IMMOBILE target keeps the planted charge XY and re-snaps terrain
+    /// height; anything else is followed at the charge's authored OffsetZ.
+    pub(super) fn sticky_attachment_position(&self, charge: &Object, target: &Object) -> Vec3 {
+        use crate::game_logic::host_mines::{
+            sticky_immobile_follow_pos, sticky_vehicle_follow_pos, STICKY_OFFSET_Z,
+        };
+        if target.is_kind_of(KindOf::Immobile) {
+            let charge_pos = charge.get_position();
+            let ground_y = self.terrain_ground_height_at(charge_pos).unwrap_or(0.0);
+            sticky_immobile_follow_pos(charge_pos, ground_y)
+        } else {
+            let offset = charge
+                .get_template()
+                .sticky_bomb_offset_z()
+                .unwrap_or(STICKY_OFFSET_Z);
+            sticky_vehicle_follow_pos(target.get_position(), offset)
+        }
+    }
 
     /// C++ StickyBombUpdate::update residual.
     ///
@@ -64,8 +77,7 @@ impl GameLogic {
     ) {
         let tree_move_frame = self.frame;
         use crate::game_logic::host_mines::{
-            sticky_immobile_follow_pos, sticky_vehicle_follow_pos, HostMineKind, STICKY_OFFSET_Z,
-            UNIT_BOMB_PING_AUDIO, UNIT_BOMB_PING_FRAMES,
+            HostMineKind, UNIT_BOMB_PING_AUDIO, UNIT_BOMB_PING_FRAMES,
         };
 
         let frame = self.frame;
@@ -101,22 +113,9 @@ impl GameLogic {
                     destroy_charges.push(charge_id);
                     continue;
                 }
-                let tpos = target.get_position();
-                let immobile =
-                    target.is_kind_of(KindOf::Structure) || target.is_kind_of(KindOf::Immobile);
-                let charge_pos = self
-                    .objects
-                    .get(&charge_id)
-                    .map(|c| c.get_position())
-                    .unwrap_or(tpos);
-                let ground_y = self.terrain_ground_height_at(charge_pos).unwrap_or(0.0);
-                let new_pos = if immobile {
-                    // C++ IMMOBILE: keep bomber plant XY, only refresh Z/Y to terrain.
-                    sticky_immobile_follow_pos(charge_pos, ground_y)
-                } else {
-                    sticky_vehicle_follow_pos(tpos, STICKY_OFFSET_Z)
-                };
-                moves.push((charge_id, new_pos));
+                if let Some(charge) = self.objects.get(&charge_id) {
+                    moves.push((charge_id, self.sticky_attachment_position(charge, target)));
+                }
             }
 
             if let Some(md) = self
@@ -382,6 +381,7 @@ impl GameLogic {
         Ok(())
     }
 
+    /// Advance mines and demo traps: disarm, proximity scans, and timed detonation.
     pub fn update_mines_and_demo_traps(&mut self) -> gamelogic::GameLogicResult<()> {
         self.update_mines_and_demo_traps_with_effects(&mut Default::default())
     }

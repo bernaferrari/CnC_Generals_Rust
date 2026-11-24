@@ -311,18 +311,24 @@ fn booby_trap_plant_spawns_special_object() {
     assert_eq!(initial_charge_position.z, bomber_position.z);
     assert_eq!(initial_charge_position.y, expected_ground);
 
-    // Follow sticky attachment.
+    // C++ StickyBombUpdate.cpp:145-175: an exact KINDOF_IMMOBILE target keeps
+    // the planted charge XY (only re-snapping terrain height) instead of the
+    // charge following the moved target.
+    let moved = Vec3::new(12.0, 0.0, 6.0);
     if let Some((s, fixture_partition_s)) = logic.host_object_and_partition_mut(structure) {
         s.set_position_with_partition_owner(
-            Vec3::new(40.0, 0.0, 20.0),
+            moved,
             0,
             &mut Default::default(),
             fixture_partition_s,
         );
     }
     logic.update_booby_trap_special_attachments();
-    let cpos = logic.host_object(cid).unwrap().get_position();
-    assert!((cpos.x - 40.0).abs() < 0.1 && (cpos.z - 20.0).abs() < 0.1);
+    assert_eq!(
+        logic.host_object(cid).unwrap().get_position(),
+        initial_charge_position,
+        "an IMMOBILE target keeps the planted charge position"
+    );
 
     // Detonate destroys special object. The charge scan is a PartitionManager
     // query (Object::checkAndDetonateBoobyTrap), so the moved Objects enter it
@@ -331,7 +337,7 @@ fn booby_trap_plant_spawns_special_object() {
         .update_owned_partition_with_effects(&mut Default::default())
         .unwrap();
     let hits = logic
-        .detonate_booby_trap_at(structure, Vec3::new(40.0, 0.0, 20.0), None, false, true)
+        .detonate_booby_trap_at(structure, moved, None, false, true)
         .expect("booby trap detonation");
     let _ = hits;
     assert!(
@@ -477,6 +483,61 @@ fn sticky_bomb_init_uses_receiving_offset_sound_and_world_owned_participants() {
         second.host_object(charge_mobile_b).unwrap().get_position(),
         Vec3::new(300.0, 15.0 + 29.0, 400.0)
     );
+
+    // C++ StickyBombUpdate.cpp:145-175 repositions on each callback: an exact
+    // KINDOF_IMMOBILE target keeps the planted charge XY (only terrain height
+    // re-snaps); anything else is followed at the charge's authored OffsetZ.
+    let planted_immobile_a = first
+        .host_object(charge_immobile_a)
+        .unwrap()
+        .get_position();
+    let planted_immobile_b = second
+        .host_object(charge_immobile_b)
+        .unwrap()
+        .get_position();
+    let immobile_moved = Vec3::new(50.0, 0.0, 60.0);
+    let mobile_moved = Vec3::new(70.0, 0.0, 80.0);
+    for (world, immobile, mobile, charge_immobile, charge_mobile, planted, offset) in [
+        (
+            &mut first,
+            immobile_a,
+            mobile_a,
+            charge_immobile_a,
+            charge_mobile_a,
+            planted_immobile_a,
+            17.0,
+        ),
+        (
+            &mut second,
+            immobile_b,
+            mobile_b,
+            charge_immobile_b,
+            charge_mobile_b,
+            planted_immobile_b,
+            29.0,
+        ),
+    ] {
+        for (target, moved) in [(immobile, immobile_moved), (mobile, mobile_moved)] {
+            let (object, partition) = world.host_object_and_partition_mut(target).unwrap();
+            object.set_position_with_partition_owner(
+                moved,
+                0,
+                &mut Default::default(),
+                partition,
+            );
+        }
+        world.update_booby_trap_special_attachments();
+        assert_eq!(
+            world.host_object(charge_immobile).unwrap().get_position(),
+            planted,
+            "an IMMOBILE target keeps the planted charge XY"
+        );
+        assert_eq!(
+            world.host_object(charge_mobile).unwrap().get_position(),
+            Vec3::new(mobile_moved.x, mobile_moved.y + offset, mobile_moved.z),
+            "a mobile target is followed at the authored OffsetZ"
+        );
+    }
 }
 
 #[test]

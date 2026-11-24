@@ -1387,7 +1387,7 @@ fn authored_timed_charge_expires_once_through_its_death_weapon() {
     world
         .admit_object_ini_sources([(
             "timed-witness.ini".to_owned(),
-            "Object TimingWitnessCharge\n  KindOf = MINE NO_COLLIDE\n  Body = ActiveBody BodyTag\n    MaxHealth = 1\n    InitialHealth = 1\n  End\n  Behavior = StickyBombUpdate Sticky\n  End\n  Behavior = LifetimeUpdate Life\n    MinLifetime = 1000\n    MaxLifetime = 3000\n  End\n  Behavior = FireWeaponWhenDeadBehavior Dead\n    StartsActive = Yes\n    DeathWeapon = TimedChargeWitness\n    DeathTypes = NONE +NORMAL\n  End\nEnd\nObject WitnessVictim\n  KindOf = VEHICLE\n  Body = ActiveBody BodyTag\n    MaxHealth = 1000\n    InitialHealth = 1000\n  End\nEnd\n".to_owned(),
+            "Object TimingWitnessCharge\n  KindOf = MINE NO_COLLIDE\n  Body = ActiveBody BodyTag\n    MaxHealth = 1\n    InitialHealth = 1\n  End\n  Behavior = StickyBombUpdate Sticky\n    OffsetZ = 3\n  End\n  Behavior = LifetimeUpdate Life\n    MinLifetime = 1000\n    MaxLifetime = 3000\n  End\n  Behavior = FireWeaponWhenDeadBehavior Dead\n    StartsActive = Yes\n    DeathWeapon = TimedChargeWitness\n    DeathTypes = NONE +NORMAL\n  End\nEnd\nObject WitnessVictim\n  KindOf = VEHICLE\n  Body = ActiveBody BodyTag\n    MaxHealth = 1000\n    InitialHealth = 1000\n  End\nEnd\n".to_owned(),
         )])
         .unwrap();
     let mut weapons = std::collections::HashMap::new();
@@ -1451,6 +1451,16 @@ fn authored_timed_charge_expires_once_through_its_death_weapon() {
         );
         (data.detonate_at_frame, data.next_ping_frame)
     };
+
+    // StickyBombUpdate.cpp:145-175: each callback re-follows a mobile target
+    // at the charge's authored OffsetZ, not a flat constant.
+    world.update_sticky_bomb_attachments();
+    let victim_pos = world.host_object(victim).unwrap().get_position();
+    assert_eq!(
+        world.host_object(charge).unwrap().get_position(),
+        Vec3::new(victim_pos.x, victim_pos.y + 3.0, victim_pos.z),
+        "a mobile target is followed at the authored OffsetZ"
+    );
 
     // Drawable.cpp:3492-3524: the timed icon counts down the StickyBombUpdate
     // detonation frame — here the native LifetimeUpdate deadline — rounded up
