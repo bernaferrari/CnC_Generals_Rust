@@ -97,7 +97,7 @@ fn bind_creation(list: &str, transfer: bool) -> Option<NativeDieCreate> {
 }
 #[derive(Debug, Clone)]
 pub(crate) enum NativeSlowFamily {
-    Ordinary,
+    Ordinary { initial_ocls: Vec<String> },
     Jet(super::host_jet_slow_death::HostJetSlowDeathFx),
     Helicopter(super::host_helicopter_slow_death::HostHelicopterSlowDeathFx),
 }
@@ -216,7 +216,21 @@ pub(crate) fn bind(modules: &[BehaviorModuleDefinition]) -> Vec<NativeDieDeclara
                         family: match module.class_name.to_ascii_lowercase().as_str() {
                             "jetslowdeathbehavior" => NativeSlowFamily::Jet(super::host_jet_slow_death::jet_slow_death_fx_from_behavior_attrs(&attrs)),
                             "helicopterslowdeathbehavior" => NativeSlowFamily::Helicopter(super::host_helicopter_slow_death::heli_slow_death_fx_from_behavior_attrs(&attrs)),
-                            _ => NativeSlowFamily::Ordinary,
+                            _ => NativeSlowFamily::Ordinary {
+                                initial_ocls: attrs
+                                    .iter()
+                                    .filter(|(key, _)| key.eq_ignore_ascii_case("OCL"))
+                                    .filter_map(|(_, value)| {
+                                        let mut tokens = value.split_whitespace();
+                                        tokens
+                                            .next()?
+                                            .eq_ignore_ascii_case("INITIAL")
+                                            .then_some(tokens)
+                                    })
+                                    .flatten()
+                                    .map(str::to_owned)
+                                    .collect(),
+                            },
                         },
                         config: super::host_slow_death::slow_death_ini_from_behavior_attrs(&attrs),
                         probability: module

@@ -76,6 +76,7 @@ pub(self) use script_camera::{
 // Sibling private methods use pub(super) / pub(in super::super).
 #[path = "../world_combat/mod.rs"]
 mod world_combat;
+pub(super) use world_combat::ocl_and_scud::OclPrimary;
 pub(crate) use world_combat::weapon_visual_capture::{
     PendingWeaponVisualDispatchCapture, source_is_locally_controlled,
 };

@@ -525,6 +525,7 @@ impl GameLogic {
         // ObjectCreationList::create(m_ocl, obj, obj, oclFrames).
         let outcome = self.execute_parsed_weapon_ocl_with_lifetime_and_births(
             ocl,
+            super::game_logic::OclPrimary::Object,
             Some(id),
             team,
             veterancy,

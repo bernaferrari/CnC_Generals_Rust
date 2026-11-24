@@ -9,7 +9,7 @@
 // - AttackNugget: Make object attack a position
 // - ApplyRandomForceNugget: Apply random physical forces
 
-use super::nuggets::{ObjectCreationNugget, calc_random_force};
+use super::nuggets::{ObjectCreationNugget, calc_random_force_with};
 use super::{CreationContext, CreationResult};
 use crate::common::*;
 use crate::modules::{AIUpdateInterfaceExt, ContainModuleInterfaceExt, PhysicsBehaviorExt};
@@ -764,6 +764,18 @@ impl Default for ApplyRandomForceNugget {
     }
 }
 
+impl ApplyRandomForceNugget {
+    /// Draw the force in C++ Z-up coordinates with the caller's logic RNG.
+    pub fn draw_force(&self, draw: impl FnMut(Real, Real) -> Real) -> Coord3D {
+        calc_random_force_with(draw, self.min_mag, self.max_mag, self.min_pitch, self.max_pitch)
+    }
+
+    /// Draw yaw, roll, and pitch in assignment order after applying the force.
+    pub fn draw_spin(&self, mut draw: impl FnMut(Real, Real) -> Real) -> [Real; 3] {
+        std::array::from_fn(|_| draw(-self.spin_rate, self.spin_rate))
+    }
+}
+
 impl ObjectCreationNugget for ApplyRandomForceNugget {
     fn as_any(&self) -> &dyn Any {
         self
@@ -791,24 +803,11 @@ impl ObjectCreationNugget for ApplyRandomForceNugget {
     ) -> CreationResult {
         // Lifetime is unused (same as C++).
         if let Some(physics) = primary.get_physics() {
-            let force = calc_random_force(
-                ctx,
-                self.min_mag,
-                self.max_mag,
-                self.min_pitch,
-                self.max_pitch,
-            );
+            let force = self.draw_force(|lo, hi| ctx.game_logic.random_value_real(lo, hi));
             physics.apply_force(&force);
 
-            let yaw = ctx
-                .game_logic
-                .random_value_real(-self.spin_rate, self.spin_rate);
-            let roll = ctx
-                .game_logic
-                .random_value_real(-self.spin_rate, self.spin_rate);
-            let pitch = ctx
-                .game_logic
-                .random_value_real(-self.spin_rate, self.spin_rate);
+            let [yaw, roll, pitch] =
+                self.draw_spin(|lo, hi| ctx.game_logic.random_value_real(lo, hi));
 
             physics.set_yaw_rate(yaw);
             physics.set_roll_rate(roll);

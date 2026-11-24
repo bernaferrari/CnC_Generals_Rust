@@ -787,26 +787,4 @@ impl GameLogic {
         Ok(())
     }
 
-    pub fn apply_ocl_random_force(&mut self, object_id: ObjectId) -> bool {
-        use crate::game_logic::host_ocl_apply_random_force::{
-            apply_random_force_plan_for, calc_random_force, spin_nudge_rad,
-        };
-        let Some(o) = self.objects.get_mut(&object_id) else {
-            return false;
-        };
-        let plan = match apply_random_force_plan_for(&o.template_name) {
-            Some(p) => p,
-            None => return false,
-        };
-        let salt = object_id.0.wrapping_add(self.frame);
-        let force = calc_random_force(&plan, salt);
-        o.movement.velocity += force * 0.05;
-        let spin = spin_nudge_rad(&plan, salt);
-        o.set_orientation_with_partition_owner(
-            o.get_orientation() + spin,
-            &mut self.partition_manager,
-        );
-        self.ocl_apply_random_force_reg.record(force);
-        true
-    }
 }

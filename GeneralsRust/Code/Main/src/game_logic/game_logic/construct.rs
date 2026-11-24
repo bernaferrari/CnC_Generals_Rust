@@ -218,8 +218,6 @@ impl GameLogic {
             ocl_fire_weapon_attack_reg:
                 crate::game_logic::host_ocl_fire_weapon_attack::HostOclFireWeaponAttackRegistry::new(),
             fuel_air_gas_reg: crate::game_logic::host_fuel_air_gas_slow_death::HostFuelAirGasRegistry::new(),
-            ocl_apply_random_force_reg:
-                crate::game_logic::host_ocl_apply_random_force::HostOclApplyRandomForceRegistry::new(),
             neutron_missile_update_reg:
                 crate::game_logic::host_neutron_missile_update::HostNeutronMissileUpdateRegistry::new(),
             scud_storm_missile_flight_reg:
@@ -1131,7 +1129,6 @@ impl GameLogic {
         self.ocl_create_debris_reg.clear();
         self.ocl_fire_weapon_attack_reg.clear();
         self.fuel_air_gas_reg.clear();
-        self.ocl_apply_random_force_reg.clear();
         self.neutron_missile_update_reg.clear();
         self.scud_storm_missile_flight_reg.clear();
         self.carpet_bomb_flight_reg.clear();

@@ -6,12 +6,12 @@ use crate::game_logic::object::OnDieInput;
 #[cfg(test)]
 #[path = "authored_credit_tests.rs"]
 mod credit_tests;
+#[cfg(test)]
+#[path = "authored_force_tests.rs"]
+mod force_tests;
 
 impl GameLogic {
-    /// Execute the host-supported generic-object part of an admitted OCL
-    /// synchronously at the C++ onDie callback. The shared receiving dispatcher
-    /// preserves nugget order, count, and per-object random selection; other
-    /// nugget kinds remain unsupported instead of becoming guessed spawns.
+    /// Run the authored object-overload OCL at its synchronous Die callback.
     pub(super) fn execute_receiving_die_ocl_with_effects(
         &mut self,
         id: ObjectId,
@@ -19,35 +19,9 @@ impl GameLogic {
         interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> gamelogic::GameLogicResult<()> {
-        if self
-            .object_creation_list_definition(&config.ocl_name)
-            .is_none()
-        {
-            // A missing receiving OCL is a null C++ handle. Never select a
-            // name-based compatibility peel from another source.
-            return Ok(());
-        }
-        let Some((team, position, orientation, veterancy, velocity)) =
-            self.objects.get(&id).map(|object| {
-                (
-                    object.team,
-                    object.get_position(),
-                    object.get_orientation(),
-                    object.experience.level,
-                    object.movement.velocity,
-                )
-            })
-        else {
-            return Ok(());
-        };
-        let outcome = self.execute_parsed_weapon_ocl_with_births(
+        let outcome = self.execute_receiving_object_ocl_with_births(
             &config.ocl_name,
-            Some(id),
-            team,
-            veterancy,
-            orientation,
-            velocity,
-            position,
+            id,
             interpreter,
             presentation_effects,
         );
@@ -351,6 +325,7 @@ impl GameLogic {
                                     self.objects_to_destroy.iter().any(|event| event.id == id);
                                 let mut slow_death_start =
                                     crate::game_logic::object::SlowDeathStart::default();
+                                let mut initial_ocls = Vec::new();
                                 if let Some(object) = self.objects.get_mut(&id) {
                                     slow_death_start = match family {
                                         NativeSlowFamily::Jet(fx) => {
@@ -373,8 +348,9 @@ impl GameLogic {
                                                     &mut self.queued_audio_events,
                                                 ),
                                             ),
-                                        NativeSlowFamily::Ordinary => {
-                                            object.begin_slow_death_from_ini_with_removal(
+                                        NativeSlowFamily::Ordinary { initial_ocls: authored } => {
+                                            let fresh = object.slow_death.is_none();
+                                            let started = object.begin_slow_death_from_ini_with_removal(
                                                 self.frame,
                                                 config,
                                                 deletion_queued,
@@ -382,6 +358,9 @@ impl GameLogic {
                                                     &mut self.queued_audio_events,
                                                 ),
                                             );
+                                            if fresh && started {
+                                                initial_ocls = authored;
+                                            }
                                             crate::game_logic::object::SlowDeathStart::default()
                                         }
                                     };
@@ -405,6 +384,20 @@ impl GameLogic {
                                         true,
                                         presentation_effects,
                                     );
+                                }
+                                // SlowDeathBehavior.cpp:337 selects from all
+                                // authored entries, including null handles.
+                                if initial_ocls.iter().any(|name| {
+                                    self.object_creation_list_definition(name).is_some()
+                                }) {
+                                    if let Some(ocl) = self.choose_authored_die_entry(&initial_ocls) {
+                                        let outcome = self.execute_receiving_object_ocl_with_births(
+                                            &ocl, id, interpreter, presentation_effects,
+                                        );
+                                        if let Some(error) = outcome.error {
+                                            return Err(error);
+                                        }
+                                    }
                                 }
                                 // HelicopterSlowDeathUpdate.cpp:160-176 stops
                                 // the Drawable after base INITIAL effects.

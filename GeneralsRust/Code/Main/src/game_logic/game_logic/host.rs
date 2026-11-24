@@ -386,9 +386,6 @@ pub struct GameLogic {
     /// C++ FuelAir gas SlowDeathBehavior residual.
     pub(super) fuel_air_gas_reg:
         crate::game_logic::host_fuel_air_gas_slow_death::HostFuelAirGasRegistry,
-    /// C++ OCL ApplyRandomForceNugget residual.
-    pub(super) ocl_apply_random_force_reg:
-        crate::game_logic::host_ocl_apply_random_force::HostOclApplyRandomForceRegistry,
     /// C++ NeutronMissileUpdate residual counters.
     pub(super) neutron_missile_update_reg:
         crate::game_logic::host_neutron_missile_update::HostNeutronMissileUpdateRegistry,

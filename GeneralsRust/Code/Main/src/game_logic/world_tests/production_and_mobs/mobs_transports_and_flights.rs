@@ -888,35 +888,6 @@ fn ocl_create_debris_disposition_spawn() {
 }
 
 #[test]
-fn ocl_apply_random_force_technical() {
-    use crate::game_logic::KindOf;
-    let mut logic = GameLogic::new();
-    ensure_test_player_for_team(&mut logic, Team::GLA);
-    let mut tech = crate::game_logic::ThingTemplate::new("GLAVehicleTechnicalAirDeath");
-    tech.add_kind_of(KindOf::Vehicle).set_health(100.0);
-    logic
-        .templates
-        .insert("GLAVehicleTechnicalAirDeath".into(), tech);
-    // Also match via OCL-style name peel on template containing technical+death
-    let id = logic
-        .create_object(
-            "GLAVehicleTechnicalAirDeath",
-            Team::GLA,
-            Vec3::new(0.0, 5.0, 0.0),
-        )
-        .unwrap();
-    let v0 = logic.host_object(id).unwrap().movement.velocity;
-    assert!(logic.apply_ocl_random_force(id));
-    let v1 = logic.host_object(id).unwrap().movement.velocity;
-    assert!(
-        (v1 - v0).length() > 1.0,
-        "ApplyRandomForce should impulse velocity"
-    );
-    assert!(logic.ocl_apply_random_force_reg.applied >= 1);
-    assert!(logic.honesty_ocl_apply_random_force_ok());
-}
-
-#[test]
 fn fuel_air_gas_slow_death_detonates() {
     use crate::game_logic::KindOf;
     let mut logic = GameLogic::new();

@@ -56,10 +56,6 @@ impl GameLogic {
         crate::game_logic::host_neutron_missile_update::honesty_neutron_missile_update_residual_ok()
     }
 
-    pub fn honesty_ocl_apply_random_force_ok(&self) -> bool {
-        crate::game_logic::host_ocl_apply_random_force::honesty_ocl_apply_random_force_residual_ok()
-    }
-
     pub fn honesty_fuel_air_gas_slow_death_ok(&self) -> bool {
         crate::game_logic::host_fuel_air_gas_slow_death::honesty_fuel_air_gas_slow_death_residual_ok(
         )

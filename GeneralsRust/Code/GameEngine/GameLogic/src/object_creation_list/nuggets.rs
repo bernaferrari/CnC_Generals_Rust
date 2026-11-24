@@ -1325,27 +1325,8 @@ pub fn calc_random_force_xyz(angle: Real, pitch: Real, mag: Real) -> Coord3D {
     Coord3D::new(horiz * angle.cos(), horiz * angle.sin(), vert)
 }
 
-/// Calculate random force with magnitude and pitch
-/// Matches C++ calcRandomForce (ObjectCreationList.cpp:575-591)
-pub fn calc_random_force(
-    ctx: &CreationContext<'_>,
-    min_mag: Real,
-    max_mag: Real,
-    min_pitch: Real,
-    max_pitch: Real,
-) -> Coord3D {
-    calc_random_force_with(
-        |lo, hi| ctx.game_logic.random_value_real(lo, hi),
-        min_mag,
-        max_mag,
-        min_pitch,
-        max_pitch,
-    )
-}
-
-/// RANDOM_FORCE draw shared by `calc_random_force` and
-/// `GenericObjectCreationNugget::draw_flight`: angle, pitch, magnitude.
-fn calc_random_force_with(
+/// C++ ObjectCreationList.cpp:575-591 draws angle, pitch, and magnitude.
+pub(super) fn calc_random_force_with(
     mut draw: impl FnMut(Real, Real) -> Real,
     min_mag: Real,
     max_mag: Real,

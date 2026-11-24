@@ -18,6 +18,14 @@ pub(crate) struct OclExecutionOutcome {
     pub(crate) error: Option<gamelogic::GameLogicError>,
 }
 
+/// Distinguish the C++ object overload from location-based effects. A location
+/// can carry a source ID for ownership while acting on a separate position.
+#[derive(Clone, Copy)]
+pub(in crate::game_logic) enum OclPrimary {
+    Object,
+    Position,
+}
+
 impl OclExecutionOutcome {
     fn success(created: Vec<(ObjectId, (u64, u64))>) -> Self {
         Self {
@@ -66,7 +74,7 @@ fn unsupported_host_ocl_nugget_name(
 ) -> &'static str {
     let nugget = nugget.as_any();
     use gamelogic::object_creation_list::advanced_nuggets::{
-        ApplyRandomForceNugget, AttackNugget, DeliverPayloadNugget, FireWeaponNugget,
+        AttackNugget, DeliverPayloadNugget, FireWeaponNugget,
     };
     if nugget.is::<FireWeaponNugget>() {
         "FireWeapon"
@@ -74,8 +82,6 @@ fn unsupported_host_ocl_nugget_name(
         "DeliverPayload"
     } else if nugget.is::<AttackNugget>() {
         "Attack"
-    } else if nugget.is::<ApplyRandomForceNugget>() {
-        "ApplyRandomForce"
     } else {
         "other"
     }
@@ -242,6 +248,7 @@ impl GameLogic {
     ) -> OclExecutionOutcome {
         self.execute_parsed_weapon_ocl_with_lifetime_and_births(
             ocl_name,
+            OclPrimary::Position,
             source_id,
             source_team,
             source_veterancy,
@@ -255,12 +262,40 @@ impl GameLogic {
         )
     }
 
+    /// ObjectCreationList::create(list, primary, NULL) on the installed object.
+    pub(in crate::game_logic) fn execute_receiving_object_ocl_with_births(
+        &mut self,
+        ocl_name: &str,
+        id: ObjectId,
+        interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> OclExecutionOutcome {
+        let Some(object) = self.objects.get(&id) else {
+            return OclExecutionOutcome::success(Vec::new());
+        };
+        self.execute_parsed_weapon_ocl_with_lifetime_and_births(
+            ocl_name,
+            OclPrimary::Object,
+            Some(id),
+            object.team,
+            object.experience.level,
+            object.get_orientation(),
+            object.movement.velocity,
+            object.get_position(),
+            None,
+            0,
+            interpreter,
+            effects,
+        )
+    }
+
     /// `ObjectCreationList::create` `lifetimeFrames`: a nonzero caller value
     /// overrides the authored nugget lifetime on an existing LifetimeUpdate
     /// only (ObjectCreationList.cpp:917-933); zero keeps the nugget rule.
     pub(in crate::game_logic) fn execute_parsed_weapon_ocl_with_lifetime_and_births(
         &mut self,
         ocl_name: &str,
+        primary: OclPrimary,
         source_id: Option<ObjectId>,
         source_team: Team,
         source_veterancy: VeterancyLevel,
@@ -292,9 +327,9 @@ impl GameLogic {
         });
 
         let Some(ocl) = self.object_creation_list_definition(ocl_name) else {
-            log::warn!(
-                "receiving OCL `{ocl_name}` was not admitted for this GameLogic; no global fallback was used"
-            );
+            if matches!(primary, OclPrimary::Position) {
+                log::warn!("receiving OCL `{ocl_name}` was not admitted for this GameLogic");
+            }
             return OclExecutionOutcome::success(Vec::new());
         };
 
@@ -309,6 +344,26 @@ impl GameLogic {
                 if !source_id.is_some_and(|id| self.spawn_identity_matches(id, birth.0, birth.1)) {
                     break;
                 }
+            }
+            if let Some(force) = nugget.as_any().downcast_ref::<
+                gamelogic::object_creation_list::advanced_nuggets::ApplyRandomForceNugget,
+            >() {
+                if matches!(primary, OclPrimary::Object)
+                    && let Some(object) = source_id.and_then(|id| self.objects.get_mut(&id))
+                    && object.authors_behavior_module("PhysicsBehavior")
+                {
+                    let applied = force.draw_force(|lo, hi| self.logic_random.next_real(lo, hi));
+                    object.apply_physics_force(
+                        Vec3::new(applied.x, applied.z, applied.y),
+                        self.frame,
+                    );
+                    let [yaw, roll, pitch] =
+                        force.draw_spin(|lo, hi| self.logic_random.next_real(lo, hi));
+                    object.shock_yaw_rate = yaw;
+                    object.shock_roll_rate = roll;
+                    object.shock_pitch_rate = pitch;
+                }
+                continue;
             }
             if let Some(fire) = nugget.as_any().downcast_ref::<
                 gamelogic::object_creation_list::advanced_nuggets::FireWeaponNugget,

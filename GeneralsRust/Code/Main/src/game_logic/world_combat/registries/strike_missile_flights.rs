@@ -3,7 +3,6 @@
 use super::*;
 
 impl GameLogic {
-    /// C++ ApplyRandomForceNugget::create residual on primary (dying) object.
     /// C++ NeutronMissileUpdate::update residual.
     pub fn update_neutron_missile_flights(&mut self) -> gamelogic::GameLogicResult<()> {
         self.update_neutron_missile_flights_with_effects(

@@ -893,8 +893,6 @@ impl GameLogic {
         self.maybe_apply_eject_pilot_die_with_effects(id, presentation_effects);
         // C++ SpawnBehavior::onDie SpawnedRequireSpawner — kill remaining slaves.
         self.apply_spawned_require_spawner_on_die_with_effects(id, presentation_effects)?;
-        // C++ OCL ApplyRandomForceNugget residual (air-death toss before debris).
-        let _ = self.apply_ocl_random_force(id);
         self.maybe_apply_upgrade_die(id);
         // C++ RebuildHoleExposeDie::onDie at death start (before topple/slow-death).
         // WorkerRespawnDelay starts here, not after collapse Done.
