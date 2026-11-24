@@ -180,17 +180,24 @@ fn projectile_damage_fx_continues_after_restore_and_peer_reset() {
     builder
         .restore_from_snapshot(&decoded, &mut different_type.world)
         .unwrap();
-    let (hits, _) = different_type.world.apply_scud_area_at(
-        Vec3::new(30.0, 0.0, 0.0),
-        Some(different_type.shooters[0]),
-        Team::USA,
-        false,
-    ).unwrap();
-    assert!(hits > 0);
+    // HitStructure is the existing explosive damage entry point. Throttle
+    // observes the damage type, so this does not require a launcher or splash.
+    let (destroyed, blocked) = different_type
+        .world
+        .apply_host_hive_damage_from(
+            different_type.victim,
+            40.0,
+            generals_main::game_logic::host_base_defense::HostHiveDamageClass::HitStructure,
+            None,
+            Some(different_type.shooters[0]),
+        )
+        .unwrap();
+    assert!(!destroyed && !blocked);
     let victim = different_type
         .world
         .host_object(different_type.victim)
         .unwrap();
+    assert_eq!(victim.health.current, 1860.0);
     assert_eq!(
         victim.last_damage_fx_done,
         Some(generals_main::game_logic::combat::DamageType::Explosive)

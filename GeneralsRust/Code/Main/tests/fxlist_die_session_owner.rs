@@ -1,4 +1,5 @@
 use game_engine::common::common_services::CommonServicesScope;
+use generals_main::assets::ini_template_loader::register_weapons_from_ini_text;
 use generals_main::game_logic::{GameLogic, Player, Team};
 use glam::Vec3;
 
@@ -17,17 +18,37 @@ fn missing_session_death_fx_does_not_play_a_foreign_global_sound() {
     world.add_player(Player::new(0, Team::USA, "Attacker", true));
     world.add_player(Player::new(1, Team::China, "Victim", false));
     world.admit_object_ini_sources([("FXDieOwner.ini".into(),
-        "Object FXDieOwner\n KindOf = INFANTRY SELECTABLE\n Body = ActiveBody Body\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = FXListDie DieFx\n DeathFX = FX_ForeignDieSession\n End\nEnd\n".into(),
+        "Object FXDieOwner\n KindOf = INFANTRY SELECTABLE\n Body = ActiveBody Body\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = FXListDie DieFx\n DeathFX = FX_ForeignDieSession\n End\nEnd\n\nObject FXDieAttacker\n KindOf = INFANTRY\n Body = ActiveBody Body\n MaxHealth = 100\n InitialHealth = 100\n End\n WeaponSet\n Conditions = None\n Weapon = PRIMARY FXDieLethalShot\n End\nEnd\n".into(),
     )]).unwrap();
+    const LETHAL_SHOT: &str = "FXDieLethalShot";
+    gamelogic::initialize_weapon_store().unwrap();
+    assert_eq!(
+        register_weapons_from_ini_text(
+            "Weapon FXDieLethalShot\n PrimaryDamage = 200\n AttackRange = 100\n DamageType = EXPLOSION\n AntiGround = Yes\n WeaponSpeed = 999999\n ProjectileObject = NONE\nEnd\n",
+        ),
+        1
+    );
+    let weapon = gamelogic::weapon::with_weapon_store(|store| {
+        (**store.find_weapon_template(LETHAL_SHOT).unwrap()).clone()
+    })
+    .unwrap();
+    world
+        .admit_receiving_weapon_snapshot(vec![(LETHAL_SHOT.into(), weapon)])
+        .unwrap();
+    let source = world
+        .create_object_for_player("FXDieAttacker", 0, Vec3::ZERO)
+        .unwrap();
     let victim = world
         .create_object_for_player("FXDieOwner", 1, Vec3::new(30.0, 0.0, 0.0))
         .unwrap();
-    let (hits, _) = world.apply_scud_area_at(Vec3::new(30.0, 0.0, 0.0), None, Team::USA, false).unwrap();
-    assert!(hits > 0, "the actual lethal hit must reach the victim");
+    let shot = world.attack_fire_weapon_update(source, victim, 1.0);
     let object = world
         .host_object(victim)
         .expect("onDie retains the victim until cleanup");
-    assert!(!object.is_alive());
+    assert!(
+        !object.is_alive(),
+        "the actual lethal shot must reach the victim, got {shot:?}"
+    );
     assert!(
         object
             .pending_transition_damage_fx
