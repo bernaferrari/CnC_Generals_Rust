@@ -161143,7 +161143,7 @@
     }
   ],
   "generator": "GeneralsRust/Code/Main/scripts/generate_port_provenance.py",
-  "input_digest": "0d309cff39893a9720b81da036d91201c373983041051fb0ce0de240a68e451c",
+  "input_digest": "bb635529bed51175831429c5529a3dee40d744fa670ce5a82a969fb439746738",
   "metric_contract": {
     "behavior_requires_explicit_evidence": true,
     "candidate_mapping_is_reviewed": false,
@@ -222009,11 +222009,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 600,
+        "end_line": 615,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/Main/src/game_logic/native_die_definition.rs",
-      "sha256": "00481925bb81b5b07952d33c151e1f588939ec080f128e3afb8aa92e2fab2d1d",
+      "sha256": "c7b548457469378be6d3e8727b5040de21667aa6991dec257c8d48d0de7561f8",
       "symbol_index_status": "indexed",
       "symbols": [
         {
@@ -222143,32 +222143,32 @@
         },
         {
           "kind": "fn",
-          "line": 343,
+          "line": 346,
           "name": "bind"
         },
         {
           "kind": "fn",
-          "line": 532,
+          "line": 547,
           "name": "family_in"
         },
         {
           "kind": "fn",
-          "line": 542,
+          "line": 557,
           "name": "validate"
         },
         {
           "kind": "fn",
-          "line": 567,
+          "line": 582,
           "name": "bound_creation_identity"
         },
         {
           "kind": "fn",
-          "line": 568,
+          "line": 583,
           "name": "identity"
         },
         {
           "kind": "fn",
-          "line": 586,
+          "line": 601,
           "name": "persistence_identity"
         }
       ]
@@ -222177,11 +222177,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 387,
+        "end_line": 379,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/Main/src/game_logic/world_objects/create_destroy_die/death/helicopter_slow_death.rs",
-      "sha256": "f5f0456df9dec72a6687179365cb6780e254c0ce09f84509d2191cc49d71af7a",
+      "sha256": "72704081da05db7c6ba7c9c27a530ac72983b625698c278b9beb04a00b83187f",
       "symbol_index_status": "indexed",
       "symbols": [
         {
@@ -222211,12 +222211,12 @@
         },
         {
           "kind": "fn",
-          "line": 263,
+          "line": 255,
           "name": "check_authored_helicopter_contact"
         },
         {
           "kind": "fn",
-          "line": 328,
+          "line": 320,
           "name": "finish_authored_helicopter_crash"
         }
       ]
