@@ -28,9 +28,11 @@
 //! - Not full Anthrax Gamma particle bone / salvage PlusOne-Two matrix
 //! - Not network SCUD / toxin replication (network deferred)
 
+#[cfg(test)]
 use super::ObjectId;
 use crate::game_logic::host_toxin_tractor::{AnthraxResidualTier, is_chem_general_template};
 use glam::Vec3;
+#[cfg(test)]
 use serde::{Deserialize, Serialize};
 
 /// Retail primary explosive weapon.
@@ -281,6 +283,7 @@ pub fn in_radius_2d(center: (f32, f32), target: (f32, f32), radius: f32) -> bool
 }
 
 /// One active residual MediumPoisonField from SCUD toxin detonation.
+#[cfg(test)]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct HostScudPoisonZone {
     pub id: u32,
@@ -299,6 +302,7 @@ pub struct HostScudPoisonZone {
     pub objects_destroyed: u32,
 }
 
+#[cfg(test)]
 impl HostScudPoisonZone {
     pub fn anthrax_upgraded(&self) -> bool {
         self.anthrax_tier.is_upgraded()
@@ -314,6 +318,7 @@ impl HostScudPoisonZone {
 }
 
 /// Damage application plan for a single victim this tick.
+#[cfg(test)]
 #[derive(Debug, Clone, Copy)]
 pub struct HostScudPoisonDamageHit {
     pub target_id: ObjectId,
@@ -322,6 +327,7 @@ pub struct HostScudPoisonDamageHit {
 }
 
 /// Result of resolving one poison zone's damage tick.
+#[cfg(test)]
 #[derive(Debug, Clone)]
 pub struct HostScudPoisonTickPlan {
     pub zone_id: u32,
@@ -332,6 +338,7 @@ pub struct HostScudPoisonTickPlan {
 }
 
 /// Host residual registry for SCUD MediumPoisonField zones.
+#[cfg(test)]
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct HostScudPoisonRegistry {
     next_id: u32,
@@ -347,6 +354,7 @@ pub struct HostScudPoisonRegistry {
     pub units_hit: u32,
 }
 
+#[cfg(test)]
 impl HostScudPoisonRegistry {
     pub fn new() -> Self {
         Self::default()

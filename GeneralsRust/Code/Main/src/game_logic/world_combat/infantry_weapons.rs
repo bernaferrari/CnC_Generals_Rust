@@ -4,6 +4,7 @@
 use super::super::*;
 
 impl GameLogic {
+    #[cfg(test)]
     pub fn apply_scud_area_at(
         &mut self,
         impact: Vec3,
@@ -20,6 +21,7 @@ impl GameLogic {
         )
     }
 
+    #[cfg(test)]
     pub(crate) fn apply_scud_area_at_with_effects(
         &mut self,
         impact: Vec3,
@@ -2331,12 +2333,14 @@ impl GameLogic {
         }
     }
 
+    #[cfg(test)]
     pub(in super::super) fn update_scud_poison_zones(&mut self) -> gamelogic::GameLogicResult<()> {
         self.update_scud_poison_zones_with_effects(
             &mut crate::game_logic::ScriptPresentationEffects::default(),
         )
     }
 
+    #[cfg(test)]
     pub(in super::super) fn update_scud_poison_zones_with_effects(
         &mut self,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,

@@ -359,6 +359,7 @@ impl GameLogic {
             quad_cannon_residual_ground_fires: 0,
             quad_cannon_residual_aa_fires: 0,
             quad_cannon_residual_barrel_upgrades: 0,
+            #[cfg(test)]
             scud_poison_zones: crate::game_logic::host_scud_launcher::HostScudPoisonRegistry::new(),
             overlord_addons:
                 crate::game_logic::host_overlord_addons::HostOverlordAddonRegistry::new(),
@@ -1255,6 +1256,7 @@ impl GameLogic {
         self.quad_cannon_residual_ground_fires = 0;
         self.quad_cannon_residual_aa_fires = 0;
         self.quad_cannon_residual_barrel_upgrades = 0;
+        #[cfg(test)]
         self.scud_poison_zones.clear();
         self.overlord_addons.clear();
         self.nuke_cannon_residual.clear();

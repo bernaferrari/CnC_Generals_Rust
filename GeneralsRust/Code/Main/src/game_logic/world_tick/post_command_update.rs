@@ -411,9 +411,8 @@ impl GameLogic {
             }
         }
 
-        // Host GLA SCUD toxin residual: tick MediumPoisonField DoT at impact zones.
-        // Fail-closed vs full OCL_PoisonFieldMedium object spawn / particle bones.
-        // Wave 825: host-sole unless movement authority live: zone/field damage sole-ticks after GW writeback.
+        // Only fixture tests populate this registry. Live impacts create authored field objects.
+        #[cfg(test)]
         {
             if let Err(error) = self.update_scud_poison_zones_with_effects(&mut ui) {
                 return SimulationStepOutcome::Failed(error);

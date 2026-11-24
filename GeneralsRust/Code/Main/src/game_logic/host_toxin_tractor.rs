@@ -300,6 +300,7 @@ pub fn is_anthrax_beta_upgrade_name(name: &str) -> bool {
 /// Resolve anthrax residual tier from upgrade tags + Chem template baseline.
 ///
 /// Fail-closed: not full WeaponSet PLAYER_UPGRADE module matrix / science prereqs.
+#[cfg(test)]
 pub fn anthrax_tier_from_flags(
     has_gamma: bool,
     has_beta: bool,

@@ -2131,6 +2131,7 @@ impl GameLogic {
     }
 
     /// Residual honesty: SCUD area blast residual.
+    #[cfg(test)]
     pub fn honesty_scud_launcher_ok(&self) -> bool {
         self.scud_poison_zones.honesty_host_path_ok() || self.scud_launcher_scatter_applied > 0
     }
@@ -2140,14 +2141,17 @@ impl GameLogic {
         self.scud_launcher_scatter_applied > 0 || self.scud_launcher_scatter_misses > 0
     }
 
+    #[cfg(test)]
     pub fn honesty_scud_area_ok(&self) -> bool {
         self.scud_poison_zones.honesty_area_ok()
     }
 
+    #[cfg(test)]
     pub fn honesty_scud_toxin_ok(&self) -> bool {
         self.scud_poison_zones.honesty_toxin_ok()
     }
 
+    #[cfg(test)]
     pub fn scud_poison_zones(
         &self,
     ) -> &crate::game_logic::host_scud_launcher::HostScudPoisonRegistry {

@@ -750,8 +750,8 @@ pub struct GameLogic {
     pub(super) quad_cannon_residual_aa_fires: u32,
     pub(super) quad_cannon_residual_barrel_upgrades: u32,
 
-    /// Host GLA SCUD launcher residual (area blast + MediumPoisonField toxin DoT).
-    /// Fail-closed: not full SCUDMissile projectile lob / salvage PlusOne matrix.
+    /// Synthetic blast and poison state used by residual combat fixtures.
+    #[cfg(test)]
     pub(super) scud_poison_zones: crate::game_logic::host_scud_launcher::HostScudPoisonRegistry,
     /// Host Overlord/Helix/Emperor portable addon residual honesty registry.
     pub(super) overlord_addons: crate::game_logic::host_overlord_addons::HostOverlordAddonRegistry,
