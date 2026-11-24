@@ -450,6 +450,9 @@ pub struct RenderableObject {
     /// Wave 982: producer/slaver residual for IgnoredInGui mouseover remap.
     #[serde(default)]
     pub producer_id: Option<ObjectId>,
+    /// Live RemoteDemoCharge planter bond (mine_data) for SPECIAL_REMOTE_CHARGES.
+    #[serde(default)]
+    pub(crate) remote_charge_planter: Option<ObjectId>,
     /// Wave 983: healing icon residual (sole-benefactor / heal timer).
     #[serde(default)]
     pub show_healing: bool,

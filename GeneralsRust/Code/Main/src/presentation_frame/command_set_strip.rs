@@ -210,7 +210,9 @@ impl PresentationFrame {
                         avail,
                         game_client::gui::control_bar::CommandAvailability::Available
                             | game_client::gui::control_bar::CommandAvailability::Active
-                    ) {
+                    ) && (!host_remote_detonate_button(&cmd.command_name)
+                        || self.has_remote_charge(ObjectId(*id)))
+                    {
                         can_do += 1;
                     }
                     last = avail;
@@ -328,6 +330,13 @@ impl PresentationFrame {
         bar
     }
 
+    /// The remote detonate button needs at least one live charge bonded to the planter.
+    fn has_remote_charge(&self, planter: ObjectId) -> bool {
+        self.objects
+            .iter()
+            .any(|charge| charge.remote_charge_planter == Some(planter))
+    }
+
     fn command_set_slot_enabled(&self, ro: &RenderableObject, name: &str) -> bool {
         let n = name.to_ascii_lowercase();
         if n.contains("combatdrop") {
@@ -336,14 +345,8 @@ impl PresentationFrame {
         if n.contains("capture") {
             return ro.capture_power_ready && !ro.using_ability;
         }
-        if n.contains("detonate") && (n.contains("charge") || n.contains("demo")) {
-            return self.objects.iter().any(|charge| {
-                charge.producer_id == Some(ro.id)
-                    && !charge.destroyed
-                    && crate::game_logic::host_mines::is_remote_demo_charge_template(
-                        &charge.template_name,
-                    )
-            });
+        if host_remote_detonate_button(name) {
+            return self.has_remote_charge(ro.id);
         }
         if (n.contains("hackinternet") || n.contains("internethack"))
             && ro.hacking_packing_or_unpacking

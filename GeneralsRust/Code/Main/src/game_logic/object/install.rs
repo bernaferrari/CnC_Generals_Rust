@@ -98,6 +98,20 @@ impl Object {
         &self.thing.template
     }
 
+    /// Live active RemoteDemoCharge bond to its planter, read from `mine_data`
+    /// — the placement bond, not the generic producer field.
+    pub(crate) fn remote_charge_planter(&self) -> Option<ObjectId> {
+        let data = self.mine_data.as_ref()?;
+        if data.kind == crate::game_logic::host_mines::HostMineKind::RemoteDemoCharge
+            && data.is_active()
+            && self.is_alive()
+        {
+            data.producer_id
+        } else {
+            None
+        }
+    }
+
     pub(crate) fn authored_crate_collides(
         &self,
     ) -> Option<&std::sync::Arc<[AuthoredCrateCollide]>> {

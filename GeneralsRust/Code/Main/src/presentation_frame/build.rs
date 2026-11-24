@@ -739,6 +739,7 @@ impl PresentationFrame {
                 using_ability: obj.status.using_ability,
                 airborne_target: obj.status.airborne_target,
                 producer_id: obj.producer_id,
+                remote_charge_planter: obj.remote_charge_planter(),
                 show_healing: {
                     // C++ HEALING_ICON_DISPLAY_TIME residual via sole-benefactor
                     // claim window, plus Drawable::xfer keepTillFrame icons.

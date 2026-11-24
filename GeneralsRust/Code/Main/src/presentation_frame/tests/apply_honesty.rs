@@ -1715,6 +1715,13 @@ fn burton_detonate_button_gray_without_remote_charges() {
     if let Some(p) = logic.get_player_mut(0) {
         p.selected_objects = vec![burton_id];
     }
+    // A remote-charge-named stray with only a generic producer bond is not a
+    // live special object — SpecialAbilityUpdate.cpp:546-558 counts the real
+    // planted charges (mine_data bond), not producer attribution.
+    let impostor = logic
+        .create_object("RemoteC4Charge", Team::USA, glam::Vec3::new(8.0, 0.0, 0.0))
+        .unwrap();
+    logic.host_object_mut(impostor).unwrap().producer_id = Some(burton_id);
 
     let frame = PresentationFrame::build_from_logic(&mut logic, 0);
     let cmds = frame.unit_command_buttons();
@@ -1728,12 +1735,15 @@ fn burton_detonate_button_gray_without_remote_charges() {
     });
     assert!(
         detonate.is_some_and(|c| !c.enabled),
-        "zero charges must gray ColonelBurtonDetonateCharges: {:?}",
+        "a producer-attributed stray must not enable ColonelBurtonDetonateCharges: {:?}",
         cmds.iter()
             .map(|c| (c.command_name.as_str(), c.enabled))
             .collect::<Vec<_>>()
     );
 
+    // Clear the stray's generic producer so the positive check below is an
+    // independent regression on the real placement bond alone.
+    logic.host_object_mut(impostor).unwrap().producer_id = None;
     let charge = logic
         .place_remote_demo_charge(
             Team::USA,
@@ -1742,9 +1752,7 @@ fn burton_detonate_button_gray_without_remote_charges() {
             None,
         )
         .expect("charge");
-    if let Some(c) = logic.host_object_mut(charge) {
-        c.producer_id = Some(burton_id);
-    }
+    logic.host_object_mut(charge).unwrap().producer_id = None;
     // Snapshot rebuild keeps local player 0 (build_from_logic's second argument
     // is the local player id, not a frame index).
     let frame = PresentationFrame::build_from_logic(&mut logic, 0);
@@ -1756,6 +1764,67 @@ fn burton_detonate_button_gray_without_remote_charges() {
     assert!(
         detonate.is_some_and(|c| c.enabled),
         "planted remote charge must enable detonate"
+    );
+
+    assert_eq!(
+        logic
+            .detonate_remote_demo_charges(&[burton_id])
+            .unwrap(),
+        1
+    );
+    let frame = PresentationFrame::build_from_logic(&mut logic, 0);
+    let cmds = frame.unit_command_buttons();
+    let detonate = cmds.iter().find(|c| {
+        c.command_name
+            .eq_ignore_ascii_case("Command_ColonelBurtonDetonateCharges")
+    });
+    assert!(
+        detonate.is_some_and(|c| !c.enabled),
+        "detonating the only charge must re-gray the button"
+    );
+
+    // C++ updateContextMultiSelect: the button enables when any selected
+    // planter still owns a live charge.
+    let burton2_id = logic
+        .create_object(
+            "AmericaInfantryColonelBurton",
+            Team::USA,
+            glam::Vec3::new(4.0, 0.0, 0.0),
+        )
+        .expect("second burton");
+    logic.host_object_mut(burton2_id).unwrap().selected = true;
+    if let Some(p) = logic.get_player_mut(0) {
+        p.selected_objects = vec![burton_id, burton2_id];
+    }
+    let frame = PresentationFrame::build_from_logic(&mut logic, 0);
+    let cmds = frame.unit_command_buttons();
+    let detonate = cmds.iter().find(|c| {
+        c.command_name
+            .eq_ignore_ascii_case("Command_ColonelBurtonDetonateCharges")
+    });
+    assert!(
+        detonate.is_some_and(|c| !c.enabled),
+        "multi-select without a live charge stays gray"
+    );
+
+    let charge2 = logic
+        .place_remote_demo_charge(
+            Team::USA,
+            glam::Vec3::new(9.0, 0.0, 0.0),
+            Some(burton2_id),
+            None,
+        )
+        .expect("second charge");
+    logic.host_object_mut(charge2).unwrap().producer_id = None;
+    let frame = PresentationFrame::build_from_logic(&mut logic, 0);
+    let cmds = frame.unit_command_buttons();
+    let detonate = cmds.iter().find(|c| {
+        c.command_name
+            .eq_ignore_ascii_case("Command_ColonelBurtonDetonateCharges")
+    });
+    assert!(
+        detonate.is_some_and(|c| c.enabled),
+        "any selected planter with a live charge enables detonate"
     );
 }
 

@@ -1399,6 +1399,7 @@ impl PresentationFrame {
             using_ability: ent.using_ability,
             airborne_target: ent.airborne_target,
             producer_id: ent.producer_id.map(ObjectId), // Wave 992: GameWorld entity producer residual.
+            remote_charge_planter: None,
             show_healing: ent.sole_healing_benefactor_expiration_frame != 0,
             healing_icon_type: {
                 const STRUCTURE_BIT: u32 = 1 << 0;
@@ -2001,6 +2002,11 @@ impl PresentationFrame {
             let spawn_children = super::build::freeze_spawn_children(logic, obj);
             if ro.spawn_children != spawn_children {
                 ro.spawn_children = spawn_children;
+                dirty = true;
+            }
+            let remote_charge_planter = obj.remote_charge_planter();
+            if ro.remote_charge_planter != remote_charge_planter {
+                ro.remote_charge_planter = remote_charge_planter;
                 dirty = true;
             }
             if ro.special_power_override_destination != obj.special_power_override_destination {

@@ -236,7 +236,7 @@ impl GameLogic {
         producers: &[ObjectId],
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> gamelogic::GameLogicResult<u32> {
-        use crate::game_logic::host_mines::{HostMineDetonateReason, HostMineKind};
+        use crate::game_logic::host_mines::HostMineDetonateReason;
 
         if producers.is_empty() {
             return Ok(0);
@@ -246,14 +246,7 @@ impl GameLogic {
             .objects
             .registered()
             .filter_map(|(id, obj)| {
-                let data = obj.mine_data.as_ref()?;
-                if !data.is_active() || !obj.is_alive() {
-                    return None;
-                }
-                if data.kind != HostMineKind::RemoteDemoCharge {
-                    return None;
-                }
-                let producer = data.producer_id?;
+                let producer = obj.remote_charge_planter()?;
                 if !producer_set.contains(&producer) {
                     return None;
                 }

@@ -1405,16 +1405,6 @@ pub fn neutron_mine_victim_effect(
     NeutronMineVictimEffect::None
 }
 
-/// Template names recognized as residual remote demo charges.
-pub fn is_remote_demo_charge_template(name: &str) -> bool {
-    let n = name.to_ascii_lowercase();
-    n.contains("remotedemocharge")
-        || n.contains("remotecharge")
-        || n.contains("remotec4")
-        || n == "testremotedemocharge"
-        || n == "remotec4charge"
-}
-
 /// C++ DemoTrapUpdate.cpp:124-130 isEffectivelyDead + DetonateWhenKilled.
 pub fn should_detonate_when_killed(
     kind: HostMineKind,
