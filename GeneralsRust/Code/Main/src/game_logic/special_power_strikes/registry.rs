@@ -854,6 +854,7 @@ impl HostSpecialPowerStrikeRegistry {
             ScudStormAnthraxTier::Base,
             A10StrikeScienceTier::Level1,
             HostStrikePhase::Queued,
+            false,
         )
     }
 
@@ -872,6 +873,7 @@ impl HostSpecialPowerStrikeRegistry {
         scud_anthrax_tier: ScudStormAnthraxTier,
         a10_tier: A10StrikeScienceTier,
         phase: HostStrikePhase,
+        carrier_artillery: bool,
     ) -> u32 {
         let id = self.next_id;
         self.next_id = self.next_id.saturating_add(1).max(1);
@@ -987,6 +989,7 @@ impl HostSpecialPowerStrikeRegistry {
             anthrax_toxin_residual_pack_applications: 0,
             live_neutron_delivery: false,
             live_scud_delivery: false,
+            artillery_projectiles: carrier_artillery.then(Vec::new),
             live_carpet_delivery: false,
             live_anthrax_delivery: false,
             live_a10_delivery: false,
@@ -997,7 +1000,7 @@ impl HostSpecialPowerStrikeRegistry {
         };
         // Once-at-queue multi-strike OCL residual: store epicenters + shell
         // frames so plan_due reuses the same ADC draws (retail once-at-create).
-        if phase == HostStrikePhase::Queued && kind.is_multi_strike() {
+        if phase == HostStrikePhase::Queued && kind.is_multi_strike() && !carrier_artillery {
             let points = if kind.is_line_multi_strike() {
                 carpet_bomb_points_for_tier(target_position, strike.carpet_tier)
             } else {

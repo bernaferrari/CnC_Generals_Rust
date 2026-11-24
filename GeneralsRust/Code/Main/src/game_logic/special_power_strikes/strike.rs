@@ -315,6 +315,8 @@ pub struct HostSpecialPowerStrike {
     /// skip the registry blob warhead + FireOCL poison (one path only).
     #[serde(default)]
     pub live_scud_delivery: bool,
+    /// Shell actors still in flight. Some selects carrier-owned delivery.
+    pub(crate) artillery_projectiles: Option<Vec<ObjectId>>,
     /// C++ one CarpetBombWeapon per drop (HeightDie leftover). When flight
     /// leftover scheduled live bombs, skip registry line-wave 300/50 (one path).
     #[serde(default)]

@@ -5,6 +5,7 @@ use super::super::*;
 
 mod container_evacuation_and_rappel;
 mod strike_missile_flights;
+mod artillery_delivery;
 mod support_flights;
 #[cfg(test)]
 mod garrison_evac_door_tests;

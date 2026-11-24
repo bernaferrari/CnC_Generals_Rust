@@ -289,10 +289,11 @@ impl XferData for HostSpecialPowerStrike {
             self.committed_deliveries.clone(),
             self.multi_strike_applied,
             self.live_scud_delivery,
+            self.artillery_projectiles.clone(),
         ));
         xfer.xfer_marker_label("StrikeDeliveries")?;
         super::xfer_helpers::xfer_serde_blob(xfer, &mut deliveries)?;
-        if let Some((artillery, scud, carpet, points, frames, committed, applied, live_scud)) = deliveries {
+        if let Some((artillery, scud, carpet, points, frames, committed, applied, live_scud, artillery_projectiles)) = deliveries {
             self.artillery_tier = artillery;
             self.scud_anthrax_tier = scud;
             self.carpet_tier = carpet;
@@ -301,6 +302,7 @@ impl XferData for HostSpecialPowerStrike {
             self.committed_deliveries = committed;
             self.multi_strike_applied = applied;
             self.live_scud_delivery = live_scud;
+            self.artillery_projectiles = artillery_projectiles;
         }
         Ok(())
     }
@@ -930,6 +932,7 @@ impl XferData for SpecialPowerStrikeRegistrySnapshot {
                 anthrax_toxin_residual_pack_applications: 0,
                 live_neutron_delivery: false,
                 live_scud_delivery: false,
+                artillery_projectiles: None,
                 live_carpet_delivery: false,
                 live_anthrax_delivery: false,
                 live_a10_delivery: false,

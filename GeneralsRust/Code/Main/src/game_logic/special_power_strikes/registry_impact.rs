@@ -87,6 +87,9 @@ impl HostSpecialPowerStrikeRegistry {
             // Live DeliverPayload flights own the warhead path end-to-end:
             // bombs/missiles apply and credit their own damage + impact FX
             // (C++ DeliverPayloadAIUpdate spawns payloads; one weapon per drop).
+            if strike.artillery_projectiles.is_some() {
+                continue;
+            }
             if strike.kind == HostSuperweaponKind::CarpetBomb && strike.live_carpet_delivery {
                 continue;
             }
@@ -731,6 +734,41 @@ impl HostSpecialPowerStrikeRegistry {
     }
 
     /// Credit a live A10 warhead to its exact queued strike ID.
+    pub(crate) fn track_artillery_projectile(&mut self, strike: u32, projectile: ObjectId) {
+        if let Some(projectiles) = self.strikes.get_mut(&strike)
+            .and_then(|strike| strike.artillery_projectiles.as_mut())
+        {
+            projectiles.push(projectile);
+        }
+    }
+
+    pub(crate) fn artillery_strike_for_projectile(&self, projectile: ObjectId) -> Option<u32> {
+        self.strikes.values().find_map(|strike| {
+            strike.artillery_projectiles.as_ref()
+                .filter(|projectiles| projectiles.contains(&projectile))
+                .map(|_| strike.id)
+        })
+    }
+
+    pub(crate) fn finish_artillery_deliveries(
+        &mut self,
+        pending_carriers: &std::collections::BTreeSet<u32>,
+        mut projectile_is_live: impl FnMut(ObjectId) -> bool,
+    ) {
+        for strike in self.strikes.values_mut().filter(|strike| strike.phase == HostStrikePhase::Queued) {
+            let Some(projectiles) = &mut strike.artillery_projectiles else { continue };
+            projectiles.retain(|id| projectile_is_live(*id));
+            if projectiles.is_empty() && !pending_carriers.contains(&strike.id) {
+                strike.phase = if strike.multi_strike_applied == 0 {
+                    HostStrikePhase::Cancelled
+                } else {
+                    self.completed_this_frame.push(strike.id);
+                    HostStrikePhase::Completed
+                };
+            }
+        }
+    }
+
     pub fn credit_live_a10_delivery_impact(
         &mut self,
         strike_id: u32,

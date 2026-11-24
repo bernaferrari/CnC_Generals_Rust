@@ -68,6 +68,7 @@ pub struct DeliverPayloadNugget {
     // Payload objects to deliver
     pub payload: Vec<Payload>,
     pub put_in_container_name: String,
+    pub visible_payload_weapon_name: String,
 
     // AI delivery parameters
     pub data: DeliverPayloadData,
@@ -86,6 +87,7 @@ impl Default for DeliverPayloadNugget {
             delay_delivery_frames_max: 0,
             payload: Vec::new(),
             put_in_container_name: String::new(),
+            visible_payload_weapon_name: String::new(),
             data: DeliverPayloadData::default(),
         }
     }

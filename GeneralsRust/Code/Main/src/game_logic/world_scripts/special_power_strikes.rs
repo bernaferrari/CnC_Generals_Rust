@@ -151,6 +151,7 @@ impl GameLogic {
             } else {
                 HostStrikePhase::Queued
             },
+            kind == HostSuperweaponKind::ArtilleryBarrage,
         );
         if let Some(settings) = particle_manual_drive_settings {
             if let Some(strike) = self.special_power_strikes.get_mut(id) {
@@ -289,12 +290,13 @@ impl GameLogic {
                 }
             }
         }
-        // C++ ArtilleryBarrage DeliverPayload residual (cannon + staggered shells).
+        // C++ DeliverPayload carriers own artillery release.
         if kind == HostSuperweaponKind::ArtilleryBarrage {
             let _ = self.spawn_artillery_barrage_flight_with_effects(
                 source_object,
                 target_position,
                 artillery_tier,
+                Some(id),
                 effects,
             );
         }

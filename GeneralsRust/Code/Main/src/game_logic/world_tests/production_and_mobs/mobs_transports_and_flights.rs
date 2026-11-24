@@ -1462,7 +1462,6 @@ fn artillery_barrage_flight_drops_shells() {
         "CREATE_AT_EDGE_FARTHEST_FROM_TARGET z+=300 then preferred height, y={}",
         lead.y
     );
-    assert!(logic.artillery_barrage_flight_reg.shells_scheduled >= 12);
     assert_eq!(logic.artillery_barrage_flight_reg.transports_spawned, 12);
     for f in 0..400 {
         logic.frame = f;
@@ -1521,20 +1520,15 @@ fn artillery_barrage_delay_draws_use_each_receiving_world() {
         )
         .expect("peer barrage");
 
-    let owner_schedule: Vec<_> = owner
-        .0
-        .artillery_barrage_flight_reg
-        .pending_drops
-        .iter()
-        .map(|drop| drop.drop_frame)
-        .collect();
-    let peer_schedule: Vec<_> = peer
-        .0
-        .artillery_barrage_flight_reg
-        .pending_drops
-        .iter()
-        .map(|drop| drop.drop_frame)
-        .collect();
+    let schedule = |logic: &GameLogic| {
+        let mut carriers: Vec<_> = logic.objects.registered().filter_map(|(id, object)| {
+            object.artillery_barrage_transport.as_ref().map(|carrier| (*id, carrier.delay_until_frame))
+        }).collect();
+        carriers.sort_unstable_by_key(|(id, _)| *id);
+        carriers.into_iter().map(|(_, delay)| delay).collect::<Vec<_>>()
+    };
+    let owner_schedule = schedule(&owner.0);
+    let peer_schedule = schedule(&peer.0);
     assert_eq!(owner_schedule, peer_schedule);
     assert_eq!(owner_schedule.len(), 12);
 
@@ -1546,7 +1540,7 @@ fn artillery_barrage_delay_draws_use_each_receiving_world() {
             .max(0) as u32;
         assert_eq!(
             *drop_frame,
-            ARTILLERY_BARRAGE_IMPACT_DELAY_FRAMES + delay - 8,
+            delay,
             "transport {index} must keep C++ per-transport delay draw order"
         );
     }

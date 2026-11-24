@@ -1168,8 +1168,10 @@ fn apply_delivery_property(
         "VISIBLEPAYLOADWEAPONTEMPLATE" => {
             let weapon_name = value.trim();
             if weapon_name.eq_ignore_ascii_case("NONE") || weapon_name.is_empty() {
+                nugget.visible_payload_weapon_name.clear();
                 nugget.data.visible_payload_weapon_template = None;
             } else {
+                nugget.visible_payload_weapon_name = weapon_name.to_owned();
                 nugget.data.visible_payload_weapon_template =
                     crate::weapon::with_weapon_store(|store| {
                         store.find_weapon_template(weapon_name).cloned()

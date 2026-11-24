@@ -1684,6 +1684,12 @@ impl GameLogic {
     }
 }
 
+#[derive(Default)]
+struct MaterializedShot {
+    damage: Option<crate::game_logic::combat::LiveProjectilelessDelayedDamage>,
+    projectile: Option<ObjectId>,
+}
+
 impl GameLogic {
     /// Complete one selected queued batch without detaching the CombatSystem.
     /// C++ ActiveBody.cpp:640–653 requires XP/onDie before fresh-source FX.
@@ -1711,7 +1717,7 @@ impl GameLogic {
         let ready =
             self.materialize_owned_shot_with_effects(pending, stream_binding, accepted_rule, effects)?;
         self.update_projectile_weapon_bonus_upgrades(None);
-        if let Some(shot) = ready {
+        if let Some(shot) = ready.damage {
             let limit = self.combat_system.historic_damage_limit();
             let events = self.prepare_owned_projectileless_impact(&shot, limit);
             for event in events {
@@ -1796,7 +1802,7 @@ impl GameLogic {
     ) -> gamelogic::GameLogicResult<()> {
         let pending = self.combat_system.take_pending_projectiles();
         for shot in pending {
-            if let Some(immediate) = self.materialize_owned_shot_with_effects(shot, None, None, effects)? {
+            if let Some(immediate) = self.materialize_owned_shot_with_effects(shot, None, None, effects)?.damage {
                 self.combat_system.defer_projectileless_shot(immediate);
             }
         }
@@ -1847,13 +1853,36 @@ impl GameLogic {
         }
     }
 
+    /// DeliverPayloadAIUpdate dispatches an existing payload template with a
+    /// separate warhead. Ordinary Weapon fire FX, scatter, and barrels do not run.
+    pub(in crate::game_logic) fn release_visible_missile(
+        &mut self,
+        mut shot: crate::game_logic::combat::PendingProjectile,
+        payload_template: &str,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> gamelogic::GameLogicResult<Option<ObjectId>> {
+        let Some(profile) = self.projectile_definitions.get(payload_template) else {
+            return Ok(None);
+        };
+        if !matches!(profile.flight, crate::game_logic::weapon_bootstrap::HostProjectileFlight::Missile(_)) {
+            return Ok(None);
+        }
+        shot.projectile_object_name = payload_template.to_owned();
+        shot.projectile_lifecycle = Some(profile.lifecycle);
+        shot.selected_weapon_is_laser = Some(false);
+        shot.fire_fx_name.clear();
+        shot.fire_ocl_name.clear();
+        shot.scatter_radius = 0.0;
+        Ok(self.materialize_owned_shot_with_effects(shot, None, None, effects)?.projectile)
+    }
+
     fn materialize_owned_shot_with_effects(
         &mut self,
         pending: crate::game_logic::combat::PendingProjectile,
         stream_binding: Option<crate::game_logic::combat::ProjectileStreamBinding>,
         accepted_rule: Option<&gamelogic::weapon::WeaponTemplate>,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<Option<crate::game_logic::combat::LiveProjectilelessDelayedDamage>> {
+    ) -> gamelogic::GameLogicResult<MaterializedShot> {
         use crate::game_logic::combat::{MaterializedWeaponShot, ProjectilePlacement};
         use crate::game_logic::weapon_bootstrap::HostProjectileFlight;
 
@@ -1954,7 +1983,7 @@ impl GameLogic {
                         at, self.frame, effects, &mut self.partition_manager,
                     );
                 }
-                return Ok(None);
+                return Ok(MaterializedShot::default());
             }
             None => None,
         };
@@ -1977,7 +2006,7 @@ impl GameLogic {
                             pose, self.frame, effects, &mut self.partition_manager,
                         );
                     }
-                    return Ok(ready);
+                    return Ok(MaterializedShot { damage: ready, projectile: Some(id) });
                 }
             }
             let motion = if missile && valid {
@@ -2011,6 +2040,7 @@ impl GameLogic {
                     projectile.velocity = velocity;
                     projectile.missile_motion = Some(motion);
                     projectile.projectile_actor_birth = Some(birth);
+                    return Ok(MaterializedShot { damage: ready, projectile: Some(id) });
                 }
             } else {
                 let had_projectile = self.combat_system.remove_projectile(id);
@@ -2024,7 +2054,7 @@ impl GameLogic {
                 }
             }
         }
-        Ok(ready)
+        Ok(MaterializedShot { damage: ready, projectile: None })
     }
 
     pub(in crate::game_logic) fn apply_owned_projectileless_delayed_damage(&mut self) -> gamelogic::GameLogicResult<()> {
@@ -2318,9 +2348,36 @@ impl GameLogic {
         // Weapon::handleProjectileDetonation runs FX/OCL and Body damage first.
         // The flight behavior then submits DEATH_DETONATED to its own Body.
         let epoch = self.visual_world_epoch;
+        let artillery = impact.detonation_pose.and_then(|position| {
+            self.special_power_strikes.artillery_strike_for_projectile(id)
+                .map(|strike| (strike, position))
+        });
         let result = self.flush_projectile_impact_fx_with_effects(effects).and_then(|()| {
-            for event in impact.damage {
-                self.apply_owned_combat_damage_with_effects(&event, effects)?;
+            let mut artillery_damage = AppliedCombatDamage::default();
+            for mut event in impact.damage {
+                if artillery.is_some() {
+                    // DeliverPayload calls projectileFireAtObjectOrPosition without
+                    // setting launcher ID. The shell still supplies the radius source.
+                    use crate::game_logic::combat::DamageEvent;
+                    match &mut event {
+                        DamageEvent::Direct { shooter_id, .. } | DamageEvent::Area { shooter_id, .. } => {
+                            *shooter_id = ObjectId(gamelogic::common::INVALID_ID);
+                        }
+                    }
+                }
+                let applied = self.apply_owned_combat_damage_with_effects(&event, effects)?;
+                if artillery.is_some() {
+                    artillery_damage.damage += applied.damage;
+                    artillery_damage.hits += applied.hits;
+                    artillery_damage.destroyed += applied.destroyed;
+                }
+            }
+            if let Some((strike, position)) = artillery {
+                self.artillery_barrage_flight_reg.record_impact();
+                self.special_power_strikes.record_impact_wave(
+                    strike, artillery_damage.damage, artillery_damage.hits,
+                    artillery_damage.destroyed, 1, false, &[position],
+                );
             }
             if let Some(death) = impact.virtual_death {
                 self.dispatch_virtual_projectile_death(death, epoch, effects)?;
@@ -2397,7 +2454,7 @@ impl GameLogic {
         &mut self,
         event: &crate::game_logic::combat::DamageEvent,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> gamelogic::GameLogicResult<AppliedCombatDamage> {
         use crate::game_logic::combat::DamageEvent;
         if let DamageEvent::Direct {
             target_id,
@@ -2419,7 +2476,7 @@ impl GameLogic {
             if let Some(result) = self.apply_owned_damage_with_effects(
                 target_id,
                 damage,
-                Some(shooter_id),
+                (shooter_id.0 != gamelogic::common::INVALID_ID).then_some(shooter_id),
                 damage_type,
                 death_type,
                 None,
@@ -2463,11 +2520,30 @@ impl GameLogic {
                         damage_type
                     );
                 }
+                let mut applied = AppliedCombatDamage::default();
+                applied.record(&result);
+                Ok(applied)
+            } else {
+                Ok(AppliedCombatDamage::default())
             }
         } else {
-            self.apply_owned_area_damage_with_effects(event, effects)?;
+            self.apply_owned_area_damage_with_effects(event, effects)
         }
-        Ok(())
+    }
+}
+
+#[derive(Default)]
+struct AppliedCombatDamage {
+    damage: f32,
+    hits: u32,
+    destroyed: u32,
+}
+
+impl AppliedCombatDamage {
+    fn record(&mut self, result: &OwnedDamageResult) {
+        self.damage += result.hp_lost;
+        self.hits += u32::from(result.hp_lost > 0.0);
+        self.destroyed += u32::from(result.destroyed);
     }
 }
 
@@ -2476,7 +2552,7 @@ impl GameLogic {
         &mut self,
         event: &crate::game_logic::combat::DamageEvent,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> gamelogic::GameLogicResult<AppliedCombatDamage> {
         use crate::game_logic::combat::{AreaDamage, DamageEvent};
         let DamageEvent::Area {
             shooter_id,
@@ -2488,7 +2564,7 @@ impl GameLogic {
             ..
         } = event
         else {
-            return Ok(());
+            return Ok(AppliedCombatDamage::default());
         };
         // Weapon.cpp:1434 — mask from the live source (projectile controller
         // for moving detonations) before sourceID may become the launcher.
@@ -2503,7 +2579,7 @@ impl GameLogic {
                     "Receiving weapon definition '{}' is missing for directional splash",
                     radius_weapon_name
                 );
-                return Ok(());
+                return Ok(AppliedCombatDamage::default());
             };
             (
                 weapon.radius_damage_angle,
@@ -2521,6 +2597,7 @@ impl GameLogic {
         )
         .expect("Area event");
         let candidates = area.candidates(self.objects.read());
+        let mut applied = AppliedCombatDamage::default();
         for (victim_id, distance) in candidates {
             let Some(victim) = self.objects.get(&victim_id) else {
                 continue;
@@ -2545,7 +2622,7 @@ impl GameLogic {
                 self.apply_owned_damage_with_effects(
                     victim_id,
                     damage,
-                    Some(*shooter_id),
+                    (shooter_id.0 != gamelogic::common::INVALID_ID).then_some(*shooter_id),
                     *damage_type,
                     *death_type,
                     None,
@@ -2576,6 +2653,7 @@ impl GameLogic {
                 }
             }
             if let Some(result) = result {
+                applied.record(&result);
                 self.combat_system.queue_under_attack_if_dealt(
                     victim_id,
                     *damage_type,
@@ -2583,7 +2661,7 @@ impl GameLogic {
                 );
             }
         }
-        Ok(())
+        Ok(applied)
     }
 }
 

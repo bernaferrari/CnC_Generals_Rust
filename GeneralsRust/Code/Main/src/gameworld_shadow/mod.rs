@@ -61,9 +61,6 @@ pub struct GameWorldShadow {
     map_max_x: f32,
     map_max_z: f32,
 
-    /// Pending A10 missile drops (mirrored from host registry under dual-tick).
-    artillery_pending_drops:
-        Vec<crate::game_logic::host_artillery_barrage_flight::PendingArtilleryShellDrop>,
     carpet_pending_drops: Vec<crate::game_logic::host_carpet_bomb_flight::PendingCarpetBombDrop>,
 }
 
