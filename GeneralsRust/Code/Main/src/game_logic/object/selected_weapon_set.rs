@@ -505,6 +505,14 @@ impl Object {
         self.reset_weapon_barrel_states();
         true
     }
+    /// Borrow the current slot's immutable rule for read-only queries.
+    pub(in crate::game_logic) fn borrow_selected_native_weapon_rule(
+        &self,
+        slot: u8,
+    ) -> Option<&gamelogic::weapon::WeaponTemplate> {
+        self.selected_weapon_row()?.native_rule(slot)
+    }
+
     pub(in crate::game_logic) fn selected_native_weapon_rule(
         &self,
         slot: u8,

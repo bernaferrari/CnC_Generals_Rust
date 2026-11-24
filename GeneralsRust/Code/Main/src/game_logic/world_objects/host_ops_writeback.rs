@@ -1456,7 +1456,6 @@ impl GameLogic {
         at_location: bool,
         forced_slot: Option<gamelogic::common::WeaponSlotType>,
     ) -> crate::game_logic::audio_dispatch_impl::UnitVoiceSlot {
-        self.with_own_services(|| {
         use crate::game_logic::audio_dispatch_impl::{
             AttackVoiceWeapon, UnitVoiceSlot, pick_specialty_attack_voice,
         };
@@ -1486,7 +1485,7 @@ impl GameLogic {
                     let ordinal = obj.selected_weapon_slot().unwrap_or(obj.active_weapon_slot);
                     gamelogic::common::WeaponSlotType::from_u32(u32::from(ordinal))
                 })?;
-                let weapon = obj.selected_native_weapon_rule(slot as u8)?;
+                let weapon = obj.borrow_selected_native_weapon_rule(slot as u8)?;
                 Some(AttackVoiceWeapon {
                     name: weapon.name.clone(),
                     damage: crate::game_logic::combat::DamageType::from_store(weapon.damage_type),
@@ -1494,7 +1493,6 @@ impl GameLogic {
                 })
             });
         pick_specialty_attack_voice(default, weapons, structure, specialty_weapon, at_location)
-            })
     }
 
     /// C++ MSG_DO_MOVETO / ATTACKMOVETO / GET_REPAIRED / GET_HEALED (`CommandXlat.cpp:384-443`).

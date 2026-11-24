@@ -22,7 +22,7 @@ pub struct HostEstimateVictim {
 }
 
 /// Weapon snapshot for the C++ estimate gate.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Default)]
 pub struct HostEstimateWeapon {
     pub damage_type_sniper: bool,
     pub damage_type_surrender: bool,
@@ -106,21 +106,44 @@ pub fn host_weapon_allows_attack_garrisoned_bldgs(name: &str) -> bool {
     host_allow_attack_garrisoned_for_weapon_name(name)
 }
 
+impl HostEstimateWeapon {
+    pub(in crate::game_logic) fn from_rule(
+        rule: &gamelogic::weapon::WeaponTemplate,
+        primary_damage: f32,
+    ) -> Self {
+        use gamelogic::damage::{DamageType, DeathType};
+
+        Self {
+            damage_type_sniper: rule.damage_type == DamageType::Sniper,
+            damage_type_surrender: rule.damage_type == DamageType::Surrender,
+            damage_type_disarm: rule.damage_type == DamageType::Disarm,
+            damage_type_deploy: rule.damage_type == DamageType::Deploy,
+            damage_type_kill_garrisoned: rule.damage_type == DamageType::KillGarrisoned,
+            death_type_burned: rule.death_type == DeathType::Burned,
+            allow_attack_garrisoned_bldgs: rule.allow_attack_garrisoned_bldgs,
+            primary_damage,
+        }
+    }
+}
+
+/// Read all estimate inputs for a mapless slot in one compatibility catalog lookup.
+pub(in crate::game_logic) fn host_estimate_named_weapon(
+    name: &str,
+) -> Option<(gamelogic::damage::DamageType, HostEstimateWeapon)> {
+    super::with_host_weapon_store(|store| {
+        let rule = store.find_weapon_template(name)?;
+        Some((
+            rule.damage_type,
+            HostEstimateWeapon::from_rule(rule, rule.primary_damage),
+        ))
+    })
+    .ok()
+    .flatten()
+}
+
 /// Build the estimate from the admitted weapon definition.
 pub fn host_estimate_weapon_from_name(name: &str) -> HostEstimateWeapon {
-    let rule = super::with_host_weapon_store(|store| store.find_weapon_template(name).cloned())
-        .ok().flatten();
-    let damage_type = rule.as_ref().map(|weapon| weapon.damage_type);
-    HostEstimateWeapon {
-        damage_type_sniper: damage_type == Some(gamelogic::damage::DamageType::Sniper),
-        damage_type_surrender: damage_type == Some(gamelogic::damage::DamageType::Surrender),
-        damage_type_disarm: damage_type == Some(gamelogic::damage::DamageType::Disarm),
-        damage_type_deploy: damage_type == Some(gamelogic::damage::DamageType::Deploy),
-        damage_type_kill_garrisoned: damage_type == Some(gamelogic::damage::DamageType::KillGarrisoned),
-        death_type_burned: rule.as_ref().is_some_and(|weapon| weapon.death_type == gamelogic::damage::DeathType::Burned),
-        allow_attack_garrisoned_bldgs: rule.as_ref().is_some_and(|weapon| weapon.allow_attack_garrisoned_bldgs),
-        primary_damage: rule.as_ref().map_or(0.0, |weapon| weapon.primary_damage),
-    }
+    host_estimate_named_weapon(name).map_or_else(HostEstimateWeapon::default, |(_, estimate)| estimate)
 }
 
 /// Build a live victim snapshot, including residual armor coefficient.

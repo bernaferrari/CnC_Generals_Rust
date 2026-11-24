@@ -129,7 +129,7 @@ impl Object {
             return false;
         }
 
-        let selected = slot.and_then(|slot| self.selected_native_weapon_rule(slot));
+        let selected = slot.and_then(|slot| self.borrow_selected_native_weapon_rule(slot));
         // Target-mask lookup must use the exact authored WeaponSet entry.
         // `secondary_weapon_name()` intentionally falls back to PRIMARY for
         // several legacy readiness paths, but that fallback is not a second
@@ -1400,7 +1400,7 @@ impl Object {
         self.is_within_target_pitch_limits(victim, limits)
     }
 
-    fn is_native_weapon_within_target_pitch(
+    pub(super) fn is_native_weapon_within_target_pitch(
         &self,
         rule: &gamelogic::weapon::WeaponTemplate,
         victim: &Object,
@@ -1508,14 +1508,14 @@ impl Object {
         if self.weapon_slot(slot).is_none() {
             return 0.0;
         }
-        let name = self.weapon_name_for_slot(slot).unwrap_or("");
-        if let Some(rule) = self.selected_native_weapon_rule(slot) {
-            return Self::estimate_native_weapon_damage(&rule, target, rule.primary_damage);
+        if let Some(rule) = self.borrow_selected_native_weapon_rule(slot) {
+            return Self::estimate_native_weapon_damage(rule, target, rule.primary_damage);
         }
-        let est = crate::game_logic::weapon_bootstrap::host_estimate_weapon_from_name(name);
-        let Some(dt) = crate::game_logic::host_armor_residual::host_damage_type_for_weapon_name(name) else {
+        let name = self.weapon_name_for_slot(slot).unwrap_or("");
+        let Some((damage_type, est)) = crate::game_logic::weapon_bootstrap::host_estimate_named_weapon(name) else {
             return 0.0;
         };
+        let dt = crate::game_logic::host_armor_residual::map_store_damage_type(damage_type);
         let victim = crate::game_logic::weapon_bootstrap::host_estimate_victim_from_object(
             target,
             target.garrison_count() as u32,
@@ -1529,17 +1529,9 @@ impl Object {
         target: &Object,
         primary_damage: f32,
     ) -> f32 {
-        use gamelogic::damage::{DamageType, DeathType};
-        let est = crate::game_logic::weapon_bootstrap::HostEstimateWeapon {
-            damage_type_sniper: rule.damage_type == DamageType::Sniper,
-            damage_type_surrender: rule.damage_type == DamageType::Surrender,
-            damage_type_disarm: rule.damage_type == DamageType::Disarm,
-            damage_type_deploy: rule.damage_type == DamageType::Deploy,
-            damage_type_kill_garrisoned: rule.damage_type == DamageType::KillGarrisoned,
-            death_type_burned: rule.death_type == DeathType::Burned,
-            allow_attack_garrisoned_bldgs: rule.allow_attack_garrisoned_bldgs,
-            primary_damage,
-        };
+        let est = crate::game_logic::weapon_bootstrap::HostEstimateWeapon::from_rule(
+            rule, primary_damage,
+        );
         let victim = crate::game_logic::weapon_bootstrap::host_estimate_victim_from_object(
             target,
             target.garrison_count() as u32,

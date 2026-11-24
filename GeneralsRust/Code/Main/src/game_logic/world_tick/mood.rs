@@ -1235,20 +1235,8 @@ impl GameLogic {
         pos: Option<glam::Vec3>,
         attack_type: AbleToAttackType,
     ) -> CanAttackResult {
-        self.with_own_services(|| {
-            self.get_able_to_use_weapon_against_target_with_services(
-                unit_id, victim_id, pos, attack_type,
-            )
-        })
-    }
+        use crate::game_logic::weapon_bootstrap::{HostEstimateWeapon, host_estimate_named_weapon};
 
-    fn get_able_to_use_weapon_against_target_with_services(
-        &self,
-        unit_id: ObjectId,
-        victim_id: Option<ObjectId>,
-        pos: Option<glam::Vec3>,
-        attack_type: AbleToAttackType,
-    ) -> CanAttackResult {
         let Some(source) = self.objects.get(&unit_id) else {
             return CanAttackResult::NotPossible;
         };
@@ -1302,11 +1290,16 @@ impl GameLogic {
             if v.is_effectively_stealthed() && !allied && !source.status.ignoring_stealth {
                 return CanAttackResult::NotPossible;
             }
-            let contain_count = self
-                .objects
-                .registered_values()
-                .filter(|o| o.contained_by == Some(v.id))
-                .count() as u32;
+            let contain_count = if v.thing().template.contain_module.kind
+                == crate::game_logic::ContainModuleKind::None
+            {
+                0
+            } else {
+                self.objects
+                    .registered_values()
+                    .filter(|o| o.contained_by == Some(v.id))
+                    .count() as u32
+            };
             let current_is_primary = if source.is_weapon_locked() {
                 source.weapon_lock_slot == 0
             } else {
@@ -1330,26 +1323,21 @@ impl GameLogic {
                     if !kind_ok(slot, weapon) {
                         return false;
                     }
-                    let name = source.weapon_name_for_slot(slot).unwrap_or("");
-                    let selected_rule = source.selected_native_weapon_rule(slot);
-                    let damage_type = selected_rule.as_ref().map(|rule| rule.damage_type)
-                        .or_else(|| crate::game_logic::weapon_bootstrap::with_host_weapon_store(|store| {
-                            store.find_weapon_template(name).map(|rule| rule.damage_type)
-                        }).ok().flatten());
-                    let Some(damage_type) = damage_type else { return false; };
+                    let estimate = if let Some(rule) = source.borrow_selected_native_weapon_rule(slot) {
+                        Some((
+                            rule.damage_type,
+                            HostEstimateWeapon::from_rule(rule, rule.primary_damage),
+                        ))
+                    } else {
+                        let name = source.weapon_name_for_slot(slot).unwrap_or("");
+                        // Only hand-built slots can still bootstrap the legacy store.
+                        self.with_own_services(|| host_estimate_named_weapon(name))
+                    };
+                    let Some((damage_type, est)) = estimate else {
+                        return false;
+                    };
                     if skip_hero_kill_pilot && damage_type == gamelogic::damage::DamageType::KillPilot {
                         return false;
-                    }
-                    let mut est = crate::game_logic::weapon_bootstrap::host_estimate_weapon_from_name(name);
-                    if let Some(rule) = selected_rule.as_ref() {
-                        est.damage_type_sniper = rule.damage_type == gamelogic::damage::DamageType::Sniper;
-                        est.damage_type_surrender = rule.damage_type == gamelogic::damage::DamageType::Surrender;
-                        est.damage_type_disarm = rule.damage_type == gamelogic::damage::DamageType::Disarm;
-                        est.damage_type_deploy = rule.damage_type == gamelogic::damage::DamageType::Deploy;
-                        est.damage_type_kill_garrisoned = rule.damage_type == gamelogic::damage::DamageType::KillGarrisoned;
-                        est.death_type_burned = rule.death_type == gamelogic::damage::DeathType::Burned;
-                        est.allow_attack_garrisoned_bldgs = rule.allow_attack_garrisoned_bldgs;
-                        est.primary_damage = rule.primary_damage;
                     }
                     let dt = crate::game_logic::host_armor_residual::map_store_damage_type(damage_type);
                     let victim_est =
@@ -1366,7 +1354,22 @@ impl GameLogic {
                     ) > 0.0
                 })
             });
-            let pitch_ok = source.is_any_within_target_pitch_for_slots(v, candidate_slots);
+            // WeaponSet.cpp:406–419 checks the whole authored set for pitch.
+            // The damage estimate still honors the selected lock.
+            let pitch_slots: &[u8] = if source.selected_authored_weapon_row().is_some() {
+                &[0, 1, 2]
+            } else {
+                candidate_slots
+            };
+            let needs_legacy_pitch = pitch_slots.iter().copied().any(|slot| {
+                source.weapon_slot(slot).is_some()
+                    && source.borrow_selected_native_weapon_rule(slot).is_none()
+            });
+            let pitch_ok = if needs_legacy_pitch {
+                self.with_own_services(|| source.is_any_within_target_pitch_for_slots(v, pitch_slots))
+            } else {
+                source.is_any_within_target_pitch_for_slots(v, pitch_slots)
+            };
             (
                 v.get_position(),
                 has_legal_anti,
@@ -2583,18 +2586,21 @@ mod get_able_weapon_parity {
     #[test]
     fn pitch_limited_weapon_is_invalid_shot() {
         let mut logic = GameLogic::new();
-        let mut at = ThingTemplate::new("CrusaderPitch");
+        let mut at = ThingTemplate::new("PitchLimitedVehicle");
         at.add_kind_of(KindOf::Vehicle);
-        at.primary_weapon_name = Some("CrusaderTankGun".to_string());
         logic.objects.insert(ObjectId(4020), {
             let mut o = Object::new(at, ObjectId(4020), Team::USA);
             o.set_position(Vec3::ZERO);
-            crate::fixture_content::arm_with_stats(&mut o, Weapon {
-                range: 200.0,
-                damage: 10.0,
-                can_target_ground: true,
-                ..Default::default()
-            });
+            crate::fixture_content::arm_with_slot_stats_and_fields(
+                &mut o,
+                [Some(Weapon {
+                    range: 200.0,
+                    damage: 10.0,
+                    can_target_ground: true,
+                    ..Default::default()
+                }), None, None],
+                [&["MinTargetPitch = -15", "MaxTargetPitch = 15"], &[], &[]],
+            );
             o
         });
         let mut vt = ThingTemplate::new("HighInf");

@@ -839,6 +839,13 @@ impl Object {
             if self.weapon_slot(slot).is_none() {
                 continue;
             }
+            if let Some(rule) = self.borrow_selected_native_weapon_rule(slot) {
+                if self.is_native_weapon_within_target_pitch(rule, victim) {
+                    return true;
+                }
+                any_limited = true;
+                continue;
+            }
             let name = self.weapon_name_for_slot(slot).unwrap_or("");
             let limits = host_target_pitch_limits_for_weapon_name(name);
             if limits.is_unlimited() {
