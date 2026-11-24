@@ -817,6 +817,7 @@ fn completion_record_range(bytes: &[u8]) -> SaveLoadResult<Option<(usize, usize)
 pub(super) struct SavedDeathState {
     pub started: bool,
     pub effectively_dead: bool,
+    pub ordinary_slow_death: Option<(u32, u32)>,
 }
 
 pub(super) fn saved_death_states(
@@ -845,6 +846,16 @@ pub(super) fn saved_death_states(
             ));
         }
         states.entry(id).or_default().effectively_dead = entry.effectively_dead;
+    }
+    for entry in payload.slow_death {
+        if let Some(timer) = entry.slow_death {
+            let state = states.entry(ObjectId(entry.object_id)).or_default();
+            if state.ordinary_slow_death.replace((timer.begin_frame, timer.destroy_at_frame)).is_some() {
+                return Err(SaveLoadError::Corrupted(
+                    "duplicate OXFR ordinary SlowDeath owner".into(),
+                ));
+            }
+        }
     }
     Ok(states)
 }

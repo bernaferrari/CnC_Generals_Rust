@@ -18,6 +18,10 @@ pub(in crate::game_logic) struct WeaponEffectDefinitions {
     application_ocls: std::sync::Arc<HashMap<String, ObjectCreationList>>,
 }
 impl WeaponEffectDefinitions {
+    pub(in crate::game_logic) fn has_ocl(&self, name: &str) -> bool {
+        self.ocls.contains_key(name.trim())
+    }
+
     pub(in crate::game_logic) fn fire(
         &self,
         name: &str,

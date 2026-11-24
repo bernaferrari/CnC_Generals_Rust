@@ -8,6 +8,15 @@ pub(crate) struct NativeDieRuntime {
     pub(crate) completed: std::collections::BTreeSet<u32>,
     pub(crate) ai_dead: bool,
     pub(crate) pending_create: Option<u32>,
+    /// Persisted by the versioned NDIE continuation, alongside the legacy receipts.
+    #[serde(skip)]
+    pub(crate) slow_death: Option<NativeSlowDeath>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub(crate) struct NativeSlowDeath {
+    pub(crate) source_index: u32,
+    pub(crate) midpoint_frame: u32,
 }
 #[derive(Debug, Clone)]
 pub(crate) struct NativeDieDeclaration {
@@ -97,9 +106,53 @@ fn bind_creation(list: &str, transfer: bool) -> Option<NativeDieCreate> {
 }
 #[derive(Debug, Clone)]
 pub(crate) enum NativeSlowFamily {
-    Ordinary { initial_ocls: Vec<String> },
+    Ordinary(std::sync::Arc<[SlowDeathEffects; 3]>),
     Jet(super::host_jet_slow_death::HostJetSlowDeathFx),
     Helicopter(super::host_helicopter_slow_death::HostHelicopterSlowDeathFx),
+}
+
+#[derive(Debug, Clone, Copy)]
+pub(crate) enum SlowDeathEffectPhase {
+    Initial = 0,
+    Midpoint = 1,
+    Final = 2,
+}
+
+#[derive(Debug, Clone, Default)]
+pub(crate) struct SlowDeathEffects {
+    pub(crate) fx: Vec<String>,
+    pub(crate) ocls: Vec<String>,
+    pub(crate) weapons: Vec<String>,
+}
+
+fn parse_slow_death_effects(attrs: &[(&str, &str)]) -> [SlowDeathEffects; 3] {
+    let mut phases: [SlowDeathEffects; 3] = Default::default();
+    for (key, value) in attrs {
+        if !["FX", "OCL", "Weapon"].iter().any(|field| key.eq_ignore_ascii_case(field)) {
+            continue;
+        }
+        for line in value.lines() {
+            let Some((phase, rest)) = line.trim().split_once(char::is_whitespace) else { continue };
+            let phase = match phase.to_ascii_uppercase().as_str() {
+                "INITIAL" => SlowDeathEffectPhase::Initial,
+                "MIDPOINT" => SlowDeathEffectPhase::Midpoint,
+                "FINAL" => SlowDeathEffectPhase::Final,
+                _ => continue,
+            };
+            let effects = &mut phases[phase as usize];
+            let list = if key.eq_ignore_ascii_case("FX") {
+                &mut effects.fx
+            } else if key.eq_ignore_ascii_case("OCL") {
+                &mut effects.ocls
+            } else if key.eq_ignore_ascii_case("Weapon") {
+                &mut effects.weapons
+            } else {
+                continue;
+            };
+            list.extend(rest.split_whitespace().map(str::to_owned));
+        }
+    }
+    phases
 }
 #[derive(Debug, Clone)]
 pub(crate) enum NativeDieKind {
@@ -216,21 +269,7 @@ pub(crate) fn bind(modules: &[BehaviorModuleDefinition]) -> Vec<NativeDieDeclara
                         family: match module.class_name.to_ascii_lowercase().as_str() {
                             "jetslowdeathbehavior" => NativeSlowFamily::Jet(super::host_jet_slow_death::jet_slow_death_fx_from_behavior_attrs(&attrs)),
                             "helicopterslowdeathbehavior" => NativeSlowFamily::Helicopter(super::host_helicopter_slow_death::heli_slow_death_fx_from_behavior_attrs(&attrs)),
-                            _ => NativeSlowFamily::Ordinary {
-                                initial_ocls: attrs
-                                    .iter()
-                                    .filter(|(key, _)| key.eq_ignore_ascii_case("OCL"))
-                                    .filter_map(|(_, value)| {
-                                        let mut tokens = value.split_whitespace();
-                                        tokens
-                                            .next()?
-                                            .eq_ignore_ascii_case("INITIAL")
-                                            .then_some(tokens)
-                                    })
-                                    .flatten()
-                                    .map(str::to_owned)
-                                    .collect(),
-                            },
+                            _ => NativeSlowFamily::Ordinary(std::sync::Arc::new(parse_slow_death_effects(&attrs))),
                         },
                         config: super::host_slow_death::slow_death_ini_from_behavior_attrs(&attrs),
                         probability: module
@@ -303,6 +342,12 @@ pub(crate) fn bind(modules: &[BehaviorModuleDefinition]) -> Vec<NativeDieDeclara
 impl NativeDieRuntime {
     pub(crate) fn validate(&self, declarations: &[NativeDieDeclaration], has_ai: bool) -> bool {
         (!self.ai_dead || has_ai)
+            && self.slow_death.is_none_or(|slow| declarations.iter().any(|declaration|
+                declaration.source_index == slow.source_index
+                    && matches!(&declaration.kind, NativeDieKind::Slow {
+                        family: NativeSlowFamily::Ordinary(_), ..
+                    })
+            ))
             && self.completed.iter().all(|index| {
                 declarations
                     .iter()

@@ -315,7 +315,7 @@ fn native_die_capsule_completed_live_slot_rejects_capture_and_detached_restore()
     .unwrap();
     let mut replacement = Vec::new();
     replacement.extend_from_slice(TAG);
-    replacement.extend_from_slice(&VERSION.to_le_bytes());
+    replacement.extend_from_slice(&2u32.to_le_bytes());
     replacement.extend_from_slice(&(payload.len() as u32).to_le_bytes());
     replacement.extend_from_slice(&payload);
     snapshot
@@ -686,7 +686,7 @@ fn v2_malformed_pending_removal_graph_rejects_before_live_mutation() {
         }];
         replace_ndie(
             &mut snapshot,
-            VERSION,
+            2,
             bincode_legacy::serialize(&PayloadV2 { records, removals }).unwrap(),
         );
         let (mut receiving, _) = owner("KeepA");

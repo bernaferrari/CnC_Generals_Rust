@@ -46,7 +46,7 @@ fn replace_receipt(snapshot: &mut WorldSnapshot, record: Option<Record>) {
                 })
                 .unwrap();
                 bytes.extend_from_slice(TAG);
-                bytes.extend_from_slice(&VERSION.to_le_bytes());
+                bytes.extend_from_slice(&2u32.to_le_bytes());
                 bytes.extend_from_slice(&(payload.len() as u32).to_le_bytes());
                 bytes.extend_from_slice(&payload);
             }

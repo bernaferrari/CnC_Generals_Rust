@@ -1,23 +1,8 @@
-//! Host SlowDeathBehavior residual (delayed sink + destroy after lethal damage).
+//! Local timer and sink state for ordinary `SlowDeathBehavior`.
 //!
-//! C++: `SlowDeathBehavior::beginSlowDeath` + `update` phases:
-//! sink delay → sink rate → destruction delay → destroyObject.
-//!
-//! Live path starts only when Object INI authors `Behavior = SlowDeathBehavior`.
-//! SinkDelay / SinkRate / DestructionDelay / DestructionAltitude / FlingForce
-//! come from that module, not KindOf infantry/vehicle hardcoded skip.
-//!
-//! Residual playability slice:
-//! - Authored SlowDeathBehavior module lookup via AssetManager ObjectDefinition
-//! - Presentation sink_offset (negative Y)
-//! - Defers GameLogic destroy until destruction frame
-//! - INITIAL / MIDPOINT / FINAL FXList via `doPhaseStuff` (first authored name)
-//!
-//! Fail-closed:
-//! - Not full fling physics / multi DeathTypes probability matrix
-//! - FX/OCL/Weapon: first authored list entry per phase (no GameLogicRandomValue)
-//! - Not LOD instant-death scale matrix
-//! - Variance uses 0 (no GameLogicRandomValue)
+//! The owning world draws the authored clock and dispatches phase effects while
+//! the wreck is installed. The standalone timer also supports queued single-FX
+//! phases for callers without an admitted declaration.
 
 use serde::{Deserialize, Serialize};
 
@@ -26,6 +11,37 @@ pub const SLOW_DEATH_LOGIC_FPS: f32 = 30.0;
 
 /// C++ SlowDeathBehavior.cpp:36 BEGIN_MIDPOINT_RATIO.
 pub const BEGIN_MIDPOINT_RATIO: f32 = 0.35;
+const END_MIDPOINT_RATIO: f32 = 0.65;
+
+/// The normal-speed C++ SlowDeath deadlines, drawn in beginSlowDeath order.
+pub(crate) struct SlowDeathDeadlines {
+    pub(crate) sink: u32,
+    pub(crate) midpoint: u32,
+    pub(crate) destruction: u32,
+}
+
+impl SlowDeathDeadlines {
+    pub(crate) fn draw(
+        frame: u32,
+        ini: &HostSlowDeathIni,
+        mut random: impl FnMut(i32, i32) -> i32,
+    ) -> Self {
+        let sink = msec_to_logic_frames(ini.sink_delay_ms)
+            .wrapping_add(random(0, msec_to_logic_frames(ini.sink_delay_variance_ms) as i32) as u32);
+        let destruction = msec_to_logic_frames(ini.destruction_delay_ms)
+            .wrapping_add(random(0, msec_to_logic_frames(ini.destruction_delay_variance_ms) as i32) as u32);
+        let delay = destruction as f32;
+        let midpoint = random(
+            (BEGIN_MIDPOINT_RATIO * delay) as i32,
+            (END_MIDPOINT_RATIO * delay) as i32,
+        ) as u32;
+        Self {
+            sink: frame.wrapping_add(sink),
+            midpoint: frame.wrapping_add(midpoint),
+            destruction: frame.wrapping_add(destruction),
+        }
+    }
+}
 
 /// Retail infantry SinkDelay 3000 ms → frames.
 pub const INFANTRY_SINK_DELAY_MS: u32 = 3_000;
@@ -264,9 +280,22 @@ impl HostSlowDeathData {
 
     /// C++ `SlowDeathBehavior::beginSlowDeath` timing from authored module data.
     pub fn from_ini(current_frame: u32, ini: &HostSlowDeathIni) -> Self {
-        // Fail-closed: variance stays 0 (no GameLogicRandomValue).
-        let sink_delay = msec_to_logic_frames(ini.sink_delay_ms);
-        let destroy_delay = msec_to_logic_frames(ini.destruction_delay_ms);
+        Self::from_ini_with_deadlines(current_frame, ini, None)
+    }
+
+    pub(crate) fn from_ini_with_deadlines(
+        current_frame: u32,
+        ini: &HostSlowDeathIni,
+        authored: Option<&SlowDeathDeadlines>,
+    ) -> Self {
+        let (sink_at_frame, destroy_at_frame) = authored.map_or_else(
+            || (
+                current_frame.saturating_add(msec_to_logic_frames(ini.sink_delay_ms)),
+                current_frame.saturating_add(msec_to_logic_frames(ini.destruction_delay_ms)),
+            ),
+            |deadlines| (deadlines.sink, deadlines.destruction),
+        );
+        let legacy_effects = authored.is_none().then_some(ini);
         let sink_rate_per_frame = ini.sink_rate_per_sec / SLOW_DEATH_LOGIC_FPS;
         let phase = if sink_rate_per_frame > 0.0 {
             HostSlowDeathPhase::WaitingToSink
@@ -276,8 +305,8 @@ impl HostSlowDeathData {
         let mut s = Self {
             phase,
             begin_frame: current_frame,
-            sink_at_frame: current_frame.saturating_add(sink_delay),
-            destroy_at_frame: current_frame.saturating_add(destroy_delay),
+            sink_at_frame,
+            destroy_at_frame,
             sink_rate_per_frame,
             sink_offset: 0.0,
             destruction_altitude: ini.destruction_altitude,
@@ -285,10 +314,10 @@ impl HostSlowDeathData {
             fling_vz: 0.0,
             fling_vy: 0.0,
             fling_applied: false,
-            fx_initial: ini.fx_initial.clone(),
-            fx_midpoint: ini.fx_midpoint.clone(),
-            fx_final: ini.fx_final.clone(),
-            weapon_final: ini.weapon_final.clone(),
+            fx_initial: legacy_effects.and_then(|ini| ini.fx_initial.clone()),
+            fx_midpoint: legacy_effects.and_then(|ini| ini.fx_midpoint.clone()),
+            fx_final: legacy_effects.and_then(|ini| ini.fx_final.clone()),
+            weapon_final: legacy_effects.and_then(|ini| ini.weapon_final.clone()),
             pending_phase_fx: Vec::new(),
             midpoint_played: false,
             initial_played: false,
@@ -423,7 +452,13 @@ impl HostSlowDeathData {
 
     /// Tick one frame. Returns true when object should be destroyed now.
     pub fn tick(&mut self, current_frame: u32) -> bool {
-        let done = match self.phase {
+        let done = self.tick_motion(current_frame);
+        self.poll_phase_fx(current_frame);
+        done
+    }
+
+    pub(crate) fn tick_motion(&mut self, current_frame: u32) -> bool {
+        match self.phase {
             HostSlowDeathPhase::Inactive | HostSlowDeathPhase::Done => false,
             HostSlowDeathPhase::WaitingToSink => {
                 if current_frame >= self.sink_at_frame {
@@ -458,9 +493,7 @@ impl HostSlowDeathData {
                     false
                 }
             }
-        };
-        self.poll_phase_fx(current_frame);
-        done
+        }
     }
 }
 

@@ -560,6 +560,16 @@ impl Object {
         deletion_queued: bool,
         _audio: &mut crate::game_logic::ObjectAudio<'_>,
     ) -> bool {
+        self.begin_slow_death_with_deadlines(current_frame, ini, deletion_queued, None)
+    }
+
+    pub(in crate::game_logic) fn begin_slow_death_with_deadlines(
+        &mut self,
+        current_frame: u32,
+        ini: &crate::game_logic::host_slow_death::HostSlowDeathIni,
+        deletion_queued: bool,
+        deadlines: Option<&crate::game_logic::host_slow_death::SlowDeathDeadlines>,
+    ) -> bool {
         if self
             .slow_death
             .as_ref()
@@ -576,8 +586,9 @@ impl Object {
             return false;
         }
         self.mark_ai_dead();
-        let mut sd =
-            crate::game_logic::host_slow_death::HostSlowDeathData::from_ini(current_frame, ini);
+        let mut sd = crate::game_logic::host_slow_death::HostSlowDeathData::from_ini_with_deadlines(
+            current_frame, ini, deadlines,
+        );
         if ini.fling_force > 0.0 {
             let ang = (self.id.0 as f32) * 0.618_033_988;
             sd.apply_fling_angle(ang);
@@ -633,6 +644,9 @@ impl Object {
 
     /// Drain INITIAL/MIDPOINT/FINAL when a dual-peel owns sink motion.
     pub fn poll_slow_death_phase_fx(&mut self, current_frame: u32) {
+        if self.native_die_runtime.slow_death.is_some() {
+            return;
+        }
         let Some(sd) = self.slow_death.as_mut() else {
             return;
         };

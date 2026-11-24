@@ -1,8 +1,8 @@
-//! NDIE v2: once-only Die receipts bound to receiving immutable declarations.
+//! NDIE v3: Die receipts and authored SlowDeath continuation identities.
 //! Historical positional Object/World records remain unchanged.
 use super::{ObjectSnapshot, WorldSnapshot};
 use crate::game_logic::native_die_definition::{
-    NativeDieDeclaration, NativeDieKind, NativeDieRuntime,
+    NativeDieDeclaration, NativeDieKind, NativeDieRuntime, NativeSlowDeath,
 };
 use crate::game_logic::{GameLogic, Object, ObjectId};
 use crate::save_load::{SaveLoadError, SaveLoadResult};
@@ -11,7 +11,7 @@ use std::borrow::Cow;
 use std::collections::HashMap;
 
 const TAG: &[u8; 4] = b"NDIE";
-const VERSION: u32 = 2;
+const VERSION: u32 = 3;
 const MAX_BYTES: usize = 16 * 1024 * 1024;
 #[derive(Serialize, Deserialize)]
 struct Record {
@@ -31,6 +31,11 @@ struct RecordV1 {
 struct PayloadV2 {
     records: Vec<Record>,
     removals: Vec<crate::game_logic::kill_credit::PendingObjectRemoval>,
+}
+#[derive(Serialize, Deserialize)]
+struct PayloadV3 {
+    deaths: PayloadV2,
+    slow_deaths: Vec<(u32, NativeSlowDeath)>,
 }
 #[derive(Debug)]
 pub(super) struct Validated {
@@ -66,6 +71,9 @@ fn validate_temporal(
     if runtime.ai_dead && !started {
         return Err(corrupted("AI-dead receipt requires world onDie admission"));
     }
+    if runtime.slow_death.is_some() && !started {
+        return Err(corrupted("SlowDeath receipt requires world onDie admission"));
+    }
     if runtime.completed.is_empty() || started {
         return Ok(());
     }
@@ -90,6 +98,19 @@ fn validate_temporal(
     Ok(())
 }
 
+fn validate_slow_death_clock(
+    receipt: Option<NativeSlowDeath>,
+    clock: Option<(u32, u32)>,
+) -> SaveLoadResult<()> {
+    if let Some(receipt) = receipt {
+        let (start, destruction) = clock.ok_or_else(|| corrupted("SlowDeath receipt has no timer"))?;
+        if receipt.midpoint_frame.wrapping_sub(start) > destruction.wrapping_sub(start) {
+            return Err(corrupted("SlowDeath midpoint falls outside its admitted lifetime"));
+        }
+    }
+    Ok(())
+}
+
 pub(super) fn append(bytes: &mut Vec<u8>, world: &GameLogic) -> SaveLoadResult<()> {
     if world.object_lifecycle_callback_depth != 0 {
         return Err(corrupted(
@@ -97,6 +118,7 @@ pub(super) fn append(bytes: &mut Vec<u8>, world: &GameLogic) -> SaveLoadResult<(
         ));
     }
     let mut records = Vec::with_capacity(world.host_objects().registered_len());
+    let mut slow_deaths = Vec::new();
     for (id, object) in world.host_objects().registered() {
         if object.kill_score_phase == crate::game_logic::kill_credit::KillScorePhase::Running {
             return Err(corrupted(
@@ -128,6 +150,13 @@ pub(super) fn append(bytes: &mut Vec<u8>, world: &GameLogic) -> SaveLoadResult<(
             object.status.destroyed
                 || (object.status.effectively_dead && !object.is_inactive_body()),
         )?;
+        if let Some(receipt) = object.native_die_runtime.slow_death {
+            validate_slow_death_clock(
+                Some(receipt),
+                object.slow_death.as_ref().map(|timer| (timer.begin_frame, timer.destroy_at_frame)),
+            )?;
+            slow_deaths.push((id.0, receipt));
+        }
         if object.kill_score_phase == crate::game_logic::kill_credit::KillScorePhase::Complete
             && !object.kill_experience_awarded
         {
@@ -144,6 +173,7 @@ pub(super) fn append(bytes: &mut Vec<u8>, world: &GameLogic) -> SaveLoadResult<(
         });
     }
     records.sort_by_key(|record| record.id);
+    slow_deaths.sort_by_key(|(id, _)| *id);
     let removals = world.pending_object_removal_snapshot();
     let mut pending = std::collections::HashSet::new();
     for record in &removals {
@@ -157,7 +187,10 @@ pub(super) fn append(bytes: &mut Vec<u8>, world: &GameLogic) -> SaveLoadResult<(
             ));
         }
     }
-    let payload = bincode_legacy::serialize(&PayloadV2 { records, removals }).map_err(corrupted)?;
+    let payload = bincode_legacy::serialize(&PayloadV3 {
+        deaths: PayloadV2 { records, removals },
+        slow_deaths,
+    }).map_err(corrupted)?;
     if payload.len() > MAX_BYTES {
         return Err(corrupted("payload exceeds size limit"));
     }
@@ -187,7 +220,7 @@ pub(super) fn decode(bytes: &[u8]) -> SaveLoadResult<Decoded<'_>> {
     }
     let version = u32::from_le_bytes(suffix[4..8].try_into().unwrap());
     let length = u32::from_le_bytes(suffix[8..12].try_into().unwrap()) as usize;
-    if version != 1 && version != VERSION {
+    if !(1..=VERSION).contains(&version) {
         return Err(corrupted("unknown version"));
     }
     if length > MAX_BYTES {
@@ -217,13 +250,33 @@ pub(super) fn decode(bytes: &[u8]) -> SaveLoadResult<Decoded<'_>> {
             Vec::new(),
             consumed,
         )
-    } else {
+    } else if version == 2 {
         let (decoded, consumed): (PayloadV2, usize) = bincode::serde::decode_from_slice(
             payload,
             bincode::config::legacy().with_limit::<MAX_BYTES>(),
         )
         .map_err(corrupted)?;
         (decoded.records, decoded.removals, consumed)
+    } else {
+        let (decoded, consumed): (PayloadV3, usize) = bincode::serde::decode_from_slice(
+            payload,
+            bincode::config::legacy().with_limit::<MAX_BYTES>(),
+        )
+        .map_err(corrupted)?;
+        let mut records = decoded.deaths.records;
+        let mut by_id = HashMap::new();
+        for (id, receipt) in decoded.slow_deaths {
+            if by_id.insert(id, receipt).is_some() {
+                return Err(corrupted("duplicate SlowDeath receipt"));
+            }
+        }
+        for record in &mut records {
+            record.runtime.slow_death = by_id.remove(&record.id);
+        }
+        if !by_id.is_empty() {
+            return Err(corrupted("SlowDeath receipt belongs to an unknown owner"));
+        }
+        (records, decoded.deaths.removals, consumed)
     };
     if consumed != payload.len() || suffix[end..].starts_with(TAG) {
         return Err(corrupted("trailing or duplicate records"));
@@ -251,7 +304,7 @@ pub(super) fn validate(
     // A v1 receipt never recorded Player score completion. A dead/started
     // import or XP-consumed live import cannot recover the original source
     // player's identity after disappearance/transfer, so reject before mutation.
-    if decoded.version != Some(VERSION) {
+    if !matches!(decoded.version, Some(2..=VERSION)) {
         for (id, object) in &snapshot.objects {
             if object.status.destroyed
                 || death_states.get(id).is_some_and(|state| state.started)
@@ -369,6 +422,10 @@ pub(super) fn validate(
             return Err(corrupted("invalid completed slot or AI receipt"));
         }
         let state = death_states.get(&id);
+        validate_slow_death_clock(
+            record.runtime.slow_death,
+            state.and_then(|state| state.ordinary_slow_death),
+        )?;
         validate_temporal(
             &record.runtime,
             declarations,

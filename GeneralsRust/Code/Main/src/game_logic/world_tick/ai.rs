@@ -529,18 +529,25 @@ impl GameLogic {
                 let Some(obj) = self.objects.get_mut(&object_id) else { continue };
                 // Wave 774: under coupled shadow, SlowDeathBehavior is owned by
                 // GW tick_status_timer_expirations + its owned Slow completion drain.
-                {
-                    if !topple_kill
-                        && obj
-                            .slow_death
-                            .as_ref()
-                            .map(|s| s.is_active())
-                            .unwrap_or(false)
-                    {
+                let ordinary_death_active = !topple_kill
+                    && obj.slow_death.as_ref().is_some_and(|timer| timer.is_active());
+                let obj = if ordinary_death_active && obj.native_die_runtime.slow_death.is_some() {
+                    let birth = (obj.visual_object_generation, self.visual_world_epoch);
+                    let done = self.tick_authored_ordinary_slow_death(
+                        object_id, presentation_effects,
+                    )?;
+                    if done || !self.spawn_identity_matches(object_id, birth.0, birth.1) {
+                        continue;
+                    }
+                    let Some(obj) = self.objects.get_mut(&object_id) else { continue };
+                    obj
+                } else {
+                    if ordinary_death_active {
                         topple_kill = obj.tick_slow_death(self.frame);
                         final_death_destroy = topple_kill;
                     }
-                }
+                    obj
+                };
                 // Wave 775: under coupled shadow, StructureCollapseUpdate is owned by
                 // Optional movement authority advances the animation; DONE never deletes.
                 {

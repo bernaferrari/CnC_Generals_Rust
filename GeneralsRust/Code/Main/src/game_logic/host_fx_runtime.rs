@@ -69,6 +69,11 @@ impl crate::game_logic::GameLogic {
             .as_ref()
             .map_or_else(Vec::new, |catalog| catalog.sound_names(name))
     }
+    pub(crate) fn has_receiving_fx_list(&self, name: &str) -> bool {
+        self.session_view.fx.catalog.as_ref()
+            .is_some_and(|catalog| catalog.find_fx_list(name).is_some())
+    }
+
     /// Resolve an audio request using only this session's effective FX lists.
     pub fn resolve_owned_audio_event_names(&self, event_type: &str) -> Vec<String> {
         super::resolve_audio_event_names_with(event_type, |name| self.fx_list_sound_names(name))

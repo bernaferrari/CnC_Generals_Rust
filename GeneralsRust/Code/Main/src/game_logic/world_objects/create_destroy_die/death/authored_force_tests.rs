@@ -98,6 +98,9 @@ fn ordinary_slow_death_runs_initial_force_once_at_admission() {
     let mut expected = game_engine::common::random_value::RandomState::default();
     expected.set_seed_words(seed);
     expected.next_int(0, 9); // One applicable SlowDeath with the default weight.
+    expected.next_int(0, 0); // Sink delay variance.
+    expected.next_int(0, 0); // Destruction delay variance.
+    expected.next_int(5, 9); // C++ midpoint bounds for a 15-frame lifetime.
     expected.next_int(0, 0); // One authored INITIAL entry.
     expected.next_real(0.0, std::f32::consts::TAU);
     let spin = 90.0_f32.to_radians() * (1.0 / 30.0);
@@ -157,4 +160,107 @@ fn legacy_air_death_name_does_not_supply_an_unauthored_force() {
     kill(&mut world, id);
     assert_eq!(world.objects[&id].movement.velocity, velocity);
     assert_eq!(world.objects[&id].physics_accel, Vec3::ZERO);
+}
+
+#[test]
+fn same_frame_slow_death_runs_midpoint_then_final_before_retirement() {
+    let death = "Behavior = SlowDeathBehavior DeathTag\nDestructionDelay = 0\nOCL = MIDPOINT WreckToss\nOCL = FINAL FinalToss\nEnd";
+    let mut world = force_world(50, true, death);
+    world.apply_receiving_ocl_overrides(&[
+        "ObjectCreationList FinalToss\nApplyRandomForce\nMinForceMagnitude = 50\nMaxForceMagnitude = 50\nMinForcePitch = 90\nMaxForcePitch = 90\nSpinRate = 0\nEnd\nEnd".into(),
+    ]).unwrap();
+    world.frame = 41;
+    let id = world
+        .create_object("AuthoredWreck", Team::GLA, Vec3::ZERO)
+        .unwrap();
+    kill(&mut world, id);
+    assert_eq!(world.objects[&id].physics_accel, Vec3::ZERO);
+    let mut expected = game_engine::common::random_value::RandomState::default();
+    expected.set_seed_words(world.logic_random.seed_words());
+    let mut expected_force = 0.0;
+    let mut expected_spin = [0.0; 3];
+    let mut expected_retirement = false;
+    for action in include_str!("slow_death_same_frame.trace").lines() {
+        match action {
+            "draw" => {
+                expected.next_int(0, 0);
+            }
+            "ocl WreckToss" | "ocl FinalToss" => {
+                expected_force += 50.0;
+                expected.next_real(0.0, std::f32::consts::TAU);
+                let spin = if action == "ocl WreckToss" {
+                    90.0_f32.to_radians() * (1.0 / 30.0)
+                } else {
+                    0.0
+                };
+                expected_spin = std::array::from_fn(|_| expected.next_real(-spin, spin));
+            }
+            "retire" => expected_retirement = true,
+            _ => panic!("unexpected original SlowDeath action: {action}"),
+        }
+    }
+    world.update_ai(&[id], 1.0 / 30.0).unwrap();
+    let wreck = &world.objects[&id];
+    assert!((wreck.physics_accel.y - expected_force / wreck.physics_get_mass()).abs() < 1e-5);
+    assert_eq!(
+        [wreck.shock_yaw_rate, wreck.shock_roll_rate, wreck.shock_pitch_rate],
+        expected_spin
+    );
+    assert_eq!(world.logic_random.seed_words(), expected.seed_words());
+    assert_eq!(
+        world
+            .pending_object_removal_snapshot()
+            .iter()
+            .any(|record| record.id == id),
+        expected_retirement,
+    );
+}
+
+#[test]
+fn saved_slow_death_resumes_selected_clock_without_replaying_midpoint() {
+    use crate::save_load::snapshot::SnapshotBuilder;
+
+    let death = "Behavior = SlowDeathBehavior DeathTag\nDestructionDelay = 1000\nOCL = MIDPOINT WreckToss\nOCL = FINAL WreckToss\nEnd";
+    let mut source = force_world(50, true, death);
+    source.frame = 41;
+    let id = source
+        .create_object("AuthoredWreck", Team::GLA, Vec3::ZERO)
+        .unwrap();
+    kill(&mut source, id);
+    let receipt = source.objects[&id].native_die_runtime.slow_death.unwrap();
+    assert!((51..=60).contains(&receipt.midpoint_frame));
+    source.frame = receipt.midpoint_frame;
+    source.update_ai(&[id], 1.0 / 30.0).unwrap();
+    let timer = source.objects[&id].slow_death.as_ref().unwrap();
+    assert!(timer.midpoint_played);
+    let final_frame = timer.destroy_at_frame;
+    let builder = SnapshotBuilder::new();
+    let snapshot = builder.create_world_snapshot(&source).unwrap();
+    let mut restored = force_world(50, true, death);
+    builder
+        .restore_from_snapshot(&snapshot, &mut restored)
+        .unwrap();
+    assert_eq!(
+        restored.objects[&id].native_die_runtime.slow_death,
+        Some(receipt)
+    );
+    let post_midpoint = restored.logic_random.seed_words();
+    let saved_accel = restored.objects[&id].physics_accel;
+    restored.update_ai(&[id], 1.0 / 30.0).unwrap();
+    assert_eq!(restored.logic_random.seed_words(), post_midpoint);
+    assert_eq!(restored.objects[&id].physics_accel, saved_accel);
+    for world in [&mut restored, &mut source] {
+        world.frame = final_frame;
+        world.update_ai(&[id], 1.0 / 30.0).unwrap();
+        assert!(
+            world
+                .pending_object_removal_snapshot()
+                .iter()
+                .any(|record| record.id == id)
+        );
+    }
+    assert_eq!(
+        restored.logic_random.seed_words(),
+        source.logic_random.seed_words()
+    );
 }

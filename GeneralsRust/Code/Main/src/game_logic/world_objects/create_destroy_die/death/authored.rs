@@ -308,31 +308,31 @@ impl GameLogic {
                                     family,
                                     config,
                                     probability,
-                                } => Some((family.clone(), config, (*probability).max(1) as u32)),
+                                } => Some((candidate.source_index, family, config, (*probability).max(1) as u32)),
                                 _ => None,
                             }
                         })
                         .collect();
                     let total: u32 = candidates
                         .iter()
-                        .map(|(_, _, probability)| *probability)
+                        .map(|(_, _, _, probability)| *probability)
                         .sum();
                     if total > 0 {
                         let mut roll = self.logic_random.next_u32() % total;
-                        for (family, config, probability) in candidates {
+                        for (source_index, family, config, probability) in candidates {
                             if roll < probability {
                                 let deletion_queued =
                                     self.objects_to_destroy.iter().any(|event| event.id == id);
                                 let mut slow_death_start =
                                     crate::game_logic::object::SlowDeathStart::default();
-                                let mut initial_ocls = Vec::new();
+                                let mut authored_slow_death_started = false;
                                 if let Some(object) = self.objects.get_mut(&id) {
                                     slow_death_start = match family {
                                         NativeSlowFamily::Jet(fx) => {
                                             // Weighted dispatch calls beginSlowDeath,
                                             // not Jet's onDie ground override.
                                             object.begin_jet_slow_death_with_fx(
-                                                fx,
+                                                fx.clone(),
                                                 false,
                                                 deletion_queued,
                                                 &mut crate::game_logic::ObjectAudio::queue(
@@ -342,24 +342,31 @@ impl GameLogic {
                                         }
                                         NativeSlowFamily::Helicopter(fx) => object
                                             .begin_helicopter_slow_death_with_fx(
-                                                fx,
+                                                fx.clone(),
                                                 deletion_queued,
                                                 &mut crate::game_logic::ObjectAudio::queue(
                                                     &mut self.queued_audio_events,
                                                 ),
                                             ),
-                                        NativeSlowFamily::Ordinary { initial_ocls: authored } => {
-                                            let fresh = object.slow_death.is_none();
-                                            let started = object.begin_slow_death_from_ini_with_removal(
-                                                self.frame,
-                                                config,
-                                                deletion_queued,
-                                                &mut crate::game_logic::ObjectAudio::queue(
-                                                    &mut self.queued_audio_events,
-                                                ),
-                                            );
-                                            if fresh && started {
-                                                initial_ocls = authored;
+                                        NativeSlowFamily::Ordinary(_) => {
+                                            if object.slow_death.is_none() && !object.ai_death_pending() {
+                                                let deadlines = crate::game_logic::host_slow_death::SlowDeathDeadlines::draw(
+                                                    self.frame, config, |lo, hi| self.logic_random.next_int(lo, hi),
+                                                );
+                                                authored_slow_death_started = object.begin_slow_death_with_deadlines(
+                                                    self.frame,
+                                                    config,
+                                                    deletion_queued,
+                                                    Some(&deadlines),
+                                                );
+                                                if authored_slow_death_started {
+                                                    object.native_die_runtime.slow_death = Some(
+                                                        crate::game_logic::native_die_definition::NativeSlowDeath {
+                                                            source_index,
+                                                            midpoint_frame: deadlines.midpoint,
+                                                        },
+                                                    );
+                                                }
                                             }
                                             crate::game_logic::object::SlowDeathStart::default()
                                         }
@@ -385,19 +392,13 @@ impl GameLogic {
                                         presentation_effects,
                                     );
                                 }
-                                // SlowDeathBehavior.cpp:337 selects from all
-                                // authored entries, including null handles.
-                                if initial_ocls.iter().any(|name| {
-                                    self.object_creation_list_definition(name).is_some()
-                                }) {
-                                    if let Some(ocl) = self.choose_authored_die_entry(&initial_ocls) {
-                                        let outcome = self.execute_receiving_object_ocl_with_births(
-                                            &ocl, id, interpreter, presentation_effects,
-                                        );
-                                        if let Some(error) = outcome.error {
-                                            return Err(error);
-                                        }
-                                    }
+                                if authored_slow_death_started {
+                                    self.run_authored_slow_death_phase(
+                                        id,
+                                        crate::game_logic::native_die_definition::SlowDeathEffectPhase::Initial,
+                                        interpreter,
+                                        presentation_effects,
+                                    )?;
                                 }
                                 // HelicopterSlowDeathUpdate.cpp:160-176 stops
                                 // the Drawable after base INITIAL effects.
