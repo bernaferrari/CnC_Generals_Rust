@@ -111,7 +111,8 @@ pub fn fast_slerp(a: Quat, b: Quat, t: f32) -> Quat {
 /// `1 - Sin(DEG_TO_RAD(90 * i / 240))`. `DEG_TO_RAD` widens to double before
 /// `WWMath::Sin` narrows its argument back to float.
 fn generate_filter_table() -> [f32; 256] {
-    const WWMATH_PI: f32 = 3.141_592_654;
+    // wwmath.h's 3.141592654f has the same binary32 representation.
+    const WWMATH_PI: f32 = std::f32::consts::PI;
     let mut table = [0.0; 256];
     table[..16].copy_from_slice(&[
         1e-8, 1e-7, 1e-6, 1e-5, 1e-4, 1e-3, 1e-2, 1e-1, 1.0, 10.0, 100.0, 1000.0, 10000.0,
