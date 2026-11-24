@@ -59,6 +59,7 @@ impl NativeViewEffects for RejectSecond {
 }
 
 pub(crate) fn run() -> anyhow::Result<()> {
+    let _main = crate::main_services::MainServicesScope::new();
     let event_loop = EventLoop::new()?;
     let window = Arc::new(
         event_loop.create_window(
@@ -91,10 +92,14 @@ pub(crate) fn run() -> anyhow::Result<()> {
     for prior in [GameState::InGame, GameState::Paused] {
         engine.game_logic.frame = 31;
         engine.current_state = prior;
+        engine.startup_loading_phase = "Live match presentation".into();
+        engine.startup_last_reported_progress = 0.42;
         assert!(engine.game_logic.object_retirement_error().is_none());
         assert!(engine.host_load_game_from_ui(missing).is_err());
         assert_eq!(engine.current_state, prior);
         assert_eq!(engine.game_logic.get_frame(), 31);
+        assert_eq!(engine.startup_loading_phase, "Live match presentation");
+        assert_eq!(engine.startup_last_reported_progress, 0.42);
     }
     // A healthy postcommit failure must still execute the actual normal reset
     // branch. This invokes the real handler with its typed committed outcome;
@@ -393,19 +398,26 @@ pub(crate) fn run() -> anyhow::Result<()> {
     verify(&engine);
     // New-match park must reject before load-screen/seed/GUI side effects.
     engine.current_state = GameState::InGame;
-    assert!(
-        !engine.host_start_game_from_command_phase(HostStartRequest::without_player_template(
+    let rejection = engine
+        .rejected_native_worlds
+        .validate_admission()
+        .unwrap_err();
+    assert_eq!(
+        engine.host_start_game_from_command_phase(HostStartRequest::without_player_template(
             GameMode::Skirmish,
             "USA".into(),
             "Lone Eagle".into(),
             None,
-        ))
-        .expect("actual start request should complete")
+        )),
+        Err(rejection.clone())
     );
     verify(&engine);
     // A healthy previously parked start must recheck ownership on completion.
     engine.current_state = GameState::InGame;
-    engine.complete_parked_match_start(deferred_before_failure);
+    assert_eq!(
+        engine.complete_parked_match_start(deferred_before_failure),
+        Err(rejection)
+    );
     verify(&engine);
     for score in [false, true] {
         engine.current_state = GameState::InGame;
