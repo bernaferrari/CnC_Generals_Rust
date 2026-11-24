@@ -908,11 +908,11 @@ impl Object {
     }
 
     /// C++ Object::setWeaponLock residual.
-    /// Returns false if the requested slot has no weapon.
+    /// Returns whether the requested slot exists and the lock type is valid.
+    /// A temporary request leaves an existing permanent lock unchanged.
     pub fn set_weapon_lock(&mut self, slot: u8, lock_type: WeaponLockType) -> bool {
         if lock_type == WeaponLockType::NotLocked {
-            self.release_weapon_lock(WeaponLockType::LockedPermanently);
-            return true;
+            return false;
         }
         if self.weapon_slot(slot).is_none() {
             return false;
@@ -921,7 +921,7 @@ impl Object {
         if self.weapon_lock_type == WeaponLockType::LockedPermanently
             && lock_type == WeaponLockType::LockedTemporarily
         {
-            return false;
+            return true;
         }
         self.weapon_lock_type = lock_type;
         self.weapon_lock_slot = slot;

@@ -328,6 +328,17 @@ fn weapon_lock_forces_slot_and_release() {
     assert_eq!(u.weapon_lock_type, WeaponLockType::LockedPermanently);
     assert_eq!(u.weapon_lock_slot, 1);
     assert_eq!(u.active_weapon_slot, 1);
+    // GameLogicDispatch.cpp:614-629 — lock_type 0 is not a release: the
+    // request is invalid, the permanent lock and selected slot survive.
+    let invalid = CommandExecutor::new(&mut logic, 0)
+        .execute_set_weapon_lock(&[id], 0, 0)
+        .unwrap();
+    assert!(invalid == CommandResult::InvalidCommand);
+    assert_eq!(
+        logic.host_object(id).unwrap().weapon_lock_type,
+        WeaponLockType::LockedPermanently
+    );
+    assert_eq!(logic.host_object(id).unwrap().active_weapon_slot, 1);
     {
         let mut exec = CommandExecutor::new(&mut logic, 0);
         assert!(
@@ -452,6 +463,78 @@ fn do_weapon_locks_the_requested_secondary_slot_before_targeting() {
     assert_eq!(unit.target_location, Some(target));
     assert_eq!(unit.ai_state(), AIState::AttackingGround);
     assert_eq!(unit.max_shots_to_fire, 1);
+}
+
+// WeaponSet.cpp:1035-1064 — a temporary lock request for an installed slot
+// reports success even when a permanent lock keeps its selection, so the
+// dispatch still issues the attack and the locked weapon fires.
+#[test]
+fn do_weapon_preserves_permanent_slot_and_still_fires() {
+    use super::CommandExecutor;
+    use crate::command_system::{CommandResult, WeaponSlot, WeaponTarget};
+    use crate::fixture_content::{
+        FixtureObject, FixtureWeapon, admit_fixture_content,
+    };
+    use crate::game_logic::{AIState, GameLogic, Player, Team, WeaponLockType};
+    use glam::Vec3;
+
+    let mut logic = GameLogic::new();
+    logic.add_player(Player::new(0, Team::USA, "gunner", true));
+    logic.add_player(Player::new(1, Team::GLA, "target", false));
+    admit_fixture_content(
+        &mut logic,
+        &[
+            FixtureObject::new("LockedGunner")
+                .kind_of("VEHICLE SELECTABLE CAN_ATTACK")
+                .health(100.0)
+                .walker()
+                .armed("PermanentGun")
+                .weapon("SECONDARY", "RequestedGun"),
+            FixtureObject::new("LockWitness")
+                .kind_of("VEHICLE")
+                .health(100.0),
+        ],
+        &[
+            FixtureWeapon::new("PermanentGun")
+                .damage(17.0)
+                .radius(8.0)
+                .range(100.0)
+                .damage_type("UNRESISTABLE")
+                .field("WeaponSpeed = 999999"),
+            FixtureWeapon::new("RequestedGun")
+                .damage(31.0)
+                .radius(8.0)
+                .range(100.0)
+                .damage_type("UNRESISTABLE")
+                .field("WeaponSpeed = 999999"),
+        ],
+    );
+    let attacker = logic
+        .create_object_for_player("LockedGunner", 0, Vec3::ZERO)
+        .unwrap();
+    let target = Vec3::new(30.0, 0.0, 0.0);
+    let victim = logic
+        .create_object_for_player("LockWitness", 1, target)
+        .unwrap();
+    assert!(logic
+        .host_object_mut(attacker)
+        .unwrap()
+        .set_weapon_lock(0, WeaponLockType::LockedPermanently));
+    logic.set_current_frame(100);
+    let result = CommandExecutor::new(&mut logic, 0).execute_weapon(
+        &[attacker],
+        &WeaponSlot::Secondary,
+        1,
+        &WeaponTarget::Location(target),
+    );
+    assert!(result == CommandResult::Success);
+    let object = logic.host_object(attacker).unwrap();
+    assert_eq!(object.weapon_lock_type, WeaponLockType::LockedPermanently);
+    assert_eq!(object.active_weapon_slot, 0);
+    assert_eq!(object.ai_state(), AIState::AttackingGround);
+    logic.update_combat(&[attacker], 1.0 / 30.0).unwrap();
+    assert_eq!(logic.host_object(attacker).unwrap().last_fire_slot, 0);
+    assert_eq!(logic.host_object(victim).unwrap().health.current, 83.0);
 }
 
 #[test]
