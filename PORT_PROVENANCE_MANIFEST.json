@@ -161143,7 +161143,7 @@
     }
   ],
   "generator": "GeneralsRust/Code/Main/scripts/generate_port_provenance.py",
-  "input_digest": "bb635529bed51175831429c5529a3dee40d744fa670ce5a82a969fb439746738",
+  "input_digest": "e9e47c6527878647ace9110265cdc9653d73e7311878d5ca531a8ac05efdb470",
   "metric_contract": {
     "behavior_requires_explicit_evidence": true,
     "candidate_mapping_is_reviewed": false,
@@ -168493,11 +168493,11 @@
       "cargo_reachable": true,
       "classification": "test",
       "file_range": {
-        "end_line": 186,
+        "end_line": 199,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/core/game_client/native_draw_physics_tests.rs",
-      "sha256": "674e6ff6a907bc7ee412bde2f75b474d82d71c0ff6e1a60d70e844178d80de9b",
+      "sha256": "c5d2392c15e66120e4b91cc26a0d2d7c0ea61676faa87b430181b6fc8c61bf8e",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -168841,11 +168841,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 1842,
+        "end_line": 1866,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/core/game_client/semantic_admission.rs",
-      "sha256": "72120713e6fe1f883b610c1803201a9f354448fcda0b2ee7b52d25e33b20c7c9",
+      "sha256": "d6d6f535f21f5bedf1b9262f5fcce3f6bf1b4f89fe9372165107605225eda551",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
