@@ -1452,6 +1452,23 @@ fn authored_timed_charge_expires_once_through_its_death_weapon() {
         (data.detonate_at_frame, data.next_ping_frame)
     };
 
+    // Drawable.cpp:3492-3524: the timed icon counts down the StickyBombUpdate
+    // detonation frame — here the native LifetimeUpdate deadline — rounded up
+    // to whole seconds.
+    let presentation =
+        crate::presentation_frame::PresentationFrame::build_from_logic(&mut world, 0);
+    let icon = presentation
+        .objects
+        .iter()
+        .find(|object| object.id == charge)
+        .expect("charge presentation");
+    assert_eq!(icon.bomb_type, 1);
+    assert_eq!(
+        icon.bomb_timer_seconds,
+        (deadline - world.frame)
+            .div_ceil(crate::game_logic::host_mines::UNIT_BOMB_PING_FRAMES)
+    );
+
     // Frame 126 is the discarded synthetic delay (3 frames): it must never
     // schedule a blast. LifetimeUpdate kills the charge at its die frame and
     // the authored DeathWeapon fires exactly once.
@@ -1460,6 +1477,20 @@ fn authored_timed_charge_expires_once_through_its_death_weapon() {
         world.update_mines_and_demo_traps().unwrap();
         world.update_ai(&[charge], LOGIC_FRAME_TIMESTEP).unwrap();
         let before_expiry = frame < deadline;
+        if frame == deadline - 1 {
+            let late = crate::presentation_frame::PresentationFrame::build_from_logic(
+                &mut world, 0,
+            );
+            let icon = late
+                .objects
+                .iter()
+                .find(|object| object.id == charge)
+                .expect("charge presentation");
+            assert_eq!(
+                icon.bomb_timer_seconds, 1,
+                "icon rounds the last partial second up"
+            );
+        }
         assert_eq!(
             world
                 .host_object(charge)

@@ -172,16 +172,15 @@ pub(super) fn freeze_sticky_bomb_overlay(obj: &crate::game_logic::Object, now: u
     }
     match md.kind {
         crate::game_logic::host_mines::HostMineKind::TimedDemoCharge => {
-            let seconds = md
-                .detonate_at_frame
-                .map(|die| {
-                    if die <= now {
-                        0
-                    } else {
-                        ((die - now) as f32 / 30.0).ceil() as u32
-                    }
-                })
-                .unwrap_or(0);
+            let deadline = obj
+                .native_lifecycle
+                .as_ref()
+                .and_then(|lifecycle| lifecycle.first_lifetime_deadline())
+                .or(md.detonate_at_frame);
+            let seconds = deadline.map_or(0, |die| {
+                die.saturating_sub(now)
+                    .div_ceil(crate::game_logic::host_mines::UNIT_BOMB_PING_FRAMES)
+            });
             (1, seconds)
         }
         crate::game_logic::host_mines::HostMineKind::RemoteDemoCharge => (2, 0),
@@ -659,6 +658,8 @@ impl PresentationFrame {
             };
             let (ammo_pip_total, ammo_pip_full) = obj.get_ammo_pip_showing_info().unwrap_or_default();
             let (is_crate, is_salvage_crate) = logic.presentation_crate_flags(obj);
+            let (bomb_type, bomb_timer_seconds) =
+                freeze_sticky_bomb_overlay(obj, logic.get_current_frame() as u32);
             let renderable = RenderableObject {
                 receiving_draw_models: obj.get_template().receiving_draw_models(),
                 status_tint: [0.0; 3],
@@ -1030,12 +1031,8 @@ impl PresentationFrame {
                 is_carbomb: obj.status.is_carbomb,
                 weapon_set_carbomb: obj.test_weapon_condition(7),
                 authors_carbomb_weapon_set: obj.authors_carbomb_weapon_set(),
-                bomb_type: freeze_sticky_bomb_overlay(obj, logic.get_current_frame() as u32).0,
-                bomb_timer_seconds: freeze_sticky_bomb_overlay(
-                    obj,
-                    logic.get_current_frame() as u32,
-                )
-                .1,
+                bomb_type,
+                bomb_timer_seconds,
                 hijacked: obj.status.hijacked,
                 disguise_transition_opacity: if obj.status.disguise_transition_frames > 0 {
                     obj.status.disguise_transition_opacity
