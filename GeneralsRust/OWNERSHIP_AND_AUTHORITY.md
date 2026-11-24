@@ -64,6 +64,12 @@ evidence exists. Run that command before refreshing a changed source pin.
 Keep the port comparable by testing behavior at the interface even when the
 Rust owner, algorithm, or file layout changes.
 
+`Code/Main/scripts/verify_ocl_force_parity.py` compares the original C++
+matrix force calculation with Rust's shared OCL helper. It checks the
+order and bounds of RNG requests and compares force vectors within a
+declared rounding tolerance. Main's authored death tests exercise the
+same helper through object creation and SlowDeath callbacks.
+
 Armor and object-creation-list fallback initialization is once per world;
 GameLogic audio resolver registration is once per CommonServices owner.
 Each VideoPlayer owns its provider registration. These changes prevent one

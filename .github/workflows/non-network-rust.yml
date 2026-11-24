@@ -73,6 +73,9 @@ jobs:
       - name: Compare original C++ and Rust discrete circle behavior
         run: python3 Code/Main/scripts/verify_discrete_circle_parity.py --cxx c++
 
+      - name: Compare original C++ and Rust OCL force vectors and RNG draws
+        run: python3 Code/Main/scripts/verify_ocl_force_parity.py --cxx c++
+
       - name: Reject stale generated parity inventory
         working-directory: .
         run: >-
