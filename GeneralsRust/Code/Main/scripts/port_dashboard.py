@@ -60,6 +60,7 @@ FULL_GATES = (
             "authored_jet_",
             "authored_helicopter_",
             "receiving_object_ocl_places_and_orients",
+            "receiving_ocl_requires_an_active_controlling_player",
             "accepted_fire_ocl_uses_the_source_object_basis",
             "owned_impact_ocl_",
             "fuel_detonation_carries_the_pose",

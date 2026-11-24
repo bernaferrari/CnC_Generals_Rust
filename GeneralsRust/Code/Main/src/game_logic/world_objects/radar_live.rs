@@ -360,8 +360,7 @@ impl GameLogic {
         let owner_index = self.host_player_index(owner_id, obj.team);
         let local = self.host_local_player();
         let local_index = local.map(|p| p.id as i32).unwrap_or(-1);
-        // C++ `Player::isPlayerActive` = `!observer && !dead`.
-        let local_active = local.map(|p| p.is_alive && !p.is_observer).unwrap_or(true);
+        let local_active = local.is_none_or(|player| player.is_active());
         let is_local = owner_id.is_some_and(|id| self.is_local_player(id));
 
         let is_disguiser = obj.is_kind_of(KindOf::Disguiser);

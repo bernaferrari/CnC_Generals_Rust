@@ -689,6 +689,11 @@ impl Player {
     /// C++ `GameCommon.h MAX_PLAYER_COUNT`.
     pub const MAX_ATTACKED_BY_PLAYERS: usize = 16;
 
+    /// Original `Player::isPlayerActive`. Observers and defeated players are inactive.
+    pub(crate) fn is_active(&self) -> bool {
+        !self.is_observer && self.is_alive
+    }
+
     pub(crate) fn script_identity(&self) -> Option<&str> {
         if self.is_reserved_neutral() {
             return Some("");

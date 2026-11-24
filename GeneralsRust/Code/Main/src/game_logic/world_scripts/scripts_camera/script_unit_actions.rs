@@ -296,7 +296,7 @@ impl GameLogic {
         }
         self.players
             .values()
-            .filter(|p| !p.is_observer && p.is_alive)
+            .filter(|player| player.is_active())
             .map(|p| p.id)
             .collect()
     }
@@ -1227,7 +1227,7 @@ impl GameLogic {
             return player.start_position.max(0);
         }
         for player in self.players.values() {
-            if Some(player.id) != owner && player.is_alive && !player.is_observer {
+            if Some(player.id) != owner && player.is_active() {
                 return player.start_position.max(0);
             }
         }

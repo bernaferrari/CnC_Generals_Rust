@@ -66,7 +66,6 @@ fn supports_host_weapon_generic_ocl(
         && !nugget.ignore_primary_obstacle
         && !nugget.spread_formation
         && !nugget.dies_on_bad_land
-        && !nugget.requires_live_player
 }
 
 fn unsupported_host_ocl_nugget_name(
@@ -431,6 +430,17 @@ impl GameLogic {
                 continue;
             };
             if generic.debris_to_generate == 0 {
+                continue;
+            }
+            // reallyCreate checks the current controller for each nugget,
+            // before reserving a container or drawing from the logic RNG.
+            if generic.requires_live_player
+                && !source_id
+                    .and_then(|id| self.objects.get(&id))
+                    .and_then(|source| source.owner_player_id)
+                    .and_then(|owner| self.players.get(&owner))
+                    .is_some_and(|player| player.is_active())
+            {
                 continue;
             }
             if generic.contain_inside_source_object

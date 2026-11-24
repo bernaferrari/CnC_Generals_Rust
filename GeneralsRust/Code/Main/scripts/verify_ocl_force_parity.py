@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Compare original OCL forces, Object placement, and terminal weapon selection with Rust."""
+"""Compare original OCL forces, placement, player eligibility, and detonation with Rust."""
 
 import argparse
 import math
@@ -12,6 +12,7 @@ import tempfile
 ROOT = Path(__file__).resolve().parents[4]
 WWMATH = ROOT / "GeneralsMD/Code/Libraries/Source/WWVegas/WWMath"
 OCL_SOURCE = ROOT / "GeneralsMD/Code/GameEngine/Source/GameLogic/Object/ObjectCreationList.cpp"
+PLAYER_SOURCE = ROOT / "GeneralsMD/Code/GameEngine/Source/Common/RTS/Player.cpp"
 WEAPON_SOURCE = OCL_SOURCE.with_name("Weapon.cpp")
 WEAPON_HEADER = ROOT / "GeneralsMD/Code/GameEngine/Include/GameLogic/Weapon.h"
 MODEL_DRAW_SOURCE = (
@@ -398,6 +399,59 @@ int main() {
 
 
 
+def verify_ocl_player_eligibility(cxx: str, temp: Path) -> None:
+    original = OCL_SOURCE.read_text()
+    start = original.index("if (m_requiresLivePlayer &&")
+    stop = original.index("return NULL;", start) + len("return NULL;")
+    guard = original[start:stop]
+    is_player_active = definition(
+        PLAYER_SOURCE.read_text(), r"Bool Player::isPlayerActive\(void\) const"
+    )
+    cpp = temp / "ocl_player_eligibility.cpp"
+    binary = temp / "ocl_player_eligibility"
+    cpp.write_text(
+        """
+#include <cassert>
+#include <cstddef>
+#include <initializer_list>
+using Bool = bool;
+struct Player {
+    bool m_observer;
+    bool m_isPlayerDead;
+    Bool isPlayerActive() const;
+};
+struct Object {
+    const Player* owner;
+    const Player* getControllingPlayer() const { return owner; }
+};
+"""
+        + is_player_active
+        + """
+const Object* createObject(bool m_requiresLivePlayer, const Object* sourceObj) {
+"""
+        + guard
+        + """
+    static const Object created{nullptr};
+    return &created;
+}
+int main() {
+    const Player active{false, false}, defeated{false, true}, observer{true, false};
+    const Object activeSource{&active}, defeatedSource{&defeated},
+        observerSource{&observer}, unownedSource{nullptr};
+    assert(createObject(true, &activeSource));
+    for (const Object* sourceObj : {&defeatedSource, &observerSource, &unownedSource}) {
+        assert(!createObject(true, sourceObj));
+        assert(createObject(false, sourceObj));
+    }
+    assert(!createObject(true, nullptr));
+}
+"""
+    )
+    subprocess.run([cxx, "-std=c++17", cpp, "-o", binary], check=True)
+    subprocess.run([binary], check=True)
+    print("Original OCL checked the controlling player's active state for gated entries")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--cxx", default="c++")
@@ -415,6 +469,7 @@ def main() -> int:
         subprocess.run([args.rustc, "--edition=2024", rust, "-o", port], check=True)
         original, ported = observed(originals), observed(port)
         verify_object_placement(args.cxx, temp)
+        verify_ocl_player_eligibility(args.cxx, temp)
         verify_detonation_rank(args.cxx, temp)
         verify_detonation_fx_position(args.cxx, temp)
     if len(original) != len(CASES) or len(ported) != len(CASES):

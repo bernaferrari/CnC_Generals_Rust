@@ -120,7 +120,7 @@ impl GameLogic {
             .get(&owner)
             .ok_or_else(|| invalid("requested Team controller is missing"))?;
         // Player.cpp:3923, shared by semantic birth and subsequent Team changes.
-        if player.is_alive && !player.is_observer {
+        if player.is_active() {
             return Ok(None);
         }
         let mut neutrals = self

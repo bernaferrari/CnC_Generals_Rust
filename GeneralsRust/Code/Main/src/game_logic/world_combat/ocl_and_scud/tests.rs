@@ -4,6 +4,103 @@ use super::*;
 use crate::game_logic::ThingTemplate;
 
 #[test]
+fn receiving_ocl_requires_an_active_controlling_player_before_drawing_randomness() {
+    use crate::game_logic::Player;
+    use crate::game_logic::game_logic::PlayerSideRole;
+    use game_engine::common::random_value::SessionRandom;
+
+    const LIST: &str = "OCL_ActiveOwner";
+    const OWNER: u32 = 7;
+    const NEUTRAL: u32 = 0;
+    let fixture = |player: Option<(bool, bool)>| {
+        let mut world = GameLogic::new();
+        for name in ["Source", "Gated", "Ungated"] {
+            world
+                .templates
+                .insert(name.into(), ThingTemplate::new(name));
+        }
+        world
+            .admit_object_creation_list_sources([format!(
+                "ObjectCreationList {LIST}
+ CreateObject
+  ObjectNames = Gated
+  Disposition = LIKE_EXISTING
+  RequiresLivePlayer = Yes
+ End
+ CreateObject
+  ObjectNames = Ungated
+  Disposition = LIKE_EXISTING
+ End
+End"
+            )])
+            .unwrap();
+        let source = if let Some((alive, observer)) = player {
+            let mut neutral = Player::new(NEUTRAL, Team::Neutral, "", false);
+            neutral.map_side.role = PlayerSideRole::Neutral;
+            world.add_player(neutral);
+            let player = Player::new(OWNER, Team::USA, "Owner", true).with_script_identity("Owner");
+            world.add_player(player);
+            let source = world
+                .create_object_for_player("Source", OWNER, Vec3::ZERO)
+                .unwrap();
+            // A source created after defeat would already belong to Neutral.
+            let player = world.get_player_mut(OWNER).unwrap();
+            player.is_alive = alive;
+            player.is_observer = observer;
+            source
+        } else {
+            world
+                .create_object("Source", Team::Neutral, Vec3::ZERO)
+                .unwrap()
+        };
+        assert_eq!(
+            world.objects[&source].owner_player_id,
+            player.map(|_| OWNER)
+        );
+        (world, source)
+    };
+    let verify = |world: &mut GameLogic, source, expected_names: &[&str], expected_owner| {
+        let expected_random = SessionRandom::from_state(world.logic_random.snapshot());
+        for _ in expected_names {
+            expected_random.next_int(0, 0);
+        }
+
+        let outcome = world.execute_receiving_object_ocl_with_births(
+            LIST,
+            source,
+            None,
+            &mut Default::default(),
+        );
+        assert!(outcome.error.is_none());
+        let names: Vec<_> = outcome
+            .created
+            .iter()
+            .map(|(id, _)| {
+                let child = &world.objects[id];
+                assert_eq!(child.producer_id, Some(source));
+                assert_eq!(child.owner_player_id, expected_owner);
+                child.template_name.as_str()
+            })
+            .collect();
+        assert_eq!(names, expected_names);
+        assert_eq!(world.logic_random.snapshot(), expected_random.snapshot());
+    };
+
+    let (mut active, source) = fixture(Some((true, false)));
+    for player in [Some((false, false)), Some((true, true)), None] {
+        let (mut peer, peer_source) = fixture(player);
+        assert_eq!(source, peer_source);
+        verify(&mut active, source, &["Gated", "Ungated"], Some(OWNER));
+        verify(
+            &mut peer,
+            peer_source,
+            &["Ungated"],
+            player.map(|_| NEUTRAL),
+        );
+    }
+}
+
+#[test]
 fn fire_ocl_never_uses_a_foreign_list_or_foreign_object_template() {
     const NAME: &str = "OCL_WeaponOwnerNegativeControl";
     let text = |child: &str| {
