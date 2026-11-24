@@ -11198,7 +11198,8 @@
         {
           "blockers": [
             "unreviewed_mapping",
-            "unreviewed_symbol_ownership"
+            "unreviewed_symbol_ownership",
+            "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/player/money.rs"
           ],
           "candidate_destinations": [
             {
@@ -11250,53 +11251,130 @@
           "blockers": [
             "unreviewed_mapping",
             "unreviewed_symbol_ownership",
-            "unreviewed_source_range_ownership"
+            "unreviewed_source_range_ownership",
+            "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/player/list.rs",
+            "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/player/money.rs"
           ],
           "candidate_destinations": [
             {
               "cargo_reachable": true,
               "classification": "implementation",
-              "path": "GeneralsRust/Code/GameEngine/Common/src/common/rts/player.rs"
+              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/player/academy_score.rs"
             },
             {
               "cargo_reachable": true,
               "classification": "implementation",
-              "path": "GeneralsRust/Code/GameEngine/Common/src/common/rts/player_ai_build.rs"
+              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/player/construction.rs"
             },
             {
               "cargo_reachable": true,
               "classification": "implementation",
-              "path": "GeneralsRust/Code/GameEngine/Common/src/common/rts/player_ai_supply_squads.rs"
+              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/player/core.rs"
             },
             {
               "cargo_reachable": true,
               "classification": "implementation",
-              "path": "GeneralsRust/Code/GameEngine/Common/src/common/rts/player_lifecycle.rs"
+              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/player/economy.rs"
             },
             {
               "cargo_reachable": true,
               "classification": "implementation",
-              "path": "GeneralsRust/Code/GameEngine/Common/src/common/rts/player_production.rs"
+              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/player/energy_handicap.rs"
             },
             {
               "cargo_reachable": true,
               "classification": "implementation",
-              "path": "GeneralsRust/Code/GameEngine/Common/src/common/rts/player_relationships_science.rs"
+              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/player/list.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "test",
+              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/player/list_tests.rs"
             },
             {
               "cargo_reachable": true,
               "classification": "implementation",
-              "path": "GeneralsRust/Code/GameEngine/Common/src/common/rts/player_snapshot.rs"
+              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/player/manager.rs"
             },
             {
               "cargo_reachable": true,
               "classification": "implementation",
-              "path": "GeneralsRust/Code/GameEngine/Common/src/common/rts/player_state.rs"
+              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/player/mod.rs"
             },
             {
               "cargo_reachable": true,
               "classification": "implementation",
-              "path": "GeneralsRust/Code/GameEngine/Common/src/common/rts/player_upgrades_objects.rs"
+              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/player/money.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "test",
+              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/player/money_tests.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "implementation",
+              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/player/object_counts.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "implementation",
+              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/player/objects.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "implementation",
+              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/player/power.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "implementation",
+              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/player/production.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "implementation",
+              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/player/radar.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "test",
+              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/player/radar_tests.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "implementation",
+              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/player/relations.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "implementation",
+              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/player/science_management.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "implementation",
+              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/player/science_ui.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "implementation",
+              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/player/score_operation.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "implementation",
+              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/player/snapshot.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "implementation",
+              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/player/template.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "test",
+              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/player/tests.rs"
             }
           ],
           "entry_id": "game_engine:Source/Common/RTS/Player.cpp",
@@ -11987,14 +12065,15 @@
         },
         {
           "blockers": [
+            "no_reachable_implementation",
             "unreviewed_mapping",
             "unreviewed_symbol_ownership"
           ],
           "candidate_destinations": [
             {
-              "cargo_reachable": true,
-              "classification": "implementation",
-              "path": "GeneralsRust/Code/GameEngine/Common/src/common/rts/player_list.rs"
+              "cargo_reachable": false,
+              "classification": "shim",
+              "path": "GeneralsRust/Code/GameEngine/Common/src/rts/player_list.rs"
             }
           ],
           "entry_id": "game_engine:Source/Common/RTS/PlayerList.cpp",
@@ -16095,7 +16174,8 @@
         {
           "blockers": [
             "unreviewed_mapping",
-            "unreviewed_symbol_ownership"
+            "unreviewed_symbol_ownership",
+            "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/player/list.rs"
           ],
           "candidate_destinations": [
             {
@@ -20458,17 +20538,17 @@
             {
               "cargo_reachable": true,
               "classification": "implementation",
+              "path": "GeneralsRust/Code/GameEngine/GameClient/src/display/fullscreen_movie.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "implementation",
               "path": "GeneralsRust/Code/GameEngine/GameClient/src/display/image.rs"
             },
             {
               "cargo_reachable": true,
               "classification": "implementation",
               "path": "GeneralsRust/Code/GameEngine/GameClient/src/display/mod.rs"
-            },
-            {
-              "cargo_reachable": true,
-              "classification": "implementation",
-              "path": "GeneralsRust/Code/GameEngine/GameClient/src/display/movie_player.rs"
             },
             {
               "cargo_reachable": true,
@@ -21492,6 +21572,16 @@
               "cargo_reachable": true,
               "classification": "test",
               "path": "GeneralsRust/Code/GameEngine/GameClient/src/core/game_client/native_draw_lifecycle_observer_tests.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "test",
+              "path": "GeneralsRust/Code/GameEngine/GameClient/src/core/game_client/native_draw_physics_tests.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "test",
+              "path": "GeneralsRust/Code/GameEngine/GameClient/src/core/game_client/native_fullscreen_movie_tests.rs"
             },
             {
               "cargo_reachable": true,
@@ -24094,6 +24184,11 @@
             "unreviewed_symbol_ownership"
           ],
           "candidate_destinations": [
+            {
+              "cargo_reachable": true,
+              "classification": "test",
+              "path": "GeneralsRust/Code/GameEngine/GameClient/src/video_movie_pcm_tests.rs"
+            },
             {
               "cargo_reachable": true,
               "classification": "implementation",
@@ -52532,6 +52627,11 @@
             },
             {
               "cargo_reachable": true,
+              "classification": "test",
+              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/collide/mounted_physics_tests.rs"
+            },
+            {
+              "cargo_reachable": true,
               "classification": "implementation",
               "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/collide/partition_coi.rs"
             },
@@ -53487,6 +53587,11 @@
             },
             {
               "cargo_reachable": true,
+              "classification": "test",
+              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/object_triggers/owned_orientation_tests.rs"
+            },
+            {
+              "cargo_reachable": true,
               "classification": "shim",
               "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/object_types.rs"
             },
@@ -53614,11 +53719,6 @@
               "cargo_reachable": true,
               "classification": "test",
               "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/production/dock_update/repair_tests.rs"
-            },
-            {
-              "cargo_reachable": true,
-              "classification": "implementation",
-              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/production/exit_strategies.rs"
             },
             {
               "cargo_reachable": true,
@@ -106123,12 +106223,16 @@
         },
         {
           "blockers": [
-            "missing_mapping",
-            "no_reachable_implementation",
             "unreviewed_mapping",
             "unreviewed_symbol_ownership"
           ],
-          "candidate_destinations": [],
+          "candidate_destinations": [
+            {
+              "cargo_reachable": true,
+              "classification": "implementation",
+              "path": "GeneralsRust/Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-animation/src/hraw_anim.rs"
+            }
+          ],
           "entry_id": "libraries:Source/WWVegas/WW3D2/hrawanim.cpp",
           "source": {
             "path": "GeneralsMD/Code/Libraries/Source/WWVegas/WW3D2/hrawanim.cpp",
@@ -116366,15 +116470,14 @@
         },
         {
           "blockers": [
-            "no_reachable_implementation",
             "unreviewed_mapping",
             "unreviewed_symbol_ownership"
           ],
           "candidate_destinations": [
             {
-              "cargo_reachable": false,
+              "cargo_reachable": true,
               "classification": "implementation",
-              "path": "GeneralsRust/Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-renderer-3d/src/rendering/texture_loader.rs"
+              "path": "GeneralsRust/Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-renderer-3d/src/rendering/texture_system/texture_loader.rs"
             }
           ],
           "entry_id": "libraries:Source/WWVegas/WW3D2/textureloader.cpp",
@@ -189973,7 +190076,7 @@
       ]
     }
   ],
-  "provenance_input_digest": "872260c854249ece84eeff6b5cd8cb83db65e8420aad1006e1f367f79de91217",
+  "provenance_input_digest": "10941df32250f8a1320a047f74bdf2fb949179203f4e36c3690f75c6010ef168",
   "schema_version": 1,
   "summary": {
     "maximum_packet_size": 15,
