@@ -872,24 +872,7 @@ pub(super) struct FrozenVisualAnimationIdentity {
     pub mode: crate::save_load::snapshot::ClientDrawableAnimationMode,
 }
 
-/// One live `W3DModelDraw::WeaponRecoilInfo` equivalent.  It is renderer-only;
-/// snapshot conversion happens at the explicit client Drawable boundary.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub(super) struct ObjectWeaponRecoilState {
-    pub phase: crate::save_load::snapshot::ClientDrawableRecoilPhase,
-    pub shift: f32,
-    pub recoil_rate: f32,
-}
-
-impl Default for ObjectWeaponRecoilState {
-    fn default() -> Self {
-        Self {
-            phase: crate::save_load::snapshot::ClientDrawableRecoilPhase::Idle,
-            shift: 0.0,
-            recoil_rate: 0.0,
-        }
-    }
-}
+pub(super) use gamelogic::object::draw::weapon_recoil::BarrelRecoil as ObjectWeaponRecoilState;
 
 use installed_draw_pose::ObjectVisualState;
 

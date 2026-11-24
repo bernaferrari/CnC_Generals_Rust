@@ -108,24 +108,13 @@ impl XferData for ClientDrawableRecoilSnapshot {
 
 impl XferData for ClientDrawableRecoilPhase {
     fn xfer(&mut self, xfer: &mut dyn Xfer) -> SaveLoadResult<()> {
-        let mut value = match self {
-            Self::Idle => 0u8,
-            Self::RecoilStart => 1,
-            Self::Recoil => 2,
-            Self::Settle => 3,
-        };
+        let mut value = *self as u8;
         xfer.xfer_u8(&mut value)?;
-        *self = match value {
-            0 => Self::Idle,
-            1 => Self::RecoilStart,
-            2 => Self::Recoil,
-            3 => Self::Settle,
-            other => {
-                return Err(SaveLoadError::Corrupted(format!(
-                    "Invalid ClientDrawableRecoilPhase value in snapshot: {other}"
-                )));
-            }
-        };
+        *self = Self::from_wire(i32::from(value)).ok_or_else(|| {
+            SaveLoadError::Corrupted(format!(
+                "Invalid ClientDrawableRecoilPhase value in snapshot: {value}"
+            ))
+        })?;
         Ok(())
     }
 }

@@ -8,6 +8,7 @@
 //! camera targets restore before their first bone query.
 
 use super::*;
+use gamelogic::object::draw::weapon_recoil::BarrelRecoilPhase;
 
 type ClientDrawableStateSnapshot = crate::save_load::snapshot::ClientDrawableStateSnapshot;
 type ClientDrawableWorldSnapshot = crate::save_load::snapshot::ClientDrawableWorldSnapshot;
@@ -223,8 +224,8 @@ pub(super) fn snapshot_from_visual_state(
         // absent cache entry from being reloaded as a clip-zero substitute.
         _ => return None,
     };
-    let recoil_slots = state.recoil_slots.clone().map(|slot| {
-        slot.into_iter()
+    let recoil_slots = std::array::from_fn(|slot| {
+        state.recoil_slots[slot].iter()
             .map(|recoil| ClientDrawableRecoilSnapshot {
                 phase: recoil.phase,
                 shift: recoil.shift,
@@ -286,8 +287,8 @@ fn restored_recoil_slots_for_topology(
         return None;
     }
 
-    let slots = saved.recoil_slots.clone().map(|slot| {
-        slot.into_iter()
+    let slots = std::array::from_fn(|slot| {
+        saved.recoil_slots[slot].iter()
             .map(|recoil| ObjectWeaponRecoilState {
                 phase: recoil.phase,
                 shift: recoil.shift,
@@ -295,31 +296,24 @@ fn restored_recoil_slots_for_topology(
             })
             .collect::<Vec<_>>()
     });
-    for (slot_index, (states, barrels)) in slots.iter().zip(topology.slots.iter()).enumerate() {
-        for (barrel_index, (state, barrel)) in states.iter().zip(barrels.iter()).enumerate() {
-            if state.shift < 0.0
-                || state.recoil_rate < 0.0
-                || state.shift > kinematics.max_recoil_distance()
-                || (state.phase == crate::save_load::snapshot::ClientDrawableRecoilPhase::Idle
-                    && (state.shift != 0.0 || state.recoil_rate != 0.0))
-            {
+    for (states, barrels) in slots.iter().zip(&topology.slots) {
+        for (state, barrel) in states.iter().zip(barrels) {
+            if !barrel.has_recoil_or_muzzle() {
+                if *state != ObjectWeaponRecoilState::default() {
+                    return None;
+                }
+                continue;
+            }
+            if state.shift < 0.0 || state.recoil_rate < 0.0 || state.shift > kinematics.max_recoil_distance() {
                 return None;
             }
-            if !barrel.has_recoil_or_muzzle()
-                && (state.phase != crate::save_load::snapshot::ClientDrawableRecoilPhase::Idle
-                    || state.shift != 0.0
-                    || state.recoil_rate != 0.0)
-            {
-                return None;
-            }
-            // C++ can retain RECOIL_START for one visible frame on a
-            // muzzle-only barrel, but every later phase needs an actual
-            // recoil pivot to move.
-            if barrel.recoil_pivot_index.is_none()
-                && state.phase != crate::save_load::snapshot::ClientDrawableRecoilPhase::Idle
-                && state.phase != crate::save_load::snapshot::ClientDrawableRecoilPhase::RecoilStart
-            {
-                let _ = (slot_index, barrel_index);
+            // C++ leaves the last rate in an idle barrel. A muzzle-only
+            // barrel can go idle on its first draw without moving its shift.
+            if barrel.recoil_pivot_index.is_some() {
+                if state.phase == BarrelRecoilPhase::Idle && state.shift != 0.0 {
+                    return None;
+                }
+            } else if !matches!(state.phase, BarrelRecoilPhase::Idle | BarrelRecoilPhase::RecoilStart) {
                 return None;
             }
         }
@@ -362,9 +356,9 @@ fn retain_fire_starts_from_plans(
                 state.recoil_slots[slot].resize(barrel + 1, ObjectWeaponRecoilState::default());
             }
             if let Some(recoil) = state.recoil_slots[slot].get_mut(barrel) {
-                recoil.phase = crate::save_load::snapshot::ClientDrawableRecoilPhase::RecoilStart;
-                recoil.recoil_rate = crate::assets::AuthoredDrawRecoilKinematics::default()
-                    .initial_recoil_per_logic_frame();
+                recoil.start(
+                    crate::assets::AuthoredDrawRecoilKinematics::default().initial_recoil_per_logic_frame(),
+                );
             }
             state.last_seen_weapon_discharge_sequence = plan.discharge.sequence;
         }
@@ -464,9 +458,7 @@ pub(super) fn start_weapon_barrel_recoil(
         state.recoil_slots = recoil_layout_for_topology(topology);
     }
     let recoil = &mut state.recoil_slots[usize::from(slot)][usize::from(barrel)];
-    // W3DModelDraw preserves shift and replaces only the phase and rate.
-    recoil.phase = crate::save_load::snapshot::ClientDrawableRecoilPhase::RecoilStart;
-    recoil.recoil_rate = kinematics.initial_recoil_per_logic_frame();
+    recoil.start(kinematics.initial_recoil_per_logic_frame());
 }
 
 fn evolve_recoil_and_build_controls(
@@ -488,50 +480,22 @@ fn evolve_recoil_and_build_controls(
         visual_state.last_seen_weapon_discharge_sequence = sequence;
     }
 
+    let damping = kinematics.recoil_damping();
+    let max_shift = kinematics.max_recoil_distance();
+    let settle = kinematics.recoil_settle_per_logic_frame();
     let mut controls = Vec::new();
     for (slot_index, barrels) in topology.slots.iter().enumerate() {
         for (barrel, recoil) in barrels
             .iter()
             .zip(visual_state.recoil_slots[slot_index].iter_mut())
         {
-            let muzzle_flash_visible =
-                recoil.phase == crate::save_load::snapshot::ClientDrawableRecoilPhase::RecoilStart;
-            if barrel.recoil_pivot_index.is_some() && usable_kinematics {
-                match recoil.phase {
-                    crate::save_load::snapshot::ClientDrawableRecoilPhase::Idle => {}
-                    crate::save_load::snapshot::ClientDrawableRecoilPhase::RecoilStart
-                    | crate::save_load::snapshot::ClientDrawableRecoilPhase::Recoil => {
-                        recoil.shift += recoil.recoil_rate;
-                        recoil.recoil_rate *= kinematics.recoil_damping();
-                        if recoil.shift >= kinematics.max_recoil_distance() {
-                            recoil.shift = kinematics.max_recoil_distance();
-                            recoil.phase =
-                                crate::save_load::snapshot::ClientDrawableRecoilPhase::Settle;
-                        } else if recoil.recoil_rate.abs() < 0.01 {
-                            recoil.phase =
-                                crate::save_load::snapshot::ClientDrawableRecoilPhase::Settle;
-                        } else {
-                            recoil.phase =
-                                crate::save_load::snapshot::ClientDrawableRecoilPhase::Recoil;
-                        }
-                    }
-                    crate::save_load::snapshot::ClientDrawableRecoilPhase::Settle => {
-                        recoil.shift -= kinematics.recoil_settle_per_logic_frame();
-                        if recoil.shift <= 0.0 {
-                            recoil.shift = 0.0;
-                            recoil.phase =
-                                crate::save_load::snapshot::ClientDrawableRecoilPhase::Idle;
-                        }
-                    }
-                }
-            } else {
-                // This includes C++ muzzle-only barrels: their start frame is
-                // visible above, then `handleClientRecoil` immediately idles
-                // them because there is no recoil pivot to control.
-                recoil.phase = crate::save_load::snapshot::ClientDrawableRecoilPhase::Idle;
-                recoil.shift = 0.0;
-                recoil.recoil_rate = 0.0;
-            }
+            let muzzle_flash_visible = recoil.muzzle_visible();
+            recoil.advance(
+                barrel.recoil_pivot_index.is_some() && usable_kinematics,
+                damping,
+                max_shift,
+                settle,
+            );
             controls.push(crate::assets::W3dWeaponVisualControl {
                 recoil_pivot_index: barrel.recoil_pivot_index,
                 recoil_shift: recoil.shift,
@@ -1006,6 +970,92 @@ impl RenderPipeline {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn recoil_and_muzzle_follow_original_draws_across_snapshot_restore() {
+        use crate::assets::{AuthoredDrawRecoilKinematics, W3dWeaponBarrelBinding, W3dWeaponBarrelTopology};
+        use crate::save_load::snapshot::ClientDrawableRecoilPhase::{Idle, RecoilStart, Settle};
+        use crate::save_load::{XferData, XferLoad, XferSave};
+        use std::io::Cursor;
+
+        let topology = W3dWeaponBarrelTopology {
+            slots: [
+                vec![
+                    W3dWeaponBarrelBinding {
+                        recoil_pivot_index: Some(1),
+                        muzzle_flash_pivot_index: Some(2),
+                        ..Default::default()
+                    },
+                    W3dWeaponBarrelBinding {
+                        muzzle_flash_pivot_index: Some(3),
+                        ..Default::default()
+                    },
+                ],
+                Vec::new(),
+                Vec::new(),
+            ],
+        };
+        let kinematics = AuthoredDrawRecoilKinematics::default();
+        let identity = FrozenVisualDrawIdentity {
+            source_template_name: "TwoBarrels".into(),
+            model_key: "TwoBarrels".into(),
+            selected_condition_state_index: 0,
+            animation: None,
+        };
+        let mut live = ObjectVisualState {
+            identity: Some(identity.clone()),
+            ..Default::default()
+        };
+        start_weapon_barrel_recoil(&mut live, &topology, &kinematics, 0, 0);
+        start_weapon_barrel_recoil(&mut live, &topology, &kinematics, 0, 1);
+        let draw = |state: &mut ObjectVisualState| {
+            recoil_controls_for_topology(state, Some(&topology), &kinematics, &[])
+        };
+
+        let first = draw(&mut live);
+        assert!(first[0].muzzle_flash_visible && first[1].muzzle_flash_visible);
+        assert_eq!(first[0].recoil_shift, 2.0);
+        assert_eq!(live.recoil_slots[0][0].phase, RecoilStart);
+        assert_eq!(live.recoil_slots[0][1].phase, Idle);
+        assert_eq!(live.recoil_slots[0][1].recoil_rate, 2.0);
+
+        let mut saved = snapshot_from_visual_state(7, 0, &live).unwrap();
+        let mut bytes = Cursor::new(Vec::new());
+        saved.xfer(&mut XferSave::new(&mut bytes)).unwrap();
+        let mut decoded = ClientDrawableStateSnapshot::default();
+        decoded.xfer(&mut XferLoad::new(Cursor::new(bytes.into_inner()))).unwrap();
+        let mut restored = ObjectVisualState {
+            identity: Some(identity),
+            recoil_slots: restored_recoil_slots_for_topology(&decoded, &topology, &kinematics).unwrap(),
+            ..Default::default()
+        };
+        assert_eq!(restored.recoil_slots, live.recoil_slots);
+
+        for (visible, phase, shift) in [
+            (true, RecoilStart, 2.8),
+            (true, Settle, 3.0),
+            (false, Settle, 2.935),
+        ] {
+            let actual = draw(&mut live);
+            assert_eq!(actual, draw(&mut restored));
+            assert_eq!(restored.recoil_slots, live.recoil_slots);
+            assert_eq!(actual[0].muzzle_flash_visible, visible);
+            assert!(!actual[1].muzzle_flash_visible);
+            assert_eq!(restored.recoil_slots[0][0].phase, phase);
+            assert!((actual[0].recoil_shift - shift).abs() < 0.000_01);
+        }
+        // Recoil rate remains stored after the barrel settles to idle.
+        for _ in 0..60 {
+            draw(&mut restored);
+        }
+        assert_eq!(restored.recoil_slots[0][0].phase, Idle);
+        assert!(restored.recoil_slots[0][0].recoil_rate > 0.0);
+        let idle = snapshot_from_visual_state(7, 0, &restored).unwrap();
+        assert_eq!(
+            restored_recoil_slots_for_topology(&idle, &topology, &kinematics).unwrap(),
+            restored.recoil_slots,
+        );
+    }
 
     #[test]
     fn receiving_scaffold_keeps_empty_state_through_forward_and_reverse_clips() {

@@ -135,15 +135,7 @@ pub enum ClientDrawableAnimationMode {
     LoopPingPong,
 }
 
-/// C++ `W3DModelDraw::WeaponRecoilInfo::RecoilState`.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub enum ClientDrawableRecoilPhase {
-    #[default]
-    Idle,
-    RecoilStart,
-    Recoil,
-    Settle,
-}
+pub use gamelogic::object::draw::weapon_recoil::BarrelRecoilPhase as ClientDrawableRecoilPhase;
 
 /// One in-flight C++ `WeaponRecoilInfo` record.
 ///

@@ -71,6 +71,7 @@ FULL_GATES = (
             "detonation_effects_use_projectile_veterancy",
             "detonation_empty_projectile_rank",
             "detonation_fx_uses_projectile_pose",
+            "recoil_and_muzzle_follow_original_draws_across_snapshot_restore",
             "--test-threads=1",
         ],
     ),

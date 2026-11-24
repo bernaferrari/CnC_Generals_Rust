@@ -253,7 +253,7 @@ mod tests {
         let mut draw = W3DModelDraw::new(data);
         draw.cur_state = Some(ActiveModelState::Condition(0));
         draw.weapon_recoil_info[0].push(WeaponRecoilInfo {
-            state: RecoilState::Recoil,
+            phase: RecoilState::Recoil,
             shift: 0.5,
             recoil_rate: 0.0,
         });
@@ -291,7 +291,7 @@ mod tests {
 
         let mut draw = W3DModelDraw::new(data);
         draw.cur_state = Some(ActiveModelState::Condition(0));
-        draw.weapon_recoil_info[0].push(WeaponRecoilInfo::new());
+        draw.weapon_recoil_info[0].push(WeaponRecoilInfo::default());
 
         let handled = ObjectDrawInterface::handle_weapon_fire_fx(
             &mut draw,
@@ -307,7 +307,7 @@ mod tests {
 
         assert!(!handled);
         assert!(matches!(
-            draw.weapon_recoil_info[0][0].state,
+            draw.weapon_recoil_info[0][0].phase,
             RecoilState::RecoilStart
         ));
         assert_eq!(draw.weapon_recoil_info[0][0].recoil_rate, 1.75);
@@ -417,7 +417,7 @@ mod tests {
         let data = ModuleDataHandle::new(data);
         let mut model = W3DModelDraw::new_with_module_data(data.clone());
         model.cur_state = Some(ActiveModelState::Condition(0));
-        model.weapon_recoil_info[0].push(WeaponRecoilInfo::new());
+        model.weapon_recoil_info[0].push(WeaponRecoilInfo::default());
         model.owner_id = Some(id);
         model.hidden = true;
         let mut drawable = Drawable::new(id, id, "HeldHiddenShooter".into(), DrawableType::Static);
@@ -465,7 +465,7 @@ mod tests {
                 .downcast_mut::<W3DModelDraw>()
                 .unwrap();
             assert!(matches!(
-                model.weapon_recoil_info[0][0].state,
+                model.weapon_recoil_info[0][0].phase,
                 RecoilState::RecoilStart
             ));
             assert_eq!(model.weapon_recoil_info[0][0].recoil_rate, 1.75);

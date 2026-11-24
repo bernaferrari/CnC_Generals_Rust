@@ -1,29 +1,3 @@
-#[derive(Debug, Clone, Copy)]
-enum RecoilState {
-    Idle,
-    RecoilStart,
-    Recoil,
-    Settle,
-}
-
-fn recoil_state_to_i32(state: RecoilState) -> i32 {
-    match state {
-        RecoilState::Idle => 0,
-        RecoilState::RecoilStart => 1,
-        RecoilState::Recoil => 2,
-        RecoilState::Settle => 3,
-    }
-}
-
-fn recoil_state_from_i32(value: i32) -> RecoilState {
-    match value {
-        1 => RecoilState::RecoilStart,
-        2 => RecoilState::Recoil,
-        3 => RecoilState::Settle,
-        _ => RecoilState::Idle,
-    }
-}
-
 fn xfer_matrix3d_values(xfer: &mut dyn Xfer, matrix: &mut Matrix3D) -> Result<(), String> {
     let cols = matrix.to_cols_array();
     let mut row0 = [cols[0], cols[4], cols[8], cols[12]];
@@ -44,29 +18,6 @@ fn xfer_matrix3d_values(xfer: &mut dyn Xfer, matrix: &mut Matrix3D) -> Result<()
     ];
     *matrix = Matrix3D::from_cols_array(&rebuilt_cols);
     Ok(())
-}
-
-/// Weapon recoil information
-#[derive(Debug, Clone)]
-struct WeaponRecoilInfo {
-    /// Current recoil state
-    state: RecoilState,
-
-    /// Current shift amount
-    shift: Real,
-
-    /// Recoil rate
-    recoil_rate: Real,
-}
-
-impl WeaponRecoilInfo {
-    fn new() -> Self {
-        Self {
-            state: RecoilState::Idle,
-            shift: 0.0,
-            recoil_rate: 0.0,
-        }
-    }
 }
 
 /// Animation override settings

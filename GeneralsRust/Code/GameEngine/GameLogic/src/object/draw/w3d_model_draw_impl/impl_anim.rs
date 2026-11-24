@@ -466,7 +466,6 @@ impl W3DModelDraw {
         }
     }
     fn handle_client_recoil(&mut self) {
-        const TINY_RECOIL: Real = 0.01;
         let barrels_valid = self.current_state().map(|state| state.barrels_are_valid()).unwrap_or(false);
         if !barrels_valid {
             self.muzzle_flash_hides.clear();
@@ -493,48 +492,16 @@ impl W3DModelDraw {
                     state.weapon_barrels[wslot].get(i).map(|barrel| (barrel.muzzle_flash_bone, barrel.recoil_bone))
                 });
                 let Some((muzzle_flash_bone, recoil_bone)) = bones else { return; };
-                // C++ hides muzzle unless RECOIL_START. That state is never
-                // rewritten to RECOIL — flash stays visible for the whole
-                // recoil-back until SETTLE (W3DModelDraw.cpp:2505-2518).
                 if muzzle_flash_bone != 0 {
-                    let hidden = !matches!(
-                        self.weapon_recoil_info[wslot][i].state,
-                        RecoilState::RecoilStart,
-                    );
+                    let hidden = !self.weapon_recoil_info[wslot][i].muzzle_visible();
                     self.set_muzzle_flash_hidden(wslot, i, hidden);
                 }
-
-                let Some(recoils) = self.weapon_recoil_info.get_mut(wslot) else {
-                    continue;
-                };
-                // C++ W3DModelDraw.cpp:2541-2544. No recoil bone forces IDLE,
-                // so a flash-only barrel hides on the next frame.
-                if recoil_bone == 0 {
-                    recoils[i].state = RecoilState::Idle;
-                    continue;
-                }
-
-                match recoils[i].state {
-                    RecoilState::Idle => {}
-                    RecoilState::RecoilStart | RecoilState::Recoil => {
-                        recoils[i].shift += recoils[i].recoil_rate;
-                        recoils[i].recoil_rate *= recoil_damping;
-                        if recoils[i].shift >= max_recoil {
-                            recoils[i].shift = max_recoil;
-                            recoils[i].state = RecoilState::Settle;
-                        } else if recoils[i].recoil_rate.abs() < TINY_RECOIL {
-                            recoils[i].state = RecoilState::Settle;
-                        }
-                        // C++ never assigns RECOIL; stay RECOIL_START until SETTLE.
-                    }
-                    RecoilState::Settle => {
-                        recoils[i].shift -= recoil_settle;
-                        if recoils[i].shift <= 0.0 {
-                            recoils[i].shift = 0.0;
-                            recoils[i].state = RecoilState::Idle;
-                        }
-                    }
-                }
+                self.weapon_recoil_info[wslot][i].advance(
+                    recoil_bone != 0,
+                    recoil_damping,
+                    max_recoil,
+                    recoil_settle,
+                );
             }
         }
     }

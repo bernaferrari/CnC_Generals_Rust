@@ -519,6 +519,58 @@ int main() {
     print("Original Drawable starts recoil across the Draw chain with and without FX")
 
 
+def verify_recoil_duration(cxx: str, temp: Path) -> None:
+    source = MODEL_DRAW_SOURCE.read_text()
+    method = source.index("void W3DModelDraw::handleClientRecoil()")
+    visibility = source[source.index("Bool hidden =", method):].splitlines()[0]
+    start = source.index("switch (recoils[i].m_state )", method)
+    end = source.index("Matrix3D gunXfrm;", start)
+    recoil_step = source[start:end]
+    muzzle_only = source[source.index("recoils[i].m_state = WeaponRecoilInfo::IDLE;", end):].splitlines()[0]
+    cpp = temp / "recoil_duration.cpp"
+    binary = temp / "recoil_duration"
+    cpp.write_text(r"""
+#include <cmath>
+#include <cstdio>
+using Bool = bool;
+struct WeaponRecoilInfo {
+    enum { IDLE, RECOIL_START, RECOIL, SETTLE };
+    int m_state = RECOIL_START;
+    float m_shift = 0.f, m_recoilRate = 2.f;
+};
+struct Data {
+    float m_recoilDamping = 0.4f, m_maxRecoil = 3.f, m_recoilSettle = 0.065f;
+};
+void step(WeaponRecoilInfo* recoils, bool recoilBone) {
+    const Data data;
+    const auto* d = &data;
+    const int i = 0;
+    const float TINY_RECOIL = 0.01f;
+"""
+        + visibility + "\nif (recoilBone) {\n" + recoil_step
+        + "\n} else {\n" + muzzle_only + "\n}\n"
+        + r"""
+    std::printf("%d %d %.3f %.3f\n",
+        !hidden, recoils[i].m_state, recoils[i].m_shift, recoils[i].m_recoilRate);
+}
+int main() {
+    WeaponRecoilInfo recoil, muzzleOnly;
+    for (int n = 0; n < 4; ++n) step(&recoil, true);
+    step(&muzzleOnly, false);
+    step(&muzzleOnly, false);
+}
+""")
+    subprocess.run([cxx, "-std=c++17", cpp, "-o", binary], check=True)
+    output = subprocess.check_output([binary], text=True)
+    expected = (
+        "1 1 2.000 0.800\n1 1 2.800 0.320\n1 3 3.000 0.128\n0 3 2.935 0.128\n"
+        "1 0 0.000 2.000\n0 0 0.000 2.000\n"
+    )
+    if output != expected:
+        raise RuntimeError(f"Original muzzle and barrel recoil trace differs:\n{output}")
+    print("Original recoil barrel flashes across three draws and muzzle-only barrel across one")
+
+
 def verify_ocl_player_eligibility(cxx: str, temp: Path) -> None:
     original = OCL_SOURCE.read_text()
     start = original.index("if (m_requiresLivePlayer &&")
@@ -867,6 +919,7 @@ def main() -> int:
         verify_detonation_rank(args.cxx, temp)
         verify_detonation_fx_position(args.cxx, temp)
         verify_detonation_draw_order(args.cxx, temp)
+        verify_recoil_duration(args.cxx, temp)
     if len(original) != len(CASES) or len(ported) != len(CASES):
         raise RuntimeError("Unexpected vector count")
     for scenario, expected, actual in zip(CASES, original, ported, strict=True):

@@ -409,8 +409,7 @@ pub struct W3dWeaponVisualControl {
     pub recoil_pivot_index: Option<u32>,
     pub recoil_shift: f32,
     pub muzzle_flash_pivot_index: Option<u32>,
-    /// C++ exposes a muzzle flash for the one visible frame in
-    /// `RECOIL_START`, before it advances the recoil phase.
+    /// C++ samples muzzle visibility from `RECOIL_START` before advancing recoil.
     pub muzzle_flash_visible: bool,
 }
 

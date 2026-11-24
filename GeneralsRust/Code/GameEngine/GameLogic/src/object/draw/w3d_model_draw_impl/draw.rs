@@ -234,11 +234,9 @@ impl W3DModelDraw {
 
         for (slot, target_count) in target_counts.iter().copied().enumerate() {
             if let Some(recoils) = self.weapon_recoil_info.get_mut(slot) {
-                recoils.resize_with(target_count, WeaponRecoilInfo::new);
+                recoils.resize(target_count, WeaponRecoilInfo::default());
                 for recoil in recoils.iter_mut() {
-                    recoil.state = RecoilState::Idle;
-                    recoil.shift = 0.0;
-                    recoil.recoil_rate = 0.0;
+                    *recoil = WeaponRecoilInfo::default();
                 }
             }
         }

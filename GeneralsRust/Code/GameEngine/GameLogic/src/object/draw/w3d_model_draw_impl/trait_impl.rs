@@ -673,8 +673,7 @@ impl ObjectDrawInterface for W3DModelDraw {
             && selected_barrel < self.weapon_recoil_info[weapon_slot].len()
         {
             let initial_recoil = self.model_data().initial_recoil;
-            self.weapon_recoil_info[weapon_slot][selected_barrel].state = RecoilState::RecoilStart;
-            self.weapon_recoil_info[weapon_slot][selected_barrel].recoil_rate = initial_recoil;
+            self.weapon_recoil_info[weapon_slot][selected_barrel].start(initial_recoil);
             if barrel_info.muzzle_flash_bone != 0 {
                 self.set_muzzle_flash_hidden(weapon_slot, selected_barrel, false);
             }

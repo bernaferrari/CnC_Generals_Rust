@@ -10,6 +10,7 @@
 pub mod client_visual;
 pub mod draw_module;
 pub mod overlord_rider;
+pub mod weapon_recoil;
 pub mod w3d_debris_draw;
 pub mod w3d_default_draw;
 pub mod w3d_dependency_model_draw;

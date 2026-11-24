@@ -46,7 +46,7 @@ impl Snapshotable for W3DModelDraw {
             if xfer.is_writing() {
                 if let Some(entries) = self.weapon_recoil_info.get(slot) {
                     for entry in entries.iter().take(recoil_info_count as usize) {
-                        let mut state_value = recoil_state_to_i32(entry.state);
+                        let mut state_value = entry.phase as i32;
                         let mut shift = entry.shift;
                         let mut recoil_rate = entry.recoil_rate;
                         xfer.xfer_int(&mut state_value).map_err(|e| e.to_string())?;
@@ -67,7 +67,7 @@ impl Snapshotable for W3DModelDraw {
                         xfer.xfer_real(&mut recoil_rate)
                             .map_err(|e| e.to_string())?;
                         entries.push(WeaponRecoilInfo {
-                            state: recoil_state_from_i32(state_value),
+                            phase: RecoilState::from_wire(state_value).unwrap_or_default(),
                             shift,
                             recoil_rate,
                         });
