@@ -501,10 +501,15 @@ fn detonation_fx_uses_projectile_pose_and_only_gates_the_visual_effect() {
         EmissionVolume, EmissionVolumeType, ParticleSystemManager, ParticleSystemTemplate,
     };
 
-    struct Particles(ParticleSystemManager, Option<glam::Mat4>, Vec<bool>, usize);
-    impl crate::game_logic::NativeViewEffects for Particles {
+    struct DetonationView {
+        particles: ParticleSystemManager,
+        bone: Option<glam::Mat4>,
+        draw_calls_with_fx: Vec<bool>,
+        completed_draw_calls: usize,
+    }
+    impl crate::game_logic::NativeViewEffects for DetonationView {
         fn particle_systems_mut(&mut self) -> Option<&mut ParticleSystemManager> {
-            Some(&mut self.0)
+            Some(&mut self.particles)
         }
         fn begin_detonation_draw(
             &mut self,
@@ -515,8 +520,8 @@ fn detonation_fx_uses_projectile_pose_and_only_gates_the_visual_effect() {
             _: f32,
             _: f32,
         ) -> Option<crate::game_logic::NativeDetonationFx> {
-            self.2.push(has_fx);
-            self.1.filter(|_| has_fx).map(|pose| crate::game_logic::NativeDetonationFx {
+            self.draw_calls_with_fx.push(has_fx);
+            self.bone.filter(|_| has_fx).map(|pose| crate::game_logic::NativeDetonationFx {
                 pose,
                 module_index: 0,
                 condition_bits: None,
@@ -527,8 +532,8 @@ fn detonation_fx_uses_projectile_pose_and_only_gates_the_visual_effect() {
             _: &crate::game_logic::NativeSlaveSource,
             _: crate::game_logic::NativeDetonationFx,
         ) {
-            assert_eq!(self.0.all_particle_systems().count(), 1);
-            self.3 += 1;
+            assert_eq!(self.particles.all_particle_systems().count(), 1);
+            self.completed_draw_calls += 1;
         }
         fn local_player_id(&self) -> u32 {
             1
@@ -601,34 +606,44 @@ fn detonation_fx_uses_projectile_pose_and_only_gates_the_visual_effect() {
         let impact = ProjectileImpactFx::weapon_detonation(projectile, impact_position, None, Some(pose)).unwrap();
         world.combat_system.impact_fx.push(impact);
 
-        let mut particles = Particles(ParticleSystemManager::new(), bone, Vec::new(), 0);
+        let mut view = DetonationView {
+            particles: ParticleSystemManager::new(),
+            bone,
+            draw_calls_with_fx: Vec::new(),
+            completed_draw_calls: 0,
+        };
         let mut template = ParticleSystemTemplate::new("DetonationFxParticle".into());
         template.info_mut().emission_volume_type = EmissionVolumeType::Sphere;
         template.info_mut().emission_volume = EmissionVolume::Sphere { radius: 2.0 };
         template.info_mut().is_emission_volume_hollow = true;
-        particles.0.register_template(std::sync::Arc::new(template));
-        particles.0.finish_definition_admission();
+        view.particles.register_template(std::sync::Arc::new(template));
+        view.particles.finish_definition_admission();
         let mut effects = crate::game_logic::ScriptPresentationEffects {
-            view: Some(&mut particles),
+            view: Some(&mut view),
             ..Default::default()
         };
         world.flush_projectile_impact_fx_with_effects(&mut effects).unwrap();
         let expected_draw_calls: Vec<_> = has_drawable.then_some(delay == 0 && !empty_fx).into_iter().collect();
-        assert_eq!(particles.2, expected_draw_calls);
-        assert_eq!(particles.3, usize::from(bone.is_some() && expected_position.is_some()));
-        let positions: Vec<_> = particles.0.all_particle_systems().map(|system| system.position()).collect();
+        assert_eq!(view.draw_calls_with_fx, expected_draw_calls);
+        assert_eq!(view.completed_draw_calls, usize::from(bone.is_some() && expected_position.is_some()));
+        let positions: Vec<_> = view.particles.all_particle_systems().map(|system| system.position()).collect();
         assert_eq!(positions, Vec::from_iter(expected_position), "range={range}, drawable={has_drawable}, delay={delay}");
         if let Some(expected) = expected_position {
-            let system_id = particles.0.all_particle_systems().next().unwrap().system_id();
-            let system = particles.0.find_particle_system_mut(system_id).unwrap();
+            let system_id = view.particles.all_particle_systems().next().unwrap().system_id();
+            let system = view.particles.find_particle_system_mut(system_id).unwrap();
             // Observe the authored burst before capacity and LOD admission.
             system.begin_frame_emit(1, 1);
             let emissions = system.take_pending_emissions();
             let particle = emissions.first().expect("the first emission");
             assert!((particle.position.distance(expected) - 40.0).abs() < 0.001);
         }
-        assert!(world.host_objects().registered_values()
-            .any(|object| object.template_name == "DetonationFxChild" && object.producer_id == Some(id)));
+        assert_eq!(
+            world.host_objects().registered_values().any(|object|
+                object.template_name == "DetonationFxChild" && object.producer_id == Some(id)
+            ),
+            !empty_fx,
+            "the Elite rank's explicit None also removes its OCL",
+        );
     }
 }
 
