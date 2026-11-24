@@ -2,7 +2,7 @@
 //! Historical positional Object/World records remain unchanged.
 use super::{ObjectSnapshot, WorldSnapshot};
 use crate::game_logic::native_die_definition::{
-    NativeDieDeclaration, NativeDieKind, NativeDieRuntime, NativeSlowDeath, SlowDeathFlight,
+    NativeDieDeclaration, NativeDieKind, NativeDieRuntime, NativeSlowDeath, NativeSlowFamily, SlowDeathFlight,
 };
 use crate::game_logic::{GameLogic, Object, ObjectId};
 use crate::save_load::{SaveLoadError, SaveLoadResult};
@@ -108,13 +108,20 @@ fn validate_temporal(
     Ok(())
 }
 
-fn validate_slow_death_clock(
+fn validate_slow_death_continuation(
     receipt: Option<NativeSlowDeath>,
-    clock: Option<(u32, u32)>,
+    base_clock: Option<(u32, u32)>,
+    has_jet: bool,
+    declarations: &[NativeDieDeclaration],
     object: Option<&Object>,
 ) -> SaveLoadResult<()> {
     if let Some(receipt) = receipt {
-        let (start, destruction) = clock.ok_or_else(|| corrupted("SlowDeath receipt has no timer"))?;
+        let (start, destruction) =
+            base_clock.ok_or_else(|| corrupted("SlowDeath receipt has no timer"))?;
+        let jet_selected = matches!(receipt.family_in(declarations), Some(NativeSlowFamily::Jet(_)));
+        if jet_selected != has_jet {
+            return Err(corrupted("SlowDeath selected slot and Jet continuation disagree"));
+        }
         if receipt.midpoint_frame.wrapping_sub(start) > destruction.wrapping_sub(start) {
             return Err(corrupted("SlowDeath midpoint falls outside its admitted lifetime"));
         }
@@ -167,9 +174,11 @@ pub(super) fn append(bytes: &mut Vec<u8>, world: &GameLogic) -> SaveLoadResult<(
                 || (object.status.effectively_dead && !object.is_inactive_body()),
         )?;
         if let Some(receipt) = object.native_die_runtime.slow_death {
-            validate_slow_death_clock(
+            validate_slow_death_continuation(
                 Some(receipt),
                 object.slow_death.as_ref().map(|timer| (timer.begin_frame, timer.destroy_at_frame)),
+                object.jet_slow_death.is_some(),
+                declarations,
                 Some(object),
             )?;
             slow_deaths.push((id.0, receipt));
@@ -451,9 +460,11 @@ pub(super) fn validate(
             return Err(corrupted("invalid completed slot or AI receipt"));
         }
         let state = death_states.get(&id);
-        validate_slow_death_clock(
+        validate_slow_death_continuation(
             record.runtime.slow_death,
-            state.and_then(|state| state.ordinary_slow_death),
+            state.and_then(|state| state.slow_death_base),
+            state.is_some_and(|state| state.has_jet_slow_death),
+            declarations,
             receiving.as_ref(),
         )?;
         validate_temporal(

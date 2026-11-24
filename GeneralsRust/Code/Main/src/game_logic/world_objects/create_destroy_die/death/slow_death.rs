@@ -1,9 +1,11 @@
-//! Dispatch authored ordinary SlowDeath phases while their Object is installed.
+//! Dispatch authored SlowDeath base phases while their Object is installed.
 use super::*;
-use crate::game_logic::host_slow_death::{HostSlowDeathIni, HostSlowDeathPhase};
+use crate::game_logic::host_slow_death::{
+    HostSlowDeathIni, HostSlowDeathPhase, SlowDeathDeadlines,
+};
 use crate::game_logic::native_die_definition::{
-    NativeDieDeclaration, NativeDieKind, NativeSlowFamily, SlowDeathEffectPhase, SlowDeathFlight,
-    SlowDeathFling,
+    NativeDieDeclaration, NativeDieKind, NativeSlowDeath, NativeSlowDeathBase, NativeSlowFamily,
+    SlowDeathEffectPhase, SlowDeathFlight, SlowDeathFling,
 };
 use crate::game_logic::object::OnDieInput;
 
@@ -43,6 +45,60 @@ impl GameLogic {
         })
     }
 
+    /// Start the authored base before any derived beginSlowDeath callback.
+    pub(super) fn begin_authored_slow_death_base(
+        &mut self,
+        id: ObjectId,
+        source_index: u32,
+        config: &HostSlowDeathIni,
+        base: &NativeSlowDeathBase,
+        interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> gamelogic::GameLogicResult<bool> {
+        let Some(object) = self.objects.get_mut(&id) else {
+            return Ok(false);
+        };
+        if object.slow_death.is_some() || object.ai_death_pending() {
+            return Ok(false);
+        }
+        let birth = (object.visual_object_generation, self.visual_world_epoch);
+        let deletion_queued = self.objects_to_destroy.iter().any(|event| event.id == id);
+        let deadlines =
+            if self.native_hulk_max_lifetime_override != -1 && object.is_kind_of(KindOf::Hulk) {
+                SlowDeathDeadlines::scripted_hulk(self.frame)
+            } else {
+                SlowDeathDeadlines::draw(self.frame, config, |lo, hi| {
+                    self.logic_random.next_int(lo, hi)
+                })
+            };
+        if !object.begin_slow_death_with_deadlines(
+            self.frame,
+            config,
+            deletion_queued,
+            Some(&deadlines),
+        ) {
+            return Ok(false);
+        }
+        object.native_die_runtime.slow_death = Some(NativeSlowDeath {
+            source_index,
+            midpoint_frame: deadlines.midpoint,
+            flight: SlowDeathFlight::NotFlung,
+        });
+
+        if let Some(fling) = base.fling
+            && !self.begin_authored_slow_death_flight(id, fling, effects)
+        {
+            return Ok(false);
+        }
+        self.run_authored_slow_death_phase(
+            id,
+            SlowDeathEffectPhase::Initial,
+            interpreter,
+            effects,
+        )?;
+        Ok(self.spawn_identity_matches(id, birth.0, birth.1))
+    }
+
     pub(super) fn run_authored_slow_death_phase(
         &mut self,
         id: ObjectId,
@@ -62,18 +118,9 @@ impl GameLogic {
             .template
             .native_die_declarations
             .as_deref()
-            .and_then(|slots| {
-                slots
-                    .iter()
-                    .find(|slot| slot.source_index == runtime.source_index)
-            })
-            .and_then(|slot| match &slot.kind {
-                NativeDieKind::Slow {
-                    family: NativeSlowFamily::Ordinary(data),
-                    ..
-                } => Some(std::sync::Arc::clone(data)),
-                _ => None,
-            });
+            .and_then(|slots| runtime.family_in(slots))
+            .and_then(NativeSlowFamily::base)
+            .cloned();
         let Some(data) = data else {
             return Err(gamelogic::GameLogicError::Configuration(
                 "authored SlowDeath slot is missing".into(),
@@ -274,7 +321,7 @@ impl GameLogic {
         Ok(true)
     }
 
-    pub(in crate::game_logic) fn tick_authored_ordinary_slow_death(
+    pub(in crate::game_logic) fn tick_authored_slow_death_base(
         &mut self,
         id: ObjectId,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,

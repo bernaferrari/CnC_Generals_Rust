@@ -1,7 +1,6 @@
 //! One installed-object authored Die traversal. Each world callback ends its
 //! bounded Object borrow before the next slot resolves identities again.
 use super::*;
-use crate::game_logic::host_slow_death::SlowDeathDeadlines;
 use crate::game_logic::native_die_definition::{NativeDieCreate, NativeDieKind, NativeSlowFamily};
 use crate::game_logic::object::OnDieInput;
 #[cfg(test)]
@@ -103,14 +102,14 @@ impl GameLogic {
                 )?;
                 continue;
             }
-            let jet_ground = matches!(
-                &declaration.kind,
-                NativeDieKind::Slow {
-                    family: NativeSlowFamily::Jet(_),
-                    ..
+            let grounded_jet = match &declaration.kind {
+                NativeDieKind::Slow { family: NativeSlowFamily::Jet(jet), .. }
+                    if self.authored_jet_dies_on_ground(object) =>
+                {
+                    Some(jet.as_ref())
                 }
-            ) && (!object.is_significantly_above_terrain()
-                || object.status.deck_height_offset);
+                _ => None,
+            };
             // Jet's ground override does not enter SlowDeath's applicability
             // or AI guard; its own ground effects precede destruction.
             // ParachuteContain overrides onDie outside inherited DieMux:
@@ -119,7 +118,7 @@ impl GameLogic {
                 && object.thing().template.contain_module.kind == ContainModuleKind::Parachute;
             // NeutronBlastBehavior and TechBuildingBehavior implement Die
             // directly, without DieMux.
-            if !jet_ground
+            if grounded_jet.is_none()
                 && !parachute_override
                 && !matches!(
                     &declaration.kind,
@@ -250,47 +249,9 @@ impl GameLogic {
                     self.request_object_destruction_with_effects(id, killer, presentation_effects)?;
                 }
                 NativeDieKind::Slow { .. } => {
-                    if jet_ground {
-                        let deletion_queued =
-                            self.objects_to_destroy.iter().any(|event| event.id == id);
-                        let start = self.objects.get_mut(&id).and_then(|object| {
-                            let NativeDieKind::Slow {
-                                family: NativeSlowFamily::Jet(fx),
-                                ..
-                            } = &declaration.kind
-                            else {
-                                return None;
-                            };
-                            Some(object.begin_jet_slow_death_with_fx(
-                                fx.clone(),
-                                true,
-                                deletion_queued,
-                                &mut crate::game_logic::ObjectAudio::queue(
-                                    &mut self.queued_audio_events,
-                                ),
-                            ))
-                        });
-                        if let Some(start) = start {
-                            self.commit_slow_death_idle_owned(id, start, presentation_effects)?;
-                        }
-                        let fx = self
-                            .objects
-                            .get_mut(&id)
-                            .and_then(|object| object.pending_death_fx.take());
-                        if let Some(fx) = fx {
-                            self.run_authored_named_die_fx_with_effects(
-                                id,
-                                None,
-                                &fx,
-                                true,
-                                presentation_effects,
-                            );
-                        }
-                        self.apply_pending_create_object_die_with_effects(id, presentation_effects)?;
-                        self.request_object_destruction_with_effects(
-                            id,
-                            killer,
-                            presentation_effects,
+                    if let Some(jet) = grounded_jet {
+                        self.run_authored_jet_ground_death(
+                            id, killer, jet, interpreter, presentation_effects,
                         )?;
                         continue;
                     }
@@ -302,105 +263,41 @@ impl GameLogic {
                     else {
                         continue;
                     };
-                    let deletion_queued =
-                        self.objects_to_destroy.iter().any(|event| event.id == id);
-                    let mut slow_death_start =
-                        crate::game_logic::object::SlowDeathStart::default();
-                    let mut authored_slow_death_started = false;
-                    if let Some(object) = self.objects.get_mut(&id) {
-                        slow_death_start = match family {
-                            NativeSlowFamily::Jet(fx) => {
-                                // Weighted dispatch calls beginSlowDeath,
-                                // not Jet's onDie ground override.
-                                object.begin_jet_slow_death_with_fx(
-                                    fx.clone(),
-                                    false,
-                                    deletion_queued,
-                                    &mut crate::game_logic::ObjectAudio::queue(
-                                        &mut self.queued_audio_events,
-                                    ),
-                                )
-                            }
-                            NativeSlowFamily::Helicopter(fx) => object
-                                .begin_helicopter_slow_death_with_fx(
-                                    fx.clone(),
-                                    deletion_queued,
-                                    &mut crate::game_logic::ObjectAudio::queue(
-                                        &mut self.queued_audio_events,
-                                    ),
-                                ),
-                            NativeSlowFamily::Ordinary(_) => {
-                                if object.slow_death.is_none() && !object.ai_death_pending() {
-                                    let shorten_hulk = self.native_hulk_max_lifetime_override != -1
-                                        && object.is_kind_of(KindOf::Hulk);
-                                    let deadlines = if shorten_hulk {
-                                        SlowDeathDeadlines::scripted_hulk(self.frame)
-                                    } else {
-                                        SlowDeathDeadlines::draw(self.frame, config, |lo, hi| {
-                                            self.logic_random.next_int(lo, hi)
-                                        })
-                                    };
-                                    authored_slow_death_started = object.begin_slow_death_with_deadlines(
-                                        self.frame,
-                                        config,
-                                        deletion_queued,
-                                        Some(&deadlines),
-                                    );
-                                    if authored_slow_death_started {
-                                        object.native_die_runtime.slow_death = Some(
-                                            crate::game_logic::native_die_definition::NativeSlowDeath {
-                                                source_index,
-                                                midpoint_frame: deadlines.midpoint,
-                                                flight: Default::default(),
-                                            },
-                                        );
-                                    }
-                                }
-                                crate::game_logic::object::SlowDeathStart::default()
-                            }
-                        };
-                    }
-                    self.commit_slow_death_idle_owned(
-                        id,
-                        slow_death_start,
-                        presentation_effects,
-                    )?;
-                    // INITIAL phase is observed at this exact
-                    // authored slot before later Die modules.
-                    let fx = self
-                        .objects
-                        .get_mut(&id)
-                        .and_then(|object| object.pending_death_fx.take());
-                    if let Some(fx) = fx {
-                        self.run_authored_named_die_fx_with_effects(
-                            id,
-                            None,
-                            &fx,
-                            true,
-                            presentation_effects,
-                        );
-                    }
-                    if authored_slow_death_started {
-                        if let NativeSlowFamily::Ordinary(data) = family
-                            && let Some(fling) = data.fling
-                            && !self.begin_authored_slow_death_flight(id, fling, presentation_effects)
-                        {
-                            break;
+                    if let Some(base) = family.base() {
+                        let started = self.begin_authored_slow_death_base(
+                            id, source_index, config, base, interpreter, presentation_effects,
+                        )?;
+                        // Weighted dispatch invokes beginSlowDeath directly,
+                        // even when another slot's onDie selected the jet.
+                        if started && let NativeSlowFamily::Jet(jet) = family {
+                            self.begin_authored_jet_slow_death(
+                                id, jet, interpreter, presentation_effects,
+                            )?;
                         }
-                        self.run_authored_slow_death_phase(
-                            id,
-                            crate::game_logic::native_die_definition::SlowDeathEffectPhase::Initial,
-                            interpreter,
-                            presentation_effects,
-                        )?;
-                    }
-                    // HelicopterSlowDeathUpdate.cpp:160-176 stops
-                    // the Drawable after base INITIAL effects.
-                    if slow_death_start.stop_ambient_playback {
-                        self.stop_native_drawable_ambient_playback(
-                            id,
-                            presentation_effects,
-                        )?;
+                    } else if let NativeSlowFamily::Helicopter(fx) = family {
+                        let deletion_queued =
+                            self.objects_to_destroy.iter().any(|event| event.id == id);
+                        let Some(object) = self.objects.get_mut(&id) else { continue };
+                        let start = object.begin_helicopter_slow_death_with_fx(
+                            fx.clone(),
+                            deletion_queued,
+                            &mut crate::game_logic::ObjectAudio::queue(
+                                &mut self.queued_audio_events,
+                            ),
+                        );
+                        self.commit_slow_death_idle_owned(id, start, presentation_effects)?;
+                        let fx = self
+                            .objects
+                            .get_mut(&id)
+                            .and_then(|object| object.pending_death_fx.take());
+                        if let Some(fx) = fx {
+                            self.run_authored_named_die_fx_with_effects(
+                                id, None, &fx, true, presentation_effects,
+                            );
+                        }
+                        if start.stop_ambient_playback {
+                            self.stop_native_drawable_ambient_playback(id, presentation_effects)?;
+                        }
                     }
                 }
                 NativeDieKind::Topple | NativeDieKind::Collapse => {

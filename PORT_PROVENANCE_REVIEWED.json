@@ -52,6 +52,15 @@
       ]
     },
     {
+      "source": "GeneralsMD/Code/GameEngine/Source/GameLogic/Object/Behavior/JetSlowDeathBehavior.cpp",
+      "destinations": [
+        "GeneralsRust/Code/GameEngine/GameLogic/src/object/behavior/jet_slow_death_behavior.rs",
+        "GeneralsRust/Code/Main/src/game_logic/native_die_definition.rs",
+        "GeneralsRust/Code/Main/src/game_logic/world_objects/create_destroy_die/death/jet_slow_death.rs",
+        "GeneralsRust/Code/Main/src/game_logic/world_objects/create_destroy_die/death/slow_death.rs"
+      ]
+    },
+    {
       "source": "GeneralsMD/Code/GameEngine/Source/Common/BitFlags.cpp",
       "destinations": [
         "GeneralsRust/Code/GameEngine/Common/src/common/bit_flags.rs"

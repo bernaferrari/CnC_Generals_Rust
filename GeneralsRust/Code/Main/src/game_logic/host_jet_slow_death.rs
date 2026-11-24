@@ -255,10 +255,10 @@ pub fn jet_slow_death_fx_from_behavior_attrs(attrs: &[(&str, &str)]) -> HostJetS
         death_loop_sound: get("DeathLoopSound").and_then(opt_name),
         delay_secondary_frames: get("DelaySecondaryFromInitialDeath")
             .and_then(parse_msec)
-            .unwrap_or(JET_DEFAULT_SECONDARY_DELAY_FRAMES),
+            .unwrap_or_default(),
         delay_final_frames: get("DelayFinalBlowUpFromHitGround")
             .and_then(parse_msec)
-            .unwrap_or(JET_FINAL_BLOWUP_DELAY_FRAMES),
+            .unwrap_or_default(),
     }
 }
 

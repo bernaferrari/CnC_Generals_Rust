@@ -5,6 +5,8 @@ use super::*;
 mod authored;
 #[path = "death/slow_death.rs"]
 mod slow_death;
+#[path = "death/jet_slow_death.rs"]
+mod jet_slow_death;
 #[path = "death/crate_drop.rs"]
 mod crate_drop;
 

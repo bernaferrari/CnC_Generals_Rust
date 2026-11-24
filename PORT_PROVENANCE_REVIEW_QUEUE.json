@@ -44095,7 +44095,7 @@
         ],
         "review_input": "PORT_PROVENANCE_REVIEWED.json"
       },
-      "id": "game_engine-gamelogic-object-8abdbecddb69",
+      "id": "game_engine-gamelogic-object-2ed1aafbd8b5",
       "scope": "game_engine",
       "subsystem": "GameLogic/Object",
       "unit_count": 15,
@@ -44170,69 +44170,6 @@
               {
                 "line": 185,
                 "name": "InstantDeathBehavior::loadPostProcess"
-              }
-            ]
-          }
-        },
-        {
-          "blockers": [
-            "unreviewed_mapping",
-            "unreviewed_symbol_ownership",
-            "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/behavior/jet_slow_death_behavior.rs"
-          ],
-          "candidate_destinations": [
-            {
-              "cargo_reachable": true,
-              "classification": "implementation",
-              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/behavior/jet_slow_death_behavior.rs"
-            }
-          ],
-          "entry_id": "game_engine:Source/GameLogic/Object/Behavior/JetSlowDeathBehavior.cpp",
-          "source": {
-            "path": "GeneralsMD/Code/GameEngine/Source/GameLogic/Object/Behavior/JetSlowDeathBehavior.cpp",
-            "sha256": "49c2cae60de047afb71c53e2c66316565a28dbf7662ef6043a5e0e8d5e9b5730",
-            "symbol_extraction_diagnostics": [],
-            "symbol_extraction_status": "parsed",
-            "symbols": [
-              {
-                "line": 34,
-                "name": "JetSlowDeathBehaviorModuleData::JetSlowDeathBehaviorModuleData"
-              },
-              {
-                "line": 63,
-                "name": "JetSlowDeathBehaviorModuleData::buildFieldParse"
-              },
-              {
-                "line": 109,
-                "name": "JetSlowDeathBehavior::JetSlowDeathBehavior"
-              },
-              {
-                "line": 121,
-                "name": "JetSlowDeathBehavior::~JetSlowDeathBehavior"
-              },
-              {
-                "line": 128,
-                "name": "JetSlowDeathBehavior::onDie"
-              },
-              {
-                "line": 161,
-                "name": "JetSlowDeathBehavior::beginSlowDeath"
-              },
-              {
-                "line": 202,
-                "name": "JetSlowDeathBehavior::update"
-              },
-              {
-                "line": 325,
-                "name": "JetSlowDeathBehavior::crc"
-              },
-              {
-                "line": 338,
-                "name": "JetSlowDeathBehavior::xfer"
-              },
-              {
-                "line": 363,
-                "name": "JetSlowDeathBehavior::loadPostProcess"
               }
             ]
           }
@@ -45417,52 +45354,7 @@
               }
             ]
           }
-        }
-      ]
-    },
-    {
-      "acceptance": {
-        "commands": [
-          [
-            "python3",
-            "GeneralsRust/Code/Main/scripts/generate_port_tracking.py",
-            "--repo-root",
-            "."
-          ],
-          [
-            "python3",
-            "GeneralsRust/Code/Main/scripts/generate_port_provenance.py",
-            "--repo-root",
-            ".",
-            "--verify-generated"
-          ],
-          [
-            "python3",
-            "GeneralsRust/Code/Main/scripts/generate_port_review_queue.py",
-            "--repo-root",
-            ".",
-            "--verify-generated"
-          ],
-          [
-            "git",
-            "diff",
-            "--check"
-          ]
-        ],
-        "requirements": [
-          "Inspect every listed C++ unit and candidate; never approve by stem alone.",
-          "Record only reachable production Rust destinations that own the behavior.",
-          "Do not treat tests, shims, telemetry, or deferred GameNetwork as implementation.",
-          "Keep symbol/range and behavioral proof claims separate from path review.",
-          "Ownership blockers only clear with complete valid ownership records: every symbol occurrence assigned, ranges exact, hashes current."
-        ],
-        "review_input": "PORT_PROVENANCE_REVIEWED.json"
-      },
-      "id": "game_engine-gamelogic-object-39f39bbdf564",
-      "scope": "game_engine",
-      "subsystem": "GameLogic/Object",
-      "unit_count": 15,
-      "units": [
+        },
         {
           "blockers": [
             "unreviewed_mapping",
@@ -45525,7 +45417,52 @@
               }
             ]
           }
-        },
+        }
+      ]
+    },
+    {
+      "acceptance": {
+        "commands": [
+          [
+            "python3",
+            "GeneralsRust/Code/Main/scripts/generate_port_tracking.py",
+            "--repo-root",
+            "."
+          ],
+          [
+            "python3",
+            "GeneralsRust/Code/Main/scripts/generate_port_provenance.py",
+            "--repo-root",
+            ".",
+            "--verify-generated"
+          ],
+          [
+            "python3",
+            "GeneralsRust/Code/Main/scripts/generate_port_review_queue.py",
+            "--repo-root",
+            ".",
+            "--verify-generated"
+          ],
+          [
+            "git",
+            "diff",
+            "--check"
+          ]
+        ],
+        "requirements": [
+          "Inspect every listed C++ unit and candidate; never approve by stem alone.",
+          "Record only reachable production Rust destinations that own the behavior.",
+          "Do not treat tests, shims, telemetry, or deferred GameNetwork as implementation.",
+          "Keep symbol/range and behavioral proof claims separate from path review.",
+          "Ownership blockers only clear with complete valid ownership records: every symbol occurrence assigned, ranges exact, hashes current."
+        ],
+        "review_input": "PORT_PROVENANCE_REVIEWED.json"
+      },
+      "id": "game_engine-gamelogic-object-6a08978ead5d",
+      "scope": "game_engine",
+      "subsystem": "GameLogic/Object",
+      "unit_count": 15,
+      "units": [
         {
           "blockers": [
             "unreviewed_mapping",
@@ -46518,52 +46455,7 @@
               }
             ]
           }
-        }
-      ]
-    },
-    {
-      "acceptance": {
-        "commands": [
-          [
-            "python3",
-            "GeneralsRust/Code/Main/scripts/generate_port_tracking.py",
-            "--repo-root",
-            "."
-          ],
-          [
-            "python3",
-            "GeneralsRust/Code/Main/scripts/generate_port_provenance.py",
-            "--repo-root",
-            ".",
-            "--verify-generated"
-          ],
-          [
-            "python3",
-            "GeneralsRust/Code/Main/scripts/generate_port_review_queue.py",
-            "--repo-root",
-            ".",
-            "--verify-generated"
-          ],
-          [
-            "git",
-            "diff",
-            "--check"
-          ]
-        ],
-        "requirements": [
-          "Inspect every listed C++ unit and candidate; never approve by stem alone.",
-          "Record only reachable production Rust destinations that own the behavior.",
-          "Do not treat tests, shims, telemetry, or deferred GameNetwork as implementation.",
-          "Keep symbol/range and behavioral proof claims separate from path review.",
-          "Ownership blockers only clear with complete valid ownership records: every symbol occurrence assigned, ranges exact, hashes current."
-        ],
-        "review_input": "PORT_PROVENANCE_REVIEWED.json"
-      },
-      "id": "game_engine-gamelogic-object-d0fee15970f9",
-      "scope": "game_engine",
-      "subsystem": "GameLogic/Object",
-      "unit_count": 15,
-      "units": [
+        },
         {
           "blockers": [
             "unreviewed_mapping",
@@ -46614,7 +46506,52 @@
               }
             ]
           }
-        },
+        }
+      ]
+    },
+    {
+      "acceptance": {
+        "commands": [
+          [
+            "python3",
+            "GeneralsRust/Code/Main/scripts/generate_port_tracking.py",
+            "--repo-root",
+            "."
+          ],
+          [
+            "python3",
+            "GeneralsRust/Code/Main/scripts/generate_port_provenance.py",
+            "--repo-root",
+            ".",
+            "--verify-generated"
+          ],
+          [
+            "python3",
+            "GeneralsRust/Code/Main/scripts/generate_port_review_queue.py",
+            "--repo-root",
+            ".",
+            "--verify-generated"
+          ],
+          [
+            "git",
+            "diff",
+            "--check"
+          ]
+        ],
+        "requirements": [
+          "Inspect every listed C++ unit and candidate; never approve by stem alone.",
+          "Record only reachable production Rust destinations that own the behavior.",
+          "Do not treat tests, shims, telemetry, or deferred GameNetwork as implementation.",
+          "Keep symbol/range and behavioral proof claims separate from path review.",
+          "Ownership blockers only clear with complete valid ownership records: every symbol occurrence assigned, ranges exact, hashes current."
+        ],
+        "review_input": "PORT_PROVENANCE_REVIEWED.json"
+      },
+      "id": "game_engine-gamelogic-object-ad8baad69277",
+      "scope": "game_engine",
+      "subsystem": "GameLogic/Object",
+      "unit_count": 15,
+      "units": [
         {
           "blockers": [
             "no_reachable_implementation",
@@ -47446,52 +47383,7 @@
               }
             ]
           }
-        }
-      ]
-    },
-    {
-      "acceptance": {
-        "commands": [
-          [
-            "python3",
-            "GeneralsRust/Code/Main/scripts/generate_port_tracking.py",
-            "--repo-root",
-            "."
-          ],
-          [
-            "python3",
-            "GeneralsRust/Code/Main/scripts/generate_port_provenance.py",
-            "--repo-root",
-            ".",
-            "--verify-generated"
-          ],
-          [
-            "python3",
-            "GeneralsRust/Code/Main/scripts/generate_port_review_queue.py",
-            "--repo-root",
-            ".",
-            "--verify-generated"
-          ],
-          [
-            "git",
-            "diff",
-            "--check"
-          ]
-        ],
-        "requirements": [
-          "Inspect every listed C++ unit and candidate; never approve by stem alone.",
-          "Record only reachable production Rust destinations that own the behavior.",
-          "Do not treat tests, shims, telemetry, or deferred GameNetwork as implementation.",
-          "Keep symbol/range and behavioral proof claims separate from path review.",
-          "Ownership blockers only clear with complete valid ownership records: every symbol occurrence assigned, ranges exact, hashes current."
-        ],
-        "review_input": "PORT_PROVENANCE_REVIEWED.json"
-      },
-      "id": "game_engine-gamelogic-object-fffc8a04202d",
-      "scope": "game_engine",
-      "subsystem": "GameLogic/Object",
-      "unit_count": 15,
-      "units": [
+        },
         {
           "blockers": [
             "unreviewed_mapping",
@@ -47702,7 +47594,52 @@
               }
             ]
           }
-        },
+        }
+      ]
+    },
+    {
+      "acceptance": {
+        "commands": [
+          [
+            "python3",
+            "GeneralsRust/Code/Main/scripts/generate_port_tracking.py",
+            "--repo-root",
+            "."
+          ],
+          [
+            "python3",
+            "GeneralsRust/Code/Main/scripts/generate_port_provenance.py",
+            "--repo-root",
+            ".",
+            "--verify-generated"
+          ],
+          [
+            "python3",
+            "GeneralsRust/Code/Main/scripts/generate_port_review_queue.py",
+            "--repo-root",
+            ".",
+            "--verify-generated"
+          ],
+          [
+            "git",
+            "diff",
+            "--check"
+          ]
+        ],
+        "requirements": [
+          "Inspect every listed C++ unit and candidate; never approve by stem alone.",
+          "Record only reachable production Rust destinations that own the behavior.",
+          "Do not treat tests, shims, telemetry, or deferred GameNetwork as implementation.",
+          "Keep symbol/range and behavioral proof claims separate from path review.",
+          "Ownership blockers only clear with complete valid ownership records: every symbol occurrence assigned, ranges exact, hashes current."
+        ],
+        "review_input": "PORT_PROVENANCE_REVIEWED.json"
+      },
+      "id": "game_engine-gamelogic-object-298add7805ed",
+      "scope": "game_engine",
+      "subsystem": "GameLogic/Object",
+      "unit_count": 15,
+      "units": [
         {
           "blockers": [
             "unreviewed_mapping",
@@ -49291,52 +49228,7 @@
               }
             ]
           }
-        }
-      ]
-    },
-    {
-      "acceptance": {
-        "commands": [
-          [
-            "python3",
-            "GeneralsRust/Code/Main/scripts/generate_port_tracking.py",
-            "--repo-root",
-            "."
-          ],
-          [
-            "python3",
-            "GeneralsRust/Code/Main/scripts/generate_port_provenance.py",
-            "--repo-root",
-            ".",
-            "--verify-generated"
-          ],
-          [
-            "python3",
-            "GeneralsRust/Code/Main/scripts/generate_port_review_queue.py",
-            "--repo-root",
-            ".",
-            "--verify-generated"
-          ],
-          [
-            "git",
-            "diff",
-            "--check"
-          ]
-        ],
-        "requirements": [
-          "Inspect every listed C++ unit and candidate; never approve by stem alone.",
-          "Record only reachable production Rust destinations that own the behavior.",
-          "Do not treat tests, shims, telemetry, or deferred GameNetwork as implementation.",
-          "Keep symbol/range and behavioral proof claims separate from path review.",
-          "Ownership blockers only clear with complete valid ownership records: every symbol occurrence assigned, ranges exact, hashes current."
-        ],
-        "review_input": "PORT_PROVENANCE_REVIEWED.json"
-      },
-      "id": "game_engine-gamelogic-object-cd5a8ce81fb3",
-      "scope": "game_engine",
-      "subsystem": "GameLogic/Object",
-      "unit_count": 15,
-      "units": [
+        },
         {
           "blockers": [
             "unreviewed_mapping",
@@ -49387,7 +49279,52 @@
               }
             ]
           }
-        },
+        }
+      ]
+    },
+    {
+      "acceptance": {
+        "commands": [
+          [
+            "python3",
+            "GeneralsRust/Code/Main/scripts/generate_port_tracking.py",
+            "--repo-root",
+            "."
+          ],
+          [
+            "python3",
+            "GeneralsRust/Code/Main/scripts/generate_port_provenance.py",
+            "--repo-root",
+            ".",
+            "--verify-generated"
+          ],
+          [
+            "python3",
+            "GeneralsRust/Code/Main/scripts/generate_port_review_queue.py",
+            "--repo-root",
+            ".",
+            "--verify-generated"
+          ],
+          [
+            "git",
+            "diff",
+            "--check"
+          ]
+        ],
+        "requirements": [
+          "Inspect every listed C++ unit and candidate; never approve by stem alone.",
+          "Record only reachable production Rust destinations that own the behavior.",
+          "Do not treat tests, shims, telemetry, or deferred GameNetwork as implementation.",
+          "Keep symbol/range and behavioral proof claims separate from path review.",
+          "Ownership blockers only clear with complete valid ownership records: every symbol occurrence assigned, ranges exact, hashes current."
+        ],
+        "review_input": "PORT_PROVENANCE_REVIEWED.json"
+      },
+      "id": "game_engine-gamelogic-object-9e80b2d345d2",
+      "scope": "game_engine",
+      "subsystem": "GameLogic/Object",
+      "unit_count": 15,
+      "units": [
         {
           "blockers": [
             "unreviewed_mapping",
@@ -50117,52 +50054,7 @@
               }
             ]
           }
-        }
-      ]
-    },
-    {
-      "acceptance": {
-        "commands": [
-          [
-            "python3",
-            "GeneralsRust/Code/Main/scripts/generate_port_tracking.py",
-            "--repo-root",
-            "."
-          ],
-          [
-            "python3",
-            "GeneralsRust/Code/Main/scripts/generate_port_provenance.py",
-            "--repo-root",
-            ".",
-            "--verify-generated"
-          ],
-          [
-            "python3",
-            "GeneralsRust/Code/Main/scripts/generate_port_review_queue.py",
-            "--repo-root",
-            ".",
-            "--verify-generated"
-          ],
-          [
-            "git",
-            "diff",
-            "--check"
-          ]
-        ],
-        "requirements": [
-          "Inspect every listed C++ unit and candidate; never approve by stem alone.",
-          "Record only reachable production Rust destinations that own the behavior.",
-          "Do not treat tests, shims, telemetry, or deferred GameNetwork as implementation.",
-          "Keep symbol/range and behavioral proof claims separate from path review.",
-          "Ownership blockers only clear with complete valid ownership records: every symbol occurrence assigned, ranges exact, hashes current."
-        ],
-        "review_input": "PORT_PROVENANCE_REVIEWED.json"
-      },
-      "id": "game_engine-gamelogic-object-e8dade41bc9e",
-      "scope": "game_engine",
-      "subsystem": "GameLogic/Object",
-      "unit_count": 15,
-      "units": [
+        },
         {
           "blockers": [
             "unreviewed_mapping",
@@ -50221,7 +50113,52 @@
               }
             ]
           }
-        },
+        }
+      ]
+    },
+    {
+      "acceptance": {
+        "commands": [
+          [
+            "python3",
+            "GeneralsRust/Code/Main/scripts/generate_port_tracking.py",
+            "--repo-root",
+            "."
+          ],
+          [
+            "python3",
+            "GeneralsRust/Code/Main/scripts/generate_port_provenance.py",
+            "--repo-root",
+            ".",
+            "--verify-generated"
+          ],
+          [
+            "python3",
+            "GeneralsRust/Code/Main/scripts/generate_port_review_queue.py",
+            "--repo-root",
+            ".",
+            "--verify-generated"
+          ],
+          [
+            "git",
+            "diff",
+            "--check"
+          ]
+        ],
+        "requirements": [
+          "Inspect every listed C++ unit and candidate; never approve by stem alone.",
+          "Record only reachable production Rust destinations that own the behavior.",
+          "Do not treat tests, shims, telemetry, or deferred GameNetwork as implementation.",
+          "Keep symbol/range and behavioral proof claims separate from path review.",
+          "Ownership blockers only clear with complete valid ownership records: every symbol occurrence assigned, ranges exact, hashes current."
+        ],
+        "review_input": "PORT_PROVENANCE_REVIEWED.json"
+      },
+      "id": "game_engine-gamelogic-object-fb9c17259854",
+      "scope": "game_engine",
+      "subsystem": "GameLogic/Object",
+      "unit_count": 15,
+      "units": [
         {
           "blockers": [
             "unreviewed_mapping",
@@ -50979,52 +50916,7 @@
               }
             ]
           }
-        }
-      ]
-    },
-    {
-      "acceptance": {
-        "commands": [
-          [
-            "python3",
-            "GeneralsRust/Code/Main/scripts/generate_port_tracking.py",
-            "--repo-root",
-            "."
-          ],
-          [
-            "python3",
-            "GeneralsRust/Code/Main/scripts/generate_port_provenance.py",
-            "--repo-root",
-            ".",
-            "--verify-generated"
-          ],
-          [
-            "python3",
-            "GeneralsRust/Code/Main/scripts/generate_port_review_queue.py",
-            "--repo-root",
-            ".",
-            "--verify-generated"
-          ],
-          [
-            "git",
-            "diff",
-            "--check"
-          ]
-        ],
-        "requirements": [
-          "Inspect every listed C++ unit and candidate; never approve by stem alone.",
-          "Record only reachable production Rust destinations that own the behavior.",
-          "Do not treat tests, shims, telemetry, or deferred GameNetwork as implementation.",
-          "Keep symbol/range and behavioral proof claims separate from path review.",
-          "Ownership blockers only clear with complete valid ownership records: every symbol occurrence assigned, ranges exact, hashes current."
-        ],
-        "review_input": "PORT_PROVENANCE_REVIEWED.json"
-      },
-      "id": "game_engine-gamelogic-object-3c17cec78d02",
-      "scope": "game_engine",
-      "subsystem": "GameLogic/Object",
-      "unit_count": 15,
-      "units": [
+        },
         {
           "blockers": [
             "unreviewed_mapping",
@@ -51075,7 +50967,52 @@
               }
             ]
           }
-        },
+        }
+      ]
+    },
+    {
+      "acceptance": {
+        "commands": [
+          [
+            "python3",
+            "GeneralsRust/Code/Main/scripts/generate_port_tracking.py",
+            "--repo-root",
+            "."
+          ],
+          [
+            "python3",
+            "GeneralsRust/Code/Main/scripts/generate_port_provenance.py",
+            "--repo-root",
+            ".",
+            "--verify-generated"
+          ],
+          [
+            "python3",
+            "GeneralsRust/Code/Main/scripts/generate_port_review_queue.py",
+            "--repo-root",
+            ".",
+            "--verify-generated"
+          ],
+          [
+            "git",
+            "diff",
+            "--check"
+          ]
+        ],
+        "requirements": [
+          "Inspect every listed C++ unit and candidate; never approve by stem alone.",
+          "Record only reachable production Rust destinations that own the behavior.",
+          "Do not treat tests, shims, telemetry, or deferred GameNetwork as implementation.",
+          "Keep symbol/range and behavioral proof claims separate from path review.",
+          "Ownership blockers only clear with complete valid ownership records: every symbol occurrence assigned, ranges exact, hashes current."
+        ],
+        "review_input": "PORT_PROVENANCE_REVIEWED.json"
+      },
+      "id": "game_engine-gamelogic-object-cf723b4ced5f",
+      "scope": "game_engine",
+      "subsystem": "GameLogic/Object",
+      "unit_count": 15,
+      "units": [
         {
           "blockers": [
             "unreviewed_mapping",
@@ -58041,52 +57978,7 @@
               }
             ]
           }
-        }
-      ]
-    },
-    {
-      "acceptance": {
-        "commands": [
-          [
-            "python3",
-            "GeneralsRust/Code/Main/scripts/generate_port_tracking.py",
-            "--repo-root",
-            "."
-          ],
-          [
-            "python3",
-            "GeneralsRust/Code/Main/scripts/generate_port_provenance.py",
-            "--repo-root",
-            ".",
-            "--verify-generated"
-          ],
-          [
-            "python3",
-            "GeneralsRust/Code/Main/scripts/generate_port_review_queue.py",
-            "--repo-root",
-            ".",
-            "--verify-generated"
-          ],
-          [
-            "git",
-            "diff",
-            "--check"
-          ]
-        ],
-        "requirements": [
-          "Inspect every listed C++ unit and candidate; never approve by stem alone.",
-          "Record only reachable production Rust destinations that own the behavior.",
-          "Do not treat tests, shims, telemetry, or deferred GameNetwork as implementation.",
-          "Keep symbol/range and behavioral proof claims separate from path review.",
-          "Ownership blockers only clear with complete valid ownership records: every symbol occurrence assigned, ranges exact, hashes current."
-        ],
-        "review_input": "PORT_PROVENANCE_REVIEWED.json"
-      },
-      "id": "game_engine-gamelogic-object-3b89963d8188",
-      "scope": "game_engine",
-      "subsystem": "GameLogic/Object",
-      "unit_count": 15,
-      "units": [
+        },
         {
           "blockers": [
             "unreviewed_mapping",
@@ -58161,7 +58053,52 @@
               }
             ]
           }
-        },
+        }
+      ]
+    },
+    {
+      "acceptance": {
+        "commands": [
+          [
+            "python3",
+            "GeneralsRust/Code/Main/scripts/generate_port_tracking.py",
+            "--repo-root",
+            "."
+          ],
+          [
+            "python3",
+            "GeneralsRust/Code/Main/scripts/generate_port_provenance.py",
+            "--repo-root",
+            ".",
+            "--verify-generated"
+          ],
+          [
+            "python3",
+            "GeneralsRust/Code/Main/scripts/generate_port_review_queue.py",
+            "--repo-root",
+            ".",
+            "--verify-generated"
+          ],
+          [
+            "git",
+            "diff",
+            "--check"
+          ]
+        ],
+        "requirements": [
+          "Inspect every listed C++ unit and candidate; never approve by stem alone.",
+          "Record only reachable production Rust destinations that own the behavior.",
+          "Do not treat tests, shims, telemetry, or deferred GameNetwork as implementation.",
+          "Keep symbol/range and behavioral proof claims separate from path review.",
+          "Ownership blockers only clear with complete valid ownership records: every symbol occurrence assigned, ranges exact, hashes current."
+        ],
+        "review_input": "PORT_PROVENANCE_REVIEWED.json"
+      },
+      "id": "game_engine-gamelogic-object-7f7b6db2de81",
+      "scope": "game_engine",
+      "subsystem": "GameLogic/Object",
+      "unit_count": 15,
+      "units": [
         {
           "blockers": [
             "unreviewed_mapping",
@@ -62870,52 +62807,7 @@
               }
             ]
           }
-        }
-      ]
-    },
-    {
-      "acceptance": {
-        "commands": [
-          [
-            "python3",
-            "GeneralsRust/Code/Main/scripts/generate_port_tracking.py",
-            "--repo-root",
-            "."
-          ],
-          [
-            "python3",
-            "GeneralsRust/Code/Main/scripts/generate_port_provenance.py",
-            "--repo-root",
-            ".",
-            "--verify-generated"
-          ],
-          [
-            "python3",
-            "GeneralsRust/Code/Main/scripts/generate_port_review_queue.py",
-            "--repo-root",
-            ".",
-            "--verify-generated"
-          ],
-          [
-            "git",
-            "diff",
-            "--check"
-          ]
-        ],
-        "requirements": [
-          "Inspect every listed C++ unit and candidate; never approve by stem alone.",
-          "Record only reachable production Rust destinations that own the behavior.",
-          "Do not treat tests, shims, telemetry, or deferred GameNetwork as implementation.",
-          "Keep symbol/range and behavioral proof claims separate from path review.",
-          "Ownership blockers only clear with complete valid ownership records: every symbol occurrence assigned, ranges exact, hashes current."
-        ],
-        "review_input": "PORT_PROVENANCE_REVIEWED.json"
-      },
-      "id": "game_engine-gamelogic-object-df5fdf2fe7f0",
-      "scope": "game_engine",
-      "subsystem": "GameLogic/Object",
-      "unit_count": 15,
-      "units": [
+        },
         {
           "blockers": [
             "unreviewed_mapping",
@@ -63046,7 +62938,52 @@
               }
             ]
           }
-        },
+        }
+      ]
+    },
+    {
+      "acceptance": {
+        "commands": [
+          [
+            "python3",
+            "GeneralsRust/Code/Main/scripts/generate_port_tracking.py",
+            "--repo-root",
+            "."
+          ],
+          [
+            "python3",
+            "GeneralsRust/Code/Main/scripts/generate_port_provenance.py",
+            "--repo-root",
+            ".",
+            "--verify-generated"
+          ],
+          [
+            "python3",
+            "GeneralsRust/Code/Main/scripts/generate_port_review_queue.py",
+            "--repo-root",
+            ".",
+            "--verify-generated"
+          ],
+          [
+            "git",
+            "diff",
+            "--check"
+          ]
+        ],
+        "requirements": [
+          "Inspect every listed C++ unit and candidate; never approve by stem alone.",
+          "Record only reachable production Rust destinations that own the behavior.",
+          "Do not treat tests, shims, telemetry, or deferred GameNetwork as implementation.",
+          "Keep symbol/range and behavioral proof claims separate from path review.",
+          "Ownership blockers only clear with complete valid ownership records: every symbol occurrence assigned, ranges exact, hashes current."
+        ],
+        "review_input": "PORT_PROVENANCE_REVIEWED.json"
+      },
+      "id": "game_engine-gamelogic-object-6445662e37a0",
+      "scope": "game_engine",
+      "subsystem": "GameLogic/Object",
+      "unit_count": 15,
+      "units": [
         {
           "blockers": [
             "unreviewed_mapping",
@@ -64512,52 +64449,7 @@
               }
             ]
           }
-        }
-      ]
-    },
-    {
-      "acceptance": {
-        "commands": [
-          [
-            "python3",
-            "GeneralsRust/Code/Main/scripts/generate_port_tracking.py",
-            "--repo-root",
-            "."
-          ],
-          [
-            "python3",
-            "GeneralsRust/Code/Main/scripts/generate_port_provenance.py",
-            "--repo-root",
-            ".",
-            "--verify-generated"
-          ],
-          [
-            "python3",
-            "GeneralsRust/Code/Main/scripts/generate_port_review_queue.py",
-            "--repo-root",
-            ".",
-            "--verify-generated"
-          ],
-          [
-            "git",
-            "diff",
-            "--check"
-          ]
-        ],
-        "requirements": [
-          "Inspect every listed C++ unit and candidate; never approve by stem alone.",
-          "Record only reachable production Rust destinations that own the behavior.",
-          "Do not treat tests, shims, telemetry, or deferred GameNetwork as implementation.",
-          "Keep symbol/range and behavioral proof claims separate from path review.",
-          "Ownership blockers only clear with complete valid ownership records: every symbol occurrence assigned, ranges exact, hashes current."
-        ],
-        "review_input": "PORT_PROVENANCE_REVIEWED.json"
-      },
-      "id": "game_engine-gamelogic-object-8abd7a26e3b2",
-      "scope": "game_engine",
-      "subsystem": "GameLogic/Object",
-      "unit_count": 15,
-      "units": [
+        },
         {
           "blockers": [
             "unreviewed_mapping",
@@ -64612,7 +64504,52 @@
               }
             ]
           }
-        },
+        }
+      ]
+    },
+    {
+      "acceptance": {
+        "commands": [
+          [
+            "python3",
+            "GeneralsRust/Code/Main/scripts/generate_port_tracking.py",
+            "--repo-root",
+            "."
+          ],
+          [
+            "python3",
+            "GeneralsRust/Code/Main/scripts/generate_port_provenance.py",
+            "--repo-root",
+            ".",
+            "--verify-generated"
+          ],
+          [
+            "python3",
+            "GeneralsRust/Code/Main/scripts/generate_port_review_queue.py",
+            "--repo-root",
+            ".",
+            "--verify-generated"
+          ],
+          [
+            "git",
+            "diff",
+            "--check"
+          ]
+        ],
+        "requirements": [
+          "Inspect every listed C++ unit and candidate; never approve by stem alone.",
+          "Record only reachable production Rust destinations that own the behavior.",
+          "Do not treat tests, shims, telemetry, or deferred GameNetwork as implementation.",
+          "Keep symbol/range and behavioral proof claims separate from path review.",
+          "Ownership blockers only clear with complete valid ownership records: every symbol occurrence assigned, ranges exact, hashes current."
+        ],
+        "review_input": "PORT_PROVENANCE_REVIEWED.json"
+      },
+      "id": "game_engine-gamelogic-object-67250a5e3aa2",
+      "scope": "game_engine",
+      "subsystem": "GameLogic/Object",
+      "unit_count": 15,
+      "units": [
         {
           "blockers": [
             "unreviewed_mapping",
@@ -65579,52 +65516,7 @@
               }
             ]
           }
-        }
-      ]
-    },
-    {
-      "acceptance": {
-        "commands": [
-          [
-            "python3",
-            "GeneralsRust/Code/Main/scripts/generate_port_tracking.py",
-            "--repo-root",
-            "."
-          ],
-          [
-            "python3",
-            "GeneralsRust/Code/Main/scripts/generate_port_provenance.py",
-            "--repo-root",
-            ".",
-            "--verify-generated"
-          ],
-          [
-            "python3",
-            "GeneralsRust/Code/Main/scripts/generate_port_review_queue.py",
-            "--repo-root",
-            ".",
-            "--verify-generated"
-          ],
-          [
-            "git",
-            "diff",
-            "--check"
-          ]
-        ],
-        "requirements": [
-          "Inspect every listed C++ unit and candidate; never approve by stem alone.",
-          "Record only reachable production Rust destinations that own the behavior.",
-          "Do not treat tests, shims, telemetry, or deferred GameNetwork as implementation.",
-          "Keep symbol/range and behavioral proof claims separate from path review.",
-          "Ownership blockers only clear with complete valid ownership records: every symbol occurrence assigned, ranges exact, hashes current."
-        ],
-        "review_input": "PORT_PROVENANCE_REVIEWED.json"
-      },
-      "id": "game_engine-gamelogic-object-942e32e50895",
-      "scope": "game_engine",
-      "subsystem": "GameLogic/Object",
-      "unit_count": 15,
-      "units": [
+        },
         {
           "blockers": [
             "unreviewed_mapping",
@@ -65908,7 +65800,52 @@
               }
             ]
           }
-        },
+        }
+      ]
+    },
+    {
+      "acceptance": {
+        "commands": [
+          [
+            "python3",
+            "GeneralsRust/Code/Main/scripts/generate_port_tracking.py",
+            "--repo-root",
+            "."
+          ],
+          [
+            "python3",
+            "GeneralsRust/Code/Main/scripts/generate_port_provenance.py",
+            "--repo-root",
+            ".",
+            "--verify-generated"
+          ],
+          [
+            "python3",
+            "GeneralsRust/Code/Main/scripts/generate_port_review_queue.py",
+            "--repo-root",
+            ".",
+            "--verify-generated"
+          ],
+          [
+            "git",
+            "diff",
+            "--check"
+          ]
+        ],
+        "requirements": [
+          "Inspect every listed C++ unit and candidate; never approve by stem alone.",
+          "Record only reachable production Rust destinations that own the behavior.",
+          "Do not treat tests, shims, telemetry, or deferred GameNetwork as implementation.",
+          "Keep symbol/range and behavioral proof claims separate from path review.",
+          "Ownership blockers only clear with complete valid ownership records: every symbol occurrence assigned, ranges exact, hashes current."
+        ],
+        "review_input": "PORT_PROVENANCE_REVIEWED.json"
+      },
+      "id": "game_engine-gamelogic-object-db34d6e1fe5b",
+      "scope": "game_engine",
+      "subsystem": "GameLogic/Object",
+      "unit_count": 15,
+      "units": [
         {
           "blockers": [
             "unreviewed_mapping",
@@ -68077,52 +68014,7 @@
               }
             ]
           }
-        }
-      ]
-    },
-    {
-      "acceptance": {
-        "commands": [
-          [
-            "python3",
-            "GeneralsRust/Code/Main/scripts/generate_port_tracking.py",
-            "--repo-root",
-            "."
-          ],
-          [
-            "python3",
-            "GeneralsRust/Code/Main/scripts/generate_port_provenance.py",
-            "--repo-root",
-            ".",
-            "--verify-generated"
-          ],
-          [
-            "python3",
-            "GeneralsRust/Code/Main/scripts/generate_port_review_queue.py",
-            "--repo-root",
-            ".",
-            "--verify-generated"
-          ],
-          [
-            "git",
-            "diff",
-            "--check"
-          ]
-        ],
-        "requirements": [
-          "Inspect every listed C++ unit and candidate; never approve by stem alone.",
-          "Record only reachable production Rust destinations that own the behavior.",
-          "Do not treat tests, shims, telemetry, or deferred GameNetwork as implementation.",
-          "Keep symbol/range and behavioral proof claims separate from path review.",
-          "Ownership blockers only clear with complete valid ownership records: every symbol occurrence assigned, ranges exact, hashes current."
-        ],
-        "review_input": "PORT_PROVENANCE_REVIEWED.json"
-      },
-      "id": "game_engine-gamelogic-object-ee99d7a745ab",
-      "scope": "game_engine",
-      "subsystem": "GameLogic/Object",
-      "unit_count": 15,
-      "units": [
+        },
         {
           "blockers": [
             "unreviewed_mapping",
@@ -68442,7 +68334,52 @@
               }
             ]
           }
-        },
+        }
+      ]
+    },
+    {
+      "acceptance": {
+        "commands": [
+          [
+            "python3",
+            "GeneralsRust/Code/Main/scripts/generate_port_tracking.py",
+            "--repo-root",
+            "."
+          ],
+          [
+            "python3",
+            "GeneralsRust/Code/Main/scripts/generate_port_provenance.py",
+            "--repo-root",
+            ".",
+            "--verify-generated"
+          ],
+          [
+            "python3",
+            "GeneralsRust/Code/Main/scripts/generate_port_review_queue.py",
+            "--repo-root",
+            ".",
+            "--verify-generated"
+          ],
+          [
+            "git",
+            "diff",
+            "--check"
+          ]
+        ],
+        "requirements": [
+          "Inspect every listed C++ unit and candidate; never approve by stem alone.",
+          "Record only reachable production Rust destinations that own the behavior.",
+          "Do not treat tests, shims, telemetry, or deferred GameNetwork as implementation.",
+          "Keep symbol/range and behavioral proof claims separate from path review.",
+          "Ownership blockers only clear with complete valid ownership records: every symbol occurrence assigned, ranges exact, hashes current."
+        ],
+        "review_input": "PORT_PROVENANCE_REVIEWED.json"
+      },
+      "id": "game_engine-gamelogic-object-c19b2a8ae2d1",
+      "scope": "game_engine",
+      "subsystem": "GameLogic/Object",
+      "unit_count": 15,
+      "units": [
         {
           "blockers": [
             "unreviewed_mapping",
@@ -69404,52 +69341,7 @@
               }
             ]
           }
-        }
-      ]
-    },
-    {
-      "acceptance": {
-        "commands": [
-          [
-            "python3",
-            "GeneralsRust/Code/Main/scripts/generate_port_tracking.py",
-            "--repo-root",
-            "."
-          ],
-          [
-            "python3",
-            "GeneralsRust/Code/Main/scripts/generate_port_provenance.py",
-            "--repo-root",
-            ".",
-            "--verify-generated"
-          ],
-          [
-            "python3",
-            "GeneralsRust/Code/Main/scripts/generate_port_review_queue.py",
-            "--repo-root",
-            ".",
-            "--verify-generated"
-          ],
-          [
-            "git",
-            "diff",
-            "--check"
-          ]
-        ],
-        "requirements": [
-          "Inspect every listed C++ unit and candidate; never approve by stem alone.",
-          "Record only reachable production Rust destinations that own the behavior.",
-          "Do not treat tests, shims, telemetry, or deferred GameNetwork as implementation.",
-          "Keep symbol/range and behavioral proof claims separate from path review.",
-          "Ownership blockers only clear with complete valid ownership records: every symbol occurrence assigned, ranges exact, hashes current."
-        ],
-        "review_input": "PORT_PROVENANCE_REVIEWED.json"
-      },
-      "id": "game_engine-gamelogic-object-63af307b87d9",
-      "scope": "game_engine",
-      "subsystem": "GameLogic/Object",
-      "unit_count": 15,
-      "units": [
+        },
         {
           "blockers": [
             "unreviewed_mapping",
@@ -69612,7 +69504,52 @@
               }
             ]
           }
-        },
+        }
+      ]
+    },
+    {
+      "acceptance": {
+        "commands": [
+          [
+            "python3",
+            "GeneralsRust/Code/Main/scripts/generate_port_tracking.py",
+            "--repo-root",
+            "."
+          ],
+          [
+            "python3",
+            "GeneralsRust/Code/Main/scripts/generate_port_provenance.py",
+            "--repo-root",
+            ".",
+            "--verify-generated"
+          ],
+          [
+            "python3",
+            "GeneralsRust/Code/Main/scripts/generate_port_review_queue.py",
+            "--repo-root",
+            ".",
+            "--verify-generated"
+          ],
+          [
+            "git",
+            "diff",
+            "--check"
+          ]
+        ],
+        "requirements": [
+          "Inspect every listed C++ unit and candidate; never approve by stem alone.",
+          "Record only reachable production Rust destinations that own the behavior.",
+          "Do not treat tests, shims, telemetry, or deferred GameNetwork as implementation.",
+          "Keep symbol/range and behavioral proof claims separate from path review.",
+          "Ownership blockers only clear with complete valid ownership records: every symbol occurrence assigned, ranges exact, hashes current."
+        ],
+        "review_input": "PORT_PROVENANCE_REVIEWED.json"
+      },
+      "id": "game_engine-gamelogic-object-3947032de083",
+      "scope": "game_engine",
+      "subsystem": "GameLogic/Object",
+      "unit_count": 15,
+      "units": [
         {
           "blockers": [
             "no_reachable_implementation",
@@ -70684,52 +70621,7 @@
               }
             ]
           }
-        }
-      ]
-    },
-    {
-      "acceptance": {
-        "commands": [
-          [
-            "python3",
-            "GeneralsRust/Code/Main/scripts/generate_port_tracking.py",
-            "--repo-root",
-            "."
-          ],
-          [
-            "python3",
-            "GeneralsRust/Code/Main/scripts/generate_port_provenance.py",
-            "--repo-root",
-            ".",
-            "--verify-generated"
-          ],
-          [
-            "python3",
-            "GeneralsRust/Code/Main/scripts/generate_port_review_queue.py",
-            "--repo-root",
-            ".",
-            "--verify-generated"
-          ],
-          [
-            "git",
-            "diff",
-            "--check"
-          ]
-        ],
-        "requirements": [
-          "Inspect every listed C++ unit and candidate; never approve by stem alone.",
-          "Record only reachable production Rust destinations that own the behavior.",
-          "Do not treat tests, shims, telemetry, or deferred GameNetwork as implementation.",
-          "Keep symbol/range and behavioral proof claims separate from path review.",
-          "Ownership blockers only clear with complete valid ownership records: every symbol occurrence assigned, ranges exact, hashes current."
-        ],
-        "review_input": "PORT_PROVENANCE_REVIEWED.json"
-      },
-      "id": "game_engine-gamelogic-object-690a66b39051",
-      "scope": "game_engine",
-      "subsystem": "GameLogic/Object",
-      "unit_count": 15,
-      "units": [
+        },
         {
           "blockers": [
             "unreviewed_mapping",
@@ -70784,7 +70676,52 @@
               }
             ]
           }
-        },
+        }
+      ]
+    },
+    {
+      "acceptance": {
+        "commands": [
+          [
+            "python3",
+            "GeneralsRust/Code/Main/scripts/generate_port_tracking.py",
+            "--repo-root",
+            "."
+          ],
+          [
+            "python3",
+            "GeneralsRust/Code/Main/scripts/generate_port_provenance.py",
+            "--repo-root",
+            ".",
+            "--verify-generated"
+          ],
+          [
+            "python3",
+            "GeneralsRust/Code/Main/scripts/generate_port_review_queue.py",
+            "--repo-root",
+            ".",
+            "--verify-generated"
+          ],
+          [
+            "git",
+            "diff",
+            "--check"
+          ]
+        ],
+        "requirements": [
+          "Inspect every listed C++ unit and candidate; never approve by stem alone.",
+          "Record only reachable production Rust destinations that own the behavior.",
+          "Do not treat tests, shims, telemetry, or deferred GameNetwork as implementation.",
+          "Keep symbol/range and behavioral proof claims separate from path review.",
+          "Ownership blockers only clear with complete valid ownership records: every symbol occurrence assigned, ranges exact, hashes current."
+        ],
+        "review_input": "PORT_PROVENANCE_REVIEWED.json"
+      },
+      "id": "game_engine-gamelogic-object-85c633fc2768",
+      "scope": "game_engine",
+      "subsystem": "GameLogic/Object",
+      "unit_count": 15,
+      "units": [
         {
           "blockers": [
             "unreviewed_mapping",
@@ -71570,52 +71507,7 @@
               }
             ]
           }
-        }
-      ]
-    },
-    {
-      "acceptance": {
-        "commands": [
-          [
-            "python3",
-            "GeneralsRust/Code/Main/scripts/generate_port_tracking.py",
-            "--repo-root",
-            "."
-          ],
-          [
-            "python3",
-            "GeneralsRust/Code/Main/scripts/generate_port_provenance.py",
-            "--repo-root",
-            ".",
-            "--verify-generated"
-          ],
-          [
-            "python3",
-            "GeneralsRust/Code/Main/scripts/generate_port_review_queue.py",
-            "--repo-root",
-            ".",
-            "--verify-generated"
-          ],
-          [
-            "git",
-            "diff",
-            "--check"
-          ]
-        ],
-        "requirements": [
-          "Inspect every listed C++ unit and candidate; never approve by stem alone.",
-          "Record only reachable production Rust destinations that own the behavior.",
-          "Do not treat tests, shims, telemetry, or deferred GameNetwork as implementation.",
-          "Keep symbol/range and behavioral proof claims separate from path review.",
-          "Ownership blockers only clear with complete valid ownership records: every symbol occurrence assigned, ranges exact, hashes current."
-        ],
-        "review_input": "PORT_PROVENANCE_REVIEWED.json"
-      },
-      "id": "game_engine-gamelogic-object-aa9691f35167",
-      "scope": "game_engine",
-      "subsystem": "GameLogic/Object",
-      "unit_count": 8,
-      "units": [
+        },
         {
           "blockers": [
             "unreviewed_mapping",
@@ -71662,7 +71554,52 @@
               }
             ]
           }
-        },
+        }
+      ]
+    },
+    {
+      "acceptance": {
+        "commands": [
+          [
+            "python3",
+            "GeneralsRust/Code/Main/scripts/generate_port_tracking.py",
+            "--repo-root",
+            "."
+          ],
+          [
+            "python3",
+            "GeneralsRust/Code/Main/scripts/generate_port_provenance.py",
+            "--repo-root",
+            ".",
+            "--verify-generated"
+          ],
+          [
+            "python3",
+            "GeneralsRust/Code/Main/scripts/generate_port_review_queue.py",
+            "--repo-root",
+            ".",
+            "--verify-generated"
+          ],
+          [
+            "git",
+            "diff",
+            "--check"
+          ]
+        ],
+        "requirements": [
+          "Inspect every listed C++ unit and candidate; never approve by stem alone.",
+          "Record only reachable production Rust destinations that own the behavior.",
+          "Do not treat tests, shims, telemetry, or deferred GameNetwork as implementation.",
+          "Keep symbol/range and behavioral proof claims separate from path review.",
+          "Ownership blockers only clear with complete valid ownership records: every symbol occurrence assigned, ranges exact, hashes current."
+        ],
+        "review_input": "PORT_PROVENANCE_REVIEWED.json"
+      },
+      "id": "game_engine-gamelogic-object-843d518604bd",
+      "scope": "game_engine",
+      "subsystem": "GameLogic/Object",
+      "unit_count": 7,
+      "units": [
         {
           "blockers": [
             "unreviewed_mapping",
@@ -190076,12 +190013,12 @@
       ]
     }
   ],
-  "provenance_input_digest": "f1ec960803566a490622703e8d65a5576f62bd3336c5b3945eed9dc0ef67bf50",
+  "provenance_input_digest": "737e2522042f9460a57389e8f22a3893bfca4d742111952817a4a278f8bb834c",
   "schema_version": 1,
   "summary": {
     "maximum_packet_size": 15,
     "packets": 141,
-    "unique_units": 1381,
-    "unreviewed_required_translation_units": 1381
+    "unique_units": 1380,
+    "unreviewed_required_translation_units": 1380
   }
 }

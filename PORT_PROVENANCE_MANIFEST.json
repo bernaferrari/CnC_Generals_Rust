@@ -56903,8 +56903,8 @@
         "status": "not_verified"
       },
       "blockers": [
-        "unreviewed_mapping",
         "unreviewed_symbol_ownership",
+        "unreviewed_source_range_ownership",
         "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/behavior/jet_slow_death_behavior.rs"
       ],
       "id": "game_engine:Source/GameLogic/Object/Behavior/JetSlowDeathBehavior.cpp",
@@ -56918,13 +56918,34 @@
             "owned_source_ranges": [],
             "owned_symbols": [],
             "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/behavior/jet_slow_death_behavior.rs"
+          },
+          {
+            "cargo_reachable": true,
+            "classification": "implementation",
+            "owned_source_ranges": [],
+            "owned_symbols": [],
+            "path": "GeneralsRust/Code/Main/src/game_logic/native_die_definition.rs"
+          },
+          {
+            "cargo_reachable": true,
+            "classification": "implementation",
+            "owned_source_ranges": [],
+            "owned_symbols": [],
+            "path": "GeneralsRust/Code/Main/src/game_logic/world_objects/create_destroy_die/death/jet_slow_death.rs"
+          },
+          {
+            "cargo_reachable": true,
+            "classification": "implementation",
+            "owned_source_ranges": [],
+            "owned_symbols": [],
+            "path": "GeneralsRust/Code/Main/src/game_logic/world_objects/create_destroy_die/death/slow_death.rs"
           }
         ],
-        "mode": "stem_inferred",
+        "mode": "explicit",
         "ownership_diagnostics": [],
-        "range_validation": "not_required",
-        "review_state": "unreviewed",
-        "reviewed_path_implementation": false,
+        "range_validation": "unreviewed",
+        "review_state": "reviewed",
+        "reviewed_path_implementation": true,
         "stale_reviewed_destinations": [],
         "symbol_validation": "unreviewed"
       },
@@ -56937,8 +56958,49 @@
         "path": "GeneralsMD/Code/GameEngine/Source/GameLogic/Object/Behavior/JetSlowDeathBehavior.cpp",
         "sha256": "49c2cae60de047afb71c53e2c66316565a28dbf7662ef6043a5e0e8d5e9b5730",
         "symbol_extraction_diagnostics": [],
-        "symbol_extraction_status": "not_requested",
-        "symbols": []
+        "symbol_extraction_status": "parsed",
+        "symbols": [
+          {
+            "line": 34,
+            "name": "JetSlowDeathBehaviorModuleData::JetSlowDeathBehaviorModuleData"
+          },
+          {
+            "line": 63,
+            "name": "JetSlowDeathBehaviorModuleData::buildFieldParse"
+          },
+          {
+            "line": 109,
+            "name": "JetSlowDeathBehavior::JetSlowDeathBehavior"
+          },
+          {
+            "line": 121,
+            "name": "JetSlowDeathBehavior::~JetSlowDeathBehavior"
+          },
+          {
+            "line": 128,
+            "name": "JetSlowDeathBehavior::onDie"
+          },
+          {
+            "line": 161,
+            "name": "JetSlowDeathBehavior::beginSlowDeath"
+          },
+          {
+            "line": 202,
+            "name": "JetSlowDeathBehavior::update"
+          },
+          {
+            "line": 325,
+            "name": "JetSlowDeathBehavior::crc"
+          },
+          {
+            "line": 338,
+            "name": "JetSlowDeathBehavior::xfer"
+          },
+          {
+            "line": 363,
+            "name": "JetSlowDeathBehavior::loadPostProcess"
+          }
+        ]
       },
       "unit_kind": "translation_unit"
     },
@@ -161000,7 +161062,7 @@
     }
   ],
   "generator": "GeneralsRust/Code/Main/scripts/generate_port_provenance.py",
-  "input_digest": "f1ec960803566a490622703e8d65a5576f62bd3336c5b3945eed9dc0ef67bf50",
+  "input_digest": "737e2522042f9460a57389e8f22a3893bfca4d742111952817a4a278f8bb834c",
   "metric_contract": {
     "behavior_requires_explicit_evidence": true,
     "candidate_mapping_is_reviewed": false,
@@ -161019,10 +161081,10 @@
     "record_count": 3
   },
   "reviewed_mapping_input": {
-    "mapping_count": 11,
+    "mapping_count": 12,
     "ownership_record_count": 3,
     "path": "PORT_PROVENANCE_REVIEWED.json",
-    "sha256": "113e136dd0c09e8f100f7a4b18d2ac2bb481f3621dc10a8006c038573d8e205f"
+    "sha256": "5927d683a7fed21c3efc9ea3e82ea972cdb990c70a395e7065bed58417914c1f"
   },
   "rust_file_index": [
     {
@@ -206252,8 +206314,339 @@
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/behavior/jet_slow_death_behavior.rs",
       "sha256": "7b862a50a9a5661bf073fa483de15bd341ba1881a2c33cbb1c123249a1374138",
-      "symbol_index_status": "awaiting_mapping_review",
-      "symbols": []
+      "symbol_index_status": "indexed",
+      "symbols": [
+        {
+          "kind": "struct",
+          "line": 31,
+          "name": "JetSlowDeathBehaviorModuleData"
+        },
+        {
+          "kind": "fn",
+          "line": 54,
+          "name": "default"
+        },
+        {
+          "kind": "fn",
+          "line": 84,
+          "name": "crc"
+        },
+        {
+          "kind": "fn",
+          "line": 87,
+          "name": "xfer"
+        },
+        {
+          "kind": "fn",
+          "line": 91,
+          "name": "load_post_process"
+        },
+        {
+          "kind": "fn",
+          "line": 98,
+          "name": "parse_from_ini"
+        },
+        {
+          "kind": "fn",
+          "line": 109,
+          "name": "token"
+        },
+        {
+          "kind": "fn",
+          "line": 113,
+          "name": "parse_fx_slot"
+        },
+        {
+          "kind": "fn",
+          "line": 125,
+          "name": "parse_ocl_slot"
+        },
+        {
+          "kind": "fn",
+          "line": 134,
+          "name": "parse_fx_on_ground_death"
+        },
+        {
+          "kind": "fn",
+          "line": 142,
+          "name": "parse_ocl_on_ground_death"
+        },
+        {
+          "kind": "fn",
+          "line": 150,
+          "name": "parse_fx_initial_death"
+        },
+        {
+          "kind": "fn",
+          "line": 158,
+          "name": "parse_ocl_initial_death"
+        },
+        {
+          "kind": "fn",
+          "line": 166,
+          "name": "parse_delay_secondary"
+        },
+        {
+          "kind": "fn",
+          "line": 175,
+          "name": "parse_fx_secondary"
+        },
+        {
+          "kind": "fn",
+          "line": 183,
+          "name": "parse_ocl_secondary"
+        },
+        {
+          "kind": "fn",
+          "line": 191,
+          "name": "parse_fx_hit_ground"
+        },
+        {
+          "kind": "fn",
+          "line": 199,
+          "name": "parse_ocl_hit_ground"
+        },
+        {
+          "kind": "fn",
+          "line": 207,
+          "name": "parse_delay_final"
+        },
+        {
+          "kind": "fn",
+          "line": 216,
+          "name": "parse_fx_final_blow_up"
+        },
+        {
+          "kind": "fn",
+          "line": 224,
+          "name": "parse_ocl_final_blow_up"
+        },
+        {
+          "kind": "fn",
+          "line": 232,
+          "name": "parse_death_loop_sound"
+        },
+        {
+          "kind": "fn",
+          "line": 241,
+          "name": "parse_roll_rate"
+        },
+        {
+          "kind": "fn",
+          "line": 250,
+          "name": "parse_roll_rate_delta"
+        },
+        {
+          "kind": "fn",
+          "line": 259,
+          "name": "parse_pitch_rate"
+        },
+        {
+          "kind": "fn",
+          "line": 268,
+          "name": "parse_fall_how_fast"
+        },
+        {
+          "kind": "const",
+          "line": 277,
+          "name": "JET_SLOW_DEATH_FIELDS"
+        },
+        {
+          "kind": "struct",
+          "line": 348,
+          "name": "JetSlowDeathBehavior"
+        },
+        {
+          "kind": "fn",
+          "line": 363,
+          "name": "new"
+        },
+        {
+          "kind": "fn",
+          "line": 386,
+          "name": "owner"
+        },
+        {
+          "kind": "fn",
+          "line": 395,
+          "name": "do_fx"
+        },
+        {
+          "kind": "fn",
+          "line": 401,
+          "name": "do_ocl"
+        },
+        {
+          "kind": "fn",
+          "line": 407,
+          "name": "destroy_owner"
+        },
+        {
+          "kind": "fn",
+          "line": 415,
+          "name": "stop_loop_sound"
+        },
+        {
+          "kind": "fn",
+          "line": 423,
+          "name": "hit_tree"
+        },
+        {
+          "kind": "fn",
+          "line": 443,
+          "name": "begin_slow_death_internal"
+        },
+        {
+          "kind": "fn",
+          "line": 495,
+          "name": "update"
+        },
+        {
+          "kind": "fn",
+          "line": 579,
+          "name": "on_die"
+        },
+        {
+          "kind": "fn",
+          "line": 616,
+          "name": "is_slow_death_active"
+        },
+        {
+          "kind": "fn",
+          "line": 619,
+          "name": "begin_slow_death"
+        },
+        {
+          "kind": "fn",
+          "line": 627,
+          "name": "get_probability_modifier"
+        },
+        {
+          "kind": "fn",
+          "line": 631,
+          "name": "is_die_applicable"
+        },
+        {
+          "kind": "fn",
+          "line": 635,
+          "name": "get_slow_death_phase"
+        },
+        {
+          "kind": "fn",
+          "line": 646,
+          "name": "get_module_name"
+        },
+        {
+          "kind": "fn",
+          "line": 649,
+          "name": "get_update"
+        },
+        {
+          "kind": "fn",
+          "line": 653,
+          "name": "get_die"
+        },
+        {
+          "kind": "fn",
+          "line": 657,
+          "name": "get_slow_death_behavior_interface"
+        },
+        {
+          "kind": "fn",
+          "line": 664,
+          "name": "crc"
+        },
+        {
+          "kind": "fn",
+          "line": 684,
+          "name": "xfer"
+        },
+        {
+          "kind": "fn",
+          "line": 700,
+          "name": "load_post_process"
+        },
+        {
+          "kind": "struct",
+          "line": 705,
+          "name": "JetSlowDeathBehaviorModule"
+        },
+        {
+          "kind": "fn",
+          "line": 713,
+          "name": "new"
+        },
+        {
+          "kind": "fn",
+          "line": 728,
+          "name": "get_module_name_key"
+        },
+        {
+          "kind": "fn",
+          "line": 731,
+          "name": "get_module_tag_name_key"
+        },
+        {
+          "kind": "fn",
+          "line": 735,
+          "name": "get_module_data"
+        },
+        {
+          "kind": "fn",
+          "line": 742,
+          "name": "crc"
+        },
+        {
+          "kind": "fn",
+          "line": 745,
+          "name": "xfer"
+        },
+        {
+          "kind": "fn",
+          "line": 749,
+          "name": "load_post_process"
+        },
+        {
+          "kind": "fn",
+          "line": 756,
+          "name": "get_module_name"
+        },
+        {
+          "kind": "fn",
+          "line": 759,
+          "name": "get_update"
+        },
+        {
+          "kind": "fn",
+          "line": 763,
+          "name": "get_die"
+        },
+        {
+          "kind": "fn",
+          "line": 767,
+          "name": "get_slow_death_behavior_interface"
+        },
+        {
+          "kind": "fn",
+          "line": 781,
+          "name": "jet_slow_death_inherits_cpp_defaults_and_one_module_tag"
+        },
+        {
+          "kind": "fn",
+          "line": 808,
+          "name": "jet_slow_death_parses_the_complete_cpp_inherited_table_with_original_units"
+        },
+        {
+          "kind": "fn",
+          "line": 880,
+          "name": "jet_slow_death_parser_rejects_unknown_and_malformed_inherited_fields"
+        },
+        {
+          "kind": "fn",
+          "line": 897,
+          "name": "jet_slow_death_parser_inheritance_preserves_existing_module_data_snapshot_payload"
+        }
+      ]
     },
     {
       "cargo_reachable": true,
@@ -221535,6 +221928,255 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
+        "end_line": 515,
+        "start_line": 1
+      },
+      "path": "GeneralsRust/Code/Main/src/game_logic/native_die_definition.rs",
+      "sha256": "29f6a6272aa4a6408d8a4da4b1cc26cf1ac856d5500d092ae865ac00cf5d4e1c",
+      "symbol_index_status": "indexed",
+      "symbols": [
+        {
+          "kind": "struct",
+          "line": 7,
+          "name": "NativeDieRuntime"
+        },
+        {
+          "kind": "struct",
+          "line": 17,
+          "name": "NativeSlowDeath"
+        },
+        {
+          "kind": "enum",
+          "line": 24,
+          "name": "SlowDeathFlight"
+        },
+        {
+          "kind": "fn",
+          "line": 35,
+          "name": "is_airborne"
+        },
+        {
+          "kind": "fn",
+          "line": 38,
+          "name": "apply_model"
+        },
+        {
+          "kind": "struct",
+          "line": 56,
+          "name": "NativeDieDeclaration"
+        },
+        {
+          "kind": "struct",
+          "line": 64,
+          "name": "NativeDieGate"
+        },
+        {
+          "kind": "fn",
+          "line": 71,
+          "name": "allows"
+        },
+        {
+          "kind": "struct",
+          "line": 91,
+          "name": "NativeDieFx"
+        },
+        {
+          "kind": "fn",
+          "line": 101,
+          "name": "configuration"
+        },
+        {
+          "kind": "struct",
+          "line": 116,
+          "name": "NativeDieCreate"
+        },
+        {
+          "kind": "fn",
+          "line": 122,
+          "name": "standalone_configuration"
+        },
+        {
+          "kind": "fn",
+          "line": 133,
+          "name": "bind_creation"
+        },
+        {
+          "kind": "enum",
+          "line": 142,
+          "name": "NativeSlowFamily"
+        },
+        {
+          "kind": "fn",
+          "line": 149,
+          "name": "base"
+        },
+        {
+          "kind": "struct",
+          "line": 159,
+          "name": "NativeJetSlowDeath"
+        },
+        {
+          "kind": "struct",
+          "line": 169,
+          "name": "NativeSlowDeathBase"
+        },
+        {
+          "kind": "struct",
+          "line": 175,
+          "name": "SlowDeathFling"
+        },
+        {
+          "kind": "enum",
+          "line": 183,
+          "name": "SlowDeathEffectPhase"
+        },
+        {
+          "kind": "struct",
+          "line": 190,
+          "name": "SlowDeathEffects"
+        },
+        {
+          "kind": "fn",
+          "line": 195,
+          "name": "parse_slow_death_effects"
+        },
+        {
+          "kind": "enum",
+          "line": 226,
+          "name": "NativeDieKind"
+        },
+        {
+          "kind": "fn",
+          "line": 265,
+          "name": "bind"
+        },
+        {
+          "kind": "fn",
+          "line": 447,
+          "name": "family_in"
+        },
+        {
+          "kind": "fn",
+          "line": 457,
+          "name": "validate"
+        },
+        {
+          "kind": "fn",
+          "line": 482,
+          "name": "bound_creation_identity"
+        },
+        {
+          "kind": "fn",
+          "line": 483,
+          "name": "identity"
+        },
+        {
+          "kind": "fn",
+          "line": 501,
+          "name": "persistence_identity"
+        }
+      ]
+    },
+    {
+      "cargo_reachable": true,
+      "classification": "implementation",
+      "file_range": {
+        "end_line": 257,
+        "start_line": 1
+      },
+      "path": "GeneralsRust/Code/Main/src/game_logic/world_objects/create_destroy_die/death/jet_slow_death.rs",
+      "sha256": "99ec820a21899f881677bb67e23ae31cd9bebb0b921ddefc456ba1b3700293c1",
+      "symbol_index_status": "indexed",
+      "symbols": [
+        {
+          "kind": "fn",
+          "line": 12,
+          "name": "authored_jet_dies_on_ground"
+        },
+        {
+          "kind": "fn",
+          "line": 26,
+          "name": "run_authored_jet_ground_death"
+        },
+        {
+          "kind": "fn",
+          "line": 52,
+          "name": "begin_authored_jet_slow_death"
+        },
+        {
+          "kind": "fn",
+          "line": 91,
+          "name": "tick_authored_jet_slow_death"
+        },
+        {
+          "kind": "fn",
+          "line": 229,
+          "name": "run_authored_jet_effects"
+        }
+      ]
+    },
+    {
+      "cargo_reachable": true,
+      "classification": "implementation",
+      "file_range": {
+        "end_line": 415,
+        "start_line": 1
+      },
+      "path": "GeneralsRust/Code/Main/src/game_logic/world_objects/create_destroy_die/death/slow_death.rs",
+      "sha256": "32c1fd37f8c9fa90ee3f5aaadb423fc4dfbadb687c4a56e639aa9981c498139b",
+      "symbol_index_status": "indexed",
+      "symbols": [
+        {
+          "kind": "fn",
+          "line": 14,
+          "name": "choose_authored_slow_death"
+        },
+        {
+          "kind": "fn",
+          "line": 49,
+          "name": "begin_authored_slow_death_base"
+        },
+        {
+          "kind": "fn",
+          "line": 101,
+          "name": "run_authored_slow_death_phase"
+        },
+        {
+          "kind": "fn",
+          "line": 188,
+          "name": "begin_authored_slow_death_flight"
+        },
+        {
+          "kind": "const",
+          "line": 209,
+          "name": "MIN_ALTITUDE"
+        },
+        {
+          "kind": "fn",
+          "line": 249,
+          "name": "set_authored_slow_death_flight"
+        },
+        {
+          "kind": "fn",
+          "line": 262,
+          "name": "advance_authored_slow_death_flight"
+        },
+        {
+          "kind": "fn",
+          "line": 323,
+          "name": "tick_authored_slow_death_base"
+        },
+        {
+          "kind": "fn",
+          "line": 398,
+          "name": "sink_authored_slow_death"
+        }
+      ]
+    },
+    {
+      "cargo_reachable": true,
+      "classification": "implementation",
+      "file_range": {
         "end_line": 268,
         "start_line": 1
       },
@@ -227061,8 +227703,8 @@
       "no_reachable_implementation": 686,
       "ownership_range": 1,
       "ownership_symbol": 6,
-      "unreviewed_mapping": 1381,
-      "unreviewed_source_range_ownership": 67,
+      "unreviewed_mapping": 1380,
+      "unreviewed_source_range_ownership": 68,
       "unreviewed_symbol_ownership": 1388
     },
     "by_scope": {
@@ -227072,7 +227714,7 @@
         "deferred_network": 47,
         "reachable_implementation_candidates": 489,
         "required": 539,
-        "reviewed_path_implementations": 8,
+        "reviewed_path_implementations": 9,
         "source_range_ownership_reviewed": 2,
         "symbol_ownership_reviewed": 1,
         "translation_units": 586
@@ -227127,7 +227769,7 @@
     "orphan_ownership_records": 0,
     "reachable_implementation_candidates": 703,
     "required_translation_units": 1389,
-    "reviewed_path_implementations": 8,
+    "reviewed_path_implementations": 9,
     "source_range_ownership_reviewed": 2,
     "strict_blockers": 4367,
     "symbol_ownership_reviewed": 1,

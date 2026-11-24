@@ -55,8 +55,10 @@ FULL_GATES = (
         "main_behavior_modules",
         [
             "cargo", "test", "--locked", "-p", "generals_main", "--lib",
+            "--",
             "attack_team_persist_never_bleeds_into_same_faction_team",
-            "--", "--test-threads=1",
+            "authored_jet_",
+            "--test-threads=1",
         ],
     ),
     (

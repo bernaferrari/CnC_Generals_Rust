@@ -310,13 +310,8 @@ fn authored_jet_on_elevated_ground_uses_receiving_ground_effect_before_delete() 
                 ],
                 "Jet ground override bypasses the Slow mux and name heuristics"
             );
-            assert!(
-                owner.objects[&victim]
-                    .jet_slow_death
-                    .as_ref()
-                    .unwrap()
-                    .started_on_ground
-            );
+            assert!(owner.objects[&victim].jet_slow_death.is_none());
+            assert!(owner.objects[&victim].slow_death.is_none());
             assert!(owner.objects[&victim].status.destroyed);
             assert!(owner.objects.contains_key(&victim));
         },

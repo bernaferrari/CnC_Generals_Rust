@@ -817,7 +817,8 @@ fn completion_record_range(bytes: &[u8]) -> SaveLoadResult<Option<(usize, usize)
 pub(super) struct SavedDeathState {
     pub started: bool,
     pub effectively_dead: bool,
-    pub ordinary_slow_death: Option<(u32, u32)>,
+    pub slow_death_base: Option<(u32, u32)>,
+    pub has_jet_slow_death: bool,
 }
 
 pub(super) fn saved_death_states(
@@ -847,15 +848,17 @@ pub(super) fn saved_death_states(
         }
         states.entry(id).or_default().effectively_dead = entry.effectively_dead;
     }
+    let mut slow_death_ids = std::collections::HashSet::new();
     for entry in payload.slow_death {
-        if let Some(timer) = entry.slow_death {
-            let state = states.entry(ObjectId(entry.object_id)).or_default();
-            if state.ordinary_slow_death.replace((timer.begin_frame, timer.destroy_at_frame)).is_some() {
-                return Err(SaveLoadError::Corrupted(
-                    "duplicate OXFR ordinary SlowDeath owner".into(),
-                ));
-            }
+        let id = ObjectId(entry.object_id);
+        if !slow_death_ids.insert(id) {
+            return Err(SaveLoadError::Corrupted(
+                "duplicate OXFR SlowDeath owner".into(),
+            ));
         }
+        let state = states.entry(id).or_default();
+        state.slow_death_base = entry.slow_death.map(|timer| (timer.begin_frame, timer.destroy_at_frame));
+        state.has_jet_slow_death = entry.jet_slow_death.is_some();
     }
     Ok(states)
 }

@@ -456,17 +456,15 @@ impl GameLogic {
                 {
                     topple_kill = true;
                 }
-                // Wave 772: under coupled shadow, JetSlowDeathBehavior is owned by
-                // GW tick_status_timer_expirations + its owned Jet completion drain.
-                {
-                    // C++ JetSlowDeathBehavior residual.
-                    if !topple_kill
-                        && obj
-                            .jet_slow_death
-                            .as_ref()
-                            .map(|j| j.is_active())
-                            .unwrap_or(false)
-                    {
+                // JetSlowDeathBehavior::update extends the base update in the same slot.
+                if !topple_kill && obj.jet_slow_death.as_ref().is_some_and(|jet| jet.is_active()) {
+                    if obj.native_die_runtime.slow_death.is_some() {
+                        let birth = (obj.visual_object_generation, self.visual_world_epoch);
+                        let done = self.tick_authored_jet_slow_death(object_id, presentation_effects)?;
+                        if done || !self.spawn_identity_matches(object_id, birth.0, birth.1) {
+                            continue;
+                        }
+                    } else {
                         let pos = obj.get_position();
                         let ori = obj.get_orientation();
                         let jet = obj.jet_slow_death.as_mut().unwrap();
@@ -530,10 +528,11 @@ impl GameLogic {
                 // Wave 774: under coupled shadow, SlowDeathBehavior is owned by
                 // GW tick_status_timer_expirations + its owned Slow completion drain.
                 let ordinary_death_active = !topple_kill
+                    && (obj.native_die_runtime.slow_death.is_none() || obj.jet_slow_death.is_none())
                     && obj.slow_death.as_ref().is_some_and(|timer| timer.is_active());
                 let obj = if ordinary_death_active && obj.native_die_runtime.slow_death.is_some() {
                     let birth = (obj.visual_object_generation, self.visual_world_epoch);
-                    let done = self.tick_authored_ordinary_slow_death(
+                    let done = self.tick_authored_slow_death_base(
                         object_id, presentation_effects,
                     )?;
                     if done || !self.spawn_identity_matches(object_id, birth.0, birth.1) {

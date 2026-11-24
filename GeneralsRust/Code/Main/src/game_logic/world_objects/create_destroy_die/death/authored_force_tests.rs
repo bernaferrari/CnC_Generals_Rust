@@ -324,12 +324,12 @@ End";
     kill(&mut world, id);
     world.frame = 43;
     world
-        .tick_authored_ordinary_slow_death(id, &mut Default::default())
+        .tick_authored_slow_death_base(id, &mut Default::default())
         .unwrap();
     assert_eq!(world.objects[&id].get_position(), Vec3::ZERO);
     world.frame = 44;
     world
-        .tick_authored_ordinary_slow_death(id, &mut Default::default())
+        .tick_authored_slow_death_base(id, &mut Default::default())
         .unwrap();
     let wreck = &world.objects[&id];
     assert_eq!(wreck.get_position(), -Vec3::Y);
@@ -509,7 +509,7 @@ End";
     let settled = trace.next().unwrap();
     source.frame = 42;
     source
-        .tick_authored_ordinary_slow_death(id, &mut Default::default())
+        .tick_authored_slow_death_base(id, &mut Default::default())
         .unwrap();
     check_trace(&source, flying);
 
@@ -549,7 +549,7 @@ End";
             &mut Default::default(),
         ));
         world
-            .tick_authored_ordinary_slow_death(id, &mut Default::default())
+            .tick_authored_slow_death_base(id, &mut Default::default())
             .unwrap();
         check_trace(world, landing);
         check_model(
@@ -559,7 +559,7 @@ End";
         );
         world.frame = 44;
         world
-            .tick_authored_ordinary_slow_death(id, &mut Default::default())
+            .tick_authored_slow_death_base(id, &mut Default::default())
             .unwrap();
         check_trace(world, settled);
     }
@@ -606,7 +606,7 @@ End";
     world.objects.get_mut(&id).unwrap().last_collidee = Some(tree);
     assert!(
         world
-            .tick_authored_ordinary_slow_death(id, &mut Default::default())
+            .tick_authored_slow_death_base(id, &mut Default::default())
             .unwrap()
     );
     let wreck = &world.objects[&id];
@@ -658,6 +658,244 @@ fn location_ocl_with_owner_id_never_draws_object_force() {
         .unwrap();
     assert_eq!(world.objects[&id].physics_accel, Vec3::ZERO);
     assert_eq!(world.logic_random.seed_words(), seed);
+}
+
+#[test]
+fn authored_jet_deck_death_executes_ground_ocl_before_removal() {
+    let death = r"Behavior = JetSlowDeathBehavior DeathTag
+ DeathTypes = NONE +CRUSHED
+ OCLOnGroundDeath = WreckToss
+End";
+    let mut world = force_world_with_kinds("VEHICLE AIRCRAFT", 50, true, death);
+    world.frame = 41;
+    let id = world
+        .create_object("AuthoredWreck", Team::GLA, Vec3::Y * 25.0)
+        .unwrap();
+    world
+        .objects
+        .get_mut(&id)
+        .unwrap()
+        .status
+        .deck_height_offset = true;
+    kill(&mut world, id);
+    let wreck = &world.objects[&id];
+    assert!((wreck.physics_accel.y - 50.0 / wreck.physics_get_mass()).abs() < 1e-5);
+    assert!(!wreck.status.deck_height_offset);
+    assert!(wreck.slow_death.is_none());
+    assert!(
+        world
+            .pending_object_removal_snapshot()
+            .iter()
+            .any(|event| event.id == id)
+    );
+}
+
+#[test]
+fn authored_jet_air_death_runs_base_and_derived_initial_ocls() {
+    let death = r"Behavior = AIUpdateInterface Brain
+End
+Behavior = JetSlowDeathBehavior DeathTag
+ DestructionDelay = 10000
+ OCL = INITIAL WreckToss
+ OCLInitialDeath = WreckToss
+ RollRate = 0.125
+ RollRateDelta = 50%
+ PitchRate = 0.375
+ FallHowFast = 110%
+End";
+    let mut world = force_world_with_kinds("VEHICLE AIRCRAFT", 50, true, death);
+    let mut map = gamelogic::system::map_loader::MapData::new();
+    map.width = 8;
+    map.height = 8;
+    map.heightmap = vec![0; 64];
+    map.boundaries = vec![gamelogic::common::ICoord2D::new(8, 8)];
+    world
+        .world_services
+        .terrain()
+        .write()
+        .unwrap()
+        .try_load_map_geometry(map)
+        .unwrap();
+    world.frame = 41;
+    let id = world
+        .create_object("AuthoredWreck", Team::GLA, Vec3::Y * 25.0)
+        .unwrap();
+    // A cached support plane at the plane's altitude must not look like
+    // ground contact to a jet whose deck offset is clear.
+    world.objects.get_mut(&id).unwrap().ground_height = 25.0;
+    let seed = world.logic_random.seed_words();
+    let mut expected = game_engine::common::random_value::RandomState::default();
+    expected.set_seed_words(seed);
+    expected.next_int(1, 10);
+    expected.next_int(0, 0);
+    expected.next_int(0, 0);
+    expected.next_int(105, 195);
+    expected.next_int(0, 0);
+    let spin = 90.0_f32.to_radians() * (1.0 / 30.0);
+    for _ in 0..2 {
+        expected.next_real(0.0, std::f32::consts::TAU);
+        for _ in 0..3 {
+            expected.next_real(-spin, spin);
+        }
+    }
+    kill(&mut world, id);
+    let wreck = &world.objects[&id];
+    assert!((wreck.physics_accel.y - 100.0 / wreck.physics_get_mass()).abs() < 1e-5);
+    let jet = wreck.jet_slow_death.as_ref().unwrap();
+    assert_eq!(jet.death_frame, 41);
+    assert_eq!(jet.roll_rate, 0.125);
+    assert_eq!(jet.roll_rate_delta, 0.5);
+    assert_eq!(wreck.slow_death.as_ref().unwrap().destroy_at_frame, 341);
+    assert_eq!(world.logic_random.seed_words(), expected.seed_words());
+}
+
+#[test]
+fn authored_jet_same_frame_contact_and_secondary_match_original_after_restore() {
+    let death = r"Behavior = AIUpdateInterface Brain
+End
+Behavior = JetSlowDeathBehavior DeathTag
+ DestructionDelay = 133
+ OCL = INITIAL BaseInitial
+ OCL = FINAL BaseFinal
+ OCLInitialDeath = JetInitial
+ OCLHitGround = JetContact
+ OCLSecondary = JetSecondary
+ OCLFinalBlowUp = JetFinal
+ RollRate = 0.125
+ RollRateDelta = 50%
+ PitchRate = 0.375
+ DelaySecondaryFromInitialDeath = 100
+ DelayFinalBlowUpFromHitGround = 0
+End";
+    let markers = [
+        "BaseInitial",
+        "JetInitial",
+        "JetContact",
+        "JetSecondary",
+        "BaseFinal",
+        "JetFinal",
+    ];
+    let fixture = || {
+        let objects = markers
+            .iter()
+            .map(|name| format!("Object {name}\nKindOf = IMMOBILE\nEnd\n"))
+            .collect::<String>();
+        let mut world = force_world_with_objects("VEHICLE AIRCRAFT", 50, true, death, &objects);
+        let ocls = markers.map(|name| {
+            format!(
+                "ObjectCreationList {name}\nCreateObject\nObjectNames = {name}\nCount = 1\nEnd\nEnd"
+            )
+        });
+        world.apply_receiving_ocl_overrides(&ocls).unwrap();
+        world
+    };
+    let mut source = fixture();
+    source.frame = 41;
+    let id = source
+        .create_object("AuthoredWreck", Team::GLA, Vec3::Y * 25.0)
+        .unwrap();
+    let tick = |world: &mut GameLogic, frame| {
+        world.frame = frame;
+        world
+            .update_ai_with_effects(&[id], 1.0 / 30.0, &mut Default::default())
+            .unwrap();
+    };
+    let read = |world: &GameLogic| {
+        let mut created: Vec<_> = world
+            .objects
+            .registered()
+            .filter_map(|(id, object)| {
+                let name = object.template_name.as_str();
+                markers.contains(&name).then(|| (id.0, name.to_owned()))
+            })
+            .collect();
+        // This registry iterates in update order. Allocation IDs reflect the
+        // synchronous creation order observed by the original callback probe.
+        created.sort_unstable_by_key(|(id, _)| *id);
+        created
+            .into_iter()
+            .map(|(_, name)| name)
+            .collect::<Vec<_>>()
+    };
+
+    kill(&mut source, id);
+    assert_eq!(read(&source).len(), 2);
+    assert_eq!(
+        source.objects[&id]
+            .slow_death
+            .as_ref()
+            .unwrap()
+            .destroy_at_frame,
+        45
+    );
+    tick(&mut source, 42);
+    let builder = crate::save_load::SnapshotBuilder::new();
+    let state = source.objects.get_mut(&id).unwrap().jet_slow_death.take();
+    let error = builder.create_world_snapshot(&source).unwrap_err();
+    assert!(
+        error
+            .to_string()
+            .contains("selected slot and Jet continuation disagree")
+    );
+    source.objects.get_mut(&id).unwrap().jet_slow_death = state;
+    let snapshot = builder.create_world_snapshot(&source).unwrap();
+    let bytes = bincode_legacy::serialize(&snapshot).unwrap();
+    let snapshot = crate::save_load::snapshot::decode_bincode_world_snapshot(&bytes).unwrap();
+    let mut restored = fixture();
+    builder
+        .restore_from_snapshot(&snapshot, &mut restored)
+        .unwrap();
+
+    for world in [&mut source, &mut restored] {
+        tick(world, 43);
+        let initial = read(world);
+        assert_eq!(initial.len(), 2);
+        assert_eq!(world.objects[&id].shock_roll_rate, 0.0625);
+        assert!(world.set_owned_object_position_with_effects(
+            id,
+            Vec3::ZERO,
+            44,
+            &mut Default::default(),
+        ));
+        tick(world, 44);
+        let object = &world.objects[&id];
+        let jet = object.jet_slow_death.as_ref().unwrap();
+        assert_eq!(jet.hit_ground_frame, 44);
+        assert_eq!(jet.death_frame, 0);
+        assert_eq!(object.shock_pitch_rate, 0.375);
+        assert!(
+            !world
+                .pending_object_removal_snapshot()
+                .iter()
+                .any(|event| event.id == id)
+        );
+
+        let contact = read(world);
+        tick(world, 45);
+        assert!(
+            world
+                .pending_object_removal_snapshot()
+                .iter()
+                .any(|event| event.id == id)
+        );
+        let final_effects = read(world);
+        let trace = [
+            (41, &initial[..]),
+            (44, &contact[initial.len()..]),
+            (45, &final_effects[contact.len()..]),
+        ]
+        .into_iter()
+        .flat_map(|(frame, effects)| effects.iter().map(move |name| format!("{frame} {name}")))
+        .collect::<Vec<_>>()
+        .join("\n");
+        assert_eq!(trace, include_str!("jet_slow_death_order.trace").trim_end());
+        tick(world, 46);
+        assert_eq!(read(world).len(), 6);
+    }
+    assert_eq!(
+        source.logic_random.seed_words(),
+        restored.logic_random.seed_words()
+    );
 }
 
 #[test]

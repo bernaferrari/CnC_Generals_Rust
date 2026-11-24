@@ -79,6 +79,9 @@ jobs:
       - name: Regenerate and compare the original C++ SlowDeath callback trace
         run: python3 Code/Main/scripts/verify_slow_death_parity.py --cxx c++
 
+      - name: Compare the original C++ JetSlowDeath callback trace
+        run: python3 Code/Main/scripts/verify_jet_slow_death_parity.py --cxx c++
+
       - name: Reject stale generated parity inventory
         working-directory: .
         run: >-
