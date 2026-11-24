@@ -211,7 +211,7 @@ impl GameLogic {
                 if let Some(attacker) = self.objects.get_mut(&attacker_id) {
                     if let Some(rule) = attacker.selected_native_weapon_rule(ground_slot) {
                         let first_in_clip = attacker.weapon_slot(ground_slot).is_some_and(|weapon| {
-                            weapon.clip_size <= 0 || weapon.ammo.unwrap_or(weapon.clip_size) >= weapon.clip_size
+                            weapon.clip_size == 0 || weapon.ammo.unwrap_or(weapon.clip_size) >= weapon.clip_size
                         });
                         let applies = rule.prefire_type != gamelogic::weapon::WeaponPrefireType::PrefirePerClip
                             || first_in_clip;
