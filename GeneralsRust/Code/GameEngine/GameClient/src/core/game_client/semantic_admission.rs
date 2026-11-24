@@ -270,6 +270,30 @@ impl NativeDrawableOwner<'_> {
             .presentation_direct_drawable_state(epoch, object)
     }
 
+    /// Drawable.cpp applies the chassis impulse once, before visiting Draw
+    /// modules. It does not allocate locomotor state for a Drawable without it.
+    pub fn apply_native_weapon_recoil(
+        &mut self,
+        key: PresentationDirectDrawableBindingKey,
+        amount: f32,
+        direction: f32,
+        source_orientation: f32,
+    ) {
+        if amount == 0.0 || self.binding_key(key.host_epoch, key.object_id) != Some(key) {
+            return;
+        }
+        let Some(loco) = self.drawables.drawable_map
+            .get_mut(&key.drawable_id)
+            .and_then(|drawable| drawable.as_any_mut().downcast_mut::<crate::drawable::BasicDrawable>())
+            .and_then(|drawable| drawable.loco_info.as_mut())
+        else {
+            return;
+        };
+        let angle = direction - source_orientation + std::f32::consts::PI;
+        loco.acceleration_pitch_rate += amount * angle.cos();
+        loco.acceleration_roll_rate += amount * angle.sin();
+    }
+
     /// Apply an ambient operation to the Drawable that owns playback and
     /// writes the client snapshot.
     pub fn apply_ambient_change(

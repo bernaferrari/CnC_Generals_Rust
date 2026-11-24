@@ -248,6 +248,15 @@ pub(crate) trait NativeProjectedRadiusAllocator {
     }
 }
 
+/// The Draw module that handled a projectile FX list. It starts its barrel
+/// after the FX callback returns. Earlier modules finish during the Draw walk.
+#[cfg(feature = "game_client")]
+pub(crate) struct NativeDetonationFx {
+    pub pose: glam::Mat4,
+    pub module_index: u32,
+    pub condition_bits: Option<u128>,
+}
+
 pub(crate) trait NativeViewEffects {
     fn has_current_drawable(&self, _identity: &LiveDrawPlaybackIdentity) -> bool {
         false
@@ -381,16 +390,23 @@ pub(crate) trait NativeViewEffects {
         Err("native FX bone query has no receiving installed-render capability".into())
     }
 
-    /// Probe the first receiving Draw module that handles the temporary
-    /// PRIMARY/barrel-zero detonation weapon. Return its world pose in host axes.
+    /// Apply chassis recoil and walk the installed Draw modules. If a module
+    /// handles FX, its own barrel start is deferred until the list has run.
     #[cfg(feature = "game_client")]
-    fn detonation_weapon_fx_pose(
+    fn begin_detonation_draw(
         &mut self,
         _source: &NativeSlaveSource,
         _pre_physics_pose: Option<glam::Mat4>,
-    ) -> Option<glam::Mat4> {
+        _has_fx: bool,
+        _recoil: f32,
+        _direction: f32,
+        _source_orientation: f32,
+    ) -> Option<NativeDetonationFx> {
         None
     }
+
+    #[cfg(feature = "game_client")]
+    fn finish_detonation_draw(&mut self, _source: &NativeSlaveSource, _fx: NativeDetonationFx) {}
 
     #[cfg(feature = "game_client")]
     fn update_drawable_supply_status(

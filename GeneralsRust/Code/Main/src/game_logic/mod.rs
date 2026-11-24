@@ -62,7 +62,7 @@ pub(crate) use script_presentation::{
 #[cfg(feature = "game_client")]
 pub(crate) use script_presentation::{NativeBodyVisualChange, NativeProjectedRadiusAllocator};
 #[cfg(feature = "game_client")]
-pub(crate) use script_presentation::{NativeFactoryDrawableSource, NativeObjectRetirement};
+pub(crate) use script_presentation::{NativeDetonationFx, NativeFactoryDrawableSource, NativeObjectRetirement};
 
 #[cfg(test)]
 pub(crate) fn evaluate_and_execute_scripts_for_test(logic: &mut game_logic::GameLogic, dt: f32) {

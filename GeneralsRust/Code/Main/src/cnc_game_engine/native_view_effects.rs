@@ -533,16 +533,29 @@ impl NativeViewEffects for NativeRendererViewEffects<'_> {
             .map_err(|error| format!("native FX bone query unavailable: {error:?}"))
     }
 
-    fn detonation_weapon_fx_pose(
+    fn begin_detonation_draw(
         &mut self,
         source: &NativeSlaveSource,
         pre_physics_pose: Option<glam::Mat4>,
-    ) -> Option<glam::Mat4> {
+        has_fx: bool,
+        recoil: f32,
+        direction: f32,
+        source_orientation: f32,
+    ) -> Option<crate::game_logic::NativeDetonationFx> {
         let drawable = self.drawables.direct_drawable_state(self.host_epoch, source.identity.object_id())?;
-        self.poses
-            .sample_detonation_weapon_fx_pose(source, drawable, pre_physics_pose, self.graphics)
+        self.poses.validate_object_retirement(&source.identity, drawable.binding_key).ok()?;
+        self.drawables.apply_native_weapon_recoil(
+            drawable.binding_key, recoil, direction, source_orientation,
+        );
+        self.poses.begin_detonation_draw(source, drawable, pre_physics_pose, has_fx, self.graphics)
             .ok()
             .flatten()
+    }
+
+    fn finish_detonation_draw(&mut self, source: &NativeSlaveSource, fx: crate::game_logic::NativeDetonationFx) {
+        if let Some(key) = self.drawables.binding_key(self.host_epoch, source.identity.object_id()) {
+            self.poses.finish_detonation_draw(&source.identity, key, fx);
+        }
     }
 
     fn accepts_installed_state_particles(

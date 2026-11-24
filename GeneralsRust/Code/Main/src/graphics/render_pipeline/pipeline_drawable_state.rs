@@ -444,6 +444,31 @@ fn discard_unvisualizable_discharges(
     }
 }
 
+pub(super) fn start_weapon_barrel_recoil(
+    state: &mut ObjectVisualState,
+    topology: &crate::assets::W3dWeaponBarrelTopology,
+    kinematics: &crate::assets::AuthoredDrawRecoilKinematics,
+    slot: u8,
+    barrel: u8,
+) {
+    if !kinematics.is_visual_usable() {
+        return;
+    }
+    let Some(binding) = topology.slot(slot).and_then(|barrels| barrels.get(usize::from(barrel))) else {
+        return;
+    };
+    if !binding.has_recoil_or_muzzle() {
+        return;
+    }
+    if !recoil_slots_match_topology(&state.recoil_slots, topology) {
+        state.recoil_slots = recoil_layout_for_topology(topology);
+    }
+    let recoil = &mut state.recoil_slots[usize::from(slot)][usize::from(barrel)];
+    // W3DModelDraw preserves shift and replaces only the phase and rate.
+    recoil.phase = crate::save_load::snapshot::ClientDrawableRecoilPhase::RecoilStart;
+    recoil.recoil_rate = kinematics.initial_recoil_per_logic_frame();
+}
+
 fn evolve_recoil_and_build_controls(
     visual_state: &mut ObjectVisualState,
     topology: &crate::assets::W3dWeaponBarrelTopology,
@@ -459,21 +484,7 @@ fn evolve_recoil_and_build_controls(
         if sequence == 0 || sequence <= visual_state.last_seen_weapon_discharge_sequence {
             continue;
         }
-        let slot_index = usize::from(weapon_slot);
-        if let (Some(barrels), Some(states)) = (
-            topology.slots.get(slot_index),
-            visual_state.recoil_slots.get_mut(slot_index),
-        ) {
-            if let Some((barrel, recoil)) = bars_get_with_state(barrels, states, fired_barrel) {
-                if usable_kinematics && barrel.has_recoil_or_muzzle() {
-                    // C++ starts a fresh visual discharge from the current shift
-                    // (including a settling recoil), replacing only phase/rate.
-                    recoil.phase =
-                        crate::save_load::snapshot::ClientDrawableRecoilPhase::RecoilStart;
-                    recoil.recoil_rate = kinematics.initial_recoil_per_logic_frame();
-                }
-            }
-        }
+        start_weapon_barrel_recoil(visual_state, topology, kinematics, weapon_slot, fired_barrel);
         visual_state.last_seen_weapon_discharge_sequence = sequence;
     }
 
@@ -550,18 +561,6 @@ fn recoil_controls_for_topology(
         return Vec::new();
     }
     evolve_recoil_and_build_controls(visual_state, topology, kinematics, discharges)
-}
-
-fn bars_get_with_state<'a>(
-    barrels: &'a [crate::assets::W3dWeaponBarrelBinding],
-    states: &'a mut [ObjectWeaponRecoilState],
-    fired_barrel: u8,
-) -> Option<(
-    &'a crate::assets::W3dWeaponBarrelBinding,
-    &'a mut ObjectWeaponRecoilState,
-)> {
-    let index = usize::from(fired_barrel);
-    Some((barrels.get(index)?, states.get_mut(index)?))
 }
 
 /// C++ `setPauseAnimation(!getDrawable()->getShouldAnimate(m_animationsRequirePower))`.

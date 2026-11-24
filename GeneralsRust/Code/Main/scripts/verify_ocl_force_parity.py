@@ -399,6 +399,126 @@ int main() {
 
 
 
+def verify_detonation_draw_order(cxx: str, temp: Path) -> None:
+    drawable_source = (ROOT / "GeneralsMD/Code/GameEngine/Source/GameClient/Drawable.cpp").read_text()
+    model_source = MODEL_DRAW_SOURCE.read_text()
+    drawable_start = drawable_source.index("Bool Drawable::handleWeaponFireFX(")
+    drawable_end = drawable_source.index("\n}", drawable_start) + 2
+    model_start = model_source.index("Bool W3DModelDraw::handleWeaponFireFX(")
+    model_end = model_source.index("\n}", model_start) + 2
+    cpp = temp / "detonation_draw_order.cpp"
+    binary = temp / "detonation_draw_order"
+    cpp.write_text(r"""
+#include <cmath>
+#include <cstdlib>
+#include <string>
+#include <vector>
+#define DEBUG_ASSERTCRASH(...)
+#define DEBUG_LOG(...)
+using Bool = bool;
+using Int = int;
+using Real = float;
+using WeaponSlotType = int;
+constexpr Real PI = 3.14159265358979323846f;
+using std::cos;
+using std::sin;
+float Cos(float x) { return cos(x); }
+float Sin(float x) { return sin(x); }
+struct Coord3D { float x, y, z; };
+struct Matrix3D {
+    float Get_X_Translation() const { return 0.f; }
+    float Get_Y_Translation() const { return 0.f; }
+    float Get_Z_Translation() const { return 0.f; }
+};
+struct Object {
+    float getOrientation() const { return 0.f; }
+    const Matrix3D* getTransformMatrix() const { return nullptr; }
+    const Coord3D* getPosition() const { std::abort(); }
+};
+std::string trace;
+struct FXList {
+    static void doFXPos(const FXList*, const Coord3D*, const Matrix3D*,
+                        Real, const Coord3D*, Real) { trace += 'F'; }
+};
+struct ObjectDrawInterface {
+    virtual bool handleWeaponFireFX(int, int, const FXList*, Real, const Coord3D*, Real) = 0;
+};
+struct DrawModule {
+    ObjectDrawInterface* draw;
+    ObjectDrawInterface* getObjectDrawInterface() const { return draw; }
+};
+struct Drawable {
+    struct LocoInfo { Real m_accelerationPitchRate{}, m_accelerationRollRate{}; };
+    LocoInfo* m_locoInfo;
+    Object obj;
+    DrawModule* modules[4]{};
+    const Object* getObject() const { return &obj; }
+    DrawModule** getDrawModules() { return modules; }
+    bool handleWeaponFireFX(int, int, const FXList*, Real, Real, Real, const Coord3D*, Real);
+};
+struct ModelConditionInfo {
+    enum { BARRELS_VALID = 1 };
+    struct WeaponBarrelInfo {
+        int m_fxBone, m_recoilBone, m_muzzleFlashBone;
+        char tag;
+        void setMuzzleFlashHidden(void*, bool hidden) const {
+            if (hidden) std::abort();
+            trace += tag;
+        }
+    };
+    using WeaponBarrelInfoVec = std::vector<WeaponBarrelInfo>;
+    int m_validStuff = BARRELS_VALID;
+    WeaponBarrelInfoVec m_weaponBarrelInfoVec[1];
+};
+struct WeaponRecoilInfo {
+    enum { RECOIL_START = 1 };
+    int m_state = 0;
+    float m_recoilRate = 0;
+};
+struct W3DModelDraw : ObjectDrawInterface {
+    struct RenderObject {
+        bool Is_Hidden() const { return false; }
+        Matrix3D Get_Bone_Transform(int) const { return {}; }
+    } render;
+    RenderObject* m_renderObject = &render;
+    struct Data { float m_initialRecoil = 2.f; } data;
+    ModelConditionInfo state;
+    const ModelConditionInfo* m_curState = &state;
+    WeaponRecoilInfo m_weaponRecoilInfoVec[1][1];
+    Drawable* owner;
+    const Drawable* getDrawable() const { return owner; }
+    const Data* getW3DModelDrawModuleData() const { return &data; }
+    W3DModelDraw(Drawable* owner, int fxBone, char tag) : owner(owner) {
+        state.m_weaponBarrelInfoVec[0].push_back({fxBone, 1, 1, tag});
+    }
+    bool handleWeaponFireFX(int, int, const FXList*, Real, const Coord3D*, Real) override;
+};
+""" + drawable_source[drawable_start:drawable_end]
+        + model_source[model_start:model_end] + r"""
+int main() {
+    Drawable::LocoInfo loco;
+    Drawable drawable{&loco};
+    W3DModelDraw first(&drawable, 0, 'a'), second(&drawable, 1, 'b'), third(&drawable, 1, 'c');
+    DrawModule a{&first}, b{&second}, c{&third};
+    drawable.modules[0] = &a;
+    drawable.modules[1] = &b;
+    drawable.modules[2] = &c;
+    FXList fx;
+    if (!drawable.handleWeaponFireFX(0, 0, &fx, 0, 2, 0, nullptr, 0)
+        || trace != "aFb" || third.m_weaponRecoilInfoVec[0][0].m_state != 0
+        || loco.m_accelerationPitchRate != -2.f) return 1;
+    trace.clear();
+    if (drawable.handleWeaponFireFX(0, 0, nullptr, 0, 2, 0, nullptr, 0)
+        || trace != "abc" || third.m_weaponRecoilInfoVec[0][0].m_state != WeaponRecoilInfo::RECOIL_START
+        || third.m_weaponRecoilInfoVec[0][0].m_recoilRate != 2.f
+        || loco.m_accelerationPitchRate != -4.f) return 2;
+}
+""")
+    subprocess.run([cxx, "-std=c++17", cpp, "-o", binary], check=True)
+    subprocess.run([binary], check=True)
+    print("Original Drawable starts recoil across the Draw chain with and without FX")
+
+
 def verify_ocl_player_eligibility(cxx: str, temp: Path) -> None:
     original = OCL_SOURCE.read_text()
     start = original.index("if (m_requiresLivePlayer &&")
@@ -746,6 +866,7 @@ def main() -> int:
         verify_projectile_attribution(args.cxx, temp)
         verify_detonation_rank(args.cxx, temp)
         verify_detonation_fx_position(args.cxx, temp)
+        verify_detonation_draw_order(args.cxx, temp)
     if len(original) != len(CASES) or len(ported) != len(CASES):
         raise RuntimeError("Unexpected vector count")
     for scenario, expected, actual in zip(CASES, original, ported, strict=True):

@@ -216,11 +216,15 @@ fn detonation_fx_samples_first_armed_draw_module_and_preserves_birth_identity() 
     let mut pipeline = RenderPipeline::initialize(engine, &graphics).unwrap();
     let mut client = GameClient::new().unwrap();
     let mut world = GameLogic::new();
-    let armed_draw = DRAW.replace(" First", " Second").replace(
+    let recoil_draw = DRAW.replace(" Model = CameraModel", " Model = CameraModel
+ WeaponRecoilBone = PRIMARY CAMERA");
+    let armed_draw = recoil_draw.replace(" First", " Second").replace(
         " Model = CameraModel",
-        " Model = CameraModel\n WeaponFireFXBone = PRIMARY CAMERA",
+        " Model = CameraModel
+ WeaponFireFXBone = PRIMARY CAMERA",
     );
-    let draws = format!("{DRAW}{armed_draw}");
+    let last_draw = recoil_draw.replace(" First", " Third");
+    let draws = format!("{recoil_draw}{armed_draw}{last_draw}");
     admit(&mut world, &draws, 103.0);
     let render_unit = source(&mut world);
     sync(&mut client, &mut pipeline, &mut graphics, &render_unit, 0);
@@ -229,24 +233,42 @@ fn detonation_fx_samples_first_armed_draw_module_and_preserves_birth_identity() 
     pipeline.admit_native_drawable_binding(&actor.identity, drawable.binding_key).unwrap();
     pipeline.observe_animation_sync(1000);
     let mut poses = pipeline.borrow_native_installed_poses();
-    let current = poses.sample_detonation_weapon_fx_pose(&actor, drawable, None, &mut graphics)
+    let phase = |poses: &super::native_pose_loan::NativeInstalledPoseLoan<'_>, module| {
+        poses.drawable_visual_states[&(actor.identity.owner_id(), module)].recoil_slots[0]
+            .first().map(|recoil| recoil.phase)
+    };
+    let started = Some(crate::save_load::snapshot::ClientDrawableRecoilPhase::RecoilStart);
+    let current = poses.begin_detonation_draw(&actor, drawable, None, true, &mut graphics)
         .unwrap().expect("the second Draw module owns the authored FX pivot");
-    assert_eq!(current.w_axis.truncate(), Vec3::new(113.0, 5.0, 7.0));
+    assert_eq!(current.pose.w_axis.truncate(), Vec3::new(113.0, 5.0, 7.0));
+    assert_eq!(current.module_index, 1);
+    assert_eq!(phase(&poses, 0), started);
+    assert_ne!(phase(&poses, 1), started);
+    assert_ne!(phase(&poses, 2), started);
+    poses.finish_detonation_draw(&actor.identity, drawable.binding_key, current);
+    assert_eq!(phase(&poses, 1), started);
+    assert_ne!(phase(&poses, 2), started);
     let earlier = Mat4::from_translation(Vec3::new(40.0, 5.0, 7.0));
-    let captured = poses.sample_detonation_weapon_fx_pose(&actor, drawable, Some(earlier), &mut graphics)
+    let captured = poses.begin_detonation_draw(&actor, drawable, Some(earlier), true, &mut graphics)
         .unwrap().unwrap();
-    assert_eq!(captured.w_axis.truncate(), Vec3::new(50.0, 5.0, 7.0));
+    assert_eq!(captured.pose.w_axis.truncate(), Vec3::new(50.0, 5.0, 7.0));
     let hidden = game_client::core::game_client::PresentationDirectDrawableState {
         scene_effectively_hidden: true, ..drawable
     };
     assert_eq!(
-        poses.sample_detonation_weapon_fx_pose(&actor, hidden, Some(earlier), &mut graphics),
-        Ok(Some(earlier)),
+        poses.begin_detonation_draw(&actor, hidden, Some(earlier), true, &mut graphics)
+            .unwrap().unwrap().pose,
+        earlier,
     );
+    assert!(poses.begin_detonation_draw(&actor, drawable, None, false, &mut graphics)
+        .unwrap().is_none());
+    assert_eq!(phase(&poses, 2), started, "null FX must visit the final Draw module");
+
     let mut peer = GameLogic::new();
     admit(&mut peer, &draws, 3.0);
     let foreign = peer.current_native_slave_source(ID, 0).unwrap();
-    assert!(poses.sample_detonation_weapon_fx_pose(&foreign, drawable, None, &mut graphics).is_err());
+    assert!(poses.begin_detonation_draw(&foreign, drawable, None, true, &mut graphics).is_err());
+
 }
 
 #[test]

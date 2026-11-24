@@ -153,6 +153,16 @@ fn native_cpu_draw_pose_follows_view_order_and_binding_lifetime() {
             .get_loco_info()
             .map(|loco| loco.pitch_rate)
     };
+    client.borrow_native_drawable_owner()
+        .apply_native_weapon_recoil(first, 2.0, 0.0, 0.0);
+    let acceleration = |client: &GameClient, id| {
+        client.find_drawable_by_id(id).unwrap().as_any()
+            .downcast_ref::<BasicDrawable>().unwrap().get_loco_info()
+            .map(|loco| (loco.acceleration_pitch_rate, loco.acceleration_roll_rate))
+    };
+    let (pitch, roll) = acceleration(&client, first.drawable_id).unwrap();
+    assert!((pitch + 2.0).abs() < 1.0e-6 && roll.abs() < 1.0e-6);
+    assert_eq!(acceleration(&client, second.drawable_id), Some((0.0, 0.0)));
     assert_eq!(pitch_rate(&client, first.drawable_id), Some(2.0));
     assert_eq!(pitch_rate(&client, second.drawable_id), Some(1.0));
     assert_eq!(opacity(&client, first), 0.8 * 0.8);
@@ -179,7 +189,10 @@ fn native_cpu_draw_pose_follows_view_order_and_binding_lifetime() {
     let recreated = key(&client, ids[0], 72);
     assert_ne!(recreated, first);
     assert_eq!(pitch_rate(&client, recreated.drawable_id), None);
-    let owner = client.borrow_native_drawable_owner();
+    let mut owner = client.borrow_native_drawable_owner();
+    owner.apply_native_weapon_recoil(first, 2.0, 0.0, 0.0);
+    owner.apply_native_weapon_recoil(recreated, 2.0, 0.0, 0.0);
     assert!(owner.native_draw_mesh_pose(first).is_err());
     assert_eq!(owner.native_draw_mesh_pose(recreated).unwrap().1, None);
+    assert_eq!(acceleration(&client, recreated.drawable_id), None);
 }

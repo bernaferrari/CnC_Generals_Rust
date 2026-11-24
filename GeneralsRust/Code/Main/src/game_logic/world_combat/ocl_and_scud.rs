@@ -911,14 +911,12 @@ impl GameLogic {
                 |(rule, rank)| rule.get_projectile_detonate_fx(game_logic_veterancy(*rank))
                     .map_or("", |fx| fx.name()),
             ).trim();
-            if !fx_name.is_empty() && !fx_name.eq_ignore_ascii_case("None") {
-                self.dispatch_projectile_detonation_fx(
-                    impact,
-                    fx_name,
-                    ranked_weapon.as_ref().map(|(rule, _)| rule.as_ref()),
-                    presentation_effects,
-                );
-            }
+            self.dispatch_projectile_detonation_fx(
+                impact,
+                (!fx_name.is_empty() && !fx_name.eq_ignore_ascii_case("None")).then_some(fx_name),
+                ranked_weapon.as_ref().map(|(rule, _)| rule.as_ref()),
+                presentation_effects,
+            );
             let error = match &impact.detonation_source {
                 ProjectileDetonationSource::Object { id, generation, epoch, pre_physics_pose, .. } => {
                     // Weapon.cpp:943–949 invokes the Object overload on
@@ -1058,14 +1056,14 @@ impl GameLogic {
     fn dispatch_projectile_detonation_fx(
         &mut self,
         impact: &crate::game_logic::combat::ProjectileImpactFx,
-        name: &str,
+        name: Option<&str>,
         rule: Option<&gamelogic::weapon::WeaponTemplate>,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) {
         use crate::game_logic::combat::ProjectileDetonationSource;
         use crate::presentation_frame::{FrozenWeaponVisualFxRoute, FrozenWeaponVisualSourceGate};
 
-        let (position, matrix, speed, radius) = match &impact.detonation_source {
+        let (name, position, matrix, radius) = match &impact.detonation_source {
             ProjectileDetonationSource::Object {
                 id, pre_physics_pose, primary_damage_radius, ..
             } => {
@@ -1081,50 +1079,71 @@ impl GameLogic {
                     source_is_disguised: actor.status.disguised,
                     source_is_mine: actor.is_kind_of(KindOf::Mine),
                     weapon_plays_fx_when_stealthed: rule.is_some_and(|rule| rule.play_fx_when_stealthed),
-                    selected_fx_is_present: true,
+                    selected_fx_is_present: name.is_some(),
                     logic_frame: self.frame,
                     // WeaponStore::handleProjectileDetonation constructs a
                     // temporary weapon this frame (Weapon.cpp:1504,1742).
                     suspend_fx_frame: self.frame.wrapping_add(rule.map_or(0, |rule| rule.suspend_fx_delay)),
                 };
-                if gate.fx_route() != Some(FrozenWeaponVisualFxRoute::BroadcastWithFireFx) {
-                    return;
-                }
-                #[cfg(feature = "game_client")]
-                let drawable_pose = effects.view.as_deref_mut().and_then(|view| {
-                    let source = self.current_native_slave_source(*id, view.local_player_id()).ok()?;
-                    view.detonation_weapon_fx_pose(&source, *pre_physics_pose)
-                });
-                #[cfg(not(feature = "game_client"))]
-                let drawable_pose: Option<glam::Mat4> = None;
+                let has_fx = match gate.fx_route() {
+                    None | Some(FrozenWeaponVisualFxRoute::DrawableSuppressed) => return,
+                    Some(FrozenWeaponVisualFxRoute::BroadcastWithoutFireFx) => false,
+                    Some(FrozenWeaponVisualFxRoute::BroadcastWithFireFx) => true,
+                };
+                let source_pose = pre_physics_pose.unwrap_or_else(|| actor.get_transform_matrix());
+                let speed = rule.map_or(0.0, |rule| rule.weapon_speed);
 
-                // Weapon.cpp:936–939, when the Drawable did not handle FX.
-                // A contact weapon changes the primary point, not its basis.
-                let pose = drawable_pose.or(*pre_physics_pose).unwrap_or_else(|| actor.get_transform_matrix());
-                let position = if drawable_pose.is_none()
-                    && rule.is_some_and(gamelogic::weapon::WeaponTemplate::is_contact_weapon)
+                #[cfg(feature = "game_client")]
+                if let Some(view) = effects.view.as_deref_mut()
+                    && let Ok(source) = self.current_native_slave_source(*id, view.local_player_id())
                 {
+                    let recoil = rule.map_or(0.0, |rule| rule.weapon_recoil);
+                    let delta = impact.position - source_pose.w_axis.truncate();
+                    let direction = if recoil == 0.0 { 0.0 } else { delta.z.atan2(delta.x) };
+                    if let Some(fx) = view.begin_detonation_draw(
+                        &source, *pre_physics_pose, has_fx, recoil, direction, actor.get_orientation(),
+                    ) && let Some(name) = name.filter(|_| has_fx)
+                    {
+                        let _ = self.dispatch_fx_list_at_host_position_oriented_with_effects(
+                            name, fx.pose.w_axis.truncate(), Some(impact.position), speed,
+                            *primary_damage_radius, Some(fx.pose), effects,
+                        );
+                        if let Some(view) = effects.view.as_deref_mut() {
+                            view.finish_detonation_draw(&source, fx);
+                        }
+                        return;
+                    }
+                }
+
+                // Weapon.cpp:936–939. A contact weapon changes the primary
+                // point of the fallback and keeps the source basis.
+                let Some(name) = name.filter(|_| has_fx) else { return };
+                let position = if rule.is_some_and(gamelogic::weapon::WeaponTemplate::is_contact_weapon) {
                     impact.position
                 } else {
-                    pose.w_axis.truncate()
+                    source_pose.w_axis.truncate()
                 };
-                (position, Some(pose), rule.map_or(0.0, |rule| rule.weapon_speed), *primary_damage_radius)
+                let _ = self.dispatch_fx_list_at_host_position_oriented_with_effects(
+                    name, position, Some(impact.position), speed, *primary_damage_radius,
+                    Some(source_pose), effects,
+                );
+                return;
             }
             ProjectileDetonationSource::VirtualProjectile(projectile) => {
-                (impact.position, Some(projectile.pose), 0.0, projectile.primary_damage_radius)
+                let Some(name) = name else { return };
+                (name, impact.position, Some(projectile.pose), projectile.primary_damage_radius)
             }
             ProjectileDetonationSource::DelayedDamage => {
+                let Some(name) = name else { return };
                 let shooter = self.objects.get(&impact.shooter_id);
                 (
-                    impact.position,
-                    shooter.map(Object::get_transform_matrix),
-                    0.0,
+                    name, impact.position, shooter.map(Object::get_transform_matrix),
                     host_fire_fx_override_radius(shooter),
                 )
             }
         };
         let _ = self.dispatch_fx_list_at_host_position_oriented_with_effects(
-            name, position, Some(impact.position), speed, radius, matrix, effects,
+            name, position, Some(impact.position), 0.0, radius, matrix, effects,
         );
     }
 
