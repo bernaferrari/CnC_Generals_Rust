@@ -16,7 +16,7 @@ use gamelogic::object::registry::OBJECT_REGISTRY;
 
 mod ambient_services;
 mod basic_core;
-pub use ambient_services::{NativeAmbientAudio, NativeAmbientUpdate};
+pub use ambient_services::{NativeAmbientAudio, NativeAmbientChange, NativeAmbientUpdate};
 mod basic_drawable_trait;
 mod basic_modules;
 mod basic_overlay;

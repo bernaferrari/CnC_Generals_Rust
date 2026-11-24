@@ -37,6 +37,7 @@ mod audio_paths;
 pub mod audio_request;
 
 pub mod dynamic_audio_event_info;
+pub mod map_ambient;
 #[cfg(feature = "audio")]
 pub mod retail_adpcm;
 pub mod game_audio;

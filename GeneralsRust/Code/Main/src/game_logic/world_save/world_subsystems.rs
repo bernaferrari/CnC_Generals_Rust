@@ -95,6 +95,7 @@ impl GameLogic {
             properties,
             &mut Default::default(),
         )
+        .expect("detached map properties do not require native services");
     }
 
     pub(in super::super) fn apply_update_obj_values_from_map_properties_with_effects(
@@ -102,13 +103,13 @@ impl GameLogic {
         id: ObjectId,
         properties: &game_engine::common::dict::Dict,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
+    ) -> Result<(), String> {
         use game_engine::common::dict::DictType;
         use game_engine::common::name_key_generator::NameKeyGenerator;
         use game_engine::common::well_known_keys;
 
         if properties.get_pair_count() == 0 {
-            return;
+            return self.apply_map_drawable_ambient(id, properties, effects);
         }
 
         let get_bool = |key| {
@@ -204,12 +205,12 @@ impl GameLogic {
             (well_known_keys::key_object_powered(), ScriptDisable::Underpowered),
         ] {
             if let Some(value) = get_bool(key) {
-                let Some(object) = self.host_object(id) else { return };
+                let Some(object) = self.host_object(id) else { return Ok(()) };
                 let birth = object.visual_object_generation;
                 let epoch = self.visual_world_epoch;
                 self.set_owned_script_disable(id, flag, !value, effects);
                 if !self.spawn_identity_matches(id, birth, epoch) {
-                    return;
+                    return Ok(());
                 }
             }
         }
@@ -259,13 +260,13 @@ impl GameLogic {
         }
         if !grant_upgrades.is_empty() {
             let Some(actor) = self.objects.get(&id) else {
-                return;
+                return Ok(());
             };
             let birth = std::sync::Arc::downgrade(&actor.visual_draw_identity_token);
             for upgrade_name in grant_upgrades {
                 self.apply_upgrade_to_object_with_effects(id, &upgrade_name, effects);
                 if !self.object_birth_matches(id, &birth) {
-                    return;
+                    return Ok(());
                 }
             }
         }
@@ -285,64 +286,7 @@ impl GameLogic {
             self.apply_spawned_object_weather(id, weather_val);
         }
 
-        let mut sound_enabled_exists = false;
-        let mut sound_enabled = false;
-        if let Some(enabled) = get_bool(well_known_keys::key_object_sound_ambient_enabled()) {
-            sound_enabled_exists = true;
-            sound_enabled = enabled;
-        }
-
-        let custom_ambient = get_ascii(well_known_keys::key_object_sound_ambient());
-        if let Some(sound_name) = &custom_ambient {
-            if sound_name.is_empty() {
-                sound_enabled_exists = true;
-                sound_enabled = false;
-            } else if !sound_enabled_exists {
-                // C++ defaults to isPermanentSound(); map-custom names are loops.
-                sound_enabled_exists = true;
-                sound_enabled = true;
-            }
-        }
-
-        if let Some(sound_name) = &custom_ambient {
-            if sound_name.is_empty() {
-                self.stop_ambient_sound(id);
-                if let Some(created) = self.objects.get_mut(&id) {
-                    created.ambient_audio = None;
-                    created.ambient_sound_enabled_from_script = false;
-                }
-            } else if sound_enabled {
-                let pos = self.objects.get(&id).map(|o| o.get_position());
-                if let Some(created) = self.objects.get_mut(&id) {
-                    created.ambient_sound_enabled_from_script = true;
-                    created.ambient_audio = Some(sound_name.clone());
-                }
-                if let Some(pos) = pos {
-                    self.queue_audio_event(
-                        crate::game_logic::AudioEventRequest::new(sound_name)
-                            .with_object(id)
-                            .with_position(pos)
-                            .with_priority(80)
-                            .looping(),
-                    );
-                }
-            } else {
-                self.stop_ambient_sound(id);
-                if let Some(created) = self.objects.get_mut(&id) {
-                    created.ambient_sound_enabled_from_script = false;
-                    created.ambient_audio = Some(sound_name.clone());
-                }
-            }
-        } else if sound_enabled_exists {
-            if let Some(created) = self.objects.get_mut(&id) {
-                created.ambient_sound_enabled_from_script = sound_enabled;
-            }
-            if sound_enabled {
-                self.start_ambient_sound(id);
-            } else {
-                self.stop_ambient_sound(id);
-            }
-        }
+        self.apply_map_drawable_ambient(id, properties, effects)
     }
 
     /// Authored presentation intent; an explicit Client loan delivers physical snow.

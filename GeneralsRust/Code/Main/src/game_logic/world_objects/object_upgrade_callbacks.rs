@@ -2375,7 +2375,7 @@ End
         // skips onCreate and grants from onBuildComplete.
         world.apply_update_obj_values_from_map_properties_with_effects(
             id, &placement.properties, &mut effects,
-        );
+        ).unwrap();
         birth.finish(world, &mut effects).unwrap();
 
         let refinery = world.host_object(id).unwrap();

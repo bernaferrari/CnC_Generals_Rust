@@ -11,6 +11,62 @@ use crate::game_logic::host_move_ambient_audio::{
 const DEFAULT_DRAWABLE_AMBIENT_RETRY_FRAMES: u32 = 30;
 
 impl GameLogic {
+    #[cfg(feature = "game_client")]
+    fn apply_native_drawable_ambient(
+        &self,
+        id: ObjectId,
+        change: game_client::drawable::drawable::NativeAmbientChange<'_>,
+        effects: &mut ScriptPresentationEffects<'_>,
+    ) -> Result<bool, String> {
+        let (Some(view), Some(object)) = (effects.view.as_deref_mut(), self.host_object(id)) else {
+            return Ok(false);
+        };
+        let player = object.owner_player_id.map(|player| player as i32).unwrap_or(-1);
+        view.apply_drawable_ambient(
+            &self.live_draw_playback_identity(object),
+            change,
+            self.is_loading_map() || self.is_loading_saved_snapshot(),
+            &self.receiving_audio_locality_for_player(player),
+            self.queued_audio_events.policy(),
+        )
+    }
+
+    pub(in crate::game_logic) fn apply_map_drawable_ambient(
+        &mut self,
+        id: ObjectId,
+        dict: &game_engine::common::dict::Dict,
+        effects: &mut ScriptPresentationEffects<'_>,
+    ) -> Result<(), String> {
+        use game_engine::common::audio::map_ambient::{MapAmbientProperties, MapAmbientSelection};
+
+        let properties = MapAmbientProperties::from_dict(dict);
+        #[cfg(feature = "game_client")]
+        if self.apply_native_drawable_ambient(
+            id,
+            game_client::drawable::drawable::NativeAmbientChange::Map(&properties),
+            effects,
+        )? {
+            return Ok(());
+        }
+        #[cfg(not(feature = "game_client"))]
+        let _ = effects;
+
+        // Detached logical objects have no receiving Drawable or sound catalog.
+        let enabled = match properties.selection {
+            MapAmbientSelection::Silence => Some(false),
+            _ => properties.enabled,
+        };
+        if let Some(enabled) = enabled {
+            if let Some(object) = self.objects.get_mut(&id) {
+                object.ambient_sound_enabled_from_script = enabled;
+            }
+            if !enabled {
+                self.stop_ambient_sound(id);
+            }
+        }
+        Ok(())
+    }
+
     /// C++ `Drawable::update` (`Drawable.cpp:1290-1314`): permanent (loop-forever)
     /// SoundAmbient is re-added when Miles / leftover TheAudio culls it out of range.
     #[cfg(test)]
@@ -304,6 +360,26 @@ impl GameLogic {
             self.stop_ambient_sound(id);
         }
         true
+    }
+
+    pub(in crate::game_logic) fn enable_owned_object_sound_with_effects(
+        &mut self,
+        id: ObjectId,
+        enable: bool,
+        effects: &mut ScriptPresentationEffects<'_>,
+    ) -> Result<(), String> {
+        #[cfg(feature = "game_client")]
+        if self.apply_native_drawable_ambient(
+            id,
+            game_client::drawable::drawable::NativeAmbientChange::ScriptEnabled(enable),
+            effects,
+        )? {
+            return Ok(());
+        }
+        #[cfg(not(feature = "game_client"))]
+        let _ = effects;
+        self.enable_owned_object_sound(id, enable);
+        Ok(())
     }
 
 }

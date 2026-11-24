@@ -562,7 +562,9 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
                 }
                 ScriptObjectEffect::Sound(Sound::Enable { unit, enable }) => {
                     if let Some(id) = named(self.world, unit) {
-                        self.world.enable_owned_object_sound(id, *enable);
+                        self.world
+                            .enable_owned_object_sound_with_effects(id, *enable, &mut self.ui)
+                            .map_err(gamelogic::GameLogicError::Configuration)?;
                     }
                 }
                 ScriptObjectEffect::Unmanned(request) => {

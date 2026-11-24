@@ -249,6 +249,18 @@ pub(crate) trait NativeProjectedRadiusAllocator {
 }
 
 pub(crate) trait NativeViewEffects {
+    #[cfg(feature = "game_client")]
+    fn apply_drawable_ambient(
+        &mut self,
+        _identity: &LiveDrawPlaybackIdentity,
+        _change: game_client::drawable::drawable::NativeAmbientChange<'_>,
+        _defer_start: bool,
+        _locality: &game_engine::common::audio::AudioSubmissionLocality,
+        _policy: &game_engine::common::audio::script_policy::ScriptAudioPolicy,
+    ) -> Result<bool, String> {
+        Ok(false)
+    }
+
     /// Rank callbacks during native map construction borrow the same Client
     /// that owns the map's GameText and ControlBar.
     fn admission_rank_text(&mut self, _key: &str) -> Result<String, String> {

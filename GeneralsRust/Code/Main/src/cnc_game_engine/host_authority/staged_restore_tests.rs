@@ -1,4 +1,8 @@
 use super::*;
+
+#[cfg(all(feature = "game_client", not(target_arch = "wasm32")))]
+#[path = "../map_native_admission/ambient_tests.rs"]
+mod map_ambient;
 use crate::ai::AIDifficulty;
 use crate::game_logic::{GameLogic, GameMode, Player, Team};
 use crate::save_load::{GameDifficulty, SaveFileManager, SaveFileType};

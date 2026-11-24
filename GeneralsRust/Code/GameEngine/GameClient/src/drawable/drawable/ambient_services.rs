@@ -3,8 +3,16 @@
 use super::basic_core::ambient_sound_is_in_range;
 use super::*;
 use crate::system::TimeOfDay;
+use game_engine::common::audio::map_ambient::{MapAmbientProperties, ResolvedMapAmbient};
+use game_engine::common::audio::script_policy::ScriptAudioPolicy;
 use game_engine::common::audio::{AudioInstance, AudioManager, AudioSubmissionLocality};
 use gamelogic::common::types::BodyDamageType;
+
+/// The authored map admission and the script enable command share one Drawable.
+pub enum NativeAmbientChange<'a> {
+    Map(&'a MapAmbientProperties),
+    ScriptEnabled(bool),
+}
 
 /// Synchronous receiving audio facts for the end of one native Drawable
 /// update. The borrowed service stays outside Drawable state and is only used
@@ -278,6 +286,84 @@ impl NativeAmbientAudio for AudioManager {
 }
 
 impl BasicDrawable {
+    pub(crate) fn apply_native_ambient_change(
+        &mut self,
+        change: NativeAmbientChange<'_>,
+        defer_start: bool,
+        time_of_day: TimeOfDay,
+        audio: Option<(&mut AudioManager, &AudioInstance)>,
+        locality: &AudioSubmissionLocality,
+        policy: &ScriptAudioPolicy,
+    ) -> Result<(), String> {
+        use game_engine::common::thing::thing_template::ThingTemplateAudioType;
+
+        let was_enabled = self.ambient_sound_enabled_from_script;
+        let mut replaced_sound = false;
+        let (enabled, retrigger) = match change {
+            NativeAmbientChange::ScriptEnabled(enabled) => (Some(enabled), enabled),
+            NativeAmbientChange::Map(properties) => {
+                let template = self.receiving_template.as_ref().ok_or(
+                    "native map ambient requires its receiving template",
+                )?;
+                let mixer = audio.as_ref().map(|(mixer, _)| &**mixer);
+                let find = |name: &str| mixer.and_then(|mixer| mixer.find_audio_event_info(name));
+                match properties.resolve(
+                    || {
+                        let event = template.audio_event(ThingTemplateAudioType::SoundAmbient)?;
+                        event.get_audio_event_info().or_else(|| find(event.get_event_name()))
+                    },
+                    find,
+                ) {
+                    ResolvedMapAmbient::Silence => {
+                        replaced_sound = true;
+                        self.custom_sound_ambient_off = true;
+                        self.custom_sound_ambient_base_name = None;
+                        self.custom_sound_ambient_dynamic_info = None;
+                        self.custom_sound_ambient_base_resolved = false;
+                        (Some(false), false)
+                    }
+                    ResolvedMapAmbient::Selected { enabled, custom } => {
+                        if let Some(mut info) = custom {
+                            let base_name = info.get_audio_event_info().audio_name.clone();
+                            info.override_audio_name(&format!(
+                                " CUSTOM {} {base_name}", self.id.0 as i32
+                            ));
+                            self.custom_sound_ambient_off = false;
+                            self.custom_sound_ambient_base_name = Some(base_name);
+                            self.custom_sound_ambient_dynamic_info = Some(info);
+                            self.custom_sound_ambient_base_resolved = true;
+                            replaced_sound = true;
+                        }
+                        (enabled, replaced_sound || (!was_enabled && enabled == Some(true)))
+                    }
+                }
+            }
+        };
+
+        if let Some(enabled) = enabled {
+            self.ambient_sound_enabled_from_script = enabled;
+        }
+        if let Some((audio, instance)) = audio {
+            if replaced_sound || enabled == Some(false) {
+                self.stop_ambient_sound_with_audio(audio);
+            }
+            if retrigger && !defer_start
+                && self.ambient_sound_enabled && self.ambient_sound_enabled_from_script
+            {
+                self.start_ambient_sound_for_state_with_audio_policy(
+                    self.current_body_damage_type(),
+                    time_of_day,
+                    false,
+                    audio,
+                    instance,
+                    locality,
+                    Some(policy),
+                )?;
+            }
+        }
+        Ok(())
+    }
+
     pub fn owned_ambient_audio_handle(&self) -> Option<u32> {
         self.ambient_sound_event
             .as_ref()

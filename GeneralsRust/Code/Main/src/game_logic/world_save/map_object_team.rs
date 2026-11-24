@@ -338,7 +338,7 @@ mod tests {
 
         world.apply_update_obj_values_from_map_properties_with_effects(
             id, &map_object.properties, &mut effects,
-        );
+        ).unwrap();
         assert_eq!(world.host_object(id).unwrap().unit_health_script_percent(), 50);
         birth.finish(&mut world, &mut effects).unwrap();
 
@@ -421,7 +421,7 @@ mod tests {
         let source = birth.id;
         world.apply_update_obj_values_from_map_properties_with_effects(
             source, &map_object.properties, &mut effects,
-        );
+        ).unwrap();
         assert!(world.host_object(source).unwrap().status.destroyed);
         let replacement = world
             .host_objects()

@@ -263,6 +263,39 @@ impl NativeDrawableOwner<'_> {
             .map(|state| state.binding_key)
     }
 
+    /// Apply authored ambient properties or a script command to the same
+    /// Drawable that owns playback and writes the client snapshot.
+    pub fn apply_ambient_change(
+        &mut self,
+        key: PresentationDirectDrawableBindingKey,
+        change: crate::drawable::drawable::NativeAmbientChange<'_>,
+        defer_start: bool,
+        time_of_day: crate::system::TimeOfDay,
+        locality: &game_engine::common::audio::AudioSubmissionLocality,
+        policy: &game_engine::common::audio::script_policy::ScriptAudioPolicy,
+    ) -> Result<(), String> {
+        if self.binding_key(key.host_epoch, key.object_id) != Some(key) {
+            return Err("native ambient change has a stale Drawable binding".into());
+        }
+        let drawable = self
+            .drawables
+            .drawable_map
+            .get_mut(&key.drawable_id)
+            .and_then(|drawable| drawable.as_any_mut().downcast_mut::<crate::drawable::BasicDrawable>())
+            .ok_or("native ambient change requires the receiving BasicDrawable")?;
+        let mut mixer = self.audio_device.map(|device| {
+            device.lock().map_err(|_| "receiving audio manager poisoned")
+        }).transpose()?;
+        drawable.apply_native_ambient_change(
+            change,
+            defer_start,
+            time_of_day,
+            mixer.as_deref_mut().zip(self.audio_instance),
+            locality,
+            policy,
+        )
+    }
+
     pub fn terrain_track_bindings_for_retirement(
         &mut self,
         key: PresentationDirectDrawableBindingKey,

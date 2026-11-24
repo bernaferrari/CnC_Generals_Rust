@@ -68,7 +68,8 @@ impl GameLogic {
         );
         properties.set_int(key_object_initial_health(), completion.health_percent);
         properties.set_bool(key_object_unsellable(), completion.unsellable);
-        self.apply_update_obj_values_from_map_properties_with_effects(id, &properties, effects);
+        self.apply_update_obj_values_from_map_properties_with_effects(id, &properties, effects)
+            .map_err(gamelogic::GameLogicError::Configuration)?;
         if !self.object_birth_matches(id, &birth) {
             return Ok(None);
         }

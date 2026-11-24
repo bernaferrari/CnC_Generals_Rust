@@ -374,6 +374,32 @@ impl<'a> NativeRendererViewEffects<'a> {
 }
 #[cfg(feature = "game_client")]
 impl NativeViewEffects for NativeRendererViewEffects<'_> {
+    fn apply_drawable_ambient(
+        &mut self,
+        identity: &crate::assets::LiveDrawPlaybackIdentity,
+        change: game_client::drawable::drawable::NativeAmbientChange<'_>,
+        defer_start: bool,
+        locality: &game_engine::common::audio::AudioSubmissionLocality,
+        mix: &game_engine::common::audio::script_policy::ScriptAudioPolicy,
+    ) -> Result<bool, String> {
+        let object_id = identity.object_id();
+        let Some(key) = self.drawables.binding_key(self.host_epoch, object_id) else {
+            return if self.drawables.has_object_drawable(object_id) {
+                Err("ambient change has no current native Drawable binding".into())
+            } else {
+                Ok(false)
+            };
+        };
+        self.poses.validate_object_retirement(identity, key)?;
+        let time_of_day = self
+            .policy
+            .time_of_day
+            .ok_or("native ambient change requires receiving time of day")?;
+        self.drawables
+            .apply_ambient_change(key, change, defer_start, time_of_day, locality, mix)?;
+        Ok(true)
+    }
+
     fn admission_rank_text(&mut self, key: &str) -> Result<String, String> {
         let ui = self.map_rank_ui.as_mut().ok_or("native map rank action has no receiving GameText")?;
         let mut text = ui.text.write().map_err(|error| format!("receiving GameText lock poisoned: {error}"))?;

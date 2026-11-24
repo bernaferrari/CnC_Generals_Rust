@@ -1077,7 +1077,7 @@ impl GameLogic {
                                     id,
                                     &obj.properties,
                                     &mut effects,
-                                );
+                                )?;
                                 if let Err(error) = birth.require_current(self) {
                                     log::error!("Map object retired during authored properties: {error}");
                                     return Ok(false);
