@@ -21,6 +21,16 @@ pub(crate) struct SlowDeathDeadlines {
 }
 
 impl SlowDeathDeadlines {
+    /// A script-shortened hulk uses fixed offsets and consumes no clock draws.
+    pub(crate) fn scripted_hulk(frame: u32) -> Self {
+        use game_engine::common::game_common::LOGICFRAMES_PER_SECOND;
+        Self {
+            sink: frame.wrapping_add(1),
+            midpoint: frame.wrapping_add(LOGICFRAMES_PER_SECOND / 2 + 1),
+            destruction: frame.wrapping_add(LOGICFRAMES_PER_SECOND + 1),
+        }
+    }
+
     pub(crate) fn draw(
         frame: u32,
         ini: &HostSlowDeathIni,
@@ -178,7 +188,7 @@ impl HostSlowDeathIni {
     /// overkillFraction = (actualDealt - actualClipped) / maxHealth.
     pub fn probability_modifier_for(&self, overkill_fraction: f32) -> i32 {
         let overkill_modifier = (overkill_fraction * self.modifier_bonus_per_overkill_percent) as i32;
-        (self.probability_modifier + overkill_modifier).max(1)
+        self.probability_modifier.wrapping_add(overkill_modifier).max(1)
     }
 
     /// Retail AmericaInfantry* SlowDeathBehavior peel (SinkDelay 3000 / SinkRate 0.5 / DestructionDelay 8000).

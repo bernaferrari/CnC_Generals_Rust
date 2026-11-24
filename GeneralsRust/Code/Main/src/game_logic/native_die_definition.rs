@@ -174,7 +174,6 @@ pub(crate) enum NativeDieKind {
     Slow {
         family: NativeSlowFamily,
         config: super::host_slow_death::HostSlowDeathIni,
-        probability: i32,
     },
     Topple,
     Collapse,
@@ -272,10 +271,6 @@ pub(crate) fn bind(modules: &[BehaviorModuleDefinition]) -> Vec<NativeDieDeclara
                             _ => NativeSlowFamily::Ordinary(std::sync::Arc::new(parse_slow_death_effects(&attrs))),
                         },
                         config: super::host_slow_death::slow_death_ini_from_behavior_attrs(&attrs),
-                        probability: module
-                            .attribute("ProbabilityModifier")
-                            .and_then(|v| v.parse().ok())
-                            .unwrap_or(10),
                     }
                 }
                 "structuretoppleupdate" => NativeDieKind::Topple,

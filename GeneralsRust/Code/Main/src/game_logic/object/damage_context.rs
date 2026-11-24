@@ -19,6 +19,14 @@ pub struct OnDieInput {
     pub(crate) actual_damage_clipped: f32,
 }
 
+impl OnDieInput {
+    /// SlowDeathBehavior.cpp truncates the difference before dividing by Body max health.
+    pub(crate) fn overkill_fraction(self, max_health: f32) -> f32 {
+        let overkill = (self.actual_damage_dealt - self.actual_damage_clipped) as i32;
+        overkill as f32 / max_health
+    }
+}
+
 /// Immediate Player mutations issued by one Body operation. These are callbacks
 /// at original C++ observation points, never a queued frame action or mirror.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

@@ -513,10 +513,8 @@ impl Object {
         audio: &mut crate::game_logic::ObjectAudio<'_>,
     ) -> bool {
         // C++ SlowDeathBehavior.cpp:163-164: Int(dealt - clipped) / maxHealth.
-        let overkill_fraction = input.map_or(0.0, |input| {
-            let overkill = (input.actual_damage_dealt - input.actual_damage_clipped) as i32;
-            overkill as f32 / self.health.maximum
-        });
+        let overkill_fraction =
+            input.map_or(0.0, |input| input.overkill_fraction(self.health.maximum));
         let template = &self.thing.template;
         let ini = if let Some(definition) = template.receiving_object_definition.as_deref() {
             crate::game_logic::host_slow_death::slow_death_ini_for_definition(definition)

@@ -1,10 +1,47 @@
 //! Dispatch authored ordinary SlowDeath phases while their Object is installed.
 use super::*;
+use crate::game_logic::host_slow_death::HostSlowDeathIni;
 use crate::game_logic::native_die_definition::{
-    NativeDieKind, NativeSlowFamily, SlowDeathEffectPhase,
+    NativeDieDeclaration, NativeDieKind, NativeSlowFamily, SlowDeathEffectPhase,
 };
+use crate::game_logic::object::OnDieInput;
 
 impl GameLogic {
+    /// SlowDeathBehavior::onDie rolls over eligible declarations in source order.
+    pub(super) fn choose_authored_slow_death<'a>(
+        &self,
+        id: ObjectId,
+        input: OnDieInput,
+        declarations: &'a [NativeDieDeclaration],
+    ) -> Option<(u32, &'a NativeSlowFamily, &'a HostSlowDeathIni)> {
+        let object = self.objects.get(&id)?;
+        let overkill = input.overkill_fraction(object.health.maximum);
+        let mut applicable = declarations.iter().filter_map(|declaration| {
+            let NativeDieKind::Slow { family, config } = &declaration.kind else {
+                return None;
+            };
+            declaration.gate.allows(object, input.death_type).then(|| {
+                (
+                    (declaration.source_index, family, config),
+                    config.probability_modifier_for(overkill),
+                )
+            })
+        });
+        let total = applicable
+            .clone()
+            .map(|(_, weight)| weight)
+            .fold(0, i32::wrapping_add);
+        if total <= 0 {
+            return None;
+        }
+
+        let mut roll = self.logic_random.next_int(1, total);
+        applicable.find_map(|(selected, weight)| {
+            roll -= weight;
+            (roll <= 0).then_some(selected)
+        })
+    }
+
     pub(super) fn run_authored_slow_death_phase(
         &mut self,
         id: ObjectId,
