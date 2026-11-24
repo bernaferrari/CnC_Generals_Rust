@@ -265,6 +265,7 @@ impl Object {
             audio,
         )?;
         super::combat::queue_projectile(combat, pending);
+        self.blow_defector_cover();
         Some(slot)
     }
 
@@ -818,6 +819,9 @@ impl Object {
 
                 // C++ Weapon::preFireWeapon LeechRange activate residual.
                 self.activate_leech_range_for_slot(slot);
+                if autonomous {
+                    self.blow_defector_cover();
+                }
             }
             if current_time + 1e-6 < self.pre_attack_ready_at {
                 if let Some(target_id) = target_object {

@@ -84,12 +84,9 @@ impl Object {
         self.status.attacking = attacking;
     }
 
-    /// Host weapon fire residual + status channel log.
+    /// C++ Object::setStatus writes the firing bit. The helper observes it.
     pub fn set_status_firing_weapon(&mut self, firing: bool) {
         self.status.is_firing_weapon = firing;
-        if firing {
-            self.blow_defector_cover();
-        }
     }
 
     /// Host weapon aim residual + status channel log.

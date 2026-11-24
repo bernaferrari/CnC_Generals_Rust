@@ -73,9 +73,11 @@ fn authored_ground_prefire_waits_before_each_shot_and_is_owner_local() {
             object.target = None;
             object.target_location = Some(Vec3::new(40.0, 0.0, 0.0));
             object.restore_ai_state(AIState::AttackingGround);
+            object.begin_undetected_defection(100, 50, true);
         }
         game.frame = 100;
         game.update_combat(&[source], LOGIC_FRAME_TIMESTEP).unwrap();
+        assert!(!game.host_object(source).unwrap().is_undetected_defector());
         assert_eq!(game.host_object(target).unwrap().health.current, 1000.0);
         assert_eq!(game.host_object(source).unwrap().weapon.as_ref().unwrap().ammo, Some(4));
         peer.frame = 100;
@@ -217,8 +219,15 @@ fn ordinary_update_combat_keeps_same_name_receiving_damage_and_once_ammo() {
     let (mut b, other_source, other_target) = world(40.0);
     assert_eq!(source, other_source);
     assert_eq!(target, other_target);
+    for (world, actor) in [(&mut a, source), (&mut b, other_source)] {
+        let object = world.host_object_mut(actor).unwrap();
+        object.begin_undetected_defection(100, 50, true);
+        object.set_force_attack(true);
+    }
     a.frame = 100;
     a.update_combat(&[source, target], LOGIC_FRAME_TIMESTEP);
+    assert!(!a.host_object(source).unwrap().is_undetected_defector());
+    assert!(b.host_object(source).unwrap().is_undetected_defector());
     assert_eq!(a.host_object(target).unwrap().health.current, 980.0);
     assert!(
         a.combat_particles

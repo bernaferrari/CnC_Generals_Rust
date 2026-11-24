@@ -161,9 +161,12 @@ fn defection_timer_uses_receiving_drawable_and_misc_audio() {
                 }
 
                 world.frame = 310;
-                // Model the C++ status bit without executing the separate
-                // pre-fire or shot callback that can reveal the defector early.
-                world.host_object_mut(victim).unwrap().status.is_firing_weapon = true;
+                let object = world.host_object_mut(victim).unwrap();
+                object.set_status_firing_weapon(true);
+                assert!(
+                    object.is_undetected_defector(),
+                    "the status flag alone does not reveal"
+                );
                 world.queued_audio_events.clear();
                 world
                     .update_ai_with_effects(&[victim], 1.0 / 30.0, &mut attempt.effects())

@@ -2181,6 +2181,42 @@ fn attack_fire_weapon_enter_exit_flags() {
 }
 
 #[test]
+fn attack_fire_weapon_enter_reveals_defector_only_when_prefire_is_due() {
+    let mut logic = GameLogic::new();
+    let id = ObjectId(1401);
+    let mut obj = Object::new(ThingTemplate::new("PreFireDefector"), id, Team::USA);
+    obj.begin_undetected_defection(100, 50, true);
+    logic.objects.insert(id, obj);
+
+    logic.frame = 100;
+    assert!(logic.attack_fire_weapon_enter(id));
+    assert!(
+        logic.objects[&id].is_undetected_defector(),
+        "weaponless entry"
+    );
+    logic.attack_fire_weapon_exit(id);
+
+    let unit = logic.objects.get_mut(&id).unwrap();
+    crate::fixture_content::arm_with_stats(unit, crate::game_logic::Weapon::default());
+    let weapon = unit.weapon.as_mut().unwrap();
+    weapon.frame_clock_active = true;
+    weapon.next_fire_frame = 102;
+    assert!(logic.attack_fire_weapon_enter(id));
+    assert!(
+        logic.objects[&id].is_undetected_defector(),
+        "shot is two frames away"
+    );
+    logic.attack_fire_weapon_exit(id);
+
+    logic.frame = 101;
+    assert!(logic.attack_fire_weapon_enter(id));
+    assert!(
+        !logic.objects[&id].is_undetected_defector(),
+        "prefire at frame + 1"
+    );
+}
+
+#[test]
 fn attack_fire_weapon_update_fires_in_range() {
     use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate, Weapon};
     use glam::Vec3;
@@ -2202,6 +2238,8 @@ fn attack_fire_weapon_update_fires_in_range() {
             },
         );
         o.weapon.as_mut().unwrap().last_fire_time = -10.0;
+        o.set_weapons_jammed(true);
+        o.begin_undetected_defection(0, 50, true);
         o
     });
     let mut vt = ThingTemplate::new("FireVic");
@@ -2212,9 +2250,21 @@ fn attack_fire_weapon_update_fires_in_range() {
         o.set_position(Vec3::new(20.0, 0.0, 0.0));
         o
     });
-    let r = logic.attack_fire_weapon_update(aid, vid, 10.0);
+    logic.frame = 10;
+    let r = logic.attack_fire_weapon_update(aid, vid, 10.0 / 30.0);
+    assert_eq!(r, AttackFireResult::Failure);
+    assert!(logic.objects[&aid].is_undetected_defector());
+
+    logic.frame = 11;
+    logic
+        .objects
+        .get_mut(&aid)
+        .unwrap()
+        .set_weapons_jammed(false);
+    let r = logic.attack_fire_weapon_update(aid, vid, 11.0 / 30.0);
     assert_eq!(r, AttackFireResult::Success);
     assert!(logic.objects[&aid].status.is_firing_weapon);
+    assert!(!logic.objects[&aid].is_undetected_defector());
 }
 
 #[test]

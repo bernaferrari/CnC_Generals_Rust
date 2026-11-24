@@ -2274,27 +2274,30 @@ impl GameLogic {
     }
 
     pub fn attack_fire_weapon_enter(&mut self, unit_id: ObjectId) -> bool {
-        {
-            let Some(u) = self.objects.get_mut(&unit_id) else {
-                return false;
-            };
-            if !u.is_alive() {
-                return false;
-            }
-            u.set_status_firing_weapon(true);
-            u.set_status_attacking(true);
-            let entered_attack = !matches!(
-                u.ai_state(),
-                AIState::Patrolling | AIState::AttackMoving | AIState::Attacking
+        let Some(unit) = self.objects.get(&unit_id).filter(|unit| unit.is_alive()) else {
+            return false;
+        };
+        let reveal_on_prefire = unit.is_undetected_defector()
+            && unit.current_weapon_prefire_due(self.frame, |slot| {
+                self.receiving_weapon_bonus_fields_for_slot(unit, slot).2
+            });
+        let Some(unit) = self.objects.get_mut(&unit_id) else {
+            return false;
+        };
+        unit.set_status_firing_weapon(true);
+        if reveal_on_prefire {
+            unit.blow_defector_cover();
+        }
+        unit.set_status_attacking(true);
+        if !matches!(
+            unit.ai_state(),
+            AIState::Patrolling | AIState::AttackMoving | AIState::Attacking
+        ) {
+            unit.set_ai_state(
+                AIState::Attacking,
+                self.frame,
+                &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
             );
-            if entered_attack {
-                u.set_ai_state(
-                    AIState::Attacking,
-                    self.frame,
-                    &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
-                );
-            }
-            {}
         }
         true
     }
@@ -2483,7 +2486,7 @@ impl GameLogic {
                 }
             }
             // C++ Weapon.cpp2617–2669: ammo/timers after fireWeaponTemplate effects.
-            self.commit_owned_weapon_fire_after_effects(unit_id);
+            self.commit_current_weapon_fire_after_effects(unit_id);
             // max_shots_to_fire is decremented inside the accepted Object
             // shot (C++ Weapon::m_maxShotCount).
             Ok(AttackFireResult::Success)

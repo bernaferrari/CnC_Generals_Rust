@@ -69,6 +69,33 @@ impl Object {
             Self::weapon_ready_selected(weapon, current_time, name, reload, None)
         }
     }
+
+    /// Object::preFireCurrentWeapon checks the selected slot's deadline one
+    /// logic frame ahead, even when preFireWeapon itself has zero wind-up.
+    pub(in crate::game_logic) fn current_weapon_prefire_due(
+        &self,
+        frame: u32,
+        rate_of_fire: impl FnOnce(u8) -> f32,
+    ) -> bool {
+        let Some(slot) = self.selected_weapon_slot() else {
+            return false;
+        };
+        let next_frame = frame.wrapping_add(1);
+        if let Some(weapon) = self
+            .weapon_slot(slot)
+            .filter(|weapon| weapon.frame_clock_active)
+        {
+            return next_frame >= weapon.next_fire_frame;
+        }
+        // Unauthored host weapons still use the seconds-based readiness path.
+        self.selected_weapon_ready_at_frame(
+            slot,
+            next_frame as f32 / 30.0,
+            next_frame,
+            rate_of_fire(slot),
+        )
+    }
+
     fn selected_reload_policy(
         weapon_name: Option<&str>,
         rule: Option<&gamelogic::weapon::WeaponTemplate>,

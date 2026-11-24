@@ -450,6 +450,7 @@ impl GameLogic {
                             attacker.pre_attack_target = Some(target_id);
                             attacker.pre_attack_ready_at = current_time + pre_delay;
                             attacker.activate_leech_range_for_slot(slot);
+                            attacker.blow_defector_cover();
                         }
                         if current_time + 1e-6 < attacker.pre_attack_ready_at {
                             attacker.note_attack_target_with_operation(

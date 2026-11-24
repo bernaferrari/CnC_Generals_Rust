@@ -223,6 +223,7 @@ impl GameLogic {
                                 attacker.weapon_fire_status = crate::game_logic::object::WeaponFireStatus::PreAttack;
                                 attacker.sync_weapon_model_conditions_from_status();
                                 attacker.activate_leech_range_for_slot(ground_slot);
+                                attacker.blow_defector_cover();
                             }
                             if current_time + 1e-6 < attacker.pre_attack_ready_at {
                                 return CombatShotResult::NoShot;

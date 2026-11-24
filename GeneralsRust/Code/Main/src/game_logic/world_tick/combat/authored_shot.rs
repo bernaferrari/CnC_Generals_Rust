@@ -207,11 +207,22 @@ impl GameLogic {
                 attacker.advance_weapon_barrel_after_shot(slot);
             }
         }
-        self.commit_owned_weapon_fire_after_effects(attacker_id);
+        self.commit_current_weapon_fire_after_effects(attacker_id);
         Ok(())
     }
 
-    pub(in crate::game_logic) fn commit_owned_weapon_fire_after_effects(&mut self, id: ObjectId) {
+    /// Object::fireCurrentWeapon reveals its shooter after the shot and the
+    /// firing tracker callback. Passive Weapon::fireWeapon callers commit the
+    /// same weapon state without writing the Object's defection cover.
+    pub(in crate::game_logic) fn commit_current_weapon_fire_after_effects(&mut self, id: ObjectId) {
+        if self.commit_owned_weapon_fire_after_effects(id)
+            && let Some(object) = self.objects.get_mut(&id)
+        {
+            object.blow_defector_cover();
+        }
+    }
+
+    pub(in crate::game_logic) fn commit_owned_weapon_fire_after_effects(&mut self, id: ObjectId) -> bool {
         // reloadAmmo recomputes bonuses after fireWeaponTemplate callbacks;
         // between-shot delay uses the bonus frozen for the actual shot.
         let rates = self.objects.get(&id).map(|object| self.receiving_weapon_rates_of_fire(object));
@@ -222,8 +233,9 @@ impl GameLogic {
                 rates.as_ref(),
             )
         });
-        let Some((slot, target, name)) = committed else { return };
+        let Some((slot, target, name)) = committed else { return false };
         self.record_owned_weapon_shot(id, slot, target, name.as_deref());
+        true
     }
 
     /// FiringTracker.cpp:66-160: condition callbacks precede the coast stamp,

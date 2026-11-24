@@ -111,6 +111,7 @@ impl GameLogic {
                 fired_rule.as_deref(),
             );
             attacker.stamp_auto_reload_when_idle_from_slot(slot, fire_frame);
+            attacker.blow_defector_cover();
         }
         if let Some(visual) = visual {
             self.finish_accepted_weapon_discharge(visual);
