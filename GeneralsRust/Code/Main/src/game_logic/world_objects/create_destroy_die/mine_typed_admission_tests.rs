@@ -76,9 +76,24 @@ fn sticky_with_lifetime_update_is_timed_even_with_remote_name() {
         "Object AuthoredRemoteC4\n{STICKY_BODY}Behavior = LifetimeUpdate LifeTag\n MinLifetime = 5000\n MaxLifetime = 5000\nEnd\nEnd\n"
     );
     let (world, id) = spawn(&src, "AuthoredRemoteC4");
-    let data = world.host_object(id).unwrap().mine_data.as_ref().expect("admitted StickyBombUpdate");
+    let object = world.host_object(id).unwrap();
+    let data = object.mine_data.as_ref().expect("admitted StickyBombUpdate");
     assert_eq!(data.kind, HostMineKind::TimedDemoCharge);
-    let at = data.detonate_at_frame.expect("timed die frame");
-    assert_eq!(at % 150, 0, "5000 ms authored lifetime → 150 frames, got {at}");
-    assert!(at >= 150 && at < 300, "authored lifetime not default 300: {at}");
+    // StickyBombUpdate.cpp:83-104 + LifetimeUpdate.cpp:69-74: the native
+    // LifetimeUpdate die frame owns expiry; no residual timer is installed.
+    assert_eq!(data.detonate_at_frame, None, "LifetimeUpdate owns expiry");
+    assert_eq!(
+        data.next_ping_frame, None,
+        "attachment starts the ping countdown"
+    );
+    let deadline = object
+        .native_lifecycle
+        .as_ref()
+        .and_then(|lifecycle| lifecycle.first_lifetime_deadline())
+        .expect("authored LifetimeUpdate die frame");
+    assert_eq!(
+        deadline,
+        world.frame + 150,
+        "5000 ms authored lifetime → 150 frames, got {deadline}"
+    );
 }

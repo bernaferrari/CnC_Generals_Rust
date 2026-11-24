@@ -1151,8 +1151,14 @@ fn burton_charges_use_retail_c4_special_objects() {
         assert_eq!(c.template_name, BURTON_TIMED_CHARGE_OBJECT);
         let md = c.mine_data.as_ref().unwrap();
         assert_eq!(md.attached_to, Some(targets[0]));
-        let exp = md.detonate_at_frame.unwrap();
-        assert_eq!(exp, logic.frame + TIMED_C4_LIFETIME_FRAMES);
+        // LifetimeUpdate.cpp:69-74 owns the timed die frame; the mine
+        // scheduler keeps no duplicate residual timer.
+        assert_eq!(md.detonate_at_frame, None);
+        let deadline = c
+            .native_lifecycle
+            .as_ref()
+            .and_then(|lifecycle| lifecycle.first_lifetime_deadline());
+        assert_eq!(deadline, Some(logic.frame + TIMED_C4_LIFETIME_FRAMES));
     }
 
     let remote = logic
@@ -1193,9 +1199,14 @@ fn burton_charges_use_retail_c4_special_objects() {
         let c = logic.host_object(tnt).unwrap();
         assert_eq!(c.template_name, TANK_HUNTER_TNT_OBJECT);
         let md = c.mine_data.as_ref().unwrap();
+        assert_eq!(md.detonate_at_frame, None);
+        let deadline = c
+            .native_lifecycle
+            .as_ref()
+            .and_then(|lifecycle| lifecycle.first_lifetime_deadline());
         assert_eq!(
-            md.detonate_at_frame.unwrap(),
-            logic.frame + TNT_STICKY_LIFETIME_FRAMES
+            deadline,
+            Some(logic.frame + TNT_STICKY_LIFETIME_FRAMES)
         );
     }
 

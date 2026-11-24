@@ -403,7 +403,9 @@ pub struct HostMineData {
     #[serde(default = "default_demo_trap_mode")]
     pub demo_trap_mode: DemoTrapMode,
     pub detonated: bool,
-    /// Absolute logic frame for timed detonation (TimedDemoCharge).
+    /// Absolute logic frame for timed detonation. Residual timer only —
+    /// an authored TimedDemoCharge expires on its native LifetimeUpdate die
+    /// frame (LifetimeUpdate.cpp:69-74), never on this field.
     pub detonate_at_frame: Option<u32>,
     /// Optional sticky target (fail-closed residual bookkeeping).
     pub attached_to: Option<ObjectId>,
@@ -1624,17 +1626,13 @@ pub fn admitted_data_for_modules(
     if has("StickyBombUpdate").is_some() {
         // StickyBombUpdate.cpp:83-104: a LifetimeUpdate module makes this a
         // timer bomb (die frame from that module); otherwise it is remote.
-        let Some(lifetime) = has("LifetimeUpdate") else {
-            let mut data = HostMineData::remote_demo_charge();
-            data.next_ping_frame = Some(current_frame.saturating_add(UNIT_BOMB_PING_FRAMES));
-            return Some(data);
-        };
-        let ms = |key: &str| lifetime.attribute(key).and_then(|v| v.trim().parse::<u32>().ok());
-        let data = HostMineData::timed_demo_charge(current_frame);
-        return Some(match ms("MinLifetime").or(ms("MaxLifetime")) {
-            Some(v) => data.with_lifetime_frames(current_frame, mine_ms_to_frames(v)),
-            None => data,
-        });
+        if has("LifetimeUpdate").is_some() {
+            // LifetimeUpdate owns expiry; attachment starts the ping countdown.
+            return Some(HostMineData::new(HostMineKind::TimedDemoCharge));
+        }
+        let mut data = HostMineData::remote_demo_charge();
+        data.next_ping_frame = Some(current_frame.saturating_add(UNIT_BOMB_PING_FRAMES));
+        return Some(data);
     }
     None
 }

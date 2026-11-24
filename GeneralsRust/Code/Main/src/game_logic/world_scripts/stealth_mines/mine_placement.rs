@@ -682,6 +682,14 @@ impl GameLogic {
             }
         }
 
+        // A bound Object template is the authored special object; an
+        // unbound name still manufactures the residual fixture charge.
+        let authored_timed = kind == HostMineKind::TimedDemoCharge
+            && self
+                .templates
+                .get(template_name)
+                .is_some_and(|template| template.receiving_object_definition.is_some());
+
         // C++ SpecialAbilityUpdate looks up its authored SpecialObject; it
         // cannot manufacture a remote charge when the factory lacks one.
         if kind == HostMineKind::RemoteDemoCharge {
@@ -694,16 +702,33 @@ impl GameLogic {
             if !sticky || !self.templates.contains_key(template_name) {
                 return None;
             }
-        } else {
+        } else if !authored_timed {
             self.ensure_residual_mine_template(template_name, kind);
         }
-        let id = self.create_object_with_script_effects(
-            template_name,
-            team,
-            position,
-            interpreter,
-            effects,
-        )?;
+        // An authored timed charge keeps the planter's controlling player when
+        // one is bound; every other path births on the requested team.
+        let planter_owner = if authored_timed {
+            producer
+                .and_then(|pid| self.objects.get(&pid).and_then(|object| object.owner_player_id))
+        } else {
+            None
+        };
+        let id = match planter_owner {
+            Some(owner) => self.create_object_for_player_with_effects(
+                template_name,
+                owner,
+                position,
+                interpreter,
+                effects,
+            )?,
+            None => self.create_object_with_script_effects(
+                template_name,
+                team,
+                position,
+                interpreter,
+                effects,
+            )?,
+        };
 
         // C++ GenerateMinefieldBehavior::placeMineAt (cpp:199-211): the factory
         // births the authored template; producer + LandMineInterface scoot are
@@ -732,6 +757,47 @@ impl GameLogic {
                 self.apply_land_mine_scoot_with_effects(id, start, position, effects);
             }
             self.mine_residual_places = self.mine_residual_places.saturating_add(1);
+            return Some(id);
+        }
+
+        // Bound StickyBombUpdate+LifetimeUpdate templates keep the
+        // factory-admitted runtime (StickyBombUpdate.cpp:34-43,83-104):
+        // LifetimeUpdate owns expiry and the authored die modules own the
+        // blast — no residual timer, MINE flag, weapon strip, stealth or
+        // invented place audio. Producer, attach and the deadline-aligned
+        // UnitBombPing countdown are the only placement mutations.
+        if authored_timed {
+            let charge = self.objects.get_mut(&id)?;
+            let die_frame = charge
+                .native_lifecycle
+                .as_ref()?
+                .first_lifetime_deadline()?;
+            let data = charge
+                .mine_data
+                .as_mut()
+                .filter(|data| data.kind == HostMineKind::TimedDemoCharge)?;
+            data.producer_id = producer;
+            data.attached_to = attach_to;
+            // Birthday is reserved by the factory; round the remaining time
+            // down to whole seconds for the first ping before the die frame.
+            let ping_interval = crate::game_logic::host_mines::UNIT_BOMB_PING_FRAMES;
+            let until_ping = die_frame.wrapping_sub(self.frame) % ping_interval;
+            data.next_ping_frame = Some(self.frame.wrapping_add(until_ping));
+            charge.producer_id = producer;
+            charge.set_experience_sink(producer);
+            self.mine_residual_places = self.mine_residual_places.saturating_add(1);
+            if attach_to.is_some() {
+                // C++ StickyBombUpdate::initStickyBomb:
+                // getPerUnitSound("StickyBombCreated") at bomb pos.
+                self.queue_resolved_per_unit_sound(
+                    id,
+                    crate::game_logic::host_mines::STICKY_BOMB_CREATED_AUDIO,
+                    false,
+                    true,
+                    None,
+                    155,
+                );
+            }
             return Some(id);
         }
 

@@ -1354,6 +1354,136 @@ fn authored_demo_trap_observes_selected_weapon_slot_on_update() {
     assert_eq!(world.host_object(enemy).unwrap().health.current, 969.0);
 }
 
+/// StickyBombUpdate.cpp:34-43,83-104 + LifetimeUpdate.cpp:69-74: an admitted
+/// StickyBombUpdate+LifetimeUpdate charge keeps only the native die frame for
+/// its attach ping countdown. No residual timer is installed, and the authored
+/// FireWeaponWhenDeadBehavior owns the blast — fired exactly once at expiry.
+#[test]
+fn authored_timed_charge_expires_once_through_its_death_weapon() {
+    let mut world = GameLogic::new();
+    let mut map = gamelogic::system::map_loader::MapData::new();
+    map.width = 32;
+    map.height = 32;
+    map.heightmap = vec![0; 1024];
+    map.boundaries = vec![gamelogic::common::ICoord2D::new(32, 32)];
+    world
+        .world_services
+        .terrain()
+        .write()
+        .unwrap()
+        .try_load_map_geometry(map)
+        .unwrap();
+    world.initialize_receiving_partition_grid().unwrap();
+    ensure_test_player_for_team(&mut world, Team::USA);
+    ensure_test_player_for_team(&mut world, Team::GLA);
+    world
+        .get_player_mut(0)
+        .unwrap()
+        .set_map_relationship(2, gamelogic::common::Relationship::Enemies);
+    world
+        .get_player_mut(2)
+        .unwrap()
+        .set_map_relationship(0, gamelogic::common::Relationship::Enemies);
+    world
+        .admit_object_ini_sources([(
+            "timed-witness.ini".to_owned(),
+            "Object TimingWitnessCharge\n  KindOf = MINE NO_COLLIDE\n  Body = ActiveBody BodyTag\n    MaxHealth = 1\n    InitialHealth = 1\n  End\n  Behavior = StickyBombUpdate Sticky\n  End\n  Behavior = LifetimeUpdate Life\n    MinLifetime = 1000\n    MaxLifetime = 3000\n  End\n  Behavior = FireWeaponWhenDeadBehavior Dead\n    StartsActive = Yes\n    DeathWeapon = TimedChargeWitness\n    DeathTypes = NONE +NORMAL\n  End\nEnd\nObject WitnessVictim\n  KindOf = VEHICLE\n  Body = ActiveBody BodyTag\n    MaxHealth = 1000\n    InitialHealth = 1000\n  End\nEnd\n".to_owned(),
+        )])
+        .unwrap();
+    let mut weapons = std::collections::HashMap::new();
+    assert!(
+        crate::assets::ini_template_loader::parse_weapon_definitions_ini_into(
+            &mut weapons,
+            "Weapon TimedChargeWitness\n PrimaryDamage = 31\n PrimaryDamageRadius = 20\n WeaponSpeed = 999999\n DamageType = UNRESISTABLE\n RadiusDamageAffects = ENEMIES\n ProjectileObject = NONE\nEnd\n",
+            crate::assets::ini_template_loader::WeaponDefinitionLoadType::Normal,
+        ) >= 1,
+        "fixture weapons must parse"
+    );
+    world
+        .admit_weapon_content_snapshot(
+            weapons
+                .into_values()
+                .map(|rule| (rule.name.clone(), rule))
+                .collect(),
+            &[],
+        )
+        .unwrap();
+    let victim = world
+        .create_object("WitnessVictim", Team::GLA, Vec3::ZERO)
+        .expect("victim");
+    world
+        .update_owned_partition_with_effects(&mut Default::default())
+        .unwrap();
+
+    world.frame = 123;
+    let charge = world
+        .place_mine_kind(
+            crate::game_logic::host_mines::HostMineKind::TimedDemoCharge,
+            "TimingWitnessCharge",
+            Team::USA,
+            Vec3::ZERO,
+            None,
+            Some(victim),
+            Some(3),
+        )
+        .expect("authored timed charge");
+    let deadline = world
+        .host_object(charge)
+        .unwrap()
+        .native_lifecycle
+        .as_ref()
+        .and_then(|lifecycle| lifecycle.first_lifetime_deadline())
+        .expect("authored LifetimeUpdate die frame");
+    assert!(
+        (30..=90).contains(&(deadline - world.frame)),
+        "MinLifetime=1000 MaxLifetime=3000 is a real 30..90 frame clock, got {deadline}"
+    );
+    let (residual_timer, first_ping) = {
+        let data = world
+            .host_object(charge)
+            .unwrap()
+            .mine_data
+            .as_ref()
+            .unwrap();
+        assert_eq!(
+            data.kind,
+            crate::game_logic::host_mines::HostMineKind::TimedDemoCharge
+        );
+        (data.detonate_at_frame, data.next_ping_frame)
+    };
+
+    // Frame 126 is the discarded synthetic delay (3 frames): it must never
+    // schedule a blast. LifetimeUpdate kills the charge at its die frame and
+    // the authored DeathWeapon fires exactly once.
+    for frame in [126, deadline - 1, deadline, deadline + 1] {
+        world.frame = frame;
+        world.update_mines_and_demo_traps().unwrap();
+        world.update_ai(&[charge], LOGIC_FRAME_TIMESTEP).unwrap();
+        let before_expiry = frame < deadline;
+        assert_eq!(
+            world
+                .host_object(charge)
+                .is_some_and(|object| object.is_alive()),
+            before_expiry,
+            "charge at frame {frame}"
+        );
+        assert_eq!(
+            world.host_object(victim).unwrap().health.current,
+            if before_expiry { 1000.0 } else { 969.0 },
+            "victim HP at frame {frame}"
+        );
+    }
+
+    assert_eq!(residual_timer, None, "no residual timer");
+    assert_eq!(
+        first_ping,
+        Some(
+            123 + (deadline - 123) % crate::game_logic::host_mines::UNIT_BOMB_PING_FRAMES
+        ),
+        "pings count down to the native LifetimeUpdate die frame"
+    );
+}
+
 #[test]
 fn dozer_mine_clear_residual_disarms_enemy_mine_safely() {
     use crate::game_logic::host_mines::{
