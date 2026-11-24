@@ -266,10 +266,17 @@ fn detonation_fx_uses_projectile_pose_and_only_gates_the_visual_effect() {
         EmissionVolume, EmissionVolumeType, ParticleSystemManager, ParticleSystemTemplate,
     };
 
-    struct Particles(ParticleSystemManager);
+    struct Particles(ParticleSystemManager, Option<glam::Mat4>);
     impl crate::game_logic::NativeViewEffects for Particles {
         fn particle_systems_mut(&mut self) -> Option<&mut ParticleSystemManager> {
             Some(&mut self.0)
+        }
+        fn detonation_weapon_fx_pose(
+            &mut self,
+            _: &crate::game_logic::NativeSlaveSource,
+            _: Option<glam::Mat4>,
+        ) -> Option<glam::Mat4> {
+            self.1
         }
         fn local_player_id(&self) -> u32 {
             1
@@ -314,11 +321,13 @@ fn detonation_fx_uses_projectile_pose_and_only_gates_the_visual_effect() {
         Vec3::new(10.0, 4.0, 12.0).extend(1.0),
     );
     let impact_position = Vec3::new(40.0, 4.0, 32.0);
-    for (range, has_drawable, delay, expected_position) in [
-        (100, true, 0, Some(Vec3::new(12.0, 15.0, 5.0))),
-        (5, true, 0, Some(Vec3::new(42.0, 35.0, 5.0))),
-        (100, false, 0, None),
-        (100, true, 1000, None),
+    let installed_fx_bone = glam::Mat4::from_translation(Vec3::new(80.0, 9.0, 60.0));
+    for (range, has_drawable, delay, bone, expected_position) in [
+        (100, true, 0, None, Some(Vec3::new(12.0, 15.0, 5.0))),
+        (5, true, 0, None, Some(Vec3::new(42.0, 35.0, 5.0))),
+        (5, true, 0, Some(installed_fx_bone), Some(Vec3::new(81.0, 62.0, 12.0))),
+        (100, false, 0, Some(installed_fx_bone), None),
+        (100, true, 1000, Some(installed_fx_bone), None),
     ] {
         let (mut world, _, id) = ranked_detonation_world("DetonationFxChild");
         world.apply_receiving_weapon_overrides(&[format!(
@@ -336,7 +345,7 @@ fn detonation_fx_uses_projectile_pose_and_only_gates_the_visual_effect() {
         let impact = ProjectileImpactFx::weapon_detonation(projectile, impact_position, None, Some(pose)).unwrap();
         world.combat_system.impact_fx.push(impact);
 
-        let mut particles = Particles(ParticleSystemManager::new());
+        let mut particles = Particles(ParticleSystemManager::new(), bone);
         let mut template = ParticleSystemTemplate::new("DetonationFxParticle".into());
         template.info_mut().emission_volume_type = EmissionVolumeType::Sphere;
         template.info_mut().emission_volume = EmissionVolume::Sphere { radius: 2.0 };

@@ -1410,10 +1410,20 @@ impl GameLogic {
                 if gate.fx_route() != Some(FrozenWeaponVisualFxRoute::BroadcastWithFireFx) {
                     return;
                 }
+                #[cfg(feature = "game_client")]
+                let drawable_pose = effects.view.as_deref_mut().and_then(|view| {
+                    let source = self.current_native_slave_source(*id, view.local_player_id()).ok()?;
+                    view.detonation_weapon_fx_pose(&source, *pre_physics_pose)
+                });
+                #[cfg(not(feature = "game_client"))]
+                let drawable_pose: Option<glam::Mat4> = None;
+
                 // Weapon.cpp:936–939, when the Drawable did not handle FX.
                 // A contact weapon changes the primary point, not its basis.
-                let pose = pre_physics_pose.unwrap_or_else(|| actor.get_transform_matrix());
-                let position = if rule.is_some_and(gamelogic::weapon::WeaponTemplate::is_contact_weapon) {
+                let pose = drawable_pose.or(*pre_physics_pose).unwrap_or_else(|| actor.get_transform_matrix());
+                let position = if drawable_pose.is_none()
+                    && rule.is_some_and(gamelogic::weapon::WeaponTemplate::is_contact_weapon)
+                {
                     impact.position
                 } else {
                     pose.w_axis.truncate()

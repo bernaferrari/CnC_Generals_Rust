@@ -258,9 +258,16 @@ impl NativeDrawableOwner<'_> {
         epoch: u64,
         object: u32,
     ) -> Option<PresentationDirectDrawableBindingKey> {
+        self.direct_drawable_state(epoch, object).map(|state| state.binding_key)
+    }
+
+    pub fn direct_drawable_state(
+        &self,
+        epoch: u64,
+        object: u32,
+    ) -> Option<PresentationDirectDrawableState> {
         self.drawables
             .presentation_direct_drawable_state(epoch, object)
-            .map(|state| state.binding_key)
     }
 
     /// Apply an ambient operation to the Drawable that owns playback and

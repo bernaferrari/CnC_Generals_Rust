@@ -533,6 +533,18 @@ impl NativeViewEffects for NativeRendererViewEffects<'_> {
             .map_err(|error| format!("native FX bone query unavailable: {error:?}"))
     }
 
+    fn detonation_weapon_fx_pose(
+        &mut self,
+        source: &NativeSlaveSource,
+        pre_physics_pose: Option<glam::Mat4>,
+    ) -> Option<glam::Mat4> {
+        let drawable = self.drawables.direct_drawable_state(self.host_epoch, source.identity.object_id())?;
+        self.poses
+            .sample_detonation_weapon_fx_pose(source, drawable, pre_physics_pose, self.graphics)
+            .ok()
+            .flatten()
+    }
+
     fn accepts_installed_state_particles(
         &mut self,
         identity: &crate::assets::LiveDrawPlaybackIdentity,

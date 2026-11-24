@@ -477,6 +477,21 @@ impl ObjectVisualState {
         else {
             return Ok(None);
         };
+        self.installed_client_bone_at_index(sync_ms, index)
+            .map(|local| Some((index, local)))
+    }
+
+    pub(super) fn installed_client_bone_at_index(
+        &mut self,
+        sync_ms: u32,
+        index: usize,
+    ) -> Result<Mat4, NativeCameraPoseUnavailable> {
+        use NativeCameraPoseUnavailable::*;
+        let pose = match &mut self.installed_draw_pose {
+            InstalledDrawObject::AwaitingAdmission => return Err(UnadmittedDrawableLifecycle),
+            InstalledDrawObject::NoRenderObject => return Err(NoRenderObject),
+            InstalledDrawObject::Ready(pose) => pose,
+        };
         // Controls affect the transform, not the render object's bone topology.
         if !pose.supported_controls {
             return Err(UnsupportedSourceControls);
@@ -503,7 +518,7 @@ impl ObjectVisualState {
         )
         .map_err(Bone)?;
         pose.hierarchy_valid = true;
-        Ok(Some((index, source)))
+        Ok(source)
     }
 
     pub(super) fn installed_camera_pose(

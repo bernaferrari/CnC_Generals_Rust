@@ -14,6 +14,9 @@ WWMATH = ROOT / "GeneralsMD/Code/Libraries/Source/WWVegas/WWMath"
 OCL_SOURCE = ROOT / "GeneralsMD/Code/GameEngine/Source/GameLogic/Object/ObjectCreationList.cpp"
 WEAPON_SOURCE = OCL_SOURCE.with_name("Weapon.cpp")
 WEAPON_HEADER = ROOT / "GeneralsMD/Code/GameEngine/Include/GameLogic/Weapon.h"
+MODEL_DRAW_SOURCE = (
+    ROOT / "GeneralsMD/Code/GameEngineDevice/Source/W3DDevice/GameClient/Drawable/Draw/W3DModelDraw.cpp"
+)
 RUST_SOURCE = ROOT / "GeneralsRust/Code/GameEngine/GameLogic/src/object_creation_list/nuggets.rs"
 
 CASES = [
@@ -297,6 +300,12 @@ def verify_detonation_fx_position(cxx: str, temp: Path) -> None:
     start = source.index("if (handled == false && fx != NULL)")
     end = source.index("\n\t\t}", start) + len("\n\t\t}")
     fallback = source[start:end]
+    draw_source = MODEL_DRAW_SOURCE.read_text()
+    draw_start = draw_source.index("if( ! m_renderObject->Is_Hidden()", draw_source.index(
+        "Bool W3DModelDraw::handleWeaponFireFX"
+    ))
+    draw_end = draw_source.index("handled = true;", draw_start) + len("handled = true;")
+    draw_fx = draw_source[draw_start:draw_end]
     cpp = temp / "detonation_fx_position.cpp"
     binary = temp / "detonation_fx_position"
     cpp.write_text(r"""
@@ -306,6 +315,10 @@ struct Coord3D { int x, y, z; };
 struct Matrix3D {
     // Local axes of the tilting projectile, in original Z-up coordinates.
     Coord3D x{0,0,1}, y{1,0,0}, z{0,1,0};
+    Coord3D translation{};
+    int Get_X_Translation() const { return translation.x; }
+    int Get_Y_Translation() const { return translation.y; }
+    int Get_Z_Translation() const { return translation.z; }
 };
 struct Drawable {
     Coord3D position{10,12,4};
@@ -316,6 +329,8 @@ struct Drawable {
 struct Object {
     Drawable drawable;
     const Drawable* getDrawable() const { return &drawable; }
+    const Coord3D* getPosition() const { return drawable.getPosition(); }
+    const Matrix3D* getTransformMatrix() const { return drawable.getTransformMatrix(); }
 };
 struct FXList {
     static void doFXPos(const FXList*, const Coord3D* pos, const Matrix3D* mtx,
@@ -343,18 +358,43 @@ struct WeaponTemplate {
         + fallback + r"""
     }
 };
+struct RenderObject {
+    bool hidden;
+    bool Is_Hidden() const { return hidden; }
+    Matrix3D Get_Bone_Transform(int) const {
+        return {{1,0,0}, {0,1,0}, {0,0,1}, {80,60,9}};
+    }
+};
+bool fire_from_bone(const Object* logicObject, const RenderObject* m_renderObject) {
+    const FXList selected;
+    const auto* fxl = &selected;
+    const int weaponSpeed = 13, damageRadius = 40;
+    const Coord3D position{40,32,4};
+    const auto* victimPos = &position;
+    struct { int m_fxBone = 1; } info;
+    bool handled = false;
+"""
+        + draw_fx + r"""
+    return handled;
+}
 int main() {
     const Object projectile;
     WeaponTemplate{false}.detonate(&projectile);
     WeaponTemplate{true}.detonate(&projectile);
+    const RenderObject visible{false}, hidden{true};
+    if (!fire_from_bone(&projectile, &visible) || !fire_from_bone(&projectile, &hidden))
+        return 1;
 }
 """)
     subprocess.run([cxx, "-std=c++17", cpp, "-o", binary], check=True)
     output = subprocess.check_output([binary], text=True)
-    expected = "12 15 5 40 32 4 13 40\n42 35 5 40 32 4 13 40\n"
+    expected = (
+        "12 15 5 40 32 4 13 40\n42 35 5 40 32 4 13 40\n"
+        "81 62 12 40 32 4 13 40\n12 15 5 40 32 4 13 40\n"
+    )
     if output != expected:
         raise RuntimeError(f"Original weapon's detonation FX placement differs:\n{output}")
-    print("Original detonation FX uses the drawable basis and switches origin for contact weapons")
+    print("Original detonation tries the installed FX bone before the positional fallback")
 
 
 

@@ -524,6 +524,60 @@ impl NativeInstalledPoseLoan<'_> {
         Ok(transforms)
     }
 
+    /// W3DModelDraw.cpp:3672–3725. The temporary detonation weapon fires
+    /// PRIMARY barrel zero. Only a real FX pivot on the installed RenderObj
+    /// handles the list, so another Draw module can handle a missing pivot.
+    #[cfg(feature = "game_client")]
+    pub(crate) fn sample_detonation_weapon_fx_pose(
+        &mut self,
+        source: &crate::game_logic::NativeSlaveSource,
+        drawable: game_client::core::game_client::PresentationDirectDrawableState,
+        pre_physics_pose: Option<Mat4>,
+        graphics: &mut GraphicsSystem,
+    ) -> Result<Option<Mat4>, NativeCameraPoseUnavailable> {
+        use installed_draw_pose::InstalledDrawObject;
+        use NativeCameraPoseUnavailable::*;
+
+        let key = drawable.binding_key;
+        let identity = &source.identity;
+        let (_, actor_pose) = identity.native_pose().ok_or(UnsupportedSourceControls)?;
+        let modules = self.receive_current_bone_source(source, key, graphics)?;
+        for module in modules {
+            self.validate_binding(identity, key, module)?;
+            let state = self.drawable_visual_states.get_mut(&(identity.owner_id(), module))
+                .ok_or(UnadmittedDrawableLifecycle)?;
+            if state.native_instance_scale.is_none() || !state.native_condition_supported {
+                return Err(UnsupportedSourceControls);
+            }
+            let (Some(selected), InstalledDrawObject::Ready(pose)) = (
+                &state.native_selected_condition, &state.installed_draw_pose,
+            ) else { continue };
+            let Some(pivot) = pose.model
+                .weapon_barrel_topology_for_authored_bindings(&selected.weapon_bone_bindings)
+                .and_then(|topology| topology.slot(gamelogic::common::WeaponSlotType::Primary as u8)?
+                    .first()?.fire_fx_pivot_index)
+            else { continue };
+
+            if drawable.scene_effectively_hidden {
+                return Ok(Some(pre_physics_pose.unwrap_or(actor_pose)));
+            }
+            let mut world = pose.world;
+            if let Some(historical_pose) = pre_physics_pose {
+                // Keep the Draw module's transform adjustments while
+                // returning to the object pose captured at detonation.
+                world = historical_pose * actor_pose.inverse() * world;
+                if !world.is_finite() {
+                    return Err(UnsupportedSourceControls);
+                }
+            }
+            let local = state.installed_client_bone_at_index(self.animation_sync_ms, pivot as usize)?;
+            // The same Y/Z permutation converts the bone back to host axes.
+            let host_local = crate::game_logic::host_fx_list_dispatch::host_to_leftover_mat4(local);
+            return Ok(Some(world * host_local));
+        }
+        Ok(None)
+    }
+
     /// C++ pristine queries select the logical condition afresh, independently
     /// of the installed transition/current animation. Model definitions are
     /// immutable; this never replaces or advances the live RenderObj pose.

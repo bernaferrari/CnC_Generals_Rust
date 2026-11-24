@@ -381,6 +381,17 @@ pub(crate) trait NativeViewEffects {
         Err("native FX bone query has no receiving installed-render capability".into())
     }
 
+    /// Probe the first receiving Draw module that handles the temporary
+    /// PRIMARY/barrel-zero detonation weapon. Return its world pose in host axes.
+    #[cfg(feature = "game_client")]
+    fn detonation_weapon_fx_pose(
+        &mut self,
+        _source: &NativeSlaveSource,
+        _pre_physics_pose: Option<glam::Mat4>,
+    ) -> Option<glam::Mat4> {
+        None
+    }
+
     #[cfg(feature = "game_client")]
     fn update_drawable_supply_status(
         &mut self,

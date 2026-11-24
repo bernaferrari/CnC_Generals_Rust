@@ -200,6 +200,57 @@ fn scaled_actor_particles_read_the_installed_animated_bone() {
 
 #[test]
 #[ignore = "requires native WGPU; run explicit isolated receiver acceptance"]
+fn detonation_fx_samples_first_armed_draw_module_and_preserves_birth_identity() {
+    let engine = ww3d_engine::init_headless_blocking(ww3d_engine::EngineConfig {
+        width: 32, height: 32, ..Default::default()
+    }).unwrap();
+    let (device, queue, color_format, depth_format) = {
+        let engine = engine.lock();
+        (engine.device(), engine.queue(), engine.color_format(), engine.depth_format())
+    };
+    let mut graphics = GraphicsSystem::new(device, queue, color_format, depth_format).unwrap();
+    graphics.cache_model(
+        crate::assets::mesh_asset_resolve::canonical_model_key("CameraModel"),
+        model(),
+    );
+    let mut pipeline = RenderPipeline::initialize(engine, &graphics).unwrap();
+    let mut client = GameClient::new().unwrap();
+    let mut world = GameLogic::new();
+    let armed_draw = DRAW.replace(" First", " Second").replace(
+        " Model = CameraModel",
+        " Model = CameraModel\n WeaponFireFXBone = PRIMARY CAMERA",
+    );
+    let draws = format!("{DRAW}{armed_draw}");
+    admit(&mut world, &draws, 103.0);
+    let render_unit = source(&mut world);
+    sync(&mut client, &mut pipeline, &mut graphics, &render_unit, 0);
+    let actor = world.current_native_slave_source(ID, 0).unwrap();
+    let drawable = client.borrow_native_drawable_owner().direct_drawable_state(19, ID.0).unwrap();
+    pipeline.admit_native_drawable_binding(&actor.identity, drawable.binding_key).unwrap();
+    pipeline.observe_animation_sync(1000);
+    let mut poses = pipeline.borrow_native_installed_poses();
+    let current = poses.sample_detonation_weapon_fx_pose(&actor, drawable, None, &mut graphics)
+        .unwrap().expect("the second Draw module owns the authored FX pivot");
+    assert_eq!(current.w_axis.truncate(), Vec3::new(113.0, 5.0, 7.0));
+    let earlier = Mat4::from_translation(Vec3::new(40.0, 5.0, 7.0));
+    let captured = poses.sample_detonation_weapon_fx_pose(&actor, drawable, Some(earlier), &mut graphics)
+        .unwrap().unwrap();
+    assert_eq!(captured.w_axis.truncate(), Vec3::new(50.0, 5.0, 7.0));
+    let hidden = game_client::core::game_client::PresentationDirectDrawableState {
+        scene_effectively_hidden: true, ..drawable
+    };
+    assert_eq!(
+        poses.sample_detonation_weapon_fx_pose(&actor, hidden, Some(earlier), &mut graphics),
+        Ok(Some(earlier)),
+    );
+    let mut peer = GameLogic::new();
+    admit(&mut peer, &draws, 3.0);
+    let foreign = peer.current_native_slave_source(ID, 0).unwrap();
+    assert!(poses.sample_detonation_weapon_fx_pose(&foreign, drawable, None, &mut graphics).is_err());
+}
+
+#[test]
+#[ignore = "requires native WGPU; run explicit isolated receiver acceptance"]
 fn real_receiver_owns_constructor_dirty_setters_and_peer_reset_lifetimes_before_draw() {
     let engine = ww3d_engine::init_headless_blocking(ww3d_engine::EngineConfig {
         width: 32,
