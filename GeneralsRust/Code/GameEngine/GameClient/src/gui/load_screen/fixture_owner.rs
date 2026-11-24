@@ -81,9 +81,6 @@ impl MenuAudioEffects for Observe<'_> {
     fn pump(&mut self) {
         self.inner.pump();
     }
-    fn fade_out_music(&mut self) {
-        self.inner.fade_out_music();
-    }
     fn stop_the_music_fade(&mut self) {
         self.inner.stop_the_music_fade();
     }
@@ -113,13 +110,19 @@ pub(super) struct LoadScreenFixture {
 }
 impl LoadScreenFixture {
     pub(super) fn new() -> Self {
+        Self::with_mixer(Arc::new(Mutex::new(AudioManager::with_playback_hook(
+            Box::new(NoPhysicalDevice),
+        ))))
+    }
+
+    pub(super) fn with_mixer(device: Arc<Mutex<AudioManager>>) -> Self {
         let mut client =
             GameClient::new_with_input_authority(ClientInputAuthority::NativeHosted).unwrap();
         client.init_input_subsystems().unwrap();
         client.set_in_game_ui_subsystem(crate::core::subsystems::InGameUISubsystem::default());
         // Authored fixture definitions, installed BEFORE requests. Unknown names
         // still fail the production service; no new event is invented at play.
-        let mut device = AudioManager::with_playback_hook(Box::new(NoPhysicalDevice));
+        let mut definitions = device.lock().unwrap();
         for name in [
             "LoadScreenAmbient",
             "PlayerNameSound",
@@ -136,7 +139,7 @@ impl LoadScreenFixture {
             "Load_USA",
             "BriefingVoice",
         ] {
-            device.register_audio_event_info(AudioEventInfo {
+            definitions.register_audio_event_info(AudioEventInfo {
                 audio_name: name.into(),
                 sounds: vec!["OwnedLoadScreenClip".into()],
                 sound_type: if name == "Load_USA" {
@@ -150,8 +153,9 @@ impl LoadScreenFixture {
                 ..Default::default()
             });
         }
+        drop(definitions);
         let mut audio = CommonMenuAudioService::default();
-        audio.bind(Arc::new(Mutex::new(device)));
+        audio.bind(device);
         Self {
             client,
             audio,

@@ -561,6 +561,10 @@ pub fn reset_load_screen(kind: LoadScreenKind, runtime: &mut LoadScreenOperation
     let descriptor = descriptor_for_kind(kind);
     windows.with_manager(|wm| {
         if let Some(root) = wm.find_window_by_name(descriptor.root) {
+            if kind == LoadScreenKind::Multiplayer {
+                // LoadScreen.cpp:1282–1298 queues the fade before base layout teardown.
+                runtime.effects.stop_the_music_fade();
+            }
             let _ = wm.destroy_window(root);
             wm.flush_destroy_queue(&mut runtime.effects);
         }

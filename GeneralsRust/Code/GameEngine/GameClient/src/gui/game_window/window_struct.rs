@@ -763,12 +763,6 @@ impl<'effects> WindowEventEffects<'effects> {
             .expect("menu audio admission must be checked before callback")
             .pump();
     }
-    pub fn fade_out_menu_music(&mut self) {
-        self.menu_audio
-            .as_deref_mut()
-            .expect("menu audio admission must be checked before callback")
-            .fade_out_music();
-    }
     /// C++ `removeAudioEvent(AHSV_StopTheMusicFade)` on this client's device.
     pub fn stop_the_music_fade(&mut self) {
         self.menu_audio

@@ -212,9 +212,6 @@ mod credits_music_tests {
             MenuAudioStop::NotOwned
         }
         fn pump(&mut self) {}
-        fn fade_out_music(&mut self) {
-            self.0.push("fade-menu-music".into());
-        }
         fn stop_the_music_fade(&mut self) {
             self.0.push("stop-music-fade".into());
         }

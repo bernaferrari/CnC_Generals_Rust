@@ -53,7 +53,7 @@ fn play_multiplayer_load_screen_music(music_name: &str, runtime: &mut LoadScreen
         return;
     }
     // C++ LoadScreen.cpp:1351: StopTheMusicFade, fading play, update.
-    runtime.effects.fade_out_menu_music();
+    runtime.effects.stop_the_music_fade();
     runtime.effects.play_fading_menu_audio(music_name);
     runtime.effects.pump_menu_audio();
 }

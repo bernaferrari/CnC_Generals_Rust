@@ -57,3 +57,67 @@ fn reset_visits_only_the_receiving_window_tree() {
         });
     });
 }
+
+#[test]
+fn multiplayer_loading_screen_teardown_fades_receiving_music_once() {
+    use game_engine::common::audio::game_audio::SoundPlaybackHook;
+    use game_engine::common::audio::{AudioEventRts, AudioManager};
+    use std::sync::{Arc, Mutex};
+
+    struct FixtureOutput;
+    impl SoundPlaybackHook for FixtureOutput {
+        fn play(&self, _: &AudioEventRts) -> Result<(), String> {
+            Ok(())
+        }
+        fn stop(&self, _: u32) {}
+        fn pause(&self, _: u32) {}
+        fn resume(&self, _: u32) {}
+        fn is_playing(&self, _: u32) -> bool {
+            true
+        }
+    }
+
+    crate::test_support::ensure_ambient_host();
+    let mixer = Arc::new(Mutex::new(AudioManager::with_playback_hook(Box::new(
+        FixtureOutput,
+    ))));
+    let mixer_state = || {
+        let mixer = mixer.lock().unwrap();
+        (
+            mixer.active_event_count(),
+            mixer.fading_audio_count(),
+            mixer.fading_frames(),
+        )
+    };
+    let mut receiver = LoadScreenFixture::with_mixer(Arc::clone(&mixer));
+    let mut peer = LoadScreenFixture::with_mixer(Arc::clone(&mixer));
+    peer.with_runtime(|runtime, _, _| play_multiplayer_load_screen_music("Load_USA", runtime));
+    receiver.with_runtime(|runtime, _, _| {
+        let windows = runtime.windows;
+        windows.with_manager(|wm| {
+            for kind in [LoadScreenKind::Multiplayer, LoadScreenKind::GameSpy] {
+                let root = wm
+                    .create_window(None, 0, 0, 100, 100, &mut runtime.effects)
+                    .unwrap();
+                root.borrow_mut().set_name(descriptor_for_kind(kind).root);
+            }
+        });
+        play_multiplayer_load_screen_music("Load_USA", runtime);
+        assert_eq!(mixer_state(), (2, 0, 0));
+
+        reset_load_screen(LoadScreenKind::GameSpy, runtime);
+        runtime.effects.pump_menu_audio();
+        assert_eq!(mixer_state(), (2, 0, 0));
+
+        reset_load_screen(LoadScreenKind::Multiplayer, runtime);
+        assert_eq!(mixer_state(), (2, 0, 0), "teardown doesn't pump audio");
+        runtime.effects.play_menu_audio("Load_USA").unwrap();
+        reset_load_screen(LoadScreenKind::Multiplayer, runtime);
+        runtime.effects.pump_menu_audio();
+        assert_eq!(
+            mixer_state(),
+            (2, 1, 1),
+            "loading music must fade while peer and next track stay active"
+        );
+    });
+}

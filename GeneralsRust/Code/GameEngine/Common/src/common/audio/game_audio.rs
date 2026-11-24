@@ -1733,7 +1733,9 @@ impl AudioManager {
     ) {
         match request.request {
             RequestType::Stop => {
-                if let Some(handle) = request.get_handle() {
+                if let Some(owner) = request.music_fade_owner() {
+                    self.begin_queued_music_fade(owner);
+                } else if let Some(handle) = request.get_handle() {
                     self.stop_playing_handle(handle);
                 }
             }

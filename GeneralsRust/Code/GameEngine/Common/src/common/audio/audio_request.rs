@@ -9,7 +9,8 @@
 //! John McDonald, Jr
 //! Converted to Rust
 
-use crate::common::audio::audio_event_rts::AudioEventRts;
+use crate::common::audio::audio_event_rts::{AudioEventRts, AudioInstance};
+use std::sync::Weak;
 
 // Type aliases for compatibility
 pub type AudioHandle = u32;
@@ -36,6 +37,7 @@ pub struct AudioRequest {
 pub enum RequestData {
     PendingEvent(Box<AudioEventRts>),
     HandleToInteractOn(AudioHandle),
+    FadeMusic(Weak<()>),
 }
 
 impl AudioRequest {
@@ -56,6 +58,22 @@ impl AudioRequest {
             request_data: RequestData::HandleToInteractOn(handle),
             use_pending_event: false,
             requires_check_for_sample: false,
+        }
+    }
+
+    pub(crate) fn fade_music(instance: &AudioInstance) -> Self {
+        Self {
+            request: RequestType::Stop,
+            request_data: RequestData::FadeMusic(instance.downgrade()),
+            use_pending_event: false,
+            requires_check_for_sample: false,
+        }
+    }
+
+    pub(crate) fn music_fade_owner(&self) -> Option<&Weak<()>> {
+        match &self.request_data {
+            RequestData::FadeMusic(owner) => Some(owner),
+            _ => None,
         }
     }
 
@@ -118,6 +136,7 @@ impl Clone for AudioRequest {
         let cloned_data = match &self.request_data {
             RequestData::PendingEvent(event) => RequestData::PendingEvent(event.clone()),
             RequestData::HandleToInteractOn(handle) => RequestData::HandleToInteractOn(*handle),
+            RequestData::FadeMusic(owner) => RequestData::FadeMusic(owner.clone()),
         };
 
         AudioRequest {

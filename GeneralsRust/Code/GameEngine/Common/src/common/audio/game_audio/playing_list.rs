@@ -3,6 +3,7 @@ use super::*;
 impl AudioManager {
     /// Miles reset retires the outgoing instance's playback and pending work.
     pub fn retire_audio_instance(&mut self, instance: &AudioInstance) {
+        self.cancel_music_fades_for_instance(instance);
         let handles: Vec<_> = self
             .active_audio_events
             .values()
@@ -300,8 +301,45 @@ impl AudioManager {
         self.begin_music_fade_where(|event| handles.contains(&event.get_playing_handle()));
     }
 
-    pub fn fade_music_for_instance(&mut self, instance: &AudioInstance) {
-        self.begin_music_fade_where(|event| event.belongs_to_instance(instance));
+    /// Enqueue the receiving engine's AHSV_StopTheMusicFade with its Plays.
+    pub fn queue_music_fade_for_instance(&mut self, instance: &AudioInstance) {
+        self.append_audio_request(AudioRequest::fade_music(instance));
+    }
+
+    /// Remove this engine's pending fades during menu or world reset.
+    pub fn cancel_music_fades_for_instance(&mut self, instance: &AudioInstance) {
+        let owner = instance.downgrade();
+        self.audio_requests.retain(|request| {
+            !request
+                .music_fade_owner()
+                .is_some_and(|requested| requested.ptr_eq(&owner))
+        });
+    }
+
+    pub(super) fn begin_queued_music_fade(&mut self, owner: &std::sync::Weak<()>) {
+        let Some(_live) = owner.upgrade() else {
+            return;
+        };
+        // MilesAudioManager::stopAudioEvent selects the first playing music
+        // stream in order. Only this receiving instance's streams are eligible.
+        let handle = self.active_audio_events.values().find_map(|event| {
+            (event
+                .receiving_instance
+                .as_ref()
+                .is_some_and(|instance| instance.ptr_eq(owner))
+                && event
+                    .get_audio_event_info()
+                    .is_some_and(|info| info.sound_type == AudioType::Music))
+            .then(|| event.get_playing_handle())
+        });
+        if let Some(event) =
+            handle.and_then(|handle| self.active_audio_events.shift_remove(&handle))
+        {
+            self.fading_audio.push(FadingAudio {
+                event,
+                frames_faded: 0,
+            });
+        }
     }
     pub(super) fn begin_music_fade(&mut self) {
         self.begin_music_fade_where(|_| true);

@@ -46,7 +46,6 @@ pub trait MenuAudioEffects {
     fn play_fading(&mut self, name: &str) -> Option<MenuAudioHandle>;
     fn stop(&mut self, handle: MenuAudioHandle) -> MenuAudioStop;
     fn pump(&mut self);
-    fn fade_out_music(&mut self);
     /// C++ `TheAudio->removeAudioEvent(AHSV_StopTheMusicFade)`: fade the
     /// receiving instance's music, including tracks submitted outside the menu.
     fn stop_the_music_fade(&mut self);
@@ -78,7 +77,6 @@ impl MenuAudioEffects for SilentMenuAudio {
         MenuAudioStop::NotOwned
     }
     fn pump(&mut self) {}
-    fn fade_out_music(&mut self) {}
     fn stop_the_music_fade(&mut self) {}
     fn set_system_volume(&mut self, _: f32, _: game_engine::common::audio::AudioAffect) {}
 }
@@ -147,6 +145,7 @@ impl CommonMenuAudioService {
     pub fn reset(&mut self) {
         if let Some(device) = &self.device {
             let mut device = device.lock().expect("receiving menu audio device poisoned");
+            device.cancel_music_fades_for_instance(&self.instance);
             device.retire_audio_handles(&self.handles);
             self.handles.clear();
         }
@@ -280,7 +279,7 @@ impl<V: MenuAudioView> MenuAudioEffects for CommonMenuAudio<'_, V> {
             .expect("bound menu audio service")
             .lock()
             .expect("receiving menu audio device poisoned")
-            .fade_music_for_instance(&self.service.instance);
+            .queue_music_fade_for_instance(&self.service.instance);
     }
     fn set_system_volume(&mut self, volume: f32, affect: game_engine::common::audio::AudioAffect) {
         self.service
@@ -290,15 +289,5 @@ impl<V: MenuAudioView> MenuAudioEffects for CommonMenuAudio<'_, V> {
             .lock()
             .expect("receiving menu audio device poisoned")
             .set_volume(volume, affect);
-    }
-    fn fade_out_music(&mut self) {
-        let handles: Vec<_> = self.service.handles.iter().copied().collect();
-        self.service
-            .device
-            .as_ref()
-            .expect("bound menu audio service")
-            .lock()
-            .expect("receiving menu audio device poisoned")
-            .fade_music_for_handles(&handles);
     }
 }

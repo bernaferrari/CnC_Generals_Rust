@@ -394,6 +394,12 @@ fn audio_file_exists(filename: &str) -> bool {
 #[derive(Clone, Debug, Default)]
 pub struct AudioInstance(Arc<()>);
 
+impl AudioInstance {
+    pub(crate) fn downgrade(&self) -> Weak<()> {
+        Arc::downgrade(&self.0)
+    }
+}
+
 /// This is called AudioEventRts because AudioEvent is a typedef in ww3d
 /// Enhanced with async capabilities and modern Rust patterns
 #[derive(Debug)]
@@ -545,7 +551,7 @@ impl AudioEventRts {
     /// Bind this submission to the owning session's cue and voice limits.
     pub fn admit_instance(&mut self, instance: &AudioInstance) {
         if !self.belongs_to_instance(instance) {
-            self.receiving_instance = Some(Arc::downgrade(&instance.0));
+            self.receiving_instance = Some(instance.downgrade());
             self.set_handle_to_kill(0);
         }
     }

@@ -52,6 +52,8 @@ fn scoped_reset_retires_only_owned_active_pending_fading_and_force_records() {
     device
         .audio_force_played
         .extend([owner_event(1007, "OwnerForce"), peer_event(1008, "PeerForce")]);
+    device.queue_music_fade_for_instance(&owner);
+    device.queue_music_fade_for_instance(&peer);
     device.retire_audio_instance(&owner);
     assert_eq!(
         device
@@ -68,8 +70,12 @@ fn scoped_reset_retires_only_owned_active_pending_fading_and_force_records() {
             .collect::<Vec<_>>(),
         vec![1004]
     );
-    assert_eq!(device.audio_requests.len(), 2);
+    assert_eq!(device.audio_requests.len(), 3);
     assert_eq!(device.audio_requests[1].get_handle(), Some(1004));
+    assert!(device.audio_requests[2]
+        .music_fade_owner()
+        .unwrap()
+        .ptr_eq(&peer.downgrade()));
     assert_eq!(device.fading_audio.len(), 1);
     assert_eq!(device.fading_audio[0].event.get_playing_handle(), 1006);
     assert_eq!(device.fading_audio[0].frames_faded, 9);

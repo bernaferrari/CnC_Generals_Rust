@@ -224,10 +224,18 @@ use crate::message_stream::game_message::GameMessageType;
         play_direct_music();
         menu.lend(&mut audio_random, &policy, locality, View)
             .stop_the_music_fade();
-        let device = device.lock().unwrap();
+        let mut device = device.lock().unwrap();
+        assert!(device.active_event_loop_count(direct_music).is_some());
+        let next_direct_music = device
+            .pending_play_events()
+            .find(|event| event.get_event_name() == "SharedMenuMusic")
+            .unwrap()
+            .get_playing_handle();
+        device.process_request_list();
         assert!(device.active_event_loop_count(direct_music).is_none());
         assert!(device.active_event_loop_count(peer_music).is_some());
-        assert_eq!(device.pending_play_request_count_for("SharedMenuMusic"), 1);
+        assert!(device.active_event_loop_count(next_direct_music).is_some());
+        assert_eq!(device.pending_play_request_count_for("SharedMenuMusic"), 0);
     }
 
     struct StubCommandTranslator;
