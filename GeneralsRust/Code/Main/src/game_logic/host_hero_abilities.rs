@@ -129,7 +129,6 @@ pub const LOTUS_CAPTURE_PREP_MS: u32 = 6_000;
 pub const LOTUS_CAPTURE_PREP_FRAMES: u32 = 180;
 pub const LOTUS_CAPTURE_AWARD_XP: u32 = 20;
 pub const LOTUS_CAPTURE_SPECIAL_OBJECT: &str = "BinaryDataStream";
-pub const LOTUS_CAPTURE_DO_CAPTURE_FX: bool = true;
 
 // --- Black Lotus DisableVehicleHack timers residual ---
 
@@ -642,9 +641,6 @@ pub fn leftover_flee_position(
     dest
 }
 
-/// C++ `TheGlobalData->m_selectionFlashSaturationFactor` default (GameData 0.5).
-pub const SELECTION_FLASH_SATURATION_FACTOR: f32 = 0.5;
-
 /// C++ `Drawable::saturateRGB` used by capture prep before `flashAsSelected`.
 #[inline]
 pub fn saturate_selection_flash_rgb(color: [f32; 3], factor: f32) -> [f32; 3] {
@@ -657,15 +653,16 @@ pub fn saturate_selection_flash_rgb(color: [f32; 3], factor: f32) -> [f32; 3] {
 }
 
 /// C++ `continuePreparation` DoCaptureFX flash edge (odd→even falling).
-pub fn leftover_capture_fx_should_flash(
+pub(in crate::game_logic) fn capture_preparation_flash_edge(
     phase: &mut f32,
-    remaining_seconds: f32,
-    preparation_time_ms: u32,
+    remaining_frames: u32,
+    preparation_frames: u32,
 ) -> bool {
+    if remaining_frames == 0 {
+        return false;
+    }
     let last_phase = (*phase as i32) & 1;
-    let denom = ((preparation_time_ms as f32) / 1000.0 * HERO_ABILITY_LOGIC_FPS).max(1.0);
-    let prep_frames = remaining_seconds * HERO_ABILITY_LOGIC_FPS;
-    let increment = 1.0 - (prep_frames / denom);
+    let increment = 1.0 - remaining_frames as f32 / preparation_frames.max(1) as f32;
     *phase += increment / 3.0;
     let this_phase = (*phase as i32) & 1;
     last_phase == 1 && this_phase == 0
@@ -843,9 +840,6 @@ pub struct HostHeroAbilityRegistry {
     /// Leftover SpecialAbilityUpdate channels (steal/disable/plant/laser).
     #[serde(default)]
     pub leftover_channels: HashMap<ObjectId, LeftoverSaChannel>,
-    /// C++ `m_captureFlashPhase` leftover, keyed by capturing object.
-    #[serde(default)]
-    pub capture_flash_phase: HashMap<ObjectId, f32>,
     /// C++ `createSpecialObject` + `initLaser` BinaryDataStream residual.
     #[serde(default)]
     pub leftover_binary_streams_spawned: u32,
@@ -1033,7 +1027,6 @@ impl HostHeroAbilityRegistry {
     }
 
     pub fn clear_capture_flash(&mut self, id: ObjectId) {
-        self.capture_flash_phase.remove(&id);
     }
 }
 
@@ -1092,7 +1085,6 @@ pub fn honesty_lotus_special_ability_timers_residual_ok() -> bool {
         && LOTUS_CAPTURE_PREP_FRAMES == hero_ms_to_frames(LOTUS_CAPTURE_PREP_MS)
         && LOTUS_CAPTURE_AWARD_XP == 20
         && LOTUS_CAPTURE_SPECIAL_OBJECT == "BinaryDataStream"
-        && LOTUS_CAPTURE_DO_CAPTURE_FX
         && SPECIAL_ABILITY_BLACK_LOTUS_CAPTURE == "SpecialAbilityBlackLotusCaptureBuilding"
         // DisableVehicleHack
         && LOTUS_DISABLE_UNPACK_MS == 2_000
@@ -1308,7 +1300,7 @@ mod tests {
         let flee = leftover_flee_position(Vec3::new(0.0, 0.0, 0.0), (1.0, 0.0), 100.0, true, None);
         assert!((flee.x - 100.0).abs() < 1e-4);
         let mut phase = 1.4_f32;
-        let flashed = leftover_capture_fx_should_flash(&mut phase, 1.0, 6_000);
+        let flashed = capture_preparation_flash_edge(&mut phase, 30, 180);
         let _ = flashed;
         let steal = leftover_sa_timings(LeftoverSaKind::StealCash);
         assert_eq!(steal.unpack_ms, 6_730);

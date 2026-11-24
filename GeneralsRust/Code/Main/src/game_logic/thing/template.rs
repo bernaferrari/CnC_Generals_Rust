@@ -1089,6 +1089,9 @@ pub struct ThingTemplate {
     /// live channel duration after unpacking, not a click-time delay.
     #[serde(default)]
     pub capture_preparation_time_ms: Option<u32>,
+    /// Authored SpecialAbilityUpdate::DoCaptureFX.
+    #[serde(default)]
+    pub capture_do_fx: bool,
     /// `SpecialAbilityUpdate::PackTime` (milliseconds).  C++ keeps the
     /// ability active through this post-trigger phase before returning idle.
     #[serde(default)]
@@ -1665,6 +1668,7 @@ impl ThingTemplate {
             capture_start_ability_range: None,
             capture_unpack_time_ms: None,
             capture_preparation_time_ms: None,
+            capture_do_fx: false,
             capture_pack_time_ms: None,
             capture_pack_unpack_variation_factor: 0.0,
             capture_unpack_sound: None,

@@ -8,15 +8,8 @@
 //! `m_wasTargetAirborne` so the hidden hijacker stays bound to the stolen
 //! vehicle.
 //!
-//! Live `ObjectSnapshot` only stores the HackerDisable channel. Capture
-//! (`capture_channel`), C4 unpack (`charge_plant_unpack_remaining_seconds` +
-//! leftover plant channel / pending plant), and hijacker ride fields are
-//! reconstructed as defaults on restore — the channel aborts or the rider
-//! unbinds.
-//!
-//! Append a tagged suffix after the historical v9 contain/producer payload
-//! (and after SPCD / BPPL / SUBD / HSQD / BTRY / CBPD) so older decoders
-//! ignore the extra bytes. No world snapshot version bump.
+//! The SABL suffix stores capture preparation and its continuing flash phase,
+//! C4 unpacking and pending plant orders, and hijacker ride linkage.
 
 use crate::game_logic::host_hero_abilities::{LeftoverSaChannel, LeftoverSaKind, LeftoverSaPhase};
 use crate::game_logic::{CaptureChannelState, GameLogic, ObjectId, PendingSpecialAbility};
@@ -24,7 +17,7 @@ use crate::save_load::{SaveLoadError, SaveLoadResult};
 use serde::{Deserialize, Serialize};
 
 const SABL_MAGIC: &[u8; 4] = b"SABL";
-const SABL_VERSION: u32 = 1;
+const SABL_VERSION: u32 = 2;
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 struct AbilityHijackPersistPayload {
@@ -36,6 +29,7 @@ struct AbilityHijackPersistPayload {
 struct ObjectAbilityPersist {
     object_id: u32,
     capture: Option<CaptureChannelState>,
+    capture_flash_phase: f32,
     charge_plant_unpack_remaining_seconds: Option<f32>,
     leftover: Option<LeftoverSaChannel>,
     pending_plant_kind: Option<u8>,
@@ -86,6 +80,13 @@ pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> Sa
     }
     let payload: AbilityHijackPersistPayload = bincode_legacy::deserialize(&rest[..payload_len])
         .map_err(|err| SaveLoadError::Corrupted(format!("SABL payload decode: {err}")))?;
+    if payload
+        .abilities
+        .iter()
+        .any(|ability| !ability.capture_flash_phase.is_finite())
+    {
+        return Err(SaveLoadError::Corrupted("SABL capture flash phase is not finite".into()));
+    }
     apply_payload(game_logic, payload);
     Ok(())
 }
@@ -132,6 +133,7 @@ fn capture(game_logic: &GameLogic) -> AbilityHijackPersistPayload {
             }
         }
         if object.capture_channel.is_some()
+            || object.capture_flash_phase != 0.0
             || charge_plant.is_some()
             || leftover.is_some()
             || pending_plant_kind.is_some()
@@ -139,6 +141,7 @@ fn capture(game_logic: &GameLogic) -> AbilityHijackPersistPayload {
             abilities.push(ObjectAbilityPersist {
                 object_id: id.0,
                 capture: object.capture_channel,
+                capture_flash_phase: object.capture_flash_phase,
                 charge_plant_unpack_remaining_seconds: charge_plant,
                 leftover,
                 pending_plant_kind,
@@ -172,6 +175,7 @@ fn apply_payload(game_logic: &mut GameLogic, payload: AbilityHijackPersistPayloa
     for entry in payload.abilities {
         let object_id = ObjectId(entry.object_id);
         if let Some(object) = game_logic.host_object_mut(object_id) {
+            object.capture_flash_phase = entry.capture_flash_phase;
             if let Some(channel) = entry.capture {
                 if channel.remaining_seconds.is_finite() && channel.remaining_seconds >= 0.0 {
                     object.capture_channel = Some(channel);
@@ -328,6 +332,10 @@ mod tests {
         let barracks_id = source
             .create_object("AmericaBarracks", Team::USA, Vec3::new(40.0, 0.0, 8.0))
             .expect("barracks");
+        let idle_ranger_id = source
+            .create_object("USARanger", Team::USA, Vec3::new(8.0, 0.0, 16.0))
+            .expect("idle ranger");
+        source.host_object_mut(idle_ranger_id).unwrap().capture_flash_phase = 0.75;
 
         let frame = source.frame;
         {
@@ -338,6 +346,7 @@ mod tests {
                 phase: CaptureChannelPhase::Preparing,
                 remaining_seconds: 1.25,
             });
+            ranger.capture_flash_phase = 1.75;
             ranger.set_ai_state(
                 AIState::Capturing,
                 frame,
@@ -403,6 +412,10 @@ mod tests {
             "IS_USING_ABILITY must survive with the capture channel"
         );
         assert_eq!(loaded_ranger.ai_state(), AIState::Capturing);
+        assert_eq!(loaded_ranger.capture_flash_phase, 1.75);
+        let idle_ranger = restored.host_object(idle_ranger_id).unwrap();
+        assert!(idle_ranger.capture_channel.is_none());
+        assert_eq!(idle_ranger.capture_flash_phase, 0.75);
 
         let loaded_burton = restored.host_object(burton_id).expect("restored burton");
         assert_eq!(

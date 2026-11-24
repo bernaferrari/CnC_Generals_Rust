@@ -23,6 +23,7 @@ impl GameLogic {
             capture_start_range,
             capture_unpack_time_ms,
             capture_preparation_time_ms,
+            capture_do_fx,
             capture_pack_time_ms,
             capture_channel,
             capturer_moving,
@@ -35,6 +36,7 @@ impl GameLogic {
                     obj.thing().template.capture_start_ability_range,
                     obj.thing().template.capture_unpack_time_ms,
                     obj.thing().template.capture_preparation_time_ms,
+                    obj.thing().template.capture_do_fx,
                     obj.thing().template.capture_pack_time_ms,
                     obj.capture_channel,
                     obj.host_ai_is_moving(),
@@ -45,6 +47,7 @@ impl GameLogic {
                 None,
                 None,
                 None,
+                false,
                 None,
                 None,
                 false,
@@ -239,12 +242,19 @@ impl GameLogic {
                             remaining_seconds: remaining,
                         });
                     }
-                    self.apply_leftover_capture_fx(
-                        object_id,
-                        capture_target_id,
-                        remaining,
-                        preparation_time_ms,
-                    );
+                    if capture_do_fx {
+                        self.apply_capture_preparation_flash(
+                            object_id,
+                            capture_target_id,
+                            (remaining
+                                * game_engine::common::game_common::LOGICFRAMES_PER_SECONDS_REAL)
+                                .round() as u32,
+                            crate::game_logic::CaptureChannelState::preparation_frames(
+                                preparation_time_ms,
+                            ),
+                            effects,
+                        );
+                    }
                     return Ok(());
                 }
                 preparation_complete = true;

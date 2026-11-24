@@ -152,7 +152,7 @@ impl GameLogic {
                     let defection_fx_available =
                         object.defection_helper.as_ref().is_some_and(|helper| {
                             helper.undetected_defector && helper.do_defector_fx
-                        }) && self.accepts_defector_drawable(object, presentation_effects);
+                        }) && self.receiving_drawable_available(object, presentation_effects);
                     (height_die_terrain, frenzy_expired, defection_fx_available)
                 },
             );

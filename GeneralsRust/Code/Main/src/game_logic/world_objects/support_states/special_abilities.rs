@@ -2055,53 +2055,48 @@ impl GameLogic {
         Ok(())
     }
 
-    pub(super) fn apply_leftover_capture_fx(
+    /// C++ SpecialAbilityUpdate::continuePreparation. The target Drawable
+    /// admits the pulse; the capturing ability retains its phase.
+    pub(super) fn apply_capture_preparation_flash(
         &mut self,
-        object_id: ObjectId,
+        source_id: ObjectId,
         target_id: ObjectId,
-        remaining_seconds: f32,
-        preparation_time_ms: u32,
+        remaining_frames: u32,
+        preparation_frames: u32,
+        effects: &crate::game_logic::ScriptPresentationEffects<'_>,
     ) {
-        if !crate::game_logic::host_hero_abilities::LOTUS_CAPTURE_DO_CAPTURE_FX {
+        if !self
+            .objects
+            .get(&target_id)
+            .is_some_and(|target| self.receiving_drawable_available(target, effects))
+        {
             return;
         }
-        let phase = self
-            .hero_abilities
-            .capture_flash_phase
-            .entry(object_id)
-            .or_insert(0.0);
-        if crate::game_logic::host_hero_abilities::leftover_capture_fx_should_flash(
-            phase,
-            remaining_seconds,
-            preparation_time_ms,
-        ) {
-            // C++ continuePreparation: capturer getIndicatorColor, saturateRGB,
-            // flashAsSelected(&myHouseColor), DefectorTimerTickSound on target.
-            let capturer_owner = self.objects.get(&object_id).and_then(|o| o.owner_player_id);
-            let house = capturer_owner
-                .and_then(|id| self.player_color_rgb(id))
-                .map(|(r, g, b)| [r as f32 / 255.0, g as f32 / 255.0, b as f32 / 255.0])
-                .unwrap_or([1.0, 1.0, 1.0]);
-            let flash = crate::game_logic::host_hero_abilities::saturate_selection_flash_rgb(
-                house,
-                crate::game_logic::host_hero_abilities::SELECTION_FLASH_SATURATION_FACTOR,
-            );
-
-            let target_pos = self.objects.get(&target_id).map(|t| t.get_position());
-            if let Some(target) = self.objects.get_mut(&target_id) {
-                target.flash_as_selected_with_color(flash);
-            }
-            if let Some(pos) = target_pos {
-                self.queue_audio_event(
-                    crate::game_logic::AudioEventRequest::new(
-                        crate::game_logic::host_defector_special_power::DEFECTOR_TIMER_TICK_AUDIO,
-                    )
-                    .with_object(target_id)
-                    .with_position(pos)
-                    .with_priority(160),
-                );
-            }
+        let edge = self.objects.get_mut(&source_id).is_some_and(|source| {
+            crate::game_logic::host_hero_abilities::capture_preparation_flash_edge(
+                &mut source.capture_flash_phase,
+                remaining_frames,
+                preparation_frames,
+            )
+        });
+        if !edge {
+            return;
         }
+        let Some(source) = self.objects.get(&source_id) else {
+            return;
+        };
+        let saturation = self
+            .world_services
+            .common()
+            .system
+            .runtime_global_data
+            .read()
+            .selection_flash_saturation_factor;
+        let color = crate::game_logic::host_hero_abilities::saturate_selection_flash_rgb(
+            self.indicator_color_rgb(source),
+            saturation,
+        );
+        self.flash_with_timer_cue(target_id, color, |misc| &misc.defector_timer_tick_sound);
     }
 
     /// Validate every mutable participant in the RiderChange replacement

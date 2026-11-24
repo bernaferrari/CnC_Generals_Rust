@@ -747,6 +747,7 @@ impl Object {
             tertiary_weapon: None,
             target: None,
             capture_channel: None,
+            capture_flash_phase: 0.0,
             hacker_disable_channel: None,
             charge_plant_unpack_remaining_seconds: None,
 
@@ -1581,6 +1582,7 @@ impl Object {
             tertiary_weapon: None,
             target: None,
             capture_channel: None,
+            capture_flash_phase: 0.0,
             hacker_disable_channel: None,
             charge_plant_unpack_remaining_seconds: None,
 

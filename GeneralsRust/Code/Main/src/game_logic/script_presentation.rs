@@ -886,6 +886,63 @@ impl ScriptPresentationEffects<'_> {
     }
 }
 
+impl crate::game_logic::GameLogic {
+    /// C++ getDrawable resolves the current Object birth in the receiving view.
+    pub(in crate::game_logic) fn receiving_drawable_available(
+        &self,
+        object: &crate::game_logic::Object,
+        effects: &ScriptPresentationEffects<'_>,
+    ) -> bool {
+        effects.view.as_deref().is_some_and(|view| {
+            view.has_current_drawable(&self.live_draw_playback_identity(object))
+        })
+    }
+
+    /// C++ Object::getIndicatorColor uses a custom RGB or the owner's day color.
+    pub(in crate::game_logic) fn indicator_color_rgb(
+        &self,
+        object: &crate::game_logic::Object,
+    ) -> [f32; 3] {
+        let rgb = if let Some(raw) = object.custom_indicator_color {
+            [(raw >> 16) as u8, (raw >> 8) as u8, raw as u8]
+        } else {
+            object
+                .owner_player_id
+                .and_then(|owner| self.player_color_rgb(owner))
+                .map_or([0; 3], |(r, g, b)| [r, g, b])
+        };
+        rgb.map(|value| f32::from(value) / 255.0)
+    }
+
+    /// Paint an admitted target and then enqueue its receiving MiscAudio cue.
+    pub(in crate::game_logic) fn flash_with_timer_cue(
+        &mut self,
+        target: crate::game_logic::ObjectId,
+        color: [f32; 3],
+        cue: impl FnOnce(
+            &game_engine::common::ini::ini_misc_audio::MiscAudio,
+        ) -> &game_engine::common::ini::ini_misc_audio::AudioEventRTS,
+    ) {
+        let Some(object) = self.host_object_mut(target) else {
+            return;
+        };
+        let position = object.get_position();
+        object.flash_as_selected_with_color(color);
+        let event = {
+            let misc = self.world_services.common().ini.misc_audio.read();
+            let name = cue(&misc).playable_event_name();
+            (!name.is_empty()).then(|| {
+                crate::game_logic::AudioEventRequest::new(name)
+                    .with_object(target)
+                    .with_position(position)
+            })
+        };
+        if let Some(event) = event {
+            self.queue_audio_event(event);
+        }
+    }
+}
+
 #[cfg(all(test, feature = "game_client"))]
 #[path = "script_presentation/projected_radius_tests.rs"]
 mod projected_radius_tests;

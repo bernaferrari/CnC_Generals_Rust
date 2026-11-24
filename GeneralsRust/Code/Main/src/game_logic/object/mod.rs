@@ -1164,6 +1164,10 @@ pub struct Object {
     /// so save/load cannot collapse a live channel into an instant transfer.
     #[serde(default)]
     pub capture_channel: Option<CaptureChannelState>,
+    /// C++ SpecialAbilityUpdate::m_captureFlashPhase, retained across orders.
+    /// The SABL save record carries it even when no capture channel is active.
+    #[serde(skip)]
+    pub(crate) capture_flash_phase: f32,
     /// Persistent C++ `SpecialAbilityUpdate` channel for
     /// `SPECIAL_HACKER_DISABLE_BUILDING`.  This is separate from capture and
     /// generic pending abilities because HDB repeatedly refreshes its target
@@ -2778,10 +2782,21 @@ pub struct CaptureChannelState {
 
 impl CaptureChannelState {
     pub fn new(phase: CaptureChannelPhase, duration_ms: u32) -> Self {
+        let remaining_seconds = if phase == CaptureChannelPhase::Preparing {
+            Self::preparation_frames(duration_ms) as f32
+                / game_engine::common::game_common::LOGICFRAMES_PER_SECONDS_REAL
+        } else {
+            duration_ms as f32 / 1_000.0
+        };
         Self {
             phase,
-            remaining_seconds: duration_ms as f32 / 1_000.0,
+            remaining_seconds,
         }
+    }
+
+    pub(in crate::game_logic) fn preparation_frames(duration_ms: u32) -> u32 {
+        game_engine::common::ini::INI::convert_duration_msecs_to_frames(duration_ms as f32).ceil()
+            as u32
     }
 }
 

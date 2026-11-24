@@ -480,7 +480,7 @@ impl GameLogic {
         if self
             .objects
             .get(&id)
-            .is_some_and(|object| self.accepts_defector_drawable(object, effects))
+            .is_some_and(|object| self.receiving_drawable_available(object, effects))
         {
             self.present_defection_flash(
                 id,

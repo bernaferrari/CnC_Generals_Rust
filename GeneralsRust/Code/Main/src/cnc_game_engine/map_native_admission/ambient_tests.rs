@@ -189,6 +189,180 @@ fn defection_timer_uses_receiving_drawable_and_misc_audio() {
     );
 }
 
+#[test]
+fn capture_preparation_uses_the_receiving_drawable_color_and_tick() {
+    use crate::game_logic::{AIState, CaptureChannelPhase, Player, Team};
+    use game_engine::common::ini::ini_misc_audio::AudioEventRTS;
+
+    crate::game_logic::game_logic::pose_owner_tests::isolated_at(
+        module_path!(),
+        "capture_preparation_uses_the_receiving_drawable_color_and_tick",
+        || {
+            const PREP_FRAMES: u32 = 181; // C++ rounds authored 6001 ms up.
+            let (_gpu, mut graphics, mut pipeline) = staged_native_fixture_gpu();
+            let fixture_world = |tick: &str| {
+                let captor = |name, do_fx| {
+                    format!(
+                        r#"Object {name}
+ KindOf = INFANTRY SELECTABLE
+ Body = ActiveBody Body
+ MaxHealth = 100
+ InitialHealth = 100
+ End
+ Behavior = SpecialAbility Capture
+ SpecialPowerTemplate = SpecialAbilityBlackLotusCaptureBuilding
+ End
+ Behavior = SpecialAbilityUpdate CaptureUpdate
+ SpecialPowerTemplate = SpecialAbilityBlackLotusCaptureBuilding
+ StartAbilityRange = 150
+ UnpackTime = 0
+ PreparationTime = 6001
+ PackTime = 0
+ {do_fx}
+ End
+End
+"#
+                    )
+                };
+                let mut world = GameLogic::new();
+                world
+                    .admit_object_ini_sources([(
+                        "capture-pulse.ini".into(),
+                        captor("PulseCaptor", "DoCaptureFX = Yes")
+                            + captor("SilentCaptor", "").as_str()
+                            + "Object PulseTarget\n KindOf = STRUCTURE SELECTABLE\n Body = ActiveBody Body\n MaxHealth = 100\n InitialHealth = 100\n End\nEnd\n",
+                    )])
+                    .unwrap();
+                world.start_new_game(GameMode::SinglePlayer).unwrap();
+                world.add_player(Player::new(0, Team::China, "Captor", true));
+                world.add_player(Player::new(1, Team::USA, "Target", false));
+                world
+                    .get_player_mut(0)
+                    .unwrap()
+                    .set_map_relationship(1, gamelogic::common::Relationship::Enemies);
+                let common = world.world_services.common();
+                common.ini.misc_audio.write().defector_timer_tick_sound =
+                    AudioEventRTS::from_event_name(tick.into());
+                common
+                    .system
+                    .runtime_global_data
+                    .write()
+                    .selection_flash_saturation_factor = 0.75;
+                world
+            };
+            let mut playing = fixture_world("ReceivingCaptureTick");
+            let mut peer = fixture_world("ForeignCaptureTick");
+            let mut candidate = NativeMapCandidate::with_epoch(993);
+            let mut retirement = NativeParticleRetirementService;
+            let mut attempt = candidate
+                .attempt(
+                    pipeline.borrow_native_draw_services(),
+                    &mut graphics,
+                    0,
+                    receiving_native_drawable_policy_for(&playing),
+                    &mut retirement,
+                    None,
+                )
+                .unwrap();
+            let spawn =
+                |world: &mut GameLogic,
+                 name,
+                 effects: &mut crate::game_logic::ScriptPresentationEffects<'_>| {
+                    let source = world
+                        .create_object_for_player(name, 0, glam::Vec3::X)
+                        .unwrap();
+                    let target = world
+                        .create_object_for_player_with_effects_checked(
+                            "PulseTarget",
+                            1,
+                            glam::Vec3::ZERO,
+                            None,
+                            effects,
+                        )
+                        .unwrap()
+                        .unwrap();
+                    let object = world.host_object_mut(source).unwrap();
+                    object.custom_indicator_color = Some(0xffff00ff);
+                    object.target = Some(target);
+                    object.restore_ai_state(AIState::Capturing);
+                    (source, target)
+                };
+            let bound = spawn(&mut playing, "PulseCaptor", &mut attempt.effects());
+            let silent = spawn(&mut playing, "SilentCaptor", &mut attempt.effects());
+            let unbound = spawn(&mut peer, "PulseCaptor", &mut Default::default());
+            assert_eq!(bound, unbound);
+            let mut expected_phase = 0.0f32;
+            for offset in 0..=80 {
+                let expected_pulse = if offset == 0 {
+                    false
+                } else {
+                    let last = expected_phase as i32 & 1;
+                    expected_phase +=
+                        (1.0 - ((PREP_FRAMES - offset) as f32 / PREP_FRAMES as f32)) / 3.0;
+                    last == 1 && expected_phase as i32 & 1 == 0
+                };
+                for (world, (source, target), emit) in [
+                    (&mut playing, bound, expected_pulse),
+                    (&mut peer, unbound, false),
+                ] {
+                    world.frame = 100 + offset;
+                    world.queued_audio_events.clear();
+                    world
+                        .update_ai_with_effects(&[source], 1.0 / 30.0, &mut attempt.effects())
+                        .unwrap();
+                    let channel = world.host_object(source).unwrap().capture_channel.unwrap();
+                    assert_eq!(channel.phase, CaptureChannelPhase::Preparing);
+                    if offset != 0 {
+                        let queued: Vec<_> = world
+                            .queued_audio_events
+                            .iter()
+                            .map(|event| (event.event_type.as_str(), event.object_id))
+                            .collect();
+                        let expected = emit.then_some(("ReceivingCaptureTick", Some(target)));
+                        assert_eq!(queued, expected.as_slice(), "preparation frame {offset}");
+                    }
+                    if emit {
+                        assert_eq!(
+                            world.host_object(target).unwrap().selection_flash_color,
+                            Some([0.375, -0.375, 0.375]),
+                        );
+                    }
+                }
+                playing.queued_audio_events.clear();
+                playing
+                    .update_ai_with_effects(&[silent.0], 1.0 / 30.0, &mut attempt.effects())
+                    .unwrap();
+                if offset != 0 {
+                    assert!(
+                        playing.queued_audio_events.is_empty(),
+                        "DoCaptureFX defaults off"
+                    );
+                }
+                assert!(
+                    !playing
+                        .host_object(silent.1)
+                        .unwrap()
+                        .is_selection_flashing()
+                );
+                assert!(!peer.host_object(unbound.1).unwrap().is_selection_flashing());
+            }
+            assert!(expected_phase > 2.0, "the fixture must cross a flash edge");
+            assert_eq!(
+                playing.host_object(bound.0).unwrap().capture_flash_phase,
+                expected_phase,
+            );
+            assert_eq!(
+                playing.host_object(silent.0).unwrap().capture_flash_phase,
+                0.0
+            );
+            assert_eq!(
+                peer.host_object(unbound.0).unwrap().capture_flash_phase,
+                0.0
+            );
+        },
+    );
+}
+
 const AMBIENT_TEMPLATE: &str = "OwnedMapAmbientFixture";
 const ONE_SHOT: &str = "OwnedMapAmbientOneShot";
 const LOOP: &str = "OwnedMapAmbientLoop";

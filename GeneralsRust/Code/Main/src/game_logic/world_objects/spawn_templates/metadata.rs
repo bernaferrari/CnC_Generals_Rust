@@ -2951,6 +2951,7 @@ impl GameLogic {
                 template.capture_start_ability_range = None;
                 template.capture_unpack_time_ms = None;
                 template.capture_preparation_time_ms = None;
+                template.capture_do_fx = false;
                 template.capture_pack_time_ms = None;
                 template.capture_pack_unpack_variation_factor = 0.0;
                 template.capture_unpack_sound = None;
@@ -2968,6 +2969,7 @@ impl GameLogic {
         template.capture_start_ability_range = None;
         template.capture_unpack_time_ms = None;
         template.capture_preparation_time_ms = None;
+        template.capture_do_fx = false;
         template.capture_pack_time_ms = None;
         template.capture_pack_unpack_variation_factor = 0.0;
         template.capture_unpack_sound = None;
@@ -3010,6 +3012,10 @@ impl GameLogic {
                     .attribute("PreparationTime")
                     .and_then(|value| value.trim().parse::<i64>().ok())
                     .and_then(|value| u32::try_from(value).ok());
+                template.capture_do_fx = module
+                    .attribute("DoCaptureFX")
+                    .and_then(|value| game_engine::common::ini::INI::parse_bool(value.trim()).ok())
+                    .unwrap_or_default();
                 template.capture_pack_time_ms = module
                     .attribute("PackTime")
                     .and_then(|value| value.trim().parse::<i64>().ok())

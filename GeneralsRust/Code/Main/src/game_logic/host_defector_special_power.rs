@@ -17,8 +17,6 @@ use serde::{Deserialize, Serialize};
 
 /// Default detection time residual frames.
 pub const DEFECTOR_DETECTION_FRAMES: u32 = DEFAULT_DEFECTION_PROTECTION_FRAMES;
-/// C++ MiscAudio DefectorTimerTickSound residual.
-pub const DEFECTOR_TIMER_TICK_AUDIO: &str = "DefectorTimerTickSound";
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct HostDefectorSpecialPowerRegistry {

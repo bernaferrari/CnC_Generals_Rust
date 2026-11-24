@@ -116,17 +116,6 @@ impl HostDefectionHelperData {
 }
 
 impl crate::game_logic::GameLogic {
-    /// A nullable C++ Drawable lookup mapped to this instance's current binding.
-    pub(in crate::game_logic) fn accepts_defector_drawable(
-        &self,
-        object: &crate::game_logic::Object,
-        effects: &crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> bool {
-        effects.view.as_deref().is_some_and(|view| {
-            view.has_current_drawable(&self.live_draw_playback_identity(object))
-        })
-    }
-
     /// Submit flash and authored MiscAudio after the caller admits the Drawable.
     pub(in crate::game_logic) fn present_defection_flash(
         &mut self,
@@ -136,7 +125,6 @@ impl crate::game_logic::GameLogic {
         let Some(object) = self.host_object(id) else {
             return;
         };
-        let position = object.get_position();
         let color = match flash {
             DefectionFlash::Revealed => [1.0; 3],
             DefectionFlash::Selected => {
@@ -153,18 +141,7 @@ impl crate::game_logic::GameLogic {
                     )
                 };
                 let color = if use_house {
-                    let rgb = if let Some(raw) = object.custom_indicator_color {
-                        [(raw >> 16) as u8, (raw >> 8) as u8, raw as u8]
-                    } else {
-                        object
-                            .owner_player_id
-                            .and_then(|owner| self.get_player(owner))
-                            .map_or([0; 3], |player| {
-                                let (r, g, b) = player.color_rgb;
-                                [r, g, b]
-                            })
-                    };
-                    rgb.map(|value| f32::from(value) / 255.0)
+                    self.indicator_color_rgb(object)
                 } else {
                     [1.0; 3]
                 };
@@ -173,25 +150,10 @@ impl crate::game_logic::GameLogic {
                 )
             }
         };
-        if let Some(object) = self.host_object_mut(id) {
-            object.flash_as_selected_with_color(color);
-        }
-        let event = {
-            let misc = self.world_services.common().ini.misc_audio.read();
-            let configured = match flash {
-                DefectionFlash::Selected => &misc.defector_timer_tick_sound,
-                DefectionFlash::Revealed => &misc.defector_timer_ding_sound,
-            };
-            let name = configured.playable_event_name();
-            (!name.is_empty()).then(|| {
-                crate::game_logic::AudioEventRequest::new(name)
-                    .with_object(id)
-                    .with_position(position)
-            })
-        };
-        if let Some(event) = event {
-            self.queue_audio_event(event);
-        }
+        self.flash_with_timer_cue(id, color, |misc| match flash {
+            DefectionFlash::Selected => &misc.defector_timer_tick_sound,
+            DefectionFlash::Revealed => &misc.defector_timer_ding_sound,
+        });
     }
 }
 
