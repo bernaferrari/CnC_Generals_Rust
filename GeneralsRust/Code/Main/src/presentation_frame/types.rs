@@ -514,6 +514,9 @@ pub struct RenderableObject {
     pub guard_position: Option<Vec3>,
     /// Contained unit ids (garrison / transport residual, capped).
     pub garrisoned_units: Vec<ObjectId>,
+    /// SpawnBehavior's admitted children in registration order. None means no spawn interface.
+    #[serde(default)]
+    pub(crate) spawn_children: Option<Vec<ObjectId>>,
     /// C++ `getStealthUnitsContained` frozen independently of hide-from-nonallies
     /// so RMB `canEnterObject` can allow a stealth-only civilian garrison.
     #[serde(default)]

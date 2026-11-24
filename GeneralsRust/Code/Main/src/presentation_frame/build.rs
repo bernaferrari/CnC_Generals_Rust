@@ -189,6 +189,24 @@ pub(super) fn freeze_sticky_bomb_overlay(obj: &crate::game_logic::Object, now: u
     }
 }
 
+/// SpawnBehavior.cpp:282-301 — the interface's admitted m_spawnIDs in
+/// registration order, filtered to births this world still owns. `None`
+/// means the object authors no SpawnBehavior at all.
+pub(super) fn freeze_spawn_children(logic: &GameLogic, owner: &Object) -> Option<Vec<ObjectId>> {
+    owner.authors_behavior_module("SpawnBehavior").then(|| {
+        owner
+            .spawn_behavior_children()
+            .into_iter()
+            .filter_map(|(id, birth)| {
+                let child = logic.host_object(id)?;
+                owner
+                    .spawn_behavior_child_birth_matches(id, &birth, child)
+                    .then_some(id)
+            })
+            .collect()
+    })
+}
+
 /// Freeze the source capability consumed by C++
 /// `StealthUpdate::canDisguise()`: the authored StealthUpdate's
 /// `DisguisesAsTeam`, never the template name or a pending transition.
@@ -798,6 +816,8 @@ impl PresentationFrame {
                     authoritative_contained
                 },
 
+                spawn_children: canonical
+                    .and_then(|owner| freeze_spawn_children(logic, owner)),
                 normal_enter_authoritative_occupant_count: Some(authoritative_contained_count),
                 stealth_garrison_occupant_count: if shared_containment {
                     0

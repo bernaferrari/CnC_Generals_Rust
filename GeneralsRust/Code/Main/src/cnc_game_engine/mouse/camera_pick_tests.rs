@@ -698,5 +698,143 @@ fn script_default_view_pitch_starts_and_resets_to_zero() {
     assert_eq!(logic.script_default_camera_pitch(), 0.0);
 }
 
+/// CommandXlat.cpp:152-244 — the force-attack hint asks the owning
+/// SpawnBehavior for its admitted children (SpawnBehavior.cpp:282-301
+/// m_spawnIDs order); producer attribution alone is not membership, and an
+/// empty roster does not fall through to a contained rider.
+#[test]
+fn force_attack_hint_uses_only_admitted_spawn_children() {
+    use crate::fixture_content::{admit_fixture_content, FixtureObject, FixtureWeapon};
+    use crate::game_logic::{GameLogic, Player, Team};
+    use crate::gameworld_shadow::GameWorldShadow;
+    use crate::presentation_frame::PresentationFrame;
+    use glam::Vec3;
+
+    let mut world = GameLogic::new();
+    admit_fixture_content(
+        &mut world,
+        &[
+            // An unrelated name: the hint gates on the exact KindOf, never a
+            // stinger/fire-base template sniff.
+            FixtureObject::new("CursorNest")
+                .kind_of("STRUCTURE IMMOBILE SPAWNS_ARE_THE_WEAPONS SELECTABLE")
+                .health(500.0)
+                .module("Behavior = AIUpdateInterface FixtureBrain\nEnd")
+                .module("Behavior = DefaultProductionExitUpdate FixtureExit\nEnd")
+                .module(
+                    "Behavior = SpawnBehavior FixtureSpawn\n OneShot = Yes\n SpawnNumber = 1\n SpawnTemplateName = CursorGuard\nEnd",
+                ),
+            FixtureObject::new("CursorGuard")
+                .kind_of("INFANTRY SELECTABLE")
+                .health(100.0)
+                .module("Behavior = AIUpdateInterface FixtureBrain\nEnd")
+                .armed("CursorGuardGun"),
+            FixtureObject::new("CursorTarget")
+                .kind_of("INFANTRY SELECTABLE")
+                .health(100.0),
+        ],
+        &[FixtureWeapon::new("CursorGuardGun").range(30.0)],
+    );
+    world.add_player(Player::new(1, Team::USA, "Owner", true));
+    world.add_player(Player::new(2, Team::GLA, "Enemy", false));
+
+    let nest = world
+        .create_object_for_player("CursorNest", 1, Vec3::ZERO)
+        .unwrap();
+    let victim = world
+        .create_object_for_player("CursorTarget", 2, Vec3::new(5.0, 0.0, 0.0))
+        .unwrap();
+    // Armed and producer-stamped, but never admitted to the roster.
+    let bystander = world
+        .create_object_for_player("CursorGuard", 1, Vec3::new(100.0, 0.0, 0.0))
+        .unwrap();
+    world.host_object_mut(bystander).unwrap().producer_id = Some(nest);
+
+    // SpawnBehavior::update creates the OneShot child on the first logic frame.
+    world.frame = 1;
+    world
+        .update_spawn_behavior_with_effects(&mut Default::default())
+        .unwrap();
+    let child = world.host_object(nest).unwrap().spawn_behavior_children()[0].0;
+    assert_ne!(child, bystander);
+    world.set_fixture_object_position(child, Vec3::new(5.0, 0.0, 0.0));
+
+    let publish = |world: &mut GameLogic| -> PresentationFrame {
+        let mut shadow = GameWorldShadow::new(64);
+        shadow.sync_from_host(world);
+        PresentationFrame::build_for_engine(world, 1, Some(&shadow))
+    };
+
+    // The only admitted child (x=5) cannot reach x=100; the bystander would.
+    let point = Vec3::new(100.0, 0.0, 0.0);
+    let frame = publish(&mut world);
+    let attacker = frame.objects.iter().find(|o| o.id == nest).unwrap();
+    assert!(
+        !presentation_object_can_force_attack(&frame, attacker, None, point),
+        "a producer-matched object is not a SpawnBehavior child"
+    );
+    // The same roster gates the object-target hint for an unarmed nest.
+    assert!(
+        presentation_object_can_force_attack(
+            &frame,
+            attacker,
+            Some(victim),
+            Vec3::new(5.0, 0.0, 0.0)
+        ),
+        "exact SPAWNS_ARE_THE_WEAPONS kind admits the child's weapon"
+    );
+    // Host-only freeze (no shadow) agrees.
+    let direct = PresentationFrame::build_from_logic(&mut world, 1);
+    let direct_attacker = direct.objects.iter().find(|o| o.id == nest).unwrap();
+    assert!(!presentation_object_can_force_attack(
+        &direct,
+        direct_attacker,
+        None,
+        point
+    ));
+
+    // Moving the genuine child into range changes the next freeze only.
+    world.set_fixture_object_position(child, Vec3::new(90.0, 0.0, 0.0));
+    let next = publish(&mut world);
+    let next_attacker = next.objects.iter().find(|o| o.id == nest).unwrap();
+    assert!(presentation_object_can_force_attack(
+        &next,
+        next_attacker,
+        None,
+        point
+    ));
+    assert!(!presentation_object_can_force_attack(
+        &frame,
+        attacker,
+        None,
+        point
+    ));
+
+    // A nest whose SpawnBehavior owns an empty roster answers for itself;
+    // a producer-stamped bystander still cannot vouch for it.
+    let empty_nest = world
+        .create_object_for_player("CursorNest", 1, Vec3::new(0.0, 0.0, 50.0))
+        .unwrap();
+    let other_bystander = world
+        .create_object_for_player("CursorGuard", 1, Vec3::new(100.0, 0.0, 50.0))
+        .unwrap();
+    world.host_object_mut(other_bystander).unwrap().producer_id = Some(empty_nest);
+    let third = publish(&mut world);
+    let empty_attacker = third
+        .objects
+        .iter()
+        .find(|o| o.id == empty_nest)
+        .unwrap();
+    assert!(
+        !presentation_object_can_force_attack(
+            &third,
+            empty_attacker,
+            None,
+            Vec3::new(100.0, 0.0, 50.0)
+        ),
+        "an empty admitted roster does not fall through to a bystander"
+    );
+}
+
 #[path = "player_camera_cancel_owner_tests.rs"]
 mod player_camera_cancel_owner_tests;

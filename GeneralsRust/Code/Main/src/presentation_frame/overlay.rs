@@ -1457,6 +1457,7 @@ impl PresentationFrame {
                 .collect(),
             stealth_garrison_occupant_count: 0,
             normal_enter_authoritative_occupant_count: None,
+            spawn_children: None,
 
             max_garrison: ent.max_garrison as usize,
             power_provided: ent.power_provided,
@@ -1997,6 +1998,11 @@ impl PresentationFrame {
             };
             ro.draw_playback_identity = Some(logic.live_draw_playback_identity(obj));
             let mut dirty = super::kind_facts::refresh_object_kind_facts(ro, obj);
+            let spawn_children = super::build::freeze_spawn_children(logic, obj);
+            if ro.spawn_children != spawn_children {
+                ro.spawn_children = spawn_children;
+                dirty = true;
+            }
             if ro.special_power_override_destination != obj.special_power_override_destination {
                 ro.special_power_override_destination = obj.special_power_override_destination;
                 dirty = true;

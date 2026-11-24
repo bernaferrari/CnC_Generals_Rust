@@ -920,34 +920,55 @@ fn raycast_ground_plane_clamped(
     ground.is_finite().then_some(Vec3::new(x, ground, z))
 }
 
-fn presentation_closest_spawn_or_rider<'a>(
+/// Strict `<` center-2D distance (SpawnBehavior.cpp:282-301): the first
+/// candidate in roster order wins a tie.
+fn presentation_nearest_2d<'a>(
+    candidates: impl Iterator<Item = &'a crate::presentation_frame::RenderableObject>,
+    pos: Vec3,
+) -> Option<&'a crate::presentation_frame::RenderableObject> {
+    candidates.reduce(|best, candidate| {
+        let bd = (best.position.x - pos.x).powi(2) + (best.position.z - pos.z).powi(2);
+        let cd =
+            (candidate.position.x - pos.x).powi(2) + (candidate.position.z - pos.z).powi(2);
+        if cd < bd {
+            candidate
+        } else {
+            best
+        }
+    })
+}
+
+/// Closest admitted SpawnBehavior child — the interface's own roster in
+/// order, never a producer-attributed object.
+fn presentation_closest_spawn<'a>(
+    frame: &'a crate::presentation_frame::PresentationFrame,
+    children: &[ObjectId],
+    pos: Vec3,
+) -> Option<&'a crate::presentation_frame::RenderableObject> {
+    presentation_nearest_2d(
+        children.iter().filter_map(|id| {
+            frame
+                .objects
+                .iter()
+                .find(|o| o.id == *id && !o.destroyed)
+        }),
+        pos,
+    )
+}
+
+fn presentation_closest_rider<'a>(
     frame: &'a crate::presentation_frame::PresentationFrame,
     attacker: &crate::presentation_frame::RenderableObject,
     pos: Vec3,
-    slaves: bool,
 ) -> Option<&'a crate::presentation_frame::RenderableObject> {
-    let mut best: Option<(&crate::presentation_frame::RenderableObject, f32)> = None;
-    for other in &frame.objects {
-        if other.destroyed {
-            continue;
-        }
-        let is_match = if slaves {
-            other.producer_id == Some(attacker.id)
-        } else {
-            other.contained_by == Some(attacker.id)
-                || attacker.garrisoned_units.iter().any(|id| *id == other.id)
-        };
-        if !is_match {
-            continue;
-        }
-        let dx = other.position.x - pos.x;
-        let dz = other.position.z - pos.z;
-        let dist_sq = dx * dx + dz * dz;
-        if best.map(|(_, d)| dist_sq < d).unwrap_or(true) {
-            best = Some((other, dist_sq));
-        }
-    }
-    best.map(|(obj, _)| obj)
+    presentation_nearest_2d(
+        frame.objects.iter().filter(|o| {
+            !o.destroyed
+                && (o.contained_by == Some(attacker.id)
+                    || attacker.garrisoned_units.iter().any(|id| *id == o.id))
+        }),
+        pos,
+    )
 }
 
 fn presentation_weapon_reaches(
@@ -966,14 +987,6 @@ fn presentation_weapon_reaches(
 }
 
 /// C++ `canObjectForceAttack` (CommandXlat.cpp:152-244) on the presentation freeze.
-fn presentation_is_spawns_are_the_weapons(
-    attacker: &crate::presentation_frame::RenderableObject,
-) -> bool {
-    attacker.hive_slave_count > 0
-        || crate::game_logic::host_base_defense::is_stinger_site_structure(&attacker.template_name)
-        || crate::game_logic::host_fire_base::is_fire_base_template(&attacker.template_name)
-}
-
 fn presentation_object_can_force_attack(
     frame: &crate::presentation_frame::PresentationFrame,
     attacker: &crate::presentation_frame::RenderableObject,
@@ -983,6 +996,8 @@ fn presentation_object_can_force_attack(
     use crate::game_logic::KindOf;
     use crate::presentation_frame::PresentationFrame;
 
+    let spawns_are_weapons =
+        PresentationFrame::object_has_kind(attacker, KindOf::SpawnsAreTheWeapons);
     if let Some(victim_id) = victim {
         let Some(target) = frame.objects.iter().find(|o| o.id == victim_id) else {
             return false;
@@ -992,15 +1007,19 @@ fn presentation_object_can_force_attack(
         }
         let target_pos = target.position;
         let mut possible = attacker.has_weapon;
-        if presentation_is_spawns_are_the_weapons(attacker) {
+        if spawns_are_weapons {
             if !possible {
-                if let Some(slave) =
-                    presentation_closest_spawn_or_rider(frame, attacker, target_pos, true)
+                // CommandXlat asks SpawnBehavior for the closest slave; only
+                // admitted roster members count.
+                if let Some(slave) = attacker
+                    .spawn_children
+                    .as_deref()
+                    .and_then(|children| presentation_closest_spawn(frame, children, target_pos))
                 {
                     possible = slave.has_weapon;
                 }
             } else if let Some(rider) =
-                presentation_closest_spawn_or_rider(frame, attacker, target_pos, false)
+                presentation_closest_rider(frame, attacker, target_pos)
             {
                 if rider.has_weapon {
                     return true;
@@ -1011,13 +1030,15 @@ fn presentation_object_can_force_attack(
     }
 
     let mut test = attacker;
-    if PresentationFrame::object_has_kind(attacker, KindOf::Immobile)
-        || presentation_is_spawns_are_the_weapons(attacker)
-    {
-        if let Some(slave) = presentation_closest_spawn_or_rider(frame, attacker, pos, true) {
-            test = slave;
+    if PresentationFrame::object_has_kind(attacker, KindOf::Immobile) || spawns_are_weapons {
+        // An admitted roster answers for the interface even when empty; only a
+        // missing SpawnBehavior falls back to a contained rider.
+        if let Some(children) = attacker.spawn_children.as_deref() {
+            if let Some(slave) = presentation_closest_spawn(frame, children, pos) {
+                test = slave;
+            }
         } else if !presentation_weapon_reaches(attacker, pos) {
-            if let Some(rider) = presentation_closest_spawn_or_rider(frame, attacker, pos, false) {
+            if let Some(rider) = presentation_closest_rider(frame, attacker, pos) {
                 test = rider;
             }
         }
