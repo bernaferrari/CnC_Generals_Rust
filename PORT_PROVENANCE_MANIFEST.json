@@ -161143,7 +161143,7 @@
     }
   ],
   "generator": "GeneralsRust/Code/Main/scripts/generate_port_provenance.py",
-  "input_digest": "a781a5f964610788762689358cf12dfc8531012e32a75799f4c680dbf440af92",
+  "input_digest": "ff5bd387ceaec9de38322bdbba4207ac376d41175e73658c99db712b39f64c41",
   "metric_contract": {
     "behavior_requires_explicit_evidence": true,
     "candidate_mapping_is_reviewed": false,
@@ -222009,11 +222009,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 592,
+        "end_line": 600,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/Main/src/game_logic/native_die_definition.rs",
-      "sha256": "407cf59a604b4f35b727b198b6c1d60b1487aa57007b1738eae3603219eb8dd8",
+      "sha256": "00481925bb81b5b07952d33c151e1f588939ec080f128e3afb8aa92e2fab2d1d",
       "symbol_index_status": "indexed",
       "symbols": [
         {
@@ -222143,32 +222143,32 @@
         },
         {
           "kind": "fn",
-          "line": 341,
+          "line": 343,
           "name": "bind"
         },
         {
           "kind": "fn",
-          "line": 524,
+          "line": 532,
           "name": "family_in"
         },
         {
           "kind": "fn",
-          "line": 534,
+          "line": 542,
           "name": "validate"
         },
         {
           "kind": "fn",
-          "line": 559,
+          "line": 567,
           "name": "bound_creation_identity"
         },
         {
           "kind": "fn",
-          "line": 560,
+          "line": 568,
           "name": "identity"
         },
         {
           "kind": "fn",
-          "line": 578,
+          "line": 586,
           "name": "persistence_identity"
         }
       ]
