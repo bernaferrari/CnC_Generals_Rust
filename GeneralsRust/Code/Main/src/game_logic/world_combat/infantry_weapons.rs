@@ -1774,12 +1774,11 @@ impl GameLogic {
             .registered()
             .filter(|(oid, o)| {
                 **oid != source_id && o.is_alive()
-                    // In-flight DeliverPayload warheads (A10 missile, carpet
-                    // bomb) are not splash targets — C++ HeightDie projectiles
-                    // detonate on their own schedule, they never take area
-                    // damage from a sibling detonation.
+                    // Template-only delivery actors have their own impact
+                    // callbacks and are excluded from other payloads' splash.
                     && !o.a10_strike_missile
                     && !o.carpet_bomb_payload
+                    && !o.artillery_barrage_shell
                     && {
                     let p = o.get_position();
                     let dx = p.x - epicenter.x;
