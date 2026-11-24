@@ -284,45 +284,6 @@ impl GameLogic {
                 // Containment onDie completed while this object was installed.
                 // Physical removal never replays passenger damage or teardown.
 
-                // GLA Toxin Tractor death residual: ToxinShellWeapon → SmallPoisonField.
-                // Fail-closed: not full FireWeaponWhenDead anthrax matrix / FX list.
-                {
-                    use crate::game_logic::host_toxin_tractor::{
-                        UPGRADE_GLA_ANTHRAX_BETA, UPGRADE_GLA_ANTHRAX_GAMMA,
-                        UPGRADE_GLA_ANTHRAX_GAMMA_ALT, anthrax_tier_from_flags,
-                        is_chem_general_template, is_toxin_tractor_template,
-                    };
-                    if !obj.fire_weapon_when_dead_fired
-                        && obj.thing().template.native_die_declarations.is_none()
-                        && is_toxin_tractor_template(&obj.template_name)
-                    {
-                        let has_gamma = obj.has_upgrade_tag(UPGRADE_GLA_ANTHRAX_GAMMA)
-                            || obj.has_upgrade_tag(UPGRADE_GLA_ANTHRAX_GAMMA_ALT)
-                            || obj.has_upgrade_tag("Chem_Upgrade_GLAAnthraxGamma")
-                            || obj.has_upgrade_tag("Upgrade_GLAAnthraxGamma");
-                        let has_beta = obj.has_upgrade_tag(UPGRADE_GLA_ANTHRAX_BETA)
-                            || obj.has_upgrade_tag("Upgrade_GLAAnthraxBeta");
-                        let anthrax = anthrax_tier_from_flags(
-                            has_gamma,
-                            has_beta,
-                            is_chem_general_template(&obj.template_name),
-                        );
-                        let death_pos = obj.get_position();
-                        let team = obj.team;
-                        let _ = self
-                            .toxin_tractor
-                            .spawn_death_field(event.id, team, death_pos, self.frame, anthrax);
-                        self.queue_audio_event(
-                            AudioEventRequest::new(
-                                crate::game_logic::host_toxin_tractor::TOXIN_POISON_AUDIO,
-                            )
-                            .with_position(death_pos)
-                            .with_priority(140),
-                        );
-                    }
-                }
-
-
                 // China Nuclear Tanks FireWeaponWhenDead residual: dual-radius + radiation.
                 // Fail-closed: not full exclusive module / Nuclear*Locomotor visual matrix.
                 {

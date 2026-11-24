@@ -16,7 +16,7 @@ impl GameLogic {
         self.technical_residual_unloads
     }
 
-    /// Residual honesty: Toxin Tractor stream / spray / death field path.
+    /// Residual honesty: Toxin Tractor stream / spray path.
     pub fn honesty_toxin_tractor_ok(&self) -> bool {
         self.toxin_tractor.honesty_host_path_ok()
     }
@@ -27,10 +27,6 @@ impl GameLogic {
 
     pub fn honesty_toxin_tractor_spray_ok(&self) -> bool {
         self.toxin_tractor.honesty_spray_ok()
-    }
-
-    pub fn honesty_toxin_tractor_death_field_ok(&self) -> bool {
-        self.toxin_tractor.honesty_death_field_ok()
     }
 
     pub fn toxin_tractor_registry(

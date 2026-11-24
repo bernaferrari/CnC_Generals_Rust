@@ -124,7 +124,6 @@ pub const TOXIN_SMALL_FIELD_RADIUS: f32 = 12.0;
 pub const TOXIN_SMALL_FIELD_RADIUS_UPGRADED: f32 = 7.5;
 /// Lifetime 10000ms → 300 frames.
 pub const TOXIN_SMALL_FIELD_DURATION_FRAMES: u32 = 300;
-pub const TOXIN_SMALL_FIELD_TICK_FRAMES: u32 = 15;
 /// Retail PoisonFieldSmall LifetimeUpdate residual (msec).
 pub const TOXIN_SMALL_FIELD_LIFETIME_MS: u32 = 10_000;
 /// Retail PoisonFieldSmall MaxHealth residual.
@@ -268,40 +267,6 @@ impl ToxinTractorSalvageTier {
             _ => Self::Base,
         }
     }
-}
-
-/// Whether template is a residual Toxin Tractor / Toxin Truck vehicle.
-///
-/// Fail-closed: name residual (not full Salvage / W3D turret matrix).
-/// Excludes weapons, projectiles, poison field system objects.
-pub fn is_toxin_tractor_template(template_name: &str) -> bool {
-    let n = template_name.to_ascii_lowercase();
-    if n.is_empty() {
-        return false;
-    }
-    if n.contains("weapon")
-        || n.contains("projectile")
-        || n.contains("stream")
-        || n.contains("poisonfield")
-        || n.contains("shell")
-        || n.starts_with("upgrade")
-        || n.contains("sprayer")
-        || n.ends_with("gun")
-        || n.contains("gungun")
-        || n.contains("truckgun")
-        || n.contains("trucksprayer")
-    {
-        return false;
-    }
-    n.contains("toxintruck")
-        || n.contains("toxintrac")
-        || n.contains("toxin_truck")
-        || n.contains("toxin_tractor")
-        || n == "gla_toxintruck"
-        || n == "gla_toxintraktor"
-        || n == "testtoxintruck"
-        || n == "testtoxintraktor"
-        || (n.contains("vehicletoxin") && (n.contains("truck") || n.contains("tractor")))
 }
 
 /// Whether template is a Chemical General residual unit (Chem_ / GC_Chem_).
@@ -604,8 +569,6 @@ pub struct HostToxinTractorPoisonZone {
     pub next_tick_frame: u32,
     /// Anthrax residual tier for this field (Beta/Gamma use upgraded DoT).
     pub anthrax_tier: AnthraxResidualTier,
-    /// True when spawned by death residual (small field).
-    pub from_death: bool,
     pub total_damage_applied: f32,
     pub damage_applications: u32,
     pub objects_destroyed: u32,
@@ -649,7 +612,6 @@ pub struct HostToxinTractorRegistry {
     next_id: u32,
     active: Vec<HostToxinTractorPoisonZone>,
     pub zones_spawned: u32,
-    pub death_fields_spawned: u32,
     pub expirations: u32,
     pub total_damage_applied: f32,
     pub damage_applications: u32,
@@ -668,7 +630,7 @@ pub struct HostToxinTractorRegistry {
     pub salvage_upgrades: u32,
     /// Anthrax Gamma residual stream fires (observable honesty).
     pub gamma_stream_fires: u32,
-    /// Anthrax Gamma residual field spawns (spray or death).
+    /// Anthrax Gamma residual field spawns (spray / FireOCL).
     pub gamma_fields_spawned: u32,
 }
 
@@ -751,48 +713,12 @@ impl HostToxinTractorRegistry {
             expires_frame: activate_frame.saturating_add(life),
             next_tick_frame: activate_frame,
             anthrax_tier: anthrax,
-            from_death: false,
             total_damage_applied: 0.0,
             damage_applications: 0,
             objects_destroyed: 0,
         };
         self.active.push(zone);
         self.zones_spawned = self.zones_spawned.saturating_add(1);
-        if anthrax.is_gamma() {
-            self.gamma_fields_spawned = self.gamma_fields_spawned.saturating_add(1);
-        }
-        id
-    }
-
-    /// Spawn residual SmallPoisonField on toxin tractor death.
-    pub fn spawn_death_field(
-        &mut self,
-        source_object: ObjectId,
-        source_team: super::Team,
-        death_pos: Vec3,
-        activate_frame: u32,
-        anthrax: AnthraxResidualTier,
-    ) -> u32 {
-        let id = self.alloc_id();
-        let zone = HostToxinTractorPoisonZone {
-            id,
-            source_object,
-            source_team,
-            position: death_pos,
-            radius: toxin_small_field_radius(anthrax),
-            damage_per_tick: toxin_small_field_damage(anthrax),
-            activate_frame,
-            expires_frame: activate_frame.saturating_add(TOXIN_SMALL_FIELD_DURATION_FRAMES),
-            next_tick_frame: activate_frame,
-            anthrax_tier: anthrax,
-            from_death: true,
-            total_damage_applied: 0.0,
-            damage_applications: 0,
-            objects_destroyed: 0,
-        };
-        self.active.push(zone);
-        self.zones_spawned = self.zones_spawned.saturating_add(1);
-        self.death_fields_spawned = self.death_fields_spawned.saturating_add(1);
         if anthrax.is_gamma() {
             self.gamma_fields_spawned = self.gamma_fields_spawned.saturating_add(1);
         }
@@ -860,12 +786,7 @@ impl HostToxinTractorRegistry {
             zone.total_damage_applied += total_damage;
             zone.damage_applications += applications;
             zone.objects_destroyed += objects_destroyed;
-            let interval = if zone.from_death {
-                TOXIN_SMALL_FIELD_TICK_FRAMES
-            } else {
-                TOXIN_MED_FIELD_TICK_FRAMES
-            };
-            zone.next_tick_frame = current_frame.saturating_add(interval);
+            zone.next_tick_frame = current_frame.saturating_add(TOXIN_MED_FIELD_TICK_FRAMES);
             self.total_damage_applied += total_damage;
             self.damage_applications = self.damage_applications.saturating_add(applications);
             self.objects_destroyed = self.objects_destroyed.saturating_add(objects_destroyed);
@@ -890,12 +811,8 @@ impl HostToxinTractorRegistry {
             && (self.spray_units_hit > 0 || self.zones_spawned > 0 || self.fire_ocl_spawns > 0)
     }
 
-    pub fn honesty_death_field_ok(&self) -> bool {
-        self.death_fields_spawned > 0
-    }
-
     pub fn honesty_host_path_ok(&self) -> bool {
-        self.honesty_stream_ok() || self.honesty_spray_ok() || self.honesty_death_field_ok()
+        self.honesty_stream_ok() || self.honesty_spray_ok()
     }
 
     /// Clear residual poison fields whose epicenters fall within cleanup radius.
@@ -1070,22 +987,6 @@ mod tests {
     use crate::game_logic::Team;
 
     #[test]
-    fn toxin_tractor_name_matrix() {
-        assert!(is_toxin_tractor_template("GLAVehicleToxinTruck"));
-        assert!(is_toxin_tractor_template("GLA_ToxinTruck"));
-        assert!(is_toxin_tractor_template("TestToxinTruck"));
-        assert!(is_toxin_tractor_template("Chem_GLAVehicleToxinTruck"));
-        assert!(is_toxin_tractor_template("Demo_GLAVehicleToxinTruck"));
-        assert!(is_toxin_tractor_template("Slth_GLAVehicleToxinTruck"));
-        assert!(!is_toxin_tractor_template("ToxinTruckGun"));
-        assert!(!is_toxin_tractor_template("ToxinTruckSprayer"));
-        assert!(!is_toxin_tractor_template("PoisonFieldMedium"));
-        assert!(!is_toxin_tractor_template("ToxinShellWeapon"));
-        assert!(!is_toxin_tractor_template("GLAVehicleScudLauncher"));
-        assert!(!is_toxin_tractor_template("USA_Ranger"));
-    }
-
-    #[test]
     fn registry_spawn_and_honesty() {
         let mut reg = HostToxinTractorRegistry::new();
         let id = reg.spawn_medium_field(
@@ -1110,17 +1011,9 @@ mod tests {
         );
         reg.record_spray_fire(2);
         assert!(reg.honesty_spray_ok());
-        let _ = reg.spawn_death_field(
-            ObjectId(1),
-            Team::GLA,
-            Vec3::ZERO,
-            0,
-            AnthraxResidualTier::None,
-        );
-        assert!(reg.honesty_death_field_ok());
         assert!(reg.honesty_host_path_ok());
-        // gamma medium + base medium + death field
-        assert_eq!(reg.active_count(), 3);
+        // gamma medium + base medium
+        assert_eq!(reg.active_count(), 2);
     }
 
     #[test]
@@ -1133,7 +1026,7 @@ mod tests {
     }
 
     #[test]
-    fn toxin_salvage_anthrax_matrix_and_small_radius() {
+    fn toxin_salvage_anthrax_matrix_and_cleanup() {
         assert!(
             (toxin_stream_damage(ToxinTractorSalvageTier::Two, AnthraxResidualTier::Beta) - 20.0)
                 .abs()
@@ -1153,14 +1046,13 @@ mod tests {
                 < 0.01
         );
         let mut reg = HostToxinTractorRegistry::new();
-        let _ = reg.spawn_death_field(
+        let _ = reg.spawn_medium_field(
             ObjectId(1),
             Team::GLA,
             Vec3::new(0.0, 0.0, 0.0),
             0,
             AnthraxResidualTier::Beta,
         );
-        assert!((reg.active_zones()[0].radius - 7.5).abs() < 0.01);
         let cleared = reg.clear_fields_in_radius((0.0, 0.0), 50.0);
         assert_eq!(cleared, 1);
         assert_eq!(reg.active_count(), 0);

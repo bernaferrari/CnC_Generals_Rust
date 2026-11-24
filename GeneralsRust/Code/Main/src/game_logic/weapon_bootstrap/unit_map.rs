@@ -447,9 +447,13 @@ mod name_peel_tests {
     /// hq-2qedt.251
     #[test]
     fn toxin_tractor_variant_name_has_no_unit_map_weapon() {
-        assert_unmapped(
-            "FixtureToxinTractorVariant",
-            gl::host_toxin_tractor::is_toxin_tractor_template,
+        assert_eq!(
+            primary_weapon_name_for_unit("FixtureToxinTractorVariant"),
+            None
+        );
+        assert_eq!(
+            secondary_weapon_name_for_unit("FixtureToxinTractorVariant"),
+            None
         );
         assert_eq!(
             primary_weapon_name_for_unit("GLAVehicleToxinTruck"),

@@ -22,12 +22,6 @@ pub struct DeathWeaponSplash {
     pub weapon_name: &'static str,
 }
 
-/// Templates whose separate legacy death residual owns their weapon.
-fn specialized_death_residual_covers(template_name: &str) -> bool {
-    crate::game_logic::host_toxin_tractor::is_toxin_tractor_template(template_name)
-        || crate::game_logic::host_nuclear_tanks::is_nuclear_tanks_eligible(template_name)
-}
-
 /// Resolve leftover DeathWeapon splash for a dying object.
 /// Skips terrorist SUICIDED deaths — host_terrorist already applied the pack.
 pub fn death_weapon_for_dying_object(
@@ -47,7 +41,7 @@ pub fn death_weapon_for_dying_object(
 
 /// Resolve residual DeathWeapon splash for a template, if any.
 pub fn death_weapon_for_template(template_name: &str) -> Option<DeathWeaponSplash> {
-    if specialized_death_residual_covers(template_name) {
+    if crate::game_logic::host_nuclear_tanks::is_nuclear_tanks_eligible(template_name) {
         return None;
     }
     let n = template_name.to_ascii_lowercase();

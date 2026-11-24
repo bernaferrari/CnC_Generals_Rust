@@ -249,6 +249,93 @@ fn dead_behavior_fires_every_matching_module() {
     assert_eq!(temporary_children(&logic), 2);
 }
 
+/// Chem_GLAVehicleToxinTruck authors two FireWeaponWhenDead modules muxed on
+/// Chem_Upgrade_GLAAnthraxGamma; the authored weapon's FireOCL owns the field.
+/// An object name alone can never authorize the retired synthetic residual.
+#[test]
+fn tractor_shaped_name_does_not_spawn_a_death_field() {
+    let mut world = GameLogic::new();
+    let name = "FixtureToxinTractorVariant";
+    let mut ordinary = ThingTemplate::new(name);
+    ordinary
+        .add_kind_of(crate::game_logic::KindOf::Vehicle)
+        .set_health(100.0);
+    world.templates.insert(name.into(), ordinary);
+    let id = world
+        .create_object(name, Team::GLA, glam::Vec3::ZERO)
+        .unwrap();
+    world
+        .apply_owned_kill(
+            id,
+            crate::game_logic::combat::DamageType::Unresistable,
+            crate::game_logic::host_usa_pilot::HostDeathType::Normal,
+        )
+        .unwrap();
+    world.process_destroy_list();
+    assert!(world.host_object(id).is_none());
+    assert!(
+        world.toxin_tractor_registry().active_zones().is_empty(),
+        "an object name cannot authorize a poison field"
+    );
+}
+
+/// The authored StartsActive/TriggeredBy/ConflictsWith mux picks the base or
+/// Gamma DeathWeapon at onDie — the residual registry is never consulted.
+#[test]
+fn tractor_death_field_follows_authored_upgrade_mux() {
+    let modules = "Behavior = FireWeaponWhenDeadBehavior Default\n StartsActive = Yes\n ConflictsWith = Chem_Upgrade_GLAAnthraxGamma\n DeathWeapon = TempTractorBase\nEnd\n\
+        Behavior = FireWeaponWhenDeadBehavior Gamma\n StartsActive = No\n TriggeredBy = Chem_Upgrade_GLAAnthraxGamma\n DeathWeapon = TempTractorGamma\nEnd";
+    let weapons = [("TempTractorBase", 17), ("TempTractorGamma", 31)]
+        .into_iter()
+        .map(|(name, damage)| format!(
+            "Weapon {name}\n PrimaryDamage = {damage}\n PrimaryDamageRadius = 10\n DamageType = EXPLOSION\n RadiusDamageAffects = ENEMIES\n ProjectileObject = NONE\n WeaponSpeed = 999999\n FireOCL = OCL_TemporaryConsumer\nEnd\n"
+        ))
+        .collect::<String>();
+    for upgraded in [false, true] {
+        let (mut logic, source, victim) =
+            authored_temporary_world_with_victim_health(modules, &weapons, 1000);
+        if upgraded {
+            logic
+                .objects
+                .get_mut(&source)
+                .unwrap()
+                .apply_upgrade_tag("Chem_Upgrade_GLAAnthraxGamma");
+        }
+        logic
+            .apply_owned_kill(
+                source,
+                crate::game_logic::combat::DamageType::Unresistable,
+                crate::game_logic::host_usa_pilot::HostDeathType::Normal,
+            )
+            .unwrap();
+        assert_eq!(
+            logic.objects[&victim].health.current,
+            if upgraded { 969.0 } else { 983.0 },
+            "only the applicable death weapon deals its authored damage"
+        );
+        assert_eq!(
+            temporary_children(&logic),
+            1,
+            "the mux fires exactly one authored FireOCL"
+        );
+        logic.process_destroy_list();
+        assert_eq!(
+            logic.objects[&victim].health.current,
+            if upgraded { 969.0 } else { 983.0 },
+            "destroy-list processing must not replay onDie"
+        );
+        assert_eq!(
+            temporary_children(&logic),
+            1,
+            "no residual field or replay after the destroy list"
+        );
+        assert!(
+            logic.toxin_tractor_registry().active_zones().is_empty(),
+            "the authored death path never touches the synthetic registry"
+        );
+    }
+}
+
 #[test]
 fn dead_behavior_store_miss_does_not_stamp_fired() {
     let mut logic = GameLogic::new();
