@@ -177,9 +177,6 @@ pub struct Projectile {
     /// Factory-created projectile Object generation and world epoch.
     #[serde(skip)]
     pub(crate) projectile_actor_birth: Option<(u64, u64)>,
-    /// Impact pose captured before the same frame's PhysicsBehavior update.
-    #[serde(skip)]
-    pub(super) detonation_position: Option<Vec3>,
     /// C++ MissileAIUpdate `m_framesTillDecoyed` (absolute frame, 0 = none).
     #[serde(default)]
     pub frames_till_decoyed: u32,
@@ -299,7 +296,6 @@ impl Projectile {
             flight_runtime: crate::game_logic::weapon_bootstrap::HostProjectileRuntime::default(),
             missile_motion: None,
             projectile_actor_birth: None,
-            detonation_position: None,
             frames_till_decoyed: 0,
             no_damage: false,
             cm_reported: false,
@@ -504,11 +500,10 @@ impl Projectile {
         }
     }
 
-    fn detonation_step(&mut self) -> ProjectileStep {
-        if self.retain_detonated_missile() {
-            ProjectileStep::DetonateAndHold
-        } else {
-            ProjectileStep::Detonate
+    fn detonation_step(&mut self, pre_physics_pose: Option<glam::Mat4>) -> ProjectileStep {
+        ProjectileStep::Detonate {
+            retain_actor: self.retain_detonated_missile(),
+            pre_physics_pose,
         }
     }
 
@@ -522,7 +517,7 @@ impl Projectile {
         match lifecycle {
             HostProjectileLifecycle::DumbProjectile {
                 max_lifespan_frames, ..
-            } if frame >= max_lifespan_frames => ProjectileStep::Detonate,
+            } if frame >= max_lifespan_frames => ProjectileStep::DETONATE,
             HostProjectileLifecycle::Missile {
                 try_to_follow_target: _,
                 fuel_lifetime_frames,
@@ -553,7 +548,7 @@ impl Projectile {
                     && frame >= fuel_start.saturating_add(fuel_lifetime_frames)
                 {
                     if detonate_on_no_fuel {
-                        return self.detonation_step();
+                        return self.detonation_step(None);
                     }
                     if self.flight_runtime.missile_phase
                         == crate::game_logic::weapon_bootstrap::HostMissilePhase::Kill
@@ -710,8 +705,13 @@ impl Projectile {
         ) {
             let lifecycle_step = self.lifecycle_step(target_is_live, entering_kill || completed_move);
             if lifecycle_step != ProjectileStep::Alive {
-                if matches!(lifecycle_step, ProjectileStep::Hold | ProjectileStep::DetonateAndHold) {
-                    let impact = self.position;
+                let detonating = matches!(lifecycle_step, ProjectileStep::Detonate { retain_actor: true, .. });
+                if detonating || lifecycle_step == ProjectileStep::Hold {
+                    let impact_pose = detonating
+                        .then(|| actor.as_deref().map_or_else(
+                            || glam::Mat4::from_translation(self.position),
+                            Object::get_transform_matrix,
+                        ));
                     if let Some(motion) = &mut self.missile_motion {
                         let actor = actor.as_deref_mut().expect("missile motion requires its world Object");
                         let contact = motion.advance_held(actor, self.target_position, physics_frame, terrain, partition.as_deref_mut());
@@ -721,12 +721,12 @@ impl Projectile {
                             let delta = self.position - self.target_position;
                             let cell = crate::game_logic::PATHFIND_CELL_SIZE_F_RESIDUAL;
                             if delta.y <= cell || delta.length_squared() <= (3.0 * cell).powi(2) {
-                                return self.detonation_step();
+                                return self.detonation_step(None);
                             }
                         }
                     }
-                    if lifecycle_step == ProjectileStep::DetonateAndHold {
-                        self.detonation_position = Some(impact);
+                    if let Some(pose) = impact_pose {
+                        return ProjectileStep::Detonate { retain_actor: true, pre_physics_pose: Some(pose) };
                     }
                 }
                 return lifecycle_step;
@@ -793,12 +793,16 @@ impl Projectile {
             } else {
                 MissileSteering::NoTurn
             };
+            let impact_pose = impact.map(|position| {
+                let mut pose = actor.get_transform_matrix();
+                pose.w_axis = position.extend(1.0);
+                pose
+            });
             let ground_contact = motion.advance(actor, goal, true, !expired, steering, physics_frame, terrain, partition.as_deref_mut());
             self.position = actor.get_position();
             self.velocity = actor.movement.velocity;
-            if let Some(impact) = impact {
-                self.detonation_position = Some(impact);
-                return self.detonation_step();
+            if let Some(pose) = impact_pose {
+                return self.detonation_step(Some(pose));
             }
             if ground_contact {
                 // MissileAIUpdate::projectileHandleCollision ignores a
@@ -806,7 +810,7 @@ impl Projectile {
                 let delta = self.position - goal;
                 let cell = crate::game_logic::PATHFIND_CELL_SIZE_F_RESIDUAL;
                 if delta.y <= cell || delta.length_squared() <= (3.0 * cell).powi(2) {
-                    return self.detonation_step();
+                    return self.detonation_step(None);
                 }
             }
             return self.finish_flight_step(terrain);
@@ -823,7 +827,7 @@ impl Projectile {
         ) && !self.flight_runtime.path.is_empty()
         {
             if self.flight_runtime.step >= self.flight_runtime.path.len() {
-                return ProjectileStep::Detonate;
+                return ProjectileStep::DETONATE;
             }
             let next = self.flight_runtime.path[self.flight_runtime.step];
             let tangent = next - self.position;
@@ -861,7 +865,7 @@ impl Projectile {
                 let close_enough = (self.speed / 30.0).max(1.0);
                 if self.position.distance(goal) <= close_enough {
                     self.position = goal;
-                    return self.detonation_step();
+                    return self.detonation_step(None);
                 }
                 let dir = (goal - self.position).normalize_or_zero();
                 self.velocity = dir * self.speed;
@@ -895,7 +899,7 @@ impl Projectile {
         self.flight_runtime.layer = new_layer;
         if armed && old_layer != 1 && new_layer == 1 && snapped != self.position {
             self.position = snapped;
-            return self.detonation_step();
+            return self.detonation_step(None);
         }
         ProjectileStep::Alive
     }
@@ -910,15 +914,21 @@ impl Projectile {
 /// distinct from `Remove`: C++ DumbProjectile expiry and missile no-fuel
 /// detonation must execute the weapon's authored impact path, whereas followed
 /// target loss enters MissileAIUpdate's quiet delayed self-destroy state.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 enum ProjectileStep {
     Alive,
     Hold,
-    /// Missile `detonate()` emitted its authored impact, then entered
-    /// `KILL_SELF`; retain it for the parsed contrail delay.
-    DetonateAndHold,
-    Detonate,
+    Detonate {
+        /// Missiles enter KILL_SELF for the authored contrail delay.
+        retain_actor: bool,
+        /// Pose before physics when the same frame advances beyond the impact.
+        pre_physics_pose: Option<glam::Mat4>,
+    },
     Remove,
+}
+
+impl ProjectileStep {
+    const DETONATE: Self = Self::Detonate { retain_actor: false, pre_physics_pose: None };
 }
 
 /// Projectile hit information

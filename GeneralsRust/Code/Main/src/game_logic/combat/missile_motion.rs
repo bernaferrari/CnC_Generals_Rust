@@ -247,6 +247,7 @@ impl MissileMotion {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::game_logic::weapon_bootstrap::HostProjectileLifecycle;
 
     #[test]
     fn ignition_and_first_attack_do_not_turn_and_save_preserves_next_action() {
@@ -311,7 +312,7 @@ mod tests {
 
     fn falling_projectile(start: Vec3, goal: Vec3) -> (Projectile, Object) {
         use crate::game_logic::weapon_bootstrap::{
-            HostMissileFlight, HostMissilePhase, HostProjectileFlight, HostProjectileLifecycle,
+            HostMissileFlight, HostMissilePhase, HostProjectileFlight,
         };
         let mut template = ThingTemplate::new("GroundImpactMissile");
         template.add_kind_of(KindOf::Projectile);
@@ -347,11 +348,34 @@ mod tests {
     #[test]
     fn ground_detonation_keeps_missile_for_authored_kill_self_delay() {
         let (mut projectile, mut actor) = falling_projectile(Vec3::Y, Vec3::ZERO);
-        assert_eq!(projectile.update_with_terrain_runtime(1.0 / 30.0, true, None, None, Some(&mut actor), None, None, &mut ()), ProjectileStep::DetonateAndHold);
+        assert_eq!(projectile.update_with_terrain_runtime(1.0 / 30.0, true, None, None, Some(&mut actor), None, None, &mut ()),
+            ProjectileStep::Detonate { retain_actor: true, pre_physics_pose: None });
         assert_eq!(projectile.position.y, 0.0);
         assert_eq!(projectile.update_with_terrain_runtime(1.0 / 30.0, true, None, None, Some(&mut actor), None, None, &mut ()), ProjectileStep::Hold);
         assert_eq!(projectile.update_with_terrain_runtime(1.0 / 30.0, true, None, None, Some(&mut actor), None, None, &mut ()), ProjectileStep::Hold);
         assert_eq!(projectile.update_with_terrain_runtime(1.0 / 30.0, true, None, None, Some(&mut actor), None, None, &mut ()), ProjectileStep::Remove);
+    }
+
+    #[test]
+    fn fuel_detonation_carries_the_pose_before_held_physics_advances() {
+        let (mut projectile, mut actor) = falling_projectile(Vec3::new(20.0, 60.0, 30.0), Vec3::ZERO);
+        let pose = actor.get_transform_matrix();
+        projectile.projectile_lifecycle = Some(HostProjectileLifecycle::Missile {
+            try_to_follow_target: false,
+            fuel_lifetime_frames: 1,
+            detonate_on_no_fuel: true,
+            kill_self_delay_frames: 3,
+        });
+        projectile.lifetime = 1.0;
+
+        let step = projectile.update_with_terrain_runtime(
+            1.0 / 30.0, true, None, None, Some(&mut actor), None, None, &mut (),
+        );
+        assert_eq!(step, ProjectileStep::Detonate {
+            retain_actor: true,
+            pre_physics_pose: Some(pose),
+        });
+        assert_ne!(actor.get_position(), pose.w_axis.truncate());
     }
 
     #[test]

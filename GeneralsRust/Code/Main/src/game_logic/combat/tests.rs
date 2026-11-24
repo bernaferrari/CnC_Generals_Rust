@@ -3359,7 +3359,10 @@ pub(in crate::game_logic) mod tests {
 
         let mut fuel = make_missile(None, true);
         assert_eq!(fuel.update(1.0 / 30.0, true), ProjectileStep::Alive);
-        assert_eq!(fuel.update(1.0 / 30.0, true), ProjectileStep::DetonateAndHold);
+        let pose = glam::Mat4::from_translation(fuel.position);
+        assert_eq!(fuel.update(1.0 / 30.0, true), ProjectileStep::Detonate {
+            retain_actor: true, pre_physics_pose: Some(pose),
+        });
 
         let mut terminal = make_missile(None, false);
         assert_eq!(terminal.update(1.0 / 30.0, true), ProjectileStep::Alive);

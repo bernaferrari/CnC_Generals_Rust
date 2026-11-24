@@ -6,7 +6,7 @@ use crate::game_logic::weapon_bootstrap::{
     HostMissileFlight, HostProjectileFlight, HostProjectileLifecycle,
 };
 
-fn world() -> (GameLogic, ObjectId, ObjectId) {
+fn configured_world() -> GameLogic {
     let mut world = GameLogic::new();
     world.frame = 100;
     let mut neutral = Player::new(0, Team::Neutral, "Neutral", false);
@@ -31,6 +31,11 @@ fn world() -> (GameLogic, ObjectId, ObjectId) {
     };
     world.templates.insert(source.name.clone(), source);
     world.templates.insert(blocker.name.clone(), blocker);
+    world
+}
+
+fn world() -> (GameLogic, ObjectId, ObjectId) {
+    let mut world = configured_world();
     let source = world
         .create_object_for_player("CallbackSource", 1, Vec3::new(50.0, 0.0, 0.0))
         .unwrap();
@@ -58,6 +63,97 @@ fn shell(id: ObjectId, source: ObjectId) -> Projectile {
     shell.source_owner_player_id = Some(1);
     shell.projectile_collides = crate::game_logic::weapon_bootstrap::PROJECTILE_COLLIDE_STRUCTURES;
     shell
+}
+
+const DETONATION_CHILD: &str = "DetonationBasisChild";
+
+fn world_with_owned_detonation_ocl() -> (GameLogic, ObjectId, glam::Mat4) {
+    const LIST: &str = "OwnedProjectileDetonation";
+    let mut world = configured_world();
+    world.add_player(Player::new(2, Team::China, "ProjectileController", false));
+    world.templates.insert(DETONATION_CHILD.into(), ThingTemplate::new(DETONATION_CHILD));
+    world.admit_object_creation_list_sources([format!(
+        "ObjectCreationList {LIST}\nCreateObject\nObjectNames = {DETONATION_CHILD}\nCount = 1\nDisposition = LIKE_EXISTING\nOffset = X:1 Y:2 Z:3\nEnd\nEnd"
+    )]).unwrap();
+    let shooter = world.create_object_for_player(
+        "CallbackSource", 1, Vec3::new(50.0, 0.0, 0.0),
+    ).unwrap();
+    let position = Vec3::new(20.0, 4.0, 30.0);
+    let id = world.create_object_for_player("CallbackSource", 2, position).unwrap();
+    let pose = glam::Mat4::from_cols(
+        Vec3::Y.extend(0.0),
+        Vec3::Z.extend(0.0),
+        Vec3::X.extend(0.0),
+        position.extend(1.0),
+    );
+    assert!(world.set_registered_object_transform(id, pose));
+
+    let mut projectile = shell(id, shooter);
+    projectile.position = position;
+    projectile.velocity = Vec3::ZERO;
+    projectile.speed = 0.0;
+    projectile.projectile_actor_birth = Some((
+        world.objects[&id].visual_object_generation,
+        world.visual_world_epoch,
+    ));
+    projectile.projectile_lifecycle = Some(HostProjectileLifecycle::DumbProjectile {
+        max_lifespan_frames: 1,
+        detonate_calls_kill: false,
+    });
+    projectile.detonation_ocl_name = LIST.into();
+    world.combat_system.projectiles.insert(id, projectile);
+    (world, id, pose)
+}
+
+#[test]
+fn owned_impact_ocl_inherits_the_projectile_owner_and_basis_before_retirement() {
+    let (mut world, id, pose) = world_with_owned_detonation_ocl();
+    assert_eq!(world.update_owned_projectile_impacts(1.0 / 30.0).unwrap(), vec![id]);
+    assert!(!world.combat_system.get_projectiles().contains_key(&id));
+
+    let mut expected = pose;
+    expected.w_axis = pose.transform_point3(Vec3::new(1.0, 3.0, 2.0)).extend(1.0);
+    {
+        let mut children = world.host_objects().registered_values()
+            .filter(|o| o.template_name == DETONATION_CHILD);
+        let child = children.next().expect("the terminal weapon creates an object");
+        assert!(children.next().is_none());
+        assert_eq!(child.producer_id, Some(id));
+        assert_eq!(child.owner_player_id, Some(2));
+        assert_eq!(child.get_transform_matrix(), expected);
+    }
+    world.process_destroy_list();
+    assert!(world.host_object(id).is_none());
+}
+
+#[test]
+fn owned_impact_ocl_cannot_use_a_replacement_with_the_same_id() {
+    let (mut world, id, pose) = world_with_owned_detonation_ocl();
+    let (_, retired, _) = world.combat_system.prepare_projectile_impact_with_runtime(
+        id,
+        ProjectileCallback::Update(1.0 / 30.0),
+        &mut world.objects,
+        None,
+        world.frame,
+        None,
+        None,
+        &mut world.ownership_events,
+        0,
+        None,
+        &mut (),
+    );
+    assert_eq!(retired, vec![id]);
+    let original = world.objects[&id].clone();
+    let generation = original.visual_object_generation;
+    world.destroy_object(id).unwrap();
+    world.process_destroy_list();
+    world.add_object(original);
+    assert_ne!(world.objects[&id].visual_object_generation, generation);
+
+    world.flush_projectile_impact_fx().unwrap();
+    assert_eq!(world.objects[&id].get_transform_matrix(), pose);
+    assert!(!world.host_objects().registered_values()
+        .any(|o| o.template_name == DETONATION_CHILD));
 }
 
 #[test]

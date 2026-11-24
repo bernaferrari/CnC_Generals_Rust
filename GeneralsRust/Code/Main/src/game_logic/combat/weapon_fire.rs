@@ -55,12 +55,24 @@ pub enum DamageEvent {
     },
 }
 
-/// Projectile impact FX residual (ProjectileDetonationFX at real hit).
+#[derive(Debug, Clone, Copy)]
+pub(in crate::game_logic) enum ProjectileDetonationSource {
+    DelayedDamage,
+    VirtualProjectile(ObjectId),
+    Object {
+        id: ObjectId,
+        generation: u64,
+        epoch: u64,
+        pre_physics_pose: Option<glam::Mat4>,
+    },
+}
+
+/// Projectile impact effects delivered before the detonation's Body damage.
 #[derive(Debug, Clone)]
 pub struct ProjectileImpactFx {
     pub position: Vec3,
     pub shooter_id: ObjectId,
-    pub detonation_projectile: Option<ObjectId>,
+    pub(in crate::game_logic) detonation_source: ProjectileDetonationSource,
     pub target_id: Option<ObjectId>,
     pub detonation_fx_name: String,
     pub detonation_ocl_name: String,
@@ -75,6 +87,39 @@ pub struct ProjectileImpactFx {
     /// projectile Object definition. Weapon detonation effects remain in the
     /// fields above and are dispatched first.
     pub projectile_die_effects: Vec<ProjectileDieEffect>,
+}
+
+impl ProjectileImpactFx {
+    fn weapon_detonation(
+        projectile: &Projectile,
+        position: Vec3,
+        target_id: Option<ObjectId>,
+        pre_physics_pose: Option<glam::Mat4>,
+    ) -> Option<Self> {
+        if projectile.detonation_fx_name.is_empty() && projectile.detonation_ocl_name.is_empty() {
+            return None;
+        }
+        let id = projectile.id;
+        let detonation_source = match projectile.projectile_actor_birth {
+            Some((generation, epoch)) => ProjectileDetonationSource::Object {
+                id, generation, epoch, pre_physics_pose,
+            },
+            None => ProjectileDetonationSource::VirtualProjectile(id),
+        };
+        Some(Self {
+            position,
+            shooter_id: projectile.shooter_id,
+            detonation_source,
+            target_id,
+            detonation_fx_name: projectile.detonation_fx_name.clone(),
+            detonation_ocl_name: projectile.detonation_ocl_name.clone(),
+            source_team: projectile.source_team,
+            source_veterancy: projectile.source_veterancy,
+            source_orientation: projectile.velocity.z.atan2(projectile.velocity.x),
+            source_velocity: projectile.velocity,
+            projectile_die_effects: Vec::new(),
+        })
+    }
 }
 
 #[derive(Debug, Clone)]

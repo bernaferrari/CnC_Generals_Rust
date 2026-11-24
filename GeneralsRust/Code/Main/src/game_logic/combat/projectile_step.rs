@@ -400,7 +400,7 @@ impl CombatSystem {
                         }
                     }
                     let step = if retarget_failed {
-                        ProjectileStep::Detonate
+                        ProjectileStep::DETONATE
                     } else {
                         let actor = if projectile.missile_motion.is_some() {
                             let expected = projectile.projectile_actor_birth.map(|birth| birth.0);
@@ -436,15 +436,15 @@ impl CombatSystem {
                             projectiles_to_remove.push(proj_id);
                             return (damage_events, projectiles_to_remove, detonation_pose);
                         }
-                        step @ (ProjectileStep::Detonate | ProjectileStep::DetonateAndHold) => {
-                            if step == ProjectileStep::DetonateAndHold {
+                        ProjectileStep::Detonate { retain_actor, pre_physics_pose } => {
+                            if retain_actor {
                                 mark_missile_detonated(objects, projectile, false);
                             }
                             // C++ DumbProjectileBehavior lifespan and
                             // MissileAIUpdate DetonateOnNoFuel both call the
                             // detonation weapon at the projectile's current pose.
                             // A zero-radius weapon has no guessed direct victim.
-                            let impact = projectile.detonation_position.take().unwrap_or(projectile.position);
+                            let impact = pre_physics_pose.map_or(projectile.position, |pose| pose.w_axis.truncate());
                             detonation_pose = Some(impact);
                             Self::maybe_record_historic_bonus(
                                 &mut self.historic_bonus,
@@ -457,30 +457,16 @@ impl CombatSystem {
                             damage_events.extend(Self::detonation_damage_event(
                                 projectile, objects.read(), impact, None,
                             ));
-                            if !projectile.detonation_fx_name.is_empty()
-                                || !projectile.detonation_ocl_name.is_empty()
-                            {
-                                self.impact_fx.push(ProjectileImpactFx {
-                                    position: impact,
-                                    shooter_id: projectile.shooter_id,
-                                    detonation_projectile: Some(projectile.id),
-                                    target_id: None,
-                                    detonation_fx_name: projectile.detonation_fx_name.clone(),
-                                    detonation_ocl_name: projectile.detonation_ocl_name.clone(),
-                                    source_team: projectile.source_team,
-                                    source_veterancy: projectile.source_veterancy,
-                                    source_orientation: projectile.velocity.z.atan2(projectile.velocity.x),
-                                    source_velocity: projectile.velocity,
-                                    projectile_die_effects: Vec::new(),
-                                });
-                            }
+                            self.impact_fx.extend(ProjectileImpactFx::weapon_detonation(
+                                projectile, impact, None, pre_physics_pose,
+                            ));
                             Self::queue_missile_calls_on_die(
                                 &mut self.impact_fx,
                                 projectile,
                                 receiving_objects,
                             );
 
-                            if step == ProjectileStep::Detonate {
+                            if !retain_actor {
                                 projectiles_to_remove.push(proj_id);
                             }
                             return (damage_events, projectiles_to_remove, detonation_pose);
@@ -528,23 +514,9 @@ impl CombatSystem {
                 damage_events.extend(Self::detonation_damage_event(
                     projectile, objects.read(), impact, Some(target_id),
                 ));
-                if !projectile.detonation_fx_name.is_empty()
-                    || !projectile.detonation_ocl_name.is_empty()
-                {
-                    self.impact_fx.push(ProjectileImpactFx {
-                        position: impact,
-                        shooter_id: projectile.shooter_id,
-                        detonation_projectile: Some(projectile.id),
-                        target_id: projectile.flight.is_none().then_some(target_id),
-                        detonation_fx_name: projectile.detonation_fx_name.clone(),
-                        detonation_ocl_name: projectile.detonation_ocl_name.clone(),
-                        source_team: projectile.source_team,
-                        source_veterancy: projectile.source_veterancy,
-                        source_orientation: projectile.velocity.z.atan2(projectile.velocity.x),
-                        source_velocity: projectile.velocity,
-                        projectile_die_effects: Vec::new(),
-                    });
-                }
+                self.impact_fx.extend(ProjectileImpactFx::weapon_detonation(
+                    projectile, impact, projectile.flight.is_none().then_some(target_id), None,
+                ));
                 Self::queue_missile_calls_on_die(
                     &mut self.impact_fx,
                     projectile,
@@ -576,23 +548,9 @@ impl CombatSystem {
                     damage_events.extend(Self::detonation_damage_event(
                         projectile, objects.read(), impact, None,
                     ));
-                    if !projectile.detonation_fx_name.is_empty()
-                        || !projectile.detonation_ocl_name.is_empty()
-                    {
-                        self.impact_fx.push(ProjectileImpactFx {
-                            position: impact,
-                            shooter_id: projectile.shooter_id,
-                            detonation_projectile: Some(projectile.id),
-                            target_id: None,
-                            detonation_fx_name: projectile.detonation_fx_name.clone(),
-                            detonation_ocl_name: projectile.detonation_ocl_name.clone(),
-                            source_team: projectile.source_team,
-                            source_veterancy: projectile.source_veterancy,
-                            source_orientation: projectile.velocity.z.atan2(projectile.velocity.x),
-                            source_velocity: projectile.velocity,
-                            projectile_die_effects: Vec::new(),
-                        });
-                    }
+                    self.impact_fx.extend(ProjectileImpactFx::weapon_detonation(
+                        projectile, impact, None, None,
+                    ));
                     Self::queue_missile_calls_on_die(
                         &mut self.impact_fx,
                         projectile,

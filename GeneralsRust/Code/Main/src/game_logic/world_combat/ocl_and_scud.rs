@@ -21,7 +21,7 @@ pub(crate) struct OclExecutionOutcome {
 /// The OCL overload controls which source data affects a created object's pose.
 #[derive(Clone, Copy)]
 pub(in crate::game_logic) enum OclPrimary {
-    Object,
+    Object { pre_physics_pose: Option<glam::Mat4> },
     /// A world position with an owning object and an independently supplied angle.
     Position,
     /// Deferred effects that carry the source heading with the recorded origin.
@@ -270,12 +270,23 @@ impl GameLogic {
         interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> OclExecutionOutcome {
+        self.execute_object_ocl_with_pose(ocl_name, id, None, interpreter, effects)
+    }
+
+    fn execute_object_ocl_with_pose(
+        &mut self,
+        ocl_name: &str,
+        id: ObjectId,
+        pre_physics_pose: Option<glam::Mat4>,
+        interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> OclExecutionOutcome {
         let Some(object) = self.objects.get(&id) else {
             return OclExecutionOutcome::success(Vec::new());
         };
         self.execute_parsed_weapon_ocl_with_lifetime_and_births(
             ocl_name,
-            OclPrimary::Object,
+            OclPrimary::Object { pre_physics_pose },
             Some(id),
             object.team,
             object.experience.level,
@@ -355,7 +366,7 @@ impl GameLogic {
         });
 
         let Some(ocl) = self.object_creation_list_definition(ocl_name) else {
-            if !matches!(primary, OclPrimary::Object) {
+            if !matches!(primary, OclPrimary::Object { .. }) {
                 log::warn!("receiving OCL `{ocl_name}` was not admitted for this GameLogic");
             }
             return OclExecutionOutcome::success(Vec::new());
@@ -363,9 +374,8 @@ impl GameLogic {
 
         // C++ ObjectCreationList.cpp:1524-1534 walks the nuggets in order.
         // Unsupported nuggets do not discard earlier results or later nuggets.
-        // FireOCL after FireFX may run with a destroyed source; frozen team/pose
-        // still create (hq-ye145). Only stop when a captured birth no longer
-        // matches — that means a same-ID replacement, not a missing original.
+        // Reentrant callbacks may remove the captured source or reuse its ID.
+        // Check the original birth before each subsequent nugget.
         let mut created = Vec::new();
         for nugget in ocl.nuggets() {
             if let Some(birth) = source_birth {
@@ -376,7 +386,7 @@ impl GameLogic {
             if let Some(force) = nugget.as_any().downcast_ref::<
                 gamelogic::object_creation_list::advanced_nuggets::ApplyRandomForceNugget,
             >() {
-                if matches!(primary, OclPrimary::Object)
+                if matches!(primary, OclPrimary::Object { .. })
                     && let Some(object) = source_id.and_then(|id| self.objects.get_mut(&id))
                     && object.authors_behavior_module("PhysicsBehavior")
                 {
@@ -453,10 +463,10 @@ impl GameLogic {
                 );
                 continue;
             }
-            let source_transform = if matches!(primary, OclPrimary::Object) {
-                source_id
-                    .and_then(|id| self.objects.get(&id))
-                    .map(Object::get_transform_matrix)
+            let source_transform = if let OclPrimary::Object { pre_physics_pose } = primary {
+                pre_physics_pose.or_else(|| {
+                    source_id.and_then(|id| self.objects.get(&id)).map(Object::get_transform_matrix)
+                })
             } else {
                 None
             };
@@ -465,11 +475,11 @@ impl GameLogic {
             if generic.skip_if_significantly_airborne
                 && !matches!(primary, OclPrimary::Position)
             {
-                let above = if matches!(primary, OclPrimary::Object) {
+                let above = if let Some(transform) = source_transform {
                     source_id
                         .and_then(|id| self.objects.get(&id))
                         .is_some_and(|object| {
-                            let position = object.get_position();
+                            let position = transform.w_axis.truncate();
                             let ground = self.terrain_ground_height_at(position)
                                 .unwrap_or(object.ground_height);
                             object.height_treats_as_airborne(position.y - ground)
@@ -550,7 +560,7 @@ impl GameLogic {
                 let local_offset = Vec3::new(generic.offset.x, generic.offset.z, generic.offset.y);
                 let offset = match primary {
                     OclPrimary::Position => local_offset,
-                    OclPrimary::Object => source_transform
+                    OclPrimary::Object { .. } => source_transform
                         .map_or(local_offset, |matrix| matrix.transform_vector3(local_offset)),
                     OclPrimary::FrozenSource => {
                         glam::Mat3::from_rotation_y(source_orientation) * local_offset
@@ -1258,29 +1268,53 @@ impl GameLogic {
                 );
             }
             if !impact.detonation_ocl_name.is_empty() {
-                let outcome = self.execute_parsed_weapon_ocl_with_births(
-                    &impact.detonation_ocl_name,
-                    Some(impact.shooter_id),
-                    impact.source_team,
-                    impact.source_veterancy,
-                    impact.source_orientation,
-                    impact.source_velocity,
-                    impact.position,
-                    None,
-                    presentation_effects,
-                );
-                for (id, (epoch, birth)) in outcome.created {
-                    if self.spawn_identity_matches(id, epoch, birth) {
-                        if let Some(object) = self.objects.get_mut(&id)
-                            && object.has_native_emp_update()
-                        {
-                            // Weapon.cpp passes the detonating projectile to
-                            // the OCL. The pulse resolves its producer at fade.
-                            object.producer_id = impact.detonation_projectile;
+                use crate::game_logic::combat::ProjectileDetonationSource;
+                let error = match impact.detonation_source {
+                    ProjectileDetonationSource::Object { id, generation, epoch, pre_physics_pose } => {
+                        // Weapon.cpp:943–949 invokes the Object overload on
+                        // the actual projectile before its Body retires it.
+                        if self.spawn_identity_matches(id, generation, epoch) {
+                            self.execute_object_ocl_with_pose(
+                                &impact.detonation_ocl_name,
+                                id,
+                                pre_physics_pose,
+                                None,
+                                presentation_effects,
+                            ).error
+                        } else {
+                            None
                         }
                     }
-                }
-                if let Some(error) = outcome.error {
+                    source => {
+                        let outcome = self.execute_parsed_weapon_ocl_with_births(
+                            &impact.detonation_ocl_name,
+                            Some(impact.shooter_id),
+                            impact.source_team,
+                            impact.source_veterancy,
+                            impact.source_orientation,
+                            impact.source_velocity,
+                            impact.position,
+                            None,
+                            presentation_effects,
+                        );
+                        let producer = match source {
+                            ProjectileDetonationSource::VirtualProjectile(id) => Some(id),
+                            _ => None,
+                        };
+                        for &(id, (generation, epoch)) in &outcome.created {
+                            if self.spawn_identity_matches(id, generation, epoch)
+                                && let Some(object) = self.objects.get_mut(&id)
+                                && object.has_native_emp_update()
+                            {
+                                // Virtual flights lack an Object overload.
+                                // Preserve the producer used by the pulse at fade.
+                                object.producer_id = producer;
+                            }
+                        }
+                        outcome.error
+                    }
+                };
+                if let Some(error) = error {
                     return Err(error);
                 }
             }
