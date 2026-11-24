@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Compare the original C++ force vector and RNG requests with the Rust OCL helper."""
+"""Compare original OCL force draws and Object-overload placement with Rust."""
 
 import argparse
 import math
@@ -142,6 +142,80 @@ def observed(binary: Path) -> list[tuple[float, float, float]]:
     return [tuple(map(float, line.split())) for line in output.splitlines()]
 
 
+def verify_object_placement(cxx: str, temp: Path) -> None:
+    original = OCL_SOURCE.read_text()
+    rotate = definition(
+        (WWMATH / "matrix3d.cpp").read_text(),
+        r"Vector3 Matrix3D::Rotate_Vector\(const Vector3 &vect\) const",
+    )
+    transform = definition(original, r"static void adjustVector\(")
+    start = original.index("Coord3D offset = m_offset;")
+    end = original.index("if (!m_particleSysName.isEmpty())", start)
+    offset = original[start:end]
+    start = original.index("if (mtx)", original.index("if( BitTest( m_disposition, LIKE_EXISTING ) )", end))
+    end = original.index("if (sourceObj && sourceObj->isAboveTerrain())", start)
+    like_existing = original[start:end]
+    cpp = temp / "object_basis.cpp"
+    binary = temp / "object_basis"
+    cpp.write_text(
+        r"""
+#include <cstdio>
+using Real = float;
+struct Coord3D { Real x, y, z; };
+struct Vector3 {
+    Real X = 0, Y = 0, Z = 0;
+    Vector3() = default;
+    Vector3(Real x, Real y, Real z) : X(x), Y(y), Z(z) {}
+    Real operator[](int index) const { return index == 0 ? X : index == 1 ? Y : Z; }
+};
+struct Matrix3D {
+    Real Row[3][4]{{0,1,0,20},{0,0,1,30},{1,0,0,4}};
+    Vector3 Rotate_Vector(const Vector3&) const;
+};
+struct Object {
+    Matrix3D transform;
+    void setTransformMatrix(const Matrix3D* matrix) { transform = *matrix; }
+    void setOrientation(Real) {}
+    void setPosition(const Coord3D* pos) {
+        transform.Row[0][3] = pos->x;
+        transform.Row[1][3] = pos->y;
+        transform.Row[2][3] = pos->z;
+    }
+};
+"""
+        + rotate + "\n" + transform + r"""
+int main() {
+    Matrix3D matrix;
+    const Matrix3D* mtx = &matrix;
+    const Coord3D start{20,30,4};
+    const Coord3D* pos = &start;
+    const Coord3D m_offset{1,2,3};
+    const Real orientation = 0;
+    Object child;
+    Object* obj = &child;
+"""
+        + offset + like_existing + r"""
+    // Emit the pose in the host Y-up basis with one row per column.
+    constexpr int host_to_original[3]{0,2,1};
+    for (int col : host_to_original)
+        std::printf("%.0f %.0f %.0f\n", child.transform.Row[0][col],
+                    child.transform.Row[2][col], child.transform.Row[1][col]);
+    std::printf("%.0f %.0f %.0f\n", child.transform.Row[0][3],
+                child.transform.Row[2][3], child.transform.Row[1][3]);
+}
+"""
+    )
+    subprocess.run([cxx, "-std=c++17", cpp, "-o", binary], check=True)
+    observed = subprocess.check_output([binary], text=True)
+    fixture = ROOT / (
+        "GeneralsRust/Code/Main/src/game_logic/world_combat/ocl_and_scud/object_basis.trace"
+    )
+    if observed != fixture.read_text():
+        raise RuntimeError(f"Original OCL Object placement differs from {fixture.name}:\n{observed}")
+    print("Original OCL matched the full Object basis and offset")
+
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--cxx", default="c++")
@@ -158,6 +232,7 @@ def main() -> int:
                        check=True)
         subprocess.run([args.rustc, "--edition=2024", rust, "-o", port], check=True)
         original, ported = observed(originals), observed(port)
+        verify_object_placement(args.cxx, temp)
     if len(original) != len(CASES) or len(ported) != len(CASES):
         raise RuntimeError("Unexpected vector count")
     for scenario, expected, actual in zip(CASES, original, ported, strict=True):

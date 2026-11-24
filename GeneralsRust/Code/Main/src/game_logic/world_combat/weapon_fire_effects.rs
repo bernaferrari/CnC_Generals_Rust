@@ -9,15 +9,6 @@ struct AcceptedSelfDamagePose {
 }
 
 
-/// Choose FireOCL launch facts after FireFX (Weapon.cpp:943). Same generation
-/// re-samples the live Object; a replacement ID keeps the frozen acceptance.
-pub(super) fn fire_ocl_facts_after_fx<T>(
-    live: Option<T>,
-    frozen: T,
-) -> T {
-    live.unwrap_or(frozen)
-}
-
 impl GameLogic {
     /// Finish one prepared shot synchronously, after releasing its Object loan.
     /// All callers share CPP FireFX -> FireOCL -> delivery -> barrel ordering.
@@ -246,62 +237,40 @@ impl GameLogic {
                 capture.weapon_plays_fx_when_stealthed = play;
             }
         }
-        // Freeze accepted launch facts before FireFX. A same-ID replacement
-        // after the callback must not supply FireOCL ownership (hq-ye145).
-        let frozen_rank = rank;
-        let frozen_ocl = native.as_ref().map(|rule| rule.get_fire_ocl_name(native_rank(frozen_rank)).unwrap_or_default().to_owned()).unwrap_or_else(|| name.as_deref().map(|name| {
-            self.weapon_effect_definitions.fire(name, frozen_rank).map(|effects| effects.fire_ocl)
-                .unwrap_or_else(|| crate::game_logic::weapon_bootstrap::host_fire_ocl_for_weapon_name_at_veterancy(name, frozen_rank))
-        }).unwrap_or_default());
-        let (frozen_team, frozen_orientation, frozen_velocity, frozen_position) = (
-            object.team,
-            object.get_orientation(),
-            object.movement.velocity,
-            object.get_position(),
-        );
+        let source_epoch = self.visual_world_epoch;
         let Some(accepted) =
-            self.begin_accepted_weapon_discharge_with_effects(source, slot, presentation_effects) else { return Ok(None) };
-        // CPP943 samples the source rank again AFTER FireFX when the original
-        // object still lives. Same-ID replacements keep the frozen facts.
-        let (team, orientation, velocity, source_position, rank, ocl) =
-            if let Some(object) = self.objects.get(&source).filter(|object| {
-                accepted.source_generation != 0
-                    && object.visual_object_generation == accepted.source_generation
-            }) {
-                let rank = object.experience.level;
-                let ocl = native.as_ref().map(|rule| rule.get_fire_ocl_name(native_rank(rank)).unwrap_or_default().to_owned()).unwrap_or_else(|| name.as_deref().map(|name| {
-                    self.weapon_effect_definitions.fire(name, rank).map(|effects| effects.fire_ocl)
-                        .unwrap_or_else(|| crate::game_logic::weapon_bootstrap::host_fire_ocl_for_weapon_name_at_veterancy(name, rank))
-                }).unwrap_or_default());
-                (
-                    object.team,
-                    object.get_orientation(),
-                    object.movement.velocity,
-                    object.get_position(),
-                    rank,
-                    ocl,
-                )
+            self.begin_accepted_weapon_discharge_with_effects(source, slot, presentation_effects)
+        else {
+            return Ok(None);
+        };
+        // Weapon.cpp:943 rereads rank on the same Object after FireFX.
+        // A removed or replaced Object cannot receive this Object overload.
+        // The accepted shot continues through its separate delivery path.
+        if self.spawn_identity_matches(source, accepted.source_generation, source_epoch) {
+            let rank = self.objects[&source].experience.level;
+            let ocl = if let Some(rule) = &native {
+                rule.get_fire_ocl_name(native_rank(rank))
+                    .unwrap_or_default()
+                    .to_owned()
+            } else if let Some(name) = name.as_deref() {
+                self.weapon_effect_definitions
+                    .fire(name, rank)
+                    .map(|effects| effects.fire_ocl)
+                    .unwrap_or_else(|| {
+                        crate::game_logic::weapon_bootstrap::host_fire_ocl_for_weapon_name_at_veterancy(name, rank)
+                    })
             } else {
-                (
-                    frozen_team,
-                    frozen_orientation,
-                    frozen_velocity,
-                    frozen_position,
-                    frozen_rank,
-                    frozen_ocl,
-                )
+                String::new()
             };
-        if !ocl.trim().is_empty() && !ocl.eq_ignore_ascii_case("None") {
-            self.execute_parsed_weapon_ocl_at_with_effects(
+            let outcome = self.execute_receiving_object_ocl_with_births(
                 &ocl,
-                Some(source),
-                team,
-                rank,
-                orientation,
-                velocity,
-                source_position,
+                source,
+                None,
                 presentation_effects,
-            )?;
+            );
+            if let Some(error) = outcome.error {
+                return Err(error);
+            }
         }
         Ok(Some(accepted))
     }
@@ -412,17 +381,9 @@ End
 #[cfg(test)]
 mod ye145_source_generation_tests {
     use super::*;
-    use super::fire_ocl_facts_after_fx;
 
     #[test]
-    fn fire_ocl_facts_prefer_live_same_generation_else_frozen() {
-        assert_eq!(fire_ocl_facts_after_fx(Some("live"), "frozen"), "live");
-        assert_eq!(fire_ocl_facts_after_fx::<&str>(None, "frozen"), "frozen");
-    }
-
-    #[test]
-    fn fire_ocl_keeps_frozen_team_when_source_generation_mismatches() {
-        // Post-FireFX same-ID replacement must not own FireOCL (hq-ye145).
+    fn fire_ocl_retains_the_original_receiving_owner() {
         let mut world = GameLogic::new();
         world.add_player(Player::new(0, Team::USA, "owner", false));
         world.add_player(Player::new(1, Team::GLA, "enemy", false));
@@ -460,10 +421,6 @@ mod ye145_source_generation_tests {
             .unwrap();
         let origin = world.host_object(source).unwrap().get_position();
         let generation = world.stamp_visual_object_generation(source);
-        // Replace with same ID / different generation before FireOCL sampling by
-        // calling begin after swap — freeze reads current object then discharge
-        // stamps generation. Instead: run begin on original, then assert child
-        // team is USA (original). Then prove mismatch filter with helper.
         let accepted = world
             .begin_owned_weapon_effects(source, 0, None, None, origin, None)
             .expect("fire effects succeed").expect("accepted");
@@ -476,9 +433,5 @@ mod ye145_source_generation_tests {
         assert_eq!(child.team, Team::USA);
         assert_eq!(child.get_position(), origin);
         world.finish_accepted_weapon_discharge(accepted);
-        assert_eq!(
-            fire_ocl_facts_after_fx(None, "frozen"),
-            "frozen"
-        );
     }
 }

@@ -93,6 +93,28 @@ fn accepted_fire_reports_ocl_factory_failure_before_delivery() {
     assert!(!owner.host_objects().registered_values().any(|object| object.template_name == FIRE_CHILD));
 }
 #[test]
+fn accepted_fire_ocl_uses_the_source_object_basis() {
+    let (mut owner, source, target) = world(false, 0, 1);
+    owner.apply_receiving_ocl_overrides(&[format!(
+        "ObjectCreationList ReceivingFireOCL\nCreateObject\nObjectNames = {FIRE_CHILD}\nCount = 1\nDisposition = LIKE_EXISTING\nOffset = X:1 Y:2 Z:3\nEnd\nEnd"
+    )]).unwrap();
+    let origin = Vec3::new(5.0, 0.0, 7.0);
+    let pose = glam::Mat4::from_cols(
+        Vec3::Y.extend(0.0), Vec3::Z.extend(0.0), Vec3::X.extend(0.0), origin.extend(1.0),
+    );
+    assert!(owner.set_registered_object_transform(source, pose));
+    let accepted = owner.begin_owned_weapon_effects(
+        source, 0, Some(target), Some(Vec3::new(15.0, 0.0, 7.0)), origin, None,
+    ).unwrap().unwrap();
+    let child = child(&owner, FIRE_CHILD);
+    let mut expected = pose;
+    expected.w_axis = (origin + Vec3::new(2.0, 1.0, 3.0)).extend(1.0);
+    assert_eq!(owner.objects[&child].get_transform_matrix(), expected);
+    assert_eq!(owner.objects[&child].producer_id, Some(source));
+    owner.finish_accepted_weapon_discharge(accepted);
+}
+
+#[test]
 fn normal_fire_ocl_precedes_lethal_body_callback_and_save_never_replays_it() {
     let (mut owner, source, target) = world(false, 0, 1);
     let (peer, peer_source, peer_target) = world(false, 0, 1);

@@ -682,3 +682,56 @@ fn authored_overlord_initial_payload_redirects_after_bunker_is_installed() {
     assert_eq!(world.host_object(passenger).unwrap().contained_by, Some(bunker));
     assert_eq!(world.host_object(bunker).unwrap().contained_units(), vec![passenger]);
 }
+
+#[test]
+fn receiving_object_ocl_places_and_orients_children_with_the_complete_source_basis() {
+    const LIST: &str = "OCL_ObjectBasis";
+    let source_pos = Vec3::new(20.0, 4.0, 30.0);
+    let pose = glam::Mat4::from_cols(
+        Vec3::Y.extend(0.0),
+        Vec3::Z.extend(0.0),
+        Vec3::X.extend(0.0),
+        source_pos.extend(1.0),
+    );
+    let fixture = |matrix: glam::Mat4| {
+        let mut world = GameLogic::new();
+        world.admit_object_ini_sources([("ocl-basis.ini".into(), r"
+Object OclBasisSource
+ KindOf = VEHICLE
+End
+Object OclBasisChild
+ KindOf = IMMOBILE
+End
+".into())]).unwrap();
+        world.admit_object_creation_list_sources([format!(
+            "ObjectCreationList {LIST}\nCreateObject\nObjectNames = OclBasisChild\nCount = 1\nDisposition = LIKE_EXISTING\nOffset = X:1 Y:2 Z:3\nEnd\nEnd"
+        )]).unwrap();
+        let id = world.create_object("OclBasisSource", Team::USA, source_pos).unwrap();
+        assert!(world.set_registered_object_transform(id, matrix));
+        (world, id)
+    };
+    let (mut world, id) = fixture(pose);
+    let (peer, peer_id) = fixture(glam::Mat4::from_translation(source_pos));
+    assert_eq!(peer_id, id);
+
+    let outcome = world.execute_receiving_object_ocl_with_births(
+        LIST, id, None, &mut Default::default(),
+    );
+    assert!(outcome.error.is_none());
+    let [(child, _)] = outcome.created.as_slice() else {
+        panic!("the original LIKE_EXISTING OCL creates one child");
+    };
+    let transform = world.objects[child].get_transform_matrix();
+    let observed: Vec<_> = [transform.x_axis, transform.y_axis, transform.z_axis, transform.w_axis]
+        .into_iter()
+        .flat_map(|column| column.truncate().to_array())
+        .collect();
+    let original: Vec<f32> = include_str!("object_basis.trace")
+        .split_whitespace()
+        .map(|value| value.parse().unwrap())
+        .collect();
+    assert_eq!(observed, original);
+    assert_eq!(world.objects[child].producer_id, Some(id));
+    assert_eq!(peer.objects[&peer_id].get_position(), source_pos);
+    assert!(!peer.objects.contains_key(child));
+}

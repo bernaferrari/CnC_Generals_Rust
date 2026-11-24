@@ -59,6 +59,8 @@ FULL_GATES = (
             "attack_team_persist_never_bleeds_into_same_faction_team",
             "authored_jet_",
             "authored_helicopter_",
+            "receiving_object_ocl_places_and_orients",
+            "accepted_fire_ocl_uses_the_source_object_basis",
             "--test-threads=1",
         ],
     ),

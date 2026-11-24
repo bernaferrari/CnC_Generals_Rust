@@ -453,6 +453,37 @@ impl GameLogic {
                 );
                 continue;
             }
+            let source_transform = if matches!(primary, OclPrimary::Object) {
+                source_id
+                    .and_then(|id| self.objects.get(&id))
+                    .map(Object::get_transform_matrix)
+            } else {
+                None
+            };
+            // The object overload checks altitude from raw terrain. The
+            // explicit position overload has no source-altitude gate.
+            if generic.skip_if_significantly_airborne
+                && !matches!(primary, OclPrimary::Position)
+            {
+                let above = if matches!(primary, OclPrimary::Object) {
+                    source_id
+                        .and_then(|id| self.objects.get(&id))
+                        .is_some_and(|object| {
+                            let position = object.get_position();
+                            let ground = self.terrain_ground_height_at(position)
+                                .unwrap_or(object.ground_height);
+                            object.height_treats_as_airborne(position.y - ground)
+                        })
+                } else {
+                    let terrain_y = self.terrain_height_at(origin).unwrap_or(origin.y);
+                    crate::game_logic::host_usa_pilot::is_significantly_above_terrain(
+                        origin.y - terrain_y,
+                    )
+                };
+                if above {
+                    continue;
+                }
+            }
             if !generic.name_are_objects {
                 let debris = self.execute_receiving_create_debris(
                     generic,
@@ -461,6 +492,7 @@ impl GameLogic {
                     source_team,
                     origin,
                     matches!(primary, OclPrimary::Position).then_some(source_orientation),
+                    source_transform,
                     lifetime_frames,
                     presentation_effects,
                 );
@@ -475,18 +507,6 @@ impl GameLogic {
                     "receiving OCL `{ocl_name}` skipped unsupported GenericObjectCreationNugget configuration"
                 );
                 continue;
-            }
-
-            // `GenericObjectCreationNugget::create` checks source altitude
-            // before spawning.  The host coordinate system is Y-up, whereas
-            // C++ Coord3D is Z-up; terrain_height_at already accepts host X/Z.
-            if generic.skip_if_significantly_airborne {
-                let terrain_y = self.terrain_height_at(origin).unwrap_or(origin.y);
-                if crate::game_logic::host_usa_pilot::is_significantly_above_terrain(
-                    origin.y - terrain_y,
-                ) {
-                    continue;
-                }
             }
 
             let count = usize::try_from(generic.debris_to_generate).unwrap_or_default();
@@ -525,17 +545,20 @@ impl GameLogic {
                     continue;
                 }
 
-                // ObjectCreationList.cpp:953-960 applies a matrix only
-                // when the overload supplied one. Deferred weapon producers
-                // still carry the source's recorded heading.
+                // ObjectCreationList.cpp:953-960 uses every basis axis of
+                // an Object overload's transform. Position offsets are global.
                 let local_offset = Vec3::new(generic.offset.x, generic.offset.z, generic.offset.y);
                 let offset = match primary {
                     OclPrimary::Position => local_offset,
-                    OclPrimary::Object | OclPrimary::FrozenSource => {
+                    OclPrimary::Object => source_transform
+                        .map_or(local_offset, |matrix| matrix.transform_vector3(local_offset)),
+                    OclPrimary::FrozenSource => {
                         glam::Mat3::from_rotation_y(source_orientation) * local_offset
                     }
                 };
-                let mut spawn_position = origin + offset;
+                let placement_origin =
+                    source_transform.map_or(origin, |matrix| matrix.w_axis.truncate());
+                let mut spawn_position = placement_origin + offset;
                 let on_ground = generic
                     .disposition
                     .has(DebrisDisposition::ON_GROUND_ALIGNED);
@@ -592,7 +615,17 @@ impl GameLogic {
                 }
                 if let Some(object) = self.objects.get_mut(&created_id) {
                     object.producer_id = source_id;
-                    if generic.disposition.has(DebrisDisposition::LIKE_EXISTING) {
+                }
+                if generic.disposition.has(DebrisDisposition::LIKE_EXISTING) {
+                    if let Some(mut transform) = source_transform {
+                        transform.w_axis = spawn_position.extend(1.0);
+                        self.set_owned_object_transform_with_effects(
+                            created_id, transform, self.frame, presentation_effects,
+                        );
+                        if !birth_matches(self) {
+                            continue;
+                        }
+                    } else if let Some(object) = self.objects.get_mut(&created_id) {
                         object.set_orientation_with_partition_owner(
                             source_orientation,
                             &mut self.partition_manager,
@@ -902,6 +935,7 @@ impl GameLogic {
         source_team: Team,
         origin: Vec3,
         positional_orientation: Option<f32>,
+        source_transform: Option<glam::Mat4>,
         lifetime_frames: u32,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> OclExecutionOutcome {
@@ -933,7 +967,6 @@ impl GameLogic {
             && !generic.spread_formation
             && !generic.contain_inside_source_object
             && !generic.ignore_primary_obstacle
-            && !generic.skip_if_significantly_airborne
             && !generic.requires_live_player
             && !generic.dies_on_bad_land
             && !generic.orient_in_force_direction
@@ -997,8 +1030,11 @@ impl GameLogic {
             // same way every other authored model-space offset is (INI X =
             // forward, INI Y = left, INI Z = up); feeding (x, y, z) straight
             // into the host matrix would rotate "y" as if it were height.
-            let position = if positional_orientation.is_some() {
-                origin + Vec3::new(generic.offset.x, generic.offset.z, generic.offset.y)
+            let local_offset = Vec3::new(generic.offset.x, generic.offset.z, generic.offset.y);
+            let position = if let Some(matrix) = source_transform {
+                matrix.transform_point3(local_offset)
+            } else if positional_orientation.is_some() {
+                origin + local_offset
             } else {
                 crate::game_logic::host_production_buildable_command_residual::transform_model_exit_offset(
                     origin,
