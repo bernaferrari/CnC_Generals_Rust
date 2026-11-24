@@ -452,6 +452,100 @@ int main() {
     print("Original OCL checked the controlling player's active state for gated entries")
 
 
+def verify_put_in_container(cxx: str, temp: Path) -> None:
+    original = OCL_SOURCE.read_text()
+    start = original.index("Object* container = NULL;", original.index("if (m_requiresLivePlayer &&"))
+    child_end = original.index("// if we want the objects being created", start)
+    child_definitions = original[start:child_end]
+    finish_child_start = original.index("doStuffToObj( debris, m_names[pick], pos", child_end)
+    finish_child = original[finish_child_start:original.index(";", finish_child_start) + 1]
+    finish_container_start = original.index("if (container)\n\t\t\tdoStuffToObj", child_end)
+    end = original.index("return firstObject;", finish_container_start) + len("return firstObject;")
+    finish_container = original[finish_container_start:end]
+
+    cpp = temp / "ocl_container.cpp"
+    binary = temp / "ocl_container"
+    cpp.write_text(
+        r"""
+#include <cassert>
+#include <cstddef>
+#include <deque>
+#include <string>
+#include <vector>
+using Int = int;
+using PathfindLayerEnum = int;
+constexpr PathfindLayerEnum LAYER_GROUND = 0;
+#define DEBUG_CRASH(x) assert(false)
+#define DEBUG_ASSERTCRASH(p, x) assert(p)
+struct AsciiString : std::string {
+    using std::string::string;
+    bool isEmpty() const { return empty(); }
+    static const AsciiString TheEmptyString;
+};
+const AsciiString AsciiString::TheEmptyString;
+struct ThingTemplate { char mark; };
+struct Object {
+    char mark;
+    const Object* producer = nullptr;
+    Object* container = nullptr;
+    std::vector<Object*> riders;
+    void setProducer(const Object* value) { producer = value; }
+    int getLayer() const { return LAYER_GROUND; }
+    void setLayer(int) {}
+    Object* getContain() { return mark == 'C' ? this : nullptr; }
+    bool isValidContainerFor(const Object*, bool) const { return riders.empty(); }
+    void addToContain(Object* rider) {
+        riders.push_back(rider);
+        rider->container = this;
+    }
+};
+std::string events;
+struct Factory {
+    ThingTemplate canopy{'C'}, rider{'R'};
+    std::deque<Object> objects;
+    const ThingTemplate* findTemplate(const AsciiString& name) const {
+        return name == "Canopy" ? &canopy : name == "Rider" ? &rider : nullptr;
+    }
+    Object* newObject(const ThingTemplate* tmpl, int) {
+        events += tmpl->mark;
+        objects.push_back(Object{tmpl->mark});
+        return &objects.back();
+    }
+} factory, *TheThingFactory = &factory;
+struct Lod { bool isDebrisSkipped() { return false; } } lod, *TheGameLODManager = &lod;
+int GameLogicRandomValue(int, int) { events += '*'; return 0; }
+void doStuffToObj(Object* obj, const AsciiString&, int, int, int, const Object* source, int) {
+    assert(obj->producer == source);
+    events += obj->mark == 'C' ? 'c' : obj->container ? '+' : '-';
+}
+Object* reallyCreate(const Object* sourceObj, AsciiString m_putInContainer) {
+    constexpr bool m_nameAreObjects = true, m_preserveLayer = true;
+    constexpr int m_debrisToGenerate = 2, debrisOwner = 0;
+    constexpr int pos = 0, mtx = 0, orientation = 0, lifetimeFrames = 0;
+    const ThingTemplate* debrisTemplate = nullptr;
+    const std::vector<AsciiString> m_names{"Rider"};
+"""
+        + child_definitions
+        + finish_child
+        + "\n}\n"
+        + finish_container
+        + r"""
+}
+int main() {
+    Object source{'S'};
+    assert(reallyCreate(&source, "Canopy")->mark == 'C');
+    assert(events == "C*R+*R-c");
+    events.clear();
+    assert(reallyCreate(&source, "Missing")->mark == 'R');
+    assert(events == "*R-*R-");
+}
+"""
+    )
+    subprocess.run([cxx, "-std=c++17", cpp, "-o", binary], check=True)
+    subprocess.run([binary], check=True)
+    print("Original OCL creates the container first and initializes it after both riders")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--cxx", default="c++")
@@ -470,6 +564,7 @@ def main() -> int:
         original, ported = observed(originals), observed(port)
         verify_object_placement(args.cxx, temp)
         verify_ocl_player_eligibility(args.cxx, temp)
+        verify_put_in_container(args.cxx, temp)
         verify_detonation_rank(args.cxx, temp)
         verify_detonation_fx_position(args.cxx, temp)
     if len(original) != len(CASES) or len(ported) != len(CASES):

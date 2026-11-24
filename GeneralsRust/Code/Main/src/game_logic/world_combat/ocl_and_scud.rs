@@ -5,7 +5,9 @@ use super::super::*;
 
 #[cfg(test)]
 mod receiving_debris_ocl_owner_tests;
+mod generic_objects;
 mod nuke_cannon_overlord;
+use generic_objects::OclObjectSource;
 mod technical_gattling_dragon;
 mod marauder_scorpion_shells;
 #[cfg(test)]
@@ -45,27 +47,6 @@ impl OclExecutionOutcome {
             error: Some(error),
         }
     }
-}
-
-/// Whether this host bridge can reproduce a parsed generic OCL nugget.
-/// Unsupported physics/container/debris nuggets are skipped individually —
-/// C++ `ObjectCreationList::createInternal` still runs every later nugget.
-fn supports_host_weapon_generic_ocl(
-    nugget: &gamelogic::object_creation_list::GenericObjectCreationNugget,
-) -> bool {
-    use gamelogic::object_creation_list::DebrisDisposition;
-    let unsupported_disposition = DebrisDisposition::SEND_IT_OUT
-        | DebrisDisposition::FLOATING
-        | DebrisDisposition::WHIRLING;
-
-    nugget.name_are_objects
-        && !nugget.names.is_empty()
-        && nugget.debris_to_generate > 0
-        && !nugget.disposition.has(unsupported_disposition)
-        && nugget.put_in_container.trim().is_empty()
-        && !nugget.ignore_primary_obstacle
-        && !nugget.spread_formation
-        && !nugget.dies_on_bad_land
 }
 
 fn unsupported_host_ocl_nugget_name(
@@ -358,12 +339,6 @@ impl GameLogic {
                 (source.visual_object_generation, self.visual_world_epoch)
             })
         });
-        let source_owner_player_id = source_id.and_then(|id| {
-            self.objects
-                .get(&id)
-                .and_then(|source| source.owner_player_id)
-        });
-
         let Some(ocl) = self.object_creation_list_definition(ocl_name) else {
             if !matches!(primary, OclPrimary::Object { .. }) {
                 log::warn!("receiving OCL `{ocl_name}` was not admitted for this GameLogic");
@@ -429,17 +404,18 @@ impl GameLogic {
                 );
                 continue;
             };
-            if generic.debris_to_generate == 0 {
+            if !generic.name_are_objects && generic.debris_to_generate == 0 {
                 continue;
             }
             // reallyCreate checks the current controller for each nugget,
             // before reserving a container or drawing from the logic RNG.
+            let source_owner_player_id = source_id
+                .and_then(|id| self.objects.get(&id))
+                .and_then(|source| source.owner_player_id);
             if generic.requires_live_player
-                && !source_id
-                    .and_then(|id| self.objects.get(&id))
-                    .and_then(|source| source.owner_player_id)
+                && !source_owner_player_id
                     .and_then(|owner| self.players.get(&owner))
-                    .is_some_and(|player| player.is_active())
+                    .is_some_and(Player::is_active)
             {
                 continue;
             }
@@ -522,423 +498,34 @@ impl GameLogic {
                 }
                 continue;
             }
-            if !supports_host_weapon_generic_ocl(generic) {
-                log::warn!(
-                    "receiving OCL `{ocl_name}` skipped unsupported GenericObjectCreationNugget configuration"
-                );
-                continue;
-            }
-
-            let count = usize::try_from(generic.debris_to_generate).unwrap_or_default();
-            let upper_pick = match i32::try_from(generic.names.len().saturating_sub(1)) {
-                Ok(value) => value,
-                Err(_) => continue,
+            let Some((id, birth)) = source_id.zip(source_birth) else {
+                return OclExecutionOutcome::success(created);
             };
-            for _ in 0..count {
-                if !source_id.is_some_and(|id| {
-                    source_birth
-                        .is_some_and(|birth| self.spawn_identity_matches(id, birth.0, birth.1))
-                }) {
-                    return OclExecutionOutcome::success(created);
-                }
-                // C++ chooses once per created object from ObjectNames using
-                // the game-logic random stream (ObjectCreationList.cpp:1326).
-                let raw_pick = self.logic_random.next_int(0, upper_pick);
-                let Ok(pick) = usize::try_from(raw_pick) else {
-                    continue;
-                };
-                let Some(template_name) = generic.names.get(pick) else {
-                    continue;
-                };
-                let template_name = template_name.trim();
-                if template_name.is_empty() || template_name.eq_ignore_ascii_case("None") {
-                    continue;
-                }
-
-                // The receiving session admitted its authored templates before
-                // the match. A missing name cannot be recovered from another
-                // application's asset manager or a decorative fallback.
-                if !self.templates.contains_key(template_name) {
-                    log::warn!(
-                        "receiving OCL `{ocl_name}` references unadmitted object template `{template_name}`"
-                    );
-                    continue;
-                }
-
-                // ObjectCreationList.cpp:953-960 uses every basis axis of
-                // an Object overload's transform. Position offsets are global.
-                let local_offset = Vec3::new(generic.offset.x, generic.offset.z, generic.offset.y);
-                let offset = match primary {
-                    OclPrimary::Position => local_offset,
-                    OclPrimary::Object { .. } => source_transform
-                        .map_or(local_offset, |matrix| matrix.transform_vector3(local_offset)),
-                    OclPrimary::FrozenSource => {
-                        glam::Mat3::from_rotation_y(source_orientation) * local_offset
-                    }
-                };
-                let placement_origin =
-                    source_transform.map_or(origin, |matrix| matrix.w_axis.truncate());
-                let mut spawn_position = placement_origin + offset;
-                let on_ground = generic
-                    .disposition
-                    .has(DebrisDisposition::ON_GROUND_ALIGNED);
-                if on_ground {
-                    spawn_position.y = self
-                        .terrain_height_at(spawn_position)
-                        .unwrap_or(spawn_position.y);
-                }
-
-                // C++ ObjectCreationList.cpp:1302-1305
-                // `sourceObj->getControllingPlayer()->getDefaultTeam()`.
-                // `create_object` uses `unique_player_id_for_team`, which is
-                // None in 2v2 same-faction, dropping the controlling player.
-                let creation = self.create_object_for_owner_or_team_with_birth_checked(
-                    template_name,
-                    source_team,
-                    source_owner_player_id,
-                    spawn_position,
-                    interpreter,
-                    presentation_effects,
-                );
-                let (created_id, created_birth) = match creation {
-                    Ok(Some(created)) => created,
-                    Ok(None) => continue,
-                    Err(error) => {
-                        if let Some(committed) = error.committed {
-                            created.push(committed);
-                        }
-                        return OclExecutionOutcome::failure(created, error.error);
-                    }
-                };
-                // Registration is already committed, even if a later callback
-                // removes this birth before the OCL finishes.
-                created.push((created_id, created_birth));
-                let birth_matches = |world: &Self| {
-                    world.spawn_identity_matches(created_id, created_birth.0, created_birth.1)
-                };
-                if !birth_matches(self) {
-                    continue;
-                }
-                if !source_id.is_some_and(|id| {
-                    source_birth
-                        .is_some_and(|birth| self.spawn_identity_matches(id, birth.0, birth.1))
-                }) {
-                    if generic.contain_inside_source_object && birth_matches(self) {
-                        if let Err(error) = self.destroy_object_with_effects(
-                            created_id,
-                            presentation_effects,
-                        ) {
-                            return OclExecutionOutcome::failure(created, error);
-                        }
-                    }
-                    return OclExecutionOutcome::success(created);
-                }
-                if let Some(object) = self.objects.get_mut(&created_id) {
-                    object.producer_id = source_id;
-                }
-                if generic.disposition.has(DebrisDisposition::LIKE_EXISTING) {
-                    if let Some(mut transform) = source_transform {
-                        transform.w_axis = spawn_position.extend(1.0);
-                        self.set_owned_object_transform_with_effects(
-                            created_id, transform, self.frame, presentation_effects,
-                        );
-                        if !birth_matches(self) {
-                            continue;
-                        }
-                    } else if let Some(object) = self.objects.get_mut(&created_id) {
-                        object.set_orientation_with_partition_owner(
-                            source_orientation,
-                            &mut self.partition_manager,
-                        );
-                    }
-                }
-                // C++ ObjectCreationList.cpp:985-993: any created object with a
-                // SlavedUpdate is enslaved to the source (startSlavedEffects ->
-                // UNSELECTABLE), independent of upgrade/OCL spelling.
-                if let (Some(source), Some(birth)) = (source_id, source_birth) {
-                    if self
-                        .objects
-                        .get(&created_id)
-                        .is_some_and(|object| object.thing().template.slaved_update_metadata.is_some())
-                    {
-                        self.enslave_owned_drone(created_id, source, birth);
-                    }
-                }
-                let veterancy_health_bonus = self.veterancy_health_bonus;
-                let inherit_name = self
-                    .with_object_veterancy_feedback_and_locomotors(
-                        created_id,
-                        |object, audio, feedback, locomotors| {
-                            if generic.disposition.has(DebrisDisposition::INHERIT_VELOCITY) {
-                                // The host's movement/physics state is the concrete
-                                // equivalent of C++ PhysicsBehavior::applyForce for this
-                                // disposition.  It also preserves DragonTank FireWall
-                                // segment direction without inspecting an OCL name.
-                                object.movement.velocity = source_velocity;
-                            }
-                            // C++ ObjectCreationList.cpp:996-1006 — inherit rank and
-                            // transferObjectName only when the created tracker isTrainable.
-                            // ExperienceTracker::setVeterancyLevel is exact: it replaces
-                            // (and may lower) the receiving constructor/onCreate rank.
-                            let inherit_name = generic.inherit_veterancy && object.is_trainable();
-                            if inherit_name {
-                                object.set_exact_veterancy_level_with_health_bonus_table(
-                                    source_veterancy,
-                                    &veterancy_health_bonus,
-                                    audio,
-                                    feedback,
-                                    locomotors,
-                                );
-                            }
-                            inherit_name
-                        },
-                    )
-                    .unwrap_or(false);
-                if !birth_matches(self) {
-                    continue;
-                }
-                if !source_id.is_some_and(|id| {
-                    source_birth
-                        .is_some_and(|birth| self.spawn_identity_matches(id, birth.0, birth.1))
-                }) {
-                    if generic.contain_inside_source_object && birth_matches(self) {
-                        if let Err(error) = self.destroy_object_with_effects(
-                            created_id,
-                            presentation_effects,
-                        ) {
-                            return OclExecutionOutcome::failure(created, error);
-                        }
-                    }
-                    return OclExecutionOutcome::success(created);
-                }
-                let Some(object) = self.objects.get_mut(&created_id) else {
-                    continue;
-                };
-                if lifetime_frames != 0 {
-                    // Caller lifetime overrides the nugget lifetime on an
-                    // existing LifetimeUpdate only; no timer is synthesized.
-                    let _ = object.set_native_lifetime_range(
-                        self.frame,
-                        crate::game_logic::native_lifecycle_definition::LifetimeFrameRange {
-                            minimum: lifetime_frames,
-                            maximum: lifetime_frames,
-                        },
-                        &self.logic_random,
-                    );
-                } else if generic.max_frames > 0 && object.native_lifecycle.is_some() {
-                    object.set_native_lifetime_range(
-                        self.frame,
-                        crate::game_logic::native_lifecycle_definition::LifetimeFrameRange {
-                            minimum: generic.min_frames,
-                            maximum: generic.max_frames,
-                        },
-                        &self.logic_random,
-                    );
-                } else if generic.max_frames > 0 {
-                    let min_frames = i32::try_from(generic.min_frames).unwrap_or(i32::MAX);
-                    let max_frames = i32::try_from(generic.max_frames).unwrap_or(i32::MAX);
-                    let chosen_frames = self.logic_random.next_int(min_frames, max_frames);
-                    let delay_frames = u32::try_from(chosen_frames).unwrap_or(generic.min_frames);
-                    object.lifetime_update = Some(
-                        crate::game_logic::host_lifetime_update::HostLifetimeUpdateData::from_delay_frames(
-                            self.frame,
-                            delay_frames,
-                        ),
-                    );
-                }
-
-                // C++ calls BodyModuleInterface::setInitialHealth with a
-                // game-logic random percent after the object is created.
-                let health_percent = self
-                    .logic_random
-                    .next_real(generic.min_health, generic.max_health)
-                    .clamp(0.0, 1.0);
-                let target_health = object.body_initial_health() * health_percent;
-                object.internal_change_health(target_health - object.health.current);
-
-                if generic.invulnerable_time > 0 {
-                    object.apply_eject_invulnerable_at(
-                        self.frame.saturating_add(generic.invulnerable_time),
-                        self.frame,
-                    );
-                }
-                if on_ground {
-                    // `ON_GROUND_ALIGNED` gives every spawned object a random
-                    // yaw after terrain placement (ObjectCreationList.cpp).
-                    object.set_orientation_with_partition_owner(
-                        self.logic_random.next_real(0.0, std::f32::consts::TAU),
-                        &mut self.partition_manager,
-                    );
-                }
-                // C++ ObjectCreationList.cpp:1086/1121-1124 ExtraFriction/Bounciness/BounceSound.
-                if generic.disposition.has(
-                    DebrisDisposition::RANDOM_FORCE
-                        | DebrisDisposition::SEND_IT_FLYING
-                        | DebrisDisposition::SEND_IT_UP,
-                ) {
-                    // C++ doStuffToObj guards the whole flight block on the
-                    // created object having a PhysicsBehavior: a physics-less
-                    // template still births but draws no force and keeps
-                    // default bounce/friction properties.
-                    if object.authors_behavior_module("PhysicsBehavior") {
-                        object.set_extra_friction(generic.extra_friction);
-                        object.set_extra_bounciness(generic.extra_bounciness);
-                        object.set_allow_bouncing(true);
-                        // The original assigns the authored bounce sound
-                        // unconditionally here, even when the token is empty.
-                        object.set_bounce_sound(generic.bounce_sound.clone());
-                        let (force, [yaw, roll, pitch]) = generic
-                            .draw_flight(|lo, hi| self.logic_random.next_real(lo, hi));
-                        object.apply_physics_force(
-                            Vec3::new(force.x, force.z, force.y),
-                            self.frame,
-                        );
-                        object.shock_yaw_rate = yaw;
-                        object.shock_roll_rate = roll;
-                        object.shock_pitch_rate = pitch;
-                        let orientation = if generic.orient_in_force_direction {
-                            force.y.atan2(force.x)
-                        } else {
-                            source_orientation
-                        };
-                        object.set_orientation_with_partition_owner(
-                            orientation,
-                            &mut self.partition_manager,
-                        );
-                    }
-                } else {
-                    object.set_extra_friction(generic.extra_friction);
-                    if !generic.bounce_sound.is_empty() {
-                        object.set_bounce_sound(generic.bounce_sound.clone());
-                    }
-                }
-                if generic.fade_in {
-                    object.start_drawable_fade_in(generic.fade_frames, self.frame);
-                } else if generic.fade_out {
-                    object.start_drawable_fade_out(generic.fade_frames, self.frame);
-                }
-                drop(object);
-                if inherit_name {
-                    if let Some(sid) = source_id {
-                        if !source_birth
-                            .is_some_and(|birth| self.spawn_identity_matches(sid, birth.0, birth.1))
-                        {
-                            if generic.contain_inside_source_object && birth_matches(self) {
-                                if let Err(error) = self.destroy_object_with_effects(
-                                    created_id,
-                                    presentation_effects,
-                                )
-                                {
-                                    return OclExecutionOutcome::failure(created, error);
-                                }
-                            }
-                            return OclExecutionOutcome::success(created);
-                        }
-                        // C++ ObjectCreationList.cpp:1005
-                        // TheScriptEngine->transferObjectName(sourceObj->getName(), obj)
-                        let _ = self.transfer_script_object_name(sid, created_id);
-                    }
-                }
-                if !birth_matches(self) {
-                    continue;
-                }
-                // C++ ObjectCreationList.cpp:962-969 — ParticleSystem is extra
-                // attached fire/smoke. The object still spawns.
-                if let Some(particle) = usable_ocl_particle_sys_name(&generic.particle_sys_name) {
-                    let is_shrouded = self.host_fx_object_is_shrouded(created_id.0);
-                    let _ = self
-                        .combat_particles
-                        .attach_named_to_object_with_visibility(
-                            created_id,
-                            spawn_position,
-                            self.frame,
-                            particle,
-                            is_shrouded,
-                            presentation_effects,
-                        );
-                }
-                // C++ GenericObjectCreationNugget::doStuffToObj performs
-                // containment only after initialization, effects and particle
-                // attachment. This bounded route is the retail Overlord / Helix
-                // portable-structure case; other container kinds stay guarded.
-                if generic.contain_inside_source_object {
-                    let admitted = source_id.is_some_and(|source_id| {
-                        source_birth.is_some_and(|source_birth| {
-                            birth_matches(self)
-                                && self.admit_ocl_portable_structure(
-                                    source_id,
-                                    created_id,
-                                    source_birth,
-                                    created_birth,
-                                    presentation_effects,
-                                )
-                        })
-                    });
-                    if !admitted && birth_matches(self) {
-                        // C++ reallyCreate returns firstObject even when
-                        // doStuffToObj schedules that birth for destruction;
-                        // retain the receipt, but destroy only that birth.
-                        if let Err(error) = self.destroy_object_with_effects(
-                            created_id,
-                            presentation_effects,
-                        ) {
-                            return OclExecutionOutcome::failure(created, error);
-                        }
-                    }
-                }
+            let source = OclObjectSource {
+                id,
+                birth,
+                owner: source_owner_player_id,
+                team: source_team,
+                veterancy: source_veterancy,
+                orientation: source_orientation,
+                velocity: source_velocity,
+                origin,
+                primary,
+                transform: source_transform,
+            };
+            if let Err(error) = self.create_receiving_ocl_objects(
+                ocl_name,
+                generic,
+                source,
+                lifetime_frames,
+                interpreter,
+                presentation_effects,
+                &mut created,
+            ) {
+                return OclExecutionOutcome::failure(created, error);
             }
         }
         OclExecutionOutcome::success(created)
-    }
-
-    /// Admit the C++ `ContainInsideSourceObject` branch for the native
-    /// OverlordContain and HelixContain portable-structure slot only.
-    fn admit_ocl_portable_structure(
-        &mut self,
-        source_id: ObjectId,
-        child_id: ObjectId,
-        source_birth: (u64, u64),
-        child_birth: (u64, u64),
-        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> bool {
-        if !self.spawn_identity_matches(source_id, source_birth.0, source_birth.1)
-            || !self.spawn_identity_matches(child_id, child_birth.0, child_birth.1)
-        {
-            return false;
-        }
-        let Some((admits_portable, occupied)) = self.objects.get(&source_id).map(|source| {
-            (
-                source.admits_ocl_portable_structure(),
-                source.overlord_portable_occupant,
-            )
-        }) else {
-            return false;
-        };
-        let Some(child) = self.objects.get(&child_id) else {
-            return false;
-        };
-        if !child.is_kind_of(crate::game_logic::KindOf::PortableStructure)
-            || occupied.is_some()
-            || !admits_portable
-        {
-            return false;
-        }
-        // HelixContain's portable override bypasses normal TransportContain
-        // KindOf, relationship, controller, and slot-count checks; the
-        // OverlordContain (Slots=1, PORTABLE_STRUCTURE) rider uses the same slot.
-        if !self.attach_overlord_portable_with_effects(source_id, child_id, effects) {
-            return false;
-        }
-        if self
-            .objects
-            .get(&source_id)
-            .is_some_and(|source| source.drawable_is_effectively_hidden())
-        {
-            if let Some(child) = self.objects.get_mut(&child_id) {
-                child.set_drawable_hidden(true);
-            }
-        }
-        true
     }
 
     /// Bounded receiving-session implementation of authored CreateDebris.

@@ -4,6 +4,150 @@ use super::*;
 use crate::game_logic::ThingTemplate;
 
 #[test]
+fn receiving_ocl_puts_a_child_in_its_new_parachute_before_setting_the_final_pose() {
+    use crate::assets::pristine_bones::{PristineBoneAssets, PristineBoneSource};
+    use crate::game_logic::{Player, ScriptPresentationEffects};
+    use game_engine::common::random_value::SessionRandom;
+    use gamelogic::object_creation_list::GenericObjectCreationNugget;
+
+    struct NoBones;
+    impl PristineBoneAssets for NoBones {
+        fn pristine_bones_for_draws(
+            &self,
+            _: &PristineBoneSource<'_>,
+            _: &str,
+            _: i32,
+            _: usize,
+        ) -> Result<Vec<glam::Mat4>, String> {
+            Ok(Vec::new())
+        }
+    }
+
+    const OCL: &str = "ContainedEjection";
+    let origin = Vec3::new(12.0, 40.0, 30.0);
+    let fixture = |mask: &str, container: &str| {
+        let mut world = GameLogic::new();
+        world
+            .admit_object_ini_sources([(
+                "ocl-parachute.ini".into(),
+                format!(
+                    "Object Source
+ KindOf = VEHICLE
+End
+Object Canopy
+ KindOf = PARACHUTE
+ Behavior = ParachuteContain Chute
+  AllowInsideKindOf = {mask}
+  PitchRateMax = 0
+  RollRateMax = 0
+ End
+ Behavior = PhysicsBehavior Physics
+  Mass = 10
+ End
+End
+Object Rider
+ KindOf = INFANTRY
+ Behavior = PhysicsBehavior Physics
+  Mass = 5
+ End
+End"
+                ),
+            )])
+            .unwrap();
+        world
+            .admit_object_creation_list_sources([format!(
+                "ObjectCreationList {OCL}
+ CreateObject
+  ObjectNames = Rider
+  PutInContainer = {container}
+  Count = 2
+  IgnorePrimaryObstacle = Yes
+  RequiresLivePlayer = Yes
+  Disposition = RANDOM_FORCE
+  MinForceMagnitude = 10
+  MaxForceMagnitude = 12
+  MinForcePitch = 50
+  MaxForcePitch = 60
+  SpinRate = 0
+  Offset = X:1 Y:2 Z:3
+ End
+End"
+            )])
+            .unwrap();
+        world.add_player(Player::new(1, Team::USA, "Player", true).with_script_identity("Player"));
+        let source = world.create_object_for_player("Source", 1, origin).unwrap();
+        (world, source)
+    };
+
+    let (mut owner, source) = fixture("INFANTRY", "Canopy");
+    let (mut peer, peer_source) = fixture("VEHICLE", "Canopy");
+    assert_eq!(source, peer_source);
+    let random = SessionRandom::from_state(owner.logic_random.snapshot());
+    let list = owner.object_creation_list_definition(OCL).unwrap();
+    let nugget = list.nuggets()[0]
+        .as_any()
+        .downcast_ref::<GenericObjectCreationNugget>()
+        .unwrap();
+    let execute = |world: &mut GameLogic, source| {
+        world.execute_receiving_object_ocl_with_births(
+            OCL,
+            source,
+            None,
+            &mut ScriptPresentationEffects {
+                pristine_bones: Some(&NoBones),
+                ..Default::default()
+            },
+        )
+    };
+    let result = execute(&mut owner, source);
+    assert!(result.error.is_none(), "{:?}", result.error);
+    let [(chute, _), (attached, _), (overflow, _)] = result.created.as_slice() else {
+        panic!("C++ creates the container first, then both candidate riders");
+    };
+    assert_eq!(owner.objects[chute].template_name, "Canopy");
+    assert_eq!(owner.objects[attached].contained_by, Some(*chute));
+    assert!(owner.objects[attached].is_held_disabled());
+    assert_eq!(owner.objects[chute].contained_units(), vec![*attached]);
+    assert_eq!(owner.objects[overflow].contained_by, None);
+    assert!(!owner.objects[overflow].is_held_disabled());
+    for id in [chute, attached, overflow] {
+        let object = &owner.objects[id];
+        assert_eq!(object.producer_id, Some(source));
+        assert_eq!(object.owner_player_id, Some(1));
+        assert_eq!(object.get_position(), origin + Vec3::new(1.0, 3.0, 2.0));
+        assert_eq!(object.ignore_collisions_with, Some(source));
+    }
+    for id in [attached, overflow, chute] {
+        if id != chute {
+            random.next_int(0, 0);
+        }
+        let (force, _) = nugget.draw_flight(|min, max| random.next_real(min, max));
+        let object = &owner.objects[id];
+        let actual = object.physics_accel * object.physics_get_mass();
+        assert!(actual.abs_diff_eq(Vec3::new(force.x, force.z, force.y), 1.0e-5));
+    }
+    assert_eq!(owner.logic_random.snapshot(), random.snapshot());
+
+    assert!(!peer.objects.contains_key(chute));
+    let peer_result = execute(&mut peer, peer_source);
+    assert!(peer_result.error.is_none(), "{:?}", peer_result.error);
+    assert_eq!(peer_result.created.len(), 3);
+    for (id, _) in peer_result.created {
+        assert_eq!(peer.objects[&id].contained_by, None);
+        assert!(peer.objects[&id].contained_units().is_empty());
+    }
+
+    let (mut missing, missing_source) = fixture("INFANTRY", "Missing");
+    let result = execute(&mut missing, missing_source);
+    assert!(result.error.is_none(), "{:?}", result.error);
+    assert_eq!(result.created.len(), 2);
+    for (id, _) in result.created {
+        assert_eq!(missing.objects[&id].template_name, "Rider");
+        assert_eq!(missing.objects[&id].contained_by, None);
+    }
+}
+
+#[test]
 fn receiving_ocl_requires_an_active_controlling_player_before_drawing_randomness() {
     use crate::game_logic::Player;
     use crate::game_logic::game_logic::PlayerSideRole;

@@ -87,13 +87,39 @@ impl GameLogic {
                 "HijackerUpdate PutInContainer {name} is invalid for receiving rider"
             )));
         }
+        if self.attach_parachute_rider_owned(chute_id, rider_id, effects)? {
+            self.car_bomb.record_airborne_parachute_put();
+            self.usa_pilot.record_air_ejection();
+        }
+        Ok(())
+    }
+
+    /// OpenContain::addToContain and ParachuteContain::onContaining.
+    /// Called immediately after `parachute_can_contain` accepts the pair.
+    pub(in crate::game_logic) fn attach_parachute_rider_owned(
+        &mut self,
+        chute_id: ObjectId,
+        rider_id: ObjectId,
+        effects: &mut ScriptPresentationEffects<'_>,
+    ) -> gamelogic::GameLogicResult<bool> {
+        let (Some(chute), Some(rider)) = (self.objects.get(&chute_id), self.objects.get(&rider_id))
+        else {
+            return Ok(false);
+        };
+        let epoch = self.visual_world_epoch;
+        let chute_generation = chute.visual_object_generation;
+        let rider_generation = rider.visual_object_generation;
+        let original = |world: &Self| {
+            world.spawn_identity_matches(chute_id, chute_generation, epoch)
+                && world.spawn_identity_matches(rider_id, rider_generation, epoch)
+        };
         if self.should_cancel_containment_after_booby_trap_with_effects(chute_id, rider_id, effects)?
             || !original(self)
         {
-            return Ok(());
+            return Ok(false);
         }
         if self.objects.get(&rider_id).unwrap().contained_by.is_some() {
-            return Ok(());
+            return Ok(false);
         }
         self.objects
             .get_mut(&chute_id)
@@ -126,12 +152,12 @@ impl GameLogic {
             self.set_owned_object_position_with_effects(rider_id, position, self.frame, effects)
         };
         if !redeployed || !original(self) {
-            return Ok(());
+            return Ok(false);
         }
         self.play_container_on_containing_sound(chute_id, effects);
         self.set_owned_passenger_held(rider_id, true, effects);
         if !original(self) {
-            return Ok(());
+            return Ok(false);
         }
         {
             let rider = self.objects.get_mut(&rider_id).unwrap();
@@ -156,7 +182,7 @@ impl GameLogic {
             })?
             .need_rider_bones = true;
         if !self.position_parachute_rider_owned(chute_id, rider_id, effects)? || !original(self) {
-            return Ok(());
+            return Ok(false);
         }
         // Original onContainedBy happens after both position callbacks.
         Self::set_owned_containment_in_parts(
@@ -171,12 +197,10 @@ impl GameLogic {
         self.stamp_contained_by_frame(rider_id, self.frame);
         self.admit_object_drawable_deselection(rider_id);
         self.play_container_load_sound(chute_id, effects);
-        self.car_bomb.record_airborne_parachute_put();
-        self.usa_pilot.record_air_ejection();
-        Ok(())
+        Ok(true)
     }
 
-    fn parachute_can_contain(&self, chute_id: ObjectId, rider_id: ObjectId) -> bool {
+    pub(in crate::game_logic) fn parachute_can_contain(&self, chute_id: ObjectId, rider_id: ObjectId) -> bool {
         let (Some(chute), Some(rider)) = (self.objects.get(&chute_id), self.objects.get(&rider_id))
         else {
             return false;
