@@ -714,7 +714,9 @@ mod music_completion_tests {
             let menu = play("Shell", &instance);
             let peer_playing = play("Shell", &peer);
             mixer.process_request_list();
-            mixer.fade_music_for_instance(&instance);
+            mixer.queue_music_fade_for_instance(&instance);
+            mixer.process_request_list();
+            assert_eq!(mixer.fading_audio_count(), 1);
             let old_pending = mixer.add_audio_event_for_instance(
                 &AudioEventRts::with_event_name("Game_USA_11"), &locality, &instance,
             );
