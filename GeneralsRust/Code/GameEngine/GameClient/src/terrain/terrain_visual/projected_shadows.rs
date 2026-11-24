@@ -73,7 +73,8 @@ struct ProjectedShadowGpu {
     pipeline: wgpu::RenderPipeline,
     texture_layout: wgpu::BindGroupLayout,
     sampler: wgpu::Sampler,
-    textures: HashMap<String, Option<BindGroup>>,
+    textures: HashMap<String, BindGroup>,
+    missing_texture: Option<BindGroup>,
     inputs: Vec<ProjectedUnitShadow>,
     pending_inputs: Option<Vec<ProjectedUnitShadow>>,
     geometry_draw_window: Option<([i32; 2], [i32; 2])>,
@@ -172,6 +173,7 @@ impl ProjectedShadowGpu {
             texture_layout,
             sampler,
             textures: HashMap::new(),
+            missing_texture: None,
             inputs: Vec::new(),
             pending_inputs: None,
             geometry_draw_window: None,
@@ -181,6 +183,71 @@ impl ProjectedShadowGpu {
             vertex_buffer: None,
             index_buffer: None,
         }
+    }
+
+    fn admit_texture(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        texture_name: &str,
+        read: &mut impl FnMut(&str) -> Option<Vec<u8>>,
+    ) {
+        if self.textures.contains_key(texture_name) {
+            return;
+        }
+        // WW3D Get_Texture requests TGA and tries its DDS counterpart first.
+        let name = texture_name.trim_end_matches(".tga").trim_end_matches(".dds");
+        let texture = ["dds", "tga"].into_iter().find_map(|extension| {
+            let path = format!("Art/Textures/{name}.{extension}");
+            let bytes = read(&path)?;
+            TerrainVisualImpl::upload_runtime_texture(device, queue, Path::new(&path), &bytes, 1).ok()
+        });
+        let layout = &self.texture_layout;
+        let sampler = &self.sampler;
+        let binding = if let Some(texture) = texture {
+            Self::bind_texture(device, layout, sampler, &texture)
+        } else {
+            self.missing_texture
+                .get_or_insert_with(|| {
+                    // MissingTexture::_Init fills every texel with ARGB 0x7FFF00FF.
+                    // One texel gives the same sample with the projected clamp sampler.
+                    let texture = ww3d_gpu::mips::create_rgba8_texture_with_mips(
+                        device,
+                        queue,
+                        "WW3D missing projected texture",
+                        wgpu::TextureFormat::Rgba8Unorm,
+                        1,
+                        1,
+                        &[255, 0, 255, 127],
+                    );
+                    Self::bind_texture(device, layout, sampler, &texture)
+                })
+                .clone()
+        };
+        self.textures.insert(texture_name.to_owned(), binding);
+    }
+
+    fn bind_texture(
+        device: &wgpu::Device,
+        layout: &wgpu::BindGroupLayout,
+        sampler: &wgpu::Sampler,
+        texture: &wgpu::Texture,
+    ) -> BindGroup {
+        let view = texture.create_view(&Default::default());
+        device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("Projected shadow texture"),
+            layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Sampler(sampler),
+                },
+            ],
+        })
     }
 
     fn upload_buffer(
@@ -206,7 +273,7 @@ impl ProjectedShadowGpu {
 
 impl TerrainVisualImpl {
     /// Admit this frame’s source descriptors with a borrowed mounted-content
-    /// reader. Return the casters that have a resident authored texture.
+    /// reader. Return the casters whose named textures have a WW3D binding.
     pub fn admit_projected_unit_shadows(
         &mut self,
         mut inputs: Vec<ProjectedUnitShadow>,
@@ -231,58 +298,19 @@ impl TerrainVisualImpl {
         let gpu = self
             .projected_shadow_gpu
             .get_or_insert_with(|| ProjectedShadowGpu::new(device, camera_layout));
-        let texture_layout = &gpu.texture_layout;
-        let sampler = &gpu.sampler;
         inputs.retain_mut(|shadow| {
+            if shadow.texture_name.is_empty() {
+                return false;
+            }
             shadow.texture_name.make_ascii_lowercase();
-            let bound = gpu
-                .textures
-                .entry(shadow.texture_name.clone())
-                .or_insert_with(|| {
-                    Self::load_projected_decal_texture(
-                        device, queue, texture_layout, sampler, &shadow.texture_name, &mut read,
-                    )
-                });
-            bound.is_some()
+            gpu.admit_texture(device, queue, &shadow.texture_name, &mut read);
+            true
         });
         let casters = inputs.iter().map(|shadow| shadow.object_id).collect();
         // Selection needs resident texture identities before Draw can supply
         // each surviving caster's final model matrix.
         gpu.pending_inputs = Some(inputs);
         casters
-    }
-
-    fn load_projected_decal_texture(
-        device: &wgpu::Device,
-        queue: &wgpu::Queue,
-        layout: &wgpu::BindGroupLayout,
-        sampler: &wgpu::Sampler,
-        texture_name: &str,
-        read: &mut impl FnMut(&str) -> Option<Vec<u8>>,
-    ) -> Option<BindGroup> {
-        // WW3D Get_Texture requests TGA and admits its authored DDS
-        // counterpart. The projected manager disables mip filtering.
-        let name = texture_name.trim_end_matches(".tga").trim_end_matches(".dds");
-        let texture = ["dds", "tga"].into_iter().find_map(|extension| {
-            let path = format!("Art/Textures/{name}.{extension}");
-            let bytes = read(&path)?;
-            Self::upload_runtime_texture(device, queue, Path::new(&path), &bytes, 1).ok()
-        })?;
-        let view = texture.create_view(&Default::default());
-        Some(device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("Authored projected shadow texture"),
-            layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: wgpu::BindingResource::TextureView(&view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: wgpu::BindingResource::Sampler(sampler),
-                },
-            ],
-        }))
     }
 
     fn request_projected_tree_decal_texture(&mut self) {
@@ -293,7 +321,7 @@ impl TerrainVisualImpl {
     }
 
     /// Realize the shared decal requested during the completed dirty mesh
-    /// build. Missing authored media leaves it unavailable for the next draw.
+    /// build for the next draw, retaining WW3D's texture on an asset miss.
     pub fn prepare_projected_tree_decal_texture(
         &mut self,
         mut read: impl FnMut(&str) -> Option<Vec<u8>>,
@@ -311,14 +339,7 @@ impl TerrainVisualImpl {
         let gpu = self
             .projected_shadow_gpu
             .get_or_insert_with(|| ProjectedShadowGpu::new(device, camera_layout));
-        if !gpu.textures.get(TREE_DECAL_TEXTURE).is_some_and(Option::is_some) {
-            let Some(texture) = Self::load_projected_decal_texture(
-                device, queue, &gpu.texture_layout, &gpu.sampler, TREE_DECAL_TEXTURE, &mut read,
-            ) else {
-                return;
-            };
-            gpu.textures.insert(TREE_DECAL_TEXTURE.into(), Some(texture));
-        }
+        gpu.admit_texture(device, queue, TREE_DECAL_TEXTURE, &mut read);
         gpu.tree_decals.ready = true;
     }
 
@@ -546,7 +567,7 @@ impl TerrainVisualImpl {
             return;
         };
         let tree = &gpu.tree_decals;
-        let (Some(vertices), Some(indices), Some(Some(texture))) = (
+        let (Some(vertices), Some(indices), Some(texture)) = (
             tree.vertex_buffer.as_ref(), tree.index_buffer.as_ref(), gpu.textures.get(TREE_DECAL_TEXTURE),
         ) else {
             return;
@@ -583,7 +604,7 @@ impl TerrainVisualImpl {
         pass.set_vertex_buffer(0, vertices.slice(..));
         pass.set_index_buffer(indices.slice(..), wgpu::IndexFormat::Uint32);
         for (name, range) in &gpu.batches {
-            if let Some(Some(texture)) = gpu.textures.get(name) {
+            if let Some(texture) = gpu.textures.get(name) {
                 pass.set_bind_group(1, texture, &[]);
                 pass.draw_indexed(range.clone(), 0, 0..1);
             }

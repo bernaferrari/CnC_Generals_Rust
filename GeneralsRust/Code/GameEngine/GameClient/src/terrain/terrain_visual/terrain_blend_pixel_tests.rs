@@ -1096,6 +1096,10 @@ fn authored_road_uses_diffuse_below_the_old_lighting_floor() {
 }
 
 #[cfg(not(target_arch = "wasm32"))]
+#[path = "terrain_blend_pixel_tests/snow.rs"]
+mod snow;
+
+#[cfg(not(target_arch = "wasm32"))]
 #[test]
 #[ignore = "requires a native GPU adapter"]
 fn consecutive_road_textures_batch_with_identical_lit_and_shrouded_pixels() {
@@ -1729,6 +1733,33 @@ fn projected_unit_shadow_multiplies_source_color_on_native_terrain() {
     let hidden = render_live_terrain_visual_with_transform(&device, &queue, &mut visual, transform);
     let sample = 4 * 256 + 16 * 4;
     assert_eq!(&hidden[sample..sample + 4], &[200, 200, 200, 255]);
+
+    let missing_names = ["MissingDecalOne", "MissingDecalTwo"];
+    for name in missing_names {
+        let mut missing = caster.clone();
+        missing.texture_name = name.into();
+        let mut empty = caster.clone();
+        empty.object_id += 1;
+        empty.texture_name.clear();
+        let mut requested = Vec::new();
+        let admitted = visual.admit_projected_unit_shadows(vec![missing.clone(), empty], |path| {
+            requested.push(path.to_owned());
+            None
+        });
+        assert_eq!(admitted, casters, "retain the missing named WW3D texture");
+        assert_eq!(
+            requested,
+            ["dds", "tga"]
+                .map(|ext| format!("Art/Textures/{}.{ext}", name.to_ascii_lowercase()))
+        );
+        visual.retain_projected_unit_shadow_casters(|_| Some(missing.transform));
+        visual.update_native(motion, None).unwrap();
+        let pixels = render_live_terrain_visual_with_transform(&device, &queue, &mut visual, transform);
+        assert_eq!(&pixels[sample..sample + 4], &[200, 0, 200, 255]);
+        assert_eq!(&pixels[4 * 256..4 * 256 + 4], &[200, 200, 200, 255]);
+    }
+    let textures = &visual.projected_shadow_gpu.as_ref().unwrap().textures;
+    assert_eq!(textures["missingdecalone"], textures["missingdecaltwo"]);
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -1888,20 +1919,12 @@ fn native_tree_decal_first_dirty_build_defers_draw_and_uses_world_aligned_uv() {
         None
     });
     assert_eq!(requested, ["Art/Textures/shadow.dds", "Art/Textures/shadow.tga"]);
-    visual.observe_projected_tree_decals(true);
-    assert_eq!(visual.update_projected_tree_decal_mesh(), 0);
-    visual.prepare_projected_tree_decal_texture(|_| panic!("no new dirty build to retry"));
-
-    let mut encoded = std::io::Cursor::new(Vec::new());
-    image::DynamicImage::ImageRgba8(image::RgbaImage::from_pixel(2, 2, image::Rgba([128; 4])))
-        .write_to(&mut encoded, image::ImageFormat::Tga)
-        .unwrap();
+    assert_eq!(visual.update_projected_tree_decal_mesh(), 0, "dirty-build pass has no caster batch");
     visual.tree_buffer.force_vertex_rebuild();
     visual.update_tree_meshes_after_cpu(Some(motion), None);
-    visual.prepare_projected_tree_decal_texture(|path| {
-        (path == "Art/Textures/shadow.tga").then(|| encoded.get_ref().clone())
+    visual.prepare_projected_tree_decal_texture(|_| {
+        panic!("the missing tree decal is already resident")
     });
-    assert_eq!(visual.update_projected_tree_decal_mesh(), 0, "dirty-build pass has no caster batch");
 
     // The source queues the shadow first. This tree becomes Down during the
     // same motion step, but the submitted decal survives until the next draw.
