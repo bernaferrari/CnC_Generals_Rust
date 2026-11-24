@@ -9,19 +9,31 @@ fn event(handle: u32, name: &str) -> AudioEventRts {
 fn scoped_reset_retires_only_owned_active_pending_fading_and_force_records() {
     let mut device = AudioManager::new();
     device.script_music_volume = 0.37;
+    let owner = AudioInstance::default();
+    let peer = AudioInstance::default();
+    let owner_event = |handle, name| {
+        let mut event = event(handle, name);
+        event.admit_instance(&owner);
+        event
+    };
+    let peer_event = |handle, name| {
+        let mut event = event(handle, name);
+        event.admit_instance(&peer);
+        event
+    };
     device
         .active_audio_events
-        .insert(1001, event(1001, "OwnerActive"));
+        .insert(1001, owner_event(1001, "OwnerActive"));
     device
         .active_audio_events
-        .insert(1002, event(1002, "PeerActive"));
+        .insert(1002, peer_event(1002, "PeerActive"));
     device.audio_requests.push(AudioRequest::new_with_event(
         RequestType::Play,
-        event(1003, "OwnerPending"),
+        owner_event(1003, "OwnerPending"),
     ));
     device.audio_requests.push(AudioRequest::new_with_event(
         RequestType::Play,
-        event(1004, "PeerPending"),
+        peer_event(1004, "PeerPending"),
     ));
     device
         .audio_requests
@@ -30,17 +42,17 @@ fn scoped_reset_retires_only_owned_active_pending_fading_and_force_records() {
         .audio_requests
         .push(AudioRequest::new_with_handle(RequestType::Stop, 1004));
     device.fading_audio.push(FadingAudio {
-        event: event(1005, "OwnerFade"),
+        event: owner_event(1005, "OwnerFade"),
         frames_faded: 3,
     });
     device.fading_audio.push(FadingAudio {
-        event: event(1006, "PeerFade"),
+        event: peer_event(1006, "PeerFade"),
         frames_faded: 9,
     });
     device
         .audio_force_played
-        .extend([event(1007, "OwnerForce"), event(1008, "PeerForce")]);
-    device.retire_audio_handles(&[1001, 1003, 1005, 1007]);
+        .extend([owner_event(1007, "OwnerForce"), peer_event(1008, "PeerForce")]);
+    device.retire_audio_instance(&owner);
     assert_eq!(
         device
             .active_audio_events

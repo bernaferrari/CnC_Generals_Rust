@@ -490,6 +490,15 @@ impl GameClient {
         Ok(())
     }
 
+    pub fn retire_native_direct_audio(&mut self) {
+        if let Some(audio) = self.subsystem_manager.audio.as_ref() {
+            audio
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .retire_direct_audio();
+        }
+    }
+
     fn clear_world_animation_runtime_after_retirement(&mut self) -> GameClientResult<()> {
         let ui = self.subsystem_manager.in_game_ui.as_mut();
         self.owned_world_animations.clear_runtime();

@@ -1773,6 +1773,19 @@ impl CnCGameEngine {
         self.game_client.clear_pending_client_messages();
         let old_logic = std::mem::replace(&mut self.game_logic, logic);
         self.commit_native_world_epoch(epoch);
+        // GameState::loadGame resets Miles before restored post-process
+        // submissions. Detached staging keeps that reset behind acceptance.
+        #[cfg(feature = "game_client")]
+        self.menu_audio.reset();
+        if let Some(audio) = self
+            .subsystem_manager
+            .get_mut::<crate::subsystem_manager::AudioManagerSubsystem>()
+        {
+            crate::subsystem_manager::SubsystemInterface::reset(audio)
+                .map_err(|err| format!("failed to reset receiving audio before restore: {err}"))?;
+        }
+        #[cfg(feature = "game_client")]
+        self.game_client.retire_native_direct_audio();
         if let Some(local) = saved_local {
             self.current_player_id = local;
             self.host_match_local_player_id = Some(local);
@@ -1811,10 +1824,11 @@ impl CnCGameEngine {
             &mut self.game_client,
         );
         #[cfg(feature = "game_client")]
-        if game_client_xfer_bytes
+        let restore_drawable_postprocess = game_client_xfer_bytes
             .as_deref()
-            .is_some_and(|bytes| !bytes.is_empty())
-        {
+            .is_some_and(|bytes| !bytes.is_empty());
+        #[cfg(feature = "game_client")]
+        if restore_drawable_postprocess {
             // XferLoad queues Module loadPostProcess until all chunks are
             // read. This Client chunk can replace the staged Drawable key.
             if !self.game_logic.restored_supply_warehouse_ids().is_empty() {
@@ -1839,6 +1853,16 @@ impl CnCGameEngine {
                     },
                 )?;
             }
+        }
+        // XferLoad registers ScriptEngine before GameClient and its
+        // Drawables. The saved track is queued before permanent ambient cues.
+        pending_map_audio.admit_after_restore(
+            &mut self.game_logic,
+            super::native_audio_effects::NativeAudioService::receiving(&mut self.subsystem_manager)
+                .as_mut(),
+        )?;
+        #[cfg(feature = "game_client")]
+        if restore_drawable_postprocess {
             let logic = &self.game_logic;
             let policy = super::native_view_effects::receiving_native_drawable_policy_for(logic);
             let mut locality_for_object = |object_id: Option<u32>| {
@@ -2039,13 +2063,6 @@ impl CnCGameEngine {
         // The receiving Recorder policy may have been replaced by this commit.
         // Application definitions remain owned by the existing admitted snapshot.
         self.configure_receiving_replay_menu();
-        // No Common AR_Play output from this candidate can escape a rejected
-        // client/camera/presentation admission. Emit once at the successful tail.
-        pending_map_audio.admit_after_restore(
-            &mut self.game_logic,
-            super::native_audio_effects::NativeAudioService::receiving(&mut self.subsystem_manager)
-                .as_mut(),
-        )?;
         #[cfg(feature = "game_client")]
         if let Some(state) = campaign_state.as_ref() {
             self.game_client

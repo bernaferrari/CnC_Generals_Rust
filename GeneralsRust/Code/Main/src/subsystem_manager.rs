@@ -967,9 +967,15 @@ impl SubsystemInterface for AudioManagerSubsystem {
         }
         self.queued_events.clear();
         self.looping_object_audio.clear();
-        // Native sessions share an application device, never a match namespace.
-        // C++ reset stops this match; the app-wide reset would also kill peers.
-        self.retire_common_audio_receipts();
+        // Miles reset covers Main, menu, direct and Drawable output grouped
+        // under this engine's instance on the application mixer.
+        if let Some(device) = &self.common_audio_device {
+            device
+                .lock()
+                .map_err(|_| anyhow!("receiving native audio device poisoned during reset"))?
+                .retire_audio_instance(&self.audio_instance);
+        }
+        self.common_audio_handles.clear();
         Ok(())
     }
 

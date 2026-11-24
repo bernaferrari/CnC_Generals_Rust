@@ -683,19 +683,78 @@ mod music_completion_tests {
     }
 
     #[test]
+    fn receiving_engine_audio_reset_retires_every_producer_on_the_shared_mixer() {
+        use crate::subsystem_manager::{AudioManagerSubsystem, SubsystemInterface, SubsystemManager};
+
+        let (device, playback) = recording_device();
+        let mut subsystems = SubsystemManager::new();
+        let mut owner = AudioManagerSubsystem::new();
+        owner.bind_common_audio_device(Arc::clone(&device));
+        let instance = owner.audio_instance().clone();
+        subsystems.add_subsystem(owner);
+
+        let semantic = submit_music_fixture(
+            &mut NativeAudioService::receiving(&mut subsystems).unwrap(),
+            "GUIClick",
+            false,
+        );
+        let peer = AudioInstance::default();
+        let locality =
+            crate::game_logic::audio_dispatch_impl::receiving_submission_locality(-1, None);
+        let (direct, menu, peer_playing, old_pending, peer_pending) = {
+            let mut mixer = device.lock().unwrap();
+            let mut play = |name, owner| {
+                mixer.add_audio_event_for_instance(
+                    &AudioEventRts::with_event_name(name),
+                    &locality,
+                    owner,
+                )
+            };
+            let direct = play("GUIClick", &instance);
+            let menu = play("Shell", &instance);
+            let peer_playing = play("Shell", &peer);
+            mixer.process_request_list();
+            mixer.fade_music_for_instance(&instance);
+            let old_pending = mixer.add_audio_event_for_instance(
+                &AudioEventRts::with_event_name("Game_USA_11"), &locality, &instance,
+            );
+            let peer_pending = mixer.add_audio_event_for_instance(
+                &AudioEventRts::with_event_name("Game_USA_11"), &locality, &peer,
+            );
+            (direct, menu, peer_playing, old_pending, peer_pending)
+        };
+
+        let owner = subsystems.get_mut::<AudioManagerSubsystem>().unwrap();
+        owner.reset().unwrap();
+        let mut mixer = device.lock().unwrap();
+        for handle in [semantic, direct, menu, old_pending] {
+            assert!(!mixer.contains_audio_handle(handle), "outgoing audio {handle} survived reset");
+        }
+        for handle in [peer_playing, peer_pending] {
+            assert!(mixer.contains_audio_handle(handle), "peer lost audio {handle}");
+        }
+        mixer.process_request_list();
+        let playback = playback.lock().unwrap();
+        assert!(playback.starts.contains(&peer_pending));
+        assert!(!playback.starts.contains(&old_pending));
+        assert!(playback.stops.contains(&semantic));
+        assert!(playback.stops.contains(&direct));
+        assert!(playback.stops.contains(&menu));
+        assert!(!playback.stops.contains(&peer_playing));
+    }
+
+    #[test]
     fn restored_audio_replays_the_saved_track_once_for_the_receiving_world() {
         use crate::game_logic::{GameLogic, Player, Team};
         use crate::save_load::{SnapshotBuilder, snapshot::decode_bincode_world_snapshot};
+        use crate::subsystem_manager::{AudioManagerSubsystem, SubsystemInterface, SubsystemManager};
 
         let (device, playback) = recording_device();
-        let mut receipts = Vec::new();
-        let mut queued = Vec::new();
-        let mut audio = NativeAudioService {
-            device: &device,
-            instance: &AudioInstance::default(),
-            receipts: &mut receipts,
-            queued_events: &mut queued,
-        };
+        let mut subsystems = SubsystemManager::new();
+        let mut owner = AudioManagerSubsystem::new();
+        owner.bind_common_audio_device(Arc::clone(&device));
+        subsystems.add_subsystem(owner);
+        let mut audio = NativeAudioService::receiving(&mut subsystems).unwrap();
         let mut peer_receipts = Vec::new();
         let mut peer_queued = Vec::new();
         let mut peer = NativeAudioService {
@@ -759,6 +818,8 @@ mod music_completion_tests {
         );
 
         world.begin_saved_snapshot_admission().unwrap();
+        subsystems.get_mut::<AudioManagerSubsystem>().unwrap().reset().unwrap();
+        let mut audio = NativeAudioService::receiving(&mut subsystems).unwrap();
         pending_map_music()
             .admit_after_restore(&mut world, Some(&mut audio))
             .unwrap();
@@ -766,6 +827,8 @@ mod music_completion_tests {
             .admit_after_restore(&mut world, Some(&mut audio))
             .is_err());
         assert_eq!(world.logic_random.seed_words(), logic_seed);
+        // Restored ambient follows ScriptEngine's music in the mixer queue.
+        let ambient = submit_music_fixture(&mut audio, "GUIClick", false);
         let mut mixer = device.lock().unwrap();
         let resumed = {
             let mut pending = mixer.pending_play_events();
@@ -773,14 +836,15 @@ mod music_completion_tests {
             assert_eq!(event.get_event_name(), "Game_USA_11");
             assert_eq!(event.get_player_index(), 5);
             assert_eq!(event.get_volume(), 0.55);
-            assert!(pending.next().is_none(), "only one track should remain queued");
+            assert_eq!(pending.next().unwrap().get_playing_handle(), ambient);
+            assert!(pending.next().is_none(), "only restored audio should remain queued");
             event.get_playing_handle()
         };
         assert!(![old_music, peer_music, old_click, queued_music].contains(&resumed));
         mixer.process_request_list();
         let played = playback.lock().unwrap();
-        assert_eq!(played.starts, [old_music, peer_music, old_click, resumed]);
-        assert_eq!(played.stops, [old_music]);
+        assert_eq!(played.starts, [old_music, peer_music, old_click, resumed, ambient]);
+        assert_eq!(played.stops, [old_music, old_click, queued_music]);
     }
 
     #[test]

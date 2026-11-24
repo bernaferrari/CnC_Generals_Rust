@@ -1,6 +1,20 @@
 use super::*;
 
 impl AudioManager {
+    /// Miles reset retires the outgoing instance's playback and pending work.
+    pub fn retire_audio_instance(&mut self, instance: &AudioInstance) {
+        let handles: Vec<_> = self
+            .active_audio_events
+            .values()
+            .chain(self.fading_audio.iter().map(|fade| &fade.event))
+            .chain(&self.audio_force_played)
+            .chain(self.pending_play_events())
+            .filter(|event| event.belongs_to_instance(instance))
+            .map(AudioEventRts::get_playing_handle)
+            .collect();
+        self.retire_audio_handles(&handles);
+    }
+
     /// C++ `MilesAudioManager::adjustVolumeOfPlayingAudio` (MilesAudioManager.cpp:2079-2116).
     /// Sets event volume then immediately re-applies `AIL_set_*_volume` as sink volume.
     pub fn adjust_volume_of_playing_audio(&mut self, event_name: &str, new_volume: Real) {

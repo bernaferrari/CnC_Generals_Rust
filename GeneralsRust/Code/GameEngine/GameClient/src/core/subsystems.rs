@@ -2154,7 +2154,7 @@ impl AudioSubsystem {
         self.instance = instance;
     }
 
-    fn retire_direct_audio(&mut self) {
+    pub(crate) fn retire_direct_audio(&mut self) {
         if self.direct_handles.is_empty() {
             return;
         }
