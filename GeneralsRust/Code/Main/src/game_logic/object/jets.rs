@@ -72,6 +72,8 @@ pub struct HostJetAi {
     /// C++ `JetTakeoffOrLandingState::m_landingSoundPlayed`.
     #[serde(default)]
     pub landing_sound_played: bool,
+    /// The inverse of C++ `m_enginesOn`. The constructor starts with engines on.
+    pub(crate) engines_stopped: bool,
 }
 
 #[cfg(feature = "game_client")]

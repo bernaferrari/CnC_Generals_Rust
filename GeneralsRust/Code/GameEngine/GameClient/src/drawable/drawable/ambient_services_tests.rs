@@ -149,6 +149,60 @@ fn native_ambient_playback_stop_keeps_the_event_available_for_retry() {
 }
 
 #[test]
+fn native_ambient_xfer_keeps_gameplay_and_script_permissions_independent() {
+    use game_engine::common::system::{xfer_load::XferLoad, xfer_save::XferSave};
+    use std::io::Cursor;
+
+    crate::test_support::ensure_ambient_host();
+    let locality = AudioSubmissionLocality::from_resolver(1, &Players);
+    let policy = ScriptAudioPolicy::default();
+    for (gameplay_enabled, script_enabled) in [(false, true), (true, false), (true, true)] {
+        let mut saved = make_actor(17);
+        for change in [
+            NativeAmbientChange::GameplayEnabled(gameplay_enabled),
+            NativeAmbientChange::ScriptEnabled(script_enabled),
+        ] {
+            saved
+                .apply_native_ambient_change(
+                    change,
+                    false,
+                    TimeOfDay::Night,
+                    None,
+                    &locality,
+                    &policy,
+                )
+                .unwrap();
+        }
+        let mut bytes = Vec::new();
+        saved
+            .xfer_snapshot(&mut XferSave::new(Cursor::new(&mut bytes), 1))
+            .unwrap();
+
+        let mut loaded = make_actor(17);
+        let device = std::sync::Arc::new(std::sync::Mutex::new(make_audio()));
+        loaded
+            .xfer_snapshot_for_native_load(&mut XferLoad::new(Cursor::new(bytes), 1), Some(&device))
+            .unwrap();
+        assert_eq!(loaded.ambient_sound_enabled, gameplay_enabled);
+        assert_eq!(loaded.ambient_sound_enabled_from_script, script_enabled);
+        let mut audio = device.lock().unwrap();
+        let instance = AudioInstance::default();
+        loaded
+            .load_post_process_with_audio(
+                Some(TimeOfDay::Night),
+                &locality,
+                Some((&mut audio, &instance)),
+                None,
+            )
+            .unwrap();
+        assert_eq!(
+            audio.pending_play_request_count_for("OwnedPristine"),
+            usize::from(gameplay_enabled && script_enabled),
+        );
+    }
+}
+
+#[test]
 fn native_retirement_queues_stop_on_the_bound_application_audio_owner() {
     crate::test_support::ensure_ambient_host();
     let events_a = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));

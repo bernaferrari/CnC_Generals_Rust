@@ -11,6 +11,7 @@ use gamelogic::common::types::BodyDamageType;
 /// Ambient operations on the receiving Drawable.
 pub enum NativeAmbientChange<'a> {
     Map(&'a MapAmbientProperties),
+    GameplayEnabled(bool),
     ScriptEnabled(bool),
     StopPlayback,
 }
@@ -306,6 +307,21 @@ impl BasicDrawable {
                     self.stop_ambient_playback_with_audio(audio);
                 }
                 return Ok(());
+            }
+            NativeAmbientChange::GameplayEnabled(enabled) => {
+                // Drawable::enableAmbientSound only acts on a change. The
+                // map/script permission belongs to a separate saved flag.
+                if self.ambient_sound_enabled == enabled {
+                    return Ok(());
+                }
+                self.ambient_sound_enabled = enabled;
+                if !enabled {
+                    if let Some((audio, _)) = audio {
+                        self.stop_ambient_playback_with_audio(audio);
+                    }
+                    return Ok(());
+                }
+                (None, true)
             }
             NativeAmbientChange::ScriptEnabled(enabled) => (Some(enabled), enabled),
             NativeAmbientChange::Map(properties) => {

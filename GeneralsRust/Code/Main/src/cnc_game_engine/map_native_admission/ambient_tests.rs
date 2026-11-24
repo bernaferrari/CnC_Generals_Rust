@@ -252,6 +252,171 @@ fn set_script_sound(
 }
 
 #[test]
+fn authored_jet_ai_controls_ambient_without_overriding_script() {
+    crate::game_logic::game_logic::pose_owner_tests::isolated_at(
+        module_path!(),
+        "authored_jet_ai_controls_ambient_without_overriding_script",
+        || {
+            let (_gpu, mut graphics, mut pipeline) = staged_native_fixture_gpu();
+            let directory = tempfile::tempdir().unwrap();
+            let device = Arc::new(Mutex::new(AudioManager::new()));
+            {
+                let mut audio = device.lock().unwrap();
+                audio.init();
+                audio.register_audio_event_info(AudioEventInfo {
+                    audio_name: LOOP.into(),
+                    sounds: vec!["jet_ambient_fixture".into()],
+                    type_field: ST_GLOBAL,
+                    control: AC_LOOP,
+                    loop_count: 0,
+                    ..Default::default()
+                });
+            }
+            let cases = [
+                (
+                    "RunwayJet",
+                    "",
+                    "Behavior = AIUpdateInterface AiTag\nEnd\nBehavior = JetAIUpdate JetTag\nEnd\n",
+                    true,
+                ),
+                (
+                    "HelipadJet",
+                    "PRODUCED_AT_HELIPAD",
+                    "Behavior = JetAIUpdate JetTag\nEnd\n",
+                    false,
+                ),
+                (
+                    "OtherAiLast",
+                    "",
+                    "Behavior = JetAIUpdate JetTag\nEnd\nBehavior = AIUpdateInterface AiTag\nEnd\n",
+                    false,
+                ),
+            ];
+            for (template, kind, behavior, controlled) in cases {
+                let file = directory.path().join(format!("{template}.map"));
+                write_map(&file, template, 0.5);
+                let path = file.to_str().unwrap();
+                let mut world = GameLogic::new();
+                world
+                    .admit_receiving_module_content(
+                        crate::assets::ReceivingObjectContent::from_sources([(
+                            format!("{template}.ini"),
+                            format!(
+                                "Object {template}\nKindOf = VEHICLE AIRCRAFT {kind}\nSoundAmbient = {LOOP}\nBody = ActiveBody BodyTag\nMaxHealth = 40\nInitialHealth = 40\nEnd\n{behavior}End\n"
+                            ),
+                        )])
+                        .unwrap(),
+                    )
+                    .unwrap();
+                world.start_new_game(GameMode::SinglePlayer).unwrap();
+                world.require_native_drawable_owner();
+                let mut candidate = NativeMapCandidate::with_epoch(992);
+                let mut audio_owner = AudioManagerSubsystem::new();
+                audio_owner.bind_common_audio_device(Arc::clone(&device));
+                let mut retirement = NativeParticleRetirementService;
+                let mut attempt = candidate
+                    .attempt(
+                        pipeline.borrow_native_draw_services(),
+                        &mut graphics,
+                        0,
+                        receiving_native_drawable_policy_for(&world),
+                        &mut retirement,
+                        Some((Arc::clone(&device), audio_owner.audio_instance())),
+                    )
+                    .unwrap();
+                assert!(
+                    world
+                        .load_map_with_definition_source_and_water_delivery_and_native_checked(
+                            path,
+                            path,
+                            None,
+                            Some(&mut attempt),
+                        )
+                        .unwrap()
+                );
+                world.initialize_receiving_named_cache_for_fixture();
+                let actor = world
+                    .host_object_id_by_script_name("AmbientPlacement2")
+                    .unwrap();
+                assert!(
+                    !world
+                        .host_object(actor)
+                        .unwrap()
+                        .is_significantly_above_terrain()
+                );
+                let handle = {
+                    let mut mixer = device.lock().unwrap();
+                    let handle = mixer
+                        .pending_play_events()
+                        .find(|event| event.get_event_name().starts_with(" CUSTOM "))
+                        .unwrap()
+                        .get_playing_handle();
+                    mixer.process_request_list();
+                    handle
+                };
+                world
+                    .tick_jet_ai_update_all_with_effects(&mut attempt.effects())
+                    .unwrap();
+                let playing = device.lock().unwrap().contains_audio_handle(handle);
+                assert_eq!(playing, !controlled, "{template} parked engine gate");
+                if !controlled {
+                    continue;
+                }
+
+                set_script_sound(
+                    &mut world,
+                    &mut attempt,
+                    "AmbientPlacement2",
+                    ScriptActionType::DisableObjectSound,
+                );
+                world.host_object_mut(actor).unwrap().waiting_for_path = true;
+                world
+                    .tick_jet_ai_update_all_with_effects(&mut attempt.effects())
+                    .unwrap();
+                let pending = || device.lock().unwrap().pending_play_events().count();
+                assert_eq!(pending(), 0, "moving JetAI preserves the script mute");
+                set_script_sound(
+                    &mut world,
+                    &mut attempt,
+                    "AmbientPlacement2",
+                    ScriptActionType::EnableObjectSound,
+                );
+                assert_eq!(
+                    pending(),
+                    1,
+                    "map enable starts sound once the engines are running"
+                );
+                world
+                    .tick_jet_ai_update_all_with_effects(&mut attempt.effects())
+                    .unwrap();
+                assert_eq!(pending(), 1, "an unchanged engine state does not retrigger");
+                let resumed = {
+                    let mut mixer = device.lock().unwrap();
+                    let resumed = mixer
+                        .pending_play_events()
+                        .next()
+                        .unwrap()
+                        .get_playing_handle();
+                    mixer.process_request_list();
+                    resumed
+                };
+                world.host_object_mut(actor).unwrap().waiting_for_path = false;
+                world
+                    .tick_jet_ai_update_all_with_effects(&mut attempt.effects())
+                    .unwrap();
+                let playing = device.lock().unwrap().contains_audio_handle(resumed);
+                assert!(!playing, "parked aircraft stops the resumed ambient");
+                world.host_object_mut(actor).unwrap().waiting_for_path = true;
+                world
+                    .tick_jet_ai_update_all_with_effects(&mut attempt.effects())
+                    .unwrap();
+                assert_eq!(pending(), 1, "the engine edge starts enabled ambient");
+            }
+        },
+    );
+}
+
+#[test]
 fn authored_map_ambient_uses_owned_drawable_overrides_and_one_shot_defaults() {
     crate::game_logic::game_logic::pose_owner_tests::isolated_at(
         module_path!(),

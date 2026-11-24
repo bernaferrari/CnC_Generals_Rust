@@ -8,9 +8,8 @@
 //! `Object.jet_ai` was constructed as `HostJetAi::default()` on restore —
 //! mid-takeoff jets snapped, RTB was forgotten, stealth lock-on vanished.
 //!
-//! Append a tagged JTAI v3 suffix after the historical lifecycle payload.
-//! The outer Rust capability 32 gates the changed idle continuation schema;
-//! active v1/v2 suffixes are rejected rather than inferred or converted.
+//! JTAI v4 carries the engine ambient latch. World snapshot version 52
+//! requires this layout for serialized JetAI state.
 
 use crate::game_logic::object::HostJetAi;
 use crate::game_logic::{GameLogic, ObjectId};
@@ -18,7 +17,7 @@ use crate::save_load::{SaveLoadError, SaveLoadResult};
 use serde::{Deserialize, Serialize};
 
 const JTAI_MAGIC: &[u8; 4] = b"JTAI";
-const JTAI_VERSION: u32 = 3;
+const JTAI_VERSION: u32 = 4;
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 struct JetAiPersistPayload {
@@ -150,7 +149,7 @@ mod tests {
     use glam::Vec3;
 
     #[test]
-    fn snapshot_round_trips_jet_rtb_takeoff_and_lockon() {
+    fn snapshot_round_trips_jet_rtb_takeoff_lockon_and_engine_ambient() {
         let mut source = GameLogic::new();
         source.templates.insert(
             "AmericaJetRaptor".to_string(),
@@ -164,6 +163,10 @@ mod tests {
         let raptor = source
             .create_object("AmericaJetRaptor", Team::USA, Vec3::new(40.0, 80.0, 24.0))
             .expect("raptor");
+        let parked = source
+            .create_object("AmericaJetRaptor", Team::USA, Vec3::new(60.0, 0.0, 24.0))
+            .expect("parked raptor");
+        source.host_object_mut(parked).unwrap().jet_ai.engines_stopped = true;
         let stealth = source
             .create_object(
                 "AmericaJetStealthFighter",
@@ -216,6 +219,8 @@ mod tests {
         );
         assert_eq!(loaded.jet_ai.rtb_landing_phase, 1);
         assert!(loaded.jet_ai.afterburners_on);
+        assert!(!loaded.jet_ai.engines_stopped, "a new JetAI starts with engines on");
+        assert!(restored.host_object(parked).unwrap().jet_ai.engines_stopped);
 
         let loaded_sf = restored.host_object(stealth).expect("restored stealth");
         assert_eq!(loaded_sf.jet_ai.lockon_pos, Some([12.0, 4.0, 8.0]));
@@ -270,7 +275,7 @@ mod derived_ai_idle_native_tests {
             crate::game_logic::object::HostJetPendingResume::AiIdle
         );
         let prior = restored.host_object(id).unwrap().jet_ai.clone();
-        bytes[4..8].copy_from_slice(&1u32.to_le_bytes());
+        bytes[4..8].copy_from_slice(&(JTAI_VERSION - 1).to_le_bytes());
         assert!(apply_from_lifecycle_tail(&bytes, &mut restored).is_err());
         assert_eq!(restored.host_object(id).unwrap().jet_ai, prior);
     }

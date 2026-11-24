@@ -51,8 +51,9 @@ pub const WORLD_SNAPSHOT_PARTICLE_DRIVE_SETTINGS_VERSION: u32 = 38;
 /// Version49 stores the accepted projectile's exact optional launch transform.
 /// Version50 stores whether an AI player's build-list center has been computed.
 /// Version51 stores signed authored warehouse/cargo and generic stock separately.
-pub const WORLD_SNAPSHOT_BINCODE_VERSION: u32 = 51;
-pub const WORLD_SNAPSHOT_DIRECT_XFER_VERSION: u32 = 51;
+/// Version52 stores the JetAI engine ambient latch in the JTAI continuation.
+pub const WORLD_SNAPSHOT_BINCODE_VERSION: u32 = 52;
+pub const WORLD_SNAPSHOT_DIRECT_XFER_VERSION: u32 = 52;
 /// Version36 introduced mandatory exact original-Garrison-Team continuation.
 pub const WORLD_SNAPSHOT_GARRISON_TEAM_VERSION: u32 = 36;
 

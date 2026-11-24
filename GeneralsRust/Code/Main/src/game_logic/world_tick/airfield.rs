@@ -189,6 +189,8 @@ impl GameLogic {
             self.sync_jet_lockon_drawable_with_effects(id, effects, lockon_tick, false)?;
 
             self.maybe_play_jet_wheel_screech(id);
+            #[cfg(feature = "game_client")]
+            self.sync_jet_engine_ambient(id, effects)?;
 
             match action {
                 JetAiTickAction::ReturnToBase => {

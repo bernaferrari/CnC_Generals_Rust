@@ -237,11 +237,18 @@ impl ReceivingDrawModels {
 /// template/frame clones retain the same definition identity. The mutable
 /// namespace remains on GameLogic, never inside this shared value.
 #[derive(Debug, Clone)]
-pub(crate) struct ReceivingClientTemplate(
-    std::sync::Arc<game_engine::common::thing::thing_template::AdmittedReceivingTemplate>,
-    Option<std::sync::Arc<[AuthoredCrateCollide]>>,
-    Option<f32>, // StickyBombUpdate vertical attachment offset
-);
+pub(crate) struct ReceivingClientTemplate {
+    definition: Arc<game_engine::common::thing::thing_template::AdmittedReceivingTemplate>,
+    crate_collides: Option<Arc<[AuthoredCrateCollide]>>,
+    sticky_bomb_offset_z: Option<f32>,
+    ai_source: Option<ReceivingAiSource>,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct ReceivingAiSource {
+    ordinal: usize,
+    is_jet: bool,
+}
 
 use gamelogic::object::collide::crate_collide::{
     crate_collide::CrateCollideModuleData, money_crate_collide::MoneyCrateCollideModuleData,
@@ -269,23 +276,23 @@ impl AuthoredCrateCollide {
 
 impl PartialEq for ReceivingClientTemplate {
     fn eq(&self, other: &Self) -> bool {
-        std::sync::Arc::ptr_eq(&self.0, &other.0)
+        std::sync::Arc::ptr_eq(&self.definition, &other.definition)
     }
 }
 
 impl ReceivingClientTemplate {
     pub(crate) fn crate_collides(&self) -> Option<&std::sync::Arc<[AuthoredCrateCollide]>> {
-        self.1.as_ref()
+        self.crate_collides.as_ref()
     }
 
     pub(crate) fn has_money_crate_collide(&self) -> bool {
-        self.1.as_ref().is_some_and(|collides| {
+        self.crate_collides.as_ref().is_some_and(|collides| {
             collides.iter().any(|collide| matches!(collide, AuthoredCrateCollide::Money(_)))
         })
     }
 
     pub(crate) fn authored_kind_of_bits(&self) -> u128 {
-        self.0.template().get_kindof_bits()
+        self.definition.template().get_kindof_bits()
     }
 
     #[cfg(feature = "game_client")]
@@ -293,7 +300,7 @@ impl ReceivingClientTemplate {
         use game_engine::common::system::geometry::GeometryType;
         use game_engine::common::thing::thing_template::ShadowType;
 
-        let template = self.0.template();
+        let template = self.definition.template();
         if template.get_shadow_type() != ShadowType::Decal {
             return None;
         }
@@ -317,12 +324,12 @@ impl ReceivingClientTemplate {
         &self,
         other: &game_engine::common::thing::thing_template::AdmittedReceivingTemplate,
     ) -> bool {
-        self.0.template().is_equivalent_to(other.template())
+        self.definition.template().is_equivalent_to(other.template())
     }
 
     /// C++ ThingTemplate placement data from this session's admitted definition.
     pub(crate) fn placement_preview_facts(&self) -> (f32, (f32, f32, bool)) {
-        let template = self.0.template();
+        let template = self.definition.template();
         let angle = template.get_placement_view_angle();
         let geometry = template.get_template_geometry_info();
         let major = geometry.major_radius().max(1.0);
@@ -339,7 +346,7 @@ impl ReceivingClientTemplate {
     }
 
     pub(crate) fn factory_exit_widths(&self) -> (f32, f32) {
-        let template = self.0.template();
+        let template = self.definition.template();
         (
             template.get_factory_exit_width(),
             template.get_factory_extra_bib_width(),
@@ -347,23 +354,23 @@ impl ReceivingClientTemplate {
     }
 
     pub(crate) fn is_bridge(&self) -> bool {
-        self.0.is_bridge()
+        self.definition.is_bridge()
     }
 
     pub(crate) fn damage_sounds(&self) -> [Option<&str>; 2] {
-        self.0.damage_sounds()
+        self.definition.damage_sounds()
     }
 
     pub(crate) fn behavior_modules(
         &self,
     ) -> &game_engine::common::thing::thing_template::ModuleInfo {
-        self.0.behavior_modules()
+        self.definition.behavior_modules()
     }
 
     /// TurretAI.cpp rejects a zero controlled-slot mask while constructing
     /// each authored turret, including an alternate on a non-selected AI.
     pub(crate) fn validate_turret_slots(&self) -> Result<(), String> {
-        for entry in self.0.behavior_modules().iter() {
+        for entry in self.definition.behavior_modules().iter() {
             let data = entry.data.read();
             let Some(ai) = crate::game_logic::object::receiving_ai_base_data(&*data)
             else {
@@ -388,7 +395,7 @@ impl ReceivingClientTemplate {
         &self,
     ) -> Result<Option<crate::game_logic::special_power_strikes::ParticleManualDriveSettings>, ()>
     {
-        Ok(self.0.behavior_modules().iter().find_map(|entry| {
+        Ok(self.definition.behavior_modules().iter().find_map(|entry| {
             let guard = entry.data.read();
             let data = guard.downcast_ref::<gamelogic::object::behavior::ParticleUplinkCannonUpdateModuleData>()?;
             Some(crate::game_logic::special_power_strikes::ParticleManualDriveSettings {
@@ -404,7 +411,7 @@ impl ReceivingClientTemplate {
     pub(crate) fn particle_swath_settings(
         &self,
     ) -> Result<Option<crate::game_logic::special_power_strikes::ParticleSwathSettings>, ()> {
-        Ok(self.0.behavior_modules().iter().find_map(|entry| {
+        Ok(self.definition.behavior_modules().iter().find_map(|entry| {
             let guard = entry.data.read();
             let data = guard.downcast_ref::<gamelogic::object::behavior::ParticleUplinkCannonUpdateModuleData>()?;
             Some(crate::game_logic::special_power_strikes::ParticleSwathSettings {
@@ -415,7 +422,7 @@ impl ReceivingClientTemplate {
     }
 
     pub(crate) fn has_behavior_module(&self, name: &str) -> bool {
-        self.0
+        self.definition
             .behavior_modules()
             .iter()
             .any(|entry| entry.name.as_str().eq_ignore_ascii_case(name))
@@ -425,19 +432,19 @@ impl ReceivingClientTemplate {
     pub(crate) fn receiving_supply_draw_modules(
         &self,
     ) -> &game_engine::common::thing::thing_template::ModuleInfo {
-        self.0.draw_modules()
+        self.definition.draw_modules()
     }
 
     /// W3DTreeDraw registers with the terrain tree buffer and leaves decal
     /// admission to its typed DoShadow field (W3DTreeBuffer.cpp:1565-1584).
     pub(crate) fn has_only_tree_draws(&self) -> bool {
-        let draws = self.0.draw_modules();
+        let draws = self.definition.draw_modules();
         !draws.is_empty()
             && draws.iter().all(|entry| entry.name.as_str().eq_ignore_ascii_case("W3DTreeDraw"))
     }
 
     pub(crate) fn has_only_shadowless_tree_draws(&self) -> bool {
-        let mut draws = self.0.draw_modules().iter().peekable();
+        let mut draws = self.definition.draw_modules().iter().peekable();
         draws.peek().is_some()
             && draws.all(|entry| {
                 entry.name.as_str().eq_ignore_ascii_case("W3DTreeDraw")
@@ -450,7 +457,7 @@ impl ReceivingClientTemplate {
     }
 
     pub(crate) fn uses_overlord_rider_draw(&self) -> bool {
-        self.0.draw_modules().iter().any(|entry| {
+        self.definition.draw_modules().iter().any(|entry| {
             [
                 "W3DOverlordTankDraw",
                 "W3DOverlordTruckDraw",
@@ -464,27 +471,20 @@ impl ReceivingClientTemplate {
     pub(crate) fn receiving_jet_lockon_data(
         &self,
     ) -> Option<parking_lot::MappedRwLockReadGuard<'_, gamelogic::object::update::ai_update::jet_ai_update::JetAIUpdateModuleData>> {
-        let entry = self.0.behavior_modules().iter().nth(self.receiving_ai_source_index()?)?;
+        let entry = self.definition.behavior_modules().iter().nth(self.receiving_ai_source_index()?)?;
         entry.data.read().into_downcast::<gamelogic::object::update::ai_update::jet_ai_update::JetAIUpdateModuleData>()
     }
 
-    // Object.cpp caches the first non-null getAIUpdateInterface in authored order.
-    // Do not allow a later specialized module to replace that interface.
     fn receiving_ai_source_index(&self) -> Option<usize> {
-        self.0.behavior_modules().iter().position(|entry| {
-            game_engine::common::thing::module_factory::builtin_behavior_has_ai_update_interface(
-                entry.name.as_str(),
-            ) == Some(true)
-                || entry.data.read().is_ai_module_data()
-        })
+        self.ai_source.map(|source| source.ordinal)
     }
 
     pub(crate) fn occlusion_delay_frames(&self) -> u32 {
-        self.0.occlusion_delay_frames()
+        self.definition.occlusion_delay_frames()
     }
     pub(crate) fn receiving_ai_policy(&self) -> Option<(u32, bool)> {
         let entry = self
-            .0
+            .definition
             .behavior_modules()
             .iter()
             .nth(self.receiving_ai_source_index()?)?;
@@ -495,7 +495,7 @@ impl ReceivingClientTemplate {
         &self,
     ) -> Option<impl std::ops::Deref<Target = gamelogic::object::update::ai_update_interface::AIUpdateModuleData> + '_> {
         let entry = self
-            .0
+            .definition
             .behavior_modules()
             .iter()
             .nth(self.receiving_ai_source_index()?)?;
@@ -507,7 +507,7 @@ impl ReceivingClientTemplate {
 
     pub(crate) fn receiving_ai_identity(&self) -> Option<(u32, String, String)> {
         let ordinal = self.receiving_ai_source_index()?;
-        let entry = self.0.behavior_modules().iter().nth(ordinal)?;
+        let entry = self.definition.behavior_modules().iter().nth(ordinal)?;
         Some((
             ordinal as u32,
             entry.module_tag.as_str().to_owned(),
@@ -517,7 +517,7 @@ impl ReceivingClientTemplate {
 
     pub(crate) fn receiving_ai_module_name(&self) -> Option<&str> {
         Some(
-            self.0
+            self.definition
                 .behavior_modules()
                 .iter()
                 .nth(self.receiving_ai_source_index()?)?
@@ -527,20 +527,12 @@ impl ReceivingClientTemplate {
     }
 
     pub(crate) fn receiving_ai_is_jet(&self) -> bool {
-        self.receiving_ai_source_index()
-            .and_then(|ordinal| self.0.behavior_modules().iter().nth(ordinal))
-            .is_some_and(|entry| {
-                entry
-                    .data
-                    .read()
-                    .as_any()
-                    .is::<gamelogic::object::update::ai_update::JetAIUpdateModuleData>()
-            })
+        self.ai_source.is_some_and(|source| source.is_jet)
     }
 
     pub(crate) fn dozer_ai_is_worker(&self) -> Option<bool> {
         let entry = self
-            .0
+            .definition
             .behavior_modules()
             .iter()
             .nth(self.receiving_ai_source_index()?)?;
@@ -563,7 +555,7 @@ impl ReceivingClientTemplate {
     /// Repair rate from the installed Dozer/Worker AI definition.
     pub(crate) fn dozer_repair_health_per_second(&self) -> Option<f32> {
         let entry = self
-            .0
+            .definition
             .behavior_modules()
             .iter()
             .nth(self.receiving_ai_source_index()?)?;
@@ -586,7 +578,7 @@ impl ReceivingClientTemplate {
         self.dozer_ai_is_worker()?;
         Some((
             ordinal as u32,
-            self.0
+            self.definition
                 .behavior_modules()
                 .iter()
                 .nth(ordinal)?
@@ -598,7 +590,7 @@ impl ReceivingClientTemplate {
 
     /// Immutable sound slot of this actor's admitted receiving definition.
     pub(crate) fn per_unit_sound_event(&self, slot: &str) -> Option<&str> {
-        self.0.per_unit_sound_event(slot)
+        self.definition.per_unit_sound_event(slot)
     }
 
     pub(crate) fn new(
@@ -631,21 +623,38 @@ impl ReceivingClientTemplate {
             data.downcast_ref::<gamelogic::object::behavior::StickyBombUpdateModuleData>()
                 .map(|sticky| sticky.offset_z)
         });
-        Self(template, crate_collides, sticky_bomb_offset_z)
+        // ThingTemplate.cpp replaces older AI declarations during admission.
+        // Object.cpp caches the first non-null interface of that effective list.
+        let ai_source = template.behavior_modules().iter().enumerate().find_map(|(ordinal, entry)| {
+            let builtin = game_engine::common::thing::module_factory::builtin_behavior_has_ai_update_interface(
+                entry.name.as_str(),
+            );
+            let data = entry.data.read();
+            (builtin == Some(true) || data.is_ai_module_data()).then(|| ReceivingAiSource {
+                ordinal,
+                is_jet: data.as_any().is::<gamelogic::object::update::ai_update::JetAIUpdateModuleData>(),
+            })
+        });
+        Self {
+            definition: template,
+            crate_collides,
+            sticky_bomb_offset_z,
+            ai_source,
+        }
     }
 
     pub(crate) fn audio_event(
         &self,
         slot: game_engine::common::thing::thing_template::ThingTemplateAudioType,
     ) -> Option<&game_engine::common::audio::AudioEventRts> {
-        self.0.audio_event(slot)
+        self.definition.audio_event(slot)
     }
 
     pub(crate) fn containment_module_audio(
         &self,
         enter: bool,
     ) -> Option<game_engine::common::audio::AudioEventRts> {
-        for entry in self.0.behavior_modules().iter() {
+        for entry in self.definition.behavior_modules().iter() {
             let guard = entry.data.read();
             if let Some(kind) = gamelogic::contain_module_overrides::ContainModuleDataKind::from_module_data(&*guard) {
                 let base = kind.open_data();
@@ -661,7 +670,7 @@ impl ReceivingClientTemplate {
     }
 
     fn threat_value(&self) -> u16 {
-        self.0.threat_value()
+        self.definition.threat_value()
     }
 
     #[cfg(feature = "game_client")]
@@ -669,7 +678,7 @@ impl ReceivingClientTemplate {
         &self,
     ) -> game_client::core::game_client::PresentationModuleAdmission {
         game_client::core::game_client::PresentationModuleAdmission::Authored(
-            std::sync::Arc::clone(&self.0),
+            std::sync::Arc::clone(&self.definition),
         )
     }
 }
@@ -1398,7 +1407,7 @@ impl ThingTemplate {
         plan: std::sync::Arc<game_engine::common::thing::thing_template::AdmittedReceivingTemplate>,
     ) {
         if self.receiving_client_template.as_ref().is_none_or(|current| {
-            !std::sync::Arc::ptr_eq(&current.0, &plan)
+            !Arc::ptr_eq(&current.definition, &plan)
         }) {
             self.receiving_client_template = Some(ReceivingClientTemplate::new(plan));
         }
@@ -1409,7 +1418,7 @@ impl ThingTemplate {
 
         self.receiving_client_template.as_ref().is_some_and(|typed| {
             typed
-                .0
+                .definition
                 .template()
                 .is_kind_of_mask(KindOfMask::OPTIMIZED_TREE.bits())
         })
@@ -1419,7 +1428,7 @@ impl ThingTemplate {
         use game_engine::common::system::kind_of::KindOfMask;
 
         self.receiving_client_template.as_ref().is_some_and(|typed| {
-            typed.0.template().is_kind_of_mask(KindOfMask::CASH_GENERATOR.bits())
+            typed.definition.template().is_kind_of_mask(KindOfMask::CASH_GENERATOR.bits())
         })
     }
 
@@ -1443,7 +1452,7 @@ impl ThingTemplate {
     pub(crate) fn sticky_bomb_offset_z(&self) -> Option<f32> {
         self.receiving_client_template
             .as_ref()
-            .and_then(|template| template.2)
+            .and_then(|template| template.sticky_bomb_offset_z)
     }
 
     pub(crate) fn particle_manual_drive_settings(

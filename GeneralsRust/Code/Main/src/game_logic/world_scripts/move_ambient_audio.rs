@@ -48,6 +48,53 @@ impl GameLogic {
         Ok(())
     }
 
+    /// JetAIUpdate.cpp:1979-2008, before the base AI update. Commit the
+    /// engine edge only when the aircraft has a receiving Drawable.
+    #[cfg(feature = "game_client")]
+    pub(in crate::game_logic) fn sync_jet_engine_ambient(
+        &mut self,
+        id: ObjectId,
+        effects: &mut ScriptPresentationEffects<'_>,
+    ) -> gamelogic::GameLogicResult<()> {
+        if effects.view.is_none() {
+            return Ok(());
+        }
+        let Some(jet) = self.host_object(id) else {
+            return Ok(());
+        };
+        if !jet.is_alive()
+            || jet.is_kind_of(KindOf::ProducedAtHelipad)
+            || !jet
+                .thing()
+                .template
+                .receiving_client_template
+                .as_ref()
+                .is_some_and(|template| template.receiving_ai_is_jet())
+        {
+            return Ok(());
+        }
+        let enabled = jet.jet_ai.takeoff_in_progress
+            || jet.jet_ai.landing_in_progress
+            || jet.is_significantly_above_terrain()
+            || jet.host_ai_is_moving()
+            || jet.waiting_for_path;
+        let engines_running = !jet.jet_ai.engines_stopped;
+        if enabled != engines_running
+            && self
+                .apply_native_drawable_ambient(
+                    id,
+                    game_client::drawable::drawable::NativeAmbientChange::GameplayEnabled(enabled),
+                    effects,
+                )
+                .map_err(gamelogic::GameLogicError::Configuration)?
+        {
+            if let Some(jet) = self.objects.get_mut(&id) {
+                jet.jet_ai.engines_stopped = !enabled;
+            }
+        }
+        Ok(())
+    }
+
     pub(in crate::game_logic) fn apply_map_drawable_ambient(
         &mut self,
         id: ObjectId,
