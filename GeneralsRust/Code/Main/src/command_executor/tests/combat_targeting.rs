@@ -670,7 +670,8 @@ fn ordinary_do_weapon_uses_authored_mine_detail_and_disarms_only_when_armed() {
             ),
         crate::fixture_content::FixtureObject::new("TestLandMine")
             .kind_of("MINE")
-            .health(100.0)],
+            .health(100.0)
+            .module("Behavior = MinefieldBehavior FixtureMinefield\nEnd")],
         &[crate::fixture_content::FixtureWeapon::new("DozerMineDisarmingWeapon")
             .damage(100.0)
             .radius(5.0)

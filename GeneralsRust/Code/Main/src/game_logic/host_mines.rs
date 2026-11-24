@@ -1405,37 +1405,6 @@ pub fn neutron_mine_victim_effect(
     NeutronMineVictimEffect::None
 }
 
-/// Template names recognized as residual land mines.
-pub fn is_land_mine_template(name: &str) -> bool {
-    let n = name.to_ascii_lowercase();
-    n.contains("standardmine")
-        || n.contains("clustermine")
-        || n.contains("empmine")
-        || n == "testlandmine"
-        || (n.contains("mine") && !n.contains("minefield") && !n.contains("miner"))
-}
-
-/// Template names recognized as residual demo traps.
-pub fn is_demo_trap_template(name: &str) -> bool {
-    let n = name.to_ascii_lowercase();
-    n.contains("demotrap") || n == "testdemotrap"
-}
-
-/// Template names recognized as residual timed demo charges.
-pub fn is_timed_demo_charge_template(name: &str) -> bool {
-    let n = name.to_ascii_lowercase();
-    // Prefer remote match first via is_remote_demo_charge_template.
-    if is_remote_demo_charge_template(name) {
-        return false;
-    }
-    n.contains("stickybomb")
-        || n.contains("democharge")
-        || n.contains("tntsticky")
-        || n.contains("timedc4")
-        || n == "testtimeddemocharge"
-        || n == "timedc4charge"
-}
-
 /// Template names recognized as residual remote demo charges.
 pub fn is_remote_demo_charge_template(name: &str) -> bool {
     let n = name.to_ascii_lowercase();
@@ -1444,21 +1413,6 @@ pub fn is_remote_demo_charge_template(name: &str) -> bool {
         || n.contains("remotec4")
         || n == "testremotedemocharge"
         || n == "remotec4charge"
-}
-
-/// Infer residual mine kind from template name, if any.
-pub fn infer_mine_kind(template_name: &str) -> Option<HostMineKind> {
-    if is_demo_trap_template(template_name) {
-        Some(HostMineKind::DemoTrap)
-    } else if is_remote_demo_charge_template(template_name) {
-        Some(HostMineKind::RemoteDemoCharge)
-    } else if is_timed_demo_charge_template(template_name) {
-        Some(HostMineKind::TimedDemoCharge)
-    } else if is_land_mine_template(template_name) {
-        Some(HostMineKind::LandMine)
-    } else {
-        None
-    }
 }
 
 /// C++ DemoTrapUpdate.cpp:124-130 isEffectivelyDead + DetonateWhenKilled.
@@ -1489,30 +1443,6 @@ pub(in crate::game_logic) fn demo_trap_detonates_when_killed(
             .and_then(|module| module.attribute("DetonateWhenKilled"))
             .is_some_and(|value| value.trim().eq_ignore_ascii_case("Yes")),
         None => DEMO_TRAP_DETONATE_WHEN_KILLED,
-    }
-}
-
-/// Build residual mine data for a newly created host object (if template matches).
-///
-/// `has_gamma` applies Chem Anthrax Gamma puddle (`OCL_PoisonFieldGammaMedium`)
-/// when the controlling player has researched the Palace upgrade.
-pub fn residual_data_for_template(
-    template_name: &str,
-    current_frame: u32,
-    has_gamma: bool,
-) -> Option<HostMineData> {
-    match infer_mine_kind(template_name)? {
-        HostMineKind::LandMine => Some(HostMineData::land_mine_for_template(template_name)),
-        HostMineKind::DemoTrap => {
-            let profile = demo_trap_profile(template_name, has_gamma, false);
-            Some(HostMineData::demo_trap_with_profile(profile))
-        }
-        HostMineKind::TimedDemoCharge => Some(HostMineData::timed_demo_charge(current_frame)),
-        HostMineKind::RemoteDemoCharge => {
-            let mut data = HostMineData::remote_demo_charge();
-            data.next_ping_frame = Some(current_frame.saturating_add(UNIT_BOMB_PING_FRAMES));
-            Some(data)
-        }
     }
 }
 
@@ -2158,40 +2088,6 @@ mod tests {
         assert!((demo.detonation_damage - 700.0).abs() < 0.01);
         assert!((demo_trap_damage_at(DemoTrapProfile::Demo, 0.0) - 700.0).abs() < 0.01);
         assert!((demo_trap_damage_at(DemoTrapProfile::Demo, 30.0) - 500.0).abs() < 0.01);
-        assert_eq!(
-            residual_data_for_template("Chem_GLADemoTrap", 0, false)
-                .unwrap()
-                .demo_trap_profile,
-            DemoTrapProfile::ChemBeta
-        );
-        assert_eq!(
-            residual_data_for_template("Chem_GLADemoTrap", 0, true)
-                .unwrap()
-                .demo_trap_profile,
-            DemoTrapProfile::ChemGamma
-        );
-    }
-
-    #[test]
-    fn infer_templates() {
-        assert_eq!(
-            infer_mine_kind("ChinaStandardMine"),
-            Some(HostMineKind::LandMine)
-        );
-        assert_eq!(
-            infer_mine_kind("ChinaClusterMine"),
-            Some(HostMineKind::LandMine)
-        );
-        assert_eq!(infer_mine_kind("GLADemoTrap"), Some(HostMineKind::DemoTrap));
-        assert_eq!(
-            infer_mine_kind("TNTStickyBomb"),
-            Some(HostMineKind::TimedDemoCharge)
-        );
-        assert_eq!(
-            infer_mine_kind("TestRemoteDemoCharge"),
-            Some(HostMineKind::RemoteDemoCharge)
-        );
-        assert_eq!(infer_mine_kind("AmericaRanger"), None);
     }
 
     #[test]

@@ -97,3 +97,21 @@ fn sticky_with_lifetime_update_is_timed_even_with_remote_name() {
         "5000 ms authored lifetime → 150 frames, got {deadline}"
     );
 }
+
+/// MinefieldBehavior.cpp:59-112 — without an admitted mine module an unbound
+/// template is an ordinary object; its name cannot authorize a detonation.
+#[test]
+fn unbound_mine_shaped_template_never_installs_a_mine() {
+    let mut world = GameLogic::new();
+    let mut template = ThingTemplate::new("FixtureMineCart");
+    template.add_kind_of(KindOf::Vehicle).set_health(100.0);
+    world.templates.insert("FixtureMineCart".into(), template);
+    let id = world
+        .create_object("FixtureMineCart", Team::China, Vec3::ZERO)
+        .unwrap();
+    assert!(
+        !world.manual_detonate_mine(id).unwrap(),
+        "an ordinary object has no mine detonation module"
+    );
+    assert!(world.host_object(id).unwrap().is_alive());
+}

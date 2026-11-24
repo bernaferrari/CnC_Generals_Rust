@@ -24,45 +24,6 @@ impl GameLogic {
         } else {
             &no_players
         };
-        // Captured DemoTrapUpdate definitions own their module fields; the
-        // Gamma profile swap is the unbound name-residual path only.
-        let has_anthrax_gamma = object.thing().template.receiving_object_definition.is_none() && {
-            use crate::game_logic::host_toxin_tractor::is_anthrax_gamma_upgrade_name;
-            let player_has_gamma = |player: &Player| {
-                player
-                    .unlocked_sciences
-                    .iter()
-                    .chain(player.completed_upgrades.iter())
-                    .any(|name| is_anthrax_gamma_upgrade_name(name))
-            };
-            if let Some(player) = owner_player_id.and_then(|pid| players.get(&pid)) {
-                player_has_gamma(player)
-            } else {
-                players
-                    .values()
-                    .filter(|p| p.team == team)
-                    .any(player_has_gamma)
-            }
-        };
-        if has_anthrax_gamma {
-            if let (Some(current), Some(upgraded)) = (
-                object.mine_data.as_mut(),
-                crate::game_logic::host_mines::residual_data_for_template(
-                    template_name,
-                    frame,
-                    true,
-                ),
-            ) {
-                // A weapon upgrade changes weapon/profile values, not the
-                // module's already-running timer, immunity or trigger state.
-                current.detonation_damage = upgraded.detonation_damage;
-                current.detonation_radius = upgraded.detonation_radius;
-                current.secondary_damage = upgraded.secondary_damage;
-                current.secondary_radius = upgraded.secondary_radius;
-                current.demo_trap_profile = upgraded.demo_trap_profile;
-            }
-        }
-
         // The Sentry Drone gun is the authored WeaponSet row `Conditions = None
         // / PRIMARY None` plus `WeaponSetUpgrade` (WEAPONSET_PLAYER_UPGRADE),
         // replayed by the ordered world mux after bootstrap; no template name

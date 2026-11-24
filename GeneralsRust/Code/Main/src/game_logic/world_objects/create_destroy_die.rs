@@ -2120,26 +2120,20 @@ impl GameLogic {
                 ),
             };
             // Typed admission: a captured Object's declared mine module selects
-            // and parameterizes the runtime; name residual only when unbound.
-            let mine_data = match object
+            // and parameterizes the runtime (MinefieldBehavior.cpp:59-112 /
+            // DemoTrapUpdate.cpp:46-87 / StickyBombUpdate.cpp:29-42 only
+            // construct when authored).
+            object.mine_data = object
                 .thing()
                 .template
                 .receiving_object_definition
                 .as_ref()
-            {
-                Some(definition) => crate::game_logic::host_mines::admitted_data_for_modules(
-                    &definition.behavior_modules,
-                    self.frame,
-                ),
-                None => crate::game_logic::host_mines::residual_data_for_template(
-                    template_name,
-                    self.frame,
-                    false,
-                ),
-            };
-            if let Some(mine_data) = mine_data {
-                object.mine_data = Some(mine_data);
-            }
+                .and_then(|definition| {
+                    crate::game_logic::host_mines::admitted_data_for_modules(
+                        &definition.behavior_modules,
+                        self.frame,
+                    )
+                });
 
             // Host residual: GLA Battle Bus TransportContain Slots=8 + passenger fire.
             if crate::game_logic::host_battle_bus::is_battle_bus_template(template_name) {
