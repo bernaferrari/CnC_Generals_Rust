@@ -1898,10 +1898,9 @@ impl GameLogic {
         let detonate_calls_kill = pending.projectile_lifecycle
             .or(profile_lifecycle)
             .is_some_and(crate::game_logic::weapon_bootstrap::HostProjectileLifecycle::detonate_calls_kill);
-        let has_self_damage = profile.is_some()
-            && crate::game_logic::combat::Projectile::warhead_kills_source(pending.radius_damage_affects);
+        let authored_flight = profile.is_some();
         let shooter_id = pending.shooter_id;
-        let birth = if (missile || detonate_calls_kill || has_self_damage) && has_aim {
+        let birth = if (authored_flight || detonate_calls_kill) && has_aim {
             if missile && transform.is_none() {
                 return Err(gamelogic::GameLogicError::Configuration(format!(
                     "Missile {projectile_name} has no launch transform"
@@ -1916,8 +1915,10 @@ impl GameLogic {
         };
         let placement = if at_destination {
             ProjectilePlacement::AtDestination
+        } else if let Some((id, _)) = birth {
+            ProjectilePlacement::ReceivingFlight(id)
         } else {
-            ProjectilePlacement::Flight { actor_id: birth.map(|(id, _)| id) }
+            ProjectilePlacement::StandaloneFlight
         };
         let accepted = crate::game_logic::combat::materialize_accepted_projectile(
             &mut self.combat_system,
@@ -1960,7 +1961,14 @@ impl GameLogic {
             if !missile && valid {
                 if let Some(projectile) = self.combat_system.projectile_mut(id) {
                     projectile.projectile_actor_birth = Some(birth);
-                    self.objects.get_mut(&id).expect("receiving projectile birth").producer_id = Some(shooter_id);
+                    let actor = self.objects.get_mut(&id).expect("receiving projectile birth");
+                    actor.producer_id = Some(shooter_id);
+                    actor.set_experience_sink(Some(shooter_id));
+                    if let Some(pose) = transform {
+                        actor.set_transform_matrix_with_partition_owner(
+                            pose, self.frame, effects, &mut self.partition_manager,
+                        );
+                    }
                     return Ok(ready);
                 }
             }
@@ -2106,32 +2114,37 @@ impl GameLogic {
     }
 
     /// PhysicsUpdate.cpp:1141–1149 gives the projectile its contact before bounce.
-    pub(in crate::game_logic) fn try_owned_missile_contact(
+    pub(in crate::game_logic) fn try_owned_projectile_contact(
         &mut self,
-        missile: ObjectId,
+        projectile: ObjectId,
         other: ObjectId,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> gamelogic::GameLogicResult<bool> {
-        let Some(shot) = self.combat_system.get_projectiles().get(&missile) else {
+        let Some(shot) = self.combat_system.get_projectiles().get(&projectile) else {
             return Ok(false);
         };
-        let Some(birth) = shot.projectile_actor_birth.filter(|_| shot.missile_motion.is_some()) else {
+        let Some(birth) = shot.projectile_actor_birth else {
             return Ok(false);
         };
-        if !self.spawn_identity_matches(missile, birth.0, birth.1) {
+        if !self.spawn_identity_matches(projectile, birth.0, birth.1) {
             return Ok(false);
         }
         let objects = self.objects.read();
-        let actor = objects.lookup(&missile).expect("validated missile actor");
-        if actor.status.no_collisions || !shot.accepts_missile_contact(
+        let actor = objects.lookup(&projectile).expect("validated projectile actor");
+        // Object::onCollide reaches the flight through its PhysicsBehavior.
+        let has_physics = shot.missile_motion.is_some()
+            || self.projectile_definitions.get(&shot.projectile_object_name)
+                .is_some_and(|profile| profile.behaviors.iter().any(|module| module.physics.is_some()));
+        if !has_physics || actor.status.no_collisions || !shot.accepts_owned_contact(
             objects.with_players(&self.players).with_team_factory(&self.team_factory),
             other,
             self.frame,
         ) {
             return Ok(true);
         }
+        let dumb = shot.is_dumb_flight();
         let (retired, result) = self.resolve_owned_projectile_callback(
-            missile,
+            projectile,
             crate::game_logic::combat::ProjectileCallback::ObjectContact {
                 target: other,
                 pose: actor.get_position(),
@@ -2140,7 +2153,10 @@ impl GameLogic {
             effects,
         );
         if let Some(retirement) = retired {
-            let cleanup = self.finish_owned_projectile_retirement(missile, Some(birth), retirement, effects);
+            if dumb && self.spawn_identity_matches(projectile, birth.0, birth.1) {
+                self.objects.get_mut(&projectile).expect("validated projectile actor").status.no_collisions = true;
+            }
+            let cleanup = self.finish_owned_projectile_retirement(projectile, Some(birth), retirement, effects);
             result.and(cleanup)?;
         } else {
             result?;
@@ -2274,10 +2290,19 @@ impl GameLogic {
             if let Some(projectile) = self.combat_system.get_projectiles().get(&id) {
                 let actor = self.objects.get_mut(&id).expect("validated projectile birth");
                 let position = detonation_pose.unwrap_or(projectile.position);
-                if actor.get_position() != position {
+                if let Some(transform) = projectile.dumb_flight_transform(position) {
+                    if actor.get_transform_matrix() != transform {
+                        actor.set_transform_matrix_with_partition_owner(
+                            transform, self.frame, effects, &mut self.partition_manager,
+                        );
+                    }
+                } else if actor.get_position() != position {
                     actor.set_position_with_partition_owner(
                         position, self.frame, effects, &mut self.partition_manager,
                     );
+                }
+                if projectile_is_dumb {
+                    self.set_owned_pathfinder_layer(id, projectile.flight_runtime.layer);
                 }
             }
         }

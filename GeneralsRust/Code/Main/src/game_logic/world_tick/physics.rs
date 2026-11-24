@@ -284,7 +284,7 @@ impl GameLogic {
         {
             return Ok(true);
         }
-        if self.try_owned_missile_contact(a_id, b_id, presentation_effects)? {
+        if self.try_owned_projectile_contact(a_id, b_id, presentation_effects)? {
             return Ok(true);
         }
         // C++ PhysicsUpdate.cpp:1182-1213: recrew only inside

@@ -919,7 +919,7 @@ fn authored_shell_calls_neutron_die_once_after_impact_damage() {
     for calls_die in [true, false] {
         let (mut world, source, target, nearby) = authored_neutron_shell_world(calls_die);
         let shell = launch_authored_neutron_shell(&mut world, source, target);
-        assert_eq!(world.host_object(shell).is_some(), calls_die);
+        assert!(world.host_object(shell).is_some(), "both shell variants own their collision Object");
         let frame = crate::presentation_frame::PresentationFrame::build_from_logic(&mut world, 0);
         assert_eq!(frame.projectile_render_inputs().iter().filter(|item| item.id == shell).count(), 1);
         assert!(frame.direct_host_drawables.iter().all(|item| item.object.id != shell));

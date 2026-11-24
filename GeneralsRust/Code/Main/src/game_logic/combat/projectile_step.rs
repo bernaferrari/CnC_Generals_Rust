@@ -6,7 +6,7 @@ use gamelogic::{common::Relationship, weapon::WeaponCollideMask};
 
 impl Projectile {
     /// Weapon.cpp:642–731. The partition has already confirmed geometric contact.
-    pub(in crate::game_logic) fn accepts_missile_contact(
+    pub(in crate::game_logic) fn accepts_owned_contact(
         &self,
         objects: HostObjectRead<'_>,
         target: ObjectId,
@@ -16,16 +16,14 @@ impl Projectile {
             projectile_collides_with_structure_or_fence, projectile_structure_same_controller,
         };
 
-        if self.missile_motion.is_none()
-            || self.missile_drawable_hidden()
-            || !self.is_warhead_armed()
-        {
+        if self.missile_drawable_hidden() || !self.is_warhead_armed() {
             return false;
         }
-        let (Some(missile), Some(other)) = (objects.lookup(&self.id), objects.lookup(&target)) else {
+        let (Some(projectile), Some(other)) = (objects.lookup(&self.id), objects.lookup(&target)) else {
             return false;
         };
-        if self.is_homing && self.target_id == Some(target) {
+        let intended = self.target_id.filter(|_| self.is_homing || self.is_dumb_flight());
+        if intended == Some(target) {
             return true;
         }
         if target == self.shooter_id
@@ -41,8 +39,7 @@ impl Projectile {
         }
         if other.is_kind_of(KindOf::FSAirfield)
             && other.thing().template.parking_place.is_some()
-            && self.is_homing
-            && self.target_id.and_then(|id| objects.lookup(&id)).is_some_and(|victim| {
+            && intended.and_then(|id| objects.lookup(&id)).is_some_and(|victim| {
                 victim.producer_id == Some(target) || victim.contained_by == Some(target)
             })
         {
@@ -53,9 +50,9 @@ impl Projectile {
         }
         let mask = WeaponCollideMask::new(self.projectile_collides);
         let same_controller = projectile_structure_same_controller(
-            missile.owner_player_id,
+            projectile.owner_player_id,
             other.owner_player_id,
-            missile.team == other.team,
+            projectile.team == other.team,
         );
         let matches_kind = projectile_collides_with_structure_or_fence(
             mask.bits(),
@@ -69,7 +66,7 @@ impl Projectile {
                 && other.is_kind_of(KindOf::BallisticMissile));
         matches_kind
             || (mask.contains(WeaponCollideMask::ALLIES | WeaponCollideMask::ENEMIES)
-                && match objects.relationship(missile, other) {
+                && match objects.relationship(projectile, other) {
                     Some(Relationship::Allies) => mask.contains(WeaponCollideMask::ALLIES),
                     Some(Relationship::Enemies) => mask.contains(WeaponCollideMask::ENEMIES),
                     _ => false,
@@ -489,9 +486,9 @@ impl CombatSystem {
                             return (damage_events, projectiles_to_remove, detonation_pose);
                         }
                     }
-                    // Authored missile object contacts arrive from PartitionManager,
+                    // Authored Object contacts arrive from PartitionManager,
                     // after the movement of all actors has been observed.
-                    if projectile.missile_motion.is_some() {
+                    if projectile.projectile_actor_birth.is_some() {
                         return (damage_events, projectiles_to_remove, detonation_pose);
                     }
                     find_standalone_projectile_hit(projectile, objects.read(), frame)

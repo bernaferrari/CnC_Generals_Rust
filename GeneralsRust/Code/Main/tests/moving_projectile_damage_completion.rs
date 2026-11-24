@@ -486,6 +486,9 @@ End
   FirstPercentIndent = 25%
   SecondPercentIndent = 75%
  End
+ Behavior = PhysicsBehavior ShellContact
+  Mass = 0.01
+ End
  Behavior = FXListDie BurnedShell
   DeathTypes = NONE +BURNED
   DeathFX = FX_{rows}_BurnedShell
@@ -610,14 +613,6 @@ End
         gamelogic::common::Relationship::Enemies
     );
     world.set_current_frame(99);
-    world.queue_command(GameCommand {
-        command_type: CommandType::AttackObject { target_id: victim },
-        player_id: 0,
-        command_id: 1,
-        timestamp: UNIX_EPOCH + Duration::from_secs(1),
-        selected_units: shooters.clone(),
-        modifier_keys: ModifierKeys::default(),
-    });
     Fixture {
         world,
         shooters,
@@ -662,6 +657,17 @@ fn set_team_override_for_members(
 
 impl Fixture {
     fn accept(&mut self) {
+        // A restore receiver starts without an outstanding player command.
+        self.world.queue_command(GameCommand {
+            command_type: CommandType::AttackObject {
+                target_id: self.victim,
+            },
+            player_id: 0,
+            command_id: 1,
+            timestamp: UNIX_EPOCH + Duration::from_secs(1),
+            selected_units: self.shooters.clone(),
+            modifier_keys: ModifierKeys::default(),
+        });
         self.world.update(); // frame99 aims
         for source in &self.shooters {
             assert_eq!(
@@ -822,6 +828,89 @@ fn advance_to_impact(f: &mut Fixture, health: f32) {
     }
     panic!("moving shot failed to retire");
 }
+
+#[test]
+fn authored_shell_contact_requires_geometry_overlap() {
+    for lateral_offset in [4.0, 0.0] {
+        let mut f = fixture_custom(
+            "GeometryContact",
+            150.0,
+            false,
+            30,
+            1,
+            10.0,
+            0.0,
+            "ENEMIES",
+            "",
+        );
+        f.accept();
+        let position = Vec3::new(150.0, 0.0, 120.0 + lateral_offset);
+        assert!(f.world.set_registered_object_position(f.victim, position));
+        let shell = f.world.combat_system().projectiles_snapshot()[0];
+        let remaining_samples = shell.flight_runtime.path[shell.flight_runtime.step..].to_vec();
+        for sample in remaining_samples {
+            f.world.update();
+            let overlap = sample.distance_squared(position) <= 4.0; // two radius-one spheres
+            assert_eq!(
+                f.world.combat_system().projectiles_snapshot().is_empty(),
+                overlap,
+                "contact at {sample:?} with target at {position:?}"
+            );
+            if overlap {
+                break;
+            }
+        }
+        f.world.update();
+        assert!(f.world.combat_system().projectiles_snapshot().is_empty());
+        assert_eq!(f.world.host_object(f.victim).unwrap().health.current, 150.0);
+    }
+}
+
+#[test]
+fn authored_shell_incidental_contact_uses_its_weapon_mask() {
+    for (mask, expect_contact) in [("ALLIES", false), ("ENEMIES", true)] {
+        let mut f = fixture_custom(
+            "IncidentalContact",
+            150.0,
+            false,
+            30,
+            1,
+            10.0,
+            0.0,
+            "ENEMIES",
+            &format!("ProjectileCollidesWith = {mask}"),
+        );
+        f.accept();
+        let shell = f.world.combat_system().projectiles_snapshot()[0];
+        assert_eq!(shell.target_id, Some(f.victim));
+        let samples = shell.flight_runtime.path
+            [shell.flight_runtime.step..shell.flight_runtime.step + 12]
+            .to_vec();
+        let incidental = Vec3::new(samples[3].x, 0.0, samples[3].z);
+        assert!(samples.iter().any(|p| p.distance_squared(incidental) <= 4.0));
+        let obstacle = f.world
+            .create_object_for_player("QueuedVictim", 1, incidental)
+            .unwrap();
+        assert!(f.world.set_registered_object_position(obstacle, incidental));
+        for sample in samples {
+            f.world.update();
+            assert_eq!(
+                f.world.host_object(obstacle).unwrap().get_position(),
+                incidental
+            );
+            let contact = expect_contact && sample.distance_squared(incidental) <= 4.0;
+            assert_eq!(
+                f.world.combat_system().projectiles_snapshot().is_empty(),
+                contact,
+                "{mask} at {sample:?} with incidental object at {incidental:?}"
+            );
+            if contact {
+                break;
+            }
+        }
+    }
+}
+
 #[test]
 fn authored_shell_contact_uses_position_and_the_splash_mask() {
     for (radius, affects, expected_health) in [

@@ -9,6 +9,15 @@ struct MissileKillTarget {
     edge_distance_squared: f32,
 }
 
+fn projectile_forward_transform(position: Vec3, direction: Vec3) -> glam::Mat4 {
+    let basis = glam::Mat4::from_cols(glam::Vec4::X, glam::Vec4::Z, glam::Vec4::Y, glam::Vec4::W);
+    let transform = gamelogic::common::build_transform_matrix(
+        basis.transform_point3(position),
+        basis.transform_vector3(direction),
+    );
+    basis * transform * basis
+}
+
 pub(in crate::game_logic) trait ProjectilePresentationRuntime {
     fn fx(&mut self, name: &str, object: ProjectileFxObject<'_>);
     fn pose(&mut self, projectile: &Projectile);
@@ -204,7 +213,27 @@ impl Projectile {
     pub(crate) fn owns_receiving_actor(&self) -> bool {
         self.missile_motion.is_some()
             || self.detonate_calls_kill()
-            || (self.flight.is_some() && Self::warhead_kills_source(self.radius_damage_affects))
+            || self.is_dumb_flight()
+    }
+
+    pub(in crate::game_logic) fn is_dumb_flight(&self) -> bool {
+        matches!(self.flight, Some(crate::game_logic::weapon_bootstrap::HostProjectileFlight::Dumb(_)))
+    }
+
+    /// DumbProjectileBehavior.cpp:611–643 uses the first tangent on the
+    /// zeroeth sample and the previous curve sample on subsequent updates.
+    pub(in crate::game_logic) fn dumb_flight_transform(&self, position: Vec3) -> Option<glam::Mat4> {
+        use crate::game_logic::weapon_bootstrap::HostProjectileFlight;
+        let Some(HostProjectileFlight::Dumb(flight)) = &self.flight else {
+            return None;
+        };
+        if !flight.orient_to_flight_path || flight.tumble_randomly {
+            return None;
+        }
+        let index = self.flight_runtime.step.saturating_sub(1).max(1);
+        let path = &self.flight_runtime.path;
+        let direction = (*path.get(index)? - path[index - 1]).normalize_or_zero();
+        (direction != Vec3::ZERO).then(|| projectile_forward_transform(position, direction))
     }
 
     pub(in crate::game_logic) fn warhead_kills_source(affects: u32) -> bool {

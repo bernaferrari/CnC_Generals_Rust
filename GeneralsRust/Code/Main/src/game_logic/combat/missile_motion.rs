@@ -61,9 +61,7 @@ impl MissileMotion {
         let delta = target - position;
         direction.y += 2.0 * delta.y.max(0.0) / Vec3::new(delta.x, 0.0, delta.z).length().max(1.0);
         direction = direction.normalize_or_zero();
-        let basis = glam::Mat4::from_cols(glam::Vec4::X, glam::Vec4::Z, glam::Vec4::Y, glam::Vec4::W);
-        let source = gamelogic::common::build_transform_matrix(basis.transform_point3(position), basis.transform_vector3(direction));
-        Some(basis * source * basis)
+        Some(projectile_forward_transform(position, direction))
     }
 
 

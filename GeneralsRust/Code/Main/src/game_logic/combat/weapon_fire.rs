@@ -662,23 +662,6 @@ pub(in crate::game_logic) fn drain_pending_projectiles_with_partition(
     for p in pending {
         let profile = definitions.get(&p.projectile_object_name);
         let geometry = definitions.geometry(&p.projectile_object_name);
-        // This low-level adapter has no receiving world to create the real
-        // missile Object, so it reserves the next live Object id for a missile
-        // shot exactly as the world's admission would (MissileAIUpdate flights
-        // are Objects; only the arena record exists here).
-        let is_missile = profile.is_some_and(|profile| {
-            matches!(
-                profile.flight,
-                crate::game_logic::weapon_bootstrap::HostProjectileFlight::Missile(_)
-            )
-        }) || matches!(
-            p.projectile_lifecycle
-                .or_else(|| profile.map(|profile| profile.lifecycle)),
-            Some(crate::game_logic::weapon_bootstrap::HostProjectileLifecycle::Missile { .. })
-        );
-        let projectile_actor_id = is_missile.then(|| {
-            crate::game_logic::world_objects::allocate_live_object_id(next_object_id, objects, combat)
-        });
         if let Some(
             MaterializedWeaponShot::ImmediateDamage(immediate)
             | MaterializedWeaponShot::Laser {
@@ -694,7 +677,7 @@ pub(in crate::game_logic) fn drain_pending_projectiles_with_partition(
             geometry,
             partition,
             next_object_id,
-            ProjectilePlacement::Flight { actor_id: projectile_actor_id },
+            ProjectilePlacement::StandaloneFlight,
             random,
         ) {
             combat.projectileless_delayed.push(immediate);
@@ -703,7 +686,8 @@ pub(in crate::game_logic) fn drain_pending_projectiles_with_partition(
 }
 
 pub(in crate::game_logic) enum ProjectilePlacement {
-    Flight { actor_id: Option<ObjectId> },
+    ReceivingFlight(ObjectId),
+    StandaloneFlight,
     AtDestination,
 }
 
@@ -879,10 +863,14 @@ pub(in crate::game_logic) fn materialize_accepted_projectile(
         }
     }
 
-    let ProjectilePlacement::Flight { actor_id } = placement else {
-        // Weapon.cpp:1137 places Objects with no ProjectileUpdateInterface at
-        // the accepted destination. Their own Update/Die modules drive them.
-        return Some(MaterializedWeaponShot::PlaceProjectile(target_pos));
+    let actor_id = match placement {
+        ProjectilePlacement::ReceivingFlight(id) => Some(id),
+        ProjectilePlacement::StandaloneFlight => None,
+        ProjectilePlacement::AtDestination => {
+            // Weapon.cpp:1137 places Objects with no ProjectileUpdateInterface
+            // at the destination, where their own Update/Die modules run.
+            return Some(MaterializedWeaponShot::PlaceProjectile(target_pos));
+        }
     };
 
     // The firing owner captured any self-damage source position separately
@@ -962,22 +950,9 @@ pub(in crate::game_logic) fn materialize_accepted_projectile(
         frame_clock_active: false,
         frame_clock_status: Default::default(),
     };
-    let is_missile = profile.is_some_and(|profile| matches!(
-        profile.flight, crate::game_logic::weapon_bootstrap::HostProjectileFlight::Missile(_)
-    )) || matches!(
-        projectile_lifecycle,
-        Some(crate::game_logic::weapon_bootstrap::HostProjectileLifecycle::Missile { .. })
-    );
-    let requires_actor = is_missile
-        || projectile_lifecycle.is_some_and(
-            crate::game_logic::weapon_bootstrap::HostProjectileLifecycle::detonate_calls_kill,
-        )
-        || (profile.is_some() && Projectile::warhead_kills_source(p.radius_damage_affects));
     // The accepted flight and its receiving Object share one identity.
     let id = if let Some(id) = actor_id {
         id
-    } else if requires_actor {
-        return None;
     } else {
         crate::game_logic::world_objects::allocate_live_object_id(next_object_id, objects, combat)
     };
