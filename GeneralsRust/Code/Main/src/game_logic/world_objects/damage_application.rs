@@ -2247,7 +2247,7 @@ impl GameLogic {
             samples: self.pathfinding_height_samples.as_ref(),
         };
         #[cfg(feature = "game_client")]
-        let (events, retired, detonation_pose) = {
+        let impact = {
             let shroud = self.world_services.shroud();
             let fx_operation_environment = self.observe_object_fx_environment();
             Self::with_object_fx_services(
@@ -2277,7 +2277,7 @@ impl GameLogic {
             )
         };
         #[cfg(not(feature = "game_client"))]
-        let (events, retired, detonation_pose) = self.combat_system.prepare_projectile_impact_with_runtime(
+        let impact = self.combat_system.prepare_projectile_impact_with_runtime(
             id,
             callback,
             &mut self.objects,
@@ -2297,7 +2297,7 @@ impl GameLogic {
         {
             if let Some(projectile) = self.combat_system.get_projectiles().get(&id) {
                 let actor = self.objects.get_mut(&id).expect("validated projectile birth");
-                let position = detonation_pose.unwrap_or(projectile.position);
+                let position = impact.detonation_pose.unwrap_or(projectile.position);
                 if let Some(transform) = projectile.dumb_flight_transform(position) {
                     if actor.get_transform_matrix() != transform {
                         actor.set_transform_matrix_with_partition_owner(
@@ -2314,14 +2314,18 @@ impl GameLogic {
                 }
             }
         }
-        let mut retirement = retired.contains(&id).then_some(RetiredProjectileActor::Destroy);
+        let mut retirement = impact.retired.contains(&id).then_some(RetiredProjectileActor::Destroy);
         // Weapon::handleProjectileDetonation runs FX/OCL and Body damage first.
         // The flight behavior then submits DEATH_DETONATED to its own Body.
+        let epoch = self.visual_world_epoch;
         let result = self.flush_projectile_impact_fx_with_effects(effects).and_then(|()| {
-            for event in events {
+            for event in impact.damage {
                 self.apply_owned_combat_damage_with_effects(&event, effects)?;
             }
-            if detonation_pose.is_some()
+            if let Some(death) = impact.virtual_death {
+                self.dispatch_virtual_projectile_death(death, epoch, effects)?;
+            }
+            if impact.detonation_pose.is_some()
                 && let Some((generation, epoch)) = birth
                 && self.spawn_identity_matches(id, generation, epoch)
             {

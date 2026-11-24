@@ -67,6 +67,241 @@ fn shell(id: ObjectId, source: ObjectId) -> Projectile {
 
 const DETONATION_CHILD: &str = "DetonationBasisChild";
 
+#[test]
+fn standalone_impact_ocl_uses_launch_controller_and_shell_after_launcher_changes() {
+    const LIST: &str = "StandaloneImpact";
+    let fixture = |child: &str| {
+        let mut world = configured_world();
+        // Same faction on purpose. Faction defaults cannot identify the owner.
+        world.add_player(Player::new(2, Team::USA, "CapturingPlayer", false));
+        world
+            .templates
+            .insert(child.into(), ThingTemplate::new(child));
+        world
+            .admit_object_creation_list_sources([format!(
+                "ObjectCreationList {LIST}
+ CreateObject
+  ObjectNames = {child}
+  RequiresLivePlayer = Yes
+  Disposition = LIKE_EXISTING
+  Offset = X:2 Y:0 Z:0
+ End
+End"
+            )])
+            .unwrap();
+        let muzzle = Vec3::new(10.0, 5.0, 20.0);
+        let launcher = world
+            .create_object_for_player("CallbackSource", 1, muzzle)
+            .unwrap();
+
+        let mut shot = super::tests::lifecycle_test_pending_projectile(
+            "StandaloneTestShell",
+            None,
+            muzzle + 40.0 * Vec3::Z,
+        );
+        shot.shooter_id = launcher;
+        shot.shooter_pos = muzzle;
+        shot.source_context = None;
+        shot.speed = 30.0;
+        shot.splash_radius = 0.0;
+        shot.detonation_fx_name.clear();
+        shot.detonation_ocl_name = LIST.into();
+        shot.projectile_lifecycle = Some(HostProjectileLifecycle::DumbProjectile {
+            max_lifespan_frames: 1,
+            detonate_calls_kill: false,
+        });
+        queue_projectile_direct(&mut world.combat_system, shot);
+        world
+            .materialize_owned_queued_projectiles_with_effects(&mut Default::default())
+            .unwrap();
+        let projectile = world
+            .combat_system
+            .get_projectiles()
+            .values()
+            .next()
+            .unwrap();
+        assert_eq!(projectile.source_owner_player_id, Some(1));
+        assert!(projectile.projectile_actor_birth.is_none());
+        let id = projectile.id;
+        (world, launcher, id)
+    };
+    let (mut captured, launcher, shell) = fixture("CapturedLauncherChild");
+    let (mut removed, peer_launcher, peer_shell) = fixture("RemovedLauncherChild");
+    assert_eq!((launcher, shell), (peer_launcher, peer_shell));
+    assert!(captured.transfer_object_to_player(launcher, 2).unwrap());
+    removed.destroy_object(peer_launcher).unwrap();
+    removed.process_destroy_list();
+    assert!(removed.host_object(peer_launcher).is_none());
+    let builder = crate::save_load::SnapshotBuilder::new();
+    let saved = builder.create_world_snapshot(&removed).unwrap();
+    let bytes = bincode_legacy::serialize(&saved).unwrap();
+    let saved = crate::save_load::snapshot::decode_bincode_world_snapshot(&bytes).unwrap();
+    let (mut restored, _, _) = fixture("RemovedLauncherChild");
+    builder
+        .restore_from_snapshot(&saved, &mut restored)
+        .unwrap();
+    assert!(restored.host_object(peer_launcher).is_none());
+
+    let check = |world: &mut GameLogic, child_name: &str| {
+        let projectile_position = world.combat_system.get_projectiles()[&shell].position;
+        world.frame += 1;
+        assert_eq!(
+            world.update_owned_projectile_impacts(1.0 / 30.0).unwrap(),
+            vec![shell]
+        );
+        let child = world
+            .host_objects()
+            .registered_values()
+            .find(|object| object.template_name == child_name)
+            .expect("the shell's impact creates an object even after the launcher changed");
+        assert_eq!(child.owner_player_id, Some(1));
+        assert_eq!(child.producer_id, Some(shell));
+        assert!((child.get_position().x - projectile_position.x).abs() < 1.0e-5);
+        assert!(child.get_position().z >= projectile_position.z + 2.0);
+    };
+    check(&mut captured, "CapturedLauncherChild");
+    assert!(
+        !removed
+            .host_objects()
+            .registered_values()
+            .any(|object| object.template_name == "CapturedLauncherChild")
+    );
+    check(&mut removed, "RemovedLauncherChild");
+    check(&mut restored, "RemovedLauncherChild");
+}
+
+#[cfg(feature = "game_client")]
+#[test]
+fn standalone_projectile_die_follows_warhead_body_and_retains_its_producer() {
+    use crate::game_logic::{NativeAudioEffects, ScriptPresentationEffects};
+    use game_engine::common::audio::{AudioEventRts, AudioSubmissionLocality};
+
+    #[derive(Default)]
+    struct Audio(Vec<String>);
+    impl NativeAudioEffects for Audio {
+        fn add_audio_event(&mut self, event: &AudioEventRts, _: &AudioSubmissionLocality) {
+            self.0.push(event.get_event_name().to_owned());
+        }
+    }
+
+    let mut world = configured_world();
+    world.add_player(Player::new(2, Team::China, "Victim", false));
+    for cue in ["WarheadImpact", "VictimDied", "ShellDied"] {
+        world
+            .admit_fx_source(&format!(
+                "FXList FX_{cue}\n Sound\n Name = {cue}\n End\nEnd\n"
+            ))
+            .unwrap();
+    }
+    world
+        .admit_object_ini_sources([(
+            "standalone-die.ini".into(),
+            r"
+Object Launcher
+ KindOf = VEHICLE
+End
+Object ImpactVictim
+ KindOf = VEHICLE
+ Body = ActiveBody VictimBody
+  MaxHealth = 10
+  InitialHealth = 10
+ End
+ Behavior = FXListDie VictimDie
+  DeathFX = FX_VictimDied
+ End
+End
+Object StandaloneDieShell
+ KindOf = PROJECTILE
+ Behavior = FXListDie ShellDie
+  DeathFX = FX_ShellDied
+ End
+ Behavior = CreateObjectDie ShellCreates
+  CreationList = StandaloneDieObjects
+ End
+End
+Object ShellChild
+ KindOf = INFANTRY
+End
+"
+            .into(),
+        )])
+        .unwrap();
+    world
+        .admit_object_creation_list_sources([r"
+ObjectCreationList StandaloneDieObjects
+ CreateObject
+  ObjectNames = ShellChild
+  RequiresLivePlayer = Yes
+ End
+End
+"
+        .into()])
+        .unwrap();
+    let muzzle = Vec3::new(1.0, 0.0, 1.0);
+    let impact = muzzle + Vec3::X;
+    let launcher = world
+        .create_object_for_player("Launcher", 1, muzzle)
+        .unwrap();
+    let victim = world
+        .create_object_for_player("ImpactVictim", 2, impact)
+        .unwrap();
+    let mut shot =
+        super::tests::lifecycle_test_pending_projectile("StandaloneDieShell", Some(victim), impact);
+    shot.shooter_id = launcher;
+    shot.shooter_pos = muzzle;
+    shot.source_context = None;
+    shot.speed = 30.0;
+    // Dumb flight detonates at a position. The warhead needs area damage
+    // to hit the separate victim when the lifespan expires.
+    shot.splash_radius = 8.0;
+    shot.damage_type = DamageType::Unresistable;
+    shot.detonation_fx_name = "FX_WarheadImpact".into();
+    shot.die_on_detonate = true;
+    shot.projectile_lifecycle = Some(HostProjectileLifecycle::DumbProjectile {
+        max_lifespan_frames: 1,
+        detonate_calls_kill: false,
+    });
+    queue_projectile_direct(&mut world.combat_system, shot);
+    world
+        .materialize_owned_queued_projectiles_with_effects(&mut Default::default())
+        .unwrap();
+    let id = *world.combat_system.get_projectiles().keys().next().unwrap();
+
+    reveal_ranked_impact(&world);
+    let mut audio = Audio::default();
+    world.frame += 1;
+    assert_eq!(
+        world
+            .update_owned_projectile_impacts_with_effects(
+                1.0 / 30.0,
+                &mut ScriptPresentationEffects {
+                    audio: Some(&mut audio),
+                    ..Default::default()
+                },
+            )
+            .unwrap(),
+        vec![id]
+    );
+    assert!(
+        world.host_object(victim).is_none_or(|victim| !victim.health.is_alive()),
+        "the warhead must kill the admitted Body"
+    );
+    let cues: Vec<_> = audio
+        .0
+        .iter()
+        .map(String::as_str)
+        .filter(|name| ["WarheadImpact", "VictimDied", "ShellDied"].contains(name))
+        .collect();
+    assert_eq!(cues, ["WarheadImpact", "VictimDied", "ShellDied"]);
+    let child = world
+        .host_objects()
+        .registered_values()
+        .find(|object| object.template_name == "ShellChild")
+        .unwrap();
+    assert_eq!(child.owner_player_id, Some(1));
+    assert_eq!(child.producer_id, Some(id));
+}
+
 fn world_with_owned_detonation_ocl() -> (GameLogic, ObjectId, glam::Mat4) {
     const LIST: &str = "OwnedProjectileDetonation";
     let mut world = configured_world();
@@ -129,7 +364,7 @@ fn owned_impact_ocl_inherits_the_projectile_owner_and_basis_before_retirement() 
 #[test]
 fn owned_impact_ocl_cannot_use_a_replacement_with_the_same_id() {
     let (mut world, id, pose) = world_with_owned_detonation_ocl();
-    let (_, retired, _) = world.combat_system.prepare_projectile_impact_with_runtime(
+    let impact = world.combat_system.prepare_projectile_impact_with_runtime(
         id,
         ProjectileCallback::Update(1.0 / 30.0),
         &mut world.objects,
@@ -142,7 +377,7 @@ fn owned_impact_ocl_cannot_use_a_replacement_with_the_same_id() {
         None,
         &mut (),
     );
-    assert_eq!(retired, vec![id]);
+    assert_eq!(impact.retired, vec![id]);
     let original = world.objects[&id].clone();
     let generation = original.visual_object_generation;
     world.destroy_object(id).unwrap();

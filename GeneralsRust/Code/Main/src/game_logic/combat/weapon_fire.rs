@@ -58,7 +58,7 @@ pub enum DamageEvent {
 #[derive(Debug, Clone)]
 pub(in crate::game_logic) enum ProjectileDetonationSource {
     DelayedDamage,
-    VirtualProjectile(ObjectId),
+    VirtualProjectile(VirtualProjectileImpact),
     Object {
         id: ObjectId,
         generation: u64,
@@ -69,7 +69,41 @@ pub(in crate::game_logic) enum ProjectileDetonationSource {
     },
 }
 
-/// Projectile impact effects delivered before the detonation's Body damage.
+#[derive(Debug, Clone)]
+pub(in crate::game_logic) struct VirtualProjectileImpact {
+    pub id: ObjectId,
+    pub controller: Option<u32>,
+    pub layer: u8,
+    pub pose: glam::Mat4,
+    pub primary_damage_radius: f32,
+    pub team: crate::game_logic::Team,
+    pub veterancy: crate::game_logic::VeterancyLevel,
+    pub velocity: Vec3,
+}
+
+impl VirtualProjectileImpact {
+    fn capture(projectile: &Projectile) -> Self {
+        let position = projectile.position;
+        let pose = projectile.dumb_flight_transform(position).unwrap_or_else(|| {
+            projectile.velocity.try_normalize().map_or_else(
+                || glam::Mat4::from_translation(position),
+                |direction| projectile_forward_transform(position, direction),
+            )
+        });
+        Self {
+            id: projectile.id,
+            controller: projectile.source_owner_player_id,
+            layer: projectile.flight_runtime.layer,
+            pose,
+            primary_damage_radius: projectile.explosion_radius,
+            team: projectile.source_team,
+            veterancy: projectile.source_veterancy,
+            velocity: projectile.velocity,
+        }
+    }
+}
+
+/// The Weapon::handleProjectileDetonation effects that precede warhead damage.
 #[derive(Debug, Clone)]
 pub struct ProjectileImpactFx {
     pub position: Vec3,
@@ -85,10 +119,6 @@ pub struct ProjectileImpactFx {
     /// Current projectile transform peels needed by generic OCL dispositions.
     pub source_orientation: f32,
     pub source_velocity: Vec3,
-    /// Ordered projectile Object::onDie modules admitted with this session's
-    /// projectile Object definition. Weapon detonation effects remain in the
-    /// fields above and are dispatched first.
-    pub projectile_die_effects: Vec<ProjectileDieEffect>,
 }
 
 impl ProjectileImpactFx {
@@ -115,7 +145,9 @@ impl ProjectileImpactFx {
                 weapon_key: projectile.historic_weapon_key.to_ascii_lowercase(),
                 primary_damage_radius: projectile.explosion_radius,
             },
-            None => ProjectileDetonationSource::VirtualProjectile(id),
+            None => ProjectileDetonationSource::VirtualProjectile(
+                VirtualProjectileImpact::capture(projectile),
+            ),
         };
         Some(Self {
             position,
@@ -128,13 +160,18 @@ impl ProjectileImpactFx {
             source_veterancy: projectile.source_veterancy,
             source_orientation: projectile.velocity.z.atan2(projectile.velocity.x),
             source_velocity: projectile.velocity,
-            projectile_die_effects: Vec::new(),
         })
     }
 }
 
+/// Ordered receiving Object::onDie callbacks for a projectile with no registered Body.
+pub(in crate::game_logic) struct VirtualProjectileDeath {
+    pub projectile: VirtualProjectileImpact,
+    pub effects: Vec<ProjectileDieEffect>,
+}
+
 #[derive(Debug, Clone)]
-pub enum ProjectileDieEffect {
+pub(in crate::game_logic) enum ProjectileDieEffect {
     Fx {
         name: String,
         audio: Option<String>,

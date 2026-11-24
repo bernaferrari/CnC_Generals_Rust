@@ -4,6 +4,14 @@
 use super::*;
 use gamelogic::{common::Relationship, weapon::WeaponCollideMask};
 
+#[derive(Default)]
+pub(in crate::game_logic) struct PreparedProjectileImpact {
+    pub damage: Vec<DamageEvent>,
+    pub retired: Vec<ObjectId>,
+    pub detonation_pose: Option<Vec3>,
+    pub virtual_death: Option<VirtualProjectileDeath>,
+}
+
 impl Projectile {
     /// Weapon.cpp:642–731. The partition has already confirmed geometric contact.
     pub(in crate::game_logic) fn accepts_owned_contact(
@@ -300,7 +308,7 @@ impl CombatSystem {
         fx: &mut dyn FnMut(&str, ProjectileFxObject<'_>),
         publish: &mut dyn FnMut(&Projectile),
     ) -> (Vec<DamageEvent>, Vec<ObjectId>) {
-        let (events, retired, _) = self.prepare_projectile_impact_with_runtime(
+        let impact = self.prepare_projectile_impact_with_runtime(
             proj_id,
             ProjectileCallback::Update(dt),
             objects,
@@ -313,7 +321,7 @@ impl CombatSystem {
             None,
             &mut ProjectileFxCallbacks { fx, pose: publish },
         );
-        (events, retired)
+        (impact.damage, impact.retired)
     }
     pub(in crate::game_logic) fn prepare_projectile_impact_with_runtime(
         &mut self,
@@ -330,10 +338,8 @@ impl CombatSystem {
         historic_damage_limit: u32,
         receiving_objects: Option<&crate::assets::ReceivingObjectDefinitions>,
         runtime: &mut dyn ProjectilePresentationRuntime,
-    ) -> (Vec<DamageEvent>, Vec<ObjectId>, Option<Vec3>) {
-        let mut damage_events = Vec::new();
-        let mut projectiles_to_remove = Vec::new();
-        let mut detonation_pose = None;
+    ) -> PreparedProjectileImpact {
+        let mut result = PreparedProjectileImpact::default();
         if let Some(projectile) = self.projectiles.get_mut(&proj_id) {
             if projectile.missile_motion.is_some()
                 && !objects.get(&proj_id).is_some_and(|actor| {
@@ -341,8 +347,8 @@ impl CombatSystem {
                         == Some(actor.visual_object_generation)
                 })
             {
-                projectiles_to_remove.push(proj_id);
-                return (damage_events, projectiles_to_remove, detonation_pose);
+                result.retired.push(proj_id);
+                return result;
             }
             let object_hit = match callback {
                 ProjectileCallback::ObjectContact { target, pose } => {
@@ -407,8 +413,8 @@ impl CombatSystem {
                             match objects.get_mut(&proj_id) {
                                 Some(actor) if Some(actor.visual_object_generation) == expected => Some(actor),
                                 _ => {
-                                    projectiles_to_remove.push(proj_id);
-                                    return (damage_events, projectiles_to_remove, detonation_pose);
+                                    result.retired.push(proj_id);
+                                    return result;
                                 }
                             }
                         } else {
@@ -422,19 +428,19 @@ impl CombatSystem {
                     match step {
                         ProjectileStep::Alive => {
                             if !projectile.is_warhead_armed() {
-                                return (damage_events, projectiles_to_remove, detonation_pose);
+                                return result;
                             }
                         }
                         ProjectileStep::Hold => {
                             // Detonation disables further collisions, but a missile
                             // holding after target loss remains armed and collidable.
                             if projectile.missile_drawable_hidden() || !projectile.is_warhead_armed() {
-                                return (damage_events, projectiles_to_remove, detonation_pose);
+                                return result;
                             }
                         }
                         ProjectileStep::Remove => {
-                            projectiles_to_remove.push(proj_id);
-                            return (damage_events, projectiles_to_remove, detonation_pose);
+                            result.retired.push(proj_id);
+                            return result;
                         }
                         ProjectileStep::Detonate { retain_actor, pre_physics_pose } => {
                             if retain_actor {
@@ -445,7 +451,7 @@ impl CombatSystem {
                             // detonation weapon at the projectile's current pose.
                             // A zero-radius weapon has no guessed direct victim.
                             let impact = pre_physics_pose.map_or(projectile.position, |pose| pose.w_axis.truncate());
-                            detonation_pose = Some(impact);
+                            result.detonation_pose = Some(impact);
                             Self::maybe_record_historic_bonus(
                                 &mut self.historic_bonus,
                                 frame,
@@ -454,28 +460,24 @@ impl CombatSystem {
                                 impact,
                                 objects.read(),
                             );
-                            damage_events.extend(Self::detonation_damage_event(
+                            result.damage.extend(Self::detonation_damage_event(
                                 projectile, objects.read(), impact, None,
                             ));
                             self.impact_fx.extend(ProjectileImpactFx::weapon_detonation(
                                 projectile, impact, None, pre_physics_pose,
                             ));
-                            Self::queue_missile_calls_on_die(
-                                &mut self.impact_fx,
-                                projectile,
-                                receiving_objects,
-                            );
+                            result.virtual_death = Self::collect_virtual_projectile_death(projectile, receiving_objects);
 
                             if !retain_actor {
-                                projectiles_to_remove.push(proj_id);
+                                result.retired.push(proj_id);
                             }
-                            return (damage_events, projectiles_to_remove, detonation_pose);
+                            return result;
                         }
                     }
                     // Authored Object contacts arrive from PartitionManager,
                     // after the movement of all actors has been observed.
                     if projectile.projectile_actor_birth.is_some() {
-                        return (damage_events, projectiles_to_remove, detonation_pose);
+                        return result;
                     }
                     find_standalone_projectile_hit(projectile, objects.read(), frame)
                 }
@@ -497,12 +499,12 @@ impl CombatSystem {
                             flight.garrison_hit_kill_fx(),
                             &mut |name, object| runtime.fx(name, object),
                         );
-                        projectiles_to_remove.push(proj_id);
-                        return (damage_events, projectiles_to_remove, detonation_pose);
+                        result.retired.push(proj_id);
+                        return result;
                     }
                 }
                 let impact = projectile.position;
-                detonation_pose = Some(impact);
+                result.detonation_pose = Some(impact);
                 Self::maybe_record_historic_bonus(
                     &mut self.historic_bonus,
                     frame,
@@ -511,24 +513,20 @@ impl CombatSystem {
                     impact,
                     objects.read(),
                 );
-                damage_events.extend(Self::detonation_damage_event(
+                result.damage.extend(Self::detonation_damage_event(
                     projectile, objects.read(), impact, Some(target_id),
                 ));
                 self.impact_fx.extend(ProjectileImpactFx::weapon_detonation(
                     projectile, impact, projectile.flight.is_none().then_some(target_id), None,
                 ));
-                Self::queue_missile_calls_on_die(
-                    &mut self.impact_fx,
-                    projectile,
-                    receiving_objects,
-                );
+                result.virtual_death = Self::collect_virtual_projectile_death(projectile, receiving_objects);
 
                 if !projectile.retain_detonated_missile() {
-                    projectiles_to_remove.push(proj_id);
+                    result.retired.push(proj_id);
                 } else {
                     mark_missile_detonated(objects, projectile, true);
                 }
-                return (damage_events, projectiles_to_remove, detonation_pose);
+                return result;
             }
 
             if projectile.target_id.is_none() {
@@ -536,7 +534,7 @@ impl CombatSystem {
                 let distance = projectile.position.distance(projectile.target_position);
                 if distance <= 2.0 {
                     let impact = projectile.target_position;
-                    detonation_pose = Some(projectile.position);
+                    result.detonation_pose = Some(projectile.position);
                     Self::maybe_record_historic_bonus(
                         &mut self.historic_bonus,
                         frame,
@@ -545,26 +543,22 @@ impl CombatSystem {
                         impact,
                         objects.read(),
                     );
-                    damage_events.extend(Self::detonation_damage_event(
+                    result.damage.extend(Self::detonation_damage_event(
                         projectile, objects.read(), impact, None,
                     ));
                     self.impact_fx.extend(ProjectileImpactFx::weapon_detonation(
                         projectile, impact, None, None,
                     ));
-                    Self::queue_missile_calls_on_die(
-                        &mut self.impact_fx,
-                        projectile,
-                        receiving_objects,
-                    );
+                    result.virtual_death = Self::collect_virtual_projectile_death(projectile, receiving_objects);
 
                     if !projectile.retain_detonated_missile() {
-                        projectiles_to_remove.push(proj_id);
+                        result.retired.push(proj_id);
                     } else {
                         mark_missile_detonated(objects, projectile, true);
                     }
                 }
             }
         }
-        (damage_events, projectiles_to_remove, detonation_pose)
+        result
     }
 }

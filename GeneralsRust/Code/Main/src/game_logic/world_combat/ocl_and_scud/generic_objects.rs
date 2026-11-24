@@ -4,10 +4,54 @@ use crate::game_logic::{ObjectId, ScriptPresentationEffects, Team, VeterancyLeve
 use gamelogic::object_creation_list::{DebrisDisposition, GenericObjectCreationNugget};
 use glam::{Mat4, Vec3};
 
-/// The live source identity and the pose selected by the calling OCL overload.
+#[derive(Clone, Copy)]
+pub(super) enum OclActor {
+    Object {
+        id: ObjectId,
+        birth: (u64, u64),
+    },
+    Projectile {
+        id: ObjectId,
+        controller: Option<u32>,
+        layer: u8,
+        epoch: u64,
+    },
+}
+
+impl OclActor {
+    pub(super) fn id(self) -> ObjectId {
+        match self {
+            Self::Object { id, .. } | Self::Projectile { id, .. } => id,
+        }
+    }
+
+    pub(super) fn registered(self) -> Option<(ObjectId, (u64, u64))> {
+        match self {
+            Self::Object { id, birth } => Some((id, birth)),
+            Self::Projectile { .. } => None,
+        }
+    }
+
+    pub(super) fn is_current(self, world: &GameLogic) -> bool {
+        match self {
+            Self::Object { id, birth } => world.spawn_identity_matches(id, birth.0, birth.1),
+            Self::Projectile { id, epoch, .. } => {
+                epoch == world.visual_world_epoch && !world.objects.contains_key(&id)
+            }
+        }
+    }
+
+    pub(super) fn controller(self, world: &GameLogic) -> Option<u32> {
+        match self {
+            Self::Object { id, .. } => world.objects.get(&id).and_then(|o| o.owner_player_id),
+            Self::Projectile { controller, .. } => controller,
+        }
+    }
+}
+
+/// The source identity and the pose selected by the calling OCL overload.
 pub(super) struct OclObjectSource {
-    pub(super) id: ObjectId,
-    pub(super) birth: (u64, u64),
+    pub(super) actor: OclActor,
     pub(super) owner: Option<u32>,
     pub(super) team: Team,
     pub(super) veterancy: VeterancyLevel,
@@ -47,8 +91,7 @@ impl GameLogic {
         created: &mut Vec<(ObjectId, (u64, u64))>,
     ) -> gamelogic::GameLogicResult<()> {
         let OclObjectSource {
-            id: source_id,
-            birth: source_birth,
+            actor,
             owner: source_owner_player_id,
             team: source_team,
             veterancy: source_veterancy,
@@ -70,8 +113,8 @@ impl GameLogic {
             Ok(value) => value,
             Err(_) => return Ok(()),
         };
-        let source_matches =
-            |world: &Self| world.spawn_identity_matches(source_id, source_birth.0, source_birth.1);
+        let source_id = actor.id();
+        let source_matches = |world: &Self| actor.is_current(world);
         if !source_matches(self) {
             return Ok(());
         }
@@ -272,12 +315,13 @@ impl GameLogic {
             // C++ ObjectCreationList.cpp:985-993: any created object with a
             // SlavedUpdate is enslaved to the source (startSlavedEffects ->
             // UNSELECTABLE), independent of upgrade/OCL spelling.
-            if self
-                .objects
-                .get(&created_id)
-                .is_some_and(|object| object.thing().template.slaved_update_metadata.is_some())
+            if let Some((source, birth)) = actor.registered()
+                && self
+                    .objects
+                    .get(&created_id)
+                    .is_some_and(|object| object.thing().template.slaved_update_metadata.is_some())
             {
-                self.enslave_owned_drone(created_id, source_id, source_birth);
+                self.enslave_owned_drone(created_id, source, birth);
             }
             let veterancy_health_bonus = self.veterancy_health_bonus;
             let inherit_name = self
@@ -432,7 +476,9 @@ impl GameLogic {
                     return Ok(());
                 }
                 // C++ transfers the original object's script name to the ejected actor.
-                let _ = self.transfer_script_object_name(source_id, created_id);
+                if let Some((source, _)) = actor.registered() {
+                    let _ = self.transfer_script_object_name(source, created_id);
+                }
             }
             if !birth_matches(self) {
                 continue;
@@ -458,13 +504,15 @@ impl GameLogic {
             // portable-structure case; other container kinds stay guarded.
             if generic.contain_inside_source_object {
                 let admitted = birth_matches(self)
-                    && self.admit_ocl_portable_structure(
-                        source_id,
-                        created_id,
-                        source_birth,
-                        created_birth,
-                        presentation_effects,
-                    );
+                    && actor.registered().is_some_and(|(source, birth)| {
+                        self.admit_ocl_portable_structure(
+                            source,
+                            created_id,
+                            birth,
+                            created_birth,
+                            presentation_effects,
+                        )
+                    });
                 if !admitted && birth_matches(self) {
                     // C++ reallyCreate returns firstObject even when
                     // doStuffToObj schedules that birth for destruction;

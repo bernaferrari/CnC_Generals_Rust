@@ -635,6 +635,94 @@ int main() {
     print("Original pilot death selects its authored list, then queues voice and sound")
 
 
+def verify_projectile_attribution(cxx: str, temp: Path) -> None:
+    weapon = WEAPON_SOURCE.read_text()
+    start = weapon.index("Player *owningPlayer = sourceObj->getControllingPlayer();")
+    launch = weapon[start:weapon.index("//If the player has battle plans", start)]
+    ocl = OCL_SOURCE.read_text()
+    start = ocl.index("Team *debrisOwner = ThePlayerList->getNeutralPlayer()")
+    controller = ocl[start:ocl.index("Object* container = NULL;", start)]
+    missile = OCL_SOURCE.parent / "Update/AIUpdate/MissileAIUpdate.cpp"
+    detonate = definition(missile.read_text(), r"void MissileAIUpdate::detonate\(\)")
+    cpp = temp / "projectile_attribution.cpp"
+    binary = temp / "projectile_attribution"
+    cpp.write_text(
+        r"""
+#include <cassert>
+#include <string>
+struct Player;
+struct Team { Player* controller; };
+struct Player {
+    Team team{this};
+    Team* getDefaultTeam() { return &team; }
+} owner, captor, neutral;
+enum { DAMAGE_UNRESISTABLE, DEATH_DETONATED, INVALID_ID, KILL_SELF };
+struct DamageInfo {
+    struct { int m_damageType, m_deathType, m_sourceID, m_amount; } in;
+};
+std::string events;
+struct Object {
+    Team* team;
+    const Object* producer;
+    Player* getControllingPlayer() const { return team->controller; }
+    void setProducer(const Object* value) { producer = value; }
+    int getPosition() const { return 50; }
+    Object* getBodyModule() { return this; }
+    int getMaxHealth() const { return 3; }
+    void attemptDamage(DamageInfo* damage) {
+        assert(team == &owner.team);
+        assert(damage->in.m_deathType == DEATH_DETONATED);
+        events += 'D';
+    }
+    struct Drawable { void setDrawableHidden(bool) {} };
+    Drawable* getDrawable() { return nullptr; }
+    void setStatus(int) {}
+};
+struct Factory {
+    Object* newObject(int, Team* team) { return new Object{team, nullptr}; }
+} factory, *TheThingFactory = &factory;
+int getProjectileTemplate() { return 0; }
+struct PlayerList { Player* getNeutralPlayer() { return &neutral; } } players, *ThePlayerList = &players;
+struct Weapon { bool getDieOnDetonate() const { return true; } } warhead;
+struct WeaponStore {
+    void handleProjectileDetonation(Weapon*, Object* source, int, int, bool) {
+        assert(source->getControllingPlayer() == &owner);
+        events += 'W';
+    }
+} store, *TheWeaponStore = &store;
+#define MAKE_OBJECT_STATUS_MASK(x) 0
+struct MissileAIUpdate {
+    Object* projectile;
+    Weapon* m_detonationWeaponTmpl = &warhead;
+    int m_extraBonusFlags = 0;
+    bool m_noDamage = false;
+    Object* getObject() { return projectile; }
+    void switchToState(int) {}
+    void detonate();
+};
+Object* admit(Object* sourceObj) {
+"""
+        + launch + "return projectile;\n}\n"
+        + "Team* childOwner(const Object* sourceObj) {\n" + controller + "return debrisOwner;\n}\n"
+        + detonate
+        + r"""
+int main() {
+    Object launcher{&owner.team, nullptr};
+    Object* projectile = admit(&launcher);
+    launcher.team = &captor.team;
+    assert(projectile->producer == &launcher);
+    assert(childOwner(projectile) == &owner.team);
+    MissileAIUpdate{projectile}.detonate();
+    assert(events == "WD");
+    delete projectile;
+}
+"""
+    )
+    subprocess.run([cxx, "-std=c++17", cpp, "-o", binary], check=True)
+    subprocess.run([binary], check=True)
+    print("Original projectile keeps its launch controller and damages the warhead victim before its own Die callbacks")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--cxx", default="c++")
@@ -655,6 +743,7 @@ def main() -> int:
         verify_ocl_player_eligibility(args.cxx, temp)
         verify_put_in_container(args.cxx, temp)
         verify_eject_pilot(args.cxx, temp)
+        verify_projectile_attribution(args.cxx, temp)
         verify_detonation_rank(args.cxx, temp)
         verify_detonation_fx_position(args.cxx, temp)
     if len(original) != len(CASES) or len(ported) != len(CASES):

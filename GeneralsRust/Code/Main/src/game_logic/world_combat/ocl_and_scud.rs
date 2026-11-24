@@ -7,7 +7,7 @@ use super::super::*;
 mod receiving_debris_ocl_owner_tests;
 mod generic_objects;
 mod nuke_cannon_overlord;
-use generic_objects::OclObjectSource;
+use generic_objects::{OclActor, OclObjectSource};
 mod technical_gattling_dragon;
 mod marauder_scorpion_shells;
 #[cfg(test)]
@@ -343,19 +343,46 @@ impl GameLogic {
         interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> OclExecutionOutcome {
+        let Some(id) = source_id else {
+            return OclExecutionOutcome::success(Vec::new());
+        };
+        let Some(object) = self.objects.get(&id) else {
+            return OclExecutionOutcome::success(Vec::new());
+        };
+        let actor = OclActor::Object {
+            id,
+            birth: (object.visual_object_generation, self.visual_world_epoch),
+        };
+        self.execute_ocl_for_actor(
+            ocl_name, primary, actor, source_team, source_veterancy, source_orientation,
+            source_velocity, origin, secondary, lifetime_frames, interpreter, presentation_effects,
+        )
+    }
+
+    fn execute_ocl_for_actor(
+        &mut self,
+        ocl_name: &str,
+        primary: OclPrimary,
+        actor: OclActor,
+        source_team: Team,
+        source_veterancy: VeterancyLevel,
+        source_orientation: f32,
+        source_velocity: Vec3,
+        origin: Vec3,
+        secondary: Option<(ObjectId, &crate::assets::LiveDrawPlaybackIdentity)>,
+        lifetime_frames: u32,
+        interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
+        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> OclExecutionOutcome {
         use gamelogic::object_creation_list::{
             DebrisDisposition, GenericObjectCreationNugget, ObjectCreationNugget,
         };
 
         let ocl_name = ocl_name.trim();
-        if source_id.is_none() || ocl_name.is_empty() || ocl_name.eq_ignore_ascii_case("None") {
+        if ocl_name.is_empty() || ocl_name.eq_ignore_ascii_case("None") || !actor.is_current(self) {
             return OclExecutionOutcome::success(Vec::new());
         }
-        let source_birth = source_id.and_then(|id| {
-            self.objects.get(&id).map(|source| {
-                (source.visual_object_generation, self.visual_world_epoch)
-            })
-        });
+        let source_id = actor.registered().map(|(id, _)| id);
         let Some(ocl) = self.object_creation_list_definition(ocl_name) else {
             if !matches!(primary, OclPrimary::Object { .. }) {
                 log::warn!("receiving OCL `{ocl_name}` was not admitted for this GameLogic");
@@ -369,10 +396,8 @@ impl GameLogic {
         // Check the original birth before each subsequent nugget.
         let mut created = Vec::new();
         for nugget in ocl.nuggets() {
-            if let Some(birth) = source_birth {
-                if !source_id.is_some_and(|id| self.spawn_identity_matches(id, birth.0, birth.1)) {
-                    break;
-                }
+            if !actor.is_current(self) {
+                break;
             }
             if let Some(force) = nugget.as_any().downcast_ref::<
                 gamelogic::object_creation_list::advanced_nuggets::ApplyRandomForceNugget,
@@ -426,9 +451,7 @@ impl GameLogic {
             }
             // reallyCreate checks the current controller for each nugget,
             // before reserving a container or drawing from the logic RNG.
-            let source_owner_player_id = source_id
-                .and_then(|id| self.objects.get(&id))
-                .and_then(|source| source.owner_player_id);
+            let source_owner_player_id = actor.controller(self);
             if generic.requires_live_player
                 && !source_owner_player_id
                     .and_then(|owner| self.players.get(&owner))
@@ -479,14 +502,14 @@ impl GameLogic {
                 && !matches!(primary, OclPrimary::Position)
             {
                 let above = if let Some(transform) = source_transform {
-                    source_id
-                        .and_then(|id| self.objects.get(&id))
-                        .is_some_and(|object| {
-                            let position = transform.w_axis.truncate();
-                            let ground = self.terrain_ground_height_at(position)
-                                .unwrap_or(object.ground_height);
-                            object.height_treats_as_airborne(position.y - ground)
-                        })
+                    let position = transform.w_axis.truncate();
+                    let object = source_id.and_then(|id| self.objects.get(&id));
+                    let ground = self.terrain_ground_height_at(position)
+                        .unwrap_or_else(|| object.map_or(position.y, |object| object.ground_height));
+                    object.map_or_else(
+                        || position.y - ground > -9.0 * self.physics_definitions.effective.gravity,
+                        |object| object.height_treats_as_airborne(position.y - ground),
+                    )
                 } else {
                     let terrain_y = self.terrain_height_at(origin).unwrap_or(origin.y);
                     crate::game_logic::host_usa_pilot::is_significantly_above_terrain(
@@ -500,8 +523,9 @@ impl GameLogic {
             if !generic.name_are_objects {
                 let debris = self.execute_receiving_create_debris(
                     generic,
-                    source_id.expect("validated above"),
-                    source_birth.expect("source birth captured"),
+                    actor,
+                    source_owner_player_id,
+                    source_orientation,
                     source_team,
                     origin,
                     matches!(primary, OclPrimary::Position).then_some(source_orientation),
@@ -515,12 +539,8 @@ impl GameLogic {
                 }
                 continue;
             }
-            let Some((id, birth)) = source_id.zip(source_birth) else {
-                return OclExecutionOutcome::success(created);
-            };
             let source = OclObjectSource {
-                id,
-                birth,
+                actor,
                 owner: source_owner_player_id,
                 team: source_team,
                 veterancy: source_veterancy,
@@ -554,8 +574,9 @@ impl GameLogic {
     fn execute_receiving_create_debris(
         &mut self,
         generic: &gamelogic::object_creation_list::GenericObjectCreationNugget,
-        source_id: ObjectId,
-        source_birth: (u64, u64),
+        actor: OclActor,
+        owner_player_id: Option<u32>,
+        flight_orientation: f32,
         source_team: Team,
         origin: Vec3,
         positional_orientation: Option<f32>,
@@ -607,17 +628,19 @@ impl GameLogic {
             );
             return OclExecutionOutcome::success(Vec::new());
         }
-        let Some((owner_player_id, source_layer, source_forward, source_orientation)) =
-            self.objects.get(&source_id).map(|source| {
-                (
-                    source.owner_player_id,
-                    source.pathfind_layer,
-                    source.thing().get_direction_vector(),
-                    source.get_orientation(),
-                )
-            })
-        else {
-            return OclExecutionOutcome::success(Vec::new());
+        let source_id = actor.id();
+        let (source_layer, source_forward, source_orientation) = match actor {
+            OclActor::Object { id, .. } => {
+                let Some(source) = self.objects.get(&id) else {
+                    return OclExecutionOutcome::success(Vec::new());
+                };
+                (source.pathfind_layer, source.thing().get_direction_vector(), source.get_orientation())
+            }
+            OclActor::Projectile { layer, .. } => (
+                layer,
+                Vec3::X,
+                flight_orientation,
+            ),
         };
         let team = if owner_player_id.is_some() {
             source_team
@@ -631,7 +654,7 @@ impl GameLogic {
         let mut created = Vec::new();
         let count = u32::try_from(generic.debris_to_generate).unwrap_or_default();
         for _ in 0..count {
-            if !self.spawn_identity_matches(source_id, source_birth.0, source_birth.1) {
+            if !actor.is_current(self) {
                 break;
             }
             // C++ selects ModelNames before calling GameLODManager::isDebrisSkipped.
@@ -846,11 +869,25 @@ impl GameLogic {
         &mut self,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> gamelogic::GameLogicResult<()> {
+        let impacts = self.combat_system.take_impact_fx();
+        self.dispatch_projectile_impacts_with_effects(
+            &impacts, self.visual_world_epoch, presentation_effects,
+        )
+    }
+
+    fn dispatch_projectile_impacts_with_effects(
+        &mut self,
+        impacts: &[crate::game_logic::combat::ProjectileImpactFx],
+        epoch: u64,
+        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> gamelogic::GameLogicResult<()> {
         use crate::game_logic::combat::ProjectileDetonationSource;
         use crate::game_logic::weapon_bootstrap::game_logic_veterancy;
 
-        let impacts = self.combat_system.take_impact_fx();
         for impact in impacts {
+            if self.visual_world_epoch != epoch {
+                break;
+            }
             let ranked_weapon = match &impact.detonation_source {
                 ProjectileDetonationSource::Object { id, generation, epoch, weapon_key, .. } => {
                     if !self.spawn_identity_matches(*id, *generation, *epoch) {
@@ -859,6 +896,11 @@ impl GameLogic {
                     self.weapon_definitions.as_ref()
                         .and_then(|definitions| definitions.get(weapon_key))
                         .map(|rule| (rule.clone(), self.objects[id].experience.level))
+                }
+                ProjectileDetonationSource::VirtualProjectile(projectile)
+                    if self.objects.contains_key(&projectile.id) =>
+                {
+                    continue;
                 }
                 _ => None,
             };
@@ -871,7 +913,7 @@ impl GameLogic {
             ).trim();
             if !fx_name.is_empty() && !fx_name.eq_ignore_ascii_case("None") {
                 self.dispatch_projectile_detonation_fx(
-                    &impact,
+                    impact,
                     fx_name,
                     ranked_weapon.as_ref().map(|(rule, _)| rule.as_ref()),
                     presentation_effects,
@@ -899,7 +941,16 @@ impl GameLogic {
                         None
                     }
                 }
-                source if !impact.detonation_ocl_name.is_empty() => {
+                ProjectileDetonationSource::VirtualProjectile(projectile)
+                    if !impact.detonation_ocl_name.is_empty() =>
+                {
+                    self.execute_virtual_projectile_ocl(
+                        &impact.detonation_ocl_name, projectile, presentation_effects,
+                    ).error
+                }
+                ProjectileDetonationSource::DelayedDamage
+                    if !impact.detonation_ocl_name.is_empty() =>
+                {
                     let outcome = self.execute_parsed_weapon_ocl_with_births(
                         &impact.detonation_ocl_name,
                         Some(impact.shooter_id),
@@ -911,18 +962,12 @@ impl GameLogic {
                         None,
                         presentation_effects,
                     );
-                    let producer = match source {
-                        ProjectileDetonationSource::VirtualProjectile(id) => Some(*id),
-                        _ => None,
-                    };
                     for &(id, (generation, epoch)) in &outcome.created {
                         if self.spawn_identity_matches(id, generation, epoch)
                             && let Some(object) = self.objects.get_mut(&id)
                             && object.has_native_emp_update()
                         {
-                            // Virtual flights lack an Object overload.
-                            // Preserve the producer used by the pulse at fade.
-                            object.producer_id = producer;
+                            object.producer_id = None;
                         }
                     }
                     outcome.error
@@ -932,62 +977,82 @@ impl GameLogic {
             if let Some(error) = error {
                 return Err(error);
             }
-            for effect in &impact.projectile_die_effects {
-                match effect {
-                    crate::game_logic::combat::ProjectileDieEffect::Fx {
-                        name,
-                        audio,
-                        orient_to_object,
-                    } => {
-                        if !name.trim().is_empty() && !name.eq_ignore_ascii_case("None") {
-                            let matrix = orient_to_object.then(|| {
-                                glam::Mat4::from_translation(impact.position)
-                                    * glam::Mat4::from_rotation_y(-impact.source_orientation)
-                            });
-                            let _ = self.dispatch_fx_list_at_host_position_oriented_with_effects(
-                                name,
-                                impact.position,
-                                None,
-                                0.0,
-                                0.0,
-                                matrix,
-                                presentation_effects,
-                            );
-                        }
-                        if let Some(audio) = audio.as_deref().filter(|name| !name.is_empty()) {
-                            self.queue_audio_event(
-                                crate::game_logic::AudioEventRequest::new(audio)
-                                    .with_position(impact.position),
-                            );
-                        }
-                    }
-                    crate::game_logic::combat::ProjectileDieEffect::Ocl(ocl) => {
-                        // Preserve the existing OCL creation, receiving owner,
-                        // and impact origin. The bridge's source identity is
-                        // still the firing object because virtual projectiles
-                        // do not have a HostObjectStore birth receipt; C++
-                        // CreateObjectDie instead passes the dying projectile.
-                        // Track that attribution mismatch in hq-6lwbil rather
-                        // than dropping the authored effect or inventing an ID.
-                        let outcome = self.execute_parsed_weapon_ocl_with_births(
-                            ocl,
-                            Some(impact.shooter_id),
-                            impact.source_team,
-                            impact.source_veterancy,
-                            impact.source_orientation,
-                            impact.source_velocity,
-                            impact.position,
+        }
+        Ok(())
+    }
+
+    pub(in crate::game_logic) fn dispatch_virtual_projectile_death(
+        &mut self,
+        death: crate::game_logic::combat::VirtualProjectileDeath,
+        epoch: u64,
+        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> gamelogic::GameLogicResult<()> {
+        use crate::game_logic::combat::ProjectileDieEffect;
+
+        let projectile = death.projectile;
+        let position = projectile.pose.w_axis.truncate();
+        for effect in death.effects {
+            if self.visual_world_epoch != epoch || self.objects.contains_key(&projectile.id) {
+                break;
+            }
+            match effect {
+                ProjectileDieEffect::Fx { name, audio, orient_to_object } => {
+                    if !name.trim().is_empty() && !name.eq_ignore_ascii_case("None") {
+                        let _ = self.dispatch_fx_list_at_host_position_oriented_with_effects(
+                            &name,
+                            position,
                             None,
+                            0.0,
+                            0.0,
+                            orient_to_object.then_some(projectile.pose),
                             presentation_effects,
                         );
-                        if let Some(error) = outcome.error {
-                            return Err(error);
-                        }
+                    }
+                    if let Some(audio) = audio.filter(|name| !name.is_empty()) {
+                        self.queue_audio_event(
+                            crate::game_logic::AudioEventRequest::new(&audio)
+                                .with_position(position),
+                        );
+                    }
+                }
+                ProjectileDieEffect::Ocl(ocl) => {
+                    let outcome = self.execute_virtual_projectile_ocl(
+                        &ocl, &projectile, presentation_effects,
+                    );
+                    if let Some(error) = outcome.error {
+                        return Err(error);
                     }
                 }
             }
         }
         Ok(())
+    }
+
+    fn execute_virtual_projectile_ocl(
+        &mut self,
+        list: &str,
+        projectile: &crate::game_logic::combat::VirtualProjectileImpact,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> OclExecutionOutcome {
+        self.execute_ocl_for_actor(
+            list,
+            OclPrimary::Object { pre_physics_pose: Some(projectile.pose) },
+            OclActor::Projectile {
+                id: projectile.id,
+                controller: projectile.controller,
+                layer: projectile.layer,
+                epoch: self.visual_world_epoch,
+            },
+            if projectile.controller.is_some() { projectile.team } else { Team::Neutral },
+            projectile.veterancy,
+            projectile.velocity.z.atan2(projectile.velocity.x),
+            projectile.velocity,
+            projectile.pose.w_axis.truncate(),
+            None,
+            0,
+            None,
+            effects,
+        )
     }
 
     fn dispatch_projectile_detonation_fx(
@@ -1045,7 +1110,10 @@ impl GameLogic {
                 };
                 (position, Some(pose), rule.map_or(0.0, |rule| rule.weapon_speed), *primary_damage_radius)
             }
-            _ => {
+            ProjectileDetonationSource::VirtualProjectile(projectile) => {
+                (impact.position, Some(projectile.pose), 0.0, projectile.primary_damage_radius)
+            }
+            ProjectileDetonationSource::DelayedDamage => {
                 let shooter = self.objects.get(&impact.shooter_id);
                 (
                     impact.position,

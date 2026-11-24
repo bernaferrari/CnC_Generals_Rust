@@ -445,19 +445,18 @@ impl CombatSystem {
     /// C++ MissileAIUpdate::detonate: after handleProjectileDetonation, MissileCallsOnDie
     /// applies UNRESISTABLE / DETONATED / maxHealth to the **projectile** so its Die
     /// modules run. Victim splash keeps the weapon DeathType.
-    fn queue_missile_calls_on_die(
-        impact_fx: &mut Vec<ProjectileImpactFx>,
+    fn collect_virtual_projectile_death(
         projectile: &Projectile,
         receiving_objects: Option<&crate::assets::ReceivingObjectDefinitions>,
-    ) {
+    ) -> Option<VirtualProjectileDeath> {
         // Canonical objects finish their own death through the world Body
         // path; this shim is only for virtual projectiles.
         if !projectile.die_on_detonate || projectile.projectile_actor_birth.is_some() {
-            return;
+            return None;
         }
         let name = projectile.projectile_object_name.trim();
         if name.is_empty() {
-            return;
+            return None;
         }
         let Some(definition) = receiving_objects
             .and_then(|definitions| definitions.get(name))
@@ -466,7 +465,7 @@ impl CombatSystem {
             // A receiving catalog miss is authoritative. In particular, an
             // application AssetManager row with the same name cannot supply
             // another session's projectile Die modules.
-            return;
+            return None;
         };
         let mut die_effects = Vec::new();
         for module in &definition.behavior_modules {
@@ -518,22 +517,10 @@ impl CombatSystem {
                 _ => {}
             }
         }
-        if die_effects.is_empty() {
-            return;
-        }
-        impact_fx.push(ProjectileImpactFx {
-            position: projectile.position,
-            shooter_id: projectile.shooter_id,
-            detonation_source: ProjectileDetonationSource::VirtualProjectile(projectile.id),
-            target_id: projectile.target_id,
-            detonation_fx_name: String::new(),
-            detonation_ocl_name: String::new(),
-            source_team: projectile.source_team,
-            source_veterancy: projectile.source_veterancy,
-            source_orientation: projectile.velocity.z.atan2(projectile.velocity.x),
-            source_velocity: projectile.velocity,
-            projectile_die_effects: die_effects,
-        });
+        (!die_effects.is_empty()).then(|| VirtualProjectileDeath {
+            projectile: VirtualProjectileImpact::capture(projectile),
+            effects: die_effects,
+        })
     }
 
     /// C++ `FXList::doFXObj(d->m_garrisonHitKillFX, other, NULL)` on the
@@ -1062,7 +1049,6 @@ impl CombatSystem {
                 source_veterancy: proj.source_veterancy,
                 source_orientation: 0.0,
                 source_velocity: Vec3::ZERO,
-                projectile_die_effects: Vec::new(),
             });
         }
         events

@@ -1416,28 +1416,23 @@ pub(in crate::game_logic) mod tests {
         let peer_receiving = crate::assets::ReceivingObjectDefinitions::new(
             peer_parser.get_all_definitions().clone().into_iter(),
         );
-        let mut peer_projectile = combat
+        let peer_projectile = combat
             .projectile_mut(pid)
             .expect("same numeric projectile id in peer")
             .clone();
-        let mut peer_fx = Vec::new();
-        CombatSystem::queue_missile_calls_on_die(
-            &mut peer_fx,
+        let peer_death = CombatSystem::collect_virtual_projectile_death(
             &peer_projectile,
             Some(&peer_receiving),
-        );
-        assert!(peer_fx.iter().any(|impact| {
-            impact.projectile_die_effects.iter().any(
-                |effect| matches!(effect, ProjectileDieEffect::Fx { name, .. } if name == "FX_PeerMissileDie"),
-            )
-        }));
-        let mut missing_fx = Vec::new();
-        CombatSystem::queue_missile_calls_on_die(&mut missing_fx, &peer_projectile, None);
+        )
+        .expect("receiving projectile defines Die callbacks");
+        assert!(peer_death.effects.iter().any(
+            |effect| matches!(effect, ProjectileDieEffect::Fx { name, .. } if name == "FX_PeerMissileDie"),
+        ));
         assert!(
-            missing_fx.is_empty(),
+            CombatSystem::collect_virtual_projectile_death(&peer_projectile, None).is_none(),
             "missing receiving definitions fail closed"
         );
-        let (damage_events, _, _) = combat.prepare_projectile_impact_with_runtime(
+        let impact = combat.prepare_projectile_impact_with_runtime(
             pid,
             ProjectileCallback::Update(1.0 / 30.0),
             &mut objects,
@@ -1451,7 +1446,7 @@ pub(in crate::game_logic) mod tests {
             &mut (),
         );
         combat.apply_damage_events(
-            &damage_events,
+            &impact.damage,
             &mut objects,
             None,
             None,
@@ -1465,17 +1460,14 @@ pub(in crate::game_logic) mod tests {
             crate::game_logic::host_usa_pilot::HostDeathType::Exploded,
             "MissileCallsOnDie must not remap victim DeathType"
         );
-        let fx = combat.take_impact_fx();
+        let death = impact.virtual_death.expect("authored missile Die callbacks");
         assert!(
-            fx.iter()
-                .flat_map(|ev| &ev.projectile_die_effects)
-                .any(|effect| matches!(effect, ProjectileDieEffect::Fx { name, .. } if name == "FX_AuthoredMissileDie")),
-            "authored missile FXListDie must fire on die_on_detonate, got {fx:?}"
+            death.effects.iter().any(|effect| matches!(effect, ProjectileDieEffect::Fx { name, .. } if name == "FX_AuthoredMissileDie")),
+            "authored missile FXListDie must fire on die_on_detonate"
         );
         assert!(
-            fx.iter()
-                .all(|ev| ev.projectile_die_effects.iter().all(|effect| !matches!(effect, ProjectileDieEffect::Fx { name, .. } if name == "FX_ScudMissileDie"))),
-            "must not invent a projectile FX from its name, got {fx:?}"
+            !death.effects.iter().any(|effect| matches!(effect, ProjectileDieEffect::Fx { name, .. } if name == "FX_ScudMissileDie")),
+            "must not invent a projectile FX from its name"
         );
     }
 
