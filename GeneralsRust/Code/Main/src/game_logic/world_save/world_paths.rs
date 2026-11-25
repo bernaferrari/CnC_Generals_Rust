@@ -1262,6 +1262,7 @@ impl GameLogic {
                 o.status.disabled_held
                     || !(o.is_mobile() || o.can_attack())
                     || o.is_kind_of(crate::game_logic::KindOf::MobNexus)
+                    || o.refuses_ai_orders()
             }) {
                 continue;
             }
@@ -1376,7 +1377,8 @@ impl GameLogic {
             let Some(unit) = self.objects.lookup(&id) else {
                 continue;
             };
-            if unit.status.disabled_held || !unit.has_ai_update_interface() {
+            if unit.status.disabled_held || !unit.has_ai_update_interface() || unit.refuses_ai_orders()
+            {
                 continue;
             }
             let mut path: Vec<Vec3> = spine[start_index..=end_index].to_vec();

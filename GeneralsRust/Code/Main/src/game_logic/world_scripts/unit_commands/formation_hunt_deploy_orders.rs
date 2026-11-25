@@ -5,6 +5,9 @@ use super::*;
 impl GameLogic {
     /// Wave 231: force-attack ground location.
     pub fn unit_command_attack_ground(&mut self, id: ObjectId, location: glam::Vec3) -> bool {
+        if self.unit_refuses_ai_orders(id) {
+            return false;
+        }
         self.stamp_player_command_source(id);
         if self.note_hacker_ai_command(
             id,
@@ -56,6 +59,9 @@ impl GameLogic {
     /// `assign_unit_path` once it can move. That point is not a locomotor
     /// goal. A path the finder refuses does not walk the click.
     pub fn unit_command_move_to_moving(&mut self, id: ObjectId, destination: glam::Vec3) -> bool {
+        if self.unit_refuses_ai_orders(id) {
+            return false;
+        }
         self.stamp_player_command_source(id);
         if self.note_hacker_ai_command(
             id,
@@ -246,6 +252,9 @@ impl GameLogic {
         destination: glam::Vec3,
         clear_formation: bool,
     ) -> bool {
+        if self.unit_refuses_ai_orders(id) {
+            return false;
+        }
         if self.objects.get(&id).is_none() {
             return false;
         }
@@ -274,6 +283,9 @@ impl GameLogic {
     /// kept: a queued path, or a destination stored because the unit cannot
     /// path yet. A refused path leaves the group alone.
     pub fn unit_command_tighten_to(&mut self, id: ObjectId, destination: glam::Vec3) -> bool {
+        if self.unit_refuses_ai_orders(id) {
+            return false;
+        }
         let can = self
             .objects
             .get(&id)
@@ -375,6 +387,9 @@ impl GameLogic {
         guard_radius: f32,
         mode: GuardMode,
     ) -> bool {
+        if self.unit_refuses_ai_orders(id) {
+            return false;
+        }
         self.stamp_player_command_source(id);
         let movable = self.objects.get(&id).map(|u| u.can_move()).unwrap_or(false);
         if !self.host_unit_can_guard(id) {
@@ -486,6 +501,9 @@ impl GameLogic {
         location: glam::Vec3,
         max_shots: i32,
     ) -> bool {
+        if self.unit_refuses_ai_orders(id) {
+            return false;
+        }
         self.stamp_player_command_source(id);
         if !matches!(
             self.get_able_to_use_weapon_against_target(
@@ -510,6 +528,9 @@ impl GameLogic {
         location: glam::Vec3,
         max_shots: i32,
     ) -> gamelogic::GameLogicResult<bool> {
+        if self.unit_refuses_ai_orders(id) {
+            return Ok(false);
+        }
         self.stamp_player_command_source(id);
         let Some((range, contact, source_off_map)) =
             self.host_object(id).map(|source| {
@@ -658,6 +679,9 @@ impl GameLogic {
 
     /// Wave 232: hunt/patrol residual.
     pub fn unit_command_patrol(&mut self, id: ObjectId) -> bool {
+        if self.unit_refuses_ai_orders(id) {
+            return false;
+        }
         self.stamp_player_command_source(id);
         self.unit_command_hunt_transition(id)
     }
@@ -668,7 +692,7 @@ impl GameLogic {
         let Some(object) = self
             .objects
             .get_mut(&id)
-            .filter(|object| object.has_ai_update_interface())
+            .filter(|object| object.has_ai_update_interface() && !object.refuses_ai_orders())
         else {
             return false;
         };
@@ -682,6 +706,7 @@ impl GameLogic {
         // touching the receiving machine or its command source.
         let Some(object) = self.objects.get_mut(&id).filter(|object| {
             object.has_ai_update_interface()
+                && !object.refuses_ai_orders()
                 && object.is_mobile_for_ai_command()
                 && !object.is_kind_of(KindOf::Projectile)
         }) else {
@@ -953,6 +978,9 @@ impl GameLogic {
 
     /// Wave 232: attack nearest of team without force flag (attack-team residual).
     pub fn unit_command_attack_soft(&mut self, id: ObjectId, target_id: ObjectId) -> bool {
+        if self.unit_refuses_ai_orders(id) {
+            return false;
+        }
         // AI/script acquisition is subject to the same real WeaponSet masks,
         // with CMD_FROM_PLAYER false so C++ AI relationship behavior remains
         // distinct from an explicit right-click.
@@ -1051,6 +1079,9 @@ impl GameLogic {
         goal: glam::Vec3,
         click_destination: glam::Vec3,
     ) -> bool {
+        if self.unit_refuses_ai_orders(id) {
+            return false;
+        }
         if self.objects.get(&id).is_none() {
             return false;
         }

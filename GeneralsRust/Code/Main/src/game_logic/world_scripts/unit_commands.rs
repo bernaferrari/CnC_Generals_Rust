@@ -47,6 +47,10 @@ fn stamp_last_command_from_player(unit: &mut Object) {
 }
 
 impl GameLogic {
+    pub(crate) fn unit_refuses_ai_orders(&self, id: ObjectId) -> bool {
+        self.objects.get(&id).is_some_and(Object::refuses_ai_orders)
+    }
+
     fn stamp_player_command_source(&mut self, id: ObjectId) {
         if let Some(unit) = self.objects.get_mut(&id) {
             stamp_last_command_from_player(unit);

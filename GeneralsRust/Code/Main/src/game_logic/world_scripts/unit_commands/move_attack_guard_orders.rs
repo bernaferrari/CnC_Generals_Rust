@@ -5,6 +5,9 @@ use super::*;
 impl GameLogic {
     /// Stop the current attack, then queue a path. A refused path stays refused.
     pub fn unit_command_move_to(&mut self, id: ObjectId, destination: glam::Vec3) -> bool {
+        if self.unit_refuses_ai_orders(id) {
+            return false;
+        }
         self.stamp_player_command_source(id);
         self.unit_command_move_owned(id, destination, true)
     }
@@ -15,6 +18,9 @@ impl GameLogic {
         id: ObjectId,
         destination: glam::Vec3,
     ) -> bool {
+        if self.unit_refuses_ai_orders(id) {
+            return false;
+        }
         if let Some(object) = self.objects.get_mut(&id) {
             object.last_command_source =
                 crate::game_logic::host_command_button_hunt::HUNT_CMD_FROM_SCRIPT;
@@ -32,7 +38,7 @@ impl GameLogic {
         let Some(object) = self
             .objects
             .get_mut(&id)
-            .filter(|object| object.has_ai_update_interface())
+            .filter(|object| object.has_ai_update_interface() && !object.refuses_ai_orders())
         else {
             return false;
         };
@@ -128,6 +134,9 @@ impl GameLogic {
         destination: glam::Vec3,
         waypoints: &[glam::Vec3],
     ) -> bool {
+        if self.unit_refuses_ai_orders(id) {
+            return false;
+        }
         self.stamp_player_command_source(id);
         if self.objects.get(&id).is_none() {
             return false;
@@ -161,6 +170,9 @@ impl GameLogic {
 
     /// Wave 232: force-move — stop attack, path, force Moving state.
     pub fn unit_command_force_move_to(&mut self, id: ObjectId, destination: glam::Vec3) -> bool {
+        if self.unit_refuses_ai_orders(id) {
+            return false;
+        }
         self.stamp_player_command_source(id);
         if self.objects.get(&id).is_none() {
             return false;
@@ -197,6 +209,9 @@ impl GameLogic {
         id: ObjectId,
         target_id: ObjectId,
     ) -> gamelogic::GameLogicResult<bool> {
+        if self.unit_refuses_ai_orders(id) {
+            return Ok(false);
+        }
         self.stamp_player_command_source(id);
         self.unit_command_attack_with_source(id, target_id, true, false, -1, &mut Default::default())
     }
@@ -207,6 +222,9 @@ impl GameLogic {
         id: ObjectId,
         target_id: ObjectId,
     ) -> gamelogic::GameLogicResult<bool> {
+        if self.unit_refuses_ai_orders(id) {
+            return Ok(false);
+        }
         if let Some(unit) = self.host_object_mut(id) {
             unit.last_command_source =
                 crate::game_logic::host_command_button_hunt::HUNT_CMD_FROM_SCRIPT;
@@ -232,6 +250,9 @@ impl GameLogic {
         max_shots: i32,
         effects: &mut ScriptPresentationEffects<'_>,
     ) -> gamelogic::GameLogicResult<bool> {
+        if self.unit_refuses_ai_orders(id) {
+            return Ok(false);
+        }
         self.stamp_player_command_source(id);
         self.unit_command_attack_with_source(id, target_id, true, false, max_shots, effects)
     }
@@ -241,6 +262,9 @@ impl GameLogic {
         target_id: ObjectId,
         effects: &mut ScriptPresentationEffects<'_>,
     ) -> gamelogic::GameLogicResult<bool> {
+        if self.unit_refuses_ai_orders(id) {
+            return Ok(false);
+        }
         if let Some(unit) = self.host_object_mut(id) {
             unit.last_command_source =
                 crate::game_logic::host_command_button_hunt::HUNT_CMD_FROM_SCRIPT;
@@ -427,6 +451,9 @@ impl GameLogic {
         source: u32,
         effects: &mut ScriptPresentationEffects<'_>,
     ) -> gamelogic::GameLogicResult<bool> {
+        if self.unit_refuses_ai_orders(id) {
+            return Ok(false);
+        }
         if !self.objects.contains_key(&target_id) {
             return Ok(false);
         }
@@ -481,6 +508,9 @@ impl GameLogic {
         target_id: ObjectId,
         effects: &mut ScriptPresentationEffects<'_>,
     ) -> gamelogic::GameLogicResult<bool> {
+        if self.unit_refuses_ai_orders(id) {
+            return Ok(false);
+        }
         if self.note_hacker_ai_command(
             id,
             crate::game_logic::host_hacker_income::PendingHackerCommand::Attack(target_id),
@@ -576,6 +606,9 @@ impl GameLogic {
         source: u32,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> gamelogic::GameLogicResult<bool> {
+        if self.unit_refuses_ai_orders(id) {
+            return Ok(false);
+        }
         // JetAIUpdate::doCommand handles airborne Idle before the base
         // AIUpdateInterface::privateIdle path. It clears the retained machine,
         // enters RETURNING_FOR_LANDING, and does not recursively idle riders.
@@ -806,6 +839,9 @@ impl GameLogic {
         pos: glam::Vec3,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> bool {
+        if self.unit_refuses_ai_orders(id) {
+            return false;
+        }
         let prior = self
             .objects
             .get(&id)
@@ -961,6 +997,9 @@ impl GameLogic {
         target_id: ObjectId,
         player: bool,
     ) -> bool {
+        if self.unit_refuses_ai_orders(id) {
+            return false;
+        }
         let prior = self
             .objects
             .get(&id)
@@ -1072,6 +1111,9 @@ impl GameLogic {
         max_shots: i32,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> gamelogic::GameLogicResult<bool> {
+        if self.unit_refuses_ai_orders(id) {
+            return Ok(false);
+        }
         self.stamp_player_command_source(id);
         self.unit_command_attack_move_owned_with_effects(id, destination, max_shots, effects)
     }
@@ -1095,6 +1137,9 @@ impl GameLogic {
         destination: glam::Vec3,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> gamelogic::GameLogicResult<bool> {
+        if self.unit_refuses_ai_orders(id) {
+            return Ok(false);
+        }
         if let Some(unit) = self.host_object_mut(id) {
             unit.last_command_source =
                 crate::game_logic::host_command_button_hunt::HUNT_CMD_FROM_SCRIPT;

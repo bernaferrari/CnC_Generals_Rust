@@ -751,6 +751,101 @@ fn artillery_departure_uses_saved_3d_facing_and_kills_only_while_turning() {
 }
 
 #[test]
+fn departing_artillery_refuses_external_ai_orders_across_save_load() {
+    use crate::command_executor::CommandExecutor;
+    use crate::game_logic::host_command_button_hunt::{HUNT_CMD_FROM_AI, HUNT_CMD_FROM_SCRIPT};
+    use crate::save_load::SaveFileManager;
+
+    crate::game_logic::game_logic::pose_owner_tests::isolated_at(
+        module_path!(),
+        "departing_artillery_refuses_external_ai_orders_across_save_load",
+        || {
+            let temp = tempfile::tempdir().unwrap();
+            let path = flat_recovery_map(temp.path());
+            let prepare = || {
+                let mut world = world_with_delivery_carrier(0, 0, Some(true), "No");
+                assert!(world.load_map(path.to_str().unwrap()));
+                world.add_player(Player::new(1, Team::China, "Owner", true));
+                world.add_player(Player::new(2, Team::GLA, "Target", false));
+                world
+            };
+            let aim = Vec3::new(80.0, 0.0, 82.0);
+            let diversion = Vec3::new(50.0, 0.0, 210.0);
+            let mut incoming = prepare();
+            let (_, incoming_id, _) = activate(&mut incoming, aim);
+            let mut departing = prepare();
+            let (_, carrier, victim) = activate(&mut departing, aim);
+            assert_eq!(incoming_id, carrier);
+            departing.set_fixture_object_position(carrier, aim + Vec3::new(40.0, 300.0, 0.0));
+            for frame in [60, 61, 62] {
+                departing.frame = frame;
+                departing.update_artillery_barrage_flights().unwrap();
+            }
+            assert!(departing.objects[&carrier].ultra_accurate);
+            assert_eq!(departing.combat_system.get_projectiles().len(), 1);
+
+            let mut saves = SaveFileManager::with_save_directory(temp.path().join("orders"));
+            saves.init().unwrap();
+            saves.quick_save(&departing).unwrap();
+            let decoded = saves.load_game_snapshot("quicksave").unwrap();
+            let mut restored = prepare();
+            saves
+                .restore_game_snapshot(&decoded.snapshot, &mut restored)
+                .unwrap();
+
+            for world in [&mut departing, &mut restored] {
+                let aircraft = &world.objects[&carrier];
+                let route = aircraft.movement.path.clone();
+                let waypoint = aircraft.movement.target_position;
+                let destination = aircraft.requested_destination;
+                let source = aircraft.last_command_source;
+                assert!(!route.is_empty());
+                assert!(destination.is_some());
+
+                assert!(
+                    !world.unit_command_stop(carrier).unwrap(),
+                    "idle must not clear the departure route"
+                );
+                assert!(!world.unit_command_script_move_to(carrier, diversion));
+                assert!(!world.unit_command_ai_move_to(carrier, diversion));
+                assert!(!world.unit_command_move_to(carrier, diversion));
+                assert!(!world.unit_command_force_move_to(carrier, diversion));
+                assert!(!world.unit_command_move_to_waypoints(carrier, diversion, &[aim]));
+                assert!(!world.unit_command_guard_position(carrier, diversion));
+                assert!(!world.unit_command_patrol(carrier));
+                assert!(!world.unit_command_script_attack(carrier, victim).unwrap());
+                world.apply_owned_idle(carrier, HUNT_CMD_FROM_SCRIPT);
+                let mut commands = CommandExecutor::new(world, 1);
+                commands
+                    .execute_script_team_move(&[carrier], diversion)
+                    .unwrap();
+                commands
+                    .execute_follow_waypoint_path(&[carrier], &[aim, diversion], true, true)
+                    .unwrap();
+                commands.execute_add_waypoint(&[carrier], diversion);
+
+                let aircraft = &world.objects[&carrier];
+                assert_eq!(aircraft.movement.path, route);
+                assert_eq!(aircraft.movement.target_position, waypoint);
+                assert_eq!(aircraft.requested_destination, destination);
+                assert_eq!(aircraft.last_command_source, source);
+                world.frame = 63;
+                world.update_artillery_barrage_flights().unwrap();
+                assert!(world.objects[&carrier].is_alive());
+                assert_eq!(world.objects[&carrier].requested_destination, destination);
+            }
+
+            assert!(incoming.unit_command_ai_move_to(carrier, diversion));
+            assert_eq!(
+                incoming.objects[&carrier].last_command_source,
+                HUNT_CMD_FROM_AI
+            );
+            assert!(incoming.unit_command_stop(carrier).unwrap());
+        },
+    );
+}
+
+#[test]
 fn recovering_artillery_runs_wing_hold_and_restarts_approach_in_the_fixed_tick() {
     crate::game_logic::game_logic::pose_owner_tests::isolated_at(
         module_path!(),

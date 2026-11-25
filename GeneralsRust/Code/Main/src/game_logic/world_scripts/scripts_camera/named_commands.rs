@@ -76,6 +76,7 @@ impl GameLogic {
         unit.is_alive()
             && !unit.status.effectively_dead
             && !sleeping_ai
+            && !unit.refuses_ai_orders()
             && unit.is_mobile_for_ai_command()
             && !unit.is_kind_of(KindOf::Projectile)
     }
@@ -148,7 +149,7 @@ impl GameLogic {
         let Some(unit) = self.host_object(id) else {
             return;
         };
-        if !unit.has_ai_update_interface() {
+        if !unit.has_ai_update_interface() || unit.refuses_ai_orders() {
             return;
         }
         let occupants = if unit.thing().template.contain_module.kind != ContainModuleKind::None {

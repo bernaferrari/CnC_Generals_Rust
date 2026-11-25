@@ -992,6 +992,9 @@ impl<'a> CommandExecutor<'a> {
 
         let mut any = false;
         for (unit_id, pos, form_off) in movers {
+            if self.game_logic.unit_refuses_ai_orders(unit_id) {
+                continue;
+            }
             let offset = if as_team {
                 if use_formation {
                     form_off
@@ -1472,6 +1475,9 @@ impl<'a> CommandExecutor<'a> {
             let _ = self
                 .game_logic
                 .unit_command_set_formation(unit_id, 0, glam::Vec2::ZERO);
+            if self.game_logic.unit_refuses_ai_orders(unit_id) {
+                continue;
+            }
             let accepted = if self.game_logic.uses_selected_ground_follow_path(unit_id) {
                 self.game_logic
                     .append_selected_ground_follow_path(unit_id, goal)
@@ -1535,7 +1541,11 @@ impl<'a> CommandExecutor<'a> {
             if self
                 .game_logic
                 .host_object(unit_id)
-                .is_some_and(|o| o.status.disabled_held || !(o.is_mobile() || o.can_attack()))
+                .is_some_and(|o| {
+                    o.status.disabled_held
+                        || !(o.is_mobile() || o.can_attack())
+                        || o.refuses_ai_orders()
+                })
             {
                 continue;
             }

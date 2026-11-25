@@ -2289,6 +2289,9 @@ impl GameLogic {
             });
 
         for (unit_id, pos, form_off) in movers {
+            if self.unit_refuses_ai_orders(unit_id) {
+                continue;
+            }
             let offset = if as_team {
                 if use_formation {
                     form_off
@@ -2423,6 +2426,9 @@ impl GameLogic {
         force_normal: bool,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> gamelogic::GameLogicResult<()> {
+        if self.unit_refuses_ai_orders(id) {
+            return Ok(());
+        }
         self.drop_jet_targeters_on_attack_exit(id);
         self.clear_unit_movement_path(id);
         let frame = self.frame;
@@ -2459,6 +2465,9 @@ impl GameLogic {
         victim_team: &str,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> gamelogic::GameLogicResult<()> {
+        if self.unit_refuses_ai_orders(unit_id) {
+            return Ok(());
+        }
         if let Some(team) = Self::resolve_host_team_name(victim_team) {
             if team != crate::game_logic::Team::Neutral {
                 if let Some(unit) = self.objects.get_mut(&unit_id) {
@@ -2531,6 +2540,9 @@ impl GameLogic {
         area_name: &str,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> gamelogic::GameLogicResult<()> {
+        if self.unit_refuses_ai_orders(unit_id) {
+            return Ok(());
+        }
         let tag = format!("AIGroup.AttackArea.poly:{area_name}");
         let center = self
             .host_named_guard_area_polygon(area_name)

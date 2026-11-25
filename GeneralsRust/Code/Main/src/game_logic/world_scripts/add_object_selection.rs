@@ -421,6 +421,9 @@ impl GameLogic {
                 })
                 .collect();
             for &object_id in &selected {
+                if self.unit_refuses_ai_orders(object_id) {
+                    continue;
+                }
                 if self.flight_deck_ai_do_command_with_effects(
                     object_id,
                     crate::game_logic::host_flight_deck::HostFlightDeckCommand::Idle,
@@ -477,6 +480,9 @@ impl GameLogic {
                 })
                 .collect();
             for &object_id in &selected {
+                if self.unit_refuses_ai_orders(object_id) {
+                    continue;
+                }
                 if self.flight_deck_ai_do_command_with_effects(
                     object_id,
                     crate::game_logic::host_flight_deck::HostFlightDeckCommand::AttackMoveToPosition,

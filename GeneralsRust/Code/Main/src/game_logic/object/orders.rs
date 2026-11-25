@@ -3,6 +3,14 @@ use super::*;
 mod battle_bus;
 
 impl Object {
+    /// DeliverPayloadAIUpdate.cpp:137–145, 1155–1162. HeadOffMap keeps
+    /// driving its own locomotor while refusing newly issued AI orders.
+    pub(crate) fn refuses_ai_orders(&self) -> bool {
+        self.artillery_barrage_transport
+            .as_ref()
+            .is_some_and(|flight| flight.is_departing())
+    }
+
     /// CPP Object.cpp2878: AI command mobility reads KINDOF_IMMOBILE and
     /// the object's disabled mask. Construction status is a separate flag.
     pub(crate) fn is_mobile_for_ai_command(&self) -> bool {

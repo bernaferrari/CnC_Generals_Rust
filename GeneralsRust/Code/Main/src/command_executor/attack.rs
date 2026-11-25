@@ -97,6 +97,9 @@ impl<'a> CommandExecutor<'a> {
         );
         let mut any = false;
         for &unit_id in units {
+            if self.game_logic.unit_refuses_ai_orders(unit_id) {
+                continue;
+            }
             let (alive, skip_struct, my_team) = match self.game_logic.host_object(unit_id) {
                 Some(unit) => (
                     unit.is_alive(),
@@ -832,6 +835,9 @@ impl<'a> CommandExecutor<'a> {
         let radius = radius.max(1.0);
         let mut any = false;
         for &unit_id in units {
+            if self.game_logic.unit_refuses_ai_orders(unit_id) {
+                continue;
+            }
             let (alive, can_move) = {
                 let Some(unit) = self.game_logic.host_object(unit_id) else {
                     continue;

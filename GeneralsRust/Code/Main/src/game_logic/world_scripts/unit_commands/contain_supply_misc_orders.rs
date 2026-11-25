@@ -41,6 +41,9 @@ impl GameLogic {
         id: ObjectId,
         target: Option<ObjectId>,
     ) -> gamelogic::GameLogicResult<bool> {
+        if self.unit_refuses_ai_orders(id) {
+            return Ok(false);
+        }
         let should_enter_idle = {
             let Some(unit) = self.objects.get_mut(&id) else {
                 return Ok(false);
@@ -693,6 +696,9 @@ impl GameLogic {
 
     /// Wave 233: order target + Entering state (deploy-to-garrison residual).
     pub fn unit_command_order_enter(&mut self, id: ObjectId, target_id: ObjectId) -> bool {
+        if self.unit_refuses_ai_orders(id) {
+            return false;
+        }
         let Some(unit) = self.objects.get_mut(&id) else {
             return false;
         };
@@ -856,6 +862,9 @@ impl GameLogic {
 
     /// Wave 233: infantry go-prone residual.
     pub fn unit_command_go_prone(&mut self, id: ObjectId, prone_secs: f32) -> bool {
+        if self.unit_refuses_ai_orders(id) {
+            return false;
+        }
         let Some(unit) = self.objects.get_mut(&id) else {
             return false;
         };
@@ -1154,6 +1163,9 @@ impl GameLogic {
         ignore_obstacle: Option<ObjectId>,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> gamelogic::GameLogicResult<bool> {
+        if self.unit_refuses_ai_orders(id) {
+            return Ok(false);
+        }
         if !self.assign_unit_path_ignoring(id, goal, &[], ignore_obstacle) {
             return Ok(false);
         }

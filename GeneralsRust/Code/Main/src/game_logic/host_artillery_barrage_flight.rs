@@ -374,10 +374,13 @@ impl HostArtilleryBarrageFlightData {
     }
 
     pub(crate) fn may_release_payload(&self) -> bool {
-        self.payload.is_some()
-            && !self.authored.as_ref().is_some_and(|state| {
-                matches!(state.phase, ArtilleryDeliveryPhase::HeadOffMap { .. })
-            })
+        self.payload.is_some() && !self.is_departing()
+    }
+
+    pub(crate) fn is_departing(&self) -> bool {
+        self.authored
+            .as_ref()
+            .is_some_and(|state| matches!(state.phase, ArtilleryDeliveryPhase::HeadOffMap { .. }))
     }
 
     pub(crate) fn is_recovering_off_map(&self) -> bool {

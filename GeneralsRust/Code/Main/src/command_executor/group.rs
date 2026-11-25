@@ -188,7 +188,11 @@ impl<'a> CommandExecutor<'a> {
     pub(crate) fn apply_group_desired_speed(&mut self, units: &[ObjectId], use_group: bool) {
         if !use_group {
             for &id in units {
-                if let Some(o) = self.game_logic.host_object_mut(id) {
+                if let Some(o) = self
+                    .game_logic
+                    .host_object_mut(id)
+                    .filter(|o| !o.refuses_ai_orders())
+                {
                     o.group_speed_factor = 1.0;
                 }
             }
@@ -196,7 +200,11 @@ impl<'a> CommandExecutor<'a> {
         }
         let gs = self.group_speed(units);
         for &id in units {
-            if let Some(o) = self.game_logic.host_object_mut(id) {
+            if let Some(o) = self
+                .game_logic
+                .host_object_mut(id)
+                .filter(|o| !o.refuses_ai_orders())
+            {
                 let max = o.effective_max_speed();
                 o.group_speed_factor = if gs > 0.0 && max > 1.0e-4 {
                     (gs / max).clamp(0.0, 1.0)
