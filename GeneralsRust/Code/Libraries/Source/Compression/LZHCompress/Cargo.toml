@@ -3,10 +3,14 @@ name = "lzh_compression"
 version = "2.0.0"
 edition.workspace = true
 rust-version.workspace = true
+
 authors = ["GeneralsRust Team"]
 description = "Modern Rust implementation of LZH compression algorithm with SIMD and GPU acceleration"
 license = "GPL-3.0"
 repository = "https://github.com/GeneralsRust/LZHCompress"
+
+[lints]
+workspace = true
 
 [features]
 default = ["simd", "parallel"]

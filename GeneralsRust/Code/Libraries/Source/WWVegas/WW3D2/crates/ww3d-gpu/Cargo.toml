@@ -3,7 +3,11 @@ name = "ww3d-gpu"
 version = "0.1.0"
 edition.workspace = true
 rust-version.workspace = true
+
 description = "WW3D GPU Abstraction Layer - Cross-platform graphics API wrapper"
+
+[lints]
+workspace = true
 
 [dependencies]
 ww3d-core = { path = "../ww3d-core" }

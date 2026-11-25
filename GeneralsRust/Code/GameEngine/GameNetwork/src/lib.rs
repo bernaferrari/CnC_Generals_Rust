@@ -9,15 +9,12 @@
 #![allow(unused_assignments)]
 #![allow(deprecated)]
 #![allow(nonstandard_style)]
-#![allow(unconditional_recursion)]
 #![allow(mismatched_lifetime_syntaxes)]
 #![allow(unexpected_cfgs)]
 #![allow(private_interfaces)]
 #![allow(missing_docs)]
 #![allow(unused_parens)]
-#![allow(unused_must_use)]
 #![allow(unreachable_patterns)]
-#![allow(noop_method_call)]
 #![allow(rust_2018_idioms)]
 
 //! # GameNetwork - Modern Networking for Command & Conquer Generals Zero Hour
@@ -50,9 +47,7 @@
 
 #![allow(missing_docs)]
 #![allow(unused_parens)]
-#![allow(unused_must_use)]
 #![allow(unreachable_patterns)]
-#![allow(noop_method_call)]
 #![allow(rust_2018_idioms)]
 #![allow(
     clippy::module_name_repetitions,

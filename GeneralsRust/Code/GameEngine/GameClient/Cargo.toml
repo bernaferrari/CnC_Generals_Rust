@@ -3,6 +3,7 @@ name = "game-client-rust"
 version = "0.1.0"
 edition.workspace = true
 rust-version.workspace = true
+
 description = "Rust conversion of Command & Conquer Generals Zero Hour GameClient"
 license = "GPL-3.0-or-later"
 authors = ["Command & Conquer Generals Zero Hour Contributors"]
@@ -11,6 +12,9 @@ keywords = ["game", "graphics", "rts", "cnc", "generals"]
 categories = ["games", "graphics", "multimedia"]
 autoexamples = false
 
+
+[lints]
+workspace = true
 
 [dependencies]
 generals_particles = { path = "../Particles" }

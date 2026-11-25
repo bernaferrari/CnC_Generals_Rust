@@ -3,9 +3,13 @@ name = "game_network"
 version = "0.1.0"
 edition.workspace = true
 rust-version.workspace = true
+
 authors = ["AI Assistant"]
 description = "Modern networking system for Command & Conquer Generals Zero Hour"
 license = "GPL-3.0"
+
+[lints]
+workspace = true
 
 [lib]
 name = "game_network"

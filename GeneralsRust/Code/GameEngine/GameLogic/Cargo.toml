@@ -25,7 +25,6 @@ game_network = { path = "../GameNetwork", optional = true }
 # Math and geometry
 math_utilities = { path = "../../Libraries/Source/WWVegas/WWMath" }
 glam = {workspace = true, features = ["serde"]}
-cgmath = {workspace = true}
 
 # Synchronization and collections
 parking_lot = {workspace = true}
@@ -55,7 +54,6 @@ async-trait = {workspace = true}
 # Random number generation
 
 # For AI pathfinding algorithms
-petgraph = {workspace = true}
 pathfinding = {workspace = true}
 
 # For SIMD optimizations
@@ -66,11 +64,8 @@ rayon = {workspace = true}
 num_cpus = {workspace = true}
 
 # For spatial data structures
-kdtree = {workspace = true, optional = true}
-rstar = {workspace = true, optional = true}
 
 # For physics calculations
-rapier3d = {workspace = true, optional = true}
 
 # For scripting engine
 rhai = {workspace = true, features = ["sync"]}
@@ -117,8 +112,6 @@ modern_behaviors = []
 # Performance and debugging features
 dump_perf_stats = []
 simd = ["wide"]
-physics = ["rapier3d"]
-spatial_optimization = ["kdtree", "rstar"]
 
 # Transitional feature gate for the unfinished direct C++ port.
 legacy_port = []

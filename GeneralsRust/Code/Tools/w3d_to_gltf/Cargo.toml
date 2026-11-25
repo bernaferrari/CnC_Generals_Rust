@@ -3,8 +3,12 @@ name = "w3d_to_gltf"
 version = "0.1.0"
 edition.workspace = true
 rust-version.workspace = true
+
 description = "A robust W3D to glTF converter for Command & Conquer Generals"
 authors = ["Claude Code"]
+
+[lints]
+workspace = true
 
 [dependencies]
 byteorder = {workspace = true}

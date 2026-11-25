@@ -6,5 +6,6 @@ rust-version.workspace = true
 license.workspace = true
 description = "Renderer-independent Generals UI interaction and transition policy"
 
+
 [lints]
 workspace = true

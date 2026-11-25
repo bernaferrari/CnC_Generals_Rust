@@ -4,6 +4,9 @@ version = "0.1.0"
 edition.workspace = true
 rust-version.workspace = true
 
+[lints]
+workspace = true
+
 [lib]
 name = "big_unpack"
 path = "src/lib.rs"

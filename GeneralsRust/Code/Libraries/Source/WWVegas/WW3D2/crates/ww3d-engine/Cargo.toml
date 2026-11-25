@@ -3,8 +3,12 @@ name = "ww3d-engine"
 version = "0.1.0"
 edition.workspace = true
 rust-version.workspace = true
+
 license = "GPL-3.0-or-later"
 publish = false
+
+[lints]
+workspace = true
 
 [dependencies]
 ww3d-gpu = { path = "../ww3d-gpu" }

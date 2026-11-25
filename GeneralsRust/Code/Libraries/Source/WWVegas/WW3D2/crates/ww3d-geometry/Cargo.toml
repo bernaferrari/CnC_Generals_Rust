@@ -3,7 +3,11 @@ name = "ww3d-geometry"
 version = "0.1.0"
 edition.workspace = true
 rust-version.workspace = true
+
 description = "WW3D Geometry Engine - Mesh geometry, collision detection, and spatial partitioning"
+
+[lints]
+workspace = true
 
 [dependencies]
 ww3d-core = { path = "../ww3d-core" }

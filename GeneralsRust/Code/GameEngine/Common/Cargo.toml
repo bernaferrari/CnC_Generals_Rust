@@ -5,6 +5,9 @@ edition.workspace = true
 rust-version.workspace = true
 
 
+[lints]
+workspace = true
+
 [dependencies]
 generals_fx = { path = "../FX" }
 
@@ -44,7 +47,6 @@ cpal = {workspace = true, optional = true}
 symphonia = {workspace = true, features = ["all"], optional = true}
 # hound = { version = "3.5", optional = true }  # Now required
 realfft = {workspace = true, optional = true}
-rubato = {workspace = true, optional = true}
 # Required dependencies for audio system
 crossbeam-channel = {workspace = true}
 hound = {workspace = true}
@@ -98,7 +100,7 @@ winit = {workspace = true, optional = true}
 test-ambient-services = []
 default = ["async", "graphics", "audio"]
 async = ["tokio", "async-trait", "futures"]
-audio = ["cpal", "symphonia", "realfft", "rubato"]
+audio = ["cpal", "symphonia", "realfft"]
 browser-audio = ["audio", "dep:rodio", "dep:rodio_compat", "rodio/wasm-bindgen", "dep:web-time"]
 compression = ["lz4", "zstd"]
 graphics = ["wgpu", "winit"]
