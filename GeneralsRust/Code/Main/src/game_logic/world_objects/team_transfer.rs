@@ -10,6 +10,14 @@ pub(super) struct HostNeutralTeam {
     pub(super) identity: u32,
 }
 
+/// The already committed team transition whose Object callbacks are running.
+pub(in crate::game_logic) struct ObjectCapture {
+    pub birth: std::sync::Weak<()>,
+    pub destination: u32,
+    pub old_owner: Option<u32>,
+    pub new_owner: u32,
+}
+
 impl GameLogic {
     /// ScriptActions and NeutronBlastBehavior hand an unmanned object to the
     /// receiving Neutral Team after finishing their own disable callbacks.
@@ -365,7 +373,12 @@ impl GameLogic {
                 faction,
                 old_owner != Some(owner),
                 effects,
-                Some((old_birth.clone(), old_owner, Some(owner))),
+                Some(ObjectCapture {
+                    birth: old_birth.clone(),
+                    destination,
+                    old_owner,
+                    new_owner: owner,
+                }),
             )?;
             if !self.object_birth_matches(id, &old_birth)
                 || self.objects.get(&id).and_then(|object| object.team_instance_id)

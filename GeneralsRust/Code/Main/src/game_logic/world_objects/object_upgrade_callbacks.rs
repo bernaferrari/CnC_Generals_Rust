@@ -25,7 +25,7 @@ struct AuthoredStatusBitsUpgrade {
     data: ModuleDataView<gamelogic::object::upgrade::status_bits_upgrade::StatusBitsUpgradeModuleData>,
 }
 
-struct AuthoredCostModifierUpgrade {
+pub(in crate::game_logic) struct AuthoredCostModifierUpgrade {
     source_index: usize,
     state_index: usize,
     data: ModuleDataView<gamelogic::object::upgrade::cost_modifier_upgrade::CostModifierUpgradeModuleData>,
@@ -142,7 +142,7 @@ impl GameLogic {
         })
     }
 
-    fn authored_cost_modifier_modules(
+    pub(in crate::game_logic) fn authored_cost_modifier_modules(
         &mut self,
         object_id: ObjectId,
     ) -> Vec<AuthoredCostModifierUpgrade> {
@@ -173,56 +173,28 @@ impl GameLogic {
         modules
     }
 
-    pub(in crate::game_logic) fn cost_modifier_on_capture(
+    /// CostModifierUpgrade::onCapture, at this module's slot in Object::onCapture.
+    pub(in crate::game_logic) fn capture_cost_modifier_slot(
         &mut self,
         object_id: ObjectId,
-        birth: &std::sync::Weak<()>,
+        module: &AuthoredCostModifierUpgrade,
         old_owner: Option<u32>,
         new_owner: Option<u32>,
     ) {
-        let modules = self.authored_cost_modifier_modules(object_id);
-        for module in modules {
-            if !self.object_birth_matches(object_id, birth)
-                || self.objects.get(&object_id)
-                    .and_then(|object| self.player_owner_for_host_object(object)) != new_owner
-            {
-                return;
-            }
-            let applied = self
-                .objects
-                .get(&object_id)
-                .and_then(|object| {
-                    object
-                        .cost_modifier_upgrade_executed
-                        .get(module.state_index)
-                })
-                .copied()
-                .unwrap_or(false);
-            if !applied {
-                continue;
-            }
-            if let Some(player) = old_owner.and_then(|id| self.players.get_mut(&id)) {
-                let data = module.data.read();
-                player.remove_authored_kind_of_production_cost_change(data.kind_of(), data.percentage());
-                if let Some(executed) = self.objects.get_mut(&object_id).and_then(|object| {
-                    object
-                        .cost_modifier_upgrade_executed
-                        .get_mut(module.state_index)
-                }) {
-                    *executed = false;
-                }
-            }
-            if let Some(player) = new_owner.and_then(|id| self.players.get_mut(&id)) {
-                let data = module.data.read();
-                player.add_authored_kind_of_production_cost_change(data.kind_of(), data.percentage());
-                if let Some(executed) = self.objects.get_mut(&object_id).and_then(|object| {
-                    object
-                        .cost_modifier_upgrade_executed
-                        .get_mut(module.state_index)
-                }) {
-                    *executed = true;
-                }
-            }
+        let Some(executed) = self.objects.get_mut(&object_id)
+            .and_then(|object| object.cost_modifier_upgrade_executed.get_mut(module.state_index))
+            .filter(|executed| **executed)
+        else {
+            return;
+        };
+        let data = module.data.read();
+        if let Some(player) = old_owner.and_then(|id| self.players.get_mut(&id)) {
+            player.remove_authored_kind_of_production_cost_change(data.kind_of(), data.percentage());
+            *executed = false;
+        }
+        if let Some(player) = new_owner.and_then(|id| self.players.get_mut(&id)) {
+            player.add_authored_kind_of_production_cost_change(data.kind_of(), data.percentage());
+            *executed = true;
         }
     }
 
@@ -2100,7 +2072,7 @@ mod cost_modifier_receiving_owner_tests {
         use crate::presentation_frame::PresentationFrame;
         use crate::save_load::{SnapshotBuilder, snapshot::decode_bincode_world_snapshot};
 
-        fn world(contain_class: &str) -> (GameLogic, u32) {
+        fn world(contain_class: &str, hull_cost_first: bool) -> (GameLogic, u32) {
             let mut world = GameLogic::new();
             for (id, color) in [(1, (255, 0, 0)), (2, (0, 0, 255))] {
                 let mut player = Player::new(id, Team::USA, "PortableOwner", true);
@@ -2136,6 +2108,12 @@ mod cost_modifier_receiving_owner_tests {
                 let id = team.read().unwrap().get_id();
                 id
             };
+            let hull_cost = format!("Behavior = CostModifierUpgrade HullCost\n TriggeredBy = {UPGRADE}\n EffectKindOf = VEHICLE\n Percentage = -10%\nEnd");
+            let (before_payload, after_payload) = if hull_cost_first {
+                (hull_cost.as_str(), "")
+            } else {
+                ("", hull_cost.as_str())
+            };
             world
                 .admit_object_ini_sources([(
                     "portable-capture.ini".to_owned(),
@@ -2146,11 +2124,17 @@ Object CaptureHull
   MaxHealth = 100
   InitialHealth = 100
  End
+ Behavior = GrantUpgradeCreate GrantHullCost
+  UpgradeToGrant = {UPGRADE}
+  ExemptStatus = UNDER_CONSTRUCTION
+ End
+ {before_payload}
  Behavior = {contain_class} PayloadContain
   Slots = 1
   AllowInsideKindOf = {hull_admission}
   PayloadTemplateName = CapturePayload CapturePassenger
  End
+ {after_payload}
 End
 Object CapturePayload
  KindOf = VEHICLE PORTABLE_STRUCTURE SELECTABLE
@@ -2205,9 +2189,14 @@ End
             [1, 2].map(|player| world.modified_build_cost_supplies(player, "CaptureHull", 800))
         }
 
-        for contain_class in ["HelixContain", "OverlordContain"] {
-            let (mut receiver, hull_team) = world(contain_class);
-            let (mut peer, peer_hull_team) = world(contain_class);
+        fn cost_order(world: &GameLogic, owner: u32) -> Vec<f32> {
+            world.players[&owner].kind_of_production_cost_changes
+                .iter().map(|entry| entry.percent).collect()
+        }
+
+        for (contain_class, hull_cost_first) in [("HelixContain", false), ("OverlordContain", true)] {
+            let (mut receiver, hull_team) = world(contain_class, hull_cost_first);
+            let (mut peer, peer_hull_team) = world(contain_class, hull_cost_first);
             assert_eq!(peer_hull_team, hull_team);
             let (hull, payload) = spawn(&mut receiver);
             assert_eq!(spawn(&mut peer), (hull, payload));
@@ -2223,11 +2212,20 @@ End
             let original_team = receiver.host_default_team_id(1).unwrap();
             let capture_default = receiver.host_default_team_id(2).unwrap();
             assert_ne!(hull_team, capture_default);
-            assert_eq!(quote(&receiver), [600, 800]);
+            let before = quote(&receiver);
+            assert_eq!(before, [539, 800]);
             assert!(receiver.set_host_object_team(hull, hull_team).unwrap());
 
-            assert_eq!(quote(&receiver), [800, 600], "{contain_class}");
-            assert_eq!(quote(&peer), [600, 800], "same ObjectIds in the peer");
+            let expected_cost_order = if hull_cost_first {
+                [-0.10, -0.25]
+            } else {
+                [-0.25, -0.10]
+            };
+            assert_eq!(cost_order(&receiver, 2), expected_cost_order,
+                "{contain_class}: nested transfer runs at the containment module's slot");
+            assert_eq!(quote(&receiver), [before[1], before[0]], "{contain_class}");
+            assert_eq!(quote(&peer), before, "same ObjectIds in the peer");
+            assert!(cost_order(&peer, 2).is_empty());
             let child = receiver.host_object(payload).unwrap();
             assert_eq!(child.team_instance_id, Some(capture_default));
             assert_eq!(child.contained_by, Some(hull));
@@ -2271,10 +2269,11 @@ End
             let saved = builder.create_world_snapshot(&receiver).unwrap();
             let bytes = bincode_legacy::serialize(&saved).unwrap();
             let decoded = decode_bincode_world_snapshot(&bytes).unwrap();
-            let (mut restored, restored_hull_team) = world(contain_class);
+            let (mut restored, restored_hull_team) = world(contain_class, hull_cost_first);
             assert_eq!(restored_hull_team, hull_team);
             builder.restore_from_snapshot(&decoded, &mut restored).unwrap();
-            assert_eq!(quote(&restored), [800, 600]);
+            assert_eq!(quote(&restored), [before[1], before[0]]);
+            assert_eq!(cost_order(&restored, 2), expected_cost_order);
             assert_eq!(
                 restored.host_object(payload).unwrap().team_instance_id,
                 Some(capture_default)

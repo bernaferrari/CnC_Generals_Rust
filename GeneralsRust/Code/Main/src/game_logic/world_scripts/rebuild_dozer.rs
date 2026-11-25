@@ -3,6 +3,9 @@
 //! capture / sell / dozer / rebuild holes / sole benefactor
 #![allow(unused_imports, non_snake_case)]
 use super::super::*;
+use crate::game_logic::world_objects::ObjectCapture;
+
+mod capture_modules;
 
 impl GameLogic {
     #[cfg(test)]
@@ -458,7 +461,7 @@ impl GameLogic {
         new_team: Team,
         owner_changed: bool,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-        capture_context: Option<(std::sync::Weak<()>, Option<u32>, Option<u32>)>,
+        capture_context: Option<ObjectCapture>,
     ) -> gamelogic::GameLogicResult<()> {
         let Some(object) = self.objects.get(&object_id) else {
             return Ok(());
@@ -502,29 +505,11 @@ impl GameLogic {
             }
         }
 
-        // CostModifierUpgrade is an Object::onCapture module callback. The
-        // C++ path reaches it after aiIdle and score credit, before the later
-        // receiving-side capture callback residuals below. The receipt keeps
-        // this transition tied to the original object birth and owners if
-        // either earlier phase reenters the world.
-        if let Some((birth, old_owner, new_owner)) = &capture_context {
-            self.cost_modifier_on_capture(object_id, birth, *old_owner, *new_owner);
-            self.capture_plant_power_bonuses(object_id, birth, *old_owner, *new_owner);
-        }
-
-        // Module callbacks run even for different teams controlled by one player.
-        self.on_capture_tunnel_network_residual_with_effects(
-            object_id, old_team, new_team, effects,
-        );
-        self.on_capture_kick_passengers_owned_with_effects(object_id, owner_changed, effects)?;
-        if capture_context.as_ref().is_some_and(|(birth, _, owner)| {
-            !self.object_birth_matches(object_id, birth)
-                || self.objects.get(&object_id).and_then(|object| object.owner_player_id)
-                    != *owner
-        }) {
+        if !self.run_object_capture_modules(
+            object_id, old_team, new_team, owner_changed, capture_context.as_ref(), effects,
+        )? {
             return Ok(());
         }
-        self.capture_authored_radar_provider_with_effects(object_id, effects);
 
         // C++ Player::becomingTeamMember → awardInitialCaptureBonus always
         // resets depositOnFrame. Recapture must re-arm the 12s clock even

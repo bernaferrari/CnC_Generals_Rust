@@ -319,7 +319,7 @@ impl Object {
     /// Visit credited bonuses in behavior order. Older saves could latch
     /// several Control Rods modules in one pass but credit the bonus once.
     /// Their saved gross output bounds the number of credits we can move.
-    fn active_plant_power_bonuses(&self) -> impl Iterator<Item = PlantPowerBonus> + '_ {
+    fn active_plant_power_bonuses(&self) -> impl Iterator<Item = (usize, PlantPowerBonus)> + '_ {
         let has_control_rods = self
             .applied_upgrades
             .iter()
@@ -344,7 +344,8 @@ impl Object {
             .iter()
             .filter(move |_| has_control_rods || overcharge)
             .flat_map(|definition| &definition.behavior_modules)
-            .filter_map(move |module| {
+            .enumerate()
+            .filter_map(move |(source_index, module)| {
                 if has_control_rods
                     && rods_left != 0
                     && module.class_name.eq_ignore_ascii_case("PowerPlantUpgrade")
@@ -353,14 +354,14 @@ impl Object {
                     rod_index += 1;
                     if self.applied_upgrades.contains(&key) {
                         rods_left -= 1;
-                        Some(PlantPowerBonus::ControlRods(key))
+                        Some((source_index, PlantPowerBonus::ControlRods(key)))
                     } else {
                         None
                     }
                 } else if overcharge && module.class_name.eq_ignore_ascii_case("OverchargeBehavior")
                 {
                     overcharge = false;
-                    Some(PlantPowerBonus::Overcharge)
+                    Some((source_index, PlantPowerBonus::Overcharge))
                 } else {
                     None
                 }
@@ -412,29 +413,23 @@ impl GameLogic {
         }
     }
 
-    /// Capture runs after base Team influence is moved to the new Player.
-    pub(in crate::game_logic) fn capture_plant_power_bonuses(
+    /// Transfer one active PowerPlantUpgrade or OverchargeBehavior contribution.
+    pub(in crate::game_logic) fn capture_plant_power_bonus_slot(
         &mut self,
         id: ObjectId,
-        birth: &std::sync::Weak<()>,
+        source_index: usize,
         old_owner: Option<u32>,
         new_owner: Option<u32>,
     ) {
         let Some(object) = self.objects.get(&id).filter(|object| {
-            object.owner_player_id == new_owner
-                && birth.ptr_eq(&std::sync::Arc::downgrade(
-                    &object.visual_draw_identity_token,
-                ))
-                && !object.has_disabled_type()
+            !object.has_disabled_type()
+                && object.active_plant_power_bonuses().any(|(index, _)| index == source_index)
         }) else {
             return;
         };
         let bonus = object.get_template().energy_bonus.unwrap_or(0);
-        let count = object.active_plant_power_bonuses().count();
-        for _ in 0..count {
-            self.signal_power_bonus(old_owner, bonus.wrapping_neg());
-            self.signal_power_bonus(new_owner, bonus);
-        }
+        self.signal_power_bonus(old_owner, bonus.wrapping_neg());
+        self.signal_power_bonus(new_owner, bonus);
     }
 
     /// PowerPlantUpgrade and OverchargeBehavior both remove their active
@@ -449,7 +444,7 @@ impl GameLogic {
             .unwrap_or(0)
             .wrapping_neg();
         let bonuses: Vec<_> = object.active_plant_power_bonuses().collect();
-        for bonus in bonuses {
+        for (_, bonus) in bonuses {
             let Some(object) = self.change_object_power_bonus(id, delta) else {
                 return;
             };

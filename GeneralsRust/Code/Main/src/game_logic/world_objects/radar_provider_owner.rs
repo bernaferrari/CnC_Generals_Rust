@@ -127,8 +127,39 @@ impl GameLogic {
         }
     }
 
-    pub(crate) fn capture_authored_radar_provider(&mut self, id: ObjectId) {
-        self.capture_authored_radar_provider_with_effects(id, &mut Default::default())
+    pub(in crate::game_logic) fn capture_authored_radar_upgrade_slot(
+        &mut self,
+        id: ObjectId,
+        index: usize,
+    ) {
+        self.admit_host_radar_disabled_edges(id);
+        let Some(object) = self.objects.get(&id).filter(|object| {
+            !object.is_disabled()
+                && object.radar_upgrade_executed.get(index).copied().unwrap_or(false)
+        }) else {
+            return;
+        };
+        let Some(rules) = &object.thing().template.radar_upgrade_rules else {
+            return;
+        };
+        let Some(rule) = rules.get(index) else {
+            return;
+        };
+        let proof = rule.disable_proof;
+        let owner = self.player_owner_for_host_object(object);
+        let contributors = &mut self.objects.get_mut(&id).unwrap().radar_upgrade_contributors[index];
+        // One callback transfers one contribution. Duplicate grants remain.
+        let old = contributors.pop();
+        if let Some(owner) = owner {
+            contributors.push(owner);
+        }
+        if let Some(old) = old {
+            self.change_host_radar_provider(old, proof, false);
+        }
+        if let Some(owner) = owner {
+            self.change_host_radar_provider(owner, proof, true);
+        }
+        self.host_radar.providers.insert(id, self.host_radar_providers(id));
     }
 
     pub(crate) fn capture_authored_radar_provider_with_effects(
@@ -137,43 +168,15 @@ impl GameLogic {
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) {
         self.admit_host_radar_disabled_edges(id);
-        let Some(object) = self.objects.get(&id) else {
-            return;
-        };
-        let Some(rules) = object.thing().template.radar_upgrade_rules.clone() else {
-            self.admit_host_radar_provider_with_effects(id, effects);
-            return;
-        };
-        if object.is_disabled() {
+        if self.objects.get(&id).is_some_and(Object::is_disabled) {
             return;
         }
-        let owner = self.player_owner_for_host_object(object);
-        let executed = object.radar_upgrade_executed.clone();
-        for (index, rule) in rules.iter().enumerate() {
-            if !executed.get(index).copied().unwrap_or(false) {
-                continue;
-            }
-            let contributors = &mut self
-                .objects
-                .get_mut(&id)
-                .unwrap()
-                .radar_upgrade_contributors[index];
-            // One module callback removes one previous controller contribution,
-            // then adds one new contribution; exceptional duplicate grants remain.
-            let old = contributors.pop();
-            if let Some(owner) = owner {
-                contributors.push(owner);
-            }
-            if let Some(old) = old {
-                self.change_host_radar_provider(old, rule.disable_proof, false);
-            }
-            if let Some(owner) = owner {
-                self.change_host_radar_provider(owner, rule.disable_proof, true);
-            }
+        let slots = self.objects.get(&id)
+            .and_then(|object| object.thing().template.radar_upgrade_rules.as_ref())
+            .map_or(0, |rules| rules.len());
+        for index in 0..slots {
+            self.capture_authored_radar_upgrade_slot(id, index);
         }
-        self.host_radar
-            .providers
-            .insert(id, self.host_radar_providers(id));
         self.admit_host_radar_provider_with_effects(id, effects);
     }
 

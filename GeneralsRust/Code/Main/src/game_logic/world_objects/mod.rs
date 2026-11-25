@@ -38,6 +38,7 @@ pub(crate) mod shortcut_power;
 mod spawn_templates;
 mod support_states;
 mod team_transfer;
+pub(in crate::game_logic) use team_transfer::ObjectCapture;
 mod unit_ai_runtime;
 mod weapon_upgrades;
 
