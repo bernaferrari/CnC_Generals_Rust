@@ -54,10 +54,11 @@ pub(crate) enum ArtilleryDeliveryEvent {
     Continue,
     OpenDoor,
     Release,
-    CloseDoor,
+    Retry { close_door: bool },
+    ResumeApproach,
     BeginRecovery { close_door: bool },
     Reenter,
-    Depart,
+    Depart { close_door: bool },
 }
 
 /// Original TerrainLogic queries for the active and border-inclusive extents.
@@ -83,7 +84,7 @@ pub(crate) struct ArtilleryFlightFrame {
     /// Receiving locomotor limits in distance and radians per second.
     pub maximum_speed: f32,
     pub maximum_turn_rate: f32,
-    pub arrival_distance: f32,
+    pub move_finished: bool,
     pub map: Option<ArtilleryMapExtents>,
 }
 
@@ -230,7 +231,7 @@ impl HostArtilleryBarrageFlightData {
         let pos = flight.position;
         let Some(phase) = self.authored.as_ref().map(|state| state.phase) else {
             return if self.payload.is_none() && self.self_destruct_on_departure {
-                Event::Depart
+                Event::Depart { close_door: false }
             } else if self.payload.is_some() && self.in_delivery_band(pos) {
                 Event::Release
             } else {
@@ -238,78 +239,104 @@ impl HostArtilleryBarrageFlightData {
             };
         };
         match phase {
-            Phase::Approach if self.in_delivery_band(pos) => {
-                let state = self.authored.as_mut().expect("authored delivery");
-                state.phase = Phase::Delivering {
-                    frames_left: state.door_delay,
-                };
-                Event::OpenDoor
+            Phase::Approach => {
+                if self.in_delivery_band(pos) {
+                    let state = self.authored.as_mut().expect("authored delivery");
+                    state.phase = Phase::Delivering {
+                        frames_left: state.door_delay,
+                    };
+                    Event::OpenDoor
+                } else if self.wing_physics && flight.move_finished {
+                    self.consider_new_approach(flight, false)
+                } else {
+                    Event::Continue
+                }
             }
             Phase::Delivering { frames_left } if frames_left > 0 => {
-                self.authored.as_mut().expect("authored delivery").phase = Phase::Delivering {
+                self.set_phase(Phase::Delivering {
                     frames_left: frames_left - 1,
-                };
+                });
                 Event::Continue
             }
             Phase::Delivering { .. } => {
-                let in_band = self.in_delivery_band(pos);
-                let state = self.authored.as_mut().expect("authored delivery");
-                if in_band && self.payload.is_some() {
+                if !self.in_delivery_band(pos) {
+                    return self.consider_new_approach(flight, true);
+                }
+                if self.payload.is_some() {
+                    let state = self.authored.as_mut().expect("authored delivery");
                     state.phase = Phase::Delivering {
                         frames_left: state.drop_delay,
                     };
                     return Event::Release;
                 }
-                let (sin, cos) = flight.heading.sin_cos();
-                if !in_band && state.attempts_left > 0 {
-                    state.attempts_left -= 1;
-                    if flight.is_off_map() {
-                        // ConsiderNewApproach's condition runs on entry too.
-                        state.phase = Phase::RecoveringOffMap {
-                            reentry_frame: flight.reentry_frame(),
-                        };
-                        return Event::BeginRecovery { close_door: true };
-                    }
-                    state.phase = Phase::Reapproach {
-                        destination: pos + Vec3::new(cos, 0.0, sin) * (2.2 * flight.turn_radius()),
-                    };
-                    return Event::CloseDoor;
-                }
-                let (min_x, min_z, max_x, max_z) = self.map_edges(flight.map);
-                let destination =
-                    head_off_map_exit_point_residual(pos, cos, sin, min_x, min_z, max_x, max_z);
-                self.authored.as_mut().expect("authored delivery").phase =
-                    Phase::HeadOffMap { destination };
-                Event::Depart
+                self.depart(flight, true)
             }
             Phase::Reapproach { destination } => {
-                // This carrier's movement stops at its waypoint. Enter the
-                // next Approach without updating it a second time this frame.
-                let offset = destination - pos;
-                let arrival_distance = if self.wing_physics {
-                    flight.arrival_distance
+                let arrived = if self.wing_physics {
+                    flight.move_finished
                 } else {
-                    1.0
+                    (destination - pos).with_y(0.0).length_squared() < 1.0
                 };
-                if offset.x * offset.x + offset.z * offset.z < arrival_distance * arrival_distance {
-                    self.authored.as_mut().expect("authored delivery").phase = Phase::Approach;
+                if arrived {
+                    self.set_phase(Phase::Approach);
+                    Event::ResumeApproach
                 } else if flight.is_off_map() {
-                    self.authored.as_mut().expect("authored delivery").phase =
-                        Phase::RecoveringOffMap {
-                            reentry_frame: flight.reentry_frame(),
-                        };
-                    return Event::BeginRecovery { close_door: false };
+                    self.begin_recovery(flight, false)
+                } else {
+                    Event::Continue
                 }
-                Event::Continue
             }
             Phase::RecoveringOffMap { reentry_frame } if flight.frame >= reentry_frame => {
-                self.authored.as_mut().expect("authored delivery").phase = Phase::Approach;
+                self.set_phase(Phase::Approach);
                 Event::Reenter
             }
-            Phase::Approach | Phase::RecoveringOffMap { .. } | Phase::HeadOffMap { .. } => {
-                Event::Continue
-            }
+            Phase::RecoveringOffMap { .. } | Phase::HeadOffMap { .. } => Event::Continue,
         }
+    }
+
+    fn set_phase(&mut self, phase: ArtilleryDeliveryPhase) {
+        self.authored.as_mut().expect("authored delivery").phase = phase;
+    }
+
+    fn consider_new_approach(
+        &mut self,
+        flight: ArtilleryFlightFrame,
+        close_door: bool,
+    ) -> ArtilleryDeliveryEvent {
+        let state = self.authored.as_mut().expect("authored delivery");
+        if state.attempts_left == 0 {
+            return self.depart(flight, close_door);
+        }
+        state.attempts_left -= 1;
+        // The off-map condition runs as soon as ConsiderNewApproach enters.
+        if flight.is_off_map() {
+            return self.begin_recovery(flight, close_door);
+        }
+        let (sin, cos) = flight.heading.sin_cos();
+        let destination =
+            flight.position.with_y(0.0) + Vec3::new(cos, 0.0, sin) * (2.2 * flight.turn_radius());
+        self.set_phase(ArtilleryDeliveryPhase::Reapproach { destination });
+        ArtilleryDeliveryEvent::Retry { close_door }
+    }
+
+    fn begin_recovery(
+        &mut self,
+        flight: ArtilleryFlightFrame,
+        close_door: bool,
+    ) -> ArtilleryDeliveryEvent {
+        self.set_phase(ArtilleryDeliveryPhase::RecoveringOffMap {
+            reentry_frame: flight.reentry_frame(),
+        });
+        ArtilleryDeliveryEvent::BeginRecovery { close_door }
+    }
+
+    fn depart(&mut self, flight: ArtilleryFlightFrame, close_door: bool) -> ArtilleryDeliveryEvent {
+        let (min_x, min_z, max_x, max_z) = self.map_edges(flight.map);
+        let (sin, cos) = flight.heading.sin_cos();
+        let destination =
+            head_off_map_exit_point_residual(flight.position, cos, sin, min_x, min_z, max_x, max_z);
+        self.set_phase(ArtilleryDeliveryPhase::HeadOffMap { destination });
+        ArtilleryDeliveryEvent::Depart { close_door }
     }
 
     pub(crate) fn may_release_payload(&self) -> bool {
@@ -478,11 +505,14 @@ mod tests {
             heading: 0.0,
             maximum_speed: 10.0,
             maximum_turn_rate: 1.0,
-            arrival_distance: 2.0,
+            move_finished: false,
             map: None,
         };
         assert_eq!(flight.advance_delivery(frame_at(in_range)), Event::OpenDoor);
-        assert_eq!(flight.advance_delivery(frame_at(outside)), Event::CloseDoor);
+        assert_eq!(
+            flight.advance_delivery(frame_at(outside)),
+            Event::Retry { close_door: true }
+        );
         assert!(flight.may_release_payload());
         let (goal, _) = flight.course(outside, None);
         let next = flight.planar_step(outside, goal);
@@ -492,10 +522,13 @@ mod tests {
         );
         assert_eq!(
             flight.advance_delivery(frame_at(retry_point)),
-            Event::Continue
+            Event::ResumeApproach
         );
         assert_eq!(flight.advance_delivery(frame_at(in_range)), Event::OpenDoor);
-        assert_eq!(flight.advance_delivery(frame_at(outside)), Event::Depart);
+        assert_eq!(
+            flight.advance_delivery(frame_at(outside)),
+            Event::Depart { close_door: true }
+        );
         assert!(!flight.may_release_payload());
     }
 }

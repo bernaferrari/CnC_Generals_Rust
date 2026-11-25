@@ -179,6 +179,44 @@ impl PathRoute {
         cursor
     }
 
+    /// C++ Path::computeFlightDistToGoal selects the first unpassed node
+    /// and sums the forward projections from the saved start of the leg.
+    /// Past nodes before that first forward segment can be skipped next tick.
+    pub(in crate::game_logic) fn flight_course(
+        &self,
+        position: Vec3,
+        cursor: &mut PathCursor,
+    ) -> Option<(Vec3, f32)> {
+        let start = cursor
+            .previous()
+            .or(cursor.current())
+            .or_else(|| (!self.is_empty()).then_some(0));
+        let mut nodes = self.iter_from_raw(start);
+        let (_, first) = nodes.next()?;
+        let mut goal = first.position;
+        let mut previous = first.position;
+        let mut remaining = 0.0;
+        let mut found_forward_leg = false;
+        for (index, node) in nodes {
+            if !found_forward_leg {
+                goal = node.position;
+            }
+            let direction = (node.position - previous).with_y(0.0).normalize_or_zero();
+            let projection = (node.position - position).with_y(0.0).dot(direction);
+            if projection >= 0.0 {
+                found_forward_leg = true;
+                remaining += projection;
+            } else if !found_forward_leg {
+                *cursor = PathCursor {
+                    previous: Some(index),
+                    current: node.next_optimized.unwrap_or(usize::MAX),
+                };
+            }
+            previous = node.position;
+        }
+        Some((goal, remaining))
+    }
+
     /// Validate an untrusted persisted cursor against this route.
     pub fn cursor_from_raw(&self, previous: Option<usize>, current: Option<usize>) -> Option<PathCursor> {
         let mut preceding = None;

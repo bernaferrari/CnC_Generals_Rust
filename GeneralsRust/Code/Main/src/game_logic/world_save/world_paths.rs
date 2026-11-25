@@ -621,40 +621,9 @@ impl GameLogic {
         if unit.is_kind_of(crate::game_logic::KindOf::Aircraft)
             && !unit.is_kind_of(crate::game_logic::KindOf::Projectile)
         {
-            let start = unit.get_position();
-            let surfaces = unit.locomotor_surfaces;
-            let crusher = unit.crusher_level > 0;
-            let saved_adjust = self.pathfinding_system.adjusts_goal();
-            self.pathfinding_system.set_adjust_goal(false);
-            let path = ({
-                let ground_owner = self.world_services.terrain();
-                let ground_loan = ground_owner
-                    .read()
-                    .unwrap_or_else(|error| error.into_inner());
-                let ground_source = crate::game_logic::pathfinding::PathfindingGround::for_terrain(
-                    &ground_loan,
-                    self.map_loaded,
-                    self.terrain.as_ref(),
-                    self.pathfinding_height_samples.as_ref(),
-                    &self.pathfinding_system.grid,
-                );
-                self.pathfinding_system.find_path_ex_surfaces(
-                    start,
-                    destination,
-                    self.objects.read().with_players(&self.players).with_team_factory(&self.team_factory),
-                    true,
-                    surfaces,
-                    crusher,
-                    Some(unit_id),
-                    &ground_source,
-                )
-            })
-            .unwrap_or_else(|| {
-                let mut lifted = start;
-                lifted.y = destination.y;
-                self.route_for_points(vec![lifted, destination])
-            });
-            self.pathfinding_system.set_adjust_goal(saved_adjust);
+            let Some(path) = self.aircraft_quick_route(unit_id, destination) else {
+                return false;
+            };
             let Some(unit) = self.objects.get_mut(&unit_id) else {
                 return false;
             };
@@ -710,6 +679,54 @@ impl GameLogic {
         unit.is_blocked_and_stuck = false;
         unit.set_status_moving(true);
         true
+    }
+
+    /// C++ Pathfinder::getAircraftPath builds the direct flight leg with
+    /// authored tall-building detours for both ordinary and delivery orders.
+    pub(in crate::game_logic) fn aircraft_quick_route(
+        &mut self,
+        unit_id: ObjectId,
+        destination: Vec3,
+    ) -> Option<crate::game_logic::pathfinding::PathRoute> {
+        let unit = self.objects.lookup(&unit_id)?;
+        let start = unit.get_position();
+        let surfaces = unit.locomotor_surfaces;
+        let crusher = unit.crusher_level > 0;
+        let saved_adjust = self.pathfinding_system.adjusts_goal();
+        self.pathfinding_system.set_adjust_goal(false);
+        let path = ({
+            let ground_owner = self.world_services.terrain();
+            let ground_loan = ground_owner
+                .read()
+                .unwrap_or_else(|error| error.into_inner());
+            let ground_source = crate::game_logic::pathfinding::PathfindingGround::for_terrain(
+                &ground_loan,
+                self.map_loaded,
+                self.terrain.as_ref(),
+                self.pathfinding_height_samples.as_ref(),
+                &self.pathfinding_system.grid,
+            );
+            self.pathfinding_system.find_path_ex_surfaces(
+                start,
+                destination,
+                self.objects
+                    .read()
+                    .with_players(&self.players)
+                    .with_team_factory(&self.team_factory),
+                true,
+                surfaces,
+                crusher,
+                Some(unit_id),
+                &ground_source,
+            )
+        })
+        .unwrap_or_else(|| {
+            let mut lifted = start;
+            lifted.y = destination.y;
+            self.route_for_points(vec![lifted, destination])
+        });
+        self.pathfinding_system.set_adjust_goal(saved_adjust);
+        Some(path)
     }
 
     pub(in super::super) fn compute_assigned_unit_path(

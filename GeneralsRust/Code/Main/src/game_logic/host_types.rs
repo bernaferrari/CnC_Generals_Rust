@@ -479,6 +479,7 @@ impl KindOf {
             "NO_COLLIDE" | "NOCOLLIDE" => Some(Self::NoCollide),
             "FORCEATTACKABLE" | "FORCE_ATTACKABLE" => Some(Self::ForceAttackable),
             "SHRUBBERY" => Some(Self::Shrubbery),
+            "AIRCRAFT_PATH_AROUND" => Some(Self::AircraftPathAround),
             "CLEARED_BY_BUILD" | "CLEAREDBYBUILD" => Some(Self::ClearedByBuild),
             "INERT" => Some(Self::Inert),
             "BLAST_CRATER" | "BLASTCRATER" => Some(Self::BlastCrater),

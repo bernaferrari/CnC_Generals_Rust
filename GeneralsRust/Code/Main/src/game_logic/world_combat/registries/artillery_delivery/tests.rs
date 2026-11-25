@@ -117,6 +117,18 @@ Object TestArtilleryShell
  End
  Locomotor = SET_NORMAL TestPayloadFlight
 End
+Object TestArtilleryFlightTower
+ KindOf = STRUCTURE AIRCRAFT_PATH_AROUND
+ Geometry = Cylinder
+ GeometryIsSmall = No
+ GeometryMajorRadius = 32
+ GeometryMinorRadius = 32
+ GeometryHeight = 100
+ Body = ActiveBody TowerBody
+  MaxHealth = 800
+  InitialHealth = 800
+ End
+End
 Object TestArtilleryVictim
  KindOf = VEHICLE
  Body = ActiveBody VictimBody
@@ -501,6 +513,118 @@ fn authored_artillery_recovers_at_the_active_edge_after_loading_off_map() {
             assert!(!peer.objects[&carrier].drawable_hidden);
             assert!(peer.partition_manager.is_registered(carrier.0));
         },
+    );
+}
+
+#[test]
+fn authored_artillery_uses_the_aircraft_quick_path_at_launch() {
+    let aim = Vec3::new(700.0, 0.0, 500.0);
+    let mut clear = world_with_carrier(0, 0, Some(true));
+    let (_, carrier, _) = activate(&mut clear, aim);
+    let object = &clear.objects[&carrier];
+    let goal = object.artillery_barrage_transport.as_ref().unwrap().target;
+    let start = object.get_position();
+    let blocker = start.lerp(goal, 0.5).with_y(0.0);
+    let inbound = (goal - start).with_y(0.0).normalize();
+    assert_eq!(object.movement.path.len(), 2);
+
+    let mut blocked = world_with_carrier(0, 0, Some(true));
+    let tower = blocked
+        .create_object_for_player("TestArtilleryFlightTower", 2, blocker)
+        .unwrap();
+    assert!(blocked.objects[&tower].is_kind_of(KindOf::AircraftPathAround));
+    let (_, carrier, _) = activate(&mut blocked, aim);
+    let object = &blocked.objects[&carrier];
+    assert_eq!(object.requested_destination, Some(goal));
+    assert!(object.movement.path.len() > 2);
+    assert!(object.movement.path.iter().any(|point| {
+        let offset = (*point - blocker).with_y(0.0);
+        (offset - inbound * offset.dot(inbound)).length() > 20.0
+    }));
+
+    let result = blocked.update_simulation(SECONDS_PER_LOGICFRAME_REAL);
+    assert_eq!(format!("{result:?}"), "Advanced");
+    assert_ne!(
+        blocked.objects[&carrier].movement.target_position,
+        Some(goal)
+    );
+}
+
+#[test]
+fn authored_artillery_retries_after_the_base_ai_crosses_its_flight_segment() {
+    let aim = Vec3::new(80.0, 0.0, 82.0);
+    let mut world = world_with_carrier(0, 0, Some(true));
+    let (_, carrier, _) = activate(&mut world, aim);
+    let approach_goal = world.objects[&carrier]
+        .artillery_barrage_transport
+        .as_ref()
+        .unwrap()
+        .target;
+
+    world.frame = 60;
+    world.set_fixture_object_position(carrier, aim + Vec3::new(40.0, 300.0, 0.0));
+    world.update_artillery_barrage_flights().unwrap();
+    world.frame = 61;
+    world.set_fixture_object_position(carrier, Vec3::new(200.0, 300.0, 82.0));
+    world
+        .objects
+        .get_mut(&carrier)
+        .unwrap()
+        .set_orientation_with_partition_owner(0.0, &mut world.partition_manager);
+    world.update_artillery_barrage_flights().unwrap();
+    let retry_distance = 2.2 * (150.0 / 200.0_f32.to_radians());
+    let retry_goal = Vec3::new(200.0 + retry_distance, 0.0, 82.0);
+    let object = &world.objects[&carrier];
+    // The fixture has passed the delivery band. The new move is the
+    // forward retry leg away from the aim, at authored ground Z.
+    assert!(
+        object
+            .requested_destination
+            .is_some_and(|goal| goal.abs_diff_eq(retry_goal, 1e-4))
+    );
+
+    let crossed = retry_goal + Vec3::new(7.0, 300.0, 58.0);
+    world.frame = 62;
+    world.set_fixture_object_position(carrier, crossed);
+    world.update_artillery_barrage_flights().unwrap();
+    let object = &world.objects[&carrier];
+    assert!(
+        object.movement.path.is_empty(),
+        "the base AI completed the projected leg"
+    );
+    assert!(
+        object
+            .requested_destination
+            .is_some_and(|goal| goal.abs_diff_eq(retry_goal, 1e-4))
+    );
+    assert_eq!(object.maintain_pos, Some(crossed));
+
+    let builder = SnapshotBuilder::new();
+    let mut snapshot = builder.create_world_snapshot(&world).unwrap();
+    let mut bytes = std::io::Cursor::new(Vec::new());
+    snapshot.xfer(&mut XferSave::new(&mut bytes)).unwrap();
+    let mut decoded = WorldSnapshot::default();
+    decoded
+        .xfer(&mut XferLoad::new(std::io::Cursor::new(bytes.into_inner())))
+        .unwrap();
+    let mut restored = world_with_carrier(0, 0, Some(true));
+    builder
+        .restore_from_snapshot(&decoded, &mut restored)
+        .unwrap();
+
+    // The outer delivery state sees base arrival at its next update.
+    for candidate in [&mut world, &mut restored] {
+        candidate.frame = 63;
+        candidate.update_artillery_barrage_flights().unwrap();
+        let object = &candidate.objects[&carrier];
+        assert_eq!(object.requested_destination, Some(approach_goal));
+        assert!(!object.movement.path.is_empty());
+        assert!(!object.maintain_pos_valid);
+        assert!(candidate.combat_system.get_projectiles().is_empty());
+    }
+    assert_eq!(
+        world.objects[&carrier].movement.path,
+        restored.objects[&carrier].movement.path
     );
 }
 
