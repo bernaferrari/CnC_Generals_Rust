@@ -157,6 +157,8 @@ pub struct BridgeData {
     pub width: f32,
     /// Bridge template name
     pub template_name: String,
+    /// Object properties from the first marker in W3DBridgeBuffer::loadBridges.
+    pub properties: Dict,
 }
 
 /// 2D coordinate structure
@@ -746,7 +748,7 @@ fn parse_object_chunk(
         Dict::new()
     };
 
-    if let Some(span) = ctx.bridge_markers.observe(flags, &name, loc) {
+    if let Some(span) = ctx.bridge_markers.observe(flags, &name, loc, &dict) {
         ctx.bridges.push(span);
     }
 
@@ -889,12 +891,13 @@ pub struct BridgeEndpoints {
     pub template_name: String,
     pub from: Coord3D,
     pub to: Coord3D,
+    pub properties: Dict,
 }
 
 /// W3DBridgeBuffer::loadBridges walks consecutive WorldHeightMap objects.
 #[derive(Default)]
 pub struct BridgeMarkers {
-    start: Option<(String, Coord3D)>,
+    start: Option<(String, Coord3D, Dict)>,
 }
 
 impl BridgeMarkers {
@@ -903,6 +906,7 @@ impl BridgeMarkers {
         flags: u32,
         name: &str,
         position: Coord3D,
+        properties: &Dict,
     ) -> Option<BridgeEndpoints> {
         // WorldHeightMap::ParseObjectData skips these objects before linking.
         const MIN_OBJECT_Z: f32 = -100.0 * MAP_XY_FACTOR;
@@ -911,17 +915,18 @@ impl BridgeMarkers {
             return None;
         }
 
-        if let Some((template_name, from)) = self.start.take()
+        if let Some((template_name, from, properties)) = self.start.take()
             && flags & FLAG_BRIDGE_POINT2 != 0
         {
             return Some(BridgeEndpoints {
                 template_name,
                 from,
                 to: position,
+                properties,
             });
         }
         if flags & FLAG_BRIDGE_POINT1 != 0 {
-            self.start = Some((name.to_owned(), position));
+            self.start = Some((name.to_owned(), position, properties.clone()));
         }
         None
     }
@@ -946,6 +951,7 @@ impl BridgeData {
                 from,
                 to,
                 template_name,
+                properties: Dict::new(),
             },
             -half_width,
             half_width,
@@ -964,6 +970,7 @@ impl BridgeData {
             from,
             to,
             template_name,
+            properties,
         }: BridgeEndpoints,
         min: f32,
         max: f32,
@@ -999,6 +1006,7 @@ impl BridgeData {
             to,
             width,
             template_name,
+            properties,
         }
     }
 

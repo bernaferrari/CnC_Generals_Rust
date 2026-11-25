@@ -1251,7 +1251,6 @@ impl GameLogic {
                     }
                     if let Err(error) = self
                         .register_landmark_bridges_from_spawned_objects_with_effects_checked(&mut effects)
-                        .and_then(|()| self.ensure_generic_bridge_objects_with_effects_checked(&mut effects))
                     {
                         log::error!("Map native child construction rejected: {error}");
                         return Ok(false);

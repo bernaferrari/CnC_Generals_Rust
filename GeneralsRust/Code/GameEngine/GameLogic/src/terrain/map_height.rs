@@ -211,6 +211,17 @@ impl TerrainLogic {
             .collect()
     }
 
+    /// C++ W3DBridgeBuffer passes properties from POINT1 to the bridge actor.
+    pub fn authored_bridge_properties(
+        &self,
+        bridge_index: i32,
+    ) -> Option<&game_engine::common::dict::Dict> {
+        let index = usize::try_from(bridge_index).ok()?;
+        self.authored_bridges
+            .get(index)
+            .map(|bridge| &bridge.properties)
+    }
+
     /// Snapshot parsed map bridge geometry.
     pub fn bridge_data_snapshot(&self) -> Vec<BridgeData> {
         self.authored_bridges.clone()

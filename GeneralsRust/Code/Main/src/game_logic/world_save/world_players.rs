@@ -395,6 +395,7 @@ impl GameLogic {
             "Fast sync terrain write",
         )?;
 
+        let mut bridge_spans = Vec::new();
         let has_terrain_payload = self.pending_map_heightmap.is_some()
             || water_height.is_some()
             || !bridges.is_empty()
@@ -438,10 +439,13 @@ impl GameLogic {
             let terrain_owner = self.world_services.terrain().clone();
             {
                 let mut terrain = terrain_owner.write().unwrap_or_else(|e| e.into_inner());
-                if let Err(error) = self.admit_authored_map_bridge_geometry(&mut terrain, map_data) {
-                    log::error!("Cannot admit receiving terrain: {error}");
-                    return Ok(false);
-                }
+                bridge_spans = match self.stage_authored_map_bridge_geometry(&mut terrain, map_data) {
+                    Ok(spans) => spans,
+                    Err(error) => {
+                        log::error!("Cannot admit receiving terrain: {error}");
+                        return Ok(false);
+                    }
+                };
                 // TerrainLogic::loadMap stores the selected geometry filename.
                 // Saved maps keep their extracted path, separate from pristine INI sources.
                 terrain.set_source_filename(map_path.to_string_lossy().as_ref().into());
@@ -582,6 +586,11 @@ impl GameLogic {
         if !self.finish_map_script_foundation() {
             return Ok(false);
         }
+
+        // Player admission replaces the outgoing roster and Teams. Create the
+        // neutral bridge actors on the receiving roster before ordinary map objects.
+        self.admit_loaded_bridge_spans(bridge_spans, &mut effects)
+            .map_err(|error| error.to_string())?;
 
         let waypoint_count = self
             .world_services

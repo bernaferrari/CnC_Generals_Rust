@@ -528,6 +528,7 @@ fn owned_terrain_queries_ignore_foreign_waypoints_heights_and_bridge_snapshots()
                     to: gamelogic::common::Coord3D::new(30.0, 20.0, deck),
                     width: 20.0,
                     template_name: name.into(),
+                    properties: Default::default(),
                 });
                 let handle = world.world_services.terrain().clone();
                 let mut terrain = handle.write().unwrap();

@@ -974,18 +974,13 @@ fn admitted_bridge_retirement_world() -> (GameLogic, ObjectId) {
         to: gamelogic::common::Coord3D::new(30.0, 20.0, 35.0),
         width: 20.0,
         template_name: "RetirementDeck".into(),
+        properties: Default::default(),
     });
     let ground = world.world_services.terrain().clone();
-    world
-        .admit_map_bridge_geometry(&mut ground.write().unwrap(), map)
-        .unwrap();
-    assert!(
-        world.objects.registered_is_empty(),
-        "geometry reserves a slot before one factory birth"
-    );
-    world
-        .seed_pathfinding_from_terrain_with_effects_checked(&mut Default::default())
-        .unwrap();
+    let spans = ground.write().unwrap().try_load_map_geometry(map).unwrap();
+    assert!(world.objects.registered_is_empty());
+    world.admit_loaded_bridge_spans(spans, &mut Default::default()).unwrap();
+    world.seed_pathfinding_from_terrain_with_effects_checked(&mut Default::default()).unwrap();
     assert_eq!(world.objects.registered_len(), 1);
     let id = *world.objects.registered_keys().next().unwrap();
     assert_eq!(world.objects[&id].template_name, "GenericBridge");

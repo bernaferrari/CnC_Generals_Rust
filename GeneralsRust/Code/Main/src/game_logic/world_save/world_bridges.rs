@@ -65,12 +65,15 @@ impl GameLogic {
             .collect()
     }
 
-    pub(super) fn admit_authored_map_bridge_geometry(
+    pub(super) fn stage_authored_map_bridge_geometry(
         &mut self,
         terrain: &mut TerrainLogic,
         data: MapData,
-    ) -> Result<(), String> {
-        self.admit_bridge_geometry(terrain, data, TerrainLogic::try_load_authored_map_geometry)
+    ) -> Result<Vec<(BridgeInfo, AsciiString)>, String> {
+        TerrainLogic::validate_map_geometry(&data)?;
+        terrain.reset();
+        self.pathfinding_system.grid.clear_bridge_admission();
+        terrain.try_load_authored_map_geometry(data)
     }
 
     #[cfg(test)]
@@ -79,29 +82,85 @@ impl GameLogic {
         terrain: &mut TerrainLogic,
         data: MapData,
     ) -> Result<(), String> {
-        self.admit_bridge_geometry(terrain, data, TerrainLogic::try_load_map_geometry)
-    }
-
-    fn admit_bridge_geometry(
-        &mut self,
-        terrain: &mut TerrainLogic,
-        data: MapData,
-        install: impl FnOnce(
-            &mut TerrainLogic,
-            MapData,
-        ) -> Result<Vec<(BridgeInfo, AsciiString)>, String>,
-    ) -> Result<(), String> {
         TerrainLogic::validate_map_geometry(&data)?;
         terrain.reset();
         self.pathfinding_system.grid.clear_bridge_admission();
-        // Original addBridge reserves in source order; the linked list prepends.
-        for (info, template) in install(terrain, data)? {
+        for (info, template) in terrain.try_load_map_geometry(data)? {
             let layer = self.reserve_owned_bridge(&info);
             terrain.prepend_bridge_on_layer(
                 info,
                 template,
                 gamelogic::path::PathfindLayerEnum::from_u32(layer as u32),
             );
+        }
+        Ok(())
+    }
+
+    /// TerrainLogic::addBridgeToLogic constructs the actor before prepending
+    /// the span and assigning its pathfinder layer.
+    pub(in super::super) fn admit_loaded_bridge_spans(
+        &mut self,
+        spans: Vec<(BridgeInfo, AsciiString)>,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> gamelogic::GameLogicResult<()> {
+        use gamelogic::GameLogicError;
+
+        let owner = self.world_services.terrain().clone();
+        let mut missing_template = false;
+        for (mut info, template) in spans {
+            let host = |point: gamelogic::common::Coord3D| Vec3::new(point.x, point.z, point.y);
+            let center = (host(info.from_left) + host(info.to_right)) * 0.5;
+            if !missing_template {
+                if let Some(id) = self.create_terrain_bridge_actor(center, effects)? {
+                    let properties = owner
+                        .read()
+                        .map_err(|error| GameLogicError::Threading(error.to_string()))?
+                        .authored_bridge_properties(info.bridge_index)
+                        .cloned()
+                        .unwrap_or_default();
+                    let actor = self
+                        .host_object(id)
+                        .ok_or(GameLogicError::InvalidObject(id.0))?;
+                    let birth = std::sync::Arc::downgrade(&actor.visual_draw_identity_token);
+                    self.apply_update_obj_values_from_map_properties_with_effects(
+                        id,
+                        &properties,
+                        effects,
+                    )
+                    .map_err(GameLogicError::Configuration)?;
+                    if !self.object_birth_matches(id, &birth) {
+                        return Err(GameLogicError::InvalidObject(id.0));
+                    }
+                    let angle = (info.to_left.y - info.from_left.y)
+                        .atan2(info.to_left.x - info.from_left.x);
+                    self.objects
+                        .get_mut(&id)
+                        .ok_or(GameLogicError::InvalidObject(id.0))?
+                        .set_orientation_with_partition_owner(angle, &mut self.partition_manager);
+                    info.bridge_object_id = id.0;
+                    self.bridge_behavior.register_span(
+                        id,
+                        host(info.from_left),
+                        host(info.from_right),
+                        host(info.to_left),
+                        host(info.to_right),
+                    );
+                } else {
+                    // The original retains the geometric bridge even without
+                    // an actor. It still gives the deck a pathfinder layer.
+                    log::warn!("GenericBridge template not found for map bridge actors");
+                    missing_template = true;
+                }
+            }
+            let layer = self.reserve_owned_bridge(&info);
+            owner
+                .write()
+                .map_err(|error| GameLogicError::Threading(error.to_string()))?
+                .prepend_bridge_on_layer(
+                    info,
+                    template,
+                    gamelogic::path::PathfindLayerEnum::from_u32(layer as u32),
+                );
         }
         Ok(())
     }
@@ -132,19 +191,51 @@ impl GameLogic {
             let host = |p: gamelogic::common::Coord3D| Vec3::new(p.x, p.z, p.y);
             let saved_id = if info.bridge_index >= 0 || info.source_map_object_index.is_some() {
                 map_bridges.and_then(|bridges| {
-                    bridges.iter().find(|(index, source, _)| {
-                        if info.bridge_index >= 0 {
-                            *index == info.bridge_index
-                        } else {
-                            *index < 0 && *source == info.source_map_object_index
-                        }
-                    }).map(|(_, _, id)| *id)
+                    bridges
+                        .iter()
+                        .find(|(index, source, _)| {
+                            if info.bridge_index >= 0 {
+                                *index == info.bridge_index
+                            } else {
+                                *index < 0 && *source == info.source_map_object_index
+                            }
+                        })
+                        .map(|(_, _, id)| *id)
                 })
             } else {
                 Some(info.bridge_object_id)
             };
+            let matches_span = |bridge: &gamelogic::terrain::Bridge| {
+                let candidate = bridge.get_bridge_info();
+                bridge.get_layer() as u8 == layer
+                    && if info.bridge_index >= 0 {
+                        candidate.bridge_index == info.bridge_index
+                    } else if info.source_map_object_index.is_some() {
+                        candidate.source_map_object_index == info.source_map_object_index
+                    } else {
+                        candidate.bridge_object_id == info.bridge_object_id
+                    }
+            };
+            if saved_id == Some(gamelogic::common::INVALID_ID) {
+                // A saved record with no actor is still a present geometric
+                // bridge. Only a missing source record denotes a deletion.
+                self.pathfinding_system
+                    .grid
+                    .bind_reserved_bridge_object(layer, gamelogic::common::INVALID_ID);
+                owner
+                    .write()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .for_each_bridge_mut(|bridge| {
+                        if matches_span(bridge) {
+                            bridge.set_bridge_object_id(gamelogic::common::INVALID_ID);
+                        }
+                    });
+                continue;
+            }
             let id = saved_id.map(ObjectId).filter(|id| {
-                self.objects.get(id).is_some_and(|object| object.is_kind_of(KindOf::Bridge))
+                self.objects
+                    .get(id)
+                    .is_some_and(|object| object.is_kind_of(KindOf::Bridge))
                     && self.bridge_behavior.span(*id).is_some()
             });
             let Some(id) = id else {
@@ -180,7 +271,9 @@ impl GameLogic {
             };
 
             if layer != gamelogic::path::PathfindLayerEnum::Ground as u8 {
-                self.pathfinding_system.grid.bind_reserved_bridge_object(layer, id.0);
+                self.pathfinding_system
+                    .grid
+                    .bind_reserved_bridge_object(layer, id.0);
             }
             self.bridge_behavior.register_span(
                 id,
@@ -198,15 +291,7 @@ impl GameLogic {
                 .write()
                 .unwrap_or_else(|e| e.into_inner())
                 .for_each_bridge_mut(|bridge| {
-                    if bridge.get_layer() as u8 == layer
-                        && if info.bridge_index >= 0 {
-                            bridge.get_bridge_info().bridge_index == info.bridge_index
-                        } else if info.source_map_object_index.is_some() {
-                            bridge.get_bridge_info().source_map_object_index == info.source_map_object_index
-                        } else {
-                            bridge.get_bridge_info().bridge_object_id == info.bridge_object_id
-                        }
-                    {
+                    if matches_span(bridge) {
                         bridge.set_bridge_object_id(id.0);
                         for (i, tower) in towers.iter().enumerate() {
                             if let Some(kind) = gamelogic::common::BridgeTowerType::from_index(i) {

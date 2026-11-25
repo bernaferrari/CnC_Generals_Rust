@@ -191,9 +191,17 @@ pub fn parse_runtime_map_objects_bundle_from_chunky(
             let _angle = reader.read_f32()?;
             let flags = reader.read_i32()?;
             let template_name = reader.read_ascii_string()?;
-            if let Some(span) =
-                markers.observe(flags as u32, &template_name, SystemCoord3D::new(x, y, z))
-            {
+            let dict = if ver >= 2 && reader.remaining() > 0 {
+                parse_chunk_dict_typed(&mut reader, &chunky.toc)?
+            } else {
+                Dict::new()
+            };
+            if let Some(span) = markers.observe(
+                flags as u32,
+                &template_name,
+                SystemCoord3D::new(x, y, z),
+                &dict,
+            ) {
                 bridges.push(span);
             }
             stubs.push(RuntimeMapObjectStub {
@@ -201,48 +209,43 @@ pub fn parse_runtime_map_objects_bundle_from_chunky(
                 location: Coord3D::new(x, y, z),
                 flags,
             });
-            if ver >= 2 && reader.remaining() > 0 {
-                let dict = parse_chunk_dict_typed(&mut reader, &chunky.toc)?;
-                if dict.get_type(keys.waypoint_id).is_some() {
-                    let waypoint_id = if dict.get_type(keys.waypoint_id) == Some(DictType::Int) {
-                        dict.get_int(keys.waypoint_id).max(0) as u32
-                    } else {
-                        0
-                    };
-                    let waypoint_name =
-                        dict_ascii_nonempty(&dict, keys.waypoint_name).unwrap_or_default();
-                    let resolved_name = if waypoint_name.trim().is_empty() {
-                        template_name
-                    } else {
-                        waypoint_name
-                    };
-                    let bi_directional = match dict.get_type(keys.waypoint_path_bi_directional) {
-                        Some(DictType::Bool) => dict.get_bool(keys.waypoint_path_bi_directional),
-                        Some(DictType::AsciiString) => {
-                            let value = dict.get_ascii_string(keys.waypoint_path_bi_directional);
-                            let trimmed = value.trim();
-                            trimmed.eq_ignore_ascii_case("true")
-                                || trimmed.eq_ignore_ascii_case("yes")
-                                || trimmed == "1"
-                        }
-                        Some(DictType::Int) => {
-                            dict.get_int(keys.waypoint_path_bi_directional) != 0
-                        }
-                        _ => false,
-                    };
-                    waypoints.push(RuntimeWaypoint {
-                        id: waypoint_id,
-                        name: resolved_name,
-                        location: Coord3D::new(x, y, z),
-                        path_label1: dict_ascii_nonempty(&dict, keys.waypoint_path_label1)
-                            .unwrap_or_default(),
-                        path_label2: dict_ascii_nonempty(&dict, keys.waypoint_path_label2)
-                            .unwrap_or_default(),
-                        path_label3: dict_ascii_nonempty(&dict, keys.waypoint_path_label3)
-                            .unwrap_or_default(),
-                        bi_directional,
-                    });
-                }
+            if dict.get_type(keys.waypoint_id).is_some() {
+                let waypoint_id = if dict.get_type(keys.waypoint_id) == Some(DictType::Int) {
+                    dict.get_int(keys.waypoint_id).max(0) as u32
+                } else {
+                    0
+                };
+                let waypoint_name =
+                    dict_ascii_nonempty(&dict, keys.waypoint_name).unwrap_or_default();
+                let resolved_name = if waypoint_name.trim().is_empty() {
+                    template_name
+                } else {
+                    waypoint_name
+                };
+                let bi_directional = match dict.get_type(keys.waypoint_path_bi_directional) {
+                    Some(DictType::Bool) => dict.get_bool(keys.waypoint_path_bi_directional),
+                    Some(DictType::AsciiString) => {
+                        let value = dict.get_ascii_string(keys.waypoint_path_bi_directional);
+                        let trimmed = value.trim();
+                        trimmed.eq_ignore_ascii_case("true")
+                            || trimmed.eq_ignore_ascii_case("yes")
+                            || trimmed == "1"
+                    }
+                    Some(DictType::Int) => dict.get_int(keys.waypoint_path_bi_directional) != 0,
+                    _ => false,
+                };
+                waypoints.push(RuntimeWaypoint {
+                    id: waypoint_id,
+                    name: resolved_name,
+                    location: Coord3D::new(x, y, z),
+                    path_label1: dict_ascii_nonempty(&dict, keys.waypoint_path_label1)
+                        .unwrap_or_default(),
+                    path_label2: dict_ascii_nonempty(&dict, keys.waypoint_path_label2)
+                        .unwrap_or_default(),
+                    path_label3: dict_ascii_nonempty(&dict, keys.waypoint_path_label3)
+                        .unwrap_or_default(),
+                    bi_directional,
+                });
             }
             Ok(())
         })?;

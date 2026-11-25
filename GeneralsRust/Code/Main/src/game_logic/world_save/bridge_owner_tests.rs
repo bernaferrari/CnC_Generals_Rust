@@ -13,6 +13,14 @@ fn isolated(name: &str, run: impl FnOnce()) {
     });
 }
 
+use crate::fixture_content::{FixtureObject, admit_fixture_objects};
+
+fn bridge_actor_definition() -> FixtureObject {
+    FixtureObject::new("GenericBridge")
+        .kind_of("STRUCTURE BRIDGE IMMOBILE")
+        .health(300.0)
+}
+
 const FIXTURE_DECK_Z: f32 = 20.25;
 
 fn attach_bridge_art(world: &mut GameLogic, path: &Path) {
@@ -55,6 +63,7 @@ fn map_bytes(row: f32, decks: &[f32]) -> Vec<u8> {
 
 fn load(path: &Path) -> GameLogic {
     let mut world = GameLogic::new();
+    admit_fixture_objects(&mut world, &[bridge_actor_definition()]);
     attach_bridge_art(&mut world, path);
     assert!(world.load_map(path.to_str().unwrap()));
     assert!(
@@ -94,6 +103,9 @@ fn asymmetric_authored_bridge_map() -> Vec<u8> {
     }
     map.close_data_chunk();
     map.open_data_chunk("ObjectsList", 3);
+    use game_engine::common::well_known_keys::{
+        key_object_indestructible, key_object_max_hps, key_object_name, key_original_owner,
+    };
     for (name, x, y, flag) in [
         ("MissingArt", 40.0, 85.0, START),
         ("MissingArt", 80.0, 85.0, END),
@@ -111,7 +123,22 @@ fn asymmetric_authored_bridge_map() -> Vec<u8> {
         }
         map.write_int(flag as i32);
         map.write_ascii_string(name);
-        map.write_dict(&game_engine::common::dict::Dict::new());
+        let mut props = game_engine::common::dict::Dict::new();
+        let authored = match (flag, y) {
+            (START, 35.0) => Some(("FirstBridge", 460, true)),
+            (START, 59.0) => Some(("SecondBridge", 620, false)),
+            (END, _) => Some(("WrongEnd", 17, false)),
+            _ => None,
+        };
+        if let Some((name, hp, indestructible)) = authored {
+            props.set_ascii_string(key_object_name(), name);
+            props.set_int(key_object_max_hps(), hp);
+            props.set_bool(key_object_indestructible(), indestructible);
+        }
+        if name == "OrdinaryObject" {
+            props.set_ascii_string(key_original_owner(), "team");
+        }
+        map.write_dict(&props);
         map.close_data_chunk();
     }
     map.close_data_chunk();
@@ -129,8 +156,17 @@ fn native_map_and_save_use_owned_model_bounds_and_sampled_bridge_heights() {
             let temp = tempfile::tempdir().unwrap();
             let path = temp.path().join("AuthoredDeck.map");
             std::fs::write(&path, asymmetric_authored_bridge_map()).unwrap();
-            let prepare = |label: &str, pivot_y: f32, scale: f32| {
+            let prepare = |label: &str, pivot_y: f32, scale: f32, with_bridge_actor: bool| {
                 let mut world = GameLogic::new();
+                let mut objects = vec![
+                    FixtureObject::new("OrdinaryObject")
+                        .kind_of("STRUCTURE IMMOBILE")
+                        .health(150.0),
+                ];
+                if with_bridge_actor {
+                    objects.push(bridge_actor_definition());
+                }
+                admit_fixture_objects(&mut world, &objects);
                 crate::fixture_content::bridge_art::attach(
                     &mut world,
                     &temp.path().join(label),
@@ -187,14 +223,40 @@ fn native_map_and_save_use_owned_model_bounds_and_sampled_bridge_heights() {
                     grid.layer_cell_type(layer, edge),
                     Some(PathfindCellType::BridgeImpassable)
                 );
+                let first_actor = world.host_object(ObjectId(info.bridge_object_id)).unwrap();
+                let second_actor = world
+                    .host_object(ObjectId(second_info.bridge_object_id))
+                    .unwrap();
+                assert_eq!(
+                    (
+                        first_actor.name.as_str(),
+                        first_actor.health.maximum,
+                        first_actor.indestructible
+                    ),
+                    ("FirstBridge", 460.0, true),
+                );
+                assert_eq!(
+                    (
+                        second_actor.name.as_str(),
+                        second_actor.health.maximum,
+                        second_actor.indestructible
+                    ),
+                    ("SecondBridge", 620.0, false),
+                );
+                let ordinary = world
+                    .host_objects()
+                    .registered_values()
+                    .find(|object| object.template_name == "OrdinaryObject")
+                    .expect("ordinary map object");
+                assert!(first_actor.id.0 < second_actor.id.0 && second_actor.id.0 < ordinary.id.0);
                 (info.bridge_object_id, second_info.bridge_object_id)
             };
 
-            let mut peer = prepare("peer", 9.0, 1.0);
+            let mut peer = prepare("peer", 9.0, 1.0, true);
             assert!(peer.load_map(path.to_str().unwrap()));
             let foreign = gamelogic::system::engine_stores::new_for_world();
             let _foreign_ai = foreign.ai().write().unwrap();
-            let mut source = prepare("source", 3.0, 2.0);
+            let mut source = prepare("source", 3.0, 2.0, true);
             gamelogic::system::engine_stores::with_active_stores(&foreign, || {
                 assert!(source.load_map(path.to_str().unwrap()));
             });
@@ -202,12 +264,47 @@ fn native_map_and_save_use_owned_model_bounds_and_sampled_bridge_heights() {
             assert_ne!(identities.0, identities.1);
             assert!(identities.0 != 0 && identities.1 != 0);
 
+            let mut no_actor = prepare("no-bridge-actor", 3.0, 2.0, false);
+            assert!(no_actor.load_map(path.to_str().unwrap()));
+            let check_actorless = |world: &GameLogic| {
+                assert!(!world.templates.contains_key("GenericBridge"));
+                assert!(
+                    world
+                        .host_objects()
+                        .registered_values()
+                        .all(|object| object.template_name != "GenericBridge")
+                );
+                let no_actor_terrain = world.world_services.terrain().read().unwrap();
+                let deck = no_actor_terrain
+                    .find_bridge_at(&Coord3D::new(60.0, 35.0, 0.0))
+                    .unwrap();
+                assert_eq!(deck.get_bridge_info().bridge_object_id, 0);
+                let grid = &world.pathfinding_system.grid;
+                let clear = grid.world_to_grid(Vec3::new(65.0, 0.0, 45.0));
+                assert_eq!(
+                    grid.layer_cell_type(deck.get_layer() as u8, clear),
+                    Some(PathfindCellType::Clear)
+                );
+            };
+            check_actorless(&no_actor);
+            let mut no_actor_saves =
+                SaveFileManager::with_save_directory(temp.path().join("actorless-saves"));
+            no_actor_saves.init().unwrap();
+            no_actor_saves.quick_save(&no_actor).unwrap();
+            let actorless = no_actor_saves.load_game_snapshot("quicksave").unwrap();
+            let mut restored_actorless = prepare("restored-actorless", 3.0, 2.0, false);
+            assert!(restored_actorless.load_map(&actorless.save_info.map_name));
+            no_actor_saves
+                .restore_game_snapshot(&actorless.snapshot, &mut restored_actorless)
+                .unwrap();
+            check_actorless(&restored_actorless);
+
             let mut saves = SaveFileManager::with_save_directory(temp.path().join("saves"));
             saves.init().unwrap();
             saves.quick_save(&source).unwrap();
             std::fs::remove_file(&path).unwrap();
             let decoded = saves.load_game_snapshot("quicksave").unwrap();
-            let mut restored = prepare("restored", 3.0, 2.0);
+            let mut restored = prepare("restored", 3.0, 2.0, true);
             gamelogic::system::engine_stores::with_active_stores(&foreign, || {
                 assert!(restored.load_map(&decoded.save_info.map_name));
                 saves
@@ -240,6 +337,7 @@ fn native_map_and_save_use_owned_model_bounds_and_sampled_bridge_heights() {
                     .into(),
                     from: Coord3D::new(40.0, index as f32, 0.0),
                     to: Coord3D::new(80.0, index as f32, 0.0),
+                    properties: Default::default(),
                 })
                 .collect();
             let decks = restored.resolve_authored_map_bridges(over_capacity);
@@ -778,6 +876,7 @@ fn saved_coincident_overflow_bridges_keep_source_bindings_after_ids_change() {
         }).unwrap();
         let decoded = saves.load_game_snapshot("coincident").unwrap();
         let mut restored = GameLogic::new();
+        admit_fixture_objects(&mut restored, &[bridge_actor_definition()]);
         attach_bridge_art(&mut restored, Path::new(&decoded.save_info.map_name));
         restored.set_next_object_id_for_restore(ObjectId(1000));
         assert!(restored.load_map(&decoded.save_info.map_name));

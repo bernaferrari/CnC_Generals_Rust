@@ -34,6 +34,7 @@ mod spawn_scheduler_garrison;
 enum FactoryCreationPurpose {
     AtCreation,
     MapPlacement,
+    TerrainBridge,
     Replacement(Mat4),
     SpawnBehavior,
     ProductionExit,
@@ -827,6 +828,33 @@ impl GameLogic {
             this.apply_cash_bounty_on_object_created(id);
             Ok(Some(id))
         })
+    }
+
+    /// TerrainLogic.cpp creates the neutral GenericBridge through ThingFactory,
+    /// then the bridge constructor applies the marker, orientation and layer.
+    pub(in crate::game_logic) fn create_terrain_bridge_actor(
+        &mut self,
+        position: Vec3,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> gamelogic::GameLogicResult<Option<ObjectId>> {
+        const TEMPLATE: &str = "GenericBridge";
+        // Receiving content resolves its authored ThingFactory entry. In a
+        // standalone host, require an already admitted template.
+        if self.receiving_module_content.is_none()
+            && !self.templates.keys().any(|name| name.eq_ignore_ascii_case(TEMPLATE))
+        {
+            return Ok(None);
+        }
+        self.create_object_with_initial_team_and_ui_checked(
+            TEMPLATE,
+            Team::Neutral,
+            None,
+            position,
+            FactoryCreationPurpose::TerrainBridge,
+            None,
+            None,
+            effects,
+        )
     }
 
     /// Create an object for a specific controlling player while retaining the
@@ -2761,7 +2789,9 @@ impl GameLogic {
             }
             verify_factory_birth!();
             self.host_radar_observe_object_position(id);
-            if crate::game_logic::host_bridge_behavior::is_bridge_span_template(template_name) {
+            if creation_purpose != FactoryCreationPurpose::TerrainBridge
+                && crate::game_logic::host_bridge_behavior::is_bridge_span_template(template_name)
+            {
                 let object = self
                     .objects
                     .get(&id)
@@ -2806,7 +2836,10 @@ impl GameLogic {
                     if creation_purpose != FactoryCreationPurpose::SpawnBehavior {
                         self.record_structure_completion(id);
                     }
-                    if creation_purpose != FactoryCreationPurpose::MapPlacement {
+                    if !matches!(
+                        creation_purpose,
+                        FactoryCreationPurpose::MapPlacement | FactoryCreationPurpose::TerrainBridge
+                    ) {
                         self.block_structure_object_path(id);
                     }
                 }

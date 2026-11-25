@@ -1287,7 +1287,6 @@ if let Ok(mut list) = __arc_bind.write() {
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> gamelogic::GameLogicResult<()> {
         self.register_landmark_bridges_from_spawned_objects_with_effects_checked(effects)?;
-        self.ensure_generic_bridge_objects_with_effects_checked(effects)?;
         let owner = self.world_services.terrain().clone();
         let terrain = owner.read().unwrap_or_else(|e| e.into_inner());
         self.reclassify_pathfinding_from_terrain(&terrain);
@@ -1358,89 +1357,10 @@ if let Ok(mut list) = __arc_bind.write() {
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) {
         self.register_landmark_bridges_from_spawned_objects_with_effects(effects);
-        self.ensure_generic_bridge_objects_with_effects(effects);
         self.pathfinding_system.grid.pinch_tighten_cliffs();
         self.refresh_owned_bridge_pathfinder_states();
         self.pathfinding_system.grid.rebuild_terrain_zones();
         self.pathfinding_system.grid.rebuild_path_zones();
-    }
-
-    pub(crate) fn ensure_generic_bridge_objects(&mut self) {
-        self.ensure_generic_bridge_objects_with_effects(&mut Default::default())
-    }
-
-    pub(crate) fn ensure_generic_bridge_objects_with_effects(
-        &mut self,
-        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
-        // Independent callers retain the existing nonfallible surface until their
-        // operation boundary is migrated; the selected factory never uses this adapter.
-        if let Err(error) = self.ensure_generic_bridge_objects_with_effects_checked(effects) {
-            log::error!("{error}");
-        }
-    }
-
-    pub(crate) fn ensure_generic_bridge_objects_with_effects_checked(
-        &mut self,
-        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
-        let mut jobs = Vec::new();
-        let owner = self.world_services.terrain().clone();
-        if let Ok(tl) = owner.read() {
-            tl.for_each_bridge(|bridge| {
-                let info = bridge.get_bridge_info();
-                if info.bridge_object_id == 0
-                    || !self.objects.contains_key(&ObjectId(info.bridge_object_id))
-                {
-                    jobs.push((bridge.get_layer() as u8, info.clone()));
-                }
-            });
-        }
-        for (layer, info) in jobs {
-            // Only bridge creation needs a bridge definition. Reconstructing an
-            // empty terrain must not alter the receiving world's catalog.
-            self.ensure_named_bridge_template("GenericBridge", 300.0);
-            let cx = (info.from_left.x + info.to_right.x) * 0.5;
-            let cy = (info.from_left.y + info.to_right.y) * 0.5;
-            let cz = (info.from_left.z + info.to_right.z) * 0.5;
-            let pos = Vec3::new(cx, cz, cy);
-            let Some(id) = self.create_object_with_script_effects_checked(
-                "GenericBridge",
-                Team::Neutral,
-                pos,
-                None,
-                effects,
-            )?
-            else {
-                continue;
-            };
-            let angle =
-                (info.to_left.y - info.from_left.y).atan2(info.to_left.x - info.from_left.x);
-            if let Some(obj) = self.objects.get_mut(&id) {
-                obj.set_orientation_with_partition_owner(angle, &mut self.partition_manager);
-            }
-            self.pathfinding_system
-                .grid
-                .bind_reserved_bridge_object(layer, id.0);
-            self.bridge_behavior.register_span(
-                id,
-                Vec3::new(info.from_left.x, info.from_left.z, info.from_left.y),
-                Vec3::new(info.from_right.x, info.from_right.z, info.from_right.y),
-                Vec3::new(info.to_left.x, info.to_left.z, info.to_left.y),
-                Vec3::new(info.to_right.x, info.to_right.z, info.to_right.y),
-            );
-            if let Ok(mut tl) = owner.write() {
-                tl.for_each_bridge_mut(|bridge| {
-                    if bridge.get_layer() as u8 == layer
-                        && bridge.get_bridge_info().bridge_index == info.bridge_index
-                    {
-                        bridge.set_bridge_object_id(id.0);
-                    }
-                });
-            }
-        }
-
-        Ok(())
     }
 
     pub(crate) fn ensure_named_bridge_template(&mut self, name: &str, health: f32) {
