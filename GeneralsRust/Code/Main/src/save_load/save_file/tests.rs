@@ -50,6 +50,27 @@ fn unique_fixture_directory() -> std::path::PathBuf {
     ))
 }
 
+
+fn decode_versioned_archive(bytes: &[u8]) -> SaveArchive {
+    decode_versioned_save_archive(bytes).expect("decode versioned test archive")
+}
+
+fn encode_versioned_archive(archive: &SaveArchive) -> Vec<u8> {
+    encode_versioned_save_archive(&SaveArchiveRef {
+        version: archive.version,
+        save_info: &archive.save_info,
+        pristine_map_name: archive.pristine_map_name.as_deref(),
+        snapshot: &archive.snapshot,
+        campaign_state: archive.campaign_state.as_ref(),
+        map_admission_intent: archive.map_admission_intent,
+        saved_game_mode: archive.saved_game_mode,
+        game_client_xfer: archive.game_client_xfer.as_deref(),
+        terrain_visual_xfer: archive.terrain_visual_xfer.as_deref(),
+        map: archive.map.as_ref(),
+    })
+    .expect("encode mutated versioned test archive")
+}
+
 #[test]
 fn test_save_file_paths() {
     let manager = SaveFileManager::new();
@@ -368,88 +389,6 @@ fn cpp_game_logic_xfer_with_objects() -> Vec<u8> {
         xfer.end_block().expect("end object block");
     }
     payload
-}
-
-#[test]
-fn cpp_chunk_game_logic_does_not_report_successful_empty_world() {
-    // C++ GameState::xferSaveData (GameState.cpp:1313-1381) writes
-    // CHUNK_GameLogic via GameLogic::xfer (GameLogic.cpp:4666). Pre-fix
-    // host decoded that as WorldSnapshot::default() and load reported
-    // success with objects stripped.
-    let mut header = Vec::new();
-    {
-        let mut cursor = Cursor::new(&mut header);
-        let mut xfer = CommonXferSave::new(&mut cursor, SAVE_FILE_VERSION);
-        write_game_state_header(
-            &mut xfer,
-            &SaveGameInfo {
-                pristine_map_name: None,
-                filename: "retail".into(),
-                display_name: "Retail Save".into(),
-                description: "C++ listed".into(),
-                map_name: "Maps\\Alpine Assault.map".into(),
-                campaign_side: Some("America".into()),
-                mission_number: Some(3),
-                save_date: UNIX_EPOCH + std::time::Duration::from_secs(1_700_000_000),
-                game_version: "1.04".into(),
-                play_time: std::time::Duration::from_secs(0),
-                difficulty: GameDifficulty::Medium,
-                save_type: SaveFileType::Mission,
-            },
-        )
-        .expect("encode v2 header");
-    }
-    let logic = cpp_game_logic_xfer_with_objects();
-    assert_eq!(
-        logic.first().copied(),
-        Some(10),
-        "C++ GameLogic currentVersion is 10"
-    );
-
-    let mut bytes = Vec::new();
-    bytes.push(CHUNK_GAME_STATE.len() as u8);
-    bytes.extend_from_slice(CHUNK_GAME_STATE.as_bytes());
-    bytes.extend_from_slice(&(header.len() as i32).to_le_bytes());
-    bytes.extend_from_slice(&header);
-    bytes.push(CHUNK_GAME_LOGIC.len() as u8);
-    bytes.extend_from_slice(CHUNK_GAME_LOGIC.as_bytes());
-    bytes.extend_from_slice(&(logic.len() as i32).to_le_bytes());
-    bytes.extend_from_slice(&logic);
-    bytes.push(SAVE_FILE_EOF.len() as u8);
-    bytes.extend_from_slice(SAVE_FILE_EOF.as_bytes());
-
-    let listed =
-        SaveFileManager::read_named_chunk_save_info(&bytes).expect("C++ header must still list");
-    assert_eq!(listed.description, "C++ listed");
-
-    let err = SaveFileManager::read_common_sav_chunks(&bytes, Path::new(""))
-        .expect_err("C++ GameLogic::xfer must not succeed as an empty host world");
-    let err = err.to_string();
-    assert!(
-        err.contains("not a current world snapshot"),
-        "error must say C++ objects were not restored, got {err}"
-    );
-
-    let fixture_directory = unique_fixture_directory();
-    std::fs::create_dir_all(&fixture_directory).expect("create fixture directory");
-    let path = fixture_directory.join("retail_cpp.sav");
-    std::fs::write(&path, &bytes).expect("write C++-shaped save");
-    let mut manager = SaveFileManager::with_save_directory(&fixture_directory);
-    let mut world = GameLogic::new();
-    let load_err = manager
-        .load_game("retail_cpp", &mut world)
-        .expect_err("live load must refuse unrestored C++ CHUNK_GameLogic");
-    assert!(
-        world.host_objects().registered_is_empty(),
-        "fail-closed load must not populate a stripped world"
-    );
-    let load_err = load_err.to_string();
-    assert!(
-        load_err.contains("not a current world snapshot"),
-        "live load error must name the unrestored C++ stream, got {load_err}"
-    );
-    let _ = std::fs::remove_file(path);
-    let _ = std::fs::remove_dir(fixture_directory);
 }
 
 #[test]

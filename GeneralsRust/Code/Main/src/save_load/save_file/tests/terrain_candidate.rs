@@ -342,17 +342,18 @@ fn direct_archive_bad_terrain_tail_preserves_running_foreign_world() {
                 .unwrap();
             let mut bytes = capture_receiving_terrain_visual_xfer_bytes(&source, None).unwrap();
             bytes.push(0); // incomplete optional native count
-            let archive = SaveFileManager::write_common_sav_chunks_with_client_and_terrain_bytes(
-                &snapshot,
-                &info,
-                &[1],
-                Some(&bytes),
-                directory.path(),
-                SAVED_GAME_MODE_SINGLE_PLAYER,
-                &game_engine::System::CampaignManagerXferState::default(),
-            )
-            .unwrap();
-            std::fs::write(manager.get_save_path("invalid_tail"), archive).unwrap();
+            manager
+                .save_to_file(
+                    &manager.get_save_path("invalid_tail"),
+                    &snapshot,
+                    &info,
+                    &[],
+                    Some(&bytes),
+                    SAVED_GAME_MODE_SINGLE_PLAYER,
+                    &game_engine::System::CampaignManagerXferState::default(),
+                    MapAdmissionIntent::Authored,
+                )
+                .unwrap();
             let mut running = file_backed_world(&directory.path().join("foreign.map"), 90);
             running
                 .world_services
@@ -375,12 +376,13 @@ fn direct_archive_bad_terrain_tail_preserves_running_foreign_world() {
                 visual.as_mut().unwrap().enable_water_grid(true);
             }
             let native = game_client::terrain::scorch_mesh::terrain_scorch_marks();
+            let error = manager
+                .load_game("invalid_tail", &mut running)
+                .unwrap_err()
+                .to_string();
             assert!(
-                manager
-                    .load_game("invalid_tail", &mut running)
-                    .unwrap_err()
-                    .to_string()
-                    .contains("scorch count")
+                error.contains("scorch count"),
+                "unexpected invalid-tail error: {error}"
             );
             assert_eq!(running.get_current_map_name(), map);
             let terrain = running.world_services.terrain().read().unwrap();

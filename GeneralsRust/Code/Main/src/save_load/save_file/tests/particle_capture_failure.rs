@@ -107,11 +107,12 @@ mod mission_particle_capture {
                 );
                 client.particle_systems_mut().reset().unwrap();
                 result.expect("mission save must not encode the excluded particle block");
-                let archive =
+                let bytes =
                     std::fs::read(saves.get_save_path("mission_particle_capture")).unwrap();
-                let blocks = walk_named_chunks(&archive).unwrap();
-                let names: Vec<_> = blocks.iter().map(|(name, _)| name.as_str()).collect();
-                assert_eq!(names, [CHUNK_GAME_STATE, CHUNK_CAMPAIGN]);
+                let archive = decode_versioned_archive(&bytes);
+                assert_eq!(archive.save_info.save_type, SaveFileType::Mission);
+                assert!(archive.snapshot.particle_system_companion.is_none());
+                assert!(archive.campaign_state.is_some());
             },
         );
     }

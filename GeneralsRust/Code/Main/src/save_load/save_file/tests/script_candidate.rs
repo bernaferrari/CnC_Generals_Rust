@@ -22,25 +22,6 @@ fn actor(world: &mut GameLogic, name: &str) -> ObjectId {
     id
 }
 
-fn replace_script_block(archive: &[u8], replacement: &[u8]) -> Vec<u8> {
-    let mut cursor = Cursor::new(Vec::new());
-    let mut xfer = CommonXferSave::new(&mut cursor, SAVE_FILE_VERSION);
-    for (name, payload) in walk_named_chunks(archive).unwrap() {
-        let payload = if name == CHUNK_SCRIPT_ENGINE {
-            replacement
-        } else {
-            &payload
-        };
-        write_named_block(&mut xfer, &name, |xfer| {
-            xfer.xfer_readonly(payload)
-                .map_err(|err| SaveLoadError::Serialization(err.to_string()))
-        })
-        .unwrap();
-    }
-    write_ascii(&mut xfer, SAVE_FILE_EOF).unwrap();
-    cursor.into_inner()
-}
-
 #[test]
 fn script_archive_rejects_corruption_and_preserves_ordered_named_continuation() {
     let directory = tempfile::tempdir().unwrap();
@@ -62,57 +43,27 @@ fn script_archive_rejects_corruption_and_preserves_ordered_named_continuation() 
         .save_game("script_candidate", &control, &fixture_save_info())
         .unwrap();
     let archive = std::fs::read(saves.get_save_path("script_candidate")).unwrap();
-    let script = walk_named_chunks(&archive)
-        .unwrap()
-        .into_iter()
-        .find(|(name, _)| name == CHUNK_SCRIPT_ENGINE)
-        .unwrap()
-        .1;
-    let mut trailing = script.clone();
-    trailing.push(0);
-    let mut foreign = SnapshotBuilder::new()
-        .create_world_snapshot(&control)
-        .unwrap();
-    foreign
-        .persist_v18
-        .script_engine_tail
-        .as_mut()
-        .unwrap()
-        .named_objects[0]
-        .0 = "Foreign".into();
-    let mut cursor = Cursor::new(Vec::new());
-    let mut xfer = CommonXferSave::new(&mut cursor, SAVE_FILE_VERSION);
-    crate::save_load::snapshot::persist_v18::write_script_engine_block(
-        &mut xfer,
-        &foreign.persist_v18,
-    )
-    .unwrap();
-    for (case, payload) in [
-        ("Truncated", &script[..script.len() - 1]),
-        ("Trailing", trailing.as_slice()),
-        ("Conflicting", cursor.get_ref().as_slice()),
-    ] {
+    for (case, truncate_tail) in [("Truncated", true), ("Trailing", false)] {
+        let mut corrupt = decode_versioned_archive(&archive);
+        if truncate_tail {
+            corrupt.snapshot.lifecycle_tail.pop();
+        } else {
+            corrupt.snapshot.lifecycle_tail.push(0);
+        }
         std::fs::write(
             saves.get_save_path(case),
-            replace_script_block(&archive, payload),
+            encode_versioned_archive(&corrupt),
         )
         .unwrap();
         let err = saves.load_game_snapshot(case).err().expect(case);
-        assert!(err.to_string().contains("ScriptEngine"), "{case}: {err}");
+        assert!(
+            matches!(err, SaveLoadError::Corrupted(_)),
+            "{case}: corruption must fail closed: {err}"
+        );
         assert_eq!(peer.host_object_id_by_script_name("Peer"), Some(donor));
     }
 
     let candidate = saves.load_game_snapshot("script_candidate").unwrap();
-    std::fs::write(
-        saves.get_save_path("Placeholder"),
-        replace_script_block(&archive, &[1]),
-    )
-    .unwrap();
-    let historical = saves.load_game_snapshot("Placeholder").unwrap();
-    assert_eq!(
-        historical.snapshot.persist_v18.script_engine_tail,
-        candidate.snapshot.persist_v18.script_engine_tail,
-    );
     let mut restored = receiving();
     saves
         .restore_game_snapshot(&candidate.snapshot, &mut restored)

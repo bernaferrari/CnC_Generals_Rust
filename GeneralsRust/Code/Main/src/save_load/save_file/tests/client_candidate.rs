@@ -10,34 +10,30 @@ fn client_bytes(frame: u32) -> Vec<u8> {
 fn archive(bytes: &[u8], description: &str, directory: &Path) -> Vec<u8> {
     let mut info = fixture_save_info();
     info.description = description.into();
-    SaveFileManager::write_common_sav_chunks_with_client_bytes(
-        &WorldSnapshot::default(),
-        &info,
-        bytes,
-        directory,
-        SAVED_GAME_MODE_SINGLE_PLAYER,
-    )
-    .unwrap()
-}
-
-fn repack(blocks: Vec<(String, Vec<u8>)>) -> Vec<u8> {
-    let mut bytes = Vec::new();
-    for (name, payload) in blocks {
-        bytes.push(u8::try_from(name.len()).unwrap());
-        bytes.extend_from_slice(name.as_bytes());
-        bytes.extend_from_slice(&i32::try_from(payload.len()).unwrap().to_le_bytes());
-        bytes.extend_from_slice(&payload);
-    }
-    bytes.push(SAVE_FILE_EOF.len() as u8);
-    bytes.extend_from_slice(SAVE_FILE_EOF.as_bytes());
-    bytes
+    let manager = SaveFileManager::with_save_directory(directory);
+    let path = manager.get_save_path("__archive_fixture");
+    manager
+        .save_to_file(
+            &path,
+            &WorldSnapshot::default(),
+            &info,
+            bytes,
+            None,
+            SAVED_GAME_MODE_SINGLE_PLAYER,
+            &game_engine::System::CampaignManagerXferState::default(),
+            MapAdmissionIntent::Authored,
+        )
+        .unwrap();
+    let archive = std::fs::read(&path).unwrap();
+    let _ = std::fs::remove_file(path);
+    archive
 }
 
 #[test]
-fn decoded_client_payloads_survive_interleaved_files_failures_and_null_chunks() {
+fn decoded_client_payloads_survive_interleaved_files_failures_and_absent_payloads() {
     crate::game_logic::game_logic::pose_owner_tests::isolated_at(
         module_path!(),
-        "decoded_client_payloads_survive_interleaved_files_failures_and_null_chunks",
+        "decoded_client_payloads_survive_interleaved_files_failures_and_absent_payloads",
         || {
             let a_dir = tempfile::tempdir().unwrap();
             let b_dir = tempfile::tempdir().unwrap();
@@ -66,21 +62,29 @@ fn decoded_client_payloads_survive_interleaved_files_failures_and_null_chunks() 
             );
             assert_eq!(b.game_client_xfer.as_deref(), Some(b_bytes.as_slice()));
 
-            // This fails only after the client chunk was visited. It must not
+            // Corruption is contained in that candidate archive. It must not
             // publish bytes that an unrelated valid or empty archive can take.
-            let mut invalid = walk_named_chunks(&b_archive).unwrap();
-            invalid.retain(|(name, _)| name != CHUNK_GAME_LOGIC);
-            std::fs::write(b_manager.get_save_path("broken"), repack(invalid)).unwrap();
+            let mut invalid = decode_versioned_archive(&b_archive);
+            invalid.snapshot.version += 1;
+            std::fs::write(
+                b_manager.get_save_path("broken"),
+                encode_versioned_archive(&invalid),
+            )
+            .unwrap();
             assert!(b_manager.load_game_snapshot("broken").is_err());
             assert!(b_manager.load_game_snapshot("missing").is_err());
 
-            let null_archive = archive(&[], "historical null client", a_dir.path());
+            let null_archive = archive(&[], "explicitly absent client", a_dir.path());
             std::fs::write(a_manager.get_save_path("null"), &null_archive).unwrap();
             let null = a_manager.load_game_snapshot("null").unwrap();
             assert!(null.game_client_xfer.is_none());
-            let mut omitted = walk_named_chunks(&null_archive).unwrap();
-            omitted.retain(|(name, _)| name != CHUNK_GAME_CLIENT);
-            std::fs::write(b_manager.get_save_path("omitted"), repack(omitted)).unwrap();
+            let mut omitted = decode_versioned_archive(&null_archive);
+            omitted.game_client_xfer = None;
+            std::fs::write(
+                b_manager.get_save_path("omitted"),
+                encode_versioned_archive(&omitted),
+            )
+            .unwrap();
             assert!(
                 b_manager
                     .load_game_snapshot("omitted")
@@ -91,13 +95,17 @@ fn decoded_client_payloads_survive_interleaved_files_failures_and_null_chunks() 
 
             // Preserve payload validity as a separate admission phase. A
             // malformed nested client block never changes the live receiver.
-            let mut malformed = walk_named_chunks(&b_archive).unwrap();
-            let (_, chunk) = malformed
-                .iter_mut()
-                .find(|(name, _)| name == CHUNK_GAME_CLIENT)
-                .unwrap();
-            chunk.truncate(3);
-            std::fs::write(b_manager.get_save_path("malformed"), repack(malformed)).unwrap();
+            let mut malformed = decode_versioned_archive(&b_archive);
+            malformed
+                .game_client_xfer
+                .as_mut()
+                .unwrap()
+                .truncate(3);
+            std::fs::write(
+                b_manager.get_save_path("malformed"),
+                encode_versioned_archive(&malformed),
+            )
+            .unwrap();
             let malformed = b_manager.load_game_snapshot("malformed").unwrap();
             assert!(
                 validate_game_client_xfer_bytes(malformed.game_client_xfer.as_deref().unwrap())

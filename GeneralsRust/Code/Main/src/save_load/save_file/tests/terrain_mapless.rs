@@ -132,9 +132,6 @@ fn mapless_bad_tail_and_late_snapshot_failure_preserve_live_grid_factory_and_cac
                 .height_revision();
             // Preserve the real source owner's admission intent while replacing
             // only the payloads whose late rejection this test exercises.
-            manager.save_game("mapless_intent_source", &source, &info).unwrap();
-            let intent_archive = std::fs::read(manager.get_save_path("mapless_intent_source")).unwrap();
-            let intent_len = 1 + CHUNK_HOST_MAP_INTENT.len() + 4 + 2;
             for (slot, candidate, payload, expected) in [
                 (
                     "bad_mapless_tail",
@@ -153,19 +150,18 @@ fn mapless_bad_tail_and_late_snapshot_failure_preserve_live_grid_factory_and_cac
                     "radar ring",
                 ),
             ] {
-                let mut archive =
-                    SaveFileManager::write_common_sav_chunks_with_client_and_terrain_bytes(
+                manager
+                    .save_to_file(
+                        &manager.get_save_path(slot),
                         &candidate,
                         &info,
                         &[1],
                         Some(&payload),
-                        directory.path(),
                         SAVED_GAME_MODE_NONE,
                         &game_engine::System::CampaignManagerXferState::default(),
+                        MapAdmissionIntent::Mapless,
                     )
                     .unwrap();
-                archive.splice(0..0, intent_archive[..intent_len].iter().copied());
-                std::fs::write(manager.get_save_path(slot), archive).unwrap();
                 let error = manager
                     .load_game(slot, &mut running)
                     .unwrap_err()
