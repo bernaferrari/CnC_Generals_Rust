@@ -3,48 +3,6 @@
 use super::*;
 use game_engine::common::system::skirmish_game_info::SkirmishGameInfo;
 
-pub(super) fn read_source(payload: &[u8]) -> SaveLoadResult<(i32, Option<SkirmishGameInfo>)> {
-    fn invalid() -> SaveLoadError {
-        SaveLoadError::Corrupted("truncated GameStateMap initial admission".into())
-    }
-    fn take<'a>(remaining: &mut &'a [u8], size: usize) -> SaveLoadResult<&'a [u8]> {
-        let value = remaining.get(..size).ok_or_else(invalid)?;
-        *remaining = &remaining[size..];
-        Ok(value)
-    }
-    fn word(remaining: &mut &[u8]) -> SaveLoadResult<u32> {
-        Ok(u32::from_le_bytes(take(remaining, 4)?.try_into().unwrap()))
-    }
-    let mut bytes = payload;
-    let version = *take(&mut bytes, 1)?.first().unwrap();
-    if version != GAME_STATE_MAP_VERSION {
-        return Err(SaveLoadError::VersionMismatch {
-            expected: u32::from(GAME_STATE_MAP_VERSION),
-            actual: u32::from(version),
-        });
-    }
-    for _ in 0..2 {
-        let length = *take(&mut bytes, 1)?.first().unwrap() as usize;
-        take(&mut bytes, length)?;
-    }
-    let mode = word(&mut bytes)? as i32;
-    let map_size = word(&mut bytes)? as usize;
-    take(&mut bytes, map_size)?;
-    word(&mut bytes)?;
-    word(&mut bytes)?; // original ObjectID/DrawableID counters
-    if bytes.is_empty() {
-        return Ok((mode, None));
-    }
-    if mode != SAVED_GAME_MODE_SKIRMISH {
-        return Err(SaveLoadError::Corrupted(
-            "unexpected GameStateMap suffix outside Skirmish".into(),
-        ));
-    }
-    let source = SkirmishGameInfo::decode(bytes)
-        .map_err(|e| SaveLoadError::Corrupted(format!("invalid saved SkirmishGameInfo: {e}")))?;
-    Ok((mode, Some(source)))
-}
-
 pub(super) fn bind_original_if_needed(
     snapshot: &mut WorldSnapshot,
     source: Option<&SkirmishGameInfo>,
@@ -160,44 +118,6 @@ mod tests {
             local_slot: Some(0),
             local_slot_from_client: true,
         }
-    }
-
-    #[test]
-    fn original_map_name_uses_existing_portable_projection_without_changing_other_fields() {
-        let admission = initial();
-        let source = admission.source.as_ref().unwrap();
-        let info = SaveGameInfo {
-            pristine_map_name: None,
-            filename: "source".into(),
-            display_name: "Source".into(),
-            description: "source map path".into(),
-            map_name: String::new(),
-            campaign_side: None,
-            mission_number: None,
-            save_date: UNIX_EPOCH,
-            game_version: "test".into(),
-            play_time: std::time::Duration::ZERO,
-            difficulty: GameDifficulty::Medium,
-            save_type: SaveFileType::Normal,
-        };
-        let mut bytes = Cursor::new(Vec::new());
-        write_game_state_map_block(
-            &mut CommonXferSave::new(&mut bytes, SAVE_FILE_VERSION),
-            &info,
-            Path::new("Save"),
-            Some(source),
-            SAVED_GAME_MODE_SKIRMISH,
-        )
-        .unwrap();
-        let (mode, observed) = read_source(bytes.get_ref()).unwrap();
-        assert_eq!(mode, SAVED_GAME_MODE_SKIRMISH);
-        let mut expected = source.clone();
-        expected.map_name = r"maps\alpine\alpine.map".into(); // Xfer.cpp151 + GameState848–875
-        assert_eq!(observed, Some(expected));
-        assert_eq!(
-            admission.source.as_ref().unwrap().map_name,
-            r"Maps\Alpine\Alpine.map"
-        );
     }
 
     #[test]

@@ -210,68 +210,25 @@ fn restore_fixture_native(
 }
 
 fn rewrite_logic(path: &std::path::Path, change: impl FnOnce(&mut WorldSnapshot)) {
-    let input = std::fs::read(path).unwrap();
-    let mut pos = 0;
-    let mut change = Some(change);
-    let mut output = Vec::new();
-    while pos < input.len() {
-        let n = input[pos] as usize;
-        let token = &input[pos + 1..pos + 1 + n];
-        output.extend_from_slice(&input[pos..pos + 1 + n]);
-        pos += 1 + n;
-        if token == b"SG_EOF" {
-            break;
-        }
-        let n = u32::from_le_bytes(input[pos..pos + 4].try_into().unwrap()) as usize;
-        pos += 4;
-        let payload = &input[pos..pos + n];
-        pos += n;
-        let bytes = if token == b"CHUNK_GameLogic" {
-            let mut w: WorldSnapshot = bincode_legacy::deserialize(payload).unwrap();
-            change.take().unwrap()(&mut w);
-            bincode_legacy::serialize(&w).unwrap()
-        } else {
-            payload.to_vec()
-        };
-        output.extend_from_slice(&(bytes.len() as u32).to_le_bytes());
-        output.extend_from_slice(&bytes);
-    }
-    assert!(change.is_none());
-    assert_eq!(pos, input.len());
-    std::fs::write(path, output).unwrap();
+    crate::save_load::save_file::rewrite_versioned_save_archive(path, |archive| {
+        change(&mut archive.snapshot)
+    });
 }
+
 #[cfg(feature = "game_client")]
 fn append_original_map_suffix(
     path: &std::path::Path,
     original: &game_engine::common::system::skirmish_game_info::SkirmishGameInfo,
 ) {
-    let input = std::fs::read(path).unwrap();
-    let mut pos = 0;
-    let mut output = Vec::new();
-    let mut found = false;
-    while pos < input.len() {
-        let n = input[pos] as usize;
-        let token = &input[pos + 1..pos + 1 + n];
-        output.extend_from_slice(&input[pos..pos + 1 + n]);
-        pos += 1 + n;
-        if token == b"SG_EOF" {
-            break;
-        }
-        let n = u32::from_le_bytes(input[pos..pos + 4].try_into().unwrap()) as usize;
-        pos += 4;
-        let mut payload = input[pos..pos + n].to_vec();
-        pos += n;
-        if token == b"CHUNK_GameStateMap" {
-            payload.extend_from_slice(&original.encode().unwrap());
-            found = true;
-        }
-        output.extend_from_slice(&(payload.len() as u32).to_le_bytes());
-        output.extend_from_slice(&payload);
-    }
-    assert!(found);
-    assert_eq!(pos, input.len());
-    std::fs::write(path, output).unwrap();
+    crate::save_load::save_file::rewrite_versioned_save_archive(path, |archive| {
+        archive
+            .map
+            .as_mut()
+            .expect("structured map admission")
+            .source_game_info = Some(original.clone());
+    });
 }
+
 #[test]
 fn direct_config_archive_rebuilds_saved_initial_foundation_before_strict_map_coverage() {
     isolated(
@@ -785,34 +742,6 @@ fn actual_random_color_client_input_keeps_native_archive_and_nonfirst_local_auth
             let mut saves = SaveFileManager::with_save_directory(dir.path());
             saves.init().unwrap();
             save(&mut saves, "random_color", &source);
-            let path = saves.get_save_path("random_color");
-            let archive = std::fs::read(&path).unwrap();
-            let mut pos = 0;
-            let mut remaining_original = None;
-            while pos < archive.len() {
-                let n = archive[pos] as usize;
-                let token = &archive[pos + 1..pos + 1 + n];
-                pos += 1 + n;
-                if token == b"SG_EOF" {
-                    break;
-                }
-                let n = u32::from_le_bytes(archive[pos..pos + 4].try_into().unwrap()) as usize;
-                pos += 4;
-                let block = &archive[pos..pos + n];
-                pos += n;
-                if token == b"CHUNK_GameStateMap" {
-                    let mut p = 1;
-                    for _ in 0..2 {
-                        p += 1 + block[p] as usize;
-                    }
-                    assert_eq!(i32::from_le_bytes(block[p..p + 4].try_into().unwrap()), 2);
-                    p += 4;
-                    let map_size = u32::from_le_bytes(block[p..p + 4].try_into().unwrap()) as usize;
-                    p += 4 + map_size + 8; // original map block and Object/Drawable counters
-                    remaining_original = Some(block.len() - p);
-                }
-            }
-            assert_eq!(remaining_original, Some(0));
             let crate::save_load::DecodedGameSave { snapshot, .. } =
                 saves.load_game_snapshot("random_color").unwrap();
             assert!(

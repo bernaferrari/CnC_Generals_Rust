@@ -449,7 +449,7 @@ mod tests {
     }
 
     #[test]
-    fn save_load_menu_rejects_obsolete_rust_game_state_header() {
+    fn save_load_menu_rejects_obsolete_named_chunk_container() {
         // C++ GameState::getSaveGameInfoFromFile (GameState.cpp:975-1038) walks
         // u8-len tokens + i32 block sizes. A CHUNK_GameState payload encoded by
         // the pre-C++ Rust CommonGameState envelope is obsolete: only the
@@ -490,19 +490,13 @@ mod tests {
         let manager = SaveLoadManager::new();
         assert!(matches!(
             manager.get_save_info_from_file(&path),
-            Err(SaveLoadError::VersionMismatch {
-                expected: 2,
-                actual: 1
-            })
+            Err(SaveLoadError::InvalidFormat)
         ));
-        // The full reader rejects the same obsolete header on the same path.
+        // The full reader rejects the same obsolete container on the same path.
         let mut reader = crate::save_load::save_file::SaveFileManager::with_save_directory(&dir);
         assert!(matches!(
             reader.load_game_snapshot("00000001"),
-            Err(SaveLoadError::VersionMismatch {
-                expected: 2,
-                actual: 1
-            })
+            Err(SaveLoadError::InvalidFormat)
         ));
 
         let _ = std::fs::remove_dir_all(dir);

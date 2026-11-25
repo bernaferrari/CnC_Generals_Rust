@@ -9,59 +9,6 @@ use generals_main::skirmish_config::{
 use std::time::{Duration, UNIX_EPOCH};
 use tempfile::TempDir;
 
-fn raw_game_state_map_payload(bytes: &[u8]) -> &[u8] {
-    let mut offset = 0usize;
-    loop {
-        let token_len = *bytes.get(offset).expect("named chunk token length") as usize;
-        offset += 1;
-        let token_end = offset.checked_add(token_len).expect("token offset");
-        let token = std::str::from_utf8(
-            bytes
-                .get(offset..token_end)
-                .expect("complete named chunk token"),
-        )
-        .expect("UTF-8 chunk token");
-        offset = token_end;
-        if token.eq_ignore_ascii_case("SG_EOF") {
-            panic!("GameStateMap missing before EOF");
-        }
-        let size_end = offset.checked_add(4).expect("chunk size offset");
-        let size = i32::from_le_bytes(
-            bytes
-                .get(offset..size_end)
-                .expect("complete named chunk size")
-                .try_into()
-                .unwrap(),
-        );
-        assert!(size >= 0, "non-negative named chunk size");
-        offset = size_end;
-        let end = offset.checked_add(size as usize).expect("chunk end");
-        let payload = bytes
-            .get(offset..end)
-            .expect("complete named chunk payload");
-        if token.eq_ignore_ascii_case("CHUNK_GameStateMap") {
-            return payload;
-        }
-        offset = end;
-    }
-}
-
-fn raw_v2_game_mode(map_payload: &[u8]) -> i32 {
-    assert_eq!(map_payload.first(), Some(&2), "GameStateMap v2");
-    let mut offset = 1usize;
-    for _ in 0..2 {
-        let size = *map_payload.get(offset).expect("ASCII string length") as usize;
-        offset = offset.checked_add(1 + size).expect("ASCII string end");
-    }
-    i32::from_le_bytes(
-        map_payload
-            .get(offset..offset + 4)
-            .expect("v2 mode i32 after both map strings")
-            .try_into()
-            .unwrap(),
-    )
-}
-
 fn admitted_skirmish_world() -> GameLogic {
     let mut definitions = PlayerTemplateStore::new_owned();
     definitions
@@ -82,6 +29,9 @@ fn admitted_skirmish_world() -> GameLogic {
     logic
         .admit_player_template_definitions(definitions)
         .expect("admit receiving PlayerTemplate definitions");
+    logic
+        .admit_object_ini_sources(std::iter::empty())
+        .expect("admit ordered receiving Object content");
     apply_skirmish_config(&mut logic, &config).expect("apply resolved Skirmish start config");
     logic
 }
@@ -161,11 +111,5 @@ fn interleaved_public_saves_keep_each_receiving_world_mode_in_its_archive() {
         ("skirmish-a-again", 2),
     ] {
         assert_eq!(saved_mode(name), expected, "decoded mode for {name}");
-        let archive = std::fs::read(saves.get_save_path(name)).expect("read public save archive");
-        assert_eq!(
-            raw_v2_game_mode(raw_game_state_map_payload(&archive)),
-            expected,
-            "independent raw v2 mode bytes for {name}"
-        );
     }
 }

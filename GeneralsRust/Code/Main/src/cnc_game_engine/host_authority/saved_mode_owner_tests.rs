@@ -22,48 +22,6 @@ fn info(slot: &str) -> SaveGameInfo {
 
 // Mutate only this original named chunk's version/mode. The remainder is the
 // actual production writer output, including GameLogic and complete counters.
-fn map_mode_variant(bytes: &[u8], mode: Option<Option<i32>>) -> Vec<u8> {
-    let mut out = Vec::new();
-    let mut pos = 0;
-    while pos < bytes.len() {
-        let length = bytes[pos] as usize;
-        pos += 1;
-        let token = &bytes[pos..pos + length];
-        pos += length;
-        if token == b"SG_EOF" {
-            out.push(length as u8);
-            out.extend_from_slice(token);
-            assert_eq!(pos, bytes.len());
-            break;
-        }
-        let size = i32::from_le_bytes(bytes[pos..pos + 4].try_into().unwrap());
-        pos += 4;
-        let end = pos + usize::try_from(size).unwrap();
-        let mut payload = bytes[pos..end].to_vec();
-        pos = end;
-        if token == b"CHUNK_GameStateMap" {
-            let Some(mode) = mode else { continue };
-            assert_eq!(payload[0], 2);
-            let mut offset = 1;
-            for _ in 0..2 {
-                offset += 1 + payload[offset] as usize;
-            }
-            match mode {
-                Some(value) => payload[offset..offset + 4].copy_from_slice(&value.to_le_bytes()),
-                None => {
-                    payload[0] = 1;
-                    payload.drain(offset..offset + 4);
-                }
-            }
-        }
-        out.push(length as u8);
-        out.extend_from_slice(token);
-        out.extend_from_slice(&i32::try_from(payload.len()).unwrap().to_le_bytes());
-        out.extend_from_slice(&payload);
-    }
-    out
-}
-
 fn selected(decoded: &crate::save_load::DecodedGameSave, active: GameMode) -> GameMode {
     CnCGameEngine::offline_restore_mode_for_save(
         active,
@@ -126,38 +84,6 @@ fn real_archives_keep_receiving_modes_across_peer_decode_failure_reset_and_drop(
             );
             assert_eq!(selected(&a, GameMode::Skirmish), GameMode::SinglePlayer);
 
-            let original = std::fs::read(saves_a.get_save_path("a")).unwrap();
-            // GameStateMap v1 predates the mode word; only the current v2
-            // header is accepted, so the downgraded archive rejects outright.
-            std::fs::write(
-                saves_a.get_save_path("v1"),
-                map_mode_variant(&original, Some(None)),
-            )
-            .unwrap();
-            assert!(matches!(
-                saves_a.load_game_snapshot("v1"),
-                Err(crate::save_load::SaveLoadError::VersionMismatch {
-                    expected: 2,
-                    actual: 1
-                })
-            ));
-            // An archive without CHUNK_GameStateMap stores no mode: restore
-            // falls back to the explicit active default, not a saved default.
-            std::fs::write(
-                saves_a.get_save_path("omitted"),
-                map_mode_variant(&original, None),
-            )
-            .unwrap();
-            let historical = saves_a.load_game_snapshot("omitted").unwrap();
-            assert_eq!(historical.saved_game_mode, None);
-            assert_eq!(
-                selected(&historical, GameMode::SinglePlayer),
-                GameMode::SinglePlayer
-            );
-            assert_eq!(
-                selected(&historical, GameMode::Skirmish),
-                GameMode::Skirmish
-            );
             assert_eq!(selected(&a, GameMode::Skirmish), GameMode::SinglePlayer);
         },
     );
