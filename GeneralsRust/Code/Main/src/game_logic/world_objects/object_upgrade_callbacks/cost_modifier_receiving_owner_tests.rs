@@ -610,3 +610,69 @@ fn authored_cost_modifier_is_world_scoped_across_capture_delete_and_snapshot() {
         1000
     );
 }
+
+#[test]
+fn cost_modifier_callbacks_keep_the_definitions_bound_to_each_object() {
+    let (mut owner, source) = world("-12.5%", true);
+    let source = source.unwrap();
+    let (mut peer, peer_source) = world("-50%", true);
+    assert_eq!(peer_source, Some(source));
+    peer.apply_upgrade_to_object(source, UPGRADE);
+
+    owner.apply_receiving_module_overrides(&[format!(
+        "Object CostModifierSource\nReplaceModule AuthoredCost\n\
+         Behavior = CostModifierUpgrade MapCost\nTriggeredBy = {UPGRADE}\n\
+         EffectKindOf = VEHICLE AIRCRAFT\nPercentage = -25%\nEnd\nEnd\nEnd\n"
+    )]).unwrap();
+    owner.apply_upgrade_to_object(source, UPGRADE);
+    assert_eq!(owner.modified_build_cost_supplies(0, "CostModifierDualKind", 1000), 875);
+    let later = owner.create_object_for_player("CostModifierSource", 1, glam::Vec3::ZERO).unwrap();
+    owner.apply_upgrade_to_object(later, UPGRADE);
+    assert_eq!(owner.modified_build_cost_supplies(1, "CostModifierDualKind", 1000), 750);
+
+    let new_team = owner.players[&1].default_team_id.unwrap();
+    assert!(owner.set_host_object_team(source, new_team).unwrap());
+    assert_eq!(owner.modified_build_cost_supplies(0, "CostModifierDualKind", 1000), 1000);
+    assert_eq!(owner.modified_build_cost_supplies(1, "CostModifierDualKind", 1000), 656);
+    owner.destroy_object(source).unwrap();
+    assert_eq!(owner.modified_build_cost_supplies(1, "CostModifierDualKind", 1000), 750);
+    owner.destroy_object(later).unwrap();
+    assert_eq!(owner.modified_build_cost_supplies(1, "CostModifierDualKind", 1000), 1000);
+    assert_eq!(peer.modified_build_cost_supplies(0, "CostModifierDualKind", 1000), 500);
+}
+
+#[test]
+fn cost_modifier_save_preserves_each_ordered_row_and_wrapped_refcount() {
+    use crate::save_load::{SnapshotBuilder, snapshot::decode_bincode_world_snapshot};
+
+    let (mut owner, source) = world("-25%", true);
+    let source = source.unwrap();
+    owner.apply_upgrade_to_object(source, UPGRADE);
+    let other = owner.create_object_for_player("CostModifierSource", 0, glam::Vec3::ZERO).unwrap();
+    owner.players.get_mut(&0).unwrap().kind_of_production_cost_changes[0].ref_count = u32::MAX;
+    owner.apply_upgrade_to_object(other, UPGRADE);
+    let rows = &mut owner.players.get_mut(&0).unwrap().kind_of_production_cost_changes;
+    assert_eq!(rows[0].ref_count, 0);
+    // Player::xfer admits every row in order, including two equal entries.
+    let mut duplicate = rows[0].clone();
+    duplicate.ref_count = 2;
+    rows.push(duplicate);
+    let live_quote = owner.modified_build_cost_supplies(0, "CostModifierDualKind", 1000);
+    assert_eq!(live_quote, 562);
+
+    let builder = SnapshotBuilder::new();
+    let snapshot = builder.create_world_snapshot(&owner).unwrap();
+    let bytes = bincode_legacy::serialize(&snapshot).unwrap();
+    let decoded = decode_bincode_world_snapshot(&bytes).unwrap();
+    let (mut restored, _) = world("-25%", false);
+    builder.restore_from_snapshot(&decoded, &mut restored).unwrap();
+    let counts = |world: &GameLogic| {
+        world.players[&0].kind_of_production_cost_changes.iter()
+            .map(|entry| entry.ref_count).collect::<Vec<_>>()
+    };
+    assert_eq!(counts(&restored), [0, 2]);
+    assert_eq!(restored.modified_build_cost_supplies(0, "CostModifierDualKind", 1000), live_quote);
+    restored.destroy_object(source).unwrap();
+    assert_eq!(counts(&restored), [u32::MAX, 2]);
+    assert_eq!(counts(&owner), [0, 2]);
+}

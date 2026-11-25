@@ -11,6 +11,7 @@
 //! WorldSnapshot 26/27 gates admission cash and its definition source; its positional body is unchanged.
 
 use super::player_team_chunks::PlayerTeamChunks;
+use crate::game_logic::host_upgrade_module_residuals::KindOfProductionCostChange;
 use crate::game_logic::{GameLogic, ObjectId, Player, PlayerSideRole};
 use crate::save_load::{SaveLoadError, SaveLoadResult};
 use game_engine::common::system::xfer::Xfer as CommonXfer;
@@ -1210,31 +1211,37 @@ pub(super) fn apply_player_to_live(game_logic: &mut GameLogic, persist: &PlayerR
     }
     player.did_preorder = persist.did_preorder;
 
-    player.kind_of_production_cost_changes.clear();
-    for entry in &persist.kind_of_changes {
-        if entry.kind_of_name.trim().is_empty() && entry.kind_of_bits == 0 {
-            continue;
-        }
-        if entry.kind_of_bits != 0 || entry.kind_of_name.trim().eq_ignore_ascii_case("NONE") {
-            player.add_authored_kind_of_production_cost_change(entry.kind_of_bits, entry.percent);
-        } else {
-            let restored_bits = entry
-                .kind_of_name
-                .split_whitespace()
-                .filter_map(|name| {
-                    game_engine::common::system::kind_of::KindOfMask::from_string(name)
-                })
-                .fold(0u128, |mask, flag| mask | flag.bits());
-            if restored_bits != 0 {
-                player.add_authored_kind_of_production_cost_change(restored_bits, entry.percent);
-            } else {
-                player.add_kind_of_production_cost_change(&entry.kind_of_name, entry.percent);
+    // Player::xfer appends each saved list entry. Adding a new contribution
+    // instead would coalesce equal rows and change their unsigned refcounts.
+    player.kind_of_production_cost_changes = persist
+        .kind_of_changes
+        .iter()
+        .map(|entry| {
+            use game_engine::common::system::kind_of::KindOfMask;
+
+            let name = entry.kind_of_name.trim();
+            let mut bits = entry.kind_of_bits;
+            if bits == 0 && !name.eq_ignore_ascii_case("NONE") {
+                bits = name
+                    .split_whitespace()
+                    .filter_map(KindOfMask::from_string)
+                    .fold(0, |mask, flag| mask | flag.bits());
             }
-        }
-        if let Some(last) = player.kind_of_production_cost_changes.last_mut() {
-            last.ref_count = entry.refs.max(1);
-        }
-    }
+            let kind_of = if bits != 0 {
+                String::new()
+            } else if name.is_empty() || name.eq_ignore_ascii_case("NONE") {
+                "NONE".to_owned()
+            } else {
+                entry.kind_of_name.clone()
+            };
+            KindOfProductionCostChange {
+                kind_of_bits: bits,
+                kind_of,
+                percent: entry.percent,
+                ref_count: entry.refs,
+            }
+        })
+        .collect();
 }
 
 fn validate_team_factory_restore(

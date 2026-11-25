@@ -67,29 +67,28 @@ impl GameLogic {
         &mut self,
         object_id: ObjectId,
     ) -> Vec<AuthoredCostModifierUpgrade> {
-        use game_engine::common::thing::module::ModuleData;
-        let Some(object) = self.objects.get(&object_id) else {
-            return Vec::new();
-        };
         let Some(template) = self
-            .receiving_module_content
-            .as_ref()
-            .and_then(|content| content.admitted_template(&object.template_name))
+            .objects
+            .get(&object_id)
+            .and_then(|object| object.get_template().receiving_client_template.as_ref())
         else {
             return Vec::new();
         };
-        let mut state_index = 0;
-        let modules: Vec<_> = template.behavior_modules().iter().filter_map(|module| {
-            if !module.name.as_str().eq_ignore_ascii_case("CostModifierUpgrade") { return None; }
-            let data = upgrade_data_view::<gamelogic::object::upgrade::cost_modifier_upgrade::CostModifierUpgradeModuleData>(&module.data)?;
-            let index = state_index;
-            state_index += 1;
-            Some(AuthoredCostModifierUpgrade { state_index: index, data })
-        }).collect();
+        let modules: Vec<_> = template
+            .behavior_modules()
+            .iter()
+            .filter_map(|module| {
+                upgrade_data_view::<gamelogic::object::upgrade::CostModifierUpgradeModuleData>(
+                    &module.data,
+                )
+            })
+            .enumerate()
+            .map(|(state_index, data)| AuthoredCostModifierUpgrade { state_index, data })
+            .collect();
         if let Some(object) = self.objects.get_mut(&object_id) {
             object
                 .cost_modifier_upgrade_executed
-                .resize(state_index, false);
+                .resize(modules.len(), false);
         }
         modules
     }

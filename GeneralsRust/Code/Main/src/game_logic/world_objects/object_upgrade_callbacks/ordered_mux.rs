@@ -198,13 +198,13 @@ impl GameLogic {
         object_id: ObjectId,
     ) -> Vec<AuthoredOrderedUpgrade> {
         use game_engine::common::thing::module::ModuleData;
-        let Some(object) = self.objects.get(&object_id) else {
-            return Vec::new();
-        };
-        let Some(content) = self.receiving_module_content.as_ref() else {
-            return Vec::new();
-        };
-        let Some(template) = content.admitted_template(&object.template_name) else {
+        // The factory pins the effective module roster on the actor. A later
+        // map override can supply a newer roster for future actors of this name.
+        let Some(template) = self
+            .objects
+            .get(&object_id)
+            .and_then(|object| object.get_template().receiving_client_template.as_ref())
+        else {
             return Vec::new();
         };
         let mut object_creation_index = 0;
