@@ -168,6 +168,30 @@ impl CollisionSystem {
         Ok(())
     }
 
+    pub(crate) fn rekey_restored_birth(
+        &mut self,
+        provisional: ObjectId,
+        saved: ObjectId,
+        ghosts: &mut crate::object::W3DGhostObjectManager,
+    ) -> Result<(), &'static str> {
+        if self.object_configs.contains_key(&saved) {
+            return Err("saved identity already has collision settings");
+        }
+        self.pm_mut()
+            .rekey_restored_birth(provisional, saved, ghosts)?;
+        if let Some(config) = self.object_configs.remove(&provisional) {
+            self.object_configs.insert(saved, config);
+        }
+        Ok(())
+    }
+
+    pub(crate) fn check_restored_birth_identity(&self, saved: ObjectId) -> Result<(), &'static str> {
+        if self.object_configs.contains_key(&saved) {
+            return Err("saved identity already has collision settings");
+        }
+        self.pm().check_restored_birth_identity(saved)
+    }
+
     /// Update an object's position
     pub fn update_object_position(
         &mut self,

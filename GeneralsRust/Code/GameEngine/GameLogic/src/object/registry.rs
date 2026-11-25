@@ -182,6 +182,36 @@ impl ObjectRegistry {
         true
     }
 
+    pub(crate) fn rekey_restored_birth(
+        &self,
+        provisional: ObjectID,
+        saved: ObjectID,
+        actor: &SharedObjectHandle,
+    ) -> Result<(), &'static str> {
+        if provisional == saved {
+            return Ok(());
+        }
+        let mut store = self.store.write().map_err(|_| "Object registry poisoned")?;
+        if store.contains(saved)
+            || !store
+                .objects
+                .get(&provisional)
+                .is_some_and(|object| Arc::ptr_eq(object, actor))
+        {
+            return Err("Object registry cannot replace provisional identity");
+        }
+        let actor = store
+            .unregister(provisional)
+            .expect("validated provisional actor");
+        store.objects.insert(saved, actor);
+        Ok(())
+    }
+
+    pub(crate) fn has_indexed_identity(&self, id: ObjectID) -> Result<bool, &'static str> {
+        let store = self.store.read().map_err(|_| "Object registry poisoned")?;
+        Ok(store.contains(id))
+    }
+
     /// Retrieve a strong reference to an object by identifier.
     pub fn get_object(&self, id: ObjectID) -> Option<Arc<RwLock<Object>>> {
         // Wave 247: host path (empty registry) skips RwLock entirely.

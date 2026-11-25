@@ -1489,6 +1489,43 @@ impl TheGameClient {
             .and_then(|state| state.drawable.as_ref().cloned())
     }
 
+    pub(crate) fn rekey_restored_drawable(
+        stores: &crate::system::engine_stores::WorldServices,
+        drawable: &Arc<RwLock<Drawable>>,
+        provisional: u32,
+    ) -> Result<(), &'static str> {
+        let saved = drawable
+            .read()
+            .map_err(|_| "saved Drawable poisoned")?
+            .get_drawable_id();
+        if saved == provisional {
+            return Ok(());
+        }
+        let mut drawables = stores
+            .client_visuals()
+            .drawables
+            .lock()
+            .map_err(|_| "Drawable index poisoned")?;
+        if drawables.contains_key(&saved)
+            || !drawables
+                .get(&provisional)
+                .and_then(|state| state.drawable.as_ref())
+                .is_some_and(|registered| Arc::ptr_eq(registered, drawable))
+        {
+            drop(drawables);
+            drawable
+                .write()
+                .map_err(|_| "saved Drawable poisoned")?
+                .set_drawable_id(provisional);
+            return Err("Drawable index cannot replace provisional identity");
+        }
+        let state = drawables
+            .remove(&provisional)
+            .expect("validated provisional Drawable");
+        drawables.insert(saved, state);
+        Ok(())
+    }
+
     #[cfg(test)]
     pub(crate) fn register_drawable_arc_for_test(&self, id: u32, drawable: Arc<RwLock<Drawable>>) {
         let stores = crate::system::engine_stores::active_services();

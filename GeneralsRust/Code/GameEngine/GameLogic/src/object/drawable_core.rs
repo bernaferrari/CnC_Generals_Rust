@@ -192,6 +192,10 @@ impl Drawable {
         self.object_id
     }
 
+    pub(crate) fn rekey_restored_object(&mut self, id: ObjectID) {
+        self.object_id = id;
+    }
+
     /// Register a draw module instance with the drawable.
     pub fn add_module(
         &mut self,

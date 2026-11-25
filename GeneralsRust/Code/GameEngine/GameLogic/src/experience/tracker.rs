@@ -49,6 +49,10 @@ pub struct ExperienceTracker {
 }
 
 impl ExperienceTracker {
+    pub(crate) fn rekey_restored_owner(&mut self, id: ObjectID) {
+        self.owner_id = id;
+    }
+
     /// Invalid object ID constant
     pub const INVALID_ID: ObjectID = 0;
 

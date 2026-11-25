@@ -31,6 +31,10 @@ impl Drop for FiringTracker {
 }
 
 impl FiringTracker {
+    pub(crate) fn rekey_restored_owner(&mut self, id: ObjectID) {
+        self.object_id = id;
+    }
+
     pub fn new(object_id: ObjectID) -> Self {
         Self {
             object_id,

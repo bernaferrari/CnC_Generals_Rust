@@ -7,6 +7,13 @@
 use super::object_impl_imports::*;
 use super::*;
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(super) enum ObjectAssembly {
+    Compatibility,
+    Detached,
+    CoreRestore,
+}
+
 /// Synchronous access to the same object during deletion. The GameLogic path
 /// releases its object guard before callbacks that resolve their owner.
 pub(crate) enum DeleteOwner<'a> {
@@ -123,7 +130,7 @@ impl Object {
             object_status_mask,
             team,
             prepare_unit_ai,
-            true,
+            ObjectAssembly::Compatibility,
             None,
             None,
             None,
@@ -152,7 +159,7 @@ impl Object {
             object_status_mask,
             team,
             prepare_unit_ai,
-            false,
+            ObjectAssembly::Detached,
             None,
             None,
             None,
@@ -169,7 +176,7 @@ impl Object {
         object_status_mask: ObjectStatusMaskType,
         team: Option<Arc<RwLock<Team>>>,
         prepare_unit_ai: bool,
-        publish: bool,
+        assembly: ObjectAssembly,
         lookup: Option<&mut crate::locomotor::LocomotorTemplateLookup<'_>>,
         body_definitions: Option<Arc<crate::object::body::active_body::BodyDefinitionCatalog>>,
         module_factory: Option<&game_engine::common::thing::module_factory::ModuleFactory>,
@@ -181,18 +188,33 @@ impl Object {
         // set_team runs on the still-unshared object: registration below is
         // what publishes the id, so the previous uniquely-owned write guard
         // spelled a lock that protected nothing.
+        let publish = assembly == ObjectAssembly::Compatibility;
         let mut obj = Self::new_raw(
             thing_template.clone(),
             object_id,
             object_status_mask,
-            if publish { None } else { team.clone() },
+            if assembly == ObjectAssembly::Detached {
+                team.clone()
+            } else {
+                None
+            },
         );
         obj.owner_roster = owner_roster.as_ref().map(Arc::downgrade);
         obj.owner_cave = cave_system.as_ref().map(|world| Arc::downgrade(world.cave()));
         obj.owner_world = cave_system.as_ref().map(|world| world.world().clone());
         obj.ambient_lifecycle_admitted = publish;
-        if publish {
-            obj.set_team(team)?;
+        match assembly {
+            ObjectAssembly::Compatibility => obj.set_team(team)?,
+            ObjectAssembly::CoreRestore => {
+                let players = owner_roster
+                    .as_ref()
+                    .ok_or("restoring Object has no player roster")?;
+                let players = players
+                    .read()
+                    .map_err(|_| "restoring Object's roster is poisoned")?;
+                obj.set_team_with_player_list_and_owner_services(team, &players, None, None)?;
+            }
+            ObjectAssembly::Detached => {}
         }
 
         // THREAD: register_object below publishes this handle by id through
@@ -511,7 +533,14 @@ impl Object {
 
     /// C++ `Object::initObject` (Object.cpp:495), after partition registration.
     pub fn init_object_after_create(&mut self) {
-        self.init_object_cpp_sequence();
+        self.init_object_cpp_sequence(None);
+    }
+
+    pub(crate) fn init_core_restored_birth(
+        &mut self,
+        logic: &mut crate::system::game_logic::GameLogic,
+    ) {
+        self.init_object_cpp_sequence(Some(logic));
     }
 
     fn install_template_weapons(&mut self) {
@@ -1166,6 +1195,21 @@ impl Object {
         team: Option<Arc<RwLock<Team>>>,
         restoring: bool,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        if restoring {
+            if let Some(world) = self.owning_world_services() {
+                let players = world
+                    .players()
+                    .read()
+                    .map_err(|_| "restoring Object's roster is poisoned")?;
+                return self.set_or_restore_team_with_radar_services(
+                    team,
+                    true,
+                    Some(&players),
+                    None,
+                    None,
+                );
+            }
+        }
         self.set_or_restore_team_with_radar_services(team, restoring, None, None, None)
     }
 
@@ -1514,6 +1558,35 @@ impl Object {
 
     pub(super) fn set_id(&mut self, id: ObjectID) {
         self.id = id;
+    }
+
+    pub(crate) fn rekey_core_restored_birth(&mut self, id: ObjectID) -> Result<(), &'static str> {
+        let provisional = self.id;
+        if let Some(team) = self.get_team() {
+            team.write()
+                .map_err(|_| "birth team poisoned")?
+                .rekey_restored_member(provisional, id);
+        }
+        if let Some(player) = self.get_controlling_player() {
+            player
+                .write()
+                .map_err(|_| "birth controller poisoned")?
+                .rekey_restored_owned_object(provisional, id);
+        }
+        if let Some(drawable) = self.drawable.as_ref() {
+            drawable
+                .write()
+                .map_err(|_| "birth drawable poisoned")?
+                .rekey_restored_object(id);
+        }
+        if let Some(tracker) = self.firing_tracker.as_mut() {
+            tracker.rekey_restored_owner(id);
+        }
+        if let Some(tracker) = self.experience_tracker.as_mut() {
+            tracker.rekey_restored_owner(id);
+        }
+        self.set_id(id);
+        Ok(())
     }
 
     /// Handle object death - called when health reaches zero

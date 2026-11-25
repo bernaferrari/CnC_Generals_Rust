@@ -921,6 +921,25 @@ pub struct ObjectManager {
 }
 
 impl ObjectManager {
+    pub(crate) fn record_core_restored_object(
+        &mut self,
+        id: ObjectID,
+        actor: Arc<RwLock<Object>>,
+    ) -> Result<(), String> {
+        if self.objects.contains_key(&id) {
+            return Err(format!("manager already contains Object {id}"));
+        }
+        let (position, template) = {
+            let actor = actor.read().map_err(|_| "restored Object lock poisoned")?;
+            (*actor.get_position(), actor.get_template().clone())
+        };
+        let instance = GameObjectInstance::from_existing(actor, Some(template));
+        self.spatial_partition.add_object(id, position);
+        self.objects.insert(id, ObjectSlot::new(instance));
+        self.update_order.push(id);
+        Ok(())
+    }
+
     fn map_creation_flags(
         flags: ObjectCreationFlags,
     ) -> crate::object::object_factory::ObjectCreationFlags {

@@ -162,6 +162,29 @@ impl HostObjectIndex {
         }
     }
 
+    pub(crate) fn rekey_restored_birth(
+        &mut self,
+        provisional: ObjectID,
+        saved: ObjectID,
+        ghosts: &mut crate::object::W3DGhostObjectManager,
+    ) {
+        if let Some(cell) = self.object_cells.remove(&provisional) {
+            if let Some(bucket) = self.grid.get_mut(&cell) {
+                if let Some(id) = bucket.iter_mut().find(|id| **id == provisional) {
+                    *id = saved;
+                }
+            }
+            self.object_cells.insert(saved, cell);
+        }
+        if let Some(position) = self.object_positions.remove(&provisional) {
+            self.object_positions.insert(saved, position);
+        }
+        if let Some(link) = self.ghost_links.remove(&provisional) {
+            ghosts.rekey_restored_parent(link.scene_id, saved);
+            self.ghost_links.insert(saved, link);
+        }
+    }
+
     /// C++ `PartitionData::attachToObject` ghost allocation. Eligibility is
     /// computed by the caller from the immutable ThingTemplate contract.
     pub fn attach_object_ghost(

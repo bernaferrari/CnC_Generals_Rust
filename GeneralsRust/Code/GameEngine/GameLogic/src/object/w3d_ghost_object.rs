@@ -659,6 +659,12 @@ impl W3DGhostObjectManager {
             .find(|ghost| ghost.scene_id == scene_id)
     }
 
+    pub(crate) fn rekey_restored_parent(&mut self, scene_id: W3DGhostSceneId, saved: u32) {
+        if let Some(ghost) = self.linked_ghost_mut(scene_id) {
+            ghost.parent_object_id = Some(saved);
+        }
+    }
+
     pub fn snapshot_linked_ghost(
         &mut self,
         scene_id: W3DGhostSceneId,

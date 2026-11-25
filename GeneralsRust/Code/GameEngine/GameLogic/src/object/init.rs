@@ -10,7 +10,10 @@ use super::*;
 
 impl Object {
     /// C++ `Object::initObject` tail after create-modules (Object.cpp:495-575).
-    pub(super) fn init_object_cpp_sequence(&mut self) {
+    pub(super) fn init_object_cpp_sequence(
+        &mut self,
+        mut receiving: Option<&mut crate::system::game_logic::GameLogic>,
+    ) {
         for slot in 0..WEAPONSLOT_COUNT {
             self.last_weapon_condition[slot] = 0xFF;
         }
@@ -26,7 +29,11 @@ impl Object {
         self.update_upgrade_modules_from_player();
 
         if let Some(controller) = self.get_controlling_player() {
-            let should_bonus = crate::scripting::engine::get_script_engine()
+            let scripts = match receiving.as_ref() {
+                Some(logic) => logic.script_engine_slot(),
+                None => crate::scripting::engine::get_script_engine(),
+            };
+            let should_bonus = scripts
                 .read()
                 .ok()
                 .and_then(|engine| {
@@ -36,7 +43,14 @@ impl Object {
                 })
                 .unwrap_or(false);
             if !self.is_receiving_difficulty_bonus() && should_bonus {
-                self.set_receiving_difficulty_bonus(true);
+                if let Some(logic) = receiving.as_ref() {
+                    self.is_receiving_difficulty_bonus = true;
+                    if logic.is_in_single_player_game() {
+                        self.apply_solo_difficulty_bonuses(true);
+                    }
+                } else {
+                    self.set_receiving_difficulty_bonus(true);
+                }
             }
 
             if let Ok(player_guard) = controller.read() {
@@ -49,8 +63,18 @@ impl Object {
         self.fill_special_power_bits_from_modules();
 
         if !self.is_kind_of(KindOf::Projectile) && !self.is_kind_of(KindOf::Inert) {
-            crate::helpers::TheScriptEngine::notify_of_object_creation_or_destruction();
-            crate::helpers::TheGameLogic::queue_objects_changed_trigger_areas(self.id);
+            if let Some(logic) = receiving.as_deref_mut() {
+                let scripts = logic.script_engine_slot();
+                if let Ok(engine) = scripts.write() {
+                    if let Some(engine) = engine.as_ref() {
+                        engine.set_frame_object_count_changed(logic.get_frame());
+                    }
+                }
+                logic.update_objects_changed_trigger_areas();
+            } else {
+                crate::helpers::TheScriptEngine::notify_of_object_creation_or_destruction();
+                crate::helpers::TheGameLogic::queue_objects_changed_trigger_areas(self.id);
+            }
         }
 
         let _ = self.refresh_weapon_set();
@@ -59,8 +83,11 @@ impl Object {
             || self.is_kind_of(KindOf::BoobyTrap)
             || self.is_kind_of(KindOf::Demotrap)
         {
-            let __player_list_arc = player_list();
-        if let Ok(list) = __player_list_arc.read() {
+            let players = self
+                .owning_world_services()
+                .map(|world| Arc::clone(world.players()))
+                .unwrap_or_else(player_list);
+            if let Ok(list) = players.read() {
                 if let Some(neutral) = list.get_neutral_player() {
                     if let Ok(mut player_guard) = neutral.write() {
                         player_guard.get_academy_stats_mut().record_mine();
@@ -104,7 +131,10 @@ impl Object {
         if !is_single_player {
             return;
         }
+        self.apply_solo_difficulty_bonuses(apply);
+    }
 
+    fn apply_solo_difficulty_bonuses(&mut self, apply: bool) {
         let Some((player_type, difficulty)) = self.with_controlling_player(|player_guard| {
             (
                 player_guard.get_player_type(),

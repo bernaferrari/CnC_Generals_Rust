@@ -651,6 +651,42 @@ impl TheThingFactory {
     }
 
     /// Find template by name using the shared ThingFactory.
+    pub(crate) fn find_template_in(
+        common: &game_engine::common::common_services::CommonServices,
+        name: &str,
+    ) -> Option<Arc<dyn crate::common::ThingTemplate>> {
+        let template = common
+            .thing_factory
+            .lock()
+            .as_ref()?
+            .find_template(name, false)?;
+        Some(Arc::new(EngineThingTemplateAdapter::new(template)))
+    }
+
+    pub(crate) fn resolve_build_variation_in(
+        common: &game_engine::common::common_services::CommonServices,
+        template: Arc<dyn crate::common::ThingTemplate>,
+    ) -> Arc<dyn crate::common::ThingTemplate> {
+        use game_engine::common::common_services::{LogicRandom, ReceivingLogicRandom};
+        let Some(adapter) = template
+            .as_any()
+            .downcast_ref::<EngineThingTemplateAdapter>()
+        else {
+            return template;
+        };
+        let variations = adapter.inner.get_build_variations();
+        if variations.is_empty() {
+            return template;
+        }
+        let maximum = (variations.len() - 1) as Int;
+        let index = if maximum == 0 {
+            0
+        } else {
+            ReceivingLogicRandom::new(common).next_int(0, maximum)
+        } as usize;
+        Self::find_template_in(common, variations[index].as_str()).unwrap_or(template)
+    }
+
     pub fn find_template(name: impl AsRef<str>) -> Option<Arc<dyn crate::common::ThingTemplate>> {
         let key = crate::common::AsciiString::from(name.as_ref());
         let mut should_retry_init = true;

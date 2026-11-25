@@ -438,6 +438,16 @@ impl Player {
         }
     }
 
+    pub(crate) fn rekey_restored_owned_object(&mut self, provisional: ObjectID, saved: ObjectID) {
+        if let Some(object) = self
+            .owned_objects
+            .iter_mut()
+            .find(|object| **object == provisional)
+        {
+            *object = saved;
+        }
+    }
+
     fn add_owned_object_for_object_inner(&mut self, object_id: ObjectID, object: &Object) {
         self.add_owned_object_id(object_id);
 

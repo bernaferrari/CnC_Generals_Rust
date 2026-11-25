@@ -200,6 +200,16 @@ impl Team {
         // C++ DLINK unlink does not touch m_curUnits; Team::updateState recounts.
     }
 
+    pub(crate) fn rekey_restored_member(&mut self, provisional: ObjectID, saved: ObjectID) {
+        if let Some(member) = self
+            .members
+            .iter_mut()
+            .find(|member| **member == provisional)
+        {
+            *member = saved;
+        }
+    }
+
     pub fn get_members(&self) -> &[ObjectID] {
         &self.members
     }

@@ -207,6 +207,14 @@ impl GameLogic {
         &mut self,
         object: Arc<RwLock<Object>>,
     ) -> Result<ObjectID, GameLogicError> {
+        self.admit_object_impl(object, true)
+    }
+
+    fn admit_object_impl(
+        &mut self,
+        object: Arc<RwLock<Object>>,
+        create_drawable: bool,
+    ) -> Result<ObjectID, GameLogicError> {
         let (object_id, object_name) = {
             let guard = object
                 .read()
@@ -251,7 +259,9 @@ impl GameLogic {
 
         // C++ Object::initObject → sendObjectCreated after the object exists.
         // Dual-world: bind a client drawable when the logic object has none.
-        send_object_created_in(&world, &object);
+        if create_drawable {
+            send_object_created_in(&world, &object);
+        }
 
         // Fire creation event
         self.event_queue.push(GameEvent::ObjectCreated(object_id));

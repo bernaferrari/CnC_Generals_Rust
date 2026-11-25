@@ -58,6 +58,13 @@ impl Default for LegacyObjectRegistryFacade {
 }
 
 impl LegacyObjectRegistryFacade {
+    pub(crate) fn register_restored_object(&self, id: ObjectID, object: &Arc<RwLock<Object>>) {
+        if let Ok(mut store) = self.store.write() {
+            store.register(id, object);
+            self.set_live_count(store.len());
+        }
+    }
+
     #[inline]
     fn set_live_count(&self, n: usize) {
         self.live_count.store(n, Ordering::Release);

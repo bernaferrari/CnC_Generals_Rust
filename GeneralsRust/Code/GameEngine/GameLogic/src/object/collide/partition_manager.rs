@@ -469,6 +469,50 @@ impl PartitionManager {
         Some(self.dirty_geometry.remove(index))
     }
 
+    pub(crate) fn rekey_restored_birth(
+        &mut self,
+        provisional: ObjectId,
+        saved: ObjectId,
+        ghosts: &mut crate::object::W3DGhostObjectManager,
+    ) -> Result<(), &'static str> {
+        self.check_restored_birth_identity(saved)?;
+        self.host.rekey_restored_birth(provisional, saved, ghosts);
+        if let Some(mut object) = self.objects.remove(&provisional) {
+            for cell in &object.cells {
+                if let Some(bucket) = self.cells.get_mut(cell) {
+                    if let Some(id) = bucket.objects.iter_mut().find(|id| **id == provisional) {
+                        *id = saved;
+                    }
+                }
+            }
+            object.id = saved;
+            self.objects.insert(saved, object);
+        }
+        if let Some(object) = self
+            .dirty_geometry
+            .iter_mut()
+            .find(|object| object.id == provisional)
+        {
+            object.id = saved;
+        }
+        for event in &mut self.cell_changed_events {
+            if *event == provisional {
+                *event = saved;
+            }
+        }
+        Ok(())
+    }
+
+    pub(crate) fn check_restored_birth_identity(&self, saved: ObjectId) -> Result<(), &'static str> {
+        if self.objects.contains_key(&saved)
+            || self.dirty_geometry.iter().any(|object| object.id == saved)
+            || self.host.contains_object(saved)
+        {
+            return Err("saved identity already exists in the receiving partition");
+        }
+        Ok(())
+    }
+
     /// Object.cpp:746–760 replaces the registration, then
     /// PartitionManager.cpp:2204–2237 puts the new footprint on the dirty list.
     pub(crate) fn replace_object_geometry(

@@ -28,6 +28,7 @@ use crate::object::update::{
     WorkerAIUpdateModuleData,
 };
 use crate::object::{self, Object, ObjectID};
+use crate::object::object_lifecycle::ObjectAssembly;
 use crate::player::PlayerIndex;
 #[cfg(feature = "allow_surrender")]
 use crate::pow_truck_ai_update::{
@@ -431,7 +432,7 @@ impl ObjectFactory {
         let template = self.get_or_load_template(template_name)?;
 
         // Determine object type from template
-        let object_type = self.determine_object_type(template.as_ref());
+        let object_type = Self::determine_object_type(template.as_ref());
 
         // Allocate object ID
         let object_id = match saved_id {
@@ -487,7 +488,11 @@ impl ObjectFactory {
             status_mask,
             team.clone(),
             prepare_ai,
-            publish,
+            if publish {
+                ObjectAssembly::Compatibility
+            } else {
+                ObjectAssembly::Detached
+            },
             lookup,
             body_definitions,
             module_factory,
@@ -541,54 +546,117 @@ impl ObjectFactory {
         }
 
         // Create appropriate specialized object
-        let game_object = match object_type {
-            ObjectType::Unit => {
-                let mut unit = Unit::new(base_object.clone(), template.as_ref())?;
+        let game_object =
+            Self::wrap_object(object_type, object_id, &base_object, template.as_ref())?;
 
-                GameObjectInstance::Unit(unit)
-            }
+        // Create drawable if needed
+        if !flags.contains(ObjectCreationFlags::NO_DRAWABLE) {
+            self.create_drawable_for_object(object_id, template.as_ref(), &base_object)?;
+        }
+
+        self.record_constructed_object(object_id, object_type, game_object);
+        Ok(object_id)
+    }
+
+    fn wrap_object(
+        object_type: ObjectType,
+        object_id: ObjectID,
+        base_object: &Arc<RwLock<Object>>,
+        template: &dyn ThingTemplate,
+    ) -> Result<GameObjectInstance, Box<dyn std::error::Error + Send + Sync>> {
+        let game_object = match object_type {
+            ObjectType::Unit => GameObjectInstance::Unit(Unit::new(base_object.clone(), template)?),
 
             ObjectType::Structure => {
-                let structure = Structure::new(base_object.clone(), template.as_ref())?;
+                let structure = Structure::new(base_object.clone(), template)?;
                 GameObjectInstance::Structure(structure)
             }
 
             ObjectType::SimpleObject => {
-                let simple_object = SimpleObject::new(base_object.clone(), template.as_ref())?;
+                let simple_object = SimpleObject::new(base_object.clone(), template)?;
                 GameObjectInstance::SimpleObject(simple_object)
             }
 
             ObjectType::BaseObject => GameObjectInstance::BaseObject {
                 object_id,
-                base_object: Arc::clone(&base_object),
+                base_object: Arc::clone(base_object),
             },
 
             ObjectType::Projectile => GameObjectInstance::Projectile {
                 object_id,
-                base_object: Arc::clone(&base_object),
+                base_object: Arc::clone(base_object),
             },
         };
 
-        // Create drawable if needed
-        if !flags.contains(ObjectCreationFlags::NO_DRAWABLE) {
-            let base_object_for_drawable = Arc::clone(&base_object);
-            self.create_drawable_for_object(
-                object_id,
-                template.as_ref(),
-                &base_object_for_drawable,
-            )?;
-        }
+        Ok(game_object)
+    }
 
-        // Partition, ghost and collision registration happened above, before initObject.
-
-        // Register the object
+    fn record_constructed_object(
+        &mut self,
+        object_id: ObjectID,
+        object_type: ObjectType,
+        game_object: GameObjectInstance,
+    ) {
         self.object_registry.insert(object_id, game_object);
         self.total_objects_created += 1;
-
-        // Update pool statistics
         self.update_pool_stats(&object_type);
+    }
 
-        Ok(object_id)
+    /// C++ ThingFactory::newObject creates under the driving GameLogic's
+    /// provisional ID. The Rust factory wrapper is built once setID has run.
+    pub(crate) fn assemble_core_restore(
+        template: Arc<dyn ThingTemplate>,
+        object_id: ObjectID,
+        team: Arc<RwLock<Team>>,
+        frame: u32,
+        world: &Arc<crate::system::engine_stores::WorldServices>,
+    ) -> Result<Arc<RwLock<Object>>, Box<dyn std::error::Error + Send + Sync>> {
+        let prepare_ai = Self::determine_object_type(template.as_ref()) == ObjectType::Unit
+            || template
+                .get_behavior_module_info()
+                .iter()
+                .any(|entry| matches!(entry.name.as_str(), "AIUpdateInterface" | "DozerAIUpdate"));
+        let status = template.get_initial_object_status();
+        let catalog = world.common().module_factory.lock();
+        let actor = Object::new_with_id_admission(
+            template,
+            object_id,
+            status,
+            Some(team),
+            prepare_ai,
+            ObjectAssembly::CoreRestore,
+            None,
+            None,
+            catalog.as_ref(),
+            Some(crate::object::ObjectWorld::of(world)),
+            Some(Arc::clone(world.players())),
+            Some(frame),
+            None,
+        )?;
+        actor
+            .write()
+            .map_err(|_| "restored Object lock poisoned")?
+            .set_prepared_position(&Coord3D::ZERO);
+        Ok(actor)
+    }
+
+    pub(crate) fn record_core_restored_object(
+        &mut self,
+        object_id: ObjectID,
+        actor: &Arc<RwLock<Object>>,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        if self.object_registry.contains_key(&object_id) {
+            return Err(format!("factory already contains Object {object_id}").into());
+        }
+        let template = actor
+            .read()
+            .map_err(|_| "restored Object lock poisoned")?
+            .get_template()
+            .clone();
+        let object_type = Self::determine_object_type(template.as_ref());
+        let instance = Self::wrap_object(object_type, object_id, actor, template.as_ref())?;
+        self.record_constructed_object(object_id, object_type, instance);
+        Ok(())
     }
 
     /// Get object by ID
@@ -788,7 +856,7 @@ impl ObjectFactory {
         }
     }
 
-    fn determine_object_type(&self, template: &dyn ThingTemplate) -> ObjectType {
+    fn determine_object_type(template: &dyn ThingTemplate) -> ObjectType {
         if template.is_kind_of(KindOf::Vehicle)
             || template.is_kind_of(KindOf::Infantry)
             || template.is_kind_of(KindOf::Aircraft)
