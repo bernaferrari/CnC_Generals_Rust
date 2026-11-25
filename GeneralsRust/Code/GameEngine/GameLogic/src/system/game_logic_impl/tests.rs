@@ -66,14 +66,14 @@ mod tests {
         let mut xfer = XferSave::new();
         xfer.open(path.to_string_lossy().into_owned())
             .expect("open player runtime save");
-        xfer_player_list_runtime_state(&mut xfer).expect("save player runtime state");
+        xfer_player_list_runtime_state(&player_list(), &mut xfer).expect("save player runtime state");
         xfer.close().expect("close player runtime save");
     }
 
     fn load_player_runtime_fixture(path: &std::path::Path) -> Result<(), XferStatus> {
         let mut xfer = XferLoad::new();
         xfer.open(path.to_string_lossy().into_owned())?;
-        let result = xfer_player_list_runtime_state(&mut xfer);
+        let result = xfer_player_list_runtime_state(&player_list(), &mut xfer);
         let close_result = xfer.close();
         result.and(close_result)
     }
@@ -136,7 +136,7 @@ mod tests {
             .expect("game logic lock")
             .register_object(contained_object)
             .expect("register contained object");
-        let mut player_snapshot = PlayerListSnapshotBridge;
+        let mut player_snapshot = PlayerListSnapshotBridge(player_list());
         XferSnapshotTrait::load_post_process(&mut player_snapshot)
             .expect("Player post-process after object blocks resolve");
 
@@ -202,7 +202,7 @@ mod tests {
         let mut sentinel = 0x3C71_AB90u32;
         let mut save = XferSave::new();
         save.open(path.to_string_lossy().into_owned()).unwrap();
-        xfer_player_list_runtime_state(&mut save).unwrap();
+        xfer_player_list_runtime_state(&player_list(), &mut save).unwrap();
         save.xfer_unsigned_int(&mut sentinel).unwrap();
         save.close().unwrap();
         let bytes = fs::read(&path).unwrap();
@@ -213,7 +213,7 @@ mod tests {
         reset_player_runtime_fixture(destination);
         let mut load = XferLoad::new();
         load.open(path.to_string_lossy().into_owned()).unwrap();
-        xfer_player_list_runtime_state(&mut load).expect("C++ PlayerList v1 load");
+        xfer_player_list_runtime_state(&player_list(), &mut load).expect("C++ PlayerList v1 load");
         let mut next_field = 0u32;
         load.xfer_unsigned_int(&mut next_field).unwrap();
         load.close().unwrap();
@@ -660,10 +660,9 @@ mod tests {
             .expect("object write")
             .set_position(&pos)
             .expect("set position");
-        OBJECT_REGISTRY.register_object(obj_id, &obj);
-
         {
             let mut logic = get_game_logic().lock().unwrap_or_else(|e| e.into_inner());
+            logic.register_object(obj).expect("admit test object");
             logic.partition_manager_mut().remove_object(obj_id);
             assert!(
                 !logic
@@ -690,13 +689,12 @@ mod tests {
                     .contains(&obj_id),
                 "production hook must call PartitionManager::update after all snapshots"
             );
-            // Drop the object so later tests do not see it.
         }
 
+        let mut logic = get_game_logic().lock().unwrap();
+        logic.destroy_object(obj_id);
+        logic.process_destroy_list().expect("retire test object");
         OBJECT_REGISTRY.clear();
-        if let Ok(mut logic) = get_game_logic().lock() {
-            logic.partition_manager_mut().remove_object(obj_id);
-        }
     }
 
     #[test]

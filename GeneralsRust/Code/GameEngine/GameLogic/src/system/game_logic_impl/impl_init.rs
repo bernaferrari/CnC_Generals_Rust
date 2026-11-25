@@ -237,6 +237,7 @@ impl GameLogic {
         self.formation_manager = crate::commands::FormationManager::new();
         self.radar_updates.clear();
         self.game_mode = GAME_NONE;
+        self.saved_skirmish_info = None;
         self.game_paused = false;
         self.loading_map = false;
         self.loading_save = false;

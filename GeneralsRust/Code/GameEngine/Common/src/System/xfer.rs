@@ -641,6 +641,11 @@ pub trait Snapshot {
         false
     }
 
+    /// An operation loan for GameLogic may also own the preceding map block.
+    fn saved_map_runtime(&mut self) -> Option<&mut dyn crate::System::SaveGame::SavedMapRuntime> {
+        None
+    }
+
     /// Run the "light" CRC check on this data structure
     fn crc(&mut self, xfer: &mut dyn Xfer) -> Result<(), XferStatus>;
 

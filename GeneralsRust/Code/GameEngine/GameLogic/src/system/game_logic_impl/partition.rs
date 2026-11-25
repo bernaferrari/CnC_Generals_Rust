@@ -100,21 +100,22 @@ impl HostObjectIndex {
         if dual_world_registry_unavailable() {
             return Ok(());
         }
-        let object_ids = OBJECT_REGISTRY.get_all_object_ids();
-        let mut seen = HashSet::with_capacity(object_ids.len());
+        self.sync_positions(
+            OBJECT_REGISTRY.get_all_object_ids().into_iter().filter_map(|id| {
+                OBJECT_REGISTRY.with_object(id, |obj| (obj.get_id(), *obj.get_position()))
+            }),
+        );
+        Ok(())
+    }
 
-        for obj_id in &object_ids {
-            // Scoped registry borrow — no Arc handle clone per object.
-            let Some((id, pos)) =
-                OBJECT_REGISTRY.with_object(*obj_id, |obj| (obj.get_id(), *obj.get_position()))
-            else {
-                continue;
-            };
+    fn sync_positions(&mut self, positions: impl Iterator<Item = (ObjectID, Coord3D)>) {
+        let (minimum, maximum) = positions.size_hint();
+        let mut seen = HashSet::with_capacity(maximum.unwrap_or(minimum));
+        for (id, pos) in positions {
             self.add_object(id, (pos.x, pos.y, pos.z));
             seen.insert(id);
         }
-
-        let stale: Vec<ObjectID> = self
+        let stale: Vec<_> = self
             .object_positions
             .keys()
             .copied()
@@ -123,7 +124,15 @@ impl HostObjectIndex {
         for id in stale {
             self.remove_object(id);
         }
-        Ok(())
+    }
+
+    fn replace_positions(&mut self, positions: impl Iterator<Item = (ObjectID, Coord3D)>) {
+        self.grid.clear();
+        self.object_cells.clear();
+        self.object_positions.clear();
+        for (id, pos) in positions {
+            self.add_object(id, (pos.x, pos.y, pos.z));
+        }
     }
 
     /// Whether this partition already holds the Object (C++
@@ -355,28 +364,15 @@ impl HostObjectIndex {
                 .iter()
                 .map(|(id, pos)| (*id, *pos))
                 .collect();
-            self.grid.clear();
-            self.object_cells.clear();
-            self.object_positions.clear();
-            for (id, pos) in snapshot {
-                self.add_object(id, (pos.x, pos.y, pos.z));
-            }
+            self.replace_positions(snapshot.into_iter());
             return;
         }
 
-        self.grid.clear();
-        self.object_cells.clear();
-        self.object_positions.clear();
-
-        for obj_id in OBJECT_REGISTRY.get_all_object_ids() {
-            let Some((id, xyz)) = OBJECT_REGISTRY.with_object(obj_id, |obj| {
-                let pos = obj.get_position();
-                (obj.get_id(), (pos.x, pos.y, pos.z))
-            }) else {
-                continue;
-            };
-            self.add_object(id, xyz);
-        }
+        self.replace_positions(
+            OBJECT_REGISTRY.get_all_object_ids().into_iter().filter_map(|id| {
+                OBJECT_REGISTRY.with_object(id, |obj| (obj.get_id(), *obj.get_position()))
+            }),
+        );
     }
 
     /// Register an object at a specific position
@@ -523,6 +519,15 @@ impl PartitionManager {
     pub fn update_host_index(&mut self) -> Result<(), GameLogicError> {
         self.mark_updated_since_last_reset();
         self.host.update()
+    }
+
+    fn refresh_host_positions(&mut self, positions: impl Iterator<Item = (ObjectID, Coord3D)>) {
+        self.mark_updated_since_last_reset();
+        self.host.sync_positions(positions);
+    }
+
+    fn rebuild_host_positions(&mut self, positions: impl Iterator<Item = (ObjectID, Coord3D)>) {
+        self.host.replace_positions(positions);
     }
 
     pub fn update_orphaned_ghosts(

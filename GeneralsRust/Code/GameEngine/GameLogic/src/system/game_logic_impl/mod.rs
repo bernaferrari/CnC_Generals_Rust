@@ -137,6 +137,7 @@ include!("xfer_helpers.rs");
 include!("xfer_object_load.rs");
 include!("xfer_campaign.rs");
 include!("xfer_player_list.rs");
+include!("xfer_saved_map.rs");
 include!("xfer_team_factory.rs");
 
 include!("snapshot.rs");

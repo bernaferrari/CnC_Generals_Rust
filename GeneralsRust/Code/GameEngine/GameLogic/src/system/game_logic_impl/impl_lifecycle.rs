@@ -1123,8 +1123,26 @@ impl GameLogic {
     /// Rebuild spatial partition index after loading
     /// Matches C++ GameLogic::rebuildPartitionManager
     pub fn rebuild_spatial_index(&mut self) {
-        self.partition_manager_mut().rebuild();
+        if self.pathfinding_owner.is_some() {
+            self.rebuild_spatial_index_from_live_objects();
+        } else {
+            self.partition_manager_mut().rebuild();
+        }
         log::debug!("Rebuilt spatial index");
+    }
+
+    fn rebuild_spatial_index_from_live_objects(&self) {
+        self.partition
+            .write()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .rebuild_host_positions(self.live_object_positions());
+    }
+
+    fn live_object_positions(&self) -> impl Iterator<Item = (ObjectID, Coord3D)> + '_ {
+        self.all_objects.iter().filter_map(|id| {
+            let object = self.objects.get(id)?.read().ok()?;
+            Some((*id, *object.get_position()))
+        })
     }
 
     /// Rebuild selection cache after loading

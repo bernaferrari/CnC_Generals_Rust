@@ -205,23 +205,28 @@ impl XferSnapshotTrait for GhostObjectSnapshotBridge {
     }
 }
 
-struct PlayerListSnapshotBridge;
+struct PlayerListSnapshotBridge(Arc<RwLock<crate::player::PlayerList>>);
 
 impl XferSnapshotTrait for PlayerListSnapshotBridge {
     fn crc(&mut self, xfer: &mut dyn Xfer) -> Result<(), XferStatus> {
-        xfer_player_list_crc(xfer)
+        xfer_player_list_crc(&self.0, xfer)
     }
 
     fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), XferStatus> {
-        xfer_player_list_runtime_state(xfer)
+        xfer_player_list_runtime_state(&self.0, xfer)
     }
 
     fn load_post_process(&mut self) -> Result<(), XferStatus> {
         use game_engine::common::system::snapshot::Snapshotable;
 
-        let players = player_list();
-        let list = players.read().map_err(|_| XferStatus::InvalidData)?;
-        for player_arc in list.iter() {
+        let players: Vec<_> = self
+            .0
+            .read()
+            .map_err(|_| XferStatus::InvalidData)?
+            .iter()
+            .cloned()
+            .collect();
+        for player_arc in players {
             let mut player = player_arc.write().map_err(|_| XferStatus::InvalidData)?;
             Snapshotable::load_post_process(&mut *player).map_err(|_| XferStatus::InvalidData)?;
         }
@@ -331,12 +336,12 @@ fn register_game_logic_snapshot_block() {
     );
     state.add_snapshot_block(
         "CHUNK_Players".to_string(),
-        Box::new(PlayerListSnapshotBridge),
+        Box::new(PlayerListSnapshotBridge(Arc::clone(world.players()))),
         game_engine::System::SnapshotType::SaveLoad,
     );
     state.add_snapshot_block(
         "CHUNK_Players".to_string(),
-        Box::new(PlayerListSnapshotBridge),
+        Box::new(PlayerListSnapshotBridge(Arc::clone(world.players()))),
         game_engine::System::SnapshotType::DeepCrcLogicOnly,
     );
     state.add_snapshot_block(
@@ -394,6 +399,10 @@ pub struct CampaignGameLogicSnapshot<'a> {
     pub campaign: &'a mut game_engine::System::CampaignManagerXferState,
 }
 impl XferSnapshotTrait for CampaignGameLogicSnapshot<'_> {
+    fn saved_map_runtime(&mut self) -> Option<&mut dyn SavedMapRuntime> {
+        Some(self.logic)
+    }
+
     fn crc(&mut self, _xfer: &mut dyn Xfer) -> Result<(), XferStatus> {
         Ok(())
     }

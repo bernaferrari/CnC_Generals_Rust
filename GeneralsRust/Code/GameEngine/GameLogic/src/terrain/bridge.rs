@@ -108,6 +108,15 @@ impl TerrainLogic {
     pub(super) fn register_bridge_with_pathfinder(
         bridge_info: &BridgeInfo,
     ) -> Option<PathfindLayerEnum> {
+        let pathfinder = the_ai().read().ok()?.pathfinder()?;
+        let mut pathfinder = pathfinder.write().ok()?;
+        Some(Self::register_bridge_in(&mut pathfinder, bridge_info))
+    }
+
+    pub(crate) fn register_bridge_in(
+        pathfinder: &mut crate::ai::Pathfinder,
+        bridge_info: &BridgeInfo,
+    ) -> PathfindLayerEnum {
         use crate::ai::pathfind_complete::{GridCoord, PATHFIND_CELL_SIZE_F};
         let (min_coord, max_coord) = Self::bridge_pathfinder_bounds(bridge_info);
         // C++ PathfindLayer::classifyCells: offset from/to along bridgeDir by
@@ -138,16 +147,12 @@ impl TerrainLogic {
         );
         let start_cell = GridCoord::from_world(&start_world);
         let end_cell = GridCoord::from_world(&end_world);
-        let ai_store = the_ai();
-        let ai_guard = ai_store.read().ok()?;
-        let pathfinder = ai_guard.pathfinder()?;
-        let mut pathfinder_guard = pathfinder.write().ok()?;
-        Some(pathfinder_guard.add_bridge_ex(
+        pathfinder.add_bridge_ex(
             (min_coord, max_coord),
             bridge_info.bridge_object_id,
             start_cell,
             end_cell,
-        ))
+        )
     }
     pub(super) fn bridge_info_from_map_data(
         bridge: &crate::system::map_loader::BridgeData,

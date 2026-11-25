@@ -8,7 +8,7 @@ mod continuation_tests {
     //!
     //! Each branch drives a local GameLogic and lends its GameLogic and TeamFactory
     //! to the same GameState file codec. The receiving branch starts with its
-    //! own authored template catalog, neutral roster, and saved ID high-water marks.
+    //! own authored catalog and neutral roster. GameStateMap supplies both ID high-water marks.
     //!
     //! Known save-format gap pinned here: save files do NOT carry the game-logic
     //! RNG seed words (`xfer_game_logic_state` has no seed xfer; mission loads
@@ -119,10 +119,43 @@ mod continuation_tests {
         }
     }
 
+    fn tiny_save_map(sample: u8) -> Vec<u8> {
+        let mut heightmap = Vec::new();
+        for field in [12i32, 8, 0, 0, 96] {
+            heightmap.extend_from_slice(&field.to_le_bytes());
+        }
+        heightmap.extend_from_slice(&[sample; 96]);
+
+        let name = b"HeightMapData";
+        let mut map = b"CkMp".to_vec();
+        map.extend_from_slice(&1i32.to_le_bytes());
+        map.push(name.len() as u8);
+        map.extend_from_slice(name);
+        map.extend_from_slice(&1u32.to_le_bytes());
+        map.extend_from_slice(&1u32.to_le_bytes());
+        map.extend_from_slice(&4u16.to_le_bytes());
+        map.extend_from_slice(&(heightmap.len() as i32).to_le_bytes());
+        map.extend(heightmap);
+        map
+    }
+
     fn continuation_logic() -> (GameLogic, Arc<RwLock<crate::team::Team>>) {
         let owner = Arc::new(EngineStores::new_for_world());
         let team = with_active_stores(&owner, || {
-            ensure_test_object_template();
+            crate::contain_module_overrides::ensure_module_overrides_installed().unwrap();
+            assert_eq!(
+                game_engine::common::thing::thing_factory::load_templates_from_ini_text(
+                    "Object SavedContinuationWarehouse
+                     KindOf = IMMOBILE
+                     Behavior = SupplyWarehouseCreate ModuleTag_Warehouse
+                     End
+End
+",
+                    "save-continuation.ini",
+                ),
+                1
+            );
+            game_engine::common::ini::ini_game_data::ensure_global_data();
             continuation_team()
         });
         admit_fixture_neutral_player(owner.services());
@@ -218,8 +251,25 @@ mod continuation_tests {
 
         let (mut a, team) = continuation_logic();
         let owner = a.pathfinding_owner.as_ref().unwrap().clone();
+        let save_dir = unique_temp_dir(tag);
+        let map_path = save_dir.join("continuation_test.map");
+        std::fs::write(&map_path, tiny_save_map(32)).unwrap();
+        let peer_path = save_dir.join("peer.map");
+        std::fs::write(&peer_path, tiny_save_map(88)).unwrap();
         with_active_stores(&owner, || {
-            let template = crate::helpers::TheThingFactory::find_template("TestObject").unwrap();
+            game_engine::common::ini::ini_game_data::ensure_global_data()
+                .write()
+                .map_name = map_path.to_string_lossy().into_owned();
+        });
+        let geometry = crate::system::map_loader::MapLoader::load(&map_path).unwrap();
+        assert!(
+            owner.services().terrain().write().unwrap()
+                .try_load_map_geometry(geometry).unwrap().is_empty()
+        );
+        with_active_stores(&owner, || {
+            let template =
+                crate::helpers::TheThingFactory::find_template("SavedContinuationWarehouse")
+                    .unwrap();
             for &(id, x, y) in TEST_OBJECTS {
                 let actor = Object::new_with_id(
                     template.clone(),
@@ -240,29 +290,42 @@ mod continuation_tests {
             let _ = step_one_frame(&mut a, rel + 1);
         }
 
-        // --- save + snapshot RNG state ---
-        // Redirect the global GameState save directory to a unique temp dir
-        // so the acceptance run never writes into the working tree.
-        // init_game_state preserves the
-        // registered snapshot blocks (reset_for_init) and points the save
-        // directory at the temp dir the save is written to.
-        let save_dir = unique_temp_dir(tag);
-        // Real (tiny) map file + global map_name: GameStateMap embeds the
-        // pristine map on first save; a mapless synthetic world makes
-        // embed_* fail with Error. first_save path copies these bytes.
-        let map_path = save_dir.join("continuation_test.map");
-        std::fs::write(&map_path, b"CONTINUATION TEST MAP\x00\x01\x02").expect("write dummy map");
-        if game_engine::common::ini::get_global_data().is_none() {
-            // GlobalData is a None-until-INI OnceCell; tests never parse INI,
-            // so construct the default instance explicitly.
-            game_engine::common::ini::init_global_data();
+        // Register the real Core hooks in the published peer. These must
+        // never be consulted to transfer the other branches' map or players.
+        let peer = Arc::new(EngineStores::new_for_world());
+        admit_fixture_neutral_player(peer.services());
+        let peer_player = peer.services().players().read().unwrap().get_neutral_player().unwrap();
+        peer_player.write().unwrap().get_money_mut().set_money(2_297);
+        let peer_logic = with_active_stores(&peer, || {
+            game_engine::common::ini::ini_game_data::ensure_global_data()
+                .write()
+                .map_name = peer_path.to_string_lossy().into_owned();
+            let logic = get_game_logic();
+            install_save_game_counter_integration();
+            logic
+        });
+        let peer_actor = Arc::new(RwLock::new(Object::new_raw(
+            Arc::new(crate::common::DefaultThingTemplate::new("PeerWarehouse".into())),
+            TEST_OBJECTS[0].0,
+            ObjectStatusMaskType::none(),
+            None,
+        )));
+        {
+            let mut logic = peer_logic.lock().unwrap();
+            logic.register_object(peer_actor.clone()).unwrap();
+            logic.set_object_id_counter(91_999);
         }
-        if let Some(data) = game_engine::common::ini::get_global_data() {
-            data.write().map_name = map_path.to_string_lossy().to_string();
-        }
-        let save_directory = save_dir.join("Save");
-        std::fs::create_dir_all(&save_directory).expect("create save directory");
-        game_engine::System::init_game_state(save_directory);
+        let peer_drawable = peer_actor.read().unwrap().get_drawable().unwrap();
+        let peer_drawable_id = peer_drawable.read().unwrap().get_drawable_id();
+        peer.services()
+            .session_flags()
+            .next_drawable_id
+            .store(810, Ordering::Relaxed);
+        let source_neutral = owner.services().players().read().unwrap().get_neutral_player().unwrap();
+        source_neutral.write().unwrap().get_money_mut().set_money(31_700);
+
+        let mut state = game_engine::GameState::new(save_dir.join("Save"));
+        state.init();
         assert_eq!(a.get_frame(), SETUP_FRAMES as UnsignedInt);
         assert_eq!(a.get_object_count(), TEST_OBJECTS.len());
         let high_object_id = a.get_object_id_counter();
@@ -272,8 +335,8 @@ mod continuation_tests {
             .next_drawable_id
             .load(Ordering::Relaxed);
         let save_filename = format!("{}_continuation.sav", tag);
-        {
-            let mut state = game_engine::System::get_game_state();
+        with_active_stores(&peer, || {
+            let mut players = PlayerListSnapshotBridge(owner.services().players().clone());
             let mut teams = TeamFactorySnapshotBridge(owner.services().team_factory().clone());
             let mut campaign = Default::default();
             let mut logic = CampaignGameLogicSnapshot {
@@ -295,11 +358,15 @@ mod continuation_tests {
                             block_name: "CHUNK_TeamFactory",
                             snapshot: &mut teams,
                         },
+                        BorrowedSnapshotBlock {
+                            block_name: "CHUNK_Players",
+                            snapshot: &mut players,
+                        },
                     ],
                 )
                 .expect("save_game xfer must not fail");
             assert_eq!(code, SaveCode::Ok, "save_game must report SaveCode::Ok");
-        }
+        });
         let saved_words = get_game_logic_random_seed_state();
         let saved_crc = crate::helpers::get_game_logic_random_seed_crc();
 
@@ -309,22 +376,13 @@ mod continuation_tests {
             trace_uninterrupted.push(step_one_frame(&mut a, rel));
         }
 
-        // --- restore ---
-        reset_game_logic().expect("reset_game_logic before load");
-        // The GameLogic block loads only into an operation owner that also
-        // receives the Campaign chunk (GameState.cpp loadGame -> xferSnapshot
-        // of TheGameLogic after TheCampaignManager). Lend a fresh LOCAL
-        // instance as that owner; the restored world lands directly in it.
         let (mut b, _) = continuation_logic();
-        // This fixture lends GameLogic and TeamFactory separately from
-        // GameStateMap. Seed the counters the map block normally restores.
-        b.set_object_id_counter(high_object_id);
         let receiving = b.owning_world_services().unwrap();
-        receiving
-            .session_flags()
-            .next_drawable_id
-            .store(high_drawable_id, Ordering::Relaxed);
-        {
+        let neutral = receiving.players().read().unwrap().get_neutral_player().unwrap();
+        assert_eq!(b.get_object_id_counter(), 1);
+        assert_ne!(neutral.read().unwrap().get_money().get_money(), 31_700);
+        with_active_stores(&peer, || {
+            let mut players = PlayerListSnapshotBridge(receiving.players().clone());
             let receiving_teams = receiving.team_factory().clone();
             let mut team_snapshot = TeamFactorySnapshotBridge(receiving_teams);
             let mut campaign = game_engine::System::CampaignManagerXferState::default();
@@ -332,7 +390,6 @@ mod continuation_tests {
                 logic: &mut b,
                 campaign: &mut campaign,
             };
-            let mut state = game_engine::System::get_game_state();
             let code = state
                 .load_game_with_snapshots(
                     AvailableGameInfo {
@@ -348,11 +405,56 @@ mod continuation_tests {
                             block_name: "CHUNK_TeamFactory",
                             snapshot: &mut team_snapshot,
                         },
+                        BorrowedSnapshotBlock {
+                            block_name: "CHUNK_Players",
+                            snapshot: &mut players,
+                        },
                     ],
                 )
                 .expect("load_game xfer must not fail");
             assert_eq!(code, SaveCode::Ok, "load_game must report SaveCode::Ok");
+        });
+        let player = neutral.read().unwrap();
+        assert_eq!(player.get_money().get_money(), 31_700);
+        assert_eq!(
+            player.get_resource_manager().unwrap().get_supply_warehouses(),
+            &(high_object_id..high_object_id + TEST_OBJECTS.len() as u32).collect::<Vec<_>>()
+        );
+        drop(player);
+        assert_eq!(
+            receiving.session_flags().next_drawable_id.load(Ordering::Relaxed),
+            high_drawable_id + TEST_OBJECTS.len() as u32
+        );
+        {
+            let terrain = receiving.terrain().read().unwrap();
+            assert!(terrain.has_height_map());
+            assert!(terrain.get_source_filename().as_str().ends_with("continuation_test.map"));
+            assert_eq!(
+                terrain.get_ground_height(10.0, 10.0, None),
+                owner.services().terrain().read().unwrap().get_ground_height(10.0, 10.0, None),
+            );
         }
+        for (id, _, _) in TEST_OBJECTS {
+            let actor = b.find_object_by_id(*id).unwrap();
+            let drawable = actor.read().unwrap().get_drawable().unwrap();
+            let drawable_id = drawable.read().unwrap().get_drawable_id();
+            assert!(Arc::ptr_eq(
+                &drawable,
+                &TheGameClient::get_drawable_arc_in(&receiving, drawable_id).unwrap(),
+            ));
+            assert!(b.partition_manager().contains_object(*id));
+        }
+        let peer_logic = peer_logic.lock().unwrap();
+        assert_eq!(peer_logic.get_object_id_counter(), 91_999);
+        assert!(Arc::ptr_eq(&peer_logic.find_object_by_id(TEST_OBJECTS[0].0).unwrap(), &peer_actor));
+        assert_eq!(peer.services().session_flags().next_drawable_id.load(Ordering::Relaxed), 810);
+        assert!(Arc::ptr_eq(
+            &peer_drawable,
+            &TheGameClient::get_drawable_arc_in(peer.services(), peer_drawable_id).unwrap(),
+        ));
+        assert_eq!(peer_player.read().unwrap().get_money().get_money(), 2_297);
+        assert!(!peer.services().terrain().read().unwrap().has_height_map());
+        drop(peer_logic);
         assert_eq!(
             b.get_frame(),
             SETUP_FRAMES as UnsignedInt,
@@ -378,12 +480,8 @@ mod continuation_tests {
             trace_restored.push(step_one_frame(&mut b, rel));
         }
 
-        // --- cleanup ---
-        if let Some(data) = game_engine::common::ini::get_global_data() {
-            data.write().map_name.clear();
-        }
+        drop(state);
         let _ = std::fs::remove_dir_all(&save_dir);
-        reset_game_logic().expect("reset_game_logic after scenario");
         OBJECT_REGISTRY.clear();
 
         Scenario {

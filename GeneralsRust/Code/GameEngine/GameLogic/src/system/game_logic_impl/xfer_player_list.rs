@@ -1,10 +1,12 @@
 /// C++ `PlayerList::crc` (PlayerList.cpp:411): playerCount then `xferSnapshot` each Player.
 /// `XferCRC::xferSnapshot` calls `Player::crc`, not `Player::xfer`.
-fn xfer_player_list_crc(xfer: &mut dyn Xfer) -> Result<(), XferStatus> {
+fn xfer_player_list_crc(
+    players: &RwLock<crate::player::PlayerList>,
+    xfer: &mut dyn Xfer,
+) -> Result<(), XferStatus> {
     use game_engine::common::system::snapshot::Snapshotable;
 
     let player_arcs = {
-        let players = player_list();
         let list_guard = players.read().map_err(|_| XferStatus::InvalidData)?;
         let mut player_count = list_guard.get_player_count() as i32;
         xfer.xfer_int(&mut player_count)?;
@@ -27,7 +29,10 @@ fn xfer_player_list_crc(xfer: &mut dyn Xfer) -> Result<(), XferStatus> {
 }
 
 /// C++ `PlayerList::xfer` version 1 (PlayerList.cpp:424): count + each `Player::xfer` v8.
-fn xfer_player_list_runtime_state(xfer: &mut dyn Xfer) -> Result<(), XferStatus> {
+fn xfer_player_list_runtime_state(
+    players: &RwLock<crate::player::PlayerList>,
+    xfer: &mut dyn Xfer,
+) -> Result<(), XferStatus> {
     use game_engine::common::system::snapshot::Snapshotable;
 
     let current_version: XferVersion = 1;
@@ -36,7 +41,6 @@ fn xfer_player_list_runtime_state(xfer: &mut dyn Xfer) -> Result<(), XferStatus>
 
     // Drop the list lock before Player::xfer — rank/local-player queries re-enter the list.
     let player_arcs = {
-        let players = player_list();
         let list_guard = players.read().map_err(|_| XferStatus::InvalidData)?;
         let mut player_count = list_guard.get_player_count() as i32;
         xfer.xfer_int(&mut player_count)?;

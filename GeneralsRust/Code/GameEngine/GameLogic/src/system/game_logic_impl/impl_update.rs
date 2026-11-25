@@ -530,7 +530,7 @@ impl GameLogic {
         // The preceding collision phase already drained dirty footprints.
         // Its callbacks can enqueue the next phase's work. Refresh only this
         // compatibility centre index so those registrations remain deferred.
-        let center_update = self.partition_manager_mut().update_host_index();
+        let center_update = self.refresh_center_partition();
         if let Err(e) = center_update {
             warn!("Partition manager update failed: {}", e);
         }
@@ -1381,12 +1381,34 @@ impl GameLogic {
         trace!("GameLogic::update_partition_manager()");
         // Explicit initial/map and restore updates also prepare the receiving
         // COIs. The ordinary frame does this before dispatching contacts.
-        let owned = self.owning_world_services().is_some();
-        let mut partition = self.partition_manager_mut();
-        if owned {
+        let mut partition = self
+            .partition
+            .write()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if self.owning_world_services().is_some() {
             partition.update_dirty_geometry();
         }
-        partition.update_host_index()
+        self.refresh_center_positions(&mut partition)
+    }
+
+    fn refresh_center_partition(&self) -> Result<(), GameLogicError> {
+        let mut partition = self
+            .partition
+            .write()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        self.refresh_center_positions(&mut partition)
+    }
+
+    fn refresh_center_positions(
+        &self,
+        partition: &mut PartitionManager,
+    ) -> Result<(), GameLogicError> {
+        if self.pathfinding_owner.is_some() {
+            partition.refresh_host_positions(self.live_object_positions());
+            Ok(())
+        } else {
+            partition.update_host_index()
+        }
     }
 
     /// C++ `ThePartitionManager`: this world's single partition manager

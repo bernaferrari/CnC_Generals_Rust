@@ -20,7 +20,9 @@ pub use game_state::{
 pub use campaign_xfer::{
     CHALLENGE_MAX_SLOTS, CampaignManagerXferState, ChallengeGameInfoXfer, ChallengeSlotXfer,
 };
-pub use game_state_map::{GameStateMap, PORTABLE_MAPS, PORTABLE_SAVE, PORTABLE_USER_MAPS};
+pub use game_state_map::{
+    GameStateMap, PORTABLE_MAPS, PORTABLE_SAVE, PORTABLE_USER_MAPS, SavedMapRuntime, SavedMapState,
+};
 
 type ObjectIdCounterGetter = Arc<dyn Fn() -> ObjectID + Send + Sync>;
 type ObjectIdCounterSetter = Arc<dyn Fn(ObjectID) + Send + Sync>;

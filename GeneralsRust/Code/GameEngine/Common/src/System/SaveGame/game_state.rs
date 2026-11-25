@@ -5,7 +5,7 @@
 use super::super::xfer::*;
 use super::super::xfer_load::XferLoad;
 use super::super::xfer_save::XferSave;
-use super::game_state_map::GameStateMap;
+use super::game_state_map::{GameStateMap, SavedMapRuntime};
 use super::{
     notify_clear_game_data, notify_fetch_game_text, notify_get_campaign_snapshot,
     notify_get_mission_start_args, notify_message_box_ok, notify_post_ui_message,
@@ -29,6 +29,8 @@ const MAX_SAVE_FILE_NUMBER: i32 = 99999999;
 
 const GAME_STATE_BLOCK_STRING: &str = "CHUNK_GameState";
 const CAMPAIGN_BLOCK_STRING: &str = "CHUNK_Campaign";
+const MAP_BLOCK_STRING: &str = "CHUNK_GameStateMap";
+const LOGIC_BLOCK_STRING: &str = "CHUNK_GameLogic";
 const GAME_SINGLE_PLAYER: i32 = 0;
 const DIFFICULTY_NORMAL: i32 = 1;
 /// C++ CampaignManager.h:111 `INVALID_MISSION_NUMBER`.
@@ -380,6 +382,16 @@ const SNAPSHOT_MAX: usize = 3;
 pub struct BorrowedSnapshotBlock<'a> {
     pub block_name: &'a str,
     pub snapshot: &'a mut dyn Snapshot,
+}
+
+fn saved_map_runtime<'a>(
+    snapshots: &'a mut [BorrowedSnapshotBlock<'_>],
+) -> Option<&'a mut dyn SavedMapRuntime> {
+    snapshots
+        .iter_mut()
+        .find(|loan| loan.block_name == LOGIC_BLOCK_STRING)?
+        .snapshot
+        .saved_map_runtime()
 }
 
 struct SnapshotBlock {
@@ -863,6 +875,14 @@ impl GameState {
         )?;
         let requested_mission_save =
             game_info.save_game_info.save_file_type == SaveFileType::Mission;
+        let owned = saved_map_runtime(snapshots).is_some();
+        let abort = |snapshots: &mut [BorrowedSnapshotBlock<'_>]| {
+            if let Some(runtime) = saved_map_runtime(snapshots) {
+                runtime.abort_saved_game_load();
+            } else {
+                Self::cleanup_after_failed_load();
+            }
+        };
 
         // Check if file exists
         let filepath = self.get_file_path_in_save_directory(&game_info.filename);
@@ -882,11 +902,13 @@ impl GameState {
         }
 
         // C++ parity: reset the runtime engine before deserializing save data.
-        if let Some(engine) = get_game_engine() {
-            let mut engine = engine.lock();
-            #[cfg(feature = "async")]
-            if let Err(err) = futures::executor::block_on(engine.reset()) {
-                eprintln!("Error resetting game engine before load: {}", err);
+        if !owned {
+            if let Some(engine) = get_game_engine() {
+                let mut engine = engine.lock();
+                #[cfg(feature = "async")]
+                if let Err(err) = futures::executor::block_on(engine.reset()) {
+                    eprintln!("Error resetting game engine before load: {}", err);
+                }
             }
         }
 
@@ -894,7 +916,7 @@ impl GameState {
         let mut xfer_load = XferLoad::new();
         if let Err(err) = xfer_load.open(filepath.to_str().unwrap_or("").to_string()) {
             eprintln!("Error opening load file '{:?}': {:?}", filepath, err);
-            Self::cleanup_after_failed_load();
+            abort(snapshots);
             return Ok(SaveCode::InvalidData);
         }
         // Clear any stale post-process registrations from a previous load attempt.
@@ -905,7 +927,10 @@ impl GameState {
 
         // Match C++: keep ghost objects save-locked only during the actual load deserialization.
         let (load_result, close_result) = {
-            let _ghost_object_save_lock = GhostObjectSaveLockGuard::new();
+            let _ghost_object_save_lock = (!owned).then(GhostObjectSaveLockGuard::new);
+            if let Some(runtime) = saved_map_runtime(snapshots) {
+                runtime.save_lock_ghost_objects(true);
+            }
 
             // Load save data
             let load_result = self.xfer_save_data_with_snapshots(
@@ -914,11 +939,18 @@ impl GameState {
                 snapshots,
             );
             let close_result = xfer_load.close();
+            if let Some(runtime) = saved_map_runtime(snapshots) {
+                runtime.save_lock_ghost_objects(false);
+            }
 
             (load_result, close_result)
         };
 
-        let post_process_result = self.game_state_post_process_load_with_snapshots(snapshots);
+        let post_process_result = if !owned || (load_result.is_ok() && close_result.is_ok()) {
+            self.game_state_post_process_load_with_snapshots(snapshots)
+        } else {
+            Ok(())
+        };
 
         self.is_in_load_game = false;
 
@@ -927,13 +959,13 @@ impl GameState {
                 if let Err(close_err) = close_result {
                     self.snapshot_post_process_list.clear();
                     eprintln!("Error closing load file: {:?}", close_err);
-                    Self::cleanup_after_failed_load();
+                    abort(snapshots);
                     return Ok(SaveCode::InvalidData);
                 }
                 if let Err(post_process_err) = post_process_result {
                     self.snapshot_post_process_list.clear();
                     eprintln!("Error post-processing loaded game: {:?}", post_process_err);
-                    Self::cleanup_after_failed_load();
+                    abort(snapshots);
                     return Ok(SaveCode::InvalidData);
                 }
 
@@ -976,7 +1008,7 @@ impl GameState {
                 }
                 eprintln!("Error loading game: {:?}", e);
                 self.snapshot_post_process_list.clear();
-                Self::cleanup_after_failed_load();
+                abort(snapshots);
                 Ok(SaveCode::InvalidData)
             }
         }
@@ -1074,22 +1106,8 @@ impl GameState {
                     // Transfer block data
                     if block_name.eq_ignore_ascii_case(GAME_STATE_BLOCK_STRING) {
                         self.xfer(xfer)?;
-                    } else if let Some(loan) = snapshots
-                        .iter_mut()
-                        .find(|loan| loan.block_name == block_name)
-                    {
-                        loan.snapshot.xfer_with_state(xfer, self)?;
                     } else {
-                        // Take the block out so `&mut self` (the mutex-held
-                        // GameState) can be handed to the bridge — borrowing
-                        // the slot in place would not allow it.
-                        let mut snapshot = std::mem::replace(
-                            &mut self.snapshot_block_lists[index][block_pos].snapshot,
-                            Box::new(NullSnapshot),
-                        );
-                        let res = snapshot.xfer_with_state(xfer, self);
-                        self.snapshot_block_lists[index][block_pos].snapshot = snapshot;
-                        res?;
+                        self.xfer_snapshot_block(index, block_pos, &block_name, xfer, snapshots)?;
                     }
 
                     // End block
@@ -1126,21 +1144,11 @@ impl GameState {
                         .position(|block| block.block_name == token);
                     if let Some(pos) = block_pos {
                         let _block_size = xfer.begin_block()?;
-                        if let Some(loan) =
-                            snapshots.iter_mut().find(|loan| loan.block_name == token)
-                        {
-                            loan.snapshot.xfer_with_state(xfer, self)?;
-                        } else {
-                            // Take the block out (see save branch) so the bridge
-                            // receives `&mut self` instead of re-locking THE_GAME_STATE.
-                            let mut snapshot = std::mem::replace(
-                                &mut self.snapshot_block_lists[index][pos].snapshot,
-                                Box::new(NullSnapshot),
-                            );
-                            let res = snapshot.xfer_with_state(xfer, self);
-                            self.snapshot_block_lists[index][pos].snapshot = snapshot;
-                            res?;
-                        }
+                        self.xfer_snapshot_block(index, pos, &token, xfer, snapshots)
+                            .map_err(|error| {
+                                eprintln!("Error loading save block {token}: {error:?}");
+                                error
+                            })?;
                         // The block owner records one deferred fixup after a
                         // successful transfer. Nested xfer_snapshot calls never
                         // require pointers back into this borrowed GameState.
@@ -1162,6 +1170,33 @@ impl GameState {
         }
 
         Ok(())
+    }
+
+    fn xfer_snapshot_block(
+        &mut self,
+        list: usize,
+        position: usize,
+        name: &str,
+        xfer: &mut dyn Xfer,
+        snapshots: &mut [BorrowedSnapshotBlock<'_>],
+    ) -> Result<(), XferStatus> {
+        if let Some(loan) = snapshots.iter_mut().find(|loan| loan.block_name == name) {
+            return loan.snapshot.xfer_with_state(xfer, self);
+        }
+        if name == MAP_BLOCK_STRING {
+            if let Some(runtime) = saved_map_runtime(snapshots) {
+                return GameStateMap::xfer_with_runtime(xfer, self, runtime);
+            }
+        }
+        // Move the block out briefly so it can borrow GameState without
+        // re-entering the state mutex.
+        let mut snapshot = std::mem::replace(
+            &mut self.snapshot_block_lists[list][position].snapshot,
+            Box::new(NullSnapshot),
+        );
+        let result = snapshot.xfer_with_state(xfer, self);
+        self.snapshot_block_lists[list][position].snapshot = snapshot;
+        result
     }
 
     /// Post process after loading.
@@ -1194,9 +1229,12 @@ impl GameState {
 
         // C++ GameState.cpp:1528-1529 — partition must refresh before scripts run.
         // Not during CHUNK_GameStateMap (3rd of 17); after every snapshot loadPostProcess.
-        notify_partition_manager_update();
-
-        Ok(())
+        if let Some(runtime) = saved_map_runtime(snapshots) {
+            runtime.finish_saved_game_load()
+        } else {
+            notify_partition_manager_update();
+            Ok(())
+        }
     }
 
     /// Add snapshot for post processing
