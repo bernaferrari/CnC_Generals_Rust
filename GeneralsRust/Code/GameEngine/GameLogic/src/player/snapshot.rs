@@ -129,6 +129,17 @@ impl Snapshotable for Player {
     }
 
     fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        let world = self.owning_world_services();
+        let team_factory = || {
+            world
+                .as_ref()
+                .map(|world| world.team_factory().clone())
+                .unwrap_or_else(|| {
+                    crate::system::engine_stores::active_services()
+                        .team_factory()
+                        .clone()
+                })
+        };
         // C++ Player::xfer version 8
         let current_version: XferVersion = 8;
         let mut version = current_version;
@@ -262,18 +273,19 @@ impl Snapshotable for Player {
                     xfer.xfer_u32(&mut proto_id).map_err(|e| e.to_string())?;
                 }
             } else {
-                self.player_team_prototypes.clear();
-                let factory = crate::team::get_team_factory();
-                let Ok(factory_guard) = factory.lock() else {
-                    return Err("Player::xfer - cannot lock TeamFactory".to_string());
-                };
-                for _ in 0..prototype_count {
-                    let mut proto_id: UnsignedInt = 0;
-                    xfer.xfer_u32(&mut proto_id).map_err(|e| e.to_string())?;
-                    if let Some(prototype) = factory_guard.find_team_prototype_by_id(proto_id) {
-                        self.player_team_prototypes.push(prototype);
-                    }
-                }
+                team_factory()
+                    .with_read_without_flushing(|factory| -> Result<(), String> {
+                        self.player_team_prototypes.clear();
+                        for _ in 0..prototype_count {
+                            let mut proto_id: UnsignedInt = 0;
+                            xfer.xfer_u32(&mut proto_id).map_err(|e| e.to_string())?;
+                            if let Some(prototype) = factory.find_team_prototype_by_id(proto_id) {
+                                self.player_team_prototypes.push(prototype);
+                            }
+                        }
+                        Ok(())
+                    })
+                    .map_err(|_| "Player::xfer - cannot lock TeamFactory".to_string())??;
             }
         }
 
@@ -388,10 +400,9 @@ impl Snapshotable for Player {
                 .unwrap_or(crate::team::TEAM_ID_INVALID);
             xfer.xfer_u32(&mut team_id).map_err(|e| e.to_string())?;
             if xfer.get_xfer_mode() == XferMode::Load {
-                let factory = crate::team::get_team_factory();
-                if let Ok(mut factory_guard) = factory.lock() {
-                    self.default_team = factory_guard.find_team_by_id(team_id);
-                }
+                self.default_team = team_factory()
+                    .with_read_without_flushing(|factory| factory.find_team_by_id(team_id))
+                    .map_err(|_| "Player::xfer - cannot lock TeamFactory".to_string())?;
             }
         }
 

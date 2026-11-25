@@ -1349,6 +1349,20 @@ mod tests {
             xfer_game_logic_state(&mut save_logic, &mut xfer).expect("save");
             xfer.close().expect("close save");
         }
+        admit_fixture_neutral_player(receiving.services());
+        crate::system::engine_stores::with_active_stores(&receiving, || {
+            assert_eq!(
+                game_engine::common::thing::thing_factory::load_templates_from_ini_text(
+                    "Object CppObjectTocFixture\nEnd\n",
+                    "cpp-object-toc.ini",
+                ),
+                1
+            );
+        });
+        receiving.services()
+            .session_flags()
+            .next_drawable_id
+            .store(2, Ordering::Relaxed);
         let mut load_logic = GameLogic::new_with_engine_stores(receiving);
         load_logic.set_object_id_counter(77);
         load_logic.set_rank_level_limit(4);
@@ -1385,8 +1399,8 @@ mod tests {
         assert_eq!(guard.get_position().z, 3.0);
         assert_eq!(
             load_logic.get_object_id_counter(),
-            77,
-            "Object registration must not replace the receiving allocator with the saved counter"
+            78,
+            "One real birth advances the receiving allocator independently of the saved identity"
         );
         drop(guard);
         load_logic.clear_all_objects();

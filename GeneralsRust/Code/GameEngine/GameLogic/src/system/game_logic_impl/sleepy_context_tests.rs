@@ -1116,6 +1116,18 @@ End
 
     let mut receiving = new_world();
     admit_fixture_team(&receiving, "CoreWakeTeam", 91_408);
+    let owner = receiving.pathfinding_owner.as_ref().unwrap();
+    admit_fixture_neutral_player(owner.services());
+    // The GameStateMap block normally applies the saved high DrawableID
+    // before this GameLogic transfer.
+    owner.services()
+        .session_flags()
+        .next_drawable_id
+        .store(6, std::sync::atomic::Ordering::Relaxed);
+    crate::system::engine_stores::with_active_stores(owner, || {
+        crate::contain_module_overrides::ensure_module_overrides_installed().unwrap();
+        assert_eq!(load_templates_from_ini_text(authored, "core-wake.ini"), 1);
+    });
     let mut campaign = Default::default();
     {
         let mut load = XferLoad::new();
@@ -1263,6 +1275,18 @@ End
     }
     let mut receiving = new_world();
     admit_fixture_team(&receiving, "CoreDeletionTeam", 91_409);
+    let owner = receiving.pathfinding_owner.as_ref().unwrap();
+    admit_fixture_neutral_player(owner.services());
+    // The GameStateMap block normally applies the saved high DrawableID
+    // before this GameLogic transfer.
+    owner.services()
+        .session_flags()
+        .next_drawable_id
+        .store(2, std::sync::atomic::Ordering::Relaxed);
+    crate::system::engine_stores::with_active_stores(owner, || {
+        crate::contain_module_overrides::ensure_module_overrides_installed().unwrap();
+        assert_eq!(load_templates_from_ini_text(authored, "core-deletion.ini"), 1);
+    });
     {
         let mut load = XferLoad::new();
         load.open(file.to_string_lossy().into_owned()).unwrap();

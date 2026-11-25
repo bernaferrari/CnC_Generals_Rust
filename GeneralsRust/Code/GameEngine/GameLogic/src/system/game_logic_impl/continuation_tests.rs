@@ -6,18 +6,9 @@ mod continuation_tests {
     //! observations; restore the saved state, continue with identical inputs,
     //! compare the next K frames."
     //!
-    //! ## Harness shape: local-instance stepping + singleton as save/load container
-    //!
-    //! `update_game_logic()` is NOT used here: stepping the process-wide
-    //! singleton can block on the_ai / script globals (see the note in
-    //! tests.rs — every update test in this crate drives a LOCAL
-    //! `GameLogic::new()` + `logic.update(frame, ||None)` instead, mirroring
-    //! `update_game_logic`'s own `get_frame() -> update()` pattern).
-    //! Both branches therefore run on local instances; the singleton is
-    //! touched only as the container the GameState snapshot blocks serialize
-    //! (`GameLogicSnapshotBridge` binds `GAME_LOGIC`, snapshot.rs) on save,
-    //! via `transplant_to_singleton`. Load lends branch B's local instance as
-    //! the owner of both the GameLogic and TeamFactory snapshot blocks.
+    //! Each branch drives a local GameLogic and lends its GameLogic and TeamFactory
+    //! to the same GameState file codec. The receiving branch starts with its
+    //! own authored template catalog, neutral roster, and saved ID high-water marks.
     //!
     //! Known save-format gap pinned here: save files do NOT carry the game-logic
     //! RNG seed words (`xfer_game_logic_state` has no seed xfer; mission loads
@@ -25,18 +16,6 @@ mod continuation_tests {
     //! REQUIRES an explicit post-load reseed with the 6-word ADC state captured
     //! at save time. Test 1 proves parity WITH the reseed; test 2 is the negative
     //! control proving the harness DETECTS the gap when the reseed is omitted.
-    //!
-    //! World construction note: objects are created through
-    //! `Object::new_with_id(TheThingFactory::find_template("TestObject"), ...)`.
-    //! The GameState load path rebuilds objects exclusively through
-    //! `TheThingFactory::find_template` (`xfer_object_load.rs`), so the template
-    //! must resolve in the shared Common factory. This construction also mirrors
-    //! the load path exactly (module-less objects), keeping the uninterrupted and
-    //! restored branches structurally symmetric. `Object::new_test` attaches its
-    //! ActiveBody outside the xfer'd behavior-module list and its crate-local
-    //! "TestObject" template does not resolve on load, so its health cannot
-    //! round-trip through `GameState::load_game`; health here reads the no-body
-    //! default (100.0) and positions are the mutating per-object observable.
     //!
     //! Per-frame RNG consumer: the harness draws one logic-RNG value per frame
     //! and folds it into object positions, so the RNG stream is provably part
@@ -48,10 +27,12 @@ mod continuation_tests {
     //! separate integration evidence.
 
     use super::tests::test_state_lock;
+    use crate::system::engine_stores::{EngineStores, with_active_stores};
     use game_engine::common::random_value::{
         get_game_logic_random_seed_state, set_game_logic_random_seed_state,
     };
     use game_engine::common::thing::thing_factory::{get_thing_factory, init_thing_factory};
+    use game_engine::System::SaveGame::BorrowedSnapshotBlock;
     use game_engine::{AvailableGameInfo, SaveCode, SaveFileType, SaveGameInfo, SnapshotType};
 
     use super::*;
@@ -138,10 +119,14 @@ mod continuation_tests {
         }
     }
 
-    fn continuation_logic() -> GameLogic {
-        GameLogic::new_with_engine_stores(Arc::new(
-            crate::system::engine_stores::EngineStores::new_for_world(),
-        ))
+    fn continuation_logic() -> (GameLogic, Arc<RwLock<crate::team::Team>>) {
+        let owner = Arc::new(EngineStores::new_for_world());
+        let team = with_active_stores(&owner, || {
+            ensure_test_object_template();
+            continuation_team()
+        });
+        admit_fixture_neutral_player(owner.services());
+        (GameLogic::new_with_engine_stores(owner), team)
     }
 
     /// Object.cpp:4101-4111 restores an Object only onto a team the
@@ -162,39 +147,6 @@ mod continuation_tests {
             .unwrap()
     }
 
-    /// Snapshot of the xfer-visible state a transplant copied, for assertions.
-    #[derive(Debug)]
-    struct TransplantSummary {
-        frame: UnsignedInt,
-        object_count: usize,
-    }
-
-    /// Copy the local instance's xfer-visible state into the process-wide
-    /// singleton so the GameState snapshot blocks (bound to `GAME_LOGIC`)
-    /// serialize the LOCAL run's world. Object identity/state (id, position,
-    /// health) travels with the `Arc`, so the transplant never calls
-    /// `set_position` — see the DEADLOCK NOTE in `run_continuation_scenario`.
-    ///
-    /// Copied fields: `frame`, `game_time`, `random_seed` (metadata base;
-    /// the live RNG stream lives in the global seed words, not here),
-    /// `objects` (Arc clones), and `all_objects` (id order). `next_object_id`
-    /// is deliberately NOT copied: the save format never serializes it
-    /// (xfer_helpers.rs: "C++ explicitly does NOT xfer m_nextObjectID") and
-    /// `load_post_process` rebuilds it from `all_objects` on load.
-    fn transplant_to_singleton(local: &GameLogic) -> TransplantSummary {
-        let mut single = lock_game_logic().expect("game logic lock");
-        single.clear_all_objects();
-        single.frame = local.frame;
-        single.game_time = local.game_time;
-        single.random_seed = local.random_seed;
-        single.objects = local.objects.clone();
-        single.all_objects = local.all_objects.clone();
-        TransplantSummary {
-            frame: single.frame,
-            object_count: single.all_objects.len(),
-        }
-    }
-
     /// Advance one frame, consume one logic-RNG draw from the harness, fold
     /// the draw into a stable (id-sorted) object's position, and observe.
     ///
@@ -212,10 +164,8 @@ mod continuation_tests {
 
         // DEADLOCK NOTE: set_position drives the area tracker synchronously
         // (object_triggers.rs:255-268) which can re-enter TheGameLogic — it
-        // must NEVER run while this thread holds the GAME_LOGIC mutex. The
-        // local harness holds no guard here, so the nudge is safe; the
-        // transplant helpers above are the only holders and they never touch
-        // positions. Selection keys off sorted ids (all_objects order
+        // must NEVER run while this thread holds the GAME_LOGIC mutex.
+        // Selection keys off sorted ids (all_objects order
         // reverses across a save/load round-trip, prepend semantics).
         let mut ids: Vec<ObjectID> = logic.objects.keys().copied().collect();
         ids.sort_unstable();
@@ -260,54 +210,28 @@ mod continuation_tests {
         trace_restored: Vec<FrameTrace>,
     }
 
-    /// Full pipeline: build world on a local instance, run N frames, save
-    /// (through the singleton container), run K frames (branch A), restore,
-    /// optionally reseed, replay K frames (branch B).
+    /// Save branch A, continue it, then replay from the file into branch B.
     fn run_continuation_scenario(tag: &str, reseed_after_load: bool) -> Scenario {
-        // --- deterministic setup ---
-        // Local instances drive ticks; the existing snapshot bridges use the
-        // singleton solely as the save/load container.
-        crate::helpers::set_game_logic_random_seed([1, 2, 3, 4, 5, 6]);
-        // Pre-initialize the shared script engine: the save-path
-        // ScriptEngineSnapshotBridge must not lazily construct it while
-        // the GameState save loop holds its locks.
         let _ = crate::scripting::engine::initialize_script_engine();
         OBJECT_REGISTRY.clear();
-        player_list()
-            .write()
-            .expect("player list write lock")
-            .clear();
+        player_list().write().unwrap().clear();
 
-        // Both branches construct the same authored template and helper set.
-        ensure_test_object_template();
-        let template = crate::helpers::TheThingFactory::find_template("TestObject").unwrap();
-        let mut objects_to_register = Vec::new();
-        for &(id, x, y) in TEST_OBJECTS {
-            let arc = Object::new_with_id(template.clone(), id, ObjectStatusMaskType::none(), Some(continuation_team()))
-                .expect("construct authored continuation object");
-            // DEADLOCK NOTE: set_position drives the area tracker
-            // synchronously (object_triggers.rs:255-268) which can re-enter
-            // TheGameLogic — never while holding the GAME_LOGIC mutex.
-            arc.write()
-                .expect("object write lock")
-                .set_position(&Coord3D::new(x, y, 0.0))
-                .expect("set initial position");
-            objects_to_register.push(arc);
-        }
-
-        // Branch A runs on a LOCAL instance; the singleton is only a
-        // save/load container (transplant helpers). Registration happens on
-        // the local instance, which also mirrors the objects into the shared
-        // OBJECT_REGISTRY both branches' partition updates sync from.
-        // GameLogic::xfer also snapshots its world's TheCaveSystem
-        // (GameLogic.cpp xferSnapshot(TheCaveSystem)), so each branch owns
-        // receiving engine stores.
-        let mut a = continuation_logic();
-        for (idx, arc) in objects_to_register.into_iter().enumerate() {
-            let id = TEST_OBJECTS[idx].0;
-            a.objects.insert(id, arc);
-            a.all_objects.push(id);
-        }
+        let (mut a, team) = continuation_logic();
+        let owner = a.pathfinding_owner.as_ref().unwrap().clone();
+        with_active_stores(&owner, || {
+            let template = crate::helpers::TheThingFactory::find_template("TestObject").unwrap();
+            for &(id, x, y) in TEST_OBJECTS {
+                let actor = Object::new_with_id(
+                    template.clone(),
+                    id,
+                    ObjectStatusMaskType::none(),
+                    Some(team.clone()),
+                )
+                .unwrap();
+                actor.write().unwrap().set_position(&Coord3D::new(x, y, 0.0)).unwrap();
+                a.register_object(actor).unwrap();
+            }
+        });
         // This bounded snapshot contract exercises clock, objects and RNG
         // continuation. Player command and retail-content coverage are separate.
 
@@ -319,7 +243,7 @@ mod continuation_tests {
         // --- save + snapshot RNG state ---
         // Redirect the global GameState save directory to a unique temp dir
         // so the acceptance run never writes into the working tree.
-        // init_game_state BEFORE the first transplant: it preserves the
+        // init_game_state preserves the
         // registered snapshot blocks (reset_for_init) and points the save
         // directory at the temp dir the save is written to.
         let save_dir = unique_temp_dir(tag);
@@ -339,25 +263,39 @@ mod continuation_tests {
         let save_directory = save_dir.join("Save");
         std::fs::create_dir_all(&save_directory).expect("create save directory");
         game_engine::System::init_game_state(save_directory);
-        let save_summary = transplant_to_singleton(&a);
-        assert_eq!(
-            save_summary.frame, SETUP_FRAMES as UnsignedInt,
-            "transplanted frame must be the save-point frame"
-        );
-        assert_eq!(
-            save_summary.object_count,
-            TEST_OBJECTS.len(),
-            "transplanted singleton must carry every scenario object"
-        );
+        assert_eq!(a.get_frame(), SETUP_FRAMES as UnsignedInt);
+        assert_eq!(a.get_object_count(), TEST_OBJECTS.len());
+        let high_object_id = a.get_object_id_counter();
+        let high_drawable_id = owner
+            .services()
+            .session_flags()
+            .next_drawable_id
+            .load(Ordering::Relaxed);
         let save_filename = format!("{}_continuation.sav", tag);
         {
             let mut state = game_engine::System::get_game_state();
+            let mut teams = TeamFactorySnapshotBridge(owner.services().team_factory().clone());
+            let mut campaign = Default::default();
+            let mut logic = CampaignGameLogicSnapshot {
+                logic: &mut a,
+                campaign: &mut campaign,
+            };
             let code = state
-                .save_game(
+                .save_game_with_snapshots(
                     save_filename.clone(),
                     "continuation acceptance".to_string(),
                     SaveFileType::Normal,
                     SnapshotType::SaveLoad,
+                    &mut [
+                        BorrowedSnapshotBlock {
+                            block_name: "CHUNK_GameLogic",
+                            snapshot: &mut logic,
+                        },
+                        BorrowedSnapshotBlock {
+                            block_name: "CHUNK_TeamFactory",
+                            snapshot: &mut teams,
+                        },
+                    ],
                 )
                 .expect("save_game xfer must not fail");
             assert_eq!(code, SaveCode::Ok, "save_game must report SaveCode::Ok");
@@ -377,17 +315,17 @@ mod continuation_tests {
         // receives the Campaign chunk (GameState.cpp loadGame -> xferSnapshot
         // of TheGameLogic after TheCampaignManager). Lend a fresh LOCAL
         // instance as that owner; the restored world lands directly in it.
-        let mut b = continuation_logic();
+        let (mut b, _) = continuation_logic();
+        // This fixture lends GameLogic and TeamFactory separately from
+        // GameStateMap. Seed the counters the map block normally restores.
+        b.set_object_id_counter(high_object_id);
+        let receiving = b.owning_world_services().unwrap();
+        receiving
+            .session_flags()
+            .next_drawable_id
+            .store(high_drawable_id, Ordering::Relaxed);
         {
-            let receiving_teams = b.owning_world_services().unwrap().team_factory().clone();
-            // Match the scenario's authored prototypes as a freshly loaded map would.
-            let prototypes = crate::team::get_team_factory().lock().unwrap().list_team_prototypes();
-            {
-                let mut factory = receiving_teams.lock().unwrap();
-                for prototype in prototypes {
-                    factory.replace_team_prototype(prototype.as_ref().clone());
-                }
-            }
+            let receiving_teams = receiving.team_factory().clone();
             let mut team_snapshot = TeamFactorySnapshotBridge(receiving_teams);
             let mut campaign = game_engine::System::CampaignManagerXferState::default();
             let mut owner = CampaignGameLogicSnapshot {
@@ -402,11 +340,11 @@ mod continuation_tests {
                         save_game_info: SaveGameInfo::default(),
                     },
                     &mut [
-                        game_engine::System::SaveGame::BorrowedSnapshotBlock {
+                        BorrowedSnapshotBlock {
                             block_name: "CHUNK_GameLogic",
                             snapshot: &mut owner,
                         },
-                        game_engine::System::SaveGame::BorrowedSnapshotBlock {
+                        BorrowedSnapshotBlock {
                             block_name: "CHUNK_TeamFactory",
                             snapshot: &mut team_snapshot,
                         },

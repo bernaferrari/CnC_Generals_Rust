@@ -6,17 +6,44 @@ fn xfer_game_logic_objects_load(
     xfer: &mut dyn Xfer,
     object_count: UnsignedInt,
 ) -> Result<(), XferStatus> {
-    let world = logic.owning_world_services();
-    let teams = world.as_ref().map(|world| world.team_factory());
-    let players = world
-        .as_ref()
-        .map(|world| Arc::clone(world.players()))
-        .unwrap_or_else(player_list);
-    let default_team = players
+    if object_count == 0 {
+        return Ok(());
+    }
+    let world = logic.owning_world_services().ok_or(XferStatus::InvalidData)?;
+    let core = logic.pathfinding_owner.clone();
+    // GameState loads Teams and Players before this block. Object::Object
+    // requires the receiving world's neutral default team during birth.
+    let neutral = world
+        .players()
         .read()
-        .ok()
-        .and_then(|list| list.get_neutral_player())
-        .and_then(|player| player.read().ok().and_then(|p| p.get_default_team()));
+        .map_err(|_| XferStatus::InvalidData)?
+        .get_neutral_player()
+        .ok_or_else(|| {
+            warn!("Core Object snapshot requires a receiving neutral player");
+            XferStatus::InvalidData
+        })?;
+    let default_team = neutral
+        .read()
+        .map_err(|_| XferStatus::InvalidData)?
+        .get_default_team()
+        .ok_or_else(|| {
+            warn!("Core Object snapshot requires the receiving neutral player's default team");
+            XferStatus::InvalidData
+        })?;
+    let default_team_id = default_team
+        .read()
+        .map_err(|_| XferStatus::InvalidData)?
+        .get_id();
+    let registered_team = world
+        .team_factory()
+        .with_read_without_flushing(|factory| factory.find_team_by_id(default_team_id))
+        .map_err(|_| XferStatus::InvalidData)?;
+    if !registered_team.is_some_and(|team| Arc::ptr_eq(&team, &default_team)) {
+        warn!(
+            "Core Object snapshot neutral team {default_team_id} is outside the receiving factory"
+        );
+        return Err(XferStatus::InvalidData);
+    }
 
     for _ in 0..object_count {
         let mut toc_id: UnsignedShort = 0;
@@ -34,13 +61,9 @@ fn xfer_game_logic_objects_load(
             return Err(XferStatus::InvalidData);
         }
 
-        let template = match (world.as_ref(), default_team.as_ref()) {
-            (Some(world), Some(_)) => {
-                crate::helpers::TheThingFactory::find_template_in(world.common(), &entry.name)
-            }
-            _ => crate::helpers::TheThingFactory::find_template(&entry.name),
-        };
-        let Some(template) = template else {
+        let Some(template) =
+            crate::helpers::TheThingFactory::find_template_in(world.common(), &entry.name)
+        else {
             warn!(
                 "Core Object snapshot is missing template {}, skipping {block_size} bytes",
                 entry.name
@@ -62,65 +85,12 @@ fn xfer_game_logic_objects_load(
             return Err(XferStatus::InvalidData);
         }
 
-        if let (Some(world), Some(team)) = (world.as_ref(), default_team.as_ref()) {
-            let core = logic.pathfinding_owner.clone();
-            let restore =
-                || restore_core_neutral_object(logic, xfer, world, team.clone(), template, id);
-            match core.as_ref() {
-                Some(core) => crate::system::engine_stores::with_active_stores(core, restore),
-                None => crate::system::engine_stores::with_world_services(world, restore),
-            }?;
-            continue;
-        }
-
-        let arc = match default_team.as_ref() {
-            Some(team) => crate::helpers::TheThingFactory::get()
-                .and_then(|factory| {
-                    factory.new_object_with_team_handle(template.clone(), team.clone())
-                })
-                .or_else(|_| {
-                    Object::new_with_id(
-                        template,
-                        INVALID_ID,
-                        ObjectStatusMaskType::none(),
-                        Some(team.clone()),
-                    )
-                }),
-            None => Object::new_with_id(template, INVALID_ID, ObjectStatusMaskType::none(), None),
-        }
-        .map_err(|error| {
-            warn!("Core Object snapshot could not construct object {id}: {error}");
-            XferStatus::InvalidData
-        })?;
-
-        {
-            let mut obj = arc.write().map_err(|_| XferStatus::InvalidData)?;
-            if let Some(world) = world.as_ref() {
-                obj.bind_lifecycle_world(world, logic.pathfinding_owner.as_ref())
-                    .map_err(|_| XferStatus::InvalidData)?;
-            }
-            xfer_object_snapshot(
-                &mut obj,
-                xfer,
-                logic.frame,
-                Some(CoreObjectLoad { id, teams }),
-                &mut logic.objects_changed_trigger_areas,
-                &mut logic.frame_objects_changed_trigger_areas,
-            )?;
-        }
-        let walk_on_wall = arc
-            .read()
-            .ok()
-            .map(|obj| obj.is_kind_of(KindOf::WalkOnTopOfWall))
-            .unwrap_or(false);
-        let id = logic.register_object(arc).map_err(|error| {
-            warn!("Core Object snapshot could not admit object: {error}");
-            XferStatus::InvalidData
-        })?;
-        xfer.end_block()?;
-        if walk_on_wall {
-            add_loaded_wall_piece(logic, id);
-        }
+        let restore =
+            || restore_core_neutral_object(logic, xfer, &world, default_team.clone(), template, id);
+        match core.as_ref() {
+            Some(core) => crate::system::engine_stores::with_active_stores(core, restore),
+            None => crate::system::engine_stores::with_world_services(&world, restore),
+        }?;
     }
     Ok(())
 }
@@ -369,8 +339,39 @@ fn pathfinder_new_map_after_polygon_load(logic: &GameLogic) -> Result<(), XferSt
 }
 
 #[cfg(test)]
+fn add_fixture_neutral_player(
+    world: &Arc<crate::system::engine_stores::WorldServices>,
+    team: Arc<RwLock<crate::team::Team>>,
+) -> Arc<RwLock<crate::player::Player>> {
+    use crate::player::{Player, PlayerType};
+
+    let mut neutral = Player::new_for_world(0, world);
+    neutral.init_from_dict_defaults();
+    neutral.set_player_type(PlayerType::Neutral, false);
+    neutral.set_default_team(Some(team));
+    let neutral = Arc::new(RwLock::new(neutral));
+    world.players().write().unwrap().add_player(neutral.clone());
+    neutral
+}
+
+#[cfg(test)]
+fn admit_fixture_neutral_player(world: &Arc<crate::system::engine_stores::WorldServices>) {
+    let team = {
+        let mut factory = world.team_factory().lock().unwrap();
+        let prototype = factory
+            .init_team_owned("CoreXferNeutral".into(), "".into(), false, None, Some(0))
+            .unwrap();
+        factory
+            .create_team_on_prototype_with_id(&prototype, 94_000)
+            .unwrap()
+    };
+    add_fixture_neutral_player(world, team);
+}
+
+#[cfg(test)]
 mod object_block_tests {
     use super::*;
+    use game_engine::common::system::snapshot::Snapshotable;
     use crate::system::engine_stores::{EngineStores, with_active_stores};
     use game_engine::{XferLoad, XferSave};
     use game_engine::common::thing::thing_factory::load_templates_from_ini_text;
@@ -414,7 +415,7 @@ mod object_block_tests {
                     ),
                     1
                 );
-                let team = {
+                let (team, prototype) = {
                     let mut teams = core.services().team_factory().lock().unwrap();
                     let prototype = teams
                         .init_team_owned(
@@ -425,26 +426,19 @@ mod object_block_tests {
                             Some(0),
                         )
                         .unwrap();
-                    teams
+                    let team = teams
                         .create_team_on_prototype_with_id(&prototype, 91_302)
-                        .unwrap()
+                        .unwrap();
+                    (team, prototype)
                 };
-                let mut neutral = Player::new_for_world(0, core.services());
-                neutral.init_from_dict_defaults();
-                neutral.set_player_type(crate::player::PlayerType::Neutral, false);
-                neutral.set_default_team(Some(team.clone()));
-                let neutral = Arc::new(RwLock::new(neutral));
-                core.services()
-                    .players()
-                    .write()
-                    .unwrap()
-                    .add_player(neutral.clone());
-                (team, neutral)
+                let neutral = add_fixture_neutral_player(core.services(), team.clone());
+                neutral.write().unwrap().add_team_to_list(prototype.clone());
+                (team, neutral, prototype)
             })
         };
-        let (source_team, _) = seed(&source, DRAW);
-        let (team, neutral) = seed(&receiving, BIRTH_DRAW);
-        let (_, peer_neutral) = seed(&peer, DRAW);
+        let (source_team, source_neutral, _) = seed(&source, DRAW);
+        let (team, neutral, prototype) = seed(&receiving, BIRTH_DRAW);
+        let (_, peer_neutral, _) = seed(&peer, DRAW);
         let path = std::env::temp_dir().join(format!(
             "generals-core-neutral-restore-{}.bin",
             std::process::id()
@@ -469,6 +463,11 @@ mod object_block_tests {
             logic.register_object(source_actor).unwrap();
             let mut xfer = XferSave::new();
             xfer.open(path.to_string_lossy().into_owned()).unwrap();
+            Snapshotable::xfer(
+                &mut *source_neutral.write().unwrap(),
+                &mut CommonXferBridge { inner: &mut xfer },
+            )
+            .unwrap();
             logic
                 .xfer_native_snapshot_with_campaign(&mut xfer, &mut Default::default())
                 .unwrap();
@@ -493,6 +492,13 @@ mod object_block_tests {
 
             let mut xfer = XferLoad::new();
             xfer.open(path.to_string_lossy().into_owned()).unwrap();
+            {
+                let mut player = neutral.write().unwrap();
+                Snapshotable::xfer(&mut *player, &mut CommonXferBridge { inner: &mut xfer })
+                    .unwrap();
+                assert!(Arc::ptr_eq(&player.get_default_team().unwrap(), &team));
+                assert!(Arc::ptr_eq(&player.get_player_team_prototypes()[0], &prototype));
+            }
             logic
                 .xfer_native_snapshot_with_campaign(&mut xfer, &mut Default::default())
                 .unwrap();
@@ -591,8 +597,86 @@ mod object_block_tests {
     }
 
     #[test]
+    fn core_object_restore_requires_the_receiving_neutral_team() {
+        const ID: ObjectID = 91_360;
+        const BIRTH: ObjectID = 416;
+        let receiving = Arc::new(EngineStores::new_for_world());
+        let peer = Arc::new(EngineStores::new_for_world());
+        let authored = "Object RestoreRequiresNeutral\n KindOf = IMMOBILE\nEnd\n";
+        let team = |owner: &EngineStores| {
+            let mut factory = owner.services().team_factory().lock().unwrap();
+            let prototype = factory
+                .init_team_owned("SnapshotTeam".into(), "".into(), false, None, None)
+                .unwrap();
+            factory.create_team_on_prototype_with_id(&prototype, 91_361).unwrap()
+        };
+
+        let receiving_team = team(&receiving);
+        with_active_stores(&receiving, || {
+            assert_eq!(load_templates_from_ini_text(authored, "receiving.ini"), 1);
+        });
+        let saved_file = std::env::temp_dir().join(format!(
+            "generals-core-load-without-neutral-{}.bin",
+            std::process::id()
+        ));
+
+        let mut receiver = GameLogic::new_with_engine_stores(receiving.clone());
+        receiver.next_object_id = BIRTH;
+        with_active_stores(&peer, || {
+            assert_eq!(load_templates_from_ini_text(authored, "peer.ini"), 1);
+            let template =
+                crate::helpers::TheThingFactory::find_template("RestoreRequiresNeutral").unwrap();
+            let peer_team = team(&peer);
+            add_fixture_neutral_player(peer.services(), peer_team.clone());
+            let actor = Object::new_with_id(
+                template,
+                ID,
+                ObjectStatusMaskType::none(),
+                Some(peer_team.clone()),
+            )
+            .unwrap();
+            let mut writer = GameLogic::new_with_engine_stores(peer.clone());
+            writer.register_object(actor.clone()).unwrap();
+            let mut save = XferSave::new();
+            save.open(saved_file.to_string_lossy().into_owned()).unwrap();
+            writer
+                .xfer_native_snapshot_with_campaign(&mut save, &mut Default::default())
+                .unwrap();
+            save.close().unwrap();
+
+            let mut assert_rejected = || {
+                let mut load = XferLoad::new();
+                load.open(saved_file.to_string_lossy().into_owned()).unwrap();
+                let result =
+                    receiver.xfer_native_snapshot_with_campaign(&mut load, &mut Default::default());
+                load.close().unwrap();
+                assert_eq!(result, Err(XferStatus::InvalidData));
+            };
+            assert_rejected();
+
+            let neutral = add_fixture_neutral_player(receiving.services(), receiving_team.clone());
+            neutral.write().unwrap().set_default_team(None);
+            assert_rejected();
+
+            neutral.write().unwrap().set_default_team(Some(peer_team));
+            assert_rejected();
+
+            std::fs::remove_file(&saved_file).unwrap();
+            assert_eq!(receiver.get_object_count(), 0);
+            assert_eq!(receiver.next_object_id, BIRTH);
+            assert!(receiving_team.read().unwrap().get_members().is_empty());
+            assert!(receiving.services().object_registry().get_object(ID).is_none());
+            assert!(Arc::ptr_eq(
+                &actor,
+                &peer.services().object_registry().get_object(ID).unwrap(),
+            ));
+        });
+    }
+
+    #[test]
     fn core_object_load_distinguishes_bad_toc_from_missing_template() {
         let world = Arc::new(EngineStores::new_for_world());
+        admit_fixture_neutral_player(world.services());
         with_active_stores(&world, || {
             // Seed the catalog so a deliberate miss cannot trigger disk initialization.
             assert_eq!(

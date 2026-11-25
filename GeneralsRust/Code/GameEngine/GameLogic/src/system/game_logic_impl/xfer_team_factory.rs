@@ -162,10 +162,11 @@ mod team_factory_xfer_tests {
                 .create_team_on_prototype_with_id(&prototype, id)
                 .unwrap()
         };
-        (
-            instantiate("CoreSavedTeam", TEAM),
-            instantiate("CoreOtherTeam", OTHER_TEAM),
-        )
+        let team = instantiate("CoreSavedTeam", TEAM);
+        let other = instantiate("CoreOtherTeam", OTHER_TEAM);
+        drop(factory);
+        admit_fixture_neutral_player(world.services());
+        (team, other)
     }
 
     #[test]
@@ -237,6 +238,13 @@ mod team_factory_xfer_tests {
 
             let receiving = Arc::new(EngineStores::new_for_world());
             let (team, other) = fixture_teams(&receiving);
+            with_active_stores(&receiving, || {
+                assert_eq!(load_templates_from_ini_text(authored, "core-team.ini"), 1);
+            });
+            receiving.services()
+                .session_flags()
+                .next_drawable_id
+                .store(10, Ordering::Relaxed);
             // Deliberately publish the source factory with the same TeamIDs.
             // Both Core chunks must still resolve the receiving match's handles.
             with_active_stores(&source, || {
@@ -349,6 +357,13 @@ mod team_factory_xfer_tests {
 
             let receiving = Arc::new(EngineStores::new_for_world());
             let (receiving_team, receiving_other) = fixture_teams(&receiving);
+            with_active_stores(&receiving, || {
+                assert_eq!(load_templates_from_ini_text(authored, "core-identity.ini"), 1);
+            });
+            receiving.services()
+                .session_flags()
+                .next_drawable_id
+                .store(10, Ordering::Relaxed);
             let mut receiver = GameLogic::new_with_engine_stores(receiving);
             let mut load = XferLoad::new();
             load.open(file.to_string_lossy().into_owned()).unwrap();
