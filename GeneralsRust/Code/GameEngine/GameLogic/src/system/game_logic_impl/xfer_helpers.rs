@@ -222,12 +222,13 @@ fn xfer_object_snapshot(
     obj: &mut Object,
     xfer: &mut dyn Xfer,
     frame: UnsignedInt,
+    teams: Option<&crate::team::TeamFactoryHandle>,
     changed_objects: &mut VecDeque<ObjectID>,
     changed_frame: &mut UnsignedInt,
 ) -> Result<(), XferStatus> {
     let mode = xfer.get_xfer_mode();
     let mut bridge = CommonXferBridge { inner: xfer };
-    obj.xfer_with_trigger_context(&mut bridge, frame, &mut |id| {
+    obj.xfer_with_trigger_context(&mut bridge, frame, teams, &mut |id| {
         // Same immediate queue/stamp semantics as GameLogic's normal adapter.
         if id != INVALID_ID {
             changed_objects.push_back(id);
@@ -296,6 +297,7 @@ fn xfer_game_logic_state_with_campaign(
                     &mut obj,
                     xfer,
                     logic.frame,
+                    None,
                     &mut logic.objects_changed_trigger_areas,
                     &mut logic.frame_objects_changed_trigger_areas,
                 )?;

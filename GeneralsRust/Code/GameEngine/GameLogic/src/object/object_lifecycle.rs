@@ -982,6 +982,10 @@ impl Object {
     }
 
     // Team management
+    pub(crate) fn is_admitted_to_team(&self, team: &Arc<RwLock<Team>>) -> bool {
+        self.team_pin.as_ref().is_some_and(|pin| Arc::ptr_eq(pin, team))
+    }
+
     pub(crate) fn admitted_team(&self) -> Result<Option<Arc<RwLock<Team>>>, String> {
         match (&self.team_pin, self.team_id) {
             (Some(team), Some(id)) => {

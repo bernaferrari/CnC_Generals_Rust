@@ -249,10 +249,10 @@ impl GameLogic {
         self.game_paused = paused;
     }
 
-    /// C++ `GameLogic::loadPostProcess` (GameLogic.cpp:4996-5071) remakes IDs and the
-    /// sleepy heap only. `ThePartitionManager->update()` is `GameState::gameStatePostProcessLoad`
-    /// after every snapshot (GameState.cpp:1528-1529), not here.
-    pub fn load_post_process(&mut self) {
+    /// Run the nested Team fixups against this Object table once every block
+    /// has transferred, then remake the IDs and heap (GameLogic.cpp:4996–5071).
+    pub fn load_post_process(&mut self) -> Result<(), XferStatus> {
+        self.validate_restored_team_members()?;
         self.next_object_id = INVALID_ID;
         for obj_id in &self.all_objects {
             if *obj_id >= self.next_object_id {
@@ -263,5 +263,31 @@ impl GameLogic {
             self.next_object_id = 1;
         }
         self.rebuild_sleepy_updates_after_load();
+        Ok(())
+    }
+
+    fn validate_restored_team_members(&self) -> Result<(), XferStatus> {
+        let Some(world) = self.owning_world_services() else {
+            return Ok(());
+        };
+        let teams = world
+            .team_factory()
+            .with_read_without_flushing(crate::team::TeamFactory::get_all_teams)
+            .map_err(|_| XferStatus::InvalidData)?;
+        for team in teams {
+            let mut roster = team.try_write().map_err(|_| XferStatus::InvalidData)?;
+            roster
+                .validate_restored_members(|id| {
+                    self.objects
+                        .get(&id)
+                        .and_then(|object| object.try_read().ok())
+                        .is_some_and(|object| object.is_admitted_to_team(&team))
+                })
+                .map_err(|error| {
+                    warn!("Core team snapshot: {error}");
+                    XferStatus::InvalidData
+                })?;
+        }
+        Ok(())
     }
 }

@@ -22,8 +22,7 @@ impl XferSnapshotTrait for GameLogicSnapshotBridge {
 
     fn load_post_process(&mut self) -> Result<(), XferStatus> {
         let mut guard = self.logic.lock().map_err(|_| XferStatus::InvalidData)?;
-        guard.load_post_process();
-        Ok(())
+        guard.load_post_process()
     }
 }
 
@@ -230,7 +229,7 @@ impl XferSnapshotTrait for PlayerListSnapshotBridge {
     }
 }
 
-struct TeamFactorySnapshotBridge;
+struct TeamFactorySnapshotBridge(crate::team::TeamFactoryHandle);
 
 impl XferSnapshotTrait for TeamFactorySnapshotBridge {
     fn crc(&mut self, xfer: &mut dyn Xfer) -> Result<(), XferStatus> {
@@ -238,11 +237,14 @@ impl XferSnapshotTrait for TeamFactorySnapshotBridge {
     }
 
     fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), XferStatus> {
-        xfer_team_factory_runtime_state(xfer)
+        let mut factory = self.0.lock().map_err(|_| XferStatus::InvalidData)?;
+        xfer_team_factory_runtime_state(&mut factory, xfer)
     }
 
     fn load_post_process(&mut self) -> Result<(), XferStatus> {
-        xfer_team_factory_load_post_process()
+        let mut factory = self.0.lock().map_err(|_| XferStatus::InvalidData)?;
+        factory.restore_unique_ids_after_load();
+        Ok(())
     }
 }
 
@@ -319,12 +321,12 @@ fn register_game_logic_snapshot_block() {
     );
     state.add_snapshot_block(
         "CHUNK_TeamFactory".to_string(),
-        Box::new(TeamFactorySnapshotBridge),
+        Box::new(TeamFactorySnapshotBridge(world.team_factory().clone())),
         game_engine::System::SnapshotType::SaveLoad,
     );
     state.add_snapshot_block(
         "CHUNK_TeamFactory".to_string(),
-        Box::new(TeamFactorySnapshotBridge),
+        Box::new(TeamFactorySnapshotBridge(world.team_factory().clone())),
         game_engine::System::SnapshotType::DeepCrcLogicOnly,
     );
     state.add_snapshot_block(
@@ -400,7 +402,6 @@ impl XferSnapshotTrait for CampaignGameLogicSnapshot<'_> {
             .xfer_native_snapshot_with_campaign(xfer, self.campaign)
     }
     fn load_post_process(&mut self) -> Result<(), XferStatus> {
-        self.logic.load_post_process();
-        Ok(())
+        self.logic.load_post_process()
     }
 }

@@ -572,7 +572,7 @@ impl Object {
     /// object and phase in the error. Earlier mutations, callbacks and stream
     /// I/O are not rolled back; load into a detached candidate for transactionality.
     pub fn xfer_checked(&mut self, xfer: &mut dyn Xfer) -> Result<(), ObjectXferError> {
-        self.xfer_with_optional_trigger_frame(xfer, None, &mut |id| {
+        self.xfer_with_optional_trigger_frame(xfer, None, None, &mut |id| {
             crate::helpers::TheGameLogic::queue_objects_changed_trigger_areas(id);
         })
     }
@@ -583,15 +583,17 @@ impl Object {
         &mut self,
         xfer: &mut dyn Xfer,
         frame: UnsignedInt,
+        teams: Option<&crate::team::TeamFactoryHandle>,
         changed: &mut dyn FnMut(ObjectID),
     ) -> Result<(), ObjectXferError> {
-        self.xfer_with_optional_trigger_frame(xfer, Some(frame), changed)
+        self.xfer_with_optional_trigger_frame(xfer, Some(frame), teams, changed)
     }
 
     fn xfer_with_optional_trigger_frame(
         &mut self,
         xfer: &mut dyn Xfer,
         frame: Option<UnsignedInt>,
+        teams: Option<&crate::team::TeamFactoryHandle>,
         changed: &mut dyn FnMut(ObjectID),
     ) -> Result<(), ObjectXferError> {
         let mut prefix = self.xfer_prefix(xfer, &mut |object, matrix| {
@@ -602,14 +604,19 @@ impl Object {
         if is_loading {
             // CPP Object.cpp4104-4113 rejects an unresolved team. Release the
             // factory loan before lifecycle callbacks can resolve team services.
-            let team_factory = crate::team::get_team_factory();
-            let restored_team = {
-                let factory = team_factory
-                    .lock()
-                    .map_err(|error| ObjectXferError::new(self.id, None, "team", error))?;
-                resolve_saved_team(&factory, prefix.team_id)
-                    .map_err(|error| ObjectXferError::new(self.id, None, "team", error))?
-            };
+            let restored_team = match teams {
+                Some(teams) => teams
+                    .with_read_without_flushing(|factory| resolve_saved_team(factory, prefix.team_id))
+                    .map_err(|error| ObjectXferError::new(self.id, None, "team", error))?,
+                None => {
+                    let compatibility_factory = crate::team::get_team_factory();
+                    let factory = compatibility_factory
+                        .lock()
+                        .map_err(|error| ObjectXferError::new(self.id, None, "team", error))?;
+                    resolve_saved_team(&factory, prefix.team_id)
+                }
+            }
+            .map_err(|error| ObjectXferError::new(self.id, None, "team", error))?;
             self.set_or_restore_team(Some(restored_team), true)
                 .map_err(|error| ObjectXferError::new(self.id, None, "team", error))?;
         }

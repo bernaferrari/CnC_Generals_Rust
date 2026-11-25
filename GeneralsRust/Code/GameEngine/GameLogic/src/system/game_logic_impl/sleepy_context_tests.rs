@@ -1073,16 +1073,6 @@ End
 "#;
     assert_eq!(load_templates_from_ini_text(authored, "core-wake.ini"), 1);
     let template = crate::helpers::TheThingFactory::find_template("SavedCoreWakeFixture").unwrap();
-    let team = {
-        let teams = crate::team::get_team_factory();
-        let mut teams = teams.lock().unwrap();
-        let prototype = teams
-            .init_team_owned("CoreWakeTeam".into(), "".into(), false, None, None)
-            .unwrap();
-        teams
-            .create_team_on_prototype_with_id(&prototype, 91_408)
-            .unwrap()
-    };
     let new_world = || GameLogic::new_with_engine_stores(Arc::new(EngineStores::new_for_world()));
     let lifetime = |owner: &Arc<RwLock<Object>>| {
         owner
@@ -1092,6 +1082,7 @@ End
             .expect("the template installs the real lifetime update")
     };
     let mut source = new_world();
+    let team = admit_fixture_team(&source, "CoreWakeTeam", 91_408);
     source.frame = 32;
     let finite_id = 90_201;
     let forever_id = 90_205;
@@ -1124,6 +1115,7 @@ End
     }
 
     let mut receiving = new_world();
+    admit_fixture_team(&receiving, "CoreWakeTeam", 91_408);
     let mut campaign = Default::default();
     {
         let mut load = XferLoad::new();
@@ -1219,16 +1211,6 @@ End
 "#;
     assert_eq!(load_templates_from_ini_text(authored, "core-deletion.ini"), 1);
     let template = crate::helpers::TheThingFactory::find_template("SavedCoreDeletionFixture").unwrap();
-    let team = {
-        let teams = crate::team::get_team_factory();
-        let mut teams = teams.lock().unwrap();
-        let prototype = teams
-            .init_team_owned("CoreDeletionTeam".into(), "".into(), false, None, None)
-            .unwrap();
-        teams
-            .create_team_on_prototype_with_id(&prototype, 91_409)
-            .unwrap()
-    };
     let new_world = || GameLogic::new_with_engine_stores(Arc::new(EngineStores::new_for_world()));
     let deletion = |owner: &Arc<RwLock<Object>>| {
         owner
@@ -1238,6 +1220,7 @@ End
             .expect("the template installs the real deletion update")
     };
     let mut source = new_world();
+    let team = admit_fixture_team(&source, "CoreDeletionTeam", 91_409);
     source.frame = 32;
     let id = 91_007;
     let wake = 39;
@@ -1279,6 +1262,7 @@ End
         save.close().unwrap();
     }
     let mut receiving = new_world();
+    admit_fixture_team(&receiving, "CoreDeletionTeam", 91_409);
     {
         let mut load = XferLoad::new();
         load.open(file.to_string_lossy().into_owned()).unwrap();
@@ -1315,4 +1299,11 @@ End
     receiving.process_destroy_list().unwrap();
     assert!(receiving.find_object_by_id(id).is_none());
     assert!(Arc::ptr_eq(&peer.find_object_by_id(id).unwrap(), &peer_object));
+}
+
+fn admit_fixture_team(logic: &GameLogic, name: &str, id: u32) -> Arc<RwLock<crate::team::Team>> {
+    let world = logic.owning_world_services().unwrap();
+    let mut factory = world.team_factory().lock().unwrap();
+    let prototype = factory.init_team_owned(name.into(), "".into(), false, None, None).unwrap();
+    factory.create_team_on_prototype_with_id(&prototype, id).unwrap()
 }

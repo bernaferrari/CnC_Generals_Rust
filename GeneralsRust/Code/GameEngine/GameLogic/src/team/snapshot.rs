@@ -136,19 +136,21 @@ impl Snapshotable for Team {
         xfer.xfer_unsigned_short(&mut member_count)
             .map_err(|e| e.to_string())?;
 
-        if xfer.get_xfer_mode() == XferMode::Save {
+        let mut saved_member_ids = None;
+        if xfer.get_xfer_mode() != XferMode::Load {
             for &obj_id in &self.members {
                 let mut id = obj_id;
                 xfer.xfer_object_id(&mut id).map_err(|e| e.to_string())?;
             }
         } else {
-            // Load: store member IDs for post-process reconnection
-            self.members.clear();
+            // Team.cpp:2595–2608 saves these separately from the live roster.
+            let mut pending = Vec::with_capacity(member_count as usize);
             for _ in 0..member_count {
                 let mut id = INVALID_ID;
                 xfer.xfer_object_id(&mut id).map_err(|e| e.to_string())?;
-                self.members.push(id);
+                pending.push(id);
             }
+            saved_member_ids = Some(pending);
         }
 
         // State
@@ -309,10 +311,35 @@ impl Snapshotable for Team {
             }
         }
 
+        if let Some(saved_member_ids) = saved_member_ids {
+            self.saved_member_ids = saved_member_ids;
+        }
         Ok(())
     }
 
     fn load_post_process(&mut self) -> Result<(), String> {
+        // The Core GameLogic snapshot verifies membership once it owns the restored Objects.
+        Ok(())
+    }
+}
+
+impl Team {
+    /// Team.cpp:2682–2724. Object restore builds the live roster before the
+    /// saved IDs are checked. Saved order and duplicates do not replay joins.
+    pub(crate) fn validate_restored_members(
+        &mut self,
+        mut belongs_to_team: impl FnMut(ObjectID) -> bool,
+    ) -> Result<(), String> {
+        if self.saved_member_ids.is_empty() {
+            return Ok(());
+        }
+        let members: HashSet<_> = self.members.iter().copied().collect();
+        for &id in &self.saved_member_ids {
+            if !members.contains(&id) || !belongs_to_team(id) {
+                return Err(format!("saved Object {id} is missing from Team {}", self.id));
+            }
+        }
+        self.saved_member_ids.clear();
         Ok(())
     }
 }
@@ -411,12 +438,15 @@ mod creation_xfer_admission_tests {
             "Attacking",
             "CPP Team.cpp2613 restores m_state"
         );
-        assert_eq!(target.members, [7, 9]);
+        assert_eq!(target.members, [1234], "wire IDs leave the live roster alone");
+        assert_eq!(target.saved_member_ids, [7, 9]);
         assert!(target.active && target.created && target.entered_or_exited);
         assert_eq!(target.current_waypoint_id, Some(91));
         assert!(!target.creation_is_running());
         assert!(target.creation_failure().is_none());
         target.validate_creation_snapshot().unwrap();
+        target.members = vec![7, 9];
+        target.validate_restored_members(|id| matches!(id, 7 | 9)).unwrap();
         let mut output = Cursor::new(Vec::new());
         target.xfer(&mut XferSave::new(&mut output, 1)).unwrap();
         assert_eq!(

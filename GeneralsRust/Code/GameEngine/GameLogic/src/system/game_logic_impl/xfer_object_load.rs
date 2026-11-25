@@ -6,6 +6,8 @@ fn xfer_game_logic_objects_load(
     xfer: &mut dyn Xfer,
     object_count: UnsignedInt,
 ) -> Result<(), XferStatus> {
+    let world = logic.owning_world_services();
+    let teams = world.as_ref().map(|world| world.team_factory());
     let __player_list_arc = player_list();
         let default_team = __player_list_arc.read()
         .ok()
@@ -68,6 +70,7 @@ fn xfer_game_logic_objects_load(
                 &mut obj,
                 xfer,
                 logic.frame,
+                teams,
                 &mut logic.objects_changed_trigger_areas,
                 &mut logic.frame_objects_changed_trigger_areas,
             )?;

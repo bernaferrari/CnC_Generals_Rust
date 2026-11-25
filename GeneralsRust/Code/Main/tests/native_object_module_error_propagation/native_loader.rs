@@ -5,6 +5,7 @@ use game_engine::{
     Snapshot as NativeSnapshot, Xfer as NativeXfer, XferLoad as NativeLoad, XferSave as NativeSave,
     XferStatus as NativeStatus,
 };
+use gamelogic::system::engine_stores::EngineStores;
 use gamelogic::system::game_logic::GameLogic as NativeLogic;
 use std::path::PathBuf;
 
@@ -207,7 +208,7 @@ pub(super) fn execute(case: &str) {
         Object::new_with_id(template, SECOND_ID, ObjectStatusMaskType::NONE, Some(team)).unwrap();
     assert_admitted(&first, ID);
     assert_admitted(&second, SECOND_ID);
-    let mut writer = NativeLogic::new();
+    let mut writer = NativeLogic::new_with_engine_stores(Arc::new(EngineStores::new_for_world()));
     // Native registration prepends; ID must be the first serialized record.
     writer.register_object(second.clone()).unwrap();
     writer.register_object(first.clone()).unwrap();
@@ -282,7 +283,17 @@ pub(super) fn execute(case: &str) {
     let loaded_before = probe.loaded.load(Ordering::SeqCst);
     assert_eq!(created_before, 2);
     assert_eq!(loaded_before, 0);
-    let mut receiver = NativeLogic::new();
+    let receiving_stores = Arc::new(EngineStores::new_for_world());
+    let receiving_team = {
+        let mut teams = receiving_stores.services().team_factory().lock().unwrap();
+        let prototype = teams
+            .init_team_owned("NativeXferFixture".into(), "".into(), false, None, None)
+            .unwrap();
+        teams
+            .create_team_on_prototype_with_id(&prototype, 91311)
+            .unwrap()
+    };
+    let mut receiver = NativeLogic::new_with_engine_stores(receiving_stores);
     assert_eq!(receiver.get_object_count(), 0);
     assert!(
         gamelogic::player::player_list()
@@ -353,7 +364,12 @@ pub(super) fn execute(case: &str) {
         result.unwrap();
         assert_eq!(receiver.get_object_count(), 2);
         for id in [ID, SECOND_ID] {
-            assert_admitted(&receiver.find_object_by_id(id).unwrap(), id);
+            let object = receiver.find_object_by_id(id).unwrap();
+            assert_admitted(&object, id);
+            assert!(Arc::ptr_eq(
+                &object.read().unwrap().get_team().unwrap(),
+                &receiving_team
+            ));
         }
         assert_eq!(probe.created.load(Ordering::SeqCst) - created_before, 2);
         assert_eq!(probe.loaded.load(Ordering::SeqCst) - loaded_before, 2);

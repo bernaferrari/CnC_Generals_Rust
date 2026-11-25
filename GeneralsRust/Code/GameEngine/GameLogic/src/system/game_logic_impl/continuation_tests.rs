@@ -17,7 +17,7 @@ mod continuation_tests {
     //! touched only as the container the GameState snapshot blocks serialize
     //! (`GameLogicSnapshotBridge` binds `GAME_LOGIC`, snapshot.rs) on save,
     //! via `transplant_to_singleton`. Load lends branch B's local instance as
-    //! the `CampaignGameLogicSnapshot` operation owner.
+    //! the owner of both the GameLogic and TeamFactory snapshot blocks.
     //!
     //! Known save-format gap pinned here: save files do NOT carry the game-logic
     //! RNG seed words (`xfer_game_logic_state` has no seed xfer; mission loads
@@ -379,6 +379,16 @@ mod continuation_tests {
         // instance as that owner; the restored world lands directly in it.
         let mut b = continuation_logic();
         {
+            let receiving_teams = b.owning_world_services().unwrap().team_factory().clone();
+            // Match the scenario's authored prototypes as a freshly loaded map would.
+            let prototypes = crate::team::get_team_factory().lock().unwrap().list_team_prototypes();
+            {
+                let mut factory = receiving_teams.lock().unwrap();
+                for prototype in prototypes {
+                    factory.replace_team_prototype(prototype.as_ref().clone());
+                }
+            }
+            let mut team_snapshot = TeamFactorySnapshotBridge(receiving_teams);
             let mut campaign = game_engine::System::CampaignManagerXferState::default();
             let mut owner = CampaignGameLogicSnapshot {
                 logic: &mut b,
@@ -391,10 +401,16 @@ mod continuation_tests {
                         filename: save_filename.clone(),
                         save_game_info: SaveGameInfo::default(),
                     },
-                    &mut [game_engine::System::SaveGame::BorrowedSnapshotBlock {
-                        block_name: "CHUNK_GameLogic",
-                        snapshot: &mut owner,
-                    }],
+                    &mut [
+                        game_engine::System::SaveGame::BorrowedSnapshotBlock {
+                            block_name: "CHUNK_GameLogic",
+                            snapshot: &mut owner,
+                        },
+                        game_engine::System::SaveGame::BorrowedSnapshotBlock {
+                            block_name: "CHUNK_TeamFactory",
+                            snapshot: &mut team_snapshot,
+                        },
+                    ],
                 )
                 .expect("load_game xfer must not fail");
             assert_eq!(code, SaveCode::Ok, "load_game must report SaveCode::Ok");

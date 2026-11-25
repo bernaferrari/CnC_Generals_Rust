@@ -23,6 +23,7 @@ pub struct Team {
 
     // Team members (using ObjectID for now)
     members: Vec<ObjectID>,
+    saved_member_ids: Vec<ObjectID>,
 
     // Player control
     controlling_player_id: Option<UnsignedInt>,

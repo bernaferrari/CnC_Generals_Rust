@@ -633,7 +633,7 @@ mod tests {
         logic.module_lookup.clear();
         assert_eq!(logic.sleepy_update_count(), 0);
 
-        logic.load_post_process();
+        logic.load_post_process().unwrap();
         assert!(
             logic.sleepy_update_count() >= 1,
             "C++ loadPostProcess re-pushes every object's update modules"
@@ -1268,9 +1268,7 @@ mod tests {
 
     #[test]
     fn xfer_v10_writes_toc_and_object_blocks() {
-        // Full Core Object restore still resolves its compatibility TeamFactory.
-        // Run this complete fixture in its own native process so replacing that
-        // owner cannot race suites using a different fixture serialization token.
+        // The authored catalog and polygon adapters still use the fixture scope.
         #[cfg(not(target_arch = "wasm32"))]
         if let crate::test_process::TestProcess::ParentVerified = crate::test_process::run_bounded(
             "system::game_logic::tests::xfer_v10_writes_toc_and_object_blocks",
@@ -1281,23 +1279,10 @@ mod tests {
         let _fixture = test_state_lock();
         use game_engine::{Xfer, XferLoad, XferSave};
 
-        // CPP Object.cpp4104-4113 requires the saved team to have been
-        // admitted before Object restore. Preserve the real compatibility
-        // owner for this complete GameLogic wire fixture, restoring its peer
-        // after all local objects have retired.
-        struct ReceivingTeams(Option<crate::team::TeamFactory>);
-        impl Drop for ReceivingTeams {
-            fn drop(&mut self) {
-                *crate::team::get_team_factory().lock().unwrap() = self.0.take().unwrap();
-            }
-        }
-        let _receiving_teams = ReceivingTeams(Some(std::mem::replace(
-            &mut *crate::team::get_team_factory().lock().unwrap(),
-            crate::team::TeamFactory::new(),
-        )));
+        // Object.cpp:4104–4113 requires an admitted team before Object restore.
+        let receiving = Arc::new(crate::system::engine_stores::EngineStores::new_for_world());
         let receiving_team = {
-            let published_team_factory = crate::team::get_team_factory();
-            let mut teams = published_team_factory.lock().unwrap();
+            let mut teams = receiving.services().team_factory().lock().unwrap();
             let prototype = teams
                 .init_team_owned("CppObjectTocTeam".into(), "".into(), false, None, None)
                 .unwrap();
@@ -1364,9 +1349,7 @@ mod tests {
             xfer_game_logic_state(&mut save_logic, &mut xfer).expect("save");
             xfer.close().expect("close save");
         }
-        let mut load_logic = GameLogic::new_with_engine_stores(Arc::new(
-            crate::system::engine_stores::EngineStores::new_for_world(),
-        ));
+        let mut load_logic = GameLogic::new_with_engine_stores(receiving);
         load_logic.set_object_id_counter(77);
         load_logic.set_rank_level_limit(4);
         {

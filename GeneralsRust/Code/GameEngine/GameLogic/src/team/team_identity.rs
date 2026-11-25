@@ -10,6 +10,7 @@ impl Team {
             id,
             name,
             members: Vec::new(),
+            saved_member_ids: Vec::new(),
             controlling_player_id: None,
             state: String::new().into(),
             entered_or_exited: false,
