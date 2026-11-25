@@ -841,8 +841,10 @@ fn take_scatter_table_offset_uses_store_pattern() {
     tpl.set_primary_weapon_name(NAME);
     let mut object = Object::new(tpl, ObjectId(9), Team::USA);
     object.weapon = ThingTemplate::weapon_from_store(NAME);
+    let random = game_engine::common::random_value::SessionRandom::default();
+    random.seed_random(619);
     let offset = object
-        .take_scatter_table_offset(0, Some(NAME))
+        .take_scatter_table_offset(0, Some(NAME), Some(&random))
         .expect("scatter table must offset fire");
     let mag = (offset.x * offset.x + offset.y * offset.y).sqrt();
     assert!(

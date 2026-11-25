@@ -1058,7 +1058,16 @@ impl Object {
                 )
                 .unwrap_or(crate::game_logic::weapon_bootstrap::PROJECTILE_COLLIDE_DEFAULT)
             });
-        let scatter_table_offset = self.take_scatter_table_offset(slot, name);
+        // Resolve the concrete weapon before consuming its first scatter entry.
+        {
+            let _ = self.capture_pending_weapon_visual_dispatch(
+                slot,
+                logic_frame,
+                target_object,
+                victim.position(),
+            );
+        }
+        let scatter_table_offset = self.take_scatter_table_offset(slot, name, random);
         let scatter_radius = if scatter_table_offset.is_some() {
             0.0
         } else {
@@ -1114,14 +1123,6 @@ impl Object {
                     .unwrap_or_default()
             });
 
-        {
-            let _ = self.capture_pending_weapon_visual_dispatch(
-                slot,
-                logic_frame,
-                target_object,
-                victim.position(),
-            );
-        }
         let launch_transform = if projectile_object_name.is_empty() {
             None
         } else {
@@ -1848,6 +1849,7 @@ impl Object {
         &mut self,
         slot: u8,
         weapon_name: Option<&str>,
+        random: Option<&game_engine::common::random_value::SessionRandom>,
     ) -> Option<glam::Vec2> {
         let name = weapon_name?;
         let native = self.selected_native_weapon_rule(slot);
@@ -1876,9 +1878,12 @@ impl Object {
             return None;
         }
         let last = self.weapon_scatter_targets_unused[index].len() as i32 - 1;
-        let seed = self.id.0.wrapping_add(self.last_fire_frame);
-        let pick =
-            crate::game_logic::host_rng_residual::pure_logic_random_int(seed, 0, 0, last) as usize;
+        let pick = random.map_or_else(
+            || {
+                game_engine::common::random_value::get_game_logic_random_value(0, last)
+            },
+            |random| random.next_int(0, last),
+        ) as usize;
         let target_index = self.weapon_scatter_targets_unused[index][pick] as usize;
         let (offset_x, offset_y) = *targets.get(target_index)?;
         let scalar = native

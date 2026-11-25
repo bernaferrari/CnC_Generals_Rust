@@ -646,6 +646,9 @@ impl GameLogic {
             self.frame,
             &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
         );
+        if unit.ai_state() == AIState::AttackingGround {
+            unit.set_status_attacking(true);
+        }
         // AIUpdate.cpp sets the shot limit after the attack state's onEnter.
         unit.set_max_shots_to_fire(max_shots);
         drop(unit);

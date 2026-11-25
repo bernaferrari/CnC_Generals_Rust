@@ -82,6 +82,14 @@ impl Object {
     /// Host combat residual: mark attacking and log for GameWorld status channel.
     pub fn set_status_attacking(&mut self, attacking: bool) {
         self.status.attacking = attacking;
+        // AIStates.cpp:5544/5688 pairs OBJECT_STATUS_IS_ATTACKING with
+        // MODELCONDITION_ATTACKING at attack-state enter/exit.
+        let bit = 1u128 << crate::game_logic::host_enum_table_residual::MC_BIT_ATTACKING;
+        if attacking {
+            self.model_condition_bits |= bit;
+        } else {
+            self.model_condition_bits &= !bit;
+        }
     }
 
     /// C++ Object::setStatus writes the firing bit. The helper observes it.

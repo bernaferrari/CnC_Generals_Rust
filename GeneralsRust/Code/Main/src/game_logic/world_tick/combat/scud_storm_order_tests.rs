@@ -1119,3 +1119,446 @@ fn authored_scud_storm_full_salvo_uses_each_missiles_authored_death_weapon() {
         );
     }
 }
+
+/// Genuine retail GLA SCUD storm: stock `Object GLAScudStorm`, stock
+/// `Weapon ScudStormWeapon` (ClipSize 9, ScatterTargetScalar 120 table,
+/// PER_CLIP 3000ms preattack), stock `Object ScudStormMissile` on
+/// `SCUDStormMissileLocomotor`, the real `SUPERWEAPON_ScudStorm` /
+/// `OCL_PoisonFieldLarge` creation lists, and the genuine W3D
+/// `UBScudStrm_A2` ATTACKING topology supplying nine `WeaponA` launch
+/// bones. Nothing here is a synthetic flight: the OCL Attack nugget must
+/// discharge one missile per authored barrel at the nine authored
+/// scatter goals through the shared shot boundary.
+const STORM_COLLISION_WITNESS: &str = "Object StormCollisionWitness\n\
+  KindOf = STRUCTURE IMMOBILE\n\
+  Body = ActiveBody Body\n\
+  MaxHealth = 10000\n\
+  InitialHealth = 10000\n\
+  End\n\
+  Geometry = Cylinder\n\
+  GeometryMajorRadius = 18\n\
+  GeometryHeight = 45\n\
+  End\n";
+
+fn retail_scud_storm_world() -> (GameLogic, ObjectId) {
+    use crate::game_logic::game_logic::accepted_projectile_owner_tests::patriot_retail_battery_tests::{
+        base_ini, definition,
+    };
+
+    let weapon_text = base_ini("Weapon.ini");
+    let mut weapons = std::collections::HashMap::new();
+    for name in [
+        "ScudStormWeapon",
+        "ScudStormDamageWeapon",
+        "ScudStormDamageWeaponUpgraded",
+        "LargePoisonFieldWeapon",
+        "HazardFieldCoreWeapon",
+    ] {
+        let block = definition(&weapon_text, &format!("Weapon {name}"));
+        assert_eq!(
+            crate::assets::ini_template_loader::parse_weapon_definitions_ini_into(
+                &mut weapons,
+                &block,
+                crate::assets::ini_template_loader::WeaponDefinitionLoadType::Normal,
+            ),
+            1,
+            "retail weapon {name}"
+        );
+    }
+    let scud_weapon = &weapons["scudstormweapon"];
+    assert_eq!(scud_weapon.clip_size, 9);
+    assert_eq!(scud_weapon.scatter_target_scalar, 120.0);
+    assert_eq!(scud_weapon.scatter_targets.len(), 9);
+    assert_eq!(scud_weapon.projectile_name, "ScudStormMissile");
+
+    let buildings = base_ini("Object/FactionBuilding.ini");
+    let pad_source = definition(&buildings, "Object GLAScudStorm");
+    // The authored production prerequisite chain must resolve at admission:
+    // GLAScudStorm -> GLAPalace -> GLAArmsDealer -> GLASupplyStash -> none.
+    let palace_source = definition(&buildings, "Object GLAPalace");
+    let arms_dealer_source = definition(&buildings, "Object GLAArmsDealer");
+    let supply_stash_source = definition(&buildings, "Object GLASupplyStash");
+    let weapon_objects = base_ini("Object/WeaponObjects.ini");
+    let missile_source = definition(&weapon_objects, "Object ScudStormMissile");
+    let system_objects = base_ini("Object/System.ini");
+    let field_source = definition(&system_objects, "Object PoisonFieldLarge");
+    let mut parser = crate::assets::IniParser::new();
+    parser
+        .parse_ini_content(&missile_source, "WeaponObjects.ini")
+        .unwrap();
+    let missile = parser
+        .get_definition("ScudStormMissile")
+        .expect("retail missile")
+        .clone();
+    let objects = vec![("ScudStormMissile".to_string(), missile)];
+    let locomotor_source =
+        definition(&base_ini("Locomotor.ini"), "Locomotor SCUDStormMissileLocomotor");
+    let mut locomotors = game_engine::common::ini::ini_locomotor::LocomotorStore::new_owned();
+    locomotors.apply_source(&locomotor_source).unwrap();
+
+    let ocl_text = base_ini("ObjectCreationList.ini");
+    let ocls = [
+        definition(&ocl_text, "ObjectCreationList SUPERWEAPON_ScudStorm"),
+        definition(&ocl_text, "ObjectCreationList OCL_PoisonFieldLarge"),
+    ];
+
+    let mut assets = crate::assets::AssetManager::new().unwrap();
+    assets.archive_file_system_mut().add_search_path(
+        crate::fixture_content::retail_content_root()
+            .join("Command & Conquer Generals Zero Hour/Data"),
+    );
+    futures::executor::block_on(assets.init_cpu_content())
+        .expect("retail archive CPU content");
+    let base_archive = crate::fixture_content::retail_base_w3d_archive();
+    futures::executor::block_on(
+        assets.archive_file_system_mut().load_big_file(base_archive),
+    )
+    .expect("mount genuine base-game W3D.big");
+    let prewarm = assets.prewarm_weapon_barrel_topology_models_for_objects(["GLAScudStorm"]);
+    assert!(
+        prewarm.requested >= 1,
+        "retail GLAScudStorm must offer authored barrel-topology models: {prewarm:?}",
+    );
+
+    let mut world = GameLogic::new();
+    world.bind_application_assets(std::sync::Arc::new(std::sync::Mutex::new(assets)));
+    world.admit_locomotor_definitions(locomotors).unwrap();
+    world.admit_object_creation_list_sources(ocls).unwrap();
+    world
+        .admit_receiving_module_content(
+            crate::assets::ReceivingObjectContent::from_sources(vec![
+                ("FactionBuilding.ini".to_string(), pad_source),
+                ("GLAPalace.ini".to_string(), palace_source),
+                ("GLAArmsDealer.ini".to_string(), arms_dealer_source),
+                ("GLASupplyStash.ini".to_string(), supply_stash_source),
+                ("WeaponObjects.ini".to_string(), missile_source),
+                ("System.ini".to_string(), field_source),
+                (
+                    "storm-collision-witness.ini".to_string(),
+                    STORM_COLLISION_WITNESS.to_string(),
+                ),
+            ])
+            .unwrap(),
+        )
+        .unwrap();
+    world
+        .admit_weapon_content_snapshot(
+            weapons
+                .into_values()
+                .map(|weapon| (weapon.name.clone(), weapon))
+                .collect(),
+            &objects,
+        )
+        .unwrap();
+    let profile = world
+        .projectile_definitions
+        .get("ScudStormMissile")
+        .expect("retail missile profile");
+    assert!(
+        profile.locomotor.is_some(),
+        "retail SCUDStormMissileLocomotor must bind in this world"
+    );
+    prepare_storm_terrain_and_players(&mut world);
+    world.set_logic_random_seed(619);
+    world.set_current_frame(10);
+    let pad = world
+        .create_object_for_player("GLAScudStorm", 0, Vec3::new(200.0, 0.0, 200.0))
+        .expect("retail GLAScudStorm pad");
+    assert!(
+        world.host_object(pad).unwrap().is_alive(),
+        "retail pad must spawn live"
+    );
+    (world, pad)
+}
+
+#[test]
+fn retail_scud_storm_uses_nine_authored_launch_bones_and_scatter_goals() {
+    let (mut world, pad) = retail_scud_storm_world();
+    let assets = world
+        .application_assets()
+        .expect("world-owned retail asset manager");
+
+    // Positive gate: the parsed pad's ATTACKING selection is the authored
+    // UBScudStrm_A2 state binding PRIMARY -> WeaponA launch bones.
+    let attacking = 1u128 << crate::game_logic::host_enum_table_residual::attacking_model_bit();
+    let draws = world
+        .host_object(pad)
+        .unwrap()
+        .get_template()
+        .receiving_draw_models_ref()
+        .expect("retail pad draw modules")
+        .object_draws(attacking)
+        .expect("retail ATTACKING draw selection");
+    let attacking_draw = draws
+        .iter()
+        .find(|draw| {
+            draw.weapon_bone_bindings
+                .slot(0)
+                .is_some_and(|slot| {
+                    slot.launch_bone_base
+                        .as_deref()
+                        .is_some_and(|base| base.eq_ignore_ascii_case("WeaponA"))
+                })
+        })
+        .expect("retail pad must bind PRIMARY WeaponA launch bones while ATTACKING");
+    assert_eq!(
+        attacking_draw.model_key, "UBScudStrm_A2",
+        "retail ATTACKING condition state must select the A2 launcher model"
+    );
+    {
+        let mut manager = assets.lock().unwrap();
+        assert!(
+            manager.prewarm_w3d_draw_animation_binding(
+                &attacking_draw.model_key,
+                "UBScudStrm_A2.UBScudStrm_A2",
+            ),
+            "retail W3D archive must bind the authored ATTACKING animation"
+        );
+    }
+    let scale = world.host_object(pad).unwrap().drawable_instance_scale;
+    let bones = crate::assets::pristine_bones::PristineBoneAssets::pristine_bones_for_selected_draw(
+        assets.as_ref(),
+        attacking_draw,
+        scale,
+        "WeaponA",
+        1,
+        9,
+    )
+    .expect("retail W3D archive must supply nine UBScudStrm_A2 WeaponA bones");
+    assert_eq!(
+        bones.len(),
+        9,
+        "retail ATTACKING model must expose nine launch barrels"
+    );
+    let expected_origins: Vec<Vec3> = {
+        let pad_world = world.host_object(pad).unwrap().get_transform_matrix();
+        bones
+            .iter()
+            .map(|bone| {
+                (pad_world
+                    * crate::game_logic::host_fx_list_dispatch::host_to_leftover_mat4(*bone))
+                .w_axis
+                .truncate()
+            })
+            .collect()
+    };
+
+    let queued_frame = world.frame;
+    assert!(
+        world
+            .queue_special_power_strike(
+                &crate::command_system::SpecialPowerType::ScudStorm,
+                pad,
+                STORM_DEATH_TARGET,
+            )
+            .is_some()
+    );
+    // AIStates.cpp:5544 — the attack state's onEnter pairs the IS_ATTACKING
+    // status with the MODELCONDITION_ATTACKING bit immediately.
+    assert_ne!(
+        world.host_object(pad).unwrap().model_condition_bits & attacking,
+        0,
+        "OCL aiAttackPosition enter must set the ATTACKING model condition"
+    );
+    let mut effects = crate::game_logic::ScriptPresentationEffects {
+        pristine_bones: Some(assets.as_ref()),
+        ..Default::default()
+    };
+    let mut launches = Vec::new();
+    let mut seen = HashSet::new();
+    for _ in 0..700 {
+        world.update_with_script_effects(effects.reborrow()).unwrap();
+        for (id, projectile) in world.combat_system.get_projectiles() {
+            if projectile.projectile_object_name == "ScudStormMissile" && seen.insert(*id) {
+                assert_eq!(
+                    world.host_object(*id).unwrap().producer_id,
+                    Some(pad),
+                    "the pad owns every retail salvo missile"
+                );
+                launches.push((
+                    world.frame,
+                    *id,
+                    projectile.flight_runtime.path_start,
+                    projectile.target_position,
+                ));
+            }
+        }
+    }
+    launches.sort_by_key(|launch| launch.0);
+    assert_eq!(launches.len(), 9, "observed launches: {launches:?}");
+
+    // Retail Weapon.ini ScatterTargetScalar 120 table, C++ X/Y -> host X/Z.
+    // Each clip shot consumes one unused entry, so the nine goals are a
+    // bijection with the authored table regardless of pick order.
+    let mut expected: Vec<(f32, f32)> = vec![
+        (0.0, 0.133),
+        (0.133, -0.200),
+        (-0.067, 0.667),
+        (0.300, 0.300),
+        (0.767, 0.0),
+        (0.500, -0.567),
+        (-0.333, -0.800),
+        (-0.600, -0.1333),
+        (-0.567, 0.433),
+    ];
+    for (frame, _, _, goal) in &launches {
+        let dx = goal.x - STORM_DEATH_TARGET.x;
+        let dz = goal.z - STORM_DEATH_TARGET.z;
+        let index = expected
+            .iter()
+            .position(|(ex, ez)| {
+                (dx - ex * 120.0).abs() <= 0.003 && (dz - ez * 120.0).abs() <= 0.003
+            })
+            .unwrap_or_else(|| {
+                panic!(
+                    "frame {frame}: scatter goal offset {dx:.4},{dz:.4} matches no \
+                     authored ScatterTarget entry"
+                )
+            });
+        expected.remove(index);
+    }
+    assert!(expected.is_empty(), "every authored scatter goal consumed once");
+
+    // Nine shots discharge the nine authored barrels in barrel order.
+    for (index, ((frame, _, start, _), expected)) in
+        launches.iter().zip(&expected_origins).enumerate()
+    {
+        assert!(
+            start.distance(*expected) <= 0.01,
+            "launch {index} (frame {frame}) origin {start:?} != authored WeaponA{:02} \
+             origin {expected:?}",
+            index + 1,
+        );
+    }
+    let first = launches[0].0;
+    assert!(
+        first >= queued_frame + 90,
+        "authored 3000ms PER_CLIP preattack gates the first launch; got frame \
+         {first} (queued {queued_frame})"
+    );
+
+    // The authored OCL Attack delivery never touches the synthetic wave.
+    assert_eq!(world.scud_storm_missile_flight_reg.scheduled, 0);
+    assert_eq!(world.scud_storm_missile_flight_reg.launched, 0);
+    assert!(world.scud_storm_missile_flight_reg.pending.is_empty());
+
+    // Stock flight reaches HeightDie: each missile's authored
+    // SpecialPowerCompletionDie reports exactly once for the pad.
+    assert_eq!(count_objects(&world, "ScudStormMissile"), 0);
+    assert_eq!(
+        world.special_power_completion_log.notifications, 9,
+        "one authored completion per retail missile death"
+    );
+    let scripts = world.owned_script_engine.as_ref().unwrap();
+    for _ in 0..9 {
+        assert!(scripts.is_special_power_complete(
+            0,
+            STORM_COMPLETION_POWER,
+            true,
+            pad.0,
+        ));
+    }
+    assert!(
+        !scripts.is_special_power_complete(0, STORM_COMPLETION_POWER, true, pad.0),
+        "no tenth completion event"
+    );
+}
+
+/// MissileAIUpdate.cpp:279-425 — a direct object contact on an armed stock
+/// ScudStormMissile detonates through the weapon-collide path (the stock
+/// launcher weapon collides with STRUCTURE), entering the authored contrail
+/// KILL_SELF hold and retiring without a Normal death: no
+/// SpecialPowerCompletionDie, no FireWeaponWhenDead damage, no
+/// OCL_PoisonFieldLarge for that missile.
+#[test]
+fn retail_scud_storm_structure_contact_does_not_run_normal_death() {
+    let (mut world, pad) = retail_scud_storm_world();
+    let assets = world
+        .application_assets()
+        .expect("world-owned retail asset manager");
+    assert!(
+        world
+            .queue_special_power_strike(
+                &crate::command_system::SpecialPowerType::ScudStorm,
+                pad,
+                STORM_DEATH_TARGET,
+            )
+            .is_some()
+    );
+    let mut effects = crate::game_logic::ScriptPresentationEffects {
+        pristine_bones: Some(assets.as_ref()),
+        ..Default::default()
+    };
+
+    // Wait for the first missile to arm in real flight. `is_warhead_armed`
+    // is the same predicate `accepts_owned_contact` consults, so an armed,
+    // airborne missile is exactly the live state the stock contact needs.
+    let mut contact: Option<(ObjectId, Vec3)> = None;
+    for _ in 0..700 {
+        world.update_with_script_effects(effects.reborrow()).unwrap();
+        contact = world
+            .combat_system
+            .get_projectiles()
+            .iter()
+            .find_map(|(id, projectile)| {
+                if projectile.projectile_object_name == "ScudStormMissile"
+                    && projectile.is_warhead_armed()
+                {
+                    let pos = world.host_object(*id)?.get_position();
+                    (pos.y > 60.0).then_some((*id, pos))
+                } else {
+                    None
+                }
+            });
+        if contact.is_some() {
+            break;
+        }
+    }
+    let (missile, actor_pos) = contact
+        .expect("the retail launch must reach a live, armed missile above y=60");
+
+    // A different player's authored structure now overlaps the live missile
+    // body; the real Object::onCollide callback decides the outcome.
+    let witness = world
+        .create_object(
+            "StormCollisionWitness",
+            Team::USA,
+            actor_pos - Vec3::Y * 15.0,
+        )
+        .expect("collision witness structure");
+    assert_eq!(health(&world, witness), 10000.0);
+    assert!(
+        world
+            .try_owned_projectile_contact(missile, witness, &mut effects)
+            .unwrap(),
+        "armed missile over an enemy structure must run its contact callback"
+    );
+    assert!(
+        world
+            .combat_system
+            .get_projectiles()
+            .get(&missile)
+            .is_some_and(|projectile| projectile.is_missile_kill_self_holding()),
+        "accepted structure contact must enter the authored KILL_SELF hold"
+    );
+
+    // The intercepted missile retires without running its normal death:
+    // while its id remains live, no completion notification and no authored
+    // poison field may be produced. Other salvo missiles keep flying.
+    while world.combat_system.get_projectiles().contains_key(&missile)
+        || world.host_object(missile).is_some()
+    {
+        world.update_with_script_effects(effects.reborrow()).unwrap();
+        assert_eq!(
+            world.special_power_completion_log.notifications, 0,
+            "contact detonation runs no SpecialPowerCompletionDie"
+        );
+        assert_eq!(
+            count_objects(&world, "PoisonFieldLarge"),
+            0,
+            "contact detonation runs no FireWeaponWhenDead"
+        );
+    }
+    // The stock launcher weapon deals zero damage: the witness is untouched.
+    assert_eq!(health(&world, witness), 10000.0);
+}
