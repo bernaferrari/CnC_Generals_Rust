@@ -316,3 +316,149 @@ fn authored_delivery_waits_for_the_door_and_drop_interval_across_save() {
     assert!(!restored.objects.contains_key(&carrier));
     assert_eq!(restored.combat_system.get_projectiles().len(), 1);
 }
+
+#[test]
+fn authored_artillery_recovers_at_the_active_edge_after_loading_off_map() {
+    crate::game_logic::game_logic::pose_owner_tests::isolated_at(
+        module_path!(),
+        "authored_artillery_recovers_at_the_active_edge_after_loading_off_map",
+        || {
+            use crate::save_load::SaveFileManager;
+            use game_engine::common::system::DataChunkOutput;
+
+            let temp = tempfile::tempdir().unwrap();
+            let path = temp.path().join("ArtilleryRecovery.map");
+            let mut map = DataChunkOutput::new();
+            map.open_data_chunk("HeightMapData", 4);
+            for field in [41, 41, 2, 1, 34, 36, 1681] {
+                map.write_int(field);
+            }
+            for _ in 0..1681 {
+                map.write_byte(32);
+            }
+            map.close_data_chunk();
+            std::fs::write(&path, map.into_ckmp_bytes()).unwrap();
+
+            let prepare = |path: &str| {
+                let mut world = world();
+                assert!(world.load_map(path));
+                world.add_player(Player::new(1, Team::China, "Owner", true));
+                world.add_player(Player::new(2, Team::GLA, "Target", false));
+                world
+            };
+            let mut source = prepare(path.to_str().unwrap());
+            let aim = Vec3::new(80.0, 0.0, 82.0);
+            let (_, carrier, _) = activate(&mut source, aim);
+            let mut peer = prepare(path.to_str().unwrap());
+            let (_, peer_carrier, _) = activate(&mut peer, aim);
+            assert_eq!(peer_carrier, carrier);
+            let peer_position = peer.objects[&carrier].get_position();
+
+            // Active edge x=340, original full CKMP border edge x=390.
+            // The first failed drop is still inside the full border.
+            source.frame = 60;
+            source.set_fixture_object_position(carrier, aim + Vec3::new(40.0, 300.0, 0.0));
+            source.update_artillery_barrage_flights().unwrap();
+            source.frame = 61;
+            source.set_fixture_object_position(carrier, Vec3::new(370.0, 300.0, 82.0));
+            source.update_artillery_barrage_flights().unwrap();
+            assert!(!source.objects[&carrier].drawable_hidden);
+            assert!(source.partition_manager.is_registered(carrier.0));
+            assert!(source.combat_system.get_projectiles().is_empty());
+
+            // Region3D::isInRegionNoZ excludes points on the full border.
+            source.frame = 62;
+            let outside = Vec3::new(390.0, 300.0, 82.0);
+            source.set_fixture_object_position(carrier, outside);
+            source.apply_player_drawable_selection(1, &[carrier], true);
+            source.objects.get_mut(&carrier).unwrap().physics_accel = Vec3::Y;
+            source.update_artillery_barrage_flights().unwrap();
+            let carrier_object = &source.objects[&carrier];
+            assert!(
+                carrier_object.drawable_hidden,
+                "missed delivery withdraws off-map carrier"
+            );
+            assert!(!carrier_object.selected);
+            assert!(!source.players[&1].selected_objects.contains(&carrier));
+            assert!(!source.partition_manager.is_registered(carrier.0));
+            assert_eq!(carrier_object.physics_accel, Vec3::ZERO);
+            assert_eq!(carrier_object.movement.velocity, Vec3::ZERO);
+            assert_eq!(carrier_object.get_position(), outside);
+            // ObjectCreationList.cpp pushes the launch origin back by
+            // 1.5 times DeliveryDistance along the ray from aim to corner.
+            let corner = glam::Vec2::new(340.0, 360.0);
+            let launch = corner + (corner - glam::Vec2::new(aim.x, aim.z)).normalize() * 150.0;
+            let actual = glam::Vec2::new(peer_position.x, peer_position.z);
+            assert!(
+                actual.abs_diff_eq(launch, 1e-3),
+                "authored launch uses the active far corner: {actual:?}"
+            );
+
+            let mut saves = SaveFileManager::with_save_directory(temp.path().join("saves"));
+            saves.init().unwrap();
+            saves.quick_save(&source).unwrap();
+            let decoded = saves.load_game_snapshot("quicksave").unwrap();
+            let mut restored = prepare(&decoded.save_info.map_name);
+            saves
+                .restore_game_snapshot(&decoded.snapshot, &mut restored)
+                .unwrap();
+            assert!(restored.objects[&carrier].drawable_hidden);
+            assert!(!restored.partition_manager.is_registered(carrier.0));
+
+            let foreign = gamelogic::system::engine_stores::new_for_world();
+            let _foreign_ai = foreign.ai().write().unwrap();
+            gamelogic::system::engine_stores::with_active_stores(&foreign, || {
+                // At 200 degrees/sec, ceil(1 / radians-per-logic-frame) = 9.
+                for frame in 63..=71 {
+                    for world in [&mut source, &mut restored] {
+                        world.frame = frame;
+                        world.update_artillery_barrage_flights().unwrap();
+                        let object = &world.objects[&carrier];
+                        assert_eq!(object.drawable_hidden, frame < 71, "frame {frame}");
+                        assert_eq!(
+                            world.partition_manager.is_registered(carrier.0),
+                            frame == 71
+                        );
+                        assert_eq!(object.movement.velocity, Vec3::ZERO);
+                        assert_eq!(
+                            object.get_position(),
+                            if frame < 71 {
+                                outside
+                            } else {
+                                Vec3::new(340.0, 300.0, 82.0)
+                            }
+                        );
+                        assert!(world.combat_system.get_projectiles().is_empty());
+                    }
+                }
+            });
+            for world in [&mut source, &mut restored] {
+                assert!(
+                    (world.objects[&carrier].get_orientation().abs() - std::f32::consts::PI).abs()
+                        < 1e-5
+                );
+                world
+                    .update_owned_partition_with_effects(&mut Default::default())
+                    .unwrap();
+                assert!(
+                    world
+                        .partition_manager
+                        .ids_in_radius(340.0, 82.0, 1.0)
+                        .contains(&carrier.0)
+                );
+                for frame in 72..180 {
+                    world.frame = frame;
+                    world.update_artillery_barrage_flights().unwrap();
+                    if !world.combat_system.get_projectiles().is_empty() {
+                        break;
+                    }
+                }
+                assert_eq!(world.combat_system.get_projectiles().len(), 1);
+            }
+            assert_eq!(source.frame, restored.frame);
+            assert_eq!(peer.objects[&carrier].get_position(), peer_position);
+            assert!(!peer.objects[&carrier].drawable_hidden);
+            assert!(peer.partition_manager.is_registered(carrier.0));
+        },
+    );
+}

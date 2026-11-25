@@ -1,5 +1,7 @@
 //! Per-carrier continuation for the artillery DeliverPayload order.
 
+use game_engine::common::game_common::SECONDS_PER_LOGICFRAME_REAL;
+use gamelogic::common::{Coord3D, Region3D};
 use glam::Vec3;
 use serde::{Deserialize, Serialize};
 
@@ -34,6 +36,7 @@ enum ArtilleryDeliveryPhase {
     Approach,
     Delivering { frames_left: u32 },
     Reapproach { destination: Vec3 },
+    RecoveringOffMap { reentry_frame: u32 },
     HeadOffMap { destination: Vec3 },
 }
 
@@ -52,7 +55,62 @@ pub(crate) enum ArtilleryDeliveryEvent {
     OpenDoor,
     Release,
     CloseDoor,
+    BeginRecovery { close_door: bool },
+    Reenter,
     Depart,
+}
+
+/// Original TerrainLogic queries for the active and border-inclusive extents.
+#[derive(Clone, Copy)]
+pub(crate) struct ArtilleryMapExtents {
+    pub playable: Region3D,
+    pub with_border: Region3D,
+}
+
+impl ArtilleryMapExtents {
+    fn is_off_map(self, position: Vec3) -> bool {
+        !self
+            .with_border
+            .is_in_region_no_z(&Coord3D::new(position.x, position.z, position.y))
+    }
+}
+
+#[derive(Clone, Copy)]
+pub(crate) struct ArtilleryFlightFrame {
+    pub frame: u32,
+    pub position: Vec3,
+    pub heading: f32,
+    /// Receiving locomotor limits in distance and radians per second.
+    pub maximum_speed: f32,
+    pub maximum_turn_rate: f32,
+    pub map: Option<ArtilleryMapExtents>,
+}
+
+impl ArtilleryFlightFrame {
+    fn is_off_map(self) -> bool {
+        self.map.is_some_and(|map| map.is_off_map(self.position))
+    }
+
+    fn turn_radius(self) -> f32 {
+        if self.maximum_turn_rate > 0.0 {
+            let speed = self.maximum_speed * SECONDS_PER_LOGICFRAME_REAL;
+            let turn = self.maximum_turn_rate * SECONDS_PER_LOGICFRAME_REAL;
+            speed / turn
+        } else {
+            999_999.0
+        }
+    }
+
+    fn reentry_frame(self) -> u32 {
+        // C++ calcMinTurnRadius supplies the travel time in logic frames.
+        let speed = self.maximum_speed * SECONDS_PER_LOGICFRAME_REAL;
+        let delay = if speed > 0.0 {
+            (self.turn_radius() / speed).ceil() as u32
+        } else {
+            0
+        };
+        self.frame.wrapping_add(delay)
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -153,14 +211,12 @@ impl HostArtilleryBarrageFlightData {
     /// next frame, and a nonzero countdown consumes that whole update.
     pub(crate) fn advance_delivery(
         &mut self,
-        pos: Vec3,
-        heading: f32,
-        maximum_speed: f32,
-        maximum_turn_rate: f32,
+        flight: ArtilleryFlightFrame,
     ) -> ArtilleryDeliveryEvent {
         use ArtilleryDeliveryEvent as Event;
         use ArtilleryDeliveryPhase as Phase;
 
+        let pos = flight.position;
         let Some(phase) = self.authored.as_ref().map(|state| state.phase) else {
             return if self.payload.is_none() && self.self_destruct_on_departure {
                 Event::Depart
@@ -193,21 +249,22 @@ impl HostArtilleryBarrageFlightData {
                     };
                     return Event::Release;
                 }
-                let (sin, cos) = heading.sin_cos();
+                let (sin, cos) = flight.heading.sin_cos();
                 if !in_band && state.attempts_left > 0 {
                     state.attempts_left -= 1;
-                    // calcMinTurnRadius uses speed and radians in the same time units.
-                    let turn_radius = if maximum_turn_rate > 0.0 {
-                        maximum_speed / maximum_turn_rate
-                    } else {
-                        999_999.0
-                    };
+                    if flight.is_off_map() {
+                        // ConsiderNewApproach's condition runs on entry too.
+                        state.phase = Phase::RecoveringOffMap {
+                            reentry_frame: flight.reentry_frame(),
+                        };
+                        return Event::BeginRecovery { close_door: true };
+                    }
                     state.phase = Phase::Reapproach {
-                        destination: pos + Vec3::new(cos, 0.0, sin) * (2.2 * turn_radius),
+                        destination: pos + Vec3::new(cos, 0.0, sin) * (2.2 * flight.turn_radius()),
                     };
                     return Event::CloseDoor;
                 }
-                let (min_x, min_z, max_x, max_z) = self.map_edges();
+                let (min_x, min_z, max_x, max_z) = self.map_edges(flight.map);
                 let destination =
                     head_off_map_exit_point_residual(pos, cos, sin, min_x, min_z, max_x, max_z);
                 self.authored.as_mut().expect("authored delivery").phase =
@@ -220,10 +277,22 @@ impl HostArtilleryBarrageFlightData {
                 let offset = destination - pos;
                 if offset.x * offset.x + offset.z * offset.z < 1.0 {
                     self.authored.as_mut().expect("authored delivery").phase = Phase::Approach;
+                } else if flight.is_off_map() {
+                    self.authored.as_mut().expect("authored delivery").phase =
+                        Phase::RecoveringOffMap {
+                            reentry_frame: flight.reentry_frame(),
+                        };
+                    return Event::BeginRecovery { close_door: false };
                 }
                 Event::Continue
             }
-            Phase::Approach | Phase::HeadOffMap { .. } => Event::Continue,
+            Phase::RecoveringOffMap { reentry_frame } if flight.frame >= reentry_frame => {
+                self.authored.as_mut().expect("authored delivery").phase = Phase::Approach;
+                Event::Reenter
+            }
+            Phase::Approach | Phase::RecoveringOffMap { .. } | Phase::HeadOffMap { .. } => {
+                Event::Continue
+            }
         }
     }
 
@@ -234,8 +303,16 @@ impl HostArtilleryBarrageFlightData {
             })
     }
 
-    fn map_edges(&self) -> (f32, f32, f32, f32) {
-        if self.map_extent_ok() {
+    pub(crate) fn is_recovering_off_map(&self) -> bool {
+        self.authored.as_ref().is_some_and(|state| {
+            matches!(state.phase, ArtilleryDeliveryPhase::RecoveringOffMap { .. })
+        })
+    }
+
+    fn map_edges(&self, map: Option<ArtilleryMapExtents>) -> (f32, f32, f32, f32) {
+        if let Some(ArtilleryMapExtents { playable, .. }) = map {
+            (playable.lo.x, playable.lo.y, playable.hi.x, playable.hi.y)
+        } else if self.map_extent_ok() {
             (
                 self.map_min.x,
                 self.map_min.z,
@@ -254,8 +331,12 @@ impl HostArtilleryBarrageFlightData {
 
     /// Movement toward the current order, or past the edge while departing.
     /// Returns (new_pos, vel, off_map / CLEAN_UP).
-    pub fn tick_transport(&self, pos: Vec3) -> (Vec3, Vec3, bool) {
-        let (min_x, min_z, max_x, max_z) = self.map_edges();
+    pub(crate) fn tick_transport(
+        &self,
+        pos: Vec3,
+        map: Option<ArtilleryMapExtents>,
+    ) -> (Vec3, Vec3, bool) {
+        let (min_x, min_z, max_x, max_z) = self.map_edges(map);
         let (dest, departing) = match self.authored.as_ref().map(|state| state.phase) {
             Some(ArtilleryDeliveryPhase::Reapproach { destination }) => (destination, false),
             Some(ArtilleryDeliveryPhase::HeadOffMap { destination }) => (destination, true),
@@ -289,7 +370,11 @@ impl HostArtilleryBarrageFlightData {
         } else {
             Vec3::ZERO
         };
-        let at_exit = departing && is_off_map_residual(pos, min_x, min_z, max_x, max_z);
+        let at_exit = departing
+            && map.map_or_else(
+                || is_off_map_residual(pos, min_x, min_z, max_x, max_z),
+                |extent| extent.is_off_map(pos),
+            );
         (new_pos, vel, at_exit)
     }
 }
@@ -378,32 +463,28 @@ mod tests {
         let in_range = Vec3::new(40.0, 0.0, 0.0);
         let outside = Vec3::new(101.0, 0.0, 0.0);
         let retry_point = outside + Vec3::X * 22.0;
-        assert_eq!(
-            flight.advance_delivery(in_range, 0.0, 10.0, 1.0),
-            Event::OpenDoor
-        );
-        assert_eq!(
-            flight.advance_delivery(outside, 0.0, 10.0, 1.0),
-            Event::CloseDoor
-        );
+        let frame_at = |position| ArtilleryFlightFrame {
+            frame: 0,
+            position,
+            heading: 0.0,
+            maximum_speed: 10.0,
+            maximum_turn_rate: 1.0,
+            map: None,
+        };
+        assert_eq!(flight.advance_delivery(frame_at(in_range)), Event::OpenDoor);
+        assert_eq!(flight.advance_delivery(frame_at(outside)), Event::CloseDoor);
         assert!(flight.may_release_payload());
-        let (next, _, _) = flight.tick_transport(outside);
+        let (next, _, _) = flight.tick_transport(outside, None);
         assert!(
             next.x > outside.x,
             "retry moves forward to make room to turn"
         );
         assert_eq!(
-            flight.advance_delivery(retry_point, 0.0, 10.0, 1.0),
+            flight.advance_delivery(frame_at(retry_point)),
             Event::Continue
         );
-        assert_eq!(
-            flight.advance_delivery(in_range, 0.0, 10.0, 1.0),
-            Event::OpenDoor
-        );
-        assert_eq!(
-            flight.advance_delivery(outside, 0.0, 10.0, 1.0),
-            Event::Depart
-        );
+        assert_eq!(flight.advance_delivery(frame_at(in_range)), Event::OpenDoor);
+        assert_eq!(flight.advance_delivery(frame_at(outside)), Event::Depart);
         assert!(!flight.may_release_payload());
     }
 }

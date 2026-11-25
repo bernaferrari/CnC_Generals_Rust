@@ -2,8 +2,8 @@
 
 use super::*;
 use crate::game_logic::host_artillery_barrage_flight::{
-    ArtilleryDeliveryEvent, ArtilleryPayload, HostArtilleryBarrageFlightData,
-    VisibleArtilleryPayload,
+    ArtilleryDeliveryEvent, ArtilleryFlightFrame, ArtilleryMapExtents, ArtilleryPayload,
+    HostArtilleryBarrageFlightData, VisibleArtilleryPayload,
 };
 use crate::game_logic::host_spectre_gunship_deployment::find_farthest_edge_point_residual;
 use crate::game_logic::special_power_strikes::{
@@ -97,17 +97,33 @@ impl GameLogic {
             self.templates.insert(transport.to_owned(), template);
         }
 
-        let mut edge = find_farthest_edge_point_residual(
-            target,
-            self.world_min.x,
-            self.world_min.z,
-            self.world_max.x,
-            self.world_max.z,
-            0.0,
-        );
-        edge.y = self.raw_terrain_ground_height_at(edge)
-            + crate::game_logic::host_ocl_special_power::OCL_CREATE_ABOVE_LOCATION_HEIGHT;
         let original_axes = |p: Vec3| Vec3::new(p.x, p.z, p.y);
+        let edge = {
+            let terrain = self
+                .world_services
+                .terrain()
+                .read()
+                .unwrap_or_else(|error| error.into_inner());
+            (authored && terrain.has_height_map()).then(|| {
+                let point = terrain.find_farthest_edge_point(&gamelogic::common::Coord3D::new(
+                    target.x, target.z, target.y,
+                ));
+                Vec3::new(point.x, point.z, point.y)
+            })
+        }
+        .unwrap_or_else(|| {
+            let point = find_farthest_edge_point_residual(
+                target,
+                self.world_min.x,
+                self.world_min.z,
+                self.world_max.x,
+                self.world_max.z,
+                0.0,
+            );
+            point.with_y(self.raw_terrain_ground_height_at(point))
+        });
+        let edge = edge
+            + Vec3::Y * crate::game_logic::host_ocl_special_power::OCL_CREATE_ABOVE_LOCATION_HEIGHT;
         let primary = original_axes(edge);
         let secondary = original_axes(target);
         let count =
@@ -245,6 +261,19 @@ impl GameLogic {
             .filter(|(_, object)| object.artillery_barrage_transport.is_some() && object.is_alive())
             .map(|(id, _)| *id)
             .collect();
+        let map = if carriers.is_empty() {
+            None
+        } else {
+            let terrain = self
+                .world_services
+                .terrain()
+                .read()
+                .unwrap_or_else(|error| error.into_inner());
+            terrain.has_height_map().then(|| ArtilleryMapExtents {
+                playable: terrain.get_extent(),
+                with_border: terrain.get_extent_including_border(),
+            })
+        };
         let mut pending = std::collections::BTreeSet::new();
         for id in carriers {
             let Some(object) = self.objects.get_mut(&id).filter(|object| object.is_alive()) else {
@@ -266,8 +295,17 @@ impl GameLogic {
                 }
                 continue;
             }
-            let event = data.advance_delivery(position, heading, maximum_speed, maximum_turn_rate);
             let authored = data.is_authored_delivery();
+            let map = map.filter(|_| authored);
+            let event = data.advance_delivery(ArtilleryFlightFrame {
+                frame: self.frame,
+                position,
+                heading,
+                maximum_speed,
+                maximum_turn_rate,
+                map,
+            });
+            let recovering = data.is_recovering_off_map();
             let self_destruct = data.self_destruct_on_departure;
             if event == ArtilleryDeliveryEvent::Release {
                 let payload = data.payload.take().expect("pending payload on release");
@@ -293,12 +331,31 @@ impl GameLogic {
                         object.model_condition_bits =
                             (object.model_condition_bits & !closing) | opening;
                     }
-                    ArtilleryDeliveryEvent::CloseDoor | ArtilleryDeliveryEvent::Depart
+                    ArtilleryDeliveryEvent::CloseDoor
+                    | ArtilleryDeliveryEvent::BeginRecovery { close_door: true }
+                    | ArtilleryDeliveryEvent::Depart
                         if authored =>
                     {
                         object.model_condition_bits =
                             (object.model_condition_bits & !opening) | closing;
                     }
+                    _ => {}
+                }
+                match event {
+                    ArtilleryDeliveryEvent::BeginRecovery { .. } => {
+                        object.reset_dynamic_physics();
+                        self.partition_manager.unregister_object(id.0);
+                        if object.has_drawable {
+                            object.set_drawable_hidden(true);
+                            self.admit_object_drawable_deselection(id);
+                        }
+                        continue;
+                    }
+                    ArtilleryDeliveryEvent::Reenter => {
+                        self.reenter_artillery_carrier(id, effects)?;
+                        continue;
+                    }
+                    _ if recovering => continue,
                     _ => {}
                 }
                 if event == ArtilleryDeliveryEvent::Depart {
@@ -319,7 +376,7 @@ impl GameLogic {
             else {
                 continue;
             };
-            let (next, velocity, at_exit) = data.tick_transport(position);
+            let (next, velocity, at_exit) = data.tick_transport(position, map);
             if at_exit && (!authored || event != ArtilleryDeliveryEvent::Depart) {
                 self.destroy_object_with_effects(id, effects)?;
                 continue;
@@ -350,6 +407,55 @@ impl GameLogic {
                         .get(&id)
                         .is_some_and(|object| object.artillery_barrage_shell && object.is_alive())
             });
+        Ok(())
+    }
+
+    /// RecoverFromOffMapState attaches before revealing and setting the new pose.
+    fn reenter_artillery_carrier(
+        &mut self,
+        id: ObjectId,
+        effects: &mut ScriptPresentationEffects<'_>,
+    ) -> gamelogic::GameLogicResult<()> {
+        let object = &self.objects[&id];
+        let position = object.get_position();
+        let entry = {
+            let terrain = self
+                .world_services
+                .terrain()
+                .read()
+                .unwrap_or_else(|error| error.into_inner());
+            if !terrain.has_height_map() {
+                return Err(gamelogic::GameLogicError::Configuration(
+                    "artillery recovery requires the receiving terrain".into(),
+                ));
+            }
+            let current = gamelogic::common::Coord3D::new(position.x, position.z, position.y);
+            let mut point = terrain.find_closest_edge_point(&current);
+            if current.z > terrain.get_ground_height(current.x, current.y, None) {
+                point.z = current.z;
+            }
+            Vec3::new(point.x, point.z, point.y)
+        };
+        let goal = object
+            .artillery_barrage_transport
+            .as_ref()
+            .expect("recovering carrier")
+            .target;
+        let heading = (goal.z - entry.z).atan2(goal.x - entry.x);
+        let birth = std::sync::Arc::downgrade(&object.visual_draw_identity_token);
+
+        let object = self.objects.get_mut(&id).expect("recovering carrier");
+        self.partition_manager.attach_receiving_object(object);
+        if object.has_drawable {
+            object.set_drawable_hidden(false);
+        }
+        if self.set_owned_object_position_with_effects(id, entry, self.frame, effects)
+            && self.object_birth_matches(id, &birth)
+        {
+            let object = self.objects.get_mut(&id).expect("live returning carrier");
+            object.set_orientation_with_partition_owner(heading, &mut self.partition_manager);
+            object.reset_dynamic_physics();
+        }
         Ok(())
     }
 
