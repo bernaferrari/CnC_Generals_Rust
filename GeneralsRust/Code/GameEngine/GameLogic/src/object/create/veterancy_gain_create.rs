@@ -82,6 +82,42 @@ impl VeterancyGainCreate {
             module_data,
         }
     }
+
+    /// VeterancyGainCreate.cpp:56–75 uses the live actor and its controller.
+    fn apply_starting_veterancy(&self, object: &mut crate::object::Object) {
+        let (science_required, starting_level) = {
+            let data = self.module_data.read();
+            let data = data
+                .as_any()
+                .downcast_ref::<VeterancyGainCreateModuleData>()
+                .expect("VeterancyGainCreate data type");
+            (data.science_required, data.starting_level)
+        };
+        let science_ok = object.with_controlling_player(|player| {
+            science_required == SCIENCE_INVALID || player.has_science(science_required)
+        });
+        if science_ok != Some(true) {
+            return;
+        }
+
+        let promotion = object
+            .with_experience_tracker_mut(|tracker| {
+                if !tracker.is_trainable() {
+                    return None;
+                }
+                tracker
+                    .set_min_veterancy_level(
+                        starting_level,
+                        &ExperienceTracker::DEFAULT_EXPERIENCE_REQUIRED,
+                    )
+                    .map(|old_level| (old_level, tracker.get_veterancy_level()))
+            })
+            .flatten();
+
+        if let Some((old_level, new_level)) = promotion {
+            object.on_veterancy_level_changed(old_level, new_level, true);
+        }
+    }
 }
 impl CreateInterface for VeterancyGainCreate {
     fn on_create(&self) {
@@ -99,42 +135,14 @@ impl CreateInterface for VeterancyGainCreate {
             return;
         };
 
-        let (science_required, starting_level) = {
-            let data = self.module_data.read();
-            let data = data.as_any().downcast_ref::<VeterancyGainCreateModuleData>()
-                .expect("VeterancyGainCreate data type");
-            (data.science_required, data.starting_level)
-        };
-        let promotion = {
-            let Ok(mut object_guard) = object_arc.write() else {
-                return;
-            };
+        if let Ok(mut object) = object_arc.write() {
+            self.apply_starting_veterancy(&mut object);
+        }
+    }
 
-            let science_ok = object_guard.with_controlling_player(|player_guard| {
-                science_required == SCIENCE_INVALID || player_guard.has_science(science_required)
-            });
-            if !science_ok.unwrap_or(false) {
-                return;
-            }
-
-            object_guard.with_experience_tracker_mut(|tracker_guard| {
-                if tracker_guard.is_trainable() {
-                    tracker_guard
-                        .set_min_veterancy_level(
-                            starting_level,
-                            &ExperienceTracker::DEFAULT_EXPERIENCE_REQUIRED,
-                        )
-                        .map(|old_level| (old_level, tracker_guard.get_veterancy_level()))
-                } else {
-                    None
-                }
-            })
-        };
-
-        if let Some((old_level, new_level)) = promotion.flatten() {
-            if let Ok(mut object_guard) = object_arc.write() {
-                object_guard.on_veterancy_level_changed(old_level, new_level, true);
-            }
+    fn on_create_with_owner(&self, owner: &mut dyn std::any::Any) {
+        if let Some(object) = owner.downcast_mut::<crate::object::Object>() {
+            self.apply_starting_veterancy(object);
         }
     }
 
@@ -208,3 +216,44 @@ const VETERANCY_GAIN_CREATE_FIELDS: &[FieldParse<VeterancyGainCreateModuleData>]
         parse: parse_science_required,
     },
 ];
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::object::ObjectThingHandle;
+    use crate::object::update::ai_update::dozer_ai_update::construction_callback_tests::CompletionFixture;
+
+    #[test]
+    fn veterancy_create_promotes_the_already_borrowed_actor() {
+        #[cfg(not(target_arch = "wasm32"))]
+        if let crate::test_process::TestProcess::ParentVerified = crate::test_process::run_bounded(
+            concat!(
+                module_path!(),
+                "::veterancy_create_promotes_the_already_borrowed_actor"
+            )
+            .strip_prefix("gamelogic::")
+            .unwrap(),
+            "GENERALS_BORROWED_VETERANCY_CREATE_CHILD",
+        ) {
+            return;
+        }
+
+        let _isolation = crate::object::registry::test_isolation_lock()
+            .lock()
+            .unwrap();
+        let fixture = CompletionFixture::new(0);
+        let thing = Arc::new(ObjectThingHandle::new(&fixture.structure));
+        let mut data = VeterancyGainCreateModuleData::default();
+        data.starting_level = VeterancyLevel::Elite;
+        let create = VeterancyGainCreate::new(
+            thing,
+            game_engine::common::thing::module::ModuleDataHandle::new(data),
+        );
+        let mut actor = fixture.structure.write().unwrap();
+        actor.attach_experience_tracker_for_test(true);
+        assert_eq!(actor.get_veterancy_level(), VeterancyLevel::Regular);
+        assert!(actor.get_controlling_player().is_some());
+        create.on_create_with_owner(&mut *actor);
+        assert_eq!(actor.get_veterancy_level(), VeterancyLevel::Elite);
+    }
+}

@@ -1,7 +1,7 @@
 //! Real supply create callbacks through Object::init_object (C++ Object.cpp).
 use super::{SupplyCenterCreate, SupplyWarehouseCreate};
-use crate::object::ObjectThingHandle;
 use crate::object::update::ai_update::dozer_ai_update::construction_callback_tests::CompletionFixture;
+use crate::object::{Object, ObjectThingHandle};
 use crate::player::{Player, player_list};
 use game_engine::common::system::{Snapshotable, Xfer};
 use game_engine::common::thing::module::{
@@ -43,12 +43,12 @@ impl<T: CreateInterface + Snapshotable + Send + Sync + 'static> Snapshotable
 }
 
 fn install<T: CreateInterface + Snapshotable + Send + Sync + 'static>(
-    fixture: &CompletionFixture,
+    object: &Arc<RwLock<Object>>,
     name: &str,
     create: T,
 ) {
     let data = ModuleDataHandle::new(BaseModuleData::new());
-    fixture.structure.write().unwrap().install_module_for_test(
+    object.write().unwrap().install_module_for_test(
         name,
         Box::new(SupplyCreateModule {
             create,
@@ -78,7 +78,7 @@ fn warehouse_init_registers_with_all_resource_managers_without_relocking_owner()
     fixture.structure.write().unwrap().set_team(None);
     let thing = Arc::new(ObjectThingHandle::new(&fixture.structure));
     install(
-        &fixture,
+        &fixture.structure,
         "SupplyWarehouseCreate",
         SupplyWarehouseCreate::new(thing),
     );
@@ -147,6 +147,69 @@ fn warehouse_init_registers_with_all_resource_managers_without_relocking_owner()
 }
 
 #[test]
+fn warehouse_creation_records_the_warehouse_only_in_its_own_match() {
+    use crate::common::{DefaultThingTemplate, KindOf, ObjectStatusMaskType};
+    use crate::system::engine_stores::{EngineStores, with_active_stores};
+    use crate::system::game_logic::GameLogic;
+
+    let receiving = Arc::new(EngineStores::new_for_world());
+    let peer = Arc::new(EngineStores::new_for_world());
+    let add_player = |world: &Arc<EngineStores>| {
+        let mut player = Player::new_for_world(0, world.services());
+        with_active_stores(world, || player.init_from_dict_defaults());
+        let player = Arc::new(RwLock::new(player));
+        world
+            .services()
+            .players()
+            .write()
+            .unwrap()
+            .add_player(player.clone());
+        player
+    };
+    let receiver = add_player(&receiving);
+    let peer_player = add_player(&peer);
+    let id = 91_750;
+    let mut template = DefaultThingTemplate::new("OwnedWarehouse".into());
+    template.add_kind_of(KindOf::Inert);
+    let actor = Arc::new(RwLock::new(Object::new_raw(
+        Arc::new(template),
+        id,
+        ObjectStatusMaskType::none(),
+        None,
+    )));
+    let thing = Arc::new(ObjectThingHandle::new(&actor));
+    install(
+        &actor,
+        "SupplyWarehouseCreate",
+        SupplyWarehouseCreate::new(thing),
+    );
+    let mut logic = GameLogic::new_with_engine_stores(receiving);
+    with_active_stores(&peer, || {
+        logic.register_object(actor.clone()).unwrap();
+        actor.write().unwrap().run_on_create();
+    });
+    assert_eq!(
+        receiver
+            .read()
+            .unwrap()
+            .get_resource_manager()
+            .unwrap()
+            .get_supply_warehouses(),
+        &[id]
+    );
+    assert!(
+        peer_player
+            .read()
+            .unwrap()
+            .get_resource_manager()
+            .unwrap()
+            .get_supply_warehouses()
+            .is_empty()
+    );
+    with_active_stores(&peer, || logic.clear_all_objects());
+}
+
+#[test]
 fn center_init_waits_for_build_completion_before_registering() {
     let _isolation = crate::object::registry::test_isolation_lock()
         .lock()
@@ -155,7 +218,7 @@ fn center_init_waits_for_build_completion_before_registering() {
     fixture.player.write().unwrap().init_from_dict_defaults();
     let thing = Arc::new(ObjectThingHandle::new(&fixture.structure));
     install(
-        &fixture,
+        &fixture.structure,
         "SupplyCenterCreate",
         SupplyCenterCreate::new(thing),
     );

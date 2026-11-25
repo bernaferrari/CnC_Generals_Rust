@@ -2,11 +2,11 @@
 //!
 //! C++ Source: GameLogic/Object/Create/SupplyWarehouseCreate.cpp
 
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 
-use crate::common::ObjectID;
+use crate::common::{INVALID_ID, ObjectID};
 use crate::object::create::CreateModule;
-use crate::player::ThePlayerList;
+use crate::player::{PlayerList, ThePlayerList};
 use game_engine::common::system::{Snapshotable, Xfer};
 use game_engine::common::thing::module::{CreateInterface, Thing as ThingTrait};
 
@@ -22,13 +22,20 @@ impl SupplyWarehouseCreate {
         }
     }
 
-    fn register_supply_warehouse(&self, object_id: ObjectID) {
-        if object_id == 0 {
+    fn register_supply_warehouse(object_id: ObjectID, players: Option<&RwLock<PlayerList>>) {
+        if object_id == INVALID_ID {
             return;
         }
 
-        let __player_list_arc = ThePlayerList();
-        if let Ok(list_guard) = __player_list_arc.read() {
+        let published;
+        let players = match players {
+            Some(players) => players,
+            None => {
+                published = ThePlayerList();
+                &published
+            }
+        };
+        if let Ok(list_guard) = players.read() {
             for player_arc in list_guard.iter().rev() {
                 let Ok(mut player_guard) = player_arc.write() else {
                     continue;
@@ -50,14 +57,16 @@ impl CreateInterface for SupplyWarehouseCreate {
             .as_object()
             .map(|obj| obj.get_object_id())
             .unwrap_or_default();
-        self.register_supply_warehouse(object_id);
+        Self::register_supply_warehouse(object_id, None);
     }
 
     fn on_create_with_owner(&self, owner: &mut dyn std::any::Any) {
         // Object::init_object already holds its owner mutably. The Thing
         // handle would acquire the same object lock a second time.
         if let Some(object) = owner.downcast_ref::<crate::object::Object>() {
-            self.register_supply_warehouse(object.get_id());
+            let world = object.owning_world_services();
+            let players = world.as_ref().map(|world| world.players().as_ref());
+            Self::register_supply_warehouse(object.get_id(), players);
         }
     }
 
