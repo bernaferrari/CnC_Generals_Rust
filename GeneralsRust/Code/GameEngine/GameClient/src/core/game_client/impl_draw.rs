@@ -788,7 +788,7 @@ client_random: &mut self.client_random,
         };
         let guard = ui;
         let units: Vec<_> = guard.presentation_selection_residual().to_vec();
-        drop(guard);
+        let _ = guard;
         if units.is_empty() {
             return;
         }

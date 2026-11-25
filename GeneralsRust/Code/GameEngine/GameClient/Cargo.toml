@@ -115,7 +115,6 @@ regex = {workspace = true}
 lazy_static = {workspace = true}
 
 # Memory management and performance
-memmap2 = {workspace = true}
 rayon = {workspace = true}
 crossbeam = {workspace = true}
 dashmap = {workspace = true}

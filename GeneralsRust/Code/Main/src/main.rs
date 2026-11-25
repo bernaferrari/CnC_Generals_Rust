@@ -125,11 +125,20 @@ impl FrameTimer {
         let target_duration = Duration::from_millis(self.frame_duration_ms as u64);
 
         if elapsed < target_duration {
-            let sleep_duration = target_duration - elapsed;
-            // Use spin loop for precise timing (matches C++ Sleep(0) loop)
-            let deadline = Instant::now() + sleep_duration;
-            while Instant::now() < deadline {
-                std::thread::yield_now();
+            let deadline = self.last_frame_time + target_duration;
+            // Sleep away the bulk of the idle frame time, then use a short spin only for
+            // sub-millisecond scheduling precision. A pure yield spin burns a full core.
+            loop {
+                let now = Instant::now();
+                if now >= deadline {
+                    break;
+                }
+                let remaining = deadline - now;
+                if remaining > Duration::from_millis(2) {
+                    std::thread::sleep(remaining - Duration::from_millis(1));
+                } else {
+                    std::thread::yield_now();
+                }
             }
         }
     }

@@ -1067,7 +1067,7 @@ fn admit_resolved_slots(
         if is_observer {
             player.is_alive = false;
         }
-        drop(player);
+        let _ = player;
 
         if is_observer {
             if let Ok(mut shroud) = logic.world_services.shroud().lock() {

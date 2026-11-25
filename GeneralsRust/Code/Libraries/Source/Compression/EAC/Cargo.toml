@@ -27,7 +27,6 @@ anyhow = {workspace = true}
 byteorder = {workspace = true}
 crc32fast = {workspace = true}
 rayon = {workspace = true}
-memmap2 = {workspace = true}
 
 # SIMD optimizations
 wide = {workspace = true, optional = true}

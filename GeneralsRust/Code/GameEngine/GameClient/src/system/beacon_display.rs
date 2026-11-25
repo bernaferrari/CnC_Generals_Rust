@@ -218,7 +218,7 @@ pub fn simulate_beacon_set_text(
 pub fn simulate_beacon_drain_notifications(state: &mut BeaconDisplayState) -> usize {
     let n = drain_notifications(state).len();
     residual_beacon_action_store(state, ResidualBeaconAction::Drain);
-    residual_beacon_sync_count(state);;
+    residual_beacon_sync_count(state);
     n
 }
 

@@ -431,7 +431,7 @@ impl OclSpecialPower {
         // after spawn so recharge/EVA still run if the target existed.
         let _ = crate::object::registry::OBJECT_REGISTRY.with_object(object_id, |guard| {
             let pos = *guard.get_position();
-            drop(guard);
+            let _ = guard;
             self.base_module
                 .do_special_power_at_location(&pos, -999999.0, command_options);
         });

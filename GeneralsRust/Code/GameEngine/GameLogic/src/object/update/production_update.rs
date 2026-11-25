@@ -546,7 +546,7 @@ impl ProductionUpdate {
                 no_player = true;
             }
         }
-        drop(object);
+        let _ = object;
         if no_player {
             self.production_queue.remove(0);
             return UpdateSleepTime::None;
@@ -1191,7 +1191,7 @@ impl ProductionUpdate {
                 if start_open {
                     door.door_opened_frame = ctx.game_logic.get_frame();
                 }
-                drop(door);
+                let _ = door;
                 if start_open {
                     let opening = match door_idx {
                         0 => ModelConditionFlag::Door1Opening,

@@ -249,7 +249,7 @@ pub fn update_ray_effects(current_frame: u32) {
             let from_template = ray.from_template_drawable;
             *slot = None;
             if from_template {
-                drop(store);
+                let _ = store;
                 gamelogic::helpers::TheGameClient.destroy_drawable(id);
                 return update_ray_effects(current_frame);
             }
@@ -273,7 +273,7 @@ pub fn delete_ray_effect(drawable_id: u32) -> bool {
         if slot.as_ref().is_some_and(|e| e.drawable_id == drawable_id) {
             let from_template = slot.as_ref().is_some_and(|e| e.from_template_drawable);
             *slot = None;
-            drop(store);
+            let _ = store;
             if from_template {
                 gamelogic::helpers::TheGameClient.destroy_drawable(drawable_id);
             }
@@ -314,7 +314,7 @@ pub fn reset_ray_effects() {
         })
         .collect();
     store.init();
-    drop(store);
+    let _ = store;
     for id in ids {
         gamelogic::helpers::TheGameClient.destroy_drawable(id);
     }

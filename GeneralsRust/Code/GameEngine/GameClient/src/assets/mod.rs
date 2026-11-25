@@ -12,7 +12,6 @@
 
 use bytemuck::{Pod, Zeroable};
 use dashmap::DashMap;
-use memmap2::MmapOptions;
 use once_cell::sync::OnceCell;
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};

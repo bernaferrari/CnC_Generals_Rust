@@ -107,47 +107,7 @@ impl StreamingCompressor {
         })
     }
 
-    /// Compress using memory-mapped I/O for better performance
-    #[cfg(feature = "memmap")]
-    pub fn compress_file_mmap<P: AsRef<Path>>(
-        &mut self,
-        input_path: P,
-        output_path: P,
-    ) -> Result<CompressionStats> {
-        use memmap2::Mmap;
 
-        let input_file = File::open(input_path.as_ref()).map_err(|e| LzhError::Io(e))?;
-
-        // Memory-map the input file
-        // SAFETY: input_file is an open read-only File handle that outlives `mmap` in this
-        // scope; a zero-length or otherwise unmappable file makes Mmap::map return Err,
-        // which is propagated, so no dangling mapping is ever created.
-        let mmap = unsafe { Mmap::map(&input_file).map_err(|e| LzhError::Io(e))? };
-
-        let start_time = std::time::Instant::now();
-
-        // Compress the entire mapped data (raw LZHL)
-        let mut compressor = LzhCompressor::new(self.level);
-        let compressed = compressor.compress_raw(&mmap)?;
-
-        // Write output
-        let mut output_file = File::create(output_path.as_ref()).map_err(|e| LzhError::Io(e))?;
-        output_file
-            .write_all(&(mmap.len() as u32).to_le_bytes())
-            .map_err(|e| LzhError::Io(e))?;
-        output_file
-            .write_all(&compressed)
-            .map_err(|e| LzhError::Io(e))?;
-
-        let elapsed = start_time.elapsed();
-
-        Ok(CompressionStats {
-            input_size: mmap.len() as u64,
-            output_size: compressed.len() as u64,
-            compression_ratio: compressed.len() as f64 / mmap.len() as f64,
-            elapsed_time: elapsed,
-        })
-    }
 }
 
 /// Streaming decompressor for large files

@@ -10,7 +10,6 @@
 use crate::decoder::{Decoder, DecoderConfig};
 use crate::encoder::{Encoder, EncoderConfig};
 use crate::{CompressionType, EacError, Result};
-use memmap2::{Mmap, MmapOptions};
 use rayon::prelude::*;
 use std::fs::File;
 use std::io::{BufReader, BufWriter, Read, Write};
@@ -141,20 +140,26 @@ impl StreamingCompressor {
     ) -> Result<usize> {
         log::debug!("Using memory-mapped compression for {} bytes", input_size);
 
-        // Memory-map the input file
-        // SAFETY: input_file is an open read-only File handle; MmapOptions::new() maps the
-        // whole file and returns Err (mapped to EacError::Io) instead of UB for empty or
-        // unmappable files, so the resulting &Mmap is valid for the file's lifetime here.
-        let mmap = unsafe { MmapOptions::new().map(&input_file).map_err(EacError::Io)? };
+        // Read the input into memory instead of memory-mapping it. A memory map is unsafe
+        // in Rust because another process can truncate or mutate the file while it is mapped.
+        let mut input_file = input_file;
+        let mut input = Vec::with_capacity(input_size);
+        input_file.read_to_end(&mut input)?;
+        if input.len() != input_size {
+            return Err(EacError::Io(std::io::Error::new(
+                std::io::ErrorKind::UnexpectedEof,
+                "input file changed size while being read",
+            )));
+        }
 
         let chunks_count = input_size.div_ceil(self.config.chunk_size);
 
         let total_compressed = if self.config.parallel && chunks_count > 1 {
             // Parallel compression using memory-mapped chunks
-            self.compress_mmap_parallel(&mmap, &mut output_file, chunks_count)?
+            self.compress_mmap_parallel(&input, &mut output_file, chunks_count)?
         } else {
             // Sequential compression
-            self.compress_mmap_sequential(&mmap, &mut output_file)?
+            self.compress_mmap_sequential(&input, &mut output_file)?
         };
 
         output_file.flush()?;
@@ -165,7 +170,7 @@ impl StreamingCompressor {
     /// Parallel memory-mapped compression
     fn compress_mmap_parallel(
         &mut self,
-        mmap: &Mmap,
+        data: &[u8],
         output_file: &mut File,
         chunks_count: usize,
     ) -> Result<usize> {
@@ -176,8 +181,8 @@ impl StreamingCompressor {
             .into_par_iter()
             .map(|i| {
                 let start = i * self.config.chunk_size;
-                let end = std::cmp::min(start + self.config.chunk_size, mmap.len());
-                let chunk = &mmap[start..end];
+                let end = std::cmp::min(start + self.config.chunk_size, data.len());
+                let chunk = &data[start..end];
 
                 let mut encoder = Encoder::with_config(EncoderConfig::default());
                 let compressed = encoder.encode(chunk, self.compression_type)?;
@@ -213,8 +218,8 @@ impl StreamingCompressor {
     }
 
     /// Sequential memory-mapped compression
-    fn compress_mmap_sequential(&mut self, mmap: &Mmap, output_file: &mut File) -> Result<usize> {
-        let compressed = self.encoder.encode(mmap, self.compression_type)?;
+    fn compress_mmap_sequential(&mut self, data: &[u8], output_file: &mut File) -> Result<usize> {
+        let compressed = self.encoder.encode(data, self.compression_type)?;
         output_file.write_all(&compressed)?;
 
         if let Some(ref callback) = self.progress_callback {
@@ -351,12 +356,17 @@ impl StreamingDecompressor {
             compressed_size
         );
 
-        // SAFETY: input_file is an open read-only File handle kept alive by this function
-        // while `mmap` is used; mapping errors (including empty files) are returned as
-        // EacError::Io rather than producing an invalid mapping.
-        let mmap = unsafe { MmapOptions::new().map(&input_file).map_err(EacError::Io)? };
+        let mut input_file = input_file;
+        let mut input = Vec::with_capacity(compressed_size);
+        input_file.read_to_end(&mut input)?;
+        if input.len() != compressed_size {
+            return Err(EacError::Io(std::io::Error::new(
+                std::io::ErrorKind::UnexpectedEof,
+                "input file changed size while being read",
+            )));
+        }
 
-        let decompressed = self.decoder.decode(&mmap)?;
+        let decompressed = self.decoder.decode(&input)?;
         output_file.write_all(&decompressed)?;
 
         if let Some(ref callback) = self.progress_callback {
