@@ -1158,6 +1158,59 @@ impl GameLogic {
             .retain(|entry| entry.object_id != object_id);
     }
 
+    /// GameLogic.cpp:5013–5069 rebuilds the heap in Object and module order,
+    /// using the module clock restored by UpdateModule::xfer. Only zero from
+    /// an older save is replaced by the current frame.
+    fn rebuild_sleepy_updates_after_load(&mut self) {
+        self.sleepy_updates.clear();
+        self.normal_updates.clear();
+        self.module_lookup.clear();
+
+        let now = self.frame.clamp(1, UPDATE_SLEEP_FOREVER_FRAMES);
+        let mut registrations = Vec::new();
+        for object_id in self.all_objects.iter().copied() {
+            let Some(object) = self
+                .objects
+                .get(&object_id)
+                .and_then(|object| object.read().ok())
+            else {
+                continue;
+            };
+            registrations.extend(object.update_registrations_with_wakes());
+            drop(object);
+            for (module, saved_wake) in registrations.drain(..) {
+                let wake = if saved_wake == 0 {
+                    now
+                } else {
+                    saved_wake.min(UPDATE_SLEEP_FOREVER_FRAMES)
+                };
+                let phase = if wake == saved_wake {
+                    module
+                        .read()
+                        .expect("scheduled module poisoned")
+                        .get_update_phase()
+                } else {
+                    let mut update = module.write().expect("scheduled module poisoned");
+                    let phase = update.get_update_phase();
+                    update.record_scheduled_wake(wake, phase);
+                    phase
+                };
+                self.module_lookup
+                    .entry(object_id)
+                    .or_default()
+                    .push(ModuleIdentity::of(&module));
+                self.sleepy_updates
+                    .append_unbalanced_for_restore(SleepyUpdateEntry {
+                        wake_frame: wake,
+                        phase,
+                        module,
+                        object_id,
+                    });
+            }
+        }
+        self.remake_sleepy_update();
+    }
+
     /// PARITY_NOTE: GameLogic::pushSleepyUpdate(UpdateModulePtr) C++ line 2907.
     /// Adds a module to the sleepy heap. Wake 0 is current frame (min 1).
     pub fn push_sleepy_update(&mut self, object_id: ObjectID, module: UpdateModulePtr) {

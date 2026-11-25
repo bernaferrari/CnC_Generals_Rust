@@ -2,6 +2,7 @@
 //! Equal priorities never swap; downward balancing chooses the left child on ties.
 
 use super::{SleepyUpdateEntry, SleepyUpdatePhase, UnsignedInt, UpdateModulePtr};
+use game_engine::indexed_heap::{IndexedHeap, IndexedHeapEntry};
 use std::sync::Arc;
 
 // Private lookup token, never dereferenced or exported. Each heap entry retains
@@ -18,11 +19,21 @@ impl ModuleIdentity {
 
 #[derive(Default)]
 pub(super) struct SleepyUpdateQueue {
-    heap: game_engine::indexed_heap::IndexedHeap<ModuleIdentity, SleepyUpdateEntry>,
+    heap: IndexedHeap<ModuleIdentity, SleepyUpdateEntry>,
 }
+
 fn priority(frame: u32, phase: SleepyUpdatePhase) -> u32 {
     frame.wrapping_shl(2) | phase as u32
 }
+
+fn indexed_entry(entry: SleepyUpdateEntry) -> IndexedHeapEntry<ModuleIdentity, SleepyUpdateEntry> {
+    IndexedHeapEntry {
+        key: ModuleIdentity::of(&entry.module),
+        priority: priority(entry.wake_frame, entry.phase),
+        value: entry,
+    }
+}
+
 impl SleepyUpdateQueue {
     pub(super) fn len(&self) -> usize {
         self.heap.len()
@@ -43,12 +54,14 @@ impl SleepyUpdateQueue {
         self.heap.get(ModuleIdentity::of(module)).map(|e| &e.value)
     }
     pub(super) fn push(&mut self, entry: SleepyUpdateEntry) {
-        self.heap.push(game_engine::indexed_heap::IndexedHeapEntry {
-            key: ModuleIdentity::of(&entry.module),
-            priority: priority(entry.wake_frame, entry.phase),
-            value: entry,
-        });
+        self.heap.push(indexed_entry(entry));
     }
+
+    /// Append in loaded behavior order. The caller balances the entire heap before stepping.
+    pub(super) fn append_unbalanced_for_restore(&mut self, entry: SleepyUpdateEntry) {
+        self.heap.append_unbalanced(indexed_entry(entry));
+    }
+
     pub(super) fn pop(&mut self) -> Option<SleepyUpdateEntry> {
         self.heap.pop().map(|e| e.value)
     }

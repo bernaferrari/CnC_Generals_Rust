@@ -1034,3 +1034,148 @@ fn ocl_lifetime_override_updates_only_the_first_installed_registration() {
     assert_eq!(&tail[..4], &((55u32 << 2) | 2).to_le_bytes());
     assert_eq!(&tail[4..], &55u32.to_le_bytes());
 }
+
+/// GameLogic.cpp:5027–5069 rebuilds the heap from each installed UpdateModule's saved wake.
+#[test]
+fn native_xfer_rebuilds_finite_and_forever_wakes_without_early_callbacks() {
+    use crate::common::ObjectStatusMaskType;
+    use crate::system::engine_stores::EngineStores;
+    use game_engine::common::common_services::CommonServicesScope;
+    use game_engine::common::thing::thing_factory::load_templates_from_ini_text;
+    use game_engine::{Xfer, XferLoad, XferSave};
+
+    #[cfg(not(target_arch = "wasm32"))]
+    if let crate::test_process::TestProcess::ParentVerified = crate::test_process::run_bounded(
+        concat!(
+            module_path!(),
+            "::native_xfer_rebuilds_finite_and_forever_wakes_without_early_callbacks"
+        )
+        .strip_prefix("gamelogic::")
+        .unwrap(),
+        "GENERALS_CORE_RESTORE_WAKE_CHILD",
+    ) {
+        return;
+    }
+
+    let _common = CommonServicesScope::new();
+    crate::contain_module_overrides::ensure_module_overrides_installed().unwrap();
+    let authored = r#"
+Object SavedCoreWakeFixture
+  Body = ActiveBody BodyTag
+    MaxHealth = 100
+    InitialHealth = 100
+  End
+  Behavior = LifetimeUpdate LifetimeTag
+    MinLifetime = 1000
+    MaxLifetime = 1000
+  End
+End
+"#;
+    assert_eq!(load_templates_from_ini_text(authored, "core-wake.ini"), 1);
+    let template = crate::helpers::TheThingFactory::find_template("SavedCoreWakeFixture").unwrap();
+    let team = {
+        let teams = crate::team::get_team_factory();
+        let mut teams = teams.lock().unwrap();
+        let prototype = teams
+            .init_team_owned("CoreWakeTeam".into(), "".into(), false, None, None)
+            .unwrap();
+        teams
+            .create_team_on_prototype_with_id(&prototype, 91_408)
+            .unwrap()
+    };
+    let new_world = || GameLogic::new_with_engine_stores(Arc::new(EngineStores::new_for_world()));
+    let lifetime = |owner: &Arc<RwLock<Object>>| {
+        owner
+            .read()
+            .unwrap()
+            .installed_update_proxy_named("LifetimeUpdate")
+            .expect("the template installs the real lifetime update")
+    };
+    let mut source = new_world();
+    source.frame = 32;
+    let finite_id = 90_201;
+    let forever_id = 90_205;
+    for (id, wake) in [
+        (finite_id, 37),
+        (90_202, 37),
+        (90_203, 35),
+        (90_204, 35),
+        (forever_id, UPDATE_SLEEP_FOREVER_FRAMES),
+    ] {
+        let object = Object::new_with_id(
+            template.clone(),
+            id,
+            ObjectStatusMaskType::none(),
+            Some(team.clone()),
+        )
+        .unwrap();
+        source.register_object(object.clone()).unwrap();
+        source.register_sleepy_update_module(id, lifetime(&object), wake);
+    }
+
+    let file = std::env::temp_dir().join(format!("generals-core-wake-{}.bin", std::process::id()));
+    {
+        let mut save = XferSave::new();
+        save.open(file.to_string_lossy().into_owned()).unwrap();
+        source
+            .xfer_native_snapshot_with_campaign(&mut save, &mut Default::default())
+            .unwrap();
+        save.close().unwrap();
+    }
+
+    let mut receiving = new_world();
+    let mut campaign = Default::default();
+    {
+        let mut load = XferLoad::new();
+        load.open(file.to_string_lossy().into_owned()).unwrap();
+        let mut snapshot = CampaignGameLogicSnapshot {
+            logic: &mut receiving,
+            campaign: &mut campaign,
+        };
+        XferSnapshotTrait::xfer(&mut snapshot, &mut load).unwrap();
+        XferSnapshotTrait::load_post_process(&mut snapshot).unwrap();
+        load.close().unwrap();
+    }
+    std::fs::remove_file(file).unwrap();
+    assert_eq!(receiving.frame, 32);
+    // Insertion at load changes the order of tied updates. The original
+    // remakeSleepyUpdate walks the loaded entries bottom-up instead.
+    let heap_order: Vec<_> = receiving
+        .sleepy_updates
+        .iter()
+        .map(|entry| entry.object_id)
+        .collect();
+    assert_eq!(heap_order, [90_204, finite_id, 90_203, 90_202, forever_id]);
+
+    let finite = receiving.find_object_by_id(finite_id).unwrap();
+    let forever = receiving.find_object_by_id(forever_id).unwrap();
+    assert_eq!(
+        receiving.sleepy_entry_for(&lifetime(&finite)),
+        Some((finite_id, 37))
+    );
+    assert_eq!(
+        receiving.sleepy_entry_for(&lifetime(&forever)),
+        Some((forever_id, UPDATE_SLEEP_FOREVER_FRAMES))
+    );
+    for frame in 32..37 {
+        receiving.frame = frame;
+        receiving.process_sleepy_updates(frame);
+        assert!(
+            !finite.read().unwrap().is_effectively_dead(),
+            "finite wake fired at {frame}"
+        );
+        assert!(
+            !forever.read().unwrap().is_effectively_dead(),
+            "Forever update fired at {frame}"
+        );
+    }
+    receiving.frame = 37;
+    receiving.process_sleepy_updates(37);
+    assert_eq!(
+        receiving.sleepy_entry_for(&lifetime(&finite)),
+        Some((finite_id, UPDATE_SLEEP_FOREVER_FRAMES)),
+        "the finite callback runs once and then parks"
+    );
+    assert!(finite.read().unwrap().is_effectively_dead());
+    assert!(!forever.read().unwrap().is_effectively_dead());
+}

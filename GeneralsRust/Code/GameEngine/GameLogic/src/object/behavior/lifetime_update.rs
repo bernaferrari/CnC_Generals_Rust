@@ -4,12 +4,10 @@
 //! Author: Colin Day, December 2001 (C++ version)
 //! Rust conversion: 2025
 
-use crate::common::{
-    AsciiString, Bool, Int, KindOf, ObjectID, UnsignedInt, XferVersion,
-};
+use crate::common::{AsciiString, Bool, Int, KindOf, UnsignedInt, XferVersion};
 use crate::modules::{BehaviorModuleInterface, UpdateModuleInterface, UpdateSleepTime};
-use crate::object::Object as GameObject;
 use crate::object::behavior::behavior_module::{BehaviorModuleData, xfer_update_module_base_state};
+use crate::object::{ModuleEntry, Object as GameObject};
 use game_engine::common::common_services::{LogicRandom, ReceivingLogicRandom};
 use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::name_key_generator::NameKeyGenerator;
@@ -20,7 +18,7 @@ use game_engine::common::thing::module::{
 };
 use log::warn;
 use std::sync::atomic::Ordering;
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc, RwLock, Weak};
 
 const UPDATE_SLEEP_FOREVER: UpdateSleepTime = UpdateSleepTime::Forever;
 
@@ -113,7 +111,7 @@ mod tests {
 
     struct LifetimeOwner {
         logic: crate::system::game_logic::GameLogic,
-        id: ObjectID,
+        id: crate::common::ObjectID,
     }
 
     impl LifetimeOwner {
@@ -174,7 +172,7 @@ mod tests {
     fn lifetime_update_module_exposes_typed_control_interface() {
         let data = game_engine::common::thing::module::ModuleDataHandle::new(LifetimeUpdateModuleData::default());
         let behavior = LifetimeUpdate {
-            object_id: crate::common::INVALID_ID,
+            owner: Weak::new(),
             next_call_frame_and_phase: 0,
             die_frame: 123,
         };
@@ -192,7 +190,7 @@ mod tests {
     fn lifetime_module_reads_shared_definition() {
         let data = game_engine::common::thing::module::ModuleDataHandle::new(LifetimeUpdateModuleData::default());
         let behavior = LifetimeUpdate {
-            object_id: crate::common::INVALID_ID,
+            owner: Weak::new(),
             next_call_frame_and_phase: 0,
             die_frame: 0,
         };
@@ -225,8 +223,9 @@ mod tests {
         let _guard = crate::test_sync::lock();
         let _frame = FrameRestore::at(100);
         let object = Arc::new(RwLock::new(Object::new_test(4244, 100.0)));
-        // Constructors retain only the stable identity; admit this exact owner.
-        let owner = LifetimeOwner::admit(&object);
+        let foreign = Arc::new(RwLock::new(Object::new_test(4244, 100.0)));
+        // The compatibility registry deliberately resolves this ID to a different Object.
+        let foreign_registration = LifetimeOwner::admit(&foreign);
         let data = game_engine::common::thing::module::ModuleDataHandle::new(LifetimeUpdateModuleData {
             min_frames: 30,
             max_frames: 30,
@@ -253,12 +252,11 @@ mod tests {
                 "C++ LifetimeUpdate kills, not destroys"
             );
         }
-        drop(owner);
-        assert!(
-            crate::object::registry::OBJECT_REGISTRY
-                .get_object(4244)
-                .is_none()
-        );
+        assert_eq!(foreign.read().unwrap().get_health(), 100.0);
+        drop(object);
+        assert_eq!(wrapper.behavior_mut().update_simple(), UPDATE_SLEEP_FOREVER);
+        assert_eq!(foreign.read().unwrap().get_health(), 100.0);
+        drop(foreign_registration);
     }
 
     /// Two independent worlds carrying the same numeric object id: the
@@ -418,7 +416,8 @@ mod tests {
 }
 
 pub struct LifetimeUpdate {
-    object_id: ObjectID,
+    // Like C++ getObject(), this identifies the installed Object across ID restore.
+    owner: Weak<RwLock<GameObject>>,
     next_call_frame_and_phase: UnsignedInt,
     die_frame: UnsignedInt,
 }
@@ -441,10 +440,9 @@ impl LifetimeUpdate {
         module_data: &ModuleDataHandle,
         birth_frame: Option<u32>,
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
-        let (object_id, is_hulk, world) = {
+        let (is_hulk, world) = {
             let object = object.read().map_err(|_| "LifetimeUpdate owner poisoned")?;
             (
-                object.get_id(),
                 object.is_kind_of(KindOf::Hulk),
                 object.owning_world_services(),
             )
@@ -468,7 +466,7 @@ impl LifetimeUpdate {
         );
         let (min, max) = Self::effective_lifetime_range(is_hulk, min, max, override_frames);
         let mut update = Self {
-            object_id,
+            owner: Arc::downgrade(object),
             next_call_frame_and_phase: 0,
             die_frame: 0,
         };
@@ -547,17 +545,9 @@ impl LifetimeUpdate {
         let current_frame = crate::helpers::TheGameLogic::get_frame();
         current_frame >= self.die_frame
     }
-}
 
-impl UpdateModuleInterface for LifetimeUpdate {
-    fn update_simple(&mut self) -> UpdateSleepTime {
-        // C++ kills whenever the scheduled update is invoked; timing is owned by the scheduler.
-        if let Some(object) = (if self.object_id == crate::common::INVALID_ID {
-            None
-        } else {
-            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
-        }) {
+    fn expire(owner: Option<Arc<RwLock<GameObject>>>) -> UpdateSleepTime {
+        if let Some(object) = owner {
             if let Ok(mut guard) = object.write() {
                 guard.kill(None, None);
             } else {
@@ -565,6 +555,12 @@ impl UpdateModuleInterface for LifetimeUpdate {
             }
         }
         UPDATE_SLEEP_FOREVER
+    }
+}
+
+impl UpdateModuleInterface for LifetimeUpdate {
+    fn update_simple(&mut self) -> UpdateSleepTime {
+        LifetimeUpdate::expire(self.owner.upgrade())
     }
 
     fn record_scheduled_wake(&mut self, frame: u32, phase: crate::modules::SleepyUpdatePhase) {
@@ -634,6 +630,18 @@ impl LifetimeUpdateModule {
 
     pub fn initial_wake_frame(&self) -> UnsignedInt {
         self.behavior.initial_wake_frame()
+    }
+
+    /// LifetimeUpdate.cpp:69–74 kills synchronously. Release the installed
+    /// module before invoking death hooks, which can revisit the same entry.
+    pub(in crate::object) fn run_installed(entry: &ModuleEntry) -> Option<UpdateSleepTime> {
+        let owner = entry.with_module(|module| {
+            module
+                .as_any()
+                .downcast_ref::<Self>()
+                .map(|lifetime| lifetime.behavior.owner.upgrade())
+        })?;
+        Some(LifetimeUpdate::expire(owner))
     }
 }
 

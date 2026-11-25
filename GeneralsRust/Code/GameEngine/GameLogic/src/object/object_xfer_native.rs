@@ -692,18 +692,7 @@ impl Object {
             let object = source
                 .read()
                 .map_err(|_| "restored scheduler owner poisoned")?;
-            let updates = object
-                .update_module_registrations
-                .iter()
-                .map(|registration| {
-                    let wake = registration
-                        .module_index
-                        .and_then(|index| object.modules.get(index))
-                        .map(|entry| entry.with_module(initial_update_wake_frame))
-                        .unwrap_or(0);
-                    (registration.module.clone(), wake)
-                })
-                .collect::<Vec<_>>();
+            let updates = object.update_registrations_with_wakes().collect::<Vec<_>>();
             (object.id, updates)
         };
         scheduler.validate_scheduling_owner(id, source)?;

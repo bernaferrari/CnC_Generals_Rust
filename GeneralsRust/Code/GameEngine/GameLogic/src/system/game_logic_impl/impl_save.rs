@@ -262,33 +262,6 @@ impl GameLogic {
         if self.next_object_id == INVALID_ID {
             self.next_object_id = 1;
         }
-        self.sleepy_updates.clear();
-        self.normal_updates.clear();
-        self.module_lookup.clear();
-
-        // C++ walks every object's UpdateModules and re-pushes the sleepy heap.
-        let now = if self.frame == 0 { 1 } else { self.frame };
-        let object_ids: Vec<ObjectID> = self.all_objects.clone();
-        for obj_id in object_ids {
-            // Scoped map borrow — collect the registrations without retaining
-            // an Arc handle, then re-push them onto the sleepy heap outside
-            // the object read guard.
-            let Some(registrations) = self
-                .objects
-                .get(&obj_id)
-                .and_then(|obj_ref| obj_ref.read().ok())
-                .map(|obj| {
-                    obj.update_module_registrations()
-                        .cloned()
-                        .collect::<Vec<_>>()
-                })
-            else {
-                continue;
-            };
-            for module in registrations {
-                self.register_sleepy_update_module(obj_id, module, now);
-            }
-        }
-        self.remake_sleepy_update();
+        self.rebuild_sleepy_updates_after_load();
     }
 }

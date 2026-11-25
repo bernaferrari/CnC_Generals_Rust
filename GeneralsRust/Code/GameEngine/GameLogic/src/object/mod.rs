@@ -1561,6 +1561,7 @@ struct ModuleUpdateProxy {
     // (UpdateModule.h:134, AIUpdate.h:580, PhysicsUpdate.h:199).
     phase: SleepyUpdatePhase,
     ai_update: bool,
+    lifetime_update: bool,
 }
 
 fn module_with_downcast<T: 'static, F, R>(module: &mut dyn Module, func: F) -> Option<R>
@@ -1588,13 +1589,18 @@ impl ModuleUpdateProxy {
     fn new(entry: Arc<ModuleEntry>, object_id: ObjectID) -> Self {
         let module_name = entry.name().clone();
         let ai_update = entry.data().read().is_ai_module_data();
-        let phase = if ai_update {
+        let (phase, lifetime_update) = if ai_update {
             // C++ AIUpdate.h:570–580: immutable class metadata puts AI before Physics.
-            SleepyUpdatePhase::Initial
+            (SleepyUpdatePhase::Initial, false)
         } else {
-            entry
-                .with_module(Self::dispatch_phase)
-                .unwrap_or(SleepyUpdatePhase::Normal)
+            entry.with_module(|module| {
+                (
+                    Self::dispatch_phase(module).unwrap_or(SleepyUpdatePhase::Normal),
+                    module
+                        .as_any()
+                        .is::<behavior::lifetime_update::LifetimeUpdateModule>(),
+                )
+            })
         };
         Self {
             completed_upgrade: None,
@@ -1603,6 +1609,7 @@ impl ModuleUpdateProxy {
             module_name,
             phase,
             ai_update,
+            lifetime_update,
         }
     }
 
@@ -1640,6 +1647,13 @@ impl ModuleUpdateProxy {
             .get_sleepy_update_interface()
             .map(|update| update.get_update_phase())
     }
+
+    fn run_lifetime_update(&self) -> Option<UpdateSleepTime> {
+        if self.lifetime_update {
+            return behavior::lifetime_update::LifetimeUpdateModule::run_installed(&self.entry);
+        }
+        None
+    }
 }
 
 fn initial_update_wake_frame(module: &mut dyn Module) -> UnsignedInt {
@@ -1659,6 +1673,9 @@ impl UpdateModuleInterface for ModuleUpdateProxy {
         &mut self,
         context: &mut dyn game_engine::common::thing::update_module::UpdateScheduleContext,
     ) -> Result<UpdateSleepTime, Box<dyn std::error::Error + Send + Sync>> {
+        if let Some(sleep) = self.run_lifetime_update() {
+            return Ok(sleep);
+        }
         if let Some(observation) = context.upgrade_production_observation() {
             let upgraded = self.entry.with_module(|module| {
                 module.as_any_mut()
@@ -1722,6 +1739,9 @@ impl UpdateModuleInterface for ModuleUpdateProxy {
     }
 
     fn update(&mut self) -> Result<UpdateSleepTime, Box<dyn std::error::Error + Send + Sync>> {
+        if let Some(sleep) = self.run_lifetime_update() {
+            return Ok(sleep);
+        }
         let sleep = self.entry.with_module(Self::dispatch_update);
         Ok(sleep.unwrap_or_else(|| self.missing_update_sleep()))
     }
