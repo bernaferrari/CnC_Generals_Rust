@@ -25,6 +25,7 @@ use game_engine::common::name_key_generator::NameKeyNamespace;
 use game_engine::common::system::DataChunkInfo;
 use game_engine::common::system::DataChunkInput;
 use game_engine::common::system::compression::{decompress_data, is_data_compressed};
+use game_engine::map_object::{FLAG_BRIDGE_POINT1, FLAG_BRIDGE_POINT2, MAP_HEIGHT_SCALE};
 
 mod bridge_models;
 
@@ -49,8 +50,8 @@ pub const K_HEIGHT_MAP_VERSION_4: u32 = 4;
 /// Objects chunk version (from C++ MapUtil.cpp)
 pub const K_OBJECTS_VERSION_2: u32 = 2;
 
-const FLAG_BRIDGE_POINT1: i32 = 0x00000010;
-const FLAG_BRIDGE_POINT2: i32 = 0x00000020;
+// W3DBridgeBuffer.h, maximum number of admitted bridges.
+const MAX_BRIDGES: usize = 200;
 
 pub use crate::common::{Coord3D, ICoord2D, Region3D};
 
@@ -490,7 +491,12 @@ impl MapLoader {
                 }
             }
         }
-        self.bridges = context.bridges.into_iter().filter_map(bridge).collect();
+        self.bridges = context
+            .bridges
+            .into_iter()
+            .filter_map(bridge)
+            .take(MAX_BRIDGES)
+            .collect();
     }
 
     fn decode_map_chunk_bytes(data: &[u8]) -> io::Result<Cow<'_, [u8]>> {
@@ -581,7 +587,7 @@ struct MapParseContext {
     bridges: Vec<BridgeEndpoints>,
     sides: Option<SidesList>,
     script_templates: Option<ScriptTemplateLookup>,
-    pending_bridges: HashMap<String, Vec<PendingBridge>>,
+    bridge_start: Option<(String, Coord3D)>,
 }
 
 impl MapParseContext {
@@ -597,7 +603,29 @@ impl MapParseContext {
             bridges: Vec::new(),
             sides: None,
             script_templates,
-            pending_bridges: HashMap::new(),
+            bridge_start: None,
+        }
+    }
+
+    fn observe_bridge_marker(&mut self, flags: u32, name: &str, position: Coord3D) {
+        // WorldHeightMap::ParseObjectData drops out-of-range objects before
+        // linking the list seen by W3DBridgeBuffer::loadBridges.
+        const MIN_OBJECT_Z: f32 = -100.0 * MAP_XY_FACTOR;
+        const MAX_OBJECT_Z: f32 = 2550.0 * MAP_HEIGHT_SCALE;
+        if position.z < MIN_OBJECT_Z || position.z > MAX_OBJECT_Z {
+            return;
+        }
+
+        if let Some((template_name, from)) = self.bridge_start.take()
+            && flags & FLAG_BRIDGE_POINT2 != 0
+        {
+            self.bridges.push(BridgeEndpoints {
+                template_name,
+                from,
+                to: position,
+            });
+        } else if flags & FLAG_BRIDGE_POINT1 != 0 {
+            self.bridge_start = Some((name.to_owned(), position));
         }
     }
 }
@@ -691,6 +719,10 @@ fn parse_objects_list_chunk(
     info: &DataChunkInfo,
     user_data: &mut dyn std::any::Any,
 ) -> bool {
+    let Some(ctx) = map_parse_context(user_data) else {
+        return false;
+    };
+    ctx.bridge_start = None;
     input.register_parser("Object", &info.label, parse_object_chunk);
     input.parse(user_data)
 }
@@ -710,13 +742,15 @@ fn parse_object_chunk(
     }
 
     let _angle = input.read_real();
-    let flags = input.read_int();
+    let flags = input.read_int() as u32;
     let name = input.read_ascii_string();
     let dict = if info.version >= K_OBJECTS_VERSION_2 as u16 {
         input.read_dict()
     } else {
         Dict::new()
     };
+
+    ctx.observe_bridge_marker(flags, &name, loc);
 
     let waypoint_key = input.intern_name("waypointID");
     if let Some(id) = dict_get_int(&dict, waypoint_key) {
@@ -747,10 +781,6 @@ fn parse_object_chunk(
         return true;
     }
 
-    if (flags & (FLAG_BRIDGE_POINT1 | FLAG_BRIDGE_POINT2)) != 0 {
-        let is_point1 = (flags & FLAG_BRIDGE_POINT1) != 0;
-        add_bridge_point(ctx, &name, loc, is_point1);
-    }
     ctx.placed_objects.push((name, loc));
 
     true
@@ -859,30 +889,6 @@ struct BridgeEndpoints {
     template_name: String,
     from: Coord3D,
     to: Coord3D,
-}
-
-struct PendingBridge {
-    location: Coord3D,
-    is_from: bool,
-}
-
-fn add_bridge_point(ctx: &mut MapParseContext, name: &str, location: Coord3D, is_from: bool) {
-    let pending = ctx.pending_bridges.entry(name.to_owned()).or_default();
-    if let Some(index) = pending.iter().position(|point| point.is_from != is_from) {
-        let other = pending.swap_remove(index).location;
-        let (from, to) = if is_from {
-            (location, other)
-        } else {
-            (other, location)
-        };
-        ctx.bridges.push(BridgeEndpoints {
-            template_name: name.to_owned(),
-            from,
-            to,
-        });
-    } else {
-        pending.push(PendingBridge { location, is_from });
-    }
 }
 
 impl BridgeData {

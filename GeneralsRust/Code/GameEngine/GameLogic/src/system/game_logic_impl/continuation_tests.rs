@@ -522,36 +522,62 @@ End
         ])
     }
 
+    fn write_bridge_fixture_heightmap(map: &mut game_engine::common::system::DataChunkOutput) {
+        map.open_data_chunk("HeightMapData", 4);
+        // A planar slope in both axes. C++ scales each interpolated sample by 0.625.
+        for value in [12, 8, 0, 1, 11, 7, 96] {
+            map.write_int(value);
+        }
+        for y in 0..8 {
+            for x in 0..12 {
+                map.write_byte(2 * x + y);
+            }
+        }
+        map.close_data_chunk();
+    }
+
+    fn write_bridge_fixture_marker(
+        map: &mut game_engine::common::system::DataChunkOutput,
+        name: &str,
+        x: f32,
+        y: f32,
+        flags: u32,
+    ) {
+        map.open_data_chunk("Object", 3);
+        for value in [x, y, 99.0, 0.0] {
+            map.write_real(value);
+        }
+        map.write_int(flags as i32);
+        map.write_ascii_string(name);
+        map.write_dict(&Default::default());
+        map.close_data_chunk();
+    }
+
     fn write_bridge_save_map(path: &std::path::Path, action_key: u32) {
         use crate::common::well_known_keys::key_player_name;
         use crate::scripting::core::ScriptActionType;
         use game_engine::common::system::DataChunkOutput;
 
         let mut map = DataChunkOutput::new();
-        map.open_data_chunk("HeightMapData", 4);
-        // Version 4 includes an explicit playable boundary.
-        for value in [12, 8, 0, 1, 11, 7, 96] {
-            map.write_int(value);
-        }
-        for _ in 0..96 {
-            map.write_byte(0);
-        }
-        map.close_data_chunk();
+        write_bridge_fixture_heightmap(&mut map);
 
         map.open_data_chunk("ObjectsList", 1);
-        const BRIDGE_FROM: i32 = 0x10;
-        const BRIDGE_TO: i32 = 0x20;
-        for (name, y) in [("SavedBridgeFixture", 35.0), ("MissingBridgeModel", 65.0)] {
-            for (x, flag) in [(40.0, BRIDGE_FROM), (80.0, BRIDGE_TO)] {
-                map.open_data_chunk("Object", 3);
-                for value in [x, y, 24.0, 0.0] {
-                    map.write_real(value);
-                }
-                map.write_int(flag);
-                map.write_ascii_string(name);
-                map.write_dict(&Default::default());
-                map.close_data_chunk();
-            }
+        use game_engine::map_object::{FLAG_BRIDGE_POINT1, FLAG_BRIDGE_POINT2};
+        for (name, x, y, flag) in [
+            // Missing art ahead of the first valid bridge does not use its slot.
+            ("MissingBridgeModel", 40.0, 65.0, FLAG_BRIDGE_POINT1),
+            ("MissingBridgeModel", 80.0, 65.0, FLAG_BRIDGE_POINT2),
+            ("SavedBridgeFixture", 40.0, 35.0, FLAG_BRIDGE_POINT1),
+            ("SavedBridgeFixture", 80.0, 35.0, FLAG_BRIDGE_POINT2),
+            // The second marker's name is ignored.
+            ("SavedBridgeFixture", 50.0, 59.0, FLAG_BRIDGE_POINT1),
+            ("OtherEnd", 70.0, 59.0, FLAG_BRIDGE_POINT2),
+            // An ordinary placed object breaks adjacency.
+            ("SavedBridgeFixture", 40.0, 8.0, FLAG_BRIDGE_POINT1),
+            ("OrdinaryMapObject", 60.0, 8.0, 0),
+            ("SavedBridgeFixture", 80.0, 8.0, FLAG_BRIDGE_POINT2),
+        ] {
+            write_bridge_fixture_marker(&mut map, name, x, y, flag);
         }
         map.close_data_chunk();
 
@@ -706,6 +732,35 @@ End
         std::fs::write(w3d.join("FixtureDeck.w3d"), [mesh, tree, hlod].concat()).unwrap();
     }
 
+    fn check_core_bridge_capacity(owner: &EngineStores, path: &std::path::Path) {
+        use crate::system::map_loader::MapLoader;
+        use game_engine::common::system::DataChunkOutput;
+        use game_engine::map_object::{FLAG_BRIDGE_POINT1, FLAG_BRIDGE_POINT2};
+
+        let mut map = DataChunkOutput::new();
+        write_bridge_fixture_heightmap(&mut map);
+        map.open_data_chunk("ObjectsList", 1);
+        for index in 0..202 {
+            let name = if index == 0 {
+                "MissingBridgeModel"
+            } else {
+                "SavedBridgeFixture"
+            };
+            let y = index as f32 / 10.0;
+            write_bridge_fixture_marker(&mut map, name, 40.0, y, FLAG_BRIDGE_POINT1);
+            write_bridge_fixture_marker(&mut map, name, 80.0, y, FLAG_BRIDGE_POINT2);
+        }
+        map.close_data_chunk();
+        std::fs::write(path, map.into_ckmp_bytes()).unwrap();
+
+        let mut loader = MapLoader::new();
+        loader.load_map_in(path, owner.services()).unwrap();
+        let bridges = loader.get_bridges();
+        assert_eq!(bridges.len(), 200);
+        assert_eq!(bridges.first().unwrap().from.y, 0.1);
+        assert_eq!(bridges.last().unwrap().from.y, 20.0);
+    }
+
     #[test]
     fn full_core_save_restores_bridge_deck_before_the_first_damage_update() {
         use crate::ai::pathfind_astar::{PathfindCellType, PathfindLayerEnum as GridLayer};
@@ -731,7 +786,7 @@ End
 
         let _ = env_logger::builder().is_test(true).try_init();
         const ID: ObjectID = 91_801;
-        let deck = Coord3D::new(60.0, 35.0, 24.0);
+        let deck = Coord3D::new(60.0, 35.0, 9.9375);
         let root = unique_temp_dir("bridge");
         let map_path = root.join("saved_bridge.map");
         let build_world = |label: &str, minor_radius: u32, pivot_y: f32, scale: f32| {
@@ -855,6 +910,26 @@ End
             );
             assert_eq!(script.is_active, script_active);
         };
+        let check_authored_decks = |terrain: &crate::terrain::TerrainLogic| {
+            let first = terrain.find_bridge_at(&deck).expect("first authored deck");
+            let info = first.get_bridge_info();
+            assert_eq!((info.from.z, info.to.z), (7.4375, 12.4375));
+            assert_eq!((info.from_left.z, info.to_right.z), (7.4375, 12.4375));
+            assert_eq!(info.bridge_index, 0);
+            assert_eq!(first.get_layer(), PathfindLayerEnum::Top);
+            let second = terrain
+                .find_bridge_at(&Coord3D::new(60.0, 72.0, 0.0))
+                .expect("second authored deck");
+            assert_eq!(second.get_bridge_info().bridge_index, 1);
+            assert_eq!(second.get_bridge_info().from.y, 59.0);
+            assert_eq!(second.get_bridge_info().to.y, 59.0);
+            assert_ne!(second.get_layer(), first.get_layer());
+            assert!(
+                terrain
+                    .find_bridge_at(&Coord3D::new(60.0, 14.0, 0.0))
+                    .is_none()
+            );
+        };
         // The same map-admission phase also runs at ordinary Core startup.
         with_active_stores(&peer, || {
             use crate::system::game_initialization::{GameInitializer, GameState};
@@ -863,7 +938,9 @@ End
                 .unwrap();
             let spans = startup.map_loader.get_bridges();
             assert_eq!(spans[0].width, 24.0);
-            assert_eq!(spans.len(), 1, "missing model must not admit a bridge");
+            assert_eq!(spans.len(), 2);
+            assert_eq!(spans[1].template_name, "SavedBridgeFixture");
+            assert_eq!((spans[1].from.y, spans[1].to.y), (59.0, 59.0));
             assert_eq!(
                 spans[0]
                     .polygon
@@ -873,6 +950,7 @@ End
                 [(40.0, 53.0), (40.0, 29.0), (80.0, 29.0), (80.0, 53.0)]
             );
             let terrain = source.services().terrain().read().unwrap();
+            check_authored_decks(&terrain);
             let bridge = terrain.find_bridge_at(&deck).unwrap();
             assert_eq!(bridge.get_bridge_info().bridge_width, 24.0);
             assert_eq!(bridge.get_layer(), PathfindLayerEnum::Top);
@@ -971,6 +1049,7 @@ End
             let terrain = receiver.services().terrain();
             let (layer, bridge_id) = {
                 let terrain = terrain.read().unwrap();
+                check_authored_decks(&terrain);
                 let bridge = terrain.find_bridge_at(&deck).expect("authored map bridge");
                 assert_eq!(
                     bridge.get_bridge_info().bridge_width,
@@ -982,7 +1061,7 @@ End
                 assert_eq!(info.from_right.y, 29.0);
                 assert!(
                     terrain
-                        .find_bridge_at(&Coord3D::new(60.0, 65.0, 24.0))
+                        .find_bridge_at(&Coord3D::new(76.0, 71.0, 24.0))
                         .is_none()
                 );
                 (bridge.get_layer(), info.bridge_object_id)
@@ -1082,6 +1161,7 @@ End
                 &peer_actor
             ));
         });
+        check_core_bridge_capacity(&receiver, &root.join("bridge_capacity.map"));
         drop(state);
         std::fs::remove_dir_all(root).unwrap();
     }

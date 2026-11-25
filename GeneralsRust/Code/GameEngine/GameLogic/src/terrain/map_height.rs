@@ -1,6 +1,7 @@
 //! TerrainLogic map height behavior.
 
 use super::*;
+use crate::system::map_loader::{BridgeData, MapData};
 
 impl TerrainLogic {
     pub fn new() -> Self {
@@ -41,7 +42,7 @@ impl TerrainLogic {
     ///
     /// # Arguments
     /// * `map_data` - Parsed map data from MapLoader
-    pub fn load_map_data(&mut self, map_data: crate::system::map_loader::MapData) {
+    pub fn load_map_data(&mut self, map_data: MapData) {
         for (info, template) in self.load_map_geometry(map_data) {
             self.add_bridge_to_logic(info, template);
         }
@@ -51,10 +52,20 @@ impl TerrainLogic {
     /// match. A new map always starts with fresh layers.
     pub(crate) fn admit_core_map(
         &mut self,
-        map_data: crate::system::map_loader::MapData,
+        map_data: MapData,
         mut pathfinder: Option<&mut crate::ai::Pathfinder>,
     ) -> Result<(), String> {
-        let bridges = self.try_load_map_geometry(map_data)?;
+        let mut bridges = self.install_map_terrain(map_data)?;
+        // W3DBridgeBuffer::loadBridges samples the logic heightmap and adds
+        // BRIDGE_FLOAT_AMT before it admits the span to the terrain and AI.
+        const BRIDGE_FLOAT_AMT: f32 = 0.25;
+        for bridge in &mut bridges {
+            bridge.from.z =
+                self.get_ground_height(bridge.from.x, bridge.from.y, None) + BRIDGE_FLOAT_AMT;
+            bridge.to.z = self.get_ground_height(bridge.to.x, bridge.to.y, None) + BRIDGE_FLOAT_AMT;
+            bridge.height = (bridge.from.z + bridge.to.z) / 2.0;
+        }
+        let bridges = self.install_authored_bridges(bridges);
         if let Some(pathfinder) = pathfinder.as_deref_mut() {
             pathfinder.reset();
         }
@@ -66,10 +77,7 @@ impl TerrainLogic {
 
     /// Parse terrain content without discovering an AI/pathfinder owner. The
     /// caller admits returned bridges in source order and supplies their layers.
-    pub fn load_map_geometry(
-        &mut self,
-        map_data: crate::system::map_loader::MapData,
-    ) -> Vec<(BridgeInfo, AsciiString)> {
+    pub fn load_map_geometry(&mut self, map_data: MapData) -> Vec<(BridgeInfo, AsciiString)> {
         match self.try_load_map_geometry(map_data) {
             Ok(bridges) => bridges,
             Err(error) => {
@@ -79,15 +87,11 @@ impl TerrainLogic {
         }
     }
     /// Check a decoded map before a caller resets map-scoped subsystems.
-    pub fn validate_map_geometry(
-        map_data: &crate::system::map_loader::MapData,
-    ) -> Result<(), String> {
+    pub fn validate_map_geometry(map_data: &MapData) -> Result<(), String> {
         Self::map_geometry_extents(map_data).map(|_| ())
     }
 
-    fn map_geometry_extents(
-        map_data: &crate::system::map_loader::MapData,
-    ) -> Result<(i32, i32), String> {
+    fn map_geometry_extents(map_data: &MapData) -> Result<(i32, i32), String> {
         let width =
             i32::try_from(map_data.width).map_err(|_| "terrain map width exceeds index domain")?;
         let height = i32::try_from(map_data.height)
@@ -123,8 +127,13 @@ impl TerrainLogic {
     /// Validate shape before changing any receiving bytes, metadata or revision.
     pub fn try_load_map_geometry(
         &mut self,
-        map_data: crate::system::map_loader::MapData,
+        map_data: MapData,
     ) -> Result<Vec<(BridgeInfo, AsciiString)>, String> {
+        let bridges = self.install_map_terrain(map_data)?;
+        Ok(self.install_authored_bridges(bridges))
+    }
+
+    fn install_map_terrain(&mut self, map_data: MapData) -> Result<Vec<BridgeData>, String> {
         let (width, height) = Self::map_geometry_extents(&map_data)?;
 
         self.query_load_pending = false;
@@ -152,9 +161,6 @@ impl TerrainLogic {
         self.cliff_state
             .rebuild(&self.map_data, self.map_dx, self.map_dy);
 
-        // Retain authored bridge geometry; logical heights live in map_data.
-        self.authored_bridges = map_data.bridges;
-
         // Rebuild grid-water handle using C++ sentinel name and map extent.
         let grid_height = map_data
             .water_height
@@ -177,22 +183,28 @@ impl TerrainLogic {
             self.add_waypoint_link(*id1, *id2);
         }
 
-        // CPP reserves layers in authored order; the terrain list prepends.
-        // Return geometry in that original order without a CoreAI callback.
+        Ok(map_data.bridges)
+    }
+
+    fn install_authored_bridges(
+        &mut self,
+        bridges: Vec<BridgeData>,
+    ) -> Vec<(BridgeInfo, AsciiString)> {
+        // C++ reserves layers in authored order; the terrain list prepends.
         self.bridge_list_head = None;
-        Ok(self
-            .authored_bridges
+        self.authored_bridges = bridges;
+        self.authored_bridges
             .iter()
             .enumerate()
             .filter_map(|(index, bridge)| {
                 Self::bridge_info_from_map_data(bridge, index as i32)
                     .map(|info| (info, AsciiString::from(bridge.template_name.as_str())))
             })
-            .collect())
+            .collect()
     }
 
     /// Snapshot parsed map bridge geometry.
-    pub fn bridge_data_snapshot(&self) -> Vec<crate::system::map_loader::BridgeData> {
+    pub fn bridge_data_snapshot(&self) -> Vec<BridgeData> {
         self.authored_bridges.clone()
     }
 
