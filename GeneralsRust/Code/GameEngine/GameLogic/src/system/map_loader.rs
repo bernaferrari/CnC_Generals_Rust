@@ -26,6 +26,8 @@ use game_engine::common::system::DataChunkInfo;
 use game_engine::common::system::DataChunkInput;
 use game_engine::common::system::compression::{decompress_data, is_data_compressed};
 
+mod bridge_models;
+
 /// Waypoint identifier type
 pub type WaypointID = u32;
 
@@ -342,9 +344,12 @@ impl MapLoader {
                 .map_err(|error| io::Error::other(error.to_string()))?;
             Self::parse_map_data(&bytes, true, Some(&mut names), Some(templates))?
         };
-        self.accept_decoded(decoded, |name| {
-            TheThingFactory::find_template_in(common, name)
-        });
+        let mut bridge_models = bridge_models::BridgeModels::new(common);
+        self.accept_decoded(
+            decoded,
+            |name| TheThingFactory::find_template_in(common, name),
+            |span| bridge_models.deck(span),
+        );
         Ok(())
     }
 
@@ -375,7 +380,22 @@ impl MapLoader {
 
     fn load_with_legacy_services(&mut self, bytes: &[u8], include_objects: bool) -> io::Result<()> {
         let decoded = Self::parse_map_data(bytes, include_objects, None, None)?;
-        self.accept_decoded(decoded, |name| TheThingFactory::find_template(name));
+        self.accept_decoded(
+            decoded,
+            |name| TheThingFactory::find_template(name),
+            |span| {
+                let width = TheThingFactory::find_template(&span.template_name)
+                    .map(|template| template.get_template_geometry_info().get_minor_radius() * 2.0)
+                    .filter(|&width| width > 0.0)
+                    .unwrap_or(MAP_XY_FACTOR * 2.0);
+                Some(BridgeData::new(
+                    span.from,
+                    span.to,
+                    width,
+                    span.template_name,
+                ))
+            },
+        );
         if self.sides.is_some() {
             self.install_sides_in(&get_sides_list())?;
         }
@@ -449,6 +469,7 @@ impl MapLoader {
         &mut self,
         context: MapParseContext,
         template: impl Fn(&str) -> Option<Arc<dyn ThingTemplate>>,
+        bridge: impl FnMut(BridgeEndpoints) -> Option<BridgeData>,
     ) {
         self.heightmap = context.heightmap;
         self.world_dict = context.world_dict;
@@ -469,17 +490,7 @@ impl MapLoader {
                 }
             }
         }
-        self.bridges = context
-            .bridges
-            .into_iter()
-            .map(|span| {
-                let width = template(&span.template_name)
-                    .map(|template| template.get_template_geometry_info().get_minor_radius() * 2.0)
-                    .filter(|&width| width > 0.0)
-                    .unwrap_or(MAP_XY_FACTOR * 2.0);
-                BridgeData::new(span.from, span.to, width, span.template_name)
-            })
-            .collect();
+        self.bridges = context.bridges.into_iter().filter_map(bridge).collect();
     }
 
     fn decode_map_chunk_bytes(data: &[u8]) -> io::Result<Cow<'_, [u8]>> {
@@ -887,33 +898,61 @@ impl BridgeData {
     /// # Returns
     /// BridgeData structure with calculated polygon
     pub fn new(from: Coord3D, to: Coord3D, width: f32, template_name: String) -> Self {
-        // Calculate bridge polygon (4 corners)
-        // Reference: C++ TerrainLogic.cpp:203-218
+        let half_width = width / 2.0;
+        Self::from_edges(
+            BridgeEndpoints {
+                from,
+                to,
+                template_name,
+            },
+            -half_width,
+            half_width,
+            1.0,
+            width,
+        )
+    }
 
-        // Vector along bridge
+    // W3DBridgeBuffer.cpp, W3DBridge::getBridgeInfo.
+    fn from_model_bounds(span: BridgeEndpoints, min: f32, max: f32, scale: f32) -> Self {
+        Self::from_edges(span, min, max, scale, (max - min) * scale)
+    }
+
+    fn from_edges(
+        BridgeEndpoints {
+            from,
+            to,
+            template_name,
+        }: BridgeEndpoints,
+        min: f32,
+        max: f32,
+        scale: f32,
+        width: f32,
+    ) -> Self {
         let dx = to.x - from.x;
         let dy = to.y - from.y;
-        let length = (dx * dx + dy * dy).sqrt();
+        let length_squared = dx * dx + dy * dy;
+        // Vector3::Normalize in C++ leaves the zero vector alone.
+        let inverse_length = if length_squared != 0.0 {
+            1.0 / length_squared.sqrt()
+        } else {
+            1.0
+        };
+        let (perp_x, perp_y) = (-dy * inverse_length, dx * inverse_length);
+        let edge = |point: Coord3D, offset: f32| {
+            Coord2D::new(
+                point.x + perp_x * offset * scale,
+                point.y + perp_y * offset * scale,
+            )
+        };
 
-        // Normalized perpendicular vector
-        let perp_x = -dy / length;
-        let perp_y = dx / length;
-
-        // Half width offset
-        let half_width = width / 2.0;
-
-        // Calculate 4 corners
-        let from_left = Coord2D::new(from.x + perp_x * half_width, from.y + perp_y * half_width);
-        let from_right = Coord2D::new(from.x - perp_x * half_width, from.y - perp_y * half_width);
-        let to_left = Coord2D::new(to.x + perp_x * half_width, to.y + perp_y * half_width);
-        let to_right = Coord2D::new(to.x - perp_x * half_width, to.y - perp_y * half_width);
-
-        // Average height of bridge deck
-        let avg_height = (from.z + to.z) / 2.0;
-
-        BridgeData {
-            polygon: vec![from_left, from_right, to_right, to_left],
-            height: avg_height,
+        Self {
+            polygon: vec![
+                edge(from, max),
+                edge(from, min),
+                edge(to, min),
+                edge(to, max),
+            ],
+            height: (from.z + to.z) / 2.0,
             from,
             to,
             width,

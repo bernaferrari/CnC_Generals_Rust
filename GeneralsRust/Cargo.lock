@@ -4441,6 +4441,7 @@ dependencies = [
  "tokio-test",
  "uuid",
  "wide 1.7.0",
+ "ww3d-core",
 ]
 
 [[package]]

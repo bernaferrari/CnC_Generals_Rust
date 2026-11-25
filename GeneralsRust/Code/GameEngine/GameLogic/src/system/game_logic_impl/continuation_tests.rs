@@ -541,15 +541,17 @@ End
         map.open_data_chunk("ObjectsList", 1);
         const BRIDGE_FROM: i32 = 0x10;
         const BRIDGE_TO: i32 = 0x20;
-        for (x, flag) in [(40.0, BRIDGE_FROM), (80.0, BRIDGE_TO)] {
-            map.open_data_chunk("Object", 3);
-            for value in [x, 35.0, 24.0, 0.0] {
-                map.write_real(value);
+        for (name, y) in [("SavedBridgeFixture", 35.0), ("MissingBridgeModel", 65.0)] {
+            for (x, flag) in [(40.0, BRIDGE_FROM), (80.0, BRIDGE_TO)] {
+                map.open_data_chunk("Object", 3);
+                for value in [x, y, 24.0, 0.0] {
+                    map.write_real(value);
+                }
+                map.write_int(flag);
+                map.write_ascii_string(name);
+                map.write_dict(&Default::default());
+                map.close_data_chunk();
             }
-            map.write_int(flag);
-            map.write_ascii_string("SavedBridgeFixture");
-            map.write_dict(&Default::default());
-            map.close_data_chunk();
         }
         map.close_data_chunk();
 
@@ -585,6 +587,125 @@ End
         std::fs::write(path, map.into_ckmp_bytes()).unwrap();
     }
 
+    fn write_asymmetric_bridge_model(mount: &std::path::Path, pivot_y: f32) {
+        use ww3d_core::W3DChunkType::{self, *};
+
+        fn chunk(kind: W3DChunkType, children: bool, data: Vec<u8>) -> Vec<u8> {
+            let header = (data.len() as u32) | (u32::from(children) << 31);
+            [
+                (kind as u32).to_le_bytes().to_vec(),
+                header.to_le_bytes().to_vec(),
+                data,
+            ]
+            .concat()
+        }
+
+        fn name(value: &str, width: usize) -> Vec<u8> {
+            let mut result = value.as_bytes().to_vec();
+            result.resize(width, 0);
+            result
+        }
+
+        fn floats(values: &[f32]) -> Vec<u8> {
+            values
+                .iter()
+                .flat_map(|value| value.to_le_bytes())
+                .collect()
+        }
+
+        let mesh_header = [
+            vec![0; 8],
+            name("BRIDGE_LEFT1", 16),
+            name("FixtureDeck", 16),
+            1u32.to_le_bytes().to_vec(),
+            3u32.to_le_bytes().to_vec(),
+            vec![0; 68],
+        ]
+        .concat();
+        let vertices = floats(&[-6.0, -8.0, 0.0, 0.0, 4.0, 0.0, 6.0, -2.0, 0.0]);
+        let mesh = chunk(
+            Mesh,
+            true,
+            [
+                chunk(MeshHeader3, false, mesh_header),
+                chunk(Vertices, false, vertices),
+            ]
+            .concat(),
+        );
+
+        let tree_header = [
+            0x0004_0001u32.to_le_bytes().to_vec(),
+            name("FixtureTree", 16),
+            3u32.to_le_bytes().to_vec(),
+            vec![0; 12],
+        ]
+        .concat();
+        let pivots = [
+            (-1i32, 97.0, [0.0, 0.0, 0.0, 1.0]),
+            (0, pivot_y, [0.0, 0.0, 1.0, 0.0]),
+            (1, 1.0, [0.0, 0.0, 0.0, 1.0]),
+        ]
+        .into_iter()
+        .flat_map(|(parent, y, rotation)| {
+            [
+                vec![0; 16],
+                parent.to_le_bytes().to_vec(),
+                floats(&[0.0, y, 0.0]),
+                vec![0; 12],
+                floats(&rotation),
+            ]
+            .concat()
+        })
+        .collect();
+        let tree = chunk(
+            Hierarchy,
+            true,
+            [
+                chunk(HierarchyHeader, false, tree_header),
+                chunk(Pivots, false, pivots),
+            ]
+            .concat(),
+        );
+
+        let hlod_header = [
+            vec![0; 4],
+            1u32.to_le_bytes().to_vec(),
+            name("FixtureDeck", 16),
+            name("FixtureTree", 16),
+        ]
+        .concat();
+        let array = chunk(
+            HlodLodArray,
+            true,
+            [
+                chunk(
+                    HlodSubObjectArrayHeader,
+                    false,
+                    [1u32.to_le_bytes(), f32::MAX.to_le_bytes()].concat(),
+                ),
+                chunk(
+                    HlodSubObject,
+                    false,
+                    [
+                        2u32.to_le_bytes().to_vec(),
+                        name("FixtureDeck.BRIDGE_LEFT1", 32),
+                    ]
+                    .concat(),
+                ),
+            ]
+            .concat(),
+        );
+        let hlod = chunk(
+            Hlod,
+            true,
+            [chunk(HlodHeader, false, hlod_header), array].concat(),
+        );
+
+        let w3d = mount.join("art/w3d");
+        std::fs::create_dir_all(&w3d).unwrap();
+        std::fs::write(w3d.join("FixtureDeck.w3d"), [mesh, tree, hlod].concat()).unwrap();
+    }
+
     #[test]
     fn full_core_save_restores_bridge_deck_before_the_first_damage_update() {
         use crate::ai::pathfind_astar::{PathfindCellType, PathfindLayerEnum as GridLayer};
@@ -613,7 +734,7 @@ End
         let deck = Coord3D::new(60.0, 35.0, 24.0);
         let root = unique_temp_dir("bridge");
         let map_path = root.join("saved_bridge.map");
-        let build_world = |minor_radius: u32| {
+        let build_world = |label: &str, minor_radius: u32, pivot_y: f32, scale: f32| {
             let authored = format!(
                 r#"
 Object SavedBridgeFixture
@@ -631,7 +752,28 @@ Object SavedBridgeFixture
 End
 "#
             );
-            let core = Arc::new(EngineStores::new_for_world());
+            use game_engine::common::common_services::{CommonServices, with_common_services};
+            let boot = Arc::new(CommonServices::new());
+            let core = with_common_services(&boot, || Arc::new(EngineStores::new_for_world()));
+            let mount = root.join(label);
+            write_asymmetric_bridge_model(&mount, pivot_y);
+            let common = core.services().common();
+            let mut local = game_engine::common::system::local_file_system::LocalFileSystem::new();
+            local.add_search_path(&mount);
+            common
+                .application
+                .file_system
+                .lock()
+                .unwrap()
+                .register_backend(Box::new(local));
+            {
+                let mut roads = common.ini.terrain_roads.write();
+                let bridge = roads.new_bridge("SavedBridgeFixture".into());
+                bridge.model_name = "FixtureDeck".into();
+                bridge.bridge_scale = scale;
+                roads.new_bridge("MissingBridgeModel".into()).model_name =
+                    "MissingBridgeDeck".into();
+            }
             admit_fixture_neutral_player(core.services());
             with_active_stores(&core, || {
                 crate::contain_module_overrides::ensure_module_overrides_installed().unwrap();
@@ -647,9 +789,9 @@ End
             });
             core
         };
-        let source = build_world(14);
-        let receiver = build_world(14);
-        let peer = build_world(33);
+        let source = build_world("source", 14, 2.0, 2.0);
+        let receiver = build_world("receiver", 14, 2.0, 2.0);
+        let peer = build_world("peer", 33, 11.0, 3.0);
         for world in [&source, &receiver] {
             world
                 .services()
@@ -719,10 +861,20 @@ End
             let mut startup = GameState::new();
             GameInitializer::load_map_in(&mut startup, map_path.to_str().unwrap(), &source, None)
                 .unwrap();
-            assert_eq!(startup.map_loader.get_bridges()[0].width, 28.0);
+            let spans = startup.map_loader.get_bridges();
+            assert_eq!(spans[0].width, 24.0);
+            assert_eq!(spans.len(), 1, "missing model must not admit a bridge");
+            assert_eq!(
+                spans[0]
+                    .polygon
+                    .iter()
+                    .map(|point| (point.x, point.y))
+                    .collect::<Vec<_>>(),
+                [(40.0, 53.0), (40.0, 29.0), (80.0, 29.0), (80.0, 53.0)]
+            );
             let terrain = source.services().terrain().read().unwrap();
             let bridge = terrain.find_bridge_at(&deck).unwrap();
-            assert_eq!(bridge.get_bridge_info().bridge_width, 28.0);
+            assert_eq!(bridge.get_bridge_info().bridge_width, 24.0);
             assert_eq!(bridge.get_layer(), PathfindLayerEnum::Top);
             check_map_sides(&source, true);
             assert!(!peer.services().terrain().read().unwrap().has_height_map());
@@ -822,13 +974,18 @@ End
                 let bridge = terrain.find_bridge_at(&deck).expect("authored map bridge");
                 assert_eq!(
                     bridge.get_bridge_info().bridge_width,
-                    28.0,
-                    "the receiving template defines the headless bridge width"
+                    24.0,
+                    "the receiving model defines the headless bridge width"
                 );
-                (
-                    bridge.get_layer(),
-                    bridge.get_bridge_info().bridge_object_id,
-                )
+                let info = bridge.get_bridge_info();
+                assert_eq!(info.from_left.y, 53.0);
+                assert_eq!(info.from_right.y, 29.0);
+                assert!(
+                    terrain
+                        .find_bridge_at(&Coord3D::new(60.0, 65.0, 24.0))
+                        .is_none()
+                );
+                (bridge.get_layer(), info.bridge_object_id)
             };
             let pathfinder = receiver.ai().read().unwrap().pathfinder().unwrap();
             assert_eq!(
@@ -869,6 +1026,14 @@ End
                     .bridge_by_layer_id(layer as u32)
                     .unwrap();
                 assert_eq!(layer.bridge_object_id, ID);
+                assert_eq!(
+                    layer.cell_type_at(GridCoord::new(6, 4)),
+                    Some(PathfindCellType::Clear)
+                );
+                assert_eq!(
+                    layer.cell_type_at(GridCoord::new(6, 2)),
+                    Some(PathfindCellType::BridgeImpassable)
+                );
                 *layer
                     .ground_connect_cells
                     .iter()

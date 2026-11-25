@@ -15,6 +15,7 @@ pub mod animation;
 pub mod asset_manager;
 pub mod lighting;
 pub mod material;
+pub mod model_geometry;
 pub mod mesh;
 pub mod render_object;
 pub mod scene;

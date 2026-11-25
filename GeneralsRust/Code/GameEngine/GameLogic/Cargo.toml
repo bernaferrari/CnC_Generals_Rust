@@ -11,6 +11,7 @@ workspace = true
 
 [dependencies]
 generals_map = { path = "../Map" }
+ww3d-core = { workspace = true }
 bincode_legacy = { workspace = true }
 # Core dependencies
 thiserror = { workspace = true }

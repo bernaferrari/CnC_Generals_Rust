@@ -851,9 +851,9 @@ pub struct W3dMorphAnimKeyframeStruct {
 #[repr(C)]
 pub struct W3dHlodStruct {
     pub version: u32,
+    pub num_lods: u32,
     pub name: [u8; 16],
     pub hierarchy_name: [u8; 16],
-    pub num_lods: u32,
 }
 
 #[derive(Debug, Clone, BinRead, BinWrite)]
@@ -868,8 +868,8 @@ pub struct W3dHlodLodArrayStruct {
 #[brw(little)]
 #[repr(C)]
 pub struct W3dHlodSubObjectStruct {
-    pub name: [u8; 32],
     pub bone_index: u32,
+    pub name: [u8; 32],
 }
 
 // Helper functions for string conversion
