@@ -340,6 +340,10 @@ impl std::fmt::Debug for DrawableVisualOwner {
 }
 
 impl DrawableVisualOwner {
+    pub(crate) fn world_services(&self) -> Option<Arc<crate::system::engine_stores::WorldServices>> {
+        self.stores.upgrade()
+    }
+
     pub(crate) fn note_weapon_recoil(&self, object_id: ObjectID, amount: f32, aim_angle: f32) {
         if let Some(stores) = self.stores.upgrade() {
             ClientVisualHandle::new(stores).note_weapon_recoil(object_id, amount, aim_angle);
@@ -843,13 +847,37 @@ impl TheGameClient {
     }
 
     pub fn destroy_drawable_in(stores: &Arc<crate::system::engine_stores::WorldServices>, id: u32) {
+        Self::remove_drawable_in(stores, id, None);
+    }
+
+    pub(crate) fn remove_bound_drawable_in(
+        stores: &crate::system::engine_stores::WorldServices,
+        id: u32,
+        drawable: &Arc<RwLock<Drawable>>,
+    ) {
+        Self::remove_drawable_in(stores, id, Some(drawable));
+    }
+
+    fn remove_drawable_in(
+        stores: &crate::system::engine_stores::WorldServices,
+        id: u32,
+        expected: Option<&Arc<RwLock<Drawable>>>,
+    ) {
         let visuals = stores.client_visuals();
-        let mut map = visuals.drawables.lock().unwrap();
-        let removed_drawable = map
-            .remove(&id)
+        let removed = {
+            let mut map = visuals.drawables.lock().unwrap();
+            if expected.is_some_and(|expected| {
+                !map.get(&id)
+                    .and_then(|state| state.drawable.as_ref())
+                    .is_some_and(|registered| Arc::ptr_eq(registered, expected))
+            }) {
+                return;
+            }
+            map.remove(&id)
+        };
+        let removed_drawable = removed
             .and_then(|state| state.drawable)
             .and_then(|drawable| drawable.read().ok().map(|guard| guard.get_object_id()));
-        drop(map);
 
         if let Some(object_id) = removed_drawable {
             if object_id != INVALID_ID {
@@ -862,7 +890,8 @@ impl TheGameClient {
         drop(tree_map);
 
         if removed {
-            if let Some(hook) = get_terrain_tree_hook() {
+            let hook = stores.terrain_tree_hook().lock().unwrap_or_else(|p| p.into_inner()).clone();
+            if let Some(hook) = hook {
                 hook(TerrainTreeEvent::Remove(id));
             }
         }

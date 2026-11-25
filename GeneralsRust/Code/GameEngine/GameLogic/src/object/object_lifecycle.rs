@@ -805,6 +805,13 @@ impl Object {
         }
 
         service(self.id, ObjectDestroyServiceAction::SendObjectDestroyed);
+        if let Some(drawable) = self.drawable.as_ref() {
+            let world = self
+                .owning_world_services()
+                .or_else(crate::system::engine_stores::try_active_services);
+            super::drawable::retire_object_drawable(drawable, world);
+        }
+        self.drawable = None;
 
         let _ = self.set_team(None);
 
@@ -838,9 +845,6 @@ impl Object {
         self.modules.clear();
         self.body = None;
         self.modules_ready = false;
-        if let Some(drawable) = self.drawable.take() {
-            super::drawable::clear_drawable_modules(&drawable);
-        }
 
         let object_id = self.id;
         self.id = INVALID_ID;

@@ -1440,6 +1440,12 @@ mod lifecycle_owner_tests {
         }
 
         with_active_stores(&peer, || logic.clear_all_objects());
+        assert!(TheGameClient::get_drawable_arc_in(receiving.services(), 170).is_none());
+        let peer_drawable = TheGameClient::get_drawable_arc_in(peer.services(), 340).unwrap();
+        assert!(Arc::ptr_eq(
+            &peer_drawable,
+            &peer_actor.read().unwrap().get_drawable().unwrap()
+        ));
         assert!(
             receiving
                 .services()

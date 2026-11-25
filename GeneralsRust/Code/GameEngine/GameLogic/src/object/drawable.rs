@@ -24,7 +24,7 @@ mod drawable_transform;
 #[path = "drawable_update.rs"]
 mod drawable_update;
 
-pub(crate) use drawable_deletion::clear_drawable_modules;
+pub(crate) use drawable_deletion::retire_object_drawable;
 pub(crate) use drawable_extensions::DrawableThingHandle;
 pub use drawable_extensions::{DrawableArcExt, DrawableExt, ProjectileLaunchOffset};
 pub use drawable_render_owner::DrawableRenderOwner;
