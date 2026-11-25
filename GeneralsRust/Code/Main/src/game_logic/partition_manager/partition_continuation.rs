@@ -4,7 +4,7 @@
 //! are serialized: receiving lifetimes are rebound only after roster admission.
 use super::{
     PartitionManager,
-    partition_dirty::{PartitionDirty, PartitionObject},
+    partition_dirty::{PartitionDirty, PartitionObject, PartitionWork},
 };
 use crate::game_logic::{GameLogic, ObjectId};
 use serde::{Deserialize, Serialize};
@@ -175,9 +175,9 @@ impl GameLogic {
             .map(|(cell, ids)| (*cell, ids.clone()))
             .collect();
         cells.sort_by_key(|row| row.0);
+        // The named GhostObject block recreates orphan coverage from geometry.
         let dirty = partition
-            .dirty
-            .iter()
+            .dirty_objects()
             .map(|row| (row.object_id, row.update_cells, row.check_collisions))
             .collect();
         let mut observations: Vec<_> = partition
@@ -271,12 +271,12 @@ impl GameLogic {
                 .objects
                 .get(&ObjectId(id))
                 .expect("validated dirty Object");
-            self.partition_manager.dirty.push(PartitionDirty {
+            self.partition_manager.dirty.push(PartitionWork::Object(PartitionDirty {
                 object_id: id,
                 update_cells,
                 check_collisions,
                 birth: Arc::downgrade(&actor.visual_draw_identity_token),
-            });
+            }));
         }
         if legacy_scalar_history {
             for id in self.objects.ordered_ids().to_vec() {
@@ -370,8 +370,7 @@ mod tests {
                 assert!(
                     owner
                         .partition_manager
-                        .dirty
-                        .iter()
+                        .dirty_objects()
                         .any(|entry| entry.object_id == id.0)
                 );
                 assert_eq!(
@@ -581,8 +580,7 @@ mod tests {
                 assert!(
                     owner
                         .partition_manager
-                        .dirty
-                        .iter()
+                        .dirty_objects()
                         .any(|row| row.object_id == jet.0 && row.update_cells)
                 );
                 owner
@@ -594,8 +592,7 @@ mod tests {
                 assert!(
                     owner
                         .partition_manager
-                        .dirty
-                        .iter()
+                        .dirty_objects()
                         .any(|row| row.object_id == jet.0 && row.update_cells)
                 );
                 assert_eq!(
@@ -658,8 +655,7 @@ mod tests {
                 assert!(
                     owner
                         .partition_manager
-                        .dirty
-                        .iter()
+                        .dirty_objects()
                         .any(|row| row.object_id == victim.0 && row.update_cells)
                 );
                 owner
@@ -683,8 +679,7 @@ mod tests {
                 assert!(
                     owner
                         .partition_manager
-                        .dirty
-                        .iter()
+                        .dirty_objects()
                         .any(|row| row.object_id == bus.0 && row.update_cells)
                 );
             },
@@ -723,8 +718,7 @@ mod tests {
                     assert!(
                         !world
                             .partition_manager
-                            .dirty
-                            .iter()
+                            .dirty_objects()
                             .any(|row| row.object_id == site.0),
                         "setStatus makes the site dirty only after its synchronous callbacks"
                     );
@@ -769,7 +763,7 @@ mod tests {
                 assert_eq!(owner.objects[&queued].health.current, 0.);
                 assert!(owner.objects[&queued].status.effectively_dead);
                 assert_eq!(
-                    owner.partition_manager.dirty.last().unwrap().object_id,
+                    owner.partition_manager.dirty_objects().next_back().unwrap().object_id,
                     site.0
                 );
                 // Already-dead control: this is not permission to resurrect an actor.

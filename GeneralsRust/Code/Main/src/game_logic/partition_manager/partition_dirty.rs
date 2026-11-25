@@ -1,7 +1,7 @@
 //! Original attached PartitionData identity and first-dirty scheduling.
 //! This metadata augments the existing object->COI map; it is not an Object owner.
-use std::sync::{Arc, Weak};
 use gamelogic::object::w3d_ghost_object::W3DGhostSceneId;
+use std::sync::{Arc, Weak};
 #[derive(Debug, Default)]
 pub(super) struct PartitionObject {
     pub(super) cells: Vec<(i32, i32)>,
@@ -19,6 +19,13 @@ pub(in crate::game_logic) struct PartitionDirty {
     pub(in crate::game_logic) check_collisions: bool,
     pub(super) birth: Weak<()>,
 }
+
+#[derive(Debug)]
+pub(super) enum PartitionWork {
+    Object(PartitionDirty),
+    Ghost(W3DGhostSceneId),
+}
+
 impl PartitionDirty {
     pub(in crate::game_logic) fn matches(&self, birth: &Arc<()>) -> bool {
         Weak::ptr_eq(&self.birth, &Arc::downgrade(birth))
@@ -100,7 +107,10 @@ impl super::PartitionManager {
         {
             return;
         }
-        if let Some(dirty) = self.dirty.iter_mut().find(|dirty| dirty.object_id == id) {
+        if let Some(dirty) = self.dirty.iter_mut().find_map(|work| match work {
+            PartitionWork::Object(dirty) if dirty.object_id == id => Some(dirty),
+            _ => None,
+        }) {
             assert!(
                 dirty.matches(birth),
                 "pending partition dirty lifetime mismatch"
@@ -108,16 +118,47 @@ impl super::PartitionManager {
             dirty.update_cells |= cells;
             dirty.check_collisions = true;
         } else {
-            self.dirty.push(PartitionDirty {
+            self.dirty.push(PartitionWork::Object(PartitionDirty {
                 object_id: id,
                 update_cells: cells,
                 check_collisions: true,
                 birth: Arc::downgrade(birth),
-            });
+            }));
         }
     }
+
+    /// Unregister cancels contacts. A retained ghost inherits an already
+    /// queued COI refresh at the old module's place in the dirty list.
+    pub(super) fn detach_dirty_partition(&mut self, id: u32, ghost: Option<W3DGhostSceneId>) {
+        self.dirty.retain_mut(|work| {
+            if let PartitionWork::Object(dirty) = work
+                && dirty.object_id == id
+            {
+                let Some(ghost) = ghost.filter(|_| dirty.update_cells) else {
+                    return false;
+                };
+                *work = PartitionWork::Ghost(ghost);
+            }
+            true
+        });
+    }
+
+    pub(super) fn dirty_objects(&self) -> impl DoubleEndedIterator<Item = &PartitionDirty> {
+        self.dirty.iter().filter_map(|work| match work {
+            PartitionWork::Object(object) => Some(object),
+            PartitionWork::Ghost(_) => None,
+        })
+    }
+
+    /// Null-parent PartitionData has no Object callbacks or collision pass.
+    /// Finish its cell work in order before returning the next live module.
     pub(in crate::game_logic) fn take_next_receiving_dirty(&mut self) -> Option<PartitionDirty> {
-        self.dirty.pop()
+        loop {
+            match self.dirty.pop()? {
+                PartitionWork::Object(dirty) => return Some(dirty),
+                PartitionWork::Ghost(ghost) => self.refresh_orphan_footprint(ghost),
+            }
+        }
     }
     pub(in crate::game_logic) fn receiving_transform_changed(
         &mut self,

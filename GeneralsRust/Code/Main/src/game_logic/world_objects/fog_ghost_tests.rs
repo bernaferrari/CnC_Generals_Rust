@@ -311,6 +311,57 @@ fn physical_parent_removal_preserves_orphan_until_its_original_location_is_revea
 }
 
 #[test]
+fn dirty_fog_orphan_refresh_uses_the_frozen_pose_after_object_id_reuse() {
+    use crate::game_logic::game_logic::host_object_footprint;
+    use crate::game_logic::partition_coi::cells_touched_for_footprint;
+
+    let mut world = world();
+    let shape = HostGeometryInfo {
+        authored: true,
+        is_small: true,
+        major_radius: 8.0,
+        minor_radius: 8.0,
+        ..Default::default()
+    };
+    world.set_fixture_object_geometry(PARENT, shape.to_host_geometry());
+    world.update_owned_partition_with_effects(&mut Default::default()).unwrap();
+    let footprint = host_object_footprint(&world.objects[&PARENT]);
+    let old_cells = cells_touched_for_footprint(80.0, 80.0, footprint);
+    let frozen_cells = cells_touched_for_footprint(120.0, 80.0, footprint);
+    assert_ne!(old_cells, frozen_cells);
+    reveal(&mut world);
+    world.set_fixture_object_position(PARENT, Vec3::new(120.0, 3.0, 80.0));
+    world.admit_host_ghost_draws(vec![native_draw(&world, "FrozenAfterMove", 1)]);
+    fog(&mut world);
+
+    let ghost_id = world.fog_ghost_scene().used()[0].scene_id();
+    assert!(world.take_object_for_physical_retirement(PARENT, &mut Default::default()).unwrap().is_some());
+    assert_eq!(world.partition_manager.ghost_partition_cells(ghost_id), Some(old_cells.as_slice()));
+    let mut replacement = Object::new(world.templates["FogBuilding"].clone(), PARENT, Team::China);
+    replacement.owner_player_id = Some(2);
+    replacement.set_position(Vec3::new(220.0, 0.0, 205.0));
+    replacement.shroud_clearing_range = 0.0;
+    world.add_object(replacement);
+
+    let builder = crate::save_load::snapshot::SnapshotBuilder::new();
+    let snapshot = builder.create_world_snapshot(&world).unwrap();
+    let mut receiver = GameLogic::new();
+    receiver.templates = world.templates.clone();
+    receiver.add_player(Player::new(1, Team::USA, "Viewer", true));
+    receiver.add_player(Player::new(2, Team::China, "Enemy", false));
+    builder.restore_from_snapshot(&snapshot, &mut receiver).unwrap();
+    let restored = receiver.fog_ghost_scene().used().iter()
+        .find(|ghost| ghost.parent_object_id().is_none()).unwrap().scene_id();
+
+    assert_eq!(world.update_owned_partition_with_effects(&mut Default::default()).unwrap(), 0);
+    assert_eq!(world.partition_manager.ghost_partition_cells(ghost_id), Some(frozen_cells.as_slice()));
+    receiver.update_owned_partition_with_effects(&mut Default::default()).unwrap();
+    assert_eq!(receiver.partition_manager.ghost_partition_cells(restored), Some(frozen_cells.as_slice()));
+    assert!(!world.partition_manager.neighbor_object_ids(120.0, 80.0).contains(&PARENT.0));
+    assert!(world.partition_manager.neighbor_object_ids(220.0, 205.0).contains(&PARENT.0));
+}
+
+#[test]
 fn boundary_rebuilds_destroyed_fogged_object_coverage_in_each_world_and_save() {
     fn old_grid(world: &mut GameLogic) {
         world.admit_camera_application_movement(game_engine::common::ini::ini_game_data::CameraMovementRules {

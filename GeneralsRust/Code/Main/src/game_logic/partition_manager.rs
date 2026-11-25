@@ -12,7 +12,7 @@ mod partition_ghosts;
 mod partition_scalars;
 pub(in crate::game_logic) use partition_contacts::PartitionContact;
 pub(crate) use partition_continuation::PartitionContinuation;
-use partition_dirty::{PartitionDirty, PartitionObject};
+use partition_dirty::{PartitionObject, PartitionWork};
 
 /// C++ PartitionManager PartitionCellSize residual (world units).
 pub const PARTITION_CELL_SIZE_RESIDUAL: f32 = 40.0;
@@ -55,7 +55,7 @@ pub struct PartitionManager {
     /// Detached modules retain the ghost's footprint without live cell membership.
     ghost_cells: HashMap<u64, PartitionObject>,
     ghost_scene: gamelogic::object::w3d_ghost_object::W3DGhostObjectManager,
-    dirty: Vec<PartitionDirty>,
+    dirty: Vec<PartitionWork>,
     namespace: std::sync::Arc<()>,
     /// Same receiving WorldServices grid; this handle adds no scalar storage.
     scalar_owner: Option<partition_scalars::ScalarOwner>,
@@ -345,8 +345,8 @@ impl PartitionManager {
             return false;
         };
         self.remove_live_cell_membership(id, &module.cells);
-        self.dirty.retain(|dirty| dirty.object_id != id);
-        self.release_object_ghost(id, module);
+        let retained = self.release_object_ghost(id, module);
+        self.detach_dirty_partition(id, retained);
         true
     }
 

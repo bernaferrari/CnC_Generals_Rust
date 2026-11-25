@@ -1,10 +1,12 @@
 //! W3D fog memory follows PartitionData registration. Retained modules keep
 //! their footprint after the live Object has left the collision index.
 
-use super::{PartitionManager, PartitionObject};
+use super::{PartitionManager, PartitionObject, PartitionWork};
 use crate::game_logic::partition_coi::HostPartitionFootprint;
 use crate::game_logic::{HostGeometryType, KindOf, Object};
-use gamelogic::object::w3d_ghost_object::{W3DGhostObjectManager, W3DGhostSceneId};
+use gamelogic::object::w3d_ghost_object::{
+    ParentGeometrySnapshot, W3DGhostObjectManager, W3DGhostSceneId,
+};
 
 impl PartitionManager {
     pub(in crate::game_logic) fn fog_scene(&self) -> &W3DGhostObjectManager {
@@ -30,16 +32,21 @@ impl PartitionManager {
         }
     }
 
-    pub(super) fn release_object_ghost(&mut self, id: u32, mut module: PartitionObject) {
+    pub(super) fn release_object_ghost(
+        &mut self,
+        id: u32,
+        mut module: PartitionObject,
+    ) -> Option<W3DGhostSceneId> {
         let retain = self.retire_object_shroud_history(id, module.ghost.is_some());
-        if let Some(ghost) = module.ghost {
-            if retain {
-                self.ghost_scene.orphan_linked_ghost(ghost);
-                module.birth = None;
-                self.ghost_cells.insert(ghost, module);
-            } else {
-                self.ghost_scene.remove_linked_ghost(ghost);
-            }
+        let ghost = module.ghost?;
+        if retain {
+            self.ghost_scene.orphan_linked_ghost(ghost);
+            module.birth = None;
+            self.ghost_cells.insert(ghost, module);
+            Some(ghost)
+        } else {
+            self.ghost_scene.remove_linked_ghost(ghost);
+            None
         }
     }
 
@@ -53,6 +60,32 @@ impl PartitionManager {
     pub(in crate::game_logic) fn remove_orphan_ghost(&mut self, ghost: W3DGhostSceneId) {
         self.ghost_cells.remove(&ghost);
         self.ghost_scene.remove_linked_ghost(ghost);
+        self.dirty.retain(|work| !matches!(work, PartitionWork::Ghost(id) if *id == ghost));
+    }
+
+    pub(super) fn refresh_orphan_footprint(&mut self, ghost: W3DGhostSceneId) {
+        let Some(geometry) = self.ghost_scene.used().iter()
+            .find(|candidate| candidate.scene_id() == ghost)
+            .and_then(|candidate| candidate.parent_geometry())
+        else {
+            return;
+        };
+        let cells = self.orphan_cells(geometry);
+        if let Some(module) = self.ghost_cells.get_mut(&ghost) {
+            module.cells = cells;
+            module.footprint_stamp = None;
+        }
+    }
+
+    fn orphan_cells(&self, info: ParentGeometrySnapshot) -> Vec<(i32, i32)> {
+        let footprint = HostPartitionFootprint {
+            major_radius: info.major_radius,
+            minor_radius: info.minor_radius,
+            angle: info.angle,
+            is_small: info.is_small,
+            is_box: info.geometry_type == HostGeometryType::Box as u32,
+        };
+        self.footprint_cells(info.position[0], info.position[1], footprint)
     }
 
     /// W3DGhostObjectManager::releasePartitionData preserves the scene across
@@ -67,6 +100,7 @@ impl PartitionManager {
                 self.ghost_cells.remove(&ghost.scene_id());
             }
         }
+        self.dirty.retain(|work| matches!(work, PartitionWork::Object(_)));
         self.ghost_scene.release_partition_data();
     }
 
@@ -95,14 +129,7 @@ impl PartitionManager {
                 self.ghost_scene.orphan_linked_ghost(scene_id);
             }
             if let Some(info) = geometry {
-                let footprint = HostPartitionFootprint {
-                    major_radius: info.major_radius,
-                    minor_radius: info.minor_radius,
-                    angle: info.angle,
-                    is_small: info.is_small,
-                    is_box: info.geometry_type == HostGeometryType::Box as u32,
-                };
-                let cells = self.footprint_cells(info.position[0], info.position[1], footprint);
+                let cells = self.orphan_cells(info);
                 self.ghost_cells.insert(scene_id, PartitionObject { cells, ..Default::default() });
             }
         }
