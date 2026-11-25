@@ -321,6 +321,7 @@ impl GameLogic {
         {
             return Ok(());
         }
+        let has_admitted_upgrade_roster = self.has_admitted_upgrade_roster(object_id);
         if let Some(obj) = self.objects.get_mut(&object_id) {
             // C++ SubObjectsUpgrade / ModelConditionUpgrade::upgradeImplementation:
             // only modules this template authors, triggered through UpgradeMux.
@@ -333,9 +334,9 @@ impl GameLogic {
                 let shown: Vec<&str> = shown.iter().map(String::as_str).collect();
                 self.sub_objects_upgrades.record(&shown);
             }
-            // Armor/command-set residuals only. Weapon upgrades execute at
-            // their individual source positions in the typed mux above.
-            let flags = obj.apply_authored_flag_upgrades(|name| name.eq_ignore_ascii_case(upgrade));
+            let flags = obj.apply_authored_flag_upgrades(!has_admitted_upgrade_roster, |name| {
+                name.eq_ignore_ascii_case(upgrade)
+            });
             // C++ StealthUpgrade::upgradeImplementation (CAN_STEALTH).
             obj.run_authored_stealth_upgrades(|name| name.eq_ignore_ascii_case(upgrade));
             if newly_triggered_stealth {
@@ -400,7 +401,7 @@ impl GameLogic {
             }
         }
 
-        if !self.has_admitted_upgrade_roster(object_id) {
+        if !has_admitted_upgrade_roster {
             self.apply_authored_power_plant_upgrades(object_id, |name| {
                 name.eq_ignore_ascii_case(upgrade)
             });
@@ -486,6 +487,8 @@ impl GameLogic {
     }
 }
 
+#[cfg(test)]
+mod command_set_tests;
 #[cfg(test)]
 mod cost_modifier_receiving_owner_tests;
 #[cfg(test)]

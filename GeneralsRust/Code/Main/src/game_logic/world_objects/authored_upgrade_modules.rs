@@ -48,8 +48,8 @@ fn upgrade_mux_triggers(
     upgrade_mux_data(module).satisfied_by(has)
 }
 
-/// Armor/command-set residuals. WeaponSetUpgrade and WeaponBonusUpgrade run
-/// only in the world's typed source-order traversal, including at birth.
+/// Remaining armor effects and command overrides for raw templates without an
+/// admitted behavior roster.
 #[derive(Debug, Default, Clone, PartialEq)]
 pub(crate) struct AuthoredFlagUpgrades {
     /// ArmorUpgrade -> `setArmorSetFlag(ARMORSET_PLAYER_UPGRADE)`.
@@ -60,7 +60,11 @@ pub(crate) struct AuthoredFlagUpgrades {
 
 impl AuthoredFlagUpgrades {
     /// Evaluate `template`'s authored modules against `has(upgrade)`.
-    pub(crate) fn triggered(template: &ThingTemplate, has: impl Fn(&str) -> bool) -> Self {
+    fn triggered(
+        template: &ThingTemplate,
+        include_command_set: bool,
+        has: impl Fn(&str) -> bool,
+    ) -> Self {
         let mut out = Self::default();
         let Some(definition) = template.receiving_object_definition.as_deref() else {
             return out;
@@ -68,7 +72,7 @@ impl AuthoredFlagUpgrades {
         for module in &definition.behavior_modules {
             let class = module.class_name.as_str();
             let is = |name: &str| class.eq_ignore_ascii_case(name);
-            if !(is("ArmorUpgrade") || is("CommandSetUpgrade"))
+            if !(is("ArmorUpgrade") || (include_command_set && is("CommandSetUpgrade")))
                 || !upgrade_mux_triggers(module, &has)
             {
                 continue;
@@ -137,11 +141,13 @@ impl Object {
     /// here; removal follows UpgradeMux::removeUpgrade paths.
     pub(crate) fn apply_authored_flag_upgrades(
         &mut self,
+        include_command_set: bool,
         extra: impl Fn(&str) -> bool,
     ) -> AuthoredFlagUpgrades {
-        let applied = AuthoredFlagUpgrades::triggered(&self.thing().template, |name| {
-            extra(name) || self.has_upgrade_tag(name)
-        });
+        let applied =
+            AuthoredFlagUpgrades::triggered(&self.thing().template, include_command_set, |name| {
+                extra(name) || self.has_upgrade_tag(name)
+            });
         if applied.armor_set {
             self.set_armor_set_player_upgrade(true);
         }
@@ -848,11 +854,14 @@ mod flag_tests {
         world.apply_upgrade_to_object(id, "Upgrade_TestGun");
         assert!(world.host_object(id).unwrap().test_weapon_condition(3));
         let object = world.host_object_mut(id).unwrap();
-        let flags = object.apply_authored_flag_upgrades(|n| n == "Upgrade_TestGun");
-        assert_eq!(flags.command_set.as_deref(), Some("TestUpgradedSet"));
-        assert!(!object.apply_authored_flag_upgrades(
-            |n| n == "Upgrade_TestPlate" || n == "Upgrade_TestBlock",
-        ).armor_set);
+        assert_eq!(object.command_set_override.as_deref(), Some("TestUpgradedSet"));
+        assert!(
+            !object
+                .apply_authored_flag_upgrades(false, |n| {
+                    n == "Upgrade_TestPlate" || n == "Upgrade_TestBlock"
+                })
+                .armor_set
+        );
         world.apply_upgrade_to_object(id, "Upgrade_TestA");
         assert!(!world.host_object(id).unwrap().weapon_bonus_player_upgrade);
         world.apply_upgrade_to_object(id, "Upgrade_TestB");
@@ -907,7 +916,7 @@ mod flag_tests {
         let (mut world, id) = world("AmericaVehicleHumvee", "");
         world.apply_upgrade_to_object(id, "Upgrade_AmericaTOWMissile");
         let object = world.host_object_mut(id).unwrap();
-        let flags = object.apply_authored_flag_upgrades(|n| n == "Upgrade_AmericaTOWMissile");
+        let flags = object.apply_authored_flag_upgrades(false, |n| n == "Upgrade_AmericaTOWMissile");
         assert_eq!(flags, AuthoredFlagUpgrades::default());
         assert!(!object.test_weapon_condition(3));
     }

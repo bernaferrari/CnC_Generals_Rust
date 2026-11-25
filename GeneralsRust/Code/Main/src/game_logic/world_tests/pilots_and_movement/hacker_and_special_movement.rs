@@ -2645,8 +2645,9 @@ fn command_set_upgrade_emp_mines_on_cc() {
                 "Behavior = CommandSetUpgrade FixtureEMPMines\n TriggeredBy = Upgrade_ChinaEMPMines\n CommandSet = ChinaCommandCenterCommandSetUpgrade\nEnd",
             )],
     );
+    ensure_test_player_for_team(&mut logic, Team::China);
     let id = logic
-        .create_object("ChinaCommandCenter", Team::China, glam::Vec3::ZERO)
+        .create_object_for_player("ChinaCommandCenter", 1, glam::Vec3::ZERO)
         .unwrap();
     logic.apply_upgrade_to_object(id, "Upgrade_ChinaEMPMines");
     let cs = logic

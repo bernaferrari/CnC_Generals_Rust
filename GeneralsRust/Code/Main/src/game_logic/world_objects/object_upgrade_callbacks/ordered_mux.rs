@@ -1,6 +1,6 @@
 //! Object::updateUpgradeModules / removeUpgrade and the typed UpgradeMux pass.
 use super::*;
-use gamelogic::object::upgrade::ReplaceObjectUpgradeModuleData;
+use gamelogic::object::upgrade::{CommandSetUpgradeModuleData, ReplaceObjectUpgradeModuleData};
 
 struct AuthoredObjectCreationUpgrade {
     state_index: usize,
@@ -74,6 +74,17 @@ impl AuthoredReplaceObjectUpgrade {
     }
 }
 
+struct AuthoredCommandSetUpgrade {
+    source_index: usize,
+    data: ModuleDataView<CommandSetUpgradeModuleData>,
+}
+
+impl AuthoredCommandSetUpgrade {
+    fn executed_key(&self) -> String {
+        format!("CommandSetUpgrade#{}", self.source_index)
+    }
+}
+
 struct AuthoredPowerPlantUpgrade {
     executed_key: String,
     data: ModuleDataView<gamelogic::object::upgrade::PowerPlantUpgradeModuleData>,
@@ -87,6 +98,7 @@ struct AuthoredRadarUpgrade {
 enum AuthoredOrderedUpgrade {
     ObjectCreation(AuthoredObjectCreationUpgrade),
     ReplaceObject(AuthoredReplaceObjectUpgrade),
+    CommandSet(AuthoredCommandSetUpgrade),
     StatusBits(AuthoredStatusBitsUpgrade),
     CostModifier(AuthoredCostModifierUpgrade),
     PowerPlant(AuthoredPowerPlantUpgrade),
@@ -113,6 +125,7 @@ impl AuthoredOrderedUpgrade {
         match self {
             Self::ObjectCreation(module) => f(&module.data.read().upgrade_mux_data),
             Self::ReplaceObject(module) => f(&module.data.read().upgrade_mux_data),
+            Self::CommandSet(module) => f(&module.data.read().upgrade_mux_data),
             Self::StatusBits(module) => f(&module.data.read().upgrade_mux_data),
             Self::CostModifier(module) => f(&module.data.read().upgrade_mux_data),
             Self::PowerPlant(module) => f(&module.data.read().upgrade_mux_data),
@@ -166,6 +179,12 @@ impl GameLogic {
                     let data = upgrade_data_view::<ReplaceObjectUpgradeModuleData>(&module.data)?;
                     return Some(AuthoredOrderedUpgrade::ReplaceObject(
                         AuthoredReplaceObjectUpgrade { source_index, data },
+                    ));
+                }
+                if module.name.as_str().eq_ignore_ascii_case("CommandSetUpgrade") {
+                    let data = upgrade_data_view::<CommandSetUpgradeModuleData>(&module.data)?;
+                    return Some(AuthoredOrderedUpgrade::CommandSet(
+                        AuthoredCommandSetUpgrade { source_index, data },
                     ));
                 }
                 if module.name.as_str().eq_ignore_ascii_case("StatusBitsUpgrade") {
@@ -349,6 +368,10 @@ impl GameLogic {
                     .objects
                     .get(&object_id)
                     .is_some_and(|object| object.applied_upgrades.contains(&module.executed_key())),
+                AuthoredOrderedUpgrade::CommandSet(module) => self
+                    .objects
+                    .get(&object_id)
+                    .is_some_and(|object| object.applied_upgrades.contains(&module.executed_key())),
                 AuthoredOrderedUpgrade::PassengersFire(module) => self
                     .objects
                     .get(&object_id)
@@ -397,6 +420,33 @@ impl GameLogic {
                         interpreter,
                         presentation_effects,
                     )
+                }
+                AuthoredOrderedUpgrade::CommandSet(module) => {
+                    let data = module.data.read();
+                    // CommandSetUpgrade.cpp:47–78 reads the completed masks at
+                    // invocation, after preceding callbacks and this module's removals.
+                    let use_alternative = self
+                        .upgrade_template(data.trigger_alt().as_str())
+                        .is_some_and(|trigger| {
+                            self.combined_object_and_player_upgrade_mask(object_id, None)
+                                .test_for_any(trigger.get_mask())
+                        });
+                    let name = if use_alternative {
+                        data.command_set_alt()
+                    } else {
+                        data.command_set_name()
+                    };
+                    if let Some(object) = self.objects.get_mut(&object_id) {
+                        object.set_command_set_override(
+                            (!name.is_empty()).then(|| name.as_str().to_owned()),
+                        );
+                        self.replace_grant_command_upgrades
+                            .record_command_set(name.as_str());
+                        if let Some(ui) = presentation_effects.ui.as_deref_mut() {
+                            ui.mark_control_bar_dirty();
+                        }
+                    }
+                    Ok(())
                 }
                 AuthoredOrderedUpgrade::StatusBits(module) => {
                     let names =
@@ -590,6 +640,9 @@ impl GameLogic {
                             // when the authored replacement template is absent.
                             object.applied_upgrades.insert(module.executed_key());
                         }
+                        AuthoredOrderedUpgrade::CommandSet(module) => {
+                            object.applied_upgrades.insert(module.executed_key());
+                        }
                         AuthoredOrderedUpgrade::PassengersFire(module) => {
                             object.applied_upgrades.insert(module.executed_key());
                         }
@@ -769,6 +822,10 @@ impl GameLogic {
                             object.radar_upgrade_executed[module.state_index] = false;
                         }
                         Some(AuthoredOrderedUpgrade::ReplaceObject(module)) => {
+                            object.applied_upgrades.remove(&module.executed_key());
+                        }
+                        Some(AuthoredOrderedUpgrade::CommandSet(module)) => {
+                            // UpgradeMux::resetUpgrade leaves the published command set.
                             object.applied_upgrades.remove(&module.executed_key());
                         }
                         Some(AuthoredOrderedUpgrade::PassengersFire(module)) => {

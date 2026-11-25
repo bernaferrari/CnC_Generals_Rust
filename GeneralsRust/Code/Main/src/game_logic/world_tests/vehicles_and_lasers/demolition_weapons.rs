@@ -154,12 +154,19 @@ fn late_built_unit_runs_its_authored_suicide_command_set_upgrade() {
         object("PlainBomber", &upgrade),
         object("Demo_GLAInfantryRebel", "")
     ));
-    logic.apply_host_upgrade_complete(Team::GLA, 0, SUICIDE_UPGRADE);
+    crate::game_logic::host_upgrade_rules::register_test_upgrade(
+        &mut logic,
+        SUICIDE_UPGRADE,
+        "PLAYER",
+        0,
+        1,
+    );
+    logic.add_completed_player_upgrade(0, SUICIDE_UPGRADE);
     assert!(
         logic
             .get_player(0)
             .unwrap()
-            .has_unlocked_upgrade(SUICIDE_UPGRADE)
+            .completed_upgrades.contains(SUICIDE_UPGRADE)
     );
     let late = logic
         .create_object_for_player("PlainBomber", 0, Vec3::ZERO)
