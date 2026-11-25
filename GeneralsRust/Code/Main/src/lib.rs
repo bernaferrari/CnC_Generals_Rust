@@ -45,8 +45,6 @@ pub mod game_engine;
 pub mod game_logic;
 pub mod game_results_queue;
 pub mod graphics;
-#[cfg(feature = "integration-diagnostics")]
-pub mod integration_bridge;
 pub mod localization;
 pub mod resource;
 pub mod ui;
@@ -176,8 +174,6 @@ pub mod version;
 pub use ::game_engine::common::frame_clock::FrameClock;
 pub use fow_rendering::*;
 pub use game_engine::*;
-#[cfg(feature = "integration-diagnostics")]
-pub use integration_bridge::*;
 pub use localization::*;
 pub use resource::*;
 pub use ui::*;

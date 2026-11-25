@@ -196,10 +196,6 @@ pub async fn run_cnc_game(
     let mut runtime_window_minimized = false;
     let mut next_headless_present_at = Instant::now();
 
-    #[cfg(feature = "integration-diagnostics")]
-    let mut integration_bridge: Option<IntegrationTelemetryBridge> = None;
-    #[cfg(feature = "integration-diagnostics")]
-    let runtime_handle = tokio::runtime::Handle::current();
 
     // Winit's callback cannot return the application's error. Keep only the
     // terminal outcome here, stop dispatch immediately on failure, then return
@@ -239,20 +235,6 @@ pub async fn run_cnc_game(
                 let _ = applied;
             }
 
-            #[cfg(feature = "integration-diagnostics")]
-            let mut before_logic = |engine: &mut CnCGameEngine, timing: &FrameTiming| -> std::result::Result<(), String> {
-                if let Some(bridge) = integration_bridge.as_mut() {
-                    if let Err(err) = runtime_handle.block_on(bridge.pump_with_timing(engine, *timing))
-                    {
-                        error!(
-                            "Integration telemetry pump failed: {err:?}. Disabling bridge."
-                        );
-                        integration_bridge = None;
-                    }
-                }
-                Ok(())
-            };
-            #[cfg(not(feature = "integration-diagnostics"))]
             let mut before_logic = |_: &mut CnCGameEngine, _: &FrameTiming| -> std::result::Result<(), String> { Ok(()) };
             let HostFrameUpdate { frame_started, ww3d_elapsed, update_elapsed } =
                 engine.drive_frame_update(&mut last_drive_frame_start, &mut before_logic)?;
@@ -598,22 +580,6 @@ pub async fn run_cnc_game(
                                     next_redraw_at = Instant::now();
                                     elwt.set_control_flow(ControlFlow::Poll);
                                 }
-                                #[cfg(feature = "integration-diagnostics")]
-                                if cmd_args.wants_integration_diagnostics() {
-                                    match pollster::block_on(IntegrationTelemetryBridge::new(
-                                        IntegrationConfig::default(),
-                                    )) {
-                                        Ok(bridge) => {
-                                            info!("Integration diagnostics bridge initialized");
-                                            integration_bridge = Some(bridge);
-                                        }
-                                        Err(err) => {
-                                            error!(
-                                                "Failed to initialize integration diagnostics bridge: {err:?}. Continuing without telemetry overlay."
-                                            );
-                                        }
-                                    }
-                                }
                             }
                             Poll::Ready(Err(err)) => {
                                 *engine_init_future = None;
@@ -898,14 +864,7 @@ pub async fn run_cnc_game(
                     elwt.set_control_flow(control_flow_wait_until(next_redraw_at));
                 }
             }
-            Event::LoopExiting => {
-                #[cfg(feature = "integration-diagnostics")]
-                if let Some(bridge) = integration_bridge.take() {
-                    if let Err(err) = runtime_handle.block_on(bridge.shutdown()) {
-                        error!("Failed to shut down integration telemetry bridge: {err:?}");
-                    }
-                }
-            }
+            Event::LoopExiting => {}
             _ => {}
         }
         Ok(())

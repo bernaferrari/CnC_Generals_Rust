@@ -63,7 +63,6 @@ pub struct CommandLineArgs {
     pub network_port: Option<u16>,
     pub network_host: Option<String>,
     pub display_debug_overlay: bool,
-    pub integration_diagnostics: bool,
     pub dx_stack_dump: bool,
     pub smoke_test: bool,
     /// Last explicit startup window mode flag from command line order.
@@ -263,26 +262,6 @@ impl CommandLineArgs {
                         Self::store_option_aliases(
                             &mut parsed.options,
                             &["displaydebug", "display_debug"],
-                            &value,
-                        );
-                    }
-                    "integrationdiagnostics"
-                    | "integration_diagnostics"
-                    | "integrationdiag"
-                    | "integrationdiagnostic"
-                    | "integrationdiagostics"
-                    | "integrationdiagdebug" => {
-                        parsed.integration_diagnostics = true;
-                        Self::store_option_aliases(
-                            &mut parsed.options,
-                            &[
-                                "integrationdiagnostics",
-                                "integration_diagnostics",
-                                "integrationdiag",
-                                "integrationdiagnostic",
-                                "integrationdiagostics",
-                                "integrationdiagdebug",
-                            ],
                             &value,
                         );
                     }
@@ -616,10 +595,6 @@ impl CommandLineArgs {
         self.display_debug_overlay || self.is_developer_mode()
     }
 
-    /// Whether the integration diagnostics bridge should be enabled.
-    pub fn wants_integration_diagnostics(&self) -> bool {
-        self.integration_diagnostics
-    }
 
     /// Whether the early DX bootstrap path should run.
     pub fn wants_dx_stack_dump(&self) -> bool {

@@ -6,8 +6,6 @@ use crate::graphics::MinimapCoordinates;
 use crate::localization;
 use crate::ui::objectives::ObjectiveDisplay;
 use glam::Vec3;
-#[cfg(feature = "integration-diagnostics")]
-use integration::diagnostics::SystemDiagnostics;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct UiColor {
@@ -380,20 +378,6 @@ impl DiagnosticsOverlayStats {
         }
     }
 
-    #[cfg(feature = "integration-diagnostics")]
-    pub fn from_system(diag: &SystemDiagnostics) -> Self {
-        Self {
-            health_score: diag.health_score as f32,
-            engine: diag.subsystem_health.engine as f32,
-            graphics: diag.subsystem_health.graphics as f32,
-            audio: diag.subsystem_health.audio as f32,
-            network: diag.subsystem_health.network as f32,
-            logic: diag.subsystem_health.logic as f32,
-            warnings: diag.error_counts.warnings,
-            errors: diag.error_counts.errors,
-            critical_errors: diag.error_counts.critical_errors,
-        }
-    }
 }
 
 #[derive(Debug, Clone, PartialEq)]

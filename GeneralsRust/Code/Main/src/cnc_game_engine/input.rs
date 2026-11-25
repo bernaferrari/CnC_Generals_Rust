@@ -1204,10 +1204,6 @@ impl CnCGameEngine {
         self.diagnostics_overlay = Some(stats);
     }
 
-    #[cfg(feature = "integration-diagnostics")]
-    pub fn set_integration_diagnostics(&mut self, diag: &SystemDiagnostics) {
-        self.diagnostics_overlay = Some(DiagnosticsOverlayStats::from_system(diag));
-    }
 
     /// Clears any externally provided diagnostics snapshot, falling back to
     /// locally-derived estimates.

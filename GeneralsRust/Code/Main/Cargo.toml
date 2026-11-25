@@ -32,7 +32,6 @@ allow_surrender = []
 
 # Integration and testing
 integration-tests = []
-integration-diagnostics = ["integration"]
 native-dialog = ["dep:native-dialog"]
 
 # Residual/wave audit packs under game_logic/ (test/audit only; not in default).
@@ -71,9 +70,7 @@ game_engine = { path = "../GameEngine/Common" }
 gamelogic = { path = "../GameEngine/GameLogic" }
 generals_game_domain = { path = "../GameEngine/GameDomain" }
 generals_presentation = { path = "../GameEngine/Presentation" }
-integration = { path = "../Integration", optional = true }
 game_client = { path = "../GameEngine/GameClient", package = "game-client-rust", optional = true }
-game_engine_device = { path = "../GameEngine/GameEngineDevice", optional = true }
 game_network = { path = "../GameEngine/GameNetwork", optional = true }
 
 # Graphics and window management
@@ -257,10 +254,6 @@ path = "src/bin/lone_eagle_bench.rs"
 name = "facility_cache_gate"
 path = "src/bin/facility_cache_gate.rs"
 
-[[example]]
-name = "telemetry_bridge"
-path = "examples/telemetry_bridge.rs"
-required-features = ["integration-diagnostics"]
 
 [[example]]
 name = "run_exec_smoke"

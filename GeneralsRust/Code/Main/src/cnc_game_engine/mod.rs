@@ -15,8 +15,6 @@ use crate::graphics::{
     GraphicsSystem, RenderPipeline, graphics_system::MAX_STAGE_TEXTURES,
     render_pipeline::gameplay_to_render_transform,
 };
-#[cfg(feature = "integration-diagnostics")]
-use crate::integration_bridge::IntegrationTelemetryBridge;
 use crate::localization;
 use crate::platform::{WindowMessageProcessor, create_platform_message_handler};
 use crate::save_load::{GameDifficulty, SaveFileManager, SaveFileType, SaveGameInfo};
@@ -36,10 +34,6 @@ use game_engine::common::system::subsystem_interface::{
     SubsystemError, SubsystemResult, SubsystemState,
 };
 use glam::{Mat4, Vec2, Vec3};
-#[cfg(feature = "integration-diagnostics")]
-use integration::IntegrationConfig;
-#[cfg(feature = "integration-diagnostics")]
-use integration::diagnostics::SystemDiagnostics;
 use log::{debug, error, info, warn};
 use rodio_compat::{OutputStream, OutputStreamHandle, Sink, Source};
 use std::collections::{HashMap, HashSet, VecDeque};
