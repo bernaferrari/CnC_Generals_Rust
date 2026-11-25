@@ -20,7 +20,7 @@ use decoded::{SaveArchiveRef, SaveMapArchive};
 /// and client companions explicitly; decoding never publishes pieces of one
 /// candidate for another restore to take.
 pub(crate) const VERSIONED_SAVE_MAGIC: &[u8; 8] = b"GZHRSAV\0";
-pub(crate) const VERSIONED_SAVE_ARCHIVE_VERSION: u32 = 2;
+pub(crate) const VERSIONED_SAVE_ARCHIVE_VERSION: u32 = 3;
 const MAX_VERSIONED_SAVE_BYTES: usize = 512 * 1024 * 1024;
 
 /// Stored game-mode integers written by `GameStateMap::xfer` v2
@@ -156,7 +156,7 @@ pub(crate) fn rewrite_versioned_save_archive(
         saved_game_mode: archive.saved_game_mode,
         game_client_xfer: archive.game_client_xfer.as_deref(),
         terrain_visual_xfer: archive.terrain_visual_xfer.as_deref(),
-        ghost_object_xfer: archive.snapshot.w3d_ghost_companion.as_deref(),
+        ghost_object_archive: archive.snapshot.w3d_ghost_archive.as_ref(),
         particle_system_xfer: archive.snapshot.particle_system_companion.as_deref(),
         map: archive.map.as_ref(),
     })
@@ -285,11 +285,11 @@ fn decode_versioned_save_archive(data: &[u8]) -> SaveLoadResult<SaveArchive> {
     fn companion(bytes: Option<Vec<u8>>) -> Option<Vec<u8>> {
         bytes.filter(|bytes| !bytes.is_empty() && bytes.as_slice() != [1])
     }
-    archive.snapshot.w3d_ghost_companion = companion(archive.ghost_object_xfer.take());
+    archive.snapshot.w3d_ghost_archive = archive.ghost_object_archive.take();
     archive.snapshot.particle_system_companion = companion(archive.particle_system_xfer.take());
     crate::save_load::snapshot::validate_decoded_world_snapshot(&mut archive.snapshot)?;
-    if let Some(bytes) = archive.snapshot.w3d_ghost_companion.as_deref() {
-        decode_w3d_ghost_xfer_bytes(bytes)?;
+    if let Some(ghosts) = archive.snapshot.w3d_ghost_archive.as_ref() {
+        decode_w3d_ghost_archive(ghosts)?;
     }
     Ok(archive)
 }
@@ -1018,8 +1018,8 @@ impl SaveFileManager {
         } else {
             validate_direct_world_snapshot_version(world_snapshot.version)?;
             crate::save_load::snapshot::validate_world_path_links(world_snapshot)?;
-            if let Some(bytes) = world_snapshot.w3d_ghost_companion.as_deref() {
-                decode_w3d_ghost_xfer_bytes(bytes)?;
+            if let Some(ghosts) = world_snapshot.w3d_ghost_archive.as_ref() {
+                decode_w3d_ghost_archive(ghosts)?;
             }
             let initial = crate::save_load::snapshot::initial_skirmish::read(world_snapshot)?;
             let source_game_info =
@@ -1057,7 +1057,7 @@ impl SaveFileManager {
             saved_game_mode,
             game_client_xfer: (!client_xfer_bytes.is_empty()).then_some(client_xfer_bytes),
             terrain_visual_xfer: terrain_visual_bytes.filter(|bytes| !bytes.is_empty()),
-            ghost_object_xfer: snapshot.w3d_ghost_companion.as_deref(),
+            ghost_object_archive: snapshot.w3d_ghost_archive.as_ref(),
             particle_system_xfer: snapshot.particle_system_companion.as_deref(),
             map: map_archive.as_ref(),
         };
@@ -1146,7 +1146,7 @@ impl SaveFileManager {
             saved_game_mode: None,
             game_client_xfer: None,
             terrain_visual_xfer: None,
-            ghost_object_xfer: None,
+            ghost_object_archive: None,
             particle_system_xfer: None,
             map: None,
         };

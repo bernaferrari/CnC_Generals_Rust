@@ -3,12 +3,13 @@
 //! CPU-side parity port for `W3DDevice/GameLogic/W3DGhostObject.cpp`.
 
 use game_engine::common::game_common::MAX_PLAYER_COUNT;
+use serde::{Deserialize, Serialize};
 use std::sync::{Arc, RwLock};
 
 pub const INVALID_OBJECT_ID: u32 = u32::MAX;
 pub const INVALID_DRAWABLE_ID: u32 = 0;
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct Matrix3x4 {
     pub rows: [[f32; 4]; 3],
 }
@@ -61,7 +62,7 @@ impl Matrix3x4 {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RenderSubObjectSnapshot {
     pub name: String,
     pub visible: bool,
@@ -221,7 +222,11 @@ pub fn register_w3d_ghost_snapshot_capture_hook(hook: Option<W3DGhostSnapshotCap
 
 pub fn capture_w3d_ghost_snapshot(object_id: u32) -> Option<W3DGhostSnapshotCapture> {
     let services = crate::system::engine_stores::active_services();
-    let hook = services.w3d_ghost_snapshot_capture_hook().read().ok()?.clone()?;
+    let hook = services
+        .w3d_ghost_snapshot_capture_hook()
+        .read()
+        .ok()?
+        .clone()?;
     hook(object_id)
 }
 
@@ -261,7 +266,7 @@ pub enum FrozenW3DGhostSceneEvent {
     RemoveSnapshot(W3DGhostSnapshotKey),
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct W3DDrawableInfo {
     pub drawable_id: u32,
     pub flags: i32,
@@ -278,7 +283,7 @@ impl Default for W3DDrawableInfo {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct ParentGeometrySnapshot {
     pub geometry_type: u32,
     pub is_small: bool,

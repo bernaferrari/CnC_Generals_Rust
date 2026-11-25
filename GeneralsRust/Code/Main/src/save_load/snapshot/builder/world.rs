@@ -191,7 +191,7 @@ impl SnapshotBuilder {
             // this default. CnCGameEngine captures the renderer-owned DTO and
             // attaches it through the explicit companion-aware save API.
             client_drawables: ClientDrawableWorldSnapshot::default(),
-            w3d_ghost_companion: Some(capture_w3d_ghost_xfer_bytes(game_logic.fog_ghost_scene())?),
+            w3d_ghost_archive: Some(capture_w3d_ghost_archive(game_logic.fog_ghost_scene())?),
             // Production save attaches this after GameClient::xfer, preserving
             // C++ named-block phase order. Pure logic snapshots have none.
             particle_system_companion: None,
@@ -787,9 +787,9 @@ impl SnapshotBuilder {
         // Reject malformed companion bytes before this API mutates its receiver.
         // Production map loading then restores this candidate world atomically.
         let ghosts = snapshot
-            .w3d_ghost_companion
-            .as_deref()
-            .map(decode_w3d_ghost_xfer_bytes)
+            .w3d_ghost_archive
+            .as_ref()
+            .map(decode_w3d_ghost_archive)
             .transpose()?
             .unwrap_or_default();
         if snapshot.version >= super::super::types::WORLD_SNAPSHOT_GARRISON_TEAM_VERSION

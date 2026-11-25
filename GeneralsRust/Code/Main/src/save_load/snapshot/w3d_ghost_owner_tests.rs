@@ -8,6 +8,7 @@ use gamelogic::object::w3d_ghost_object::{
     Matrix3x4, OBJECTSHROUD_FOGGED, ParentGeometrySnapshot, RenderObjectClass, RenderObjectState,
     RenderSubObjectSnapshot, W3DDrawableInfo,
 };
+use std::io::Cursor;
 use std::time::{Duration, SystemTime};
 
 fn ghost_owner(name: &str, parent: Option<u32>, local: usize) -> W3DGhostObjectManager {
@@ -111,13 +112,13 @@ fn two_decoded_saves_keep_their_own_ghost_companion_through_interleaved_restore(
         snapshot: snapshot_a,
         ..
     } = saves.load_game_snapshot("a").unwrap();
-    let bytes_a = snapshot_a.w3d_ghost_companion.as_ref().unwrap().clone();
+    let bytes_a = snapshot_a.w3d_ghost_archive.as_ref().unwrap().clone();
     let crate::save_load::DecodedGameSave {
         snapshot: snapshot_b,
         ..
     } = saves.load_game_snapshot("b").unwrap();
-    assert_ne!(bytes_a, *snapshot_b.w3d_ghost_companion.as_ref().unwrap());
-    assert_eq!(snapshot_a.w3d_ghost_companion.as_ref().unwrap(), &bytes_a);
+    assert_ne!(bytes_a, *snapshot_b.w3d_ghost_archive.as_ref().unwrap());
+    assert_eq!(snapshot_a.w3d_ghost_archive.as_ref().unwrap(), &bytes_a);
     *a.fixture_fog_ghost_scene_mut() = Default::default();
     *b.fixture_fog_ghost_scene_mut() = Default::default();
     let builder = SnapshotBuilder::new();
@@ -166,14 +167,15 @@ fn malformed_ghost_companion_rejects_before_mutating_the_receiving_world() {
     live.set_current_frame(91);
     *live.fixture_fog_ghost_scene_mut() = ghost_owner("StillLive", Some(42), 0);
     let before = live.fog_ghost_scene().clone();
-    let bytes = capture_w3d_ghost_xfer_bytes(&before).unwrap();
-    for invalid in [
-        bytes[..bytes.len() - 1].to_vec(),
-        [bytes.clone(), vec![0x71]].concat(),
-    ] {
+    let valid = capture_w3d_ghost_archive(&before).unwrap();
+    let mut invalid_local_player = valid.clone();
+    invalid_local_player.local_player = usize::MAX;
+    let mut invalid_player_table = valid;
+    invalid_player_table.ghosts[0].player_snapshots.pop();
+    for invalid in [invalid_local_player, invalid_player_table] {
         let mut snapshot = WorldSnapshot::default();
         snapshot.frame_number = 7;
-        snapshot.w3d_ghost_companion = Some(invalid);
+        snapshot.w3d_ghost_archive = Some(invalid);
         assert!(
             SnapshotBuilder::new()
                 .restore_from_snapshot(&snapshot, &mut live)
@@ -187,10 +189,10 @@ fn malformed_ghost_companion_rejects_before_mutating_the_receiving_world() {
 #[test]
 fn saved_ghost_geometry_is_validated_before_the_receiving_world_changes() {
     let owner = ghost_owner("FiniteFootprint", None, 0);
-    let bytes = capture_w3d_ghost_xfer_bytes(&owner).unwrap();
-    let valid = decode_w3d_ghost_xfer_bytes(&bytes).unwrap();
+    let bytes = capture_w3d_ghost_archive(&owner).unwrap();
+    let valid = decode_w3d_ghost_archive(&bytes).unwrap();
     assert_eq!(
-        capture_w3d_ghost_xfer_bytes(&valid).unwrap(),
+        capture_w3d_ghost_archive(&valid).unwrap(),
         bytes,
         "valid original ghost wire remains byte-identical"
     );
@@ -236,7 +238,7 @@ fn saved_ghost_geometry_is_validated_before_the_receiving_world_changes() {
         candidate.used_mut()[0].set_parent_geometry(geometry);
         let mut snapshot = WorldSnapshot::default();
         snapshot.frame_number = 7;
-        snapshot.w3d_ghost_companion = Some(capture_w3d_ghost_xfer_bytes(&candidate).unwrap());
+        snapshot.w3d_ghost_archive = Some(capture_w3d_ghost_archive(&candidate).unwrap());
         assert!(
             SnapshotBuilder::new()
                 .restore_from_snapshot(&snapshot, &mut live)
@@ -244,7 +246,8 @@ fn saved_ghost_geometry_is_validated_before_the_receiving_world_changes() {
         );
         assert_eq!(live.get_current_frame(), 91);
         assert_eq!(
-            live.fog_ghost_scene(), &before,
+            live.fog_ghost_scene(),
+            &before,
             "failed geometry cannot alter live snapshots or scene events"
         );
     }
@@ -265,8 +268,8 @@ fn saved_manager_bounds_the_combined_original_footprint_work() {
         });
     }
     let before = manager.clone();
-    let bytes = capture_w3d_ghost_xfer_bytes(&manager).unwrap();
-    assert!(decode_w3d_ghost_xfer_bytes(&bytes).is_err());
+    let bytes = capture_w3d_ghost_archive(&manager).unwrap();
+    assert!(decode_w3d_ghost_archive(&bytes).is_err());
     assert_eq!(manager, before);
 }
 
@@ -276,13 +279,15 @@ fn manager_decode_keeps_other_owners_creation_locks_and_scene_events_unchanged()
     live.set_save_lock_ghost_objects(true);
     let before = live.clone();
     let candidate = ghost_owner("Candidate", None, 1);
-    let bytes = capture_w3d_ghost_xfer_bytes(&candidate).unwrap();
-    let loaded = decode_w3d_ghost_xfer_bytes(&bytes).unwrap();
+    let bytes = capture_w3d_ghost_archive(&candidate).unwrap();
+    let loaded = decode_w3d_ghost_archive(&bytes).unwrap();
     assert_ghost(&loaded, "Candidate", None, 1);
     assert_eq!(live, before);
     assert!(live.add_ghost_object(Some(99), true).is_none());
     assert_eq!(live, before);
-    assert!(decode_w3d_ghost_xfer_bytes(&bytes[..bytes.len() - 1]).is_err());
+    let mut invalid = bytes.clone();
+    invalid.local_player = usize::MAX;
+    assert!(decode_w3d_ghost_archive(&invalid).is_err());
     assert_eq!(live, before);
 }
 
@@ -290,11 +295,11 @@ fn manager_decode_keeps_other_owners_creation_locks_and_scene_events_unchanged()
 fn named_ghost_companion_does_not_change_the_gamelogic_positional_body() {
     let mut snapshot = WorldSnapshot::default();
     let body = bincode_legacy::serialize(&snapshot).unwrap();
-    snapshot.w3d_ghost_companion =
-        Some(capture_w3d_ghost_xfer_bytes(&ghost_owner("SeparateBlock", Some(42), 0)).unwrap());
+    snapshot.w3d_ghost_archive =
+        Some(capture_w3d_ghost_archive(&ghost_owner("SeparateBlock", Some(42), 0)).unwrap());
     assert_eq!(bincode_legacy::serialize(&snapshot).unwrap(), body);
     let decoded = crate::save_load::snapshot::decode_bincode_world_snapshot(&body).unwrap();
-    assert!(decoded.w3d_ghost_companion.is_none());
+    assert!(decoded.w3d_ghost_archive.is_none());
 }
 
 #[cfg(feature = "game_client")]
@@ -352,30 +357,6 @@ fn presentation_freezes_the_driving_ghost_owner_and_retains_its_snapshot() {
 }
 
 #[test]
-fn truncated_large_child_count_fails_without_reserving_the_declared_count() {
-    let owner = ghost_owner("BoundedChildRead", Some(42), 0);
-    let mut bytes = capture_w3d_ghost_xfer_bytes(&owner).unwrap();
-    // W3DRenderObjectSnapshot::xfer v1 writes the actual affine transform,
-    // then its i32 child count (C++ W3DGhostObject.cpp:174-177). The first
-    // identity transform in this authored manager is that root transform.
-    let matrix: Vec<u8> = Matrix3x4::IDENTITY
-        .rows
-        .iter()
-        .flat_map(|row| row.iter())
-        .flat_map(|value| value.to_le_bytes())
-        .collect();
-    let transform = bytes
-        .windows(matrix.len())
-        .position(|window| window == matrix)
-        .unwrap();
-    let count = transform + matrix.len();
-    assert_eq!(&bytes[count..count + 4], &1i32.to_le_bytes());
-    bytes[count..count + 4].copy_from_slice(&i32::MAX.to_le_bytes());
-    assert!(decode_w3d_ghost_xfer_bytes(&bytes).is_err());
-    assert_ghost(&owner, "BoundedChildRead", Some(42), 0);
-}
-
-#[test]
 fn direct_gamelogic_xfer_clears_any_prior_named_ghost_companion() {
     use crate::save_load::{Snapshot, XferLoad, XferSave};
     let mut source = WorldSnapshot::default();
@@ -384,10 +365,10 @@ fn direct_gamelogic_xfer_clears_any_prior_named_ghost_companion() {
         .xfer(&mut XferSave::new(Cursor::new(&mut bytes)))
         .unwrap();
     let mut destination = WorldSnapshot::default();
-    destination.w3d_ghost_companion =
-        Some(capture_w3d_ghost_xfer_bytes(&ghost_owner("PreviousNamedLoad", Some(42), 0)).unwrap());
+    destination.w3d_ghost_archive =
+        Some(capture_w3d_ghost_archive(&ghost_owner("PreviousNamedLoad", Some(42), 0)).unwrap());
     destination
         .xfer(&mut XferLoad::new(Cursor::new(bytes)))
         .unwrap();
-    assert!(destination.w3d_ghost_companion.is_none());
+    assert!(destination.w3d_ghost_archive.is_none());
 }

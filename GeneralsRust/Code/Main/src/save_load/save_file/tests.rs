@@ -64,7 +64,7 @@ fn encode_versioned_archive(archive: &SaveArchive) -> Vec<u8> {
         saved_game_mode: archive.saved_game_mode,
         game_client_xfer: archive.game_client_xfer.as_deref(),
         terrain_visual_xfer: archive.terrain_visual_xfer.as_deref(),
-        ghost_object_xfer: archive.snapshot.w3d_ghost_companion.as_deref(),
+        ghost_object_archive: archive.snapshot.w3d_ghost_archive.as_ref(),
         particle_system_xfer: archive.snapshot.particle_system_companion.as_deref(),
         map: archive.map.as_ref(),
     })
@@ -82,7 +82,7 @@ fn encode_snapshot_archive(snapshot: &WorldSnapshot, save_info: &SaveGameInfo) -
         saved_game_mode: Some(SAVED_GAME_MODE_SINGLE_PLAYER),
         game_client_xfer: None,
         terrain_visual_xfer: None,
-        ghost_object_xfer: snapshot.w3d_ghost_companion.as_deref(),
+        ghost_object_archive: snapshot.w3d_ghost_archive.as_ref(),
         particle_system_xfer: snapshot.particle_system_companion.as_deref(),
         map: None,
     })

@@ -369,10 +369,10 @@ pub struct WorldSnapshot {
     #[serde(skip)]
     pub garrison_original_team_instances: Vec<ObjectGarrisonOriginalTeamSnapshot>,
 
-    /// Named GhostObject block travels with this decoded save. It is outside
-    /// the unchanged v23-29 GameLogic positional body and direct Xfer stream.
+    /// Typed GhostObject continuation travels with this decoded save. It is
+    /// outside the unchanged v23-29 GameLogic positional body and direct Xfer stream.
     #[serde(skip)]
-    pub(crate) w3d_ghost_companion: Option<Vec<u8>>,
+    pub(crate) w3d_ghost_archive: Option<super::w3d_ghost_save::W3DGhostObjectManagerArchive>,
     /// Raw named ParticleSystem block owned by this load/save candidate, never
     /// inserted into the historical GameLogic positional body.
     #[serde(skip)]
@@ -687,7 +687,7 @@ impl Default for WorldSnapshot {
             audio_policy: Default::default(),
             dynamic_debris_generations: 0,
             garrison_original_team_instances: Vec::new(),
-            w3d_ghost_companion: None,
+            w3d_ghost_archive: None,
             particle_system_companion: None,
         };
         // Pure standalone/tool definitions: no world construction/publication.

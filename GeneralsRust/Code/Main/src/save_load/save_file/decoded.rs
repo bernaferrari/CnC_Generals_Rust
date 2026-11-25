@@ -44,9 +44,9 @@ pub struct SaveMapArchive {
     pub source_game_info: Option<game_engine::common::system::skirmish_game_info::SkirmishGameInfo>,
 }
 
-/// Owned versioned save archive. Companion byte fields are temporary capsules
-/// for behavior systems that are still being converted to typed snapshots;
-/// unlike the old chunk container, their ownership and ordering are explicit.
+/// Owned versioned save archive. Remaining companion byte fields are temporary
+/// capsules for behavior systems that are still being converted to typed
+/// snapshots; unlike the old chunk container, ownership and ordering are explicit.
 #[derive(Debug, Deserialize)]
 pub struct SaveArchive {
     pub version: u32,
@@ -58,7 +58,7 @@ pub struct SaveArchive {
     pub saved_game_mode: Option<i32>,
     pub game_client_xfer: Option<Vec<u8>>,
     pub terrain_visual_xfer: Option<Vec<u8>>,
-    pub ghost_object_xfer: Option<Vec<u8>>,
+    pub ghost_object_archive: Option<crate::save_load::snapshot::W3DGhostObjectManagerArchive>,
     pub particle_system_xfer: Option<Vec<u8>>,
     pub map: Option<SaveMapArchive>,
 }
@@ -76,7 +76,7 @@ pub struct SaveArchiveRef<'a> {
     pub saved_game_mode: Option<i32>,
     pub game_client_xfer: Option<&'a [u8]>,
     pub terrain_visual_xfer: Option<&'a [u8]>,
-    pub ghost_object_xfer: Option<&'a [u8]>,
+    pub ghost_object_archive: Option<&'a crate::save_load::snapshot::W3DGhostObjectManagerArchive>,
     pub particle_system_xfer: Option<&'a [u8]>,
     pub map: Option<&'a SaveMapArchive>,
 }

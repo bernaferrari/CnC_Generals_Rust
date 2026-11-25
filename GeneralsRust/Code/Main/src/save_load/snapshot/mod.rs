@@ -204,7 +204,8 @@ pub use terrain_visual_save::{
 };
 pub use types::*;
 pub use w3d_ghost_save::{
-    CHUNK_GHOST_OBJECT, capture_w3d_ghost_xfer_bytes, decode_w3d_ghost_xfer_bytes,
+    CHUNK_GHOST_OBJECT, W3DGhostObjectArchive, W3DGhostObjectManagerArchive,
+    W3DRenderObjectSnapshotArchive, capture_w3d_ghost_archive, decode_w3d_ghost_archive,
 };
 pub(crate) use world_codec::{decode_bincode_world_snapshot, validate_decoded_world_snapshot};
 
