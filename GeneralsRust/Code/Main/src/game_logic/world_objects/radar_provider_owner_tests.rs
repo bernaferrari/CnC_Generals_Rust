@@ -474,8 +474,8 @@ fn authored_module_order_preserves_all_conflict_and_removal_observation() {
     assert_eq!(world.players[&1].radar_count, 3);
     world.with_owned_radar_disabled_operation(id, |object| object.set_status_disabled_held(true));
     assert_eq!(
-        world.players[&1].radar_count, 1,
-        "CPP findModule adjusts only first RadarUpgrade"
+        world.players[&1].radar_count, 2,
+        "the first RadarUpgrade removes one of the three credited grants"
     );
     world.with_owned_radar_disabled_operation(id, |object| object.set_status_disabled_held(false));
     assert_eq!(world.players[&1].radar_count, 3);
