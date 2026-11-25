@@ -637,3 +637,94 @@ fn visible_artillery_shell_inherits_a_pending_motive_impulse() {
     assert!(travelled.abs_diff_eq(committed * SECONDS_PER_LOGICFRAME_REAL, 1e-4));
     assert!(travelled.dot(expected.with_y(0.0).normalize()) > 6.0);
 }
+
+#[test]
+#[ignore = "requires mounted retail Zero Hour assets"]
+fn retail_artillery_releases_authored_shells_and_damages_the_target() {
+    std::thread::Builder::new()
+        .stack_size(64 * 1024 * 1024)
+        .spawn(|| {
+            let assets = crate::parallel_harness::SharedSkirmishAssets::load_retail().unwrap();
+            let mut world = assets.prepare_skirmish(1234).unwrap();
+            world.with_own_services_mut(|world| {
+                world.update();
+                let command_center = |name| {
+                    world
+                        .objects
+                        .registered_values()
+                        .find(|object| object.get_template().name == name)
+                        .expect("Lone Eagle starting command center")
+                };
+                let start = command_center("AmericaCommandCenter").get_position();
+                let victim = command_center("GLACommandCenter");
+                let (victim_id, aim, initial_health) =
+                    (victim.id, victim.get_position(), victim.health.current);
+                let player = crate::parallel_harness::HumanOrders::PLAYER;
+                let caster = world
+                    .create_object_for_player(
+                        "ChinaCommandCenter",
+                        player,
+                        start + Vec3::new(100.0, 0.0, 100.0),
+                    )
+                    .unwrap();
+                world
+                    .get_player_mut(player)
+                    .unwrap()
+                    .unlock_science("SCIENCE_ArtilleryBarrage1");
+                world
+                    .queue_special_power_strike(&SpecialPowerType::Artillery, caster, aim)
+                    .unwrap();
+
+                let carriers: std::collections::HashSet<_> = world
+                    .objects
+                    .registered()
+                    .filter(|(_, object)| object.get_template().name == "ChinaArtilleryCannon")
+                    .map(|(&id, object)| {
+                        assert!(
+                            object
+                                .artillery_barrage_transport
+                                .as_ref()
+                                .unwrap()
+                                .uses_wing_physics()
+                        );
+                        let position = object.get_position();
+                        let ground = world.raw_terrain_ground_height_at(position);
+                        assert!((position.y - ground - 500.0).abs() < 1e-4);
+                        assert!((object.physics_accel.with_y(0.0).length() - 5.0).abs() < 1e-4);
+                        id
+                    })
+                    .collect();
+                assert_eq!(carriers.len(), 12);
+
+                let mut saw_shell = false;
+                let damaged = (0..900).any(|_| {
+                    world.update();
+                    if !saw_shell
+                        && let Some(shell) = world
+                            .combat_system
+                            .get_projectiles()
+                            .values()
+                            .find(|shell| carriers.contains(&shell.shooter_id))
+                    {
+                        assert_eq!(
+                            world.objects[&shell.id].get_template().name,
+                            "ChinaArtilleryBarrageShell"
+                        );
+                        saw_shell = true;
+                    }
+                    world
+                        .objects
+                        .get(&victim_id)
+                        .is_none_or(|victim| victim.health.current < initial_health)
+                });
+                assert!(
+                    saw_shell,
+                    "the retail formation did not drop an authored shell"
+                );
+                assert!(damaged, "the retail shells did not damage the target");
+            });
+        })
+        .unwrap()
+        .join()
+        .unwrap();
+}
