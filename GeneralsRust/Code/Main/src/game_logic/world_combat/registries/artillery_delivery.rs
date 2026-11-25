@@ -375,36 +375,43 @@ impl GameLogic {
                 match event {
                     ArtilleryDeliveryEvent::BeginRecovery { .. } => {
                         object.reset_dynamic_physics();
+                        object.maintain_pos_valid = false;
                         self.partition_manager.unregister_object(id.0);
                         if object.has_drawable {
                             object.set_drawable_hidden(true);
                             self.admit_object_drawable_deselection(id);
                         }
-                        continue;
                     }
                     ArtilleryDeliveryEvent::Reenter => {
                         self.reenter_artillery_carrier(id, effects)?;
-                        continue;
+                        if !wing_physics {
+                            continue;
+                        }
                     }
-                    _ if recovering => continue,
-                    _ => {}
-                }
-                if wing_physics && event == ArtilleryDeliveryEvent::CloseDoor {
-                    object.set_allow_invalid_position(true);
-                }
-                if event == ArtilleryDeliveryEvent::Depart {
-                    object.kill_delivery_radius_decal();
-                    if self_destruct {
-                        self.destroy_object_with_effects(id, effects)?;
-                        continue;
-                    }
-                    if wing_physics {
+                    ArtilleryDeliveryEvent::CloseDoor if wing_physics => {
                         object.set_allow_invalid_position(true);
-                        object.set_ultra_accurate(true);
                     }
+                    ArtilleryDeliveryEvent::Depart => {
+                        object.kill_delivery_radius_decal();
+                        if self_destruct {
+                            self.destroy_object_with_effects(id, effects)?;
+                            continue;
+                        }
+                        if wing_physics {
+                            object.set_allow_invalid_position(true);
+                            object.set_ultra_accurate(true);
+                        }
+                    }
+                    _ => {}
                 }
             }
             if !self.spawn_identity_matches(id, generation, epoch) {
+                continue;
+            }
+            if recovering {
+                if wing_physics {
+                    self.steer_artillery_wings(id, None, effects)?;
+                }
                 continue;
             }
             let Some(data) = self
@@ -421,7 +428,7 @@ impl GameLogic {
                 continue;
             }
             if wing_physics {
-                self.steer_artillery_wings(id, goal, effects)?;
+                self.steer_artillery_wings(id, Some(goal), effects)?;
                 continue;
             }
             let next = data.planar_step(position, goal);
@@ -461,7 +468,7 @@ impl GameLogic {
     fn steer_artillery_wings(
         &mut self,
         id: ObjectId,
-        goal: Vec3,
+        move_goal: Option<Vec3>,
         effects: &mut ScriptPresentationEffects<'_>,
     ) -> gamelogic::GameLogicResult<()> {
         let object = &self.objects[&id];
@@ -469,9 +476,13 @@ impl GameLogic {
             return Ok(());
         }
         let position = object.get_position();
-        let ground = self
-            .terrain_height_at(position)
-            .unwrap_or(object.ground_height);
+        let ground = if move_goal.is_some() {
+            self.terrain_height_at(position)
+                .unwrap_or(object.ground_height)
+        } else {
+            // Thing::isAboveTerrain compares the pose to raw terrain height.
+            self.raw_terrain_ground_height_at(position)
+        };
         let airborne = object.height_treats_as_airborne(position.y - ground);
         let can_apply_motive = object.allow_motive_force_while_airborne || !airborne;
         let birth = std::sync::Arc::downgrade(&object.visual_draw_identity_token);
@@ -479,15 +490,36 @@ impl GameLogic {
         let dt = SECONDS_PER_LOGICFRAME_REAL;
         let object = self.objects.get_mut(&id).expect("artillery carrier");
         object.set_locomotor_physics_options();
-        object.maintain_pos_valid = false;
-        object.is_braking = false;
-        object.physics_turning = crate::game_logic::PhysicsTurningType::TurnNone;
-        object.apply_motive_force(Vec3::ZERO, frame);
-        if can_apply_motive {
+        let maximum_speed = object.effective_max_speed();
+        let (course, altitude_goal) = if let Some(goal) = move_goal {
+            object.maintain_pos_valid = false;
+            object.is_braking = false;
+            object.physics_turning = crate::game_logic::PhysicsTurningType::TurnNone;
+            object.apply_motive_force(Vec3::ZERO, frame);
+            (
+                can_apply_motive.then_some((goal, maximum_speed)),
+                Some(goal.y),
+            )
+        } else {
+            // RecoverFromOffMap requests the current position. The base
+            // AI completes that quick path and runs its usual Wings hold
+            // even while the carrier is hidden and out of the partition.
+            object.begin_loco_maintain_appearance(frame);
+            (
+                object.wings_maintain_course(frame, position.y > ground),
+                object.maintain_pos.map(|position| position.y),
+            )
+        };
+        if let Some((goal, speed)) = course {
             let offset = (goal - position).with_y(0.0);
+            let distance = if move_goal.is_some() {
+                offset.length()
+            } else {
+                0.0
+            };
             let heading = object.unit_direction_vector_2d();
             let actual = object.forward_speed_2d();
-            let mut desired = object.effective_max_speed() * dt;
+            let mut desired = speed.min(maximum_speed) * dt;
             let slide = desired * object.ultra_accurate_slide_factor;
             let sliding =
                 object.ultra_accurate && offset.x.abs() <= slide && offset.z.abs() <= slide;
@@ -499,7 +531,7 @@ impl GameLogic {
             let braking = object.braking * dt * dt;
             let minimum_speed = object.min_speed * dt;
             if !object.no_slow_down_as_approaching_dest
-                && offset.length()
+                && distance
                     < crate::game_logic::object::calc_slow_down_dist(actual, minimum_speed, braking)
             {
                 desired = minimum_speed;
@@ -530,7 +562,7 @@ impl GameLogic {
                 object.apply_motive_force(direction * (applied * object.physics_get_mass()), frame);
             }
         }
-        self.apply_owned_locomotor_z_with_effects(id, Some(goal.y), frame, effects)?;
+        self.apply_owned_locomotor_z_with_effects(id, altitude_goal, frame, effects)?;
         Ok(())
     }
 

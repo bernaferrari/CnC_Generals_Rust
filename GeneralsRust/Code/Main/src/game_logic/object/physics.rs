@@ -1798,16 +1798,14 @@ impl Object {
             || self.movement.velocity.length_squared() > 0.01
     }
 
-    /// C++ Locomotor::calcMinTurnRadius residual (host units).
+    /// C++ Locomotor::calcMinTurnRadius (Locomotor.cpp:1567–1589).
     pub fn calc_min_turn_radius(&self) -> f32 {
-        let min_speed = self.min_speed.max(0.0);
-        // turn_rate is rad/sec; convert to per-frame for C++ parity radius.
-        let max_turn_rate = self.movement.turn_rate / 30.0;
-        if max_turn_rate > 1.0e-6 {
-            // minSpeed is units/sec → per-frame for C++ formula minSpeed/maxTurnRate
-            (min_speed / 30.0) / max_turn_rate
+        let max_turn_rate = self.effective_turn_rate();
+        if max_turn_rate > 0.0 {
+            self.min_speed / max_turn_rate
         } else {
-            999_999.0
+            const NO_TURN_RADIUS: f32 = 99_999.0;
+            NO_TURN_RADIUS
         }
     }
 
@@ -1852,35 +1850,38 @@ impl Object {
 
     pub(in crate::game_logic) fn prepare_wings_maintain(&mut self, frame: u32) -> Option<(glam::Vec3, f32)> {
         self.physics_turning = PhysicsTurningType::TurnNone;
-        if !self.is_motive(frame) || !self.is_above_terrain() {
+        let course = self.wings_maintain_course(frame, self.is_above_terrain())?;
+        self.movement.target_position = Some(course.0);
+        Some(course)
+    }
+
+    /// Locomotor.cpp:2488–2524 projects the next circle point in the
+    /// original horizontal plane. Host yaw is opposite that plane's angle.
+    pub(in crate::game_logic) fn wings_maintain_course(
+        &self,
+        frame: u32,
+        above_terrain: bool,
+    ) -> Option<(glam::Vec3, f32)> {
+        if !self.is_motive(frame) || !above_terrain {
             return None;
         }
         let maintain = self.maintain_pos?;
         let mut radius = self.circling_radius;
-        if radius.abs() < 1.0e-4 {
+        if radius == 0.0 {
             radius = self.calc_min_turn_radius();
         }
         let us = self.get_position();
         let dx = maintain.x - us.x;
         let dz = maintain.z - us.z;
-        let mut angle = if dx * dx + dz * dz < 1.0e-6 {
-            self.get_orientation()
+        let mut angle = if dx.abs() < 0.001 && dz.abs() < 0.001 {
+            -self.get_orientation()
         } else {
-            (-dz).atan2(dx)
+            dz.atan2(dx)
         };
-        let mut aim = std::f32::consts::PI - std::f32::consts::PI / 8.0;
-        if radius < 0.0 {
-            radius = -radius;
-            aim = -aim;
-        }
-        angle += aim;
-        let desired = glam::Vec3::new(
-            maintain.x + angle.cos() * radius, maintain.y,
-            maintain.z - angle.sin() * radius,
-        );
-        let speed = self.min_speed.max(0.0);
-        self.movement.target_position = Some(desired);
-        Some((desired, speed))
+        let aim = std::f32::consts::PI - std::f32::consts::PI / 8.0;
+        angle += aim.copysign(radius);
+        let desired = maintain + glam::Vec3::new(angle.cos(), 0.0, angle.sin()) * radius.abs();
+        Some((desired, self.min_speed))
     }
 
     /// C++ maintainCurrentPositionWings residual — circle around maintain pos.

@@ -355,6 +355,21 @@ fn authored_delivery_waits_for_the_door_and_drop_interval_across_save() {
     assert_eq!(restored.combat_system.get_projectiles().len(), 1);
 }
 
+fn flat_recovery_map(dir: &std::path::Path) -> std::path::PathBuf {
+    let path = dir.join("ArtilleryRecovery.map");
+    let mut map = game_engine::common::system::DataChunkOutput::new();
+    map.open_data_chunk("HeightMapData", 4);
+    for field in [41, 41, 2, 1, 34, 36, 1681] {
+        map.write_int(field);
+    }
+    for _ in 0..1681 {
+        map.write_byte(32);
+    }
+    map.close_data_chunk();
+    std::fs::write(&path, map.into_ckmp_bytes()).unwrap();
+    path
+}
+
 #[test]
 fn authored_artillery_recovers_at_the_active_edge_after_loading_off_map() {
     crate::game_logic::game_logic::pose_owner_tests::isolated_at(
@@ -362,20 +377,8 @@ fn authored_artillery_recovers_at_the_active_edge_after_loading_off_map() {
         "authored_artillery_recovers_at_the_active_edge_after_loading_off_map",
         || {
             use crate::save_load::SaveFileManager;
-            use game_engine::common::system::DataChunkOutput;
-
             let temp = tempfile::tempdir().unwrap();
-            let path = temp.path().join("ArtilleryRecovery.map");
-            let mut map = DataChunkOutput::new();
-            map.open_data_chunk("HeightMapData", 4);
-            for field in [41, 41, 2, 1, 34, 36, 1681] {
-                map.write_int(field);
-            }
-            for _ in 0..1681 {
-                map.write_byte(32);
-            }
-            map.close_data_chunk();
-            std::fs::write(&path, map.into_ckmp_bytes()).unwrap();
+            let path = flat_recovery_map(temp.path());
 
             let prepare = |path: &str| {
                 let mut world = world();
@@ -497,6 +500,100 @@ fn authored_artillery_recovers_at_the_active_edge_after_loading_off_map() {
             assert_eq!(peer.objects[&carrier].get_position(), peer_position);
             assert!(!peer.objects[&carrier].drawable_hidden);
             assert!(peer.partition_manager.is_registered(carrier.0));
+        },
+    );
+}
+
+#[test]
+fn recovering_artillery_runs_wing_hold_and_restarts_approach_in_the_fixed_tick() {
+    crate::game_logic::game_logic::pose_owner_tests::isolated_at(
+        module_path!(),
+        "recovering_artillery_runs_wing_hold_and_restarts_approach_in_the_fixed_tick",
+        || {
+            let temp = tempfile::tempdir().unwrap();
+            let path = flat_recovery_map(temp.path());
+            let mut world = world_with_carrier(0, 0, Some(true));
+            assert!(world.load_map(path.to_str().unwrap()));
+            world.add_player(Player::new(1, Team::China, "Owner", true));
+            world.add_player(Player::new(2, Team::GLA, "Target", false));
+            let aim = Vec3::new(80.0, 0.0, 82.0);
+            let (_, carrier, _) = activate(&mut world, aim);
+            world.frame = 60;
+            world.set_fixture_object_position(carrier, aim + Vec3::new(40.0, 300.0, 0.0));
+            world.update_artillery_barrage_flights().unwrap();
+
+            let outside = Vec3::new(390.0, 300.0, 82.0);
+            world.set_fixture_object_position(carrier, outside);
+            let object = world.objects.get_mut(&carrier).unwrap();
+            object.set_orientation_with_partition_owner(0.0, &mut world.partition_manager);
+            object.movement.velocity = Vec3::X * 9.0;
+
+            world.frame = 61;
+            let result = world.update_simulation(SECONDS_PER_LOGICFRAME_REAL);
+            assert_eq!(format!("{result:?}"), "Advanced");
+            let object = &world.objects[&carrier];
+            assert!(object.drawable_hidden);
+            assert!(!world.partition_manager.is_registered(carrier.0));
+            assert_eq!(object.maintain_pos, Some(outside));
+            let max_turn = 200.0_f32.to_radians() * SECONDS_PER_LOGICFRAME_REAL;
+            assert!((object.get_orientation() + max_turn).abs() < 1e-5);
+            let velocity = object.movement.velocity;
+            let first_x = 80.0 / 900.0;
+            assert!((velocity.x - first_x).abs() < 1e-5, "{velocity:?}");
+            assert!(velocity.z.abs() < 1e-5);
+            assert!(object.physics_previous_accel.y > 0.0);
+            assert!((object.get_position().x - outside.x - first_x).abs() < 1e-4);
+
+            let mut saves = crate::save_load::SaveFileManager::with_save_directory(
+                temp.path().join("wing-saves"),
+            );
+            saves.init().unwrap();
+            saves.quick_save(&world).unwrap();
+            let decoded = saves.load_game_snapshot("quicksave").unwrap();
+            let mut restored = world_with_carrier(0, 0, Some(true));
+            assert!(restored.load_map(&decoded.save_info.map_name));
+            restored.add_player(Player::new(1, Team::China, "Owner", true));
+            restored.add_player(Player::new(2, Team::GLA, "Target", false));
+            saves
+                .restore_game_snapshot(&decoded.snapshot, &mut restored)
+                .unwrap();
+            let loaded = &restored.objects[&carrier];
+            assert_eq!(loaded.get_position(), object.get_position());
+            assert_eq!(loaded.movement.velocity, velocity);
+            assert_eq!(loaded.maintain_pos, Some(outside));
+
+            // Recovery at 61 uses ceil(1 / turn rate per frame) = 9.
+            for frame in 62..=70 {
+                for candidate in [&mut world, &mut restored] {
+                    candidate.frame = frame;
+                    let result = candidate.update_simulation(SECONDS_PER_LOGICFRAME_REAL);
+                    assert_eq!(format!("{result:?}"), "Advanced");
+                    let object = &candidate.objects[&carrier];
+                    assert_eq!(object.drawable_hidden, frame < 70);
+                    assert_eq!(
+                        candidate.partition_manager.is_registered(carrier.0),
+                        frame == 70
+                    );
+                    assert!(candidate.combat_system.get_projectiles().is_empty());
+                }
+                let live = &world.objects[&carrier];
+                let loaded = &restored.objects[&carrier];
+                assert_eq!(loaded.get_position(), live.get_position(), "frame {frame}");
+                assert_eq!(
+                    loaded.get_orientation(),
+                    live.get_orientation(),
+                    "frame {frame}"
+                );
+                assert_eq!(
+                    loaded.movement.velocity, live.movement.velocity,
+                    "frame {frame}"
+                );
+            }
+            let object = &world.objects[&carrier];
+            assert!(!object.maintain_pos_valid);
+            assert!(object.get_position().x < 340.0);
+            let horizontal_speed = object.movement.velocity.with_y(0.0).length();
+            assert!((horizontal_speed - first_x).abs() < 1e-5);
         },
     );
 }
