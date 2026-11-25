@@ -1,6 +1,13 @@
 //! Original bridge admission/deletion order with Main-owned objects and slots.
 use super::*;
 
+use gamelogic::common::AsciiString;
+use gamelogic::system::map_loader::{
+    BridgeData, BridgeEndpoints, BridgeModels, MAX_AUTHORED_BRIDGES, MapData,
+    read_mounted_bridge_model,
+};
+use gamelogic::terrain::{BridgeInfo, TerrainLogic};
+
 impl GameLogic {
     pub(in super::super) fn reserve_owned_bridge(
         &mut self,
@@ -19,16 +26,76 @@ impl GameLogic {
         layer
     }
 
+    pub(super) fn resolve_authored_map_bridges(
+        &self,
+        spans: Vec<BridgeEndpoints>,
+    ) -> Vec<BridgeData> {
+        let definitions = self.effective_terrain_roads();
+        let assets = self.application_assets();
+        let files = &self.world_services.common().application.file_system;
+        let mut models = BridgeModels::default();
+        spans
+            .into_iter()
+            .filter_map(|span| {
+                let Some(bridge) = definitions.find_bridge(&span.template_name) else {
+                    log::warn!(
+                        "Map bridge '{}' has no Bridge definition",
+                        span.template_name
+                    );
+                    return None;
+                };
+                models.deck(
+                    span,
+                    bridge.bridge_model_name.as_str(),
+                    bridge.bridge_scale,
+                    |path| {
+                        if let Some(assets) = &assets {
+                            let mut assets = assets.lock().map_err(|error| error.to_string())?;
+                            return assets
+                                .archive_file_system_mut()
+                                .read_optional_definition_source(path)
+                                .map_err(|error| error.to_string())?
+                                .ok_or_else(|| format!("missing {path}"));
+                        }
+                        read_mounted_bridge_model(files, path)
+                    },
+                )
+            })
+            .take(MAX_AUTHORED_BRIDGES)
+            .collect()
+    }
+
+    pub(super) fn admit_authored_map_bridge_geometry(
+        &mut self,
+        terrain: &mut TerrainLogic,
+        data: MapData,
+    ) -> Result<(), String> {
+        self.admit_bridge_geometry(terrain, data, TerrainLogic::try_load_authored_map_geometry)
+    }
+
+    #[cfg(test)]
     pub(in super::super) fn admit_map_bridge_geometry(
         &mut self,
-        terrain: &mut gamelogic::terrain::TerrainLogic,
-        data: gamelogic::system::map_loader::MapData,
+        terrain: &mut TerrainLogic,
+        data: MapData,
     ) -> Result<(), String> {
-        gamelogic::terrain::TerrainLogic::validate_map_geometry(&data)?;
+        self.admit_bridge_geometry(terrain, data, TerrainLogic::try_load_map_geometry)
+    }
+
+    fn admit_bridge_geometry(
+        &mut self,
+        terrain: &mut TerrainLogic,
+        data: MapData,
+        install: impl FnOnce(
+            &mut TerrainLogic,
+            MapData,
+        ) -> Result<Vec<(BridgeInfo, AsciiString)>, String>,
+    ) -> Result<(), String> {
+        TerrainLogic::validate_map_geometry(&data)?;
         terrain.reset();
         self.pathfinding_system.grid.clear_bridge_admission();
         // Original addBridge reserves in source order; the linked list prepends.
-        for (info, template) in terrain.try_load_map_geometry(data)? {
+        for (info, template) in install(terrain, data)? {
             let layer = self.reserve_owned_bridge(&info);
             terrain.prepend_bridge_on_layer(
                 info,

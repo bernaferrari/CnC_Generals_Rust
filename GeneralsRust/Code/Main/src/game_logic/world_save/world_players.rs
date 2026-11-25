@@ -238,7 +238,6 @@ impl GameLogic {
         let parse_only = Instant::now();
         let (waypoints, waypoint_links, bridges, parsed_roads) = match super::script_loader::parse_runtime_map_objects_bundle_from_chunky(
             chunky,
-            &self.templates,
             self.effective_terrain_roads(),
         ) {
             Ok(value) => value,
@@ -251,6 +250,7 @@ impl GameLogic {
                 (Vec::new(), Vec::new(), Vec::new(), Vec::new())
             }
         };
+        let bridges = self.resolve_authored_map_bridges(bridges);
         let objects_parse_s = parse_only.elapsed().as_secs_f32();
         log::info!(
             "Fast legacy runtime sync ObjectsList bundle for '{}' in {:.2}s (parse_only={:.3}s, stage={:.2}s, waypoints={}, links={}, bridges={}, roads={})",
@@ -438,7 +438,7 @@ impl GameLogic {
             let terrain_owner = self.world_services.terrain().clone();
             {
                 let mut terrain = terrain_owner.write().unwrap_or_else(|e| e.into_inner());
-                if let Err(error) = self.admit_map_bridge_geometry(&mut terrain, map_data) {
+                if let Err(error) = self.admit_authored_map_bridge_geometry(&mut terrain, map_data) {
                     log::error!("Cannot admit receiving terrain: {error}");
                     return Ok(false);
                 }

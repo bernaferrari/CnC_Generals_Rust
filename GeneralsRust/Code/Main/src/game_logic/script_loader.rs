@@ -37,7 +37,7 @@ use gamelogic::scripting::core::{
 };
 use gamelogic::scripting::{ScriptListReadInfo, parse_player_scripts_list_chunk};
 use gamelogic::system::Coord3D as SystemCoord3D;
-use gamelogic::system::map_loader::BridgeData;
+use gamelogic::system::map_loader::{BridgeEndpoints, BridgeMarkers};
 use log::{debug, info, trace, warn};
 
 type LoaderResult<T> = Result<T, GameLogicError>;

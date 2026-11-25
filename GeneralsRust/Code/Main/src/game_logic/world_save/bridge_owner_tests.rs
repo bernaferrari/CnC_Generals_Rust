@@ -13,6 +13,19 @@ fn isolated(name: &str, run: impl FnOnce()) {
     });
 }
 
+const FIXTURE_DECK_Z: f32 = 20.25;
+
+fn attach_bridge_art(world: &mut GameLogic, path: &Path) {
+    crate::fixture_content::bridge_art::attach(
+        world,
+        path.parent().unwrap(),
+        (0..17).map(|index| format!("OwnedBridge{index}")),
+        [-10.0, 10.0],
+        0.0,
+        1.0,
+    );
+}
+
 // Real CKMP geometry: raw terrain plus two source-ordered bridge endpoint pairs.
 fn map_bytes(row: f32, decks: &[f32]) -> Vec<u8> {
     let mut out = game_engine::common::system::DataChunkOutput::new();
@@ -21,7 +34,7 @@ fn map_bytes(row: f32, decks: &[f32]) -> Vec<u8> {
         out.write_int(value);
     }
     for _ in 0..441 {
-        out.write_byte(0);
+        out.write_byte(32);
     }
     out.close_data_chunk();
     out.open_data_chunk("ObjectsList", 3);
@@ -42,6 +55,7 @@ fn map_bytes(row: f32, decks: &[f32]) -> Vec<u8> {
 
 fn load(path: &Path) -> GameLogic {
     let mut world = GameLogic::new();
+    attach_bridge_art(&mut world, path);
     assert!(world.load_map(path.to_str().unwrap()));
     assert!(
         world.terrain.is_some(),
@@ -64,6 +78,177 @@ fn bridges(world: &GameLogic) -> Vec<(u8, u32, f32)> {
     rows
 }
 
+fn asymmetric_authored_bridge_map() -> Vec<u8> {
+    use game_engine::common::system::DataChunkOutput;
+    use game_engine::map_object::{FLAG_BRIDGE_POINT1 as START, FLAG_BRIDGE_POINT2 as END};
+
+    let mut map = DataChunkOutput::new();
+    map.open_data_chunk("HeightMapData", 3);
+    for value in [21, 21, 0, 441] {
+        map.write_int(value);
+    }
+    for y in 0..21 {
+        for x in 0..21 {
+            map.write_byte(2 * x + y);
+        }
+    }
+    map.close_data_chunk();
+    map.open_data_chunk("ObjectsList", 3);
+    for (name, x, y, flag) in [
+        ("MissingArt", 40.0, 85.0, START),
+        ("MissingArt", 80.0, 85.0, END),
+        ("FixtureSpan", 40.0, 35.0, START),
+        ("FixtureSpan", 80.0, 35.0, END),
+        ("FixtureSpan", 50.0, 59.0, START),
+        ("OtherEnd", 70.0, 59.0, END),
+        ("FixtureSpan", 40.0, 8.0, START),
+        ("OrdinaryObject", 60.0, 8.0, 0),
+        ("FixtureSpan", 80.0, 8.0, END),
+    ] {
+        map.open_data_chunk("Object", 3);
+        for value in [x, y, 99.0, 0.0] {
+            map.write_real(value);
+        }
+        map.write_int(flag as i32);
+        map.write_ascii_string(name);
+        map.write_dict(&game_engine::common::dict::Dict::new());
+        map.close_data_chunk();
+    }
+    map.close_data_chunk();
+    map.into_ckmp_bytes()
+}
+
+#[test]
+fn native_map_and_save_use_owned_model_bounds_and_sampled_bridge_heights() {
+    isolated(
+        "native_map_and_save_use_owned_model_bounds_and_sampled_bridge_heights",
+        || {
+            use gamelogic::ai::pathfind_astar::PathfindCellType;
+            use gamelogic::system::map_loader::{BridgeEndpoints, Coord3D};
+
+            let temp = tempfile::tempdir().unwrap();
+            let path = temp.path().join("AuthoredDeck.map");
+            std::fs::write(&path, asymmetric_authored_bridge_map()).unwrap();
+            let prepare = |label: &str, pivot_y: f32, scale: f32| {
+                let mut world = GameLogic::new();
+                crate::fixture_content::bridge_art::attach(
+                    &mut world,
+                    &temp.path().join(label),
+                    ["FixtureSpan".into()],
+                    [-6.0, 6.0],
+                    pivot_y,
+                    scale,
+                );
+                let mut roads = world.terrain_road_baseline().clone();
+                roads.new_bridge("MissingArt".into()).bridge_model_name =
+                    "MissingFixtureModel".into();
+                world.admit_terrain_road_definitions(roads).unwrap();
+                world
+            };
+
+            let check = |world: &GameLogic| {
+                let terrain = world.world_services.terrain().read().unwrap();
+                let first = terrain
+                    .find_bridge_at(&Coord3D::new(60.0, 35.0, 0.0))
+                    .unwrap();
+                let info = first.get_bridge_info();
+                assert_eq!(info.bridge_width, 24.0);
+                assert_eq!((info.from.z, info.to.z), (7.4375, 12.4375));
+                assert_eq!((info.from_left.y, info.from_right.y), (53.0, 29.0));
+                assert_eq!((info.from_left.z, info.to_right.z), (7.4375, 12.4375));
+                assert_eq!(info.bridge_index, 0);
+                let layer = first.get_layer() as u8;
+                assert_eq!(layer, PathfindLayerEnum::Top as u8);
+                let second = terrain
+                    .find_bridge_at(&Coord3D::new(60.0, 72.0, 0.0))
+                    .unwrap();
+                let second_info = second.get_bridge_info();
+                assert_eq!(second_info.bridge_index, 1);
+                assert_eq!((second_info.from.y, second_info.to.y), (59.0, 59.0));
+                assert_eq!(second.get_bridge_template_name().as_str(), "FixtureSpan");
+                assert!(
+                    terrain
+                        .find_bridge_at(&Coord3D::new(74.0, 85.0, 0.0))
+                        .is_none()
+                );
+                assert!(
+                    terrain
+                        .find_bridge_at(&Coord3D::new(60.0, 14.0, 0.0))
+                        .is_none()
+                );
+                let grid = &world.pathfinding_system.grid;
+                let inside = grid.world_to_grid(Vec3::new(65.0, 0.0, 45.0));
+                let edge = grid.world_to_grid(Vec3::new(65.0, 0.0, 25.0));
+                assert_eq!(
+                    grid.layer_cell_type(layer, inside),
+                    Some(PathfindCellType::Clear)
+                );
+                assert_eq!(
+                    grid.layer_cell_type(layer, edge),
+                    Some(PathfindCellType::BridgeImpassable)
+                );
+                (info.bridge_object_id, second_info.bridge_object_id)
+            };
+
+            let mut peer = prepare("peer", 9.0, 1.0);
+            assert!(peer.load_map(path.to_str().unwrap()));
+            let foreign = gamelogic::system::engine_stores::new_for_world();
+            let _foreign_ai = foreign.ai().write().unwrap();
+            let mut source = prepare("source", 3.0, 2.0);
+            gamelogic::system::engine_stores::with_active_stores(&foreign, || {
+                assert!(source.load_map(path.to_str().unwrap()));
+            });
+            let identities = check(&source);
+            assert_ne!(identities.0, identities.1);
+            assert!(identities.0 != 0 && identities.1 != 0);
+
+            let mut saves = SaveFileManager::with_save_directory(temp.path().join("saves"));
+            saves.init().unwrap();
+            saves.quick_save(&source).unwrap();
+            std::fs::remove_file(&path).unwrap();
+            let decoded = saves.load_game_snapshot("quicksave").unwrap();
+            let mut restored = prepare("restored", 3.0, 2.0);
+            gamelogic::system::engine_stores::with_active_stores(&foreign, || {
+                assert!(restored.load_map(&decoded.save_info.map_name));
+                saves
+                    .restore_game_snapshot(&decoded.snapshot, &mut restored)
+                    .unwrap();
+            });
+            assert_eq!(check(&restored), identities);
+
+            let peer_terrain = peer.world_services.terrain().read().unwrap();
+            let peer_first = peer_terrain
+                .find_bridge_at(&Coord3D::new(60.0, 44.0, 0.0))
+                .unwrap();
+            let peer_info = peer_first.get_bridge_info();
+            assert_eq!(
+                (
+                    peer_info.bridge_width,
+                    peer_info.from_left.y,
+                    peer_info.from_right.y
+                ),
+                (12.0, 50.0, 38.0)
+            );
+            drop(peer_terrain);
+            let over_capacity = (0..202)
+                .map(|index| BridgeEndpoints {
+                    template_name: if index == 0 {
+                        "MissingArt"
+                    } else {
+                        "FixtureSpan"
+                    }
+                    .into(),
+                    from: Coord3D::new(40.0, index as f32, 0.0),
+                    to: Coord3D::new(80.0, index as f32, 0.0),
+                })
+                .collect();
+            let decks = restored.resolve_authored_map_bridges(over_capacity);
+            assert_eq!(decks.len(), 200);
+            assert_eq!((decks[0].from.y, decks[199].from.y), (1.0, 200.0));
+        },
+    );
+}
+
 #[test]
 fn actual_map_admission_keeps_source_layers_across_bounds_and_foreign_ai() {
     isolated(
@@ -82,7 +267,7 @@ fn actual_map_admission_keeps_source_layers_across_bounds_and_foreign_ai() {
                 let first_rows = bridges(&first);
                 assert_eq!(
                     first_rows.iter().map(|r| (r.0, r.2)).collect::<Vec<_>>(),
-                    vec![(3, 55.0), (2, 21.0)]
+                    vec![(3, FIXTURE_DECK_Z), (2, FIXTURE_DECK_Z)]
                 );
                 assert!(first_rows.iter().all(|r| r.1 != 0));
                 let mut second = load(&second_path);
@@ -285,6 +470,7 @@ fn native_saved_moving_bridge_actor_keeps_the_constructor_ground_claim() {
             std::fs::write(&path, map_bytes(50.0, &[21.0])).unwrap();
             let load_with_walker = |path: &Path| {
                 let mut world = GameLogic::new();
+                attach_bridge_art(&mut world, path);
                 admit_fixture_objects(
                     &mut world,
                     &[
@@ -466,7 +652,7 @@ fn native_saved_map_reconstructs_layers_and_keeps_scaffold_continuation() {
                 let pos = restored
                     .pathfinding_system
                     .grid
-                    .world_to_grid(Vec3::new(50.0, 55.0, 50.0));
+                    .world_to_grid(Vec3::new(50.0, FIXTURE_DECK_Z, 50.0));
                 assert_eq!(
                     restored.pathfinding_system.grid.layer_cell_type(3, pos),
                     Some(gamelogic::ai::pathfind_astar::PathfindCellType::BridgeImpassable)
@@ -592,6 +778,7 @@ fn saved_coincident_overflow_bridges_keep_source_bindings_after_ids_change() {
         }).unwrap();
         let decoded = saves.load_game_snapshot("coincident").unwrap();
         let mut restored = GameLogic::new();
+        attach_bridge_art(&mut restored, Path::new(&decoded.save_info.map_name));
         restored.set_next_object_id_for_restore(ObjectId(1000));
         assert!(restored.load_map(&decoded.save_info.map_name));
         let reconstructed = capture(&restored);

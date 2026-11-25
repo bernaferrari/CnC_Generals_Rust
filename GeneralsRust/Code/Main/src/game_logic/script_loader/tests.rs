@@ -290,7 +290,7 @@ End\n";
         let t = std::time::Instant::now();
         let roads = TerrainRoadCollection::new();
         let (wp, links, bridges, road_segs) =
-            parse_runtime_map_objects_bundle_from_chunky(&chunky, &HashMap::new(), &roads)
+            parse_runtime_map_objects_bundle_from_chunky(&chunky, &roads)
                 .expect("objects bundle");
         let objects_s = t.elapsed();
         let t = std::time::Instant::now();
@@ -597,16 +597,17 @@ End\n";
         icoord(40, 40, 12, &mut polygon_payload);
         icoord(0, 40, 12, &mut polygon_payload);
 
+        use game_engine::map_object::{FLAG_BRIDGE_POINT1, FLAG_BRIDGE_POINT2};
         let mut objects_payload = Vec::new();
         objects_payload.extend_from_slice(&chunk(
             4,
             3,
-            &object_endpoint(0.0, 0.0, 20.0, FLAG_BRIDGE_POINT1, "TestBridge"),
+            &object_endpoint(0.0, 0.0, 20.0, FLAG_BRIDGE_POINT1 as i32, "TestBridge"),
         ));
         objects_payload.extend_from_slice(&chunk(
             4,
             3,
-            &object_endpoint(40.0, 0.0, 20.0, FLAG_BRIDGE_POINT2, "TestBridge"),
+            &object_endpoint(40.0, 0.0, 20.0, FLAG_BRIDGE_POINT2 as i32, "TestBridge"),
         ));
         objects_payload.extend_from_slice(&chunk(
             4,
@@ -643,15 +644,14 @@ End\n";
         assert_eq!(triggers[0].get_trigger_name().as_str(), "Lake");
         assert_eq!(triggers[0].get_point(0).map(|p| p.z), Some(12));
 
-        let bridges =
-            parse_runtime_bridges_from_chunky(&chunky, &HashMap::new())
-                .expect("bridge endpoints should pair");
+        let roads = TerrainRoadCollection::default();
+        let (_, _, bridges, _) = parse_runtime_map_objects_bundle_from_chunky(&chunky, &roads)
+            .expect("bridge endpoints should pair");
         assert_eq!(bridges.len(), 1);
         assert_eq!(bridges[0].template_name, "TestBridge");
         assert_eq!(bridges[0].from.z, 20.0);
         assert_eq!(bridges[0].to.z, 20.0);
 
-        let roads = TerrainRoadCollection::default();
         let standard = parse_object_placements_from_chunky(&chunky, &roads).unwrap();
         let (combined, _, _) = parse_objects_list_for_settings_from_chunky(&chunky, &roads).unwrap();
         for objects in [standard, combined] {
@@ -680,13 +680,16 @@ End\n";
         let mut map_data = gamelogic::system::map_loader::MapData::new();
         map_data.water_height = Some(water_height);
         map_data.polygon_triggers = triggers;
-        map_data.bridges = bridges;
+        let mut models = gamelogic::system::map_loader::BridgeModels::default();
+        map_data.bridges = bridges
+            .into_iter()
+            .map(|span| models.deck(span, crate::fixture_content::bridge_art::MODEL, 1.0, |_| {
+                Ok(crate::fixture_content::bridge_art::model([-10.0, 10.0], 0.0))
+            }).expect("authored bridge model"))
+            .collect();
         let mut terrain = gamelogic::terrain::TerrainLogic::new();
         let mut owner = crate::game_logic::GameLogic::new();
-        // Parse into this terrain and reserve layers in this match's grid.
-        // The standalone loader discovers ambient Core AI and can select a
-        // concurrently published Main world even though this is a local fixture.
-        for (info, template) in terrain.try_load_map_geometry(map_data).unwrap() {
+        for (info, template) in terrain.try_load_authored_map_geometry(map_data).unwrap() {
             let host = |p: gamelogic::common::Coord3D| glam::Vec3::new(p.x, p.z, p.y);
             let layer = owner.pathfinding_system.grid.reserve_bridge_layer(
                 host(info.from_left),

@@ -7,8 +7,6 @@ const SIDES_LIST_LABEL: &str = "SidesList";
 const FLAG_ROAD_POINT1: i32 = 0x00000002;
 const FLAG_ROAD_POINT2: i32 = 0x00000004;
 const FLAG_ROAD_CORNER_ANGLED: i32 = 0x00000008;
-const FLAG_BRIDGE_POINT1: i32 = 0x00000010;
-const FLAG_BRIDGE_POINT2: i32 = 0x00000020;
 const FLAG_ROAD_CORNER_TIGHT: i32 = 0x00000040;
 const FLAG_ROAD_JOIN: i32 = 0x00000080;
 const DEFAULT_RUNTIME_ROAD_WIDTH: f32 = 8.0;
@@ -125,55 +123,6 @@ pub fn parse_runtime_waypoints_from_chunky(
 
 
 /// One ObjectsList walk for bridge endpoints + road stubs.
-/// Road pairing mirrors C++ `W3DRoadBuffer::addMapObjects`:
-/// only `ROAD_POINT1` objects whose immediate next object is `ROAD_POINT2`
-/// produce a segment.
-/// C++ reads map objects once; Rust previously re-parsed the full ObjectsList
-/// for bridges and again for roads (~13s each on Lone Eagle release).
-fn parse_runtime_object_stubs_from_chunky(
-    chunky: &ChunkyMap,
-) -> LoaderResult<Vec<RuntimeMapObjectStub>> {
-    let body = &chunky.bytes[chunky.body_offset..];
-    let mut objects = Vec::new();
-    if let Some((version, payload)) = find_chunk_by_label(body, &chunky.toc, OBJECTS_LIST_LABEL)? {
-        parse_chunk_sequence(payload, &chunky.toc, |label, child_version, data| {
-            if label != OBJECT_LABEL {
-                return Ok(());
-            }
-            if let Some(map_object) =
-                parse_runtime_map_object_stub_chunk(data, child_version.max(version))?
-            {
-                objects.push(map_object);
-            }
-            Ok(())
-        })?;
-    }
-    Ok(objects)
-}
-
-fn bridges_from_object_stubs(
-    objects: &[RuntimeMapObjectStub],
-    templates: &HashMap<String, super::ThingTemplate>,
-) -> Vec<BridgeData> {
-    let mut bridges = Vec::new();
-    let mut pending: HashMap<String, Vec<PendingRuntimeBridge>> = HashMap::new();
-    for obj in objects {
-        if (obj.flags & (FLAG_BRIDGE_POINT1 | FLAG_BRIDGE_POINT2)) == 0 {
-            continue;
-        }
-        if obj.template_name.trim().is_empty() {
-            continue;
-        }
-        let endpoint = RuntimeBridgeEndpoint {
-            template_name: obj.template_name.clone(),
-            location: obj.location,
-            is_point1: (obj.flags & FLAG_BRIDGE_POINT1) != 0,
-        };
-        add_runtime_bridge_point(&mut bridges, &mut pending, endpoint, templates);
-    }
-    bridges
-}
-
 fn roads_from_object_stubs(
     objects: &[RuntimeMapObjectStub],
     definitions: &TerrainRoadCollection,
@@ -206,35 +155,20 @@ fn roads_from_object_stubs(
     roads
 }
 
-pub fn parse_runtime_bridges_from_chunky(
-    chunky: &ChunkyMap,
-    templates: &HashMap<String, super::ThingTemplate>,
-) -> LoaderResult<Vec<BridgeData>> {
-    let objects = parse_runtime_object_stubs_from_chunky(chunky)?;
-    Ok(bridges_from_object_stubs(&objects, templates))
-}
-
-pub fn parse_runtime_roads_from_chunky(
-    chunky: &ChunkyMap,
-    definitions: &TerrainRoadCollection,
-) -> LoaderResult<Vec<RuntimeRoadSegment>> {
-    let objects = parse_runtime_object_stubs_from_chunky(chunky)?;
-    Ok(roads_from_object_stubs(&objects, definitions))
-}
-
 /// Combined waypoints+bridges+roads from one ObjectsList decode (C++ MapObject walk).
 pub fn parse_runtime_map_objects_bundle_from_chunky(
     chunky: &ChunkyMap,
-    templates: &HashMap<String, super::ThingTemplate>,
     definitions: &TerrainRoadCollection,
 ) -> LoaderResult<(
     Vec<RuntimeWaypoint>,
     Vec<(u32, u32)>,
-    Vec<BridgeData>,
+    Vec<BridgeEndpoints>,
     Vec<RuntimeRoadSegment>,
 )> {
     let body = &chunky.bytes[chunky.body_offset..];
     let mut stubs = Vec::new();
+    let mut markers = BridgeMarkers::default();
+    let mut bridges = Vec::new();
     let mut waypoints = Vec::new();
     let keys = MapObjectNameKeys::resolve();
     if let Some((version, payload)) = find_chunk_by_label(body, &chunky.toc, OBJECTS_LIST_LABEL)? {
@@ -257,6 +191,11 @@ pub fn parse_runtime_map_objects_bundle_from_chunky(
             let _angle = reader.read_f32()?;
             let flags = reader.read_i32()?;
             let template_name = reader.read_ascii_string()?;
+            if let Some(span) =
+                markers.observe(flags as u32, &template_name, SystemCoord3D::new(x, y, z))
+            {
+                bridges.push(span);
+            }
             stubs.push(RuntimeMapObjectStub {
                 template_name: template_name.clone(),
                 location: Coord3D::new(x, y, z),
@@ -324,20 +263,9 @@ pub fn parse_runtime_map_objects_bundle_from_chunky(
     Ok((
         waypoints,
         links,
-        bridges_from_object_stubs(&stubs, templates),
+        bridges,
         roads_from_object_stubs(&stubs, definitions),
     ))
-}
-
-/// Combined bridges+roads from a single ObjectsList decode (preferred hot path).
-pub fn parse_runtime_bridges_and_roads_from_chunky(
-    chunky: &ChunkyMap,
-    templates: &HashMap<String, super::ThingTemplate>,
-    definitions: &TerrainRoadCollection,
-) -> LoaderResult<(Vec<BridgeData>, Vec<RuntimeRoadSegment>)> {
-    let (_wp, _links, bridges, roads) =
-        parse_runtime_map_objects_bundle_from_chunky(chunky, templates, definitions)?;
-    Ok((bridges, roads))
 }
 
 pub fn parse_runtime_sides_from_chunky(chunky: &ChunkyMap) -> LoaderResult<RuntimeSidesData> {
@@ -902,142 +830,6 @@ fn parse_waypoint_object_chunk(
         path_label3: dict_ascii_nonempty(&dict, keys.waypoint_path_label3).unwrap_or_default(),
         bi_directional,
     }))
-}
-
-fn parse_bridge_endpoint_object_chunk(
-    data: &[u8],
-    version: u16,
-) -> LoaderResult<Option<RuntimeBridgeEndpoint>> {
-    let mut reader = BinaryReader::new(data);
-    if reader.remaining() < 20 {
-        return Ok(None);
-    }
-
-    let x = reader.read_f32()?;
-    let y = reader.read_f32()?;
-    let mut z = reader.read_f32()?;
-    if version <= 2 {
-        z = 0.0;
-    }
-    let _angle = reader.read_f32()?;
-    let flags = reader.read_i32()?;
-    let template_name = reader.read_ascii_string()?;
-    if template_name.trim().is_empty() {
-        return Ok(None);
-    }
-
-    if (flags & (FLAG_BRIDGE_POINT1 | FLAG_BRIDGE_POINT2)) == 0 {
-        return Ok(None);
-    }
-
-    let point = Coord3D::new(x, y, z);
-    if (flags & FLAG_BRIDGE_POINT1) != 0 {
-        return Ok(Some(RuntimeBridgeEndpoint {
-            template_name,
-            location: point,
-            is_point1: true,
-        }));
-    }
-
-    Ok(Some(RuntimeBridgeEndpoint {
-        template_name,
-        location: point,
-        is_point1: false,
-    }))
-}
-
-fn parse_runtime_map_object_stub_chunk(
-    data: &[u8],
-    version: u16,
-) -> LoaderResult<Option<RuntimeMapObjectStub>> {
-    let mut reader = BinaryReader::new(data);
-    if reader.remaining() < 20 {
-        return Ok(None);
-    }
-
-    let x = reader.read_f32()?;
-    let y = reader.read_f32()?;
-    let mut z = reader.read_f32()?;
-    if version <= 2 {
-        z = 0.0;
-    }
-    let _angle = reader.read_f32()?;
-    let flags = reader.read_i32()?;
-    let template_name = reader.read_ascii_string()?;
-
-    Ok(Some(RuntimeMapObjectStub {
-        template_name,
-        location: Coord3D::new(x, y, z),
-        flags,
-    }))
-}
-
-fn add_runtime_bridge_point(
-    bridges: &mut Vec<BridgeData>,
-    pending: &mut HashMap<String, Vec<PendingRuntimeBridge>>,
-    endpoint: RuntimeBridgeEndpoint,
-    templates: &HashMap<String, super::ThingTemplate>,
-) {
-    let entry = pending.entry(endpoint.template_name.clone()).or_default();
-
-    if endpoint.is_point1 {
-        for index in 0..entry.len() {
-            if entry[index].from.is_none() && entry[index].to.is_some() {
-                let to = entry[index].to.take().unwrap_or(endpoint.location);
-                let from = endpoint.location;
-                entry.swap_remove(index);
-                bridges.push(build_runtime_bridge_data(
-                    templates,
-                    endpoint.template_name.as_str(),
-                    from,
-                    to,
-                ));
-                return;
-            }
-        }
-        entry.push(PendingRuntimeBridge {
-            from: Some(endpoint.location),
-            to: None,
-        });
-    } else {
-        for index in 0..entry.len() {
-            if entry[index].to.is_none() && entry[index].from.is_some() {
-                let from = entry[index].from.take().unwrap_or(endpoint.location);
-                let to = endpoint.location;
-                entry.swap_remove(index);
-                bridges.push(build_runtime_bridge_data(
-                    templates,
-                    endpoint.template_name.as_str(),
-                    from,
-                    to,
-                ));
-                return;
-            }
-        }
-        entry.push(PendingRuntimeBridge {
-            from: None,
-            to: Some(endpoint.location),
-        });
-    }
-}
-
-fn build_runtime_bridge_data(
-    templates: &HashMap<String, super::ThingTemplate>,
-    template_name: &str,
-    from: Coord3D,
-    to: Coord3D,
-) -> BridgeData {
-    let width = templates
-        .get(template_name)
-        .map(|template| (template.geometry_info.minor_radius * 2.0).max(0.0))
-        .filter(|width| *width > 0.0)
-        .unwrap_or(MAP_XY_FACTOR * 2.0);
-    BridgeData::new(
-        SystemCoord3D::new(from.x, from.y, from.z),
-        SystemCoord3D::new(to.x, to.y, to.z),
-        width,
-        template_name.to_string(),
-    )
 }
 
 fn build_runtime_road_data(

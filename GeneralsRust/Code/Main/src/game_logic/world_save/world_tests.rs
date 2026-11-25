@@ -506,7 +506,7 @@ mod landmark_bridge_and_new_map_tests {
                     map.write_int(value);
                 }
                 for _ in 0..441 {
-                    map.write_byte(0);
+                    map.write_byte(32);
                 }
                 map.close_data_chunk();
                 map.open_data_chunk("ObjectsList", 3);
@@ -520,7 +520,8 @@ mod landmark_bridge_and_new_map_tests {
                     map.close_data_chunk();
                 }
                 map.open_data_chunk("Object", 3);
-                for value in [55.0, 50.0, 21.0, 0.0] {
+                // The unit's stored Z is its offset from the sampled ground.
+                for value in [55.0, 50.0, 0.25, 0.0] {
                     map.write_real(value);
                 }
                 map.write_int(0);
@@ -533,6 +534,14 @@ mod landmark_bridge_and_new_map_tests {
                 std::fs::write(&path, map.into_ckmp_bytes()).unwrap();
 
                 let mut world = GameLogic::new();
+                crate::fixture_content::bridge_art::attach(
+                    &mut world,
+                    directory.path(),
+                    ["OwnedBridge0".into()],
+                    [-10.0, 10.0],
+                    0.0,
+                    1.0,
+                );
                 admit_fixture_objects(
                     &mut world,
                     &[
@@ -555,7 +564,7 @@ mod landmark_bridge_and_new_map_tests {
                     .registered_values()
                     .find(|unit| unit.template_name == WALKER)
                     .expect("the deck placement was admitted");
-                let pose = Vec3::new(55.0, 21.0, 50.0);
+                let pose = Vec3::new(55.0, 20.25, 50.0);
                 assert_eq!(world.frame, 0);
                 assert_eq!(actor.get_position(), pose);
                 assert!(actor.has_ai_update_interface());

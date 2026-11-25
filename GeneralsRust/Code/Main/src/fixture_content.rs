@@ -8,6 +8,9 @@
 
 use crate::game_logic::GameLogic;
 
+#[path = "fixture_content/bridge_art.rs"]
+pub(crate) mod bridge_art;
+
 #[cfg(feature = "game_client")]
 #[path = "fixture_content/supply_status.rs"]
 pub(crate) mod supply_status;

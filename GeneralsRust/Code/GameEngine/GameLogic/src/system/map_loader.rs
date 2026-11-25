@@ -28,6 +28,7 @@ use game_engine::common::system::compression::{decompress_data, is_data_compress
 use game_engine::map_object::{FLAG_BRIDGE_POINT1, FLAG_BRIDGE_POINT2, MAP_HEIGHT_SCALE};
 
 mod bridge_models;
+pub use bridge_models::{BridgeModels, read_mounted_bridge_model};
 
 /// Waypoint identifier type
 pub type WaypointID = u32;
@@ -51,7 +52,7 @@ pub const K_HEIGHT_MAP_VERSION_4: u32 = 4;
 pub const K_OBJECTS_VERSION_2: u32 = 2;
 
 // W3DBridgeBuffer.h, maximum number of admitted bridges.
-const MAX_BRIDGES: usize = 200;
+pub const MAX_AUTHORED_BRIDGES: usize = 200;
 
 pub use crate::common::{Coord3D, ICoord2D, Region3D};
 
@@ -345,11 +346,28 @@ impl MapLoader {
                 .map_err(|error| io::Error::other(error.to_string()))?;
             Self::parse_map_data(&bytes, true, Some(&mut names), Some(templates))?
         };
-        let mut bridge_models = bridge_models::BridgeModels::new(common);
+        let mut bridge_models = BridgeModels::default();
         self.accept_decoded(
             decoded,
             |name| TheThingFactory::find_template_in(common, name),
-            |span| bridge_models.deck(span),
+            |span| {
+                let definition = common
+                    .ini
+                    .terrain_roads
+                    .read()
+                    .find_bridge(&span.template_name.as_str().into())
+                    .map(|bridge| (bridge.model_name.clone(), bridge.bridge_scale));
+                let Some((model, scale)) = definition else {
+                    log::warn!(
+                        "Map bridge '{}' has no Bridge definition",
+                        span.template_name
+                    );
+                    return None;
+                };
+                bridge_models.deck(span, model.as_str(), scale, |path| {
+                    read_mounted_bridge_model(&common.application.file_system, path)
+                })
+            },
         );
         Ok(())
     }
@@ -495,7 +513,7 @@ impl MapLoader {
             .bridges
             .into_iter()
             .filter_map(bridge)
-            .take(MAX_BRIDGES)
+            .take(MAX_AUTHORED_BRIDGES)
             .collect();
     }
 
@@ -587,7 +605,7 @@ struct MapParseContext {
     bridges: Vec<BridgeEndpoints>,
     sides: Option<SidesList>,
     script_templates: Option<ScriptTemplateLookup>,
-    bridge_start: Option<(String, Coord3D)>,
+    bridge_markers: BridgeMarkers,
 }
 
 impl MapParseContext {
@@ -603,29 +621,7 @@ impl MapParseContext {
             bridges: Vec::new(),
             sides: None,
             script_templates,
-            bridge_start: None,
-        }
-    }
-
-    fn observe_bridge_marker(&mut self, flags: u32, name: &str, position: Coord3D) {
-        // WorldHeightMap::ParseObjectData drops out-of-range objects before
-        // linking the list seen by W3DBridgeBuffer::loadBridges.
-        const MIN_OBJECT_Z: f32 = -100.0 * MAP_XY_FACTOR;
-        const MAX_OBJECT_Z: f32 = 2550.0 * MAP_HEIGHT_SCALE;
-        if position.z < MIN_OBJECT_Z || position.z > MAX_OBJECT_Z {
-            return;
-        }
-
-        if let Some((template_name, from)) = self.bridge_start.take()
-            && flags & FLAG_BRIDGE_POINT2 != 0
-        {
-            self.bridges.push(BridgeEndpoints {
-                template_name,
-                from,
-                to: position,
-            });
-        } else if flags & FLAG_BRIDGE_POINT1 != 0 {
-            self.bridge_start = Some((name.to_owned(), position));
+            bridge_markers: BridgeMarkers::default(),
         }
     }
 }
@@ -722,7 +718,7 @@ fn parse_objects_list_chunk(
     let Some(ctx) = map_parse_context(user_data) else {
         return false;
     };
-    ctx.bridge_start = None;
+    ctx.bridge_markers = BridgeMarkers::default();
     input.register_parser("Object", &info.label, parse_object_chunk);
     input.parse(user_data)
 }
@@ -750,7 +746,9 @@ fn parse_object_chunk(
         Dict::new()
     };
 
-    ctx.observe_bridge_marker(flags, &name, loc);
+    if let Some(span) = ctx.bridge_markers.observe(flags, &name, loc) {
+        ctx.bridges.push(span);
+    }
 
     let waypoint_key = input.intern_name("waypointID");
     if let Some(id) = dict_get_int(&dict, waypoint_key) {
@@ -885,10 +883,48 @@ fn dict_get_string(dict: &Dict, key: u32) -> String {
     }
 }
 
-struct BridgeEndpoints {
-    template_name: String,
-    from: Coord3D,
-    to: Coord3D,
+/// The two adjacent authored map markers for one bridge.
+#[derive(Debug)]
+pub struct BridgeEndpoints {
+    pub template_name: String,
+    pub from: Coord3D,
+    pub to: Coord3D,
+}
+
+/// W3DBridgeBuffer::loadBridges walks consecutive WorldHeightMap objects.
+#[derive(Default)]
+pub struct BridgeMarkers {
+    start: Option<(String, Coord3D)>,
+}
+
+impl BridgeMarkers {
+    pub fn observe(
+        &mut self,
+        flags: u32,
+        name: &str,
+        position: Coord3D,
+    ) -> Option<BridgeEndpoints> {
+        // WorldHeightMap::ParseObjectData skips these objects before linking.
+        const MIN_OBJECT_Z: f32 = -100.0 * MAP_XY_FACTOR;
+        const MAX_OBJECT_Z: f32 = 2550.0 * MAP_HEIGHT_SCALE;
+        if position.z < MIN_OBJECT_Z || position.z > MAX_OBJECT_Z {
+            return None;
+        }
+
+        if let Some((template_name, from)) = self.start.take()
+            && flags & FLAG_BRIDGE_POINT2 != 0
+        {
+            return Some(BridgeEndpoints {
+                template_name,
+                from,
+                to: position,
+            });
+        }
+        if flags & FLAG_BRIDGE_POINT1 != 0 {
+            self.start = Some((name.to_owned(), position));
+        }
+        None
+    }
 }
 
 impl BridgeData {

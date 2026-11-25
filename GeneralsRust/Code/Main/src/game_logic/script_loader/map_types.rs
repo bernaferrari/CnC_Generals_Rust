@@ -153,13 +153,6 @@ pub struct RuntimeWaypoint {
 }
 
 #[derive(Debug, Clone)]
-struct RuntimeBridgeEndpoint {
-    template_name: String,
-    location: Coord3D,
-    is_point1: bool,
-}
-
-#[derive(Debug, Clone)]
 struct RuntimeMapObjectStub {
     template_name: String,
     location: Coord3D,
@@ -179,12 +172,6 @@ pub struct RuntimeRoadSegment {
     pub end_is_angled: bool,
     pub end_is_join: bool,
     pub curve_radius: f32,
-}
-
-#[derive(Debug, Default)]
-struct PendingRuntimeBridge {
-    from: Option<Coord3D>,
-    to: Option<Coord3D>,
 }
 
 #[derive(Debug, Clone, Default)]

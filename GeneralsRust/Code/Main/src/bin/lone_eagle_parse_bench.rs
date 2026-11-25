@@ -1,5 +1,4 @@
 //! Stage timers for Lone Eagle CPU map parse (no full game boot).
-use std::collections::HashMap;
 use std::path::PathBuf;
 use std::time::Instant;
 
@@ -44,7 +43,7 @@ fn main() {
     let t = Instant::now();
     let roads = TerrainRoadCollection::new();
     let (wp, _links, bridges, road_segs) =
-        parse_runtime_map_objects_bundle_from_chunky(&chunky, &HashMap::new(), &roads)
+        parse_runtime_map_objects_bundle_from_chunky(&chunky, &roads)
             .expect("bundle");
     let objects_s = t.elapsed();
 

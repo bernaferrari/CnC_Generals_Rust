@@ -55,17 +55,7 @@ impl TerrainLogic {
         map_data: MapData,
         mut pathfinder: Option<&mut crate::ai::Pathfinder>,
     ) -> Result<(), String> {
-        let mut bridges = self.install_map_terrain(map_data)?;
-        // W3DBridgeBuffer::loadBridges samples the logic heightmap and adds
-        // BRIDGE_FLOAT_AMT before it admits the span to the terrain and AI.
-        const BRIDGE_FLOAT_AMT: f32 = 0.25;
-        for bridge in &mut bridges {
-            bridge.from.z =
-                self.get_ground_height(bridge.from.x, bridge.from.y, None) + BRIDGE_FLOAT_AMT;
-            bridge.to.z = self.get_ground_height(bridge.to.x, bridge.to.y, None) + BRIDGE_FLOAT_AMT;
-            bridge.height = (bridge.from.z + bridge.to.z) / 2.0;
-        }
-        let bridges = self.install_authored_bridges(bridges);
+        let bridges = self.try_load_authored_map_geometry(map_data)?;
         if let Some(pathfinder) = pathfinder.as_deref_mut() {
             pathfinder.reset();
         }
@@ -130,6 +120,24 @@ impl TerrainLogic {
         map_data: MapData,
     ) -> Result<Vec<(BridgeInfo, AsciiString)>, String> {
         let bridges = self.install_map_terrain(map_data)?;
+        Ok(self.install_authored_bridges(bridges))
+    }
+
+    /// Install pristine map terrain and attach each authored bridge to its endpoints.
+    pub fn try_load_authored_map_geometry(
+        &mut self,
+        map_data: MapData,
+    ) -> Result<Vec<(BridgeInfo, AsciiString)>, String> {
+        let mut bridges = self.install_map_terrain(map_data)?;
+        // W3DBridgeBuffer::loadBridges samples the logic heightmap and adds
+        // BRIDGE_FLOAT_AMT before it admits the span to the terrain and AI.
+        const BRIDGE_FLOAT_AMT: f32 = 0.25;
+        for bridge in &mut bridges {
+            bridge.from.z =
+                self.get_ground_height(bridge.from.x, bridge.from.y, None) + BRIDGE_FLOAT_AMT;
+            bridge.to.z = self.get_ground_height(bridge.to.x, bridge.to.y, None) + BRIDGE_FLOAT_AMT;
+            bridge.height = (bridge.from.z + bridge.to.z) / 2.0;
+        }
         Ok(self.install_authored_bridges(bridges))
     }
 
