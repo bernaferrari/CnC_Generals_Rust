@@ -161,28 +161,9 @@ impl Object {
         extent: Option<crate::common::Region3D>,
     ) {
         let (pos_diff, ang_diff) = self.apply_transform_local(matrix, cached_pose, height);
-        let translation = self.geometry_info.position;
-        let new_angle = self.geometry_info.angle;
         if pos_diff || ang_diff {
             self.react_contain_to_transform();
-        }
-        if pos_diff || ang_diff {
-            let geom = Self::collision_geometry_from_bounds(
-                &self.geometry_info,
-                self.get_template_geometry_type(),
-            );
-            let _ = crate::object::collide::collision_system::with_collision_system_mut(|system| {
-                let collision_pos = crate::object::collide::Coord3D::new(
-                    translation.x,
-                    translation.y,
-                    translation.z,
-                );
-                let res = system.update_object_pose(self.id, collision_pos, new_angle);
-                if res.is_err() {
-                    let _ = system.register_object(self.id, collision_pos, geom, None);
-                }
-                Ok::<(), crate::object::collide::CollisionError>(())
-            });
+            self.sync_compatibility_collision_pose(Some(self.geometry_info.angle));
         }
         if pos_diff {
             self.set_trigger_area_flags_with_context(frame, changed);
@@ -190,6 +171,29 @@ impl Object {
             if let Some(extent) = extent {
                 self.refresh_off_map_status(&extent);
             }
+        }
+    }
+
+    /// Object.cpp:1740–1772 dirties the moving actor's own partition membership.
+    fn sync_compatibility_collision_pose(&self, angle: Option<Real>) {
+        let world = self
+            .owning_world_services()
+            .unwrap_or_else(crate::system::engine_stores::active_services);
+        let Ok(mut collision) = world.logic_managers().collision.write() else {
+            return;
+        };
+        let position = self.geometry_info.position;
+        let collision_pos = crate::object::collide::Coord3D::new(position.x, position.y, position.z);
+        let result = match angle {
+            Some(angle) => collision.update_object_pose(self.id, collision_pos, angle),
+            None => collision.update_object_position(self.id, collision_pos),
+        };
+        if result.is_err() {
+            let geometry = Self::collision_geometry_from_bounds(
+                &self.geometry_info,
+                self.get_template_geometry_type(),
+            );
+            let _ = collision.register_object(self.id, collision_pos, geometry, None);
         }
     }
 
@@ -759,19 +763,7 @@ impl Object {
         self.transform_matrix.w_axis = position.extend(1.0);
         self.geometry_info.position = *position;
         self.geometry_info.height_above_terrain = height;
-        let geom = Self::collision_geometry_from_bounds(
-            &self.geometry_info,
-            self.get_template_geometry_type(),
-        );
-        let _ = crate::object::collide::collision_system::with_collision_system_mut(|system| {
-            let collision_pos =
-                crate::object::collide::Coord3D::new(position.x, position.y, position.z);
-            let res = system.update_object_position(self.id, collision_pos);
-            if res.is_err() {
-                let _ = system.register_object(self.id, collision_pos, geom, None);
-            }
-            Ok::<(), crate::object::collide::CollisionError>(())
-        });
+        self.sync_compatibility_collision_pose(None);
         if !self.is_kind_of(KindOf::Projectile) && !self.is_kind_of(KindOf::Inert) {
             let area_tracker = crate::scripting::engine::get_area_tracker();
             let event_manager = crate::scripting::engine::get_event_manager();
@@ -1589,6 +1581,71 @@ mod trigger_identity_tests {
 
         crate::object::registry::OBJECT_REGISTRY.unregister_object(object_id);
     }
+
+    #[test]
+    fn compatibility_pose_updates_collision_in_the_owning_match() {
+        use crate::system::engine_stores::{EngineStores, with_active_stores};
+        use crate::system::game_logic::GameLogic;
+
+        let receiving = Arc::new(EngineStores::new_for_world());
+        let peer = Arc::new(EngineStores::new_for_world());
+        let id = 0x00B0_1B23;
+        let receiving_start = Coord3D::new(100.0, 100.0, 0.0);
+        let peer_start = Coord3D::new(450.0, 450.0, 0.0);
+        let mut template = DefaultThingTemplate::new("CompatibilityPoseOwner".into());
+        template.add_kind_of(KindOf::Inert);
+        let template = Arc::new(template);
+        let admit = |world: &Arc<EngineStores>, position| {
+            let mut logic = GameLogic::new_with_engine_stores(world.clone());
+            let mut object = Object::new_raw(
+                template.clone(),
+                id,
+                ObjectStatusMaskType::none(),
+                None,
+            );
+            object.set_prepared_position(&position);
+            let object = Arc::new(RwLock::new(object));
+            with_active_stores(world, || logic.register_object(object.clone())).unwrap();
+            (logic, object)
+        };
+        let (mut receiving_logic, object) = admit(&receiving, receiving_start);
+        let (mut peer_logic, _) = admit(&peer, peer_start);
+        let present_at = |world: &EngineStores, position: Coord3D| {
+            let collision = world.services().logic_managers().collision.read().unwrap();
+            collision
+                .query_objects_in_radius(
+                    &crate::object::collide::Coord3D::new(position.x, position.y, position.z),
+                    1.0,
+                )
+                .contains(&id)
+        };
+        assert!(present_at(&receiving, receiving_start));
+        assert!(present_at(&peer, peer_start));
+
+        let translated = Coord3D::new(200.0, 200.0, 0.0);
+        let transformed = Coord3D::new(300.0, 300.0, 0.0);
+        with_active_stores(&peer, || {
+            let mut object = object.write().unwrap();
+            object.set_position(&translated).unwrap();
+            assert!(!present_at(&receiving, receiving_start));
+            assert!(present_at(&receiving, translated));
+            assert!(present_at(&peer, peer_start));
+            assert!(!present_at(&peer, translated));
+
+            let pose = Matrix3D::from_translation(transformed) * Matrix3D::from_rotation_z(1.0);
+            object
+                .set_transform_matrix_with_trigger_context(&pose, Some(17), &mut |_| {})
+                .unwrap();
+            assert!(!present_at(&receiving, translated));
+            assert!(present_at(&receiving, transformed));
+            assert!(present_at(&peer, peer_start));
+            assert!(!present_at(&peer, transformed));
+        });
+
+        with_active_stores(&receiving, || receiving_logic.clear_all_objects());
+        with_active_stores(&peer, || peer_logic.clear_all_objects());
+    }
+
     #[test]
     fn borrowed_trigger_context_keeps_same_id_frames_and_notifications_independent() {
         #[cfg(not(target_arch = "wasm32"))]
