@@ -15,6 +15,7 @@ use game_engine::common::system::xfer::{Xfer as CommonXfer, XferMode as CommonXf
 use game_engine::common::system::xfer_load::XferLoad as CommonXferLoad;
 use game_engine::common::system::xfer_save::XferSave as CommonXferSave;
 use glam::{Mat4, Vec3};
+use serde::{Deserialize, Serialize};
 use std::io::{self, Cursor};
 
 const W3D_TERRAIN_VISUAL_VERSION: u8 = 3;
@@ -100,6 +101,174 @@ impl PreparedTerrainVisual {
             }
         }
     }
+}
+
+
+/// Typed terrain-visual continuation stored by the versioned save archive.
+/// Height bytes are the logical height-map grid itself, not an opaque nested
+/// transfer stream. Water cells are sparse because zero-valued wire cells are
+/// discarded by the original loader.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TerrainVisualArchive {
+    pub water_enabled: bool,
+    pub water_cells: Vec<TerrainWaterCellArchive>,
+    pub heights: Vec<u8>,
+    pub tree_records: Vec<TreeSaveRecord>,
+    /// None means the writer made no scorch observation; Some(empty) is an
+    /// explicit clear. Preserve that distinction from the optional tail.
+    pub scorches: Option<Vec<ScorchMark>>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct TerrainWaterCellArchive {
+    pub x: i32,
+    pub y: i32,
+    pub height_delta: f32,
+    pub velocity: f32,
+    pub status: u8,
+    pub preferred_height: u8,
+}
+
+fn canonical_tree_record(record: &TreeSaveRecord) -> TreeSaveRecord {
+    let mut record = record.clone();
+    // The original matrix xfer stores the first three affine rows. Row three
+    // remains the identity row on load, so do not preserve presentation-only
+    // deviation that the production format never continued.
+    let mut cols = record.matrix.to_cols_array();
+    cols[3] = 0.0;
+    cols[7] = 0.0;
+    cols[11] = 0.0;
+    cols[15] = 1.0;
+    record.matrix = Mat4::from_cols_array(&cols);
+    record
+}
+
+/// Capture the same semantic domain as the original v3 terrain-visual xfer,
+/// without first serializing it into a positional byte stream.
+pub fn capture_typed_terrain_visual_with_tree_records(
+    terrain: &gamelogic::terrain::TerrainLogic,
+    native_water: Option<&gamelogic::terrain_water::WaterGridState>,
+    scorches: Option<&[ScorchMark]>,
+    tree_records: Vec<TreeSaveRecord>,
+) -> Result<TerrainVisualArchive, String> {
+    terrain.validate_height_map()?;
+    let grid = native_water
+        .unwrap_or_else(|| terrain.water_grid_state())
+        .clone();
+    let mut water_cells = Vec::new();
+    if grid.enabled {
+        let cells_x = grid.resolution.0 as i32;
+        let cells_y = grid.resolution.1 as i32;
+        let mesh_size = (cells_x as i64 + 1 + 2)
+            .saturating_mul(cells_y as i64 + 1 + 2)
+            .max(0) as usize;
+        let stride = cells_x as usize + 3;
+        for index in 0..mesh_size {
+            let x = (index % stride) as i32 - 1;
+            let y = (index / stride) as i32 - 1;
+            let key = (x, y);
+            let height_delta = grid.height_deltas.get(&key).copied().unwrap_or(0.0);
+            let motion = grid.mesh_motion.get(&key).copied().unwrap_or_default();
+            if height_delta.to_bits() != 0
+                || motion.velocity.to_bits() != 0
+                || motion.status != 0
+                || motion.preferred_height != 0
+            {
+                water_cells.push(TerrainWaterCellArchive {
+                    x,
+                    y,
+                    height_delta,
+                    velocity: motion.velocity,
+                    status: motion.status,
+                    preferred_height: motion.preferred_height,
+                });
+            }
+        }
+    }
+    Ok(TerrainVisualArchive {
+        water_enabled: grid.enabled,
+        water_cells,
+        heights: terrain.logic_height_map_bytes().to_vec(),
+        tree_records: tree_records.iter().map(canonical_tree_record).collect(),
+        scorches: scorches.map(|marks| marks.to_vec()),
+    })
+}
+
+fn canonical_matrix_row(matrix: Mat4) -> [f32; 4] {
+    let cols = matrix.to_cols_array();
+    [cols[3], cols[7], cols[11], cols[15]]
+}
+
+/// Prepare typed archive data against the receiving map without touching live
+/// logical or native terrain state.
+pub fn prepare_typed_terrain_visual_for_terrain(
+    terrain: &gamelogic::terrain::TerrainLogic,
+    archive: &TerrainVisualArchive,
+) -> Result<Option<PreparedTerrainVisual>, String> {
+    terrain.validate_height_map()?;
+    let mut grid = terrain.water_grid_state().clone();
+    let receiving_water_enabled = grid.enabled;
+    if archive.water_enabled != receiving_water_enabled {
+        return Err("water-grid enabled flag differs from receiving map".into());
+    }
+    if archive.water_enabled {
+        let cells_x = grid.resolution.0 as i32;
+        let cells_y = grid.resolution.1 as i32;
+        grid.height_deltas.clear();
+        grid.mesh_motion.clear();
+        let mut keys = std::collections::HashSet::with_capacity(archive.water_cells.len());
+        for cell in &archive.water_cells {
+            if cell.x < -1
+                || cell.y < -1
+                || cell.x > cells_x + 1
+                || cell.y > cells_y + 1
+                || !keys.insert((cell.x, cell.y))
+            {
+                return Err("invalid or duplicate water-grid cell in terrain visual archive".into());
+            }
+            let key = (cell.x, cell.y);
+            if cell.height_delta.to_bits() != 0 {
+                grid.height_deltas.insert(key, cell.height_delta);
+            }
+            if cell.velocity.to_bits() != 0 || cell.status != 0 || cell.preferred_height != 0 {
+                grid.mesh_motion.insert(
+                    key,
+                    gamelogic::terrain_water::WaterGridMeshMotion {
+                        velocity: cell.velocity,
+                        status: cell.status,
+                        preferred_height: cell.preferred_height,
+                    },
+                );
+            }
+        }
+    } else if !archive.water_cells.is_empty() {
+        return Err("disabled water grid cannot carry water cells".into());
+    }
+    grid.enabled = archive.water_enabled;
+
+    if archive.tree_records.len() > MAX_TREES {
+        return Err(format!(
+            "TREE count {} exceeds 0..={MAX_TREES}",
+            archive.tree_records.len()
+        ));
+    }
+    if archive
+        .tree_records
+        .iter()
+        .any(|record| canonical_matrix_row(record.matrix) != [0.0, 0.0, 0.0, 1.0])
+    {
+        return Err("tree matrix contains a non-affine bottom row".into());
+    }
+    if terrain.logic_height_map_bytes().is_empty() && !archive.heights.is_empty() {
+        return Err("terrain visual heights require a loaded receiving map".into());
+    }
+    Ok(Some(PreparedTerrainVisual {
+        grid,
+        heights: archive.heights.clone(),
+        height_present: true,
+        tree_records: Some(archive.tree_records.clone()),
+        scorches: archive.scorches.clone(),
+    }))
 }
 
 /// The caller supplies its actual receiving terrain and native observation.

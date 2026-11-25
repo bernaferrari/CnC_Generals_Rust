@@ -269,6 +269,19 @@ fn native_water_motion_is_captured_from_receiving_visual_without_changing_logica
         .unwrap();
     assert_eq!(prepared.grid().mesh_motion, observed.mesh_motion);
     assert_eq!(prepared.heights(), &[40; 4]);
+    let typed = capture_typed_terrain_visual_with_tree_records(
+        &logical,
+        Some(&observed),
+        Some(&[]),
+        Vec::new(),
+    )
+    .unwrap();
+    assert!(!typed.water_cells.is_empty());
+    let typed_prepared = prepare_typed_terrain_visual_for_terrain(&logical, &typed)
+        .unwrap()
+        .unwrap();
+    assert_eq!(typed_prepared.grid().mesh_motion, observed.mesh_motion);
+    assert_eq!(typed_prepared.heights(), &[40; 4]);
     let logical_bytes = capture_owned_terrain_visual_for_terrain(&logical, None).unwrap();
     let logical_prepared = prepare_terrain_visual_for_terrain(&logical, &logical_bytes)
         .unwrap()

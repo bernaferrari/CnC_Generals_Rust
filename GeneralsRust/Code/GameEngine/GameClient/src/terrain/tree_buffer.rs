@@ -3,6 +3,7 @@
 use std::collections::HashMap;
 
 use glam::{Mat4, Vec2, Vec3, Vec4};
+use serde::{Deserialize, Serialize};
 
 pub const MAX_TREE_VERTEX: usize = 30_000;
 pub const MAX_TREE_INDEX: usize = 60_000;
@@ -33,7 +34,7 @@ pub const W3D_TOPPLE_OPTIONS_NO_FX: u32 = 0x0000_0002;
 pub const ANGULAR_LIMIT: f32 = std::f32::consts::FRAC_PI_2 - std::f32::consts::PI / 64.0;
 
 /// C++ `W3DToppleState`, including the typoed `TOPPPLE_SHROUDED` slot.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[repr(i32)]
 pub enum W3DToppleState {
     Upright = 0,
@@ -401,7 +402,7 @@ impl TreeConstructionGeometry {
 }
 
 /// Snapshot record order used by C++ `W3DTreeBuffer::xfer`.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TreeSaveRecord {
     pub model_name: String,
     pub model_texture: String,

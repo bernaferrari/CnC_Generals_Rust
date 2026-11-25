@@ -91,10 +91,10 @@ fn actual_definition(flag: bool) -> gamelogic::team::TeamPrototype {
 }
 
 #[test]
-fn mapless_bad_tail_and_late_snapshot_failure_preserve_live_grid_factory_and_cache_owner() {
+fn mapless_bad_companion_and_late_snapshot_failure_preserve_live_grid_factory_and_cache_owner() {
     crate::game_logic::game_logic::pose_owner_tests::isolated_at(
         module_path!(),
-        "mapless_bad_tail_and_late_snapshot_failure_preserve_live_grid_factory_and_cache_owner",
+        "mapless_bad_companion_and_late_snapshot_failure_preserve_live_grid_factory_and_cache_owner",
         || {
             let directory = tempfile::tempdir().unwrap();
             let mut manager = SaveFileManager::with_save_directory(directory.path());
@@ -108,7 +108,7 @@ fn mapless_bad_tail_and_late_snapshot_failure_preserve_live_grid_factory_and_cac
             let snapshot = SnapshotBuilder::new()
                 .create_world_snapshot(&source)
                 .unwrap();
-            let bytes = capture_receiving_terrain_visual_xfer_bytes(&source, None).unwrap();
+            let archive = capture_receiving_terrain_visual_archive(&source, None, None, Vec::new()).unwrap();
             let info = fixture_save_info();
             let mut running = world(90, false);
             running.admit_object_ini_sources(std::iter::empty()).unwrap();
@@ -132,12 +132,23 @@ fn mapless_bad_tail_and_late_snapshot_failure_preserve_live_grid_factory_and_cac
                 .height_revision();
             // Preserve the real source owner's admission intent while replacing
             // only the payloads whose late rejection this test exercises.
+            let mut bad_archive = archive.clone();
+            bad_archive.water_cells.push(
+                game_client::terrain::terrain_visual_xfer::TerrainWaterCellArchive {
+                    x: 0,
+                    y: 0,
+                    height_delta: 1.0,
+                    velocity: 0.0,
+                    status: 0,
+                    preferred_height: 0,
+                },
+            );
             for (slot, candidate, payload, expected) in [
                 (
-                    "bad_mapless_tail",
+                    "bad_mapless_companion",
                     copy_snapshot(&snapshot),
-                    [bytes.as_slice(), &[0]].concat(),
-                    "scorch count",
+                    bad_archive,
+                    "disabled water grid",
                 ),
                 (
                     "bad_mapless_late",
@@ -146,7 +157,7 @@ fn mapless_bad_tail_and_late_snapshot_failure_preserve_live_grid_factory_and_cac
                         candidate.persist_v18.radar_next_event = -2;
                         candidate
                     },
-                    bytes.clone(),
+                    archive.clone(),
                     "radar ring",
                 ),
             ] {

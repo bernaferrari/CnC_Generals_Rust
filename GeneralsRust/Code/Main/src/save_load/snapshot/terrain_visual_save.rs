@@ -7,28 +7,22 @@
 
 use crate::save_load::{SaveLoadError, SaveLoadResult};
 pub const CHUNK_TERRAIN_VISUAL: &str = "CHUNK_TerrainVisual";
-pub use game_client::terrain::terrain_visual_xfer::PreparedTerrainVisual;
+pub use game_client::terrain::terrain_visual_xfer::{PreparedTerrainVisual, TerrainVisualArchive};
 
-/// Explicit logical owner, with an optional native observation from the caller.
-pub fn capture_receiving_terrain_visual_xfer_bytes(
-    world: &crate::game_logic::GameLogic,
-    scorches: Option<&[game_client::terrain::scorch_mesh::ScorchMark]>,
-) -> SaveLoadResult<Vec<u8>> {
-    capture_receiving_terrain_visual_with_water(world, None, scorches, Vec::new())
-}
-
-pub fn capture_receiving_terrain_visual_with_water(
+/// Capture the typed archive continuation directly; no positional companion
+/// stream is constructed in production.
+pub fn capture_receiving_terrain_visual_archive(
     world: &crate::game_logic::GameLogic,
     native_water: Option<&gamelogic::terrain_water::WaterGridState>,
     scorches: Option<&[game_client::terrain::scorch_mesh::ScorchMark]>,
     tree_records: Vec<game_client::terrain::TreeSaveRecord>,
-) -> SaveLoadResult<Vec<u8>> {
+) -> SaveLoadResult<TerrainVisualArchive> {
     let terrain = world
         .world_services
         .terrain()
         .read()
         .map_err(|_| SaveLoadError::Serialization("receiving terrain lock poisoned".into()))?;
-    game_client::terrain::terrain_visual_xfer::capture_terrain_visual_with_tree_records(
+    game_client::terrain::terrain_visual_xfer::capture_typed_terrain_visual_with_tree_records(
         &terrain,
         native_water,
         scorches,
@@ -40,9 +34,9 @@ pub fn capture_receiving_terrain_visual_with_water(
 /// No native effects during candidate preparation or logical admission.
 pub fn prepare_receiving_terrain_visual(
     world: &crate::game_logic::GameLogic,
-    bytes: Option<&[u8]>,
+    archive: Option<&TerrainVisualArchive>,
 ) -> SaveLoadResult<Option<PreparedTerrainVisual>> {
-    let Some(bytes) = bytes else {
+    let Some(bytes) = archive else {
         return Ok(None);
     };
     let terrain = world
@@ -50,8 +44,10 @@ pub fn prepare_receiving_terrain_visual(
         .terrain()
         .read()
         .map_err(|_| SaveLoadError::Corrupted("receiving terrain lock poisoned".into()))?;
-    game_client::terrain::terrain_visual_xfer::prepare_terrain_visual_for_terrain(&terrain, bytes)
-        .map_err(SaveLoadError::Corrupted)
+    game_client::terrain::terrain_visual_xfer::prepare_typed_terrain_visual_for_terrain(
+        &terrain, bytes,
+    )
+    .map_err(SaveLoadError::Corrupted)
 }
 pub fn admit_receiving_terrain_visual(
     world: &mut crate::game_logic::GameLogic,

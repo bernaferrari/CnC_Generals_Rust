@@ -27,7 +27,7 @@ pub struct DecodedGameSave {
     /// Kept detached until the receiving host admits the candidate world.
     pub game_client_xfer: Option<Vec<u8>>,
     /// Paired with this archive, never published for another restore to take.
-    pub terrain_visual_xfer: Option<Vec<u8>>,
+    pub terrain_visual_archive: Option<crate::save_load::snapshot::TerrainVisualArchive>,
 }
 
 /// Structured map admission payload replacing the C++ `CHUNK_GameStateMap`
@@ -57,7 +57,7 @@ pub struct SaveArchive {
     pub map_admission_intent: MapAdmissionIntent,
     pub saved_game_mode: Option<i32>,
     pub game_client_xfer: Option<Vec<u8>>,
-    pub terrain_visual_xfer: Option<Vec<u8>>,
+    pub terrain_visual_archive: Option<crate::save_load::snapshot::TerrainVisualArchive>,
     pub ghost_object_archive: Option<crate::save_load::snapshot::W3DGhostObjectManagerArchive>,
     pub particle_system_xfer: Option<Vec<u8>>,
     pub map: Option<SaveMapArchive>,
@@ -75,7 +75,7 @@ pub struct SaveArchiveRef<'a> {
     pub map_admission_intent: MapAdmissionIntent,
     pub saved_game_mode: Option<i32>,
     pub game_client_xfer: Option<&'a [u8]>,
-    pub terrain_visual_xfer: Option<&'a [u8]>,
+    pub terrain_visual_archive: Option<&'a crate::save_load::snapshot::TerrainVisualArchive>,
     pub ghost_object_archive: Option<&'a crate::save_load::snapshot::W3DGhostObjectManagerArchive>,
     pub particle_system_xfer: Option<&'a [u8]>,
     pub map: Option<&'a SaveMapArchive>,

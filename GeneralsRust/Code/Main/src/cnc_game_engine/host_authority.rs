@@ -2378,7 +2378,7 @@ impl CnCGameEngine {
             snapshot,
             save_info,
             game_client_xfer: game_client_xfer_bytes,
-            terrain_visual_xfer,
+            terrain_visual_archive,
             saved_game_mode,
             map_admission_intent: _,
         } = save_file_manager
@@ -2391,7 +2391,7 @@ impl CnCGameEngine {
             saved_game_mode,
             campaign_state.as_ref(),
             game_client_xfer_bytes,
-            terrain_visual_xfer,
+            terrain_visual_archive,
             slot,
             active_mode,
             campaign_context,
@@ -2452,7 +2452,7 @@ impl CnCGameEngine {
             save_info,
             saved_game_mode,
             game_client_xfer,
-            terrain_visual_xfer,
+            terrain_visual_archive,
             map_admission_intent: _,
         } = decoded;
         let staged = Self::stage_decoded_saved_world_for_restore(
@@ -2461,7 +2461,7 @@ impl CnCGameEngine {
             saved_game_mode,
             campaign_state.as_ref(),
             game_client_xfer,
-            terrain_visual_xfer,
+            terrain_visual_archive,
             slot,
             live.game_mode(),
             RestoreTemplateCatalog::from_world(live),
@@ -2653,7 +2653,7 @@ impl CnCGameEngine {
                 .map_err(|error| error.to_string())?;
             let terrain = crate::save_load::snapshot::prepare_receiving_terrain_visual(
                 &candidate,
-                decoded.terrain_visual_xfer.as_deref(),
+                decoded.terrain_visual_archive.as_ref(),
             )
             .map_err(|error| error.to_string())?;
             // Validate the complete paired payload before object/script restore.
@@ -2725,7 +2725,7 @@ impl CnCGameEngine {
         saved_game_mode: Option<i32>,
         campaign_state: Option<&game_engine::System::CampaignManagerXferState>,
         game_client_xfer_bytes: Option<Vec<u8>>,
-        terrain_visual_xfer_bytes: Option<Vec<u8>>,
+        terrain_visual_archive: Option<crate::save_load::snapshot::TerrainVisualArchive>,
         slot: &str,
         active_mode: crate::game_logic::GameMode,
         template_catalog: RestoreTemplateCatalog<'_>,
@@ -2762,7 +2762,7 @@ impl CnCGameEngine {
             saved_game_mode,
             campaign_state,
             game_client_xfer_bytes,
-            terrain_visual_xfer_bytes,
+            terrain_visual_archive,
             slot,
             active_mode,
             crate::save_load::CampaignMapContext::default(),
@@ -2793,7 +2793,7 @@ impl CnCGameEngine {
         saved_game_mode: Option<i32>,
         campaign_state: Option<&game_engine::System::CampaignManagerXferState>,
         game_client_xfer_bytes: Option<Vec<u8>>,
-        terrain_visual_xfer_bytes: Option<Vec<u8>>,
+        terrain_visual_archive: Option<crate::save_load::snapshot::TerrainVisualArchive>,
         slot: &str,
         active_mode: crate::game_logic::GameMode,
         campaign_context: crate::save_load::CampaignMapContext,
@@ -3027,7 +3027,7 @@ impl CnCGameEngine {
             // logical snapshot can replace it. No native state is touched here.
             let terrain_visual = crate::save_load::snapshot::prepare_receiving_terrain_visual(
                 &staged,
-                terrain_visual_xfer_bytes.as_deref(),
+                terrain_visual_archive.as_ref(),
             )
             .map_err(|error| error.to_string())?;
             // The saved-map foundation already owns native constructor outputs.

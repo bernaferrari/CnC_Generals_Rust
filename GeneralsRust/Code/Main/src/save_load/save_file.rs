@@ -20,7 +20,7 @@ use decoded::{SaveArchiveRef, SaveMapArchive};
 /// and client companions explicitly; decoding never publishes pieces of one
 /// candidate for another restore to take.
 pub(crate) const VERSIONED_SAVE_MAGIC: &[u8; 8] = b"GZHRSAV\0";
-pub(crate) const VERSIONED_SAVE_ARCHIVE_VERSION: u32 = 3;
+pub(crate) const VERSIONED_SAVE_ARCHIVE_VERSION: u32 = 4;
 const MAX_VERSIONED_SAVE_BYTES: usize = 512 * 1024 * 1024;
 
 /// Stored game-mode integers written by `GameStateMap::xfer` v2
@@ -155,7 +155,7 @@ pub(crate) fn rewrite_versioned_save_archive(
         map_admission_intent: archive.map_admission_intent,
         saved_game_mode: archive.saved_game_mode,
         game_client_xfer: archive.game_client_xfer.as_deref(),
-        terrain_visual_xfer: archive.terrain_visual_xfer.as_deref(),
+        terrain_visual_archive: archive.terrain_visual_archive.as_ref(),
         ghost_object_archive: archive.snapshot.w3d_ghost_archive.as_ref(),
         particle_system_xfer: archive.snapshot.particle_system_companion.as_deref(),
         map: archive.map.as_ref(),
@@ -734,8 +734,8 @@ impl SaveFileManager {
         let native_water = native_terrain.map(|visual| visual.capture_water_state());
         let tree_records =
             native_terrain.map_or_else(Vec::new, |visual| visual.capture_tree_records());
-        let terrain_visual_bytes =
-            crate::save_load::snapshot::capture_receiving_terrain_visual_with_water(
+        let terrain_visual_archive =
+            crate::save_load::snapshot::capture_receiving_terrain_visual_archive(
                 game_logic,
                 native_water.as_ref(),
                 terrain_scorches,
@@ -746,7 +746,7 @@ impl SaveFileManager {
             &world_snapshot,
             &effective_info,
             &client_xfer_bytes,
-            Some(&terrain_visual_bytes),
+            Some(&terrain_visual_archive),
             encode_saved_game_mode(game_logic.game_mode()),
             &campaign_state,
             map_intent,
@@ -1003,7 +1003,7 @@ impl SaveFileManager {
         world_snapshot: &WorldSnapshot,
         save_info: &SaveGameInfo,
         client_xfer_bytes: &[u8],
-        terrain_visual_bytes: Option<&[u8]>,
+        terrain_visual_archive: Option<&crate::save_load::snapshot::TerrainVisualArchive>,
         supplied_game_mode: i32,
         campaign_state: &game_engine::System::CampaignManagerXferState,
         map_intent: MapAdmissionIntent,
@@ -1056,7 +1056,7 @@ impl SaveFileManager {
             map_admission_intent: map_intent,
             saved_game_mode,
             game_client_xfer: (!client_xfer_bytes.is_empty()).then_some(client_xfer_bytes),
-            terrain_visual_xfer: terrain_visual_bytes.filter(|bytes| !bytes.is_empty()),
+            terrain_visual_archive,
             ghost_object_archive: snapshot.w3d_ghost_archive.as_ref(),
             particle_system_xfer: snapshot.particle_system_companion.as_deref(),
             map: map_archive.as_ref(),
@@ -1126,7 +1126,7 @@ impl SaveFileManager {
             save_info,
             map_admission_intent: archive.map_admission_intent,
             game_client_xfer: archive.game_client_xfer,
-            terrain_visual_xfer: archive.terrain_visual_xfer,
+            terrain_visual_archive: archive.terrain_visual_archive,
             saved_game_mode,
         })
     }
@@ -1145,7 +1145,7 @@ impl SaveFileManager {
             map_admission_intent: MapAdmissionIntent::Authored,
             saved_game_mode: None,
             game_client_xfer: None,
-            terrain_visual_xfer: None,
+            terrain_visual_archive: None,
             ghost_object_archive: None,
             particle_system_xfer: None,
             map: None,

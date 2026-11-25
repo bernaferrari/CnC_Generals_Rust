@@ -46,11 +46,11 @@ fn terrain_archives_use_receiving_capture_and_survive_interleaved_decode_and_dir
             let decoded_a = manager.load_game_snapshot("terrain_a").unwrap();
             let decoded_b = manager.load_game_snapshot("terrain_b").unwrap();
             let prepared_a =
-                prepare_receiving_terrain_visual(&a, decoded_a.terrain_visual_xfer.as_deref())
+                prepare_receiving_terrain_visual(&a, decoded_a.terrain_visual_archive.as_ref())
                     .unwrap()
                     .unwrap();
             let prepared_b =
-                prepare_receiving_terrain_visual(&b, decoded_b.terrain_visual_xfer.as_deref())
+                prepare_receiving_terrain_visual(&b, decoded_b.terrain_visual_archive.as_ref())
                     .unwrap()
                     .unwrap();
             assert_eq!(prepared_a.heights(), &[40; 4]);
@@ -158,12 +158,25 @@ fn prepared_terrain_candidate_changes_no_native_scorches_until_explicit_commit()
                 radius: 5.,
                 scorch_type: 2,
             };
-            let bytes =
-                capture_receiving_terrain_visual_xfer_bytes(&source, Some(&[mark])).unwrap();
-            assert!(
-                prepare_receiving_terrain_visual(&receiving, Some(&bytes[..bytes.len() - 1]))
-                    .is_err()
+            let archive = capture_receiving_terrain_visual_archive(
+                &source,
+                None,
+                Some(&[mark]),
+                Vec::new(),
+            )
+            .unwrap();
+            let mut invalid = archive.clone();
+            invalid.water_cells.push(
+                game_client::terrain::terrain_visual_xfer::TerrainWaterCellArchive {
+                    x: 99,
+                    y: 99,
+                    height_delta: 1.0,
+                    velocity: 0.0,
+                    status: 0,
+                    preferred_height: 0,
+                },
             );
+            assert!(prepare_receiving_terrain_visual(&receiving, Some(&invalid)).is_err());
             assert_eq!(terrain_scorch_marks(), foreign_native);
             assert_eq!(
                 receiving
@@ -174,7 +187,7 @@ fn prepared_terrain_candidate_changes_no_native_scorches_until_explicit_commit()
                     .logic_height_map_bytes(),
                 &[90; 4]
             );
-            let prepared = prepare_receiving_terrain_visual(&receiving, Some(&bytes))
+            let prepared = prepare_receiving_terrain_visual(&receiving, Some(&archive))
                 .unwrap()
                 .unwrap();
             assert_eq!(
@@ -184,7 +197,8 @@ fn prepared_terrain_candidate_changes_no_native_scorches_until_explicit_commit()
             );
             prepared.commit_legacy_native();
             assert_eq!(terrain_scorch_marks(), [mark]);
-            let no_native = capture_receiving_terrain_visual_xfer_bytes(&source, None).unwrap();
+            let no_native = capture_receiving_terrain_visual_archive(&source, None, None, Vec::new())
+                .unwrap();
             let prepared = prepare_receiving_terrain_visual(&receiving, Some(&no_native))
                 .unwrap()
                 .unwrap();
@@ -326,10 +340,10 @@ fn direct_archive_load_stages_actual_saved_map_for_fresh_and_foreign_receivers()
 }
 
 #[test]
-fn direct_archive_bad_terrain_tail_preserves_running_foreign_world() {
+fn direct_archive_bad_terrain_companion_preserves_running_foreign_world() {
     crate::game_logic::game_logic::pose_owner_tests::isolated_at(
         module_path!(),
-        "direct_archive_bad_terrain_tail_preserves_running_foreign_world",
+        "direct_archive_bad_terrain_companion_preserves_running_foreign_world",
         || {
             let directory = tempfile::tempdir().unwrap();
             let mut manager = SaveFileManager::with_save_directory(directory.path());
@@ -340,15 +354,25 @@ fn direct_archive_bad_terrain_tail_preserves_running_foreign_world() {
             let snapshot = SnapshotBuilder::new()
                 .create_world_snapshot(&source)
                 .unwrap();
-            let mut bytes = capture_receiving_terrain_visual_xfer_bytes(&source, None).unwrap();
-            bytes.push(0); // incomplete optional native count
+            let mut archive =
+                capture_receiving_terrain_visual_archive(&source, None, None, Vec::new()).unwrap();
+            archive.water_cells.push(
+                game_client::terrain::terrain_visual_xfer::TerrainWaterCellArchive {
+                    x: 0,
+                    y: 0,
+                    height_delta: 1.0,
+                    velocity: 0.0,
+                    status: 0,
+                    preferred_height: 0,
+                },
+            );
             manager
                 .save_to_file(
                     &manager.get_save_path("invalid_tail"),
                     &snapshot,
                     &info,
                     &[],
-                    Some(&bytes),
+                    Some(&archive),
                     SAVED_GAME_MODE_SINGLE_PLAYER,
                     &game_engine::System::CampaignManagerXferState::default(),
                     MapAdmissionIntent::Authored,
@@ -381,7 +405,7 @@ fn direct_archive_bad_terrain_tail_preserves_running_foreign_world() {
                 .unwrap_err()
                 .to_string();
             assert!(
-                error.contains("scorch count"),
+                error.contains("water grid"),
                 "unexpected invalid-tail error: {error}"
             );
             assert_eq!(running.get_current_map_name(), map);

@@ -236,7 +236,7 @@ fn mounted_optimized_map_tree_retires_its_drawable_on_fresh_and_saved_foundation
             let archive = saves.load_game_snapshot("falling-tree").unwrap();
             let terrain = crate::save_load::snapshot::prepare_receiving_terrain_visual(
                 &saved_world,
-                archive.terrain_visual_xfer.as_deref(),
+                archive.terrain_visual_archive.as_ref(),
             )
             .unwrap()
             .unwrap();

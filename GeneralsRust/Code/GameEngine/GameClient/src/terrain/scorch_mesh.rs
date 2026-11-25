@@ -12,6 +12,7 @@ use std::cell::RefCell;
 
 use crate::terrain::textures::FLIPPED_MASK;
 use gamelogic::common::types::{MAP_HEIGHT_SCALE, MAP_XY_FACTOR};
+use serde::{Deserialize, Serialize};
 
 fn height_map_cell_flip(map: &crate::terrain::height_map::HeightMap, x: i32, y: i32) -> bool {
     if x < 0 || y < 0 {
@@ -61,7 +62,7 @@ pub fn scorch_diffuse_bgra(ambient: [f32; 3], diffuse: [f32; 3]) -> u32 {
 }
 
 /// C++ `TScorch`.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct ScorchMark {
     pub location: [f32; 3],
     pub radius: f32,
