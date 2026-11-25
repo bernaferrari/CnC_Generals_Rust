@@ -15,7 +15,11 @@ impl Object {
             self.last_weapon_condition[slot] = 0xFF;
         }
 
-        if let Some(arc) = OBJECT_REGISTRY.get_object(self.id) {
+        let registered = match self.owning_world_services() {
+            Some(world) => world.object_registry().get_object(self.id),
+            None => OBJECT_REGISTRY.get_object(self.id),
+        };
+        if let Some(arc) = registered {
             crate::system::game_logic::send_object_created_borrowed(self, &arc);
         }
 

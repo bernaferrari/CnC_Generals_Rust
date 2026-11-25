@@ -1463,6 +1463,14 @@ impl ScriptEngine {
     // PARITY_NOTE: C++ ScriptEngine::notifyOfObjectDestruction
     pub fn notify_of_object_destruction(&mut self, object_id: ObjectID) {
         let tracker = get_named_object_tracker();
+        self.notify_of_object_destruction_in(object_id, &tracker);
+    }
+
+    pub(crate) fn notify_of_object_destruction_in(
+        &mut self,
+        object_id: ObjectID,
+        tracker: &crate::scripting::events::NamedObjectTracker,
+    ) {
         let name = tracker.get_object_name(object_id).ok().flatten();
         if let Some(name) = name {
             if !name.is_empty() {

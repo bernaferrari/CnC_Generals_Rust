@@ -136,17 +136,25 @@ impl Drawable {
 
     /// Allocate a drawable ID with save/load counter parity when GameClient hooks exist.
     pub fn allocate_drawable_id() -> DrawableID {
-        if let Some(counter) = get_runtime_drawable_id_counter() {
+        Self::allocate_drawable_id_in(&crate::system::engine_stores::active_services())
+    }
+
+    pub(crate) fn allocate_drawable_id_in(
+        world: &crate::system::engine_stores::WorldServices,
+    ) -> DrawableID {
+        use game_engine::System::SaveGame::{
+            get_runtime_drawable_id_counter_in, set_runtime_drawable_id_counter_in,
+        };
+        let flags = world.session_flags();
+        if let Some(counter) = get_runtime_drawable_id_counter_in(world.common()) {
             let id = normalize_drawable_id(counter);
             let next = next_drawable_id_value(id);
-            set_runtime_drawable_id_counter(next);
-            crate::system::engine_stores::active_services()
-            .session_flags()
-            .next_drawable_id.store(next, Ordering::Relaxed);
+            set_runtime_drawable_id_counter_in(world.common(), next);
+            flags.next_drawable_id.store(next, Ordering::Relaxed);
             return id;
         }
 
-        allocate_local_drawable_id()
+        allocate_local_drawable_id(&flags.next_drawable_id)
     }
 
     /// Get the next drawable-id counter value.

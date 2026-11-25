@@ -347,13 +347,25 @@ pub fn set_runtime_object_id_counter(counter: ObjectID) {
 }
 
 pub fn get_runtime_drawable_id_counter() -> Option<DrawableID> {
-    let hooks_arc = id_counter_hooks();
-    let hooks = hooks_arc.lock().ok()?;
+    get_runtime_drawable_id_counter_in(&crate::common::common_services::common_services())
+}
+
+pub fn get_runtime_drawable_id_counter_in(
+    common: &crate::common::common_services::CommonServices,
+) -> Option<DrawableID> {
+    let hooks = common.system.save_id_counter_hooks.lock().ok()?;
     hooks.drawable_getter.as_ref().map(|getter| getter())
 }
 
 pub fn set_runtime_drawable_id_counter(counter: DrawableID) {
-    if let Ok(hooks) = id_counter_hooks().lock() {
+    set_runtime_drawable_id_counter_in(&crate::common::common_services::common_services(), counter);
+}
+
+pub fn set_runtime_drawable_id_counter_in(
+    common: &crate::common::common_services::CommonServices,
+    counter: DrawableID,
+) {
+    if let Ok(hooks) = common.system.save_id_counter_hooks.lock() {
         if let Some(setter) = hooks.drawable_setter.as_ref() {
             setter(counter);
         }

@@ -999,16 +999,12 @@ fn next_drawable_id_value(current: DrawableID) -> DrawableID {
     if next == 0 { 1 } else { next }
 }
 
-fn allocate_local_drawable_id() -> DrawableID {
+fn allocate_local_drawable_id(counter: &std::sync::atomic::AtomicU32) -> DrawableID {
     loop {
-        let observed = crate::system::engine_stores::active_services()
-            .session_flags()
-            .next_drawable_id.load(Ordering::Relaxed);
+        let observed = counter.load(Ordering::Relaxed);
         let current = normalize_drawable_id(observed);
         let next = next_drawable_id_value(current);
-        if crate::system::engine_stores::active_services()
-            .session_flags()
-            .next_drawable_id
+        if counter
             .compare_exchange(observed, next, Ordering::Relaxed, Ordering::Relaxed)
             .is_ok()
         {

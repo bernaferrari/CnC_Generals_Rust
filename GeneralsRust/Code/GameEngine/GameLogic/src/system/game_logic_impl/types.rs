@@ -32,31 +32,33 @@ pub enum CrcMode {
 
 /// C++ `XferCRC` used by `GameLogic::getCRC`. Implements both Xfer stacks so
 
-/// C++ `GameLogic::sendObjectCreated` — create a drawable and bind both worlds.
-/// Id-keyed: the object is already registered by every caller, so the template
-/// is read through a scoped registry borrow and no object Arc handle is
-/// retained across the drawable handoff.
+/// C++ `GameLogic::sendObjectCreated` — compatibility entry point by Object ID.
 pub fn send_object_created(object_id: ObjectID) {
-    let Some(client) = TheGameClient::get() else {
+    let Some(world) = crate::system::engine_stores::try_active_services() else {
         return;
     };
-    // Scoped registry borrow: objects that already own a drawable yield None.
-    // `flatten` collapses the lookup's Option with the drawable guard's Option,
-    // so only the cloned template (no object Arc handle) escapes.
-    let template = OBJECT_REGISTRY
-        .with_object(object_id, |guard| {
-            if guard.get_drawable().is_some() {
-                None
-            } else {
-                Some(guard.get_template().clone())
-            }
-        })
-        .flatten();
-    let Some(template) = template else {
+    if let Some(object) = world.object_registry().get_object(object_id) {
+        send_object_created_in(&world, &object);
+    }
+}
+
+fn send_object_created_in(
+    world: &Arc<crate::system::engine_stores::WorldServices>,
+    object: &Arc<RwLock<Object>>,
+) {
+    let Ok(actor) = object.read() else {
         return;
     };
-    let draw_id = client.create_drawable(template.as_ref());
-    bind_object_and_drawable(object_id, draw_id);
+    if actor.get_drawable().is_some() {
+        return;
+    }
+    let template = actor.get_template().clone();
+    drop(actor);
+    let draw_id = TheGameClient::create_drawable_in(world, template.as_ref());
+    let Some(drawable) = TheGameClient::get_drawable_arc_in(world, draw_id) else {
+        return;
+    };
+    attach_object_drawable(object, drawable);
 }
 
 /// C++ `GameLogic::sendObjectCreated(this)` from inside Object::initObject.
@@ -66,17 +68,35 @@ pub(crate) fn send_object_created_borrowed(object: &mut Object, object_arc: &Arc
     if object.get_drawable().is_some() {
         return;
     }
-    let Some(client) = TheGameClient::get() else {
+    let Some(world) = object
+        .owning_world_services()
+        .or_else(crate::system::engine_stores::try_active_services)
+    else {
         return;
     };
-    let object_id = object.get_id();
-    let draw_id = client.create_drawable(object.get_template().as_ref());
-    let Some(drawable) = client.get_drawable_arc(draw_id) else {
+    let draw_id = TheGameClient::create_drawable_in(&world, object.get_template().as_ref());
+    let Some(drawable) = TheGameClient::get_drawable_arc_in(&world, draw_id) else {
         return;
     };
     let binding = crate::object::draw::draw_module::DrawModuleBindingContext::from_owner(object);
     crate::object::drawable::Drawable::bind_to_object_with_context(&drawable, object_arc, &binding);
     object.set_drawable(Some(drawable));
+}
+
+fn attach_object_drawable(
+    object: &Arc<RwLock<Object>>,
+    drawable: Arc<RwLock<crate::object::drawable::Drawable>>,
+) {
+    let binding = {
+        let Ok(actor) = object.read() else {
+            return;
+        };
+        crate::object::draw::draw_module::DrawModuleBindingContext::from_owner(&actor)
+    };
+    crate::object::drawable::Drawable::bind_to_object_with_context(&drawable, object, &binding);
+    if let Ok(mut actor) = object.write() {
+        actor.set_drawable(Some(drawable));
+    }
 }
 
 /// C++ `GameLogic::bindObjectAndDrawable`.
@@ -95,17 +115,7 @@ pub fn bind_object_and_drawable(object_id: ObjectID, drawable_id: ObjectID) {
     }) else {
         return;
     };
-    let binding = {
-        let owner = object.read().expect("bound Object poisoned");
-        crate::object::draw::draw_module::DrawModuleBindingContext::from_owner(&owner)
-    };
-    crate::object::drawable::Drawable::bind_to_object_with_context(&drawable, &object, &binding);
-    {
-        let mut obj = object.write().ok();
-        if let Some(obj) = obj.as_mut() {
-            obj.set_drawable(Some(drawable));
-        }
-    }
+    attach_object_drawable(&object, drawable);
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

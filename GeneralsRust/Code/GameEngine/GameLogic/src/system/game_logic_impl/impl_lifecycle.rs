@@ -26,13 +26,16 @@ impl crate::object::ObjectDeletionServices for GameLogicDeletionServices<'_> {
 }
 
 impl GameLogic {
+    fn lifecycle_world(&self) -> Arc<crate::system::engine_stores::WorldServices> {
+        self.owning_world_services()
+            .unwrap_or_else(crate::system::engine_stores::active_services)
+    }
+
     fn with_receiving_collision(
         &self,
         operation: impl FnOnce(&mut crate::object::collide::CollisionSystem),
     ) {
-        let world = self
-            .owning_world_services()
-            .unwrap_or_else(crate::system::engine_stores::active_services);
+        let world = self.lifecycle_world();
         if let Ok(mut collision) = world.logic_managers().collision.write() {
             operation(&mut collision);
         }
@@ -90,18 +93,15 @@ impl GameLogic {
     }
 
     pub fn cleanup_dead_objects(&mut self) -> Result<(), GameLogicError> {
-        // Wave 344: empty dual-world → Ok(()). Still clean live dead-list.
-        if dual_world_registry_unavailable() && self.dead_objects.is_empty() {
+        if self.dead_objects.is_empty() {
             return Ok(());
         }
+        let world = self.lifecycle_world();
 
         trace!(
             "GameLogic::cleanup_dead_objects() - {} objects to clean",
             self.dead_objects.len()
         );
-
-        // Track if we processed any objects for FOW updates
-        let had_dead_objects = !self.dead_objects.is_empty();
 
         // C++ GameLogic::processDestroyList (GameLogic.cpp:2449-2510) walks
         // `iterator != end()` so objects queued during deletion (sub-objects)
@@ -140,9 +140,8 @@ impl GameLogic {
             self.all_objects.retain(|&id| id != obj_id);
 
             if let Some(obj_ref) = self.objects.remove(&obj_id) {
-                // C++ removes this GameLogic's lookup before destruction. The
-                // temporary shared index must not evict another world's handle.
-                OBJECT_REGISTRY.unregister_object_if_same(obj_id, &obj_ref);
+                // C++ removes this GameLogic's own lookup before destruction.
+                world.object_registry().unregister_object_if_same(obj_id, &obj_ref);
                 if let Ok(mut obj_write) = obj_ref.write() {
                     obj_write.set_next_object_id(None);
                     obj_write.set_prev_object_id(None);
@@ -161,8 +160,7 @@ impl GameLogic {
             self.event_queue.push(GameEvent::ObjectDestroyed(obj_id));
 
             // Remove from partition manager
-            let __w3d_ghosts = crate::object::the_w3d_ghost_object_manager();
-            if let Ok(mut ghost_manager) = __w3d_ghosts.write() {
+            if let Ok(mut ghost_manager) = world.w3d_ghost_objects().write() {
                 self.partition_manager_mut()
                     .detach_object_ghost(obj_id, &mut ghost_manager);
             }
@@ -182,11 +180,8 @@ impl GameLogic {
         }
         self.dead_objects.clear();
 
-        // Trigger FOW update if any objects were destroyed
-        if had_dead_objects {
-            if let Ok(mut shroud_mgr) = get_shroud_manager().lock() {
-                shroud_mgr.force_update();
-            }
+        if let Ok(mut shroud_mgr) = world.shroud().lock() {
+            shroud_mgr.force_update();
         }
 
         Ok(())
@@ -233,18 +228,12 @@ impl GameLogic {
                 "Object id {object_id} already admitted"
             )));
         }
-        if let Some(pathfinding_owner) = self.pathfinding_owner.as_ref() {
+        let owner = self.owning_world_services();
+        if let Some(world) = owner.as_ref() {
             object
                 .write()
                 .map_err(|_| GameLogicError::Generic("Object lock poisoned".into()))?
-                .bind_pathfinding_owner(pathfinding_owner)
-                .map_err(GameLogicError::InvalidState)?;
-        }
-        if let Some(roster) = self.owned_player_list() {
-            object
-                .write()
-                .map_err(|_| GameLogicError::Generic("Object lock poisoned".into()))?
-                .bind_rank_roster(&roster)
+                .bind_lifecycle_world(world, self.pathfinding_owner.as_ref())
                 .map_err(GameLogicError::InvalidState)?;
         }
         self.observe_object_id(object_id);
@@ -252,25 +241,24 @@ impl GameLogic {
         self.objects.insert(object_id, Arc::clone(&object));
         self.prepend_to_object_list(object_id, None);
 
-        // Register in global registry
-        OBJECT_REGISTRY.register_object(object_id, &object);
+        let world = owner.unwrap_or_else(crate::system::engine_stores::active_services);
+        world.object_registry().register_object(object_id, &object);
 
         // Register in the scripting named-object cache (C++ ScriptEngine::addObjectToCache).
         if !object_name.is_empty() {
-            let tracker = crate::scripting::engine::get_named_object_tracker();
-            let _ = tracker.register_named_object(object_name, object_id);
+            let _ = world.scripts().named_objects().register_named_object(object_name, object_id);
         }
 
         // C++ Object::initObject → sendObjectCreated after the object exists.
         // Dual-world: bind a client drawable when the logic object has none.
-        send_object_created(object_id);
+        send_object_created_in(&world, &object);
 
         // Fire creation event
         self.event_queue.push(GameEvent::ObjectCreated(object_id));
 
         // Trigger FOW update for new object
         // New objects create new vision sources, so FOW needs to be recalculated
-        if let Ok(mut shroud_mgr) = get_shroud_manager().lock() {
+        if let Ok(mut shroud_mgr) = world.shroud().lock() {
             shroud_mgr.force_update();
         }
 
@@ -327,8 +315,8 @@ impl GameLogic {
                     .get_draw_module_info()
                     .iter()
                     .any(|module| module.name.as_str().eq_ignore_ascii_case("W3DDefaultDraw"));
-            let __w3d_ghosts = crate::object::the_w3d_ghost_object_manager();
-            if let Ok(mut ghost_manager) = __w3d_ghosts.write() {
+            let world = self.lifecycle_world();
+            if let Ok(mut ghost_manager) = world.w3d_ghost_objects().write() {
                 self.partition_manager_mut().attach_object_ghost(
                     object_id,
                     ghost_eligible,
@@ -1094,8 +1082,8 @@ impl GameLogic {
 
     pub fn clear_all_objects(&mut self) {
         self.destroy_all_objects_immediate();
-        let __w3d_ghosts = crate::object::the_w3d_ghost_object_manager();
-            if let Ok(mut ghost_manager) = __w3d_ghosts.write() {
+        let world = self.lifecycle_world();
+        if let Ok(mut ghost_manager) = world.w3d_ghost_objects().write() {
             self.partition_manager_mut()
                 .clear_ghost_objects(&mut ghost_manager);
         }
@@ -1382,10 +1370,123 @@ impl GameLogic {
 
     /// PARITY_NOTE: GameLogic::sendObjectDestroyed(Object*) C++ line 4134.
     pub fn send_object_destroyed(&self, object_id: ObjectID) {
-        if let Some(client) = TheGameClient::get() {
-            client.clear_object_model_draws(object_id);
-        }
+        TheGameClient::clear_object_model_draws_in(&self.lifecycle_world(), object_id);
         trace!("sendObjectDestroyed: obj={}", object_id);
+    }
+}
+
+#[cfg(test)]
+mod lifecycle_owner_tests {
+    use super::*;
+    use crate::common::DefaultThingTemplate;
+    use crate::system::engine_stores::{EngineStores, with_active_stores};
+
+    #[test]
+    fn core_admission_and_retirement_keep_same_id_worlds_independent() {
+        let receiving = Arc::new(EngineStores::new_for_world());
+        let peer = Arc::new(EngineStores::new_for_world());
+        for (world, next_drawable) in [(&receiving, 170), (&peer, 340)] {
+            let services = world.services();
+            services.scripts().initialize_engine(services).unwrap();
+            services
+                .session_flags()
+                .next_drawable_id
+                .store(next_drawable, Ordering::Relaxed);
+        }
+        let id = 91_720;
+        let make_object = |name: &str| {
+            let mut template = DefaultThingTemplate::new(name.into());
+            template.add_kind_of(KindOf::Immobile);
+            template.add_kind_of(KindOf::Inert);
+            let mut object =
+                Object::new_raw(Arc::new(template), id, ObjectStatusMaskType::none(), None);
+            object.set_name(name.into());
+            Arc::new(RwLock::new(object))
+        };
+        let mut peer_logic = GameLogic::new_with_engine_stores(peer.clone());
+        let peer_actor = make_object("PeerActor");
+        with_active_stores(&peer, || peer_logic.register_object(peer_actor.clone())).unwrap();
+
+        let mut logic = GameLogic::new_with_engine_stores(receiving.clone());
+        let restored = make_object("ReceivingActor");
+        with_active_stores(&peer, || logic.register_object(restored.clone())).unwrap();
+        for (world, actor, name, drawable_id) in [
+            (&receiving, &restored, "ReceivingActor", 170),
+            (&peer, &peer_actor, "PeerActor", 340),
+        ] {
+            let services = world.services();
+            let registered = services.object_registry().get_object(id).unwrap();
+            assert!(Arc::ptr_eq(&registered, actor));
+            assert_eq!(
+                services
+                    .scripts()
+                    .named_objects()
+                    .get_object_name(id)
+                    .unwrap()
+                    .as_deref(),
+                Some(name)
+            );
+            let drawable = TheGameClient::get_drawable_arc_in(services, drawable_id).unwrap();
+            let bound = actor.read().unwrap().get_drawable().unwrap();
+            assert!(Arc::ptr_eq(&drawable, &bound));
+            assert_eq!(
+                services
+                    .session_flags()
+                    .next_drawable_id
+                    .load(Ordering::Relaxed),
+                drawable_id + 1
+            );
+            assert_eq!(services.w3d_ghost_objects().read().unwrap().used_count(), 1);
+        }
+
+        with_active_stores(&peer, || logic.clear_all_objects());
+        assert!(
+            receiving
+                .services()
+                .object_registry()
+                .get_object(id)
+                .is_none()
+        );
+        assert_eq!(
+            receiving
+                .services()
+                .scripts()
+                .named_objects()
+                .get_object_name(id)
+                .unwrap(),
+            None
+        );
+        assert_eq!(
+            receiving
+                .services()
+                .w3d_ghost_objects()
+                .read()
+                .unwrap()
+                .used_count(),
+            0
+        );
+        let registered = peer.services().object_registry().get_object(id).unwrap();
+        assert!(Arc::ptr_eq(&registered, &peer_actor));
+        assert_eq!(
+            peer.services()
+                .scripts()
+                .named_objects()
+                .get_object_name(id)
+                .unwrap()
+                .as_deref(),
+            Some("PeerActor")
+        );
+        assert_eq!(
+            peer.services()
+                .w3d_ghost_objects()
+                .read()
+                .unwrap()
+                .used_count(),
+            1
+        );
+        assert!(with_active_stores(&peer, || logic.admit_object(peer_actor.clone())).is_err());
+        assert!(logic.find_object_by_id(id).is_none());
+        with_active_stores(&peer, || peer_logic.clear_all_objects());
     }
 }
 

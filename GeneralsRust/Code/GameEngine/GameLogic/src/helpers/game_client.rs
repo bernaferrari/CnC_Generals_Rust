@@ -664,7 +664,7 @@ impl TheGameClient {
         template: &dyn crate::common::ThingTemplate,
     ) -> u32 {
         let visuals = stores.client_visuals();
-        let id = Drawable::allocate_drawable_id();
+        let id = Drawable::allocate_drawable_id_in(stores);
         let beam_width = template
             .as_any()
             .downcast_ref::<EngineThingTemplateAdapter>()
@@ -702,7 +702,8 @@ impl TheGameClient {
             Box<dyn Module>,
         )> = Vec::new();
 
-        if let Ok(factory_guard) = get_module_factory() {
+        {
+            let factory_guard = stores.common().module_factory.lock();
             if let Some(factory) = factory_guard.as_ref() {
                 for entry in template.get_draw_module_info().iter() {
                     let module_name = entry.name.clone();
@@ -1268,7 +1269,13 @@ impl TheGameClient {
     /// or rebound.  This is separate from `destroy_drawable`, because a
     /// DrawableID is not an ObjectID.
     pub fn clear_object_model_draws(&self, object_id: ObjectID) {
-        let stores = crate::system::engine_stores::active_services();
+        Self::clear_object_model_draws_in(&crate::system::engine_stores::active_services(), object_id);
+    }
+
+    pub(crate) fn clear_object_model_draws_in(
+        stores: &crate::system::engine_stores::WorldServices,
+        object_id: ObjectID,
+    ) {
         let visuals = stores.client_visuals();
         if object_id != INVALID_ID {
             visuals.model_draw_frames.lock().unwrap().remove(&object_id);
@@ -1440,7 +1447,13 @@ impl TheGameClient {
     }
 
     pub fn get_drawable_arc(&self, id: u32) -> Option<Arc<RwLock<Drawable>>> {
-        let stores = crate::system::engine_stores::active_services();
+        Self::get_drawable_arc_in(&crate::system::engine_stores::active_services(), id)
+    }
+
+    pub(crate) fn get_drawable_arc_in(
+        stores: &crate::system::engine_stores::WorldServices,
+        id: u32,
+    ) -> Option<Arc<RwLock<Drawable>>> {
         let visuals = stores.client_visuals();
         let map = visuals.drawables.lock().ok()?;
         map.get(&id)

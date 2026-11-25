@@ -100,6 +100,31 @@ impl Object {
             .or_else(|| self.pathfinding_owner.as_ref().map(|owner| Arc::clone(owner.services())))
     }
 
+    pub(crate) fn bind_lifecycle_world(
+        &mut self,
+        world: &Arc<crate::system::engine_stores::WorldServices>,
+        core: Option<&Arc<crate::system::engine_stores::EngineStores>>,
+    ) -> Result<(), String> {
+        let handle = Arc::downgrade(world);
+        if self
+            .owner_world
+            .as_ref()
+            .is_some_and(|owner| !owner.ptr_eq(&handle))
+            || self.pathfinding_owner.as_ref().is_some_and(|owner| {
+                !Arc::ptr_eq(owner.services(), world)
+                    || core.is_some_and(|core| !Arc::ptr_eq(owner, core))
+            })
+        {
+            return Err("object already belongs to another world".into());
+        }
+        self.bind_rank_roster(world.players())?;
+        self.owner_world = Some(handle);
+        if let Some(core) = core {
+            self.pathfinding_owner = Some(Arc::clone(core));
+        }
+        Ok(())
+    }
+
     /// Core runtime that admitted this object, if it is a Core-owned object.
     pub(crate) fn owning_pathfinding_runtime(
         &self,

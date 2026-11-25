@@ -844,7 +844,14 @@ impl Object {
 
         let object_id = self.id;
         self.id = INVALID_ID;
-        if let Ok(mut engine) = crate::scripting::engine::get_script_engine().write() {
+        if let Some(world) = self.owning_world_services() {
+            let scripts = world.scripts();
+            if let Ok(mut engine) = scripts.engine().write() {
+                if let Some(engine) = engine.as_mut() {
+                    engine.notify_of_object_destruction_in(object_id, scripts.named_objects());
+                }
+            }
+        } else if let Ok(mut engine) = crate::scripting::engine::get_script_engine().write() {
             if let Some(engine) = engine.as_mut() {
                 engine.notify_of_object_destruction(object_id);
             }
