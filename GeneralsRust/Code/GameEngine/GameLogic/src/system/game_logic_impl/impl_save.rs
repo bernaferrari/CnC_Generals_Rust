@@ -37,56 +37,48 @@ impl GameLogic {
             || campaign.challenge_info.is_some();
     }
 
-    pub fn prepare_logic_for_object_load(&mut self) {
-        let bridge_towers_to_destroy: Vec<ObjectID> = {
-            let terrain = crate::terrain::get_terrain_logic();
-            let terrain_guard = match terrain.read() {
-                Ok(g) => g,
-                Err(_) => return,
-            };
-            let mut towers = Vec::new();
-            for &obj_id in &self.all_objects {
-                let Some(obj_ref) = self.objects.get(&obj_id) else {
-                    continue;
-                };
-                let Ok(obj) = obj_ref.read() else { continue };
-                if obj.is_kind_of(KindOf::Bridge) {
-                    let pos = *obj.get_position();
-                    if let Some(bridge) = terrain_guard.find_bridge_at(&pos) {
-                        for &tower_id in &bridge.get_bridge_info().tower_object_id {
-                            if tower_id != INVALID_ID {
-                                towers.push(tower_id);
-                            }
-                        }
-                    }
-                }
+    /// GameLogic.cpp:4584–4651 removes map actors in object-list order,
+    /// queuing each bridge's towers immediately before that bridge.
+    fn prepare_logic_for_object_load(&mut self) -> Result<(), XferStatus> {
+        let terrain = self
+            .owning_world_services()
+            .map(|world| Arc::clone(world.terrain()))
+            .unwrap_or_else(crate::terrain::get_terrain_logic);
+        let terrain = terrain.read().map_err(|_| XferStatus::InvalidData)?;
+        let mut ids_to_destroy = Vec::new();
+        for &id in &self.all_objects {
+            let object = self.objects.get(&id).ok_or(XferStatus::InvalidData)?;
+            let object = object.read().map_err(|_| XferStatus::InvalidData)?;
+            if object.is_kind_of(KindOf::Bridge) {
+                let bridge = terrain
+                    .find_bridge_at(object.get_position())
+                    .map(|bridge| bridge.get_bridge_info())
+                    .filter(|info| info.bridge_object_id == id)
+                    .ok_or_else(|| {
+                        warn!("Core Object load could not find map metadata for bridge {id}");
+                        XferStatus::InvalidData
+                    })?;
+                ids_to_destroy.extend(
+                    bridge
+                        .tower_object_id
+                        .iter()
+                        .copied()
+                        .filter(|tower| *tower != INVALID_ID),
+                );
+                ids_to_destroy.push(id);
+            } else if object.is_kind_of(KindOf::WalkOnTopOfWall) {
+                ids_to_destroy.push(id);
             }
-            towers
-        };
-
-        for tower_id in bridge_towers_to_destroy {
-            self.destroy_object(tower_id);
         }
-
-        let ids_to_destroy: Vec<ObjectID> = self
-            .all_objects
-            .iter()
-            .filter(|&&obj_id| {
-                if let Some(obj_ref) = self.objects.get(&obj_id) {
-                    if let Ok(obj) = obj_ref.read() {
-                        return obj.is_kind_of(KindOf::Bridge)
-                            || obj.is_kind_of(KindOf::WalkOnTopOfWall);
-                    }
-                }
-                false
-            })
-            .copied()
-            .collect();
-
+        // Destruction can update the same terrain and pathfinding services.
+        drop(terrain);
         for obj_id in ids_to_destroy {
             self.destroy_object(obj_id);
         }
-        let _ = self.process_destroy_list();
+        self.process_destroy_list().map_err(|error| {
+            warn!("Core Object load could not retire map actors: {error:?}");
+            XferStatus::InvalidData
+        })
     }
 
     // =========================================================================
@@ -289,5 +281,84 @@ impl GameLogic {
                 })?;
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod map_object_load_cleanup_tests {
+    use super::*;
+    use crate::common::DefaultThingTemplate;
+    use crate::path::PathfindLayerEnum;
+    use crate::system::engine_stores::{EngineStores, with_active_stores};
+    use crate::terrain::TerrainLogic;
+
+    #[test]
+    fn core_load_clears_receiving_map_actors_in_object_list_order() {
+        let receiving = Arc::new(EngineStores::new_for_world());
+        let peer = Arc::new(EngineStores::new_for_world());
+        let north = Coord3D::new(350.0, 400.0, 0.0);
+        let south = Coord3D::new(350.0, 500.0, 0.0);
+        let north_bridge = 91_210;
+        let south_bridge = 91_220;
+        let north_tower = 91_211;
+        let south_tower = 91_221;
+        let wall = 91_230;
+        let unrelated = 91_240;
+        let add_bridge = |world: &EngineStores, position, bridge, tower| {
+            let mut info = TerrainLogic::bridge_info_from_parts(position, 0.0, 50.0, 20.0, bridge);
+            info.tower_object_id[0] = tower;
+            world
+                .services()
+                .terrain()
+                .write()
+                .unwrap()
+                .prepend_bridge_on_layer(info, "CoreLoadBridge".into(), PathfindLayerEnum::Ground);
+        };
+        add_bridge(&receiving, north, north_bridge, north_tower);
+        add_bridge(&receiving, south, south_bridge, south_tower);
+        add_bridge(&peer, north, north_bridge, unrelated);
+        add_bridge(&peer, south, south_bridge, unrelated);
+
+        let mut logic = GameLogic::new_with_engine_stores(receiving.clone());
+        with_active_stores(&receiving, || {
+            // GameLogic prepends, so reverse this fixture's desired walk order.
+            for (id, kind, position) in [
+                (north_bridge, KindOf::Bridge, north),
+                (wall, KindOf::WalkOnTopOfWall, Coord3D::ZERO),
+                (south_bridge, KindOf::Bridge, south),
+                (north_tower, KindOf::Inert, north),
+                (south_tower, KindOf::Inert, south),
+                (unrelated, KindOf::Inert, Coord3D::ZERO),
+            ]
+            .into_iter()
+            .rev()
+            {
+                let mut template = DefaultThingTemplate::new(format!("MapActor{id}"));
+                template.add_kind_of(KindOf::Inert);
+                template.add_kind_of(kind);
+                let mut object =
+                    Object::new_raw(Arc::new(template), id, ObjectStatusMaskType::none(), None);
+                object.set_position(&position).unwrap();
+                logic
+                    .register_object(Arc::new(RwLock::new(object)))
+                    .unwrap();
+            }
+        });
+
+        with_active_stores(&peer, || logic.prepare_logic_for_object_load()).unwrap();
+        let destroyed: Vec<_> = logic
+            .event_queue
+            .iter()
+            .filter_map(|event| match event {
+                GameEvent::ObjectDestroyed(id) => Some(*id),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            destroyed,
+            [north_tower, north_bridge, wall, south_tower, south_bridge]
+        );
+        assert_eq!(logic.iter_all_object_ids().collect::<Vec<_>>(), [unrelated]);
+        with_active_stores(&receiving, || logic.clear_all_objects());
     }
 }

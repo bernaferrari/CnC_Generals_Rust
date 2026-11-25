@@ -280,7 +280,7 @@ fn xfer_game_logic_state_with_campaign(
     logic.xfer_object_toc(xfer)?;
 
     if xfer.get_xfer_mode() == XferMode::Load {
-        logic.prepare_logic_for_object_load();
+        logic.prepare_logic_for_object_load()?;
     }
 
     let mut object_count = logic.all_objects.len() as UnsignedInt;
