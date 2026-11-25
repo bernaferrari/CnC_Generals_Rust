@@ -1,4 +1,5 @@
 use game_engine::common::{
+    common_services::with_common_services,
     dict::Dict,
     name_key_generator::NameKeyGenerator,
     system::DataChunkOutput,
@@ -17,8 +18,10 @@ use gamelogic::{
         engine::ScriptEngine,
     },
     sides_list::SidesList,
+    system::engine_stores::new_world_services,
 };
 use generals_main::game_logic::{GameLogic, GameMode, ObjectId, Team};
+use std::path::Path;
 
 fn upgrade_script(master: &str, label: &str) -> Script {
     let mut action = ScriptAction::new(ScriptActionType::NamedReceiveUpgrade);
@@ -61,6 +64,60 @@ fn upgrade_script(master: &str, label: &str) -> Script {
     script
 }
 
+fn write_upgrade_map(path: &Path, master: &str, team_name: &str, script: Script) {
+    // The writer resolves numeric dict and script keys through the same
+    // namespace that assigned them. Save/load can change another world's keys.
+    let author = new_world_services();
+    let script_engine = ScriptEngine::new_with_services(&author).expect("script templates");
+    with_common_services(author.common(), || {
+        let mut script_list = ScriptList::new();
+        script_list.append_script(Box::new(script));
+
+        let mut sides = SidesList::new();
+        let mut owner = Dict::new();
+        owner.set_ascii_string(key_player_name(), "Owner");
+        owner.set_ascii_string(key_player_faction(), "FactionAmerica");
+        owner.set_unicode_string(key_player_display_name(), "Owner");
+        owner.set_bool(key_player_is_human(), true);
+        sides.add_side(&owner);
+        let mut team = Dict::new();
+        team.set_ascii_string(key_team_name(), team_name);
+        team.set_ascii_string(key_team_owner(), "Owner");
+        team.set_bool(key_team_is_singleton(), true);
+        sides.add_team(&team);
+        sides
+            .get_side_info_mut(0)
+            .expect("owner side")
+            .set_script_list(Some(Box::new(script_list)));
+
+        let mut map = DataChunkOutput::new();
+        map.open_data_chunk("HeightMapData", 3);
+        for value in [41, 41, 1, 1681] {
+            map.write_int(value);
+        }
+        for _ in 0..1681 {
+            map.write_byte(0);
+        }
+        map.close_data_chunk();
+        map.open_data_chunk("ObjectsList", 3);
+        map.open_data_chunk("Object", 3);
+        for value in [50.0, 50.0, 0.0, 0.0] {
+            map.write_real(value);
+        }
+        map.write_int(0);
+        map.write_ascii_string(master);
+        let mut properties = Dict::new();
+        properties.set_ascii_string(NameKeyGenerator::name_to_key("objectName"), master);
+        properties.set_ascii_string(NameKeyGenerator::name_to_key("originalOwner"), team_name);
+        map.write_dict(&properties);
+        map.close_data_chunk();
+        map.close_data_chunk();
+        sides.write_sides_data_chunk(&mut map, &ScriptTemplateLookup::from_engine(&script_engine));
+
+        std::fs::write(path, map.into_ckmp_bytes()).unwrap();
+    });
+}
+
 fn world(root: &std::path::Path, label: &str) -> (GameLogic, ObjectId, String) {
     let master = format!("{label}UpgradeMaster");
     let child = format!("{label}UpgradeChild");
@@ -80,56 +137,8 @@ fn world(root: &std::path::Path, label: &str) -> (GameLogic, ObjectId, String) {
     )])
     .unwrap();
 
-    let mut script_list = ScriptList::new();
-    script_list.append_script(Box::new(upgrade_script(&master, label)));
-
-    let mut sides = SidesList::new();
-    let mut owner = Dict::new();
-    owner.set_ascii_string(key_player_name(), "Owner");
-    owner.set_ascii_string(key_player_faction(), "FactionAmerica");
-    owner.set_unicode_string(key_player_display_name(), "Owner");
-    owner.set_bool(key_player_is_human(), true);
-    sides.add_side(&owner);
-    let mut team = Dict::new();
-    team.set_ascii_string(key_team_name(), team_name.as_str());
-    team.set_ascii_string(key_team_owner(), "Owner");
-    team.set_bool(key_team_is_singleton(), true);
-    sides.add_team(&team);
-    sides
-        .get_side_info_mut(0)
-        .expect("owner side")
-        .set_script_list(Some(Box::new(script_list)));
-    let script_engine = ScriptEngine::new_in_published_world().expect("script templates");
-
-    let mut map = DataChunkOutput::new();
-    map.open_data_chunk("HeightMapData", 3);
-    for value in [41, 41, 1, 1681] {
-        map.write_int(value);
-    }
-    for _ in 0..1681 {
-        map.write_byte(0);
-    }
-    map.close_data_chunk();
-    map.open_data_chunk("ObjectsList", 3);
-    map.open_data_chunk("Object", 3);
-    for value in [50.0, 50.0, 0.0, 0.0] {
-        map.write_real(value);
-    }
-    map.write_int(0);
-    map.write_ascii_string(master.as_str());
-    let mut properties = Dict::new();
-    properties.set_ascii_string(NameKeyGenerator::name_to_key("objectName"), master.as_str());
-    properties.set_ascii_string(
-        NameKeyGenerator::name_to_key("originalOwner"),
-        team_name.as_str(),
-    );
-    map.write_dict(&properties);
-    map.close_data_chunk();
-    map.close_data_chunk();
-    sides.write_sides_data_chunk(&mut map, &ScriptTemplateLookup::from_engine(&script_engine));
-
     let path = root.join(format!("{label}Upgrade.map"));
-    std::fs::write(&path, map.into_ckmp_bytes()).unwrap();
+    write_upgrade_map(&path, &master, &team_name, upgrade_script(&master, label));
     game.start_new_game(GameMode::SinglePlayer).unwrap();
     assert!(game.load_map(path.to_str().expect("UTF-8 map path")));
     let master_id = game
@@ -281,56 +290,8 @@ fn ordered_mux_world(
         .add_parameter(Parameter::with_int(ParameterType::Int, 1))
         .unwrap();
     script.append_action(Box::new(execution_marker));
-    let mut script_list = ScriptList::new();
-    script_list.append_script(Box::new(script));
-
-    let mut sides = SidesList::new();
-    let mut owner = Dict::new();
-    owner.set_ascii_string(key_player_name(), "Owner");
-    owner.set_ascii_string(key_player_faction(), "FactionAmerica");
-    owner.set_unicode_string(key_player_display_name(), "Owner");
-    owner.set_bool(key_player_is_human(), true);
-    sides.add_side(&owner);
-    let mut team = Dict::new();
-    team.set_ascii_string(key_team_name(), team_name.as_str());
-    team.set_ascii_string(key_team_owner(), "Owner");
-    team.set_bool(key_team_is_singleton(), true);
-    sides.add_team(&team);
-    sides
-        .get_side_info_mut(0)
-        .expect("owner side")
-        .set_script_list(Some(Box::new(script_list)));
-    let script_engine = ScriptEngine::new_in_published_world().expect("script templates");
-
-    let mut map = DataChunkOutput::new();
-    map.open_data_chunk("HeightMapData", 3);
-    for value in [41, 41, 1, 1681] {
-        map.write_int(value);
-    }
-    for _ in 0..1681 {
-        map.write_byte(0);
-    }
-    map.close_data_chunk();
-    map.open_data_chunk("ObjectsList", 3);
-    map.open_data_chunk("Object", 3);
-    for value in [50.0, 50.0, 0.0, 0.0] {
-        map.write_real(value);
-    }
-    map.write_int(0);
-    map.write_ascii_string(master.as_str());
-    let mut properties = Dict::new();
-    properties.set_ascii_string(NameKeyGenerator::name_to_key("objectName"), master.as_str());
-    properties.set_ascii_string(
-        NameKeyGenerator::name_to_key("originalOwner"),
-        team_name.as_str(),
-    );
-    map.write_dict(&properties);
-    map.close_data_chunk();
-    map.close_data_chunk();
-    sides.write_sides_data_chunk(&mut map, &ScriptTemplateLookup::from_engine(&script_engine));
-
     let map_path = root.join(format!("{label}OrderedMux.map"));
-    std::fs::write(&map_path, map.into_ckmp_bytes()).unwrap();
+    write_upgrade_map(&map_path, &master, &team_name, script);
     game.start_new_game(GameMode::SinglePlayer).unwrap();
     assert!(game.load_map(map_path.to_str().expect("UTF-8 map path")));
     let master_id = game
@@ -427,7 +388,7 @@ fn authored_upgrade_order_and_status_latch_survive_real_save_continuation() {
 }
 
 #[test]
-fn previous_upgrade_snapshot_can_be_saved_and_loaded_again() {
+fn current_save_rejects_missing_upgrade_provenance_without_mutation() {
     use generals_main::save_load::snapshot::SnapshotBuilder;
     use serde::Serialize;
 
@@ -498,42 +459,12 @@ fn previous_upgrade_snapshot_can_be_saved_and_loaded_again() {
     assert_eq!(restored.get_current_frame(), before_frame);
     assert!(restored.host_object(restored_id).is_some());
 
-    // OXFR v5 predates the world-v37 completion-provenance contract.
+    // Older outer save envelopes are rejected before restoring any module.
     legacy.version = 36;
-    let error = builder
-        .restore_from_snapshot(&legacy, &mut restored)
-        .expect_err("old saves with active upgrades lack owner provenance");
-    assert!(
-        error
-            .to_string()
-            .contains("ambiguous Object/player upgrade completion")
-    );
+    assert!(matches!(
+        builder.restore_from_snapshot(&legacy, &mut restored),
+        Err(generals_main::save_load::SaveLoadError::VersionMismatch { actual: 36, .. })
+    ));
     assert_eq!(restored.get_current_frame(), before_frame);
     assert!(restored.host_object(restored_id).is_some());
-
-    // Exercise conversion only when the old state does not require guessing
-    // whether any active upgrade belongs to an Object or a Player.
-    for object in legacy.objects.values_mut() {
-        if let Some(generals_main::save_load::snapshot::ModuleSnapshot::Upgrade(upgrades)) =
-            object.modules.get_mut("Upgrade")
-        {
-            upgrades.active_upgrades.clear();
-        }
-    }
-    builder
-        .restore_from_snapshot(&legacy, &mut restored)
-        .unwrap();
-    let resaved = builder.create_world_snapshot(&restored).unwrap();
-    let (mut continued, _) = ordered_mux_world(root.path(), "Legacy", true);
-    builder
-        .restore_from_snapshot(&resaved, &mut continued)
-        .expect("re-saving a v5 upgrade payload must produce a valid current payload");
-    assert_eq!(continued.get_current_frame(), restored.get_current_frame());
-    assert!(continued.host_object(restored_id).is_some());
-    let money_before = continued.get_player(1).unwrap().resources.supplies;
-    continued.update();
-    assert_eq!(
-        continued.get_player(1).unwrap().resources.supplies,
-        money_before + 1
-    );
 }

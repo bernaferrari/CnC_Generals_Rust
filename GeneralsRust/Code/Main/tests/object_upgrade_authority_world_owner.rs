@@ -188,64 +188,6 @@ fn authored_map_ignores_unknown_object_grant_then_applies_valid_grant() {
     assert!(target.completed_object_upgrades.contains(OBJECT_GRANT));
 }
 
-#[derive(serde::Serialize)]
-struct LegacyOxfrV7 {
-    stun: Vec<()>,
-    battle_bus: Vec<()>,
-    slow_death: Vec<()>,
-    radar: Vec<()>,
-    death_start: Vec<()>,
-    retained_death: Vec<()>,
-    object_creation_upgrade: Vec<()>,
-    status_bits_executed_present: bool,
-    cost_modifier_executed_present: bool,
-}
-
-fn make_ambiguous_v35_snapshot(snapshot: &WorldSnapshot, object_id: ObjectId) -> WorldSnapshot {
-    use generals_main::save_load::snapshot::{ModuleSnapshot, UpgradeModuleSnapshot};
-
-    let mut legacy: WorldSnapshot =
-        bincode_legacy::deserialize(&bincode_legacy::serialize(snapshot).unwrap()).unwrap();
-    legacy.version = 35;
-    legacy.objects.get_mut(&object_id).unwrap().modules.insert(
-        "Upgrade".into(),
-        ModuleSnapshot::Upgrade(UpgradeModuleSnapshot {
-            active_upgrades: vec![OBJECT_GRANT.into()],
-            upgrade_progress: Default::default(),
-        }),
-    );
-    let footer = legacy
-        .lifecycle_tail
-        .windows(4)
-        .rposition(|bytes| bytes == b"OXFE")
-        .expect("current snapshot contains OXFR locator");
-    let payload_len = u32::from_le_bytes(
-        legacy.lifecycle_tail[footer - 4..footer]
-            .try_into()
-            .unwrap(),
-    ) as usize;
-    let marker = footer - payload_len - 16;
-    legacy.lifecycle_tail.drain(marker..footer + 4);
-    let payload = bincode_legacy::serialize(&LegacyOxfrV7 {
-        stun: vec![],
-        battle_bus: vec![],
-        slow_death: vec![],
-        radar: vec![],
-        death_start: vec![],
-        retained_death: vec![],
-        object_creation_upgrade: vec![],
-        status_bits_executed_present: true,
-        cost_modifier_executed_present: true,
-    })
-    .unwrap();
-    let mut legacy_record = b"OXFR".to_vec();
-    legacy_record.extend_from_slice(&7_u32.to_le_bytes());
-    legacy_record.extend_from_slice(&(payload.len() as u32).to_le_bytes());
-    legacy_record.extend_from_slice(&payload);
-    legacy.lifecycle_tail.splice(marker..marker, legacy_record);
-    legacy
-}
-
 #[test]
 fn object_grant_capture_and_restore_keep_object_and_player_upgrade_authority_separate() {
     let root = tempfile::tempdir().unwrap();
@@ -288,7 +230,11 @@ fn object_grant_capture_and_restore_keep_object_and_player_upgrade_authority_sep
         assert!(children(world, &object.template_name).is_empty());
     }
 
-    assert!(receiving.transfer_object_to_player(receiving_id, 2).unwrap());
+    assert!(
+        receiving
+            .transfer_object_to_player(receiving_id, 2)
+            .unwrap()
+    );
     assert!(peer.transfer_object_to_player(peer_id, 2).unwrap());
     // The peer's old owner has the stale former-player research, but its
     // receiving owner does not. Re-granting the Object upgrade invokes the
@@ -332,12 +278,9 @@ fn object_grant_capture_and_restore_keep_object_and_player_upgrade_authority_sep
             .unwrap()[&1][&3],
         [receiving_id.0]
     );
-    let mut version_36_bincode: WorldSnapshot =
-        bincode_legacy::deserialize(&bincode_legacy::serialize(&snapshot).unwrap()).unwrap();
-    version_36_bincode.version = 36;
-    let bytes = bincode_legacy::serialize(&version_36_bincode).unwrap();
+    let bytes = bincode_legacy::serialize(&snapshot).unwrap();
     let decoded: WorldSnapshot = bincode_legacy::deserialize(&bytes).unwrap();
-    assert_eq!(decoded.version, 36);
+    assert_eq!(decoded.version, snapshot.version);
     assert!(decoded.lifecycle_tail.windows(4).any(|tag| tag == b"GOTS"));
     for tag in [b"A10F", b"BDRF", b"AIQF", b"OXFR", b"NMLF", b"HSQD"] {
         assert!(
@@ -345,7 +288,7 @@ fn object_grant_capture_and_restore_keep_object_and_player_upgrade_authority_sep
                 .lifecycle_tail
                 .windows(tag.len())
                 .any(|part| part == tag),
-            "bincode v36 tail retains {}",
+            "current bincode tail retains {}",
             String::from_utf8_lossy(tag)
         );
     }
@@ -376,17 +319,10 @@ fn object_grant_capture_and_restore_keep_object_and_player_upgrade_authority_sep
             .contains(OBJECT_GRANT)
     );
 
-    // A v36 envelope already carries GOTS. Encoding it through direct Xfer
-    // upgrades the envelope to the current version while retaining both exact Team identity
-    // and Object-completion continuation ahead of APRO/CPAT/CPAD.
-    let mut version_36: WorldSnapshot =
-        bincode_legacy::deserialize(&bincode_legacy::serialize(&snapshot).unwrap()).unwrap();
-    version_36.version = 36;
+    // Direct Xfer must carry the same Team identity and Object completion.
+    let mut direct: WorldSnapshot = bincode_legacy::deserialize(&bytes).unwrap();
     let mut direct_bytes = std::io::Cursor::new(Vec::new());
-    version_36
-        .xfer(&mut XferSave::new(&mut direct_bytes))
-        .unwrap();
-    assert_eq!(version_36.version, WORLD_SNAPSHOT_DIRECT_XFER_VERSION);
+    direct.xfer(&mut XferSave::new(&mut direct_bytes)).unwrap();
     let mut direct_decoded = WorldSnapshot::default();
     direct_decoded
         .xfer(&mut XferLoad::new(std::io::Cursor::new(
@@ -456,16 +392,13 @@ fn object_grant_capture_and_restore_keep_object_and_player_upgrade_authority_sep
         vec!["ReceivingCreateGrantChild".into(), restored_child]
     );
 
-    let ambiguous_legacy = make_ambiguous_v35_snapshot(&snapshot, receiving_id);
+    let mut obsolete: WorldSnapshot = bincode_legacy::deserialize(&bytes).unwrap();
+    obsolete.version = 35;
     let health_before = restored.host_object(restored_id).unwrap().health.current;
-    let error = builder
-        .restore_from_snapshot(&ambiguous_legacy, &mut restored)
-        .expect_err("v35 mixed applied-upgrade state has no recoverable grant owner");
-    assert!(
-        error
-            .to_string()
-            .contains("ambiguous Object/player upgrade")
-    );
+    assert!(matches!(
+        builder.restore_from_snapshot(&obsolete, &mut restored),
+        Err(generals_main::save_load::SaveLoadError::VersionMismatch { actual: 35, .. })
+    ));
     assert_eq!(
         restored.host_object(restored_id).unwrap().health.current,
         health_before
