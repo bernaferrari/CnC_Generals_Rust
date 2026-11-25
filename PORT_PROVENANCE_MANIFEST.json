@@ -161157,7 +161157,7 @@
     }
   ],
   "generator": "GeneralsRust/Code/Main/scripts/generate_port_provenance.py",
-  "input_digest": "138a17af9cbc6e8585b454e27cf925e14ff6a4975d5a5130cea2464b382e60aa",
+  "input_digest": "21284d1cd49cb972e6320c582bcab0c15f3746edc728bf948160ab79c422150a",
   "metric_contract": {
     "behavior_requires_explicit_evidence": true,
     "candidate_mapping_is_reviewed": false,
@@ -188932,11 +188932,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 3302,
+        "end_line": 3324,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/ai/mod.rs",
-      "sha256": "a63be602b1a5112ebda6741ca38166cea574414cd07ce0279387af8765f9f92b",
+      "sha256": "c6b0468dd4a7f505db52ce2975593f11b9d043885d548983e34afef519e54ee9",
       "symbol_index_status": "indexed",
       "symbols": [
         {
@@ -189596,577 +189596,582 @@
         },
         {
           "kind": "fn",
-          "line": 1712,
+          "line": 1725,
           "name": "bridge_layer_from_pathfinder_id"
         },
         {
           "kind": "fn",
-          "line": 1717,
+          "line": 1730,
           "name": "pathfinder_id_from_bridge_layer"
         },
         {
           "kind": "fn",
-          "line": 1727,
+          "line": 1740,
           "name": "add_bridge"
         },
         {
           "kind": "fn",
-          "line": 1733,
+          "line": 1746,
           "name": "add_bridge_ex"
         },
         {
           "kind": "fn",
-          "line": 1748,
+          "line": 1761,
           "name": "change_bridge_state"
         },
         {
           "kind": "fn",
-          "line": 1756,
+          "line": 1767,
+          "name": "bind_restored_bridge"
+        },
+        {
+          "kind": "fn",
+          "line": 1778,
           "name": "bridge_is_destroyed"
         },
         {
           "kind": "fn",
-          "line": 1762,
+          "line": 1784,
           "name": "pathfinding_system_mut"
         },
         {
           "kind": "fn",
-          "line": 1766,
+          "line": 1788,
           "name": "pathfinding_system"
         },
         {
           "kind": "fn",
-          "line": 1770,
+          "line": 1792,
           "name": "process_pathfind_queue"
         },
         {
           "kind": "fn",
-          "line": 1780,
+          "line": 1802,
           "name": "is_point_on_wall"
         },
         {
           "kind": "fn",
-          "line": 1785,
+          "line": 1807,
           "name": "add_wall_piece"
         },
         {
           "kind": "fn",
-          "line": 1790,
+          "line": 1812,
           "name": "remove_wall_piece"
         },
         {
           "kind": "fn",
-          "line": 1795,
+          "line": 1817,
           "name": "wall_piece_count"
         },
         {
           "kind": "fn",
-          "line": 1801,
+          "line": 1823,
           "name": "reclassify_allocated_wall_with_lookup"
         },
         {
           "kind": "fn",
-          "line": 1811,
+          "line": 1833,
           "name": "resolve_wall_shapes"
         },
         {
           "kind": "fn",
-          "line": 1826,
+          "line": 1848,
           "name": "clean_open_and_closed_lists"
         },
         {
           "kind": "fn",
-          "line": 1831,
+          "line": 1853,
           "name": "crc_pathfinder"
         },
         {
           "kind": "fn",
-          "line": 1836,
+          "line": 1858,
           "name": "xfer_pathfinder"
         },
         {
           "kind": "fn",
-          "line": 1841,
+          "line": 1863,
           "name": "load_post_process_pathfinder"
         },
         {
           "kind": "fn",
-          "line": 1846,
+          "line": 1868,
           "name": "patch_path"
         },
         {
           "kind": "fn",
-          "line": 1870,
+          "line": 1892,
           "name": "get_move_away_from_path"
         },
         {
           "kind": "fn",
-          "line": 1892,
+          "line": 1914,
           "name": "get_move_away_from_path_result"
         },
         {
           "kind": "fn",
-          "line": 1918,
+          "line": 1940,
           "name": "move_allies"
         },
         {
           "kind": "fn",
-          "line": 1936,
+          "line": 1958,
           "name": "force_map_recalculation"
         },
         {
           "kind": "fn",
-          "line": 1942,
+          "line": 1964,
           "name": "set_debug_path_position"
         },
         {
           "kind": "fn",
-          "line": 1945,
+          "line": 1967,
           "name": "update_layer_for_object"
         },
         {
           "kind": "fn",
-          "line": 1956,
+          "line": 1978,
           "name": "queue_for_path_request"
         },
         {
           "kind": "fn",
-          "line": 1961,
+          "line": 1983,
           "name": "pending_path_request_count"
         },
         {
           "kind": "fn",
-          "line": 1966,
+          "line": 1988,
           "name": "queue_for_path"
         },
         {
           "kind": "fn",
-          "line": 1969,
+          "line": 1991,
           "name": "find_path"
         },
         {
           "kind": "fn",
-          "line": 1996,
+          "line": 2018,
           "name": "find_path_for_locomotor"
         },
         {
           "kind": "fn",
-          "line": 2051,
+          "line": 2073,
           "name": "find_path_result"
         },
         {
           "kind": "fn",
-          "line": 2055,
+          "line": 2077,
           "name": "find_closest_path_result"
         },
         {
           "kind": "fn",
-          "line": 2061,
+          "line": 2083,
           "name": "build_ground_path"
         },
         {
           "kind": "fn",
-          "line": 2074,
+          "line": 2096,
           "name": "build_hierarchical_path"
         },
         {
           "kind": "fn",
-          "line": 2083,
+          "line": 2105,
           "name": "set_debug_path"
         },
         {
           "kind": "fn",
-          "line": 2088,
+          "line": 2110,
           "name": "get_aircraft_path"
         },
         {
           "kind": "fn",
-          "line": 2100,
+          "line": 2122,
           "name": "check_for_possible"
         },
         {
           "kind": "fn",
-          "line": 2128,
+          "line": 2150,
           "name": "find_attack_path_range"
         },
         {
           "kind": "fn",
-          "line": 2150,
+          "line": 2172,
           "name": "find_safe_path_result"
         },
         {
           "kind": "fn",
-          "line": 2163,
+          "line": 2185,
           "name": "adjust_destination_with_observations"
         },
         {
           "kind": "fn",
-          "line": 2215,
+          "line": 2237,
           "name": "adjust_target_destination"
         },
         {
           "kind": "fn",
-          "line": 2234,
+          "line": 2256,
           "name": "adjust_target_destination_for"
         },
         {
           "kind": "fn",
-          "line": 2254,
+          "line": 2276,
           "name": "adjust_to_landing_destination"
         },
         {
           "kind": "fn",
-          "line": 2263,
+          "line": 2285,
           "name": "adjust_exit_destination_with_observations"
         },
         {
           "kind": "fn",
-          "line": 2278,
+          "line": 2300,
           "name": "adjust_possible_destination_for_object"
         },
         {
           "kind": "fn",
-          "line": 2318,
+          "line": 2340,
           "name": "find_broken_bridge"
         },
         {
           "kind": "fn",
-          "line": 2331,
+          "line": 2353,
           "name": "client_safe_quick_does_path_exist"
         },
         {
           "kind": "fn",
-          "line": 2346,
+          "line": 2368,
           "name": "client_safe_quick_does_path_exist_with_ignore"
         },
         {
           "kind": "fn",
-          "line": 2368,
+          "line": 2390,
           "name": "client_safe_quick_does_path_exist_for_ui"
         },
         {
           "kind": "fn",
-          "line": 2380,
+          "line": 2402,
           "name": "slow_does_path_exist"
         },
         {
           "kind": "fn",
-          "line": 2407,
+          "line": 2429,
           "name": "is_line_passable_for_surfaces"
         },
         {
           "kind": "fn",
-          "line": 2418,
+          "line": 2440,
           "name": "is_line_passable_on_layer_with_cells"
         },
         {
           "kind": "fn",
-          "line": 2432,
+          "line": 2454,
           "name": "is_line_passable_for_surfaces_on_layer"
         },
         {
           "kind": "fn",
-          "line": 2450,
+          "line": 2472,
           "name": "find_group_ground_path"
         },
         {
           "kind": "fn",
-          "line": 2478,
+          "line": 2500,
           "name": "segment_intersects_tall_building"
         },
         {
           "kind": "fn",
-          "line": 2498,
+          "line": 2520,
           "name": "circle_clips_tall_building"
         },
         {
           "kind": "fn",
-          "line": 2511,
+          "line": 2533,
           "name": "object_slaver_id"
         },
         {
           "kind": "fn",
-          "line": 2518,
+          "line": 2540,
           "name": "is_view_blocked_by_obstacle"
         },
         {
           "kind": "fn",
-          "line": 2531,
+          "line": 2553,
           "name": "is_attack_view_blocked_by_obstacle"
         },
         {
           "kind": "fn",
-          "line": 2572,
+          "line": 2594,
           "name": "is_attack_view_blocked_by_obstacle_ids"
         },
         {
           "kind": "fn",
-          "line": 2588,
+          "line": 2610,
           "name": "valid_movement_terrain_for_locomotor"
         },
         {
           "kind": "fn",
-          "line": 2597,
+          "line": 2619,
           "name": "valid_movement_terrain"
         },
         {
           "kind": "fn",
-          "line": 2609,
+          "line": 2631,
           "name": "move_allies_away_from_destination"
         },
         {
           "kind": "fn",
-          "line": 2621,
+          "line": 2643,
           "name": "move_allies_away_from_destination_for"
         },
         {
           "kind": "fn",
-          "line": 2632,
+          "line": 2654,
           "name": "tighten_path"
         },
         {
           "kind": "fn",
-          "line": 2648,
+          "line": 2670,
           "name": "valid_movement_position"
         },
         {
           "kind": "fn",
-          "line": 2660,
+          "line": 2682,
           "name": "valid_movement_position_for_surfaces"
         },
         {
           "kind": "fn",
-          "line": 2671,
+          "line": 2693,
           "name": "set_cell_type_at"
         },
         {
           "kind": "fn",
-          "line": 2675,
+          "line": 2697,
           "name": "set_cell_type_at_layer"
         },
         {
           "kind": "fn",
-          "line": 2690,
+          "line": 2712,
           "name": "set_cell_type_for_test"
         },
         {
           "kind": "fn",
-          "line": 2695,
+          "line": 2717,
           "name": "snap_closest_goal_position_with_observations"
         },
         {
           "kind": "fn",
-          "line": 2720,
+          "line": 2742,
           "name": "snap_position_for_object"
         },
         {
           "kind": "fn",
-          "line": 2727,
+          "line": 2749,
           "name": "snap_position"
         },
         {
           "kind": "fn",
-          "line": 2731,
+          "line": 2753,
           "name": "snap_position_for_radius"
         },
         {
           "kind": "fn",
-          "line": 2735,
+          "line": 2757,
           "name": "is_map_ready"
         },
         {
           "kind": "fn",
-          "line": 2745,
+          "line": 2767,
           "name": "goal_position_for_unit"
         },
         {
           "kind": "fn",
-          "line": 2753,
+          "line": 2775,
           "name": "goal_position_for_cell_with_observations"
         },
         {
           "kind": "fn",
-          "line": 2770,
+          "line": 2792,
           "name": "path_destination"
         },
         {
           "kind": "fn",
-          "line": 2788,
+          "line": 2810,
           "name": "update_aircraft_goal"
         },
         {
           "kind": "fn",
-          "line": 2799,
+          "line": 2821,
           "name": "update_goal_cells"
         },
         {
           "kind": "fn",
-          "line": 2820,
+          "line": 2842,
           "name": "update_pos_cells"
         },
         {
           "kind": "fn",
-          "line": 2840,
+          "line": 2862,
           "name": "remove_pos_cells"
         },
         {
           "kind": "fn",
-          "line": 2852,
+          "line": 2874,
           "name": "remove_unit_from_pathfind_map"
         },
         {
           "kind": "fn",
-          "line": 2862,
+          "line": 2884,
           "name": "set_goal_cells"
         },
         {
           "kind": "fn",
-          "line": 2883,
+          "line": 2905,
           "name": "clear_goal_cells"
         },
         {
           "kind": "fn",
-          "line": 2904,
+          "line": 2926,
           "name": "set_aircraft_goal_cells"
         },
         {
           "kind": "fn",
-          "line": 2915,
+          "line": 2937,
           "name": "clear_aircraft_goal_cells"
         },
         {
           "kind": "fn",
-          "line": 2929,
+          "line": 2951,
           "name": "get_cell_type_at"
         },
         {
           "kind": "fn",
-          "line": 2937,
+          "line": 2959,
           "name": "get_cell_type_at_layer"
         },
         {
           "kind": "fn",
-          "line": 2947,
+          "line": 2969,
           "name": "is_cell_clear_at"
         },
         {
           "kind": "fn",
-          "line": 2955,
+          "line": 2977,
           "name": "get_cell_type_at_cell"
         },
         {
           "kind": "fn",
-          "line": 2967,
+          "line": 2989,
           "name": "remove_object_from_pathfind_map"
         },
         {
           "kind": "fn",
-          "line": 2973,
+          "line": 2995,
           "name": "add_object_to_pathfind_map"
         },
         {
           "kind": "fn",
-          "line": 2976,
+          "line": 2998,
           "name": "refresh_completed_object_footprint"
         },
         {
           "kind": "fn",
-          "line": 2980,
+          "line": 3002,
           "name": "add_object_to_map"
         },
         {
           "kind": "fn",
-          "line": 3012,
+          "line": 3034,
           "name": "remove_object_from_map"
         },
         {
           "kind": "fn",
-          "line": 3039,
+          "line": 3061,
           "name": "remove_object_from_map_at_positions"
         },
         {
           "kind": "fn",
-          "line": 3049,
+          "line": 3071,
           "name": "add_object_to_map_at_positions"
         },
         {
           "kind": "fn",
-          "line": 3055,
+          "line": 3077,
           "name": "clear_object_from_map_positions"
         },
         {
           "kind": "fn",
-          "line": 3062,
+          "line": 3084,
           "name": "create_wall_from_object"
         },
         {
           "kind": "fn",
-          "line": 3066,
+          "line": 3088,
           "name": "remove_wall_from_object"
         },
         {
           "kind": "fn",
-          "line": 3070,
+          "line": 3092,
           "name": "stamp_wall_cells"
         },
         {
           "kind": "fn",
-          "line": 3142,
+          "line": 3164,
           "name": "is_line_clear_between"
         },
         {
           "kind": "trait",
-          "line": 3147,
+          "line": 3169,
           "name": "PartitionFilter"
         },
         {
           "kind": "fn",
-          "line": 3149,
+          "line": 3171,
           "name": "allow"
         },
         {
           "kind": "fn",
-          "line": 3150,
+          "line": 3172,
           "name": "debug_get_name"
         },
         {
           "kind": "fn",
-          "line": 3160,
+          "line": 3182,
           "name": "the_ai"
         },
         {
           "kind": "fn",
-          "line": 3167,
+          "line": 3189,
           "name": "active_pathfinder_handle"
         },
         {
           "kind": "fn",
-          "line": 3221,
+          "line": 3243,
           "name": "test_ai_group_creation"
         },
         {
           "kind": "fn",
-          "line": 3230,
+          "line": 3252,
           "name": "test_ai_group_membership"
         },
         {
           "kind": "fn",
-          "line": 3252,
+          "line": 3274,
           "name": "test_ai_command_params"
         },
         {
           "kind": "fn",
-          "line": 3262,
+          "line": 3284,
           "name": "test_skill_set_default"
         },
         {
           "kind": "fn",
-          "line": 3269,
+          "line": 3291,
           "name": "test_ai_data_side_info"
         },
         {
           "kind": "fn",
-          "line": 3285,
+          "line": 3307,
           "name": "test_bridge_state_mapping_matches_cpp_boolean_semantics"
         }
       ]
@@ -193314,11 +193319,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 1134,
+        "end_line": 1145,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/ai/pathfind_complete/line_passable.rs",
-      "sha256": "81539c2915440eb2b4a46a1536c50e4af9595ec5ecbbba88c8ec7a42d4361c68",
+      "sha256": "c18f23f6b332a6a9affe615804b3ec389279729bb226dae5b27cdcc5ef7eabb0",
       "symbol_index_status": "indexed",
       "symbols": [
         {
@@ -193443,107 +193448,112 @@
         },
         {
           "kind": "fn",
-          "line": 723,
+          "line": 726,
           "name": "bridge_entry_cells"
         },
         {
           "kind": "fn",
-          "line": 750,
+          "line": 753,
           "name": "zone_at_cell"
         },
         {
           "kind": "fn",
-          "line": 761,
+          "line": 764,
           "name": "find_broken_bridge_layer"
         },
         {
           "kind": "fn",
-          "line": 783,
+          "line": 786,
           "name": "set_bridge_destroyed"
         },
         {
           "kind": "fn",
-          "line": 803,
+          "line": 804,
+          "name": "bind_restored_bridge"
+        },
+        {
+          "kind": "fn",
+          "line": 814,
           "name": "bridge_by_layer_id"
         },
         {
           "kind": "fn",
-          "line": 810,
+          "line": 821,
           "name": "set_cell_type"
         },
         {
           "kind": "fn",
-          "line": 819,
+          "line": 830,
           "name": "get_cell_type"
         },
         {
           "kind": "fn",
-          "line": 830,
+          "line": 841,
           "name": "world_to_cell_trunc"
         },
         {
           "kind": "fn",
-          "line": 843,
+          "line": 854,
           "name": "get_cell_type_at_cell"
         },
         {
           "kind": "fn",
-          "line": 855,
+          "line": 866,
           "name": "cell_type_and_zone"
         },
         {
           "kind": "fn",
-          "line": 881,
+          "line": 892,
           "name": "get_cell_type_at_layer"
         },
         {
           "kind": "fn",
-          "line": 892,
+          "line": 903,
           "name": "get_stored_cell_type_at_layer"
         },
         {
           "kind": "fn",
-          "line": 902,
+          "line": 913,
           "name": "set_cell_type_at_layer"
         },
         {
           "kind": "fn",
-          "line": 939,
+          "line": 950,
           "name": "zones_connected_for_surfaces"
         },
         {
           "kind": "fn",
-          "line": 955,
+          "line": 966,
           "name": "client_safe_quick_does_path_exist"
         },
         {
           "kind": "fn",
-          "line": 966,
+          "line": 977,
           "name": "client_safe_quick_does_path_exist_ignoring"
         },
         {
           "kind": "fn",
-          "line": 981,
+          "line": 992,
           "name": "client_safe_quick_does_path_exist_with_observations"
         },
         {
           "kind": "fn",
-          "line": 1005,
+          "line": 1016,
           "name": "client_safe_quick_does_path_exist_with_terrain"
         },
         {
           "kind": "fn",
-          "line": 1024,
+          "line": 1035,
           "name": "client_safe_quick_does_path_exist_with_layers"
         },
         {
           "kind": "fn",
-          "line": 1087,
+          "line": 1098,
           "name": "client_safe_quick_does_path_exist_for_ui"
         },
         {
           "kind": "fn",
-          "line": 1100,
+          "line": 1111,
           "name": "compute_normal_radial_offset"
         }
       ]
@@ -205929,11 +205939,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 2282,
+        "end_line": 2273,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/behavior/bridge_behavior.rs",
-      "sha256": "2fcdd92c1e6b1f63767623d14d536540c41f8fcdfffa1b9fcbcde53ebef263ba",
+      "sha256": "a324d867273b045fc91a4661e98b2845230a513fde5c5d06d801e60cbc3f121b",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },

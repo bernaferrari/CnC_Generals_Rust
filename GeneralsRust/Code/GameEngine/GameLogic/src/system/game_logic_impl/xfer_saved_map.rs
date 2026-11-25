@@ -97,6 +97,11 @@ impl SavedMapRuntime for GameLogic {
                 .as_ref()
                 .map(|pathfinder| pathfinder.write().map_err(|_| XferStatus::InvalidData))
                 .transpose()?;
+            // A newly admitted map owns fresh layers even if the previous
+            // map happened to have the same dimensions.
+            if let Some(pathfinder) = pathfinder.as_deref_mut() {
+                pathfinder.reset();
+            }
             for (bridge, template) in bridges {
                 let layer = pathfinder
                     .as_deref_mut()

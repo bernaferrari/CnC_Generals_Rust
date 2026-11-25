@@ -445,7 +445,6 @@ impl BridgeBehavior {
     fn construct_with_object_id(
         object_id: ObjectID,
         module_data: game_engine::common::thing::module::ModuleDataHandle,
-        _initial_object: Option<Arc<RwLock<GameObject>>>,
     ) -> Self {
         let (fx_count, ocl_count) = {
             let data = module_data.read();
@@ -495,27 +494,14 @@ impl BridgeBehavior {
             .map(|guard| guard.get_id())
             .unwrap_or(OBJECT_INVALID_ID);
 
-        Self::construct_with_object_id(object_id, module_data, Some(object))
+        Self::construct_with_object_id(object_id, module_data)
     }
 
     pub fn from_module_thing(
         thing: Arc<dyn ModuleThing>,
         module_data: game_engine::common::thing::module::ModuleDataHandle,
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
-        // Wave 301: empty dual-world → missing object.
-        if dual_world_registry_unavailable() {
-            return Err("BridgeBehavior missing dual-world object".into());
-        }
-
-        let module_object = thing
-            .as_object()
-            .ok_or_else(|| "BridgeBehavior requires an owning object".to_string())?;
-
-        let object_id = module_object.get_object_id();
-        let object = OBJECT_REGISTRY.get_object(object_id).ok_or_else(|| {
-            format!("BridgeBehavior requires object {object_id} to be registered")
-        })?;
-
+        let object = crate::object::supplied_module_owner(thing.as_ref())?;
         Ok(Self::new_from_object_handle(object, module_data))
     }
 
@@ -1568,34 +1554,8 @@ impl BridgeBehavior {
         xfer.xfer_version(&mut version, current_version)?;
         xfer_update_module_base_state(xfer, &mut self.next_call_frame_and_phase)?;
 
-        if xfer.get_xfer_mode() == XferMode::Load {
-            if let Ok(mut terrain) = crate::terrain::get_terrain_logic().write() {
-                if let Ok((pos, id)) =
-                    self.with_object(|me_read| (*me_read.get_position(), me_read.get_id()))
-                {
-                    if let Some(bridge) = terrain.find_bridge_at_mut(&pos) {
-                        bridge.set_bridge_object_id(id);
-                    }
-                }
-            }
-        }
-
         for tower_id in &mut self.tower_id {
             xfer.xfer_object_id(tower_id)?;
-        }
-
-        if xfer.get_xfer_mode() == XferMode::Load {
-            if let Ok(mut terrain) = crate::terrain::get_terrain_logic().write() {
-                if let Ok(pos) = self.with_object(|me_read| *me_read.get_position()) {
-                    if let Some(bridge) = terrain.find_bridge_at_mut(&pos) {
-                        for (index, tower_id) in self.tower_id.iter().copied().enumerate() {
-                            if let Some(tower_type) = terrain_bridge_tower_type_from_index(index) {
-                                bridge.set_tower_object_id(tower_id, tower_type);
-                            }
-                        }
-                    }
-                }
-            }
         }
 
         xfer.xfer_bool(&mut self.scaffold_present)?;
@@ -2067,6 +2027,37 @@ impl BridgeBehaviorModule {
     }
 }
 
+impl GameObject {
+    /// BridgeBehavior.cpp:1372–1401 binds the transferred actor and towers
+    /// to the already admitted terrain span. The Object is already borrowed.
+    pub(crate) fn bind_restored_bridge(
+        &self,
+        terrain: &mut crate::terrain::TerrainLogic,
+    ) -> Result<Option<crate::path::PathfindLayerEnum>, String> {
+        let Some(entry) = self.find_module_by_name("BridgeBehavior") else {
+            return Ok(None);
+        };
+        let id = self.get_id();
+        let towers = entry
+            .with_module(|module| {
+                let module = module.as_any_mut().downcast_mut::<BridgeBehaviorModule>()?;
+                module.behavior.object_id = id;
+                Some(module.behavior.tower_id)
+            })
+            .ok_or("restored BridgeBehavior is missing its installed type")?;
+        let bridge = terrain
+            .find_bridge_at_mut(self.get_position())
+            .ok_or("restored bridge actor is outside its admitted span")?;
+        bridge.set_bridge_object_id(id);
+        for (index, tower) in towers.into_iter().enumerate() {
+            if let Some(tower_type) = terrain_bridge_tower_type_from_index(index) {
+                bridge.set_tower_object_id(tower, tower_type);
+            }
+        }
+        Ok(Some(bridge.get_layer()))
+    }
+}
+
 impl Snapshotable for BridgeBehaviorModule {
     fn crc(&self, xfer: &mut dyn EngineXfer) -> Result<(), String> {
         self.behavior.crc(xfer).map_err(|err| err.to_string())
@@ -2253,7 +2244,7 @@ mod tests {
     #[test]
     fn destroy_remaining_towers_clears_tower_ids() {
         let data = game_engine::common::thing::module::ModuleDataHandle::new(BridgeBehaviorModuleData::default());
-        let mut behavior = BridgeBehavior::construct_with_object_id(OBJECT_INVALID_ID, data, None);
+        let mut behavior = BridgeBehavior::construct_with_object_id(OBJECT_INVALID_ID, data);
         behavior.tower_id = [7, 8, 9, 10];
         behavior.destroy_remaining_towers();
         assert!(behavior.tower_id.iter().all(|&id| id == OBJECT_INVALID_ID));
@@ -2263,7 +2254,7 @@ mod tests {
     fn module_on_delete_clears_scaffolds_and_towers() {
         let data = game_engine::common::thing::module::ModuleDataHandle::new(BridgeBehaviorModuleData::default());
         let mut behavior =
-            BridgeBehavior::construct_with_object_id(OBJECT_INVALID_ID, data.clone(), None);
+            BridgeBehavior::construct_with_object_id(OBJECT_INVALID_ID, data.clone());
         behavior.tower_id = [1, 2, 3, 4];
         behavior.scaffold_object_id_list.push(99);
         let mut module =

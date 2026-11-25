@@ -1663,7 +1663,13 @@ impl Pathfinder {
             hi_y = lo_y;
         }
 
-        self.reset_with_size(width, height);
+        if self.inner.width() != width || self.inner.height() != height {
+            // C++ newMap allocates the current layers with the ground grid.
+            // Bridge definitions may already exist before the first allocation.
+            let bridges = std::mem::take(&mut self.inner.bridges);
+            self.reset_with_size(width, height);
+            self.inner.bridges = bridges;
+        }
 
         for y in 0..height {
             for x in 0..width {
@@ -1673,6 +1679,13 @@ impl Pathfinder {
                     && (y as i32) <= hi_y;
                 let world_x = (x as f32 + 0.5) * cell_size;
                 let world_y = (y as f32 + 0.5) * cell_size;
+                let cell = pathfind_complete::GridCoord::new(x as i32, y as i32);
+                self.inner.pathfinder.set_pinched(cell, false);
+                if in_bounds
+                    && self.inner.pathfinder.get_cell_type(cell) == Some(PathfindCellType::Obstacle)
+                {
+                    continue;
+                }
                 let mut cell_type = if !in_bounds {
                     PathfindCellType::Impassable
                 } else {
@@ -1704,7 +1717,7 @@ impl Pathfinder {
                     }
                 }
 
-                self.inner.set_cell_type(&pos, cell_type);
+                self.inner.pathfinder.set_cell_type(cell, cell_type);
             }
         }
         self.inner.expand_cliff_cells_like_cpp();
@@ -1750,6 +1763,15 @@ impl Pathfinder {
             return;
         };
         self.inner.set_bridge_destroyed(layer_id, !repaired);
+    }
+
+    pub(crate) fn bind_restored_bridge(
+        &mut self,
+        layer: crate::path::PathfindLayerEnum,
+        id: ObjectID,
+    ) -> bool {
+        Self::pathfinder_id_from_bridge_layer(layer)
+            .is_some_and(|layer_id| self.inner.bind_restored_bridge(layer_id, id))
     }
 
     /// Inspect whether a registered bridge is currently destroyed.

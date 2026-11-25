@@ -711,9 +711,12 @@ impl PathfindingSystem {
         // C++ classifyCells entry points: bridge ends + edge spans (isCellEntryPoint).
         layer.set_ground_connect_cells(Self::bridge_entry_cells(bounds, start_cell, end_cell));
         self.bridges.push(layer);
-        let idx = self.bridges.len() - 1;
-        self.classify_bridge_cells(idx);
-        self.sync_bridge_layers_to_pathfinder();
+        // During map startup the layer is reserved before the ground grid.
+        // Its cells and links are published with the first classification.
+        if self.width > 0 && self.height > 0 {
+            self.classify_bridge_cells(self.bridges.len() - 1);
+            self.sync_bridge_layers_to_pathfinder();
+        }
         layer_id
     }
 
@@ -797,6 +800,14 @@ impl PathfindingSystem {
             self.sync_bridge_layers_to_pathfinder();
             self.zones.mark_zones_dirty(!destroyed);
         }
+    }
+
+    pub(crate) fn bind_restored_bridge(&mut self, layer: u32, id: ObjectID) -> bool {
+        let Some(bridge) = self.bridges.iter_mut().find(|bridge| bridge.layer_id == layer) else {
+            return false;
+        };
+        bridge.bridge_object_id = id;
+        true
     }
 
     /// Find a bridge layer by its assigned pathfinder layer id.

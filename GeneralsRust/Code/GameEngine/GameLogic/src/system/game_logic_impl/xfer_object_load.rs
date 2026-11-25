@@ -196,6 +196,36 @@ fn restore_core_neutral_object(
             *actor.get_position(),
         )
     };
+    let bridge_layer = {
+        let actor = actor.read().map_err(|error| invalid(&error))?;
+        if actor.is_kind_of(KindOf::Bridge) {
+            let mut terrain = world.terrain().write().map_err(|error| invalid(&error))?;
+            actor
+                .bind_restored_bridge(&mut terrain)
+                .map_err(|error| invalid(&error))?
+        } else {
+            None
+        }
+    };
+    // Overflow spans use Ground and have no dedicated pathfinder layer.
+    if let Some(layer) = bridge_layer
+        && layer != crate::path::PathfindLayerEnum::Ground
+        && let Some(owner) = logic.pathfinding_owner.as_ref()
+    {
+        let pathfinder = owner
+            .ai()
+            .read()
+            .map_err(|error| invalid(&error))?
+            .pathfinder()
+            .ok_or_else(|| invalid(&"receiving pathfinder is missing"))?;
+        if !pathfinder
+            .write()
+            .map_err(|error| invalid(&error))?
+            .bind_restored_bridge(layer, id)
+        {
+            return Err(invalid(&"admitted bridge layer is missing"));
+        }
+    }
     if let Some((drawable, birth_id)) = drawable {
         TheGameClient::rekey_restored_drawable(world, &drawable, birth_id)
             .map_err(|error| invalid(&error))?;

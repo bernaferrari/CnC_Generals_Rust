@@ -1646,27 +1646,40 @@ impl GameLogic {
     fn update_terrain(&self) -> Result<(), GameLogicError> {
         trace!("GameLogic::update_terrain()");
 
-        // The process singleton remains on the compatibility terrain. Explicit
-        // worlds advance only their own terrain services.
-        let terrain = self
-            .pathfinding_owner
-            .as_ref()
-            .map(|owner| Arc::clone(owner.services().terrain()))
-            .unwrap_or_else(crate::terrain::get_terrain_logic);
-        if let Ok(mut terrain) = terrain.write() {
-            if let Some(owner) = self.pathfinding_owner.as_ref() {
-                let pathfinder = owner
-                    .ai()
-                    .read()
-                    .ok()
-                    .and_then(|ai| ai.pathfinder());
-                terrain.update_with_owner_pathfinder(pathfinder.as_ref(), self.frame);
-            } else {
-                terrain.update();
-            }
+        if let Some(owner) = self.pathfinding_owner.as_ref() {
+            self.update_owned_terrain(owner);
+        } else if let Ok(mut terrain) = crate::terrain::get_terrain_logic().write() {
+            terrain.update();
         }
 
         Ok(())
+    }
+
+    fn update_owned_terrain(&self, owner: &crate::system::engine_stores::EngineStores) {
+        use crate::terrain_bridge::BridgeDamage;
+
+        let terrain = owner.services().terrain();
+        let pathfinder = owner.ai().read().ok().and_then(|ai| ai.pathfinder());
+        let mut visited = 0;
+        let mut next = |terrain: &mut crate::terrain::TerrainLogic| {
+            terrain.next_owned_bridge_damage(&mut visited, |id| self.objects.get(&id))
+        };
+        let mut effect = terrain.write().ok().and_then(|mut terrain| {
+            terrain.update_owned_water(pathfinder.as_ref(), self.frame);
+            next(&mut terrain)
+        });
+        while let Some((damage, bridge)) = effect {
+            let repaired = matches!(damage, BridgeDamage::Reopened);
+            if let Some(mut pathfinder) = pathfinder.as_ref().and_then(|owner| owner.write().ok()) {
+                pathfinder.change_bridge_state(bridge.get_layer(), repaired);
+            }
+            if matches!(damage, BridgeDamage::Collapsed) {
+                for actor in self.all_objects.iter().filter_map(|id| self.objects.get(id)) {
+                    crate::terrain_bridge::splat_unit(&bridge, actor);
+                }
+            }
+            effect = terrain.write().ok().and_then(|mut terrain| next(&mut terrain));
+        }
     }
 
     /// Update the production/build system.

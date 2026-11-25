@@ -490,6 +490,296 @@ End
         }
     }
 
+    fn with_core_snapshot_blocks<R>(
+        logic: &mut GameLogic,
+        run: impl FnOnce(&mut [BorrowedSnapshotBlock<'_>]) -> R,
+    ) -> R {
+        let world = logic.owning_world_services().unwrap();
+        let mut teams = TeamFactorySnapshotBridge(world.team_factory().clone());
+        let mut players = PlayerListSnapshotBridge(world.players().clone());
+        let mut campaign = Default::default();
+        run(&mut [
+            BorrowedSnapshotBlock {
+                block_name: "CHUNK_GameLogic",
+                snapshot: &mut CampaignGameLogicSnapshot {
+                    logic,
+                    campaign: &mut campaign,
+                },
+            },
+            BorrowedSnapshotBlock {
+                block_name: "CHUNK_TeamFactory",
+                snapshot: &mut teams,
+            },
+            BorrowedSnapshotBlock {
+                block_name: "CHUNK_Players",
+                snapshot: &mut players,
+            },
+        ])
+    }
+
+    fn write_bridge_save_map(path: &std::path::Path) {
+        let chunk = |label: u32, version: u16, payload: &[u8]| {
+            let mut bytes = label.to_le_bytes().to_vec();
+            bytes.extend(version.to_le_bytes());
+            bytes.extend((payload.len() as i32).to_le_bytes());
+            bytes.extend(payload);
+            bytes
+        };
+        let mut height = Vec::new();
+        // Version 4 includes an explicit playable boundary.
+        for value in [12i32, 8, 0, 1, 11, 7, 96] {
+            height.extend(value.to_le_bytes());
+        }
+        height.extend([0; 96]);
+        let mut objects = Vec::new();
+        for (x, flags) in [(40.0_f32, 0x10i32), (80.0, 0x20)] {
+            let mut bytes = x.to_le_bytes().to_vec();
+            for value in [35.0_f32, 24.0, 0.0] {
+                bytes.extend(value.to_le_bytes());
+            }
+            bytes.extend(flags.to_le_bytes());
+            let name = b"SavedBridgeFixture";
+            bytes.extend((name.len() as u16).to_le_bytes());
+            bytes.extend(name);
+            bytes.extend(0u16.to_le_bytes());
+            objects.extend(chunk(3, 3, &bytes));
+        }
+        let mut map = b"CkMp".to_vec();
+        map.extend(3i32.to_le_bytes());
+        for (name, id) in [("HeightMapData", 1u32), ("ObjectsList", 2), ("Object", 3)] {
+            map.push(name.len() as u8);
+            map.extend(name.as_bytes());
+            map.extend(id.to_le_bytes());
+        }
+        map.extend(chunk(1, 4, &height));
+        map.extend(chunk(2, 1, &objects));
+        std::fs::write(path, map).unwrap();
+    }
+
+    #[test]
+    fn full_core_save_restores_bridge_deck_before_the_first_damage_update() {
+        use crate::ai::pathfind_astar::{PathfindCellType, PathfindLayerEnum as GridLayer};
+        use crate::ai::pathfind_complete::GridCoord;
+        use crate::common::BodyDamageType;
+        use crate::path::PathfindLayerEnum;
+
+        #[cfg(not(target_arch = "wasm32"))]
+        if matches!(
+            crate::test_process::run_bounded(
+                concat!(
+                    module_path!(),
+                    "::full_core_save_restores_bridge_deck_before_the_first_damage_update"
+                )
+                .strip_prefix("gamelogic::")
+                .unwrap(),
+                "GENERALS_BRIDGE_CONTINUATION_CHILD",
+            ),
+            crate::test_process::TestProcess::ParentVerified
+        ) {
+            return;
+        }
+
+        let _ = env_logger::builder().is_test(true).try_init();
+        const ID: ObjectID = 91_801;
+        let deck = Coord3D::new(60.0, 35.0, 24.0);
+        let root = unique_temp_dir("bridge");
+        let map_path = root.join("saved_bridge.map");
+        write_bridge_save_map(&map_path);
+        let authored = r#"
+Object SavedBridgeFixture
+  KindOf = BRIDGE IMMOBILE
+  Body = ActiveBody ModuleTag_Body
+    MaxHealth = 100
+    InitialHealth = 100
+  End
+  Behavior = BridgeBehavior ModuleTag_Bridge
+  End
+End
+"#;
+        let build_world = || {
+            let core = Arc::new(EngineStores::new_for_world());
+            admit_fixture_neutral_player(core.services());
+            with_active_stores(&core, || {
+                crate::contain_module_overrides::ensure_module_overrides_installed().unwrap();
+                game_engine::common::ini::ini_game_data::ensure_global_data();
+                game_engine::common::global_data::global_data_arc();
+                assert_eq!(
+                    game_engine::common::thing::thing_factory::load_templates_from_ini_text(
+                        authored,
+                        "core-saved-bridge.ini",
+                    ),
+                    1
+                );
+            });
+            core
+        };
+        let source = build_world();
+        let receiver = build_world();
+        let peer = build_world();
+        let mut original = GameLogic::new_with_engine_stores(source.clone());
+        let mut restored = GameLogic::new_with_engine_stores(receiver.clone());
+        let mut peer_logic = GameLogic::new_with_engine_stores(peer.clone());
+
+        let make_bridge_actor = |owner: &Arc<EngineStores>, logic: &mut GameLogic| {
+            with_active_stores(owner, || {
+                let player = owner
+                    .services()
+                    .players()
+                    .read()
+                    .unwrap()
+                    .get_neutral_player()
+                    .unwrap();
+                let team = player.read().unwrap().get_default_team().unwrap();
+                let template =
+                    crate::helpers::TheThingFactory::find_template("SavedBridgeFixture").unwrap();
+                let actor =
+                    Object::new_with_id(template, ID, ObjectStatusMaskType::none(), Some(team))
+                        .unwrap();
+                actor.write().unwrap().set_position(&deck).unwrap();
+                logic.register_object(actor.clone()).unwrap();
+                assert!(
+                    actor
+                        .read()
+                        .unwrap()
+                        .find_module_by_name("BridgeBehavior")
+                        .is_some()
+                );
+                actor
+            })
+        };
+        let actor = make_bridge_actor(&source, &mut original);
+        let peer_actor = make_bridge_actor(&peer, &mut peer_logic);
+        with_active_stores(&source, || {
+            game_engine::common::ini::ini_game_data::ensure_global_data()
+                .write()
+                .map_name = map_path.to_string_lossy().into_owned();
+            let body = actor.read().unwrap().get_body().unwrap();
+            let mut body = body.lock().unwrap();
+            body.set_damage_state(BodyDamageType::Rubble).unwrap();
+            assert_eq!(body.get_damage_state(), BodyDamageType::Rubble);
+        });
+
+        let peer_pathfinder = peer.ai().read().unwrap().pathfinder().unwrap();
+        peer_pathfinder.write().unwrap().reset_with_size(12, 8);
+        let peer_layer = peer_pathfinder.write().unwrap().add_bridge_ex(
+            (GridCoord::new(2, 1), GridCoord::new(4, 2)),
+            ID,
+            GridCoord::new(2, 1),
+            GridCoord::new(4, 2),
+        );
+        let mut state = game_engine::GameState::new(root.join("Save"));
+        state.init();
+
+        with_active_stores(&peer, || {
+            let save = with_core_snapshot_blocks(&mut original, |blocks| {
+                state.save_game_with_snapshots(
+                    "bridge.sav".into(),
+                    "Bridge continuation".into(),
+                    SaveFileType::Normal,
+                    SnapshotType::SaveLoad,
+                    blocks,
+                )
+            });
+            assert_eq!(save.unwrap(), SaveCode::Ok);
+            let load = with_core_snapshot_blocks(&mut restored, |blocks| {
+                state.load_game_with_snapshots(
+                    AvailableGameInfo {
+                        filename: "bridge.sav".into(),
+                        save_game_info: SaveGameInfo::default(),
+                    },
+                    blocks,
+                )
+            });
+            assert_eq!(load.unwrap(), SaveCode::Ok);
+
+            let terrain = receiver.services().terrain();
+            let (layer, bridge_id) = {
+                let terrain = terrain.read().unwrap();
+                let bridge = terrain.find_bridge_at(&deck).expect("authored map bridge");
+                (
+                    bridge.get_layer(),
+                    bridge.get_bridge_info().bridge_object_id,
+                )
+            };
+            let pathfinder = receiver.ai().read().unwrap().pathfinder().unwrap();
+            assert_eq!(
+                pathfinder.read().unwrap().bridge_is_destroyed(layer),
+                Some(false)
+            );
+            assert_eq!(layer, PathfindLayerEnum::Top);
+            assert_eq!(bridge_id, ID);
+            assert_eq!(
+                restored
+                    .find_object_by_id(ID)
+                    .unwrap()
+                    .read()
+                    .unwrap()
+                    .get_body()
+                    .unwrap()
+                    .lock()
+                    .unwrap()
+                    .get_damage_state(),
+                BodyDamageType::Rubble
+            );
+            let entry = {
+                let mut pf = pathfinder.write().unwrap();
+                let layer = pf
+                    .pathfinding_system_mut()
+                    .bridge_by_layer_id(layer as u32)
+                    .unwrap();
+                assert_eq!(layer.bridge_object_id, ID);
+                *layer
+                    .ground_connect_cells
+                    .iter()
+                    .find(|cell| layer.cell_type_at(**cell) == Some(PathfindCellType::Clear))
+                    .expect("walkable deck entry")
+            };
+            assert_eq!(
+                pathfinder
+                    .write()
+                    .unwrap()
+                    .pathfinding_system_mut()
+                    .pathfinder
+                    .get_cell_connect_layer(entry),
+                Some(GridLayer::Top),
+            );
+
+            restored.update_terrain().unwrap();
+            assert_eq!(
+                pathfinder.read().unwrap().bridge_is_destroyed(layer),
+                Some(true)
+            );
+            pathfinder_new_map_after_polygon_load(&restored).unwrap();
+            assert_eq!(
+                pathfinder.read().unwrap().bridge_is_destroyed(layer),
+                Some(true)
+            );
+            let mut pf = pathfinder.write().unwrap();
+            let system = pf.pathfinding_system_mut();
+            assert_eq!(
+                system.get_cell_type_at_layer(&deck, GridLayer::Top),
+                Some(PathfindCellType::BridgeImpassable)
+            );
+            assert_eq!(
+                system.pathfinder.get_cell_connect_layer(entry),
+                Some(GridLayer::Invalid)
+            );
+            assert_eq!(
+                peer_pathfinder
+                    .read()
+                    .unwrap()
+                    .bridge_is_destroyed(peer_layer),
+                Some(false)
+            );
+            assert!(Arc::ptr_eq(
+                &peer_logic.find_object_by_id(ID).unwrap(),
+                &peer_actor
+            ));
+        });
+        drop(state);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
     /// Positive test: with the post-load RNG reseed, the restored run must be
     /// indistinguishable from the uninterrupted run, frame by frame.
     #[test]

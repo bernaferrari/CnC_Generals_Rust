@@ -484,6 +484,30 @@ impl TerrainLogic {
         }
     }
 
+    /// Walk in terrain list order, pausing at each effect so it can run before
+    /// the next bridge is observed. An unchanged scan needs one terrain borrow.
+    pub(crate) fn next_owned_bridge_damage<'a>(
+        &mut self,
+        visited: &mut usize,
+        mut actor: impl FnMut(ObjectID) -> Option<&'a Arc<RwLock<crate::object::Object>>>,
+    ) -> Option<(crate::terrain_bridge::BridgeDamage, Bridge)> {
+        let mut current = self.bridge_list_head.as_deref_mut();
+        for _ in 0..*visited {
+            current = current.and_then(|bridge| bridge.next.as_deref_mut());
+        }
+        while let Some(bridge) = current {
+            *visited += 1;
+            let id = bridge.get_bridge_info().bridge_object_id;
+            let damage = crate::terrain_bridge::observe_damage(bridge, actor(id));
+            self.bridge_damage_states_changed |= bridge.get_bridge_info().damage_state_changed;
+            if let Some(damage) = damage {
+                return Some((damage, bridge.clone()));
+            }
+            current = bridge.next.as_deref_mut();
+        }
+        None
+    }
+
     /// Checks if the specified bridge object has just been repaired.
     pub fn is_bridge_repaired(&self, bridge_id: ObjectID) -> bool {
         if bridge_id == crate::common::INVALID_ID {

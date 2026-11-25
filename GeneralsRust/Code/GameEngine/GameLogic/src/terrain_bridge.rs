@@ -14,66 +14,67 @@ use crate::object::Object;
 use crate::object::registry::OBJECT_REGISTRY;
 use crate::path::{LAYER_Z_CLOSE_ENOUGH_F, PATHFIND_CELL_SIZE_F, PathfindLayerEnum};
 use crate::terrain::Bridge;
+use std::sync::{Arc, RwLock};
+
+pub(crate) enum BridgeDamage {
+    Collapsed,
+    Reopened,
+}
 
 /// C++ `Bridge::updateDamageState`.
 pub fn update_damage_state(bridge: &mut Bridge) {
-    bridge.bridge_info_mut().damage_state_changed = false;
-    if bridge.get_bridge_info().bridge_object_id == crate::common::INVALID_ID {
+    let id = bridge.get_bridge_info().bridge_object_id;
+    let actor = TheGameLogic::find_object_by_id(id);
+    if actor.is_none() && OBJECT_REGISTRY.store_is_empty() {
+        bridge.bridge_info_mut().damage_state_changed = false;
         return;
     }
-
-    let object_id = bridge.get_bridge_info().bridge_object_id;
-    let Some(obj_arc) = TheGameLogic::find_object_by_id(object_id) else {
-        // Wave 341 host path: empty factory store and no GameLogic object.
-        // C++ clears the id when the object is actually gone.
-        if OBJECT_REGISTRY.store_is_empty() {
-            return;
+    match observe_damage(bridge, actor.as_ref()) {
+        Some(BridgeDamage::Collapsed) => {
+            change_bridge_state(bridge.get_layer(), false);
+            for id in OBJECT_REGISTRY.get_all_object_ids() {
+                if let Some(actor) = TheGameLogic::find_object_by_id(id) {
+                    splat_unit(bridge, &actor);
+                }
+            }
         }
-        bridge.bridge_info_mut().bridge_object_id = crate::common::INVALID_ID;
-        log::error!("Bridge object disappeared - unexpected. jba.");
-        return;
-    };
+        Some(BridgeDamage::Reopened) => change_bridge_state(bridge.get_layer(), true),
+        None => {}
+    }
+}
 
-    let Ok(obj_guard) = obj_arc.read() else {
-        return;
+/// Observe the bound actor before dispatching effects. The owner can release
+/// its terrain borrow before applying falling damage.
+pub(crate) fn observe_damage(
+    bridge: &mut Bridge,
+    actor: Option<&Arc<RwLock<Object>>>,
+) -> Option<BridgeDamage> {
+    let info = bridge.bridge_info_mut();
+    info.damage_state_changed = false;
+    if info.bridge_object_id == crate::common::INVALID_ID {
+        return None;
+    }
+    let Some(actor) = actor else {
+        info.bridge_object_id = crate::common::INVALID_ID;
+        log::error!("Bridge object disappeared from its world");
+        return None;
     };
-
-    let Some(body) = obj_guard.get_body_module() else {
-        return;
-    };
-    let Ok(body_guard) = body.lock() else {
-        return;
-    };
-    let damage_state = body_guard.get_damage_state();
-    drop(body_guard);
-
-    let cur_state = bridge.get_bridge_info().cur_damage_state;
-    if damage_state == cur_state {
-        return;
+    let actor = actor.read().ok()?;
+    let body = actor.get_body_module()?;
+    let state = body.lock().ok()?.get_damage_state();
+    let previous = info.cur_damage_state;
+    if previous == state {
+        return None;
     }
 
-    // Capture the remaining owner fact, then release its read guard before
-    // falling damage writes objects on this layer (including inspecting this
-    // bridge itself). C++ has no independently held object lock across this
-    // immediate phase; its borrowed bridge object remains the same identity.
-    let scaffold_present = cur_state == BodyDamageType::Rubble && bridge_has_scaffold(&obj_guard);
-    drop(obj_guard);
-
-    bridge.bridge_info_mut().cur_damage_state = damage_state;
-    let layer = bridge.get_layer();
-
-    if damage_state == BodyDamageType::Rubble {
-        change_bridge_state(layer, false);
-        bridge.bridge_info_mut().damage_state_changed = true;
-        splat_units_on_bridge(bridge);
-    }
-
-    if cur_state == BodyDamageType::Rubble {
-        // C++: do not re-enable the layer while scaffolding is up.
-        if !scaffold_present {
-            change_bridge_state(layer, true);
-        }
-        bridge.bridge_info_mut().damage_state_changed = true;
+    info.cur_damage_state = state;
+    info.damage_state_changed = previous == BodyDamageType::Rubble || state == BodyDamageType::Rubble;
+    if state == BodyDamageType::Rubble {
+        Some(BridgeDamage::Collapsed)
+    } else if previous == BodyDamageType::Rubble && !bridge_has_scaffold(&actor) {
+        Some(BridgeDamage::Reopened)
+    } else {
+        None
     }
 }
 
@@ -96,31 +97,21 @@ fn bridge_has_scaffold(bridge_obj: &Object) -> bool {
     false
 }
 
-fn splat_units_on_bridge(bridge: &Bridge) {
-    let layer = bridge.get_layer();
-    let ids = OBJECT_REGISTRY.get_all_object_ids();
-    for id in ids {
-        let Some(obj_arc) = TheGameLogic::find_object_by_id(id) else {
-            continue;
-        };
-        let Ok(mut obj) = obj_arc.write() else {
-            continue;
-        };
-        if !layers_match(obj.get_layer(), layer) {
-            continue;
-        }
-        // C++ `considerBridgeHealth = false` — the bridge is already rubble.
-        if !object_on_this_bridge(bridge, &obj) {
-            continue;
-        }
-        let mut extra = DamageInfo::with_simple(
-            HUGE_DAMAGE_AMOUNT,
-            obj.get_id(),
-            DamageType::Falling,
-            DeathType::Splatted,
-        );
-        let _ = obj.attempt_damage(&mut extra);
+pub(crate) fn splat_unit(bridge: &Bridge, actor: &Arc<RwLock<Object>>) {
+    let Ok(mut obj) = actor.write() else {
+        return;
+    };
+    // C++ `considerBridgeHealth = false` — the bridge is already rubble.
+    if !layers_match(obj.get_layer(), bridge.get_layer()) || !object_on_this_bridge(bridge, &obj) {
+        return;
     }
+    let mut damage = DamageInfo::with_simple(
+        HUGE_DAMAGE_AMOUNT,
+        obj.get_id(),
+        DamageType::Falling,
+        DeathType::Splatted,
+    );
+    let _ = obj.attempt_damage(&mut damage);
 }
 
 fn layers_match(obj_layer: CommonLayer, bridge_layer: PathfindLayerEnum) -> bool {
