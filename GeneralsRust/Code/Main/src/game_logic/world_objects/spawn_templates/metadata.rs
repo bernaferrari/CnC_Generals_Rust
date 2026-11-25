@@ -2415,6 +2415,20 @@ impl GameLogic {
                     flip_object_after_packing: module
                         .attribute("FlipOwnerAfterPacking")
                         .is_some_and(parse_bool),
+                    special_object: module
+                        .attribute("SpecialObject")
+                        .and_then(|value| value.split_whitespace().next())
+                        .filter(|name| !name.eq_ignore_ascii_case("None"))
+                        .map(str::to_owned),
+                    max_special_objects: module
+                        .attribute("MaxSpecialObjects")
+                        .and_then(|value| value.split_whitespace().next())
+                        .and_then(|value| value.parse().ok())
+                        .unwrap_or(1),
+                    special_objects_persistent: module
+                        .attribute("SpecialObjectsPersistent")
+                        .and_then(|value| value.split_whitespace().next())
+                        .is_some_and(parse_bool),
                 });
         }
     }

@@ -167,7 +167,19 @@ impl GameLogic {
     ) -> Option<ObjectId> {
         use crate::game_logic::host_mines::{
             retail_timed_charge_lifetime_frames, retail_timed_charge_template,
+            HostMineKind,
         };
+        if let Some(placed) = producer.and_then(|planter| {
+            self.try_place_charge_from_authored_ability(
+                planter,
+                HostMineKind::TimedDemoCharge,
+                attach_to,
+                position,
+                effects,
+            )
+        }) {
+            return placed;
+        }
         let producer_template =
             producer.and_then(|pid| self.objects.get(&pid).map(|o| o.template_name.clone()));
         let template_name = retail_timed_charge_template(producer_template.as_deref());
@@ -211,7 +223,20 @@ impl GameLogic {
         attach_to: Option<ObjectId>,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> Option<ObjectId> {
-        use crate::game_logic::host_mines::BURTON_REMOTE_CHARGE_OBJECT;
+        use crate::game_logic::host_mines::{
+            HostMineKind, BURTON_REMOTE_CHARGE_OBJECT,
+        };
+        if let Some(placed) = producer.and_then(|planter| {
+            self.try_place_charge_from_authored_ability(
+                planter,
+                HostMineKind::RemoteDemoCharge,
+                attach_to,
+                position,
+                effects,
+            )
+        }) {
+            return placed;
+        }
         self.place_mine_kind_with_effects(
             crate::game_logic::host_mines::HostMineKind::RemoteDemoCharge,
             BURTON_REMOTE_CHARGE_OBJECT,
@@ -846,6 +871,117 @@ impl GameLogic {
     /// in mine_data, lands an immobile target's charge at the bomber's feet,
     /// and queues the authored StickyBombCreated sound at the final pose.
     /// No synthetic data, weapon strip, stealth grant, or invented flags.
+    /// C++ `SpecialAbilityUpdate.cpp:1599-1647`: the authored
+    /// `SpecialAbilityUpdate` declaration names `SpecialObject` and enforces
+    /// `MaxSpecialObjects` per planter + charge kind + selected template —
+    /// persistent at the cap is a no-op, non-persistent raw-destroys the
+    /// previous entries first. `UniqueSpecialObjectTargets` is parsed but
+    /// never read in GeneralsMD, so no global target exclusion applies.
+    /// `None` = no matching authored declaration (compatibility fallback
+    /// proceeds); `Some(None)` = an authored no-op.
+    fn try_place_charge_from_authored_ability(
+        &mut self,
+        planter_id: ObjectId,
+        kind: crate::game_logic::host_mines::HostMineKind,
+        target: Option<ObjectId>,
+        position: Vec3,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> Option<Option<ObjectId>> {
+        return None; // TEMP red-first guard
+        #[allow(unreachable_code)]
+        let planter = self.objects.get(&planter_id)?;
+        let template = planter.get_template();
+        let definition = template.receiving_object_definition.as_ref()?;
+        let ability = match kind {
+            crate::game_logic::host_mines::HostMineKind::TimedDemoCharge => {
+                template.charge_plant_ability_for_timed()
+            }
+            crate::game_logic::host_mines::HostMineKind::RemoteDemoCharge => {
+                template.charge_plant_ability_for_remote()
+            }
+            _ => None,
+        }?;
+        // Fixture-pushed metadata alone does not prove authorship: require
+        // the original SpecialAbilityUpdate declaration whose
+        // SpecialPowerTemplate first token matches.
+        let authored = definition.behavior_modules.iter().any(|module| {
+            module.class_name.eq_ignore_ascii_case("SpecialAbilityUpdate")
+                && module
+                    .attribute("SpecialPowerTemplate")
+                    .and_then(|value| value.split_whitespace().next())
+                    .is_some_and(|name| {
+                        name.eq_ignore_ascii_case(&ability.special_power_template)
+                    })
+        });
+        if !authored {
+            return None;
+        }
+        let Some(name) = ability.special_object.clone() else {
+            return Some(None);
+        };
+        let team = planter.team;
+        let limit = ability.max_special_objects;
+        let persistent = ability.special_objects_persistent;
+        let planter_birth =
+            std::sync::Arc::downgrade(&planter.visual_draw_identity_token);
+        let target_birth = target.and_then(|id| {
+            self.objects
+                .get(&id)
+                .map(|object| std::sync::Arc::downgrade(&object.visual_draw_identity_token))
+        });
+        if limit == 0
+            || !self
+                .templates
+                .get(&name)
+                .is_some_and(|template| template.sticky_bomb_offset_z().is_some())
+        {
+            return Some(None);
+        }
+        // The original keeps each entry until the object is actually
+        // removed; no HP/detonated filtering.
+        let roster: Vec<(ObjectId, std::sync::Weak<()>)> = self
+            .objects
+            .registered()
+            .filter(|(_, object)| {
+                object.template_name.eq_ignore_ascii_case(&name)
+                    && object.mine_data.as_ref().is_some_and(|data| {
+                        data.kind == kind && data.producer_id == Some(planter_id)
+                    })
+            })
+            .map(|(id, object)| {
+                (*id, std::sync::Arc::downgrade(&object.visual_draw_identity_token))
+            })
+            .collect();
+        if roster.len() >= limit as usize {
+            if persistent {
+                return Some(None);
+            }
+            for (id, birth) in roster {
+                if self.object_birth_matches(id, &birth) {
+                    let _ = self.destroy_object_with_effects(id, effects);
+                }
+            }
+            // A destroy callback may retire the planter or target.
+            let live = self.object_birth_matches(planter_id, &planter_birth)
+                && target
+                    .zip(target_birth.as_ref())
+                    .is_none_or(|(id, birth)| self.object_birth_matches(id, birth));
+            if !live {
+                return Some(None);
+            }
+        }
+        Some(self.place_authored_sticky_charge(
+            kind,
+            &name,
+            team,
+            position,
+            Some(planter_id),
+            target,
+            None,
+            effects,
+        ))
+    }
+
     fn place_authored_sticky_charge(
         &mut self,
         kind: crate::game_logic::host_mines::HostMineKind,

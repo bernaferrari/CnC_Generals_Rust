@@ -1448,6 +1448,7 @@ fn plant_timed_demo_charge_command_plants_after_reach() {
         flee_range_after_completion: 100.0,
         flip_object_after_unpacking: true,
         flip_object_after_packing: false,
+        ..Default::default()
     });
     burton.special_power_modules.push(crate::game_logic::SpecialPowerModuleMetadata {
         source_index: 0,
@@ -1647,6 +1648,7 @@ fn plant_and_detonate_remote_demo_charge_residual() {
         flee_range_after_completion: 100.0,
         flip_object_after_unpacking: true,
         flip_object_after_packing: false,
+        ..Default::default()
     });
     burton.special_power_modules.push(crate::game_logic::SpecialPowerModuleMetadata {
         source_index: 0,
@@ -3336,4 +3338,206 @@ fn hacker_internet_center_residual_deposits_cash() {
         game_logic.hacker_residual_cash_total(),
         HACKER_CASH_REGULAR * 2
     );
+}
+
+/// Authored `SpecialAbilityUpdate` planters with an explicit
+/// `SpecialObject`/`MaxSpecialObjects`/`SpecialObjectsPersistent` policy
+/// (C++ `SpecialAbilityUpdate.cpp:1599-1647`). `PlainPlanterNoObject`
+/// authors the update without a SpecialObject; `UniqueSpecialObjectTargets`
+/// is authored only to prove the unread field never gates placement.
+fn admit_authored_charge_planters(game: &mut GameLogic) {
+    game.admit_receiving_module_content(
+        crate::assets::ReceivingObjectContent::from_sources([(
+            "authored-charge-planters.ini".into(),
+            "Object PlainPlanter\n KindOf = INFANTRY SELECTABLE\n Body = ActiveBody Body\n MaxHealth = 200\n InitialHealth = 200\n End\n Behavior = SpecialAbilityUpdate TimedTag\n  SpecialPowerTemplate = SpecialAbilityColonelBurtonTimedCharges\n  SpecialObject = ModdedCharge\n  MaxSpecialObjects = 1\n  SpecialObjectsPersistent = Yes\n  UniqueSpecialObjectTargets = Yes\n End\nEnd\n\
+             Object PlainPlanterTwo\n KindOf = INFANTRY SELECTABLE\n Body = ActiveBody Body\n MaxHealth = 200\n InitialHealth = 200\n End\n Behavior = SpecialAbilityUpdate TimedTag\n  SpecialPowerTemplate = SpecialAbilityColonelBurtonTimedCharges\n  SpecialObject = ModdedCharge\n  MaxSpecialObjects = 2\n  SpecialObjectsPersistent = Yes\n End\nEnd\n\
+             Object PlainPlanterReplace\n KindOf = INFANTRY SELECTABLE\n Body = ActiveBody Body\n MaxHealth = 200\n InitialHealth = 200\n End\n Behavior = SpecialAbilityUpdate TimedTag\n  SpecialPowerTemplate = SpecialAbilityColonelBurtonTimedCharges\n  SpecialObject = ModdedCharge\n  MaxSpecialObjects = 1\n  SpecialObjectsPersistent = No\n End\nEnd\n\
+             Object PlainPlanterNoObject\n KindOf = INFANTRY SELECTABLE\n Body = ActiveBody Body\n MaxHealth = 200\n InitialHealth = 200\n End\n Behavior = SpecialAbilityUpdate TimedTag\n  SpecialPowerTemplate = SpecialAbilityColonelBurtonTimedCharges\n End\nEnd\n\
+             Object ModdedCharge\n KindOf = PROJECTILE MINE NO_COLLIDE\n Body = HighlanderBody Body\n MaxHealth = 1\n InitialHealth = 1\n End\n Behavior = StickyBombUpdate Sticky\n End\n Behavior = LifetimeUpdate Lifetime\n  MinLifetime = 15000\n  MaxLifetime = 15000\n End\nEnd\n\
+             Object ChargeTarget\n KindOf = STRUCTURE IMMOBILE\n Body = ActiveBody Body\n MaxHealth = 1000\n InitialHealth = 1000\n End\nEnd\n"
+                .into(),
+        )])
+        .expect("authored charge planter content"),
+    )
+    .expect("admit authored charge planter content");
+}
+
+fn modded_charges(world: &GameLogic) -> Vec<(ObjectId, String)> {
+    world
+        .host_objects()
+        .registered()
+        .filter(|(_, object)| object.template_name == "ModdedCharge")
+        .map(|(id, object)| (*id, object.template_name.clone()))
+        .collect()
+}
+
+#[test]
+fn authored_charge_uses_its_special_object_and_per_planter_limit() {
+    let mut world = GameLogic::new();
+    admit_authored_charge_planters(&mut world);
+    world.add_player(Player::new(0, Team::USA, "USA", true));
+    let planter_a = world
+        .create_object("PlainPlanter", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+        .unwrap();
+    let planter_b = world
+        .create_object("PlainPlanter", Team::USA, Vec3::new(50.0, 0.0, 0.0))
+        .unwrap();
+    let target = world
+        .create_object("ChargeTarget", Team::GLA, Vec3::new(500.0, 0.0, 500.0))
+        .unwrap();
+
+    world.set_current_frame(10);
+    let first = world
+        .place_timed_demo_charge(
+            Team::USA,
+            target_position(&world, target),
+            Some(planter_a),
+            Some(target),
+            None,
+        )
+        .expect("authored SpecialObject placement succeeds");
+    let charge = world.host_object(first).unwrap();
+    assert_eq!(
+        charge.template_name, "ModdedCharge",
+        "the authored SpecialObject is selected, not a stock charge name",
+    );
+    assert_eq!(
+        charge
+            .native_lifecycle
+            .as_ref()
+            .and_then(|lifecycle| lifecycle.first_lifetime_deadline()),
+        Some(10 + 450),
+        "ModdedCharge keeps its own authored 15000 ms lifetime",
+    );
+    assert_eq!(
+        charge.mine_data.as_ref().unwrap().producer_id,
+        Some(planter_a),
+        "charge roster is keyed by the planter",
+    );
+
+    // Persistent at the cap: the same planter cannot place a second.
+    assert_eq!(
+        world.place_timed_demo_charge(
+            Team::USA,
+            Vec3::new(600.0, 0.0, 600.0),
+            Some(planter_a),
+            None,
+            None,
+        ),
+        None,
+        "persistent MaxSpecialObjects = 1 blocks the second charge",
+    );
+    assert_eq!(modded_charges(&world).len(), 1);
+
+    // `UniqueSpecialObjectTargets` is parsed but never read in GeneralsMD:
+    // a different planter may still place on the very same target.
+    assert!(
+        world
+            .place_timed_demo_charge(
+                Team::USA,
+                target_position(&world, target),
+                Some(planter_b),
+                Some(target),
+                None,
+            )
+            .is_some(),
+        "per-planter policy is not a global target exclusion",
+    );
+    assert_eq!(modded_charges(&world).len(), 2);
+
+    // MaxSpecialObjects = 2 also allows one planter to stick the same
+    // target twice.
+    let planter_two = world
+        .create_object("PlainPlanterTwo", Team::USA, Vec3::new(100.0, 0.0, 0.0))
+        .unwrap();
+    let pos = target_position(&world, target);
+    assert!(
+        world
+            .place_timed_demo_charge(Team::USA, pos, Some(planter_two), Some(target), None)
+            .is_some()
+            && world
+                .place_timed_demo_charge(Team::USA, pos, Some(planter_two), Some(target), None)
+                .is_some(),
+        "no unique-target enforcement blocks the second stick",
+    );
+    assert_eq!(
+        world.place_timed_demo_charge(Team::USA, pos, Some(planter_two), Some(target), None),
+        None,
+        "the authored cap still applies",
+    );
+    assert_eq!(modded_charges(&world).len(), 4);
+}
+
+#[test]
+fn authored_charge_replaces_previous_when_not_persistent() {
+    let mut world = GameLogic::new();
+    admit_authored_charge_planters(&mut world);
+    world.add_player(Player::new(0, Team::USA, "USA", true));
+    let planter = world
+        .create_object("PlainPlanterReplace", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+        .unwrap();
+    let target = world
+        .create_object("ChargeTarget", Team::GLA, Vec3::new(500.0, 0.0, 500.0))
+        .unwrap();
+
+    world.set_current_frame(10);
+    let first = world
+        .place_timed_demo_charge(
+            Team::USA,
+            target_position(&world, target),
+            Some(planter),
+            Some(target),
+            None,
+        )
+        .expect("first authored charge placed");
+    let second = world
+        .place_timed_demo_charge(
+            Team::USA,
+            target_position(&world, target),
+            Some(planter),
+            Some(target),
+            None,
+        )
+        .expect("non-persistent cap replaces, it does not fail");
+    assert_ne!(first, second);
+    assert!(
+        world.host_object(first).is_none(),
+        "the previous charge is destroyed outright, not left dead or ticking",
+    );
+    assert_eq!(modded_charges(&world), vec![(second, "ModdedCharge".to_string())]);
+}
+
+#[test]
+fn authored_charge_without_special_object_is_a_noop() {
+    let mut world = GameLogic::new();
+    admit_authored_charge_planters(&mut world);
+    world.add_player(Player::new(0, Team::USA, "USA", true));
+    let planter = world
+        .create_object("PlainPlanterNoObject", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+        .unwrap();
+    let target = world
+        .create_object("ChargeTarget", Team::GLA, Vec3::new(500.0, 0.0, 500.0))
+        .unwrap();
+
+    world.set_current_frame(10);
+    assert_eq!(
+        world.place_timed_demo_charge(
+            Team::USA,
+            target_position(&world, target),
+            Some(planter),
+            Some(target),
+            None,
+        ),
+        None,
+        "an authored ability with no SpecialObject places nothing",
+    );
+    assert_eq!(
+        world.host_objects().registered().count(),
+        2,
+        "the unbound stock charge names are not used as a fallback",
+    );
+}
+
+fn target_position(world: &GameLogic, id: ObjectId) -> Vec3 {
+    world.host_object(id).unwrap().get_position()
 }

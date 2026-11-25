@@ -1434,6 +1434,7 @@ fn leftover_burton_flips_180_after_unpack() {
             flee_range_after_completion: 0.0,
             flip_object_after_unpacking: true,
             flip_object_after_packing: false,
+            ..Default::default()
         });
     // Turning to face the target is the locomotor's job (C++ AIUpdateInterface turn).
     game_logic.admit_default_locomotors_if_unadmitted();

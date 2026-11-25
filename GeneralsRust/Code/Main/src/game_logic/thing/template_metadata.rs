@@ -1226,6 +1226,20 @@ pub struct ChargePlantAbilityMetadata {
     pub flip_object_after_unpacking: bool,
     /// `SpecialAbilityUpdate::FlipOwnerAfterPacking`.
     pub flip_object_after_packing: bool,
+    /// `SpecialAbilityUpdate::SpecialObject` first token (`None` token -> absent).
+    #[serde(default)]
+    pub special_object: Option<String>,
+    /// `SpecialAbilityUpdate::MaxSpecialObjects` (C++ default 1).
+    #[serde(default = "default_max_charge_special_objects")]
+    pub max_special_objects: u32,
+    /// `SpecialAbilityUpdate::SpecialObjectsPersistent`. `UniqueSpecialObjectTargets`
+    /// stays unparsed: GeneralsMD reads it but never uses it.
+    #[serde(default)]
+    pub special_objects_persistent: bool,
+}
+
+fn default_max_charge_special_objects() -> u32 {
+    1
 }
 
 impl ChargePlantAbilityMetadata {
