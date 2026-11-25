@@ -92,25 +92,19 @@ fn two_decoded_saves_keep_their_own_ghost_companion_through_interleaved_restore(
     let mut saves = SaveFileManager::with_save_directory(directory.path());
     saves.init().unwrap();
     let mut a = GameLogic::new();
-    a.objects.insert(
+    a.add_object(crate::game_logic::Object::new(
+        crate::game_logic::ThingTemplate::new("GhostParentA"),
         crate::game_logic::ObjectId(42),
-        crate::game_logic::Object::new(
-            crate::game_logic::ThingTemplate::new("GhostParentA"),
-            crate::game_logic::ObjectId(42),
-            crate::game_logic::Team::USA,
-        ),
-    );
-    a.w3d_ghosts = ghost_owner("GhostA", Some(42), 0);
+        crate::game_logic::Team::USA,
+    ));
+    *a.fixture_fog_ghost_scene_mut() = ghost_owner("GhostA", Some(42), 0);
     let mut b = GameLogic::new();
-    b.objects.insert(
+    b.add_object(crate::game_logic::Object::new(
+        crate::game_logic::ThingTemplate::new("GhostParentB"),
         crate::game_logic::ObjectId(42),
-        crate::game_logic::Object::new(
-            crate::game_logic::ThingTemplate::new("GhostParentB"),
-            crate::game_logic::ObjectId(42),
-            crate::game_logic::Team::China,
-        ),
-    );
-    b.w3d_ghosts = ghost_owner("GhostB", Some(42), 1);
+        crate::game_logic::Team::China,
+    ));
+    *b.fixture_fog_ghost_scene_mut() = ghost_owner("GhostB", Some(42), 1);
     saves.save_game("a", &a, &info("a")).unwrap();
     saves.save_game("b", &b, &info("b")).unwrap();
     let crate::save_load::DecodedGameSave {
@@ -124,19 +118,19 @@ fn two_decoded_saves_keep_their_own_ghost_companion_through_interleaved_restore(
     } = saves.load_game_snapshot("b").unwrap();
     assert_ne!(bytes_a, *snapshot_b.w3d_ghost_companion.as_ref().unwrap());
     assert_eq!(snapshot_a.w3d_ghost_companion.as_ref().unwrap(), &bytes_a);
-    a.w3d_ghosts = Default::default();
-    b.w3d_ghosts = Default::default();
+    *a.fixture_fog_ghost_scene_mut() = Default::default();
+    *b.fixture_fog_ghost_scene_mut() = Default::default();
     let builder = SnapshotBuilder::new();
     builder.restore_from_snapshot(&snapshot_b, &mut b).unwrap();
     builder.restore_from_snapshot(&snapshot_a, &mut a).unwrap();
-    assert_ghost(&a.w3d_ghosts, "GhostA", Some(42), 0);
-    assert_ghost(&b.w3d_ghosts, "GhostB", Some(42), 1);
+    assert_ghost(a.fog_ghost_scene(), "GhostA", Some(42), 0);
+    assert_ghost(b.fog_ghost_scene(), "GhostB", Some(42), 1);
     // A snapshot is repeatable owned data, not a one-use queue entry.
     builder.restore_from_snapshot(&snapshot_a, &mut a).unwrap();
-    assert_ghost(&a.w3d_ghosts, "GhostA", Some(42), 0);
-    assert_ghost(&b.w3d_ghosts, "GhostB", Some(42), 1);
+    assert_ghost(a.fog_ghost_scene(), "GhostA", Some(42), 0);
+    assert_ghost(b.fog_ghost_scene(), "GhostB", Some(42), 1);
     drop(b);
-    assert_ghost(&a.w3d_ghosts, "GhostA", Some(42), 0);
+    assert_ghost(a.fog_ghost_scene(), "GhostA", Some(42), 0);
 }
 
 #[test]
@@ -145,7 +139,7 @@ fn unrelated_restore_does_not_consume_a_decoded_ghost_companion() {
     let mut saves = SaveFileManager::with_save_directory(directory.path());
     saves.init().unwrap();
     let mut source = GameLogic::new();
-    source.w3d_ghosts = ghost_owner("WaitingGhost", None, 0);
+    *source.fixture_fog_ghost_scene_mut() = ghost_owner("WaitingGhost", None, 0);
     saves
         .save_game("waiting", &source, &info("waiting"))
         .unwrap();
@@ -153,25 +147,25 @@ fn unrelated_restore_does_not_consume_a_decoded_ghost_companion() {
         saves.load_game_snapshot("waiting").unwrap();
     let builder = SnapshotBuilder::new();
     let mut unrelated = GameLogic::new();
-    unrelated.w3d_ghosts = ghost_owner("Unrelated", Some(42), 0);
+    *unrelated.fixture_fog_ghost_scene_mut() = ghost_owner("Unrelated", Some(42), 0);
     builder
         .restore_from_snapshot(&WorldSnapshot::default(), &mut unrelated)
         .unwrap();
-    assert_eq!(unrelated.w3d_ghosts.used_count(), 0);
+    assert_eq!(unrelated.fog_ghost_scene().used_count(), 0);
     let mut restored = GameLogic::new();
     builder
         .restore_from_snapshot(&snapshot, &mut restored)
         .unwrap();
-    assert_ghost(&restored.w3d_ghosts, "WaitingGhost", None, 0);
-    assert_ghost(&source.w3d_ghosts, "WaitingGhost", None, 0);
+    assert_ghost(restored.fog_ghost_scene(), "WaitingGhost", None, 0);
+    assert_ghost(source.fog_ghost_scene(), "WaitingGhost", None, 0);
 }
 
 #[test]
 fn malformed_ghost_companion_rejects_before_mutating_the_receiving_world() {
     let mut live = GameLogic::new();
     live.set_current_frame(91);
-    live.w3d_ghosts = ghost_owner("StillLive", Some(42), 0);
-    let before = live.w3d_ghosts.clone();
+    *live.fixture_fog_ghost_scene_mut() = ghost_owner("StillLive", Some(42), 0);
+    let before = live.fog_ghost_scene().clone();
     let bytes = capture_w3d_ghost_xfer_bytes(&before).unwrap();
     for invalid in [
         bytes[..bytes.len() - 1].to_vec(),
@@ -186,7 +180,7 @@ fn malformed_ghost_companion_rejects_before_mutating_the_receiving_world() {
                 .is_err()
         );
         assert_eq!(live.get_current_frame(), 91);
-        assert_eq!(live.w3d_ghosts, before);
+        assert_eq!(live.fog_ghost_scene(), &before);
     }
 }
 
@@ -235,8 +229,8 @@ fn saved_ghost_geometry_is_validated_before_the_receiving_world_changes() {
     ];
     let mut live = GameLogic::new();
     live.set_current_frame(91);
-    live.w3d_ghosts = ghost_owner("LiveFinite", Some(42), 0);
-    let before = live.w3d_ghosts.clone();
+    *live.fixture_fog_ghost_scene_mut() = ghost_owner("LiveFinite", Some(42), 0);
+    let before = live.fog_ghost_scene().clone();
     for geometry in bad.drain(..) {
         let mut candidate = owner.clone();
         candidate.used_mut()[0].set_parent_geometry(geometry);
@@ -250,7 +244,7 @@ fn saved_ghost_geometry_is_validated_before_the_receiving_world_changes() {
         );
         assert_eq!(live.get_current_frame(), 91);
         assert_eq!(
-            live.w3d_ghosts, before,
+            live.fog_ghost_scene(), &before,
             "failed geometry cannot alter live snapshots or scene events"
         );
     }
@@ -308,8 +302,8 @@ fn named_ghost_companion_does_not_change_the_gamelogic_positional_body() {
 fn presentation_freezes_the_driving_ghost_owner_and_retains_its_snapshot() {
     let mut a = GameLogic::new();
     let mut b = GameLogic::new();
-    a.w3d_ghosts = ghost_owner("FrameA", Some(42), 0);
-    b.w3d_ghosts = ghost_owner("FrameB", Some(42), 0);
+    *a.fixture_fog_ghost_scene_mut() = ghost_owner("FrameA", Some(42), 0);
+    *b.fixture_fog_ghost_scene_mut() = ghost_owner("FrameB", Some(42), 0);
     let frame_a = crate::presentation_frame::PresentationFrame::build_from_logic(&mut a, 0);
     let frame_b = crate::presentation_frame::PresentationFrame::build_from_logic(&mut b, 0);
     let scene_a = frame_a.w3d_ghost_scene.as_ref().unwrap();
@@ -328,8 +322,8 @@ fn presentation_freezes_the_driving_ghost_owner_and_retains_its_snapshot() {
     assert_eq!(scene_b.hidden_parent_object_ids, vec![42]);
     // C++ snapShot hides the normal render objects without toggling the
     // Drawable's separate FullyObscured flag. freeSnapShot restores them.
-    assert!(!a.w3d_ghosts.used()[0].parent_fully_obscured());
-    a.w3d_ghosts.used_mut()[0].free_snapshot(0, 0);
+    assert!(!a.fog_ghost_scene().used()[0].parent_fully_obscured());
+    a.fixture_fog_ghost_scene_mut().used_mut()[0].free_snapshot(0, 0);
     let freed = crate::presentation_frame::PresentationFrame::build_from_logic(&mut a, 0);
     assert!(freed.w3d_ghost_scene.as_ref().unwrap().snapshots.is_empty());
     assert!(
@@ -340,7 +334,7 @@ fn presentation_freezes_the_driving_ghost_owner_and_retains_its_snapshot() {
             .hidden_parent_object_ids
             .is_empty()
     );
-    a.w3d_ghosts = Default::default();
+    *a.fixture_fog_ghost_scene_mut() = Default::default();
     let cleared = crate::presentation_frame::PresentationFrame::build_from_logic(&mut a, 0);
     assert!(
         cleared
@@ -354,7 +348,7 @@ fn presentation_freezes_the_driving_ghost_owner_and_retains_its_snapshot() {
         scene_a.snapshots[0].render_object.render_object.name,
         "FrameA"
     );
-    assert_ghost(&b.w3d_ghosts, "FrameB", Some(42), 0);
+    assert_ghost(b.fog_ghost_scene(), "FrameB", Some(42), 0);
 }
 
 #[test]

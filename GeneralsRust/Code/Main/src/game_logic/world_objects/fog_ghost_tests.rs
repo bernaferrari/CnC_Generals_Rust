@@ -85,7 +85,7 @@ fn status(world: &GameLogic) -> Option<ObjectShroudStatus> {
         .get_host_object_shroud_status(1, PARENT.0)
 }
 fn captured_name(world: &GameLogic) -> &str {
-    &world.w3d_ghosts.used()[0].snapshots(1)[0]
+    &world.fog_ghost_scene().used()[0].snapshots(1)[0]
         .render_object
         .name
 }
@@ -106,7 +106,7 @@ fn native_fog_capture_and_reveal_follow_actual_cells_without_rewriting_fog_memor
     reveal(&mut world);
     world.admit_host_ghost_draws(vec![native_draw(&world, "BuildingBeforeFog", 7)]);
     fog(&mut world);
-    let ghost = &world.w3d_ghosts.used()[0];
+    let ghost = &world.fog_ghost_scene().used()[0];
     assert_eq!(
         ghost.previous_shroudedness(1),
         Some(3),
@@ -131,8 +131,8 @@ fn native_fog_capture_and_reveal_follow_actual_cells_without_rewriting_fog_memor
         "C++ snapshots only on entering fog"
     );
     reveal(&mut world);
-    assert!(!world.w3d_ghosts.used()[0].has_snapshot(1));
-    assert!(!world.w3d_ghosts.used()[0].parent_fully_obscured());
+    assert!(!world.fog_ghost_scene().used()[0].has_snapshot(1));
+    assert!(!world.fog_ghost_scene().used()[0].parent_fully_obscured());
 }
 
 #[test]
@@ -142,13 +142,118 @@ fn native_fog_respects_drawable_visibility_when_entering_fog() {
     world.admit_host_ghost_draws(vec![native_draw(&world, "HiddenBuilding", 1)]);
     world.objects.get_mut(&PARENT).unwrap().set_drawable_hidden(true);
     fog(&mut world);
-    assert!(!world.w3d_ghosts.used()[0].has_snapshot(1));
+    assert!(!world.fog_ghost_scene().used()[0].has_snapshot(1));
 
     reveal(&mut world);
     world.objects.get_mut(&PARENT).unwrap().set_drawable_hidden(false);
     world.admit_host_ghost_draws(vec![native_draw(&world, "VisibleBuilding", 2)]);
     fog(&mut world);
     assert_eq!(captured_name(&world), "VisibleBuilding");
+}
+
+#[test]
+fn geometry_registration_orphans_the_existing_fog_and_rejects_stale_contacts() {
+    let mut owner = world();
+    let mut peer = world();
+    for (world, asset) in [(&mut owner, "OriginalShape"), (&mut peer, "PeerShape")] {
+        reveal(world);
+        world.admit_host_ghost_draws(vec![native_draw(world, asset, 1)]);
+        fog(world);
+    }
+    let old_ghost = owner.fog_ghost_scene().used()[0].scene_id();
+    let old_contact = owner
+        .partition_manager
+        .receiving_contact_object(&owner.objects[&PARENT])
+        .unwrap();
+    let geometry = HostGeometryInfo {
+        geom_type: HostGeometryType::Box,
+        major_radius: 40.0,
+        minor_radius: 10.0,
+        ..Default::default()
+    };
+    owner.set_fixture_object_geometry(PARENT, geometry.to_host_geometry());
+    let [linked, orphan] = owner.fog_ghost_scene().used() else {
+        panic!("full geometry changes replace PartitionData and preserve the old fog snapshot");
+    };
+    assert_eq!(linked.parent_object_id(), Some(PARENT.0));
+    assert!(!linked.has_snapshot(1));
+    assert_eq!(orphan.scene_id(), old_ghost);
+    assert_eq!(orphan.parent_object_id(), None);
+    assert_eq!(orphan.snapshots(1)[0].render_object.name, "OriginalShape");
+    assert!(!owner.partition_manager.ghost_partition_cells(old_ghost).unwrap().is_empty());
+    assert!(!owner.partition_manager.contact_object_is_current(&old_contact, &owner.objects[&PARENT]));
+    assert!(!owner.partition_manager.neighbor_object_ids(80.0, 80.0).contains(&PARENT.0));
+    owner.update_owned_partition_with_effects(&mut Default::default()).unwrap();
+
+    let builder = crate::save_load::snapshot::SnapshotBuilder::new();
+    let snapshot = builder.create_world_snapshot(&owner).unwrap();
+    let mut receiving = GameLogic::new();
+    receiving.templates = owner.templates.clone();
+    receiving.add_player(Player::new(1, Team::USA, "Viewer", true));
+    receiving.add_player(Player::new(2, Team::China, "Enemy", false));
+    builder.restore_from_snapshot(&snapshot, &mut receiving).unwrap();
+    let scene = receiving.fog_ghost_scene().used();
+    assert_eq!(scene.len(), 2);
+    let linked = scene.iter().find(|ghost| ghost.parent_object_id().is_some()).unwrap();
+    let orphan = scene.iter().find(|ghost| ghost.parent_object_id().is_none()).unwrap();
+    assert_eq!(linked.parent_object_id(), Some(PARENT.0));
+    assert!(!linked.has_snapshot(1));
+    assert_eq!(orphan.parent_object_id(), None);
+    assert_eq!(orphan.snapshots(1)[0].render_object.name, "OriginalShape");
+    assert!(!receiving.partition_manager.ghost_partition_cells(orphan.scene_id()).unwrap().is_empty());
+    assert_eq!(captured_name(&peer), "PeerShape");
+    assert_eq!(peer.fog_ghost_scene().used()[0].parent_object_id(), Some(PARENT.0));
+}
+
+#[test]
+fn enclosing_a_fogged_actor_releases_its_live_partition_but_keeps_the_old_scene() {
+    let mut world = world();
+    world.players.get_mut(&1).unwrap().set_map_relationship(2, gamelogic::common::Relationship::Enemies);
+    let carrier = ObjectId(43);
+    world.add_object(Object::new(ThingTemplate::new("Carrier"), carrier, Team::China));
+    reveal(&mut world);
+    world.admit_host_ghost_draws(vec![native_draw(&world, "BeforeEnclosure", 1)]);
+    fog(&mut world);
+    let old_ghost = world.fog_ghost_scene().used()[0].scene_id();
+    GameLogic::set_owned_containment_in_parts(
+        &mut world.objects,
+        &mut world.partition_manager,
+        &mut world.ai_groups,
+        &mut world.pathfinding_system,
+        PARENT,
+        Some(carrier),
+        true,
+    );
+    assert!(!world.partition_manager.is_registered(PARENT.0));
+    assert!(!world.partition_manager.neighbor_object_ids(80.0, 80.0).contains(&PARENT.0));
+    assert!(world.objects[&PARENT].drawable_is_effectively_hidden());
+    assert_eq!(world.fog_ghost_scene().used()[0].parent_object_id(), None);
+    assert_eq!(captured_name(&world), "BeforeEnclosure");
+    world.update_main_crate_vision();
+    GameLogic::set_owned_containment_in_parts(
+        &mut world.objects,
+        &mut world.partition_manager,
+        &mut world.ai_groups,
+        &mut world.pathfinding_system,
+        PARENT,
+        None,
+        true,
+    );
+    world.update_main_crate_vision();
+    assert_eq!(status(&world), Some(ObjectShroudStatus::Shrouded));
+    assert!(world.partition_manager.is_registered(PARENT.0));
+    assert!(!world.objects[&PARENT].drawable_is_effectively_hidden());
+    let [linked, orphan] = world.fog_ghost_scene().used() else {
+        panic!("leaving containment creates a fresh live partition");
+    };
+    assert_eq!(linked.parent_object_id(), Some(PARENT.0));
+    assert!(!linked.has_snapshot(1));
+    assert_eq!(orphan.scene_id(), old_ghost);
+    assert_eq!(orphan.parent_object_id(), None);
+    assert_eq!(orphan.snapshots(1)[0].render_object.name, "BeforeEnclosure");
+    reveal(&mut world);
+    world.update_orphaned_host_fog_ghosts().unwrap();
+    assert_eq!(world.fog_ghost_scene().used_count(), 1);
 }
 
 #[test]
@@ -165,10 +270,10 @@ fn same_id_worlds_reject_foreign_native_captures_and_keep_reset_local() {
     fog(&mut b);
     assert_eq!(captured_name(&a), "NativeA");
     assert_eq!(captured_name(&b), "NativeB");
-    let before_b = b.w3d_ghosts.clone();
+    let before_b = b.fog_ghost_scene().clone();
     a.clear_all_objects();
-    assert_eq!(a.w3d_ghosts.used()[0].parent_object_id(), None);
-    assert_eq!(b.w3d_ghosts, before_b);
+    assert_eq!(a.fog_ghost_scene().used()[0].parent_object_id(), None);
+    assert_eq!(b.fog_ghost_scene(), &before_b);
     drop(a);
     assert_eq!(captured_name(&b), "NativeB");
 }
@@ -179,18 +284,20 @@ fn physical_parent_removal_preserves_orphan_until_its_original_location_is_revea
     reveal(&mut world);
     world.admit_host_ghost_draws(vec![native_draw(&world, "OrphanBuilding", 1)]);
     fog(&mut world);
-    world.detach_host_fog_ghost(PARENT);
-    world.objects.remove(&PARENT);
-    let old_geometry = world.w3d_ghosts.used()[0].parent_geometry();
+    assert!(world
+        .take_object_for_physical_retirement(PARENT, &mut Default::default())
+        .unwrap()
+        .is_some());
+    let old_geometry = world.fog_ghost_scene().used()[0].parent_geometry();
     world.update_host_fog_ghosts().unwrap();
     assert_eq!(captured_name(&world), "OrphanBuilding");
-    assert_eq!(world.w3d_ghosts.used()[0].parent_object_id(), None);
+    assert_eq!(world.fog_ghost_scene().used()[0].parent_object_id(), None);
     // Reusing ObjectID42 at a different position cannot move the partition ghost.
     let mut replacement = Object::new(ThingTemplate::new("Replacement"), PARENT, Team::China);
     replacement.set_position(Vec3::new(200.0, 0.0, 200.0));
     world.objects.insert(PARENT, replacement);
     world.update_host_fog_ghosts().unwrap();
-    assert_eq!(world.w3d_ghosts.used()[0].parent_geometry(), old_geometry);
+    assert_eq!(world.fog_ghost_scene().used()[0].parent_geometry(), old_geometry);
     world
         .world_services
         .shroud()
@@ -198,9 +305,9 @@ fn physical_parent_removal_preserves_orphan_until_its_original_location_is_revea
         .unwrap()
         .do_shroud_reveal(&Coord3D::new(80.0, 80.0, 3.0), 80.0, 1 << 1);
     world.update_host_fog_ghosts().unwrap();
-    assert_eq!(world.w3d_ghosts.used_count(), 1, "vision does not unregister orphan PartitionData");
+    assert_eq!(world.fog_ghost_scene().used_count(), 1, "vision does not unregister orphan PartitionData");
     world.update_orphaned_host_fog_ghosts().unwrap();
-    assert_eq!(world.w3d_ghosts.used_count(), 0);
+    assert_eq!(world.fog_ghost_scene().used_count(), 0);
 }
 
 #[test]
@@ -243,11 +350,11 @@ fn boundary_rebuilds_destroyed_fogged_object_coverage_in_each_world_and_save() {
         world.admit_host_ghost_draws(vec![native_draw(world, "BoundaryGhost", 1)]);
         fog(world);
         assert!(world.take_object_for_physical_retirement(PARENT, &mut Default::default()).unwrap().is_some());
-        assert_eq!(world.w3d_ghosts.used()[0].parent_object_id(), None);
+        assert_eq!(world.fog_ghost_scene().used()[0].parent_object_id(), None);
     }
-    let a_id = a.w3d_ghosts.used()[0].scene_id();
+    let a_id = a.fog_ghost_scene().used()[0].scene_id();
     boundary(&mut a);
-    assert_eq!(a.w3d_ghosts.used()[0].scene_id(), a_id);
+    assert_eq!(a.fog_ghost_scene().used()[0].scene_id(), a_id);
     assert_eq!(peer.world_services.shroud().lock().unwrap().grid_world_origin(), Some([-80.0, -80.0]));
     let builder = crate::save_load::snapshot::SnapshotBuilder::new();
     let snapshot = builder.create_world_snapshot(&a).unwrap();
@@ -274,7 +381,7 @@ fn boundary_rebuilds_destroyed_fogged_object_coverage_in_each_world_and_save() {
         world.world_services.shroud().lock().unwrap()
             .do_shroud_reveal(&Coord3D::new(80.0, 80.0, 3.0), 20.0, 1 << 1);
         world.update_orphaned_host_fog_ghosts().unwrap();
-        assert!(world.w3d_ghosts.used().is_empty());
+        assert!(world.fog_ghost_scene().used().is_empty());
     }
     assert_eq!(captured_name(&peer), "BoundaryGhost");
 }
@@ -305,7 +412,7 @@ fn retired_fog_memory_and_reused_id_have_distinct_visibility_across_worlds_and_r
         .unwrap()
         .is_some());
     assert_eq!(status(&a), None);
-    assert_eq!(a.w3d_ghosts.used()[0].parent_object_id(), None);
+    assert_eq!(a.fog_ghost_scene().used()[0].parent_object_id(), None);
     assert_eq!(captured_name(&a), "OldA");
     let mut replacement = Object::new(a.templates["FogBuilding"].clone(), PARENT, Team::China);
     replacement.owner_player_id = Some(2);
@@ -314,11 +421,11 @@ fn retired_fog_memory_and_reused_id_have_distinct_visibility_across_worlds_and_r
     a.add_object(replacement);
     a.update_main_crate_vision();
     assert_eq!(status(&a), Some(ObjectShroudStatus::Shrouded));
-    assert!(a.w3d_ghosts.used().iter().any(|ghost| {
+    assert!(a.fog_ghost_scene().used().iter().any(|ghost| {
         ghost.parent_object_id().is_none()
             && ghost.snapshots(1).iter().any(|snapshot| snapshot.render_object.name == "OldA")
     }));
-    assert!(a.w3d_ghosts.used().iter().any(|ghost| {
+    assert!(a.fog_ghost_scene().used().iter().any(|ghost| {
         ghost.parent_object_id() == Some(PARENT.0) && !ghost.has_snapshot(1)
     }));
     assert_eq!(status(&b), Some(ObjectShroudStatus::Fogged));
@@ -342,13 +449,13 @@ fn retired_fog_memory_and_reused_id_have_distinct_visibility_across_worlds_and_r
     assert_eq!(captured_name(&b), "OldB");
     restored.update_main_crate_vision();
     assert_eq!(status(&restored), Some(ObjectShroudStatus::Shrouded));
-    assert!(restored.w3d_ghosts.used().iter().any(|ghost| {
+    assert!(restored.fog_ghost_scene().used().iter().any(|ghost| {
         ghost.parent_object_id().is_none()
             && ghost.snapshots(1).iter().any(|snapshot| snapshot.render_object.name == "OldA")
     }));
     reveal(&mut restored);
     restored.update_orphaned_host_fog_ghosts().unwrap();
-    assert!(!restored.w3d_ghosts.used().iter().any(|ghost| {
+    assert!(!restored.fog_ghost_scene().used().iter().any(|ghost| {
         ghost.parent_object_id().is_none()
             && ghost.snapshots(1).iter().any(|snapshot| snapshot.render_object.name == "OldA")
     }));
@@ -357,7 +464,7 @@ fn retired_fog_memory_and_reused_id_have_distinct_visibility_across_worlds_and_r
     b.world_services.shroud().lock().unwrap()
         .do_shroud_reveal(&Coord3D::new(80.0, 80.0, 3.0), 80.0, 1 << 1);
     b.update_orphaned_host_fog_ghosts().unwrap();
-    assert!(b.w3d_ghosts.used().is_empty());
+    assert!(b.fog_ghost_scene().used().is_empty());
 }
 
 #[test]
@@ -378,27 +485,27 @@ fn restore_links_only_real_receiving_parents_and_retains_saved_fog_continuation(
         .unwrap();
     assert_eq!(captured_name(&receiver), "SavedNative");
     assert_eq!(
-        source.w3d_ghosts.used()[0].snapshots(1)[0]
+        source.fog_ghost_scene().used()[0].snapshots(1)[0]
             .render_object
             .geometry_scale,
         1.75
     );
     assert_eq!(
-        receiver.w3d_ghosts.used()[0].snapshots(1)[0]
+        receiver.fog_ghost_scene().used()[0].snapshots(1)[0]
             .render_object
             .geometry_scale,
         1.0,
         "C++ clones reset wire ObjectScale, load recreates with that value"
     );
-    assert_eq!(receiver.w3d_ghosts.used()[0].parent_object_id(), Some(42));
+    assert_eq!(receiver.fog_ghost_scene().used()[0].parent_object_id(), Some(42));
     receiver.update_main_crate_vision();
     assert_eq!(captured_name(&receiver), "SavedNative");
     // No source-world identity or renderer observation survived the load.
     receiver.admit_host_ghost_draws(vec![native_draw(&source, "ForeignAfterLoad", 4)]);
     assert_eq!(captured_name(&receiver), "SavedNative");
     receiver.objects.remove(&PARENT);
-    receiver.restore_host_fog_ghost_links();
-    assert_eq!(receiver.w3d_ghosts.used()[0].parent_object_id(), None);
+    receiver.restore_host_fog_ghost_links().unwrap();
+    assert_eq!(receiver.fog_ghost_scene().used()[0].parent_object_id(), None);
     assert_eq!(captured_name(&source), "SavedNative");
 }
 
@@ -441,12 +548,12 @@ fn cold_and_no_coi_states_keep_previous_fog_memory_until_actual_cells_are_shroud
     reveal(&mut world);
     world.admit_host_ghost_draws(vec![native_draw(&world, "RetainedOffMap", 1)]);
     fog(&mut world);
-    let snapshot = world.w3d_ghosts.used()[0].snapshots(1)[0].clone();
+    let snapshot = world.fog_ghost_scene().used()[0].snapshots(1)[0].clone();
     world.set_fixture_object_position(PARENT, Vec3::new(1000.0, 0.0, 1000.0));
     world.update_main_crate_vision();
     assert_eq!(status(&world), Some(ObjectShroudStatus::Shrouded));
-    assert_eq!(world.w3d_ghosts.used()[0].previous_shroudedness(1), Some(3));
-    assert_eq!(world.w3d_ghosts.used()[0].snapshots(1)[0], snapshot);
+    assert_eq!(world.fog_ghost_scene().used()[0].previous_shroudedness(1), Some(3));
+    assert_eq!(world.fog_ghost_scene().used()[0].snapshots(1)[0], snapshot);
     world
         .world_services
         .shroud()
@@ -454,8 +561,8 @@ fn cold_and_no_coi_states_keep_previous_fog_memory_until_actual_cells_are_shroud
         .unwrap()
         .reset_for_new_game();
     world.update_host_fog_ghosts().unwrap();
-    assert_eq!(world.w3d_ghosts.used()[0].previous_shroudedness(1), Some(3));
-    assert_eq!(world.w3d_ghosts.used()[0].snapshots(1)[0], snapshot);
+    assert_eq!(world.fog_ghost_scene().used()[0].previous_shroudedness(1), Some(3));
+    assert_eq!(world.fog_ghost_scene().used()[0].snapshots(1)[0], snapshot);
     world
         .world_services
         .shroud()
@@ -465,8 +572,8 @@ fn cold_and_no_coi_states_keep_previous_fog_memory_until_actual_cells_are_shroud
     world.set_fixture_object_position(PARENT, Vec3::new(80.0, 3.0, 80.0));
     world.update_main_crate_vision();
     assert_eq!(status(&world), Some(ObjectShroudStatus::Shrouded));
-    assert!(!world.w3d_ghosts.used()[0].has_snapshot(1));
-    assert_eq!(world.w3d_ghosts.used()[0].previous_shroudedness(1), Some(4));
+    assert!(!world.fog_ghost_scene().used()[0].has_snapshot(1));
+    assert_eq!(world.fog_ghost_scene().used()[0].previous_shroudedness(1), Some(4));
 }
 
 #[cfg(feature = "game_client")]
@@ -475,14 +582,14 @@ fn actual_host_local_player_selection_switches_only_its_owned_ghost_scene() {
     let mut world = world();
     let mut peer = self::world();
     assert_eq!(
-        world.w3d_ghosts.local_player_index(),
+        world.fog_ghost_scene().local_player_index(),
         0,
         "inert constructor default"
     );
     reveal(&mut world);
     reveal(&mut peer);
     assert_eq!(
-        world.w3d_ghosts.local_player_index(),
+        world.fog_ghost_scene().local_player_index(),
         1,
         "actual human local selection"
     );
@@ -491,11 +598,11 @@ fn actual_host_local_player_selection_switches_only_its_owned_ghost_scene() {
     fog(&mut world);
     fog(&mut peer);
     let frozen_one = crate::presentation_frame::PresentationFrame::build_from_logic(&mut world, 1);
-    let peer_before = peer.w3d_ghosts.clone();
+    let peer_before = peer.fog_ghost_scene().clone();
     assert!(world.select_local_player(Some(2)));
     world.update_main_crate_vision();
     assert_eq!(world.local_player_id(), Some(2));
-    assert_eq!(world.w3d_ghosts.local_player_index(), 2);
+    assert_eq!(world.fog_ghost_scene().local_player_index(), 2);
     let frozen_two = crate::presentation_frame::PresentationFrame::build_from_logic(&mut world, 2);
     assert!(
         frozen_two
@@ -522,7 +629,7 @@ fn actual_host_local_player_selection_switches_only_its_owned_ghost_scene() {
         vec![42]
     );
     assert_eq!(
-        world.w3d_ghosts.used()[0].snapshots(1)[0]
+        world.fog_ghost_scene().used()[0].snapshots(1)[0]
             .render_object
             .name,
         "ViewerOneMemory"
@@ -537,7 +644,7 @@ fn actual_host_local_player_selection_switches_only_its_owned_ghost_scene() {
             .name,
         "ViewerOneMemory"
     );
-    assert_eq!(peer.w3d_ghosts, peer_before);
+    assert_eq!(peer.fog_ghost_scene(), &peer_before);
 }
 
 #[test]
@@ -554,14 +661,14 @@ fn authored_default_draw_exclusion_and_actual_admission_list_order_match_cpp() {
     assert!(excluded.default_draw_without_fog_memory);
     let mut world = GameLogic::new();
     world.add_object(Object::new(excluded, ObjectId(20), Team::Neutral));
-    assert_eq!(world.w3d_ghosts.used_count(), 0);
+    assert_eq!(world.fog_ghost_scene().used_count(), 0);
     let mut template = ThingTemplate::new("RealImmobile");
     template.add_kind_of(KindOf::Immobile);
     world.add_object(Object::new(template.clone(), ObjectId(99), Team::Neutral));
     world.add_object(Object::new(template, ObjectId(1), Team::Neutral));
     assert_eq!(
         world
-            .w3d_ghosts
+            .fog_ghost_scene()
             .used()
             .iter()
             .map(|ghost| ghost.parent_object_id())
@@ -571,7 +678,7 @@ fn authored_default_draw_exclusion_and_actual_admission_list_order_match_cpp() {
     world.update_host_fog_ghosts().unwrap();
     assert_eq!(
         world
-            .w3d_ghosts
+            .fog_ghost_scene()
             .used()
             .iter()
             .map(|ghost| ghost.parent_object_id())
@@ -611,9 +718,9 @@ fn completed_empty_native_replacement_invalidates_the_old_capture() {
         render_objects: actual.into_iter().collect(),
     }]);
     fog(&mut world);
-    assert!(world.w3d_ghosts.used()[0].snapshots(1).is_empty());
+    assert!(world.fog_ghost_scene().used()[0].snapshots(1).is_empty());
     assert_eq!(
-        world.w3d_ghosts.used()[0].previous_shroudedness(1),
+        world.fog_ghost_scene().used()[0].previous_shroudedness(1),
         Some(ObjectShroudStatus::Clear as u8)
     );
 }

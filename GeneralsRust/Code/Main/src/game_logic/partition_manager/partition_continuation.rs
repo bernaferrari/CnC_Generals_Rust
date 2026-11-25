@@ -235,6 +235,7 @@ impl GameLogic {
                     footprint_stamp: None,
                     birth: Some(Arc::downgrade(&actor.visual_draw_identity_token)),
                     identity: Arc::new(()),
+                    ghost: None,
                     last_cell: None,
                 },
             );

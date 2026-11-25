@@ -23,9 +23,9 @@ pub struct GameLogic {
     pub(crate) session_view: crate::presentation_frame::SessionView,
     pub(crate) projected_shroud_cache: crate::fow_rendering::ProjectedShroudCache,
     pub(crate) cached_coarse_height_grid: Option<crate::presentation_frame::CachedCoarseHeightGrid>,
-    /// C++ W3D fog memory belongs to this session, including live host links.
-    pub(crate) w3d_ghosts: gamelogic::object::w3d_ghost_object::W3DGhostObjectManager,
-    pub(crate) host_ghosts: super::world_objects::fog_ghosts::HostGhostState,
+    /// Completed native render observations are valid only for this Object birth.
+    pub(super) host_ghost_draws:
+        HashMap<ObjectId, super::world_objects::fog_ghosts::CommittedHostGhostDraw>,
     /// Canonical C++ Radar state for this match; construction publishes nothing.
     pub(crate) radar: game_engine::common::system::radar::RadarSystem,
     pub(crate) radar_map:

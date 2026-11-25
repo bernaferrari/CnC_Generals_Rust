@@ -7,19 +7,12 @@ pub(super) fn freeze_owned_scene(
     logic: &mut GameLogic,
     local_player: u32,
 ) -> FrozenGhostSceneFrame {
-    if logic.w3d_ghosts.local_player_index() != local_player as usize {
-        // C++ setLocalPlayerIndex removes the old scene, restores its parent,
-        // then installs the selected local player's retained snapshots.
-        logic
-            .w3d_ghosts
-            .set_local_player_index(local_player as usize);
-    }
     // Query transitions after selecting the actual viewer. No renderer call
     // here: only this session's completed native observation is consumed.
     if let Err(error) = logic.update_host_fog_ghosts_for_viewer(local_player) {
         log::error!("Cannot update this session's fog ghosts: {error}");
     }
-    let manager = &mut logic.w3d_ghosts;
+    let manager = logic.fog_ghost_scene();
     let mut snapshots = Vec::new();
     let mut hidden_parent_object_ids = Vec::new();
     for ghost in manager.used() {
@@ -58,7 +51,7 @@ pub(super) fn freeze_owned_scene(
     hidden_parent_object_ids.dedup();
     // This whole-scene boundary carries the final result of those same events;
     // clearing delivered messages prevents an unbounded queue in the owner.
-    manager.drain_scene_events();
+    logic.drain_host_fog_scene_events();
     FrozenGhostSceneFrame {
         revision: logic.get_frame() as u64,
         snapshots,

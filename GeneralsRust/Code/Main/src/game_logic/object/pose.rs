@@ -511,12 +511,10 @@ impl Object {
         let attached =
             partition.receiving_object_is_attached(self.id.0, &self.visual_draw_identity_token);
         self.require_partition_owner(Some(partition));
+        self.apply_geometry_shape(geometry);
         if attached {
             partition.unregister_object(self.id.0);
             self.partition_namespace = Default::default();
-        }
-        self.set_geometry_info(geometry);
-        if attached {
             partition.attach_receiving_object(self);
         }
         // Original Drawable dispatch follows membership replacement. All shipped
@@ -536,8 +534,12 @@ impl Object {
         // The shipped concrete Drawable::reactToGeometryChange overrides are empty.
     }
 
-    pub fn set_geometry_info(&mut self, mut geometry: GeometryInfo) {
+    pub fn set_geometry_info(&mut self, geometry: GeometryInfo) {
         self.require_partition_owner(None);
+        self.apply_geometry_shape(geometry);
+    }
+
+    fn apply_geometry_shape(&mut self, mut geometry: GeometryInfo) {
         geometry.position = self.get_position();
         geometry.rotation = self.get_orientation();
         self.thing.geometry = geometry;

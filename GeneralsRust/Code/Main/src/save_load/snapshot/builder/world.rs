@@ -191,7 +191,7 @@ impl SnapshotBuilder {
             // this default. CnCGameEngine captures the renderer-owned DTO and
             // attaches it through the explicit companion-aware save API.
             client_drawables: ClientDrawableWorldSnapshot::default(),
-            w3d_ghost_companion: Some(capture_w3d_ghost_xfer_bytes(&game_logic.w3d_ghosts)?),
+            w3d_ghost_companion: Some(capture_w3d_ghost_xfer_bytes(game_logic.fog_ghost_scene())?),
             // Production save attaches this after GameClient::xfer, preserving
             // C++ named-block phase order. Pure logic snapshots have none.
             particle_system_companion: None,
@@ -1009,7 +1009,7 @@ impl SnapshotBuilder {
         // unlocks internally to recreate saved modules.
         // The already decoded manager is private to this load candidate.
         // Commit at the original GhostObject phase; no shared pending slot.
-        game_logic.w3d_ghosts = ghosts;
+        game_logic.install_saved_fog_ghost_scene(ghosts);
         // CHUNK_GameClient belongs to the presentation client. The host keeps
         // its bytes staged until the candidate GameLogic commits; applying
         // them here would mutate the still-playable client's drawables.
@@ -1050,14 +1050,6 @@ impl SnapshotBuilder {
                 }
             }
         }
-        // registerGhostObject needs the receiving partition grid installed
-        // before rebuilding an orphan's saved geometry and cells.
-        game_logic.restore_host_fog_ghost_links();
-
-        game_logic
-            .restore_host_fog_ghost_shroud_history()
-            .map_err(SaveLoadError::Corrupted)?;
-
         super::super::lifecycle_tail::apply_lifecycle_tail_to_host_with_object_snapshots(
             &decoded_lifecycle,
             game_logic,
@@ -1294,6 +1286,9 @@ impl SnapshotBuilder {
         } else {
             game_logic.reattach_legacy_partition_after_restore();
         }
+        // Ghosts link to the exact receiving PartitionData modules, including
+        // the orphan COIs rebuilt on this grid. TunnelTracker runs next.
+        game_logic.restore_host_fog_ghost_links().map_err(SaveLoadError::Corrupted)?;
         // C++ Pathfinder cells are transient; AI loadPostProcess registers
         // goals again after the receiving actors and their state exist.
         game_logic.pathfinding_system.map_ready = pathfinder_ready;

@@ -1,12 +1,14 @@
 //! Original attached PartitionData identity and first-dirty scheduling.
 //! This metadata augments the existing object->COI map; it is not an Object owner.
 use std::sync::{Arc, Weak};
+use gamelogic::object::w3d_ghost_object::W3DGhostSceneId;
 #[derive(Debug, Default)]
 pub(super) struct PartitionObject {
     pub(super) cells: Vec<(i32, i32)>,
     pub(super) footprint_stamp: Option<super::PartitionFootprintStamp>,
     pub(super) birth: Option<Weak<()>>,
     pub(super) identity: Arc<()>,
+    pub(super) ghost: Option<W3DGhostSceneId>,
     /// C++ m_lastCell; advanced only after original cell-maintenance callback.
     pub(super) last_cell: Option<(i32, i32)>,
 }
@@ -35,11 +37,19 @@ impl super::PartitionManager {
     ) {
         // Reject an observation clone/foreign attachment before mutating cells.
         object.validate_partition_namespace(&self.namespace);
-        self.attach_receiving_identity(object.id.0, &object.visual_draw_identity_token);
+        let id = object.id.0;
+        if self.attach_receiving_identity(id, &object.visual_draw_identity_token) {
+            // Contained objects report visible without consulting PartitionData.
+            // A new partition must start with fresh visibility history.
+            if object.contained_by.is_some() {
+                self.retire_object_shroud_history(id, false);
+            }
+            self.attach_object_ghost(object);
+        }
         object.bind_partition_namespace(&self.namespace);
     }
 
-    fn attach_receiving_identity(&mut self, id: u32, birth: &Arc<()>) {
+    fn attach_receiving_identity(&mut self, id: u32, birth: &Arc<()>) -> bool {
         if let Some(module) = self.object_cells.get(&id) {
             assert!(
                 module
@@ -48,7 +58,7 @@ impl super::PartitionManager {
                     .is_some_and(|old| Weak::ptr_eq(old, &Arc::downgrade(birth))),
                 "partition attachment cannot retarget an existing Object lifetime"
             );
-            return;
+            return false;
         }
         self.object_cells.insert(
             id,
@@ -57,10 +67,12 @@ impl super::PartitionManager {
                 footprint_stamp: None,
                 birth: Some(Arc::downgrade(birth)),
                 identity: Arc::new(()),
+                ghost: None,
                 last_cell: None,
             },
         );
         self.mark_receiving_object_dirty(id, birth, true);
+        true
     }
     pub(in crate::game_logic) fn receiving_object_is_attached(
         &self,

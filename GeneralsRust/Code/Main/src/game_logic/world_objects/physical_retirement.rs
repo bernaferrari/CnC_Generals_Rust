@@ -85,13 +85,11 @@ impl GameLogic {
         self.cancel_retiring_dock_reservation(&object);
         // Object::~Object623 follows Drawable/sendDestroyed/team teardown and
         // precedes module destruction. Pending dirty identity retires with it.
-        self.detach_host_fog_ghost(id);
-        self.world_services
-            .shroud()
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-            .forget_host_object(id.0);
-        self.partition_manager.unregister_object(id.0);
+        self.host_ghost_draws.remove(&id);
+        if !self.partition_manager.unregister_object(id.0) {
+            // Contained actors can still have visibility-query cache entries.
+            self.partition_manager.retire_object_shroud_history(id.0, false);
+        }
         // Object::~Object removes group membership after partition teardown,
         // before module destruction.
         self.leave_ai_group_with_birth(

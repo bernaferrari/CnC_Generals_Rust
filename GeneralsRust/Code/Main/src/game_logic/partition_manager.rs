@@ -8,6 +8,7 @@ mod partition_contacts;
 mod partition_containment;
 mod partition_continuation;
 mod partition_dirty;
+mod partition_ghosts;
 mod partition_scalars;
 pub(in crate::game_logic) use partition_contacts::PartitionContact;
 pub(crate) use partition_continuation::PartitionContinuation;
@@ -51,9 +52,9 @@ pub struct PartitionManager {
     cells: HashMap<(i32, i32), Vec<u32>>,
     /// Object id → every overlapping cell (C++ COI list).
     object_cells: HashMap<u32, PartitionObject>,
-    /// Detached modules remain owned by the partition manager until the ghost
-    /// manager unregisters them. Their cells are not collision candidates.
+    /// Detached modules retain the ghost's footprint without live cell membership.
     ghost_cells: HashMap<u64, PartitionObject>,
+    ghost_scene: gamelogic::object::w3d_ghost_object::W3DGhostObjectManager,
     dirty: Vec<PartitionDirty>,
     namespace: std::sync::Arc<()>,
     /// Same receiving WorldServices grid; this handle adds no scalar storage.
@@ -95,6 +96,7 @@ impl PartitionManager {
             cells: HashMap::new(),
             object_cells: HashMap::new(),
             ghost_cells: HashMap::new(),
+            ghost_scene: Default::default(),
             dirty: Vec::new(),
             namespace: std::sync::Arc::new(()),
             scalar_owner: None,
@@ -336,62 +338,33 @@ impl PartitionManager {
         module.footprint_stamp = Some(PartitionFootprintStamp::new(x, z, fp));
     }
 
-    /// C++ unRegisterObject residual.
-    pub fn unregister_object(&mut self, id: u32) {
-        self.clear_object_coverage(id);
-        self.object_cells.remove(&id);
+    /// C++ unRegisterObject completes the live membership change even when
+    /// the fog scene retains the old PartitionData.
+    pub fn unregister_object(&mut self, id: u32) -> bool {
+        let Some(module) = self.object_cells.remove(&id) else {
+            return false;
+        };
+        self.remove_live_cell_membership(id, &module.cells);
         self.dirty.retain(|dirty| dirty.object_id != id);
-    }
-
-    /// Transfer the actual attached module to a parentless ghost. Remove its
-    /// live-object collision entries without destroying its COI list.
-    pub(in crate::game_logic) fn retain_ghost_partition(&mut self, id: u32, ghost: u64) {
-        if let Some(mut module) = self.object_cells.remove(&id) {
-            for key in &module.cells {
-                if let Some(list) = self.cells.get_mut(key) {
-                    list.retain(|&candidate| candidate != id);
-                    if list.is_empty() {
-                        self.cells.remove(key);
-                    }
-                }
-            }
-            module.birth = None;
-            self.dirty.retain(|dirty| dirty.object_id != id);
-            self.ghost_cells.insert(ghost, module);
-        }
-    }
-
-    pub(in crate::game_logic) fn ghost_partition_cells(&self, ghost: u64) -> Option<&[(i32, i32)]> {
-        self.ghost_cells.get(&ghost).map(|module| module.cells.as_slice())
-    }
-
-    pub(in crate::game_logic) fn unregister_ghost_partition(&mut self, ghost: u64) {
-        self.ghost_cells.remove(&ghost);
-    }
-
-    /// Loading an orphan creates its PartitionData from the saved geometry,
-    /// as C++ registerGhostObject does.
-    pub(in crate::game_logic) fn restore_ghost_partition(
-        &mut self,
-        ghost: u64,
-        x: f32,
-        z: f32,
-        footprint: HostPartitionFootprint,
-    ) {
-        let cells = self.footprint_cells(x, z, footprint);
-        self.ghost_cells.insert(ghost, PartitionObject { cells, ..Default::default() });
+        self.release_object_ghost(id, module);
+        true
     }
 
     /// Drop coverage while retaining the original attached module/dirty identity.
     fn clear_object_coverage(&mut self, id: u32) {
         if let Some(module) = self.object_cells.get_mut(&id) {
             module.footprint_stamp = None;
-            for key in std::mem::take(&mut module.cells) {
-                if let Some(list) = self.cells.get_mut(&key) {
-                    list.retain(|&i| i != id);
-                    if list.is_empty() {
-                        self.cells.remove(&key);
-                    }
+            let cells = std::mem::take(&mut module.cells);
+            self.remove_live_cell_membership(id, &cells);
+        }
+    }
+
+    fn remove_live_cell_membership(&mut self, id: u32, cells: &[(i32, i32)]) {
+        for key in cells {
+            if let Some(list) = self.cells.get_mut(key) {
+                list.retain(|&i| i != id);
+                if list.is_empty() {
+                    self.cells.remove(key);
                 }
             }
         }

@@ -250,7 +250,6 @@ impl GameLogic {
             );
         let id = object.id;
         self.objects.admit(id, object);
-        self.attach_host_fog_ghost(id);
         Ok(())
     }
 

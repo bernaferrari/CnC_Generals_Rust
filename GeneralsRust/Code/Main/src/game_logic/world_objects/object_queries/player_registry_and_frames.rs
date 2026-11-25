@@ -27,15 +27,7 @@ impl GameLogic {
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> gamelogic::GameLogicResult<()> {
         self.destroy_all_objects_immediate_with_effects_checked(effects)?;
-        let ghost_parents: Vec<_> = self
-            .w3d_ghosts
-            .used()
-            .iter()
-            .filter_map(|ghost| ghost.parent_object_id().map(ObjectId))
-            .collect();
-        for id in ghost_parents {
-            self.detach_host_fog_ghost(id);
-        }
+        self.host_ghost_draws.clear();
         // Recreated ObjectIDs must not inherit the old roster's comparisons.
         // Keep authoritative saved trigger flags, restored before this call.
         self.host_guard_area_occupancy.get_mut().clear();

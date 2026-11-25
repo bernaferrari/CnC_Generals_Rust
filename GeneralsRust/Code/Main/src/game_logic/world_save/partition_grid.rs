@@ -75,8 +75,7 @@ impl GameLogic {
                 .write()
                 .map_err(|_| "receiving terrain owner is poisoned")?
                 .restore_active_boundary_from_snapshot(boundary);
-            self.release_host_orphan_partitions();
-            self.w3d_ghosts.release_partition_data();
+            self.partition_manager.release_ghost_partition_links();
             let ids = self.objects.ordered_ids().to_vec();
             for id in &ids {
                 self.host_radar_remove_object(*id);
@@ -99,7 +98,7 @@ impl GameLogic {
                 .lock()
                 .map_err(|_| "receiving shroud owner is poisoned")?
                 .restore_boundary_permanently_revealed_cells(&saved)?;
-            self.w3d_ghosts.set_lock_ghost_objects(true);
+            self.partition_manager.fog_scene_mut().set_lock_ghost_objects(true);
             let mut notification_result = Ok(());
             for id in &ids {
                 let object = self
@@ -132,11 +131,10 @@ impl GameLogic {
                 .lock()
                 .map_err(|_| "receiving shroud owner is poisoned".to_owned())
                 .and_then(|mut shroud| shroud.restore_boundary_fogged_cells(&saved));
-            self.restore_host_orphan_partitions();
-            self.w3d_ghosts.restore_partition_data();
-            self.w3d_ghosts.set_lock_ghost_objects(false);
+            let ghost_result = self.restore_host_fog_ghost_links();
             notification_result?;
             fog_result?;
+            ghost_result?;
             self.session_view.camera.constraints.invalidate();
         }
         if let Some(observer) = observer {
@@ -285,13 +283,13 @@ impl GameLogic {
         prepared: gamelogic::system::shroud_manager::PreparedShroudGrid,
         refresh_objects: bool,
     ) -> Result<(), String> {
+        self.objects
+            .retire_owned_scalar_stamps(&mut self.partition_manager);
         let mut shroud = self
             .world_services
             .shroud()
             .lock()
             .map_err(|_| "receiving shroud owner is poisoned".to_string())?;
-        self.objects
-            .retire_owned_scalar_stamps(&mut self.partition_manager);
         shroud.install_prepared_shroud_grid(prepared);
         self.partition_manager.configure_grid_from_shroud(&shroud);
         drop(shroud);

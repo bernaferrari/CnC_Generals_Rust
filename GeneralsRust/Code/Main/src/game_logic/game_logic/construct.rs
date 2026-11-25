@@ -73,8 +73,7 @@ impl GameLogic {
         let mut upgrade_definitions = game_engine::common::system::upgrade::UpgradeCenter::new();
         common.seed_upgrade_center(&mut upgrade_definitions);
         let mut instance = Self {
-            w3d_ghosts: Default::default(),
-            host_ghosts: Default::default(),
+            host_ghost_draws: Default::default(),
             radar: game_engine::common::system::radar::RadarSystem::new(),
             radar_map: Default::default(),
             weapon_definition_base: None,
@@ -969,8 +968,7 @@ impl GameLogic {
         self.session_view.camera.input_policy.clear_map_rules();
         self.map_definition_source = None;
         self.weather_definition_updates.clear();
-        self.w3d_ghosts = Default::default();
-        self.host_ghosts = Default::default();
+        self.host_ghost_draws.clear();
         self.ai_definitions.reset();
         self.upgrade_definitions = self.upgrade_definition_base.clone();
         self.production_energy.effective = self.production_energy.base;

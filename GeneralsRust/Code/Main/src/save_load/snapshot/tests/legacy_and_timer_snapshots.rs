@@ -206,12 +206,13 @@ fn companion_save_round_trips_w3d_ghost_snapshots() {
     use std::time::{Duration, SystemTime};
 
     let mut source = GameLogic::new();
-    source.objects.insert(
+    source.add_object(Object::new(
+        ThingTemplate::new("GhostParent"),
         ObjectId(42),
-        Object::new(ThingTemplate::new("GhostParent"), ObjectId(42), Team::USA),
-    );
+        Team::USA,
+    ));
     {
-        let live = &mut source.w3d_ghosts;
+        let live = source.fixture_fog_ghost_scene_mut();
         *live = gamelogic::object::w3d_ghost_object::W3DGhostObjectManager::new();
         live.add_ghost_object(Some(42), true).unwrap();
         live.used_mut()[0].set_drawable_info(W3DDrawableInfo {
@@ -274,7 +275,7 @@ fn companion_save_round_trips_w3d_ghost_snapshots() {
         )
         .expect("save ghosts");
 
-    source.w3d_ghosts = Default::default();
+    *source.fixture_fog_ghost_scene_mut() = Default::default();
 
     let crate::save_load::DecodedGameSave { snapshot, .. } =
         manager.load_game_snapshot("ghosts").expect("decode ghosts");
@@ -282,7 +283,7 @@ fn companion_save_round_trips_w3d_ghost_snapshots() {
     SnapshotBuilder::new()
         .restore_from_snapshot(&snapshot, &mut restored)
         .expect("restore ghosts");
-    let live = &restored.w3d_ghosts;
+    let live = restored.fog_ghost_scene();
     assert_eq!(live.used_count(), 1);
     let ghost = &live.used()[0];
     assert_eq!(ghost.parent_object_id(), Some(42));

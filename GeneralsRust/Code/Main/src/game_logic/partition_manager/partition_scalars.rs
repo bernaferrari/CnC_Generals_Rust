@@ -11,6 +11,24 @@ impl std::fmt::Debug for ScalarOwner {
 }
 
 impl PartitionManager {
+    /// Consume the visibility history for this PartitionData lifetime. The
+    /// original unregister exception applies only to fogged objects seen
+    /// before, even when the local client never captured a render snapshot.
+    pub(in crate::game_logic) fn retire_object_shroud_history(&self, id: u32, has_ghost: bool) -> bool {
+        use gamelogic::common::ObjectShroudStatus;
+
+        let Some(owner) = &self.scalar_owner else {
+            return false;
+        };
+        let mut shroud = owner.0.lock().unwrap_or_else(|error| error.into_inner());
+        let retain = has_ghost && (0..game_engine::common::game_common::MAX_PLAYER_COUNT)
+            .any(|player| shroud.host_object_ever_seen(player as u32, id)
+                && shroud.get_host_object_shroud_status(player as u32, id)
+                    == Some(ObjectShroudStatus::Fogged));
+        shroud.forget_host_object(id);
+        retain
+    }
+
     /// Explicit service dependency on the existing driving world's scalar grid.
     /// Construction only retains identity; it does not stamp or initialize cells.
     pub(crate) fn with_scalar_owner(owner: &Arc<Mutex<ShroudManager>>) -> Self {

@@ -386,6 +386,7 @@ impl GameLogic {
         // belonging to the objects retired above.
         self.pathfinding_system.reset_for_new_timeline();
         self.ai_groups.clear_groups();
+        self.host_ghost_draws.clear();
         self.partition_manager =
             crate::game_logic::partition_manager::PartitionManager::with_scalar_owner(
                 self.world_services.shroud(),
