@@ -6,10 +6,11 @@ use game_engine::common::system::Xfer;
 use game_engine::common::system::game_common::WhichTurretType;
 use game_engine::common::thing::module::Module;
 use gamelogic::common::types::WeaponSlotType;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 /// Terrain decal types (converted from C++ TerrainDecalType)
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub enum TerrainDecalType {
     Demoralized,
     Horde,

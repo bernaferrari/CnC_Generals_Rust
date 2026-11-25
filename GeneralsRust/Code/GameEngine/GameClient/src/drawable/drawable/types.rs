@@ -1,5 +1,7 @@
 //! Core drawable value types: math, color, status, overlay, stealth.
 
+use serde::{Deserialize, Serialize};
+
 pub use crate::core::DrawableId;
 
 pub const INVALID_DRAWABLE_ID: DrawableId = DrawableId(0);
@@ -31,7 +33,7 @@ pub struct DrawableXferVisualSnapshot {
 }
 
 /// 3D vector for positions, rotations, and colors
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct Vector3 {
     pub x: f32,
     pub y: f32,
@@ -53,7 +55,7 @@ impl Vector3 {
 }
 
 /// 4x4 transformation matrix for 3D transforms
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct Matrix4 {
     pub elements: [[f32; 4]; 4],
 }
@@ -461,7 +463,7 @@ impl DrawableStatus {
 }
 
 /// Types of stealth visualization (converted from C++ StealthLookType)
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub enum StealthLook {
     None,
     VisibleFriendly,

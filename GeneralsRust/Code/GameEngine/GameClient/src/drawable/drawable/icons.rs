@@ -6,11 +6,12 @@ use game_engine::common::ascii_string::AsciiString;
 use game_engine::common::ini::{Anim2DTemplate, get_anim2d_collection};
 use game_engine::common::system::{Snapshotable, Xfer, XferMode, XferVersion};
 use parking_lot::{Mutex, RwLock};
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
 
 /// Types of drawable icons (converted from C++ DrawableIconType)
-#[derive(Debug, Clone, Copy, PartialEq, Hash, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Hash, Eq, Serialize, Deserialize)]
 pub enum IconType {
     DefaultHeal,
     StructureHeal,

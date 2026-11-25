@@ -2,9 +2,10 @@
 
 use super::*;
 use game_engine::common::system::{Snapshotable, Xfer, XferVersion};
+use serde::{Deserialize, Serialize};
 
 /// Wheel information for vehicles (converted from C++ TWheelInfo)
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct WheelInfo {
     pub front_left_height_offset: f32,
     pub front_right_height_offset: f32,
@@ -30,7 +31,7 @@ impl Default for WheelInfo {
 }
 
 /// Locomotor information for drawable physics (converted from C++ DrawableLocoInfo)
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct LocoInfo {
     pub pitch: f32,
     pub pitch_rate: f32,
@@ -124,7 +125,7 @@ pub(crate) fn envelope_state_from_u8(value: u8) -> EnvelopeState {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub enum FadingMode {
     None,
     FadingIn,
@@ -132,7 +133,7 @@ pub enum FadingMode {
 }
 
 /// Tint envelope for color animation effects (converted from C++ TintEnvelope)
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TintEnvelope {
     pub attack_rate: Vector3,
     pub decay_rate: Vector3,
@@ -143,7 +144,7 @@ pub struct TintEnvelope {
     pub is_effective: bool,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub enum EnvelopeState {
     Rest,
     Attack,
