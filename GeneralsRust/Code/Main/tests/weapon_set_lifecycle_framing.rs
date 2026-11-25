@@ -1,3 +1,4 @@
+use gamelogic::weapon::weapon_set::WeaponSetType;
 use generals_main::game_logic::{GameLogic, ObjectId, Player, Team, ThingTemplate};
 use generals_main::save_load::snapshot::SnapshotBuilder;
 use glam::Vec3;
@@ -52,6 +53,8 @@ fn weapon_set_flags_round_trip_in_a_real_snapshot() {
     let (mut source, source_id) = world();
     let technical = source.host_object_mut(source_id).unwrap();
     technical.apply_salvage_weapon_upgrade(0);
+    technical.set_weapon_condition_at_frame(WeaponSetType::PlayerUpgrade as u8, true, 0);
+    let expected_flags = technical.weapon_condition_flags();
     // OXOB is a later framed record. Its legitimate payload can contain the
     // WSFL tag as data and must not be mistaken for another WSFL header.
     technical.safe_occlusion_frame = u32::from_le_bytes(*b"WSFL");
@@ -71,11 +74,7 @@ fn weapon_set_flags_round_trip_in_a_real_snapshot() {
     let loaded = restored.host_object(source_id).expect("restored technical");
     assert_eq!(loaded.weapon_crate_upgrade(), 1);
     assert_eq!(loaded.safe_occlusion_frame, u32::from_le_bytes(*b"WSFL"));
-    assert!(
-        loaded
-            .applied_upgrades
-            .contains("WEAPONSET_CRATEUPGRADE_ONE")
-    );
+    assert_eq!(loaded.weapon_condition_flags(), expected_flags);
 }
 
 #[test]
