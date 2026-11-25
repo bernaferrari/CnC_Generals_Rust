@@ -126,6 +126,64 @@ impl NativeViewEffects for Observe {
     }
 }
 
+#[test]
+fn bone_fx_outlives_the_delete_callback_until_its_object_is_unlinked() {
+    let (mut world, id) = world();
+    let mut receiver = Observe::new(&world, id, false);
+    let mut particles = ParticleSystemManager::new();
+    let template = Arc::new(ParticleSystemTemplate::new("RetiringBoneFX".into()));
+    let particle = particles.create_particle_system(&template, false).unwrap();
+    receiver.particles = Some(particles);
+
+    let mut bone_fx = crate::game_logic::host_bone_fx_damage::HostBoneFxDamageData::default();
+    bone_fx.track_particle_with_owner(
+        particle,
+        &mut ScriptPresentationEffects {
+            view: Some(&mut receiver),
+            ..Default::default()
+        },
+    );
+    world.objects.get_mut(&id).unwrap().bone_fx_damage = Some(Box::new(bone_fx));
+
+    world
+        .destroy_object_with_effects(
+            id,
+            &mut ScriptPresentationEffects {
+                view: Some(&mut receiver),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    assert!(world.objects[&id].status.destroyed);
+    assert!(
+        !receiver
+            .particles
+            .as_ref()
+            .unwrap()
+            .find_particle_system(particle)
+            .unwrap()
+            .is_destroyed()
+    );
+
+    world
+        .process_destroy_list_with_effects_checked(&mut ScriptPresentationEffects {
+            view: Some(&mut receiver),
+            ..Default::default()
+        })
+        .unwrap();
+    assert_eq!(receiver.calls, 1);
+    assert!(
+        receiver
+            .particles
+            .as_ref()
+            .unwrap()
+            .find_particle_system(particle)
+            .unwrap()
+            .is_destroyed()
+    );
+    assert!(world.host_object(id).is_none());
+}
+
 fn queue(world: &mut GameLogic, id: ObjectId, death: bool) {
     if death {
         world

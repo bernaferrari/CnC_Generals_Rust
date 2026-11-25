@@ -198,38 +198,33 @@ impl GameLogic {
         }
     }
 
-    pub(in crate::game_logic) fn cost_modifier_on_delete(&mut self, object_id: ObjectId) {
+    pub(super) fn delete_cost_modifier_slot(
+        &mut self,
+        object_id: ObjectId,
+        module: &AuthoredCostModifierUpgrade,
+    ) {
         let owner = self
             .objects
             .get(&object_id)
             .and_then(|object| self.player_owner_for_host_object(object));
-        let modules = self.authored_cost_modifier_modules(object_id);
-        for module in modules {
-            let applied = self
-                .objects
-                .get(&object_id)
-                .and_then(|object| {
-                    object
-                        .cost_modifier_upgrade_executed
-                        .get(module.state_index)
-                })
-                .copied()
-                .unwrap_or(false);
-            if !applied {
-                continue;
-            }
-            if let Some(player) = owner.and_then(|id| self.players.get_mut(&id)) {
-                let data = module.data.read();
-                player.remove_authored_kind_of_production_cost_change(data.kind_of(), data.percentage());
-            }
-            if let Some(executed) = self.objects.get_mut(&object_id).and_then(|object| {
+        let Some(executed) = self
+            .objects
+            .get_mut(&object_id)
+            .and_then(|object| {
                 object
                     .cost_modifier_upgrade_executed
                     .get_mut(module.state_index)
-            }) {
-                *executed = false;
-            }
+            })
+            .filter(|executed| **executed)
+        else {
+            return;
+        };
+        if let Some(player) = owner.and_then(|id| self.players.get_mut(&id)) {
+            let data = module.data.read();
+            player
+                .remove_authored_kind_of_production_cost_change(data.kind_of(), data.percentage());
         }
+        *executed = false;
     }
 
     pub(in crate::game_logic) fn destroy_object_if_birth_matches_with_effects(

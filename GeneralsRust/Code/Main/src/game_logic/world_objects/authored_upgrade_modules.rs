@@ -432,9 +432,30 @@ impl GameLogic {
         self.signal_power_bonus(new_owner, bonus);
     }
 
-    /// PowerPlantUpgrade and OverchargeBehavior both remove their active
-    /// bonus from the installed Object during onDelete, before base retirement.
+    /// PowerPlantUpgrade and OverchargeBehavior each own their power contribution.
+    pub(super) fn delete_plant_power_bonus_slot(&mut self, id: ObjectId, source_index: usize) {
+        let Some(bonus) = self.objects.get(&id).and_then(|object| {
+            object
+                .active_plant_power_bonuses()
+                .find(|(index, _)| *index == source_index)
+                .map(|(_, bonus)| bonus)
+        }) else {
+            return;
+        };
+        self.remove_plant_power_bonus(id, bonus);
+    }
+
     pub(super) fn remove_plant_power_bonuses_on_delete(&mut self, id: ObjectId) {
+        let Some(object) = self.objects.get(&id) else {
+            return;
+        };
+        let bonuses: Vec<_> = object.active_plant_power_bonuses().collect();
+        for (_, bonus) in bonuses {
+            self.remove_plant_power_bonus(id, bonus);
+        }
+    }
+
+    fn remove_plant_power_bonus(&mut self, id: ObjectId, bonus: PlantPowerBonus) {
         let Some(object) = self.objects.get(&id) else {
             return;
         };
@@ -443,17 +464,14 @@ impl GameLogic {
             .energy_bonus
             .unwrap_or(0)
             .wrapping_neg();
-        let bonuses: Vec<_> = object.active_plant_power_bonuses().collect();
-        for (_, bonus) in bonuses {
-            let Some(object) = self.change_object_power_bonus(id, delta) else {
-                return;
-            };
-            match bonus {
-                PlantPowerBonus::ControlRods(key) => {
-                    object.applied_upgrades.remove(&key);
-                }
-                PlantPowerBonus::Overcharge => object.set_overcharge_enabled(false),
+        let Some(object) = self.change_object_power_bonus(id, delta) else {
+            return;
+        };
+        match bonus {
+            PlantPowerBonus::ControlRods(key) => {
+                object.applied_upgrades.remove(&key);
             }
+            PlantPowerBonus::Overcharge => object.set_overcharge_enabled(false),
         }
     }
 }

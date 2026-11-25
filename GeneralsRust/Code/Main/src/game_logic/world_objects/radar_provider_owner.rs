@@ -311,35 +311,57 @@ impl GameLogic {
         }
     }
 
+    /// RadarUpgrade::onDelete removes one contribution from the current controller.
+    pub(super) fn delete_radar_upgrade_slot(&mut self, id: ObjectId, index: usize) {
+        self.admit_host_radar_disabled_edges(id);
+        let Some(object) = self.objects.get(&id).filter(|object| {
+            !object.is_disabled()
+                && object
+                    .radar_upgrade_executed
+                    .get(index)
+                    .copied()
+                    .unwrap_or(false)
+        }) else {
+            return;
+        };
+        let Some(rule) = object
+            .thing()
+            .template
+            .radar_upgrade_rules
+            .as_ref()
+            .and_then(|rules| rules.get(index))
+        else {
+            return;
+        };
+        let proof = rule.disable_proof;
+        if let Some(owner) = self.player_owner_for_host_object(object) {
+            self.change_host_radar_provider(owner, proof, false);
+        }
+        let object = self.objects.get_mut(&id).unwrap();
+        object.radar_upgrade_executed[index] = false;
+        object.radar_upgrade_contributors[index].clear();
+        if let Some(slot) = self
+            .host_radar
+            .providers
+            .get_mut(&id)
+            .and_then(|slots| slots.get_mut(index))
+        {
+            slot.clear();
+        }
+    }
+
     pub(in super::super) fn remove_host_radar_provider(&mut self, id: ObjectId) {
         self.admit_host_radar_disabled_edges(id);
-        let authored = self
+        let authored_slots = self
             .objects
             .get(&id)
-            .and_then(|object| object.thing().template.radar_upgrade_rules.clone());
-        if let Some(rules) = authored {
-            let Some(object) = self.objects.get(&id) else {
-                return;
-            };
-            if !object.is_disabled() {
-                let owner = self.player_owner_for_host_object(object);
-                let executed = object.radar_upgrade_executed.clone();
-                for (index, rule) in rules.iter().enumerate() {
-                    if executed.get(index).copied().unwrap_or(false) {
-                        if let Some(owner) = owner {
-                            self.change_host_radar_provider(owner, rule.disable_proof, false);
-                        }
-                    }
-                }
-                let object = self.objects.get_mut(&id).unwrap();
-                object.radar_upgrade_executed.fill(false);
-                object
-                    .radar_upgrade_contributors
-                    .iter_mut()
-                    .for_each(Vec::clear);
+            .and_then(|object| object.thing().template.radar_upgrade_rules.as_ref())
+            .map(|rules| rules.len());
+        if let Some(count) = authored_slots {
+            for index in 0..count {
+                self.delete_radar_upgrade_slot(id, index);
             }
-            // Disabled onDelete skips the counter callback. Physical removal
-            // drops derived metadata without repairing original odd counts.
+            // Disabled native modules skip their counter callback.
             self.host_radar.providers.remove(&id);
         } else if let Some(providers) = self.host_radar.providers.remove(&id) {
             for (owner, proof) in providers.into_iter().flatten() {

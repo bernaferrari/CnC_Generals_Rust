@@ -108,6 +108,11 @@ impl GameLogic {
             return Err(gamelogic::GameLogicError::Configuration(reason));
         }
 
+        // BoneFXUpdate::~BoneFXUpdate releases its emitters at physical removal.
+        if let Some(bone_fx) = object.bone_fx_damage.as_mut() {
+            bone_fx.kill_running_particle_systems_with_owner(effects);
+        }
+
         // FlammableUpdate.cpp:70–73 and 227–234 stop this module's handle.
         let position = object.get_position();
         if let Some(fire) = object.fire_spread.as_mut()

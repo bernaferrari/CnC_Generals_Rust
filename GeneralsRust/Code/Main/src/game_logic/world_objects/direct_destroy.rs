@@ -2,6 +2,9 @@
 //! C++ GameLogic.cpp3935–3980 / Object.cpp722–742.
 use super::super::*;
 
+#[cfg(test)]
+mod tests;
+
 impl GameLogic {
     pub(crate) fn has_pending_object_removals(&self) -> bool {
         !self.objects_to_destroy.is_empty() || self.objects.failed_retirement_reason().is_some()
@@ -66,40 +69,77 @@ impl GameLogic {
         id: ObjectId,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> gamelogic::GameLogicResult<()> {
-        self.cost_modifier_on_delete(id);
-        self.remove_propaganda_tower_influence(id);
+        let Some(object) = self.objects.get(&id) else {
+            return Ok(());
+        };
+        let birth = std::sync::Arc::downgrade(&object.visual_draw_identity_token);
+        let definition = object.get_template().receiving_object_definition.clone();
+
+        // Object::onDestroy removes this rider before entering its behavior list.
         self.detach_destroyed_object_from_contain(id, effects)?;
-        self.remove_plant_power_bonuses_on_delete(id);
-        self.delete_direct_containment_with_effects(id, effects)?;
-        // SpawnBehavior::onDelete destroys live required children directly,
-        // unlike onDie which kills them through their death modules.
-        let spawn_children = self.objects.get(&id).and_then(|parent| {
-            Self::spawn_behavior_requires_spawner(parent)
-                .then(|| (parent.visual_object_generation, parent.spawn_behavior_children()))
-        });
-        if let Some((parent_birth, children)) = spawn_children {
-            let epoch = self.visual_world_epoch;
-            for (child_id, birth) in children {
-                if self.visual_world_epoch != epoch
-                    || !self.objects.get(&id).is_some_and(|parent|
-                        parent.visual_object_generation == parent_birth
-                            && parent.contains_spawn_behavior_child(child_id, &birth))
-                {
-                    continue;
-                }
-                if self.objects.get(&child_id).is_some_and(|child|
-                    birth != 0 && child.visual_object_generation == birth
-                        && !child.status.effectively_dead)
-                {
-                    self.destroy_object_with_effects(child_id, effects)?;
-                }
-            }
+        if !self.object_birth_matches(id, &birth) {
+            return Ok(());
         }
-        self.remove_host_radar_provider(id);
-        if let Some(object) = self.objects.get_mut(&id) {
-            if let Some(bone_fx) = object.bone_fx_damage.as_mut() {
-                bone_fx.kill_running_particle_systems_with_owner(effects);
+        if let Some(definition) = definition {
+            let mut cost_modifiers = None;
+            let mut radar_index = 0;
+            for (index, module) in definition.behavior_modules.iter().enumerate() {
+                if !self.object_birth_matches(id, &birth) {
+                    return Ok(());
+                }
+                let is = |class: &str| module.class_name.eq_ignore_ascii_case(class);
+                if is("CostModifierUpgrade") {
+                    let slots = cost_modifiers
+                        .get_or_insert_with(|| self.authored_cost_modifier_modules(id).into_iter());
+                    if let Some(cost) = slots.next() {
+                        self.delete_cost_modifier_slot(id, &cost);
+                    }
+                } else if is("PowerPlantUpgrade") || is("OverchargeBehavior") {
+                    self.delete_plant_power_bonus_slot(id, index);
+                } else if is("RadarUpgrade") {
+                    self.delete_radar_upgrade_slot(id, radar_index);
+                    radar_index += 1;
+                } else if is("PropagandaTowerBehavior") {
+                    self.remove_propaganda_tower_influence(id);
+                } else if is("SpawnBehavior") {
+                    self.delete_required_spawn_children(id, effects)?;
+                } else if [
+                    "TransportContain",
+                    "RiderChangeContain",
+                    "RailedTransportContain",
+                    "GarrisonContain",
+                    "InternetHackContain",
+                    "HealContain",
+                    "TunnelContain",
+                    "CaveContain",
+                    "HelixContain",
+                    "OverlordContain",
+                    "ParachuteContain",
+                ]
+                .into_iter()
+                .any(is)
+                {
+                    self.delete_direct_containment_with_effects(id, effects)?;
+                }
             }
+            if !self.object_birth_matches(id, &birth) {
+                return Ok(());
+            }
+            if radar_index == 0 {
+                self.remove_host_radar_provider(id);
+            } else {
+                self.host_radar.providers.remove(&id);
+            }
+        } else {
+            self.remove_propaganda_tower_influence(id);
+            self.delete_direct_containment_with_effects(id, effects)?;
+            self.delete_required_spawn_children(id, effects)?;
+            if !self.object_birth_matches(id, &birth) {
+                return Ok(());
+            }
+            self.remove_host_radar_provider(id);
+        }
+        if let Some(object) = self.objects.get_mut(&id) {
             object.handle_partition_cell_maintenance_with_partition_owner(
                 &mut self.partition_manager,
             );
@@ -107,9 +147,45 @@ impl GameLogic {
         Ok(())
     }
 
-    /// Supported containment onDelete operations; Cave's shared cave-in is
-    /// an onDie operation. The complete authored behavior dispatcher remains
-    /// separate from this local OpenContain / TunnelContain migration.
+    fn delete_required_spawn_children(
+        &mut self,
+        id: ObjectId,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> gamelogic::GameLogicResult<()> {
+        // SpawnBehavior::onDelete destroys live required children directly,
+        // unlike onDie which kills them through their death modules.
+        let spawn_children = self.objects.get(&id).and_then(|parent| {
+            Self::spawn_behavior_requires_spawner(parent).then(|| {
+                (
+                    parent.visual_object_generation,
+                    parent.spawn_behavior_children(),
+                )
+            })
+        });
+        if let Some((parent_birth, children)) = spawn_children {
+            let epoch = self.visual_world_epoch;
+            for (child_id, birth) in children {
+                if self.visual_world_epoch != epoch
+                    || !self.objects.get(&id).is_some_and(|parent| {
+                        parent.visual_object_generation == parent_birth
+                            && parent.contains_spawn_behavior_child(child_id, &birth)
+                    })
+                {
+                    continue;
+                }
+                if self.objects.get(&child_id).is_some_and(|child| {
+                    birth != 0
+                        && child.visual_object_generation == birth
+                        && !child.status.effectively_dead
+                }) {
+                    self.destroy_object_with_effects(child_id, effects)?;
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Containment onDelete. Cave's shared cave-in belongs to onDie.
     fn delete_direct_containment(&mut self, id: ObjectId) -> gamelogic::GameLogicResult<()> {
         self.delete_direct_containment_with_effects(id, &mut Default::default())
     }
@@ -174,6 +250,7 @@ impl GameLogic {
                 | ContainModuleKind::Garrison
                 | ContainModuleKind::InternetHack
                 | ContainModuleKind::Heal
+                | ContainModuleKind::Parachute
         ) {
             let children = object.contained_units();
             for child in children {
