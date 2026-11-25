@@ -399,7 +399,14 @@ impl Object {
 
     /// C++ `AIUpdateInterface::isMoving` (AIUpdate.cpp:3169-3180).
     pub fn host_ai_is_moving(&self) -> bool {
-        if self.ai_state() == AIState::Idle {
+        // Artillery owns its MoveTo leg in the delivery driver. Its
+        // locomotor goal is live even while the generic machine is idle.
+        if self.ai_state() == AIState::Idle
+            && !self
+                .artillery_barrage_transport
+                .as_ref()
+                .is_some_and(|flight| flight.uses_wing_physics())
+        {
             return false;
         }
         self.locomotor_goal_type != super::LocoGoalType::None || self.status.moving

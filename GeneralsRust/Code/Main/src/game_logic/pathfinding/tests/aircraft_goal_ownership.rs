@@ -54,6 +54,51 @@ fn adjusted(world: &GameLogic, seeker: ObjectId, dest: Vec3) -> Vec3 {
 }
 
 #[test]
+fn aircraft_move_to_adjusts_claims_and_clips_the_spiral_seed_like_cpp() {
+    let mut grid = PathfindingGrid::new(400.0, 400.0, 10.0);
+    grid.set_logical_extent(GridPos::new(2, 2), GridPos::new(35, 35));
+    let ground = PathfindingGround::Flat(20.0);
+    let requested = Vec3::new(82.0, 300.0, 82.0);
+    let centered = Vec3::new(85.0, 20.0, 85.0);
+    let seeker = ObjectId(1);
+    let unit = aircraft(seeker.0, LocomotorAppearance::Wings, requested);
+    let mut objects = registered_path_fixture([(seeker, unit)]);
+    let adjust = |grid: &PathfindingGrid, objects: HostObjectRead<'_>, goal| {
+        grid.adjust_aircraft_destination(&objects[&seeker], objects, goal, &ground)
+            .unwrap()
+    };
+    assert_eq!(adjust(&grid, objects.read(), requested), centered);
+    grid.stamp_aircraft_goal_cell(GridPos::new(8, 8), seeker.0);
+    assert_eq!(adjust(&grid, objects.read(), requested), centered);
+
+    grid.stamp_aircraft_goal_cell(GridPos::new(8, 8), 2);
+    grid.set_cell_type(GridPos::new(9, 8), PathfindCellType::Obstacle);
+    assert_eq!(
+        adjust(&grid, objects.read(), requested),
+        Vec3::new(95.0, 20.0, 85.0)
+    );
+    grid.set_cell_type(GridPos::new(9, 8), PathfindCellType::Cliff);
+    assert_eq!(
+        adjust(&grid, objects.read(), requested),
+        Vec3::new(95.0, 20.0, 95.0)
+    );
+    assert_eq!(
+        adjust(&grid, objects.read(), Vec3::new(-800.0, 300.0, 82.0)),
+        Vec3::new(25.0, 20.0, 75.0)
+    );
+
+    grid.stamp_aircraft_goal_cell(GridPos::new(8, 8), 0);
+    let unit = objects.get_mut(&seeker).unwrap();
+    let mut shape = *unit.geometry_info();
+    shape.major_radius = 8.0;
+    unit.set_geometry_shape(shape);
+    assert_eq!(
+        adjust(&grid, objects.read(), Vec3::new(86.0, 300.0, 86.0)),
+        Vec3::new(90.5, 20.0, 90.5)
+    );
+}
+
+#[test]
 fn aircraft_goal_projection_uses_half_cell_footprints_on_the_driving_grid() {
     let mut grid =
         PathfindingGrid::new_with_origin(Vec3::new(-40.0, 0.0, -30.0), 200.0, 200.0, 10.0);

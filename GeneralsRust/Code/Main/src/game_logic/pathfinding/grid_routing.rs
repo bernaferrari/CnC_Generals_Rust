@@ -1490,6 +1490,61 @@ impl PathfindingGrid {
             .unwrap_or(zone)
     }
 
+    /// For a flying MoveTo, checkForAdjust skips ground connectivity but
+    /// still checks the candidate's cliff, logical extent, and aircraft footprint.
+    pub(super) fn adjust_aircraft_destination(
+        &self,
+        mover: &Object,
+        objects: HostObjectRead<'_>,
+        dest: Vec3,
+        ground: &PathfindingGround<'_>,
+    ) -> Option<Vec3> {
+        let (radius, centered) =
+            Self::radius_and_center(mover.geometry_info().bounding_circle_radius(), self.grid_size);
+        let layer = self.layer_for_destination(dest, ground);
+        let human = mover
+            .owner_player_id
+            .and_then(|id| objects.controller_is_human(id))
+            .unwrap_or(true);
+        let candidate = |cell| {
+            if !self.is_valid_pos(cell) || (human && !self.in_logical_extent(cell)) {
+                return None;
+            }
+            let (actual_layer, cell_type) = self.path_cell_on_layer(cell, layer);
+            if cell_type == PathfindCellType::Cliff
+                || !self.check_destination_for_object(cell, layer, radius, centered, mover, objects)
+            {
+                return None;
+            }
+            Some(self.adjust_coord_to_cell_on_layer(cell, centered, actual_layer, ground))
+        };
+        // AIPathfind.cpp:5331–5407 visits the origin followed by each
+        // +X, +Y, -X, -Y turn. It completes the last spiral before stopping.
+        let mut cell = self.clamp_pos(self.cell_for_unit_position(dest, centered));
+        if let Some(goal) = candidate(cell) {
+            return Some(goal);
+        }
+        const MAX_CELLS_TO_TRY: i32 = 400;
+        let mut remaining = MAX_CELLS_TO_TRY;
+        let mut side = 1;
+        while remaining > 0 {
+            for (dx, dy, length) in
+                [(1, 0, side), (0, 1, side), (-1, 0, side + 1), (0, -1, side + 1)]
+            {
+                for _ in 0..length {
+                    cell.x += dx;
+                    cell.y += dy;
+                    if let Some(goal) = candidate(cell) {
+                        return Some(goal);
+                    }
+                }
+                remaining -= length;
+            }
+            side += 2;
+        }
+        None
+    }
+
     /// Resolve the C++ checkDestination receiver from the object for this call.
     pub fn adjust_to_possible_destination_for_object(
         &self,

@@ -33,10 +33,16 @@ impl GameLogic {
         } else {
             object_ids
         };
+        // Delivery carriers consume their quick-path receipt after the
+        // delivery state has run, in the dedicated flight update.
         for &id in object_ids {
             if self.objects.lookup(&id).is_some_and(|unit| {
                 unit.pending_quick_path_goal
                     && !unit.waiting_for_path
+                    && !unit
+                        .artillery_barrage_transport
+                        .as_ref()
+                        .is_some_and(|flight| flight.uses_wing_physics())
                     && !unit.is_disabled()
                     && !unit.host_skip_dead_locomotor()
                     && !unit.is_kind_of(KindOf::Immobile)

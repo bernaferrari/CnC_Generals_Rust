@@ -325,10 +325,9 @@ impl GameLogic {
             let turning = object.physics_turning != PhysicsTurningType::TurnNone;
             let maximum_speed = object.effective_max_speed();
             let maximum_turn_rate = object.effective_turn_rate();
-            // The delivery state runs before base MoveTo. An empty path
-            // with its request still present records that MoveTo ended.
-            let move_finished =
-                object.requested_destination.is_some() && object.movement.path.is_empty();
+            // DeliverPayload runs before base MoveTo. Both an arrived path and
+            // an external Idle count as leaving MoveTo; a pending search does not.
+            let move_finished = !object.waiting_for_path && object.movement.path.is_empty();
             let Some(data) = object.artillery_barrage_transport.as_mut() else {
                 continue;
             };
@@ -407,6 +406,7 @@ impl GameLogic {
                             object.set_drawable_hidden(true);
                             self.admit_object_drawable_deselection(id);
                         }
+                        self.remove_registered_path_goal(id);
                     }
                     ArtilleryDeliveryEvent::Reenter => {
                         self.reenter_artillery_carrier(id, effects)?;
@@ -474,7 +474,7 @@ impl GameLogic {
                         | ArtilleryDeliveryEvent::Reenter
                         | ArtilleryDeliveryEvent::Depart { .. }
                 );
-                self.advance_artillery_aircraft_move(id, goal, new_order, effects)?;
+                self.advance_artillery_aircraft_move(id, new_order.then_some(goal), effects)?;
                 continue;
             }
             let next = data.planar_step(position, goal);
@@ -509,11 +509,15 @@ impl GameLogic {
     }
 
     fn issue_artillery_aircraft_move(&mut self, id: ObjectId, destination: Vec3) {
+        let destination = self.prepare_aircraft_move_destination(id, destination);
         let Some(path) = self.aircraft_quick_route(id, destination) else {
             return;
         };
         let object = self.objects.get_mut(&id).expect("artillery aircraft");
         object.requested_destination = Some(destination);
+        object.waiting_for_path = false;
+        object.queue_for_path_frame = 0;
+        object.pending_quick_path_goal = self.map_loaded;
         object.movement.path = path;
         object.movement.path_cursor = object.movement.path.cursor_at_ordinal(1);
         object.movement.target_position = object.movement.current_path_position();
@@ -525,12 +529,15 @@ impl GameLogic {
     fn advance_artillery_aircraft_move(
         &mut self,
         id: ObjectId,
-        destination: Vec3,
-        new_order: bool,
+        new_destination: Option<Vec3>,
         effects: &mut ScriptPresentationEffects<'_>,
     ) -> gamelogic::GameLogicResult<()> {
-        if new_order || self.objects[&id].requested_destination != Some(destination) {
+        if let Some(destination) = new_destination {
             self.issue_artillery_aircraft_move(id, destination);
+        }
+        let object = &self.objects[&id];
+        if object.pending_quick_path_goal && !object.waiting_for_path && !object.is_disabled() {
+            self.on_waited_path_arrived(id);
         }
         let object = self.objects.get_mut(&id).expect("artillery aircraft");
         let position = object.get_position();
@@ -539,7 +546,7 @@ impl GameLogic {
             .path
             .flight_course(position, &mut movement.path_cursor);
         if let Some((goal, remaining)) = move_goal {
-            let last = movement.path.last().copied().unwrap_or(destination);
+            let last = *movement.path.last().expect("path has a flight course");
             let offset = last - position;
             let distance = if object.host_uses_close_enough_dist_3d() {
                 offset.length()

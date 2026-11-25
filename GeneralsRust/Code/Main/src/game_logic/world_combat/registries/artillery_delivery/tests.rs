@@ -560,6 +560,165 @@ fn authored_artillery_uses_the_aircraft_quick_path_at_launch() {
 }
 
 #[test]
+fn authored_artillery_reserves_adjusted_approach_destinations_in_its_world() {
+    use crate::save_load::SaveFileManager;
+
+    crate::game_logic::game_logic::pose_owner_tests::isolated_at(
+        module_path!(),
+        "authored_artillery_reserves_adjusted_approach_destinations_in_its_world",
+        || {
+            let temp = tempfile::tempdir().unwrap();
+            let path = flat_recovery_map(temp.path());
+            let prepare = || {
+                let mut world = world_with_carrier(0, 0, Some(true));
+                assert!(world.load_map(path.to_str().unwrap()));
+                world.add_player(Player::new(1, Team::China, "Owner", true));
+                world.add_player(Player::new(2, Team::GLA, "Target", false));
+                world
+            };
+            let mut claimed = prepare();
+            let mut clear = prepare();
+            let aim = Vec3::new(82.0, 0.0, 82.0);
+            let seed = Vec3::new(85.0, 20.0, 85.0);
+            let next_cell = Vec3::new(95.0, 20.0, 85.0);
+            let mut blocker = None;
+            for world in [&mut claimed, &mut clear] {
+                let aircraft = world
+                    .create_object_for_player(
+                        "TestArtilleryCarrier",
+                        1,
+                        Vec3::new(180.0, 160.0, 140.0),
+                    )
+                    .unwrap();
+                assert_eq!(*blocker.get_or_insert(aircraft), aircraft);
+            }
+            let blocker = blocker.unwrap();
+            assert!(claimed.unit_command_script_move_to(blocker, seed));
+            claimed.register_path_goal(blocker, seed);
+            let seed_cell = claimed.pathfinding_system.grid.world_to_grid(seed);
+            let next_cell_index = claimed.pathfinding_system.grid.world_to_grid(next_cell);
+            assert_eq!(claimed.pathfinding_aircraft_goal(seed_cell), Some(blocker));
+            assert_eq!(clear.pathfinding_aircraft_goal(seed_cell), None);
+
+            let (_, carrier, _) = activate(&mut claimed, aim);
+            let (_, peer, _) = activate(&mut clear, aim);
+            assert_eq!(carrier, peer);
+            for (world, expected) in [(&claimed, next_cell), (&clear, seed)] {
+                let aircraft = &world.objects[&carrier];
+                assert_eq!(
+                    aircraft.requested_destination,
+                    Some(expected),
+                    "AIMoveTo changes the XZ cell and takes receiving terrain height"
+                );
+                let cell = world.pathfinding_system.grid.world_to_grid(expected);
+                assert_eq!(world.pathfinding_aircraft_goal(cell), Some(carrier));
+                assert_eq!(aircraft.movement.path.last().copied(), Some(expected));
+            }
+            assert_eq!(claimed.pathfinding_aircraft_goal(seed_cell), Some(blocker));
+            assert_eq!(clear.pathfinding_aircraft_goal(next_cell_index), None);
+
+            let mut saves = SaveFileManager::with_save_directory(temp.path().join("goals"));
+            saves.init().unwrap();
+            saves.quick_save(&claimed).unwrap();
+            let decoded = saves.load_game_snapshot("quicksave").unwrap();
+            let mut resumed = prepare();
+            saves
+                .restore_game_snapshot(&decoded.snapshot, &mut resumed)
+                .unwrap();
+            for world in [&mut resumed, &mut claimed] {
+                assert_eq!(world.pathfinding_aircraft_goal(seed_cell), Some(blocker));
+                assert_eq!(
+                    world.pathfinding_aircraft_goal(next_cell_index),
+                    Some(carrier)
+                );
+                let issued = world.objects[&carrier].path_timestamp;
+                world.frame = 60;
+                world.update_artillery_barrage_flights().unwrap();
+                assert_eq!(
+                    world.objects[&carrier].requested_destination,
+                    Some(next_cell)
+                );
+                assert_eq!(world.objects[&carrier].path_timestamp, issued);
+            }
+
+            // AIMoveTo initially claims the adjusted destination. The next
+            // base update switches the claim if Wings detours the last node.
+            let mut detouring = prepare();
+            let aim = Vec3::new(182.0, 0.0, 182.0);
+            let entry_goal = Vec3::new(185.0, 20.0, 185.0);
+            detouring
+                .create_object_for_player(
+                    "TestArtilleryFlightTower",
+                    2,
+                    Vec3::new(185.0, 20.0, 165.0),
+                )
+                .unwrap();
+            let (_, carrier, _) = activate(&mut detouring, aim);
+            let grid = &detouring.pathfinding_system.grid;
+            let entry_cell = grid.world_to_grid(entry_goal);
+            let route_end = *detouring.objects[&carrier].movement.path.last().unwrap();
+            let route_cell = grid.world_to_grid(route_end);
+            assert_ne!(route_cell, entry_cell);
+            assert!(grid.is_valid_pos(route_cell));
+            assert_eq!(
+                detouring.pathfinding_aircraft_goal(entry_cell),
+                Some(carrier)
+            );
+            assert_eq!(detouring.pathfinding_aircraft_goal(route_cell), None);
+            detouring.frame = 60;
+            detouring.update_artillery_barrage_flights().unwrap();
+            assert_eq!(detouring.pathfinding_aircraft_goal(entry_cell), None);
+            assert_eq!(
+                detouring.pathfinding_aircraft_goal(route_cell),
+                Some(carrier)
+            );
+            assert_eq!(
+                detouring.objects[&carrier].requested_destination,
+                Some(entry_goal)
+            );
+        },
+    );
+}
+
+#[test]
+fn inbound_artillery_keeps_an_external_move_and_retries_after_idle() {
+    let mut world = world_with_carrier(0, 0, Some(true));
+    let aim = Vec3::new(80.0, 0.0, 82.0);
+    let (_, carrier, _) = activate(&mut world, aim);
+    let position = Vec3::new(300.0, 300.0, 300.0);
+    world.set_fixture_object_position(carrier, position);
+    world.frame = 60;
+    let diversion = Vec3::new(520.0, 0.0, 280.0);
+    assert!(world.unit_command_script_move_to(carrier, diversion));
+    let alternative_goal = world.objects[&carrier].requested_destination;
+    assert!(alternative_goal.is_some());
+    let alternative_path = world.objects[&carrier].movement.path.clone();
+    assert!(!alternative_path.is_empty());
+    world.update_artillery_barrage_flights().unwrap();
+    assert_eq!(
+        world.objects[&carrier].requested_destination, alternative_goal,
+        "the delivery AI must keep an active external MoveTo"
+    );
+    assert_eq!(world.objects[&carrier].movement.path, alternative_path);
+
+    assert!(world.unit_command_stop(carrier).unwrap());
+    world.set_fixture_object_position(carrier, position);
+    world
+        .objects
+        .get_mut(&carrier)
+        .unwrap()
+        .set_orientation_with_partition_owner(0.0, &mut world.partition_manager);
+    world.frame = 61;
+    world.update_artillery_barrage_flights().unwrap();
+    let retry = position.with_y(0.0) + Vec3::X * (2.2 * 150.0 / 200.0_f32.to_radians());
+    let goal = world.objects[&carrier].requested_destination.unwrap();
+    assert!(
+        goal.abs_diff_eq(retry, 1e-4),
+        "an external Idle triggers the missed-approach retry: {goal:?}"
+    );
+}
+
+#[test]
 fn authored_artillery_retries_after_the_base_ai_crosses_its_flight_segment() {
     let aim = Vec3::new(80.0, 0.0, 82.0);
     let mut world = world_with_carrier(0, 0, Some(true));
@@ -1007,12 +1166,12 @@ fn authored_artillery_carrier_has_one_physics_step_with_the_authored_launch_forc
     // On a turn, the shared pivot rotates the carrier while this frame's
     // motive force still follows the heading on entry to the locomotor.
     for world in [&mut boosted, &mut restored] {
-        let object = world.objects.get_mut(&carrier).unwrap();
+        let object = &world.objects[&carrier];
         let position = object.get_position();
         let heading = object.get_orientation();
         let velocity = object.movement.velocity;
         let destination = position + Vec3::new(0.0, 0.0, 700.0);
-        object.artillery_barrage_transport.as_mut().unwrap().target = destination;
+        assert!(world.unit_command_script_move_to(carrier, destination));
         world.update_artillery_barrage_flights().unwrap();
         let object = &world.objects[&carrier];
         assert_ne!(object.get_orientation(), heading);

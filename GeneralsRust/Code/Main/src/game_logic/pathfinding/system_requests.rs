@@ -1121,15 +1121,12 @@ impl PathfindingSystem {
         ground_source: &PathfindingGround<'_>,
         receiver: Option<(&Object, HostObjectRead<'_>)>,
     ) -> Vec3 {
-        let cell_size = self.grid.grid_size();
-        let (radius, center_in_cell) = PathfindingGrid::radius_and_center(unit_radius, cell_size);
-        let mut adjust = pos;
-        if !center_in_cell {
-            adjust.x += cell_size * 0.5;
-            adjust.z += cell_size * 0.5;
-        }
+        let (radius, center_in_cell) =
+            PathfindingGrid::radius_and_center(unit_radius, self.grid.grid_size());
         let layer = self.grid.layer_for_destination(pos, ground_source);
-        let cell = self.grid.world_to_grid(adjust);
+        let cell = self
+            .grid
+            .clamp_pos(self.grid.cell_for_unit_position(pos, center_in_cell));
         let crusher_level = if is_crusher {
             self.seeker_crusher_level.max(1)
         } else {

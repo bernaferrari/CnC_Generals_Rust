@@ -681,6 +681,46 @@ impl GameLogic {
         true
     }
 
+    /// The MoveTo entry reserves its adjusted destination before the quick route.
+    /// The first MoveTo update will then register the route's actual last node.
+    pub(in crate::game_logic) fn prepare_aircraft_move_destination(
+        &mut self,
+        unit_id: ObjectId,
+        destination: Vec3,
+    ) -> Vec3 {
+        let adjusts = self.note_move_to_request_path(unit_id);
+        if !self.map_loaded || !adjusts {
+            return destination;
+        }
+        let unit = &self.objects[&unit_id];
+        if unit.has_object_status_bit("STATUS_RIDER8") {
+            return destination;
+        }
+        let goal = {
+            let terrain = self
+                .world_services
+                .terrain()
+                .read()
+                .unwrap_or_else(|err| err.into_inner());
+            let ground = crate::game_logic::pathfinding::PathfindingGround::for_terrain(
+                &terrain,
+                self.map_loaded,
+                self.terrain.as_ref(),
+                self.pathfinding_height_samples.as_ref(),
+                &self.pathfinding_system.grid,
+            );
+            let objects = self
+                .objects
+                .read()
+                .with_players(&self.players)
+                .with_team_factory(&self.team_factory);
+            self.pathfinding_system
+                .resolve_aircraft_move_destination(unit, objects, destination, &ground)
+        };
+        self.register_path_goal(unit_id, goal);
+        goal
+    }
+
     /// C++ Pathfinder::getAircraftPath builds the direct flight leg with
     /// authored tall-building detours for both ordinary and delivery orders.
     pub(in crate::game_logic) fn aircraft_quick_route(

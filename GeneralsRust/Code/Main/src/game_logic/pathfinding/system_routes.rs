@@ -17,6 +17,29 @@ fn enqueue_closest_path_node(
 }
 
 impl PathfindingSystem {
+    /// AIInternalMoveToState::onEnter resolves a destination before
+    /// computeQuickPath adds any tall-building detours.
+    pub(crate) fn resolve_aircraft_move_destination(
+        &self,
+        unit: &Object,
+        objects: HostObjectRead<'_>,
+        requested: Vec3,
+        ground: &PathfindingGround<'_>,
+    ) -> Vec3 {
+        self.grid
+            .adjust_aircraft_destination(unit, objects, requested, ground)
+            .unwrap_or_else(|| {
+                self.snap_closest_goal_position_with_receiver(
+                    requested,
+                    unit.locomotor_surfaces,
+                    unit.crusher_level > 0,
+                    unit.geometry_info().bounding_circle_radius(),
+                    ground,
+                    Some((unit, objects)),
+                )
+            })
+    }
+
     /// Rebuild `prependCells` in goal-to-start order, retaining the raw cells.
     fn secondary_route(
         &self,
