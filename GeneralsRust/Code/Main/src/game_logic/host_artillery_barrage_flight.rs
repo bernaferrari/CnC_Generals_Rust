@@ -3,7 +3,11 @@
 use glam::Vec3;
 use serde::{Deserialize, Serialize};
 
-use crate::game_logic::host_deliver_payload::is_close_enough_to_target_squared_residual;
+use crate::game_logic::host_deliver_payload::{
+    RESIDUAL_MAP_EXTENT_MAX_X, RESIDUAL_MAP_EXTENT_MAX_Z, RESIDUAL_MAP_EXTENT_MIN_X,
+    RESIDUAL_MAP_EXTENT_MIN_Z, head_off_map_exit_point_residual,
+    is_close_enough_to_target_squared_residual, is_off_map_residual,
+};
 use crate::game_logic::special_power_strikes::{
     ARTILLERY_BARRAGE_DAMAGE, ARTILLERY_BARRAGE_DELIVERY_DISTANCE,
     ARTILLERY_BARRAGE_PRE_OPEN_DISTANCE, ARTILLERY_BARRAGE_RADIUS, ARTILLERY_BARRAGE_SHELL_OBJECT,
@@ -25,19 +29,45 @@ pub(crate) enum ArtilleryPayload {
     TemplateOnly,
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+enum ArtilleryDeliveryPhase {
+    Approach,
+    Delivering { frames_left: u32 },
+    Reapproach { destination: Vec3 },
+    HeadOffMap { destination: Vec3 },
+}
+
+/// The visible-payload delivery state is owned and saved by its carrier.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct AuthoredArtilleryDelivery {
+    phase: ArtilleryDeliveryPhase,
+    door_delay: u32,
+    drop_delay: u32,
+    attempts_left: i32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ArtilleryDeliveryEvent {
+    Continue,
+    OpenDoor,
+    Release,
+    CloseDoor,
+    Depart,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HostArtilleryBarrageFlightData {
     pub target: Vec3,
     pub launch: Vec3,
     pub tier: ArtilleryBarrageScienceTier,
     pub(crate) aim: Vec3,
-    /// Present while the carrier is approaching with its payload.
+    /// The one visible payload is consumed on its release attempt.
     pub(crate) payload: Option<ArtilleryPayload>,
     pub(crate) strike_id: Option<u32>,
     pub(crate) delivery_distance: f32,
     pub(crate) pre_open_distance: f32,
     pub(crate) speed_per_frame: f32,
-    pub(crate) self_destruct_after_release: bool,
+    pub(crate) self_destruct_on_departure: bool,
     /// Previous 2D dist² for C++ isCloseEnoughToTarget inbound tracking
     /// (DeliverPayloadAIUpdate.cpp:99,356-357; starts at 0 like m_previousDistanceSqr).
     #[serde(default)]
@@ -50,6 +80,7 @@ pub struct HostArtilleryBarrageFlightData {
     /// C++ setDisabledUntil(DISABLED_DEFAULT, now + GameLogicRandomValue(0, DelayDeliveryMax)).
     #[serde(default)]
     pub delay_until_frame: u32,
+    authored: Option<AuthoredArtilleryDelivery>,
 }
 
 impl HostArtilleryBarrageFlightData {
@@ -64,17 +95,36 @@ impl HostArtilleryBarrageFlightData {
             delivery_distance: ARTILLERY_BARRAGE_DELIVERY_DISTANCE,
             pre_open_distance: ARTILLERY_BARRAGE_PRE_OPEN_DISTANCE,
             speed_per_frame: 14.0,
-            self_destruct_after_release: false,
+            self_destruct_on_departure: false,
             prev_dist_sq: 0.0,
             map_min: Vec3::ZERO,
             map_max: Vec3::ZERO,
             delay_until_frame: 0,
+            authored: None,
         }
     }
 
     /// C++ DISABLED_DEFAULT hold until DelayDeliveryMax elapses.
     pub fn is_hold_for_delay(&self, frame: u32) -> bool {
         self.delay_until_frame > frame
+    }
+
+    pub(crate) fn start_authored_delivery(
+        &mut self,
+        door_delay: u32,
+        drop_delay: u32,
+        max_attempts: i32,
+    ) {
+        self.authored = Some(AuthoredArtilleryDelivery {
+            phase: ArtilleryDeliveryPhase::Approach,
+            door_delay,
+            drop_delay,
+            attempts_left: max_attempts.max(0),
+        });
+    }
+
+    pub(crate) fn is_authored_delivery(&self) -> bool {
+        self.authored.is_some()
     }
 
     pub fn map_extent_ok(&self) -> bool {
@@ -98,16 +148,94 @@ impl HostArtilleryBarrageFlightData {
         )
     }
 
-    /// C++ Approach/Delivering toward moveToPos, then HeadOffMap HUGE_DIST.
-    /// Returns (new_pos, vel, off_map / CLEAN_UP).
-    pub fn tick_transport(&mut self, pos: Vec3) -> (Vec3, Vec3, bool) {
-        use crate::game_logic::host_deliver_payload::{
-            RESIDUAL_MAP_EXTENT_MAX_X, RESIDUAL_MAP_EXTENT_MAX_Z, RESIDUAL_MAP_EXTENT_MIN_X,
-            RESIDUAL_MAP_EXTENT_MIN_Z, head_off_map_exit_point_residual, is_off_map_residual,
+    /// DeliverPayloadAIUpdate.cpp:581–703, 893–985, 1115–1148.
+    /// State entry runs on the transition frame. Its first update runs on the
+    /// next frame, and a nonzero countdown consumes that whole update.
+    pub(crate) fn advance_delivery(
+        &mut self,
+        pos: Vec3,
+        heading: f32,
+        maximum_speed: f32,
+        maximum_turn_rate: f32,
+    ) -> ArtilleryDeliveryEvent {
+        use ArtilleryDeliveryEvent as Event;
+        use ArtilleryDeliveryPhase as Phase;
+
+        let Some(phase) = self.authored.as_ref().map(|state| state.phase) else {
+            return if self.payload.is_none() && self.self_destruct_on_departure {
+                Event::Depart
+            } else if self.payload.is_some() && self.in_delivery_band(pos) {
+                Event::Release
+            } else {
+                Event::Continue
+            };
         };
-        let hx = self.target.x - self.launch.x;
-        let hz = self.target.z - self.launch.z;
-        let (min_x, min_z, max_x, max_z) = if self.map_extent_ok() {
+        match phase {
+            Phase::Approach if self.in_delivery_band(pos) => {
+                let state = self.authored.as_mut().expect("authored delivery");
+                state.phase = Phase::Delivering {
+                    frames_left: state.door_delay,
+                };
+                Event::OpenDoor
+            }
+            Phase::Delivering { frames_left } if frames_left > 0 => {
+                self.authored.as_mut().expect("authored delivery").phase = Phase::Delivering {
+                    frames_left: frames_left - 1,
+                };
+                Event::Continue
+            }
+            Phase::Delivering { .. } => {
+                let in_band = self.in_delivery_band(pos);
+                let state = self.authored.as_mut().expect("authored delivery");
+                if in_band && self.payload.is_some() {
+                    state.phase = Phase::Delivering {
+                        frames_left: state.drop_delay,
+                    };
+                    return Event::Release;
+                }
+                let (sin, cos) = heading.sin_cos();
+                if !in_band && state.attempts_left > 0 {
+                    state.attempts_left -= 1;
+                    // calcMinTurnRadius uses speed and radians in the same time units.
+                    let turn_radius = if maximum_turn_rate > 0.0 {
+                        maximum_speed / maximum_turn_rate
+                    } else {
+                        999_999.0
+                    };
+                    state.phase = Phase::Reapproach {
+                        destination: pos + Vec3::new(cos, 0.0, sin) * (2.2 * turn_radius),
+                    };
+                    return Event::CloseDoor;
+                }
+                let (min_x, min_z, max_x, max_z) = self.map_edges();
+                let destination =
+                    head_off_map_exit_point_residual(pos, cos, sin, min_x, min_z, max_x, max_z);
+                self.authored.as_mut().expect("authored delivery").phase =
+                    Phase::HeadOffMap { destination };
+                Event::Depart
+            }
+            Phase::Reapproach { destination } => {
+                // This carrier's movement stops at its waypoint. Enter the
+                // next Approach without updating it a second time this frame.
+                let offset = destination - pos;
+                if offset.x * offset.x + offset.z * offset.z < 1.0 {
+                    self.authored.as_mut().expect("authored delivery").phase = Phase::Approach;
+                }
+                Event::Continue
+            }
+            Phase::Approach | Phase::HeadOffMap { .. } => Event::Continue,
+        }
+    }
+
+    pub(crate) fn may_release_payload(&self) -> bool {
+        self.payload.is_some()
+            && !self.authored.as_ref().is_some_and(|state| {
+                matches!(state.phase, ArtilleryDeliveryPhase::HeadOffMap { .. })
+            })
+    }
+
+    fn map_edges(&self) -> (f32, f32, f32, f32) {
+        if self.map_extent_ok() {
             (
                 self.map_min.x,
                 self.map_min.z,
@@ -121,11 +249,32 @@ impl HostArtilleryBarrageFlightData {
                 RESIDUAL_MAP_EXTENT_MAX_X,
                 RESIDUAL_MAP_EXTENT_MAX_Z,
             )
-        };
-        let dest = if self.payload.is_none() {
-            head_off_map_exit_point_residual(pos, hx, hz, min_x, min_z, max_x, max_z)
-        } else {
-            self.target
+        }
+    }
+
+    /// Movement toward the current order, or past the edge while departing.
+    /// Returns (new_pos, vel, off_map / CLEAN_UP).
+    pub fn tick_transport(&self, pos: Vec3) -> (Vec3, Vec3, bool) {
+        let (min_x, min_z, max_x, max_z) = self.map_edges();
+        let (dest, departing) = match self.authored.as_ref().map(|state| state.phase) {
+            Some(ArtilleryDeliveryPhase::Reapproach { destination }) => (destination, false),
+            Some(ArtilleryDeliveryPhase::HeadOffMap { destination }) => (destination, true),
+            None if self.payload.is_none() => {
+                let direction = self.target - self.launch;
+                (
+                    head_off_map_exit_point_residual(
+                        pos,
+                        direction.x,
+                        direction.z,
+                        min_x,
+                        min_z,
+                        max_x,
+                        max_z,
+                    ),
+                    true,
+                )
+            }
+            _ => (self.target, false),
         };
         let dx = dest.x - pos.x;
         let dz = dest.z - pos.z;
@@ -140,8 +289,7 @@ impl HostArtilleryBarrageFlightData {
         } else {
             Vec3::ZERO
         };
-        let at_exit =
-            self.payload.is_none() && is_off_map_residual(new_pos, min_x, min_z, max_x, max_z);
+        let at_exit = departing && is_off_map_residual(pos, min_x, min_z, max_x, max_z);
         (new_pos, vel, at_exit)
     }
 }
@@ -214,5 +362,48 @@ mod tests {
             !data.in_delivery_band(Vec3::new(500.0 - 251.0, 130.0, 0.0)),
             "251wu outside the authored 250 DeliveryDistance band must not deliver"
         );
+    }
+    #[test]
+    fn a_missed_delivery_reopens_once_before_leaving_with_its_payload() {
+        use ArtilleryDeliveryEvent as Event;
+
+        let mut flight = HostArtilleryBarrageFlightData::start(
+            Vec3::ZERO,
+            Vec3::ZERO,
+            ArtilleryBarrageScienceTier::Level1,
+        );
+        flight.delivery_distance = 100.0;
+        flight.pre_open_distance = 0.0;
+        flight.start_authored_delivery(0, 0, 1);
+        let in_range = Vec3::new(40.0, 0.0, 0.0);
+        let outside = Vec3::new(101.0, 0.0, 0.0);
+        let retry_point = outside + Vec3::X * 22.0;
+        assert_eq!(
+            flight.advance_delivery(in_range, 0.0, 10.0, 1.0),
+            Event::OpenDoor
+        );
+        assert_eq!(
+            flight.advance_delivery(outside, 0.0, 10.0, 1.0),
+            Event::CloseDoor
+        );
+        assert!(flight.may_release_payload());
+        let (next, _, _) = flight.tick_transport(outside);
+        assert!(
+            next.x > outside.x,
+            "retry moves forward to make room to turn"
+        );
+        assert_eq!(
+            flight.advance_delivery(retry_point, 0.0, 10.0, 1.0),
+            Event::Continue
+        );
+        assert_eq!(
+            flight.advance_delivery(in_range, 0.0, 10.0, 1.0),
+            Event::OpenDoor
+        );
+        assert_eq!(
+            flight.advance_delivery(outside, 0.0, 10.0, 1.0),
+            Event::Depart
+        );
+        assert!(!flight.may_release_payload());
     }
 }

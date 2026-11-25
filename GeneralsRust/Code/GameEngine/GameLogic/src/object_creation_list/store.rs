@@ -906,6 +906,20 @@ fn parse_duration_to_frames(value: &str) -> Option<u32> {
         .map(|ms| ((ms * 30.0) / 1000.0).round().max(0.0) as u32)
 }
 
+// The original DeliverPayload fields use INI::parseDurationUnsignedInt,
+// including its ceiling to whole logic frames. Retain the explicit frame
+// notation supported by the receiving INI reader.
+fn parse_delivery_duration_to_frames(value: &str) -> Option<u32> {
+    let token = value.split_whitespace().next()?;
+    let duration = game_engine::common::ini::INI::parse_duration_unsigned_int(token);
+    duration.ok().or_else(|| {
+        let token = token.to_ascii_lowercase();
+        (token.ends_with("frames") || token.ends_with("frame") || token.ends_with('f'))
+            .then(|| parse_duration_to_frames(&token))
+            .flatten()
+    })
+}
+
 fn parse_color_rgba(value: &str) -> Option<u32> {
     if let Ok(raw) = value.trim().parse::<u32>() {
         return Some(raw);
@@ -1068,7 +1082,7 @@ fn apply_delivery_property(
             }
         }
         "DELAYDELIVERYMAX" => {
-            if let Some(frames) = parse_duration_to_frames(value) {
+            if let Some(frames) = parse_delivery_duration_to_frames(value) {
                 nugget.delay_delivery_frames_max = frames;
             }
         }
@@ -1096,7 +1110,7 @@ fn apply_delivery_property(
         "DROPOFFSET" => nugget.data.drop_offset = parse_coord3d_value(value),
         "DROPVARIANCE" => nugget.data.drop_variance = parse_coord3d_value(value),
         "DROPDELAY" => {
-            if let Some(frames) = parse_duration_to_frames(value) {
+            if let Some(frames) = parse_delivery_duration_to_frames(value) {
                 nugget.data.drop_delay = frames;
             }
         }
@@ -2067,6 +2081,14 @@ End
         assert_eq!(parse_duration_to_frames("1s"), Some(30));
         assert_eq!(parse_duration_to_frames("500ms"), Some(15));
         assert_eq!(parse_duration_to_frames("10frames"), Some(10));
+    }
+
+    #[test]
+    fn delivery_durations_round_up_to_logic_frames() {
+        assert_eq!(parse_delivery_duration_to_frames("1"), Some(1));
+        assert_eq!(parse_delivery_duration_to_frames("170"), Some(6));
+        assert_eq!(parse_delivery_duration_to_frames("1000"), Some(30));
+        assert_eq!(parse_delivery_duration_to_frames("6frames"), Some(6));
     }
 
     #[test]

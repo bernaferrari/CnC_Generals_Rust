@@ -2,7 +2,8 @@
 
 use super::*;
 use crate::game_logic::host_artillery_barrage_flight::{
-    ArtilleryPayload, HostArtilleryBarrageFlightData, VisibleArtilleryPayload,
+    ArtilleryDeliveryEvent, ArtilleryPayload, HostArtilleryBarrageFlightData,
+    VisibleArtilleryPayload,
 };
 use crate::game_logic::host_spectre_gunship_deployment::find_farthest_edge_point_residual;
 use crate::game_logic::special_power_strikes::{
@@ -12,7 +13,12 @@ use crate::game_logic::special_power_strikes::{
     ArtilleryBarrageScienceTier,
 };
 use game_engine::common::game_common::SECONDS_PER_LOGICFRAME_REAL;
+use gamelogic::object::update::ai_update::DeliverPayloadAIUpdateModuleData;
 use gamelogic::object_creation_list::DeliverPayloadNugget;
+
+use crate::game_logic::host_enum_table_residual::{
+    door_1_closing_model_bit, door_1_opening_model_bit,
+};
 
 impl GameLogic {
     pub fn spawn_artillery_barrage_flight(
@@ -170,13 +176,24 @@ impl GameLogic {
             data.map_max = self.world_max;
             data.delivery_distance = distance;
             data.pre_open_distance = definition.map_or(0.0, |n| n.data.pre_open_distance);
-            if definition.is_some() {
+            if let Some(nugget) = definition {
+                let door_delay = object
+                    .get_template()
+                    .authored_module_data::<DeliverPayloadAIUpdateModuleData>(
+                        "DeliverPayloadAIUpdate",
+                    )
+                    .map_or(0, |module| module.door_delay);
+                data.start_authored_delivery(
+                    door_delay,
+                    nugget.data.drop_delay,
+                    nugget.data.max_attempts,
+                );
                 data.speed_per_frame =
                     object.selected_locomotor_definition.map_or(0.0, |binding| {
                         binding.movement.max_speed * SECONDS_PER_LOGICFRAME_REAL
                     });
             }
-            data.self_destruct_after_release =
+            data.self_destruct_on_departure =
                 definition.is_some_and(|n| n.data.self_destruct_object);
             if max_delay > 0 {
                 let delay = self
@@ -236,28 +253,59 @@ impl GameLogic {
             let position = object.get_position();
             let generation = object.visual_object_generation;
             let epoch = self.visual_world_epoch;
+            let heading = object.get_orientation();
+            let maximum_speed = object.effective_max_speed();
+            let maximum_turn_rate = object.effective_turn_rate();
             let Some(data) = object.artillery_barrage_transport.as_mut() else {
                 continue;
             };
             let strike = data.strike_id;
-            if data.payload.is_none() && data.self_destruct_after_release {
-                self.mark_object_for_destruction_with_effects(id, None, effects);
+            if data.is_hold_for_delay(self.frame) {
+                if data.may_release_payload() {
+                    pending.extend(strike);
+                }
                 continue;
             }
-            if data.payload.is_some() {
-                if data.is_hold_for_delay(self.frame) || !data.in_delivery_band(position) {
-                    pending.extend(strike);
-                } else if let Some(payload) = data.payload.take() {
-                    let aim = data.aim;
+            let event = data.advance_delivery(position, heading, maximum_speed, maximum_turn_rate);
+            let authored = data.is_authored_delivery();
+            let self_destruct = data.self_destruct_on_departure;
+            if event == ArtilleryDeliveryEvent::Release {
+                let payload = data.payload.take().expect("pending payload on release");
+                let aim = data.aim;
+                if !authored {
                     object.kill_delivery_radius_decal();
-                    if let Some(shell) =
-                        self.release_artillery_payload(id, aim, payload, effects)?
+                }
+                if let Some(shell) = self.release_artillery_payload(id, aim, payload, effects)? {
+                    self.artillery_barrage_flight_reg.record_drop();
+                    if let Some(strike) = strike {
+                        self.special_power_strikes
+                            .track_artillery_projectile(strike, shell);
+                    }
+                }
+            } else {
+                if data.may_release_payload() {
+                    pending.extend(strike);
+                }
+                let opening = 1u128 << door_1_opening_model_bit();
+                let closing = 1u128 << door_1_closing_model_bit();
+                match event {
+                    ArtilleryDeliveryEvent::OpenDoor => {
+                        object.model_condition_bits =
+                            (object.model_condition_bits & !closing) | opening;
+                    }
+                    ArtilleryDeliveryEvent::CloseDoor | ArtilleryDeliveryEvent::Depart
+                        if authored =>
                     {
-                        self.artillery_barrage_flight_reg.record_drop();
-                        if let Some(strike) = strike {
-                            self.special_power_strikes
-                                .track_artillery_projectile(strike, shell);
-                        }
+                        object.model_condition_bits =
+                            (object.model_condition_bits & !opening) | closing;
+                    }
+                    _ => {}
+                }
+                if event == ArtilleryDeliveryEvent::Depart {
+                    object.kill_delivery_radius_decal();
+                    if self_destruct {
+                        self.destroy_object_with_effects(id, effects)?;
+                        continue;
                     }
                 }
             }
@@ -266,13 +314,16 @@ impl GameLogic {
             }
             let Some(data) = self
                 .objects
-                .get_mut(&id)
-                .and_then(|object| object.artillery_barrage_transport.as_mut())
-                .filter(|data| !data.is_hold_for_delay(self.frame))
+                .get(&id)
+                .and_then(|object| object.artillery_barrage_transport.as_ref())
             else {
                 continue;
             };
             let (next, velocity, at_exit) = data.tick_transport(position);
+            if at_exit && (!authored || event != ArtilleryDeliveryEvent::Depart) {
+                self.destroy_object_with_effects(id, effects)?;
+                continue;
+            }
             if !self.set_owned_object_position_with_effects(id, next, self.frame, effects)
                 || !self.spawn_identity_matches(id, generation, epoch)
             {
@@ -286,9 +337,6 @@ impl GameLogic {
                         &mut self.partition_manager,
                     );
                 }
-            }
-            if at_exit {
-                self.mark_object_for_destruction_with_effects(id, None, effects);
             }
         }
         if self.receiving_module_content.is_none() {

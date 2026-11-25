@@ -5,6 +5,10 @@ use crate::save_load::snapshot::{Snapshot, WorldSnapshot};
 use crate::save_load::{SnapshotBuilder, Xfer, XferLoad, XferSave};
 
 fn world() -> GameLogic {
+    world_with_delays(0, 0)
+}
+
+fn world_with_delays(door_delay_ms: u32, drop_delay_ms: u32) -> GameLogic {
     use crate::assets::ini_template_loader::{
         WeaponDefinitionLoadType, parse_weapon_definitions_ini_into,
     };
@@ -33,7 +37,8 @@ End",
     world
         .admit_object_ini_sources([(
             "artillery-delivery.ini".into(),
-            "
+            format!(
+                "
 Object TestArtilleryCaster
  KindOf = STRUCTURE
  Behavior = OCLSpecialPower Artillery
@@ -45,6 +50,9 @@ End
 Object TestArtilleryCarrier
  KindOf = AIRCRAFT VEHICLE
  Locomotor = SET_NORMAL TestArtilleryCarrierFlight
+ Behavior = DeliverPayloadAIUpdate Delivery
+  DoorDelay = {door_delay_ms}
+ End
  Draw = W3DModelDraw CarrierDraw
   DefaultConditionState
    Model = TestCarrier
@@ -81,7 +89,7 @@ Object TestArtilleryVictim
  End
 End
 "
-            .into(),
+            ),
         )])
         .unwrap();
     let mut weapons = Default::default();
@@ -105,13 +113,15 @@ End
         .admit_receiving_weapon_snapshot(weapons.into_iter().collect())
         .unwrap();
     world
-        .admit_object_creation_list_sources(["
+        .admit_object_creation_list_sources([format!(
+            "
 ObjectCreationList TestArtilleryDelivery
  DeliverPayload
   Transport = TestArtilleryCarrier
   FormationSize = 1
   StartAtPreferredHeight = No
   DeliveryDistance = 100
+  DropDelay = {drop_delay_ms}
   VisiblePayloadTemplateName = TestArtilleryShell
   VisiblePayloadWeaponTemplate = TestArtilleryWarhead
   VisibleSubObjectBaseName = Bomb
@@ -121,7 +131,7 @@ ObjectCreationList TestArtilleryDelivery
  End
 End
 "
-        .into()])
+        )])
         .unwrap();
     world.add_player(Player::new(1, Team::China, "Owner", true));
     world.add_player(Player::new(2, Team::GLA, "Target", false));
@@ -239,4 +249,70 @@ fn authored_artillery_release_follows_carrier_through_save_load_and_destruction(
     assert_eq!(result.multi_strike_applied, 1);
     assert_eq!(restored.artillery_barrage_flight_reg.shells_dropped, 1);
     assert!(result.total_damage_applied <= 105.0);
+}
+
+#[test]
+fn authored_delivery_waits_for_the_door_and_drop_interval_across_save() {
+    use crate::game_logic::host_enum_table_residual::{
+        door_1_closing_model_bit, door_1_opening_model_bit,
+    };
+
+    let aim = Vec3::new(80.0, 0.0, 50.0);
+    let mut source = world_with_delays(70, 170);
+    let (_, carrier, _) = activate(&mut source, aim);
+    source.set_fixture_object_position(carrier, aim + Vec3::new(40.0, 300.0, 0.0));
+
+    let opening = 1u128 << door_1_opening_model_bit();
+    let closing = 1u128 << door_1_closing_model_bit();
+    source.frame = 60;
+    source.update_artillery_barrage_flights().unwrap();
+    assert_eq!(
+        source.objects[&carrier].model_condition_bits & (opening | closing),
+        opening
+    );
+    assert!(
+        source.combat_system.get_projectiles().is_empty(),
+        "Approach only enters Delivering"
+    );
+
+    source.frame = 61;
+    source.update_artillery_barrage_flights().unwrap();
+    let builder = SnapshotBuilder::new();
+    let mut snapshot = builder.create_world_snapshot(&source).unwrap();
+    let mut bytes = std::io::Cursor::new(Vec::new());
+    snapshot.xfer(&mut XferSave::new(&mut bytes)).unwrap();
+    let mut saved = WorldSnapshot::default();
+    saved
+        .xfer(&mut XferLoad::new(std::io::Cursor::new(bytes.into_inner())))
+        .unwrap();
+    let mut restored = world_with_delays(70, 170);
+    builder
+        .restore_from_snapshot(&saved, &mut restored)
+        .unwrap();
+
+    for frame in 62..=71 {
+        for world in [&mut source, &mut restored] {
+            world.frame = frame;
+            world.update_artillery_barrage_flights().unwrap();
+            let object = &world.objects[&carrier];
+            assert_eq!(
+                world.combat_system.get_projectiles().len(),
+                usize::from(frame >= 64),
+                "release on frame 64 after three waiting updates"
+            );
+            assert_eq!(
+                object.model_condition_bits & (opening | closing),
+                if frame < 71 { opening } else { closing },
+                "door on frame {frame}"
+            );
+            assert_eq!(object.is_alive(), frame < 71, "carrier on frame {frame}");
+            assert!(
+                !object.status.on_die_started,
+                "HeadOffMap destroys the carrier directly"
+            );
+        }
+    }
+    restored.process_destroy_list();
+    assert!(!restored.objects.contains_key(&carrier));
+    assert_eq!(restored.combat_system.get_projectiles().len(), 1);
 }
