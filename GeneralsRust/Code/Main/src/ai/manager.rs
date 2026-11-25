@@ -1385,21 +1385,23 @@ mod aidata_owner_tests {
             return;
         }
 
-        let _common = game_engine::common::common_services::CommonServicesScope::new();
+        let mut foreign = RestoreCommonStore::foreign_sentinel();
         let process_store = ini_ai_data::process_lifetime_ai_data_store();
         assert!(Arc::ptr_eq(&ini_ai_data::get_ai_data_store(), &process_store));
+
         let mut first = crate::game_logic::GameLogic::new();
-        // The test thread's first world resolves its engine publication (the
-        // lazily published test engine, C++ TheAI of this process): publishing
-        // an engine installs that engine's own AIData store as the Common
-        // parser target (005e250b9). That store, not the engine-lifetime one, is
-        // the selector the rest of the test must see unchanged.
-        let selector = ini_ai_data::get_ai_data_store();
         assert!(
-            !Arc::ptr_eq(&selector, &process_store),
-            "a published engine owns its AIData snapshot"
+            Arc::ptr_eq(&ini_ai_data::get_ai_data_store(), &process_store),
+            "constructing a match leaves the fallback selector in place"
         );
+
+        foreign.activate();
+        let selector = Arc::clone(&foreign.installed);
         let mut second = crate::game_logic::GameLogic::new();
+        assert!(
+            Arc::ptr_eq(&ini_ai_data::get_ai_data_store(), &selector),
+            "constructing a match leaves a foreign selector in place"
+        );
 
         fn write_catalog(
             world: &mut crate::game_logic::GameLogic,
@@ -1462,40 +1464,22 @@ mod aidata_owner_tests {
             (23.0, 29.0),
         );
 
-        // Construction is inert; a newly constructed world never becomes the
-        // Common AI parser target (the engine's selector is unchanged);
-        // definitions stay explicitly owned by each world.
-        assert!(Arc::ptr_eq(
-            &ini_ai_data::get_ai_data_store(),
-            &selector
-        ));
+        assert!(Arc::ptr_eq(&ini_ai_data::get_ai_data_store(), &selector));
         assert_catalog(&first, 81.0, 0.61, false, "FirstWarFactory", (13.0, 17.0));
         assert_catalog(&second, 147.0, 0.83, true, "SecondWarFactory", (23.0, 29.0));
 
         second.reset();
-        assert!(Arc::ptr_eq(
-            &ini_ai_data::get_ai_data_store(),
-            &selector
-        ));
+        assert!(Arc::ptr_eq(&ini_ai_data::get_ai_data_store(), &selector));
         first.reset();
-        assert!(Arc::ptr_eq(
-            &ini_ai_data::get_ai_data_store(),
-            &selector
-        ));
+        assert!(Arc::ptr_eq(&ini_ai_data::get_ai_data_store(), &selector));
         // Reset clears simulation state but retains both worlds' definition data.
         assert_catalog(&first, 81.0, 0.61, false, "FirstWarFactory", (13.0, 17.0));
         assert_catalog(&second, 147.0, 0.83, true, "SecondWarFactory", (23.0, 29.0));
 
-        drop(second); // buried active entry is removed; first remains the head
-        assert!(Arc::ptr_eq(
-            &ini_ai_data::get_ai_data_store(),
-            &selector
-        ));
-        drop(first); // Main never changed the parser target
-        assert!(Arc::ptr_eq(
-            &ini_ai_data::get_ai_data_store(),
-            &selector
-        ));
+        drop(second);
+        assert!(Arc::ptr_eq(&ini_ai_data::get_ai_data_store(), &selector));
+        drop(first);
+        assert!(Arc::ptr_eq(&ini_ai_data::get_ai_data_store(), &selector));
     }
 
     #[test]
