@@ -6,15 +6,18 @@
 //! and upgrades, without replaying grants.
 //! Pulse phase and rate are restored together, as in StealthUpdate::xfer.
 
+use super::ObjectSnapshot;
 use crate::game_logic::{GameLogic, ObjectId};
 use crate::save_load::{SaveLoadError, SaveLoadResult};
+use bincode_legacy::Options;
 use serde::{Deserialize, Serialize};
+use std::collections::{HashMap, HashSet};
 
 const STLG_MAGIC: &[u8; 4] = b"STLG";
 const STLG_VERSION: u32 = 3;
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
-struct StealthGrantPersistPayload {
+pub(super) struct StealthGrantPersistPayload {
     objects: Vec<StealthGrantPersist>,
 }
 
@@ -43,42 +46,41 @@ pub fn append_to_lifecycle_tail(bytes: &mut Vec<u8>, game_logic: &GameLogic) {
     bytes.extend_from_slice(&encoded);
 }
 
-pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> SaveLoadResult<()> {
-    reset_stealth_grant(game_logic);
-    let Some(suffix) = find_stlg_suffix(bytes) else {
-        return Ok(());
+pub(super) fn prepare(
+    bytes: &[u8],
+    objects: &HashMap<ObjectId, ObjectSnapshot>,
+) -> SaveLoadResult<Option<StealthGrantPersistPayload>> {
+    let Some(range) = super::hotkey_squad_persist::find_lifecycle_record(bytes, STLG_MAGIC)? else {
+        return Ok(None);
     };
-    let mut rest = suffix;
-    let version = take_u32(&mut rest)?;
+    let record = &bytes[range];
+    let version = u32::from_le_bytes(record[4..8].try_into().unwrap());
     if version != STLG_VERSION {
         return Err(SaveLoadError::Corrupted(format!(
             "unknown STLG suffix version {version}"
         )));
     }
-    let payload_len = take_u32(&mut rest)? as usize;
-    if rest.len() < payload_len {
+
+    let payload: StealthGrantPersistPayload = bincode_legacy::DefaultOptions::new()
+        .deserialize(&record[12..])
+        .map_err(|err| SaveLoadError::Corrupted(format!("STLG payload decode: {err}")))?;
+    let mut seen = HashSet::with_capacity(objects.len());
+    if payload.objects.len() != objects.len()
+        || payload.objects.iter().any(|entry| {
+            let id = ObjectId(entry.object_id);
+            !objects.contains_key(&id) || !seen.insert(id)
+        })
+    {
         return Err(SaveLoadError::Corrupted(
-            "STLG payload truncated".to_string(),
+            "STLG roster does not match world objects".into(),
         ));
     }
-    let payload: StealthGrantPersistPayload = bincode_legacy::deserialize(&rest[..payload_len])
-        .map_err(|err| SaveLoadError::Corrupted(format!("STLG payload decode: {err}")))?;
-    apply_payload(game_logic, payload);
-    Ok(())
+    Ok(Some(payload))
 }
 
 fn capture(game_logic: &GameLogic) -> StealthGrantPersistPayload {
-    let mut object_ids: Vec<ObjectId> = game_logic
-        .host_objects()
-        .registered_keys()
-        .copied()
-        .collect();
-    object_ids.sort();
-    let mut objects = Vec::new();
-    for id in object_ids {
-        let Some(object) = game_logic.host_object(id) else {
-            continue;
-        };
+    let mut objects = Vec::with_capacity(game_logic.host_objects().registered_len());
+    for (id, object) in game_logic.host_objects().registered() {
         // False values must override constructor and upgrade side effects.
         objects.push(StealthGrantPersist {
             object_id: id.0,
@@ -90,23 +92,17 @@ fn capture(game_logic: &GameLogic) -> StealthGrantPersistPayload {
             pulse_phase: object.camo_opacity_pulse_phase,
         });
     }
+    objects.sort_unstable_by_key(|entry| entry.object_id);
     StealthGrantPersistPayload { objects }
 }
 
-fn reset_stealth_grant(game_logic: &mut GameLogic) {
-    let ids: Vec<ObjectId> = game_logic
-        .host_objects()
-        .registered_keys()
-        .copied()
-        .collect();
-    for id in ids {
-        if let Some(object) = game_logic.host_objects_mut().get_mut(&id) {
+pub(super) fn apply(payload: Option<StealthGrantPersistPayload>, game_logic: &mut GameLogic) {
+    let Some(payload) = payload else {
+        for object in game_logic.host_objects_mut().registered_values_mut() {
             object.stealth_frames_granted = 0;
         }
-    }
-}
-
-fn apply_payload(game_logic: &mut GameLogic, payload: StealthGrantPersistPayload) {
+        return;
+    };
     for entry in payload.objects {
         let Some(object) = game_logic.host_object_mut(ObjectId(entry.object_id)) else {
             continue;
@@ -120,24 +116,8 @@ fn apply_payload(game_logic: &mut GameLogic, payload: StealthGrantPersistPayload
     }
 }
 
-fn find_stlg_suffix(bytes: &[u8]) -> Option<&[u8]> {
-    bytes
-        .windows(4)
-        .rposition(|window| window == STLG_MAGIC)
-        .map(|idx| &bytes[idx + 4..])
-}
-
 fn append_u32(out: &mut Vec<u8>, value: u32) {
     out.extend_from_slice(&value.to_le_bytes());
-}
-
-fn take_u32(rest: &mut &[u8]) -> SaveLoadResult<u32> {
-    if rest.len() < 4 {
-        return Err(SaveLoadError::Corrupted("STLG u32 truncated".to_string()));
-    }
-    let (head, tail) = rest.split_at(4);
-    *rest = tail;
-    Ok(u32::from_le_bytes([head[0], head[1], head[2], head[3]]))
 }
 
 #[cfg(test)]
@@ -165,7 +145,9 @@ mod tests {
         let builder = super::super::SnapshotBuilder::new();
         let snapshot = builder.create_world_snapshot(&source).expect("snapshot");
         assert!(
-            find_stlg_suffix(&snapshot.lifecycle_tail).is_some(),
+            prepare(&snapshot.lifecycle_tail, &snapshot.objects)
+                .unwrap()
+                .is_some(),
             "STLG suffix must be appended to lifecycle tail"
         );
 
@@ -199,10 +181,19 @@ mod tests {
         });
         source.templates.insert("Granted".into(), special);
         source.add_player(Player::new(0, Team::GLA, "GLA", true));
-        let revoked = source.create_object("Innate", Team::GLA, Vec3::ZERO).unwrap();
-        let granted = source.create_object("Granted", Team::GLA, Vec3::ZERO).unwrap();
-        let sleeping = source.create_object("Granted", Team::GLA, Vec3::ZERO).unwrap();
-        source.host_object_mut(revoked).unwrap().revoke_grant_stealth();
+        let revoked = source
+            .create_object("Innate", Team::GLA, Vec3::ZERO)
+            .unwrap();
+        let granted = source
+            .create_object("Granted", Team::GLA, Vec3::ZERO)
+            .unwrap();
+        let sleeping = source
+            .create_object("Granted", Team::GLA, Vec3::ZERO)
+            .unwrap();
+        source
+            .host_object_mut(revoked)
+            .unwrap()
+            .revoke_grant_stealth();
         let object = source.host_object_mut(granted).unwrap();
         object.apply_grant_stealth(0);
         object.set_status_stealthed(false);
@@ -214,10 +205,15 @@ mod tests {
         let mut restored = GameLogic::new();
         restored.templates = source.templates.clone();
         restored.add_player(Player::new(0, Team::GLA, "GLA", true));
-        builder.restore_from_snapshot(&snapshot, &mut restored).unwrap();
+        builder
+            .restore_from_snapshot(&snapshot, &mut restored)
+            .unwrap();
 
         let object = restored.host_object(revoked).unwrap();
-        assert!(!object.innate_stealth, "revocation overrides innate constructor");
+        assert!(
+            !object.innate_stealth,
+            "revocation overrides innate constructor"
+        );
         assert!(!object.stealth_update_enabled);
         let object = restored.host_object(granted).unwrap();
         assert!(object.innate_stealth, "grant survives while revealed");
@@ -245,6 +241,53 @@ mod tests {
     }
 
     #[test]
+    fn duplicate_grant_owner_rejects_before_restore_changes_live_objects() {
+        let mut world = GameLogic::new();
+        world
+            .templates
+            .insert("Worker".into(), ThingTemplate::new("Worker"));
+        world.add_player(Player::new(0, Team::GLA, "GLA", true));
+        let first = world
+            .create_object("Worker", Team::GLA, Vec3::ZERO)
+            .unwrap();
+        let second = world.create_object("Worker", Team::GLA, Vec3::X).unwrap();
+        let builder = super::super::SnapshotBuilder::new();
+        let mut snapshot = builder.create_world_snapshot(&world).unwrap();
+        let range = super::super::hotkey_squad_persist::find_lifecycle_record(
+            &snapshot.lifecycle_tail,
+            STLG_MAGIC,
+        )
+        .unwrap()
+        .unwrap();
+        let mut payload = prepare(&snapshot.lifecycle_tail, &snapshot.objects)
+            .unwrap()
+            .unwrap();
+        payload.objects[1].object_id = payload.objects[0].object_id;
+        let bytes = bincode_legacy::serialize(&payload).unwrap();
+        snapshot.lifecycle_tail[range.start + 12..range.end].copy_from_slice(&bytes);
+
+        world.host_object_mut(first).unwrap().stealth_frames_granted = 900;
+        world
+            .host_object_mut(second)
+            .unwrap()
+            .stealth_frames_granted = 600;
+        let error = builder
+            .restore_from_snapshot(&snapshot, &mut world)
+            .unwrap_err();
+        assert!(
+            matches!(error, SaveLoadError::Corrupted(message) if message.contains("STLG roster"))
+        );
+        assert_eq!(
+            world.host_object(first).unwrap().stealth_frames_granted,
+            900
+        );
+        assert_eq!(
+            world.host_object(second).unwrap().stealth_frames_granted,
+            600
+        );
+    }
+
+    #[test]
     fn absent_suffix_clears_stale_stealth_grant() {
         let mut logic = GameLogic::new();
         logic.templates.insert(
@@ -259,7 +302,8 @@ mod tests {
             let object = logic.host_object_mut(id).expect("worker");
             object.stealth_frames_granted = 600;
         }
-        apply_from_lifecycle_tail(b"no-magic-here", &mut logic).expect("apply");
+        let payload = prepare(b"no-magic-here", &HashMap::new()).unwrap();
+        apply(payload, &mut logic);
         let object = logic.host_object(id).expect("worker");
         assert_eq!(object.stealth_frames_granted, 0);
     }

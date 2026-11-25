@@ -166,7 +166,7 @@ impl Object {
     /// upgrade mask plus `extra`: `setStatus(OBJECT_STATUS_CAN_STEALTH)`; the
     /// StealthUpdate then cloaks once its StealthDelay has passed. Returns
     /// whether a module executed.
-    pub(crate) fn run_authored_stealth_upgrades(&mut self, extra: impl Fn(&str) -> bool) -> bool {
+    pub(crate) fn run_raw_template_stealth_upgrades(&mut self, extra: impl Fn(&str) -> bool) -> bool {
         if !authors_triggered_stealth_upgrade(&self.thing().template, |name| {
             extra(name) || self.has_upgrade_tag(name)
         }) {
@@ -1014,11 +1014,12 @@ mod flag_tests {
 #[cfg(test)]
 mod stealth_upgrade_tests {
     use crate::game_logic::host_upgrades::{UPGRADE_GLA_CAMOUFLAGE, UPGRADE_GLA_CAMO_NETTING};
-    use crate::game_logic::{GameLogic, Team};
+    use crate::game_logic::{GameLogic, Player, Team};
 
     #[test]
     fn stealth_upgrade_module_selects_camo_recipients_not_the_name() {
         let mut world = GameLogic::new();
+        world.add_player(Player::new(0, Team::GLA, "Owner", true));
         world
             .admit_receiving_module_content(
                 crate::assets::ReceivingObjectContent::from_sources([(
@@ -1033,18 +1034,23 @@ mod stealth_upgrade_tests {
                 .unwrap(),
             )
             .unwrap();
-        let sneaker = world.create_object("PlainSneaker", Team::GLA, glam::Vec3::ZERO).unwrap();
-        let bunker = world.create_object("PlainBunker", Team::GLA, glam::Vec3::ZERO).unwrap();
-        let rebel = world.create_object("GLAInfantryRebel", Team::GLA, glam::Vec3::ZERO).unwrap();
+        let sneaker = world.create_object_for_player("PlainSneaker", 0, glam::Vec3::ZERO).unwrap();
+        let bunker = world.create_object_for_player("PlainBunker", 0, glam::Vec3::ZERO).unwrap();
+        let rebel = world.create_object_for_player("GLAInfantryRebel", 0, glam::Vec3::ZERO).unwrap();
 
-        assert!(world.host_object_mut(sneaker).unwrap().run_authored_stealth_upgrades(|n| n == UPGRADE_GLA_CAMOUFLAGE));
-        assert!(!world.host_object_mut(bunker).unwrap().run_authored_stealth_upgrades(|n| n == UPGRADE_GLA_CAMOUFLAGE));
-        assert!(!world.host_object_mut(rebel).unwrap().run_authored_stealth_upgrades(|n| n == UPGRADE_GLA_CAMOUFLAGE));
+        for upgrade in [UPGRADE_GLA_CAMOUFLAGE, UPGRADE_GLA_CAMO_NETTING] {
+            crate::game_logic::host_upgrade_rules::register_test_upgrade(
+                &mut world, upgrade, "OBJECT", 0, 1,
+            );
+        }
+        for id in [sneaker, bunker, rebel] {
+            world.apply_upgrade_to_object(id, UPGRADE_GLA_CAMOUFLAGE);
+        }
         assert!(world.host_object(sneaker).unwrap().innate_stealth);
         assert!(!world.host_object(bunker).unwrap().innate_stealth);
         assert!(!world.host_object(rebel).unwrap().innate_stealth, "the name authors no StealthUpgrade");
 
-        assert!(world.host_object_mut(bunker).unwrap().run_authored_stealth_upgrades(|n| n == UPGRADE_GLA_CAMO_NETTING));
+        world.apply_upgrade_to_object(bunker, UPGRADE_GLA_CAMO_NETTING);
         assert!(world.host_object(bunker).unwrap().innate_stealth);
     }
 }

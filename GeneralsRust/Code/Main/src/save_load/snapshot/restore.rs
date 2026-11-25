@@ -1262,8 +1262,6 @@ impl SnapshotBuilder {
                         .filter(|name| !name.trim().is_empty())
                         .cloned()
                         .collect();
-                    // StealthUpgrade CAN_STEALTH follows the restored upgrade mask.
-                    object.run_authored_stealth_upgrades(|_| false);
                 }
                 ModuleSnapshot::Contain(snapshot) => {
                     // Leftover TransportContain xfer already matches C++

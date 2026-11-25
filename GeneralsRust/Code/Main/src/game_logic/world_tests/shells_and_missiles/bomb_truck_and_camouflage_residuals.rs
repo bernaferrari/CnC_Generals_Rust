@@ -813,7 +813,7 @@ fn camouflage_residual_attack_breaks_and_idle_recloaks() {
         .objects
         .get_mut(&rebel_id)
         .expect("rebel")
-        .run_authored_stealth_upgrades(|name| name == UPGRADE_GLA_CAMOUFLAGE);
+        .run_raw_template_stealth_upgrades(|name| name == UPGRADE_GLA_CAMOUFLAGE);
     assert!(affected, "camouflage StealthUpgrade must affect rebel");
     {
         let _ = game_logic.host_object_mut(rebel_id).expect("rebel");

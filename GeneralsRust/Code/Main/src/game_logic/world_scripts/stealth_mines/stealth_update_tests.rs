@@ -269,19 +269,14 @@ fn stealth_upgrade_grants_can_stealth_to_existing_and_late_built_units() {
     assert!(!world.host_object(early).unwrap().innate_stealth);
     assert!(!stealthed(&world, early), "InnateStealth No waits for the upgrade");
 
-    world
-        .players
-        .get_mut(&0)
-        .unwrap()
-        .add_completed_upgrade("Upgrade_TestCamo");
-    world
-        .apply_player_research_to_object_with_interpreter_checked(
-            early,
-            "Upgrade_TestCamo",
-            None,
-            &mut Default::default(),
-        )
-        .unwrap();
+    crate::game_logic::host_upgrade_rules::register_test_upgrade(
+        &mut world,
+        "Upgrade_TestCamo",
+        "PLAYER",
+        0,
+        1,
+    );
+    world.add_completed_player_upgrade(0, "Upgrade_TestCamo");
     assert!(world.host_object(early).unwrap().innate_stealth, "StealthUpgrade sets CAN_STEALTH");
     tick_to(&mut world, 6);
     assert!(stealthed(&world, early));
@@ -343,12 +338,14 @@ fn stealth_upgrade_grants_only_current_weapon_spawn_roster() {
     let ordinary_child = world.host_object(ordinary).unwrap().spawn_behavior_children()[0].0;
     assert!(!world.host_object(child).unwrap().innate_stealth);
 
-    world.players.get_mut(&0).unwrap().add_completed_upgrade("Upgrade_TestCamo");
-    for id in [nest, ordinary] {
-        world.apply_player_research_to_object_with_interpreter_checked(
-            id, "Upgrade_TestCamo", None, &mut Default::default(),
-        ).unwrap();
-    }
+    crate::game_logic::host_upgrade_rules::register_test_upgrade(
+        &mut world,
+        "Upgrade_TestCamo",
+        "PLAYER",
+        0,
+        1,
+    );
+    world.add_completed_player_upgrade(0, "Upgrade_TestCamo");
     assert!(world.host_object(nest).unwrap().innate_stealth);
     assert!(world.host_object(child).unwrap().innate_stealth);
     assert!(!world.host_object(child).unwrap().status.stealthed, "the upgrade sets CAN_STEALTH only");

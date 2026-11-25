@@ -695,6 +695,8 @@ impl SnapshotBuilder {
         let native_die =
             super::super::native_die_persist::decode(object_layers.legacy_tail.as_ref())?;
         let lifecycle_tail = native_die.legacy_tail.as_ref();
+        let stealth_grants =
+            super::super::stealth_grant_persist::prepare(lifecycle_tail, &snapshot.objects)?;
         let object_continuations =
             super::super::object_xfer_persist::decode_lifecycle_tail(lifecycle_tail)?;
         let native_die_runtimes = super::super::native_die_persist::validate(
@@ -1193,7 +1195,7 @@ impl SnapshotBuilder {
             lifecycle_tail,
             game_logic,
         )?;
-        super::super::stealth_grant_persist::apply_from_lifecycle_tail(lifecycle_tail, game_logic)?;
+        super::super::stealth_grant_persist::apply(stealth_grants, game_logic);
         super::super::weapon_leech_persist::apply_from_lifecycle_tail(lifecycle_tail, game_logic)?;
         super::super::score_keeper_persist::apply_from_lifecycle_tail(lifecycle_tail, game_logic)?;
 

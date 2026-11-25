@@ -2,7 +2,7 @@
 use super::*;
 use gamelogic::object::upgrade::{
     ArmorUpgradeModuleData, CommandSetUpgradeModuleData, ModelConditionUpgradeModuleData,
-    ReplaceObjectUpgradeModuleData, SubObjectsUpgradeModuleData,
+    ReplaceObjectUpgradeModuleData, StealthUpgradeModuleData, SubObjectsUpgradeModuleData,
 };
 
 struct AuthoredObjectCreationUpgrade {
@@ -88,6 +88,17 @@ impl AuthoredArmorUpgrade {
     }
 }
 
+struct AuthoredStealthUpgrade {
+    source_index: usize,
+    data: ModuleDataView<StealthUpgradeModuleData>,
+}
+
+impl AuthoredStealthUpgrade {
+    fn executed_key(&self) -> String {
+        format!("StealthUpgrade#{}", self.source_index)
+    }
+}
+
 struct AuthoredCommandSetUpgrade {
     source_index: usize,
     data: ModuleDataView<CommandSetUpgradeModuleData>,
@@ -133,6 +144,7 @@ enum AuthoredOrderedUpgrade {
     ObjectCreation(AuthoredObjectCreationUpgrade),
     ReplaceObject(AuthoredReplaceObjectUpgrade),
     Armor(AuthoredArmorUpgrade),
+    Stealth(AuthoredStealthUpgrade),
     Visual(AuthoredVisualUpgrade),
     CommandSet(AuthoredCommandSetUpgrade),
     StatusBits(AuthoredStatusBitsUpgrade),
@@ -162,6 +174,7 @@ impl AuthoredOrderedUpgrade {
             Self::ObjectCreation(module) => f(&module.data.read().upgrade_mux_data),
             Self::ReplaceObject(module) => f(&module.data.read().upgrade_mux_data),
             Self::Armor(module) => f(&module.data.read().upgrade_mux_data),
+            Self::Stealth(module) => f(&module.data.read().upgrade_mux_data),
             Self::Visual(module) => match &module.effect {
                 VisualUpgradeEffect::ModelCondition(data) => f(&data.read().upgrade_mux_data),
                 VisualUpgradeEffect::SubObjects(data) => f(&data.read().upgrade_mux_data),
@@ -240,6 +253,13 @@ impl GameLogic {
                     let data = upgrade_data_view::<ArmorUpgradeModuleData>(&module.data)?;
                     return Some(AuthoredOrderedUpgrade::Armor(AuthoredArmorUpgrade {
                         source_index, data,
+                    }));
+                }
+                if module.name.as_str().eq_ignore_ascii_case("StealthUpgrade") {
+                    let data = upgrade_data_view::<StealthUpgradeModuleData>(&module.data)?;
+                    return Some(AuthoredOrderedUpgrade::Stealth(AuthoredStealthUpgrade {
+                        source_index,
+                        data,
                     }));
                 }
                 if module.name.as_str().eq_ignore_ascii_case("CommandSetUpgrade") {
@@ -437,6 +457,10 @@ impl GameLogic {
                     .objects
                     .get(&object_id)
                     .is_some_and(|object| object.applied_upgrades.contains(&module.executed_key())),
+                AuthoredOrderedUpgrade::Stealth(module) => self
+                    .objects
+                    .get(&object_id)
+                    .is_some_and(|object| object.applied_upgrades.contains(&module.executed_key())),
                 AuthoredOrderedUpgrade::CommandSet(module) => self
                     .objects
                     .get(&object_id)
@@ -526,6 +550,10 @@ impl GameLogic {
                             self.upgrade_module_residuals.record_armor_set(upgrade);
                         }
                     }
+                    Ok(())
+                }
+                AuthoredOrderedUpgrade::Stealth(_) => {
+                    self.apply_stealth_upgrade_effect(object_id);
                     Ok(())
                 }
                 AuthoredOrderedUpgrade::CommandSet(module) => {
@@ -753,6 +781,9 @@ impl GameLogic {
                         AuthoredOrderedUpgrade::Armor(module) => {
                             object.applied_upgrades.insert(module.executed_key());
                         }
+                        AuthoredOrderedUpgrade::Stealth(module) => {
+                            object.applied_upgrades.insert(module.executed_key());
+                        }
                         AuthoredOrderedUpgrade::CommandSet(module) => {
                             object.applied_upgrades.insert(module.executed_key());
                         }
@@ -942,6 +973,9 @@ impl GameLogic {
                         }
                         Some(AuthoredOrderedUpgrade::Armor(module)) => {
                             // Reset leaves the ActiveBody's flag and the Drawable's decal.
+                            object.applied_upgrades.remove(&module.executed_key());
+                        }
+                        Some(AuthoredOrderedUpgrade::Stealth(module)) => {
                             object.applied_upgrades.remove(&module.executed_key());
                         }
                         Some(AuthoredOrderedUpgrade::CommandSet(module)) => {
