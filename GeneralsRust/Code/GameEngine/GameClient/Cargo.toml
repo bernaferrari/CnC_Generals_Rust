@@ -73,7 +73,6 @@ raw-window-handle = {workspace = true}
 # Advanced 3D formats and processing
 gltf = {workspace = true, features = ["KHR_lights_punctual", "KHR_materials_transmission"]}
 meshopt = {workspace = true}
-mikktspace = {workspace = true}
 # rend3 = { version = "0.3", optional = true }  # Removed due to wgpu version conflicts
 
 # Modern shader compilation
@@ -124,7 +123,6 @@ slotmap = {workspace = true}
 
 # SIMD optimizations  
 wide = {workspace = true}
-packed_simd_2 = {workspace = true, optional = true}
 
 # Advanced graphics features
 
@@ -239,7 +237,6 @@ compute_shaders = []
 tessellation = []
 gpu_culling = []
 temporal_effects = []
-simd_optimizations = ["packed_simd_2"]
 mesh_optimization = []
 lod_system = []
 

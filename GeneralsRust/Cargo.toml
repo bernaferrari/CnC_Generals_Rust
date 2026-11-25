@@ -146,7 +146,6 @@ image = { version = "0.25.10", features = ["png", "tga", "jpeg", "bmp", "dds"] }
 raw-window-handle = "0.6.2"
 gltf = "1.4.1"
 meshopt = "0.6.2"
-mikktspace = "0.3.0"
 tiff = "0.11.3"
 half = { version = "2.7.1", features = ["bytemuck", "serde"] }
 fontdue = "0.9.4"
@@ -254,7 +253,6 @@ criterion = { version = "0.8.2", features = ["html_reports"] }
 approx = "0.5.1"
 proptest = "1.11.0"
 mockall = "0.15.0"
-packed_simd_2 = "0.3.8"
 
 # Observability (optional GameNetwork)
 metrics = "0.24.6"
