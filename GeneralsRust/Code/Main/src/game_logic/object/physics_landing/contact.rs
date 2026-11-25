@@ -471,9 +471,21 @@ impl Object {
                 // and ~25x retail speed. Only integrate leftover Y / shock here when
                 // the unit is not already path-marching this frame.
                 let v = self.movement.velocity;
-                let marching = self.movement.target_position.is_some()
-                    || !self.movement.path.is_empty()
-                    || (self.locomotor_goal_type == LocoGoalType::Angle && self.min_speed > 0.0);
+                let marching = match self
+                    .artillery_barrage_transport
+                    .as_ref()
+                    .filter(|_| self.is_alive())
+                {
+                    // Delivery owns steering. Physics integrates horizontal
+                    // movement for carriers with an authored wing locomotor.
+                    Some(flight) => !flight.uses_wing_physics(),
+                    None => {
+                        self.movement.target_position.is_some()
+                            || !self.movement.path.is_empty()
+                            || (self.locomotor_goal_type == LocoGoalType::Angle
+                                && self.min_speed > 0.0)
+                    }
+                };
                 let vertical = if self.loco_appearance == LocomotorAppearance::Thrust {
                     v.y / 30.
                 } else {

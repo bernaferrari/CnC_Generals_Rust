@@ -4,6 +4,8 @@
 //! observes the completed pose; it does not select or step another world.
 #![allow(unused_imports, non_snake_case)]
 use super::super::*;
+use crate::game_logic::host_artillery_barrage_flight::HostArtilleryBarrageFlightData;
+
 /// C++ ANGLE minSpeed delegates to this same position kernel. These are
 /// original operation locals, never a temporary canonical AI target/path.
 #[derive(Clone, Copy)]
@@ -412,7 +414,11 @@ impl GameLogic {
             let Some(obj) = self.objects.get(&id) else {
                 continue;
             };
-            if obj.is_disabled()
+            if obj
+                .artillery_barrage_transport
+                .as_ref()
+                .is_some_and(HostArtilleryBarrageFlightData::uses_wing_physics)
+                || obj.is_disabled()
                 || obj.host_skip_dead_locomotor()
                 || obj.is_kind_of(KindOf::Immobile)
             {
@@ -1011,7 +1017,12 @@ impl GameLogic {
                 let Some(obj) = self.objects.get(&id) else {
                     continue;
                 };
-                if obj.is_kind_of(KindOf::Immobile) {
+                if obj
+                    .artillery_barrage_transport
+                    .as_ref()
+                    .is_some_and(HostArtilleryBarrageFlightData::uses_wing_physics)
+                    || obj.is_kind_of(KindOf::Immobile)
+                {
                     continue;
                 }
                 let pos = obj.get_position();

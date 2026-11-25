@@ -179,7 +179,17 @@ impl GameLogic {
             } else {
                 gamelogic::common::INVALID_ID
             });
-            object.set_orientation_with_partition_owner(pose.orient, &mut self.partition_manager);
+            let wing_physics = definition.is_some()
+                && object.loco_appearance == LocomotorAppearance::Wings
+                && object.selected_locomotor_definition.is_some()
+                && object.authors_behavior_module("PhysicsBehavior")
+                && object.authors_behavior_module("DeliverPayloadAIUpdate");
+            let orientation = if wing_physics {
+                -pose.orient
+            } else {
+                pose.orient
+            };
+            object.set_orientation_with_partition_owner(orientation, &mut self.partition_manager);
             let mut data = HostArtilleryBarrageFlightData::start(
                 launch,
                 original_axes(pose.move_to_pos),
@@ -217,6 +227,20 @@ impl GameLogic {
                     .next_int(0, max_delay.min(i32::MAX as u32) as i32)
                     as u32;
                 data.delay_until_frame = self.frame.wrapping_add(delay);
+            }
+            if wing_physics {
+                data.enable_wing_physics();
+                if definition.is_some_and(|n| n.start_at_max_speed) {
+                    // ObjectCreationList.cpp:396–404 queues a motive impulse
+                    // before locomotion. Physics uses distance per logic frame.
+                    let direction = object.unit_direction_vector_2d();
+                    let speed = object.effective_max_speed() * SECONDS_PER_LOGICFRAME_REAL;
+                    let force = speed * object.physics_get_mass();
+                    object.apply_motive_force(
+                        Vec3::new(direction.x, 0.0, direction.y) * force,
+                        self.frame,
+                    );
+                }
             }
             if definition.is_some_and(|n| n.start_at_preferred_height) {
                 let preferred = object.loco_preferred_height;
@@ -282,9 +306,10 @@ impl GameLogic {
             let position = object.get_position();
             let generation = object.visual_object_generation;
             let epoch = self.visual_world_epoch;
-            let heading = object.get_orientation();
+            let orientation = object.get_orientation();
             let maximum_speed = object.effective_max_speed();
             let maximum_turn_rate = object.effective_turn_rate();
+            let arrival_distance = object.host_close_enough_dist();
             let Some(data) = object.artillery_barrage_transport.as_mut() else {
                 continue;
             };
@@ -296,13 +321,19 @@ impl GameLogic {
                 continue;
             }
             let authored = data.is_authored_delivery();
+            let wing_physics = data.uses_wing_physics();
             let map = map.filter(|_| authored);
             let event = data.advance_delivery(ArtilleryFlightFrame {
                 frame: self.frame,
                 position,
-                heading,
+                heading: if wing_physics {
+                    -orientation
+                } else {
+                    orientation
+                },
                 maximum_speed,
                 maximum_turn_rate,
+                arrival_distance,
                 map,
             });
             let recovering = data.is_recovering_off_map();
@@ -358,11 +389,18 @@ impl GameLogic {
                     _ if recovering => continue,
                     _ => {}
                 }
+                if wing_physics && event == ArtilleryDeliveryEvent::CloseDoor {
+                    object.set_allow_invalid_position(true);
+                }
                 if event == ArtilleryDeliveryEvent::Depart {
                     object.kill_delivery_radius_decal();
                     if self_destruct {
                         self.destroy_object_with_effects(id, effects)?;
                         continue;
+                    }
+                    if wing_physics {
+                        object.set_allow_invalid_position(true);
+                        object.set_ultra_accurate(true);
                     }
                 }
             }
@@ -376,11 +414,18 @@ impl GameLogic {
             else {
                 continue;
             };
-            let (next, velocity, at_exit) = data.tick_transport(position, map);
+            let position = self.objects[&id].get_position();
+            let (goal, at_exit) = data.course(position, map);
             if at_exit && (!authored || event != ArtilleryDeliveryEvent::Depart) {
                 self.destroy_object_with_effects(id, effects)?;
                 continue;
             }
+            if wing_physics {
+                self.steer_artillery_wings(id, goal, effects)?;
+                continue;
+            }
+            let next = data.planar_step(position, goal);
+            let velocity = next - position;
             if !self.set_owned_object_position_with_effects(id, next, self.frame, effects)
                 || !self.spawn_identity_matches(id, generation, epoch)
             {
@@ -410,6 +455,85 @@ impl GameLogic {
         Ok(())
     }
 
+    /// Wings use moveTowardsPositionOther (Locomotor.cpp:1821–1859,
+    /// 2326–2399). Keep the entry direction for the force after rotating.
+    /// PhysicsBehavior advances the pose in its normal Euler phase.
+    fn steer_artillery_wings(
+        &mut self,
+        id: ObjectId,
+        goal: Vec3,
+        effects: &mut ScriptPresentationEffects<'_>,
+    ) -> gamelogic::GameLogicResult<()> {
+        let object = &self.objects[&id];
+        if object.is_disabled() || object.is_shock_stunned() {
+            return Ok(());
+        }
+        let position = object.get_position();
+        let ground = self
+            .terrain_height_at(position)
+            .unwrap_or(object.ground_height);
+        let airborne = object.height_treats_as_airborne(position.y - ground);
+        let can_apply_motive = object.allow_motive_force_while_airborne || !airborne;
+        let birth = std::sync::Arc::downgrade(&object.visual_draw_identity_token);
+        let frame = self.frame;
+        let dt = SECONDS_PER_LOGICFRAME_REAL;
+        let object = self.objects.get_mut(&id).expect("artillery carrier");
+        object.set_locomotor_physics_options();
+        object.maintain_pos_valid = false;
+        object.is_braking = false;
+        object.physics_turning = crate::game_logic::PhysicsTurningType::TurnNone;
+        object.apply_motive_force(Vec3::ZERO, frame);
+        if can_apply_motive {
+            let offset = (goal - position).with_y(0.0);
+            let heading = object.unit_direction_vector_2d();
+            let actual = object.forward_speed_2d();
+            let mut desired = object.effective_max_speed() * dt;
+            let slide = desired * object.ultra_accurate_slide_factor;
+            let sliding =
+                object.ultra_accurate && offset.x.abs() <= slide && offset.z.abs() <= slide;
+            let direction = if sliding {
+                offset.normalize_or_zero()
+            } else {
+                Vec3::new(heading.x, 0.0, heading.y)
+            };
+            let braking = object.braking * dt * dt;
+            let minimum_speed = object.min_speed * dt;
+            if !object.no_slow_down_as_approaching_dest
+                && offset.length()
+                    < crate::game_logic::object::calc_slow_down_dist(actual, minimum_speed, braking)
+            {
+                desired = minimum_speed;
+            }
+            let speed_delta = desired - actual;
+            let acceleration = if speed_delta > 0.0 {
+                object.effective_acceleration() * dt * dt
+            } else {
+                -braking
+            };
+            if !sliding
+                && self
+                    .rotate_owned_towards_position_with_effects(id, goal, dt, frame, effects)
+                    .is_none()
+            {
+                return Ok(());
+            }
+            if !self.object_birth_matches(id, &birth) {
+                return Ok(());
+            }
+            let object = self.objects.get_mut(&id).expect("rotated carrier");
+            if speed_delta != 0.0 {
+                let applied = if acceleration.abs() > speed_delta.abs() {
+                    speed_delta
+                } else {
+                    acceleration
+                };
+                object.apply_motive_force(direction * (applied * object.physics_get_mass()), frame);
+            }
+        }
+        self.apply_owned_locomotor_z_with_effects(id, Some(goal.y), frame, effects)?;
+        Ok(())
+    }
+
     /// RecoverFromOffMapState attaches before revealing and setting the new pose.
     fn reenter_artillery_carrier(
         &mut self,
@@ -436,12 +560,17 @@ impl GameLogic {
             }
             Vec3::new(point.x, point.z, point.y)
         };
-        let goal = object
+        let flight = object
             .artillery_barrage_transport
             .as_ref()
-            .expect("recovering carrier")
-            .target;
+            .expect("recovering carrier");
+        let goal = flight.target;
         let heading = (goal.z - entry.z).atan2(goal.x - entry.x);
+        let orientation = if flight.uses_wing_physics() {
+            -heading
+        } else {
+            heading
+        };
         let birth = std::sync::Arc::downgrade(&object.visual_draw_identity_token);
 
         let object = self.objects.get_mut(&id).expect("recovering carrier");
@@ -453,7 +582,7 @@ impl GameLogic {
             && self.object_birth_matches(id, &birth)
         {
             let object = self.objects.get_mut(&id).expect("live returning carrier");
-            object.set_orientation_with_partition_owner(heading, &mut self.partition_manager);
+            object.set_orientation_with_partition_owner(orientation, &mut self.partition_manager);
             object.reset_dynamic_physics();
         }
         Ok(())
@@ -476,6 +605,10 @@ impl GameLogic {
         if !object.has_drawable {
             return Ok(None);
         }
+        let wing_physics = object
+            .artillery_barrage_transport
+            .as_ref()
+            .is_some_and(HostArtilleryBarrageFlightData::uses_wing_physics);
         if !payload.subobject.is_empty() {
             let subobject = format!("{}01", payload.subobject);
             object
@@ -508,8 +641,16 @@ impl GameLogic {
             .as_mut()
             .expect("captured carrier launch context");
         if payload.inherit_velocity {
-            // Host velocity is per second. C++ backs up one logic frame before physics.
-            launch.w_axis -= (context.source_velocity * SECONDS_PER_LOGICFRAME_REAL).extend(0.0);
+            // C++ backs up one physics frame. The shared missile launch
+            // context takes velocity per second, including its vertical axis.
+            let delta = if wing_physics {
+                let distance_per_frame = context.source_velocity;
+                context.source_velocity = distance_per_frame / SECONDS_PER_LOGICFRAME_REAL;
+                distance_per_frame
+            } else {
+                context.source_velocity * SECONDS_PER_LOGICFRAME_REAL
+            };
+            launch.w_axis -= delta.extend(0.0);
         } else {
             context.source_velocity = Vec3::ZERO;
         }

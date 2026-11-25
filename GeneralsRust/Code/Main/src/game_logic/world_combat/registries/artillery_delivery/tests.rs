@@ -9,14 +9,43 @@ fn world() -> GameLogic {
 }
 
 fn world_with_delays(door_delay_ms: u32, drop_delay_ms: u32) -> GameLogic {
+    world_with_carrier(door_delay_ms, drop_delay_ms, None)
+}
+
+fn world_with_carrier(
+    door_delay_ms: u32,
+    drop_delay_ms: u32,
+    start_at_max_speed: Option<bool>,
+) -> GameLogic {
     use crate::assets::ini_template_loader::{
         WeaponDefinitionLoadType, parse_weapon_definitions_ini_into,
+    };
+    let (physics, altitude_settings, preferred_height) = if start_at_max_speed.is_some() {
+        (
+            "Behavior = PhysicsBehavior CarrierPhysics
+ Mass = 2
+ End",
+            "MinSpeed = 150
+ MinTurnSpeed = 70
+ PreferredHeight = 500
+ Lift = 120
+ AllowAirborneMotiveForce = Yes
+ ZAxisBehavior = SURFACE_RELATIVE_HEIGHT",
+            "Yes",
+        )
+    } else {
+        ("", "", "No")
+    };
+    let max_speed = if start_at_max_speed == Some(true) {
+        "Yes"
+    } else {
+        "No"
     };
     let mut world = GameLogic::new();
     world.override_world_size(1000.0, 1000.0);
     let mut locomotors = game_engine::common::ini::ini_locomotor::LocomotorStore::new_owned();
     locomotors
-        .apply_source(
+        .apply_source(&format!(
             "Locomotor TestPayloadFlight
  Surfaces = AIR
  Speed = 450
@@ -30,8 +59,9 @@ Locomotor TestArtilleryCarrierFlight
  Acceleration = 80
  TurnRate = 200
  Appearance = WINGS
-End",
-        )
+ {altitude_settings}
+End"
+        ))
         .unwrap();
     world.admit_locomotor_definitions(locomotors).unwrap();
     world
@@ -50,6 +80,7 @@ End
 Object TestArtilleryCarrier
  KindOf = AIRCRAFT VEHICLE
  Locomotor = SET_NORMAL TestArtilleryCarrierFlight
+ {physics}
  Behavior = DeliverPayloadAIUpdate Delivery
   DoorDelay = {door_delay_ms}
  End
@@ -119,7 +150,8 @@ ObjectCreationList TestArtilleryDelivery
  DeliverPayload
   Transport = TestArtilleryCarrier
   FormationSize = 1
-  StartAtPreferredHeight = No
+  StartAtPreferredHeight = {preferred_height}
+  StartAtMaxSpeed = {max_speed}
   DeliveryDistance = 100
   DropDelay = {drop_delay_ms}
   VisiblePayloadTemplateName = TestArtilleryShell
@@ -460,5 +492,97 @@ fn authored_artillery_recovers_at_the_active_edge_after_loading_off_map() {
             assert!(!peer.objects[&carrier].drawable_hidden);
             assert!(peer.partition_manager.is_registered(carrier.0));
         },
+    );
+}
+
+#[test]
+fn authored_artillery_carrier_has_one_physics_step_with_the_authored_launch_force() {
+    let aim = Vec3::new(80.0, 0.0, 50.0);
+    let mut boosted = world_with_carrier(0, 0, Some(true));
+    let (_, carrier, _) = activate(&mut boosted, aim);
+    let mut unboosted = world_with_carrier(0, 0, Some(false));
+    let (_, peer, _) = activate(&mut unboosted, aim);
+    assert_eq!(carrier, peer);
+
+    let pose = boosted.objects[&carrier].get_position();
+    assert_eq!(pose.y, 500.0, "post-creation preferred height");
+    assert_eq!(unboosted.objects[&peer].get_position(), pose);
+    let direction = (aim - pose).with_y(0.0).normalize();
+    let launch_acceleration = boosted.objects[&carrier].physics_accel;
+    let peer_acceleration = unboosted.objects[&peer].physics_accel;
+    assert_eq!(boosted.objects[&carrier].physics_get_mass(), 2.0);
+    assert_eq!(boosted.objects[&carrier].movement.velocity, Vec3::ZERO);
+    assert_eq!(peer_acceleration, Vec3::ZERO);
+    let builder = SnapshotBuilder::new();
+    let mut snapshot = builder.create_world_snapshot(&boosted).unwrap();
+    let mut bytes = std::io::Cursor::new(Vec::new());
+    snapshot.xfer(&mut XferSave::new(&mut bytes)).unwrap();
+    let mut decoded = WorldSnapshot::default();
+    decoded
+        .xfer(&mut XferLoad::new(std::io::Cursor::new(bytes.into_inner())))
+        .unwrap();
+    let mut restored = world_with_carrier(0, 0, Some(true));
+    builder
+        .restore_from_snapshot(&decoded, &mut restored)
+        .unwrap();
+    assert_eq!(
+        restored.objects[&carrier].physics_accel,
+        launch_acceleration
+    );
+
+    for world in [&mut boosted, &mut unboosted, &mut restored] {
+        let result = world.update_simulation(SECONDS_PER_LOGICFRAME_REAL);
+        assert_eq!(format!("{result:?}"), "Advanced");
+        assert!(world.combat_system.get_projectiles().is_empty());
+    }
+
+    let boosted_delta = (boosted.objects[&carrier].get_position() - pose).with_y(0.0);
+    let unboosted_delta = (unboosted.objects[&peer].get_position() - pose).with_y(0.0);
+    assert!(
+        launch_acceleration.abs_diff_eq(direction * 5.0, 1e-4),
+        "StartAtMaxSpeed is an accumulated motive impulse; got {launch_acceleration:?}, first fixed step travelled {boosted_delta:?}"
+    );
+    let drive_accel = 80.0 / 900.0;
+    assert!(
+        boosted_delta.abs_diff_eq(direction * (5.0 + drive_accel), 1e-3),
+        "{boosted_delta:?}"
+    );
+    assert!(
+        unboosted_delta.abs_diff_eq(direction * drive_accel, 1e-3),
+        "{unboosted_delta:?}"
+    );
+    assert_eq!(
+        restored.objects[&carrier].get_position(),
+        boosted.objects[&carrier].get_position()
+    );
+    assert_eq!(
+        restored.objects[&carrier].movement.velocity,
+        boosted.objects[&carrier].movement.velocity
+    );
+
+    // On a turn, the shared pivot rotates the carrier while this frame's
+    // motive force still follows the heading on entry to the locomotor.
+    for world in [&mut boosted, &mut restored] {
+        let object = world.objects.get_mut(&carrier).unwrap();
+        let position = object.get_position();
+        let heading = object.get_orientation();
+        let velocity = object.movement.velocity;
+        let destination = position + Vec3::new(0.0, 0.0, 700.0);
+        object.artillery_barrage_transport.as_mut().unwrap().target = destination;
+        world.update_artillery_barrage_flights().unwrap();
+        let object = &world.objects[&carrier];
+        assert_ne!(object.get_orientation(), heading);
+        assert_eq!(object.get_position(), position);
+        assert_eq!(object.movement.velocity, velocity);
+        assert!(object.physics_accel.x * direction.x < 0.0);
+        assert!(object.physics_accel.z.abs() < 1e-5);
+    }
+    assert_eq!(
+        restored.objects[&carrier].get_orientation(),
+        boosted.objects[&carrier].get_orientation()
+    );
+    assert_eq!(
+        restored.objects[&carrier].physics_accel,
+        boosted.objects[&carrier].physics_accel
     );
 }

@@ -83,6 +83,7 @@ pub(crate) struct ArtilleryFlightFrame {
     /// Receiving locomotor limits in distance and radians per second.
     pub maximum_speed: f32,
     pub maximum_turn_rate: f32,
+    pub arrival_distance: f32,
     pub map: Option<ArtilleryMapExtents>,
 }
 
@@ -139,6 +140,7 @@ pub struct HostArtilleryBarrageFlightData {
     #[serde(default)]
     pub delay_until_frame: u32,
     authored: Option<AuthoredArtilleryDelivery>,
+    wing_physics: bool,
 }
 
 impl HostArtilleryBarrageFlightData {
@@ -159,6 +161,7 @@ impl HostArtilleryBarrageFlightData {
             map_max: Vec3::ZERO,
             delay_until_frame: 0,
             authored: None,
+            wing_physics: false,
         }
     }
 
@@ -183,6 +186,14 @@ impl HostArtilleryBarrageFlightData {
 
     pub(crate) fn is_authored_delivery(&self) -> bool {
         self.authored.is_some()
+    }
+
+    pub(crate) fn enable_wing_physics(&mut self) {
+        self.wing_physics = true;
+    }
+
+    pub(crate) fn uses_wing_physics(&self) -> bool {
+        self.wing_physics
     }
 
     pub fn map_extent_ok(&self) -> bool {
@@ -275,7 +286,12 @@ impl HostArtilleryBarrageFlightData {
                 // This carrier's movement stops at its waypoint. Enter the
                 // next Approach without updating it a second time this frame.
                 let offset = destination - pos;
-                if offset.x * offset.x + offset.z * offset.z < 1.0 {
+                let arrival_distance = if self.wing_physics {
+                    flight.arrival_distance
+                } else {
+                    1.0
+                };
+                if offset.x * offset.x + offset.z * offset.z < arrival_distance * arrival_distance {
                     self.authored.as_mut().expect("authored delivery").phase = Phase::Approach;
                 } else if flight.is_off_map() {
                     self.authored.as_mut().expect("authored delivery").phase =
@@ -329,13 +345,8 @@ impl HostArtilleryBarrageFlightData {
         }
     }
 
-    /// Movement toward the current order, or past the edge while departing.
-    /// Returns (new_pos, vel, off_map / CLEAN_UP).
-    pub(crate) fn tick_transport(
-        &self,
-        pos: Vec3,
-        map: Option<ArtilleryMapExtents>,
-    ) -> (Vec3, Vec3, bool) {
+    /// Current move order and whether HeadOffMap can enter CleanUp.
+    pub(crate) fn course(&self, pos: Vec3, map: Option<ArtilleryMapExtents>) -> (Vec3, bool) {
         let (min_x, min_z, max_x, max_z) = self.map_edges(map);
         let (dest, departing) = match self.authored.as_ref().map(|state| state.phase) {
             Some(ArtilleryDeliveryPhase::Reapproach { destination }) => (destination, false),
@@ -357,25 +368,23 @@ impl HostArtilleryBarrageFlightData {
             }
             _ => (self.target, false),
         };
-        let dx = dest.x - pos.x;
-        let dz = dest.z - pos.z;
-        let dist = (dx * dx + dz * dz).sqrt();
-        let mut new_pos = pos;
-
-        let vel = if dist >= 1.0 {
-            let step = self.speed_per_frame.min(dist);
-            new_pos.x += dx / dist * step;
-            new_pos.z += dz / dist * step;
-            new_pos - pos
-        } else {
-            Vec3::ZERO
-        };
         let at_exit = departing
             && map.map_or_else(
                 || is_off_map_residual(pos, min_x, min_z, max_x, max_z),
                 |extent| extent.is_off_map(pos),
             );
-        (new_pos, vel, at_exit)
+        (dest, at_exit)
+    }
+
+    /// Movement for deliveries whose template has no receiving wing physics.
+    pub(crate) fn planar_step(&self, pos: Vec3, destination: Vec3) -> Vec3 {
+        let offset = (destination - pos).with_y(0.0);
+        let distance = offset.length();
+        if distance >= 1.0 {
+            pos + offset * (self.speed_per_frame.min(distance) / distance)
+        } else {
+            pos
+        }
     }
 }
 
@@ -469,12 +478,14 @@ mod tests {
             heading: 0.0,
             maximum_speed: 10.0,
             maximum_turn_rate: 1.0,
+            arrival_distance: 2.0,
             map: None,
         };
         assert_eq!(flight.advance_delivery(frame_at(in_range)), Event::OpenDoor);
         assert_eq!(flight.advance_delivery(frame_at(outside)), Event::CloseDoor);
         assert!(flight.may_release_payload());
-        let (next, _, _) = flight.tick_transport(outside, None);
+        let (goal, _) = flight.course(outside, None);
+        let next = flight.planar_step(outside, goal);
         assert!(
             next.x > outside.x,
             "retry moves forward to make room to turn"

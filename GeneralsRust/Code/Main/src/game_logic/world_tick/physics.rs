@@ -1413,7 +1413,7 @@ impl GameLogic {
     /// Locomotor::handleBehaviorZ observes this receiving world now. Motive
     /// branches only accumulate force; source kinematic branches finish their
     /// immediate callback before the caller resumes its registered actor.
-    pub(in super::super) fn apply_owned_locomotor_z_with_effects(
+    pub(in crate::game_logic) fn apply_owned_locomotor_z_with_effects(
         &mut self,
         id: ObjectId,
         goal_y: Option<f32>,
