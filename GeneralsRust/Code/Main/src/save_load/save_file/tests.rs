@@ -81,7 +81,7 @@ fn default_save_directory_is_user_data_save_like_popup() {
 }
 
 #[test]
-fn host_save_kind_survives_listing_and_archive_decode_with_a_normal_header() {
+fn host_save_kind_survives_listing_and_versioned_archive_decode() {
     let directory = tempfile::tempdir().unwrap();
     let mut manager = SaveFileManager::with_save_directory(directory.path());
     let world = GameLogic::new();
@@ -97,14 +97,10 @@ fn host_save_kind_survives_listing_and_archive_decode_with_a_normal_header() {
         manager.save_game(filename, &world, &info).unwrap();
 
         let data = std::fs::read(manager.get_save_path(filename)).unwrap();
-        let blocks = walk_named_chunks(&data).unwrap();
-        let (_, header_payload) = blocks
-            .iter()
-            .find(|(name, _)| name == CHUNK_GAME_STATE)
-            .unwrap();
         assert_eq!(
-            read_game_state_header(header_payload).unwrap().save_type,
-            SaveFileType::Normal
+            &data[..VERSIONED_SAVE_MAGIC.len()],
+            VERSIONED_SAVE_MAGIC,
+            "production saves use the versioned serde container"
         );
 
         let reported = manager
@@ -127,9 +123,12 @@ fn host_pause_save_writes_17_named_chunks_and_v2_header() {
     // Rust-invented CommonGameState schema (version 1).
     let snapshot = WorldSnapshot::default();
     let save_info = fixture_save_info();
-    let bytes =
-        SaveFileManager::write_common_sav_chunks(&snapshot, &save_info, SAVED_GAME_MODE_SINGLE_PLAYER)
-            .expect("write 17-block sav");
+    let bytes = SaveFileManager::write_common_sav_chunks(
+        &snapshot,
+        &save_info,
+        SAVED_GAME_MODE_SINGLE_PLAYER,
+    )
+    .expect("write 17-block sav");
     let text = String::from_utf8_lossy(&bytes);
     for name in SAVELOAD_BLOCK_NAMES {
         assert!(
@@ -460,9 +459,12 @@ fn mission_save_writes_only_game_state_and_campaign_chunks() {
     save_info.save_type = SaveFileType::Mission;
     save_info.map_name = "Maps\\Alpine Assault.map".into();
     save_info.description = "MissionSave".into();
-    let bytes =
-        SaveFileManager::write_common_sav_chunks(&snapshot, &save_info, SAVED_GAME_MODE_SINGLE_PLAYER)
-            .expect("write mission sav");
+    let bytes = SaveFileManager::write_common_sav_chunks(
+        &snapshot,
+        &save_info,
+        SAVED_GAME_MODE_SINGLE_PLAYER,
+    )
+    .expect("write mission sav");
     let blocks = walk_named_chunks(&bytes).expect("walk mission chunks");
     let names: Vec<&str> = blocks.iter().map(|(name, _)| name.as_str()).collect();
     assert_eq!(names, vec![CHUNK_GAME_STATE, CHUNK_CAMPAIGN]);
@@ -493,13 +495,10 @@ fn mission_save_round_trip_does_not_restore_or_require_gameplay_cash() {
             info.filename = "cash_mission".into();
             manager.save_game("cash_mission", &source, &info).unwrap();
             let bytes = std::fs::read(manager.get_save_path("cash_mission")).unwrap();
-            let blocks = walk_named_chunks(&bytes).unwrap();
             assert_eq!(
-                blocks
-                    .iter()
-                    .map(|(name, _)| name.as_str())
-                    .collect::<Vec<_>>(),
-                [CHUNK_GAME_STATE, CHUNK_CAMPAIGN]
+                &bytes[..VERSIONED_SAVE_MAGIC.len()],
+                VERSIONED_SAVE_MAGIC,
+                "mission checkpoints use the same versioned archive container"
             );
             let mut receiving = GameLogic::new();
             let mut player = Player::new(3, Team::USA, "Existing match", true);
@@ -663,8 +662,14 @@ fn game_state_map_round_trips_live_game_mode() {
             difficulty: GameDifficulty::Medium,
             save_type: SaveFileType::Normal,
         };
-        write_game_state_map_block(&mut xfer, &info, Path::new("Save"), None, SAVED_GAME_MODE_SKIRMISH)
-            .expect("write map");
+        write_game_state_map_block(
+            &mut xfer,
+            &info,
+            Path::new("Save"),
+            None,
+            SAVED_GAME_MODE_SKIRMISH,
+        )
+        .expect("write map");
     }
     // Independently pin the native v2 wire layout: version byte, two
     // length-prefixed ASCII paths, then the four-byte little-endian mode.
@@ -826,16 +831,17 @@ fn failed_load_does_not_apply_chunk_campaign_to_live_match() {
             save_info.save_type = SaveFileType::Mission;
             // The writer saves the campaign owner it is handed (C++
             // TheCampaignManager->xfer for CHUNK_Campaign).
-            let mission_bytes = SaveFileManager::write_common_sav_chunks_with_client_and_terrain_bytes(
-                &snapshot,
-                &save_info,
-                &[],
-                None,
-                Path::new("Save"),
-                SAVED_GAME_MODE_SINGLE_PLAYER,
-                &archive_campaign,
-            )
-            .expect("write mission sav");
+            let mission_bytes =
+                SaveFileManager::write_common_sav_chunks_with_client_and_terrain_bytes(
+                    &snapshot,
+                    &save_info,
+                    &[],
+                    None,
+                    Path::new("Save"),
+                    SAVED_GAME_MODE_SINGLE_PLAYER,
+                    &archive_campaign,
+                )
+                .expect("write mission sav");
             let decoded = SaveFileManager::read_common_sav_chunks(&mission_bytes, Path::new(""))
                 .expect("mission decode");
             let after_stash = capture_live_campaign_state();

@@ -133,6 +133,7 @@ once_cell = {workspace = true}
 
 # Save/Load system dependencies
 lz4_flex = {workspace = true}
+zstd = {workspace = true}
 lazy_static = {workspace = true}
 
 # Compression / chunk decoding

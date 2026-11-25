@@ -16,6 +16,17 @@ fn decode_exact<T: serde::de::DeserializeOwned>(bytes: &[u8]) -> SaveLoadResult<
     Ok(value)
 }
 
+pub(crate) fn validate_decoded_world_snapshot(snapshot: &mut WorldSnapshot) -> SaveLoadResult<()> {
+    snapshot
+        .pending_combat
+        .validate_launch_transforms()
+        .map_err(SaveLoadError::Serialization)?;
+    validate_world_path_links(snapshot)?;
+    snapshot.persist_v18.script_engine_tail =
+        super::player_team_chunks::decode_world_capsule(snapshot)?.1;
+    Ok(())
+}
+
 pub(crate) fn decode_bincode_world_snapshot(payload: &[u8]) -> SaveLoadResult<WorldSnapshot> {
     // Decode only the fixed-integer little-endian u32 envelope first. Reject
     // unsupported versions before interpreting the positional world body.
@@ -24,11 +35,7 @@ pub(crate) fn decode_bincode_world_snapshot(payload: &[u8]) -> SaveLoadResult<Wo
             .map_err(|error| SaveLoadError::Serialization(error.to_string()))?;
     validate_direct_world_snapshot_version(version)?;
     let mut snapshot: WorldSnapshot = decode_exact(payload)?;
-    snapshot.pending_combat.validate_launch_transforms()
-        .map_err(SaveLoadError::Serialization)?;
-    validate_world_path_links(&snapshot)?;
-    snapshot.persist_v18.script_engine_tail =
-        super::player_team_chunks::decode_world_capsule(&snapshot)?.1;
+    validate_decoded_world_snapshot(&mut snapshot)?;
     Ok(snapshot)
 }
 
@@ -49,7 +56,9 @@ pub(super) fn xfer_pending_combat(
     let mut bytes = if xfer.get_mode() == XferMode::Load {
         Vec::new()
     } else {
-        snapshot.validate_launch_transforms().map_err(SaveLoadError::Serialization)?;
+        snapshot
+            .validate_launch_transforms()
+            .map_err(SaveLoadError::Serialization)?;
         let pending = bincode_legacy::serialize(snapshot)
             .map_err(|error| SaveLoadError::Serialization(error.to_string()))?;
         let envelope = PendingCombatEnvelopeV2 {
@@ -117,7 +126,9 @@ pub(super) fn xfer_pending_combat(
                 "Unsupported pending projectile frame".to_string(),
             ));
         };
-        decoded.validate_launch_transforms().map_err(SaveLoadError::Serialization)?;
+        decoded
+            .validate_launch_transforms()
+            .map_err(SaveLoadError::Serialization)?;
         *snapshot = decoded;
     } else {
         xfer.xfer_raw(&mut bytes)?;

@@ -4164,6 +4164,7 @@ dependencies = [
  "ww3d-engine",
  "ww3d-gpu",
  "ww3d-renderer-3d",
+ "zstd 0.14.0",
 ]
 
 [[package]]

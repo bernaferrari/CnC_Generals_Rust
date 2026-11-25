@@ -106,7 +106,6 @@ mod chinook_ai_persist;
 mod cleanup_hazard_persist;
 mod combat_particle_attachment_persist;
 mod construction_completion_persist;
-mod script_lists_persist;
 mod deliver_payload_persist;
 mod dock_queue_persist;
 mod dynamic_shroud_persist;
@@ -130,6 +129,7 @@ mod point_defense_persist;
 mod power_plant_rods_persist;
 pub(crate) mod projectile_stream_persist;
 mod score_keeper_persist;
+mod script_lists_persist;
 mod stealth_detector_persist;
 mod stealth_grant_persist;
 mod supply_drop_persist;
@@ -206,7 +206,7 @@ pub use types::*;
 pub use w3d_ghost_save::{
     CHUNK_GHOST_OBJECT, capture_w3d_ghost_xfer_bytes, decode_w3d_ghost_xfer_bytes,
 };
-pub(crate) use world_codec::decode_bincode_world_snapshot;
+pub(crate) use world_codec::{decode_bincode_world_snapshot, validate_decoded_world_snapshot};
 
 mod hunt_state_persist;
 
@@ -221,8 +221,8 @@ mod containment_admission;
 mod geometry_shape_persist;
 mod native_die_persist;
 mod native_lifecycle_persist;
-mod object_order_persist;
 mod object_layer_persist;
+mod object_order_persist;
 mod original_disabled_persist;
 mod partition_continuation_persist;
 mod repair_dock_persist;

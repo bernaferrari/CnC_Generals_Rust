@@ -232,8 +232,9 @@ pub struct WorldPersistV18 {
     pub radar_next_event: i32,
     pub radar_last_event: i32,
     /// Original View::xfer load value, detached from native full-pose saves.
-    /// This admission metadata is never added to the native save wire.
-    #[serde(skip)]
+    /// The versioned archive stores it as typed admission metadata; the old
+    /// sidecar chunk that used to carry it no longer exists.
+    #[serde(default)]
     pub tactical_view_camera: Option<TacticalViewPersist>,
     pub camera_valid: bool,
     pub camera_angle: f32,
@@ -300,7 +301,7 @@ pub struct CameraPersist {
 }
 
 /// C++ View::xfer v1 saves only raw View angle and logical XYZ position.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct TacticalViewPersist {
     pub angle: f32,
     pub position: [f32; 3],
@@ -446,11 +447,13 @@ fn capture_persist_v18_impl(
     #[cfg(feature = "game_client")] client: Option<&game_client::core::game_client::GameClient>,
 ) -> WorldPersistV18 {
     // TheGameLogic free-fns need this world's services published for the capture.
-    game_logic.with_own_services(|| capture_persist_v18_bound(
-        game_logic,
-        #[cfg(feature = "game_client")]
-        client,
-    ))
+    game_logic.with_own_services(|| {
+        capture_persist_v18_bound(
+            game_logic,
+            #[cfg(feature = "game_client")]
+            client,
+        )
+    })
 }
 
 fn capture_persist_v18_bound(
@@ -1532,7 +1535,8 @@ pub(super) fn check_named_script_continuation(
     second: Option<&gamelogic::scripting::engine::ScriptEngineXferTail>,
 ) -> SaveLoadResult<()> {
     if let (Some(first), Some(second)) = (first, second) {
-        if first.named_objects != second.named_objects || first.first_update != second.first_update {
+        if first.named_objects != second.named_objects || first.first_update != second.first_update
+        {
             return Err(SaveLoadError::Corrupted(
                 "conflicting original ScriptEngine named cache continuations".into(),
             ));
@@ -1545,10 +1549,12 @@ pub(crate) fn admit_script_engine_block(
     persist: &mut WorldPersistV18,
     payload: &[u8],
 ) -> SaveLoadResult<()> {
-    let continuation = parse_script_engine_block(payload).map_err(|error| {
-        SaveLoadError::Corrupted(format!("CHUNK_ScriptEngine: {error}"))
-    })?;
-    check_named_script_continuation(persist.script_engine_tail.as_ref(), continuation.tail.as_ref())?;
+    let continuation = parse_script_engine_block(payload)
+        .map_err(|error| SaveLoadError::Corrupted(format!("CHUNK_ScriptEngine: {error}")))?;
+    check_named_script_continuation(
+        persist.script_engine_tail.as_ref(),
+        continuation.tail.as_ref(),
+    )?;
     // Earlier archives can supply only part of the continuation. Preserve
     // the legacy fallback to fields already carried by the Rust world body.
     if !continuation.sequential.is_empty() {
@@ -1572,7 +1578,9 @@ pub(crate) fn admit_script_engine_block(
     Ok(())
 }
 
-pub(crate) fn parse_script_engine_block(payload: &[u8]) -> SaveLoadResult<ScriptEngineContinuation> {
+pub(crate) fn parse_script_engine_block(
+    payload: &[u8],
+) -> SaveLoadResult<ScriptEngineContinuation> {
     let mut xfer = CommonXferLoad::new(Cursor::new(payload), 1);
     let mut version = 0u8;
     map_xfer(xfer.xfer_version(&mut version, 8))?;
@@ -1696,9 +1704,18 @@ pub(crate) fn parse_script_engine_block(payload: &[u8]) -> SaveLoadResult<Script
         None
     };
     if xfer.bytes_read() != payload.len() as u64 {
-        return Err(SaveLoadError::Corrupted("trailing ScriptEngine bytes".into()));
+        return Err(SaveLoadError::Corrupted(
+            "trailing ScriptEngine bytes".into(),
+        ));
     }
-    Ok(ScriptEngineContinuation { sequential, counters, flags, actives, named_reveals, tail })
+    Ok(ScriptEngineContinuation {
+        sequential,
+        counters,
+        flags,
+        actives,
+        named_reveals,
+        tail,
+    })
 }
 
 fn parse_ascii_list(xfer: &mut CommonXferLoad<Cursor<&[u8]>>) -> SaveLoadResult<Vec<String>> {
@@ -2329,8 +2346,13 @@ mod tests {
             let mut xfer = CommonXferSave::new(&mut cursor, 1);
             write_script_engine_block(&mut xfer, &persist).expect("write");
         }
-        let ScriptEngineContinuation { sequential, counters, named_reveals, tail, .. } =
-            parse_script_engine_block(&cursor.into_inner()).expect("parse");
+        let ScriptEngineContinuation {
+            sequential,
+            counters,
+            named_reveals,
+            tail,
+            ..
+        } = parse_script_engine_block(&cursor.into_inner()).expect("parse");
         assert_eq!(
             sequential.len(),
             1,
@@ -2367,8 +2389,12 @@ mod tests {
             let mut xfer = CommonXferSave::new(&mut cursor, 1);
             write_script_engine_block(&mut xfer, &persist).expect("write");
         }
-        let ScriptEngineContinuation { counters, named_reveals, tail, .. } =
-            parse_script_engine_block(&cursor.into_inner()).expect("parse");
+        let ScriptEngineContinuation {
+            counters,
+            named_reveals,
+            tail,
+            ..
+        } = parse_script_engine_block(&cursor.into_inner()).expect("parse");
         assert_eq!(named_reveals.len(), 1);
         assert_eq!(named_reveals[0].reveal_name, "BaseLook");
         assert_eq!(named_reveals[0].waypoint_name, "WP_Base");

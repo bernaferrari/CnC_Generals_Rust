@@ -15,27 +15,14 @@ mod decoded;
 #[path = "save_file/map_admission.rs"]
 mod map_admission;
 pub use decoded::{DecodedGameSave, MapAdmissionIntent};
+use decoded::{SaveArchive, SaveArchiveRef, SaveMapArchive};
 
-/// Same tokens as C++ `GameState::xferSaveData` (`GameState.cpp:1313-1458`)
-/// and System `TheGameState` (`SAVELOAD_BLOCK_NAMES`).
-///
-/// Host pause-save writes the 17 named chunks then `SG_EOF`. `CHUNK_GameState`
-/// is the v2 save header (`GameState.cpp:1539-1642`). `CHUNK_GameLogic` is still
-/// host `bincode` `WorldSnapshot` on write. A C++ `GameLogic::xfer` payload
-/// cannot be restored into the live host world; load fails closed instead of
-/// reporting success with an empty snapshot. `CHUNK_InGameUI`,
-/// `CHUNK_TacticalView`, `CHUNK_ScriptEngine`, `CHUNK_TerrainLogic`, and
-/// `CHUNK_Radar` write live persist_v18 state in C++ xfer layout.
-/// `CHUNK_GameClient` writes leftover `GameClient::xfer` so objectless
-/// PUC / lock-on / rope drawables survive save/load.
-/// `CHUNK_ParticleSystem` writes leftover `ParticleSystemManager::xfer` so
-/// mid-flight explosions continue after load. `CHUNK_TerrainVisual` writes
-/// C++ `W3DTerrainVisual::xfer` v3 plus the live scorch overlay.
-/// `CHUNK_Players` / `CHUNK_TeamFactory` write leftover Player::xfer /
-/// Team::xfer latches so science hide/disable and OnCreate do not reset.
-/// Remaining registered blocks are NullSnapshot version-1 placeholders.
-/// `CHUNK_GameStateMap` embeds the `.map` when the file is on disk
-/// (`GameStateMap.cpp:55-156`).
+/// Production saves are a single versioned serde archive compressed with zstd.
+/// The archive owns the world snapshot, campaign state, map admission payload,
+/// and client companions explicitly; decoding never publishes pieces of one
+/// candidate for another restore to take. The legacy named-chunk writer below
+/// is retained only for compatibility fixtures while those tests are migrated;
+/// production `save_to_file`/`load_from_file` no longer uses it.
 const CHUNK_GAME_STATE: &str = "CHUNK_GameState";
 const CHUNK_GAME_LOGIC: &str = "CHUNK_GameLogic";
 const CHUNK_GAME_STATE_MAP: &str = "CHUNK_GameStateMap";
@@ -48,6 +35,9 @@ const CHUNK_RADAR: &str = "CHUNK_Radar";
 const CHUNK_HOST_MAP_INTENT: &str = "CHUNK_HostMapIntent";
 const CHUNK_HOST_SAVE_KIND: &str = "CHUNK_HostSaveKind";
 const SAVE_FILE_EOF: &str = "SG_EOF";
+const VERSIONED_SAVE_MAGIC: &[u8; 8] = b"GZHRSAV\0";
+const VERSIONED_SAVE_ARCHIVE_VERSION: u32 = 1;
+const MAX_VERSIONED_SAVE_BYTES: usize = 512 * 1024 * 1024;
 const GAME_STATE_HEADER_VERSION: u8 = 2;
 const GAME_STATE_MAP_VERSION: u8 = 2;
 const SAVE_TYPE_CODE_NORMAL: i32 = 0;
@@ -218,15 +208,8 @@ impl GameStateHeader {
             self.date[6].min(59) as u32,
             self.date[7] as u32,
         );
-        let save_date = civil_utc_to_system_time(
-            year,
-            month,
-            day,
-            hour,
-            minute,
-            second,
-            milliseconds,
-        );
+        let save_date =
+            civil_utc_to_system_time(year, month, day, hour, minute, second, milliseconds);
         SaveGameInfo {
             pristine_map_name: None,
             filename: String::new(),
@@ -258,11 +241,9 @@ fn transfer_game_state_header(
     xfer: &mut impl CommonXfer,
     header: &mut GameStateHeader,
 ) -> SaveLoadResult<()> {
-    let serialization_error = |error: std::io::Error| {
-        SaveLoadError::Serialization(error.to_string())
-    };
-    xfer
-        .xfer_version(&mut header.version, GAME_STATE_HEADER_VERSION)
+    let serialization_error =
+        |error: std::io::Error| SaveLoadError::Serialization(error.to_string());
+    xfer.xfer_version(&mut header.version, GAME_STATE_HEADER_VERSION)
         .map_err(serialization_error)?;
     if header.version != GAME_STATE_HEADER_VERSION {
         return Err(SaveLoadError::VersionMismatch {
@@ -510,6 +491,15 @@ fn xfer_challenge_game_info<X: CommonXfer>(
 }
 
 pub(crate) fn parse_named_chunk_save_info(data: &[u8]) -> SaveLoadResult<SaveGameInfo> {
+    if data.len() >= 8 && &data[..8] == VERSIONED_SAVE_MAGIC {
+        let archive = decode_versioned_save_archive(data)?;
+        let mut info = archive.save_info;
+        info.pristine_map_name = archive.pristine_map_name;
+        if let Some(campaign) = archive.campaign_state.as_ref() {
+            info.difficulty = campaign_difficulty(campaign);
+        }
+        return Ok(info);
+    }
     SaveFileManager::read_named_chunk_save_info(data)
 }
 
@@ -731,6 +721,119 @@ fn extract_embedded_map(
     Some((dest, pristine))
 }
 
+/// Capture the structured successor to `CHUNK_GameStateMap`. Path projection
+/// and map-byte discovery intentionally mirror the legacy writer so admission
+/// behavior is unchanged while the container becomes typed.
+fn capture_save_map_archive(
+    save_info: &SaveGameInfo,
+    save_directory: &Path,
+    source: Option<&game_engine::common::system::skirmish_game_info::SkirmishGameInfo>,
+    game_mode: i32,
+) -> SaveMapArchive {
+    let leaf = map_leaf_name(&save_info.map_name);
+    let pristine_source = save_info
+        .pristine_map_name
+        .as_deref()
+        .unwrap_or(&save_info.map_name);
+    let user_data = game_engine::common::global_data::read()
+        .get_user_data_dir()
+        .to_string();
+    let portable_pristine =
+        super::map_paths::to_portable(pristine_source, save_directory, &user_data);
+    let mut map_bytes = Vec::new();
+    if !save_info.map_name.is_empty() {
+        if let Some(path) = crate::game_logic::script_loader::find_map_file(&save_info.map_name) {
+            map_bytes = std::fs::read(path).unwrap_or_default();
+        } else if Path::new(&save_info.map_name).is_file() {
+            map_bytes = std::fs::read(&save_info.map_name).unwrap_or_default();
+        }
+    }
+    let source_game_info = source.map(|source| {
+        let mut source = source.clone();
+        source.map_name =
+            super::map_paths::to_portable(&source.map_name, save_directory, &user_data);
+        source
+    });
+    SaveMapArchive {
+        save_game_map: format!("Save\\{leaf}"),
+        portable_pristine_map_name: portable_pristine,
+        game_mode,
+        map_bytes,
+        next_object_id: 1,
+        next_drawable_id: 1,
+        source_game_info,
+    }
+}
+
+fn extract_archived_map(
+    map: &SaveMapArchive,
+    save_dir: &Path,
+    user_data: &str,
+) -> Option<(PathBuf, String)> {
+    if map.map_bytes.is_empty() {
+        return None;
+    }
+    let leaf = map_leaf_name(&map.save_game_map);
+    if leaf.is_empty() {
+        return None;
+    }
+    let pristine =
+        super::map_paths::from_portable(&map.portable_pristine_map_name, save_dir, user_data);
+    let _ = std::fs::create_dir_all(save_dir);
+    let dest = save_dir.join(leaf);
+    std::fs::write(&dest, &map.map_bytes).ok()?;
+    Some((dest, pristine))
+}
+
+fn encode_versioned_save_archive(archive: &SaveArchiveRef<'_>) -> SaveLoadResult<Vec<u8>> {
+    let plain = bincode_legacy::serialize(archive)
+        .map_err(|error| SaveLoadError::Serialization(error.to_string()))?;
+    let compressed = zstd::bulk::compress(&plain, 3)
+        .map_err(|error| SaveLoadError::Compression(error.to_string()))?;
+    let mut out = Vec::with_capacity(compressed.len() + 16);
+    out.extend_from_slice(VERSIONED_SAVE_MAGIC);
+    out.extend_from_slice(&(plain.len() as u64).to_le_bytes());
+    out.extend_from_slice(&compressed);
+    Ok(out)
+}
+
+fn decode_versioned_save_archive(data: &[u8]) -> SaveLoadResult<SaveArchive> {
+    if data.len() < 16 || &data[..8] != VERSIONED_SAVE_MAGIC {
+        return Err(SaveLoadError::InvalidFormat);
+    }
+    let plain_len = u64::from_le_bytes(data[8..16].try_into().expect("archive size field"));
+    let plain_len = usize::try_from(plain_len).map_err(|_| {
+        SaveLoadError::Corrupted("versioned save size does not fit this platform".into())
+    })?;
+    if plain_len > MAX_VERSIONED_SAVE_BYTES {
+        return Err(SaveLoadError::Corrupted(format!(
+            "versioned save is too large: {plain_len} bytes"
+        )));
+    }
+    let plain = zstd::bulk::decompress(&data[16..], plain_len)
+        .map_err(|error| SaveLoadError::Compression(error.to_string()))?;
+    if plain.len() != plain_len {
+        return Err(SaveLoadError::Corrupted(format!(
+            "versioned save size mismatch: expected {plain_len}, got {}",
+            plain.len()
+        )));
+    }
+    let mut archive: SaveArchive = bincode_legacy::deserialize(&plain)
+        .map_err(|error| SaveLoadError::Serialization(error.to_string()))?;
+    if archive.version != VERSIONED_SAVE_ARCHIVE_VERSION {
+        return Err(SaveLoadError::VersionMismatch {
+            expected: VERSIONED_SAVE_ARCHIVE_VERSION,
+            actual: archive.version,
+        });
+    }
+    validate_direct_world_snapshot_version(archive.snapshot.version)?;
+    crate::save_load::snapshot::validate_decoded_world_snapshot(&mut archive.snapshot)?;
+    if let Some(bytes) = archive.snapshot.w3d_ghost_companion.as_deref() {
+        decode_w3d_ghost_xfer_bytes(bytes)?;
+    }
+    Ok(archive)
+}
+
 fn walk_named_chunks(data: &[u8]) -> SaveLoadResult<Vec<(String, Vec<u8>)>> {
     let mut pos = 0usize;
     let mut blocks = Vec::new();
@@ -876,7 +979,7 @@ impl SaveFileManager {
         };
         let mut destination = self.save_directory.clone();
         let result = (|| {
-            let encoded = Self::write_mission_checkpoint_bytes(&info, state)?;
+            let encoded = Self::encode_mission_checkpoint_bytes(&info, state)?;
             self.publish_numbered_checkpoint(&encoded, &mut destination)
         })();
         (destination, result)
@@ -1137,6 +1240,19 @@ impl SaveFileManager {
                 bytes,
             )?;
         }
+        if save_info.save_type != SaveFileType::Mission {
+            let persist = &mut world_snapshot.persist_v18;
+            persist.tactical_view_camera = Some(
+                crate::save_load::snapshot::persist_v18::TacticalViewPersist {
+                    angle: persist.camera_angle,
+                    position: [
+                        persist.camera_target[0],
+                        persist.camera_target[2],
+                        persist.camera_target[1],
+                    ],
+                },
+            );
+        }
         // C++ GameState writes the logic chunk before GameClient::xfer.
         let campaign_state = if let Some(client) = client.as_deref() {
             client.campaign_manager().capture_logic_chunk_state()
@@ -1178,9 +1294,7 @@ impl SaveFileManager {
         } else {
             client
                 .as_deref_mut()
-                .map(|client| {
-                    capture_particle_system_xfer_bytes(client.particle_systems_mut())
-                })
+                .map(|client| capture_particle_system_xfer_bytes(client.particle_systems_mut()))
                 .transpose()?
         };
 
@@ -1203,7 +1317,8 @@ impl SaveFileManager {
             MapAdmissionIntent::Mapless
         };
         let native_water = native_terrain.map(|visual| visual.capture_water_state());
-        let tree_records = native_terrain.map_or_else(Vec::new, |visual| visual.capture_tree_records());
+        let tree_records =
+            native_terrain.map_or_else(Vec::new, |visual| visual.capture_tree_records());
         let terrain_visual_bytes =
             crate::save_load::snapshot::capture_receiving_terrain_visual_with_water(
                 game_logic,
@@ -1415,8 +1530,14 @@ impl SaveFileManager {
         let mut file = File::open(save_path)?;
         let mut all = Vec::new();
         file.read_to_end(&mut all)?;
-        if Self::looks_like_common_sav_chunks(&all) {
-            return Self::read_named_chunk_save_info(&all);
+        if all.len() >= 8 && &all[..8] == VERSIONED_SAVE_MAGIC {
+            let archive = decode_versioned_save_archive(&all)?;
+            let mut info = archive.save_info;
+            info.pristine_map_name = archive.pristine_map_name;
+            if let Some(campaign) = archive.campaign_state.as_ref() {
+                info.difficulty = campaign_difficulty(campaign);
+            }
+            return Ok(info);
         }
         Err(SaveLoadError::InvalidFormat)
     }
@@ -1460,7 +1581,7 @@ impl SaveFileManager {
         Ok(saves)
     }
 
-    /// Save data to file as Common `.sav` chunks (same tokens as Popup).
+    /// Save data as one versioned, compressed serde archive.
     fn save_to_file(
         &self,
         path: &Path,
@@ -1472,46 +1593,66 @@ impl SaveFileManager {
         campaign_state: &game_engine::System::CampaignManagerXferState,
         map_intent: MapAdmissionIntent,
     ) -> SaveLoadResult<()> {
-        let file = OpenOptions::new()
-            .create(true)
-            .write(true)
-            .truncate(true)
-            .open(path)?;
-        let mut writer = BufWriter::new(file);
-        let encoded = Self::write_common_sav_chunks_with_client_and_terrain_bytes(
-            world_snapshot,
+        let mission = save_info.save_type == SaveFileType::Mission;
+        let empty_snapshot;
+        let mut map_archive = None;
+        let mut saved_game_mode = None;
+        let snapshot = if mission {
+            empty_snapshot = WorldSnapshot::default();
+            &empty_snapshot
+        } else {
+            validate_direct_world_snapshot_version(world_snapshot.version)?;
+            crate::save_load::snapshot::validate_world_path_links(world_snapshot)?;
+            if let Some(bytes) = world_snapshot.w3d_ghost_companion.as_deref() {
+                decode_w3d_ghost_xfer_bytes(bytes)?;
+            }
+            let initial = crate::save_load::snapshot::initial_skirmish::read(world_snapshot)?;
+            let source_game_info =
+                crate::save_load::snapshot::initial_skirmish::source(world_snapshot)?;
+            let mode = if initial.is_some() || source_game_info.is_some() {
+                SAVED_GAME_MODE_SKIRMISH
+            } else {
+                supplied_game_mode
+            };
+            map_admission::validate_native(
+                world_snapshot,
+                mode,
+                source_game_info.as_ref(),
+                str::to_owned,
+            )?;
+            let player_team_chunks = player_team_chunks_from_world(world_snapshot)?;
+            validate_host_alliances(world_snapshot, &player_team_chunks)?;
+            saved_game_mode = Some(mode);
+            map_archive = Some(capture_save_map_archive(
+                save_info,
+                &self.save_directory,
+                source_game_info.as_ref(),
+                mode,
+            ));
+            world_snapshot
+        };
+
+        let archive = SaveArchiveRef {
+            version: VERSIONED_SAVE_ARCHIVE_VERSION,
             save_info,
-            client_xfer_bytes,
-            terrain_visual_bytes,
-            &self.save_directory,
-            supplied_game_mode,
-            campaign_state,
-        )?;
-        // Host extension is a named block, so legacy chunks retain their
-        // native positional layout. Version 1 has a single intent byte.
-        // C++ GameState::xferSaveData (GameState.cpp:1344-1346) writes only
-        // CHUNK_GameState and CHUNK_Campaign for a mission save; the next
-        // mission's map comes from the campaign, so no intent is written.
-        if save_info.save_type != SaveFileType::Mission {
-            writer.write_all(&[CHUNK_HOST_MAP_INTENT.len() as u8])?;
-            writer.write_all(CHUNK_HOST_MAP_INTENT.as_bytes())?;
-            writer.write_all(&2i32.to_le_bytes())?;
-            writer.write_all(&[1, match map_intent {
-                MapAdmissionIntent::Mapless => 0,
-                MapAdmissionIntent::Authored => 1,
-            }])?;
-        }
-        writer.write_all(&encoded)?;
-        writer.flush()?;
+            pristine_map_name: save_info.pristine_map_name.as_deref(),
+            snapshot,
+            campaign_state: Some(campaign_state),
+            map_admission_intent: map_intent,
+            saved_game_mode,
+            game_client_xfer: (!client_xfer_bytes.is_empty()).then_some(client_xfer_bytes),
+            terrain_visual_xfer: terrain_visual_bytes.filter(|bytes| !bytes.is_empty()),
+            map: map_archive.as_ref(),
+        };
+        let encoded = encode_versioned_save_archive(&archive)?;
+        std::fs::write(path, encoded)?;
         Ok(())
     }
 
-    /// Load the current named-chunk `.sav` container.
+    /// Load the current versioned serde `.sav` container.
     fn load_from_file(&self, path: &Path) -> SaveLoadResult<DecodedGameSave> {
-        // C++ GameState::loadGame (GameState.cpp:648) clears scratch-pad maps
-        // before opening the save. Leftover GameStateMap already matches
-        // clearScratchPadMaps (delete every `.map` in the Save directory).
-        // Drop it before extract so leftover Drop cannot delete the new file.
+        // Preserve the useful operational behavior without preserving the C++
+        // byte container: scratch maps are cleared before admitting a new one.
         {
             let scratch = CommonGameStateMap::new(self.save_directory.clone());
             if let Err(err) = scratch.clear_scratch_pad_maps() {
@@ -1519,15 +1660,58 @@ impl SaveFileManager {
             }
         }
 
-        let mut file = File::open(path)?;
-        let mut all = Vec::new();
-        file.read_to_end(&mut all)?;
-
-        if Self::looks_like_common_sav_chunks(&all) {
-            return Self::read_common_sav_chunks(&all, &self.save_directory);
+        let data = std::fs::read(path)?;
+        let archive = decode_versioned_save_archive(&data)?;
+        let mut save_info = archive.save_info;
+        save_info.pristine_map_name = archive.pristine_map_name;
+        if let Some(campaign) = archive.campaign_state.as_ref() {
+            save_info.difficulty = campaign_difficulty(campaign);
+            if !campaign.campaign.is_empty() {
+                save_info.campaign_side = Some(campaign.campaign.clone());
+            }
         }
 
-        Err(SaveLoadError::InvalidFormat)
+        let mut world_snapshot = archive.snapshot;
+        let mut saved_game_mode = archive.saved_game_mode;
+        if save_info.save_type != SaveFileType::Mission {
+            let player_team_chunks = player_team_chunks_from_world(&world_snapshot)?;
+            validate_host_alliances(&world_snapshot, &player_team_chunks)?;
+            let map = archive.map.as_ref().ok_or_else(|| {
+                SaveLoadError::Corrupted("structured save is missing map admission data".into())
+            })?;
+            map_admission::bind_original_if_needed(
+                &mut world_snapshot,
+                map.source_game_info.as_ref(),
+            )?;
+            let user_data = game_engine::common::global_data::read()
+                .get_user_data_dir()
+                .to_string();
+            map_admission::validate_native(
+                &world_snapshot,
+                map.game_mode,
+                map.source_game_info.as_ref(),
+                |map_name| {
+                    super::map_paths::to_portable(map_name, &self.save_directory, &user_data)
+                },
+            )?;
+            if let Some((extracted, pristine)) =
+                extract_archived_map(map, &self.save_directory, &user_data)
+            {
+                save_info.map_name = extracted.to_string_lossy().into_owned();
+                save_info.pristine_map_name = (!pristine.is_empty()).then_some(pristine);
+            }
+            saved_game_mode = saved_game_mode.or(Some(map.game_mode));
+        }
+
+        Ok(DecodedGameSave {
+            snapshot: world_snapshot,
+            campaign_state: archive.campaign_state,
+            save_info,
+            map_admission_intent: archive.map_admission_intent,
+            game_client_xfer: archive.game_client_xfer,
+            terrain_visual_xfer: archive.terrain_visual_xfer,
+            saved_game_mode,
+        })
     }
 
     fn looks_like_common_sav_chunks(data: &[u8]) -> bool {
@@ -1600,6 +1784,26 @@ impl SaveFileManager {
             supplied_game_mode,
             campaign_state,
         )
+    }
+
+    fn encode_mission_checkpoint_bytes(
+        save_info: &SaveGameInfo,
+        campaign_state: &game_engine::System::CampaignManagerXferState,
+    ) -> SaveLoadResult<Vec<u8>> {
+        let empty_world = WorldSnapshot::default();
+        let archive = SaveArchiveRef {
+            version: VERSIONED_SAVE_ARCHIVE_VERSION,
+            save_info,
+            pristine_map_name: save_info.pristine_map_name.as_deref(),
+            snapshot: &empty_world,
+            campaign_state: Some(campaign_state),
+            map_admission_intent: MapAdmissionIntent::Authored,
+            saved_game_mode: None,
+            game_client_xfer: None,
+            terrain_visual_xfer: None,
+            map: None,
+        };
+        encode_versioned_save_archive(&archive)
     }
 
     fn write_mission_checkpoint_bytes(
@@ -1808,15 +2012,9 @@ impl SaveFileManager {
     ) -> SaveLoadResult<game_engine::System::CampaignManagerXferState> {
         let save_path = self.get_save_path(filename);
         let data = std::fs::read(&save_path)?;
-        let blocks = walk_named_chunks(&data)?;
-        for (token, payload) in blocks {
-            if token.eq_ignore_ascii_case(CHUNK_CAMPAIGN) {
-                return parse_campaign_block(&payload);
-            }
-        }
-        Err(SaveLoadError::Corrupted(
-            "CHUNK_Campaign not found in named-chunk save".to_string(),
-        ))
+        decode_versioned_save_archive(&data)?
+            .campaign_state
+            .ok_or_else(|| SaveLoadError::Corrupted("campaign state missing from save".into()))
     }
 
     fn read_common_sav_chunks(data: &[u8], save_dir: &Path) -> SaveLoadResult<DecodedGameSave> {
@@ -1919,7 +2117,9 @@ impl SaveFileManager {
                 tactical_view_payload = Some(payload);
             } else if token.eq_ignore_ascii_case(CHUNK_SCRIPT_ENGINE) {
                 if script_engine_payload.replace(payload).is_some() {
-                    return Err(SaveLoadError::Corrupted("duplicate CHUNK_ScriptEngine".into()));
+                    return Err(SaveLoadError::Corrupted(
+                        "duplicate CHUNK_ScriptEngine".into(),
+                    ));
                 }
             } else if token.eq_ignore_ascii_case(CHUNK_TERRAIN_LOGIC) {
                 terrain_logic_payload = Some(payload);
@@ -1958,7 +2158,10 @@ impl SaveFileManager {
         if has_game_logic {
             validate_host_alliances(&world_snapshot, &player_team_chunks)?;
         }
-        if let Some(payload) = script_engine_payload.as_deref().filter(|bytes| *bytes != [1]) {
+        if let Some(payload) = script_engine_payload
+            .as_deref()
+            .filter(|bytes| *bytes != [1])
+        {
             crate::save_load::snapshot::persist_v18::admit_script_engine_block(
                 &mut world_snapshot.persist_v18,
                 payload,

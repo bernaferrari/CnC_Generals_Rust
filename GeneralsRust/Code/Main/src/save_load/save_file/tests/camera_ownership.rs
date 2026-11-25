@@ -1,7 +1,7 @@
 //! Real named archives retain the native camera independently of the C++ View sidecar.
 use super::*;
 use crate::save_load::snapshot::persist_v18::{
-    CameraPersist, TacticalViewPersist, capture_persist_v18, parse_tactical_view_block,
+    CameraPersist, TacticalViewPersist, capture_persist_v18,
 };
 
 #[test]
@@ -65,7 +65,10 @@ fn camera_owned_save_manager_interleaved_archives_preserve_full_native_pose() {
         let native = bincode_legacy::serialize(loaded).unwrap();
         let decoded: WorldSnapshot = bincode_legacy::deserialize(&native).unwrap();
         assert_eq!(decoded.persist_v18.camera(), Some(expected));
-        assert_eq!(decoded.persist_v18.tactical_view_camera, None);
+        assert_eq!(
+            decoded.persist_v18.tactical_view_camera,
+            loaded.persist_v18.tactical_view_camera
+        );
     }
     // Invalid detached input is rejected before snapshot/client capture or any
     // archive write. It cannot change either previously accepted camera.
@@ -119,16 +122,13 @@ fn camera_owned_save_manager_interleaved_archives_preserve_full_native_pose() {
             Some(camera_b)
         );
     }
-    // Reading a peer's source chunk is a pure parse, never a pending camera write.
-    let archive_b = std::fs::read(saves.get_save_path("camera_b")).unwrap();
-    let blocks = walk_named_chunks(&archive_b).unwrap();
-    let view = blocks
-        .iter()
-        .find(|(name, _)| name == CHUNK_TACTICAL_VIEW)
-        .unwrap();
+    // Reading a peer archive is a pure decode, never a pending camera write.
     assert_eq!(
-        parse_tactical_view_block(&view.1).unwrap().position,
-        [-10.0, 70.0, 50.0]
+        loaded_b
+            .persist_v18
+            .tactical_view_camera
+            .map(|view| view.position),
+        Some([-10.0, 70.0, 50.0])
     );
     assert_eq!(capture_persist_v18(&a).camera(), None);
     assert_eq!(loaded_a.persist_v18.camera(), Some(camera_a));

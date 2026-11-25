@@ -110,7 +110,7 @@ fn unique_skirmish_xfer_path(label: &str) -> PathBuf {
 }
 
 /// C++ `CampaignManager::xfer` version 5 payload (CampaignManager.cpp).
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
 pub struct CampaignManagerXferState {
     pub campaign: String,
     /// Localized campaign display label, derived from client definitions.
