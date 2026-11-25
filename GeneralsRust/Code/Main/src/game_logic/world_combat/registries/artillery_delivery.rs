@@ -640,23 +640,21 @@ impl GameLogic {
             .source_context
             .as_mut()
             .expect("captured carrier launch context");
-        if payload.inherit_velocity {
-            // C++ backs up one physics frame. The shared missile launch
-            // context takes velocity per second, including its vertical axis.
+        let inherited_velocity_per_frame = payload.inherit_velocity.then(|| {
+            // DeliverPayloadAIUpdate backs up by one frame of carrier movement
+            // before passing its velocity to the shell as a motive impulse.
             let delta = if wing_physics {
-                let distance_per_frame = context.source_velocity;
-                context.source_velocity = distance_per_frame / SECONDS_PER_LOGICFRAME_REAL;
-                distance_per_frame
+                context.source_velocity
             } else {
                 context.source_velocity * SECONDS_PER_LOGICFRAME_REAL
             };
             launch.w_axis -= delta.extend(0.0);
-        } else {
-            context.source_velocity = Vec3::ZERO;
-        }
+            delta
+        });
+        context.source_velocity = Vec3::ZERO;
         context.launch_transform = Some(launch);
         shot.shooter_pos = launch.w_axis.truncate();
-        self.release_visible_missile(shot, &payload.object, effects)
+        self.release_visible_missile(shot, &payload.object, inherited_velocity_per_frame, effects)
     }
 
     // Direct template-only callers do not have the receiving retail weapon catalog.

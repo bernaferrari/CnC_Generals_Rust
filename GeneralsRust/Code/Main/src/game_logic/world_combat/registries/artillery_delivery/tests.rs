@@ -36,6 +36,11 @@ fn world_with_carrier(
     } else {
         ("", "", "No")
     };
+    let inherit_velocity = if start_at_max_speed.is_some() {
+        "Yes"
+    } else {
+        "No"
+    };
     let max_speed = if start_at_max_speed == Some(true) {
         "Yes"
     } else {
@@ -159,6 +164,7 @@ ObjectCreationList TestArtilleryDelivery
   VisibleSubObjectBaseName = Bomb
   VisibleNumBones = 1
   VisibleItemsDroppedPerInterval = 1
+  InheritTransportVelocity = {inherit_velocity}
   SelfDestructObject = Yes
  End
 End
@@ -585,4 +591,49 @@ fn authored_artillery_carrier_has_one_physics_step_with_the_authored_launch_forc
         restored.objects[&carrier].physics_accel,
         boosted.objects[&carrier].physics_accel
     );
+}
+
+#[test]
+fn visible_artillery_shell_inherits_a_pending_motive_impulse() {
+    let aim = Vec3::new(80.0, 0.0, 50.0);
+    let mut world = world_with_carrier(0, 0, Some(true));
+    let (_, carrier, _) = activate(&mut world, aim);
+    let result = world.update_simulation(SECONDS_PER_LOGICFRAME_REAL);
+    assert_eq!(format!("{result:?}"), "Advanced");
+
+    world.set_fixture_object_position(carrier, aim + Vec3::new(40.0, 500.0, 0.0));
+    world.frame = 60;
+    world.update_artillery_barrage_flights().unwrap();
+    assert!(world.combat_system.get_projectiles().is_empty());
+    let object = &world.objects[&carrier];
+    let inherited = object.movement.velocity;
+    assert!(inherited.with_y(0.0).length() > 5.0);
+    let launch_position = object.get_position() - inherited;
+    let direction = object.get_transform_matrix().x_axis.truncate().normalize();
+
+    world.frame = 61;
+    world.update_artillery_barrage_flights().unwrap();
+    let projectiles = world.combat_system.get_projectiles();
+    assert_eq!(projectiles.len(), 1);
+    let (&id, projectile) = projectiles.iter().next().unwrap();
+    let shell = &world.objects[&id];
+    assert!(projectile.position.abs_diff_eq(launch_position, 1e-4));
+    assert!(shell.get_position().abs_diff_eq(launch_position, 1e-4));
+
+    // DeliverPayloadAIUpdate queues the inherited velocity before MissileAI
+    // queues InitialVelocity. Physics has run neither force yet.
+    assert_eq!(shell.movement.velocity, Vec3::ZERO);
+    assert_eq!(projectile.velocity, Vec3::ZERO);
+    let expected = inherited / SECONDS_PER_LOGICFRAME_REAL + direction * 60.0;
+    assert!(shell.physics_accel.abs_diff_eq(expected, 1e-4));
+
+    let result = world.update_simulation(SECONDS_PER_LOGICFRAME_REAL);
+    assert_eq!(format!("{result:?}"), "Advanced");
+    let shell = &world.objects[&id];
+    let travelled = (shell.get_position() - launch_position).with_y(0.0);
+    let committed = shell.physics_previous_accel.with_y(0.0);
+    // With no preexisting velocity, the first horizontal displacement is
+    // exactly the accumulated motive force, including any first-tick steering.
+    assert!(travelled.abs_diff_eq(committed * SECONDS_PER_LOGICFRAME_REAL, 1e-4));
+    assert!(travelled.dot(expected.with_y(0.0).normalize()) > 6.0);
 }

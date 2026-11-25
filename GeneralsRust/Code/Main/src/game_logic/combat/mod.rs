@@ -10,6 +10,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 mod missile_motion;
 pub(crate) use missile_motion::MissileMotion;
+pub(in crate::game_logic) use missile_motion::MissileInitialVelocity;
 
 include!("damage.rs");
 include!("projectile.rs");

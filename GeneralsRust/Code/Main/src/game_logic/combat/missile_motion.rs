@@ -12,6 +12,11 @@ pub(super) enum MissileSteering {
     Braking,
 }
 
+pub(in crate::game_logic) enum MissileInitialVelocity {
+    Existing(Vec3),
+    InheritAsMotiveForce { distance_per_frame: Vec3 },
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) struct MissileMotion {
     gravity: f32,
@@ -69,7 +74,7 @@ impl MissileMotion {
         actor: &mut Object,
         profile: &crate::game_logic::projectile_definitions::ProjectileProfile,
         transform: glam::Mat4,
-        source_velocity: Vec3,
+        initial_velocity: MissileInitialVelocity,
         target: Vec3,
         weapon_speed: f32,
         frame: u32,
@@ -96,7 +101,17 @@ impl MissileMotion {
         actor.aerodynamic_friction = physics.aerodynamic_friction;
         let position = transform.w_axis.truncate();
         let direction = Self::launch_pose(transform, target)?.x_axis.truncate().normalize_or_zero();
-        actor.movement.velocity = source_velocity;
+        match initial_velocity {
+            MissileInitialVelocity::Existing(velocity) => actor.movement.velocity = velocity,
+            MissileInitialVelocity::InheritAsMotiveForce { distance_per_frame } => {
+                // Missile motion uses distance per second. The payload's
+                // inherited force enters the first Physics update alongside
+                // MissileAI's authored InitialVelocity force.
+                let force = distance_per_frame / SECONDS_PER_LOGICFRAME_REAL
+                    * actor.physics_get_mass();
+                actor.apply_motive_force(force, frame);
+            }
+        }
         let initial = if launch.use_weapon_speed { weapon_speed } else { launch.initial_velocity_per_frame * 30.0 };
         if launch.use_weapon_speed {
             actor.movement.max_speed = actor.movement.max_speed.min(weapon_speed);

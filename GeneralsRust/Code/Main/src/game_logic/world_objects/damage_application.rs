@@ -1714,8 +1714,13 @@ impl GameLogic {
         accepted_rule: Option<&gamelogic::weapon::WeaponTemplate>,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> gamelogic::GameLogicResult<()> {
-        let ready =
-            self.materialize_owned_shot_with_effects(pending, stream_binding, accepted_rule, effects)?;
+        let ready = self.materialize_owned_shot_with_effects(
+            pending,
+            stream_binding,
+            accepted_rule,
+            None,
+            effects,
+        )?;
         self.update_projectile_weapon_bonus_upgrades(None);
         if let Some(shot) = ready.damage {
             let limit = self.combat_system.historic_damage_limit();
@@ -1802,7 +1807,10 @@ impl GameLogic {
     ) -> gamelogic::GameLogicResult<()> {
         let pending = self.combat_system.take_pending_projectiles();
         for shot in pending {
-            if let Some(immediate) = self.materialize_owned_shot_with_effects(shot, None, None, effects)?.damage {
+            if let Some(immediate) = self
+                .materialize_owned_shot_with_effects(shot, None, None, None, effects)?
+                .damage
+            {
                 self.combat_system.defer_projectileless_shot(immediate);
             }
         }
@@ -1859,6 +1867,7 @@ impl GameLogic {
         &mut self,
         mut shot: crate::game_logic::combat::PendingProjectile,
         payload_template: &str,
+        inherited_velocity_per_frame: Option<Vec3>,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> gamelogic::GameLogicResult<Option<ObjectId>> {
         let Some(profile) = self.projectile_definitions.get(payload_template) else {
@@ -1873,7 +1882,15 @@ impl GameLogic {
         shot.fire_fx_name.clear();
         shot.fire_ocl_name.clear();
         shot.scatter_radius = 0.0;
-        Ok(self.materialize_owned_shot_with_effects(shot, None, None, effects)?.projectile)
+        Ok(self
+            .materialize_owned_shot_with_effects(
+                shot,
+                None,
+                None,
+                inherited_velocity_per_frame,
+                effects,
+            )?
+            .projectile)
     }
 
     fn materialize_owned_shot_with_effects(
@@ -1881,9 +1898,12 @@ impl GameLogic {
         pending: crate::game_logic::combat::PendingProjectile,
         stream_binding: Option<crate::game_logic::combat::ProjectileStreamBinding>,
         accepted_rule: Option<&gamelogic::weapon::WeaponTemplate>,
+        inherited_velocity_per_frame: Option<Vec3>,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> gamelogic::GameLogicResult<MaterializedShot> {
-        use crate::game_logic::combat::{MaterializedWeaponShot, ProjectilePlacement};
+        use crate::game_logic::combat::{
+            MaterializedWeaponShot, MissileInitialVelocity, ProjectilePlacement,
+        };
         use crate::game_logic::weapon_bootstrap::HostProjectileFlight;
 
         let projectile_name = pending.projectile_object_name.clone();
@@ -2023,10 +2043,22 @@ impl GameLogic {
                             actor.set_transform_matrix_with_partition_owner(
                                 pose, self.frame, effects, &mut self.partition_manager,
                             );
+                            let initial_velocity = match inherited_velocity_per_frame {
+                                Some(distance_per_frame) => {
+                                    MissileInitialVelocity::InheritAsMotiveForce { distance_per_frame }
+                                }
+                                None => MissileInitialVelocity::Existing(velocity),
+                            };
                             crate::game_logic::combat::MissileMotion::launch(
-                                actor, profile, transform, velocity,
-                                projectile.target_position, projectile.speed, self.frame,
-                            ).map(|motion| (motion, actor.get_position(), actor.movement.velocity))
+                                actor,
+                                profile,
+                                transform,
+                                initial_velocity,
+                                projectile.target_position,
+                                projectile.speed,
+                                self.frame,
+                            )
+                            .map(|motion| (motion, actor.get_position(), actor.movement.velocity))
                         })
                     }
                     _ => None,
