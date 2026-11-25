@@ -34,10 +34,19 @@ pub(crate) enum ArtilleryPayload {
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 enum ArtilleryDeliveryPhase {
     Approach,
-    Delivering { frames_left: u32 },
-    Reapproach { destination: Vec3 },
-    RecoveringOffMap { reentry_frame: u32 },
-    HeadOffMap { destination: Vec3 },
+    Delivering {
+        frames_left: u32,
+    },
+    Reapproach {
+        destination: Vec3,
+    },
+    RecoveringOffMap {
+        reentry_frame: u32,
+    },
+    HeadOffMap {
+        destination: Vec3,
+        entry_forward: Vec3,
+    },
 }
 
 /// The visible-payload delivery state is owned and saved by its carrier.
@@ -59,6 +68,8 @@ pub(crate) enum ArtilleryDeliveryEvent {
     BeginRecovery { close_door: bool },
     Reenter,
     Depart { close_door: bool },
+    FinishDeparture,
+    KillStalledDeparture,
 }
 
 /// Original TerrainLogic queries for the active and border-inclusive extents.
@@ -81,6 +92,8 @@ pub(crate) struct ArtilleryFlightFrame {
     pub frame: u32,
     pub position: Vec3,
     pub heading: f32,
+    pub forward: Vec3,
+    pub turning: bool,
     /// Receiving locomotor limits in distance and radians per second.
     pub maximum_speed: f32,
     pub maximum_turn_rate: f32,
@@ -218,7 +231,7 @@ impl HostArtilleryBarrageFlightData {
         )
     }
 
-    /// DeliverPayloadAIUpdate.cpp:581–703, 893–985, 1115–1148.
+    /// DeliverPayloadAIUpdate.cpp:581–703, 893–985, 1115–1203.
     /// State entry runs on the transition frame. Its first update runs on the
     /// next frame, and a nonzero countdown consumes that whole update.
     pub(crate) fn advance_delivery(
@@ -290,7 +303,25 @@ impl HostArtilleryBarrageFlightData {
                 self.set_phase(Phase::Approach);
                 Event::Reenter
             }
-            Phase::RecoveringOffMap { .. } | Phase::HeadOffMap { .. } => Event::Continue,
+            Phase::RecoveringOffMap { .. } => Event::Continue,
+            Phase::HeadOffMap { entry_forward, .. } => {
+                let outside = flight.map.map_or_else(
+                    || {
+                        let (min_x, min_z, max_x, max_z) = self.map_edges(None);
+                        is_off_map_residual(pos, min_x, min_z, max_x, max_z)
+                    },
+                    |extent| extent.is_off_map(pos),
+                );
+                if outside {
+                    Event::FinishDeparture
+                } else if flight.turning
+                    && entry_forward.dot(flight.forward.normalize_or_zero()) < 0.3
+                {
+                    Event::KillStalledDeparture
+                } else {
+                    Event::Continue
+                }
+            }
         }
     }
 
@@ -335,7 +366,10 @@ impl HostArtilleryBarrageFlightData {
         let (sin, cos) = flight.heading.sin_cos();
         let destination =
             head_off_map_exit_point_residual(flight.position, cos, sin, min_x, min_z, max_x, max_z);
-        self.set_phase(ArtilleryDeliveryPhase::HeadOffMap { destination });
+        self.set_phase(ArtilleryDeliveryPhase::HeadOffMap {
+            destination,
+            entry_forward: flight.forward.normalize_or_zero(),
+        });
         ArtilleryDeliveryEvent::Depart { close_door }
     }
 
@@ -372,13 +406,13 @@ impl HostArtilleryBarrageFlightData {
         }
     }
 
-    /// Current move order and whether HeadOffMap can enter CleanUp.
-    pub(crate) fn course(&self, pos: Vec3, map: Option<ArtilleryMapExtents>) -> (Vec3, bool) {
-        let (min_x, min_z, max_x, max_z) = self.map_edges(map);
-        let (dest, departing) = match self.authored.as_ref().map(|state| state.phase) {
-            Some(ArtilleryDeliveryPhase::Reapproach { destination }) => (destination, false),
-            Some(ArtilleryDeliveryPhase::HeadOffMap { destination }) => (destination, true),
+    /// Current move order and whether a template-only carrier has already left.
+    pub(crate) fn course(&self, pos: Vec3) -> (Vec3, bool) {
+        match self.authored.as_ref().map(|state| state.phase) {
+            Some(ArtilleryDeliveryPhase::Reapproach { destination })
+            | Some(ArtilleryDeliveryPhase::HeadOffMap { destination, .. }) => (destination, false),
             None if self.payload.is_none() => {
+                let (min_x, min_z, max_x, max_z) = self.map_edges(None);
                 let direction = self.target - self.launch;
                 (
                     head_off_map_exit_point_residual(
@@ -390,17 +424,11 @@ impl HostArtilleryBarrageFlightData {
                         max_x,
                         max_z,
                     ),
-                    true,
+                    is_off_map_residual(pos, min_x, min_z, max_x, max_z),
                 )
             }
             _ => (self.target, false),
-        };
-        let at_exit = departing
-            && map.map_or_else(
-                || is_off_map_residual(pos, min_x, min_z, max_x, max_z),
-                |extent| extent.is_off_map(pos),
-            );
-        (dest, at_exit)
+        }
     }
 
     /// Movement for deliveries whose template has no receiving wing physics.
@@ -503,6 +531,8 @@ mod tests {
             frame: 0,
             position,
             heading: 0.0,
+            forward: Vec3::X,
+            turning: false,
             maximum_speed: 10.0,
             maximum_turn_rate: 1.0,
             move_finished: false,
@@ -514,7 +544,7 @@ mod tests {
             Event::Retry { close_door: true }
         );
         assert!(flight.may_release_payload());
-        let (goal, _) = flight.course(outside, None);
+        let (goal, _) = flight.course(outside);
         let next = flight.planar_step(outside, goal);
         assert!(
             next.x > outside.x,

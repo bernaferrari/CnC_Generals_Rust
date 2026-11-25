@@ -17,6 +17,15 @@ fn world_with_carrier(
     drop_delay_ms: u32,
     start_at_max_speed: Option<bool>,
 ) -> GameLogic {
+    world_with_delivery_carrier(door_delay_ms, drop_delay_ms, start_at_max_speed, "Yes")
+}
+
+fn world_with_delivery_carrier(
+    door_delay_ms: u32,
+    drop_delay_ms: u32,
+    start_at_max_speed: Option<bool>,
+    self_destruct: &str,
+) -> GameLogic {
     use crate::assets::ini_template_loader::{
         WeaponDefinitionLoadType, parse_weapon_definitions_ini_into,
     };
@@ -177,7 +186,7 @@ ObjectCreationList TestArtilleryDelivery
   VisibleNumBones = 1
   VisibleItemsDroppedPerInterval = 1
   InheritTransportVelocity = {inherit_velocity}
-  SelfDestructObject = Yes
+  SelfDestructObject = {self_destruct}
  End
 End
 "
@@ -625,6 +634,119 @@ fn authored_artillery_retries_after_the_base_ai_crosses_its_flight_segment() {
     assert_eq!(
         world.objects[&carrier].movement.path,
         restored.objects[&carrier].movement.path
+    );
+}
+
+#[test]
+fn artillery_departure_uses_saved_3d_facing_and_kills_only_while_turning() {
+    use crate::game_logic::PhysicsTurningType;
+    use crate::save_load::SaveFileManager;
+
+    crate::game_logic::game_logic::pose_owner_tests::isolated_at(
+        module_path!(),
+        "artillery_departure_uses_saved_3d_facing_and_kills_only_while_turning",
+        || {
+            let temp = tempfile::tempdir().unwrap();
+            let path = flat_recovery_map(temp.path());
+            let prepare = |path: &str| {
+                let mut world = world_with_delivery_carrier(0, 0, Some(true), "No");
+                assert!(world.load_map(path));
+                world.add_player(Player::new(1, Team::China, "Owner", true));
+                world.add_player(Player::new(2, Team::GLA, "Target", false));
+                world
+            };
+            let mut world = prepare(path.to_str().unwrap());
+            let aim = Vec3::new(80.0, 0.0, 82.0);
+            let (_, carrier, _) = activate(&mut world, aim);
+            let delivery_position = aim + Vec3::new(40.0, 300.0, 0.0);
+            world.set_fixture_object_position(carrier, delivery_position);
+            for frame in [60, 61] {
+                world.frame = frame;
+                world.update_artillery_barrage_flights().unwrap();
+            }
+            assert_eq!(world.combat_system.get_projectiles().len(), 1);
+
+            let pitch = |world: &mut GameLogic, position: Vec3, angle: f32, turning| {
+                let mut transform = glam::Mat4::from_rotation_z(angle);
+                transform.w_axis = position.extend(1.0);
+                assert!(world.set_registered_object_transform(carrier, transform));
+                world.objects.get_mut(&carrier).unwrap().physics_turning = turning;
+            };
+            let departure_pitch = 60.0_f32.to_radians();
+            world.frame = 62;
+            pitch(
+                &mut world,
+                delivery_position,
+                departure_pitch,
+                PhysicsTurningType::TurnPositive,
+            );
+            world.update_artillery_barrage_flights().unwrap();
+            assert!(world.objects[&carrier].is_alive());
+            assert!(world.objects[&carrier].ultra_accurate);
+
+            let mut saves = SaveFileManager::with_save_directory(temp.path().join("departure"));
+            saves.init().unwrap();
+            saves.quick_save(&world).unwrap();
+            let decoded = saves.load_game_snapshot("quicksave").unwrap();
+            let restore = || {
+                let mut candidate = prepare(&decoded.save_info.map_name);
+                saves
+                    .restore_game_snapshot(&decoded.snapshot, &mut candidate)
+                    .unwrap();
+                candidate
+            };
+            let mut resumed = restore();
+            let mut already_off_map = restore();
+            for candidate in [&mut world, &mut resumed] {
+                // Pitch alone can reverse the 3D dot while horizontal yaw
+                // remains unchanged. Physics must also report a turn.
+                candidate.frame = 63;
+                pitch(
+                    candidate,
+                    delivery_position,
+                    -departure_pitch,
+                    PhysicsTurningType::TurnNone,
+                );
+                candidate.update_artillery_barrage_flights().unwrap();
+                assert!(candidate.objects[&carrier].is_alive());
+
+                candidate.frame = 64;
+                pitch(
+                    candidate,
+                    delivery_position,
+                    departure_pitch,
+                    PhysicsTurningType::TurnPositive,
+                );
+                candidate.update_artillery_barrage_flights().unwrap();
+                assert!(candidate.objects[&carrier].is_alive());
+
+                candidate.frame = 65;
+                pitch(
+                    candidate,
+                    delivery_position,
+                    -departure_pitch,
+                    PhysicsTurningType::TurnPositive,
+                );
+                candidate.update_artillery_barrage_flights().unwrap();
+                let object = &candidate.objects[&carrier];
+                assert!(!object.is_alive(), "a turning carrier facing away must die");
+                assert!(object.status.on_die_started, "the Body death path must run");
+                assert_eq!(object.health.current, 0.0);
+                assert_eq!(candidate.combat_system.get_projectiles().len(), 1);
+            }
+
+            already_off_map.frame = 65;
+            pitch(
+                &mut already_off_map,
+                Vec3::new(390.0, 300.0, 82.0),
+                -departure_pitch,
+                PhysicsTurningType::TurnPositive,
+            );
+            already_off_map.update_artillery_barrage_flights().unwrap();
+            assert!(!already_off_map.objects[&carrier].status.on_die_started);
+            already_off_map.process_destroy_list();
+            assert!(!already_off_map.objects.contains_key(&carrier));
+        },
     );
 }
 

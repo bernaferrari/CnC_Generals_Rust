@@ -1,11 +1,14 @@
 //! Artillery's single visible payload per DeliverPayload carrier.
 
 use super::*;
+use crate::game_logic::PhysicsTurningType;
+use crate::game_logic::combat::DamageType;
 use crate::game_logic::host_artillery_barrage_flight::{
     ArtilleryDeliveryEvent, ArtilleryFlightFrame, ArtilleryMapExtents, ArtilleryPayload,
     HostArtilleryBarrageFlightData, VisibleArtilleryPayload,
 };
 use crate::game_logic::host_spectre_gunship_deployment::find_farthest_edge_point_residual;
+use crate::game_logic::host_usa_pilot::HostDeathType;
 use crate::game_logic::special_power_strikes::{
     ARTILLERY_BARRAGE_CANNON_MAX_HEALTH, ARTILLERY_BARRAGE_DECAL_RADIUS,
     ARTILLERY_BARRAGE_DELIVERY_DISTANCE, ARTILLERY_BARRAGE_FORMATION_SPACING,
@@ -318,6 +321,8 @@ impl GameLogic {
             let generation = object.visual_object_generation;
             let epoch = self.visual_world_epoch;
             let orientation = object.get_orientation();
+            let forward = object.get_transform_matrix().x_axis.truncate();
+            let turning = object.physics_turning != PhysicsTurningType::TurnNone;
             let maximum_speed = object.effective_max_speed();
             let maximum_turn_rate = object.effective_turn_rate();
             // The delivery state runs before base MoveTo. An empty path
@@ -345,6 +350,8 @@ impl GameLogic {
                 } else {
                     orientation
                 },
+                forward,
+                turning,
                 maximum_speed,
                 maximum_turn_rate,
                 move_finished,
@@ -421,6 +428,19 @@ impl GameLogic {
                             object.set_ultra_accurate(true);
                         }
                     }
+                    ArtilleryDeliveryEvent::FinishDeparture => {
+                        self.destroy_object_with_effects(id, effects)?;
+                        continue;
+                    }
+                    ArtilleryDeliveryEvent::KillStalledDeparture => {
+                        self.apply_owned_kill_with_effects(
+                            id,
+                            DamageType::Unresistable,
+                            HostDeathType::Normal,
+                            effects,
+                        )?;
+                        continue;
+                    }
                     _ => {}
                 }
             }
@@ -441,9 +461,8 @@ impl GameLogic {
                 continue;
             };
             let position = self.objects[&id].get_position();
-            let (goal, at_exit) = data.course(position, map);
-            let departing = matches!(event, ArtilleryDeliveryEvent::Depart { .. });
-            if at_exit && (!authored || !departing) {
+            let (goal, at_exit) = data.course(position);
+            if at_exit {
                 self.destroy_object_with_effects(id, effects)?;
                 continue;
             }
