@@ -15,6 +15,7 @@ fn upgrade_data_view<T: ModuleData + 'static>(
     }))
 }
 
+mod behavior_order;
 mod ordered_mux;
 mod spawn_effects;
 
@@ -23,6 +24,15 @@ pub(in crate::game_logic) struct AuthoredCostModifierUpgrade {
     data: ModuleDataView<
         gamelogic::object::upgrade::cost_modifier_upgrade::CostModifierUpgradeModuleData,
     >,
+}
+
+impl AuthoredCostModifierUpgrade {
+    fn from_data(state_index: usize, data: &ModuleDataHandle) -> Option<Self> {
+        Some(Self {
+            state_index,
+            data: upgrade_data_view(data)?,
+        })
+    }
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -61,36 +71,6 @@ impl GameLogic {
                 &object.visual_draw_identity_token,
             ))
         })
-    }
-
-    pub(in crate::game_logic) fn authored_cost_modifier_modules(
-        &mut self,
-        object_id: ObjectId,
-    ) -> Vec<AuthoredCostModifierUpgrade> {
-        let Some(template) = self
-            .objects
-            .get(&object_id)
-            .and_then(|object| object.get_template().receiving_client_template.as_ref())
-        else {
-            return Vec::new();
-        };
-        let modules: Vec<_> = template
-            .behavior_modules()
-            .iter()
-            .filter_map(|module| {
-                upgrade_data_view::<gamelogic::object::upgrade::CostModifierUpgradeModuleData>(
-                    &module.data,
-                )
-            })
-            .enumerate()
-            .map(|(state_index, data)| AuthoredCostModifierUpgrade { state_index, data })
-            .collect();
-        if let Some(object) = self.objects.get_mut(&object_id) {
-            object
-                .cost_modifier_upgrade_executed
-                .resize(modules.len(), false);
-        }
-        modules
     }
 
     /// CostModifierUpgrade::onCapture, at this module's slot in Object::onCapture.

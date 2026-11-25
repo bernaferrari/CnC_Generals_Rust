@@ -73,29 +73,30 @@ impl GameLogic {
             return Ok(());
         };
         let birth = std::sync::Arc::downgrade(&object.visual_draw_identity_token);
-        let definition = object.get_template().receiving_object_definition.clone();
+        let callbacks = object.behavior_callback_order();
 
         // Object::onDestroy removes this rider before entering its behavior list.
         self.detach_destroyed_object_from_contain(id, effects)?;
         if !self.object_birth_matches(id, &birth) {
             return Ok(());
         }
-        if let Some(definition) = definition {
-            let mut cost_modifiers = None;
+        if callbacks.is_declared() {
+            let mut cost_index = 0;
             let mut radar_index = 0;
-            for (index, module) in definition.behavior_modules.iter().enumerate() {
+            for module in callbacks.iter() {
                 if !self.object_birth_matches(id, &birth) {
                     return Ok(());
                 }
-                let is = |class: &str| module.class_name.eq_ignore_ascii_case(class);
+                let is = |class: &str| module.is(class);
                 if is("CostModifierUpgrade") {
-                    let slots = cost_modifiers
-                        .get_or_insert_with(|| self.authored_cost_modifier_modules(id).into_iter());
-                    if let Some(cost) = slots.next() {
+                    if let Some(cost) = module.cost_modifier(cost_index) {
                         self.delete_cost_modifier_slot(id, &cost);
+                        cost_index += 1;
                     }
                 } else if is("PowerPlantUpgrade") || is("OverchargeBehavior") {
-                    self.delete_plant_power_bonus_slot(id, index);
+                    if let Some(index) = callbacks.projection_index(&module) {
+                        self.delete_plant_power_bonus_slot(id, index);
+                    }
                 } else if is("RadarUpgrade") {
                     self.delete_radar_upgrade_slot(id, radar_index);
                     radar_index += 1;

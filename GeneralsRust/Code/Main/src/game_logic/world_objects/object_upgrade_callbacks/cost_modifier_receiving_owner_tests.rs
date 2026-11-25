@@ -478,7 +478,7 @@ fn mounted_stock_refinery_rubble_immediately_returns_its_bonus_to_neutral() {
     );
 }
 
-fn world(percent: &str, create_source: bool) -> (GameLogic, Option<ObjectId>) {
+fn cost_world_with_players() -> GameLogic {
     let mut world = GameLogic::new();
     world.add_player(crate::game_logic::Player::new(
         0,
@@ -498,6 +498,11 @@ fn world(percent: &str, create_source: bool) -> (GameLogic, Option<ObjectId>) {
         world.upgrade_definitions.parse_upgrade_definition(ini)
     })
     .expect("admit cost upgrade definition");
+    world
+}
+
+fn world(percent: &str, create_source: bool) -> (GameLogic, Option<ObjectId>) {
+    let mut world = cost_world_with_players();
     world
         .admit_object_ini_sources([(
             "cost_modifier_owner.ini".to_owned(),
@@ -675,4 +680,122 @@ fn cost_modifier_save_preserves_each_ordered_row_and_wrapped_refcount() {
     restored.destroy_object(source).unwrap();
     assert_eq!(counts(&restored), [u32::MAX, 2]);
     assert_eq!(counts(&owner), [0, 2]);
+}
+
+#[test]
+fn map_added_cost_module_keeps_its_own_capture_and_delete_slot_through_save() {
+    use crate::save_load::{SnapshotBuilder, snapshot::decode_bincode_world_snapshot};
+
+    let make_world = || {
+        let (mut world, _) = world("-12.5%", false);
+        world.apply_receiving_module_overrides(&[format!(
+            "Object CostModifierSource\nAddModule\n\
+             Behavior = CostModifierUpgrade MapSurcharge\nTriggeredBy = {UPGRADE}\n\
+             EffectKindOf = VEHICLE AIRCRAFT\nPercentage = 25%\nEnd\nEnd\nEnd\n"
+        )]).unwrap();
+        world
+    };
+    let mut owner = make_world();
+    let source = owner.create_object_for_player("CostModifierSource", 0, glam::Vec3::ZERO).unwrap();
+    owner.apply_upgrade_to_object(source, UPGRADE);
+    assert_eq!(owner.objects[&source].cost_modifier_upgrade_executed, [true, true]);
+    let quote = |logic: &GameLogic, player| {
+        logic.modified_build_cost_supplies(player, "CostModifierDualKind", 1000)
+    };
+    assert_eq!(quote(&owner, 0), 1093);
+    let new_team = owner.players[&1].default_team_id.unwrap();
+    assert!(owner.set_host_object_team(source, new_team).unwrap());
+    assert_eq!(quote(&owner, 0), 1000);
+    assert_eq!(quote(&owner, 1), 1093);
+
+    let builder = SnapshotBuilder::new();
+    let snapshot = builder.create_world_snapshot(&owner).unwrap();
+    let bytes = bincode_legacy::serialize(&snapshot).unwrap();
+    let decoded = decode_bincode_world_snapshot(&bytes).unwrap();
+    let mut restored = make_world();
+    builder.restore_from_snapshot(&decoded, &mut restored).unwrap();
+    assert_eq!(restored.objects[&source].cost_modifier_upgrade_executed, [true, true]);
+    assert_eq!(
+        restored.players[&1].kind_of_production_cost_changes.iter()
+            .map(|row| row.percent).collect::<Vec<_>>(),
+        [-0.125, 0.25],
+    );
+    restored.destroy_object(source).unwrap();
+    assert_eq!(quote(&restored, 1), 1000);
+    assert_eq!(quote(&owner, 1), 1093);
+}
+
+#[test]
+fn cost_modifier_reset_reenables_the_slot_without_undoing_the_effect() {
+    let (mut owner, source) = world("25%", true);
+    let source = source.unwrap();
+    let unowned = owner.create_object("CostModifierSource", Team::Neutral, glam::Vec3::ZERO).unwrap();
+    assert_eq!(owner.objects[&unowned].owner_player_id, None);
+    owner.apply_upgrade_to_object(unowned, UPGRADE);
+    owner.destroy_object(unowned).unwrap();
+    assert!(owner.players.values().all(|player| player.kind_of_production_cost_changes.is_empty()));
+
+    owner.apply_upgrade_to_object(source, UPGRADE);
+    assert!(owner.remove_object_upgrade_with_receiving_rules(source, UPGRADE));
+    assert_eq!(owner.objects[&source].cost_modifier_upgrade_executed, [false]);
+    assert_eq!(owner.players[&0].kind_of_production_cost_changes[0].ref_count, 1);
+    owner.apply_upgrade_to_object(source, UPGRADE);
+    assert_eq!(owner.objects[&source].cost_modifier_upgrade_executed, [true]);
+    assert_eq!(owner.players[&0].kind_of_production_cost_changes[0].ref_count, 2);
+    assert_eq!(owner.modified_build_cost_supplies(0, "CostModifierDualKind", 1000), 1250);
+    owner.destroy_object(source).unwrap();
+    assert_eq!(owner.players[&0].kind_of_production_cost_changes[0].ref_count, 1);
+}
+
+#[test]
+fn inherited_cost_module_is_visited_before_the_child_module_on_capture_and_delete() {
+    let mut world = cost_world_with_players();
+    world.admit_object_ini_sources([(
+        "inherited-cost.ini".into(),
+        format!(r#"
+Object DefaultThingTemplate
+ InheritableModule
+  Behavior = CostModifierUpgrade DefaultDiscount
+   TriggeredBy = {UPGRADE}
+   EffectKindOf = VEHICLE
+   Percentage = -12.5%
+  End
+ End
+End
+Object InheritedCostSource
+ KindOf = STRUCTURE
+ Body = ActiveBody CostBody
+  MaxHealth = 100
+  InitialHealth = 100
+ End
+ Behavior = CostModifierUpgrade LocalSurcharge
+  TriggeredBy = {UPGRADE}
+  EffectKindOf = VEHICLE
+  Percentage = 25%
+ End
+End
+Object InheritedCostTarget
+ KindOf = VEHICLE
+ BuildCost = 1000
+ Body = ActiveBody TargetBody
+  MaxHealth = 100
+  InitialHealth = 100
+ End
+End
+"#),
+    )]).unwrap();
+    let source = world.create_object_for_player("InheritedCostSource", 0, glam::Vec3::ZERO).unwrap();
+    world.apply_upgrade_to_object(source, UPGRADE);
+    assert_eq!(world.objects[&source].cost_modifier_upgrade_executed, [true, true]);
+    let quote = |logic: &GameLogic, player| {
+        logic.modified_build_cost_supplies(player, "InheritedCostTarget", 1000)
+    };
+    assert_eq!(quote(&world, 0), 1093);
+    let team = world.players[&1].default_team_id.unwrap();
+    assert!(world.set_host_object_team(source, team).unwrap());
+    assert_eq!(quote(&world, 0), 1000);
+    let captured = &world.players[&1].kind_of_production_cost_changes;
+    assert_eq!(captured.iter().map(|row| row.percent).collect::<Vec<_>>(), [-0.125, 0.25]);
+    world.destroy_object(source).unwrap();
+    assert_eq!(quote(&world, 1), 1000);
 }

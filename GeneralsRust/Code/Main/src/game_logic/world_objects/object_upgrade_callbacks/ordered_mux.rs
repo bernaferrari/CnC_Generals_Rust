@@ -279,14 +279,10 @@ impl GameLogic {
                     ));
                 }
                 if module.name.as_str().eq_ignore_ascii_case("CostModifierUpgrade") {
-                    let data = upgrade_data_view::<
-                        gamelogic::object::upgrade::cost_modifier_upgrade::CostModifierUpgradeModuleData,
-                    >(&module.data)?;
-                    let state_index = cost_modifier_index;
+                    let cost =
+                        AuthoredCostModifierUpgrade::from_data(cost_modifier_index, module.data)?;
                     cost_modifier_index += 1;
-                    return Some(AuthoredOrderedUpgrade::CostModifier(
-                        AuthoredCostModifierUpgrade { state_index, data }
-                    ));
+                    return Some(AuthoredOrderedUpgrade::CostModifier(cost));
                 }
                 if module.name.as_str().eq_ignore_ascii_case("PowerPlantUpgrade") {
                     let data = upgrade_data_view::<gamelogic::object::upgrade::PowerPlantUpgradeModuleData>(
