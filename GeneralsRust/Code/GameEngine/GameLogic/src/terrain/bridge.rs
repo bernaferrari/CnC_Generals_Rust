@@ -3,44 +3,6 @@
 use super::*;
 
 impl TerrainLogic {
-    fn bridge_pathfinder_bounds(bridge_info: &BridgeInfo) -> (GridCoord, GridCoord) {
-        let min_x = bridge_info
-            .from_left
-            .x
-            .min(bridge_info.from_right.x)
-            .min(bridge_info.to_left.x)
-            .min(bridge_info.to_right.x);
-        let max_x = bridge_info
-            .from_left
-            .x
-            .max(bridge_info.from_right.x)
-            .max(bridge_info.to_left.x)
-            .max(bridge_info.to_right.x);
-        let min_y = bridge_info
-            .from_left
-            .y
-            .min(bridge_info.from_right.y)
-            .min(bridge_info.to_left.y)
-            .min(bridge_info.to_right.y);
-        let max_y = bridge_info
-            .from_left
-            .y
-            .max(bridge_info.from_right.y)
-            .max(bridge_info.to_left.y)
-            .max(bridge_info.to_right.y);
-
-        (
-            GridCoord::new(
-                (min_x / PATHFIND_CELL_SIZE_F).floor() as i32,
-                (min_y / PATHFIND_CELL_SIZE_F).floor() as i32,
-            ),
-            GridCoord::new(
-                (max_x / PATHFIND_CELL_SIZE_F).floor() as i32,
-                (max_y / PATHFIND_CELL_SIZE_F).floor() as i32,
-            ),
-        )
-    }
-
     pub fn bridge_info_from_parts(
         position: Coord3D,
         angle: Real,
@@ -105,55 +67,6 @@ impl TerrainLogic {
         )
     }
 
-    pub(super) fn register_bridge_with_pathfinder(
-        bridge_info: &BridgeInfo,
-    ) -> Option<PathfindLayerEnum> {
-        let pathfinder = the_ai().read().ok()?.pathfinder()?;
-        let mut pathfinder = pathfinder.write().ok()?;
-        Some(Self::register_bridge_in(&mut pathfinder, bridge_info))
-    }
-
-    pub(crate) fn register_bridge_in(
-        pathfinder: &mut crate::ai::Pathfinder,
-        bridge_info: &BridgeInfo,
-    ) -> PathfindLayerEnum {
-        use crate::ai::pathfind_complete::{GridCoord, PATHFIND_CELL_SIZE_F};
-        let (min_coord, max_coord) = Self::bridge_pathfinder_bounds(bridge_info);
-        // C++ PathfindLayer::classifyCells: offset from/to along bridgeDir by
-        // 0.7 * PATHFIND_CELL_SIZE before flooring to m_startCell / m_endCell.
-        let mut bridge_dir = Coord3D::new(
-            bridge_info.to.x - bridge_info.from.x,
-            bridge_info.to.y - bridge_info.from.y,
-            bridge_info.to.z - bridge_info.from.z,
-        );
-        let len = (bridge_dir.x * bridge_dir.x
-            + bridge_dir.y * bridge_dir.y
-            + bridge_dir.z * bridge_dir.z)
-            .sqrt();
-        if len > 0.0001 {
-            bridge_dir.x = bridge_dir.x / len * PATHFIND_CELL_SIZE_F * 0.7;
-            bridge_dir.y = bridge_dir.y / len * PATHFIND_CELL_SIZE_F * 0.7;
-            bridge_dir.z = bridge_dir.z / len * PATHFIND_CELL_SIZE_F * 0.7;
-        }
-        let start_world = Coord3D::new(
-            bridge_info.from.x - bridge_dir.x,
-            bridge_info.from.y - bridge_dir.y,
-            bridge_info.from.z - bridge_dir.z,
-        );
-        let end_world = Coord3D::new(
-            bridge_info.to.x + bridge_dir.x,
-            bridge_info.to.y + bridge_dir.y,
-            bridge_info.to.z + bridge_dir.z,
-        );
-        let start_cell = GridCoord::from_world(&start_world);
-        let end_cell = GridCoord::from_world(&end_world);
-        pathfinder.add_bridge_ex(
-            (min_coord, max_coord),
-            bridge_info.bridge_object_id,
-            start_cell,
-            end_cell,
-        )
-    }
     pub(super) fn bridge_info_from_map_data(
         bridge: &crate::system::map_loader::BridgeData,
         index: i32,

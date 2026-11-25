@@ -13,7 +13,7 @@ use crate::helpers::TheGameLogic;
 use crate::object::Object;
 use crate::object::registry::OBJECT_REGISTRY;
 use crate::path::{LAYER_Z_CLOSE_ENOUGH_F, PATHFIND_CELL_SIZE_F, PathfindLayerEnum};
-use crate::terrain::Bridge;
+use crate::terrain::{Bridge, TerrainLogic};
 use std::sync::{Arc, RwLock};
 
 pub(crate) enum BridgeDamage {
@@ -21,25 +21,27 @@ pub(crate) enum BridgeDamage {
     Reopened,
 }
 
-/// C++ `Bridge::updateDamageState`.
-pub fn update_damage_state(bridge: &mut Bridge) {
+pub(crate) fn observe_legacy_damage(bridge: &mut Bridge) -> Option<BridgeDamage> {
     let id = bridge.get_bridge_info().bridge_object_id;
     let actor = TheGameLogic::find_object_by_id(id);
     if actor.is_none() && OBJECT_REGISTRY.store_is_empty() {
         bridge.bridge_info_mut().damage_state_changed = false;
-        return;
+        return None;
     }
-    match observe_damage(bridge, actor.as_ref()) {
-        Some(BridgeDamage::Collapsed) => {
-            change_bridge_state(bridge.get_layer(), false);
-            for id in OBJECT_REGISTRY.get_all_object_ids() {
-                if let Some(actor) = TheGameLogic::find_object_by_id(id) {
-                    splat_unit(bridge, &actor);
-                }
+    observe_damage(bridge, actor.as_ref())
+}
+
+pub(crate) fn apply_legacy_damage(damage: BridgeDamage, bridge: &Bridge, terrain: &TerrainLogic) {
+    let pathfinder = the_ai().read().ok().and_then(|ai| ai.pathfinder());
+    if let Some(mut pathfinder) = pathfinder.as_ref().and_then(|owner| owner.write().ok()) {
+        pathfinder.change_terrain_bridge_state(bridge, terrain, matches!(damage, BridgeDamage::Reopened));
+    }
+    if matches!(damage, BridgeDamage::Collapsed) {
+        for id in OBJECT_REGISTRY.get_all_object_ids() {
+            if let Some(actor) = TheGameLogic::find_object_by_id(id) {
+                splat_unit(bridge, &actor);
             }
         }
-        Some(BridgeDamage::Reopened) => change_bridge_state(bridge.get_layer(), true),
-        None => {}
     }
 }
 
@@ -75,13 +77,6 @@ pub(crate) fn observe_damage(
         Some(BridgeDamage::Reopened)
     } else {
         None
-    }
-}
-
-fn change_bridge_state(layer: PathfindLayerEnum, repaired: bool) {
-    let ai_store = the_ai();
-    if let Ok(mut ai) = ai_store.write() {
-        ai.change_bridge_state(layer, repaired);
     }
 }
 

@@ -167,6 +167,164 @@ mod tests {
     }
 
     #[test]
+    fn authored_diagonal_bridge_uses_its_deck_and_receiving_terrain() {
+        use crate::ai::pathfind_complete::{GridCoord, PathfindCellType, PathfindLayerEnum};
+        use crate::common::ICoord2D;
+        use crate::system::engine_stores::{EngineStores, with_active_stores};
+        use crate::system::map_loader::MapData;
+        use crate::terrain::TerrainLogic;
+        use std::f32::consts::FRAC_PI_4;
+
+        const ID: u32 = 81;
+        let span = |height: f32| {
+            let mut bridge = TerrainLogic::bridge_info_from_parts(
+                Coord3D::new(75.0, 75.0, height),
+                FRAC_PI_4,
+                48.0,
+                18.0,
+                ID,
+            );
+            for end in [
+                &mut bridge.from,
+                &mut bridge.from_left,
+                &mut bridge.from_right,
+            ] {
+                end.z -= 8.0;
+            }
+            for end in [&mut bridge.to, &mut bridge.to_left, &mut bridge.to_right] {
+                end.z += 8.0;
+            }
+            bridge
+        };
+        let first = EngineStores::new_for_world().into();
+        let peer = EngineStores::new_for_world().into();
+        for (owner, sample) in [(&first, 50), (&peer, 0)] {
+            with_active_stores(owner, || {
+                let mut terrain = owner.services().terrain().write().unwrap();
+                let mut map = MapData::new();
+                map.width = 16;
+                map.height = 16;
+                map.heightmap = vec![sample; 16 * 16];
+                map.boundaries = vec![ICoord2D::new(16, 16)];
+                terrain.try_load_map_geometry(map).unwrap();
+                terrain.add_bridge_to_logic(span(30.0), "DiagonalBridge".into());
+            });
+        }
+        let first_path = first.ai().read().unwrap().pathfinder().unwrap();
+        let peer_path = peer.ai().read().unwrap().pathfinder().unwrap();
+        let first_terrain = first.services().terrain().read().unwrap();
+        let peer_terrain = peer.services().terrain().read().unwrap();
+        let off_deck = Coord3D::new(45.0, 105.0, 30.0);
+        let under_deck = Coord3D::new(75.0, 75.0, 0.0);
+
+        with_active_stores(&peer, || {
+            let mut first_path = first_path.write().unwrap();
+            first_path.rebuild_from_terrain(&first_terrain);
+            assert_eq!(
+                first_path
+                    .inner
+                    .get_stored_cell_type_at_layer(&off_deck, PathfindLayerEnum::Top),
+                Some(PathfindCellType::Impassable),
+                "AIPathfind.cpp:3641–3704 classifies the actual deck and its lines"
+            );
+            assert_eq!(
+                first_path
+                    .inner
+                    .get_stored_cell_type_at_layer(&under_deck, PathfindLayerEnum::Top),
+                Some(PathfindCellType::Clear)
+            );
+            assert_eq!(
+                first_path.get_cell_type_at(&under_deck),
+                Some(PathfindCellType::BridgeImpassable),
+                "ground clearance comes from the receiving terrain and the local deck plane"
+            );
+            let entry = first_path
+                .inner
+                .bridge_by_layer_id(PathfindLayerEnum::Top as u32)
+                .unwrap()
+                .start_cell;
+            assert_eq!(
+                first_path.inner.pathfinder.get_cell_connect_layer(entry),
+                Some(PathfindLayerEnum::Top)
+            );
+            for y in 0..16 {
+                first_path
+                    .inner
+                    .pathfinder
+                    .set_cell_type(GridCoord::new(7, y), PathfindCellType::Impassable);
+            }
+            first_path.inner.recalculate_zones_from_cells();
+            let request = classic_request(
+                ID,
+                Coord3D::new(15.0, 15.0, 0.0),
+                Coord3D::new(135.0, 135.0, 0.0),
+            );
+            let result = first_path.find_path_result(request.clone());
+            assert!(
+                result.success,
+                "the diagonal bridge is the only crossing: {result:?}"
+            );
+            assert!(result.layers.contains(&PathfindLayerEnum::Top));
+            let deck_center = GridCoord::from_world(&under_deck);
+            first_path.inner.pathfinder.set_cell_obstacle_id_on_layer(
+                deck_center,
+                PathfindLayerEnum::Top,
+                99,
+                false,
+                false,
+            );
+            let bridge = first_terrain.get_first_bridge().unwrap();
+            first_path.change_terrain_bridge_state(bridge, &first_terrain, false);
+            assert_eq!(
+                first_path.inner.pathfinder.get_cell_connect_layer(entry),
+                Some(PathfindLayerEnum::Invalid)
+            );
+            assert_eq!(
+                first_path
+                    .inner
+                    .pathfinder
+                    .get_cell_connect_layer_on_layer(entry, PathfindLayerEnum::Top),
+                Some(PathfindLayerEnum::Ground),
+                "repair discovery still needs the deck-side entry"
+            );
+            assert_eq!(
+                first_path
+                    .inner
+                    .pathfinder
+                    .obstacle_observation_at(deck_center, PathfindLayerEnum::Top),
+                Some((PathfindCellType::BridgeImpassable, None, false)),
+                "classifyLayerMapCell resets previous deck occupancy"
+            );
+            assert!(!first_path.find_path_result(request.clone()).success);
+            let under_ramp = Coord3D::new(65.0, 65.0, 0.0);
+            first_path.set_cell_type_at(&under_ramp, PathfindCellType::Clear);
+            first_path.change_terrain_bridge_state(bridge, &first_terrain, true);
+            assert_eq!(
+                first_path.get_cell_type_at(&under_ramp),
+                Some(PathfindCellType::BridgeImpassable)
+            );
+            assert_eq!(
+                first_path.inner.pathfinder.get_cell_connect_layer(entry),
+                Some(PathfindLayerEnum::Top)
+            );
+            assert!(first_path.find_path_result(request).success);
+        });
+
+        with_active_stores(&first, || {
+            let mut peer_path = peer_path.write().unwrap();
+            peer_path.rebuild_from_terrain(&peer_terrain);
+            assert_eq!(
+                peer_path.get_cell_type_at(&under_deck),
+                Some(PathfindCellType::Clear)
+            );
+            assert_eq!(
+                peer_path.bridge_is_destroyed(crate::path::PathfindLayerEnum::Top),
+                Some(false)
+            );
+        });
+    }
+
+    #[test]
     // ========================================================================
     // MOVEMENT CAPABILITIES TESTS
     // ========================================================================

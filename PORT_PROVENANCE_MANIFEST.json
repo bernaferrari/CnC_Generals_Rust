@@ -14642,6 +14642,13 @@
             "classification": "implementation",
             "owned_source_ranges": [],
             "owned_symbols": [],
+            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/ai/pathfind_complete/bridge_layers.rs"
+          },
+          {
+            "cargo_reachable": true,
+            "classification": "implementation",
+            "owned_source_ranges": [],
+            "owned_symbols": [],
             "path": "GeneralsRust/Code/GameEngine/GameLogic/src/ai/pathfind_complete/check_movement.rs"
           },
           {
@@ -54260,6 +54267,13 @@
             "owned_source_ranges": [],
             "owned_symbols": [],
             "path": "GeneralsRust/Code/GameEngine/GameLogic/src/ai/pathfind_complete/block_zones.rs"
+          },
+          {
+            "cargo_reachable": true,
+            "classification": "implementation",
+            "owned_source_ranges": [],
+            "owned_symbols": [],
+            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/ai/pathfind_complete/bridge_layers.rs"
           },
           {
             "cargo_reachable": true,
@@ -161157,7 +161171,7 @@
     }
   ],
   "generator": "GeneralsRust/Code/Main/scripts/generate_port_provenance.py",
-  "input_digest": "21284d1cd49cb972e6320c582bcab0c15f3746edc728bf948160ab79c422150a",
+  "input_digest": "ab9bfd924ea35440cf37cc2c10f14517fc401403ecf4ee13fed01dba42b1be31",
   "metric_contract": {
     "behavior_requires_explicit_evidence": true,
     "candidate_mapping_is_reviewed": false,
@@ -188936,7 +188950,7 @@
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/ai/mod.rs",
-      "sha256": "c6b0468dd4a7f505db52ce2975593f11b9d043885d548983e34afef519e54ee9",
+      "sha256": "0995b391491a6e4514a16330707eadcda67831b6f10f49e416076475773bcc1a",
       "symbol_index_status": "indexed",
       "symbols": [
         {
@@ -189456,153 +189470,158 @@
         },
         {
           "kind": "fn",
-          "line": 1211,
-          "name": "change_bridge_state"
-        },
-        {
-          "kind": "fn",
-          "line": 1218,
+          "line": 1209,
           "name": "get_ai_data"
         },
         {
           "kind": "fn",
-          "line": 1225,
+          "line": 1216,
           "name": "update_ai_data"
         },
         {
           "kind": "fn",
-          "line": 1228,
+          "line": 1219,
           "name": "create_group"
         },
         {
           "kind": "fn",
-          "line": 1234,
+          "line": 1225,
           "name": "get_group_by_id"
         },
         {
           "kind": "fn",
-          "line": 1245,
+          "line": 1236,
           "name": "destroy_group"
         },
         {
           "kind": "fn",
-          "line": 1256,
+          "line": 1247,
           "name": "groups"
         },
         {
           "kind": "fn",
-          "line": 1260,
+          "line": 1251,
           "name": "find_group"
         },
         {
           "kind": "fn",
-          "line": 1273,
+          "line": 1264,
           "name": "get_next_formation_id"
         },
         {
           "kind": "fn",
-          "line": 1279,
+          "line": 1270,
           "name": "get_next_group_id"
         },
         {
           "kind": "fn",
-          "line": 1284,
+          "line": 1275,
           "name": "find_closest_ally"
         },
         {
           "kind": "fn",
-          "line": 1362,
+          "line": 1353,
           "name": "find_closest_repulsor"
         },
         {
           "kind": "fn",
-          "line": 1430,
+          "line": 1421,
           "name": "default"
         },
         {
           "kind": "fn",
-          "line": 1437,
+          "line": 1428,
           "name": "crc"
         },
         {
           "kind": "fn",
-          "line": 1458,
+          "line": 1449,
           "name": "xfer"
         },
         {
           "kind": "fn",
-          "line": 1463,
+          "line": 1454,
           "name": "load_post_process"
         },
         {
           "kind": "struct",
-          "line": 1468,
+          "line": 1459,
           "name": "Pathfinder"
         },
         {
           "kind": "fn",
-          "line": 1473,
+          "line": 1464,
           "name": "world_to_grid"
         },
         {
           "kind": "fn",
-          "line": 1480,
+          "line": 1471,
           "name": "grid_to_world"
         },
         {
           "kind": "fn",
-          "line": 1491,
+          "line": 1482,
           "name": "object_footprint_positions"
         },
         {
           "kind": "fn",
-          "line": 1499,
+          "line": 1490,
           "name": "object_footprint_positions_with_height"
         },
         {
           "kind": "fn",
-          "line": 1604,
+          "line": 1595,
           "name": "new"
         },
         {
           "kind": "fn",
-          "line": 1609,
+          "line": 1600,
           "name": "reset"
         },
         {
           "kind": "fn",
-          "line": 1613,
+          "line": 1604,
           "name": "reset_with_size"
         },
         {
           "kind": "fn",
-          "line": 1619,
+          "line": 1610,
           "name": "mark_current_map_ready"
         },
         {
           "kind": "fn",
-          "line": 1622,
+          "line": 1613,
           "name": "rebuild_from_terrain"
         },
         {
           "kind": "fn",
-          "line": 1630,
+          "line": 1621,
           "name": "rebuild_from_terrain_after_load"
         },
         {
           "kind": "fn",
-          "line": 1649,
+          "line": 1640,
           "name": "rebuild_terrain_cells"
         },
         {
           "kind": "fn",
-          "line": 1725,
+          "line": 1706,
           "name": "bridge_layer_from_pathfinder_id"
         },
         {
           "kind": "fn",
-          "line": 1730,
+          "line": 1711,
           "name": "pathfinder_id_from_bridge_layer"
+        },
+        {
+          "kind": "fn",
+          "line": 1716,
+          "name": "add_terrain_bridge"
+        },
+        {
+          "kind": "fn",
+          "line": 1724,
+          "name": "change_terrain_bridge_state"
         },
         {
           "kind": "fn",
@@ -192636,6 +192655,69 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
+        "end_line": 231,
+        "start_line": 1
+      },
+      "path": "GeneralsRust/Code/GameEngine/GameLogic/src/ai/pathfind_complete/bridge_layers.rs",
+      "sha256": "a001bdce03324569970bab4d2d274be10081713326d1cc6de1caa71a22b5d129",
+      "symbol_index_status": "indexed",
+      "symbols": [
+        {
+          "kind": "fn",
+          "line": 11,
+          "name": "available_bridge_layer"
+        },
+        {
+          "kind": "fn",
+          "line": 15,
+          "name": "add_terrain_bridge"
+        },
+        {
+          "kind": "fn",
+          "line": 46,
+          "name": "classify_terrain_bridges"
+        },
+        {
+          "kind": "fn",
+          "line": 57,
+          "name": "set_bridge_destroyed"
+        },
+        {
+          "kind": "fn",
+          "line": 61,
+          "name": "set_terrain_bridge_destroyed"
+        },
+        {
+          "kind": "fn",
+          "line": 71,
+          "name": "update_bridge"
+        },
+        {
+          "kind": "fn",
+          "line": 98,
+          "name": "sync_bridge_layers_to_pathfinder"
+        },
+        {
+          "kind": "fn",
+          "line": 107,
+          "name": "classify_deck"
+        },
+        {
+          "kind": "fn",
+          "line": 174,
+          "name": "layer_bounds"
+        },
+        {
+          "kind": "fn",
+          "line": 190,
+          "name": "sync_bridge"
+        }
+      ]
+    },
+    {
+      "cargo_reachable": true,
+      "classification": "implementation",
+      "file_range": {
         "end_line": 1090,
         "start_line": 1
       },
@@ -193319,11 +193401,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 1145,
+        "end_line": 1130,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/ai/pathfind_complete/line_passable.rs",
-      "sha256": "c18f23f6b332a6a9affe615804b3ec389279729bb226dae5b27cdcc5ef7eabb0",
+      "sha256": "cc79d2abd6f2b391091f343e05b12286be5d31441fd7a7137bf41f8d12b16969",
       "symbol_index_status": "indexed",
       "symbols": [
         {
@@ -193393,167 +193475,162 @@
         },
         {
           "kind": "fn",
-          "line": 364,
+          "line": 370,
           "name": "calculate_path_cost"
         },
         {
           "kind": "fn",
-          "line": 385,
+          "line": 391,
           "name": "is_valid_coord"
         },
         {
           "kind": "fn",
-          "line": 388,
+          "line": 394,
           "name": "compute_radius_and_center"
         },
         {
           "kind": "fn",
-          "line": 411,
+          "line": 417,
           "name": "check_destination"
         },
         {
           "kind": "fn",
-          "line": 431,
+          "line": 437,
           "name": "check_destination_with_observations"
         },
         {
           "kind": "fn",
-          "line": 452,
+          "line": 458,
           "name": "check_destination_with_source"
         },
         {
           "kind": "const",
-          "line": 539,
+          "line": 545,
           "name": "UNIT_PRESENT_FIXED"
         },
         {
           "kind": "fn",
-          "line": 586,
+          "line": 592,
           "name": "for_goal_cells"
         },
         {
           "kind": "fn",
-          "line": 617,
+          "line": 623,
           "name": "get_aircraft_path"
         },
         {
           "kind": "fn",
-          "line": 691,
+          "line": 697,
           "name": "add_bridge"
         },
         {
           "kind": "fn",
-          "line": 697,
+          "line": 703,
           "name": "add_bridge_ex"
         },
         {
           "kind": "fn",
-          "line": 726,
+          "line": 730,
           "name": "bridge_entry_cells"
         },
         {
           "kind": "fn",
-          "line": 753,
+          "line": 757,
           "name": "zone_at_cell"
         },
         {
           "kind": "fn",
-          "line": 764,
+          "line": 768,
           "name": "find_broken_bridge_layer"
         },
         {
           "kind": "fn",
-          "line": 786,
-          "name": "set_bridge_destroyed"
-        },
-        {
-          "kind": "fn",
-          "line": 804,
+          "line": 790,
           "name": "bind_restored_bridge"
         },
         {
           "kind": "fn",
-          "line": 814,
+          "line": 799,
           "name": "bridge_by_layer_id"
         },
         {
           "kind": "fn",
-          "line": 821,
+          "line": 806,
           "name": "set_cell_type"
         },
         {
           "kind": "fn",
-          "line": 830,
+          "line": 815,
           "name": "get_cell_type"
         },
         {
           "kind": "fn",
-          "line": 841,
+          "line": 826,
           "name": "world_to_cell_trunc"
         },
         {
           "kind": "fn",
-          "line": 854,
+          "line": 839,
           "name": "get_cell_type_at_cell"
         },
         {
           "kind": "fn",
-          "line": 866,
+          "line": 851,
           "name": "cell_type_and_zone"
         },
         {
           "kind": "fn",
-          "line": 892,
+          "line": 877,
           "name": "get_cell_type_at_layer"
         },
         {
           "kind": "fn",
-          "line": 903,
+          "line": 888,
           "name": "get_stored_cell_type_at_layer"
         },
         {
           "kind": "fn",
-          "line": 913,
+          "line": 898,
           "name": "set_cell_type_at_layer"
         },
         {
           "kind": "fn",
-          "line": 950,
+          "line": 935,
           "name": "zones_connected_for_surfaces"
         },
         {
           "kind": "fn",
-          "line": 966,
+          "line": 951,
           "name": "client_safe_quick_does_path_exist"
         },
         {
           "kind": "fn",
-          "line": 977,
+          "line": 962,
           "name": "client_safe_quick_does_path_exist_ignoring"
         },
         {
           "kind": "fn",
-          "line": 992,
+          "line": 977,
           "name": "client_safe_quick_does_path_exist_with_observations"
         },
         {
           "kind": "fn",
-          "line": 1016,
+          "line": 1001,
           "name": "client_safe_quick_does_path_exist_with_terrain"
         },
         {
           "kind": "fn",
-          "line": 1035,
+          "line": 1020,
           "name": "client_safe_quick_does_path_exist_with_layers"
         },
         {
           "kind": "fn",
-          "line": 1098,
+          "line": 1083,
           "name": "client_safe_quick_does_path_exist_for_ui"
         },
         {
           "kind": "fn",
-          "line": 1111,
+          "line": 1096,
           "name": "compute_normal_radial_offset"
         }
       ]
@@ -193562,11 +193639,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 73,
+        "end_line": 74,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/ai/pathfind_complete/mod.rs",
-      "sha256": "eeffcd0d3f875cf852971f5453aeb44a16eec47dcdbd590daff61f6c7d7895e4",
+      "sha256": "576529400c66fca45b4978cf440c97959a26352672ae06b864ad698a64417111",
       "symbol_index_status": "indexed",
       "symbols": []
     },
@@ -193637,11 +193714,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 1391,
+        "end_line": 1337,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/ai/pathfind_complete/occupancy.rs",
-      "sha256": "8d543699dc7d4a4551950ccc7bc6dd1d7eb8bbc5f823681e22b0ce8e25148a70",
+      "sha256": "e9ba9616510d7ac8cf6c00283e8c14123817cb2904087478a180602fd756a9b3",
       "symbol_index_status": "indexed",
       "symbols": [
         {
@@ -193876,167 +193953,162 @@
         },
         {
           "kind": "fn",
-          "line": 994,
-          "name": "sync_bridge_layers_to_pathfinder"
-        },
-        {
-          "kind": "fn",
-          "line": 1046,
+          "line": 992,
           "name": "recalculate_zones_from_cells"
         },
         {
           "kind": "fn",
-          "line": 1114,
+          "line": 1060,
           "name": "check_change_layers"
         },
         {
           "kind": "fn",
-          "line": 1128,
+          "line": 1074,
           "name": "change_layer_open_link"
         },
         {
           "kind": "fn",
-          "line": 1146,
+          "line": 1092,
           "name": "skip_diagonal_if_squeezed"
         },
         {
           "kind": "const",
-          "line": 1147,
+          "line": 1093,
           "name": "FIRST_DIAGONAL"
         },
         {
           "kind": "const",
-          "line": 1148,
+          "line": 1094,
           "name": "ADJACENT"
         },
         {
           "kind": "fn",
-          "line": 1154,
+          "line": 1100,
           "name": "is_cell_obstacle_transparent"
         },
         {
           "kind": "fn",
-          "line": 1159,
+          "line": 1105,
           "name": "get_cell_obstacle_id"
         },
         {
           "kind": "fn",
-          "line": 1162,
+          "line": 1108,
           "name": "set_connect_layer"
         },
         {
           "kind": "fn",
-          "line": 1166,
+          "line": 1112,
           "name": "force_map_recalculation"
         },
         {
           "kind": "fn",
-          "line": 1176,
+          "line": 1122,
           "name": "add_wall_piece"
         },
         {
           "kind": "fn",
-          "line": 1185,
+          "line": 1131,
           "name": "remove_wall_piece"
         },
         {
           "kind": "fn",
-          "line": 1194,
+          "line": 1140,
           "name": "wall_layer_is_allocated"
         },
         {
           "kind": "fn",
-          "line": 1199,
+          "line": 1145,
           "name": "wall_piece_ids"
         },
         {
           "kind": "fn",
-          "line": 1205,
+          "line": 1151,
           "name": "reclassify_wall_cells_from_footprints"
         },
         {
           "kind": "fn",
-          "line": 1215,
+          "line": 1161,
           "name": "wall_piece_count"
         },
         {
           "kind": "fn",
-          "line": 1221,
+          "line": 1167,
           "name": "is_point_on_wall"
         },
         {
           "kind": "fn",
-          "line": 1229,
+          "line": 1175,
           "name": "classify_wall_cells"
         },
         {
           "kind": "fn",
-          "line": 1242,
+          "line": 1188,
           "name": "allocate_wall_cells"
         },
         {
           "kind": "fn",
-          "line": 1276,
+          "line": 1222,
           "name": "classify_allocated_wall_cells"
         },
         {
           "kind": "fn",
-          "line": 1325,
+          "line": 1271,
           "name": "classify_wall_cell_at"
         },
         {
           "kind": "fn",
-          "line": 1331,
+          "line": 1277,
           "name": "update_layer_for_object"
         },
         {
           "kind": "fn",
-          "line": 1342,
+          "line": 1288,
           "name": "is_map_ready"
         },
         {
           "kind": "fn",
-          "line": 1346,
+          "line": 1292,
           "name": "set_ignore_obstacle_id"
         },
         {
           "kind": "fn",
-          "line": 1350,
+          "line": 1296,
           "name": "ignore_obstacle_id"
         },
         {
           "kind": "fn",
-          "line": 1354,
+          "line": 1300,
           "name": "set_is_tunneling"
         },
         {
           "kind": "fn",
-          "line": 1358,
+          "line": 1304,
           "name": "is_tunneling"
         },
         {
           "kind": "fn",
-          "line": 1362,
+          "line": 1308,
           "name": "set_wall_height"
         },
         {
           "kind": "fn",
-          "line": 1366,
+          "line": 1312,
           "name": "wall_height"
         },
         {
           "kind": "fn",
-          "line": 1370,
+          "line": 1316,
           "name": "cumulative_cells_allocated"
         },
         {
           "kind": "fn",
-          "line": 1376,
+          "line": 1322,
           "name": "clean_open_and_closed_lists"
         },
         {
           "kind": "fn",
-          "line": 1386,
+          "line": 1332,
           "name": "note_open_closed_cells"
         }
       ]
@@ -195440,11 +195512,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 581,
+        "end_line": 590,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/ai/pathfind_complete/types.rs",
-      "sha256": "066f12bbb72471deebffa4318121537f0a8a07420348cd1403ca0dcb3a1edb4f",
+      "sha256": "d8901882b3483d92f209edbf304b34e92e29b7f802077f61e7d2b3a942d7db3f",
       "symbol_index_status": "indexed",
       "symbols": [
         {
@@ -195614,97 +195686,102 @@
         },
         {
           "kind": "fn",
-          "line": 259,
+          "line": 260,
           "name": "new"
         },
         {
           "kind": "fn",
-          "line": 262,
+          "line": 263,
           "name": "with_meta"
         },
         {
           "kind": "fn",
-          "line": 293,
-          "name": "contains"
+          "line": 281,
+          "name": "with_geometry"
         },
         {
           "kind": "fn",
           "line": 302,
+          "name": "contains"
+        },
+        {
+          "kind": "fn",
+          "line": 311,
           "name": "reclassify_cells"
         },
         {
           "kind": "fn",
-          "line": 325,
+          "line": 334,
           "name": "cell_type_at"
         },
         {
           "kind": "fn",
-          "line": 337,
+          "line": 346,
           "name": "set_ground_connect_cells"
         },
         {
           "kind": "fn",
-          "line": 345,
+          "line": 354,
           "name": "connects_zones"
         },
         {
           "kind": "fn",
-          "line": 379,
+          "line": 388,
           "name": "astar_cell_type"
         },
         {
           "kind": "fn",
-          "line": 393,
+          "line": 402,
           "name": "clip_line_cells"
         },
         {
           "kind": "struct",
-          "line": 476,
+          "line": 485,
           "name": "CheckMovementInfo"
         },
         {
           "kind": "fn",
-          "line": 490,
+          "line": 499,
           "name": "default"
         },
         {
           "kind": "struct",
-          "line": 507,
+          "line": 516,
           "name": "ObjectPathQueue"
         },
         {
           "kind": "fn",
-          "line": 514,
+          "line": 523,
           "name": "new"
         },
         {
           "kind": "fn",
-          "line": 521,
+          "line": 530,
           "name": "is_empty"
         },
         {
           "kind": "fn",
-          "line": 527,
+          "line": 536,
           "name": "queue"
         },
         {
           "kind": "fn",
-          "line": 552,
+          "line": 561,
           "name": "begin_front"
         },
         {
           "kind": "fn",
-          "line": 560,
+          "line": 569,
           "name": "finish_front"
         },
         {
           "kind": "fn",
-          "line": 566,
+          "line": 575,
           "name": "restore_front"
         },
         {
           "kind": "fn",
-          "line": 570,
+          "line": 579,
           "name": "pop_front"
         }
       ]
@@ -196148,11 +196225,11 @@
       "cargo_reachable": true,
       "classification": "test",
       "file_range": {
-        "end_line": 337,
+        "end_line": 495,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/ai/pathfinding_tests.rs",
-      "sha256": "53d3951f325dbceb2d44d5267a160ac5e1f3fd8ed73effce0ab596c01eb0b62f",
+      "sha256": "e1cf9cd67f78e8924d4a48bd8cf9a6d2d7701b4b989e521ffa7f302256dadc2b",
       "symbol_index_status": "indexed",
       "symbols": [
         {
@@ -196187,42 +196264,52 @@
         },
         {
           "kind": "fn",
-          "line": 175,
+          "line": 170,
+          "name": "authored_diagonal_bridge_uses_its_deck_and_receiving_terrain"
+        },
+        {
+          "kind": "const",
+          "line": 177,
+          "name": "ID"
+        },
+        {
+          "kind": "fn",
+          "line": 333,
           "name": "test_ground_movement_capabilities"
         },
         {
           "kind": "fn",
-          "line": 185,
+          "line": 343,
           "name": "test_amphibious_movement_capabilities"
         },
         {
           "kind": "fn",
-          "line": 193,
+          "line": 351,
           "name": "test_air_movement_capabilities"
         },
         {
           "kind": "fn",
-          "line": 201,
+          "line": 359,
           "name": "test_naval_movement_capabilities"
         },
         {
           "kind": "fn",
-          "line": 213,
+          "line": 371,
           "name": "test_path_waypoint_count"
         },
         {
           "kind": "fn",
-          "line": 243,
+          "line": 401,
           "name": "test_path_first_last_waypoint"
         },
         {
           "kind": "fn",
-          "line": 271,
+          "line": 429,
           "name": "test_path_closest_waypoint"
         },
         {
           "kind": "fn",
-          "line": 303,
+          "line": 461,
           "name": "test_path_advance_to_waypoint"
         }
       ]
@@ -205939,11 +206026,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 2273,
+        "end_line": 2269,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/behavior/bridge_behavior.rs",
-      "sha256": "a324d867273b045fc91a4661e98b2845230a513fde5c5d06d801e60cbc3f121b",
+      "sha256": "fed1970084e16fc295527f81fe5ddacc90ecce1f121a35eaf12f754df0984f8d",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },

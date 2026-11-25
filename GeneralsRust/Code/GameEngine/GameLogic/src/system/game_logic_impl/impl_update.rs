@@ -1670,8 +1670,10 @@ impl GameLogic {
         });
         while let Some((damage, bridge)) = effect {
             let repaired = matches!(damage, BridgeDamage::Reopened);
-            if let Some(mut pathfinder) = pathfinder.as_ref().and_then(|owner| owner.write().ok()) {
-                pathfinder.change_bridge_state(bridge.get_layer(), repaired);
+            if let Ok(terrain) = terrain.read()
+                && let Some(mut pathfinder) = pathfinder.as_ref().and_then(|owner| owner.write().ok())
+            {
+                pathfinder.change_terrain_bridge_state(&bridge, &terrain, repaired);
             }
             if matches!(damage, BridgeDamage::Collapsed) {
                 for actor in self.all_objects.iter().filter_map(|id| self.objects.get(id)) {

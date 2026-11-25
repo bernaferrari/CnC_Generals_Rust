@@ -352,8 +352,14 @@ impl PathfindingSystem {
     pub(crate) fn get_layer_for_coord(&self, coord: GridCoord) -> PathfindLayerEnum {
         // Check if coordinate is on a bridge
         for bridge in &self.bridges {
-            if !bridge.destroyed && bridge.contains(coord) {
-                return PathfindLayerEnum::Top; // Or specific layer ID
+            if !bridge.destroyed
+                && if bridge.from_terrain {
+                    bridge.cell_type_at(coord) == Some(PathfindCellType::Clear)
+                } else {
+                    bridge.contains(coord)
+                }
+            {
+                return PathfindLayerEnum::from_u32(bridge.layer_id);
             }
         }
 
@@ -701,10 +707,8 @@ impl PathfindingSystem {
         start_cell: GridCoord,
         end_cell: GridCoord,
     ) -> u32 {
-        // C++ Pathfinder::addBridge: first unused slot in 2..=14 (LAYER_GROUND+1 .. LAYER_WALL-1).
-        let Some(layer_id) = (2u32..=14).find(|id| !self.bridges.iter().any(|b| b.layer_id == *id))
-        else {
-            return 1; // C++ returns LAYER_GROUND when out of bridge slots.
+        let Some(layer_id) = self.available_bridge_layer() else {
+            return PathfindLayerEnum::Ground as u32;
         };
         let mut layer =
             BridgeLayer::with_meta(layer_id, bounds, bridge_object_id, start_cell, end_cell);
@@ -783,25 +787,6 @@ impl PathfindingSystem {
         }
         None
     }
-    pub fn set_bridge_destroyed(&mut self, layer_id: u32, destroyed: bool) {
-        let changed = self
-            .bridges
-            .iter_mut()
-            .find(|bridge| bridge.layer_id == layer_id)
-            .is_some_and(|bridge| {
-                if bridge.destroyed == destroyed {
-                    return false;
-                }
-                bridge.destroyed = destroyed;
-                bridge.reclassify_cells();
-                true
-            });
-        if changed {
-            self.sync_bridge_layers_to_pathfinder();
-            self.zones.mark_zones_dirty(!destroyed);
-        }
-    }
-
     pub(crate) fn bind_restored_bridge(&mut self, layer: u32, id: ObjectID) -> bool {
         let Some(bridge) = self.bridges.iter_mut().find(|bridge| bridge.layer_id == layer) else {
             return false;

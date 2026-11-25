@@ -192,12 +192,11 @@ impl TerrainLogic {
             return false;
         };
         let id = bridge.get_bridge_info().bridge_object_id;
-        let layer = bridge.get_layer();
         let ai_store = the_ai();
         if let Ok(ai) = ai_store.read() {
             if let Some(pathfinder) = ai.pathfinder() {
                 if let Ok(mut pathfinder) = pathfinder.write() {
-                    pathfinder.change_bridge_state(layer, false);
+                    pathfinder.change_terrain_bridge_state(&bridge, self, false);
                 }
             }
         }
@@ -377,9 +376,23 @@ impl TerrainLogic {
 
     /// Add bridge to logic
     pub fn add_bridge_to_logic(&mut self, bridge_info: BridgeInfo, template_name: AsciiString) {
-        let layer = Self::register_bridge_with_pathfinder(&bridge_info)
+        let pathfinder = the_ai().read().ok().and_then(|ai| ai.pathfinder());
+        let mut pathfinder = pathfinder.as_ref().and_then(|handle| handle.write().ok());
+        self.add_bridge_in(pathfinder.as_deref_mut(), bridge_info, template_name);
+    }
+
+    /// The receiving terrain and pathfinder are already borrowed on map load.
+    pub(crate) fn add_bridge_in(
+        &mut self,
+        pathfinder: Option<&mut crate::ai::Pathfinder>,
+        info: BridgeInfo,
+        template: AsciiString,
+    ) {
+        let bridge = Box::new(Bridge::new(info, template));
+        let layer = pathfinder
+            .map(|pathfinder| pathfinder.add_terrain_bridge(&bridge, self))
             .unwrap_or(PathfindLayerEnum::Ground);
-        self.prepend_bridge_on_layer(bridge_info, template_name, layer);
+        self.prepend_bridge(bridge, layer);
     }
 
     /// The admission owner assigns the one canonical layer; no Core pathfinder.
@@ -389,7 +402,10 @@ impl TerrainLogic {
         template: AsciiString,
         layer: PathfindLayerEnum,
     ) {
-        let mut bridge = Box::new(Bridge::new(info, template));
+        self.prepend_bridge(Box::new(Bridge::new(info, template)), layer);
+    }
+
+    fn prepend_bridge(&mut self, mut bridge: Box<Bridge>, layer: PathfindLayerEnum) {
         bridge.set_layer(layer);
         bridge.next = self.bridge_list_head.take();
         self.bridge_list_head = Some(bridge);
@@ -474,13 +490,14 @@ impl TerrainLogic {
     /// Update bridge damage states
     pub fn update_bridge_damage_states(&mut self) {
         self.bridge_damage_states_changed = false;
-        let mut current = self.bridge_list_head.as_deref_mut();
-        while let Some(bridge) = current {
-            bridge.update_damage_state();
-            if bridge.get_bridge_info().damage_state_changed {
-                self.bridge_damage_states_changed = true;
-            }
-            current = bridge.next.as_deref_mut();
+        if dual_world_registry_unavailable() {
+            return;
+        }
+        let mut visited = 0;
+        while let Some((damage, bridge)) =
+            self.next_bridge_damage(&mut visited, crate::terrain_bridge::observe_legacy_damage)
+        {
+            crate::terrain_bridge::apply_legacy_damage(damage, &bridge, self);
         }
     }
 
@@ -491,14 +508,24 @@ impl TerrainLogic {
         visited: &mut usize,
         mut actor: impl FnMut(ObjectID) -> Option<&'a Arc<RwLock<crate::object::Object>>>,
     ) -> Option<(crate::terrain_bridge::BridgeDamage, Bridge)> {
+        self.next_bridge_damage(visited, |bridge| {
+            let id = bridge.get_bridge_info().bridge_object_id;
+            crate::terrain_bridge::observe_damage(bridge, actor(id))
+        })
+    }
+
+    fn next_bridge_damage(
+        &mut self,
+        visited: &mut usize,
+        mut observe: impl FnMut(&mut Bridge) -> Option<crate::terrain_bridge::BridgeDamage>,
+    ) -> Option<(crate::terrain_bridge::BridgeDamage, Bridge)> {
         let mut current = self.bridge_list_head.as_deref_mut();
         for _ in 0..*visited {
             current = current.and_then(|bridge| bridge.next.as_deref_mut());
         }
         while let Some(bridge) = current {
             *visited += 1;
-            let id = bridge.get_bridge_info().bridge_object_id;
-            let damage = crate::terrain_bridge::observe_damage(bridge, actor(id));
+            let damage = observe(bridge);
             self.bridge_damage_states_changed |= bridge.get_bridge_info().damage_state_changed;
             if let Some(damage) = damage {
                 return Some((damage, bridge.clone()));

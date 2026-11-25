@@ -253,6 +253,7 @@ pub struct BridgeLayer {
     pub ground_connect_cells: Vec<GridCoord>,
     /// C++ PathfindLayer cell matrix (NULL/Impassable omitted).
     pub cell_types: HashMap<GridCoord, PathfindCellType>,
+    pub(super) from_terrain: bool,
 }
 
 impl BridgeLayer {
@@ -267,16 +268,25 @@ impl BridgeLayer {
         start_cell: GridCoord,
         end_cell: GridCoord,
     ) -> Self {
-        // Default entry points: attach cells (C++ isCellEntryPoint marks ends).
-        // Full classifyCells can replace this via set_ground_connect_cells.
-        let mut ground_connect_cells = Vec::new();
-        if start_cell != end_cell {
-            ground_connect_cells.push(start_cell);
-            ground_connect_cells.push(end_cell);
+        let mut layer = Self::with_geometry(layer_id, bounds, bridge_object_id, start_cell, end_cell);
+        layer.from_terrain = false;
+        layer.set_ground_connect_cells(if start_cell == end_cell {
+            vec![start_cell]
         } else {
-            ground_connect_cells.push(start_cell);
-        }
-        let mut layer = Self {
+            vec![start_cell, end_cell]
+        });
+        layer.reclassify_cells();
+        layer
+    }
+
+    pub(super) fn with_geometry(
+        layer_id: u32,
+        bounds: (GridCoord, GridCoord),
+        bridge_object_id: ObjectID,
+        start_cell: GridCoord,
+        end_cell: GridCoord,
+    ) -> Self {
+        Self {
             layer_id,
             bounds,
             destroyed: false,
@@ -284,11 +294,10 @@ impl BridgeLayer {
             bridge_object_id,
             start_cell,
             end_cell,
-            ground_connect_cells,
+            ground_connect_cells: Vec::new(),
             cell_types: HashMap::new(),
-        };
-        layer.reclassify_cells();
-        layer
+            from_terrain: true,
+        }
     }
 
     pub fn contains(&self, coord: GridCoord) -> bool {

@@ -103,11 +103,7 @@ impl SavedMapRuntime for GameLogic {
                 pathfinder.reset();
             }
             for (bridge, template) in bridges {
-                let layer = pathfinder
-                    .as_deref_mut()
-                    .map(|pathfinder| TerrainLogic::register_bridge_in(pathfinder, &bridge))
-                    .unwrap_or(crate::path::PathfindLayerEnum::Ground);
-                terrain.prepend_bridge_on_layer(bridge, template, layer);
+                terrain.add_bridge_in(pathfinder.as_deref_mut(), bridge, template);
             }
             let definitions = definitions.as_ref().map(|data| data.read());
             terrain.new_map_with_water_configuration(

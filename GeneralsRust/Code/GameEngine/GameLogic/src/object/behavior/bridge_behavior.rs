@@ -695,16 +695,12 @@ impl BridgeBehavior {
     }
 
     fn update_bridge_pathfinding(&self, bridge: &Bridge, passable: bool) {
-        if let Some(pathfinder) = crate::ai::active_pathfinder_handle() {
-            if let Ok(mut pf) = pathfinder.write() {
-                // C++ BridgeBehavior.cpp updates its exact bridge layer ID via
-                // `TheAI->pathfinder()->changeBridgeState(layer, repaired)`. Do not
-                // flatten bridge state into cells on the ground terrain map.
-                pf.change_bridge_state(
-                    crate::path::PathfindLayerEnum::from_u32(bridge.get_layer() as u32),
-                    passable,
-                );
-            }
+        let terrain = crate::terrain::get_terrain_logic();
+        if let Ok(terrain) = terrain.read()
+            && let Some(pathfinder) = crate::ai::active_pathfinder_handle()
+            && let Ok(mut pathfinder) = pathfinder.write()
+        {
+            pathfinder.change_terrain_bridge_state(bridge, &terrain, passable);
         }
     }
 

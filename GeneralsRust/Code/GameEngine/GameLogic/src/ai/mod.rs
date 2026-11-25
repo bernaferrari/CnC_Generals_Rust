@@ -1207,15 +1207,6 @@ impl AI {
         self.pathfinder.clone()
     }
 
-    /// C++ `TheAI->pathfinder()->changeBridgeState(layer, repaired)`.
-    pub fn change_bridge_state(&mut self, layer: crate::path::PathfindLayerEnum, repaired: bool) {
-        if let Some(pathfinder) = &self.pathfinder {
-            if let Ok(mut pf) = pathfinder.write() {
-                pf.change_bridge_state(layer, repaired);
-            }
-        }
-    }
-
     pub fn get_ai_data(&self) -> &AiData {
         &self.ai_data
     }
@@ -1677,8 +1668,6 @@ impl Pathfinder {
                     && (x as i32) <= hi_x
                     && (y as i32) >= lo_y
                     && (y as i32) <= hi_y;
-                let world_x = (x as f32 + 0.5) * cell_size;
-                let world_y = (y as f32 + 0.5) * cell_size;
                 let cell = pathfind_complete::GridCoord::new(x as i32, y as i32);
                 self.inner.pathfinder.set_pinched(cell, false);
                 if in_bounds
@@ -1686,7 +1675,7 @@ impl Pathfinder {
                 {
                     continue;
                 }
-                let mut cell_type = if !in_bounds {
+                let cell_type = if !in_bounds {
                     PathfindCellType::Impassable
                 } else {
                     let left = x as f32 * cell_size;
@@ -1708,19 +1697,11 @@ impl Pathfinder {
                     kind
                 };
 
-                let pos = Coord3D::new(world_x, world_y, 0.0);
-                if in_bounds {
-                    if let Some(bridge) = terrain.find_bridge_at(&pos) {
-                        if bridge.get_bridge_info().cur_damage_state == BodyDamageType::Rubble {
-                            cell_type = PathfindCellType::BridgeImpassable;
-                        }
-                    }
-                }
-
                 self.inner.pathfinder.set_cell_type(cell, cell_type);
             }
         }
         self.inner.expand_cliff_cells_like_cpp();
+        self.inner.classify_terrain_bridges(terrain);
     }
 
     fn bridge_layer_from_pathfinder_id(layer_id: u32) -> crate::path::PathfindLayerEnum {
@@ -1731,6 +1712,25 @@ impl Pathfinder {
     fn pathfinder_id_from_bridge_layer(layer: crate::path::PathfindLayerEnum) -> Option<u32> {
         let id = layer as u32;
         (2..=14).contains(&id).then_some(id)
+    }
+
+    pub(crate) fn add_terrain_bridge(
+        &mut self,
+        bridge: &crate::terrain::Bridge,
+        terrain: &TerrainLogic,
+    ) -> crate::path::PathfindLayerEnum {
+        Self::bridge_layer_from_pathfinder_id(self.inner.add_terrain_bridge(bridge, terrain))
+    }
+
+    pub(crate) fn change_terrain_bridge_state(
+        &mut self,
+        bridge: &crate::terrain::Bridge,
+        terrain: &TerrainLogic,
+        repaired: bool,
+    ) {
+        if let Some(id) = Self::pathfinder_id_from_bridge_layer(bridge.get_layer()) {
+            self.inner.set_terrain_bridge_destroyed(id, !repaired, bridge, terrain);
+        }
     }
 
     /// Register a bridge with the pathfinder and return the assigned terrain layer.

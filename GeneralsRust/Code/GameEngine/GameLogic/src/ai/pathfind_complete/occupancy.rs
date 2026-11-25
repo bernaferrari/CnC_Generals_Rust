@@ -988,60 +988,6 @@ impl PathfindingSystem {
         self.is_map_ready = true;
     }
 
-    /// Install the explicit bridge-layer cells and ground transition links in
-    /// the owned A* grid. C++ A* nodes carry a layer; keeping that same state in
-    /// the grid lets route reconstruction return the node's actual layer.
-    pub(crate) fn sync_bridge_layers_to_pathfinder(&mut self) {
-        let pathfinder = &mut self.pathfinder;
-        for bridge in &self.bridges {
-            let layer = PathfindLayerEnum::from_u32(bridge.layer_id);
-            if layer == PathfindLayerEnum::Invalid || layer == PathfindLayerEnum::Ground {
-                continue;
-            }
-            // Reclassification can remove a slot. Mark those slots impassable
-            // so getCell falls back to ground instead of retaining stale deck
-            // cells from before destruction or repair.
-            for x in bridge.bounds.0.x..=bridge.bounds.1.x {
-                for y in bridge.bounds.0.y..=bridge.bounds.1.y {
-                    let coord = GridCoord::new(x, y);
-                    let ty = bridge
-                        .cell_types
-                        .get(&coord)
-                        .copied()
-                        .unwrap_or(PathfindCellType::Impassable);
-                    pathfinder.set_cell_type_on_layer(coord, layer, ty);
-                }
-            }
-            for coord in &bridge.ground_connect_cells {
-                if bridge.destroyed
-                    || bridge
-                        .cell_type_at(*coord)
-                        .is_none_or(|ty| ty == PathfindCellType::Impassable)
-                {
-                    if pathfinder.get_cell_connect_layer(*coord) == Some(layer) {
-                        pathfinder.set_cell_connect_layer(*coord, PathfindLayerEnum::Invalid);
-                    }
-                    pathfinder.set_cell_connect_layer_on_layer(
-                        *coord,
-                        layer,
-                        PathfindLayerEnum::Invalid,
-                    );
-                    continue;
-                }
-                pathfinder.set_cell_connect_layer_on_layer(
-                    *coord,
-                    PathfindLayerEnum::Ground,
-                    layer,
-                );
-                pathfinder.set_cell_connect_layer_on_layer(
-                    *coord,
-                    layer,
-                    PathfindLayerEnum::Ground,
-                );
-            }
-        }
-    }
-
     /// Snapshot cell types + fence flags + connect layers; rebuild zones + combiners.
     pub(crate) fn recalculate_zones_from_cells(&mut self) {
         let snapshot = {

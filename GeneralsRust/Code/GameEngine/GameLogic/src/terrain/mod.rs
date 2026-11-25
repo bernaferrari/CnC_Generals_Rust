@@ -415,15 +415,6 @@ impl Bridge {
         line_in_region(&line1, &line2, cell)
     }
 
-    /// Update damage state
-    pub fn update_damage_state(&mut self) {
-        // Wave 341: empty dual-world → host GameLogic owns damage application.
-        if dual_world_registry_unavailable() {
-            return;
-        }
-        crate::terrain_bridge::update_damage_state(self);
-    }
-
     /// Get layer
     pub fn get_layer(&self) -> PathfindLayerEnum {
         self.layer
