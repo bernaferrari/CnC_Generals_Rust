@@ -49,6 +49,29 @@ pub(crate) fn xfer_update_module_base_state(
     Ok(())
 }
 
+/// C++ UpdateModule packs the absolute wake into the high 30 bits and
+/// the fixed phase into the low two bits of its Xfer clock.
+#[derive(Default)]
+pub(crate) struct UpdateModuleClock(UnsignedInt);
+
+impl UpdateModuleClock {
+    pub(crate) fn wake_frame(&self) -> UnsignedInt {
+        self.0 >> 2
+    }
+
+    pub(crate) fn set_wake(
+        &mut self,
+        frame: UnsignedInt,
+        phase: crate::modules::SleepyUpdatePhase,
+    ) {
+        self.0 = (frame.min(UnsignedInt::MAX >> 2) << 2) | phase as UnsignedInt;
+    }
+
+    pub(crate) fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        xfer_update_module_base_state(xfer, &mut self.0)
+    }
+}
+
 pub trait SpyVisionUpdate: Send + Sync {
     fn activate_spy_vision(&mut self, _duration: UnsignedInt) {}
 

@@ -85,6 +85,8 @@ pub trait UpdateScheduleContext {
     fn stage_minefield_drain(&mut self, _amount: f32) -> bool {
         false
     }
+    /// Destroy the registered owner after releasing the current update loan.
+    fn stage_owner_destruction(&mut self) {}
     /// Owned minefield services for the driving match.
     /// Scheduling-only contexts own no world and return None.
     fn owned_minefield_services(&mut self) -> Option<&mut dyn OwnedMinefieldServices> {

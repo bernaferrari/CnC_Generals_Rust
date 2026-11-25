@@ -1179,3 +1179,140 @@ End
     assert!(finite.read().unwrap().is_effectively_dead());
     assert!(!forever.read().unwrap().is_effectively_dead());
 }
+
+/// DeletionUpdate.cpp:58–82,101–115: the scheduled update destroys the installed
+/// object, and UpdateModule's packed wake remains independent of the die frame.
+#[test]
+fn core_xfer_deletion_destroys_only_the_receiving_actor_at_its_saved_wake() {
+    use crate::common::ObjectStatusMaskType;
+    use crate::system::engine_stores::EngineStores;
+    use game_engine::common::common_services::CommonServicesScope;
+    use game_engine::common::thing::thing_factory::load_templates_from_ini_text;
+    use game_engine::{Xfer, XferLoad, XferSave};
+
+    #[cfg(not(target_arch = "wasm32"))]
+    if let crate::test_process::TestProcess::ParentVerified = crate::test_process::run_bounded(
+        concat!(
+            module_path!(),
+            "::core_xfer_deletion_destroys_only_the_receiving_actor_at_its_saved_wake"
+        )
+        .strip_prefix("gamelogic::")
+        .unwrap(),
+        "GENERALS_CORE_RESTORE_DELETE_CHILD",
+    ) {
+        return;
+    }
+
+    let _common = CommonServicesScope::new();
+    crate::contain_module_overrides::ensure_module_overrides_installed().unwrap();
+    let authored = r#"
+Object SavedCoreDeletionFixture
+  Body = ActiveBody BodyTag
+    MaxHealth = 100
+    InitialHealth = 100
+  End
+  Behavior = DeletionUpdate DeleteTag
+    MinLifetime = 1000
+    MaxLifetime = 1000
+  End
+End
+"#;
+    assert_eq!(load_templates_from_ini_text(authored, "core-deletion.ini"), 1);
+    let template = crate::helpers::TheThingFactory::find_template("SavedCoreDeletionFixture").unwrap();
+    let team = {
+        let teams = crate::team::get_team_factory();
+        let mut teams = teams.lock().unwrap();
+        let prototype = teams
+            .init_team_owned("CoreDeletionTeam".into(), "".into(), false, None, None)
+            .unwrap();
+        teams
+            .create_team_on_prototype_with_id(&prototype, 91_409)
+            .unwrap()
+    };
+    let new_world = || GameLogic::new_with_engine_stores(Arc::new(EngineStores::new_for_world()));
+    let deletion = |owner: &Arc<RwLock<Object>>| {
+        owner
+            .read()
+            .unwrap()
+            .installed_update_proxy_named("DeletionUpdate")
+            .expect("the template installs the real deletion update")
+    };
+    let mut source = new_world();
+    source.frame = 32;
+    let id = 91_007;
+    let wake = 39;
+    let original =
+        Object::new_with_id(template, id, ObjectStatusMaskType::none(), Some(team)).unwrap();
+    source.register_object(original.clone()).unwrap();
+    source.register_sleepy_update_module(id, deletion(&original), wake);
+
+    // The SpecialPower caller edits the installed module under the object
+    // guard, then changes its exact registration after both loans end.
+    let (registration, deadline) = {
+        let object = original.write().unwrap();
+        let (deletion, registration) = object
+            .find_update_module_with_registration("DeletionUpdate")
+            .unwrap();
+        let delay = wake + 7 - crate::helpers::TheGameLogic::get_frame();
+        let deadline = deletion.with_module(|module| {
+            module
+                .get_deletion_lifetime_interface()
+                .unwrap()
+                .set_lifetime_range(delay, delay)
+        });
+        (registration.unwrap(), deadline)
+    };
+    assert_eq!(deadline, wake + 7);
+    source.friend_awaken_update_module(&registration, deadline);
+    assert_eq!(source.sleepy_entry_for(&registration), Some((id, deadline)));
+    // Record a deliberately different scheduler wake in the same snapshot.
+    source.friend_awaken_update_module(&registration, wake);
+
+    let file =
+        std::env::temp_dir().join(format!("generals-core-deletion-{}.bin", std::process::id()));
+    {
+        let mut save = XferSave::new();
+        save.open(file.to_string_lossy().into_owned()).unwrap();
+        source
+            .xfer_native_snapshot_with_campaign(&mut save, &mut Default::default())
+            .unwrap();
+        save.close().unwrap();
+    }
+    let mut receiving = new_world();
+    {
+        let mut load = XferLoad::new();
+        load.open(file.to_string_lossy().into_owned()).unwrap();
+        let mut campaign = Default::default();
+        let mut snapshot = CampaignGameLogicSnapshot {
+            logic: &mut receiving,
+            campaign: &mut campaign,
+        };
+        XferSnapshotTrait::xfer(&mut snapshot, &mut load).unwrap();
+        XferSnapshotTrait::load_post_process(&mut snapshot).unwrap();
+        load.close().unwrap();
+    }
+    std::fs::remove_file(file).unwrap();
+    assert_eq!(receiving.frame, 32);
+
+    let restored = receiving.find_object_by_id(id).unwrap();
+    let mut peer = new_world();
+    let peer_object = Arc::new(RwLock::new(Object::new_test(id, 100.0)));
+    peer.register_object(peer_object.clone()).unwrap();
+    assert_eq!(
+        receiving.sleepy_entry_for(&deletion(&restored)),
+        Some((id, wake))
+    );
+    for frame in receiving.frame..wake {
+        receiving.frame = frame;
+        receiving.process_sleepy_updates(frame);
+        assert!(!restored.read().unwrap().is_destroyed());
+    }
+    receiving.frame = wake;
+    receiving.process_sleepy_updates(wake);
+    assert!(restored.read().unwrap().is_destroyed());
+    assert!(!original.read().unwrap().is_destroyed());
+    assert!(!peer_object.read().unwrap().is_destroyed());
+    receiving.process_destroy_list().unwrap();
+    assert!(receiving.find_object_by_id(id).is_none());
+    assert!(Arc::ptr_eq(&peer.find_object_by_id(id).unwrap(), &peer_object));
+}

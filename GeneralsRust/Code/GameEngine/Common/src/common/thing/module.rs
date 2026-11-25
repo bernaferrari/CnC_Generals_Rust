@@ -709,7 +709,8 @@ pub trait SpawnControlInterface {
 }
 
 pub trait DeletionLifetimeInterface {
-    fn set_lifetime_range(&mut self, min_lifetime: u32, max_lifetime: u32);
+    /// Return the new absolute wake so the caller can reschedule after this loan.
+    fn set_lifetime_range(&mut self, min_lifetime: u32, max_lifetime: u32) -> u32;
 }
 
 pub trait LifetimeControlInterface {

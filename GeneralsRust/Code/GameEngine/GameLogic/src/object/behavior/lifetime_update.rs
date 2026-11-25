@@ -6,7 +6,7 @@
 
 use crate::common::{AsciiString, Bool, Int, KindOf, UnsignedInt, XferVersion};
 use crate::modules::{BehaviorModuleInterface, UpdateModuleInterface, UpdateSleepTime};
-use crate::object::behavior::behavior_module::{BehaviorModuleData, xfer_update_module_base_state};
+use crate::object::behavior::behavior_module::{BehaviorModuleData, UpdateModuleClock};
 use crate::object::{ModuleEntry, Object as GameObject};
 use game_engine::common::common_services::{LogicRandom, ReceivingLogicRandom};
 use game_engine::common::ini::{FieldParse, INI, INIError};
@@ -173,7 +173,7 @@ mod tests {
         let data = game_engine::common::thing::module::ModuleDataHandle::new(LifetimeUpdateModuleData::default());
         let behavior = LifetimeUpdate {
             owner: Weak::new(),
-            next_call_frame_and_phase: 0,
+            clock: UpdateModuleClock::default(),
             die_frame: 123,
         };
         let mut module =
@@ -191,7 +191,7 @@ mod tests {
         let data = game_engine::common::thing::module::ModuleDataHandle::new(LifetimeUpdateModuleData::default());
         let behavior = LifetimeUpdate {
             owner: Weak::new(),
-            next_call_frame_and_phase: 0,
+            clock: UpdateModuleClock::default(),
             die_frame: 0,
         };
         let module = LifetimeUpdateModule::new(behavior, &AsciiString::from("LifetimeUpdate"), data.clone());
@@ -418,7 +418,7 @@ mod tests {
 pub struct LifetimeUpdate {
     // Like C++ getObject(), this identifies the installed Object across ID restore.
     owner: Weak<RwLock<GameObject>>,
-    next_call_frame_and_phase: UnsignedInt,
+    clock: UpdateModuleClock,
     die_frame: UnsignedInt,
 }
 
@@ -467,7 +467,7 @@ impl LifetimeUpdate {
         let (min, max) = Self::effective_lifetime_range(is_hulk, min, max, override_frames);
         let mut update = Self {
             owner: Arc::downgrade(object),
-            next_call_frame_and_phase: 0,
+            clock: UpdateModuleClock::default(),
             die_frame: 0,
         };
         let deadline = update.set_lifetime_range_at(now, min, max, |lo, hi| {
@@ -509,7 +509,7 @@ impl LifetimeUpdate {
     /// C++ `UpdateModule::setWakeFrame` (UpdateModule.h:181-188): pack the
     /// wake frame and phase into the serialized call frame.
     fn record_wake(&mut self, frame: u32, phase: crate::modules::SleepyUpdatePhase) {
-        self.next_call_frame_and_phase = (frame.min(0x3fff_ffff) << 2) | phase as u32;
+        self.clock.set_wake(frame, phase);
     }
 
     pub fn get_die_frame(&self) -> UnsignedInt {
@@ -517,7 +517,7 @@ impl LifetimeUpdate {
     }
 
     pub fn initial_wake_frame(&self) -> UnsignedInt {
-        self.next_call_frame_and_phase >> 2
+        self.clock.wake_frame()
     }
 
     fn effective_lifetime_range(
@@ -589,7 +589,7 @@ impl Snapshotable for LifetimeUpdate {
         xfer.xfer_version(&mut version, 1)
             .map_err(|e| format!("LifetimeUpdate version xfer failed: {:?}", e))?;
 
-        xfer_update_module_base_state(xfer, &mut self.next_call_frame_and_phase)?;
+        self.clock.xfer(xfer)?;
 
         // die frame -- C++ LifetimeUpdate.cpp line 104
         xfer.xfer_unsigned_int(&mut self.die_frame)

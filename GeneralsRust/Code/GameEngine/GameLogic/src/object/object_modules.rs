@@ -1311,12 +1311,6 @@ impl Object {
                     >() {
                         slow_death.bind_update_proxy(proxy.clone());
                     }
-                    if let Some(deletion) = (module as &mut dyn Any)
-                        .downcast_mut::<crate::contain_module_overrides::ActiveBehaviorModule<
-                        crate::object::behavior::deletion_update::DeletionUpdate,
-                    >>() {
-                        deletion.behavior_mut().bind_update_proxy(proxy.clone());
-                    }
                     if let Some(spy) = (module as &mut dyn Any).downcast_mut::<
                         crate::object::update::spy_vision_update::SpyVisionUpdateModule,
                     >() {

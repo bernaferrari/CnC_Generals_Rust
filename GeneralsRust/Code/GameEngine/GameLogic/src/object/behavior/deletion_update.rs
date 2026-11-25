@@ -1,14 +1,17 @@
 //! DeletionUpdate - Auto-deletion of objects after conditions
 //! Author: EA Pacific (C++ version) | Rust conversion: 2025
 
-use crate::common::{Bool, ModuleData, ObjectID, TheGameLogic, UnsignedInt};
-use crate::modules::{BehaviorModuleInterface, UpdateModuleInterface, UpdateSleepTime};
+use crate::common::UnsignedInt;
+use crate::modules::{
+    BehaviorModuleInterface, SleepyUpdatePhase, UpdateModuleInterface, UpdateSleepTime,
+};
 use crate::object::Object as GameObject;
-use crate::object::behavior::behavior_module::{BehaviorModuleData, xfer_update_module_base_state};
+use crate::object::behavior::behavior_module::{BehaviorModuleData, UpdateModuleClock};
 use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::system::{Snapshotable, Xfer, XferVersion};
 use game_engine::common::thing::module::DeletionLifetimeInterface;
-use std::sync::{Arc, RwLock, Weak};
+use game_engine::common::thing::update_module::UpdateScheduleContext;
+use std::sync::{Arc, RwLock};
 
 #[derive(Clone, Debug)]
 pub struct DeletionUpdateModuleData {
@@ -74,14 +77,9 @@ const DELETION_UPDATE_FIELDS: &[FieldParse<DeletionUpdateModuleData>] = &[
     },
 ];
 
-#[allow(dead_code)]
 pub struct DeletionUpdate {
-    #[allow(dead_code)]
-    object_id: ObjectID,
-    module_data: game_engine::common::thing::module::ModuleDataHandle,
-    next_call_frame_and_phase: UnsignedInt,
+    clock: UpdateModuleClock,
     delete_frame: UnsignedInt,
-    update_proxy: Option<crate::object::UpdateModulePtr>,
 }
 
 impl DeletionUpdate {
@@ -93,7 +91,7 @@ impl DeletionUpdate {
     }
 
     pub(crate) fn new_with_module_data(
-        object: Arc<RwLock<GameObject>>,
+        _object: Arc<RwLock<GameObject>>,
         module_data: game_engine::common::thing::module::ModuleDataHandle,
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let guard = module_data.read();
@@ -105,39 +103,29 @@ impl DeletionUpdate {
             Self::calc_sleep_delay_static(specific_data.min_lifetime, specific_data.max_lifetime);
         drop(guard);
 
-        Ok(Self {
-            object_id: object
-                .read()
-                .ok()
-                .map(|g| g.get_id())
-                .unwrap_or(crate::common::INVALID_ID),
-            module_data,
-            next_call_frame_and_phase: current_frame + lifetime,
-            delete_frame: current_frame + lifetime,
-            update_proxy: None,
-        })
+        let mut update = Self {
+            clock: UpdateModuleClock::default(),
+            delete_frame: current_frame.wrapping_add(lifetime),
+        };
+        update
+            .clock
+            .set_wake(update.delete_frame, SleepyUpdatePhase::Normal);
+        Ok(update)
     }
 
-    pub fn set_lifetime_range(&mut self, min_lifetime: UnsignedInt, max_lifetime: UnsignedInt) {
+    pub fn set_lifetime_range(
+        &mut self,
+        min_lifetime: UnsignedInt,
+        max_lifetime: UnsignedInt,
+    ) -> UnsignedInt {
         let current_frame = crate::helpers::TheGameLogic::get_frame();
         let delay = Self::calc_sleep_delay_static(min_lifetime, max_lifetime);
-        self.delete_frame = current_frame + delay;
-        self.next_call_frame_and_phase = self.delete_frame;
-        if let Some(proxy) = self.update_proxy.clone() {
-            let _ = crate::helpers::TheGameLogic::register_update_module(
-                self.object_id,
-                proxy,
-                self.delete_frame,
-            );
-        }
-    }
-
-    pub(crate) fn bind_update_proxy(&mut self, proxy: crate::object::UpdateModulePtr) {
-        self.update_proxy = Some(proxy);
+        self.delete_frame = current_frame.wrapping_add(delay);
+        self.delete_frame
     }
 
     pub fn initial_wake_frame(&self) -> UnsignedInt {
-        self.next_call_frame_and_phase
+        self.clock.wake_frame()
     }
 
     /// Calculate random sleep delay between min and max frames.
@@ -155,23 +143,21 @@ impl DeletionUpdate {
 }
 
 impl UpdateModuleInterface for DeletionUpdate {
+    fn record_scheduled_wake(&mut self, frame: u32, phase: SleepyUpdatePhase) {
+        self.clock.set_wake(frame, phase);
+    }
+
+    fn update_scheduled(
+        &mut self,
+        context: &mut dyn UpdateScheduleContext,
+    ) -> Result<UpdateSleepTime, Box<dyn std::error::Error + Send + Sync>> {
+        // DeletionUpdate.cpp:58–82 calls destroyObject synchronously. Its
+        // callbacks run on the driving GameLogic before the next update.
+        context.stage_owner_destruction();
+        Ok(UpdateSleepTime::Forever)
+    }
+
     fn update_simple(&mut self) -> UpdateSleepTime {
-        // C++ destroys whenever the scheduled update is invoked; timing is owned by the scheduler.
-        if let Some(object) = (if self.object_id == crate::common::INVALID_ID {
-            None
-        } else {
-            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
-        }) {
-            if object.read().is_err() {
-                return UpdateSleepTime::None;
-            }
-            let id = object
-                .read()
-                .map(|guard| guard.get_id())
-                .unwrap_or(self.object_id);
-            let _ = crate::helpers::TheGameLogic::destroy_object_by_id(id);
-        }
         UpdateSleepTime::Forever
     }
 }
@@ -199,8 +185,12 @@ impl BehaviorModuleInterface for DeletionUpdate {
 }
 
 impl DeletionLifetimeInterface for DeletionUpdate {
-    fn set_lifetime_range(&mut self, min_lifetime: UnsignedInt, max_lifetime: UnsignedInt) {
-        DeletionUpdate::set_lifetime_range(self, min_lifetime, max_lifetime);
+    fn set_lifetime_range(
+        &mut self,
+        min_lifetime: UnsignedInt,
+        max_lifetime: UnsignedInt,
+    ) -> UnsignedInt {
+        DeletionUpdate::set_lifetime_range(self, min_lifetime, max_lifetime)
     }
 }
 
@@ -215,7 +205,7 @@ impl Snapshotable for DeletionUpdate {
         xfer.xfer_version(&mut version, 1)
             .map_err(|e| format!("DeletionUpdate xfer version: {:?}", e))?;
 
-        xfer_update_module_base_state(xfer, &mut self.next_call_frame_and_phase)?;
+        self.clock.xfer(xfer)?;
 
         xfer.xfer_unsigned_int(&mut self.delete_frame)
             .map_err(|e| format!("DeletionUpdate xfer delete_frame: {:?}", e))?;
@@ -243,11 +233,8 @@ mod tests {
 
     fn test_update() -> DeletionUpdate {
         DeletionUpdate {
-            object_id: crate::common::INVALID_ID,
-            module_data: game_engine::common::thing::module::ModuleDataHandle::new(DeletionUpdateModuleData::default()),
-            next_call_frame_and_phase: 0,
+            clock: UpdateModuleClock::default(),
             delete_frame: 0,
-            update_proxy: None,
         }
     }
 
@@ -259,13 +246,25 @@ mod tests {
         let deletion = update
             .get_deletion_lifetime_interface()
             .expect("DeletionUpdate should expose lifetime control");
-        deletion.set_lifetime_range(5, 5);
-
+        assert_eq!(deletion.set_lifetime_range(5, 5), current_frame + 5);
         assert_eq!(update.delete_frame, current_frame + 5);
     }
 
     #[test]
-    fn update_destroys_even_before_delete_frame_when_invoked_like_cpp() {
+    fn scheduled_update_requests_destruction_even_before_delete_frame() {
+        struct Schedule {
+            destroy_owner: bool,
+        }
+        impl UpdateScheduleContext for Schedule {
+            fn frame(&self) -> u32 {
+                0
+            }
+            fn stage_owner_destruction(&mut self) {
+                self.destroy_owner = true;
+            }
+            fn awaken(&mut self, _: &crate::object::UpdateModulePtr, _: u32) {}
+            fn unregister(&mut self, _: &crate::object::UpdateModulePtr) {}
+        }
         let object = Arc::new(RwLock::new(GameObject::new_test(9701, 100.0)));
         let module_data = game_engine::common::thing::module::ModuleDataHandle::new(DeletionUpdateModuleData {
             min_lifetime: 30,
@@ -274,7 +273,14 @@ mod tests {
         });
         let mut update = DeletionUpdate::new(Arc::clone(&object), module_data).unwrap();
 
-        assert!(update.delete_frame > crate::helpers::TheGameLogic::get_frame());
-        assert_eq!(update.update_simple(), UpdateSleepTime::Forever);
+        let mut schedule = Schedule {
+            destroy_owner: false,
+        };
+        assert!(update.delete_frame > schedule.frame());
+        assert_eq!(
+            update.update_scheduled(&mut schedule).unwrap(),
+            UpdateSleepTime::Forever
+        );
+        assert!(schedule.destroy_owner);
     }
 }

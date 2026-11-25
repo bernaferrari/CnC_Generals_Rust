@@ -601,25 +601,38 @@ impl SpecialPowerModule {
                 return;
             };
 
-            if let Ok(mut view_guard) = view_object.write() {
+            let reschedule = {
+                let Ok(mut view_guard) = view_object.write() else {
+                    return;
+                };
                 let _ = view_guard.set_position(pos);
                 view_guard.set_shroud_clearing_range(vision_range);
 
-                if let Some(module) = view_guard.find_update_module("DeletionUpdate") {
-                    module.with_module(|module| {
-                        if let Some(deletion) = module.get_deletion_lifetime_interface() {
-                            deletion.set_lifetime_range(vision_duration, vision_duration);
-                        }
-                    });
-                } else if let Some(mut behavior) = view_guard.find_update_behavior("DeletionUpdate")
+                if let Some((module, registration)) =
+                    view_guard.find_update_module_with_registration("DeletionUpdate")
                 {
-                    if let Ok(mut behavior) = behavior.access() {
-                        if let Some(deletion) = behavior.get_deletion_lifetime_interface() {
-                            deletion.set_lifetime_range(vision_duration, vision_duration);
-                        }
+                    let deadline = module.with_module(|module| {
+                        module.get_deletion_lifetime_interface().map(|deletion| {
+                            deletion.set_lifetime_range(vision_duration, vision_duration)
+                        })
+                    });
+                    registration.zip(deadline)
+                } else {
+                    if let Some(mut behavior) = view_guard.find_update_behavior("DeletionUpdate")
+                        && let Ok(mut behavior) = behavior.access()
+                        && let Some(deletion) = behavior.get_deletion_lifetime_interface()
+                    {
+                        deletion.set_lifetime_range(vision_duration, vision_duration);
                     }
+                    None
                 }
             };
+            if let Some((update, frame)) = reschedule
+                && let Ok(mut logic) = crate::system::game_logic::get_game_logic().lock()
+            {
+                // Scheduling writes the same installed module's clock.
+                logic.friend_awaken_update_module(&update, frame);
+            }
         }
     }
 
