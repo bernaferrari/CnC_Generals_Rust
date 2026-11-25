@@ -20,7 +20,6 @@ members = [
 
     # Game engine
     "Code/GameEngine/Common",
-    "Code/GameEngine/GameEngineDevice",
     "Code/GameEngine/GameNetwork",
     "Code/GameEngine/GameLogic",
     "Code/GameEngine/Pathfinding",
@@ -31,36 +30,18 @@ members = [
     "Code/GameEngine/UI",
     "Code/GameEngine/Particles",
     "Code/GameEngine/GameClient",
-    "Code/Integration",
 
     # WWVegas libraries
-    "Code/Libraries/Source/WWVegas/WWLib",
-    "Code/Libraries/Source/WWVegas/WWLib/base_types",
-    "Code/Libraries/Source/WWVegas/WWLib/string_system",
-    "Code/Libraries/Source/WWVegas/WWLib/memory_system",
-    "Code/Libraries/Source/WWVegas/WWLib/ini_parser",
     "Code/Libraries/Source/WWVegas/WWMath",
-    "Code/Libraries/Source/WWVegas/WWAudio",
-    "Code/Libraries/Source/WWVegas/WWDebug",
-    "Code/Libraries/Source/WWVegas/WWDownload",
-    "Code/Libraries/Source/WWVegas/WWFileSystem",
-    "Code/Libraries/Source/WWVegas/WWSaveLoad",
-    "Code/Libraries/Source/WWVegas/wwshade",
-    "Code/Libraries/Source/WWVegas/WW3DCore",
-    "Code/Libraries/Source/WWVegas/Wwutil",
 
     # WW3D2 crates
     "Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-core",
     "Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-engine",
     "Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-assets",
-    "Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-scene",
-    "Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-scene-renderer",
     "Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-geometry",
     "Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-renderer-3d",
-    "Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-render-2d",
     "Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-particles",
     "Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-animation",
-    "Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-physics",
     "Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-collision",
     "Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-gpu",
 
@@ -68,17 +49,10 @@ members = [
     "Code/Libraries/Source/Compression",
     "Code/Libraries/Source/Compression/EAC",
     "Code/Libraries/Source/Compression/LZHCompress",
-    "Code/Libraries/Source/Compression/ZLib",
-    "Code/Libraries/Source/AssetPipeline",
-    "Code/Libraries/Source/WPAudio",
-    "Code/Libraries/Source/WPAudio/shared",
-    "Code/Libraries/Source/Template",
     "Code/Libraries/Source/bincode_legacy",
     "Code/Libraries/Source/rodio_compat",
 
     # Small experimental crates (no gpui)
-    "Code/Experimental/engine_core",
-    "Code/Experimental/game_runtime",
 
     # Tools
     "tools/module-mask-gen",
@@ -99,14 +73,6 @@ default-members = [
     "Code/Main",
 ]
 
-# Broken / Metal-only / incomplete crates stay out of `cargo test --workspace`.
-exclude = [
-    "Code/Experimental/editor_gpui",
-    "Code/GameEngine/GameClient/gui",
-    "Code/Benchmarks",
-    "Code/Examples",
-    "Code/Libraries/Source/Benchmark",
-]
 
 [workspace.package]
 edition = "2024"
@@ -387,23 +353,14 @@ game_engine = { path = "Code/GameEngine/Common" }
 game_network = { path = "Code/GameEngine/GameNetwork" }
 gamelogic = { path = "Code/GameEngine/GameLogic" }
 game_client = { path = "Code/GameEngine/GameClient", package = "game-client-rust" }
-game_engine_device = { path = "Code/GameEngine/GameEngineDevice" }
-wwlib = { path = "Code/Libraries/Source/WWVegas/WWLib", package = "wwlib-rust" }
 wwmath = { path = "Code/Libraries/Source/WWVegas/WWMath", package = "math_utilities" }
-wwaudio = { path = "Code/Libraries/Source/WWVegas/WWAudio" }
-wwdebug = { path = "Code/Libraries/Source/WWVegas/WWDebug" }
-ww3dcore = { path = "Code/Libraries/Source/WWVegas/WW3DCore" }
 ww3d-core = { path = "Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-core" }
 ww3d-engine = { path = "Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-engine" }
 ww3d-assets = { path = "Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-assets" }
-ww3d-scene = { path = "Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-scene" }
-ww3d-scene-renderer = { path = "Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-scene-renderer" }
 ww3d-geometry = { path = "Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-geometry" }
 ww3d-renderer-3d = { path = "Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-renderer-3d" }
-ww3d-render-2d = { path = "Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-render-2d" }
 ww3d-particles = { path = "Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-particles" }
 ww3d-animation = { path = "Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-animation" }
-ww3d-physics = { path = "Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-physics" }
 ww3d-collision = { path = "Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-collision" }
 ww3d-gpu = { path = "Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-gpu" }
 generals_compression = { path = "Code/Libraries/Source/Compression" }
