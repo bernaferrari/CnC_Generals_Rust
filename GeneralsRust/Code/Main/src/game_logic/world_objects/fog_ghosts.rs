@@ -37,8 +37,9 @@ pub(crate) struct HostGhostState {
     draws: HashMap<ObjectId, CommittedHostGhostDraw>,
 }
 
-fn geometry(object: &Object) -> ParentGeometrySnapshot {
-    let info = object.get_template().geometry_info;
+/// W3DGhostObject::snapShot saves the current Object shape and pose.
+fn snapshot_parent_geometry(object: &Object) -> ParentGeometrySnapshot {
+    let info = object.geometry_info();
     let position = object.get_position();
     ParentGeometrySnapshot {
         geometry_type: info.geom_type as u32,
@@ -57,7 +58,7 @@ fn ghost_footprint(info: ParentGeometrySnapshot) -> crate::game_logic::partition
         minor_radius: info.minor_radius,
         angle: info.angle,
         is_small: info.is_small,
-        is_box: info.geometry_type == 2,
+        is_box: info.geometry_type == HostGeometryType::Box as u32,
     }
 }
 
@@ -400,12 +401,9 @@ impl GameLogic {
                     local,
                     &W3DGhostSnapshotCapture {
                         capture_window_generation: Some(draw.generation),
-                        drawable_effectively_hidden: object.contained_by.is_some()
-                            || (object.status.stealthed
-                                && !object.status.detected
-                                && !object.status.disguised),
+                        drawable_effectively_hidden: object.drawable_is_effectively_hidden(),
                         render_objects: draw.render_objects.clone(),
-                        geometry: geometry(object),
+                        geometry: snapshot_parent_geometry(object),
                     },
                 );
             } else if previous == Some(ObjectShroudStatus::Fogged as u8)

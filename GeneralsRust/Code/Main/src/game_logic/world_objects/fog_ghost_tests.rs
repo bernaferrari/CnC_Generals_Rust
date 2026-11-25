@@ -93,6 +93,16 @@ fn captured_name(world: &GameLogic) -> &str {
 #[test]
 fn native_fog_capture_and_reveal_follow_actual_cells_without_rewriting_fog_memory() {
     let mut world = world();
+    let live_shape = HostGeometryInfo {
+        geom_type: HostGeometryType::Box,
+        is_small: true,
+        major_radius: 12.0,
+        minor_radius: 8.0,
+        ..Default::default()
+    };
+    world.set_fixture_object_geometry(PARENT, live_shape.to_host_geometry());
+    world.set_fixture_object_orientation(PARENT, 0.75);
+    world.update_owned_partition_with_effects(&mut Default::default()).unwrap();
     reveal(&mut world);
     world.admit_host_ghost_draws(vec![native_draw(&world, "BuildingBeforeFog", 7)]);
     fog(&mut world);
@@ -103,7 +113,12 @@ fn native_fog_capture_and_reveal_follow_actual_cells_without_rewriting_fog_memor
         "C++ Fogged ordinal, not PartialClear"
     );
     assert_eq!(ghost.parent_object_id(), Some(42));
-    assert_eq!(ghost.parent_geometry().unwrap().position, [80.0, 80.0, 3.0]);
+    let geometry = ghost.parent_geometry().unwrap();
+    assert_eq!(geometry.position, [80.0, 80.0, 3.0]);
+    assert_eq!(geometry.angle, 0.75);
+    assert_eq!(geometry.geometry_type, HostGeometryType::Box as u32);
+    assert!(geometry.is_small);
+    assert_eq!((geometry.major_radius, geometry.minor_radius), (12.0, 8.0));
     assert_eq!(captured_name(&world), "BuildingBeforeFog");
     assert_eq!(ghost.snapshots(1)[0].render_object.scale, 1.0);
     assert_eq!(ghost.snapshots(1)[0].render_object.geometry_scale, 1.75);
@@ -118,6 +133,22 @@ fn native_fog_capture_and_reveal_follow_actual_cells_without_rewriting_fog_memor
     reveal(&mut world);
     assert!(!world.w3d_ghosts.used()[0].has_snapshot(1));
     assert!(!world.w3d_ghosts.used()[0].parent_fully_obscured());
+}
+
+#[test]
+fn native_fog_respects_drawable_visibility_when_entering_fog() {
+    let mut world = world();
+    reveal(&mut world);
+    world.admit_host_ghost_draws(vec![native_draw(&world, "HiddenBuilding", 1)]);
+    world.objects.get_mut(&PARENT).unwrap().set_drawable_hidden(true);
+    fog(&mut world);
+    assert!(!world.w3d_ghosts.used()[0].has_snapshot(1));
+
+    reveal(&mut world);
+    world.objects.get_mut(&PARENT).unwrap().set_drawable_hidden(false);
+    world.admit_host_ghost_draws(vec![native_draw(&world, "VisibleBuilding", 2)]);
+    fog(&mut world);
+    assert_eq!(captured_name(&world), "VisibleBuilding");
 }
 
 #[test]
