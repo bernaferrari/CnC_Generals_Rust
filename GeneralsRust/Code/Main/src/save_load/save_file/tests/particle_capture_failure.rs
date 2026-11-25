@@ -20,12 +20,7 @@ mod particle_capture_failure_control {
                 let mut client = GameClient::new().expect("CPU-only GameClient");
                 client.particle_systems_mut().reset().unwrap();
                 let save_info = fixture_save_info();
-                let prior_archive = SaveFileManager::write_common_sav_chunks(
-                    &WorldSnapshot::default(),
-                    &save_info,
-                    SAVED_GAME_MODE_SINGLE_PLAYER,
-                )
-                .unwrap();
+                let prior_archive = encode_snapshot_archive(&WorldSnapshot::default(), &save_info);
                 let directory = tempfile::tempdir().unwrap();
                 let mut saves = SaveFileManager::with_save_directory(directory.path());
                 let filename = "particle_capture_failure";
@@ -39,7 +34,9 @@ mod particle_capture_failure_control {
                 let mut template = ParticleSystemTemplate::new("x".repeat(256));
                 template.info_mut().system_lifetime = 1000;
                 let template = Arc::new(template);
-                client.particle_systems_mut().register_template(template.clone());
+                client
+                    .particle_systems_mut()
+                    .register_template(template.clone());
                 client
                     .particle_systems_mut()
                     .create_particle_system(&template, true)
@@ -93,7 +90,9 @@ mod mission_particle_capture {
                 let mut client = GameClient::new().expect("CPU-only GameClient");
                 client.particle_systems_mut().reset().unwrap();
                 let template = Arc::new(ParticleSystemTemplate::new("x".repeat(256)));
-                client.particle_systems_mut().register_template(template.clone());
+                client
+                    .particle_systems_mut()
+                    .register_template(template.clone());
                 client
                     .particle_systems_mut()
                     .create_particle_system(&template, true)
@@ -107,8 +106,7 @@ mod mission_particle_capture {
                 );
                 client.particle_systems_mut().reset().unwrap();
                 result.expect("mission save must not encode the excluded particle block");
-                let bytes =
-                    std::fs::read(saves.get_save_path("mission_particle_capture")).unwrap();
+                let bytes = std::fs::read(saves.get_save_path("mission_particle_capture")).unwrap();
                 let archive = decode_versioned_archive(&bytes);
                 assert_eq!(archive.save_info.save_type, SaveFileType::Mission);
                 assert!(archive.snapshot.particle_system_companion.is_none());

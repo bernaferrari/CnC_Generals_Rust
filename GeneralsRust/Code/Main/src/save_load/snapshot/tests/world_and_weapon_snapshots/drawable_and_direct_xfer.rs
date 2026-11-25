@@ -115,7 +115,7 @@ fn stealth_detection_expires_frame_survives_snapshot_and_clears_detected() {
 }
 
 #[test]
-fn popup_and_host_write_common_sav_chunks_and_restore_authority() {
+fn popup_and_host_write_versioned_archive_and_restore_authority() {
     use crate::save_load::{GameDifficulty, SaveFileManager, SaveFileType, SaveGameInfo};
     use std::fs;
     use std::time::{Duration, SystemTime};
@@ -158,12 +158,9 @@ fn popup_and_host_write_common_sav_chunks_and_restore_authority() {
         "host must write .sav like Popup"
     );
     let bytes = fs::read(&path).expect("read sav");
-    let text = String::from_utf8_lossy(&bytes);
     assert!(
-        text.contains("CHUNK_GameState")
-            && text.contains("CHUNK_GameLogic")
-            && text.contains("SG_EOF"),
-        "host file must use the same Common .sav chunk tokens as Popup"
+        bytes.starts_with(crate::save_load::save_file::VERSIONED_SAVE_MAGIC),
+        "host and popup saves share the production versioned archive container"
     );
 
     let mut loaded = authored_snapshot_world(CONTENT);
@@ -460,8 +457,8 @@ fn direct_xfer_current_round_trips_exact_player_template_binding_tail() {
         supply_truck_force_pending: true,
         supply_truck_next_dock_action_frame: 1_234,
         warehouse_boxes: -2,
-            stored_supply_boxes: 6,
-            generic_stored_supplies: 37,
+        stored_supply_boxes: 6,
+        generic_stored_supplies: 37,
     });
     world.objects.insert(collector.id, collector);
 
@@ -536,7 +533,11 @@ fn direct_xfer_current_round_trips_exact_shroud_tail() {
                     }),
                     active_shroud_level: std::array::from_fn(
                         |player| {
-                            if player == 1 { 3 } else { 0 }
+                            if player == 1 {
+                                3
+                            } else {
+                                0
+                            }
                         },
                     ),
                 },
@@ -812,8 +813,8 @@ fn direct_xfer_rejects_future_writer_before_emitting_any_record_bytes() {
 
 #[test]
 fn direct_xfer_current_appends_weapon_clip_residual_and_keeps_alignment() {
-    use crate::game_logic::object::WeaponFireStatus;
     use super::super::xfer_helpers::{default_object_snapshot, default_player_snapshot};
+    use crate::game_logic::object::WeaponFireStatus;
     use crate::game_logic::Weapon;
     use crate::save_load::{Xfer, XferLoad, XferSave};
     use std::io::Cursor;
@@ -893,9 +894,12 @@ fn direct_xfer_current_appends_weapon_clip_residual_and_keeps_alignment() {
     );
     assert!(restored.objects[&ObjectId(404)].weapon_bonus_target_faerie_fire);
     assert!(restored.objects[&ObjectId(404)].weapon_bonus_garrisoned);
-    assert_eq!(restored.objects[&ObjectId(404)].weapon_frame_statuses, [
-        WeaponFireStatus::ReloadingClip,
-        WeaponFireStatus::BetweenFiringShots,
-        WeaponFireStatus::OutOfAmmo,
-    ]);
+    assert_eq!(
+        restored.objects[&ObjectId(404)].weapon_frame_statuses,
+        [
+            WeaponFireStatus::ReloadingClip,
+            WeaponFireStatus::BetweenFiringShots,
+            WeaponFireStatus::OutOfAmmo,
+        ]
+    );
 }

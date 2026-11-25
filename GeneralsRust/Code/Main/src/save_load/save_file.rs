@@ -35,8 +35,8 @@ const CHUNK_RADAR: &str = "CHUNK_Radar";
 const CHUNK_HOST_MAP_INTENT: &str = "CHUNK_HostMapIntent";
 const CHUNK_HOST_SAVE_KIND: &str = "CHUNK_HostSaveKind";
 const SAVE_FILE_EOF: &str = "SG_EOF";
-const VERSIONED_SAVE_MAGIC: &[u8; 8] = b"GZHRSAV\0";
-const VERSIONED_SAVE_ARCHIVE_VERSION: u32 = 1;
+pub(crate) const VERSIONED_SAVE_MAGIC: &[u8; 8] = b"GZHRSAV\0";
+pub(crate) const VERSIONED_SAVE_ARCHIVE_VERSION: u32 = 2;
 const MAX_VERSIONED_SAVE_BYTES: usize = 512 * 1024 * 1024;
 const GAME_STATE_HEADER_VERSION: u8 = 2;
 const GAME_STATE_MAP_VERSION: u8 = 2;
@@ -827,6 +827,13 @@ fn decode_versioned_save_archive(data: &[u8]) -> SaveLoadResult<SaveArchive> {
         });
     }
     validate_direct_world_snapshot_version(archive.snapshot.version)?;
+    // Companions are archive-owned on disk but snapshot-owned at runtime.
+    // Normalize the historical empty/one-byte NullSnapshot forms to absence.
+    fn companion(bytes: Option<Vec<u8>>) -> Option<Vec<u8>> {
+        bytes.filter(|bytes| !bytes.is_empty() && bytes.as_slice() != [1])
+    }
+    archive.snapshot.w3d_ghost_companion = companion(archive.ghost_object_xfer.take());
+    archive.snapshot.particle_system_companion = companion(archive.particle_system_xfer.take());
     crate::save_load::snapshot::validate_decoded_world_snapshot(&mut archive.snapshot)?;
     if let Some(bytes) = archive.snapshot.w3d_ghost_companion.as_deref() {
         decode_w3d_ghost_xfer_bytes(bytes)?;
@@ -1642,6 +1649,8 @@ impl SaveFileManager {
             saved_game_mode,
             game_client_xfer: (!client_xfer_bytes.is_empty()).then_some(client_xfer_bytes),
             terrain_visual_xfer: terrain_visual_bytes.filter(|bytes| !bytes.is_empty()),
+            ghost_object_xfer: snapshot.w3d_ghost_companion.as_deref(),
+            particle_system_xfer: snapshot.particle_system_companion.as_deref(),
             map: map_archive.as_ref(),
         };
         let encoded = encode_versioned_save_archive(&archive)?;
@@ -1801,6 +1810,8 @@ impl SaveFileManager {
             saved_game_mode: None,
             game_client_xfer: None,
             terrain_visual_xfer: None,
+            ghost_object_xfer: None,
+            particle_system_xfer: None,
             map: None,
         };
         encode_versioned_save_archive(&archive)
@@ -2336,18 +2347,14 @@ mod rejected_logical_candidate_tests {
         ));
         manager.retain_rejected_logical_world(Box::new(failed));
         let error = manager.load_game("not-decoded", &mut peer).unwrap_err();
-        assert!(
-            error
-                .to_string()
-                .contains("terminal logical restore candidate")
-        );
+        assert!(error
+            .to_string()
+            .contains("terminal logical restore candidate"));
         assert_eq!(manager.rejected_logical_worlds.len(), 1);
         assert_eq!(manager.rejected_logical_worlds[0].frame, 91);
-        assert!(
-            manager.rejected_logical_worlds[0]
-                .host_object(ObjectId(7))
-                .is_some()
-        );
+        assert!(manager.rejected_logical_worlds[0]
+            .host_object(ObjectId(7))
+            .is_some());
         assert!(peer.host_object(ObjectId(7)).is_some());
         assert_eq!(peer.frame, 0);
     }

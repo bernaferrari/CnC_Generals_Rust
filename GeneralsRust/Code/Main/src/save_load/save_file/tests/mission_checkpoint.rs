@@ -1,7 +1,7 @@
 use super::*;
 
-use game_client::core::GameClient;
 use game_client::core::game_client::ClientInputAuthority;
+use game_client::core::GameClient;
 use game_client::gui::callbacks::score_screen::ScoreScreenAcademySnapshot;
 use game_client::gui::campaign_launch_host_bridge::{MenuWorldFacts, ShellMapSettings};
 use game_client::system::SubsystemInterface;
@@ -49,11 +49,9 @@ fn mount_nonfinal_score(definitions: &CampaignStore, rank_points: i32) -> GameCl
     outgoing.add_player(player);
     assert!(outgoing.select_local_player(Some(3)));
     let roster = outgoing.score_screen_player_roster();
-    assert!(
-        roster
-            .iter()
-            .any(|player| player.is_local && player.rank_points == rank_points)
-    );
+    assert!(roster
+        .iter()
+        .any(|player| player.is_local && player.rank_points == rank_points));
 
     client
         .with_receiving_shell(Some(facts), |shell, effects| {
@@ -193,14 +191,17 @@ fn mounted_nonfinal_score_persists_next_campaign_mission_before_continue() {
     assert_eq!(path, manager.get_save_path("00000001"));
     assert_eq!(std::fs::read(occupied).unwrap(), b"previous checkpoint");
     let bytes = std::fs::read(path).unwrap();
-    let chunks = walk_named_chunks(&bytes).unwrap();
     assert_eq!(
-        chunks
-            .iter()
-            .map(|(name, _)| name.as_str())
-            .collect::<Vec<_>>(),
-        [CHUNK_GAME_STATE, CHUNK_CAMPAIGN]
+        &bytes[..VERSIONED_SAVE_MAGIC.len()],
+        VERSIONED_SAVE_MAGIC,
+        "mission checkpoints use the versioned archive container"
     );
+    let checkpoint_archive = decode_versioned_archive(&bytes);
+    assert_eq!(
+        checkpoint_archive.save_info.save_type,
+        SaveFileType::Mission
+    );
+    assert!(checkpoint_archive.campaign_state.is_some());
     let saved = manager.load_game_snapshot("00000001").unwrap();
     assert_eq!(saved.save_info.save_type, SaveFileType::Mission);
     assert_eq!(saved.save_info.map_name, NEXT);
@@ -267,15 +268,12 @@ fn mounted_nonfinal_score_persists_next_campaign_mission_before_continue() {
     assert!(source.with_window_event_effects(Some(facts), |effects| {
         game_client::gui::dispatch_os_click_named_window(CONTINUE, effects)
     }));
-    let [
-        MenuHostRequest::StartCampaign {
-            descriptor,
-            clear_previous: false,
-            source: MenuLaunchSource::ScoreScreen,
-            ..
-        },
-        MenuHostRequest::SetCursorVisibility(true),
-    ]: [MenuHostRequest; 2] = source
+    let [MenuHostRequest::StartCampaign {
+        descriptor,
+        clear_previous: false,
+        source: MenuLaunchSource::ScoreScreen,
+        ..
+    }, MenuHostRequest::SetCursorVisibility(true)]: [MenuHostRequest; 2] = source
         .take_menu_host_requests()
         .try_into()
         .expect("one continuation followed by a cursor update")

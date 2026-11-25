@@ -1,6 +1,6 @@
 //! A single decoded archive owns its logical and client payloads together.
 //! No payload is published for a later load to take.
-use crate::save_load::{SaveGameInfo, snapshot::WorldSnapshot};
+use crate::save_load::{snapshot::WorldSnapshot, SaveGameInfo};
 use serde::{Deserialize, Serialize};
 
 /// Admission requirement captured from the world that produced this archive.
@@ -58,6 +58,8 @@ pub struct SaveArchive {
     pub saved_game_mode: Option<i32>,
     pub game_client_xfer: Option<Vec<u8>>,
     pub terrain_visual_xfer: Option<Vec<u8>>,
+    pub ghost_object_xfer: Option<Vec<u8>>,
+    pub particle_system_xfer: Option<Vec<u8>>,
     pub map: Option<SaveMapArchive>,
 }
 
@@ -74,5 +76,7 @@ pub struct SaveArchiveRef<'a> {
     pub saved_game_mode: Option<i32>,
     pub game_client_xfer: Option<&'a [u8]>,
     pub terrain_visual_xfer: Option<&'a [u8]>,
+    pub ghost_object_xfer: Option<&'a [u8]>,
+    pub particle_system_xfer: Option<&'a [u8]>,
     pub map: Option<&'a SaveMapArchive>,
 }
