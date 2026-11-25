@@ -5,17 +5,39 @@ use glam::Vec3;
 
 fn member_world() -> GameLogic {
     let fixture_locomotor_source = "Locomotor HqGroupHeightLocomotor\n  Surfaces = GROUND\n  Speed = 30\n  Appearance = TREADS\nEnd\n";
+    let objects = "
+Object HqGroupHeightMember
+  KindOf = VEHICLE SELECTABLE
+  Geometry = CYLINDER
+  GeometryMajorRadius = 1
+  Body = ActiveBody ModuleTag_Body
+    MaxHealth = 100
+    InitialHealth = 100
+  End
+  Behavior = AIUpdateInterface ModuleTag_AI
+  End
+  Locomotor = SET_NORMAL HqGroupHeightLocomotor
+End
+Object GenericBridge
+  KindOf = STRUCTURE BRIDGE IMMOBILE
+  Body = ActiveBody ModuleTag_Body
+    MaxHealth = 300
+    InitialHealth = 300
+  End
+End
+";
     let content = crate::assets::ReceivingObjectContent::from_sources([(
         "hq_group_height.ini".into(),
-        "Object HqGroupHeightMember\n  KindOf = VEHICLE SELECTABLE\n  Geometry = CYLINDER\n  GeometryMajorRadius = 1\n  Body = ActiveBody ModuleTag_Body\n    MaxHealth = 100\n    InitialHealth = 100\n  End\n  Behavior = AIUpdateInterface ModuleTag_AI\n  End\n  Locomotor = SET_NORMAL HqGroupHeightLocomotor\nEnd\n".into(),
-    )]).unwrap();
+        objects.into(),
+    )])
+    .unwrap();
     let mut world = GameLogic::new();
     crate::fixture_content::author_locomotors(&mut world, fixture_locomotor_source);
     world.admit_receiving_module_content(content).unwrap();
     world
 }
 
-fn map_bytes(raw: u8, deck: Option<f32>, slope: bool) -> Vec<u8> {
+fn map_bytes(raw: u8, with_bridge: bool, slope: bool) -> Vec<u8> {
     let mut out = game_engine::common::system::DataChunkOutput::new();
     out.open_data_chunk("HeightMapData", 3);
     for value in [21, 21, 1, 441] {
@@ -27,14 +49,15 @@ fn map_bytes(raw: u8, deck: Option<f32>, slope: bool) -> Vec<u8> {
         }
     }
     out.close_data_chunk();
-    if let Some(deck) = deck {
+    if with_bridge {
         out.open_data_chunk("ObjectsList", 3);
-        for (x, flags) in [(20.0, 0x10), (80.0, 0x20)] {
+        use game_engine::map_object::{FLAG_BRIDGE_POINT1, FLAG_BRIDGE_POINT2};
+        for (x, flags) in [(20.0, FLAG_BRIDGE_POINT1), (80.0, FLAG_BRIDGE_POINT2)] {
             out.open_data_chunk("Object", 3);
-            for value in [x, 50.0, deck, 0.0] {
+            for value in [x, 50.0, 0.0, 0.0] {
                 out.write_real(value);
             }
-            out.write_int(flags);
+            out.write_int(flags as i32);
             out.write_ascii_string("HqGroupHeightBridge");
             out.close_data_chunk();
         }
@@ -46,13 +69,23 @@ fn map_bytes(raw: u8, deck: Option<f32>, slope: bool) -> Vec<u8> {
 fn native_world(
     path: &std::path::Path,
     raw: u8,
-    deck: Option<f32>,
+    with_bridge: bool,
     wall: f32,
     slope: bool,
 ) -> (GameLogic, ObjectId) {
-    std::fs::write(path, map_bytes(raw, deck, slope)).unwrap();
+    std::fs::write(path, map_bytes(raw, with_bridge, slope)).unwrap();
     eprintln!("group height fixture constructing {}", path.display());
     let mut world = member_world();
+    if with_bridge {
+        crate::fixture_content::bridge_art::attach(
+            &mut world,
+            path.parent().unwrap(),
+            ["HqGroupHeightBridge".to_owned()],
+            [-10.0, 10.0],
+            0.0,
+            1.0,
+        );
+    }
     world.set_ai_definition_base(game_engine::common::ini::AIData {
         wall_height: wall,
         ..Default::default()
@@ -143,19 +176,21 @@ fn main_group_goals_use_driving_ground_bridge_and_wall_with_foreign_ai_held() {
         || {
             let temp = tempfile::tempdir().unwrap();
             let (mut first, id) =
-                native_world(&temp.path().join("A.map"), 5, Some(21.0), 21.0, false);
+                native_world(&temp.path().join("A.map"), 5, true, 21.0, false);
             let (mut other, other_id) =
-                native_world(&temp.path().join("B.map"), 12, Some(55.0), 55.0, false);
+                native_world(&temp.path().join("B.map"), 12, true, 55.0, false);
             assert_eq!(id, other_id);
             with_foreign_held(|| {
-                assert_member_heights(&mut first, id, 3.125, 21.0, 21.0);
-                assert_member_heights(&mut other, other_id, 7.5, 55.0, 55.0);
+                // TerrainLogic samples both bridge ends and adds the
+                // source quarter-unit deck lift.
+                assert_member_heights(&mut first, id, 3.125, 3.375, 21.0);
+                assert_member_heights(&mut other, other_id, 7.5, 7.75, 55.0);
                 eprintln!("group height resetting B");
                 other.reset();
                 eprintln!("group height reset B; constructing inert owner");
                 let _inert = GameLogic::new();
                 eprintln!("group height inert owner constructed; rereading A");
-                assert_member_heights(&mut first, id, 3.125, 21.0, 21.0);
+                assert_member_heights(&mut first, id, 3.125, 3.375, 21.0);
             });
         },
     );
@@ -169,13 +204,13 @@ fn group_selected_layer_clips_footprints_and_excludes_unlinked_or_buried_decks()
         || {
             let temp = tempfile::tempdir().unwrap();
             let (mut world, _) =
-                native_world(&temp.path().join("Clip.map"), 5, Some(21.0), 55.0, false);
+                native_world(&temp.path().join("Clip.map"), 5, true, 55.0, false);
             let grid = &mut world.pathfinding_system.grid;
             let bridge = Vec3::new(50.0, 99.0, 50.0);
             let wall = Vec3::new(50.0, 99.0, 120.0);
             let outside = Vec3::new(150.0, 99.0, 150.0);
             with_foreign_held(|| {
-                assert_eq!(grid.layer_height_clipped(bridge, 2, 3.125), 21.0);
+                assert_eq!(grid.layer_height_clipped(bridge, 2, 3.125), 3.375);
                 assert_eq!(grid.layer_height_clipped(wall, 15, 3.125), 55.0);
                 assert_eq!(grid.layer_height_clipped(outside, 2, 3.125), 3.125);
                 assert_eq!(grid.layer_height_clipped(outside, 15, 3.125), 3.125);
@@ -204,7 +239,7 @@ fn group_goal_samples_final_adjusted_xy_on_authored_cpp_height_plane() {
         "group_goal_samples_final_adjusted_xy_on_authored_cpp_height_plane",
         || {
             let temp = tempfile::tempdir().unwrap();
-            let (mut world, id) = native_world(&temp.path().join("Slope.map"), 0, None, 0.0, true);
+            let (mut world, id) = native_world(&temp.path().join("Slope.map"), 0, false, 0.0, true);
             let requested = Vec3::new(83.0, 0.0, 80.0);
             with_foreign_held(|| {
                 let adjusted = world.adjust_group_member_goal(id, requested, requested);
