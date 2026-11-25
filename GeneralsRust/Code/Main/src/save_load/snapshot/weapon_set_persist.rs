@@ -1,6 +1,7 @@
 //! Persist weapon and armor set selection and RiderChange continuation.
 //! WSFL v4 carries the active armor upgrade independently of its trigger or latch.
 //! Drawable::xfer restores the entire model mask after simulation state is loaded.
+use super::lifecycle_records::LifecycleRecords;
 use crate::game_logic::{GameLogic, ObjectId};
 use crate::save_load::{SaveLoadError, SaveLoadResult};
 use serde::{Deserialize, Serialize};
@@ -9,7 +10,7 @@ const WSFL_MAGIC: &[u8; 4] = b"WSFL";
 const WSFL_VERSION: u32 = 4;
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
-struct WeaponSetPersistPayload {
+pub(super) struct WeaponSetPersistPayload {
     objects: Vec<ObjectWeaponSetPersist>,
 }
 
@@ -47,46 +48,25 @@ pub fn append_to_lifecycle_tail(bytes: &mut Vec<u8>, game_logic: &GameLogic) {
     bytes.extend_from_slice(&encoded);
 }
 
-pub(super) fn apply_from_lifecycle_tail(
-    bytes: &[u8],
-    game_logic: &mut GameLogic,
-) -> SaveLoadResult<Vec<(ObjectId, u128)>> {
-    let Some(payload) = decode_payload(bytes)? else {
-        return Ok(Vec::new());
-    };
-    Ok(apply_payload(game_logic, payload))
+pub(super) fn prepare(
+    records: &LifecycleRecords<'_>,
+) -> SaveLoadResult<Option<WeaponSetPersistPayload>> {
+    records
+        .get(WSFL_MAGIC)
+        .map(|record| record.decode(WSFL_VERSION))
+        .transpose()
 }
 
 pub(super) fn validate_lifecycle_tail(bytes: &[u8]) -> SaveLoadResult<()> {
-    let _ = decode_payload(bytes)?;
+    let _ = prepare(&LifecycleRecords::parse(bytes)?)?;
     Ok(())
 }
 
-fn decode_payload(bytes: &[u8]) -> SaveLoadResult<Option<WeaponSetPersistPayload>> {
-    let Some(record) = find_wsfl_record(bytes)? else {
-        return Ok(None);
-    };
-    if record.len() < 12 {
-        return Err(SaveLoadError::Corrupted(
-            "WSFL header truncated".to_string(),
-        ));
-    }
-    let mut rest = &record[4..];
-    let version = take_u32(&mut rest)?;
-    if version != WSFL_VERSION {
-        return Err(SaveLoadError::Corrupted(format!(
-            "unknown WSFL suffix version {version}"
-        )));
-    }
-    let payload_len = take_u32(&mut rest)? as usize;
-    if rest.len() < payload_len {
-        return Err(SaveLoadError::Corrupted(
-            "WSFL payload truncated".to_string(),
-        ));
-    }
-    let payload: WeaponSetPersistPayload = bincode_legacy::deserialize(&rest[..payload_len])
-        .map_err(|err| SaveLoadError::Corrupted(format!("WSFL payload decode: {err}")))?;
-    Ok(Some(payload))
+pub(super) fn apply(
+    payload: Option<WeaponSetPersistPayload>,
+    game_logic: &mut GameLogic,
+) -> Vec<(ObjectId, u128)> {
+    payload.map_or_else(Vec::new, |payload| apply_payload(game_logic, payload))
 }
 
 fn capture(game_logic: &GameLogic) -> WeaponSetPersistPayload {
@@ -171,24 +151,8 @@ fn apply_payload(
 }
 
 
-fn find_wsfl_record(bytes: &[u8]) -> SaveLoadResult<Option<&[u8]>> {
-    let Some(range) = super::hotkey_squad_persist::find_lifecycle_record(bytes, WSFL_MAGIC)? else {
-        return Ok(None);
-    };
-    Ok(Some(&bytes[range]))
-}
-
 fn append_u32(out: &mut Vec<u8>, value: u32) {
     out.extend_from_slice(&value.to_le_bytes());
-}
-
-fn take_u32(rest: &mut &[u8]) -> SaveLoadResult<u32> {
-    if rest.len() < 4 {
-        return Err(SaveLoadError::Corrupted("WSFL u32 truncated".to_string()));
-    }
-    let value = u32::from_le_bytes([rest[0], rest[1], rest[2], rest[3]]);
-    *rest = &rest[4..];
-    Ok(value)
 }
 
 #[cfg(test)]
@@ -199,8 +163,7 @@ mod tests {
 
     #[test]
     fn absent_suffix_is_ignored() {
-        assert!(find_wsfl_record(b"no-magic-here").unwrap().is_none());
-        apply_from_lifecycle_tail(b"no-magic-here", &mut GameLogic::new()).expect("apply");
+        assert!(apply(None, &mut GameLogic::new()).is_empty());
     }
 
     #[test]
@@ -238,8 +201,9 @@ mod tests {
         let builder = super::super::SnapshotBuilder::new();
         let snapshot = builder.create_world_snapshot(&source).expect("snapshot");
         assert!(
-            find_wsfl_record(&snapshot.lifecycle_tail)
+            LifecycleRecords::parse(&snapshot.lifecycle_tail)
                 .expect("WSFL framing")
+                .get(WSFL_MAGIC)
                 .is_some(),
             "WSFL suffix must be appended to lifecycle tail"
         );

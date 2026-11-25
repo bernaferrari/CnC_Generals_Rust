@@ -161157,7 +161157,7 @@
     }
   ],
   "generator": "GeneralsRust/Code/Main/scripts/generate_port_provenance.py",
-  "input_digest": "d5f6166da12975738c9de4a8bf3099be6a1eba7cd71ba6c2fb763e665cfd4cb3",
+  "input_digest": "935fca4e7d46c9cb6f1292aeef575f61bd19c8c6711920cef1703cc73724745b",
   "metric_contract": {
     "behavior_requires_explicit_evidence": true,
     "candidate_mapping_is_reviewed": false,
@@ -222380,11 +222380,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 562,
+        "end_line": 561,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/Main/src/save_load/snapshot/native_die_persist.rs",
-      "sha256": "99fa99f2a749ba8cd82688712515de01172aea4850e2e666449889f3d3008513",
+      "sha256": "9682bf5d2251112abb6d5ab42c5ac00274042bb37154273117180a1527b4543d",
       "symbol_index_status": "indexed",
       "symbols": [
         {
@@ -222484,12 +222484,12 @@
         },
         {
           "kind": "fn",
-          "line": 534,
+          "line": 533,
           "name": "apply"
         },
         {
           "kind": "fn",
-          "line": 555,
+          "line": 554,
           "name": "corrupted"
         }
       ]
@@ -222498,11 +222498,11 @@
       "cargo_reachable": true,
       "classification": "test",
       "file_range": {
-        "end_line": 756,
+        "end_line": 768,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/Main/src/save_load/snapshot/native_die_persist_tests.rs",
-      "sha256": "8f30a8fa0904f1208db7ec3d34fafed750c6a912809008ec481f860663f608a1",
+      "sha256": "e423a503ee42966972f87cacee874bdd726d215e080b26bbe5e3d1a7aea26546",
       "symbol_index_status": "indexed",
       "symbols": [
         {
@@ -222512,97 +222512,97 @@
         },
         {
           "kind": "fn",
-          "line": 15,
+          "line": 27,
           "name": "owner"
         },
         {
           "kind": "fn",
-          "line": 38,
+          "line": 50,
           "name": "recreate_receipt_owner"
         },
         {
           "kind": "fn",
-          "line": 48,
+          "line": 60,
           "name": "native_die_capsule_roundtrip_retains_receipts_without_touching_equal_id_peer"
         },
         {
           "kind": "fn",
-          "line": 90,
+          "line": 102,
           "name": "native_die_capsule_wrong_receiving_identity_rejects_before_world_mutation"
         },
         {
           "kind": "fn",
-          "line": 111,
+          "line": 123,
           "name": "native_die_legacy_zero_health_live_is_allowed_but_saved_started_is_rejected"
         },
         {
           "kind": "fn",
-          "line": 184,
+          "line": 196,
           "name": "native_die_capsule_rejects_pending_create_and_invalid_completed_slot"
         },
         {
           "kind": "fn",
-          "line": 222,
+          "line": 234,
           "name": "native_die_capsule_rejects_unknown_version_and_truncated_payload"
         },
         {
           "kind": "fn",
-          "line": 237,
+          "line": 249,
           "name": "native_die_capsule_forged_completed_or_ai_receipt_rejects_detached_candidate"
         },
         {
           "kind": "fn",
-          "line": 273,
+          "line": 285,
           "name": "native_die_capsule_completed_live_slot_rejects_capture_and_detached_restore"
         },
         {
           "kind": "fn",
-          "line": 350,
+          "line": 362,
           "name": "native_die_capsule_actual_standalone_local_receipt_survives_without_world_latch"
         },
         {
           "kind": "fn",
-          "line": 433,
+          "line": 445,
           "name": "native_die_capsule_ai_receipt_requires_world_latch_despite_receiving_interface"
         },
         {
           "kind": "fn",
-          "line": 473,
+          "line": 485,
           "name": "native_die_capsule_actual_physics_crush_receipt_survives_without_world_latch"
         },
         {
           "kind": "fn",
-          "line": 535,
+          "line": 547,
           "name": "replace_ndie"
         },
         {
           "kind": "fn",
-          "line": 570,
+          "line": 582,
           "name": "v1"
         },
         {
           "kind": "fn",
-          "line": 583,
+          "line": 595,
           "name": "v1_unscored_live_owner_imports_without_fabricating_full_score"
         },
         {
           "kind": "fn",
-          "line": 600,
+          "line": 612,
           "name": "v1_ambiguous_dead_owner_rejects_before_queue_cache_or_owner_mutation"
         },
         {
           "kind": "fn",
-          "line": 642,
+          "line": 654,
           "name": "v2_malformed_pending_removal_graph_rejects_before_live_mutation"
         },
         {
           "kind": "fn",
-          "line": 704,
+          "line": 716,
           "name": "save_rejects_inflight_score_and_lifecycle_phases_without_draining_them"
         },
         {
           "kind": "fn",
-          "line": 729,
+          "line": 741,
           "name": "v1_initial_inactive_body_is_not_misclassified_as_an_ambiguous_death"
         }
       ]

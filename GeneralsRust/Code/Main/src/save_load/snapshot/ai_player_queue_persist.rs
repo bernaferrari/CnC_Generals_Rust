@@ -814,27 +814,10 @@ fn find_aitq_suffix(bytes: &[u8]) -> SaveLoadResult<Option<&[u8]>> {
         }
         return Ok(Some(&payload[4..]));
     }
-    // Historical v1-v6 saves lack an EOF locator. Only a recognized version
-    // header is a candidate, and ambiguous headers are rejected rather than
-    // choosing whichever marker occurs last inside a string.
-    let mut found = None;
-    for (index, window) in boundary.windows(4).enumerate() {
-        if window != AITQ_MAGIC {
-            continue;
-        }
-        let Some(version) = boundary.get(index + 4..index + 8) else {
-            continue;
-        };
-        if !(1..=AITQ_VERSION).contains(&u32::from_le_bytes(version.try_into().unwrap())) {
-            continue;
-        }
-        if found.replace(&boundary[index + 4..]).is_some() {
-            return Err(SaveLoadError::Corrupted(
-                "ambiguous historical AITQ headers".into(),
-            ));
-        }
-    }
-    Ok(found)
+    // Detached and historical continuations can also use the ordinary
+    // tagged record sequence without an AIQF footer.
+    let records = super::lifecycle_records::LifecycleRecords::parse(boundary)?;
+    Ok(records.get(AITQ_MAGIC).map(|record| record.body()))
 }
 
 fn strip_owner_frame<'a>(bytes: &'a [u8], magic: &[u8; 4]) -> SaveLoadResult<(&'a [u8], &'a [u8])> {
@@ -1255,7 +1238,7 @@ mod tests {
 
     #[test]
     fn absent_suffix_is_ignored() {
-        assert!(find_aitq_suffix(b"no-magic-here").unwrap().is_none());
+        assert!(find_aitq_suffix(&[]).unwrap().is_none());
     }
 
     #[test]

@@ -15,8 +15,9 @@
 //! bytes. No WorldSnapshot version bump. Restore writes enabled + range/rate
 //! + the scan clock only; it never re-runs `apply_battle_plan_set_battle_plan`.
 
+use super::lifecycle_records::LifecycleRecords;
 use crate::game_logic::{GameLogic, ObjectId};
-use crate::save_load::{SaveLoadError, SaveLoadResult};
+use crate::save_load::SaveLoadResult;
 use serde::{Deserialize, Serialize};
 
 const SDEN_MAGIC: &[u8; 4] = b"SDEN";
@@ -50,25 +51,14 @@ pub fn append_to_lifecycle_tail(bytes: &mut Vec<u8>, game_logic: &GameLogic) {
     bytes.extend_from_slice(&encoded);
 }
 
-pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> SaveLoadResult<()> {
-    let Some(suffix) = find_sden_suffix(bytes) else {
+pub(super) fn apply(
+    records: &LifecycleRecords<'_>,
+    game_logic: &mut GameLogic,
+) -> SaveLoadResult<()> {
+    let Some(record) = records.get(SDEN_MAGIC) else {
         return Ok(());
     };
-    let mut rest = suffix;
-    let version = take_u32(&mut rest)?;
-    if version != SDEN_VERSION {
-        return Err(SaveLoadError::Corrupted(format!(
-            "unknown SDEN suffix version {version}"
-        )));
-    }
-    let payload_len = take_u32(&mut rest)? as usize;
-    if rest.len() < payload_len {
-        return Err(SaveLoadError::Corrupted(
-            "SDEN payload truncated".to_string(),
-        ));
-    }
-    let payload: StealthDetectorPersistPayload = bincode_legacy::deserialize(&rest[..payload_len])
-        .map_err(|err| SaveLoadError::Corrupted(format!("SDEN payload decode: {err}")))?;
+    let payload: StealthDetectorPersistPayload = record.decode(SDEN_VERSION)?;
     apply_payload(game_logic, payload);
     Ok(())
 }
@@ -116,24 +106,8 @@ fn apply_payload(game_logic: &mut GameLogic, payload: StealthDetectorPersistPayl
     }
 }
 
-fn find_sden_suffix(bytes: &[u8]) -> Option<&[u8]> {
-    bytes
-        .windows(4)
-        .rposition(|window| window == SDEN_MAGIC)
-        .map(|idx| &bytes[idx + 4..])
-}
-
 fn append_u32(out: &mut Vec<u8>, value: u32) {
     out.extend_from_slice(&value.to_le_bytes());
-}
-
-fn take_u32(rest: &mut &[u8]) -> SaveLoadResult<u32> {
-    if rest.len() < 4 {
-        return Err(SaveLoadError::Corrupted("SDEN u32 truncated".to_string()));
-    }
-    let (head, tail) = rest.split_at(4);
-    *rest = tail;
-    Ok(u32::from_le_bytes([head[0], head[1], head[2], head[3]]))
 }
 
 #[cfg(test)]
@@ -174,7 +148,10 @@ mod tests {
         let builder = super::super::SnapshotBuilder::new();
         let snapshot = builder.create_world_snapshot(&source).expect("snapshot");
         assert!(
-            find_sden_suffix(&snapshot.lifecycle_tail).is_some(),
+            LifecycleRecords::parse(&snapshot.lifecycle_tail)
+                .unwrap()
+                .get(SDEN_MAGIC)
+                .is_some(),
             "SDEN suffix must be appended to lifecycle tail"
         );
 
@@ -210,7 +187,7 @@ mod tests {
         let id = logic
             .create_object("AmericaStrategyCenter", Team::USA, Vec3::ZERO)
             .expect("center");
-        apply_from_lifecycle_tail(b"no-magic-here", &mut logic).expect("apply");
+        apply(&LifecycleRecords::parse(&[]).unwrap(), &mut logic).expect("apply");
         let object = logic.host_object(id).expect("center");
         assert!(!object.is_detector);
         assert_eq!(object.detection_rate_frames, 0);

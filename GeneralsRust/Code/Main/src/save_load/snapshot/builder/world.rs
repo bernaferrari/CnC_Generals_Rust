@@ -457,11 +457,13 @@ impl SnapshotBuilder {
                 &object.template_name,
             )?;
         }
-        // Native input owns squads; validate its detached wire before world mutation.
+        let records =
+            super::super::lifecycle_records::LifecycleRecords::parse(&snapshot.lifecycle_tail)?;
         let hotkey_groups =
-            super::super::hotkey_squad_persist::read_control_groups(&snapshot.lifecycle_tail)?;
+            super::super::hotkey_squad_persist::read_indexed_control_groups(&records)?;
+        let module_continuations = super::super::object_module_xfer_persist::prepare(&records)?;
         super::super::object_module_xfer_persist::validate_completion_provenance_before_restore(
-            &snapshot.lifecycle_tail,
+            module_continuations.as_ref(),
             snapshot.version,
             &snapshot.objects,
             &snapshot.special_power_strikes,
@@ -696,15 +698,21 @@ impl SnapshotBuilder {
             super::super::native_die_persist::decode(object_layers.legacy_tail.as_ref())?;
         let lifecycle_tail = native_die.legacy_tail.as_ref();
         let stealth_grants =
-            super::super::stealth_grant_persist::prepare(lifecycle_tail, &snapshot.objects)?;
-        let object_continuations =
-            super::super::object_xfer_persist::decode_lifecycle_tail(lifecycle_tail)?;
+            super::super::stealth_grant_persist::prepare(&records, &snapshot.objects)?;
+        let power_plant_rods =
+            super::super::power_plant_rods_persist::prepare(&records, &snapshot.objects)?;
+        let weapon_sets = super::super::weapon_set_persist::prepare(&records)?;
+        let object_continuations = super::super::object_xfer_persist::prepare(&records)?;
+        let death_states = super::super::object_module_xfer_persist::saved_death_states(
+            module_continuations.as_ref(),
+        )?;
         let native_die_runtimes = super::super::native_die_persist::validate(
             &native_die,
             snapshot,
             game_logic,
             &body_kinds,
             object_continuations.as_ref(),
+            &death_states,
         )?;
         super::super::object_xfer_persist::validate_owned_object_continuations_before_restore(
             object_continuations.as_ref(),
@@ -714,21 +722,22 @@ impl SnapshotBuilder {
             object_continuations.as_ref(),
             snapshot,
         )?;
-        super::super::subdual_persist::preflight_from_lifecycle_tail(lifecycle_tail, snapshot)?;
-        super::super::carpet_bomb_persist::preflight_live_delivery(
-            lifecycle_tail,
+        let subdual = super::super::subdual_persist::prepare(&records, snapshot)?;
+        let carpet_delivery = super::super::carpet_bomb_persist::prepare(
+            &records,
             &snapshot.special_power_strikes.strikes,
         )?;
 
         let body_rules_candidate =
             super::super::body_rules_persist::prepare(lifecycle_tail, snapshot.version)?;
-        let lifecycle_for_a10 =
+        let decoded_lifecycle =
             super::super::lifecycle_tail::decode_lifecycle_tail(lifecycle_tail)?;
         let object_status_bits = super::super::lifecycle_tail::preflight_object_status_bits(
-            &lifecycle_for_a10, &snapshot.objects,
+            &decoded_lifecycle,
+            &snapshot.objects,
         )?;
         let mut physics_owner_count = 0;
-        for envelope in &lifecycle_for_a10.envelopes {
+        for envelope in &decoded_lifecycle.envelopes {
             let owner = ObjectId(envelope.entity_id);
             let has_physics = envelope.module_states.iter().any(|module| module.tag == "PhysicsBehavior");
             if !snapshot.objects.contains_key(&owner) && has_physics
@@ -751,7 +760,7 @@ impl SnapshotBuilder {
             ));
         }
         super::super::lifecycle_tail::preflight_spawn_behavior_rosters(
-            &lifecycle_for_a10,
+            &decoded_lifecycle,
             &snapshot.objects,
             game_logic,
         )?;
@@ -759,7 +768,7 @@ impl SnapshotBuilder {
             lifecycle_tail,
             &snapshot.objects,
             &snapshot.special_power_strikes.strikes,
-            &lifecycle_for_a10,
+            &decoded_lifecycle,
             game_logic,
         )?;
         // The candidate already owns the incoming authored graph. TerrainSnapshot
@@ -771,11 +780,7 @@ impl SnapshotBuilder {
             let terrain = terrain_owner.read().map_err(|_| {
                 SaveLoadError::Corrupted("TMAI receiving Terrain unavailable".into())
             })?;
-            super::super::ai_team_persist::prepare_from_lifecycle_tail(
-                lifecycle_tail,
-                &complete_object_records,
-                &terrain,
-            )?
+            super::super::ai_team_persist::prepare(&records, &complete_object_records, &terrain)?
         };
         // Reject malformed companion bytes before this API mutates its receiver.
         // Production map loading then restores this candidate world atomically.
@@ -1053,9 +1058,8 @@ impl SnapshotBuilder {
             .restore_host_fog_ghost_shroud_history()
             .map_err(SaveLoadError::Corrupted)?;
 
-        let tail = super::super::lifecycle_tail::decode_lifecycle_tail(lifecycle_tail)?;
         super::super::lifecycle_tail::apply_lifecycle_tail_to_host_with_object_snapshots(
-            &tail,
+            &decoded_lifecycle,
             game_logic,
             &snapshot.objects,
         )?;
@@ -1074,89 +1078,52 @@ impl SnapshotBuilder {
         game_logic
             .special_power_strikes_mut()
             .reconcile_a10_delivery_ownership(&a10_delivery_candidate.live_strike_ids);
-        super::super::special_power_cooldown_persist::apply_from_lifecycle_tail(
-            lifecycle_tail,
-            game_logic,
+        super::super::special_power_cooldown_persist::apply(&records, game_logic)?;
+        super::super::special_power_cooldown_persist::apply_player_general_names(
+            &records, game_logic,
         )?;
-        super::super::special_power_cooldown_persist::apply_player_general_names(lifecycle_tail, game_logic)?;
-        super::super::battle_plan_persist::apply_from_lifecycle_tail(lifecycle_tail, game_logic)?;
-        super::super::subdual_persist::apply_from_lifecycle_tail(lifecycle_tail, game_logic)?;
-        super::super::booby_trap_persist::apply_from_lifecycle_tail(lifecycle_tail, game_logic)?;
-        super::super::carpet_bomb_persist::apply_from_lifecycle_tail(lifecycle_tail, game_logic)?;
-        super::super::production_door_persist::apply_from_lifecycle_tail(
-            lifecycle_tail,
-            game_logic,
-        )?;
-        super::super::rebuild_hole_persist::apply_from_lifecycle_tail(lifecycle_tail, game_logic)?;
-        let drawable_conditions =
-            super::super::weapon_set_persist::apply_from_lifecycle_tail(lifecycle_tail, game_logic)?;
+        super::super::battle_plan_persist::apply(&records, game_logic)?;
+        super::super::subdual_persist::apply(subdual, game_logic)?;
+        super::super::booby_trap_persist::apply(&records, game_logic)?;
+        super::super::carpet_bomb_persist::apply(carpet_delivery, game_logic);
+        super::super::production_door_persist::apply(&records, game_logic)?;
+        super::super::rebuild_hole_persist::apply(&records, game_logic)?;
+        let drawable_conditions = super::super::weapon_set_persist::apply(weapon_sets, game_logic);
         super::super::ai_team_persist::apply_prepared(
             ai_team_candidate,
             game_logic,
             Some(&complete_object_records),
         );
-        super::super::ability_hijack_persist::apply_from_lifecycle_tail(
-            lifecycle_tail,
-            game_logic,
-        )?;
-        super::super::dock_queue_persist::apply_from_lifecycle_tail(lifecycle_tail, game_logic)?;
-        super::super::module_runtime_persist::apply_from_lifecycle_tail(
-            lifecycle_tail,
-            game_logic,
-        )?;
-        super::super::deliver_payload_persist::apply_from_lifecycle_tail(
-            lifecycle_tail,
-            game_logic,
-        )?;
-        super::super::object_module_xfer_persist::apply_from_lifecycle_tail(
-            lifecycle_tail,
-            game_logic,
-        )?;
-        super::super::auto_deposit_persist::apply_from_lifecycle_tail(lifecycle_tail, game_logic)?;
-        super::super::supply_drop_persist::apply_from_lifecycle_tail(lifecycle_tail, game_logic)?;
-        super::super::jet_ai_persist::apply_from_lifecycle_tail(lifecycle_tail, game_logic)?;
-        super::super::chinook_ai_persist::apply_from_lifecycle_tail(lifecycle_tail, game_logic)?;
-        super::super::hacker_income_persist::apply_from_lifecycle_tail(lifecycle_tail, game_logic)?;
-        super::super::warehouse_crippling_persist::apply_from_lifecycle_tail(
-            lifecycle_tail,
-            game_logic,
-        )?;
-        super::super::helix_napalm_persist::apply_from_lifecycle_tail(lifecycle_tail, game_logic)?;
-        super::super::money_crate_persist::apply_from_lifecycle_tail(lifecycle_tail, game_logic)?;
-        super::super::gps_scrambler_persist::apply_from_lifecycle_tail(lifecycle_tail, game_logic)?;
-        super::super::dynamic_shroud_persist::apply_from_lifecycle_tail(
-            lifecycle_tail,
-            game_logic,
-        )?;
-        super::super::angry_mob_persist::apply_from_lifecycle_tail(lifecycle_tail, game_logic)?;
-        super::super::power_plant_rods_persist::apply_from_lifecycle_tail(
-            lifecycle_tail,
-            game_logic,
-        )?;
-        super::super::cleanup_hazard_persist::apply_from_lifecycle_tail(
-            lifecycle_tail,
-            game_logic,
-        )?;
-        super::super::point_defense_persist::apply_from_lifecycle_tail(lifecycle_tail, game_logic)?;
-        super::super::projectile_stream_persist::apply_from_lifecycle_tail(
-            lifecycle_tail,
-            game_logic,
-        )?;
-        super::super::transport_exit_persist::apply_from_lifecycle_tail(
-            lifecycle_tail,
-            game_logic,
-        )?;
-        let map_bridge_bindings = super::super::bridge_behavior_persist::apply_from_lifecycle_tail(
-            lifecycle_tail,
-            game_logic,
-        )?;
+        super::super::ability_hijack_persist::apply(&records, game_logic)?;
+        super::super::dock_queue_persist::apply(&records, game_logic)?;
+        super::super::module_runtime_persist::apply(&records, game_logic)?;
+        super::super::deliver_payload_persist::apply(&records, game_logic)?;
+        super::super::object_module_xfer_persist::apply(module_continuations, game_logic)?;
+        super::super::auto_deposit_persist::apply(&records, game_logic)?;
+        super::super::supply_drop_persist::apply(&records, game_logic)?;
+        super::super::jet_ai_persist::apply(&records, game_logic)?;
+        super::super::chinook_ai_persist::apply(&records, game_logic)?;
+        super::super::hacker_income_persist::apply(&records, game_logic)?;
+        super::super::warehouse_crippling_persist::apply(&records, game_logic)?;
+        super::super::helix_napalm_persist::apply(&records, game_logic)?;
+        super::super::money_crate_persist::apply(&records, game_logic)?;
+        super::super::gps_scrambler_persist::apply(&records, game_logic)?;
+        super::super::dynamic_shroud_persist::apply(&records, game_logic)?;
+        super::super::angry_mob_persist::apply(&records, game_logic)?;
+        super::super::power_plant_rods_persist::apply(power_plant_rods, game_logic);
+        super::super::cleanup_hazard_persist::apply(&records, game_logic)?;
+        super::super::point_defense_persist::apply(&records, game_logic)?;
+        super::super::projectile_stream_persist::apply(&records, game_logic)?;
+        super::super::transport_exit_persist::apply(&records, game_logic)?;
+        let map_bridge_bindings =
+            super::super::bridge_behavior_persist::apply(&records, game_logic)?;
         // C++ has ONE TurretAI::xfer per module; here TRAI (15-field subset,
         // resets all objects first) must run BEFORE OXOB (47 fields incl. all
         // 15 turret fields, captured for every object). OXOB is the final
         // turret authority — running TRAI after it zeroed OXOB-restored
         // idle-scan/hold/substate state for objects outside TRAI's capture
         // predicate. TRAI stays ahead only for legacy tails without OXOB.
-        super::super::turret_aim_persist::apply_from_lifecycle_tail(lifecycle_tail, game_logic)?;
+        super::super::turret_aim_persist::apply(&records, game_logic)?;
         super::super::player_academy_persist::apply_from_lifecycle_tail(
             lifecycle_tail,
             game_logic,
@@ -1189,15 +1156,12 @@ impl SnapshotBuilder {
             lifecycle_tail,
             game_logic,
         )?;
-        super::super::inferno_fire_persist::apply_from_lifecycle_tail(lifecycle_tail, game_logic)?;
-        super::super::firewall_persist::apply_from_lifecycle_tail(lifecycle_tail, game_logic)?;
-        super::super::neutron_slow_death_persist::apply_from_lifecycle_tail(
-            lifecycle_tail,
-            game_logic,
-        )?;
+        super::super::inferno_fire_persist::apply(&records, game_logic)?;
+        super::super::firewall_persist::apply(&records, game_logic)?;
+        super::super::neutron_slow_death_persist::apply(&records, game_logic)?;
         super::super::stealth_grant_persist::apply(stealth_grants, game_logic);
-        super::super::weapon_leech_persist::apply_from_lifecycle_tail(lifecycle_tail, game_logic)?;
-        super::super::score_keeper_persist::apply_from_lifecycle_tail(lifecycle_tail, game_logic)?;
+        super::super::weapon_leech_persist::apply(&records, game_logic)?;
+        super::super::score_keeper_persist::apply(&records, game_logic)?;
 
         self.sync_all_garrisoned_units_from_occupants(game_logic);
         self.restore_game_logic_persist_tail(snapshot, game_logic);
@@ -1222,14 +1186,8 @@ impl SnapshotBuilder {
         // The receiving interpreter tail is now restored; rebind object names
         // and definitions before the first AI/script observer can select a target.
         game_logic.sync_attack_priority_from_script_engine();
-        super::super::garrison_firepoint_persist::apply_from_lifecycle_tail(
-            lifecycle_tail,
-            game_logic,
-        )?;
-        super::super::stealth_detector_persist::apply_from_lifecycle_tail(
-            lifecycle_tail,
-            game_logic,
-        )?;
+        super::super::garrison_firepoint_persist::apply(&records, game_logic)?;
+        super::super::stealth_detector_persist::apply(&records, game_logic)?;
 
         game_logic
             .combat_system

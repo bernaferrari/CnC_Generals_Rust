@@ -209,7 +209,9 @@ fn snapshot_round_trips_object_xfer_clocks() {
     let builder = super::super::SnapshotBuilder::new();
     let snapshot = builder.create_world_snapshot(&source).expect("snapshot");
     assert!(
-        find_oxob_suffix(&snapshot.lifecycle_tail).is_some(),
+        decode_lifecycle_tail(&snapshot.lifecycle_tail)
+            .unwrap()
+            .is_some(),
         "OXOB suffix must be appended to lifecycle tail"
     );
 
@@ -332,7 +334,7 @@ fn absent_suffix_clears_stale_object_xfer() {
         .unit_ai_runtime_mut(id)
         .expect("unit")
         .set_quick_exit_deadline(Some(930));
-    apply_from_lifecycle_tail(b"no-magic-here", &mut logic).expect("apply");
+    apply_from_lifecycle_tail(&[], &mut logic).expect("apply");
     let object = logic.host_object(id).expect("unit");
     assert!(!object.status.disabled_held);
     assert!(!object.single_use_command_used);
@@ -410,7 +412,7 @@ fn oxob_round_trips_indicator_vision_single_use_preattack() {
     let mut bytes = Vec::new();
     append_to_lifecycle_tail(&mut bytes, &source).expect("encode OXOB");
     assert!(
-        find_oxob_suffix(&bytes).is_some(),
+        decode_lifecycle_tail(&bytes).unwrap().is_some(),
         "OXOB suffix must encode indicator/vision/single-use/pre-attack"
     );
 
@@ -469,7 +471,7 @@ fn oxob_round_trips_cheer_scatter_horde_bonus() {
 
     let mut bytes = Vec::new();
     append_to_lifecycle_tail(&mut bytes, &source).expect("encode OXOB");
-    assert!(find_oxob_suffix(&bytes).is_some());
+    assert!(decode_lifecycle_tail(&bytes).unwrap().is_some());
 
     let mut dest = GameLogic::new();
     dest.templates = source.templates.clone();
@@ -511,7 +513,7 @@ fn oxob_round_trips_safe_occlusion_frame() {
 
     let mut bytes = Vec::new();
     append_to_lifecycle_tail(&mut bytes, &source).expect("encode OXOB");
-    assert!(find_oxob_suffix(&bytes).is_some());
+    assert!(decode_lifecycle_tail(&bytes).unwrap().is_some());
 
     let mut dest = GameLogic::new();
     dest.templates = source.templates.clone();
@@ -547,7 +549,7 @@ fn absent_suffix_keeps_template_safe_occlusion_frame() {
         let object = logic.host_object_mut(id).expect("unit");
         object.safe_occlusion_frame = 777;
     }
-    apply_from_lifecycle_tail(b"no-magic-here", &mut logic).expect("apply");
+    apply_from_lifecycle_tail(&[], &mut logic).expect("apply");
     let object = logic.host_object(id).expect("unit");
     assert_eq!(
         object.safe_occlusion_frame, 777,
@@ -599,7 +601,7 @@ fn oxob_round_trips_health_box_last_fire_recruit_ignore() {
 
     let mut bytes = Vec::new();
     append_to_lifecycle_tail(&mut bytes, &source).expect("encode OXOB");
-    assert!(find_oxob_suffix(&bytes).is_some());
+    assert!(decode_lifecycle_tail(&bytes).unwrap().is_some());
 
     let mut dest = GameLogic::new();
     dest.templates = source.templates.clone();

@@ -12,11 +12,12 @@
 //! Append a tagged suffix after the historical v9 contain/producer payload
 //! so older decoders ignore the extra bytes. No WorldSnapshot version bump.
 
+use super::lifecycle_records::LifecycleRecords;
 use crate::game_logic::host_leaflet_drop::HostLeafletDropMission;
 use crate::game_logic::host_paradrop::HostParadropMission;
 use crate::game_logic::host_sneak_attack::{HostSneakAttackMission, PendingSneakShockwave};
 use crate::game_logic::GameLogic;
-use crate::save_load::{SaveLoadError, SaveLoadResult};
+use crate::save_load::SaveLoadResult;
 use serde::{Deserialize, Serialize};
 
 const DPLS_MAGIC: &[u8; 4] = b"DPLS";
@@ -78,30 +79,18 @@ pub fn append_to_lifecycle_tail(bytes: &mut Vec<u8>, game_logic: &GameLogic) {
     bytes.extend_from_slice(&encoded);
 }
 
-pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> SaveLoadResult<()> {
+pub(super) fn apply(
+    records: &LifecycleRecords<'_>,
+    game_logic: &mut GameLogic,
+) -> SaveLoadResult<()> {
     // Fail-closed: a reused GameLogic must not keep pre-load mid-flight drops.
     game_logic.host_paradrops.clear();
     game_logic.host_leaflet_drops.clear();
     game_logic.host_sneak_attacks.clear();
-    let Some(suffix) = find_dpls_suffix(bytes) else {
+    let Some(record) = records.get(DPLS_MAGIC) else {
         return Ok(());
     };
-    let mut rest = suffix;
-    let version = take_u32(&mut rest)?;
-    if version != DPLS_VERSION {
-        return Err(SaveLoadError::Corrupted(format!(
-            "unknown DPLS suffix version {version}"
-        )));
-    }
-    let payload_len = take_u32(&mut rest)? as usize;
-    if rest.len() < payload_len {
-        return Err(SaveLoadError::Corrupted(
-            "DPLS payload truncated".to_string(),
-        ));
-    }
-    let payload: DeliverPayloadPersistPayload =
-        bincode_legacy::deserialize(&rest[..payload_len])
-            .map_err(|err| SaveLoadError::Corrupted(format!("DPLS payload decode: {err}")))?;
+    let payload: DeliverPayloadPersistPayload = record.decode(DPLS_VERSION)?;
     apply_payload(game_logic, payload);
     Ok(())
 }
@@ -158,24 +147,8 @@ fn apply_payload(game_logic: &mut GameLogic, payload: DeliverPayloadPersistPaylo
     game_logic.host_sneak_attacks.tunnel_starts_spawned = payload.sneak_tunnel_starts_spawned;
 }
 
-fn find_dpls_suffix(bytes: &[u8]) -> Option<&[u8]> {
-    bytes
-        .windows(4)
-        .rposition(|window| window == DPLS_MAGIC)
-        .map(|idx| &bytes[idx + 4..])
-}
-
 fn append_u32(out: &mut Vec<u8>, value: u32) {
     out.extend_from_slice(&value.to_le_bytes());
-}
-
-fn take_u32(rest: &mut &[u8]) -> SaveLoadResult<u32> {
-    if rest.len() < 4 {
-        return Err(SaveLoadError::Corrupted("DPLS u32 truncated".to_string()));
-    }
-    let (head, tail) = rest.split_at(4);
-    *rest = tail;
-    Ok(u32::from_le_bytes([head[0], head[1], head[2], head[3]]))
 }
 
 #[cfg(test)]
@@ -202,7 +175,7 @@ mod tests {
             0,
             PARADROP_RESIDUAL_TEMPLATE,
         );
-        apply_from_lifecycle_tail(b"no-magic-here", &mut logic).expect("apply");
+        apply(&LifecycleRecords::parse(&[]).unwrap(), &mut logic).expect("apply");
         assert_eq!(logic.host_paradrops.pending_count(), 0);
         assert_eq!(logic.host_leaflet_drops.pending_count(), 0);
         assert_eq!(logic.host_sneak_attacks.pending_count(), 0);
@@ -255,7 +228,10 @@ mod tests {
         let builder = super::super::SnapshotBuilder::new();
         let snapshot = builder.create_world_snapshot(&source).expect("snapshot");
         assert!(
-            find_dpls_suffix(&snapshot.lifecycle_tail).is_some(),
+            LifecycleRecords::parse(&snapshot.lifecycle_tail)
+                .unwrap()
+                .get(DPLS_MAGIC)
+                .is_some(),
             "DPLS suffix must be appended to lifecycle tail"
         );
 

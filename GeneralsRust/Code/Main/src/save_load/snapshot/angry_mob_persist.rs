@@ -1,9 +1,10 @@
 //! Persist residual Angry Mob combat cadence. SpawnBehavior children and
 //! replacement deadlines are persisted by the canonical lifecycle roster.
 
+use super::lifecycle_records::LifecycleRecords;
 use crate::game_logic::host_angry_mob::HostAngryMobRegistry;
 use crate::game_logic::GameLogic;
-use crate::save_load::{SaveLoadError, SaveLoadResult};
+use crate::save_load::SaveLoadResult;
 use serde::{Deserialize, Serialize};
 
 const AMOB_MAGIC: &[u8; 4] = b"AMOB";
@@ -28,27 +29,16 @@ pub fn append_to_lifecycle_tail(bytes: &mut Vec<u8>, game_logic: &GameLogic) {
     bytes.extend_from_slice(&encoded);
 }
 
-pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> SaveLoadResult<()> {
+pub(super) fn apply(
+    records: &LifecycleRecords<'_>,
+    game_logic: &mut GameLogic,
+) -> SaveLoadResult<()> {
     // Fail-closed: a reused GameLogic must not keep the previous roster.
     game_logic.angry_mobs.clear();
-    let Some(suffix) = find_amob_suffix(bytes) else {
+    let Some(record) = records.get(AMOB_MAGIC) else {
         return Ok(());
     };
-    let mut rest = suffix;
-    let version = take_u32(&mut rest)?;
-    if version != AMOB_VERSION {
-        return Err(SaveLoadError::Corrupted(format!(
-            "unknown AMOB suffix version {version}"
-        )));
-    }
-    let payload_len = take_u32(&mut rest)? as usize;
-    if rest.len() < payload_len {
-        return Err(SaveLoadError::Corrupted(
-            "AMOB payload truncated".to_string(),
-        ));
-    }
-    let payload: AngryMobPersistPayload = bincode_legacy::deserialize(&rest[..payload_len])
-        .map_err(|err| SaveLoadError::Corrupted(format!("AMOB payload decode: {err}")))?;
+    let payload: AngryMobPersistPayload = record.decode(AMOB_VERSION)?;
     game_logic.angry_mobs = payload.registry;
     Ok(())
 }
@@ -59,24 +49,8 @@ fn capture(game_logic: &GameLogic) -> AngryMobPersistPayload {
     }
 }
 
-fn find_amob_suffix(bytes: &[u8]) -> Option<&[u8]> {
-    bytes
-        .windows(4)
-        .rposition(|window| window == AMOB_MAGIC)
-        .map(|idx| &bytes[idx + 4..])
-}
-
 fn append_u32(out: &mut Vec<u8>, value: u32) {
     out.extend_from_slice(&value.to_le_bytes());
-}
-
-fn take_u32(rest: &mut &[u8]) -> SaveLoadResult<u32> {
-    if rest.len() < 4 {
-        return Err(SaveLoadError::Corrupted("AMOB u32 truncated".to_string()));
-    }
-    let (head, tail) = rest.split_at(4);
-    *rest = tail;
-    Ok(u32::from_le_bytes([head[0], head[1], head[2], head[3]]))
 }
 
 #[cfg(test)]
@@ -102,7 +76,10 @@ mod tests {
         let builder = super::super::SnapshotBuilder::new();
         let snapshot = builder.create_world_snapshot(&source).expect("snapshot");
         assert!(
-            find_amob_suffix(&snapshot.lifecycle_tail).is_some(),
+            LifecycleRecords::parse(&snapshot.lifecycle_tail)
+                .unwrap()
+                .get(AMOB_MAGIC)
+                .is_some(),
             "AMOB suffix must be appended to lifecycle tail"
         );
 
@@ -137,7 +114,11 @@ mod tests {
         let mut legacy = b"AMOB".to_vec();
         append_u32(&mut legacy, 1);
         append_u32(&mut legacy, 0);
-        let error = apply_from_lifecycle_tail(&legacy, &mut GameLogic::new()).unwrap_err();
+        let error = apply(
+            &LifecycleRecords::parse(&legacy).unwrap(),
+            &mut GameLogic::new(),
+        )
+        .unwrap_err();
         assert!(error.to_string().contains("unknown AMOB suffix version 1"));
     }
 
@@ -147,7 +128,7 @@ mod tests {
         logic
             .angry_mobs
             .sync_mobs(&[(ObjectId(1), Team::GLA, Vec3::ZERO, 1)], 0);
-        apply_from_lifecycle_tail(b"no-magic-here", &mut logic).expect("apply");
+        apply(&LifecycleRecords::parse(&[]).unwrap(), &mut logic).expect("apply");
         assert_eq!(logic.angry_mobs.active_count(), 0);
     }
 }

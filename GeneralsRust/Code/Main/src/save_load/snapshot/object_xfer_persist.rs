@@ -225,26 +225,18 @@ pub(super) fn append_to_lifecycle_tail(
     Ok(())
 }
 
+pub(super) fn prepare(
+    records: &super::lifecycle_records::LifecycleRecords<'_>,
+) -> SaveLoadResult<Option<ObjectXferPersistWire>> {
+    records
+        .get(OXOB_MAGIC)
+        .map(|record| record.decode(OXOB_VERSION))
+        .transpose()
+}
+
+#[cfg(test)]
 pub(super) fn decode_lifecycle_tail(bytes: &[u8]) -> SaveLoadResult<Option<ObjectXferPersistWire>> {
-    let Some(mut rest) = find_oxob_suffix(bytes) else {
-        return Ok(None);
-    };
-    let version = take_u32(&mut rest)?;
-    let length = take_u32(&mut rest)? as usize;
-    let encoded = rest
-        .get(..length)
-        .ok_or_else(|| SaveLoadError::Corrupted("OXOB payload truncated".into()))?;
-    if version != OXOB_VERSION {
-        return Err(SaveLoadError::Corrupted(format!(
-            "unsupported OXOB projection version {version}"
-        )));
-    }
-    let (wire, consumed) = bincode::serde::decode_from_slice(encoded, bincode::config::legacy())
-        .map_err(|error| SaveLoadError::Corrupted(format!("OXOB payload decode: {error}")))?;
-    if consumed != encoded.len() {
-        return Err(SaveLoadError::Corrupted("OXOB trailing payload".into()));
-    }
-    Ok(Some(wire))
+    prepare(&super::lifecycle_records::LifecycleRecords::parse(bytes)?)
 }
 
 /// Validate owned object continuations before replacing the receiving session.
@@ -1074,24 +1066,8 @@ fn set_object_special_cheering(object: &mut crate::game_logic::Object, on: bool)
     }
 }
 
-fn find_oxob_suffix(bytes: &[u8]) -> Option<&[u8]> {
-    bytes
-        .windows(4)
-        .rposition(|window| window == OXOB_MAGIC)
-        .map(|idx| &bytes[idx + 4..])
-}
-
 fn append_u32(out: &mut Vec<u8>, value: u32) {
     out.extend_from_slice(&value.to_le_bytes());
-}
-
-fn take_u32(rest: &mut &[u8]) -> SaveLoadResult<u32> {
-    if rest.len() < 4 {
-        return Err(SaveLoadError::Corrupted("OXOB u32 truncated".to_string()));
-    }
-    let (head, tail) = rest.split_at(4);
-    *rest = tail;
-    Ok(u32::from_le_bytes([head[0], head[1], head[2], head[3]]))
 }
 
 #[cfg(test)]

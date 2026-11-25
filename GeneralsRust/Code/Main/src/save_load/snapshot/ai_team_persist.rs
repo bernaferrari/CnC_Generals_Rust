@@ -16,6 +16,7 @@
 //! Append a tagged suffix after the historical v9 contain/producer payload
 //! so older decoders ignore the extra bytes. No world snapshot version bump.
 
+use super::lifecycle_records::LifecycleRecords;
 use crate::game_logic::pathfinding::PendingHostPath;
 use crate::game_logic::{GameLogic, ObjectId};
 use crate::save_load::{SaveLoadError, SaveLoadResult};
@@ -393,7 +394,7 @@ pub(super) fn apply_from_lifecycle_tail_with_object_records(
         let terrain = terrain_owner
             .read()
             .map_err(|_| SaveLoadError::Corrupted("TMAI receiving Terrain unavailable".into()))?;
-        prepare_from_lifecycle_tail(bytes, &receivers, &terrain)?
+        prepare(&LifecycleRecords::parse(bytes)?, &receivers, &terrain)?
     };
     apply_prepared(prepared, game_logic, object_records);
     Ok(())
@@ -412,28 +413,14 @@ pub(super) struct PreparedAiTeam {
     goal_layers: Option<Vec<PathGoalLayerPersist>>,
     position_cells: Option<Vec<PathGoalCellPersist>>,
 }
-pub(super) fn prepare_from_lifecycle_tail(
-    bytes: &[u8],
+pub(super) fn prepare(
+    records: &LifecycleRecords<'_>,
     receivers: &std::collections::HashSet<ObjectId>,
     terrain: &gamelogic::terrain::TerrainLogic,
 ) -> SaveLoadResult<Option<PreparedAiTeam>> {
-    let Some(suffix) = framing::find(bytes)? else {
+    let Some(record) = records.get(TMAI_MAGIC) else {
         return Ok(None);
     };
-    let mut rest = suffix;
-    let version = take_u32(&mut rest)?;
-    if version != TMAI_VERSION {
-        return Err(SaveLoadError::Corrupted(format!(
-            "unknown TMAI suffix version {version}"
-        )));
-    }
-    let payload_len = take_u32(&mut rest)? as usize;
-    if rest.len() < payload_len {
-        return Err(SaveLoadError::Corrupted(
-            "TMAI payload truncated".to_string(),
-        ));
-    }
-    let encoded = &rest[..payload_len];
     let mut movement_runtime = Vec::new();
     let mut waypoint_identities = Vec::new();
     let mut pending_appends = Vec::new();
@@ -443,8 +430,7 @@ pub(super) fn prepare_from_lifecycle_tail(
     let mut pending_quick_goals = None;
     let mut goal_layers = None;
     let mut position_cells = None;
-    let v19: AiTeamPersistPayloadV19 = bincode_legacy::deserialize(encoded)
-        .map_err(|err| SaveLoadError::Corrupted(format!("TMAI v19 decode: {err}")))?;
+    let v19: AiTeamPersistPayloadV19 = record.decode(TMAI_VERSION)?;
     position_cells = Some(v19.position_cells);
     let v18 = v19.previous;
     goal_layers = Some(v18.goal_layers);
@@ -1005,15 +991,12 @@ fn arr_to_vec3(v: [f32; 3]) -> Vec3 {
     Vec3::new(v[0], v[1], v[2])
 }
 
-#[path = "ai_team_framing.rs"]
-pub(super) mod framing;
-
 /// The current TMAI owner a world writes, decoded (tests corrupt it in place).
 #[cfg(test)]
 fn current_tmai_payload(game_logic: &GameLogic) -> AiTeamPersistPayloadV19 {
     let mut bytes = Vec::new();
     append_to_lifecycle_tail(&mut bytes, game_logic);
-    let mut rest = framing::find(&bytes).unwrap().unwrap();
+    let mut rest = find_tmai_suffix(&bytes).unwrap();
     assert_eq!(take_u32(&mut rest).unwrap(), TMAI_VERSION);
     let length = take_u32(&mut rest).unwrap() as usize;
     bincode_legacy::deserialize(&rest[..length]).unwrap()
@@ -1040,7 +1023,10 @@ impl AiTeamPersistPayloadV19 {
 
 #[cfg(test)]
 fn find_tmai_suffix(bytes: &[u8]) -> Option<&[u8]> {
-    framing::find(bytes).ok().flatten()
+    LifecycleRecords::parse(bytes)
+        .ok()?
+        .get(TMAI_MAGIC)
+        .map(|record| record.body())
 }
 
 fn append_u32(out: &mut Vec<u8>, value: u32) {

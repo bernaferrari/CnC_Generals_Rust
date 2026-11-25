@@ -14,11 +14,12 @@
 //! Append a tagged suffix after the historical v9 contain/producer payload
 //! so older decoders ignore the extra bytes. No WorldSnapshot version bump.
 
+use super::lifecycle_records::LifecycleRecords;
 use crate::game_logic::host_radar_scan::HostRadarScanRegistry;
 use crate::game_logic::host_spy_drone::HostSpyDroneRegistry;
 use crate::game_logic::host_spy_satellite::HostSpySatelliteRegistry;
 use crate::game_logic::GameLogic;
-use crate::save_load::{SaveLoadError, SaveLoadResult};
+use crate::save_load::SaveLoadResult;
 use serde::{Deserialize, Serialize};
 
 const DSCR_MAGIC: &[u8; 4] = b"DSCR";
@@ -51,29 +52,18 @@ pub fn append_to_lifecycle_tail(bytes: &mut Vec<u8>, game_logic: &GameLogic) {
     bytes.extend_from_slice(&encoded);
 }
 
-pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> SaveLoadResult<()> {
+pub(super) fn apply(
+    records: &LifecycleRecords<'_>,
+    game_logic: &mut GameLogic,
+) -> SaveLoadResult<()> {
     // Fail-closed: a reused GameLogic must not keep pre-load FOW pulses.
     game_logic.radar_scans.clear();
     game_logic.spy_satellites.clear();
     game_logic.spy_drones.clear();
-    let Some(suffix) = find_dscr_suffix(bytes) else {
+    let Some(record) = records.get(DSCR_MAGIC) else {
         return Ok(());
     };
-    let mut rest = suffix;
-    let version = take_u32(&mut rest)?;
-    if version != DSCR_VERSION {
-        return Err(SaveLoadError::Corrupted(format!(
-            "unknown DSCR suffix version {version}"
-        )));
-    }
-    let payload_len = take_u32(&mut rest)? as usize;
-    if rest.len() < payload_len {
-        return Err(SaveLoadError::Corrupted(
-            "DSCR payload truncated".to_string(),
-        ));
-    }
-    let payload: DynamicShroudPersistPayload = bincode_legacy::deserialize(&rest[..payload_len])
-        .map_err(|err| SaveLoadError::Corrupted(format!("DSCR payload decode: {err}")))?;
+    let payload: DynamicShroudPersistPayload = record.decode(DSCR_VERSION)?;
     game_logic.radar_scans = payload.radar;
     game_logic.spy_satellites = payload.satellites;
     game_logic.spy_drones = payload.drones;
@@ -88,24 +78,8 @@ fn capture(game_logic: &GameLogic) -> DynamicShroudPersistPayload {
     }
 }
 
-fn find_dscr_suffix(bytes: &[u8]) -> Option<&[u8]> {
-    bytes
-        .windows(4)
-        .rposition(|window| window == DSCR_MAGIC)
-        .map(|idx| &bytes[idx + 4..])
-}
-
 fn append_u32(out: &mut Vec<u8>, value: u32) {
     out.extend_from_slice(&value.to_le_bytes());
-}
-
-fn take_u32(rest: &mut &[u8]) -> SaveLoadResult<u32> {
-    if rest.len() < 4 {
-        return Err(SaveLoadError::Corrupted("DSCR u32 truncated".to_string()));
-    }
-    let (head, tail) = rest.split_at(4);
-    *rest = tail;
-    Ok(u32::from_le_bytes([head[0], head[1], head[2], head[3]]))
 }
 
 #[cfg(test)]
@@ -173,7 +147,10 @@ mod tests {
         let builder = super::super::SnapshotBuilder::new();
         let snapshot = builder.create_world_snapshot(&source).expect("snapshot");
         assert!(
-            find_dscr_suffix(&snapshot.lifecycle_tail).is_some(),
+            LifecycleRecords::parse(&snapshot.lifecycle_tail)
+                .unwrap()
+                .get(DSCR_MAGIC)
+                .is_some(),
             "DSCR suffix must be appended to lifecycle tail"
         );
 
@@ -235,7 +212,7 @@ mod tests {
             stealth_detector_applied: true,
             last_applied_radius: 150.0,
         });
-        apply_from_lifecycle_tail(b"no-magic-here", &mut logic).expect("apply");
+        apply(&LifecycleRecords::parse(&[]).unwrap(), &mut logic).expect("apply");
         assert_eq!(logic.radar_scans.active_count(), 0);
         assert_eq!(logic.spy_satellites.active_count(), 0);
         assert!(logic.spy_drones.last().is_none());

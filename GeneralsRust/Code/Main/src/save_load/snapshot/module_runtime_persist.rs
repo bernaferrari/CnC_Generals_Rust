@@ -13,13 +13,14 @@
 //! Append a tagged suffix after the historical v9 contain/producer payload so
 //! older decoders ignore the extra bytes. No WorldSnapshot version bump.
 
+use super::lifecycle_records::LifecycleRecords;
 use crate::game_logic::host_checkpoint_update::HostCheckpointUpdateData;
 use crate::game_logic::host_countermeasures::{
     HostCountermeasuresState, PendingCountermeasureFlareSpawn,
 };
 use crate::game_logic::host_enemy_near::{ENEMY_NEAR_MODEL_CONDITION, HostEnemyNearData};
 use crate::game_logic::{GameLogic, ObjectId};
-use crate::save_load::{SaveLoadError, SaveLoadResult};
+use crate::save_load::SaveLoadResult;
 use serde::{Deserialize, Serialize};
 
 const MSRT_MAGIC: &[u8; 4] = b"MSRT";
@@ -69,27 +70,16 @@ pub fn append_to_lifecycle_tail(bytes: &mut Vec<u8>, game_logic: &GameLogic) {
     bytes.extend_from_slice(&encoded);
 }
 
-pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> SaveLoadResult<()> {
+pub(super) fn apply(
+    records: &LifecycleRecords<'_>,
+    game_logic: &mut GameLogic,
+) -> SaveLoadResult<()> {
     // Fail-closed: a reused GameLogic must not keep pre-load flare states.
     game_logic.countermeasures.clear();
-    let Some(suffix) = find_msrt_suffix(bytes) else {
+    let Some(record) = records.get(MSRT_MAGIC) else {
         return Ok(());
     };
-    let mut rest = suffix;
-    let version = take_u32(&mut rest)?;
-    if version != MSRT_VERSION {
-        return Err(SaveLoadError::Corrupted(format!(
-            "unknown MSRT suffix version {version}"
-        )));
-    }
-    let payload_len = take_u32(&mut rest)? as usize;
-    if rest.len() < payload_len {
-        return Err(SaveLoadError::Corrupted(
-            "MSRT payload truncated".to_string(),
-        ));
-    }
-    let payload: ModuleRuntimePersistPayload = bincode_legacy::deserialize(&rest[..payload_len])
-        .map_err(|err| SaveLoadError::Corrupted(format!("MSRT payload decode: {err}")))?;
+    let payload: ModuleRuntimePersistPayload = record.decode(MSRT_VERSION)?;
     apply_payload(game_logic, payload);
     Ok(())
 }
@@ -197,24 +187,8 @@ fn apply_enemy_near_bits(object: &mut crate::game_logic::Object, data: &HostEnem
     }
 }
 
-fn find_msrt_suffix(bytes: &[u8]) -> Option<&[u8]> {
-    bytes
-        .windows(4)
-        .rposition(|window| window == MSRT_MAGIC)
-        .map(|idx| &bytes[idx + 4..])
-}
-
 fn append_u32(out: &mut Vec<u8>, value: u32) {
     out.extend_from_slice(&value.to_le_bytes());
-}
-
-fn take_u32(rest: &mut &[u8]) -> SaveLoadResult<u32> {
-    if rest.len() < 4 {
-        return Err(SaveLoadError::Corrupted("MSRT u32 truncated".to_string()));
-    }
-    let value = u32::from_le_bytes([rest[0], rest[1], rest[2], rest[3]]);
-    *rest = &rest[4..];
-    Ok(value)
 }
 
 #[cfg(test)]
@@ -227,9 +201,14 @@ mod tests {
 
     #[test]
     fn absent_suffix_is_ignored() {
-        assert!(find_msrt_suffix(b"no-magic-here").is_none());
+        assert!(
+            LifecycleRecords::parse(&[])
+                .unwrap()
+                .get(MSRT_MAGIC)
+                .is_none()
+        );
         let mut logic = GameLogic::new();
-        apply_from_lifecycle_tail(b"no-magic-here", &mut logic).expect("apply");
+        apply(&LifecycleRecords::parse(&[]).unwrap(), &mut logic).expect("apply");
         assert!(logic.countermeasures.aircraft_ids().is_empty());
     }
 
@@ -310,7 +289,10 @@ mod tests {
         let builder = super::super::SnapshotBuilder::new();
         let snapshot = builder.create_world_snapshot(&source).expect("snapshot");
         assert!(
-            find_msrt_suffix(&snapshot.lifecycle_tail).is_some(),
+            LifecycleRecords::parse(&snapshot.lifecycle_tail)
+                .unwrap()
+                .get(MSRT_MAGIC)
+                .is_some(),
             "MSRT suffix must be appended to lifecycle tail"
         );
 

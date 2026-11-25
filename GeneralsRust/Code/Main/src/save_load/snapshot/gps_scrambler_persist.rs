@@ -12,9 +12,10 @@
 //! Append a tagged suffix after the historical v9 contain/producer payload
 //! so older decoders ignore the extra bytes. No WorldSnapshot version bump.
 
+use super::lifecycle_records::LifecycleRecords;
 use crate::game_logic::host_gps_scrambler::HostGpsScramblerRegistry;
 use crate::game_logic::GameLogic;
-use crate::save_load::{SaveLoadError, SaveLoadResult};
+use crate::save_load::SaveLoadResult;
 use serde::{Deserialize, Serialize};
 
 const GPSG_MAGIC: &[u8; 4] = b"GPSG";
@@ -39,27 +40,16 @@ pub fn append_to_lifecycle_tail(bytes: &mut Vec<u8>, game_logic: &GameLogic) {
     bytes.extend_from_slice(&encoded);
 }
 
-pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> SaveLoadResult<()> {
+pub(super) fn apply(
+    records: &LifecycleRecords<'_>,
+    game_logic: &mut GameLogic,
+) -> SaveLoadResult<()> {
     // Fail-closed: a reused GameLogic must not keep pre-load grow pulses.
     game_logic.gps_scramblers.clear();
-    let Some(suffix) = find_gpsg_suffix(bytes) else {
+    let Some(record) = records.get(GPSG_MAGIC) else {
         return Ok(());
     };
-    let mut rest = suffix;
-    let version = take_u32(&mut rest)?;
-    if version != GPSG_VERSION {
-        return Err(SaveLoadError::Corrupted(format!(
-            "unknown GPSG suffix version {version}"
-        )));
-    }
-    let payload_len = take_u32(&mut rest)? as usize;
-    if rest.len() < payload_len {
-        return Err(SaveLoadError::Corrupted(
-            "GPSG payload truncated".to_string(),
-        ));
-    }
-    let payload: GpsScramblerPersistPayload = bincode_legacy::deserialize(&rest[..payload_len])
-        .map_err(|err| SaveLoadError::Corrupted(format!("GPSG payload decode: {err}")))?;
+    let payload: GpsScramblerPersistPayload = record.decode(GPSG_VERSION)?;
     game_logic.gps_scramblers = payload.registry;
     Ok(())
 }
@@ -70,24 +60,8 @@ fn capture(game_logic: &GameLogic) -> GpsScramblerPersistPayload {
     }
 }
 
-fn find_gpsg_suffix(bytes: &[u8]) -> Option<&[u8]> {
-    bytes
-        .windows(4)
-        .rposition(|window| window == GPSG_MAGIC)
-        .map(|idx| &bytes[idx + 4..])
-}
-
 fn append_u32(out: &mut Vec<u8>, value: u32) {
     out.extend_from_slice(&value.to_le_bytes());
-}
-
-fn take_u32(rest: &mut &[u8]) -> SaveLoadResult<u32> {
-    if rest.len() < 4 {
-        return Err(SaveLoadError::Corrupted("GPSG u32 truncated".to_string()));
-    }
-    let (head, tail) = rest.split_at(4);
-    *rest = tail;
-    Ok(u32::from_le_bytes([head[0], head[1], head[2], head[3]]))
 }
 
 #[cfg(test)]
@@ -121,7 +95,10 @@ mod tests {
         let builder = super::super::SnapshotBuilder::new();
         let snapshot = builder.create_world_snapshot(&source).expect("snapshot");
         assert!(
-            find_gpsg_suffix(&snapshot.lifecycle_tail).is_some(),
+            LifecycleRecords::parse(&snapshot.lifecycle_tail)
+                .unwrap()
+                .get(GPSG_MAGIC)
+                .is_some(),
             "GPSG suffix must be appended to lifecycle tail"
         );
 
@@ -172,7 +149,7 @@ mod tests {
             growing: true,
             marker_id: Some(ObjectId(3)),
         });
-        apply_from_lifecycle_tail(b"no-magic-here", &mut logic).expect("apply");
+        apply(&LifecycleRecords::parse(&[]).unwrap(), &mut logic).expect("apply");
         assert!(logic.gps_scramblers.activations().is_empty());
         assert_eq!(logic.gps_scramblers.activation_count(), 0);
     }

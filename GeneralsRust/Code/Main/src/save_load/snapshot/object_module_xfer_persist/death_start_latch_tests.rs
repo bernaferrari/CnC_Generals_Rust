@@ -96,14 +96,14 @@ fn oxfr_death_start_records_follow_existing_module_vectors_in_sorted_order() {
     .unwrap();
     let mut bytes = Vec::new();
     append_to_lifecycle_tail(&mut bytes, &source).unwrap();
-    let mut suffix = find_oxfr_suffix(&bytes).unwrap();
-    let version = take_u32(&mut suffix).unwrap();
+    let records = LifecycleRecords::parse(&bytes).unwrap();
+    let record = records.get(OXFR_MAGIC).unwrap();
     assert_eq!(
-        version, OXFR_VERSION,
+        record.version(),
+        OXFR_VERSION,
         "Rust lifecycle domain version must describe the appended record"
     );
-    let payload_len = take_u32(&mut suffix).unwrap() as usize;
-    let encoded = &suffix[..payload_len];
+    let encoded = record.payload();
     assert!(
         encoded.starts_with(&prefix),
         "original four module vectors changed"

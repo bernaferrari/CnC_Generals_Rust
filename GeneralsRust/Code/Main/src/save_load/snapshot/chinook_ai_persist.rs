@@ -10,9 +10,10 @@
 //!
 //! CHNK v3 stores flight continuation. Carried boxes are in the actor inventory.
 
+use super::lifecycle_records::LifecycleRecords;
 use crate::game_logic::host_combat_chinook::HostChinookAI;
 use crate::game_logic::{GameLogic, ObjectId};
-use crate::save_load::{SaveLoadError, SaveLoadResult};
+use crate::save_load::SaveLoadResult;
 use serde::{Deserialize, Serialize};
 
 const CHNK_MAGIC: &[u8; 4] = b"CHNK";
@@ -44,25 +45,14 @@ pub fn append_to_lifecycle_tail(bytes: &mut Vec<u8>, game_logic: &GameLogic) {
     bytes.extend_from_slice(&encoded);
 }
 
-pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> SaveLoadResult<()> {
-    let Some(suffix) = find_chnk_suffix(bytes) else {
+pub(super) fn apply(
+    records: &LifecycleRecords<'_>,
+    game_logic: &mut GameLogic,
+) -> SaveLoadResult<()> {
+    let Some(record) = records.get(CHNK_MAGIC) else {
         return Ok(());
     };
-    let mut rest = suffix;
-    let version = take_u32(&mut rest)?;
-    if version != CHNK_VERSION {
-        return Err(SaveLoadError::Corrupted(format!(
-            "unknown CHNK suffix version {version}"
-        )));
-    }
-    let payload_len = take_u32(&mut rest)? as usize;
-    if rest.len() < payload_len {
-        return Err(SaveLoadError::Corrupted(
-            "CHNK payload truncated".to_string(),
-        ));
-    }
-    let payload: ChinookAiPersistPayload = bincode_legacy::deserialize(&rest[..payload_len])
-        .map_err(|err| SaveLoadError::Corrupted(format!("CHNK payload decode: {err}")))?;
+    let payload: ChinookAiPersistPayload = record.decode(CHNK_VERSION)?;
     apply_payload(game_logic, payload);
     Ok(())
 }
@@ -111,24 +101,8 @@ fn apply_payload(game_logic: &mut GameLogic, payload: ChinookAiPersistPayload) {
     }
 }
 
-fn find_chnk_suffix(bytes: &[u8]) -> Option<&[u8]> {
-    bytes
-        .windows(4)
-        .rposition(|window| window == CHNK_MAGIC)
-        .map(|idx| &bytes[idx + 4..])
-}
-
 fn append_u32(out: &mut Vec<u8>, value: u32) {
     out.extend_from_slice(&value.to_le_bytes());
-}
-
-fn take_u32(rest: &mut &[u8]) -> SaveLoadResult<u32> {
-    if rest.len() < 4 {
-        return Err(SaveLoadError::Corrupted("CHNK u32 truncated".to_string()));
-    }
-    let value = u32::from_le_bytes([rest[0], rest[1], rest[2], rest[3]]);
-    *rest = &rest[4..];
-    Ok(value)
 }
 
 #[cfg(test)]
@@ -179,7 +153,10 @@ mod tests {
         let builder = super::super::SnapshotBuilder::new();
         let snapshot = builder.create_world_snapshot(&source).expect("snapshot");
         assert!(
-            find_chnk_suffix(&snapshot.lifecycle_tail).is_some(),
+            LifecycleRecords::parse(&snapshot.lifecycle_tail)
+                .unwrap()
+                .get(CHNK_MAGIC)
+                .is_some(),
             "CHNK suffix must be appended to lifecycle tail"
         );
 
@@ -211,8 +188,17 @@ mod tests {
 
     #[test]
     fn absent_suffix_is_ignored() {
-        assert!(find_chnk_suffix(b"no-magic-here").is_none());
-        apply_from_lifecycle_tail(b"no-magic-here", &mut GameLogic::new()).expect("apply");
+        assert!(
+            LifecycleRecords::parse(&[])
+                .unwrap()
+                .get(CHNK_MAGIC)
+                .is_none()
+        );
+        apply(
+            &LifecycleRecords::parse(&[]).unwrap(),
+            &mut GameLogic::new(),
+        )
+        .expect("apply");
     }
 }
 
@@ -245,7 +231,7 @@ mod derived_ai_idle_native_tests {
             .expect("object");
         assert_eq!(id, restored_id);
         restored.host_object_mut(id).unwrap().chinook_ai = None;
-        apply_from_lifecycle_tail(&bytes, &mut restored).unwrap();
+        apply(&LifecycleRecords::parse(&bytes).unwrap(), &mut restored).unwrap();
         assert!(
             restored
                 .host_object(id)
@@ -263,7 +249,11 @@ mod derived_ai_idle_native_tests {
             .unwrap()
             .pending_ai_idle;
         bytes[4..8].copy_from_slice(&1u32.to_le_bytes());
-        assert!(apply_from_lifecycle_tail(&bytes, &mut restored).is_err());
+        assert!(
+            LifecycleRecords::parse(&bytes)
+                .and_then(|records| apply(&records, &mut restored))
+                .is_err()
+        );
         assert_eq!(
             restored
                 .host_object(id)

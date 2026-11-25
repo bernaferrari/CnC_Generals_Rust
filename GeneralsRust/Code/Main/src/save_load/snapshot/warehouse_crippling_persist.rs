@@ -14,9 +14,10 @@
 //! Restore always clears this world's map first so a load cannot leak its
 //! previous heal cadence into the restored state.
 
+use super::lifecycle_records::LifecycleRecords;
 use crate::game_logic::host_supply_gather::WarehouseCripplingState;
 use crate::game_logic::{GameLogic, ObjectId};
-use crate::save_load::{SaveLoadError, SaveLoadResult};
+use crate::save_load::SaveLoadResult;
 use serde::{Deserialize, Serialize};
 
 const WHCR_MAGIC: &[u8; 4] = b"WHCR";
@@ -49,28 +50,16 @@ pub fn append_to_lifecycle_tail(bytes: &mut Vec<u8>, game_logic: &GameLogic) {
     bytes.extend_from_slice(&encoded);
 }
 
-pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> SaveLoadResult<()> {
+pub(super) fn apply(
+    records: &LifecycleRecords<'_>,
+    game_logic: &mut GameLogic,
+) -> SaveLoadResult<()> {
     // Always drop this world's previous clocks first (C++ module state is per-object).
     game_logic.restore_warehouse_crippling_states(Vec::new());
-    let Some(suffix) = find_whcr_suffix(bytes) else {
+    let Some(record) = records.get(WHCR_MAGIC) else {
         return Ok(());
     };
-    let mut rest = suffix;
-    let version = take_u32(&mut rest)?;
-    if version != WHCR_VERSION {
-        return Err(SaveLoadError::Corrupted(format!(
-            "unknown WHCR suffix version {version}"
-        )));
-    }
-    let payload_len = take_u32(&mut rest)? as usize;
-    if rest.len() < payload_len {
-        return Err(SaveLoadError::Corrupted(
-            "WHCR payload truncated".to_string(),
-        ));
-    }
-    let payload: WarehouseCripplingPersistPayload =
-        bincode_legacy::deserialize(&rest[..payload_len])
-            .map_err(|err| SaveLoadError::Corrupted(format!("WHCR payload decode: {err}")))?;
+    let payload: WarehouseCripplingPersistPayload = record.decode(WHCR_VERSION)?;
     apply_payload(payload, game_logic);
     Ok(())
 }
@@ -108,24 +97,8 @@ fn apply_payload(payload: WarehouseCripplingPersistPayload, game_logic: &mut Gam
     game_logic.restore_warehouse_crippling_states(restored);
 }
 
-fn find_whcr_suffix(bytes: &[u8]) -> Option<&[u8]> {
-    bytes
-        .windows(4)
-        .rposition(|window| window == WHCR_MAGIC)
-        .map(|idx| &bytes[idx + 4..])
-}
-
 fn append_u32(out: &mut Vec<u8>, value: u32) {
     out.extend_from_slice(&value.to_le_bytes());
-}
-
-fn take_u32(rest: &mut &[u8]) -> SaveLoadResult<u32> {
-    if rest.len() < 4 {
-        return Err(SaveLoadError::Corrupted("WHCR u32 truncated".to_string()));
-    }
-    let value = u32::from_le_bytes([rest[0], rest[1], rest[2], rest[3]]);
-    *rest = &rest[4..];
-    Ok(value)
 }
 
 #[cfg(test)]
@@ -159,7 +132,10 @@ mod tests {
         let builder = super::super::SnapshotBuilder::new();
         let snapshot = builder.create_world_snapshot(&source).expect("snapshot");
         assert!(
-            find_whcr_suffix(&snapshot.lifecycle_tail).is_some(),
+            LifecycleRecords::parse(&snapshot.lifecycle_tail)
+                .unwrap()
+                .get(WHCR_MAGIC)
+                .is_some(),
             "WHCR suffix must be appended to lifecycle tail"
         );
 
@@ -226,7 +202,7 @@ mod tests {
                 next_healing_frame: 90,
             },
         )]);
-        apply_from_lifecycle_tail(b"no-magic-here", &mut logic).expect("apply");
+        apply(&LifecycleRecords::parse(&[]).unwrap(), &mut logic).expect("apply");
         assert!(logic.snapshot_warehouse_crippling_states().is_empty());
     }
 }

@@ -10,6 +10,7 @@
 //! Player squads are also carried by CHUNK_Players v9; HSQD is a detached
 //! compatibility transfer view, never a second runtime authority.
 
+use super::lifecycle_records::LifecycleRecords;
 use crate::game_logic::GameLogic;
 use crate::save_load::{SaveLoadError, SaveLoadResult};
 use serde::{Deserialize, Serialize};
@@ -116,7 +117,13 @@ fn write_control_groups_prefix(
 pub fn read_control_groups(
     bytes: &[u8],
 ) -> SaveLoadResult<Option<HashMap<i32, HashMap<u8, Vec<u32>>>>> {
-    Ok(decode_payload(bytes)?.map(|payload| {
+    read_indexed_control_groups(&LifecycleRecords::parse(bytes)?)
+}
+
+pub(super) fn read_indexed_control_groups(
+    records: &LifecycleRecords<'_>,
+) -> SaveLoadResult<Option<HashMap<i32, HashMap<u8, Vec<u32>>>>> {
+    Ok(prepare(records)?.map(|payload| {
         payload
             .players
             .into_iter()
@@ -168,24 +175,16 @@ pub(crate) fn apply_control_groups_to_logic(
     Ok(())
 }
 
+#[cfg(test)]
 fn decode_payload(bytes: &[u8]) -> SaveLoadResult<Option<HotkeySquadPersistPayload>> {
-    let bytes = super::player_team_chunks::lifecycle_prefix(bytes)?;
-    let Some(range) = find_hsqd_record(bytes)? else {
+    prepare(&LifecycleRecords::parse(bytes)?)
+}
+
+fn prepare(records: &LifecycleRecords<'_>) -> SaveLoadResult<Option<HotkeySquadPersistPayload>> {
+    let Some(record) = records.get(HSQD_MAGIC) else {
         return Ok(None);
     };
-    let mut rest = &bytes[range.start + 4..range.end];
-    let version = take_u32(&mut rest)?;
-    if version != HSQD_VERSION {
-        return Err(SaveLoadError::Corrupted(format!(
-            "unknown HSQD suffix version {version}"
-        )));
-    }
-    let payload_len = take_u32(&mut rest)? as usize;
-    if rest.len() < payload_len {
-        return Err(SaveLoadError::Corrupted("HSQD payload truncated".into()));
-    }
-    let payload: HotkeySquadPersistPayload = bincode_legacy::deserialize(&rest[..payload_len])
-        .map_err(|e| SaveLoadError::Corrupted(format!("HSQD payload decode: {e}")))?;
+    let payload: HotkeySquadPersistPayload = record.decode(HSQD_VERSION)?;
     let mut owners = std::collections::HashSet::new();
     if payload.players.iter().any(|p| {
         p.player_index < 0 || !owners.insert(p.player_index) || p.squads.len() != NUM_HOTKEY_SQUADS
@@ -200,90 +199,8 @@ fn decode_payload(bytes: &[u8]) -> SaveLoadResult<Option<HotkeySquadPersistPaylo
 /// Traverse record boundaries, never payload bytes. Later framed continuations
 /// are removed first; an object's name/timer/module blob cannot become HSQD.
 fn find_hsqd_record(bytes: &[u8]) -> SaveLoadResult<Option<std::ops::Range<usize>>> {
-    find_lifecycle_record(bytes, HSQD_MAGIC)
-}
-
-/// Locate one record in the typed lifecycle prefix. OXFR v9+ owns an extra
-/// length+OXFE locator after its payload, so walking by the ordinary header
-/// length alone would strand later records at those footer bytes.
-pub(super) fn find_lifecycle_record(
-    bytes: &[u8],
-    wanted: &[u8; 4],
-) -> SaveLoadResult<Option<std::ops::Range<usize>>> {
-    let end = super::named_unit_history_persist::suffix_start(bytes)?;
-    let bytes = &bytes[..end];
-    let mut at = if bytes.starts_with(wanted) || bytes.is_empty() {
-        0
-    } else {
-        match super::combat_projectile_persist::prefix_len(bytes) {
-            Ok(at) => at,
-            // Historical callers may supply no lifecycle envelope at all.
-            // Such opaque bytes do not establish a typed-record boundary.
-            Err(_) => return Ok(None),
-        }
-    };
-    let mut found = None;
-    while at < bytes.len() {
-        let rest = &bytes[at..];
-        if rest.starts_with(b"SPCD") {
-            at += super::special_power_cooldown_persist::record_len(rest)?;
-            continue;
-        }
-        let known = [
-            b"CPRJ", b"PCOI", b"GMSH", b"BDKD", b"NLFC", b"ODIS", b"RDCK", b"OLST", b"OLYR",
-            b"NDIE", b"PGNM", b"BPPL", b"SUBD", b"HSQD", b"BTRY", b"CBPD", b"PDRP", b"DZRP", b"RHBH",
-            b"WSFL", b"SABL", b"TMAI", b"DCKQ", b"MSRT", b"DPLS", b"OXFR", b"ADPS", b"OCLT",
-            b"JTAI", b"CHNK", b"HKIN", b"WHCR", b"FSGM", b"MCRT", b"GPSG", b"DSCR", b"AMOB",
-            b"PPRD", b"CLHA", b"PDLS", b"PJST", b"TXEB", b"BRBH", b"OXOB", b"INFR", b"FWAL",
-            b"NMSD", b"TRAI", b"STLG", b"WLCH", b"SCKP", b"GFPT", b"SDEN", b"AITQ",
-        ]
-        .iter()
-        .any(|tag| rest.starts_with(*tag));
-        if !known {
-            break;
-        } // Preserve opaque later extensions.
-        if rest.len() < 12 {
-            return Err(SaveLoadError::Corrupted(
-                "lifecycle record header truncated".into(),
-            ));
-        }
-        let len = u32::from_le_bytes(rest[8..12].try_into().unwrap()) as usize;
-        let payload_end = at
-            .checked_add(12)
-            .and_then(|n| n.checked_add(len))
-            .filter(|&n| n <= bytes.len())
-            .ok_or_else(|| SaveLoadError::Corrupted("lifecycle record payload truncated".into()))?;
-        let next = if rest.starts_with(b"OXFR")
-            && u32::from_le_bytes(rest[4..8].try_into().unwrap()) >= 9
-        {
-            let footer_end = payload_end
-                .checked_add(8)
-                .filter(|&n| n <= bytes.len())
-                .ok_or_else(|| SaveLoadError::Corrupted("OXFR locator truncated".into()))?;
-            let locator_len =
-                u32::from_le_bytes(bytes[payload_end..payload_end + 4].try_into().unwrap())
-                    as usize;
-            if locator_len != len || &bytes[payload_end + 4..footer_end] != b"OXFE" {
-                return Err(SaveLoadError::Corrupted(
-                    "invalid OXFR length/footer locator".into(),
-                ));
-            }
-            footer_end
-        } else {
-            payload_end
-        };
-        if rest.starts_with(wanted) {
-            if found.is_some() {
-                return Err(SaveLoadError::Corrupted(format!(
-                    "duplicate {} lifecycle record",
-                    String::from_utf8_lossy(wanted)
-                )));
-            }
-            found = Some(at..next);
-        }
-        at = next;
-    }
-    Ok(found)
+    let records = LifecycleRecords::parse(bytes)?;
+    Ok(records.get(HSQD_MAGIC).map(|record| record.range()))
 }
 
 fn find_hsqd_suffix(bytes: &[u8]) -> Option<&[u8]> {
@@ -295,15 +212,6 @@ fn find_hsqd_suffix(bytes: &[u8]) -> Option<&[u8]> {
 
 fn append_u32(out: &mut Vec<u8>, value: u32) {
     out.extend_from_slice(&value.to_le_bytes());
-}
-
-fn take_u32(rest: &mut &[u8]) -> SaveLoadResult<u32> {
-    if rest.len() < 4 {
-        return Err(SaveLoadError::Corrupted("HSQD u32 truncated".to_string()));
-    }
-    let value = u32::from_le_bytes([rest[0], rest[1], rest[2], rest[3]]);
-    *rest = &rest[4..];
-    Ok(value)
 }
 
 #[cfg(test)]
@@ -400,7 +308,7 @@ mod tests {
 
     #[test]
     fn absent_suffix_is_distinct_from_an_explicit_empty_owner() {
-        assert!(read_control_groups(b"no-magic-here").unwrap().is_none());
+        assert!(read_control_groups(&[]).unwrap().is_none());
         let mut bytes = Vec::new();
         write_control_groups(
             &mut bytes,

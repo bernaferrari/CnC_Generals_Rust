@@ -15,6 +15,7 @@
 //! Restore replaces the live registry and never calls `add_projectile`, so
 //! a load cannot insert a retarget hole or re-create the trail.
 
+use super::lifecycle_records::LifecycleRecords;
 use crate::game_logic::host_projectile_stream::ProjectileStreamRegistry;
 use crate::game_logic::GameLogic;
 use crate::save_load::{SaveLoadError, SaveLoadResult};
@@ -42,27 +43,18 @@ pub fn append_to_lifecycle_tail(bytes: &mut Vec<u8>, game_logic: &GameLogic) {
     bytes.extend_from_slice(&encoded);
 }
 
-pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> SaveLoadResult<()> {
+pub(super) fn apply(
+    records: &LifecycleRecords<'_>,
+    game_logic: &mut GameLogic,
+) -> SaveLoadResult<()> {
     // Fail-closed: a reused GameLogic must not keep the previous trail.
     game_logic.projectile_streams.clear();
-    let Some(suffix) = find_pjst_suffix(bytes) else {
+    let Some(record) = records.get(PJST_MAGIC) else {
         return Ok(());
     };
-    let mut rest = suffix;
-    let version = take_u32(&mut rest)?;
-    let payload_len = take_u32(&mut rest)? as usize;
-    if rest.len() < payload_len {
-        return Err(SaveLoadError::Corrupted(
-            "PJST payload truncated".to_string(),
-        ));
-    }
-    let encoded = &rest[..payload_len];
-    match version {
+    match record.version() {
         2 => {
-            let payload: ProjectileStreamPersistPayload =
-                bincode_legacy::deserialize(encoded).map_err(|err| {
-                    SaveLoadError::Corrupted(format!("PJST payload decode: {err}"))
-                })?;
+            let payload: ProjectileStreamPersistPayload = record.decode_payload()?;
             game_logic.projectile_streams = payload.registry;
         }
         1 => {
@@ -70,9 +62,7 @@ pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> Sa
             struct V1Payload {
                 registry: crate::game_logic::host_projectile_stream::ProjectileStreamRegistryV1Compat,
             }
-            let payload: V1Payload = bincode_legacy::deserialize(encoded).map_err(|err| {
-                SaveLoadError::Corrupted(format!("PJST v1 payload decode: {err}"))
-            })?;
+            let payload: V1Payload = record.decode_payload()?;
             game_logic
                 .projectile_streams
                 .restore_from_v1_shooter_map(payload.registry.into_shooter_map());
@@ -92,24 +82,13 @@ fn capture(game_logic: &GameLogic) -> ProjectileStreamPersistPayload {
     }
 }
 
-fn find_pjst_suffix(bytes: &[u8]) -> Option<&[u8]> {
-    bytes
-        .windows(4)
-        .rposition(|window| window == PJST_MAGIC)
-        .map(|idx| &bytes[idx + 4..])
-}
-
 fn append_u32(out: &mut Vec<u8>, value: u32) {
     out.extend_from_slice(&value.to_le_bytes());
 }
 
-fn take_u32(rest: &mut &[u8]) -> SaveLoadResult<u32> {
-    if rest.len() < 4 {
-        return Err(SaveLoadError::Corrupted("PJST u32 truncated".to_string()));
-    }
-    let (head, tail) = rest.split_at(4);
-    *rest = tail;
-    Ok(u32::from_le_bytes([head[0], head[1], head[2], head[3]]))
+#[cfg(test)]
+pub(crate) fn apply_from_lifecycle_tail(bytes: &[u8], world: &mut GameLogic) -> SaveLoadResult<()> {
+    apply(&LifecycleRecords::parse(bytes)?, world)
 }
 
 #[cfg(test)]
@@ -146,7 +125,10 @@ mod tests {
         let mut tail = Vec::new();
         append_to_lifecycle_tail(&mut tail, &source);
         assert!(
-            find_pjst_suffix(&tail).is_some(),
+            LifecycleRecords::parse(&tail)
+                .unwrap()
+                .get(PJST_MAGIC)
+                .is_some(),
             "PJST suffix must be appended to lifecycle tail"
         );
 
@@ -160,7 +142,7 @@ mod tests {
             None,
             1,
         );
-        apply_from_lifecycle_tail(&tail, &mut restored).expect("restore");
+        apply(&LifecycleRecords::parse(&tail).unwrap(), &mut restored).expect("restore");
 
         let streams = restored.projectile_streams.snapshot();
         assert_eq!(streams.len(), 1);
@@ -196,7 +178,7 @@ mod tests {
             None,
             4,
         );
-        apply_from_lifecycle_tail(b"no-magic-here", &mut logic).expect("apply");
+        apply(&LifecycleRecords::parse(&[]).unwrap(), &mut logic).expect("apply");
         assert!(logic.projectile_streams.is_empty());
     }
 }

@@ -1,6 +1,7 @@
 //! PointDefenseLaserUpdate continuation: one state per module on each Object.
 //! C++ PointDefenseLaserUpdate.cpp:363-386 writes target, range and both timers.
 
+use super::lifecycle_records::LifecycleRecords;
 use crate::game_logic::{GameLogic, ObjectId};
 use crate::game_logic::host_point_defense::PointDefenseState;
 use crate::save_load::{SaveLoadError, SaveLoadResult};
@@ -36,22 +37,19 @@ pub fn append_to_lifecycle_tail(bytes: &mut Vec<u8>, world: &GameLogic) {
     bytes.extend_from_slice(&payload);
 }
 
-pub fn apply_from_lifecycle_tail(bytes: &[u8], world: &mut GameLogic) -> SaveLoadResult<()> {
+pub(super) fn apply(records: &LifecycleRecords<'_>, world: &mut GameLogic) -> SaveLoadResult<()> {
     for object in world.objects.registered_values_mut() { object.point_defense_states.clear(); }
-    let Some(index) = bytes.windows(4).rposition(|part| part == PDLS_MAGIC) else { return Ok(()) };
-    let mut rest = &bytes[index + 4..];
-    let version = take_u32(&mut rest)?;
-    let length = take_u32(&mut rest)? as usize;
-    if rest.len() < length { return Err(SaveLoadError::Corrupted("PDLS payload truncated".into())); }
-    let encoded = &rest[..length];
-    let decode_error = |err| SaveLoadError::Corrupted(format!("PDLS payload decode: {err}"));
+    let Some(record) = records.get(PDLS_MAGIC) else {
+        return Ok(());
+    };
+    let version = record.version();
     match version {
         1 | 2 => {
             let (first, second) = if version == 1 {
-                let old: LegacyV1 = bincode_legacy::deserialize(encoded).map_err(decode_error)?;
+                let old: LegacyV1 = record.decode_payload()?;
                 (old.ready, Vec::new())
             } else {
-                let old: LegacyV2 = bincode_legacy::deserialize(encoded).map_err(decode_error)?;
+                let old: LegacyV2 = record.decode_payload()?;
                 (old.ready, old.ready_1)
             };
             for (index, entries) in [(0, first), (1, second)] {
@@ -64,7 +62,7 @@ pub fn apply_from_lifecycle_tail(bytes: &[u8], world: &mut GameLogic) -> SaveLoa
             }
         }
         PDLS_VERSION => {
-            let rows: Vec<Record> = bincode_legacy::deserialize(encoded).map_err(decode_error)?;
+            let rows: Vec<Record> = record.decode_payload()?;
             for row in rows {
                 if let Some(object) = world.objects.get_mut(&ObjectId(row.object_id)) {
                     object.point_defense_states = row.states;
@@ -74,13 +72,6 @@ pub fn apply_from_lifecycle_tail(bytes: &[u8], world: &mut GameLogic) -> SaveLoa
         _ => return Err(SaveLoadError::Corrupted(format!("unknown PDLS suffix version {version}"))),
     }
     Ok(())
-}
-
-fn take_u32(rest: &mut &[u8]) -> SaveLoadResult<u32> {
-    if rest.len() < 4 { return Err(SaveLoadError::Corrupted("PDLS u32 truncated".into())); }
-    let (head, tail) = rest.split_at(4);
-    *rest = tail;
-    Ok(u32::from_le_bytes([head[0], head[1], head[2], head[3]]))
 }
 
 #[cfg(test)]
@@ -107,11 +98,11 @@ mod tests {
         append_to_lifecycle_tail(&mut bytes, &source);
         let (mut restored, other_id) = world();
         assert_eq!(id, other_id);
-        apply_from_lifecycle_tail(&bytes, &mut restored).unwrap();
+        apply(&LifecycleRecords::parse(&bytes).unwrap(), &mut restored).unwrap();
         let states = &restored.host_object(id).unwrap().point_defense_states;
         assert_eq!((states[0].next_shot, states[0].next_scan, states[0].target, states[0].in_range), (17, 4, Some(ObjectId(99)), true));
         assert_eq!(states[1].next_shot, 31);
-        apply_from_lifecycle_tail(b"no-magic-here", &mut restored).unwrap();
+        apply(&LifecycleRecords::parse(&[]).unwrap(), &mut restored).unwrap();
         assert!(restored.host_object(id).unwrap().point_defense_states.is_empty());
         assert_eq!(source.host_object(id).unwrap().point_defense_states[1].next_shot, 31);
     }

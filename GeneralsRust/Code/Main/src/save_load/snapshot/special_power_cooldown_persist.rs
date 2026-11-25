@@ -2,6 +2,7 @@
 //! `lifecycle_tail` blob. SPCD v4 additionally records public timer registration.
 //! Older versions remain readable, including the v1 optional pause table.
 
+use super::lifecycle_records::LifecycleRecords;
 use crate::command_system::SpecialPowerType;
 use crate::game_logic::{GameLogic, ObjectId};
 use crate::save_load::{SaveLoadError, SaveLoadResult};
@@ -40,16 +41,18 @@ pub fn append_player_general_names(bytes: &mut Vec<u8>, game_logic: &GameLogic) 
     bytes.extend_from_slice(&payload);
 }
 
-pub fn apply_player_general_names(bytes: &[u8], game_logic: &mut GameLogic) -> SaveLoadResult<()> {
-    let Some(mut record) = super::ai_team_persist::framing::find_record(bytes, b"PGNM")? else {
+pub(super) fn apply_player_general_names(
+    records: &LifecycleRecords<'_>,
+    game_logic: &mut GameLogic,
+) -> SaveLoadResult<()> {
+    let Some(record) = records.get(b"PGNM") else {
         return Ok(());
     };
-    let version = take_u32(&mut record)?;
+    let version = record.version();
     if version != 1 {
         return Err(SaveLoadError::Corrupted(format!("unknown PGNM suffix version {version}")));
     }
-    let size = take_u32(&mut record)? as usize;
-    let mut payload = record.get(..size).ok_or_else(|| SaveLoadError::Corrupted("PGNM payload truncated".into()))?;
+    let mut payload = record.payload();
     let count = take_u32(&mut payload)?;
     if count > SPCD_MAX_TABLE_ENTRIES {
         return Err(SaveLoadError::Corrupted("PGNM player count exceeds bound".into()));
@@ -90,11 +93,14 @@ pub fn append_to_lifecycle_tail(bytes: &mut Vec<u8>, game_logic: &GameLogic) {
     encode_table(bytes, &registrations);
 }
 
-pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> SaveLoadResult<()> {
-    let Some(suffix) = find_spcd_suffix(bytes)? else {
+pub(super) fn apply(
+    records: &LifecycleRecords<'_>,
+    game_logic: &mut GameLogic,
+) -> SaveLoadResult<()> {
+    let Some(record) = records.get(SPCD_MAGIC) else {
         return Ok(());
     };
-    let mut rest = suffix;
+    let mut rest = record.body();
     let version = take_u32(&mut rest)?;
     if version == 0 || version > SPCD_VERSION {
         return Err(SaveLoadError::Corrupted(format!(
@@ -462,8 +468,16 @@ fn special_power_from_persist_name(name: &str) -> Option<SpecialPowerType> {
     crate::command_system::special_power_type_from_template_name(name)
 }
 
+#[cfg(test)]
 fn find_spcd_suffix(bytes: &[u8]) -> SaveLoadResult<Option<&[u8]>> {
-    super::ai_team_persist::framing::find_record(bytes, SPCD_MAGIC)
+    Ok(LifecycleRecords::parse(bytes)?
+        .get(SPCD_MAGIC)
+        .map(|record| record.body()))
+}
+
+#[cfg(test)]
+fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> SaveLoadResult<()> {
+    apply(&LifecycleRecords::parse(bytes)?, game_logic)
 }
 
 fn encode_table(out: &mut Vec<u8>, table: &[(u32, Vec<(String, f32)>)]) {
@@ -550,7 +564,7 @@ mod tests {
         let mut bytes = Vec::new();
         append_player_general_names(&mut bytes, &world);
         world.get_player_mut(1).unwrap().general_name.clear();
-        apply_player_general_names(&bytes, &mut world).unwrap();
+        apply_player_general_names(&LifecycleRecords::parse(&bytes).unwrap(), &mut world).unwrap();
         assert_eq!(world.get_player(1).unwrap().general_name, "将軍");
     }
 

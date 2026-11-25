@@ -11,9 +11,10 @@
 //! JTAI v4 carries the engine ambient latch. World snapshot version 52
 //! requires this layout for serialized JetAI state.
 
+use super::lifecycle_records::LifecycleRecords;
 use crate::game_logic::object::HostJetAi;
 use crate::game_logic::{GameLogic, ObjectId};
-use crate::save_load::{SaveLoadError, SaveLoadResult};
+use crate::save_load::SaveLoadResult;
 use serde::{Deserialize, Serialize};
 
 const JTAI_MAGIC: &[u8; 4] = b"JTAI";
@@ -44,25 +45,14 @@ pub fn append_to_lifecycle_tail(bytes: &mut Vec<u8>, game_logic: &GameLogic) {
     bytes.extend_from_slice(&encoded);
 }
 
-pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> SaveLoadResult<()> {
-    let Some(suffix) = find_jtai_suffix(bytes) else {
+pub(super) fn apply(
+    records: &LifecycleRecords<'_>,
+    game_logic: &mut GameLogic,
+) -> SaveLoadResult<()> {
+    let Some(record) = records.get(JTAI_MAGIC) else {
         return Ok(());
     };
-    let mut rest = suffix;
-    let version = take_u32(&mut rest)?;
-    if version != JTAI_VERSION {
-        return Err(SaveLoadError::Corrupted(format!(
-            "unknown JTAI suffix version {version}"
-        )));
-    }
-    let payload_len = take_u32(&mut rest)? as usize;
-    if rest.len() < payload_len {
-        return Err(SaveLoadError::Corrupted(
-            "JTAI payload truncated".to_string(),
-        ));
-    }
-    let payload: JetAiPersistPayload = bincode_legacy::deserialize(&rest[..payload_len])
-        .map_err(|err| SaveLoadError::Corrupted(format!("JTAI payload decode: {err}")))?;
+    let payload: JetAiPersistPayload = record.decode(JTAI_VERSION)?;
     apply_payload(game_logic, payload);
     Ok(())
 }
@@ -99,46 +89,8 @@ fn apply_payload(game_logic: &mut GameLogic, payload: JetAiPersistPayload) {
     }
 }
 
-fn find_jtai_suffix(bytes: &[u8]) -> Option<&[u8]> {
-    let markers: Vec<_> = bytes
-        .windows(4)
-        .enumerate()
-        .filter_map(|(index, window)| (window == JTAI_MAGIC).then_some(index + 4))
-        .collect();
-    // An authored cursor name inside the payload may itself contain "JTAI"
-    // (e.g. a lock-on drawable template). The real header precedes its own
-    // payload, so take the first marker whose version, length and payload
-    // all check out; a malformed real tail still reaches the decoder through
-    // the first marker and keeps its checked version/truncation error.
-    markers
-        .iter()
-        .copied()
-        .find(|index| is_complete_jtai_suffix(&bytes[*index..]))
-        .or_else(|| markers.first().copied())
-        .map(|index| &bytes[index..])
-}
-
-fn is_complete_jtai_suffix(mut rest: &[u8]) -> bool {
-    let (Ok(version), Ok(length)) = (take_u32(&mut rest), take_u32(&mut rest)) else {
-        return false;
-    };
-    version == JTAI_VERSION
-        && rest
-            .get(..length as usize)
-            .is_some_and(|payload| bincode_legacy::deserialize::<JetAiPersistPayload>(payload).is_ok())
-}
-
 fn append_u32(out: &mut Vec<u8>, value: u32) {
     out.extend_from_slice(&value.to_le_bytes());
-}
-
-fn take_u32(rest: &mut &[u8]) -> SaveLoadResult<u32> {
-    if rest.len() < 4 {
-        return Err(SaveLoadError::Corrupted("JTAI u32 truncated".to_string()));
-    }
-    let value = u32::from_le_bytes([rest[0], rest[1], rest[2], rest[3]]);
-    *rest = &rest[4..];
-    Ok(value)
 }
 
 #[cfg(test)]
@@ -196,7 +148,10 @@ mod tests {
         let builder = super::super::SnapshotBuilder::new();
         let snapshot = builder.create_world_snapshot(&source).expect("snapshot");
         assert!(
-            find_jtai_suffix(&snapshot.lifecycle_tail).is_some(),
+            LifecycleRecords::parse(&snapshot.lifecycle_tail)
+                .unwrap()
+                .get(JTAI_MAGIC)
+                .is_some(),
             "JTAI suffix must be appended to lifecycle tail"
         );
 
@@ -235,8 +190,17 @@ mod tests {
 
     #[test]
     fn absent_suffix_is_ignored() {
-        assert!(find_jtai_suffix(b"no-magic-here").is_none());
-        apply_from_lifecycle_tail(b"no-magic-here", &mut GameLogic::new()).expect("apply");
+        assert!(
+            LifecycleRecords::parse(&[])
+                .unwrap()
+                .get(JTAI_MAGIC)
+                .is_none()
+        );
+        apply(
+            &LifecycleRecords::parse(&[]).unwrap(),
+            &mut GameLogic::new(),
+        )
+        .expect("apply");
     }
 }
 
@@ -269,14 +233,18 @@ mod derived_ai_idle_native_tests {
             .expect("object");
         assert_eq!(id, restored_id);
         restored.host_object_mut(id).unwrap().jet_ai = HostJetAi::default();
-        apply_from_lifecycle_tail(&bytes, &mut restored).unwrap();
+        apply(&LifecycleRecords::parse(&bytes).unwrap(), &mut restored).unwrap();
         assert_eq!(
             restored.host_object(id).unwrap().jet_ai.pending_resume,
             crate::game_logic::object::HostJetPendingResume::AiIdle
         );
         let prior = restored.host_object(id).unwrap().jet_ai.clone();
         bytes[4..8].copy_from_slice(&(JTAI_VERSION - 1).to_le_bytes());
-        assert!(apply_from_lifecycle_tail(&bytes, &mut restored).is_err());
+        assert!(
+            LifecycleRecords::parse(&bytes)
+                .and_then(|records| apply(&records, &mut restored))
+                .is_err()
+        );
         assert_eq!(restored.host_object(id).unwrap().jet_ai, prior);
     }
 }

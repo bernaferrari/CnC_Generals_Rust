@@ -29,6 +29,7 @@
 //! The enclosing WorldSnapshot advances to v38, retains v37 Object completion
 //! provenance and v36's GOTS continuation contract.
 
+use super::lifecycle_records::LifecycleRecords;
 use crate::game_logic::host_battle_bus::HostBattleBusBodyData;
 use crate::game_logic::host_helicopter_slow_death::HostHelicopterSlowDeathData;
 use crate::game_logic::host_jet_slow_death::HostJetSlowDeathData;
@@ -42,7 +43,7 @@ const OXFR_FOOTER: &[u8; 4] = b"OXFE";
 const OXFR_VERSION: u32 = 13;
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
-struct ObjectModuleXferPersistPayload {
+pub(super) struct ObjectModuleXferPersistPayload {
     stun: Vec<StunPersist>,
     battle_bus: Vec<BattleBusPersist>,
     slow_death: Vec<SlowDeathPersist>,
@@ -452,12 +453,16 @@ pub fn append_to_lifecycle_tail(bytes: &mut Vec<u8>, game_logic: &GameLogic) -> 
 }
 
 fn decode_payload(bytes: &[u8]) -> SaveLoadResult<Option<ObjectModuleXferPersistPayload>> {
-    let Some((start, end)) = completion_record_range(bytes)? else {
+    prepare(&LifecycleRecords::parse(bytes)?)
+}
+
+pub(super) fn prepare(
+    records: &LifecycleRecords<'_>,
+) -> SaveLoadResult<Option<ObjectModuleXferPersistPayload>> {
+    let Some(record) = records.get(OXFR_MAGIC) else {
         return Ok(None);
     };
-    let suffix = &bytes[start + OXFR_MAGIC.len()..end];
-    let mut rest = suffix;
-    let version = take_u32(&mut rest)?;
+    let version = record.version();
     if !(4..=OXFR_VERSION).contains(&version) {
         return Err(SaveLoadError::Corrupted(format!(
             "unknown OXFR suffix version {version}"
@@ -468,58 +473,41 @@ fn decode_payload(bytes: &[u8]) -> SaveLoadResult<Option<ObjectModuleXferPersist
             "OXFR v10–v12 did not retain Particle Cannon swath settings".into(),
         ));
     }
-    let payload_len = take_u32(&mut rest)? as usize;
-    if rest.len() < payload_len {
-        return Err(SaveLoadError::Corrupted(
-            "OXFR payload truncated".to_string(),
-        ));
-    }
     let mut payload: ObjectModuleXferPersistPayload = if version == 4 {
-        let old: ObjectModuleXferPersistPayloadV4 =
-            bincode_legacy::deserialize(&rest[..payload_len]).map_err(|err| {
-                SaveLoadError::Corrupted(format!("OXFR v4 payload decode: {err}"))
-            })?;
+        let old: ObjectModuleXferPersistPayloadV4 = record.decode_payload()?;
         old.into()
     } else if version == 5 {
-        let old: ObjectModuleXferPersistPayloadV5 =
-            bincode_legacy::deserialize(&rest[..payload_len]).map_err(|err| {
-                SaveLoadError::Corrupted(format!("OXFR v5 payload decode: {err}"))
-            })?;
+        let old: ObjectModuleXferPersistPayloadV5 = record.decode_payload()?;
         old.into()
     } else if version == 6 {
-        let old: ObjectModuleXferPersistPayloadV6 =
-            bincode_legacy::deserialize(&rest[..payload_len]).map_err(|err| {
-                SaveLoadError::Corrupted(format!("OXFR v6 payload decode: {err}"))
-            })?;
+        let old: ObjectModuleXferPersistPayloadV6 = record.decode_payload()?;
         old.into()
     } else if version == 7 {
-        let old: ObjectModuleXferPersistPayloadV7 =
-            bincode_legacy::deserialize(&rest[..payload_len]).map_err(|err| {
-                SaveLoadError::Corrupted(format!("OXFR v7 payload decode: {err}"))
-            })?;
+        let old: ObjectModuleXferPersistPayloadV7 = record.decode_payload()?;
         old.into()
     } else if version == 8 || version == 9 {
-        let old: ObjectModuleXferPersistPayloadV9 =
-            bincode_legacy::deserialize(&rest[..payload_len]).map_err(|err| {
-                SaveLoadError::Corrupted(format!("OXFR v{version} payload decode: {err}"))
-            })?;
+        let old: ObjectModuleXferPersistPayloadV9 = record.decode_payload()?;
         old.into()
     } else if version == 10 {
-        let old: ObjectModuleXferPersistPayloadV10 =
-            bincode_legacy::deserialize(&rest[..payload_len]).map_err(|err| {
-                SaveLoadError::Corrupted(format!("OXFR v10 payload decode: {err}"))
-            })?;
+        let old: ObjectModuleXferPersistPayloadV10 = record.decode_payload()?;
         old.into()
     } else {
-        bincode_legacy::deserialize(&rest[..payload_len])
-            .map_err(|err| SaveLoadError::Corrupted(format!("OXFR payload decode: {err}")))?
+        record.decode_payload()?
     };
     payload.wire_version = version;
     Ok(Some(payload))
 }
 
-pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> SaveLoadResult<()> {
-    let Some(payload) = decode_payload(bytes)? else {
+#[cfg(test)]
+fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> SaveLoadResult<()> {
+    apply(decode_payload(bytes)?, game_logic)
+}
+
+pub(super) fn apply(
+    payload: Option<ObjectModuleXferPersistPayload>,
+    game_logic: &mut GameLogic,
+) -> SaveLoadResult<()> {
+    let Some(payload) = payload else {
         if game_logic
             .host_objects()
             .registered()
@@ -546,15 +534,14 @@ pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> Sa
 }
 
 /// Validate provenance before SnapshotBuilder mutates the receiving world.
-pub fn validate_completion_provenance_before_restore(
-    bytes: &[u8],
+pub(super) fn validate_completion_provenance_before_restore(
+    payload: Option<&ObjectModuleXferPersistPayload>,
     version: u32,
     objects: &std::collections::HashMap<ObjectId, super::object::ObjectSnapshot>,
     special_powers: &super::special_powers::SpecialPowerStrikeRegistrySnapshot,
     game_logic: &GameLogic,
 ) -> SaveLoadResult<()> {
-    let payload = decode_payload(bytes)?;
-    if payload.as_ref().map_or(true, |p| p.wire_version < 13)
+    if payload.map_or(true, |p| p.wire_version < 13)
         && (special_powers.strikes.iter().any(|strike| {
             strike.kind == crate::game_logic::special_power_strikes::HostSuperweaponKind::ParticleCannon
         }) || !special_powers.beam_fields.is_empty())
@@ -563,16 +550,14 @@ pub fn validate_completion_provenance_before_restore(
             "legacy snapshot did not retain Particle Cannon swath settings".into(),
         ));
     }
-    let completion_state = payload
-        .as_ref()
-        .is_some_and(|payload| payload.completion_snapshot_present);
+    let completion_state = payload.is_some_and(|payload| payload.completion_snapshot_present);
     if version >= super::types::WORLD_SNAPSHOT_OBJECT_COMPLETION_VERSION && !completion_state {
         return Err(SaveLoadError::Corrupted(
             "current snapshot is missing OXFR object-completion continuation".into(),
         ));
     }
     if version >= super::types::WORLD_SNAPSHOT_PARTICLE_DRIVE_SETTINGS_VERSION
-        && !payload.as_ref().is_some_and(|payload| {
+        && !payload.is_some_and(|payload| {
             payload.wire_version >= 10 && payload.particle_drive_snapshot_present
         })
     {
@@ -580,10 +565,7 @@ pub fn validate_completion_provenance_before_restore(
             "version-38 snapshot is missing OXFR v10 Particle Cannon settings".into(),
         ));
     }
-    if let Some(payload) = payload
-        .as_ref()
-        .filter(|payload| payload.completion_snapshot_present)
-    {
+    if let Some(payload) = payload.filter(|payload| payload.completion_snapshot_present) {
         if payload.particle_drive_snapshot_present {
             let expected_strikes: std::collections::HashSet<_> = special_powers
                 .strikes
@@ -806,10 +788,11 @@ fn completion_record_boundary(bytes: &[u8]) -> SaveLoadResult<usize> {
 }
 
 fn completion_record_range(bytes: &[u8]) -> SaveLoadResult<Option<(usize, usize)>> {
-    Ok(
-        super::hotkey_squad_persist::find_lifecycle_record(bytes, OXFR_MAGIC)?
-            .map(|range| (range.start, range.end)),
-    )
+    let records = LifecycleRecords::parse(bytes)?;
+    Ok(records.get(OXFR_MAGIC).map(|record| {
+        let range = record.range();
+        (range.start, range.end)
+    }))
 }
 
 /// Detached observations of the exact saved lifecycle flags, independent of HP.
@@ -822,14 +805,14 @@ pub(super) struct SavedDeathState {
 }
 
 pub(super) fn saved_death_states(
-    bytes: &[u8],
+    payload: Option<&ObjectModuleXferPersistPayload>,
 ) -> SaveLoadResult<std::collections::HashMap<ObjectId, SavedDeathState>> {
-    let Some(payload) = decode_payload(bytes)? else {
+    let Some(payload) = payload else {
         return Ok(Default::default());
     };
     let mut states = std::collections::HashMap::<ObjectId, SavedDeathState>::new();
     let mut started_ids = std::collections::HashSet::new();
-    for entry in payload.death_start {
+    for entry in &payload.death_start {
         let id = ObjectId(entry.object_id);
         if !started_ids.insert(id) {
             return Err(SaveLoadError::Corrupted(
@@ -839,7 +822,7 @@ pub(super) fn saved_death_states(
         states.entry(id).or_default().started = entry.on_die_started;
     }
     let mut retained_ids = std::collections::HashSet::new();
-    for entry in payload.retained_death {
+    for entry in &payload.retained_death {
         let id = ObjectId(entry.object_id);
         if !retained_ids.insert(id) {
             return Err(SaveLoadError::Corrupted(
@@ -849,7 +832,7 @@ pub(super) fn saved_death_states(
         states.entry(id).or_default().effectively_dead = entry.effectively_dead;
     }
     let mut slow_death_ids = std::collections::HashSet::new();
-    for entry in payload.slow_death {
+    for entry in &payload.slow_death {
         let id = ObjectId(entry.object_id);
         if !slow_death_ids.insert(id) {
             return Err(SaveLoadError::Corrupted(
@@ -857,21 +840,13 @@ pub(super) fn saved_death_states(
             ));
         }
         let state = states.entry(id).or_default();
-        state.slow_death_base = entry.slow_death.map(|timer| (timer.begin_frame, timer.destroy_at_frame));
+        state.slow_death_base = entry
+            .slow_death
+            .as_ref()
+            .map(|timer| (timer.begin_frame, timer.destroy_at_frame));
         state.has_jet_slow_death = entry.jet_slow_death.is_some();
     }
     Ok(states)
-}
-
-/// Inspect saved reentry latches before detached native receipt validation.
-pub(super) fn saved_death_started_ids(
-    bytes: &[u8],
-) -> SaveLoadResult<std::collections::HashSet<ObjectId>> {
-    Ok(saved_death_states(bytes)?
-        .into_iter()
-        .filter(|(_, state)| state.started)
-        .map(|(id, _)| id)
-        .collect())
 }
 
 fn capture(game_logic: &GameLogic) -> ObjectModuleXferPersistPayload {
@@ -1629,15 +1604,6 @@ fn append_u32(out: &mut Vec<u8>, value: u32) {
     out.extend_from_slice(&value.to_le_bytes());
 }
 
-fn take_u32(rest: &mut &[u8]) -> SaveLoadResult<u32> {
-    if rest.len() < 4 {
-        return Err(SaveLoadError::Corrupted("OXFR u32 truncated".to_string()));
-    }
-    let (head, tail) = rest.split_at(4);
-    *rest = tail;
-    Ok(u32::from_le_bytes([head[0], head[1], head[2], head[3]]))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1654,7 +1620,7 @@ mod tests {
     fn absent_suffix_is_ignored() {
         assert!(find_oxfr_suffix(b"no-magic-here").is_none());
         let mut logic = GameLogic::new();
-        apply_from_lifecycle_tail(b"no-magic-here", &mut logic).expect("apply");
+        apply_from_lifecycle_tail(&[], &mut logic).expect("apply");
     }
 
     // PhysicsUpdate.cpp:623-663: save after the motive force was applied but

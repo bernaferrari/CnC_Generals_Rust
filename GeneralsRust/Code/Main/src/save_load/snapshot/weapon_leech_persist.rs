@@ -11,8 +11,9 @@
 //! so older decoders ignore the extra bytes. No WorldSnapshot version bump.
 //! Restore writes the latch only; it never re-runs pre-fire / fire.
 
+use super::lifecycle_records::LifecycleRecords;
 use crate::game_logic::{GameLogic, ObjectId};
-use crate::save_load::{SaveLoadError, SaveLoadResult};
+use crate::save_load::SaveLoadResult;
 use serde::{Deserialize, Serialize};
 
 const WLCH_MAGIC: &[u8; 4] = b"WLCH";
@@ -44,26 +45,15 @@ pub fn append_to_lifecycle_tail(bytes: &mut Vec<u8>, game_logic: &GameLogic) {
     bytes.extend_from_slice(&encoded);
 }
 
-pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> SaveLoadResult<()> {
+pub(super) fn apply(
+    records: &LifecycleRecords<'_>,
+    game_logic: &mut GameLogic,
+) -> SaveLoadResult<()> {
     reset_weapon_leech(game_logic);
-    let Some(suffix) = find_wlch_suffix(bytes) else {
+    let Some(record) = records.get(WLCH_MAGIC) else {
         return Ok(());
     };
-    let mut rest = suffix;
-    let version = take_u32(&mut rest)?;
-    if version != WLCH_VERSION {
-        return Err(SaveLoadError::Corrupted(format!(
-            "unknown WLCH suffix version {version}"
-        )));
-    }
-    let payload_len = take_u32(&mut rest)? as usize;
-    if rest.len() < payload_len {
-        return Err(SaveLoadError::Corrupted(
-            "WLCH payload truncated".to_string(),
-        ));
-    }
-    let payload: WeaponLeechPersistPayload = bincode_legacy::deserialize(&rest[..payload_len])
-        .map_err(|err| SaveLoadError::Corrupted(format!("WLCH payload decode: {err}")))?;
+    let payload: WeaponLeechPersistPayload = record.decode(WLCH_VERSION)?;
     apply_payload(game_logic, payload);
     Ok(())
 }
@@ -116,24 +106,8 @@ fn apply_payload(game_logic: &mut GameLogic, payload: WeaponLeechPersistPayload)
     }
 }
 
-fn find_wlch_suffix(bytes: &[u8]) -> Option<&[u8]> {
-    bytes
-        .windows(4)
-        .rposition(|window| window == WLCH_MAGIC)
-        .map(|idx| &bytes[idx + 4..])
-}
-
 fn append_u32(out: &mut Vec<u8>, value: u32) {
     out.extend_from_slice(&value.to_le_bytes());
-}
-
-fn take_u32(rest: &mut &[u8]) -> SaveLoadResult<u32> {
-    if rest.len() < 4 {
-        return Err(SaveLoadError::Corrupted("WLCH u32 truncated".to_string()));
-    }
-    let (head, tail) = rest.split_at(4);
-    *rest = tail;
-    Ok(u32::from_le_bytes([head[0], head[1], head[2], head[3]]))
 }
 
 #[cfg(test)]
@@ -162,7 +136,10 @@ mod tests {
         let builder = super::super::SnapshotBuilder::new();
         let snapshot = builder.create_world_snapshot(&source).expect("snapshot");
         assert!(
-            find_wlch_suffix(&snapshot.lifecycle_tail).is_some(),
+            LifecycleRecords::parse(&snapshot.lifecycle_tail)
+                .unwrap()
+                .get(WLCH_MAGIC)
+                .is_some(),
             "WLCH suffix must be appended to lifecycle tail"
         );
 
@@ -200,7 +177,7 @@ mod tests {
             object.leech_range_active_primary = true;
             object.leech_range_active_secondary = true;
         }
-        apply_from_lifecycle_tail(b"no-magic-here", &mut logic).expect("apply");
+        apply(&LifecycleRecords::parse(&[]).unwrap(), &mut logic).expect("apply");
         let object = logic.host_object(id).expect("terrorist");
         assert!(!object.leech_range_active_primary);
         assert!(!object.leech_range_active_secondary);

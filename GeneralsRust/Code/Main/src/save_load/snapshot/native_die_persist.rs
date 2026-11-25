@@ -366,9 +366,8 @@ pub(super) fn validate(
     world: &GameLogic,
     body_kinds: &HashMap<ObjectId, crate::game_logic::thing::BodyKind>,
     object_continuations: Option<&super::object_xfer_persist::ObjectXferPersistWire>,
+    death_states: &HashMap<ObjectId, super::object_module_xfer_persist::SavedDeathState>,
 ) -> SaveLoadResult<Validated> {
-    let death_states =
-        super::object_module_xfer_persist::saved_death_states(&snapshot.lifecycle_tail)?;
     let consumed_xp =
         super::object_xfer_persist::saved_kill_experience_receipts(object_continuations);
     // A v1 receipt never recorded Player score completion. A dead/started

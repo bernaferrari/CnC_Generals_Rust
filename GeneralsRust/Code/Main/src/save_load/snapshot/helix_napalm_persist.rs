@@ -13,9 +13,10 @@
 //! Append a tagged suffix after the historical v9 contain/producer payload
 //! so older decoders ignore the extra bytes. No WorldSnapshot version bump.
 
+use super::lifecycle_records::LifecycleRecords;
 use crate::game_logic::host_helix_napalm::HostHelixNapalmRegistry;
 use crate::game_logic::GameLogic;
-use crate::save_load::{SaveLoadError, SaveLoadResult};
+use crate::save_load::SaveLoadResult;
 use serde::{Deserialize, Serialize};
 
 const FSGM_MAGIC: &[u8; 4] = b"FSGM";
@@ -43,27 +44,16 @@ pub fn append_to_lifecycle_tail(bytes: &mut Vec<u8>, game_logic: &GameLogic) {
     bytes.extend_from_slice(&encoded);
 }
 
-pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> SaveLoadResult<()> {
+pub(super) fn apply(
+    records: &LifecycleRecords<'_>,
+    game_logic: &mut GameLogic,
+) -> SaveLoadResult<()> {
     // Fail-closed: a reused GameLogic must not keep pre-load firestorms.
     game_logic.helix_napalm.clear();
-    let Some(suffix) = find_fsgm_suffix(bytes) else {
+    let Some(record) = records.get(FSGM_MAGIC) else {
         return Ok(());
     };
-    let mut rest = suffix;
-    let version = take_u32(&mut rest)?;
-    if version != FSGM_VERSION {
-        return Err(SaveLoadError::Corrupted(format!(
-            "unknown FSGM suffix version {version}"
-        )));
-    }
-    let payload_len = take_u32(&mut rest)? as usize;
-    if rest.len() < payload_len {
-        return Err(SaveLoadError::Corrupted(
-            "FSGM payload truncated".to_string(),
-        ));
-    }
-    let payload: HelixNapalmPersistPayload = bincode_legacy::deserialize(&rest[..payload_len])
-        .map_err(|err| SaveLoadError::Corrupted(format!("FSGM payload decode: {err}")))?;
+    let payload: HelixNapalmPersistPayload = record.decode(FSGM_VERSION)?;
     game_logic.helix_napalm = payload.registry;
     Ok(())
 }
@@ -74,24 +64,8 @@ fn capture(game_logic: &GameLogic) -> HelixNapalmPersistPayload {
     }
 }
 
-fn find_fsgm_suffix(bytes: &[u8]) -> Option<&[u8]> {
-    bytes
-        .windows(4)
-        .rposition(|window| window == FSGM_MAGIC)
-        .map(|idx| &bytes[idx + 4..])
-}
-
 fn append_u32(out: &mut Vec<u8>, value: u32) {
     out.extend_from_slice(&value.to_le_bytes());
-}
-
-fn take_u32(rest: &mut &[u8]) -> SaveLoadResult<u32> {
-    if rest.len() < 4 {
-        return Err(SaveLoadError::Corrupted("FSGM u32 truncated".to_string()));
-    }
-    let (head, tail) = rest.split_at(4);
-    *rest = tail;
-    Ok(u32::from_le_bytes([head[0], head[1], head[2], head[3]]))
 }
 
 #[cfg(test)]
@@ -125,7 +99,10 @@ mod tests {
         let builder = super::super::SnapshotBuilder::new();
         let snapshot = builder.create_world_snapshot(&source).expect("snapshot");
         assert!(
-            find_fsgm_suffix(&snapshot.lifecycle_tail).is_some(),
+            LifecycleRecords::parse(&snapshot.lifecycle_tail)
+                .unwrap()
+                .get(FSGM_MAGIC)
+                .is_some(),
             "FSGM suffix must be appended to lifecycle tail"
         );
 
@@ -171,7 +148,7 @@ mod tests {
             0,
             0.0,
         );
-        apply_from_lifecycle_tail(b"no-magic-here", &mut logic).expect("apply");
+        apply(&LifecycleRecords::parse(&[]).unwrap(), &mut logic).expect("apply");
         assert_eq!(logic.helix_napalm.active_count(), 0);
     }
 }

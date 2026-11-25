@@ -7,9 +7,9 @@
 //! Pulse phase and rate are restored together, as in StealthUpdate::xfer.
 
 use super::ObjectSnapshot;
+use super::lifecycle_records::LifecycleRecords;
 use crate::game_logic::{GameLogic, ObjectId};
 use crate::save_load::{SaveLoadError, SaveLoadResult};
-use bincode_legacy::Options;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 
@@ -47,23 +47,13 @@ pub fn append_to_lifecycle_tail(bytes: &mut Vec<u8>, game_logic: &GameLogic) {
 }
 
 pub(super) fn prepare(
-    bytes: &[u8],
+    records: &LifecycleRecords<'_>,
     objects: &HashMap<ObjectId, ObjectSnapshot>,
 ) -> SaveLoadResult<Option<StealthGrantPersistPayload>> {
-    let Some(range) = super::hotkey_squad_persist::find_lifecycle_record(bytes, STLG_MAGIC)? else {
+    let Some(record) = records.get(STLG_MAGIC) else {
         return Ok(None);
     };
-    let record = &bytes[range];
-    let version = u32::from_le_bytes(record[4..8].try_into().unwrap());
-    if version != STLG_VERSION {
-        return Err(SaveLoadError::Corrupted(format!(
-            "unknown STLG suffix version {version}"
-        )));
-    }
-
-    let payload: StealthGrantPersistPayload = bincode_legacy::DefaultOptions::new()
-        .deserialize(&record[12..])
-        .map_err(|err| SaveLoadError::Corrupted(format!("STLG payload decode: {err}")))?;
+    let payload: StealthGrantPersistPayload = record.decode(STLG_VERSION)?;
     let mut seen = HashSet::with_capacity(objects.len());
     if payload.objects.len() != objects.len()
         || payload.objects.iter().any(|entry| {
@@ -145,9 +135,12 @@ mod tests {
         let builder = super::super::SnapshotBuilder::new();
         let snapshot = builder.create_world_snapshot(&source).expect("snapshot");
         assert!(
-            prepare(&snapshot.lifecycle_tail, &snapshot.objects)
-                .unwrap()
-                .is_some(),
+            prepare(
+                &LifecycleRecords::parse(&snapshot.lifecycle_tail).unwrap(),
+                &snapshot.objects
+            )
+            .unwrap()
+            .is_some(),
             "STLG suffix must be appended to lifecycle tail"
         );
 
@@ -253,15 +246,9 @@ mod tests {
         let second = world.create_object("Worker", Team::GLA, Vec3::X).unwrap();
         let builder = super::super::SnapshotBuilder::new();
         let mut snapshot = builder.create_world_snapshot(&world).unwrap();
-        let range = super::super::hotkey_squad_persist::find_lifecycle_record(
-            &snapshot.lifecycle_tail,
-            STLG_MAGIC,
-        )
-        .unwrap()
-        .unwrap();
-        let mut payload = prepare(&snapshot.lifecycle_tail, &snapshot.objects)
-            .unwrap()
-            .unwrap();
+        let records = LifecycleRecords::parse(&snapshot.lifecycle_tail).unwrap();
+        let range = records.get(STLG_MAGIC).unwrap().range();
+        let mut payload = prepare(&records, &snapshot.objects).unwrap().unwrap();
         payload.objects[1].object_id = payload.objects[0].object_id;
         let bytes = bincode_legacy::serialize(&payload).unwrap();
         snapshot.lifecycle_tail[range.start + 12..range.end].copy_from_slice(&bytes);
@@ -302,7 +289,7 @@ mod tests {
             let object = logic.host_object_mut(id).expect("worker");
             object.stealth_frames_granted = 600;
         }
-        let payload = prepare(b"no-magic-here", &HashMap::new()).unwrap();
+        let payload = prepare(&LifecycleRecords::default(), &HashMap::new()).unwrap();
         apply(payload, &mut logic);
         let object = logic.host_object(id).expect("worker");
         assert_eq!(object.stealth_frames_granted, 0);

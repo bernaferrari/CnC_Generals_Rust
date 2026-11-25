@@ -11,6 +11,7 @@
 //! (and after SPCD / BPPL / SUBD / HSQD / BTRY) so older decoders ignore the
 //! extra bytes. No world snapshot version bump.
 
+use super::lifecycle_records::LifecycleRecords;
 use crate::game_logic::host_carpet_bomb_flight::HostCarpetBombFlightRegistry;
 use crate::game_logic::GameLogic;
 use crate::save_load::{SaveLoadError, SaveLoadResult};
@@ -22,7 +23,7 @@ const CBPD_VERSION: u32 = 2;
 // the launcher or transport changed hands, so decoding it must fail closed.
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
-struct CarpetBombPersistPayload {
+pub(super) struct CarpetBombPersistPayload {
     registry: HostCarpetBombFlightRegistry,
 }
 
@@ -45,25 +46,11 @@ pub fn append_to_lifecycle_tail(bytes: &mut Vec<u8>, game_logic: &GameLogic) {
     bytes.extend_from_slice(&encoded);
 }
 
-fn decode(bytes: &[u8]) -> SaveLoadResult<Option<CarpetBombPersistPayload>> {
-    let Some(suffix) = find_cbpd_suffix(bytes) else {
+fn decode(records: &LifecycleRecords<'_>) -> SaveLoadResult<Option<CarpetBombPersistPayload>> {
+    let Some(record) = records.get(CBPD_MAGIC) else {
         return Ok(None);
     };
-    let mut rest = suffix;
-    let version = take_u32(&mut rest)?;
-    if version != CBPD_VERSION {
-        return Err(SaveLoadError::Corrupted(format!(
-            "unknown CBPD suffix version {version}"
-        )));
-    }
-    let payload_len = take_u32(&mut rest)? as usize;
-    if rest.len() < payload_len {
-        return Err(SaveLoadError::Corrupted(
-            "CBPD payload truncated".to_string(),
-        ));
-    }
-    let payload: CarpetBombPersistPayload = bincode_legacy::deserialize(&rest[..payload_len])
-        .map_err(|err| SaveLoadError::Corrupted(format!("CBPD payload decode: {err}")))?;
+    let payload: CarpetBombPersistPayload = record.decode(CBPD_VERSION)?;
     if payload.registry.pending_drops.iter().any(|drop| drop.transport_id == 0) {
         return Err(SaveLoadError::Corrupted(
             "carpet delivery has an unbound payload; transport ownership cannot be restored".into(),
@@ -72,11 +59,11 @@ fn decode(bytes: &[u8]) -> SaveLoadResult<Option<CarpetBombPersistPayload>> {
     Ok(Some(payload))
 }
 
-pub(super) fn preflight_live_delivery(
-    bytes: &[u8],
+pub(super) fn prepare(
+    records: &LifecycleRecords<'_>,
     strikes: &[crate::game_logic::special_power_strikes::HostSpecialPowerStrike],
-) -> SaveLoadResult<()> {
-    let payload = decode(bytes)?;
+) -> SaveLoadResult<Option<CarpetBombPersistPayload>> {
+    let payload = decode(records)?;
     if strikes.iter().any(|strike| {
         strike.live_carpet_delivery
             && strike.phase == crate::game_logic::special_power_strikes::HostStrikePhase::Queued
@@ -86,13 +73,16 @@ pub(super) fn preflight_live_delivery(
             "live carpet delivery has no pending-flight continuation".into(),
         ));
     }
-    Ok(())
+    Ok(payload)
 }
 
-pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> SaveLoadResult<()> {
-    game_logic.carpet_bomb_flight_reg = decode(bytes)?
-        .map(|payload| payload.registry)
-        .unwrap_or_default();
+pub(super) fn apply(payload: Option<CarpetBombPersistPayload>, game_logic: &mut GameLogic) {
+    game_logic.carpet_bomb_flight_reg = payload.map(|payload| payload.registry).unwrap_or_default();
+}
+
+#[cfg(test)]
+fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> SaveLoadResult<()> {
+    apply(decode(&LifecycleRecords::parse(bytes)?)?, game_logic);
     Ok(())
 }
 
@@ -102,24 +92,8 @@ fn capture(game_logic: &GameLogic) -> CarpetBombPersistPayload {
     }
 }
 
-fn find_cbpd_suffix(bytes: &[u8]) -> Option<&[u8]> {
-    bytes
-        .windows(4)
-        .rposition(|window| window == CBPD_MAGIC)
-        .map(|idx| &bytes[idx + 4..])
-}
-
 fn append_u32(out: &mut Vec<u8>, value: u32) {
     out.extend_from_slice(&value.to_le_bytes());
-}
-
-fn take_u32(rest: &mut &[u8]) -> SaveLoadResult<u32> {
-    if rest.len() < 4 {
-        return Err(SaveLoadError::Corrupted("CBPD u32 truncated".to_string()));
-    }
-    let (head, tail) = rest.split_at(4);
-    *rest = tail;
-    Ok(u32::from_le_bytes([head[0], head[1], head[2], head[3]]))
 }
 
 #[cfg(test)]
@@ -245,7 +219,10 @@ mod tests {
         let builder = super::super::SnapshotBuilder::new();
         let snapshot = builder.create_world_snapshot(&source).expect("snapshot");
         assert!(
-            find_cbpd_suffix(&snapshot.lifecycle_tail).is_some(),
+            LifecycleRecords::parse(&snapshot.lifecycle_tail)
+                .unwrap()
+                .get(CBPD_MAGIC)
+                .is_some(),
             "CBPD suffix must be appended to lifecycle tail"
         );
 
@@ -323,7 +300,7 @@ mod tests {
                 bomb_index: 0,
                 transport_id: 2,
             });
-        apply_from_lifecycle_tail(b"no-magic-here", &mut logic).expect("apply");
+        apply_from_lifecycle_tail(&[], &mut logic).expect("apply");
         assert!(logic.carpet_bomb_flight_reg.pending_drops.is_empty());
     }
 }

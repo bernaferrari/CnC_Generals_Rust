@@ -12,9 +12,10 @@
 //! SnapshotBuilder round-trip coverage below exercises this host suffix; native
 //! byte-for-byte DockUpdate::xfer compatibility is still unverified.
 
+use super::lifecycle_records::LifecycleRecords;
 use crate::game_logic::host_supply_gather::HostDockApproachQueue;
 use crate::game_logic::{GameLogic, ObjectId};
-use crate::save_load::{SaveLoadError, SaveLoadResult};
+use crate::save_load::SaveLoadResult;
 use glam::Vec3;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -60,28 +61,17 @@ pub fn append_to_lifecycle_tail(bytes: &mut Vec<u8>, game_logic: &GameLogic) {
     bytes.extend_from_slice(&encoded);
 }
 
-pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> SaveLoadResult<()> {
+pub(super) fn apply(
+    records: &LifecycleRecords<'_>,
+    game_logic: &mut GameLogic,
+) -> SaveLoadResult<()> {
     // Always clear this world's previous session first (C++ module state is
     // per-object); never touch another GameLogic's queues.
     game_logic.reset_host_dock_approach_queues();
-    let Some(suffix) = find_dckq_suffix(bytes) else {
+    let Some(record) = records.get(DCKQ_MAGIC) else {
         return Ok(());
     };
-    let mut rest = suffix;
-    let version = take_u32(&mut rest)?;
-    if version != DCKQ_VERSION {
-        return Err(SaveLoadError::Corrupted(format!(
-            "unknown DCKQ suffix version {version}"
-        )));
-    }
-    let payload_len = take_u32(&mut rest)? as usize;
-    if rest.len() < payload_len {
-        return Err(SaveLoadError::Corrupted(
-            "DCKQ payload truncated".to_string(),
-        ));
-    }
-    let payload: DockQueuePersistPayload = bincode_legacy::deserialize(&rest[..payload_len])
-        .map_err(|err| SaveLoadError::Corrupted(format!("DCKQ payload decode: {err}")))?;
+    let payload: DockQueuePersistPayload = record.decode(DCKQ_VERSION)?;
     apply_payload(game_logic, payload);
     Ok(())
 }
@@ -174,24 +164,8 @@ fn apply_payload(game_logic: &mut GameLogic, payload: DockQueuePersistPayload) {
     }
 }
 
-fn find_dckq_suffix(bytes: &[u8]) -> Option<&[u8]> {
-    bytes
-        .windows(4)
-        .rposition(|window| window == DCKQ_MAGIC)
-        .map(|idx| &bytes[idx + 4..])
-}
-
 fn append_u32(out: &mut Vec<u8>, value: u32) {
     out.extend_from_slice(&value.to_le_bytes());
-}
-
-fn take_u32(rest: &mut &[u8]) -> SaveLoadResult<u32> {
-    if rest.len() < 4 {
-        return Err(SaveLoadError::Corrupted("DCKQ u32 truncated".to_string()));
-    }
-    let value = u32::from_le_bytes([rest[0], rest[1], rest[2], rest[3]]);
-    *rest = &rest[4..];
-    Ok(value)
 }
 
 #[cfg(test)]
@@ -216,7 +190,7 @@ mod tests {
 
         let mut tail_a = Vec::new();
         append_to_lifecycle_tail(&mut tail_a, &world_a);
-        apply_from_lifecycle_tail(&tail_a, &mut world_a).expect("restore A's queue");
+        apply(&LifecycleRecords::parse(&tail_a).unwrap(), &mut world_a).expect("restore A's queue");
 
         let restored_a = world_a.host_dock_approach_queue_snapshot();
         assert_eq!(restored_a.len(), 1);
@@ -337,7 +311,12 @@ mod tests {
 
         let builder = super::super::SnapshotBuilder::new();
         let snapshot = builder.create_world_snapshot(&source).expect("capture");
-        assert!(find_dckq_suffix(&snapshot.lifecycle_tail).is_some());
+        assert!(
+            LifecycleRecords::parse(&snapshot.lifecycle_tail)
+                .unwrap()
+                .get(DCKQ_MAGIC)
+                .is_some()
+        );
 
         // Authored definitions are not serialized; the loading game admits
         // the same INI before the save is applied.

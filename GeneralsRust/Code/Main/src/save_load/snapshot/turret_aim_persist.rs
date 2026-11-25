@@ -16,9 +16,10 @@
 //! Additional owned sweep/target/audio continuation is transferred by the
 //! TurretRuntime entity lifecycle component; it never waits for another shot.
 
+use super::lifecycle_records::LifecycleRecords;
 use crate::game_logic::object::TurretSubState;
 use crate::game_logic::{GameLogic, ObjectId};
-use crate::save_load::{SaveLoadError, SaveLoadResult};
+use crate::save_load::SaveLoadResult;
 use serde::{Deserialize, Serialize};
 
 const TRAI_MAGIC: &[u8; 4] = b"TRAI";
@@ -63,26 +64,15 @@ pub fn append_to_lifecycle_tail(bytes: &mut Vec<u8>, game_logic: &GameLogic) {
     bytes.extend_from_slice(&encoded);
 }
 
-pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> SaveLoadResult<()> {
+pub(super) fn apply(
+    records: &LifecycleRecords<'_>,
+    game_logic: &mut GameLogic,
+) -> SaveLoadResult<()> {
     reset_turret_aim(game_logic);
-    let Some(suffix) = find_trai_suffix(bytes) else {
+    let Some(record) = records.get(TRAI_MAGIC) else {
         return Ok(());
     };
-    let mut rest = suffix;
-    let version = take_u32(&mut rest)?;
-    if version != TRAI_VERSION {
-        return Err(SaveLoadError::Corrupted(format!(
-            "unknown TRAI suffix version {version}"
-        )));
-    }
-    let payload_len = take_u32(&mut rest)? as usize;
-    if rest.len() < payload_len {
-        return Err(SaveLoadError::Corrupted(
-            "TRAI payload truncated".to_string(),
-        ));
-    }
-    let payload: TurretAimPersistPayload = bincode_legacy::deserialize(&rest[..payload_len])
-        .map_err(|err| SaveLoadError::Corrupted(format!("TRAI payload decode: {err}")))?;
+    let payload: TurretAimPersistPayload = record.decode(TRAI_VERSION)?;
     apply_payload(game_logic, payload);
     Ok(())
 }
@@ -189,24 +179,8 @@ fn apply_payload(game_logic: &mut GameLogic, payload: TurretAimPersistPayload) {
     }
 }
 
-fn find_trai_suffix(bytes: &[u8]) -> Option<&[u8]> {
-    bytes
-        .windows(4)
-        .rposition(|window| window == TRAI_MAGIC)
-        .map(|idx| &bytes[idx + 4..])
-}
-
 fn append_u32(out: &mut Vec<u8>, value: u32) {
     out.extend_from_slice(&value.to_le_bytes());
-}
-
-fn take_u32(rest: &mut &[u8]) -> SaveLoadResult<u32> {
-    if rest.len() < 4 {
-        return Err(SaveLoadError::Corrupted("TRAI u32 truncated".to_string()));
-    }
-    let (head, tail) = rest.split_at(4);
-    *rest = tail;
-    Ok(u32::from_le_bytes([head[0], head[1], head[2], head[3]]))
 }
 
 #[cfg(test)]
@@ -242,7 +216,10 @@ mod tests {
         let builder = super::super::SnapshotBuilder::new();
         let snapshot = builder.create_world_snapshot(&source).expect("snapshot");
         assert!(
-            find_trai_suffix(&snapshot.lifecycle_tail).is_some(),
+            LifecycleRecords::parse(&snapshot.lifecycle_tail)
+                .unwrap()
+                .get(TRAI_MAGIC)
+                .is_some(),
             "TRAI suffix must be appended to lifecycle tail"
         );
 
@@ -282,7 +259,7 @@ mod tests {
             object.turret_ai.turret_holding = true;
             object.turret_ai.turret_hold_until_frame = 99;
         }
-        apply_from_lifecycle_tail(b"no-magic-here", &mut logic).expect("apply");
+        apply(&LifecycleRecords::parse(&[]).unwrap(), &mut logic).expect("apply");
         let object = logic.host_object(id).expect("tank");
         assert_eq!(object.turret_ai.turret_substate, TurretSubState::Idle);
         assert!(object.turret_ai.turret_target_id.is_none());

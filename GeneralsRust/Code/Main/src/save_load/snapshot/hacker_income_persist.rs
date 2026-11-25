@@ -13,9 +13,10 @@
 //! The outer Rust capability 32 gates the changed idle continuation schema;
 //! active v1 suffixes are rejected rather than inferred or converted.
 
+use super::lifecycle_records::LifecycleRecords;
 use crate::game_logic::GameLogic;
 use crate::game_logic::host_hacker_income::HostHackerIncomeRegistry;
-use crate::save_load::{SaveLoadError, SaveLoadResult};
+use crate::save_load::SaveLoadResult;
 use serde::{Deserialize, Serialize};
 
 const HKIN_MAGIC: &[u8; 4] = b"HKIN";
@@ -51,28 +52,17 @@ pub fn append_to_lifecycle_tail(bytes: &mut Vec<u8>, game_logic: &GameLogic) {
     bytes.extend_from_slice(&encoded);
 }
 
-pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> SaveLoadResult<()> {
+pub(super) fn apply(
+    records: &LifecycleRecords<'_>,
+    game_logic: &mut GameLogic,
+) -> SaveLoadResult<()> {
     // A missing suffix means no continuation. For present data, validate the
     // complete envelope before replacing the receiving registry.
-    let Some(suffix) = find_hkin_suffix(bytes) else {
+    let Some(record) = records.get(HKIN_MAGIC) else {
         game_logic.hacker_income.clear();
         return Ok(());
     };
-    let mut rest = suffix;
-    let version = take_u32(&mut rest)?;
-    if version != HKIN_VERSION {
-        return Err(SaveLoadError::Corrupted(format!(
-            "unknown HKIN suffix version {version}"
-        )));
-    }
-    let payload_len = take_u32(&mut rest)? as usize;
-    if rest.len() < payload_len {
-        return Err(SaveLoadError::Corrupted(
-            "HKIN payload truncated".to_string(),
-        ));
-    }
-    let payload: HackerIncomePersistPayload = bincode_legacy::deserialize(&rest[..payload_len])
-        .map_err(|err| SaveLoadError::Corrupted(format!("HKIN payload decode: {err}")))?;
+    let payload: HackerIncomePersistPayload = record.decode(HKIN_VERSION)?;
     game_logic.hacker_income = payload.registry;
     Ok(())
 }
@@ -83,24 +73,8 @@ fn capture(game_logic: &GameLogic) -> HackerIncomePersistPayload {
     }
 }
 
-fn find_hkin_suffix(bytes: &[u8]) -> Option<&[u8]> {
-    bytes
-        .windows(4)
-        .rposition(|window| window == HKIN_MAGIC)
-        .map(|idx| &bytes[idx + 4..])
-}
-
 fn append_u32(out: &mut Vec<u8>, value: u32) {
     out.extend_from_slice(&value.to_le_bytes());
-}
-
-fn take_u32(rest: &mut &[u8]) -> SaveLoadResult<u32> {
-    if rest.len() < 4 {
-        return Err(SaveLoadError::Corrupted("HKIN u32 truncated".to_string()));
-    }
-    let value = u32::from_le_bytes([rest[0], rest[1], rest[2], rest[3]]);
-    *rest = &rest[4..];
-    Ok(value)
 }
 
 #[cfg(test)]
@@ -134,7 +108,10 @@ mod tests {
         let builder = super::super::SnapshotBuilder::new();
         let snapshot = builder.create_world_snapshot(&source).expect("snapshot");
         assert!(
-            find_hkin_suffix(&snapshot.lifecycle_tail).is_some(),
+            LifecycleRecords::parse(&snapshot.lifecycle_tail)
+                .unwrap()
+                .get(HKIN_MAGIC)
+                .is_some(),
             "HKIN suffix must be appended to lifecycle tail"
         );
 
@@ -186,7 +163,7 @@ mod tests {
     fn absent_suffix_clears_stale_hacker_income() {
         let mut logic = GameLogic::new();
         logic.hacker_income.start_hacking(ObjectId(3), 0, 10, 60);
-        apply_from_lifecycle_tail(b"no-magic-here", &mut logic).expect("apply");
+        apply(&LifecycleRecords::parse(&[]).unwrap(), &mut logic).expect("apply");
         assert!(!logic.hacker_income.is_hacking(ObjectId(3)));
         assert!(logic.hacker_income.pack_phase(ObjectId(3)).is_none());
     }
@@ -218,14 +195,18 @@ mod derived_ai_idle_native_tests {
                 .hacker_income
                 .request_pack(id, 1, 30, PendingHackerCommand::Stop)
         );
-        apply_from_lifecycle_tail(&bytes, &mut restored).unwrap();
+        apply(&LifecycleRecords::parse(&bytes).unwrap(), &mut restored).unwrap();
         assert_eq!(
             restored.hacker_income.peek_pending_command(id),
             Some(PendingHackerCommand::AiIdle)
         );
         assert_eq!(restored.hacker_income.peek_pack_until(id), Some(40));
         bytes[4..8].copy_from_slice(&1u32.to_le_bytes());
-        assert!(apply_from_lifecycle_tail(&bytes, &mut restored).is_err());
+        assert!(
+            LifecycleRecords::parse(&bytes)
+                .and_then(|records| apply(&records, &mut restored))
+                .is_err()
+        );
         assert_eq!(
             restored.hacker_income.peek_pending_command(id),
             Some(PendingHackerCommand::AiIdle)

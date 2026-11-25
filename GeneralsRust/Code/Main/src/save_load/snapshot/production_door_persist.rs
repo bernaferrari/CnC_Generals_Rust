@@ -16,6 +16,7 @@
 //! (and after SPCD / BPPL / SUBD / HSQD / BTRY / CBPD) so older decoders
 //! ignore the extra bytes. No world snapshot version bump.
 
+use super::lifecycle_records::LifecycleRecords;
 use crate::game_logic::{GameLogic, ObjectId};
 use crate::save_load::{SaveLoadError, SaveLoadResult};
 use serde::{Deserialize, Serialize};
@@ -76,28 +77,23 @@ pub fn append_to_lifecycle_tail(bytes: &mut Vec<u8>, game_logic: &GameLogic) {
     bytes.extend_from_slice(&encoded);
 }
 
-pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> SaveLoadResult<()> {
-    let Some(suffix) = find_pdrp_suffix(bytes) else {
+pub(super) fn apply(
+    records: &LifecycleRecords<'_>,
+    game_logic: &mut GameLogic,
+) -> SaveLoadResult<()> {
+    let Some(record) = records.get(PDRP_MAGIC) else {
         return Ok(());
     };
-    let mut rest = suffix;
-    let version = take_u32(&mut rest)?;
+    let version = record.version();
     if version > PDRP_VERSION {
         return Err(SaveLoadError::Corrupted(format!(
             "unknown PDRP suffix version {version}"
         )));
     }
-    let payload_len = take_u32(&mut rest)? as usize;
-    if rest.len() < payload_len {
-        return Err(SaveLoadError::Corrupted(
-            "PDRP payload truncated".to_string(),
-        ));
-    }
     // v1 tails predate the per-door hold array; door 0 mirrors the scalar
     // alias so a held v1 door stays held after load.
     let payload: ProductionDoorPersistPayload = if version == 1 {
-        let old: ProductionDoorPersistPayloadV1 = bincode_legacy::deserialize(&rest[..payload_len])
-            .map_err(|err| SaveLoadError::Corrupted(format!("PDRP payload decode: {err}")))?;
+        let old: ProductionDoorPersistPayloadV1 = record.decode_payload()?;
         ProductionDoorPersistPayload {
             objects: old
                 .objects
@@ -114,8 +110,7 @@ pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> Sa
                 .collect(),
         }
     } else {
-        bincode_legacy::deserialize(&rest[..payload_len])
-            .map_err(|err| SaveLoadError::Corrupted(format!("PDRP payload decode: {err}")))?
+        record.decode_payload()?
     };
     apply_payload(game_logic, payload);
     Ok(())
@@ -194,24 +189,8 @@ fn apply_payload(game_logic: &mut GameLogic, payload: ProductionDoorPersistPaylo
     }
 }
 
-fn find_pdrp_suffix(bytes: &[u8]) -> Option<&[u8]> {
-    bytes
-        .windows(4)
-        .rposition(|window| window == PDRP_MAGIC)
-        .map(|idx| &bytes[idx + 4..])
-}
-
 fn append_u32(out: &mut Vec<u8>, value: u32) {
     out.extend_from_slice(&value.to_le_bytes());
-}
-
-fn take_u32(rest: &mut &[u8]) -> SaveLoadResult<u32> {
-    if rest.len() < 4 {
-        return Err(SaveLoadError::Corrupted("PDRP u32 truncated".to_string()));
-    }
-    let value = u32::from_le_bytes([rest[0], rest[1], rest[2], rest[3]]);
-    *rest = &rest[4..];
-    Ok(value)
 }
 
 #[cfg(test)]
@@ -222,9 +201,14 @@ mod tests {
 
     #[test]
     fn absent_suffix_is_ignored() {
-        assert!(find_pdrp_suffix(b"no-magic-here").is_none());
+        assert!(
+            LifecycleRecords::parse(&[])
+                .unwrap()
+                .get(PDRP_MAGIC)
+                .is_none()
+        );
         let mut logic = GameLogic::new();
-        apply_from_lifecycle_tail(b"no-magic-here", &mut logic).expect("apply");
+        apply(&LifecycleRecords::parse(&[]).unwrap(), &mut logic).expect("apply");
     }
 
     #[test]
@@ -252,7 +236,10 @@ mod tests {
         let builder = super::super::SnapshotBuilder::new();
         let snapshot = builder.create_world_snapshot(&source).expect("snapshot");
         assert!(
-            find_pdrp_suffix(&snapshot.lifecycle_tail).is_some(),
+            LifecycleRecords::parse(&snapshot.lifecycle_tail)
+                .unwrap()
+                .get(PDRP_MAGIC)
+                .is_some(),
             "PDRP suffix must be appended to lifecycle tail"
         );
 

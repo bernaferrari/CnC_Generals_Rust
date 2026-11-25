@@ -188,7 +188,7 @@ fn assert_full_snapshot_waypoint_preflight_preserves_receiver(
     let snapshot_bytes = bincode_legacy::serialize(&snapshot).unwrap();
     let mut malformed =
         crate::save_load::snapshot::decode_bincode_world_snapshot(&snapshot_bytes).unwrap();
-    let suffix = framing::find(&malformed.lifecycle_tail).unwrap().unwrap();
+    let suffix = find_tmai_suffix(&malformed.lifecycle_tail).unwrap();
     // The checked owner scanner gives the exact record, including opaque-data collisions.
     let start = suffix.as_ptr() as usize - malformed.lifecycle_tail.as_ptr() as usize - 4;
     let end = start + 4 + suffix.len();

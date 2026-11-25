@@ -3,6 +3,7 @@
 //! receiving value. This capsule is a Rust lifecycle extension, not evidence
 //! that the original C++ archive importer is complete.
 
+use super::lifecycle_records::LifecycleRecords;
 use crate::game_logic::{GameLogic, Player};
 use crate::save_load::{SaveLoadError, SaveLoadResult};
 use game_engine::common::rts::score_keeper::ScoreKeeper;
@@ -48,27 +49,15 @@ pub fn append_to_lifecycle_tail(bytes: &mut Vec<u8>, game_logic: &GameLogic) {
     bytes.extend_from_slice(&encoded);
 }
 
-pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> SaveLoadResult<()> {
-    let Some(suffix) = find_sckp_suffix(bytes)? else {
+pub(super) fn apply(
+    records: &LifecycleRecords<'_>,
+    game_logic: &mut GameLogic,
+) -> SaveLoadResult<()> {
+    let Some(record) = records.get(SCKP_MAGIC) else {
         reset_score_counters(game_logic);
         return Ok(());
     };
-    let mut rest = suffix;
-    let version = take_u32(&mut rest)?;
-    if version != SCKP_VERSION {
-        return Err(SaveLoadError::Corrupted(format!(
-            "unknown SCKP suffix version {version}"
-        )));
-    }
-    let payload_len = take_u32(&mut rest)? as usize;
-    if rest.len() < payload_len {
-        return Err(SaveLoadError::Corrupted(
-            "SCKP payload truncated".to_string(),
-        ));
-    }
-    let payload: ScoreKeeperPersistPayload = bincode_legacy::deserialize(&rest[..payload_len])
-        .map_err(|err| SaveLoadError::Corrupted(format!("SCKP payload decode: {err}")))?;
-    apply_payload(game_logic, payload)
+    apply_payload(game_logic, record.decode(SCKP_VERSION)?)
 }
 
 fn capture(game_logic: &GameLogic) -> ScoreKeeperPersistPayload {
@@ -171,21 +160,8 @@ fn apply_payload(
     Ok(())
 }
 
-fn find_sckp_suffix(bytes: &[u8]) -> SaveLoadResult<Option<&[u8]>> {
-    super::ai_team_persist::framing::find_record(bytes, SCKP_MAGIC)
-}
-
 fn append_u32(out: &mut Vec<u8>, value: u32) {
     out.extend_from_slice(&value.to_le_bytes());
-}
-
-fn take_u32(rest: &mut &[u8]) -> SaveLoadResult<u32> {
-    if rest.len() < 4 {
-        return Err(SaveLoadError::Corrupted("SCKP u32 truncated".to_string()));
-    }
-    let (head, tail) = rest.split_at(4);
-    *rest = tail;
-    Ok(u32::from_le_bytes([head[0], head[1], head[2], head[3]]))
 }
 
 #[cfg(test)]
@@ -211,8 +187,9 @@ mod tests {
         let builder = super::super::SnapshotBuilder::new();
         let snapshot = builder.create_world_snapshot(&source).expect("snapshot");
         assert!(
-            find_sckp_suffix(&snapshot.lifecycle_tail)
+            LifecycleRecords::parse(&snapshot.lifecycle_tail)
                 .unwrap()
+                .get(SCKP_MAGIC)
                 .is_some(),
             "SCKP suffix must be appended to lifecycle tail"
         );
@@ -247,7 +224,7 @@ mod tests {
         player.record_unit_produced();
         logic.add_player(player);
 
-        apply_from_lifecycle_tail(&[], &mut logic).expect("apply");
+        apply(&LifecycleRecords::default(), &mut logic).expect("apply");
         let loaded = logic.get_player(0).expect("player");
         assert_eq!(loaded.statistics.money_earned(), 0);
         assert_eq!(loaded.statistics.units_destroyed(), 0);
@@ -299,7 +276,7 @@ mod receiving_history_frame_tests {
         assert!(bytes.windows(4).filter(|w| *w == SCKP_MAGIC).count() > 1);
         let mut target = GameLogic::new();
         target.add_player(Player::new(0, Team::USA, "Target", true));
-        apply_from_lifecycle_tail(&bytes, &mut target).unwrap();
+        apply(&LifecycleRecords::parse(&bytes).unwrap(), &mut target).unwrap();
         assert_eq!(
             target
                 .get_player(0)
@@ -328,7 +305,11 @@ mod receiving_history_frame_tests {
         append_to_lifecycle_tail(&mut bytes, &target);
         let mut duplicate = bytes.clone();
         duplicate.extend_from_slice(&bytes);
-        assert!(apply_from_lifecycle_tail(&duplicate, &mut target).is_err());
+        assert!(
+            LifecycleRecords::parse(&duplicate)
+                .and_then(|records| apply(&records, &mut target))
+                .is_err()
+        );
         assert_eq!(
             target
                 .get_player(0)
@@ -345,7 +326,11 @@ mod receiving_history_frame_tests {
         append_u32(&mut invalid, SCKP_VERSION);
         append_u32(&mut invalid, encoded.len() as u32);
         invalid.extend_from_slice(&encoded);
-        assert!(apply_from_lifecycle_tail(&invalid, &mut target).is_err());
+        assert!(
+            LifecycleRecords::parse(&invalid)
+                .and_then(|records| apply(&records, &mut target))
+                .is_err()
+        );
         assert_eq!(
             target
                 .get_player(0)
@@ -357,7 +342,11 @@ mod receiving_history_frame_tests {
         );
         let mut corrupt = bytes;
         corrupt.pop();
-        assert!(apply_from_lifecycle_tail(&corrupt, &mut target).is_err());
+        assert!(
+            LifecycleRecords::parse(&corrupt)
+                .and_then(|records| apply(&records, &mut target))
+                .is_err()
+        );
         assert_eq!(
             target
                 .get_player(0)

@@ -14,16 +14,16 @@
 //! (and after SPCD / BPPL) so older decoders ignore the extra bytes. No
 //! world snapshot version bump.
 
+use super::lifecycle_records::LifecycleRecords;
 use crate::game_logic::{GameLogic, ObjectId};
 use crate::save_load::{SaveLoadError, SaveLoadResult};
-use bincode_legacy::Options;
 use serde::{Deserialize, Serialize};
 
 const SUBD_MAGIC: &[u8; 4] = b"SUBD";
 const SUBD_VERSION: u32 = 1;
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
-struct SubdualPersistPayload {
+pub(super) struct SubdualPersistPayload {
     objects: Vec<ObjectSubdualPersist>,
 }
 
@@ -50,14 +50,12 @@ pub fn append_to_lifecycle_tail(bytes: &mut Vec<u8>, game_logic: &GameLogic) {
     bytes.extend_from_slice(&encoded);
 }
 
-fn decode_from_lifecycle_tail(bytes: &[u8]) -> SaveLoadResult<Option<SubdualPersistPayload>> {
-    let Some(suffix) = find_subd_suffix(bytes)? else {
+fn decode(records: &LifecycleRecords<'_>) -> SaveLoadResult<Option<SubdualPersistPayload>> {
+    let Some(record) = records.get(SUBD_MAGIC) else {
         return Ok(None);
     };
-    let mut rest = suffix;
-    let version = take_u32(&mut rest)?;
-    let payload_len = take_u32(&mut rest)? as usize;
-    if version != SUBD_VERSION || payload_len != rest.len() || payload_len > 16 * 1024 * 1024 {
+    let rest = record.payload();
+    if record.version() != SUBD_VERSION || rest.len() > 16 * 1024 * 1024 {
         return Err(SaveLoadError::Corrupted(
             "invalid SUBD version/length".into(),
         ));
@@ -78,11 +76,7 @@ fn decode_from_lifecycle_tail(bytes: &[u8]) -> SaveLoadResult<Option<SubdualPers
             "SUBD object count/length mismatch".into(),
         ));
     }
-    let payload: SubdualPersistPayload = bincode_legacy::DefaultOptions::new()
-        .with_fixint_encoding()
-        .reject_trailing_bytes()
-        .deserialize(rest)
-        .map_err(|error| SaveLoadError::Corrupted(format!("SUBD payload decode: {error}")))?;
+    let payload: SubdualPersistPayload = record.decode_payload()?;
     let mut seen = std::collections::HashSet::new();
     for entry in &payload.objects {
         // Original internalAddSubdualDamage clamps only the upper cap; finite
@@ -95,23 +89,29 @@ fn decode_from_lifecycle_tail(bytes: &[u8]) -> SaveLoadResult<Option<SubdualPers
     }
     Ok(Some(payload))
 }
-pub(super) fn preflight_from_lifecycle_tail(
-    bytes: &[u8],
+pub(super) fn prepare(
+    records: &LifecycleRecords<'_>,
     snapshot: &super::WorldSnapshot,
-) -> SaveLoadResult<()> {
-    if let Some(payload) = decode_from_lifecycle_tail(bytes)? {
-        for entry in payload.objects {
-            if !snapshot.objects.contains_key(&ObjectId(entry.object_id)) {
-                return Err(SaveLoadError::Corrupted(
-                    "SUBD references no saved receiving actor".into(),
-                ));
-            }
-        }
+) -> SaveLoadResult<Option<SubdualPersistPayload>> {
+    let payload = decode(records)?;
+    if payload.as_ref().is_some_and(|payload| {
+        payload
+            .objects
+            .iter()
+            .any(|entry| !snapshot.objects.contains_key(&ObjectId(entry.object_id)))
+    }) {
+        return Err(SaveLoadError::Corrupted(
+            "SUBD references no saved receiving actor".into(),
+        ));
     }
-    Ok(())
+    Ok(payload)
 }
-pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> SaveLoadResult<()> {
-    let Some(payload) = decode_from_lifecycle_tail(bytes)? else {
+
+pub(super) fn apply(
+    payload: Option<SubdualPersistPayload>,
+    game_logic: &mut GameLogic,
+) -> SaveLoadResult<()> {
+    let Some(payload) = payload else {
         return Ok(());
     };
     // Complete owner validation before assigning any pool/countdown.
@@ -162,27 +162,18 @@ fn apply_payload(game_logic: &mut GameLogic, payload: SubdualPersistPayload) {
     }
 }
 
-fn find_subd_suffix(bytes: &[u8]) -> SaveLoadResult<Option<&[u8]>> {
-    // Preserve the old absent-owner adapter on arbitrary detached opaque tails.
-    // This negative presence proof never selects a record or reads its fields.
-    // Every possible owner still must pass the shared structural grammar.
-    if !bytes.windows(4).any(|window| window == SUBD_MAGIC) {
-        return Ok(None);
-    }
-    super::ai_team_persist::framing::find_record(bytes, SUBD_MAGIC)
+#[cfg(test)]
+fn decode_from_lifecycle_tail(bytes: &[u8]) -> SaveLoadResult<Option<SubdualPersistPayload>> {
+    decode(&LifecycleRecords::parse(bytes)?)
+}
+
+#[cfg(test)]
+fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> SaveLoadResult<()> {
+    apply(decode_from_lifecycle_tail(bytes)?, game_logic)
 }
 
 fn append_u32(out: &mut Vec<u8>, value: u32) {
     out.extend_from_slice(&value.to_le_bytes());
-}
-
-fn take_u32(rest: &mut &[u8]) -> SaveLoadResult<u32> {
-    if rest.len() < 4 {
-        return Err(SaveLoadError::Corrupted("SUBD u32 truncated".to_string()));
-    }
-    let value = u32::from_le_bytes([rest[0], rest[1], rest[2], rest[3]]);
-    *rest = &rest[4..];
-    Ok(value)
 }
 
 #[cfg(test)]
@@ -293,7 +284,7 @@ mod tests {
             ],
         };
         let bytes = framed_payload(&payload);
-        assert!(preflight_from_lifecycle_tail(&bytes, &snapshot).is_err());
+        assert!(prepare(&LifecycleRecords::parse(&bytes).unwrap(), &snapshot).is_err());
         assert!(apply_from_lifecycle_tail(&bytes, &mut world).is_err());
         let actor = world.host_object(id).unwrap();
         assert_eq!(
@@ -308,7 +299,7 @@ mod tests {
 
     #[test]
     fn absent_suffix_is_ignored() {
-        assert!(find_subd_suffix(b"no-magic-here").unwrap().is_none());
+        assert!(decode_from_lifecycle_tail(&[]).unwrap().is_none());
     }
 
     #[test]
@@ -344,7 +335,7 @@ mod tests {
         let builder = super::super::SnapshotBuilder::new();
         let snapshot = builder.create_world_snapshot(&source).expect("snapshot");
         assert!(
-            find_subd_suffix(&snapshot.lifecycle_tail)
+            decode_from_lifecycle_tail(&snapshot.lifecycle_tail)
                 .unwrap()
                 .is_some(),
             "SUBD suffix must be appended to lifecycle tail"

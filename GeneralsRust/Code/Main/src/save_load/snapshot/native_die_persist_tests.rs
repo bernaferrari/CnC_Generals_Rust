@@ -10,7 +10,19 @@ fn validate_fixture(
 ) -> SaveLoadResult<Validated> {
     let continuations =
         super::super::object_xfer_persist::decode_lifecycle_tail(&snapshot.lifecycle_tail)?;
-    validate(decoded, snapshot, receiving, &HashMap::new(), continuations.as_ref())
+    let records =
+        super::super::lifecycle_records::LifecycleRecords::parse(&snapshot.lifecycle_tail)?;
+    let modules = super::super::object_module_xfer_persist::prepare(&records)?;
+    let death_states =
+        super::super::object_module_xfer_persist::saved_death_states(modules.as_ref())?;
+    validate(
+        decoded,
+        snapshot,
+        receiving,
+        &HashMap::new(),
+        continuations.as_ref(),
+        &death_states,
+    )
 }
 
 fn owner(tag: &str) -> (GameLogic, ObjectId) {

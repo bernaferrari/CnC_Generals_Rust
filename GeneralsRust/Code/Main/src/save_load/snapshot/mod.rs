@@ -76,6 +76,7 @@ mod client_drawable_xfer;
 mod game_client_save;
 mod game_state;
 mod hotkey_squad_persist;
+mod lifecycle_records;
 mod lifecycle_tail;
 mod load_post_process;
 mod object;

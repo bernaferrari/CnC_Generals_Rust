@@ -12,10 +12,11 @@
 //! so older decoders ignore the extra bytes. No WorldSnapshot version bump.
 //! Restore writes completed-blast clocks only; it never calls `begin`.
 
+use super::lifecycle_records::LifecycleRecords;
 use crate::game_logic::host_neutron_missile_slow_death::HostNeutronMissileSlowDeathData;
 use crate::game_logic::special_power_strikes::HostNeutronSlowDeathMeta;
 use crate::game_logic::GameLogic;
-use crate::save_load::{SaveLoadError, SaveLoadResult};
+use crate::save_load::SaveLoadResult;
 use serde::{Deserialize, Serialize};
 
 const NMSD_MAGIC: &[u8; 4] = b"NMSD";
@@ -43,28 +44,17 @@ pub fn append_to_lifecycle_tail(bytes: &mut Vec<u8>, game_logic: &GameLogic) {
     bytes.extend_from_slice(&encoded);
 }
 
-pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> SaveLoadResult<()> {
+pub(super) fn apply(
+    records: &LifecycleRecords<'_>,
+    game_logic: &mut GameLogic,
+) -> SaveLoadResult<()> {
     game_logic
         .special_power_strikes_mut()
         .restore_neutron_slow_death_persist(0, 0, Vec::new(), Vec::new());
-    let Some(suffix) = find_nmsd_suffix(bytes) else {
+    let Some(record) = records.get(NMSD_MAGIC) else {
         return Ok(());
     };
-    let mut rest = suffix;
-    let version = take_u32(&mut rest)?;
-    if version != NMSD_VERSION {
-        return Err(SaveLoadError::Corrupted(format!(
-            "unknown NMSD suffix version {version}"
-        )));
-    }
-    let payload_len = take_u32(&mut rest)? as usize;
-    if rest.len() < payload_len {
-        return Err(SaveLoadError::Corrupted(
-            "NMSD payload truncated".to_string(),
-        ));
-    }
-    let payload: NeutronSlowDeathPersistPayload = bincode_legacy::deserialize(&rest[..payload_len])
-        .map_err(|err| SaveLoadError::Corrupted(format!("NMSD payload decode: {err}")))?;
+    let payload: NeutronSlowDeathPersistPayload = record.decode(NMSD_VERSION)?;
     game_logic
         .special_power_strikes_mut()
         .restore_neutron_slow_death_persist(
@@ -86,24 +76,8 @@ fn capture(game_logic: &GameLogic) -> NeutronSlowDeathPersistPayload {
     }
 }
 
-fn find_nmsd_suffix(bytes: &[u8]) -> Option<&[u8]> {
-    bytes
-        .windows(4)
-        .rposition(|window| window == NMSD_MAGIC)
-        .map(|idx| &bytes[idx + 4..])
-}
-
 fn append_u32(out: &mut Vec<u8>, value: u32) {
     out.extend_from_slice(&value.to_le_bytes());
-}
-
-fn take_u32(rest: &mut &[u8]) -> SaveLoadResult<u32> {
-    if rest.len() < 4 {
-        return Err(SaveLoadError::Corrupted("NMSD u32 truncated".to_string()));
-    }
-    let (head, tail) = rest.split_at(4);
-    *rest = tail;
-    Ok(u32::from_le_bytes([head[0], head[1], head[2], head[3]]))
 }
 
 #[cfg(test)]
@@ -145,7 +119,10 @@ mod tests {
         let builder = super::super::SnapshotBuilder::new();
         let snapshot = builder.create_world_snapshot(&source).expect("snapshot");
         assert!(
-            find_nmsd_suffix(&snapshot.lifecycle_tail).is_some(),
+            LifecycleRecords::parse(&snapshot.lifecycle_tail)
+                .unwrap()
+                .get(NMSD_MAGIC)
+                .is_some(),
             "NMSD suffix must be appended to lifecycle tail"
         );
 
@@ -177,7 +154,7 @@ mod tests {
         logic
             .special_power_strikes_mut()
             .spawn_neutron_slow_death_field(ObjectId(4), Team::USA, Vec3::ZERO, 0, 1);
-        apply_from_lifecycle_tail(b"no-magic-here", &mut logic).expect("apply");
+        apply(&LifecycleRecords::parse(&[]).unwrap(), &mut logic).expect("apply");
         assert_eq!(
             logic
                 .special_power_strikes()

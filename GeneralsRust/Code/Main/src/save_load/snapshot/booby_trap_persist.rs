@@ -11,6 +11,7 @@
 //! (and after SPCD / BPPL / SUBD / HSQD) so older decoders ignore the extra
 //! bytes. No world snapshot version bump.
 
+use super::lifecycle_records::LifecycleRecords;
 use crate::game_logic::host_booby_trap::HostBoobyTrapRegistry;
 use crate::game_logic::{GameLogic, ObjectId};
 use crate::save_load::{SaveLoadError, SaveLoadResult};
@@ -46,25 +47,20 @@ pub fn append_to_lifecycle_tail(bytes: &mut Vec<u8>, game_logic: &GameLogic) {
     bytes.extend_from_slice(&encoded);
 }
 
-pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> SaveLoadResult<()> {
-    let Some(suffix) = find_btry_suffix(bytes) else {
+pub(super) fn apply(
+    records: &LifecycleRecords<'_>,
+    game_logic: &mut GameLogic,
+) -> SaveLoadResult<()> {
+    let Some(record) = records.get(BTRY_MAGIC) else {
         return Ok(());
     };
-    let mut rest = suffix;
-    let version = take_u32(&mut rest)?;
+    let version = record.version();
     if version != 1 && version != BTRY_VERSION {
         return Err(SaveLoadError::Corrupted(format!(
             "unknown BTRY suffix version {version}"
         )));
     }
-    let payload_len = take_u32(&mut rest)? as usize;
-    if rest.len() < payload_len {
-        return Err(SaveLoadError::Corrupted(
-            "BTRY payload truncated".to_string(),
-        ));
-    }
-    let payload: BoobyTrapPersistPayload = bincode_legacy::deserialize(&rest[..payload_len])
-        .map_err(|err| SaveLoadError::Corrupted(format!("BTRY payload decode: {err}")))?;
+    let payload = record.decode_payload()?;
     apply_payload(game_logic, payload, version == 1);
     Ok(())
 }
@@ -129,24 +125,8 @@ fn apply_payload(
     }
 }
 
-fn find_btry_suffix(bytes: &[u8]) -> Option<&[u8]> {
-    bytes
-        .windows(4)
-        .rposition(|window| window == BTRY_MAGIC)
-        .map(|idx| &bytes[idx + 4..])
-}
-
 fn append_u32(out: &mut Vec<u8>, value: u32) {
     out.extend_from_slice(&value.to_le_bytes());
-}
-
-fn take_u32(rest: &mut &[u8]) -> SaveLoadResult<u32> {
-    if rest.len() < 4 {
-        return Err(SaveLoadError::Corrupted("BTRY u32 truncated".to_string()));
-    }
-    let value = u32::from_le_bytes([rest[0], rest[1], rest[2], rest[3]]);
-    *rest = &rest[4..];
-    Ok(value)
 }
 
 #[cfg(test)]
@@ -157,7 +137,12 @@ mod tests {
 
     #[test]
     fn absent_suffix_is_ignored() {
-        assert!(find_btry_suffix(b"no-magic-here").is_none());
+        assert!(
+            LifecycleRecords::parse(&[])
+                .unwrap()
+                .get(BTRY_MAGIC)
+                .is_none()
+        );
     }
 
     #[test]
@@ -188,7 +173,10 @@ mod tests {
         let builder = super::super::SnapshotBuilder::new();
         let snapshot = builder.create_world_snapshot(&source).expect("snapshot");
         assert!(
-            find_btry_suffix(&snapshot.lifecycle_tail).is_some(),
+            LifecycleRecords::parse(&snapshot.lifecycle_tail)
+                .unwrap()
+                .get(BTRY_MAGIC)
+                .is_some(),
             "BTRY suffix must be appended to lifecycle tail"
         );
 
@@ -320,7 +308,7 @@ mod tests {
         // Start from a fresh registry while retaining the target object; this
         // executes the actual BTRY serialization and restore route.
         receiving.restore_booby_traps(HostBoobyTrapRegistry::new(), 0);
-        apply_from_lifecycle_tail(&suffix, &mut receiving).expect("BTRY restore");
+        apply(&LifecycleRecords::parse(&suffix).unwrap(), &mut receiving).expect("BTRY restore");
 
         assert!(receiving.booby_trap_residual().is_booby_trapped(structure));
         assert!(
@@ -363,7 +351,7 @@ mod tests {
             .unwrap()
             .apply_status_bits_upgrade_masks(&["BOOBY_TRAPPED"], &[]);
 
-        apply_from_lifecycle_tail(&bytes, &mut receiving).expect("v2 restore");
+        apply(&LifecycleRecords::parse(&bytes).unwrap(), &mut receiving).expect("v2 restore");
         assert!(
             !receiving
                 .host_object(receiving_id)
@@ -403,7 +391,7 @@ mod tests {
         append_u32(&mut suffix, encoded.len() as u32);
         suffix.extend_from_slice(&encoded);
 
-        apply_from_lifecycle_tail(&suffix, &mut game).expect("legacy v1 restore");
+        apply(&LifecycleRecords::parse(&suffix).unwrap(), &mut game).expect("legacy v1 restore");
         assert!(game
             .host_object(structure)
             .unwrap()

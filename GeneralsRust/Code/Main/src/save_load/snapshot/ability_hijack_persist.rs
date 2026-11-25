@@ -11,6 +11,7 @@
 //! The SABL suffix stores capture preparation and its continuing flash phase,
 //! C4 unpacking and pending plant orders, and hijacker ride linkage.
 
+use super::lifecycle_records::LifecycleRecords;
 use crate::game_logic::host_hero_abilities::{LeftoverSaChannel, LeftoverSaKind, LeftoverSaPhase};
 use crate::game_logic::{CaptureChannelState, GameLogic, ObjectId, PendingSpecialAbility};
 use crate::save_load::{SaveLoadError, SaveLoadResult};
@@ -61,25 +62,14 @@ pub fn append_to_lifecycle_tail(bytes: &mut Vec<u8>, game_logic: &GameLogic) {
     bytes.extend_from_slice(&encoded);
 }
 
-pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> SaveLoadResult<()> {
-    let Some(suffix) = find_sabl_suffix(bytes) else {
+pub(super) fn apply(
+    records: &LifecycleRecords<'_>,
+    game_logic: &mut GameLogic,
+) -> SaveLoadResult<()> {
+    let Some(record) = records.get(SABL_MAGIC) else {
         return Ok(());
     };
-    let mut rest = suffix;
-    let version = take_u32(&mut rest)?;
-    if version != SABL_VERSION {
-        return Err(SaveLoadError::Corrupted(format!(
-            "unknown SABL suffix version {version}"
-        )));
-    }
-    let payload_len = take_u32(&mut rest)? as usize;
-    if rest.len() < payload_len {
-        return Err(SaveLoadError::Corrupted(
-            "SABL payload truncated".to_string(),
-        ));
-    }
-    let payload: AbilityHijackPersistPayload = bincode_legacy::deserialize(&rest[..payload_len])
-        .map_err(|err| SaveLoadError::Corrupted(format!("SABL payload decode: {err}")))?;
+    let payload: AbilityHijackPersistPayload = record.decode(SABL_VERSION)?;
     if payload
         .abilities
         .iter()
@@ -259,24 +249,8 @@ fn apply_payload(game_logic: &mut GameLogic, payload: AbilityHijackPersistPayloa
     }
 }
 
-fn find_sabl_suffix(bytes: &[u8]) -> Option<&[u8]> {
-    bytes
-        .windows(4)
-        .rposition(|window| window == SABL_MAGIC)
-        .map(|idx| &bytes[idx + 4..])
-}
-
 fn append_u32(out: &mut Vec<u8>, value: u32) {
     out.extend_from_slice(&value.to_le_bytes());
-}
-
-fn take_u32(rest: &mut &[u8]) -> SaveLoadResult<u32> {
-    if rest.len() < 4 {
-        return Err(SaveLoadError::Corrupted("SABL u32 truncated".to_string()));
-    }
-    let (head, tail) = rest.split_at(4);
-    *rest = tail;
-    Ok(u32::from_le_bytes([head[0], head[1], head[2], head[3]]))
 }
 
 #[cfg(test)]
@@ -292,7 +266,12 @@ mod tests {
 
     #[test]
     fn absent_suffix_is_ignored() {
-        assert!(find_sabl_suffix(b"no-magic-here").is_none());
+        assert!(
+            LifecycleRecords::parse(&[])
+                .unwrap()
+                .get(SABL_MAGIC)
+                .is_none()
+        );
     }
 
     /// Ranger, Burton and the barracks come from authored INI in every world;
@@ -387,7 +366,10 @@ mod tests {
         let builder = super::super::SnapshotBuilder::new();
         let snapshot = builder.create_world_snapshot(&source).expect("snapshot");
         assert!(
-            find_sabl_suffix(&snapshot.lifecycle_tail).is_some(),
+            LifecycleRecords::parse(&snapshot.lifecycle_tail)
+                .unwrap()
+                .get(SABL_MAGIC)
+                .is_some(),
             "SABL suffix must be appended to lifecycle tail"
         );
 
@@ -495,7 +477,10 @@ mod tests {
         let builder = super::super::SnapshotBuilder::new();
         let snapshot = builder.create_world_snapshot(&source).expect("snapshot");
         assert!(
-            find_sabl_suffix(&snapshot.lifecycle_tail).is_some(),
+            LifecycleRecords::parse(&snapshot.lifecycle_tail)
+                .unwrap()
+                .get(SABL_MAGIC)
+                .is_some(),
             "SABL suffix must be appended to lifecycle tail"
         );
 
