@@ -36,6 +36,16 @@ fn attach_bridge_art(world: &mut GameLogic, path: &Path) {
 
 // Real CKMP geometry: raw terrain plus two source-ordered bridge endpoint pairs.
 fn map_bytes(row: f32, decks: &[f32]) -> Vec<u8> {
+    map_bytes_for_spans(
+        decks
+            .iter()
+            .map(|deck| [[20.0, row, *deck], [80.0, row, *deck]]),
+    )
+}
+
+fn map_bytes_for_spans(spans: impl IntoIterator<Item = [[f32; 3]; 2]>) -> Vec<u8> {
+    use game_engine::map_object::{FLAG_BRIDGE_POINT1, FLAG_BRIDGE_POINT2};
+
     let mut out = game_engine::common::system::DataChunkOutput::new();
     out.open_data_chunk("HeightMapData", 3);
     for value in [21, 21, 1, 441] {
@@ -46,13 +56,13 @@ fn map_bytes(row: f32, decks: &[f32]) -> Vec<u8> {
     }
     out.close_data_chunk();
     out.open_data_chunk("ObjectsList", 3);
-    for (index, deck) in decks.iter().enumerate() {
-        for (x, flags) in [(20.0, 0x10), (80.0, 0x20)] {
+    for (index, [start, end]) in spans.into_iter().enumerate() {
+        for ([x, y, z], flag) in [(start, FLAG_BRIDGE_POINT1), (end, FLAG_BRIDGE_POINT2)] {
             out.open_data_chunk("Object", 3);
-            for value in [x, row, *deck, 0.0] {
+            for value in [x, y, z, 0.0] {
                 out.write_real(value);
             }
-            out.write_int(flags);
+            out.write_int(flag as i32);
             out.write_ascii_string(&format!("OwnedBridge{index}"));
             out.close_data_chunk();
         }
@@ -85,6 +95,122 @@ fn bridges(world: &GameLogic) -> Vec<(u8, u32, f32)> {
         ));
     });
     rows
+}
+
+#[test]
+fn invalid_native_bridge_bindings_leave_the_receiving_world_intact() {
+    use crate::save_load::SaveLoadError;
+    use crate::save_load::snapshot::mutate_saved_bridge_bindings_for_test;
+
+    isolated(
+        "invalid_native_bridge_bindings_leave_the_receiving_world_intact",
+        || {
+            let temp = tempfile::tempdir().unwrap();
+            let path = temp.path().join("CrossingSpans.map");
+            std::fs::write(
+                &path,
+                map_bytes_for_spans([
+                    [[20.0, 50.0, 21.0], [80.0, 50.0, 21.0]],
+                    [[50.0, 20.0, 21.0], [50.0, 80.0, 21.0]],
+                ]),
+            )
+            .unwrap();
+            let source = load(&path);
+            let mut saves = SaveFileManager::with_save_directory(temp.path().join("saves"));
+            saves.init().unwrap();
+            saves.quick_save(&source).unwrap();
+            let mut receiving = load(&path);
+            let peer = load(&path);
+            let foreign = gamelogic::system::engine_stores::new_for_world();
+            let _foreign_ai = foreign.ai().write().unwrap();
+            let original_bridges = bridges(&receiving);
+            assert_eq!(original_bridges.len(), 2);
+            assert_eq!(bridges(&peer), original_bridges);
+
+            for (case, expected) in [
+                ("duplicate source", "duplicate map bridge source"),
+                ("duplicate actor", "duplicate map bridge actor"),
+                ("unknown source", "unknown map bridge source"),
+                ("missing actor", "missing map bridge actor"),
+                ("crossed bindings", "map bridge geometry differs"),
+                ("malformed source", "invalid map bridge source"),
+            ] {
+                let mut snapshot = saves.load_game_snapshot("quicksave").unwrap().snapshot;
+                mutate_saved_bridge_bindings_for_test(&mut snapshot, |rows| {
+                    assert_eq!(rows.len(), 2);
+                    match case {
+                        "duplicate source" => rows.push(rows[0]),
+                        "duplicate actor" => rows[0].2 = rows[1].2,
+                        "unknown source" => rows[0].0 = 999,
+                        "missing actor" => rows[0].2 = u32::MAX,
+                        "crossed bindings" => {
+                            let first = rows[0].2;
+                            rows[0].2 = rows[1].2;
+                            rows[1].2 = first;
+                        }
+                        "malformed source" => rows[0].1 = Some(0),
+                        _ => unreachable!(),
+                    }
+                });
+                // Frame and object birth tokens expose even a clear-and-recreate
+                // that leaves identical terrain rows behind.
+                receiving.frame = 91;
+                let id = ObjectId(original_bridges[0].1);
+                let birth = std::sync::Arc::downgrade(
+                    &receiving
+                        .host_object(id)
+                        .unwrap()
+                        .visual_draw_identity_token,
+                );
+                let result = gamelogic::system::engine_stores::with_active_stores(&foreign, || {
+                    saves.restore_game_snapshot(&snapshot, &mut receiving)
+                });
+                assert!(
+                    matches!(&result, Err(SaveLoadError::Corrupted(message)) if message.contains(expected)),
+                    "{case}: {result:?}"
+                );
+                assert_eq!(receiving.frame, 91, "{case}");
+                assert!(receiving.object_birth_matches(id, &birth), "{case}");
+                assert_eq!(bridges(&receiving), original_bridges, "{case}");
+                assert_eq!(bridges(&peer), original_bridges, "{case}");
+            }
+        },
+    );
+}
+
+#[test]
+fn save_after_bridge_actor_retirement_drops_the_orphaned_span_on_load() {
+    isolated(
+        "save_after_bridge_actor_retirement_drops_the_orphaned_span_on_load",
+        || {
+            let temp = tempfile::tempdir().unwrap();
+            let path = temp.path().join("RetiredSpan.map");
+            std::fs::write(&path, map_bytes(50.0, &[21.0, 27.0])).unwrap();
+            let mut source = load(&path);
+            let rows = bridges(&source);
+            let retired = ObjectId(rows[0].1);
+            source.destroy_object(retired).unwrap();
+            source.process_destroy_list();
+            assert!(source.host_object(retired).is_none());
+            assert_eq!(
+                bridges(&source),
+                rows,
+                "terrain still owns the retired actor's deck"
+            );
+
+            let mut saves = SaveFileManager::with_save_directory(temp.path().join("saves"));
+            saves.init().unwrap();
+            saves.quick_save(&source).unwrap();
+            let decoded = saves.load_game_snapshot("quicksave").unwrap();
+            let mut restored = load(&path);
+            saves
+                .restore_game_snapshot(&decoded.snapshot, &mut restored)
+                .unwrap();
+            assert_eq!(bridges(&restored), rows[1..]);
+            assert!(restored.bridge_behavior.span(retired).is_none());
+            assert!(restored.bridge_behavior.span(ObjectId(rows[1].1)).is_some());
+        },
+    );
 }
 
 fn asymmetric_authored_bridge_map() -> Vec<u8> {
@@ -297,7 +423,16 @@ fn native_map_and_save_use_owned_model_bounds_and_sampled_bridge_heights() {
             no_actor_saves
                 .restore_game_snapshot(&actorless.snapshot, &mut restored_actorless)
                 .unwrap();
-            check_actorless(&restored_actorless);
+            assert!(
+                bridges(&restored_actorless).is_empty(),
+                "TerrainLogic::loadPostProcess removes spans without an actor"
+            );
+            let grid = &restored_actorless.pathfinding_system.grid;
+            let cell = grid.world_to_grid(Vec3::new(65.0, 0.0, 45.0));
+            assert_eq!(
+                grid.layer_cell_type(PathfindLayerEnum::Top as u8, cell),
+                Some(PathfindCellType::BridgeImpassable)
+            );
 
             let mut saves = SaveFileManager::with_save_directory(temp.path().join("saves"));
             saves.init().unwrap();
@@ -914,113 +1049,215 @@ fn saved_coincident_overflow_bridges_keep_source_bindings_after_ids_change() {
 
 #[test]
 fn placed_landmark_identity_survives_coincident_spans_and_changed_object_ids() {
-    isolated("placed_landmark_identity_survives_coincident_spans_and_changed_object_ids", || {
-        let temp = tempfile::tempdir().unwrap();
-        let path = temp.path().join("Landmarks.map");
-        let mut out = game_engine::common::system::DataChunkOutput::new();
-        out.open_data_chunk("HeightMapData", 3);
-        for value in [21, 21, 1, 441] {
-            out.write_int(value);
-        }
-        for _ in 0..441 {
-            out.write_byte(0);
-        }
-        out.close_data_chunk();
-        out.open_data_chunk("ObjectsList", 3);
-        for angle in [0.0, std::f32::consts::FRAC_PI_2, std::f32::consts::FRAC_PI_4] {
-            out.open_data_chunk("Object", 3);
-            for value in [50.0, 50.0, 21.0, angle] {
-                out.write_real(value);
+    isolated(
+        "placed_landmark_identity_survives_coincident_spans_and_changed_object_ids",
+        || {
+            let temp = tempfile::tempdir().unwrap();
+            let path = temp.path().join("Landmarks.map");
+            let mut out = game_engine::common::system::DataChunkOutput::new();
+            out.open_data_chunk("HeightMapData", 3);
+            for value in [21, 21, 1, 441] {
+                out.write_int(value);
             }
-            out.write_int(0);
-            out.write_ascii_string("IdentityLandmark");
-            out.write_dict(&game_engine::common::dict::Dict::new());
+            for _ in 0..441 {
+                out.write_byte(0);
+            }
             out.close_data_chunk();
-        }
-        out.close_data_chunk();
-        std::fs::write(&path, out.into_ckmp_bytes()).unwrap();
-        let prepare = |world: &mut GameLogic| {
-            let mut template = crate::game_logic::ThingTemplate::new("IdentityLandmark");
-            template.add_kind_of(KindOf::Structure)
-                .add_kind_of(KindOf::LandmarkBridge)
-                .add_kind_of(KindOf::Bridge)
-                .set_health(400.0);
-            template.geometry_info.authored = false;
-            template.geometry_info.geom_type = crate::game_logic::HostGeometryType::Box;
-            template.geometry_info.major_radius = 25.0;
-            template.geometry_info.minor_radius = 10.0;
-            let mut neutral = crate::game_logic::Player::new(0, Team::Neutral, "", false);
-            neutral.map_side.role = crate::game_logic::PlayerSideRole::Neutral;
-            neutral.map_side.map_player_name.clear();
-            world.add_player(neutral);
-            world.templates.insert("IdentityLandmark".into(), template);
-        };
-        let mut source = GameLogic::new();
-        prepare(&mut source);
-        assert!(source.load_map(path.to_str().unwrap()));
-        let mut peer = GameLogic::new();
-        prepare(&mut peer);
-        assert!(peer.load_map(path.to_str().unwrap()));
-        let source_ids: Vec<_> = source.spawned_map_object_ids.iter().map(|(id, _)| *id).collect();
-        let peer_ids: Vec<_> = peer.spawned_map_object_ids.iter().map(|(id, _)| *id).collect();
-        assert_eq!(source_ids.len(), 3);
-        assert_eq!(source_ids, peer_ids);
-        assert!(source.delete_owned_bridge_at(Vec3::new(50.0, 21.0, 50.0)));
-        assert!(source.bridge_behavior.create_scaffolding(source_ids[1]));
-        source.refresh_owned_bridge_pathfinder_states();
-        let mut saves = SaveFileManager::with_save_directory(temp.path().join("landmark_saves"));
-        saves.init().unwrap();
-        saves.save_game("landmarks", &source, &SaveGameInfo {
-            filename: "landmarks".into(),
-            display_name: "Landmarks".into(),
-            description: "placed bridge source identity".into(),
-            map_name: path.to_string_lossy().into_owned(),
-            pristine_map_name: source.map_definition_source.clone(),
-            campaign_side: None,
-            mission_number: None,
-            save_date: std::time::SystemTime::now(),
-            game_version: env!("CARGO_PKG_VERSION").into(),
-            play_time: std::time::Duration::ZERO,
-            difficulty: GameDifficulty::Medium,
-            save_type: SaveFileType::Normal,
-        }).unwrap();
-        let decoded = saves.load_game_snapshot("landmarks").unwrap();
-        let mut restored = GameLogic::new();
-        prepare(&mut restored);
-        restored.set_next_object_id_for_restore(ObjectId(1000));
-        assert!(restored.load_map(&decoded.save_info.map_name));
-        let reconstructed: Vec<_> = restored.spawned_map_object_ids.iter().map(|(id, _)| *id).collect();
-        assert_eq!(reconstructed.len(), 3);
-        assert_ne!(reconstructed, source_ids);
-        SnapshotBuilder::new().restore_from_snapshot(&decoded.snapshot, &mut restored).unwrap();
-        let rows = |world: &GameLogic| {
-            let mut rows = Vec::new();
-            world.world_services.terrain().read().unwrap().for_each_bridge(|bridge| {
-                let info = bridge.get_bridge_info();
-                rows.push((info.source_map_object_index, info.bridge_object_id));
+            out.open_data_chunk("ObjectsList", 3);
+            // Fill the original 2..=15 layer slots before admitting three
+            // coincident landmarks on the shared Ground layer.
+            const RESERVED_SPANS: usize = 14;
+            let base = (0..RESERVED_SPANS).map(|index| {
+                [
+                    35.0 + (index % 5) as f32 * 30.0,
+                    100.0 + (index / 5) as f32 * 30.0,
+                    21.0,
+                    0.0,
+                ]
             });
-            rows
-        };
-        assert_eq!(rows(&restored), rows(&source));
-        assert_eq!(
-            rows(&restored),
-            vec![(Some(1), source_ids[1].0), (Some(0), source_ids[0].0)]
-        );
-        assert_eq!(rows(&peer).len(), 3);
-        assert!(!peer.bridge_behavior.is_scaffold_present(source_ids[1]));
-        assert!(restored.bridge_behavior.is_scaffold_present(source_ids[1]));
-        let east = Vec3::new(70.0, 21.0, 50.0);
-        let north = Vec3::new(50.0, 21.0, 70.0);
-        let east_span = restored.bridge_behavior.span(source_ids[0]).unwrap();
-        let north_span = restored.bridge_behavior.span(source_ids[1]).unwrap();
-        assert!(east_span.point_on_deck(east));
-        assert!(!east_span.point_on_deck(north));
-        assert!(north_span.point_on_deck(north));
-        assert!(!north_span.point_on_deck(east));
-        let cell = restored.pathfinding_system.grid.world_to_grid(north);
-        assert_eq!(restored.pathfinding_system.grid.layer_cell_type(3, cell),
-            Some(gamelogic::ai::pathfind_astar::PathfindCellType::BridgeImpassable));
-    });
+            let overflow = [
+                0.0,
+                std::f32::consts::FRAC_PI_2,
+                std::f32::consts::FRAC_PI_4,
+            ]
+            .map(|angle| [50.0, 50.0, 21.0, angle]);
+            for pose in base.chain(overflow) {
+                out.open_data_chunk("Object", 3);
+                for value in pose {
+                    out.write_real(value);
+                }
+                out.write_int(0);
+                out.write_ascii_string("IdentityLandmark");
+                out.write_dict(&game_engine::common::dict::Dict::new());
+                out.close_data_chunk();
+            }
+            out.close_data_chunk();
+            std::fs::write(&path, out.into_ckmp_bytes()).unwrap();
+            let prepare = |world: &mut GameLogic| {
+                let mut template = crate::game_logic::ThingTemplate::new("IdentityLandmark");
+                template
+                    .add_kind_of(KindOf::Structure)
+                    .add_kind_of(KindOf::LandmarkBridge)
+                    .add_kind_of(KindOf::Bridge)
+                    .set_health(400.0);
+                template.geometry_info.authored = false;
+                template.geometry_info.geom_type = crate::game_logic::HostGeometryType::Box;
+                template.geometry_info.major_radius = 25.0;
+                template.geometry_info.minor_radius = 10.0;
+                let mut neutral = crate::game_logic::Player::new(0, Team::Neutral, "", false);
+                neutral.map_side.role = crate::game_logic::PlayerSideRole::Neutral;
+                neutral.map_side.map_player_name.clear();
+                world.add_player(neutral);
+                world.templates.insert("IdentityLandmark".into(), template);
+                let mut tower = crate::game_logic::ThingTemplate::new("IdentityTower");
+                tower
+                    .add_kind_of(KindOf::Structure)
+                    .add_kind_of(KindOf::BridgeTower)
+                    .set_health(100.0);
+                tower.geometry_info.major_radius = 4.0;
+                world.templates.insert("IdentityTower".into(), tower);
+                let mut roads = world.terrain_road_baseline().clone();
+                roads
+                    .new_bridge("IdentityLandmark".into())
+                    .tower_object_name = std::array::from_fn(|_| "IdentityTower".into());
+                world.admit_terrain_road_definitions(roads).unwrap();
+            };
+            let mut source = GameLogic::new();
+            prepare(&mut source);
+            assert!(source.load_map(path.to_str().unwrap()));
+            let mut peer = GameLogic::new();
+            prepare(&mut peer);
+            assert!(peer.load_map(path.to_str().unwrap()));
+            let source_ids: Vec<_> = source
+                .spawned_map_object_ids
+                .iter()
+                .map(|(id, _)| *id)
+                .collect();
+            let peer_ids: Vec<_> = peer
+                .spawned_map_object_ids
+                .iter()
+                .map(|(id, _)| *id)
+                .collect();
+            assert_eq!(source_ids.len(), RESERVED_SPANS + 3);
+            assert_eq!(source_ids, peer_ids);
+            let [east_id, north_id, deleted_id] = source_ids[RESERVED_SPANS..].try_into().unwrap();
+            assert!(source.delete_owned_bridge_at(Vec3::new(50.0, 21.0, 50.0)));
+            assert!(source.bridge_behavior.span(deleted_id).is_none());
+            assert!(source.bridge_behavior.create_scaffolding(north_id));
+            assert!(source.bridge_behavior.create_scaffolding(source_ids[1]));
+            source.refresh_owned_bridge_pathfinder_states();
+            let mut saves =
+                SaveFileManager::with_save_directory(temp.path().join("landmark_saves"));
+            saves.init().unwrap();
+            saves
+                .save_game(
+                    "landmarks",
+                    &source,
+                    &SaveGameInfo {
+                        filename: "landmarks".into(),
+                        display_name: "Landmarks".into(),
+                        description: "placed bridge source identity".into(),
+                        map_name: path.to_string_lossy().into_owned(),
+                        pristine_map_name: source.map_definition_source.clone(),
+                        campaign_side: None,
+                        mission_number: None,
+                        save_date: std::time::SystemTime::now(),
+                        game_version: env!("CARGO_PKG_VERSION").into(),
+                        play_time: std::time::Duration::ZERO,
+                        difficulty: GameDifficulty::Medium,
+                        save_type: SaveFileType::Normal,
+                    },
+                )
+                .unwrap();
+            let decoded = saves.load_game_snapshot("landmarks").unwrap();
+            let mut restored = GameLogic::new();
+            prepare(&mut restored);
+            restored.set_next_object_id_for_restore(ObjectId(1000));
+            assert!(restored.load_map(&decoded.save_info.map_name));
+            let reconstructed: Vec<_> = restored
+                .spawned_map_object_ids
+                .iter()
+                .map(|(id, _)| *id)
+                .collect();
+            assert_eq!(reconstructed.len(), RESERVED_SPANS + 3);
+            assert_ne!(reconstructed, source_ids);
+            let foreign = gamelogic::system::engine_stores::new_for_world();
+            let _foreign_ai = foreign.ai().write().unwrap();
+            gamelogic::system::engine_stores::with_active_stores(&foreign, || {
+                SnapshotBuilder::new()
+                    .restore_from_snapshot(&decoded.snapshot, &mut restored)
+                    .unwrap();
+            });
+            let rows = |world: &GameLogic| {
+                let mut rows = Vec::new();
+                world
+                    .world_services
+                    .terrain()
+                    .read()
+                    .unwrap()
+                    .for_each_bridge(|bridge| {
+                        let info = bridge.get_bridge_info();
+                        rows.push((
+                            info.source_map_object_index,
+                            bridge.get_layer(),
+                            ObjectId(info.bridge_object_id),
+                            info.tower_object_id.map(ObjectId),
+                        ));
+                    });
+                rows
+            };
+            let restored_rows = rows(&restored);
+            assert_eq!(restored_rows, rows(&source));
+            assert_eq!(rows(&peer).len(), RESERVED_SPANS + 3);
+            let overflow_rows = &restored_rows[..2];
+            assert_eq!(overflow_rows[0].0, Some(RESERVED_SPANS + 1));
+            assert_eq!(overflow_rows[1].0, Some(RESERVED_SPANS));
+            let mut tower_ids = std::collections::HashSet::new();
+            for ((_, layer, id, towers), expected_id) in
+                overflow_rows.iter().zip([north_id, east_id])
+            {
+                assert_eq!(*layer, gamelogic::path::PathfindLayerEnum::Ground);
+                assert_eq!(*id, expected_id);
+                assert_eq!(
+                    *towers,
+                    restored.bridge_behavior.span(*id).unwrap().tower_ids
+                );
+                for tower in towers {
+                    assert!(
+                        tower_ids.insert(*tower),
+                        "each overflow bridge has its own towers"
+                    );
+                    assert_eq!(restored.bridge_behavior.span_id_for(*tower), Some(*id));
+                    assert!(
+                        restored
+                            .host_object(*tower)
+                            .unwrap()
+                            .is_kind_of(KindOf::BridgeTower)
+                    );
+                }
+            }
+            assert!(restored.bridge_behavior.span(deleted_id).is_none());
+            assert!(!peer.bridge_behavior.is_scaffold_present(north_id));
+            assert!(restored.bridge_behavior.is_scaffold_present(north_id));
+            assert!(restored.bridge_behavior.is_scaffold_present(source_ids[1]));
+            let east = Vec3::new(70.0, 21.0, 50.0);
+            let north = Vec3::new(50.0, 21.0, 70.0);
+            let east_span = restored.bridge_behavior.span(east_id).unwrap();
+            let north_span = restored.bridge_behavior.span(north_id).unwrap();
+            assert!(east_span.point_on_deck(east));
+            assert!(!east_span.point_on_deck(north));
+            assert!(north_span.point_on_deck(north));
+            assert!(!north_span.point_on_deck(east));
+            let cell = restored
+                .pathfinding_system
+                .grid
+                .world_to_grid(Vec3::new(65.0, 21.0, 100.0));
+            assert_eq!(
+                restored.pathfinding_system.grid.layer_cell_type(3, cell),
+                Some(gamelogic::ai::pathfind_astar::PathfindCellType::BridgeImpassable)
+            );
+        },
+    );
 }
 
 #[test]

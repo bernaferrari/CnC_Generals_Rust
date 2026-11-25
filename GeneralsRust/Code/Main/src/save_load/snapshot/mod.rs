@@ -100,6 +100,8 @@ mod angry_mob_persist;
 mod attack_state_persist;
 mod auto_deposit_persist;
 mod bridge_behavior_persist;
+#[cfg(test)]
+pub(crate) use bridge_behavior_persist::mutate_saved_bridge_bindings_for_test;
 mod chinook_ai_persist;
 mod cleanup_hazard_persist;
 mod combat_particle_attachment_persist;

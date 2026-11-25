@@ -459,6 +459,8 @@ impl SnapshotBuilder {
         }
         let records =
             super::super::lifecycle_records::LifecycleRecords::parse(&snapshot.lifecycle_tail)?;
+        let bridge_behavior =
+            super::super::bridge_behavior_persist::prepare(&records, snapshot, game_logic)?;
         let hotkey_groups =
             super::super::hotkey_squad_persist::read_indexed_control_groups(&records)?;
         let module_continuations = super::super::object_module_xfer_persist::prepare(&records)?;
@@ -1107,8 +1109,9 @@ impl SnapshotBuilder {
         super::super::point_defense_persist::apply(&records, game_logic)?;
         super::super::projectile_stream_persist::apply(&records, game_logic)?;
         super::super::transport_exit_persist::apply(&records, game_logic)?;
-        let map_bridge_bindings =
-            super::super::bridge_behavior_persist::apply(&records, game_logic)?;
+        let map_bridge_bindings = bridge_behavior
+            .map(|saved| saved.apply(game_logic))
+            .unwrap_or_default();
         // C++ has ONE TurretAI::xfer per module; here TRAI (15-field subset,
         // resets all objects first) must run BEFORE OXOB (47 fields incl. all
         // 15 turret fields, captured for every object). OXOB is the final
@@ -1193,20 +1196,7 @@ impl SnapshotBuilder {
         // Runtime birth tokens belong to this receiving world, not the saved world.
         game_logic.rebind_projectile_actor_births();
 
-        if map_bridge_bindings.is_none() {
-            let mut has_source_bridges = false;
-            game_logic.world_services.terrain().read().unwrap_or_else(|e| e.into_inner())
-                .for_each_bridge(|bridge| {
-                    let info = bridge.get_bridge_info();
-                    has_source_bridges |= info.bridge_index >= 0 || info.source_map_object_index.is_some();
-                });
-            if has_source_bridges {
-                return Err(SaveLoadError::Corrupted(
-                    "saved map bridge source identities are missing".into(),
-                ));
-            }
-        }
-        game_logic.restore_owned_bridge_bindings(map_bridge_bindings.as_deref());
+        game_logic.restore_owned_bridge_bindings(&map_bridge_bindings);
 
         for (id, saved) in &snapshot.objects {
             let object = game_logic.host_object_mut(*id).ok_or_else(|| {

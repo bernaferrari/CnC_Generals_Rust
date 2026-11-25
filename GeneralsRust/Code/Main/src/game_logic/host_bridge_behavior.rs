@@ -12,6 +12,33 @@ use glam::Vec3;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
+/// Identity assigned during map admission. Overflow spans share a layer, and
+/// the reconstructed actor ID can differ from its ID in the save.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub(crate) enum MapBridgeSource {
+    Drawable(i32),
+    Landmark(usize),
+}
+
+impl MapBridgeSource {
+    pub(crate) fn from_map_indices(drawable: i32, landmark: Option<usize>) -> Option<Self> {
+        match (drawable, landmark) {
+            (0.., None) => Some(Self::Drawable(drawable)),
+            (-1, Some(index)) => Some(Self::Landmark(index)),
+            _ => None,
+        }
+    }
+
+    pub(crate) fn of(info: &gamelogic::terrain::BridgeInfo) -> Option<Self> {
+        Self::from_map_indices(info.bridge_index, info.source_map_object_index)
+    }
+}
+
+pub(crate) fn bridge_deck_corners(info: &gamelogic::terrain::BridgeInfo) -> [Vec3; 4] {
+    [info.from_left, info.from_right, info.to_left, info.to_right]
+        .map(|point| Vec3::new(point.x, point.z, point.y))
+}
+
 /// C++ FRAMES while scaffolds rise (lateral then vertical). Host residual: 45.
 pub const BRIDGE_SCAFFOLD_RISE_FRAMES: u32 = 45;
 
