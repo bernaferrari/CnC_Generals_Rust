@@ -16,6 +16,7 @@
 use crate::common::ascii_string::AsciiString;
 use crate::common::global_data;
 use crate::common::system::kind_of::KindOfMask;
+use crate::{Xfer, XferMode, XferStatus};
 use std::cell::RefCell;
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex, MutexGuard};
@@ -846,6 +847,40 @@ impl BuildAssistant {
     /// Get the build positions array
     pub fn get_build_locations(&self) -> &[Coord3D] {
         &self.build_positions
+    }
+
+    /// BuildAssistant.cpp:271–304 stores pending sales in queue order.
+    pub fn xfer_sell_list(&mut self, xfer: &mut dyn Xfer) -> Result<(), XferStatus> {
+        match xfer.get_xfer_mode() {
+            XferMode::Save | XferMode::Crc => {
+                let mut count =
+                    i32::try_from(self.sell_list.len()).map_err(|_| XferStatus::InvalidData)?;
+                xfer.xfer_int(&mut count)?;
+                for sale in &self.sell_list {
+                    let mut id = sale.id;
+                    let mut sell_frame = sale.sell_frame;
+                    xfer.xfer_object_id(&mut id)?;
+                    xfer.xfer_unsigned_int(&mut sell_frame)?;
+                }
+            }
+            XferMode::Load => {
+                let mut count = 0;
+                xfer.xfer_int(&mut count)?;
+                if count < 0 {
+                    return Err(XferStatus::InvalidData);
+                }
+                let mut restored = VecDeque::new();
+                for _ in 0..count {
+                    let mut sale = ObjectSellInfo::default();
+                    xfer.xfer_object_id(&mut sale.id)?;
+                    xfer.xfer_unsigned_int(&mut sale.sell_frame)?;
+                    restored.push_back(sale);
+                }
+                self.sell_list = restored;
+            }
+            XferMode::Invalid => return Err(XferStatus::ModeUnknown),
+        }
+        Ok(())
     }
 
     /// Get the sell list for serialization

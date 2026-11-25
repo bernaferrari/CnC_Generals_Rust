@@ -1400,65 +1400,130 @@ mod tests {
     }
 
     #[test]
-    fn xfer_v10_includes_sell_list_and_does_not_write_next_object_id() {
-        let _fixture = test_state_lock();
+    fn xfer_v10_restores_the_receiving_sell_queue_and_session_values() {
+        use crate::system::engine_stores::{EngineStores, with_active_stores};
+        use game_engine::common::system::build_assistant::{
+            self, BuildAssistantBackend, Coord3D, LegalBuildCode, LocalLegalToBuildOptions,
+        };
         use game_engine::{Xfer, XferLoad, XferSave};
+        use std::sync::atomic::Ordering;
 
-        game_engine::common::system::build_assistant::init_build_assistant();
-        {
-            let mut assistant =
-                game_engine::common::system::build_assistant::get_build_assistant().unwrap();
-            assistant.reset();
-            assistant.sell_object(
-                &game_engine::common::system::build_assistant::Object {
-                    id: 77,
-                    position: Default::default(),
-                    orientation: 0.0,
-                    command_set: None,
-                },
-                12,
-            );
+        #[derive(Debug, Default)]
+        struct SellStarts(Mutex<Vec<ObjectID>>);
+
+        impl BuildAssistantBackend for SellStarts {
+            fn build_object_now(
+                &self,
+                _: Option<ObjectID>,
+                _: &str,
+                _: &Coord3D,
+                _: f32,
+                _: u32,
+            ) -> Option<ObjectID> {
+                unreachable!("Xfer does not issue build orders");
+            }
+
+            fn is_location_legal_to_build(
+                &self,
+                _: &Coord3D,
+                _: &str,
+                _: f32,
+                _: LocalLegalToBuildOptions,
+                _: Option<ObjectID>,
+                _: Option<u32>,
+            ) -> LegalBuildCode {
+                unreachable!("Xfer does not issue build orders");
+            }
+
+            fn on_selling(&self, id: ObjectID) {
+                self.0.lock().unwrap().push(id);
+            }
         }
 
-        let mut save_logic = GameLogic::new_with_engine_stores(Arc::new(
-            crate::system::engine_stores::EngineStores::new_for_world(),
-        ));
+        let source = Arc::new(EngineStores::new_for_world());
+        let receiving = Arc::new(EngineStores::new_for_world());
+        let peer = Arc::new(EngineStores::new_for_world());
+        let seed = |owner: &Arc<EngineStores>, sales: &[(ObjectID, u32)], lifetime, rank| {
+            with_active_stores(owner, || {
+                build_assistant::init_build_assistant();
+                let mut assistant = build_assistant::get_build_assistant().unwrap();
+                for &(id, sell_frame) in sales {
+                    assistant.sell_object(
+                        &build_assistant::Object {
+                            id,
+                            position: Coord3D::default(),
+                            orientation: 0.0,
+                            command_set: None,
+                        },
+                        sell_frame,
+                    );
+                }
+            });
+            let flags = owner.services().session_flags();
+            flags
+                .hulk_max_lifetime_override
+                .store(lifetime, Ordering::Relaxed);
+            flags.game_start_rank_points.store(rank, Ordering::Relaxed);
+        };
+        let read = |owner: &Arc<EngineStores>| {
+            let sales = with_active_stores(owner, || {
+                build_assistant::get_build_assistant()
+                    .unwrap()
+                    .get_sell_list()
+                    .iter()
+                    .map(|entry| (entry.id, entry.sell_frame))
+                    .collect::<Vec<_>>()
+            });
+            let flags = owner.services().session_flags();
+            (
+                sales,
+                flags.hulk_max_lifetime_override.load(Ordering::Relaxed),
+                flags.game_start_rank_points.load(Ordering::Relaxed),
+            )
+        };
+        seed(&source, &[(77, 12), (88, 33)], 41, 600);
+        seed(&receiving, &[(60, 100)], 50, 80);
+        seed(&peer, &[(99, 90), (98, 91)], 71, 61);
+        let receiving_starts = Arc::new(SellStarts::default());
+        let peer_starts = Arc::new(SellStarts::default());
+        with_active_stores(&receiving, || {
+            build_assistant::set_build_assistant_backend(receiving_starts.clone());
+        });
+
+        let mut save_logic = GameLogic::new_with_engine_stores(source.clone());
         save_logic.frame = 9;
         save_logic.set_superweapon_restriction(3);
         save_logic.set_rank_level_limit(8);
         save_logic.next_object_id = 99;
-
-        let path =
-            std::env::temp_dir().join(format!("generals_xfer_v10_sell_{}.bin", std::process::id()));
-        {
-            let mut xfer = XferSave::new();
-            xfer.open(path.to_string_lossy().into_owned())
-                .expect("open save");
-            xfer_game_logic_state(&mut save_logic, &mut xfer).expect("save");
-            xfer.close().expect("close save");
-        }
-        game_engine::common::system::build_assistant::init_build_assistant();
-        let mut load_logic = GameLogic::new_with_engine_stores(Arc::new(
-            crate::system::engine_stores::EngineStores::new_for_world(),
+        let mut load_logic = GameLogic::new_with_engine_stores(receiving.clone());
+        let saved_file = std::env::temp_dir().join(format!(
+            "generals_core_xfer_sales_{}.bin",
+            std::process::id()
         ));
-        load_logic.next_object_id = 1;
-        {
-            let mut xfer = XferLoad::new();
-            xfer.open(path.to_string_lossy().into_owned())
-                .expect("open load");
-            xfer_game_logic_state(&mut load_logic, &mut xfer).expect("load");
-            xfer.close().expect("close load");
-        }
-        let _ = std::fs::remove_file(&path);
+        with_active_stores(&peer, || {
+            build_assistant::set_build_assistant_backend(peer_starts.clone());
+            let mut save = XferSave::new();
+            save.open(saved_file.to_string_lossy().into_owned())
+                .unwrap();
+            xfer_game_logic_state(&mut save_logic, &mut save).unwrap();
+            save.close().unwrap();
+
+            let mut load = XferLoad::new();
+            load.open(saved_file.to_string_lossy().into_owned())
+                .unwrap();
+            xfer_game_logic_state(&mut load_logic, &mut load).unwrap();
+            load.close().unwrap();
+        });
+        std::fs::remove_file(&saved_file).unwrap();
         assert_eq!(load_logic.frame, 9);
         assert_eq!(load_logic.get_superweapon_restriction(), 3);
         assert_eq!(load_logic.get_rank_level_limit(), 8);
         assert_eq!(load_logic.next_object_id, 1);
-        let assistant =
-            game_engine::common::system::build_assistant::get_build_assistant().unwrap();
-        assert_eq!(assistant.get_sell_list().len(), 1);
-        assert_eq!(assistant.get_sell_list()[0].id, 77);
-        assert_eq!(assistant.get_sell_list()[0].sell_frame, 12);
+        assert_eq!(read(&source), (vec![(88, 33), (77, 12)], 41, 600));
+        assert_eq!(read(&receiving), (vec![(88, 33), (77, 12)], 41, 600));
+        assert_eq!(read(&peer), (vec![(98, 91), (99, 90)], 71, 61));
+        assert!(receiving_starts.0.lock().unwrap().is_empty());
+        assert!(peer_starts.0.lock().unwrap().is_empty());
     }
 
     #[test]

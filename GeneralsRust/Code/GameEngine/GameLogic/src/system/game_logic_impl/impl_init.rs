@@ -1,5 +1,3 @@
-use std::sync::atomic::Ordering;
-
 impl GameLogic {
     /// Create a new GameLogic instance
     pub fn new() -> Self {

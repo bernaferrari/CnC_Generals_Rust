@@ -323,6 +323,7 @@ fn xfer_game_logic_state_with_campaign(
 
     xfer_campaign_manager_snapshot(xfer, campaign)?;
     xfer_cave_system_snapshot(logic, xfer)?;
+    let world = logic.owning_world_services().ok_or(XferStatus::InvalidData)?;
 
     if version >= 2 {
         xfer.xfer_bool(&mut logic.is_scoring_enabled)?;
@@ -339,7 +340,11 @@ fn xfer_game_logic_state_with_campaign(
     }
 
     if version >= 6 {
-        xfer_the_sell_list(xfer)?;
+        let systems = &world.common().system;
+        systems.build_assistant.lock().xfer_sell_list(xfer)?;
+        if xfer.get_xfer_mode() == XferMode::Load {
+            systems.build_assistant_ready.store(true, Ordering::SeqCst);
+        }
     }
 
     if version >= 7 {
@@ -350,10 +355,11 @@ fn xfer_game_logic_state_with_campaign(
         xfer.xfer_bool(&mut logic.show_behind_building_markers)?;
         xfer.xfer_bool(&mut logic.draw_icon_ui)?;
         xfer.xfer_bool(&mut logic.show_dynamic_lod)?;
-        let mut hulk_max_lifetime = crate::helpers::TheGameLogic::get_hulk_max_lifetime_override();
+        let lifetime = &world.session_flags().hulk_max_lifetime_override;
+        let mut hulk_max_lifetime = lifetime.load(Ordering::Relaxed);
         xfer.xfer_int(&mut hulk_max_lifetime)?;
         if xfer.get_xfer_mode() == XferMode::Load {
-            crate::helpers::TheGameLogic::set_hulk_max_lifetime_override(hulk_max_lifetime);
+            lifetime.store(hulk_max_lifetime, Ordering::Relaxed);
         }
         xfer_control_bar_overrides(
             xfer,
@@ -362,10 +368,11 @@ fn xfer_game_logic_state_with_campaign(
     }
 
     if version >= 9 {
-        let mut rank_points = crate::helpers::TheGameLogic::get_rank_points_to_add_at_game_start();
+        let restart_rank = &world.session_flags().game_start_rank_points;
+        let mut rank_points = restart_rank.load(Ordering::Relaxed);
         xfer.xfer_int(&mut rank_points)?;
         if xfer.get_xfer_mode() == XferMode::Load {
-            crate::helpers::TheGameLogic::set_rank_points_to_add_at_game_start(rank_points);
+            restart_rank.store(rank_points, Ordering::Relaxed);
         }
     }
 
@@ -436,42 +443,6 @@ fn xfer_polygon_triggers(logic: &GameLogic, xfer: &mut dyn Xfer) -> Result<(), X
     }
     if is_load {
         pathfinder_new_map_after_polygon_load(logic)?;
-    }
-    Ok(())
-}
-
-fn xfer_the_sell_list(xfer: &mut dyn Xfer) -> Result<(), XferStatus> {
-    // C++ TheBuildAssistant->xferTheSellList
-    if game_engine::common::system::build_assistant::get_build_assistant().is_none() {
-        game_engine::common::system::build_assistant::init_build_assistant();
-    }
-    let mut assistant = game_engine::common::system::build_assistant::get_build_assistant()
-        .ok_or(XferStatus::InvalidData)?;
-    let mut count = assistant.get_sell_list().len() as i32;
-    xfer.xfer_int(&mut count)?;
-    if xfer.get_xfer_mode() == XferMode::Load {
-        assistant.reset();
-        for _ in 0..count {
-            let mut id: u32 = 0;
-            let mut sell_frame: u32 = 0;
-            xfer.xfer_object_id(&mut id)?;
-            xfer.xfer_unsigned_int(&mut sell_frame)?;
-            assistant.sell_object(
-                &game_engine::common::system::build_assistant::Object {
-                    id,
-                    position: Default::default(),
-                    orientation: 0.0,
-                    command_set: None,
-                },
-                sell_frame,
-            );
-        }
-    } else {
-        let items: Vec<_> = assistant.get_sell_list().iter().cloned().collect();
-        for mut info in items {
-            xfer.xfer_object_id(&mut info.id)?;
-            xfer.xfer_unsigned_int(&mut info.sell_frame)?;
-        }
     }
     Ok(())
 }
