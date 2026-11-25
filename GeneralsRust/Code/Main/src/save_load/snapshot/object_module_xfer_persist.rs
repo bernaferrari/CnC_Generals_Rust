@@ -1323,15 +1323,11 @@ fn validate_payload_before_apply(
                 "RadarUpgrade executed-state count disagrees with authored modules",
             ));
         }
-        if entry.contributors.len() != entry.executed.len()
-            || entry
-                .contributors
-                .iter()
-                .enumerate()
-                .any(|(index, owner)| !owner.is_empty() && !entry.executed[index])
-        {
+        // UpgradeMux::resetUpgrade clears only the execution latch. Radar
+        // granted by that module remains credited through save and restore.
+        if entry.contributors.len() != entry.executed.len() {
             return Err(corrupted(
-                "RadarUpgrade contribution state disagrees with executed modules",
+                "RadarUpgrade contribution slot count disagrees with authored modules",
             ));
         }
     }

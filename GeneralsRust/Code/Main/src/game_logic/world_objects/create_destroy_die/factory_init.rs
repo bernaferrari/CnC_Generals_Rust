@@ -12,6 +12,7 @@ impl GameLogic {
         team: Team,
         owner_player_id: Option<u32>,
     ) {
+        let has_admitted_upgrade_roster = self.has_admitted_upgrade_roster(id);
         let frame = self.frame;
         let no_players = std::collections::HashMap::new();
         let no_upgrade_mask = std::collections::HashSet::new();
@@ -275,8 +276,10 @@ impl GameLogic {
         // only in the ordered world mux after this object's birth admission.
         let mut power_plant_bonus = None;
         if let Some(player) = owner_player_id.and_then(|pid| players.get(&pid)) {
-            power_plant_bonus =
-                object.run_authored_power_plant_upgrades(|name| player.has_unlocked_upgrade(name));
+            if !has_admitted_upgrade_roster {
+                power_plant_bonus =
+                    object.run_authored_power_plant_upgrades(|name| player.has_unlocked_upgrade(name));
+            }
             object.apply_authored_flag_upgrades(|name| player.has_unlocked_upgrade(name));
             // StealthUpgrade (Camouflage, Camo Netting): CAN_STEALTH.
             object.run_authored_stealth_upgrades(|name| player.has_unlocked_upgrade(name));

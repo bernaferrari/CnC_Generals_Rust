@@ -86,11 +86,25 @@ impl AuthoredReplaceObjectUpgrade {
     }
 }
 
+struct AuthoredPowerPlantUpgrade {
+    source_index: usize,
+    executed_key: String,
+    data: ModuleDataView<gamelogic::object::upgrade::PowerPlantUpgradeModuleData>,
+}
+
+struct AuthoredRadarUpgrade {
+    source_index: usize,
+    state_index: usize,
+    data: ModuleDataView<gamelogic::object::upgrade::RadarUpgradeModuleData>,
+}
+
 enum AuthoredOrderedUpgrade {
     ObjectCreation(AuthoredObjectCreationUpgrade),
     ReplaceObject(AuthoredReplaceObjectUpgrade),
     StatusBits(AuthoredStatusBitsUpgrade),
     CostModifier(AuthoredCostModifierUpgrade),
+    PowerPlant(AuthoredPowerPlantUpgrade),
+    Radar(AuthoredRadarUpgrade),
     PassengersFire(AuthoredPassengersFireUpgrade),
     MaxHealth(AuthoredMaxHealthUpgrade),
     Weapon(AuthoredWeaponUpgrade),
@@ -110,6 +124,8 @@ impl AuthoredOrderedUpgrade {
             Self::ReplaceObject(module) => module.source_index,
             Self::StatusBits(module) => module.source_index,
             Self::CostModifier(module) => module.source_index,
+            Self::PowerPlant(module) => module.source_index,
+            Self::Radar(module) => module.source_index,
             Self::PassengersFire(module) => module.source_index,
             Self::MaxHealth(module) => module.source_index,
             Self::Weapon(module) => module.source_index,
@@ -122,6 +138,8 @@ impl AuthoredOrderedUpgrade {
             Self::ReplaceObject(module) => f(&module.data.read().upgrade_mux_data),
             Self::StatusBits(module) => f(&module.data.read().upgrade_mux_data),
             Self::CostModifier(module) => f(&module.data.read().upgrade_mux_data),
+            Self::PowerPlant(module) => f(&module.data.read().upgrade_mux_data),
+            Self::Radar(module) => f(&module.data.read().upgrade_mux_data),
             Self::PassengersFire(module) => f(&module.data.read().upgrade_mux_data),
             Self::MaxHealth(module) => f(&module.data.read().upgrade_mux_data),
             Self::Weapon(module) => f(&module.mux.read()),
@@ -356,16 +374,16 @@ impl GameLogic {
         // C++ updateUpgradeModules tests every module against the combined
         // controlling-player/object mask. Snapshot the exact admitted module
         // declarations and current mask before any callbacks mutate either.
-        let object_creation_update_allowed =
+        let ordered_update_allowed =
             origin != UpgradeGrantOrigin::PlayerResearchResiduals
-                && self.object_creation_upgrade_update_allowed(object_id);
-        let authored_upgrade_modules = if object_creation_update_allowed {
+                && self.can_update_authored_upgrades(object_id);
+        let authored_upgrade_modules = if ordered_update_allowed {
             self.authored_ordered_upgrade_modules(object_id)
         } else {
             Vec::new()
         };
-        let object_creation_key_mask = if object_creation_update_allowed {
-            self.object_creation_upgrade_key_mask(object_id, Some(upgrade))
+        let combined_upgrade_mask = if ordered_update_allowed {
+            self.combined_object_and_player_upgrade_mask(object_id, Some(upgrade))
         } else {
             gamelogic::upgrade::UpgradeMask::none()
         };
@@ -404,12 +422,12 @@ impl GameLogic {
                 }
             }
         }
-        if object_creation_update_allowed {
+        if ordered_update_allowed {
             self.execute_authored_ordered_upgrade_modules(
                 object_id,
                 &object_birth,
                 authored_upgrade_modules,
-                object_creation_key_mask,
+                combined_upgrade_mask,
                 Some(upgrade),
                 interpreter,
                 presentation_effects,
@@ -496,10 +514,11 @@ impl GameLogic {
             }
         }
 
-        // C++ PowerPlantUpgrade::upgradeImplementation (authored module).
-        self.apply_authored_power_plant_upgrades(object_id, |name| {
-            name.eq_ignore_ascii_case(upgrade)
-        });
+        if !self.has_admitted_upgrade_roster(object_id) {
+            self.apply_authored_power_plant_upgrades(object_id, |name| {
+                name.eq_ignore_ascii_case(upgrade)
+            });
+        }
 
         // C++ SpyVisionUpdate::upgradeImplementation — activate on upgrade.
         if let Some(spec) = satellite_hack_activate {
@@ -695,6 +714,15 @@ impl GameLogic {
         self.remove_registered_path_goal(id);
     }
 
+    /// Admitted objects grant upgrades only through their ordered behavior roster.
+    pub(super) fn has_admitted_upgrade_roster(&self, object_id: ObjectId) -> bool {
+        self.objects.get(&object_id).is_some_and(|object| {
+            self.receiving_module_content.as_ref().is_some_and(|content| {
+                content.admitted_template(&object.template_name).is_some()
+            })
+        })
+    }
+
     /// Read ObjectCreationUpgrade declarations from this session's exact
     /// admitted template and align the object-owned latches with their order.
     fn authored_ordered_upgrade_modules(
@@ -714,6 +742,8 @@ impl GameLogic {
         let mut object_creation_index = 0;
         let mut status_bits_index = 0;
         let mut cost_modifier_index = 0;
+        let mut power_plant_index = 0;
+        let mut radar_index = 0;
         let modules: Vec<_> = template
             .behavior_modules()
             .iter()
@@ -755,6 +785,34 @@ impl GameLogic {
                     return Some(AuthoredOrderedUpgrade::CostModifier(
                         AuthoredCostModifierUpgrade { source_index, state_index, data }
                     ));
+                }
+                if module.name.as_str().eq_ignore_ascii_case("PowerPlantUpgrade") {
+                    let data = upgrade_data_view::<gamelogic::object::upgrade::PowerPlantUpgradeModuleData>(
+                        &module.data,
+                    )?;
+                    let tag = module.module_tag.as_str();
+                    let executed_key = super::authored_upgrade_modules::control_rods_upgrade_key(
+                        power_plant_index,
+                        (!tag.is_empty()).then_some(tag),
+                    );
+                    power_plant_index += 1;
+                    return Some(AuthoredOrderedUpgrade::PowerPlant(AuthoredPowerPlantUpgrade {
+                        source_index,
+                        executed_key,
+                        data,
+                    }));
+                }
+                if module.name.as_str().eq_ignore_ascii_case("RadarUpgrade") {
+                    let data = upgrade_data_view::<gamelogic::object::upgrade::RadarUpgradeModuleData>(
+                        &module.data,
+                    )?;
+                    let state_index = radar_index;
+                    radar_index += 1;
+                    return Some(AuthoredOrderedUpgrade::Radar(AuthoredRadarUpgrade {
+                        source_index,
+                        state_index,
+                        data,
+                    }));
                 }
                 if module.name.as_str().eq_ignore_ascii_case("PassengersFireUpgrade") {
                     let data = upgrade_data_view::<
@@ -801,11 +859,13 @@ impl GameLogic {
             object
                 .cost_modifier_upgrade_executed
                 .resize(cost_modifier_index, false);
+            object.radar_upgrade_executed.resize(radar_index, false);
+            object.radar_upgrade_contributors.resize(radar_index, Vec::new());
         }
         modules
     }
 
-    fn object_creation_upgrade_update_allowed(&self, object_id: ObjectId) -> bool {
+    fn can_update_authored_upgrades(&self, object_id: ObjectId) -> bool {
         self.objects.get(&object_id).is_some_and(|object| {
             !object.under_construction_status()
                 && !object.status.destroyed
@@ -840,6 +900,11 @@ impl GameLogic {
                     .copied().unwrap_or(false),
                 AuthoredOrderedUpgrade::CostModifier(module) => self.objects.get(&object_id)
                     .and_then(|object| object.cost_modifier_upgrade_executed.get(module.state_index))
+                    .copied().unwrap_or(false),
+                AuthoredOrderedUpgrade::PowerPlant(module) => self.objects.get(&object_id)
+                    .is_some_and(|object| object.applied_upgrades.contains(&module.executed_key)),
+                AuthoredOrderedUpgrade::Radar(module) => self.objects.get(&object_id)
+                    .and_then(|object| object.radar_upgrade_executed.get(module.state_index))
                     .copied().unwrap_or(false),
                 AuthoredOrderedUpgrade::ReplaceObject(module) => self.objects.get(&object_id)
                     .is_some_and(|object| object.applied_upgrades.contains(&module.executed_key())),
@@ -928,6 +993,23 @@ impl GameLogic {
                             }
                         }
                     }
+                    Ok(())
+                }
+                AuthoredOrderedUpgrade::PowerPlant(_) => {
+                    if let Some(object) = self.objects.get(&object_id) {
+                        let template = object.get_template();
+                        let bonus = template.energy_bonus.unwrap_or(0);
+                        let animate_rods = template.power_plant_update.is_some();
+                        self.change_object_power_bonus(object_id, bonus);
+                        if animate_rods {
+                            self.begin_power_plant_rods_extend(object_id);
+                        }
+                    }
+                    Ok(())
+                }
+                AuthoredOrderedUpgrade::Radar(module) => {
+                    let proof = module.data.read().is_disable_proof();
+                    self.grant_radar_upgrade_slot(object_id, module.state_index, proof);
                     Ok(())
                 }
                 AuthoredOrderedUpgrade::PassengersFire(_) => {
@@ -1037,6 +1119,12 @@ impl GameLogic {
                                 *executed = true;
                             }
                         }
+                        AuthoredOrderedUpgrade::PowerPlant(module) => {
+                            object.applied_upgrades.insert(module.executed_key);
+                        }
+                        AuthoredOrderedUpgrade::Radar(module) => {
+                            object.radar_upgrade_executed[module.state_index] = true;
+                        }
                         AuthoredOrderedUpgrade::ReplaceObject(module) => {
                             // UpgradeMux persists this per-module latch even
                             // when the authored replacement template is absent.
@@ -1062,13 +1150,13 @@ impl GameLogic {
     /// Re-evaluate the combined mask after construction completion. C++
     /// `updateUpgradeModules` sees object upgrades already present in the mask,
     /// even when they were granted while `UNDER_CONSTRUCTION` blocked modules.
-    pub(crate) fn update_object_creation_upgrade_modules_with_interpreter_and_effects(
+    pub(crate) fn update_authored_upgrade_modules_with_effects(
         &mut self,
         object_id: ObjectId,
         interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> gamelogic::GameLogicResult<()> {
-        if !self.object_creation_upgrade_update_allowed(object_id) {
+        if !self.can_update_authored_upgrades(object_id) {
             return Ok(());
         }
         let Some(object_birth) = self
@@ -1079,7 +1167,7 @@ impl GameLogic {
             return Ok(());
         };
         let modules = self.authored_ordered_upgrade_modules(object_id);
-        let key_mask = self.object_creation_upgrade_key_mask(object_id, None);
+        let key_mask = self.combined_object_and_player_upgrade_mask(object_id, None);
         self.execute_authored_ordered_upgrade_modules(
             object_id,
             &object_birth,
@@ -1091,7 +1179,7 @@ impl GameLogic {
         )
     }
 
-    fn object_creation_upgrade_key_mask(
+    fn combined_object_and_player_upgrade_mask(
         &self,
         object_id: ObjectId,
         pending_upgrade: Option<&str>,
@@ -1230,6 +1318,12 @@ impl GameLogic {
                             {
                                 *executed = false;
                             }
+                        }
+                        Some(AuthoredOrderedUpgrade::PowerPlant(module)) => {
+                            object.applied_upgrades.remove(&module.executed_key);
+                        }
+                        Some(AuthoredOrderedUpgrade::Radar(module)) => {
+                            object.radar_upgrade_executed[module.state_index] = false;
                         }
                         Some(AuthoredOrderedUpgrade::ReplaceObject(module)) => {
                             object.applied_upgrades.remove(&module.executed_key());
@@ -1438,7 +1532,7 @@ mod object_creation_upgrade_birth_tests {
         )]).unwrap();
         let id = world.create_object_for_player("HealthBirthHost", 0, Vec3::ZERO).unwrap();
         let modules = world.authored_ordered_upgrade_modules(id);
-        let key_mask = world.object_creation_upgrade_key_mask(id, Some("Upgrade_HealthBirth"));
+        let key_mask = world.combined_object_and_player_upgrade_mask(id, Some("Upgrade_HealthBirth"));
         let original = world.objects.get(&id).unwrap();
         let birth = std::sync::Arc::downgrade(&original.visual_draw_identity_token);
         let mut replacement = Object::new(original.thing().template.clone(), id, Team::USA);
@@ -1673,8 +1767,8 @@ mod object_creation_upgrade_birth_tests {
             .expect("world B receiving owner")
             .add_completed_upgrade(FORMER_PLAYER_UPGRADE);
 
-        let mask_a = world_a.object_creation_upgrade_key_mask(source_a, None);
-        let mask_b = world_b.object_creation_upgrade_key_mask(source_b, None);
+        let mask_a = world_a.combined_object_and_player_upgrade_mask(source_a, None);
+        let mask_b = world_b.combined_object_and_player_upgrade_mask(source_b, None);
         let former = world_a
             .upgrade_template(FORMER_PLAYER_UPGRADE)
             .unwrap()
@@ -1707,7 +1801,7 @@ mod object_creation_upgrade_birth_tests {
         apply(&mut world_a, unowned_id, OBJECT_UPGRADE);
         assert!(
             world_a
-                .object_creation_upgrade_key_mask(unowned_id, None)
+                .combined_object_and_player_upgrade_mask(unowned_id, None)
                 .test_for_all(object)
         );
     }

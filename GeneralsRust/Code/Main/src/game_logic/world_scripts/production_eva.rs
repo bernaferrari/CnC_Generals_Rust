@@ -953,6 +953,30 @@ impl GameLogic {
         interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) {
+        let Some(birth) = self.objects.get(&structure_id)
+            .map(|object| std::sync::Arc::downgrade(&object.visual_draw_identity_token))
+        else {
+            return;
+        };
+        self.apply_researched_player_upgrade_residuals_to_object_with_interpreter(
+            structure_id, interpreter, effects,
+        );
+        // C++ traverses once with the combined mask. It also admits grants
+        // deferred by UNDER_CONSTRUCTION now that the Object can run them.
+        if self.object_birth_matches(structure_id, &birth) {
+            self.update_authored_upgrade_modules_with_effects(
+                structure_id, interpreter, effects,
+            )
+            .expect("owned upgrade completion callback must complete");
+        }
+    }
+
+    pub(crate) fn apply_researched_player_upgrade_residuals_to_object_with_interpreter(
+        &mut self,
+        structure_id: ObjectId,
+        interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         let Some(obj) = self.objects.get(&structure_id) else {
             return;
         };
@@ -998,20 +1022,6 @@ impl GameLogic {
             )
             .expect("owned upgrade callback admission must complete");
         }
-        // Object.cpp:2410-2438 traverses upgrade modules once, using the
-        // combined mask rather than once per completed research name. A
-        // later module's RemovesUpgrades may reset an earlier latch, so a
-        // second pass here would incorrectly repeat its gameplay effect.
-        // This also admits grants deferred by UNDER_CONSTRUCTION.
-        if !self.object_birth_matches(structure_id, &structure_birth) {
-            return;
-        }
-        self.update_object_creation_upgrade_modules_with_interpreter_and_effects(
-            structure_id,
-            interpreter,
-            effects,
-        )
-        .expect("owned ObjectCreationUpgrade completion callback must complete");
     }
 
     pub fn notify_structure_construction_complete(

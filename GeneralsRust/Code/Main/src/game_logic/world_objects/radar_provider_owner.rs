@@ -47,13 +47,8 @@ impl GameLogic {
             })
     }
 
-    /// The combined player/object upgrade mask is observed once per module.
-    /// Executed remains true when triggers subsequently disappear (UpgradeMux).
-    fn attempt_authored_radar_upgrades(&mut self, id: ObjectId) {
-        self.attempt_authored_radar_upgrades_with_effects(id, &mut Default::default())
-    }
-
-    fn attempt_authored_radar_upgrades_with_effects(
+    /// Upgrade rules for manually constructed templates without a native roster.
+    fn attempt_template_radar_upgrades_with_effects(
         &mut self,
         id: ObjectId,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
@@ -115,16 +110,31 @@ impl GameLogic {
             for upgrade in &rule.removes_upgrades {
                 self.remove_object_upgrade_with_receiving_rules(id, upgrade);
             }
-            let object = self.objects.get_mut(&id).unwrap();
-            object.radar_upgrade_executed[index] = true;
-            // C++ upgradeImplementation adds radar even if disabled already;
-            // a later real onDisabled callback is what removes this contribution.
-            object.radar_upgrade_contributors[index].push(owner);
-            if let Some(frames) = object.thing().template.radar_extend_frames {
-                object.extend_radar(self.frame.wrapping_add(frames));
-                self.radar_extend_starts = self.radar_extend_starts.saturating_add(1);
-            }
+            self.grant_radar_upgrade_slot(id, index, rule.disable_proof);
+            self.objects.get_mut(&id).unwrap().radar_upgrade_executed[index] = true;
         }
+    }
+
+    /// RadarUpgrade::upgradeImplementation admits the contribution in this
+    /// callback, including an upgrade applied while the Object is disabled.
+    pub(super) fn grant_radar_upgrade_slot(&mut self, id: ObjectId, index: usize, proof: bool) {
+        let Some(object) = self.objects.get(&id) else {
+            return;
+        };
+        let Some(owner) = self.player_owner_for_host_object(object) else {
+            return;
+        };
+        let object = self.objects.get_mut(&id).unwrap();
+        object.radar_upgrade_contributors[index].push(owner);
+        if let Some(frames) = object.thing().template.radar_extend_frames {
+            object.extend_radar(self.frame.wrapping_add(frames));
+            self.radar_extend_starts = self.radar_extend_starts.saturating_add(1);
+        }
+
+        let providers = self.host_radar.providers.entry(id).or_default();
+        providers.resize_with(object.radar_upgrade_contributors.len(), Vec::new);
+        providers[index].push((owner, proof));
+        self.change_host_radar_provider(owner, proof, true);
     }
 
     pub(in crate::game_logic) fn capture_authored_radar_upgrade_slot(
@@ -218,7 +228,9 @@ impl GameLogic {
             return;
         }
         self.admit_host_radar_disabled_edges(id);
-        self.attempt_authored_radar_upgrades_with_effects(id, effects);
+        if !self.has_admitted_upgrade_roster(id) {
+            self.attempt_template_radar_upgrades_with_effects(id, effects);
+        }
         if self.host_radar_providers_are_current(id) {
             return;
         }

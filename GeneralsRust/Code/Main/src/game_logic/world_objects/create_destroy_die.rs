@@ -2602,6 +2602,12 @@ impl GameLogic {
             self.host_radar_add_object_with_effects(id, ui);
             verify_factory_birth!();
 
+            // Object.cpp:514 checks the owning Player's flags in the ctor.
+            self.update_authored_upgrade_modules_with_effects(
+                id, interpreter, ui,
+            )?;
+            verify_factory_birth!();
+
             // C++ SupplyWarehouseCreate::onCreate residual — StartingBoxes + manager register.
             self.init_supply_warehouse_create(id);
 
@@ -2701,7 +2707,9 @@ impl GameLogic {
             verify_factory_birth!();
             self.apply_factory_init_bootstrap_upgrades(id, template_name, team, owner_player_id);
             verify_factory_birth!();
-            self.apply_researched_player_upgrades_to_object_with_interpreter(id, interpreter, ui);
+            self.apply_researched_player_upgrade_residuals_to_object_with_interpreter(
+                id, interpreter, ui,
+            );
             verify_factory_birth!();
 
             if !starts_under_construction {

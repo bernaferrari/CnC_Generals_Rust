@@ -639,6 +639,9 @@ fn completed_player_upgrade_reaches_power_plant_built_afterwards() {
     // its controlling Player already owns the triggering upgrade runs the
     // PowerPlantUpgrade module; one created for a Player without it does not.
     let mut logic = GameLogic::new();
+    crate::game_logic::host_upgrade_rules::register_test_upgrade(
+        &mut logic, "Upgrade_TestRods", "PLAYER", 0, 1,
+    );
     let mut player = Player::new(0, Team::USA, "USA", true);
     player.add_completed_upgrade("Upgrade_TestRods");
     logic.players.insert(0, player);

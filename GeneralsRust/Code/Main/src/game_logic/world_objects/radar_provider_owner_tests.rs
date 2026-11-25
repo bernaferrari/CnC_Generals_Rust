@@ -458,31 +458,27 @@ fn authored_module_order_preserves_all_conflict_and_removal_observation() {
     let id = world
         .create_object_for_player("OrderedRadarModules", 1, glam::Vec3::ZERO)
         .unwrap();
-    world
-        .objects
-        .get_mut(&id)
-        .unwrap()
-        .apply_upgrade_tag("Upgrade_Blocked");
+    world.apply_upgrade_to_object(id, "Upgrade_Blocked");
     world.apply_upgrade_to_object(id, "Upgrade_First");
     assert_eq!(world.objects[&id].radar_upgrade_executed, [false, true]);
     world.apply_upgrade_to_object(id, "Upgrade_Second");
     assert_eq!(world.objects[&id].radar_upgrade_executed, [false, true]);
-    world
-        .objects
-        .get_mut(&id)
-        .unwrap()
-        .remove_upgrade_tag("Upgrade_Blocked");
+    assert!(world.remove_object_upgrade_with_receiving_rules(id, "Upgrade_Blocked"));
     world.update_player_radar();
+    assert_eq!(world.players[&1].radar_count, 1, "radar polling does not run UpgradeMux");
+    world.update_authored_upgrade_modules_with_effects(id, None, &mut Default::default()).unwrap();
     assert_eq!(world.objects[&id].radar_upgrade_executed, [true, true]);
     assert!(!world.objects[&id].has_upgrade_tag("Upgrade_First"));
-    assert_eq!(world.players[&1].radar_count, 2);
+    // The first module resets the second, which can run again using the
+    // captured combined mask. Reset does not remove its previous grant.
+    assert_eq!(world.players[&1].radar_count, 3);
     world.with_owned_radar_disabled_operation(id, |object| object.set_status_disabled_held(true));
     assert_eq!(
         world.players[&1].radar_count, 1,
         "CPP findModule adjusts only first RadarUpgrade"
     );
     world.with_owned_radar_disabled_operation(id, |object| object.set_status_disabled_held(false));
-    assert_eq!(world.players[&1].radar_count, 2);
+    assert_eq!(world.players[&1].radar_count, 3);
 }
 
 #[test]
@@ -700,6 +696,152 @@ mod bulk_retirement_order_tests {
         assert!(
             outgoing.queued_audio_events.is_empty(),
             "outgoing callback cannot observe incoming nonzero frame and emit offline sound"
+        );
+    }
+}
+
+#[test]
+fn authored_radar_removal_resets_only_siblings_that_already_ran() {
+    const UPGRADE: &str = "Upgrade_MixedRadarCost";
+    const RADAR: &str = "
+ Behavior = RadarUpgrade Radar
+  TriggeredBy = Upgrade_MixedRadarCost
+  RemovesUpgrades = Upgrade_MixedRadarCost
+ End
+";
+    const COST: &str = "
+ Behavior = CostModifierUpgrade Cost
+  TriggeredBy = Upgrade_MixedRadarCost
+  EffectKindOf = VEHICLE
+  Percentage = -25%
+ End
+";
+    fn world(radar_first: bool) -> GameLogic {
+        let (first, second) = if radar_first {
+            (RADAR, COST)
+        } else {
+            (COST, RADAR)
+        };
+        let mut world = GameLogic::new();
+        world.add_player(Player::new(1, Team::GLA, "Owner", true));
+        crate::game_logic::host_upgrade_rules::register_test_upgrade(
+            &mut world, UPGRADE, "OBJECT", 0, 1,
+        );
+        authored_template(&mut world, "MixedRadarCost", &format!("{first}{second}"));
+        world
+    }
+
+    let mut receiver = world(true);
+    let mut peer = world(false);
+    let id = receiver
+        .create_object_for_player("MixedRadarCost", 1, Vec3::ZERO)
+        .unwrap();
+    assert_eq!(
+        peer.create_object_for_player("MixedRadarCost", 1, Vec3::ZERO),
+        Some(id)
+    );
+    receiver.apply_upgrade_to_object(id, UPGRADE);
+    assert_eq!(receiver.players[&1].radar_count, 1);
+    assert_eq!(
+        receiver.objects[&id].cost_modifier_upgrade_executed,
+        [true],
+        "RadarUpgrade removes the trigger before CostModifierUpgrade runs with the captured mask"
+    );
+    assert!(peer.players[&1].kind_of_production_cost_changes.is_empty());
+    assert_eq!(peer.players[&1].radar_count, 0);
+
+    peer.apply_upgrade_to_object(id, UPGRADE);
+    assert_eq!(peer.players[&1].radar_count, 1);
+    assert_eq!(peer.objects[&id].cost_modifier_upgrade_executed, [false]);
+    let builder = crate::save_load::snapshot::SnapshotBuilder::new();
+    let snapshot = builder.create_world_snapshot(&receiver).unwrap();
+    let mut restored = world(true);
+    builder
+        .restore_from_snapshot(&snapshot, &mut restored)
+        .unwrap();
+    for world in [&mut receiver, &mut restored] {
+        assert_eq!(world.players[&1].kind_of_production_cost_changes.len(), 1);
+        world.destroy_object(id).unwrap();
+        assert!(world.players[&1].kind_of_production_cost_changes.is_empty());
+        assert_eq!(world.players[&1].radar_count, 0);
+    }
+    peer.destroy_object(id).unwrap();
+    assert_eq!(
+        peer.players[&1].kind_of_production_cost_changes.len(),
+        1,
+        "reset clears the latch without undoing the already-applied modifier"
+    );
+}
+
+#[test]
+fn resetting_authored_power_and_radar_does_not_undo_their_contributions() {
+    const UPGRADE: &str = "Upgrade_MixedPowerRadar";
+    fn world() -> GameLogic {
+        let mut world = GameLogic::new();
+        world.add_player(Player::new(1, Team::USA, "Owner", true));
+        crate::game_logic::host_upgrade_rules::register_test_upgrade(
+            &mut world, UPGRADE, "OBJECT", 0, 1,
+        );
+        world
+            .admit_object_ini_sources([(
+                "power-and-radar.ini".into(),
+                r"
+Object PowerAndRadar
+ KindOf = STRUCTURE FS_POWER
+ Body = ActiveBody Body
+  MaxHealth = 500
+  InitialHealth = 500
+ End
+ EnergyProduction = 5
+ EnergyBonus = 2
+ Behavior = PowerPlantUpgrade Rods
+  TriggeredBy = Upgrade_MixedPowerRadar
+ End
+ Behavior = RadarUpgrade Radar
+  TriggeredBy = Upgrade_MixedPowerRadar
+ End
+End
+"
+                .into(),
+            )])
+            .unwrap();
+        world
+    }
+
+    let mut receiver = world();
+    let id = receiver
+        .create_object_for_player("PowerAndRadar", 1, Vec3::ZERO)
+        .unwrap();
+    receiver.apply_upgrade_to_object(id, UPGRADE);
+    assert_eq!(receiver.objects[&id].power_provided, 7);
+    assert_eq!(receiver.players[&1].radar_count, 1);
+    assert!(receiver.remove_object_upgrade_with_receiving_rules(id, UPGRADE));
+    assert_eq!(receiver.objects[&id].power_provided, 7);
+    assert_eq!(receiver.players[&1].radar_count, 1);
+    assert_eq!(receiver.objects[&id].radar_upgrade_executed, [false]);
+
+    let builder = crate::save_load::snapshot::SnapshotBuilder::new();
+    let snapshot = builder.create_world_snapshot(&receiver).unwrap();
+    let bytes = bincode_legacy::serialize(&snapshot).unwrap();
+    let decoded = crate::save_load::snapshot::decode_bincode_world_snapshot(&bytes).unwrap();
+    let mut restored = world();
+    builder
+        .restore_from_snapshot(&decoded, &mut restored)
+        .unwrap();
+    for world in [&mut receiver, &mut restored] {
+        world.update_player_radar();
+        assert_eq!(
+            world.players[&1].radar_count, 1,
+            "polling leaves reset modules idle"
+        );
+        world.apply_upgrade_to_object(id, UPGRADE);
+        assert_eq!(world.objects[&id].power_provided, 9);
+        assert_eq!(world.players[&1].radar_count, 2);
+        world.destroy_object(id).unwrap();
+        assert_eq!(world.objects[&id].power_provided, 7);
+        assert_eq!(
+            world.players[&1].radar_count, 1,
+            "each executed callback removes one contribution"
         );
     }
 }

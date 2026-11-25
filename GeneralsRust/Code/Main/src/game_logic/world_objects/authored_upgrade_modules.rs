@@ -15,7 +15,7 @@ enum PlantPowerBonus {
 
 const CONTROL_RODS_UPGRADE_KEY_PREFIX: &str = "PowerPlantUpgrade#";
 
-fn control_rods_upgrade_key(index: usize, tag: Option<&str>) -> String {
+pub(super) fn control_rods_upgrade_key(index: usize, tag: Option<&str>) -> String {
     match tag {
         Some(tag) => format!("{CONTROL_RODS_UPGRADE_KEY_PREFIX}{tag}"),
         None => format!("{CONTROL_RODS_UPGRADE_KEY_PREFIX}PowerPlantUpgrade{index}"),
