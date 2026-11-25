@@ -47,6 +47,23 @@ impl TerrainLogic {
         }
     }
 
+    /// Admit the decoded terrain and reserve bridge layers on the same Core
+    /// match. A new map always starts with fresh layers.
+    pub(crate) fn admit_core_map(
+        &mut self,
+        map_data: crate::system::map_loader::MapData,
+        mut pathfinder: Option<&mut crate::ai::Pathfinder>,
+    ) -> Result<(), String> {
+        let bridges = self.try_load_map_geometry(map_data)?;
+        if let Some(pathfinder) = pathfinder.as_deref_mut() {
+            pathfinder.reset();
+        }
+        for (info, template) in bridges {
+            self.add_bridge_in(pathfinder.as_deref_mut(), info, template);
+        }
+        Ok(())
+    }
+
     /// Parse terrain content without discovering an AI/pathfinder owner. The
     /// caller admits returned bridges in source order and supplies their layers.
     pub fn load_map_geometry(

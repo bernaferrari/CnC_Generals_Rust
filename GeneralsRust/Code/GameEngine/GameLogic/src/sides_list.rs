@@ -15,6 +15,7 @@ use crate::scripting::{
     ScriptList, ScriptListReadInfo, XferSnapshot, parse_player_scripts_list_chunk,
 };
 use crate::system::game_logic::SubsystemInterface;
+use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::system::file::FileAccess;
 use game_engine::common::system::file_system::get_file_system;
 use game_engine::common::system::{DataChunkInfo, DataChunkInput, DataChunkOutput};
@@ -138,6 +139,10 @@ impl SidesInfo {
 
     pub fn get_script_list(&self) -> Option<&ScriptList> {
         self.scripts.as_deref()
+    }
+
+    pub(crate) fn get_script_list_mut(&mut self) -> Option<&mut ScriptList> {
+        self.scripts.as_deref_mut()
     }
 
     pub fn set_script_list(&mut self, scripts: Option<Box<ScriptList>>) {
@@ -477,6 +482,14 @@ impl SidesList {
     }
 
     pub fn add_player_by_template(&mut self, player_template_name: &AsciiString) {
+        self.add_player_by_template_with_keys(player_template_name, NameKeyGenerator::name_to_key);
+    }
+
+    fn add_player_by_template_with_keys(
+        &mut self,
+        player_template_name: &AsciiString,
+        mut key: impl FnMut(&str) -> u32,
+    ) {
         let (player_name, display_name, is_human) = if player_template_name.is_empty() {
             ("".to_string(), "Neutral".to_string(), false)
         } else {
@@ -491,87 +504,91 @@ impl SidesList {
         };
 
         let mut dict = Dict::new();
-        dict.set_ascii_string(key_player_name(), player_name.clone());
-        dict.set_bool(key_player_is_human(), is_human);
-        dict.set_unicode_string(key_player_display_name(), display_name);
-        dict.set_ascii_string(key_player_faction(), player_template_name.as_str());
-        dict.set_ascii_string(key_player_allies(), String::new());
-        dict.set_ascii_string(key_player_enemies(), String::new());
+        dict.set_ascii_string(key("playerName"), player_name.clone());
+        dict.set_bool(key("playerIsHuman"), is_human);
+        dict.set_unicode_string(key("playerDisplayName"), display_name);
+        dict.set_ascii_string(key("playerFaction"), player_template_name.as_str());
+        dict.set_ascii_string(key("playerAllies"), String::new());
+        dict.set_ascii_string(key("playerEnemies"), String::new());
         self.add_side(&dict);
 
         let mut team_dict = Dict::new();
         let mut team_name = String::from("team");
         team_name.push_str(&player_name);
-        team_dict.set_ascii_string(key_team_name(), team_name);
-        team_dict.set_ascii_string(key_team_owner(), player_name);
-        team_dict.set_bool(key_team_is_singleton(), true);
+        team_dict.set_ascii_string(key("teamName"), team_name);
+        team_dict.set_ascii_string(key("teamOwner"), player_name);
+        team_dict.set_bool(key("teamIsSingleton"), true);
         self.add_team(&team_dict);
     }
 
     pub fn validate_sides(&mut self) -> bool {
+        self.validate_sides_with_keys(NameKeyGenerator::name_to_key)
+    }
+
+    fn validate_sides_with_keys(&mut self, mut key: impl FnMut(&str) -> u32) -> bool {
         let mut modified = false;
 
         let neutral = self.sides.iter().position(|side| {
             side.get_dict()
-                .get_ascii_string(key_player_name())
+                .get_ascii_string(key("playerName"))
                 .is_empty()
         });
         if neutral.is_none() {
-            self.add_player_by_template(&AsciiString::new());
+            self.add_player_by_template_with_keys(&AsciiString::new(), &mut key);
             modified = true;
         }
 
         let side_names: Vec<String> = self
             .sides
             .iter()
-            .map(|side| side.get_dict().get_ascii_string(key_player_name()))
+            .map(|side| side.get_dict().get_ascii_string(key("playerName")))
             .collect();
         let mut pending_teams: Vec<Dict> = Vec::new();
 
         for side_index in 0..self.sides.len() {
             let player_name = self.sides[side_index]
                 .get_dict()
-                .get_ascii_string(key_player_name());
+                .get_ascii_string(key("playerName"));
             let mut default_team = String::from("team");
             default_team.push_str(&player_name);
             if let Some(index) =
                 self.teamrec.teams.iter().position(|team| {
-                    team.get_dict().get_ascii_string(key_team_name()) == default_team
+                    team.get_dict().get_ascii_string(key("teamName")) == default_team
                 })
             {
                 if let Some(team) = self.teamrec.teams.get_mut(index) {
-                    if team.get_dict().get_ascii_string(key_team_owner()) != player_name {
+                    if team.get_dict().get_ascii_string(key("teamOwner")) != player_name {
                         team.get_dict_mut()
-                            .set_ascii_string(key_team_owner(), player_name.clone());
+                            .set_ascii_string(key("teamOwner"), player_name.clone());
                         modified = true;
                     }
-                    if !team.get_dict().get_bool(key_team_is_singleton()) {
-                        team.get_dict_mut().set_bool(key_team_is_singleton(), true);
+                    if !team.get_dict().get_bool(key("teamIsSingleton")) {
+                        team.get_dict_mut().set_bool(key("teamIsSingleton"), true);
                         modified = true;
                     }
                 }
             } else {
                 let mut dict = Dict::new();
-                dict.set_ascii_string(key_team_name(), default_team);
-                dict.set_ascii_string(key_team_owner(), player_name.clone());
-                dict.set_bool(key_team_is_singleton(), true);
+                dict.set_ascii_string(key("teamName"), default_team);
+                dict.set_ascii_string(key("teamOwner"), player_name.clone());
+                dict.set_bool(key("teamIsSingleton"), true);
                 pending_teams.push(dict);
                 modified = true;
             }
 
             let allies = self.sides[side_index]
                 .get_dict()
-                .get_ascii_string(key_player_allies());
+                .get_ascii_string(key("playerAllies"));
             let enemies = self.sides[side_index]
                 .get_dict()
-                .get_ascii_string(key_player_enemies());
+                .get_ascii_string(key("playerEnemies"));
             let mut new_allies = allies.clone();
             let mut new_enemies = enemies.clone();
 
             if Self::validate_ally_enemy_list(&player_name, &allies, &mut new_allies, &side_names) {
                 self.sides[side_index]
                     .get_dict_mut()
-                    .set_ascii_string(key_player_allies(), new_allies);
+                    .set_ascii_string(key("playerAllies"), new_allies);
                 modified = true;
             }
 
@@ -579,7 +596,7 @@ impl SidesList {
             {
                 self.sides[side_index]
                     .get_dict_mut()
-                    .set_ascii_string(key_player_enemies(), new_enemies);
+                    .set_ascii_string(key("playerEnemies"), new_enemies);
                 modified = true;
             }
         }
@@ -592,7 +609,7 @@ impl SidesList {
         while index < self.teamrec.teams.len() {
             let team_name = self.teamrec.teams[index]
                 .get_dict()
-                .get_ascii_string(key_team_name());
+                .get_ascii_string(key("teamName"));
             if side_names.iter().any(|name| name == &team_name) {
                 self.remove_team(index);
                 modified = true;
@@ -602,11 +619,11 @@ impl SidesList {
         }
 
         for team in &mut self.teamrec.teams {
-            let team_name = team.get_dict().get_ascii_string(key_team_name());
-            let owner = team.get_dict().get_ascii_string(key_team_owner());
+            let team_name = team.get_dict().get_ascii_string(key("teamName"));
+            let owner = team.get_dict().get_ascii_string(key("teamOwner"));
             if !side_names.iter().any(|name| name == &owner) || owner == team_name {
                 team.get_dict_mut()
-                    .set_ascii_string(key_team_owner(), String::new());
+                    .set_ascii_string(key("teamOwner"), String::new());
                 modified = true;
             }
         }
@@ -641,7 +658,7 @@ impl SidesList {
         &mut self,
         input: &mut DataChunkInput,
         info: &DataChunkInfo,
-        parse_scripts: bool,
+        script_lists: Option<ScriptListReadInfo>,
     ) -> bool {
         self.clear();
 
@@ -689,8 +706,7 @@ impl SidesList {
             }
         }
 
-        if parse_scripts {
-            let mut script_read_info = ScriptListReadInfo::default();
+        if let Some(mut script_read_info) = script_lists {
             input.register_parser(
                 "PlayerScriptsList",
                 &info.label,
@@ -707,7 +723,7 @@ impl SidesList {
             }
         }
 
-        self.validate_sides();
+        self.validate_sides_with_keys(|name| input.intern_name(name));
         true
     }
 
@@ -716,7 +732,20 @@ impl SidesList {
         input: &mut DataChunkInput,
         info: &DataChunkInfo,
     ) -> bool {
-        self.parse_sides_data_chunk_internal(input, info, true)
+        self.parse_sides_data_chunk_internal(input, info, Some(ScriptListReadInfo::default()))
+    }
+
+    pub(crate) fn parse_sides_data_chunk_in(
+        &mut self,
+        input: &mut DataChunkInput,
+        info: &DataChunkInfo,
+        templates: ScriptTemplateLookup,
+    ) -> bool {
+        self.parse_sides_data_chunk_internal(
+            input,
+            info,
+            Some(ScriptListReadInfo::with_templates(templates)),
+        )
     }
 
     pub fn parse_sides_data_chunk_without_scripts(
@@ -724,7 +753,7 @@ impl SidesList {
         input: &mut DataChunkInput,
         info: &DataChunkInfo,
     ) -> bool {
-        self.parse_sides_data_chunk_internal(input, info, false)
+        self.parse_sides_data_chunk_internal(input, info, None)
     }
 
     pub fn write_sides_data_chunk(

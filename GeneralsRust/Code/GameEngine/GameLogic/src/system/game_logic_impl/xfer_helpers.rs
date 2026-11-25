@@ -645,28 +645,41 @@ fn xfer_partition_state_with_owner(
 #[path = "partition_xfer_owner_tests.rs"]
 mod partition_xfer_owner_tests;
 
-fn xfer_sides_list_runtime_state(xfer: &mut dyn Xfer) -> Result<(), XferStatus> {
+fn xfer_sides_list_runtime_state(
+    sides: &RwLock<crate::sides_list::SidesList>,
+    xfer: &mut dyn Xfer,
+) -> Result<(), XferStatus> {
+    use crate::scripting::XferSnapshot;
+
     let current_version: XferVersion = 1;
     let mut version = current_version;
     xfer.xfer_version(&mut version, current_version)?;
 
-    let sides = get_sides_list();
-    let mut sides_guard = sides.write().map_err(|_| XferStatus::InvalidData)?;
-    let mut side_count = sides_guard.get_num_sides() as i32;
+    let mut sides = sides.write().map_err(|_| XferStatus::InvalidData)?;
+    let mut side_count = sides.get_num_sides() as i32;
     xfer.xfer_int(&mut side_count)?;
-    if side_count != sides_guard.get_num_sides() as i32 {
+    if side_count != sides.get_num_sides() as i32 {
         return Err(XferStatus::InvalidData);
     }
 
-    for idx in 0..side_count.max(0) as usize {
-        let side = sides_guard
+    // SidesList.cpp:841–861 restores mutable script state onto the lists
+    // already decoded from the receiving map.
+    for idx in 0..side_count as usize {
+        let side = sides
             .get_side_info_mut(idx)
             .ok_or(XferStatus::InvalidData)?;
-        let mut script_list_present = side.get_script_list().is_some();
-        xfer.xfer_bool(&mut script_list_present)?;
-        let has_runtime_script_list = side.get_script_list().is_some();
-        if script_list_present != has_runtime_script_list {
+        let list = side.get_script_list_mut();
+        let mut present = list.is_some();
+        xfer.xfer_bool(&mut present)?;
+        if present != list.is_some() {
             return Err(XferStatus::InvalidData);
+        }
+        if let Some(list) = list {
+            list.xfer(&mut CommonXferBridge { inner: xfer })
+                .map_err(|error| {
+                    warn!("Core side {idx} script list Xfer failed: {error:?}");
+                    XferStatus::InvalidData
+                })?;
         }
     }
 

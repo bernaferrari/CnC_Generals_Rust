@@ -497,6 +497,7 @@ End
         let world = logic.owning_world_services().unwrap();
         let mut teams = TeamFactorySnapshotBridge(world.team_factory().clone());
         let mut players = PlayerListSnapshotBridge(world.players().clone());
+        let mut sides = SidesListSnapshotBridge(world.sides().clone());
         let mut campaign = Default::default();
         run(&mut [
             BorrowedSnapshotBlock {
@@ -514,46 +515,74 @@ End
                 block_name: "CHUNK_Players",
                 snapshot: &mut players,
             },
+            BorrowedSnapshotBlock {
+                block_name: "CHUNK_SidesList",
+                snapshot: &mut sides,
+            },
         ])
     }
 
-    fn write_bridge_save_map(path: &std::path::Path) {
-        let chunk = |label: u32, version: u16, payload: &[u8]| {
-            let mut bytes = label.to_le_bytes().to_vec();
-            bytes.extend(version.to_le_bytes());
-            bytes.extend((payload.len() as i32).to_le_bytes());
-            bytes.extend(payload);
-            bytes
-        };
-        let mut height = Vec::new();
+    fn write_bridge_save_map(path: &std::path::Path, action_key: u32) {
+        use crate::common::well_known_keys::key_player_name;
+        use crate::scripting::core::ScriptActionType;
+        use game_engine::common::system::DataChunkOutput;
+
+        let mut map = DataChunkOutput::new();
+        map.open_data_chunk("HeightMapData", 4);
         // Version 4 includes an explicit playable boundary.
-        for value in [12i32, 8, 0, 1, 11, 7, 96] {
-            height.extend(value.to_le_bytes());
+        for value in [12, 8, 0, 1, 11, 7, 96] {
+            map.write_int(value);
         }
-        height.extend([0; 96]);
-        let mut objects = Vec::new();
-        for (x, flags) in [(40.0_f32, 0x10i32), (80.0, 0x20)] {
-            let mut bytes = x.to_le_bytes().to_vec();
-            for value in [35.0_f32, 24.0, 0.0] {
-                bytes.extend(value.to_le_bytes());
+        for _ in 0..96 {
+            map.write_byte(0);
+        }
+        map.close_data_chunk();
+
+        map.open_data_chunk("ObjectsList", 1);
+        const BRIDGE_FROM: i32 = 0x10;
+        const BRIDGE_TO: i32 = 0x20;
+        for (x, flag) in [(40.0, BRIDGE_FROM), (80.0, BRIDGE_TO)] {
+            map.open_data_chunk("Object", 3);
+            for value in [x, 35.0, 24.0, 0.0] {
+                map.write_real(value);
             }
-            bytes.extend(flags.to_le_bytes());
-            let name = b"SavedBridgeFixture";
-            bytes.extend((name.len() as u16).to_le_bytes());
-            bytes.extend(name);
-            bytes.extend(0u16.to_le_bytes());
-            objects.extend(chunk(3, 3, &bytes));
+            map.write_int(flag);
+            map.write_ascii_string("SavedBridgeFixture");
+            map.write_dict(&Default::default());
+            map.close_data_chunk();
         }
-        let mut map = b"CkMp".to_vec();
-        map.extend(3i32.to_le_bytes());
-        for (name, id) in [("HeightMapData", 1u32), ("ObjectsList", 2), ("Object", 3)] {
-            map.push(name.len() as u8);
-            map.extend(name.as_bytes());
-            map.extend(id.to_le_bytes());
+        map.close_data_chunk();
+
+        let mut side = crate::common::Dict::new();
+        side.set_ascii_string(key_player_name(), "MapOwner");
+        map.open_data_chunk("SidesList", 2);
+        map.write_int(1);
+        map.write_dict(&side);
+        map.write_int(0); // build list count
+        map.write_int(0); // team count
+
+        map.open_data_chunk("PlayerScriptsList", 1);
+        map.open_data_chunk("ScriptList", 1);
+        map.open_data_chunk("Script", 2);
+        for text in ["Bridge Map Script", "", "", ""] {
+            map.write_ascii_string(text);
         }
-        map.extend(chunk(1, 4, &height));
-        map.extend(chunk(2, 1, &objects));
-        std::fs::write(path, map).unwrap();
+        for flag in [1, 0, 1, 1, 1, 0] {
+            map.write_byte(flag);
+        }
+        map.write_int(0);
+        map.open_data_chunk("ScriptAction", 2);
+        // C++ rematches the key when the ordinal no longer matches.
+        map.write_int(ScriptActionType::NoOp as i32);
+        map.write_name_key(action_key);
+        map.write_int(0);
+        map.close_data_chunk(); // action
+        map.close_data_chunk(); // script
+        map.close_data_chunk(); // script list
+        map.close_data_chunk(); // player scripts list
+        map.close_data_chunk(); // sides
+
+        std::fs::write(path, map.into_ckmp_bytes()).unwrap();
     }
 
     #[test]
@@ -584,9 +613,14 @@ End
         let deck = Coord3D::new(60.0, 35.0, 24.0);
         let root = unique_temp_dir("bridge");
         let map_path = root.join("saved_bridge.map");
-        write_bridge_save_map(&map_path);
-        let authored = r#"
+        let build_world = |minor_radius: u32| {
+            let authored = format!(
+                r#"
 Object SavedBridgeFixture
+  Geometry = BOX
+  GeometryMajorRadius = 20
+  GeometryMinorRadius = {minor_radius}
+  GeometryHeight = 4
   KindOf = BRIDGE IMMOBILE
   Body = ActiveBody ModuleTag_Body
     MaxHealth = 100
@@ -595,8 +629,8 @@ Object SavedBridgeFixture
   Behavior = BridgeBehavior ModuleTag_Bridge
   End
 End
-"#;
-        let build_world = || {
+"#
+            );
             let core = Arc::new(EngineStores::new_for_world());
             admit_fixture_neutral_player(core.services());
             with_active_stores(&core, || {
@@ -605,7 +639,7 @@ End
                 game_engine::common::global_data::global_data_arc();
                 assert_eq!(
                     game_engine::common::thing::thing_factory::load_templates_from_ini_text(
-                        authored,
+                        &authored,
                         "core-saved-bridge.ini",
                     ),
                     1
@@ -613,9 +647,99 @@ End
             });
             core
         };
-        let source = build_world();
-        let receiver = build_world();
-        let peer = build_world();
+        let source = build_world(14);
+        let receiver = build_world(14);
+        let peer = build_world(33);
+        for world in [&source, &receiver] {
+            world
+                .services()
+                .scripts()
+                .initialize_engine(world.services())
+                .unwrap();
+        }
+        use crate::scripting::{chunk_codec::ScriptTemplateLookup, core::ScriptActionType};
+        with_active_stores(&source, || {
+            let slot = source.services().scripts().engine().read().unwrap();
+            let action_key = ScriptTemplateLookup::from_engine(slot.as_ref().unwrap())
+                .action_key(ScriptActionType::Victory)
+                .unwrap();
+            write_bridge_save_map(&map_path, action_key);
+        });
+        let peer_player_name_key = with_active_stores(&peer, || {
+            use game_engine::common::name_key_generator::NameKeyGenerator;
+            for index in 0..16 {
+                NameKeyGenerator::name_to_key(&format!("PeerName{index}"));
+            }
+            peer.services()
+                .sides()
+                .write()
+                .unwrap()
+                .add_player_by_template(&"FactionPeer".into());
+            NameKeyGenerator::name_to_key("playerName")
+        });
+        let check_map_sides = |owner: &EngineStores, script_active: bool| {
+            let names = owner.services().common().name_key_namespace.lock().unwrap();
+            let player_name_key = names.key_for_name("playerName").unwrap();
+            assert_ne!(player_name_key, peer_player_name_key);
+            let sides = owner.services().sides().read().unwrap();
+            assert_eq!(sides.get_num_sides(), 2);
+            assert_eq!(
+                sides
+                    .get_side_info(0)
+                    .unwrap()
+                    .get_dict()
+                    .get_ascii_string(player_name_key),
+                "MapOwner"
+            );
+            assert_eq!(
+                sides
+                    .get_side_info(1)
+                    .unwrap()
+                    .get_dict()
+                    .get_ascii_string(player_name_key),
+                ""
+            );
+            let script = sides
+                .get_side_info(0)
+                .unwrap()
+                .get_script_list()
+                .unwrap()
+                .first_script
+                .as_ref()
+                .unwrap();
+            assert_eq!(
+                script.action.as_ref().unwrap().action_type,
+                ScriptActionType::Victory
+            );
+            assert_eq!(script.is_active, script_active);
+        };
+        // The same map-admission phase also runs at ordinary Core startup.
+        with_active_stores(&peer, || {
+            use crate::system::game_initialization::{GameInitializer, GameState};
+            let mut startup = GameState::new();
+            GameInitializer::load_map_in(&mut startup, map_path.to_str().unwrap(), &source, None)
+                .unwrap();
+            assert_eq!(startup.map_loader.get_bridges()[0].width, 28.0);
+            let terrain = source.services().terrain().read().unwrap();
+            let bridge = terrain.find_bridge_at(&deck).unwrap();
+            assert_eq!(bridge.get_bridge_info().bridge_width, 28.0);
+            assert_eq!(bridge.get_layer(), PathfindLayerEnum::Top);
+            check_map_sides(&source, true);
+            assert!(!peer.services().terrain().read().unwrap().has_height_map());
+        });
+        source
+            .services()
+            .sides()
+            .write()
+            .unwrap()
+            .get_side_info_mut(0)
+            .unwrap()
+            .get_script_list_mut()
+            .unwrap()
+            .first_script
+            .as_mut()
+            .unwrap()
+            .is_active = false;
         let mut original = GameLogic::new_with_engine_stores(source.clone());
         let mut restored = GameLogic::new_with_engine_stores(receiver.clone());
         let mut peer_logic = GameLogic::new_with_engine_stores(peer.clone());
@@ -696,6 +820,11 @@ End
             let (layer, bridge_id) = {
                 let terrain = terrain.read().unwrap();
                 let bridge = terrain.find_bridge_at(&deck).expect("authored map bridge");
+                assert_eq!(
+                    bridge.get_bridge_info().bridge_width,
+                    28.0,
+                    "the receiving template defines the headless bridge width"
+                );
                 (
                     bridge.get_layer(),
                     bridge.get_bridge_info().bridge_object_id,
@@ -708,6 +837,18 @@ End
             );
             assert_eq!(layer, PathfindLayerEnum::Top);
             assert_eq!(bridge_id, ID);
+            check_map_sides(&receiver, false);
+            let peer_sides = peer.services().sides().read().unwrap();
+            assert_eq!(peer_sides.get_num_sides(), 1);
+            assert_eq!(
+                peer_sides
+                    .get_side_info(0)
+                    .unwrap()
+                    .get_dict()
+                    .get_ascii_string(peer_player_name_key),
+                "PlyrPeer"
+            );
+            drop(peer_sides);
             assert_eq!(
                 restored
                     .find_object_by_id(ID)

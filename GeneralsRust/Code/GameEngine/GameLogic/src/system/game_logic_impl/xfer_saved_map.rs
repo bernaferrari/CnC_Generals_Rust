@@ -47,10 +47,12 @@ impl SavedMapRuntime for GameLogic {
             .ok_or(XferStatus::InvalidData)?;
         let common = world.common();
         let path = std::path::Path::new(&saved.map_name);
-        let geometry = MapLoader::load(path).map_err(|error| {
+        let mut loader = MapLoader::new();
+        loader.load_map_in(path, &world).map_err(|error| {
             warn!("Saved map {}: {error:?}", path.display());
             XferStatus::InvalidData
         })?;
+        let geometry = loader.to_map_data();
         TerrainLogic::validate_map_geometry(&geometry).map_err(|error| {
             warn!("Saved map geometry: {error}");
             XferStatus::InvalidData
@@ -78,6 +80,11 @@ impl SavedMapRuntime for GameLogic {
             data.write().map_name.clone_from(&saved.map_name);
         }
 
+        loader.install_sides_in(world.sides()).map_err(|error| {
+            warn!("Saved map sides: {error}");
+            XferStatus::InvalidData
+        })?;
+
         {
             let mut terrain = world
                 .terrain()
@@ -85,10 +92,6 @@ impl SavedMapRuntime for GameLogic {
                 .map_err(|_| XferStatus::InvalidData)?;
             terrain.reset();
             terrain.set_source_filename(saved.map_name.as_str().into());
-            let bridges = terrain.try_load_map_geometry(geometry).map_err(|error| {
-                warn!("Saved map admission: {error}");
-                XferStatus::InvalidData
-            })?;
             let pathfinder = self
                 .pathfinding_owner
                 .as_ref()
@@ -97,14 +100,12 @@ impl SavedMapRuntime for GameLogic {
                 .as_ref()
                 .map(|pathfinder| pathfinder.write().map_err(|_| XferStatus::InvalidData))
                 .transpose()?;
-            // A newly admitted map owns fresh layers even if the previous
-            // map happened to have the same dimensions.
-            if let Some(pathfinder) = pathfinder.as_deref_mut() {
-                pathfinder.reset();
-            }
-            for (bridge, template) in bridges {
-                terrain.add_bridge_in(pathfinder.as_deref_mut(), bridge, template);
-            }
+            terrain
+                .admit_core_map(geometry, pathfinder.as_deref_mut())
+                .map_err(|error| {
+                    warn!("Saved map admission: {error}");
+                    XferStatus::InvalidData
+                })?;
             let definitions = definitions.as_ref().map(|data| data.read());
             terrain.new_map_with_water_configuration(
                 true,

@@ -9,10 +9,10 @@
 
 use super::game_start::{GameStartSequence, ScriptResult};
 use super::map_loader::{Coord3D, MapCache, MapLoader};
+use super::engine_stores::EngineStores;
 use super::player_init::{Difficulty, PlayerInitializer, PlayerList, make_player_template};
 use super::victory_conditions::{ScoreKeeper, VictoryConditions, VictoryType};
 use crate::ai::integration::{initialize_ai_integration, with_ai_integration_mut};
-use crate::ai::the_ai;
 use crate::common::well_known_keys::{
     key_multiplayer_start_index, key_player_allies, key_player_color, key_player_display_name,
     key_player_enemies, key_player_faction, key_player_is_human, key_player_is_preorder,
@@ -226,7 +226,10 @@ impl GameInitializer {
                 .update_load_screen(LOAD_PROGRESS_POST_PARTICLE_INI_LOAD)
                 .map_err(std::io::Error::other)?;
         }
-        Self::load_map(&mut game_state, &params.map_path)?;
+        let owner = super::engine_stores::active();
+        Self::load_map_sidecar_resources(owner.services(), &params.map_path);
+        let mut delivery = crate::terrain_water::publish_map_water_legacy_native;
+        Self::load_map_in(&mut game_state, &params.map_path, &owner, Some(&mut delivery))?;
         if let Some(hooks) = load_screen_hooks.as_deref_mut() {
             hooks
                 .update_load_screen(LOAD_PROGRESS_POST_LOAD_MAP)
@@ -299,28 +302,68 @@ impl GameInitializer {
         }
     }
 
-    /// Phase 1: Load map from file
-    fn load_map(game_state: &mut GameState, map_path: &str) -> io::Result<()> {
+    /// Phase 1 of ordinary Core startup. The sidecars have already been read.
+    pub(crate) fn load_map_in(
+        game_state: &mut GameState,
+        map_path: &str,
+        owner: &EngineStores,
+        deliver_water: Option<&mut dyn FnMut(&crate::terrain_water::WaterGridState)>,
+    ) -> io::Result<()> {
         println!("[INIT] Phase 1: Loading map from {}", map_path);
-
-        // C++ parity: load map.ini/solo.ini and map.str before terrain map load.
-        // This legacy initializer runs for the world published around it; its
-        // map text goes to that world only.
-        let world = crate::system::engine_stores::active_services();
-        Self::load_map_sidecar_resources(&world, map_path);
-
-        // Load the .map file
-        game_state.map_loader.load_map(map_path)?;
+        let world = owner.services();
+        game_state
+            .map_loader
+            .load_map_in(Path::new(map_path), world)?;
         let map_data = game_state.map_loader.to_map_data();
+        crate::terrain::TerrainLogic::validate_map_geometry(&map_data).map_err(io::Error::other)?;
+        game_state.map_loader.install_sides_in(world.sides())?;
 
-        let ai_store = the_ai();
-        if let Ok(mut ai) = ai_store.write() {
-            ai.init();
-        }
-        if let Ok(mut terrain) = crate::terrain::get_terrain_logic().write() {
+        let pathfinder = {
+            let mut ai = owner
+                .ai()
+                .write()
+                .map_err(|error| io::Error::other(error.to_string()))?;
+            let store = owner.ai_data().read().ok();
+            ai.init_with_authored_data(store.as_deref().and_then(|store| store.get_active()));
+            ai.pathfinder()
+        };
+        {
+            let mut terrain = world
+                .terrain()
+                .write()
+                .map_err(|error| io::Error::other(error.to_string()))?;
+            let mut pathfinder = pathfinder
+                .as_ref()
+                .map(|owner| {
+                    owner
+                        .write()
+                        .map_err(|error| io::Error::other(error.to_string()))
+                })
+                .transpose()?;
+            terrain
+                .admit_core_map(map_data, pathfinder.as_deref_mut())
+                .map_err(io::Error::other)?;
+            drop(pathfinder);
             terrain.set_source_filename(AsciiString::from(map_path));
-            terrain.load_map_data(map_data);
-            terrain.new_map(false);
+
+            let definitions = world
+                .common()
+                .system
+                .global_data
+                .lock()
+                .map_err(|error| io::Error::other(error.to_string()))?
+                .clone();
+            let definitions = definitions.as_ref().map(|data| data.read().clone());
+            let source = definitions
+                .as_ref()
+                .map(|data| data.map_name.as_str())
+                .unwrap_or("");
+            terrain.new_map_with_water_configuration(
+                false,
+                source,
+                definitions.as_ref(),
+                deliver_water,
+            );
         }
 
         let heightmap = game_state.map_loader.get_heightmap();

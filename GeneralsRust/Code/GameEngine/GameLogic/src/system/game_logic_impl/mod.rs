@@ -100,7 +100,6 @@ use crate::object::drawable::DrawableExt;
 use crate::object::{Object, the_ghost_object_manager, registry::OBJECT_REGISTRY};
 use crate::player::{GameDifficulty, Player, PlayerIndex, PlayerType, player_list};
 use crate::scripting::engine::{ScriptEngine, get_script_engine, initialize_script_engine};
-use crate::sides_list::get_sides_list;
 use crate::system::beacon_manager::{BeaconUpdate, drain_beacon_updates};
 use crate::system::radar_notifier;
 use crate::system::shroud_manager::get_shroud_manager;

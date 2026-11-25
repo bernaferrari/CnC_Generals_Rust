@@ -1147,21 +1147,21 @@ impl AI {
     /// Initialize the AI system
     /// Matches C++ AI::init() at AI.cpp:296
     pub fn init(&mut self) {
-        self.next_group_id = 0;
-
-        let ini_store = get_ai_data_store();
-        if let Ok(ini_store) = ini_store.read() {
-            if let Some(ini_data) = ini_store.get_active() {
-                self.init_from_authored_data(ini_data);
-            }
-        }
+        let store = get_ai_data_store();
+        let store = store.read().ok();
+        self.init_with_authored_data(store.as_deref().and_then(|store| store.get_active()));
     }
 
     /// Install authored rules on this AI instance without discovering an active store.
-    /// The startup adapter above retains C++ AI::init lookup order.
     pub fn init_from_authored_data(&mut self, data: &IniAIData) {
+        self.init_with_authored_data(Some(data));
+    }
+
+    pub(crate) fn init_with_authored_data(&mut self, data: Option<&IniAIData>) {
         self.next_group_id = 0;
-        self.ai_data = config::convert_ai_data(data);
+        if let Some(data) = data {
+            self.ai_data = config::convert_ai_data(data);
+        }
     }
 
     /// Reset the AI system in preparation for a new map

@@ -222,10 +222,18 @@ impl<'a> DataChunkInput<'a> {
         input
     }
 
-    fn intern_name(&mut self, name: &str) -> u32 {
+    /// Resolve a field name in the same namespace used by decoded dictionaries.
+    pub fn intern_name(&mut self, name: &str) -> u32 {
         match self.names.as_deref_mut() {
             Some(names) => names.name_to_key(name),
             None => NameKeyGenerator::name_to_key(name),
+        }
+    }
+
+    pub fn name_for_key(&self, key: u32) -> Option<String> {
+        match self.names.as_deref() {
+            Some(names) => names.key_to_name(key),
+            None => NameKeyGenerator::key_to_name(key),
         }
     }
 

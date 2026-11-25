@@ -253,15 +253,15 @@ impl XferSnapshotTrait for TeamFactorySnapshotBridge {
     }
 }
 
-struct SidesListSnapshotBridge;
+struct SidesListSnapshotBridge(Arc<RwLock<crate::sides_list::SidesList>>);
 
 impl XferSnapshotTrait for SidesListSnapshotBridge {
-    fn crc(&mut self, xfer: &mut dyn Xfer) -> Result<(), XferStatus> {
-        self.xfer(xfer)
+    fn crc(&mut self, _xfer: &mut dyn Xfer) -> Result<(), XferStatus> {
+        Ok(())
     }
 
     fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), XferStatus> {
-        xfer_sides_list_runtime_state(xfer)
+        xfer_sides_list_runtime_state(&self.0, xfer)
     }
 
     fn load_post_process(&mut self) -> Result<(), XferStatus> {
@@ -366,12 +366,12 @@ fn register_game_logic_snapshot_block() {
     );
     state.add_snapshot_block(
         "CHUNK_SidesList".to_string(),
-        Box::new(SidesListSnapshotBridge),
+        Box::new(SidesListSnapshotBridge(Arc::clone(world.sides()))),
         game_engine::System::SnapshotType::SaveLoad,
     );
     state.add_snapshot_block(
         "CHUNK_SidesList".to_string(),
-        Box::new(SidesListSnapshotBridge),
+        Box::new(SidesListSnapshotBridge(Arc::clone(world.sides()))),
         game_engine::System::SnapshotType::DeepCrcLogicOnly,
     );
     state.add_snapshot_block(

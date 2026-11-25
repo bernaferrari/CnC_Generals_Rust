@@ -12,13 +12,16 @@ use std::collections::HashMap;
 use std::fs::File;
 use std::io::{self, Read};
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, RwLock};
 
-use crate::common::KindOf;
+use crate::common::{KindOf, ThingTemplate};
 use crate::helpers::TheThingFactory;
 use crate::polygon_trigger::{PolygonTrigger, PolygonTriggerList};
-use crate::sides_list::get_sides_list;
+use crate::scripting::chunk_codec::ScriptTemplateLookup;
+use crate::sides_list::{SidesList, get_sides_list};
+use crate::system::engine_stores::WorldServices;
 use game_engine::common::dict::{Dict, DictType};
-use game_engine::common::name_key_generator::NameKeyGenerator;
+use game_engine::common::name_key_generator::NameKeyNamespace;
 use game_engine::common::system::DataChunkInfo;
 use game_engine::common::system::DataChunkInput;
 use game_engine::common::system::compression::{decompress_data, is_data_compressed};
@@ -248,6 +251,7 @@ pub struct MapLoader {
     polygon_triggers: Vec<PolygonTrigger>,
     waypoint_defs: Vec<MapWaypoint>,
     waypoint_links: Vec<(u32, u32)>,
+    sides: Option<SidesList>,
 }
 
 impl MapLoader {
@@ -262,6 +266,7 @@ impl MapLoader {
             polygon_triggers: Vec::new(),
             waypoint_defs: Vec::new(),
             waypoint_links: Vec::new(),
+            sides: None,
         }
     }
 
@@ -314,54 +319,91 @@ impl MapLoader {
     /// Load a map file from the given path
     /// Matches C++ loadMap() from MapUtil.cpp:214
     pub fn load_map<P: AsRef<Path>>(&mut self, filename: P) -> io::Result<()> {
-        let path = filename.as_ref();
+        self.load_map_from_bytes(&Self::read_map_file(filename.as_ref())?)
+    }
 
-        // Validate file extension
-        if !path.extension().map_or(false, |ext| ext == "map") {
+    /// Decode the map, then resolve its authored objects in the receiving catalog.
+    /// The caller installs the parsed sides when it admits the map.
+    pub(crate) fn load_map_in(&mut self, path: &Path, world: &WorldServices) -> io::Result<()> {
+        let bytes = Self::read_map_file(path)?;
+        let templates = world
+            .scripts()
+            .engine()
+            .read()
+            .map_err(|error| io::Error::other(error.to_string()))?
+            .as_ref()
+            .map(ScriptTemplateLookup::from_engine)
+            .unwrap_or_default();
+        let common = world.common();
+        let decoded = {
+            let mut names = common
+                .name_key_namespace
+                .lock()
+                .map_err(|error| io::Error::other(error.to_string()))?;
+            Self::parse_map_data(&bytes, true, Some(&mut names), Some(templates))?
+        };
+        self.accept_decoded(decoded, |name| {
+            TheThingFactory::find_template_in(common, name)
+        });
+        Ok(())
+    }
+
+    fn read_map_file(path: &Path) -> io::Result<Vec<u8>> {
+        if !path.extension().is_some_and(|ext| ext == "map") {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidInput,
                 "File must have .map extension",
             ));
         }
-
-        // Open file
         let mut file = File::open(path)?;
-        let mut buffer = Vec::new();
-        file.read_to_end(&mut buffer)?;
-
-        // Parse map data (simplified - would use DataChunk system in full implementation)
-        self.parse_map_data(&buffer, true)?;
-
-        Ok(())
+        let mut bytes = Vec::new();
+        file.read_to_end(&mut bytes)?;
+        Ok(bytes)
     }
 
     /// Load map data from raw bytes (used by archive-backed file systems).
     pub fn load_map_from_bytes(&mut self, data: &[u8]) -> io::Result<()> {
-        self.parse_map_data(data, true)
+        self.load_with_legacy_services(data, true)
     }
 
     /// Load only the chunks needed to rebuild runtime terrain/sides/waypoint state.
     ///
-    /// This intentionally skips full `ObjectsList` parsing because higher-level callers may
-    /// already have object placement data from a separate map pipeline and only need legacy
-    /// runtime support structures such as sides, waypoints, polygon triggers, and heightmap.
+    /// This skips `ObjectsList` because these callers already have placement data.
     pub fn load_runtime_support_from_bytes(&mut self, data: &[u8]) -> io::Result<()> {
-        self.parse_map_data(data, false)
+        self.load_with_legacy_services(data, false)
     }
 
-    /// Parse map binary data
-    /// Reference: C++ MapUtil.cpp:214-255 loadMap()
-    /// Reference: C++ MapUtil.cpp:167-207 ParseSizeOnly() for heightmap
-    /// Reference: C++ MapUtil.cpp:105-152 ParseObjectDataChunk() for objects
-    ///
-    /// Generals .map files use a chunked binary format:
-    /// - Each chunk has: type string, label string, version, size, data
-    /// - Main chunks: HeightMapData, WorldInfo, ObjectsList
-    fn parse_map_data(&mut self, data: &[u8], include_objects: bool) -> io::Result<()> {
-        self.polygon_triggers.clear();
+    fn load_with_legacy_services(&mut self, bytes: &[u8], include_objects: bool) -> io::Result<()> {
+        let decoded = Self::parse_map_data(bytes, include_objects, None, None)?;
+        self.accept_decoded(decoded, |name| TheThingFactory::find_template(name));
+        if self.sides.is_some() {
+            self.install_sides_in(&get_sides_list())?;
+        }
+        Ok(())
+    }
 
-        let chunk_bytes = Self::decode_map_chunk_bytes(data)?;
-        let mut input = DataChunkInput::new(chunk_bytes.into_owned());
+    /// A SidesList chunk replaces the receiving authored sides (MapUtil.cpp).
+    pub(crate) fn install_sides_in(&mut self, owner: &RwLock<SidesList>) -> io::Result<()> {
+        if let Some(sides) = self.sides.take() {
+            *owner
+                .write()
+                .map_err(|error| io::Error::other(error.to_string()))? = sides;
+        }
+        Ok(())
+    }
+
+    /// Decode DataChunk content with the supplied namespace and script definitions.
+    fn parse_map_data(
+        data: &[u8],
+        include_objects: bool,
+        names: Option<&mut NameKeyNamespace>,
+        script_templates: Option<ScriptTemplateLookup>,
+    ) -> io::Result<MapParseContext> {
+        let chunk_bytes = Self::decode_map_chunk_bytes(data)?.into_owned();
+        let mut input = match names {
+            Some(names) => DataChunkInput::with_namespace(chunk_bytes, names),
+            None => DataChunkInput::new(chunk_bytes),
+        };
         if !input.is_valid_file_type() {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidData,
@@ -369,7 +411,7 @@ impl MapLoader {
             ));
         }
 
-        let mut context = MapParseContext::new();
+        let mut context = MapParseContext::new(script_templates);
         input.register_parser("HeightMapData", "", parse_heightmap_size_chunk);
         input.register_parser("WorldInfo", "", parse_world_info_chunk);
         if include_objects {
@@ -400,17 +442,44 @@ impl MapLoader {
             ));
         }
 
+        Ok(context)
+    }
+
+    fn accept_decoded(
+        &mut self,
+        context: MapParseContext,
+        template: impl Fn(&str) -> Option<Arc<dyn ThingTemplate>>,
+    ) {
         self.heightmap = context.heightmap;
         self.world_dict = context.world_dict;
         self.waypoints = context.waypoints;
-        self.tech_positions = context.tech_positions;
-        self.supply_positions = context.supply_positions;
         self.polygon_triggers = context.triggers.get_triggers().to_vec();
         self.waypoint_defs = context.waypoint_defs;
         self.waypoint_links = context.waypoint_links;
-        self.bridges = context.bridges;
+        self.sides = context.sides;
 
-        Ok(())
+        self.tech_positions.clear();
+        self.supply_positions.clear();
+        for (name, location) in context.placed_objects {
+            if let Some(template) = template(&name) {
+                if template.is_kind_of(KindOf::TechBuilding) {
+                    self.tech_positions.push(location);
+                } else if template.is_kind_of(KindOf::SupplySourceOnPreview) {
+                    self.supply_positions.push(location);
+                }
+            }
+        }
+        self.bridges = context
+            .bridges
+            .into_iter()
+            .map(|span| {
+                let width = template(&span.template_name)
+                    .map(|template| template.get_template_geometry_info().get_minor_radius() * 2.0)
+                    .filter(|&width| width > 0.0)
+                    .unwrap_or(MAP_XY_FACTOR * 2.0);
+                BridgeData::new(span.from, span.to, width, span.template_name)
+            })
+            .collect();
     }
 
     fn decode_map_chunk_bytes(data: &[u8]) -> io::Result<Cow<'_, [u8]>> {
@@ -486,6 +555,7 @@ impl MapLoader {
         self.polygon_triggers.clear();
         self.waypoint_defs.clear();
         self.waypoint_links.clear();
+        self.sides = None;
     }
 }
 
@@ -493,27 +563,29 @@ struct MapParseContext {
     heightmap: HeightMap,
     world_dict: HashMap<String, String>,
     waypoints: WaypointMap,
-    tech_positions: Vec<Coord3D>,
-    supply_positions: Vec<Coord3D>,
+    placed_objects: Vec<(String, Coord3D)>,
     triggers: PolygonTriggerList,
     waypoint_defs: Vec<MapWaypoint>,
     waypoint_links: Vec<(u32, u32)>,
-    bridges: Vec<BridgeData>,
+    bridges: Vec<BridgeEndpoints>,
+    sides: Option<SidesList>,
+    script_templates: Option<ScriptTemplateLookup>,
     pending_bridges: HashMap<String, Vec<PendingBridge>>,
 }
 
 impl MapParseContext {
-    fn new() -> Self {
+    fn new(script_templates: Option<ScriptTemplateLookup>) -> Self {
         Self {
             heightmap: HeightMap::new(),
             world_dict: HashMap::new(),
             waypoints: HashMap::new(),
-            tech_positions: Vec::new(),
-            supply_positions: Vec::new(),
+            placed_objects: Vec::new(),
             triggers: PolygonTriggerList::new(),
             waypoint_defs: Vec::new(),
             waypoint_links: Vec::new(),
             bridges: Vec::new(),
+            sides: None,
+            script_templates,
             pending_bridges: HashMap::new(),
         }
     }
@@ -599,7 +671,7 @@ fn parse_world_info_chunk(
     };
 
     let dict = input.read_dict();
-    ctx.world_dict = dict_to_string_map(&dict);
+    ctx.world_dict = dict_to_string_map(&dict, input);
     true
 }
 
@@ -635,19 +707,19 @@ fn parse_object_chunk(
         Dict::new()
     };
 
-    let waypoint_key = NameKeyGenerator::name_to_key("waypointID");
+    let waypoint_key = input.intern_name("waypointID");
     if let Some(id) = dict_get_int(&dict, waypoint_key) {
-        let name_key = NameKeyGenerator::name_to_key("waypointName");
+        let name_key = input.intern_name("waypointName");
         let waypoint_name = dict_get_string(&dict, name_key);
         let resolved = if waypoint_name.is_empty() {
             name.clone()
         } else {
             waypoint_name
         };
-        let label1_key = NameKeyGenerator::name_to_key("waypointPathLabel1");
-        let label2_key = NameKeyGenerator::name_to_key("waypointPathLabel2");
-        let label3_key = NameKeyGenerator::name_to_key("waypointPathLabel3");
-        let bidir_key = NameKeyGenerator::name_to_key("waypointPathBiDirectional");
+        let label1_key = input.intern_name("waypointPathLabel1");
+        let label2_key = input.intern_name("waypointPathLabel2");
+        let label3_key = input.intern_name("waypointPathLabel3");
+        let bidir_key = input.intern_name("waypointPathBiDirectional");
 
         let waypoint = MapWaypoint {
             id: id as u32,
@@ -664,18 +736,11 @@ fn parse_object_chunk(
         return true;
     }
 
-    if let Some(template) = TheThingFactory::find_template(&name) {
-        if template.is_kind_of(KindOf::TechBuilding) {
-            ctx.tech_positions.push(loc);
-        } else if template.is_kind_of(KindOf::SupplySourceOnPreview) {
-            ctx.supply_positions.push(loc);
-        }
-    }
-
     if (flags & (FLAG_BRIDGE_POINT1 | FLAG_BRIDGE_POINT2)) != 0 {
         let is_point1 = (flags & FLAG_BRIDGE_POINT1) != 0;
-        add_bridge_point(ctx, name, loc, is_point1);
+        add_bridge_point(ctx, &name, loc, is_point1);
     }
+    ctx.placed_objects.push((name, loc));
 
     true
 }
@@ -706,13 +771,16 @@ fn parse_waypoints_list_chunk(
 fn parse_sides_list_chunk(
     input: &mut DataChunkInput,
     info: &DataChunkInfo,
-    _user_data: &mut dyn std::any::Any,
+    user_data: &mut dyn std::any::Any,
 ) -> bool {
-    let sides_list = get_sides_list();
-    let Ok(mut sides) = sides_list.write() else {
+    let Some(ctx) = map_parse_context(user_data) else {
         return false;
     };
-    sides.parse_sides_data_chunk(input, info)
+    let sides = ctx.sides.get_or_insert_with(SidesList::new);
+    match ctx.script_templates.as_ref() {
+        Some(templates) => sides.parse_sides_data_chunk_in(input, info, templates.clone()),
+        None => sides.parse_sides_data_chunk(input, info),
+    }
 }
 
 fn parse_polygon_triggers_chunk(
@@ -730,14 +798,14 @@ fn parse_polygon_triggers_chunk(
     )
 }
 
-fn dict_to_string_map(dict: &Dict) -> HashMap<String, String> {
+fn dict_to_string_map(dict: &Dict, input: &DataChunkInput) -> HashMap<String, String> {
     let mut result = HashMap::new();
     let count = dict.get_pair_count();
     for idx in 0..count {
         let Some(key) = dict.get_nth_key(idx) else {
             continue;
         };
-        let name = NameKeyGenerator::key_to_name(key).unwrap_or_default();
+        let name = input.name_for_key(key).unwrap_or_default();
         let value = match dict.get_nth_type(idx) {
             Some(DictType::Bool) => dict.get_nth_bool(idx).to_string(),
             Some(DictType::Int) => dict.get_nth_int(idx).to_string(),
@@ -776,56 +844,34 @@ fn dict_get_string(dict: &Dict, key: u32) -> String {
     }
 }
 
-#[derive(Debug)]
-struct PendingBridge {
-    from: Option<Coord3D>,
-    to: Option<Coord3D>,
+struct BridgeEndpoints {
+    template_name: String,
+    from: Coord3D,
+    to: Coord3D,
 }
 
-fn add_bridge_point(ctx: &mut MapParseContext, name: String, loc: Coord3D, is_point1: bool) {
-    let entry = ctx.pending_bridges.entry(name.clone()).or_default();
+struct PendingBridge {
+    location: Coord3D,
+    is_from: bool,
+}
 
-    if is_point1 {
-        for index in 0..entry.len() {
-            if entry[index].from.is_none() && entry[index].to.is_some() {
-                let to = entry[index].to.take().unwrap_or(loc);
-                let from = loc;
-                entry.swap_remove(index);
-                ctx.bridges.push(build_bridge_data(&name, from, to));
-                return;
-            }
-        }
-        entry.push(PendingBridge {
-            from: Some(loc),
-            to: None,
+fn add_bridge_point(ctx: &mut MapParseContext, name: &str, location: Coord3D, is_from: bool) {
+    let pending = ctx.pending_bridges.entry(name.to_owned()).or_default();
+    if let Some(index) = pending.iter().position(|point| point.is_from != is_from) {
+        let other = pending.swap_remove(index).location;
+        let (from, to) = if is_from {
+            (location, other)
+        } else {
+            (other, location)
+        };
+        ctx.bridges.push(BridgeEndpoints {
+            template_name: name.to_owned(),
+            from,
+            to,
         });
     } else {
-        for index in 0..entry.len() {
-            if entry[index].to.is_none() && entry[index].from.is_some() {
-                let from = entry[index].from.take().unwrap_or(loc);
-                let to = loc;
-                entry.swap_remove(index);
-                ctx.bridges.push(build_bridge_data(&name, from, to));
-                return;
-            }
-        }
-        entry.push(PendingBridge {
-            from: None,
-            to: Some(loc),
-        });
+        pending.push(PendingBridge { location, is_from });
     }
-}
-
-fn build_bridge_data(name: &str, from: Coord3D, to: Coord3D) -> BridgeData {
-    let width = bridge_width_from_template(name).unwrap_or(MAP_XY_FACTOR * 2.0);
-    BridgeData::new(from, to, width, name.to_string())
-}
-
-fn bridge_width_from_template(name: &str) -> Option<f32> {
-    let template = TheThingFactory::find_template(name)?;
-    let geom = template.get_template_geometry_info();
-    let width = (geom.get_minor_radius() * 2.0).max(0.0);
-    if width > 0.0 { Some(width) } else { None }
 }
 
 impl BridgeData {
@@ -1071,7 +1117,7 @@ mod tests {
         let mut input = DataChunkInput::new(make_chunk_bytes("WaypointsList", 0, &payload));
         assert!(input.is_valid_file_type());
 
-        let mut ctx = MapParseContext::new();
+        let mut ctx = MapParseContext::new(None);
         input.register_parser("WaypointsList", "", parse_waypoints_list_chunk);
         assert!(input.parse(&mut ctx));
         assert_eq!(ctx.waypoint_links, vec![(7, 9)]);
