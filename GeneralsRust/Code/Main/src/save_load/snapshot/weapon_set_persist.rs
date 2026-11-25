@@ -1,5 +1,6 @@
 //! Persist weapon and armor set selection and RiderChange continuation.
 //! WSFL v4 carries the active armor upgrade independently of its trigger or latch.
+//! Drawable::xfer restores the entire model mask after simulation state is loaded.
 use crate::game_logic::{GameLogic, ObjectId};
 use crate::save_load::{SaveLoadError, SaveLoadResult};
 use serde::{Deserialize, Serialize};
@@ -16,7 +17,7 @@ struct WeaponSetPersistPayload {
 struct ObjectWeaponSetPersist {
     object_id: u32,
     weapon_condition_flags: u32,
-    weapon_model_condition_bits: u128,
+    drawable_model_conditions: u128,
     armor_crate_upgrade: u8,
     armor_set_player_upgrade: bool,
     weapon_bonus_veteran: bool,
@@ -46,12 +47,14 @@ pub fn append_to_lifecycle_tail(bytes: &mut Vec<u8>, game_logic: &GameLogic) {
     bytes.extend_from_slice(&encoded);
 }
 
-pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> SaveLoadResult<()> {
+pub(super) fn apply_from_lifecycle_tail(
+    bytes: &[u8],
+    game_logic: &mut GameLogic,
+) -> SaveLoadResult<Vec<(ObjectId, u128)>> {
     let Some(payload) = decode_payload(bytes)? else {
-        return Ok(());
+        return Ok(Vec::new());
     };
-    apply_payload(game_logic, payload);
-    Ok(())
+    Ok(apply_payload(game_logic, payload))
 }
 
 pub(super) fn validate_lifecycle_tail(bytes: &[u8]) -> SaveLoadResult<()> {
@@ -101,7 +104,7 @@ fn capture(game_logic: &GameLogic) -> WeaponSetPersistPayload {
         objects.push(ObjectWeaponSetPersist {
             object_id: id.0,
             weapon_condition_flags: object.weapon_condition_flags(),
-            weapon_model_condition_bits: object.model_condition_bits,
+            drawable_model_conditions: object.model_condition_bits,
             armor_crate_upgrade: object.armor_crate_upgrade,
             armor_set_player_upgrade: object.armor_set_player_upgrade,
             weapon_bonus_veteran: object.weapon_bonus_veteran,
@@ -120,16 +123,18 @@ fn capture(game_logic: &GameLogic) -> WeaponSetPersistPayload {
     WeaponSetPersistPayload { objects }
 }
 
-fn apply_payload(game_logic: &mut GameLogic, payload: WeaponSetPersistPayload) {
+fn apply_payload(
+    game_logic: &mut GameLogic,
+    payload: WeaponSetPersistPayload,
+) -> Vec<(ObjectId, u128)> {
+    let mut drawable_conditions = Vec::with_capacity(payload.objects.len());
     for entry in payload.objects {
-        let Some(object) = game_logic.host_object_mut(ObjectId(entry.object_id)) else {
+        let id = ObjectId(entry.object_id);
+        let Some(object) = game_logic.host_object_mut(id) else {
             continue;
         };
-        object.restore_weapon_condition_flags(
-            entry.weapon_condition_flags,
-            entry.weapon_model_condition_bits,
-            entry.rider_change_model_condition_mask,
-        );
+        object.restore_weapon_condition_flags(entry.weapon_condition_flags);
+        drawable_conditions.push((id, entry.drawable_model_conditions));
         object.armor_crate_upgrade = entry.armor_crate_upgrade;
         object.set_armor_set_player_upgrade(entry.armor_set_player_upgrade);
         object.weapon_bonus_veteran = entry.weapon_bonus_veteran;
@@ -162,6 +167,7 @@ fn apply_payload(game_logic: &mut GameLogic, payload: WeaponSetPersistPayload) {
 
         object.validate_armor_and_damage_fx();
     }
+    drawable_conditions
 }
 
 

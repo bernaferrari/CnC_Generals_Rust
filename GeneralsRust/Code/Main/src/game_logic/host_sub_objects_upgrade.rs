@@ -11,33 +11,70 @@
 //! Fail-closed: not full W3D mesh toggle GPU path / multi-object SharedNSync matrix.
 
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeSet;
 
-/// Active sub-object visibility residual for one object.
+/// Persistent overrides in W3DModelDraw's first-insertion order.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct HostSubObjectVisibility {
-    pub shown: BTreeSet<String>,
-    pub hidden: BTreeSet<String>,
+    overrides: Vec<SubObjectOverride>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+struct SubObjectOverride {
+    name: String,
+    hidden: bool,
 }
 
 impl HostSubObjectVisibility {
-    pub fn apply_show_hide(&mut self, show: &[&str], hide: &[&str]) {
-        for s in show {
-            self.shown.insert((*s).to_string());
-            self.hidden.remove(*s);
+    /// W3DModelDraw::showSubObject matches case-insensitively and updates the
+    /// existing slot. A parent override can affect later child directives.
+    pub fn set_shown(&mut self, name: &str, shown: bool) {
+        if name.is_empty() {
+            return;
         }
-        for h in hide {
-            self.hidden.insert((*h).to_string());
-            self.shown.remove(*h);
+        if let Some(existing) = self
+            .overrides
+            .iter_mut()
+            .find(|entry| entry.name.eq_ignore_ascii_case(name))
+        {
+            existing.hidden = !shown;
+        } else {
+            self.overrides.push(SubObjectOverride {
+                name: name.to_owned(),
+                hidden: !shown,
+            });
+        }
+    }
+
+    pub fn apply_show_hide(&mut self, show: &[&str], hide: &[&str]) {
+        for name in show {
+            self.set_shown(name, true);
+        }
+        for name in hide {
+            self.set_shown(name, false);
         }
     }
 
     pub fn is_shown(&self, name: &str) -> bool {
-        self.shown.contains(name)
+        self.overrides
+            .iter()
+            .any(|entry| !entry.hidden && entry.name.eq_ignore_ascii_case(name))
     }
 
     pub fn is_hidden(&self, name: &str) -> bool {
-        self.hidden.contains(name)
+        self.overrides
+            .iter()
+            .any(|entry| entry.hidden && entry.name.eq_ignore_ascii_case(name))
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.overrides.is_empty()
+    }
+
+    /// Visit drawable directives in the order they must be applied.
+    pub fn directives(&self) -> impl Iterator<Item = (&str, bool)> {
+        self.overrides
+            .iter()
+            .map(|entry| (entry.name.as_str(), entry.hidden))
     }
 }
 
@@ -174,6 +211,20 @@ impl HostSubObjectsUpgradeLog {
 mod tests {
     use super::*;
     use std::collections::HashSet;
+
+    #[test]
+    fn sub_object_overrides_keep_first_insertion_order_when_case_aliases_update() {
+        let mut visibility = HostSubObjectVisibility::default();
+        visibility.set_shown("ZParent", false);
+        visibility.set_shown("AChild", false);
+        visibility.set_shown("zparent", true);
+        visibility.set_shown("", true);
+        assert_eq!(
+            visibility.directives().collect::<Vec<_>>(),
+            [("ZParent", false), ("AChild", true)]
+        );
+        assert!(visibility.is_shown("ZPARENT"));
+    }
 
     #[test]
     fn bomb_truck_bio_shows_load02() {

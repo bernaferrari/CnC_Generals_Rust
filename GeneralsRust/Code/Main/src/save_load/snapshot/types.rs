@@ -57,8 +57,9 @@ pub const WORLD_SNAPSHOT_PARTICLE_DRIVE_SETTINGS_VERSION: u32 = 38;
 /// Version55 requires the receiving Object for a projectile with warhead self-damage.
 /// Version56 requires the receiving Object for all authored DumbProjectile flights.
 /// Version57 preserves the active player-upgrade armor flag in WSFL.
-pub const WORLD_SNAPSHOT_BINCODE_VERSION: u32 = 57;
-pub const WORLD_SNAPSHOT_DIRECT_XFER_VERSION: u32 = 57;
+/// Version58 persists ordered drawable sub-object overrides.
+pub const WORLD_SNAPSHOT_BINCODE_VERSION: u32 = 58;
+pub const WORLD_SNAPSHOT_DIRECT_XFER_VERSION: u32 = 58;
 /// Version36 introduced mandatory exact original-Garrison-Team continuation.
 pub const WORLD_SNAPSHOT_GARRISON_TEAM_VERSION: u32 = 36;
 
@@ -511,6 +512,7 @@ pub struct ClientDrawableVisualSnapshot {
     pub loco_roll: f32,
     pub expiration_date: u32,
     pub terrain_decal: u8,
+    pub sub_object_visibility: crate::game_logic::host_sub_objects_upgrade::HostSubObjectVisibility,
 }
 
 /// C++ `Object::xfer` (`Object.cpp:4068`) `m_name` plus `AIUpdateInterface::xfer`

@@ -1949,6 +1949,7 @@ mod tests {
             object.shock_allow_bounce = true;
             object.shock_was_airborne = true;
             object.shock_grounded_once = false;
+            object.refresh_model_condition_bits();
         }
         {
             let object = source.host_object_mut(bus).expect("bus");
@@ -1956,6 +1957,7 @@ mod tests {
             let mut body = HostBattleBusBodyData::new();
             body.begin_first_life_undeath(12);
             object.battle_bus_body = Some(body);
+            apply_second_life_bits(object);
         }
         {
             let object = source.host_object_mut(dying).expect("dying");

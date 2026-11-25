@@ -710,18 +710,12 @@ impl UnitRenderInput {
         // after ConditionState hide/show. Skip while disguised: the live
         // visual is the replacement template, which has no Bombload children.
         if !self.disguised {
-            for name in &self.sub_object_visibility.hidden {
-                directives.push(crate::assets::AuthoredDrawSubobjectVisibility {
-                    name: name.clone(),
-                    hidden: true,
-                });
-            }
-            for name in &self.sub_object_visibility.shown {
-                directives.push(crate::assets::AuthoredDrawSubobjectVisibility {
-                    name: name.clone(),
-                    hidden: false,
-                });
-            }
+            directives.extend(self.sub_object_visibility.directives().map(|(name, hidden)| {
+                crate::assets::AuthoredDrawSubobjectVisibility {
+                    name: name.to_owned(),
+                    hidden,
+                }
+            }));
         }
         directives
     }
@@ -1452,7 +1446,7 @@ mod tests {
             name: "SUP19".into(),
             hidden: false,
         };
-        input.sub_object_visibility.hidden.insert(child.name.clone());
+        input.sub_object_visibility.set_shown(&child.name, false);
         let directives = input.authored_subobject_visibility_with_installed_children(
             &draw_model,
             Some(std::slice::from_ref(&child)),

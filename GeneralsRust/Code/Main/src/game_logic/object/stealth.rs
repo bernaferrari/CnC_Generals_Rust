@@ -140,9 +140,6 @@ impl Object {
         self.set_status_disguise_transitioning_to(false);
         self.set_status_disguise_halfpoint_reached(false);
         self.status.disguise_transition_opacity = 1.0;
-        // C++ changeVisualDisguise reveal: new true drawable + payload restore.
-
-        self.force_refresh_sub_object_upgrade_status();
     }
 
     /// C++ StealthUpdate disguise transition residual tick.
@@ -195,11 +192,6 @@ impl Object {
 
                 self.disguise_pending_team = None;
                 self.disguise_pending_player_id = None;
-                // C++ changeVisualDisguise (StealthUpdate.cpp:1052-1057): after
-                // swapping back to the true bomb-truck drawable, rebuild W3D
-                // payload subobjects (BioBomb / HighExplosiveBomb barrels).
-
-                self.force_refresh_sub_object_upgrade_status();
             }
         }
 
@@ -214,23 +206,6 @@ impl Object {
         }
 
         halfpoint
-    }
-
-    /// C++ `Object::forceRefreshSubObjectUpgradeStatus`.
-    ///
-    /// Re-applies already-completed SubObjectsUpgrade peels onto this object's
-    /// drawable hide/show residual. Disguise replaces the visual; reveal must
-    /// restore Bio/HE Bombload (and Helix BombWing) children that lived on the
-    /// previous W3DDrawModule.
-    pub fn force_refresh_sub_object_upgrade_status(&mut self) {
-        let applied = crate::game_logic::host_sub_objects_upgrade::sub_objects_for_upgrade_tags(
-            &self.applied_upgrades,
-            &self.template_name,
-        );
-        if applied.matched {
-            self.sub_object_visibility
-                .apply_show_hide(&applied.show, &applied.hide);
-        }
     }
 
     /// Whether disguise transition residual is active.

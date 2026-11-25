@@ -1,7 +1,8 @@
 //! Object::updateUpgradeModules / removeUpgrade and the typed UpgradeMux pass.
 use super::*;
 use gamelogic::object::upgrade::{
-    ArmorUpgradeModuleData, CommandSetUpgradeModuleData, ReplaceObjectUpgradeModuleData,
+    ArmorUpgradeModuleData, CommandSetUpgradeModuleData, ModelConditionUpgradeModuleData,
+    ReplaceObjectUpgradeModuleData, SubObjectsUpgradeModuleData,
 };
 
 struct AuthoredObjectCreationUpgrade {
@@ -108,10 +109,31 @@ struct AuthoredRadarUpgrade {
     data: ModuleDataView<gamelogic::object::upgrade::RadarUpgradeModuleData>,
 }
 
+enum VisualUpgradeEffect {
+    ModelCondition(ModuleDataView<ModelConditionUpgradeModuleData>),
+    SubObjects(ModuleDataView<SubObjectsUpgradeModuleData>),
+}
+
+struct AuthoredVisualUpgrade {
+    source_index: usize,
+    effect: VisualUpgradeEffect,
+}
+
+impl AuthoredVisualUpgrade {
+    fn executed_key(&self) -> String {
+        let class = match self.effect {
+            VisualUpgradeEffect::ModelCondition(_) => "ModelConditionUpgrade",
+            VisualUpgradeEffect::SubObjects(_) => "SubObjectsUpgrade",
+        };
+        format!("{class}#{}", self.source_index)
+    }
+}
+
 enum AuthoredOrderedUpgrade {
     ObjectCreation(AuthoredObjectCreationUpgrade),
     ReplaceObject(AuthoredReplaceObjectUpgrade),
     Armor(AuthoredArmorUpgrade),
+    Visual(AuthoredVisualUpgrade),
     CommandSet(AuthoredCommandSetUpgrade),
     StatusBits(AuthoredStatusBitsUpgrade),
     CostModifier(AuthoredCostModifierUpgrade),
@@ -140,6 +162,10 @@ impl AuthoredOrderedUpgrade {
             Self::ObjectCreation(module) => f(&module.data.read().upgrade_mux_data),
             Self::ReplaceObject(module) => f(&module.data.read().upgrade_mux_data),
             Self::Armor(module) => f(&module.data.read().upgrade_mux_data),
+            Self::Visual(module) => match &module.effect {
+                VisualUpgradeEffect::ModelCondition(data) => f(&data.read().upgrade_mux_data),
+                VisualUpgradeEffect::SubObjects(data) => f(&data.read().upgrade_mux_data),
+            },
             Self::CommandSet(module) => f(&module.data.read().upgrade_mux_data),
             Self::StatusBits(module) => f(&module.data.read().upgrade_mux_data),
             Self::CostModifier(module) => f(&module.data.read().upgrade_mux_data),
@@ -195,6 +221,20 @@ impl GameLogic {
                     return Some(AuthoredOrderedUpgrade::ReplaceObject(
                         AuthoredReplaceObjectUpgrade { source_index, data },
                     ));
+                }
+                if module.name.as_str().eq_ignore_ascii_case("ModelConditionUpgrade") {
+                    let data = upgrade_data_view::<ModelConditionUpgradeModuleData>(&module.data)?;
+                    return Some(AuthoredOrderedUpgrade::Visual(AuthoredVisualUpgrade {
+                        source_index,
+                        effect: VisualUpgradeEffect::ModelCondition(data),
+                    }));
+                }
+                if module.name.as_str().eq_ignore_ascii_case("SubObjectsUpgrade") {
+                    let data = upgrade_data_view::<SubObjectsUpgradeModuleData>(&module.data)?;
+                    return Some(AuthoredOrderedUpgrade::Visual(AuthoredVisualUpgrade {
+                        source_index,
+                        effect: VisualUpgradeEffect::SubObjects(data),
+                    }));
                 }
                 if module.name.as_str().eq_ignore_ascii_case("ArmorUpgrade") {
                     let data = upgrade_data_view::<ArmorUpgradeModuleData>(&module.data)?;
@@ -389,6 +429,10 @@ impl GameLogic {
                     .objects
                     .get(&object_id)
                     .is_some_and(|object| object.applied_upgrades.contains(&module.executed_key())),
+                AuthoredOrderedUpgrade::Visual(module) => self
+                    .objects
+                    .get(&object_id)
+                    .is_some_and(|object| object.applied_upgrades.contains(&module.executed_key())),
                 AuthoredOrderedUpgrade::Armor(module) => self
                     .objects
                     .get(&object_id)
@@ -445,6 +489,23 @@ impl GameLogic {
                         interpreter,
                         presentation_effects,
                     )
+                }
+                AuthoredOrderedUpgrade::Visual(module) => {
+                    match &module.effect {
+                        VisualUpgradeEffect::ModelCondition(data) => {
+                            if let Some(object) = self
+                                .objects
+                                .get_mut(&object_id)
+                                .filter(|object| object.has_drawable)
+                            {
+                                object.model_condition_bits |= data.read().condition_flag().bits();
+                            }
+                        }
+                        VisualUpgradeEffect::SubObjects(data) => {
+                            self.apply_sub_object_upgrade_effect(object_id, &data.read());
+                        }
+                    }
+                    Ok(())
                 }
                 AuthoredOrderedUpgrade::Armor(module) => {
                     use crate::game_logic::host_upgrades::UPGRADE_AMERICA_CHEMICAL_SUITS;
@@ -686,6 +747,9 @@ impl GameLogic {
                             // when the authored replacement template is absent.
                             object.applied_upgrades.insert(module.executed_key());
                         }
+                        AuthoredOrderedUpgrade::Visual(module) => {
+                            object.applied_upgrades.insert(module.executed_key());
+                        }
                         AuthoredOrderedUpgrade::Armor(module) => {
                             object.applied_upgrades.insert(module.executed_key());
                         }
@@ -873,6 +937,9 @@ impl GameLogic {
                         Some(AuthoredOrderedUpgrade::ReplaceObject(module)) => {
                             object.applied_upgrades.remove(&module.executed_key());
                         }
+                        Some(AuthoredOrderedUpgrade::Visual(module)) => {
+                            object.applied_upgrades.remove(&module.executed_key());
+                        }
                         Some(AuthoredOrderedUpgrade::Armor(module)) => {
                             // Reset leaves the ActiveBody's flag and the Drawable's decal.
                             object.applied_upgrades.remove(&module.executed_key());
@@ -910,6 +977,83 @@ impl GameLogic {
             .fold(0u128, |mask, template| mask | template.get_mask().bits())
     }
 
+    /// SubObjectsUpgrade.cpp:63–108 rechecks live conflicts after the mux's
+    /// FX and removals. Reveal also calls this effect without running the mux.
+    fn apply_sub_object_upgrade_effect(
+        &mut self,
+        id: ObjectId,
+        data: &SubObjectsUpgradeModuleData,
+    ) {
+        let conflicts = self.upgrade_conflict_mask(&data.upgrade_mux_data);
+        if conflicts.any()
+            && self
+                .combined_object_and_player_upgrade_mask(id, None)
+                .test_for_any(conflicts)
+        {
+            return;
+        }
+        let Some(object) = self
+            .objects
+            .get_mut(&id)
+            .filter(|object| object.has_drawable)
+        else {
+            return;
+        };
+        let shown: Vec<_> = data
+            .show_sub_object_names()
+            .iter()
+            .map(|name| name.as_str())
+            .collect();
+        for name in &shown {
+            object.sub_object_visibility.set_shown(name, true);
+        }
+        for name in data.hide_sub_object_names() {
+            object.sub_object_visibility.set_shown(name.as_str(), false);
+        }
+        if !shown.is_empty() {
+            self.sub_objects_upgrades.record(&shown);
+        }
+    }
+
+    /// Object::forceRefreshSubObjectUpgradeStatus on the replacement Drawable.
+    pub(in crate::game_logic) fn refresh_sub_objects_after_disguise(&mut self, id: ObjectId) {
+        if !self.has_admitted_upgrade_roster(id) {
+            return;
+        }
+        let modules = self.authored_ordered_upgrade_modules(id);
+        let Some(object) = self.objects.get_mut(&id) else {
+            return;
+        };
+        object.sub_object_visibility = Default::default();
+        for module in modules {
+            let AuthoredOrderedUpgrade::Visual(module) = module else {
+                continue;
+            };
+            if !self.objects[&id]
+                .applied_upgrades
+                .contains(&module.executed_key())
+            {
+                continue;
+            }
+            if let VisualUpgradeEffect::SubObjects(data) = module.effect {
+                self.apply_sub_object_upgrade_effect(id, &data.read());
+            }
+        }
+    }
+
+    fn upgrade_conflict_mask(
+        &self,
+        data: &gamelogic::upgrade::modules::upgrade_mux::UpgradeMuxData,
+    ) -> gamelogic::upgrade::UpgradeMask {
+        use gamelogic::upgrade::UpgradeMask;
+        data.conflicting_upgrade_names
+            .iter()
+            .filter_map(|name| self.upgrade_template(name.as_str()))
+            .fold(UpgradeMask::none(), |mask, template| {
+                mask | template.get_mask()
+            })
+    }
+
     fn upgrade_mux_would_run(
         &self,
         data: &gamelogic::upgrade::modules::upgrade_mux::UpgradeMuxData,
@@ -924,13 +1068,7 @@ impl GameLogic {
             .fold(UpgradeMask::none(), |mask, template| {
                 mask | template.get_mask()
             });
-        let conflicts = data
-            .conflicting_upgrade_names
-            .iter()
-            .filter_map(|name| self.upgrade_template(name.as_str()))
-            .fold(UpgradeMask::none(), |mask, template| {
-                mask | template.get_mask()
-            });
+        let conflicts = self.upgrade_conflict_mask(data);
         activation.any()
             && key_mask.any()
             && !key_mask.test_for_any(conflicts)

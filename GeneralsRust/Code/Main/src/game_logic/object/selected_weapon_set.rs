@@ -417,17 +417,8 @@ impl Object {
         }
     }
 
-    pub(crate) fn restore_weapon_condition_flags(
-        &mut self, flags: u32, saved_model_bits: u128, rider_model_mask: u128,
-    ) {
+    pub(crate) fn restore_weapon_condition_flags(&mut self, flags: u32) {
         self.weapon_condition_flags = flags;
-        let mut mask = rider_model_mask;
-        for bit in 0..17 {
-            if let Some(model_bit) = Self::weapon_condition_model_bit(bit) {
-                mask |= 1u128 << model_bit;
-            }
-        }
-        self.model_condition_bits = (self.model_condition_bits & !mask) | (saved_model_bits & mask);
     }
 
 

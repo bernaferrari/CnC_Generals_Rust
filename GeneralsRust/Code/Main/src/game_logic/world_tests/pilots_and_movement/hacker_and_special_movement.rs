@@ -2453,8 +2453,9 @@ fn sub_objects_upgrade_bomb_truck_bio_load() {
                 "Behavior = SubObjectsUpgrade FixtureHEBomb\n TriggeredBy = Upgrade_GLABombTruckHighExplosiveBomb\n ShowSubObjects = Bombload04\n HideSubObjects = Bombload01\nEnd",
             )],
     );
+    ensure_test_player_for_team(&mut logic, Team::GLA);
     let id = logic
-        .create_object("GLAVehicleBombTruck", Team::GLA, glam::Vec3::ZERO)
+        .create_object_for_player("GLAVehicleBombTruck", 2, glam::Vec3::ZERO)
         .unwrap();
     logic.apply_upgrade_to_object(id, "Upgrade_GLABombTruckBioBomb");
     let o = logic.objects.get(&id).unwrap();
@@ -2481,8 +2482,9 @@ fn sub_objects_upgrade_helix_bomb_wing() {
                 "Behavior = SubObjectsUpgrade FixtureNapalmBomb\n TriggeredBy = Upgrade_HelixNapalmBomb\n ShowSubObjects = BombWing\nEnd",
             )],
     );
+    ensure_test_player_for_team(&mut logic, Team::China);
     let id = logic
-        .create_object("ChinaVehicleHelix", Team::China, glam::Vec3::ZERO)
+        .create_object_for_player("ChinaVehicleHelix", 1, glam::Vec3::ZERO)
         .unwrap();
     logic.apply_upgrade_to_object(id, "Upgrade_HelixNapalmBomb");
     assert!(
@@ -2515,8 +2517,9 @@ fn sub_objects_upgrade_bomb_truck_both_loads() {
                 "Behavior = SubObjectsUpgrade FixtureHEBomb\n TriggeredBy = Upgrade_GLABombTruckHighExplosiveBomb\n ShowSubObjects = Bombload04\n HideSubObjects = Bombload01\nEnd",
             )],
     );
+    ensure_test_player_for_team(&mut logic, Team::GLA);
     let id = logic
-        .create_object("GLAVehicleBombTruck", Team::GLA, glam::Vec3::ZERO)
+        .create_object_for_player("GLAVehicleBombTruck", 2, glam::Vec3::ZERO)
         .unwrap();
     logic.apply_upgrade_to_object(id, "Upgrade_GLABombTruckBioBomb");
     logic.apply_upgrade_to_object(id, "Upgrade_GLABombTruckHighExplosiveBomb");

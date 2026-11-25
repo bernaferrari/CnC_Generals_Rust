@@ -1086,7 +1086,8 @@ impl SnapshotBuilder {
             game_logic,
         )?;
         super::super::rebuild_hole_persist::apply_from_lifecycle_tail(lifecycle_tail, game_logic)?;
-        super::super::weapon_set_persist::apply_from_lifecycle_tail(lifecycle_tail, game_logic)?;
+        let drawable_conditions =
+            super::super::weapon_set_persist::apply_from_lifecycle_tail(lifecycle_tail, game_logic)?;
         super::super::ai_team_persist::apply_prepared(
             ai_team_candidate,
             game_logic,
@@ -1362,6 +1363,13 @@ impl SnapshotBuilder {
         // Guard state loadPostProcess reconstructs its attack deadline after
         // the saved nemesis and the receiving session's frame are available.
         game_logic.restore_guard_chase_deadlines_after_load();
+        // Drawable.cpp:4923–4931 installs the full saved condition state.
+        // Restore-time Body, weapon, and behavior projections have finished.
+        for (id, conditions) in drawable_conditions {
+            if let Some(object) = game_logic.host_object_mut(id) {
+                object.model_condition_bits = conditions;
+            }
+        }
         log::info!("World restoration complete");
         Ok(())
     }

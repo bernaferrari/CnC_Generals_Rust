@@ -303,6 +303,7 @@ impl Snapshot for WorldSnapshot {
                 loco_roll: 0.0,
                 expiration_date: 0,
                 terrain_decal: 8,
+                sub_object_visibility: Default::default(),
             },
         )?;
 

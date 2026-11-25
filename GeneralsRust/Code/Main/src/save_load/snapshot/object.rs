@@ -993,7 +993,7 @@ impl XferData for ClientDrawableVisualSnapshot {
         xfer.xfer_f32(&mut self.loco_roll)?;
         xfer.xfer_u32(&mut self.expiration_date)?;
         xfer.xfer_u8(&mut self.terrain_decal)?;
-        Ok(())
+        super::xfer_helpers::xfer_serde_blob(xfer, &mut self.sub_object_visibility)
     }
 }
 

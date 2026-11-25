@@ -323,16 +323,16 @@ impl GameLogic {
         }
         let has_admitted_upgrade_roster = self.has_admitted_upgrade_roster(object_id);
         if let Some(obj) = self.objects.get_mut(&object_id) {
-            // C++ SubObjectsUpgrade / ModelConditionUpgrade::upgradeImplementation:
-            // only modules this template authors, triggered through UpgradeMux.
-            let tags = obj.applied_upgrades.clone();
-            let shown = obj.run_authored_visual_upgrades(|name| {
-                name.eq_ignore_ascii_case(upgrade)
-                    || tags.iter().any(|tag| tag.eq_ignore_ascii_case(name))
-            });
-            if !shown.is_empty() {
-                let shown: Vec<&str> = shown.iter().map(String::as_str).collect();
-                self.sub_objects_upgrades.record(&shown);
+            if !has_admitted_upgrade_roster {
+                let tags = obj.applied_upgrades.clone();
+                let shown = obj.run_raw_template_visual_upgrades(|name| {
+                    name.eq_ignore_ascii_case(upgrade)
+                        || tags.iter().any(|tag| tag.eq_ignore_ascii_case(name))
+                });
+                if !shown.is_empty() {
+                    let shown: Vec<&str> = shown.iter().map(String::as_str).collect();
+                    self.sub_objects_upgrades.record(&shown);
+                }
             }
             // C++ StealthUpgrade::upgradeImplementation (CAN_STEALTH).
             obj.run_authored_stealth_upgrades(|name| name.eq_ignore_ascii_case(upgrade));
@@ -492,3 +492,5 @@ mod command_set_tests;
 mod cost_modifier_receiving_owner_tests;
 #[cfg(test)]
 mod replace_position_owner_tests;
+#[cfg(test)]
+mod visual_upgrade_tests;

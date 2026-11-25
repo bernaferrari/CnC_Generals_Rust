@@ -221,11 +221,11 @@ impl Object {
         self.set_body_max_health_with_mode(self.health.maximum + data.add_max_health(), change);
     }
 
-    /// `ModelConditionUpgrade` / `SubObjectsUpgrade::upgradeImplementation`
+    /// Raw-template adapter for `ModelConditionUpgrade` / `SubObjectsUpgrade::upgradeImplementation`
     /// (ModelConditionUpgrade.cpp:60-67, SubObjectsUpgrade.cpp:75-117) for
     /// every authored module whose UpgradeMux `has` satisfies, each once
     /// (`UpgradeMux::m_upgradeExecuted`). Returns the shown sub-object names.
-    pub(crate) fn run_authored_visual_upgrades(
+    pub(crate) fn run_raw_template_visual_upgrades(
         &mut self,
         has: impl Fn(&str) -> bool,
     ) -> Vec<String> {
@@ -1177,7 +1177,7 @@ mod replay_tests {
 
 #[cfg(test)]
 mod visual_upgrade_tests {
-    use crate::game_logic::{GameLogic, Team};
+    use crate::game_logic::{GameLogic, Player, Team};
 
     const MODULES: &str = "Behavior = ModelConditionUpgrade McTag\nTriggeredBy = Upgrade_TestRadar\nConditionFlag = RADAR_UPGRADED\nEnd\n\
         Behavior = SubObjectsUpgrade SoTag\nTriggeredBy = Upgrade_TestBio\nShowSubObjects = Bombload02\nHideSubObjects = Bombload01\nEnd\n";
@@ -1188,6 +1188,12 @@ mod visual_upgrade_tests {
     #[test]
     fn authored_visual_upgrades_follow_their_modules_not_names() {
         let mut world = GameLogic::new();
+        world.add_player(Player::new(1, Team::GLA, "Owner", true));
+        for name in ["Upgrade_Other", "Upgrade_TestBio", "Upgrade_TestRadar"] {
+            crate::game_logic::host_upgrade_rules::register_test_upgrade(
+                &mut world, name, "OBJECT", 0, 1,
+            );
+        }
         world
             .admit_receiving_module_content(
                 crate::assets::ReceivingObjectContent::from_sources([(
@@ -1205,28 +1211,27 @@ mod visual_upgrade_tests {
                 "RADAR_UPGRADED",
             )
             .unwrap();
-        let plain = world.create_object("PlainTruck", Team::GLA, glam::Vec3::ZERO).unwrap();
+        let plain = world.create_object_for_player("PlainTruck", 1, glam::Vec3::ZERO).unwrap();
         let named = world
-            .create_object("GLAVehicleBombTruck", Team::GLA, glam::Vec3::X)
+            .create_object_for_player("GLAVehicleBombTruck", 1, glam::Vec3::X)
             .unwrap();
 
-        let object = world.host_object_mut(plain).unwrap();
-        assert!(object.run_authored_visual_upgrades(|n| n == "Upgrade_Other").is_empty());
-        assert_eq!(object.model_condition_bits & radar_bit, 0);
-        assert!(object.run_authored_visual_upgrades(|n| n == "Upgrade_TestRadar").is_empty());
-        assert_ne!(object.model_condition_bits & radar_bit, 0);
-        let shown = object.run_authored_visual_upgrades(|n| n == "Upgrade_TestBio");
-        assert_eq!(shown, vec!["Bombload02".to_string()]);
+        world.apply_upgrade_to_object(plain, "Upgrade_Other");
+        assert_eq!(world.host_object(plain).unwrap().model_condition_bits & radar_bit, 0);
+        world.apply_upgrade_to_object(plain, "Upgrade_TestRadar");
+        assert_ne!(world.host_object(plain).unwrap().model_condition_bits & radar_bit, 0);
+        world.apply_upgrade_to_object(plain, "Upgrade_TestBio");
+        let object = world.host_object(plain).unwrap();
+        assert!(object.sub_object_visibility.is_shown("Bombload02"));
         assert!(object.sub_object_visibility.is_hidden("Bombload01"));
-        // UpgradeMux::isAlreadyUpgraded: each module executes once.
-        assert!(object.run_authored_visual_upgrades(|n| n == "Upgrade_TestBio").is_empty());
+        let count = world.sub_objects_upgrades.applications;
+        world.apply_upgrade_to_object(plain, "Upgrade_TestBio");
+        assert_eq!(world.sub_objects_upgrades.applications, count);
 
-        let named = world.host_object_mut(named).unwrap();
-        assert!(
-            named
-                .run_authored_visual_upgrades(|n| n.starts_with("Upgrade_"))
-                .is_empty()
-        );
-        assert_eq!(named.model_condition_bits & radar_bit, 0);
+        world.apply_upgrade_to_object(named, "Upgrade_TestBio");
+        world.apply_upgrade_to_object(named, "Upgrade_TestRadar");
+        let object = world.host_object(named).unwrap();
+        assert!(object.sub_object_visibility.is_empty());
+        assert_eq!(object.model_condition_bits & radar_bit, 0);
     }
 }

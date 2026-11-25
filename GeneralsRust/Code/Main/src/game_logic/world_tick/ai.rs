@@ -346,7 +346,7 @@ impl GameLogic {
                     .iter()
                     .any(|&slot| object.weapon_slot(slot).is_some())
                     .then(|| self.receiving_weapon_rates_of_fire(object));
-                let Some(obj) = self.objects.get_mut(&object_id) else {
+                let Some(mut obj) = self.objects.get_mut(&object_id) else {
                     continue;
                 };
                 // C++ ObjectWeaponStatusHelper every-frame getStatus:
@@ -376,6 +376,13 @@ impl GameLogic {
                         obj.status.disguise_transitioning_to,
                         obj.target.is_some(),
                     ));
+                }
+                if disguise_halfpoint.is_some_and(|(_, gaining, _)| !gaining) {
+                    self.refresh_sub_objects_after_disguise(object_id);
+                    let Some(revealed) = self.objects.get_mut(&object_id) else {
+                        continue;
+                    };
+                    obj = revealed;
                 }
                 // Advance the receiving object's topple state before height death.
                 {

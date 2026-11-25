@@ -291,6 +291,7 @@ mod tests {
             data.open = true;
             data.door_anim = CheckpointDoorAnim::Opening;
             data.path_radius = 3.5;
+            apply_checkpoint_door_bits(object, &data);
             object.checkpoint_update = Some(data);
         }
         {
@@ -302,6 +303,7 @@ mod tests {
             data.enemy_near = true;
             data.model_enemy_near = true;
             data.scan_delay = 11;
+            apply_enemy_near_bits(object, &data);
             object.enemy_near = Some(data);
         }
 

@@ -1209,6 +1209,8 @@ impl SnapshotBuilder {
                 && !hidden
                 && (stealth_opacity - 1.0).abs() <= f32::EPSILON
                 && object.terrain_decal_type == 8
+                && object.sub_object_visibility.is_empty()
+                && object.thing().template.horde_update.is_none()
                 && loco_pitch == 0.0
                 && loco_roll == 0.0
                 && expiration_date == 0
@@ -1226,6 +1228,7 @@ impl SnapshotBuilder {
                 loco_roll,
                 expiration_date,
                 terrain_decal: object.terrain_decal_type,
+                sub_object_visibility: object.sub_object_visibility.clone(),
             });
         }
         entries
@@ -1249,6 +1252,7 @@ impl SnapshotBuilder {
             object.drawable_loco_roll = entry.loco_roll;
             object.drawable_expiration_date = entry.expiration_date;
             object.terrain_decal_type = entry.terrain_decal;
+            object.sub_object_visibility = entry.sub_object_visibility.clone();
         }
     }
 
