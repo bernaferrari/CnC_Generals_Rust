@@ -572,19 +572,18 @@ fn paired_particle_sav_companion_adopts_actual_loaded_ids_without_replaying_omis
         .particle_systems_mut()
         .register_template(template);
     // The load adopts the companion's receipt into the restored world, as
-    // the staged load does (host_authority.rs:2957-2965 restore_particle_system_from_xfer_bytes
+    // the staged load does (host_authority.rs:2957-2965 restore_particle_system_from_archive
     // then adopt_loaded_client_systems).
-    let bytes = decoded
+    let archive = decoded
         .snapshot
-        .particle_system_companion
-        .as_deref()
+        .particle_system_archive
+        .as_ref()
         .expect("paired save carries the ParticleSystemManager companion");
-    let receipt = crate::save_load::snapshot::restore_particle_system_from_xfer_bytes(
+    let receipt = crate::save_load::snapshot::restore_particle_system_from_archive(
         receiving_client.particle_systems_mut(),
-        bytes,
+        archive,
     )
-    .unwrap()
-    .expect("companion restore receipt");
+    .unwrap();
     restored
         .combat_particles_mut()
         .adopt_loaded_client_systems(receiving_client.particle_systems_mut(), &receipt)

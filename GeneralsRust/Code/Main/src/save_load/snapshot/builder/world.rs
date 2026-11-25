@@ -194,7 +194,7 @@ impl SnapshotBuilder {
             w3d_ghost_archive: Some(capture_w3d_ghost_archive(game_logic.fog_ghost_scene())?),
             // Production save attaches this after GameClient::xfer, preserving
             // C++ named-block phase order. Pure logic snapshots have none.
-            particle_system_companion: None,
+            particle_system_archive: None,
             player_template_bindings: self.snapshot_player_template_bindings(game_logic)?,
             shroud: self.snapshot_shroud_state(game_logic)?,
             lifecycle_tail: {

@@ -3050,7 +3050,7 @@ impl CnCGameEngine {
                     staged.post_process_restored_supply_warehouses(&mut native.effects())?;
                 }
             }
-            if let Some(bytes) = snapshot.particle_system_companion.as_deref() {
+            if let Some(archive) = snapshot.particle_system_archive.as_ref() {
                 let native = native
                     .as_mut()
                     .ok_or("particle companion requires a detached native presentation owner")?;
@@ -3065,17 +3065,14 @@ impl CnCGameEngine {
                 manager
                     .admit_effective_definitions()
                     .map_err(|error| error.to_string())?;
-                if let Some(receipt) =
-                    crate::save_load::snapshot::restore_particle_system_from_xfer_bytes(
-                        manager, bytes,
-                    )
-                    .map_err(|error| error.to_string())?
-                {
-                    staged
-                        .combat_particles_mut()
-                        .adopt_loaded_client_systems(manager, &receipt)?;
-                    staged.adopt_loaded_bone_particle_systems(manager, &receipt)?;
-                }
+                let receipt = crate::save_load::snapshot::restore_particle_system_from_archive(
+                    manager, archive,
+                )
+                .map_err(|error| error.to_string())?;
+                staged
+                    .combat_particles_mut()
+                    .adopt_loaded_client_systems(manager, &receipt)?;
+                staged.adopt_loaded_bone_particle_systems(manager, &receipt)?;
             }
             if let Some(prepared) = &terrain_visual {
                 crate::save_load::snapshot::admit_receiving_terrain_visual(&mut staged, prepared)

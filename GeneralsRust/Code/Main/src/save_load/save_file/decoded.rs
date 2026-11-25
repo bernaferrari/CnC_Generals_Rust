@@ -59,7 +59,7 @@ pub struct SaveArchive {
     pub game_client_xfer: Option<Vec<u8>>,
     pub terrain_visual_archive: Option<crate::save_load::snapshot::TerrainVisualArchive>,
     pub ghost_object_archive: Option<crate::save_load::snapshot::W3DGhostObjectManagerArchive>,
-    pub particle_system_xfer: Option<Vec<u8>>,
+    pub particle_system_archive: Option<crate::save_load::snapshot::ParticleSystemManagerArchive>,
     pub map: Option<SaveMapArchive>,
 }
 
@@ -77,6 +77,6 @@ pub struct SaveArchiveRef<'a> {
     pub game_client_xfer: Option<&'a [u8]>,
     pub terrain_visual_archive: Option<&'a crate::save_load::snapshot::TerrainVisualArchive>,
     pub ghost_object_archive: Option<&'a crate::save_load::snapshot::W3DGhostObjectManagerArchive>,
-    pub particle_system_xfer: Option<&'a [u8]>,
+    pub particle_system_archive: Option<&'a crate::save_load::snapshot::ParticleSystemManagerArchive>,
     pub map: Option<&'a SaveMapArchive>,
 }

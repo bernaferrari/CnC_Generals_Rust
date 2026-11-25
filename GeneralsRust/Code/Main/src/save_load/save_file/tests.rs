@@ -65,7 +65,7 @@ fn encode_versioned_archive(archive: &SaveArchive) -> Vec<u8> {
         game_client_xfer: archive.game_client_xfer.as_deref(),
         terrain_visual_archive: archive.terrain_visual_archive.as_ref(),
         ghost_object_archive: archive.snapshot.w3d_ghost_archive.as_ref(),
-        particle_system_xfer: archive.snapshot.particle_system_companion.as_deref(),
+        particle_system_archive: archive.snapshot.particle_system_archive.as_ref(),
         map: archive.map.as_ref(),
     })
     .expect("encode mutated versioned test archive")
@@ -83,7 +83,7 @@ fn encode_snapshot_archive(snapshot: &WorldSnapshot, save_info: &SaveGameInfo) -
         game_client_xfer: None,
         terrain_visual_archive: None,
         ghost_object_archive: snapshot.w3d_ghost_archive.as_ref(),
-        particle_system_xfer: snapshot.particle_system_companion.as_deref(),
+        particle_system_archive: snapshot.particle_system_archive.as_ref(),
         map: None,
     })
     .expect("encode snapshot test archive")

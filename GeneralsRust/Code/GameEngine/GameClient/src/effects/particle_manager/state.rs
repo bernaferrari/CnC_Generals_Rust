@@ -33,6 +33,84 @@ struct LoadedSystems {
 }
 
 impl ParticleSystemManager {
+
+    /// Capture the manager continuation as typed archive data in the exact
+    /// creation order used by the native payload.
+    pub fn capture_archive(&self) -> crate::effects::particle_archive::ParticleSystemManagerArchive {
+        let systems = self
+            .active_system_ids_in_order()
+            .into_iter()
+            .filter_map(|id| self.active_systems.get(&id))
+            .filter(|system| !system.is_destroyed() && system.is_saveable())
+            .map(|system| system.capture_archive())
+            .collect();
+        crate::effects::particle_archive::ParticleSystemManagerArchive {
+            next_system_id: self.next_system_id,
+            random_seed: self.random_state.seed_words(),
+            systems,
+        }
+    }
+
+    /// Atomically restore typed archive data and return proof of the admitted
+    /// namespace. Construction happens in a detached roster; a failure leaves
+    /// both the live manager and its shared random stream untouched.
+    pub fn restore_archive(
+        &mut self,
+        archive: &crate::effects::particle_archive::ParticleSystemManagerArchive,
+    ) -> Result<ParticleSystemRestoreReceipt, String> {
+        let mut random = self.random_state.clone();
+        let mut loaded = LoadedSystems {
+            next_id: archive.next_system_id,
+            systems: HashMap::new(),
+            order: Vec::new(),
+            next_particle_ordinal: 1,
+        };
+        for system_archive in &archive.systems {
+            let template = self
+                .find_template(&system_archive.template_name)
+                .ok_or_else(|| {
+                    format!(
+                        "unknown particle template '{}'",
+                        system_archive.template_name
+                    )
+                })?;
+            let mut system = Box::new(ParticleSystem::restore_archive(
+                template,
+                system_archive,
+                &mut random,
+            )?);
+            let id = system.system_id();
+            if id == INVALID_PARTICLE_SYSTEM_ID || loaded.systems.contains_key(&id) {
+                return Err("invalid restored particle system id".into());
+            }
+            loaded.next_id = loaded.next_id.max(id.saturating_add(1));
+            for particle in system.particles_mut() {
+                let ordinal = loaded.next_particle_ordinal;
+                loaded.next_particle_ordinal = ordinal
+                    .checked_add(1)
+                    .ok_or("particle admission ordinal exhausted")?;
+                particle.admission_ordinal = Some(ordinal);
+            }
+            loaded.systems.insert(id, system);
+            loaded.order.push(id);
+        }
+
+        random.set_seed_words(archive.random_seed);
+        let particle_count = loaded.systems.values().map(|s| s.particle_count()).sum();
+        self.renew_system_namespace();
+        self.random_state = random;
+        self.next_system_id = loaded.next_id;
+        self.next_particle_ordinal = loaded.next_particle_ordinal;
+        self.active_systems = loaded.systems;
+        self.active_system_order = loaded.order;
+        self.system_count = self.active_systems.len();
+        self.particle_count = particle_count;
+        Ok(ParticleSystemRestoreReceipt {
+            owner: self.runtime_owner(),
+            systems: self.active_system_ids_in_order().into_iter().collect(),
+        })
+    }
+
     /// Capture this receiving manager, without consulting a process registry.
     pub fn capture_xfer_bytes(&mut self) -> Result<Vec<u8>, String> {
         let mut bytes = Vec::new();

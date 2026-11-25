@@ -1,5 +1,7 @@
+use serde::{Deserialize, Serialize};
+
 /// Particle priority levels (matches C++ ParticleSys.h exactly)
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub enum ParticlePriorityType {
     /// C++ `INVALID_PRIORITY` / `ParticlePriorityNames[0] = "NONE"`.
     None = 0,
@@ -41,7 +43,7 @@ impl ParticlePriorityType {
 }
 
 /// Particle shader types (matches C++ exactly)
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ParticleShaderType {
     /// C++ `INVALID_SHADER` / retail INI `Shader = NONE`.
     /// It is intentionally preserved rather than coerced into a visible blend
@@ -55,7 +57,7 @@ pub enum ParticleShaderType {
 }
 
 /// Particle types (matches C++ exactly)
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ParticleType {
     /// C++ `INVALID_TYPE` / retail INI `Type = NONE`.
     Invalid = 0,
@@ -67,7 +69,7 @@ pub enum ParticleType {
 }
 
 /// Emission velocity types (matches C++ exactly)
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum EmissionVelocityType {
     /// C++ `INVALID_VELOCITY` / retail INI `VelocityType = NONE`.
     Invalid = 0,
@@ -79,7 +81,7 @@ pub enum EmissionVelocityType {
 }
 
 /// Emission volume types (matches C++ exactly)
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum EmissionVolumeType {
     /// C++ `INVALID_VOLUME` / retail INI `VolumeType = NONE`.
     Invalid = 0,
@@ -91,7 +93,7 @@ pub enum EmissionVolumeType {
 }
 
 /// Wind motion types (matches C++ exactly)
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum WindMotion {
     /// C++ `NONE`; the shipped data normally uses `Unused` instead.
     Invalid = 0,

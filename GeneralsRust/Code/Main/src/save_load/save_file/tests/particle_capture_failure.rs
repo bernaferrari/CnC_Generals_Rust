@@ -1,73 +1,6 @@
 //! Public save-boundary failure witness.
 use super::*;
 #[cfg(feature = "game_client")]
-mod particle_capture_failure_control {
-    use super::*;
-    use crate::save_load::snapshot::ClientDrawableWorldSnapshot;
-    use game_client::core::game_client::GameClient;
-    use game_client::effects::ParticleSystemTemplate;
-    use game_client::system::SubsystemInterface;
-    use std::sync::Arc;
-
-    #[test]
-    fn particle_capture_failure_preserves_existing_archive_and_creates_no_temp() {
-        crate::game_logic::game_logic::pose_owner_tests::isolated_at(
-            module_path!(),
-            "particle_capture_failure_preserves_existing_archive_and_creates_no_temp",
-            || {
-                // C++ GameState.cpp:1354-1375 rethrows failed snapshot blocks;
-                // XferSave.cpp's ASCII length is one byte, not a lossy null companion.
-                let mut client = GameClient::new().expect("CPU-only GameClient");
-                client.particle_systems_mut().reset().unwrap();
-                let save_info = fixture_save_info();
-                let prior_archive = encode_snapshot_archive(&WorldSnapshot::default(), &save_info);
-                let directory = tempfile::tempdir().unwrap();
-                let mut saves = SaveFileManager::with_save_directory(directory.path());
-                let filename = "particle_capture_failure";
-                let destination = saves.get_save_path(filename);
-                std::fs::write(&destination, &prior_archive).unwrap();
-                let temp_directory = directory.path().join("temp");
-                let temp_file = temp_directory.join(format!("{filename}_temp.tmp"));
-                assert!(!temp_directory.exists());
-                let world = GameLogic::new();
-
-                let mut template = ParticleSystemTemplate::new("x".repeat(256));
-                template.info_mut().system_lifetime = 1000;
-                let template = Arc::new(template);
-                client
-                    .particle_systems_mut()
-                    .register_template(template.clone());
-                client
-                    .particle_systems_mut()
-                    .create_particle_system(&template, true)
-                    .unwrap();
-                let capture_result = client.particle_systems_mut().capture_xfer_bytes();
-                let save_result = saves.save_game_with_client_state(
-                    filename,
-                    &world,
-                    ClientDrawableWorldSnapshot::default(),
-                    &mut client,
-                    &save_info,
-                );
-                // Reset before checking: a failing OLD assertion must not leave
-                // the deliberately unrepresentable system in the receiving owner.
-                client.particle_systems_mut().reset().unwrap();
-
-                let capture_error = capture_result.expect_err("256-byte names cannot be encoded");
-                let save_error =
-                    save_result.expect_err("a real particle Xfer failure must abort save");
-                assert!(
-                    matches!(save_error, SaveLoadError::Serialization(ref error) if error == &capture_error)
-                );
-                assert_eq!(std::fs::read(&destination).unwrap(), prior_archive);
-                assert!(!temp_file.exists());
-                assert!(!temp_directory.exists());
-            },
-        );
-    }
-}
-
-#[cfg(feature = "game_client")]
 mod mission_particle_capture {
     use super::*;
     use crate::save_load::snapshot::ClientDrawableWorldSnapshot;
@@ -109,7 +42,7 @@ mod mission_particle_capture {
                 let bytes = std::fs::read(saves.get_save_path("mission_particle_capture")).unwrap();
                 let archive = decode_versioned_archive(&bytes);
                 assert_eq!(archive.save_info.save_type, SaveFileType::Mission);
-                assert!(archive.snapshot.particle_system_companion.is_none());
+                assert!(archive.snapshot.particle_system_archive.is_none());
                 assert!(archive.campaign_state.is_some());
             },
         );

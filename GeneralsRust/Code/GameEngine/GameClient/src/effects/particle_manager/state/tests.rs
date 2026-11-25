@@ -277,3 +277,44 @@ fn both_particle_decoders_reject_late_malformed_keys_without_admission() {
         }
     }
 }
+
+#[test]
+fn typed_archive_restore_matches_native_xfer_restore_byte_for_byte() {
+    crate::test_support::ensure_ambient_host();
+    let mut source = populated();
+    let archive = source.capture_archive();
+    let native_payload = source.capture_xfer_bytes().unwrap();
+
+    let mut typed = populated();
+    let mut native = populated();
+    typed.restore_archive(&archive).unwrap();
+    native.restore_xfer_bytes(&native_payload).unwrap().unwrap();
+
+    assert_eq!(
+        typed.capture_xfer_bytes().unwrap(),
+        native.capture_xfer_bytes().unwrap(),
+        "typed admission preserves every native persisted field and random stream"
+    );
+    assert_eq!(typed.active_system_ids_in_order(), [19, 3]);
+    assert_eq!(typed.particle_count, 2);
+}
+
+#[test]
+fn failed_typed_archive_restore_leaves_live_manager_and_random_stream_untouched() {
+    crate::test_support::ensure_ambient_host();
+    let mut live = populated();
+    let owner = live.runtime_owner();
+    let before = live.capture_xfer_bytes().unwrap();
+    let counts = (live.next_system_id, live.particle_count, live.system_count);
+    let mut archive = live.capture_archive();
+    archive.systems[0].template_name = "MissingSavedTemplate".into();
+
+    assert!(live.restore_archive(&archive).is_err());
+    assert_eq!(live.capture_xfer_bytes().unwrap(), before);
+    assert_eq!(live.runtime_owner(), owner);
+    assert_eq!(
+        (live.next_system_id, live.particle_count, live.system_count),
+        counts
+    );
+    assert_eq!(live.active_system_ids_in_order(), [19, 3]);
+}

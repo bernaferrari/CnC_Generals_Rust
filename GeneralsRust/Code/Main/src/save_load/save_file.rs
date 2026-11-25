@@ -20,7 +20,7 @@ use decoded::{SaveArchiveRef, SaveMapArchive};
 /// and client companions explicitly; decoding never publishes pieces of one
 /// candidate for another restore to take.
 pub(crate) const VERSIONED_SAVE_MAGIC: &[u8; 8] = b"GZHRSAV\0";
-pub(crate) const VERSIONED_SAVE_ARCHIVE_VERSION: u32 = 4;
+pub(crate) const VERSIONED_SAVE_ARCHIVE_VERSION: u32 = 5;
 const MAX_VERSIONED_SAVE_BYTES: usize = 512 * 1024 * 1024;
 
 /// Stored game-mode integers written by `GameStateMap::xfer` v2
@@ -157,7 +157,7 @@ pub(crate) fn rewrite_versioned_save_archive(
         game_client_xfer: archive.game_client_xfer.as_deref(),
         terrain_visual_archive: archive.terrain_visual_archive.as_ref(),
         ghost_object_archive: archive.snapshot.w3d_ghost_archive.as_ref(),
-        particle_system_xfer: archive.snapshot.particle_system_companion.as_deref(),
+        particle_system_archive: archive.snapshot.particle_system_archive.as_ref(),
         map: archive.map.as_ref(),
     })
     .expect("encode mutated archive");
@@ -281,12 +281,8 @@ fn decode_versioned_save_archive(data: &[u8]) -> SaveLoadResult<SaveArchive> {
     }
     validate_direct_world_snapshot_version(archive.snapshot.version)?;
     // Companions are archive-owned on disk but snapshot-owned at runtime.
-    // Normalize the historical empty/one-byte NullSnapshot forms to absence.
-    fn companion(bytes: Option<Vec<u8>>) -> Option<Vec<u8>> {
-        bytes.filter(|bytes| !bytes.is_empty() && bytes.as_slice() != [1])
-    }
     archive.snapshot.w3d_ghost_archive = archive.ghost_object_archive.take();
-    archive.snapshot.particle_system_companion = companion(archive.particle_system_xfer.take());
+    archive.snapshot.particle_system_archive = archive.particle_system_archive.take();
     crate::save_load::snapshot::validate_decoded_world_snapshot(&mut archive.snapshot)?;
     if let Some(ghosts) = archive.snapshot.w3d_ghost_archive.as_ref() {
         decode_w3d_ghost_archive(ghosts)?;
@@ -703,14 +699,13 @@ impl SaveFileManager {
         // C++ named phases: GameLogic, GameClient, then ParticleSystem. Capture
         // once on this new save candidate; the writer never consults a later
         // live manager for a decoded or absent companion.
-        world_snapshot.particle_system_companion = if save_info.save_type == SaveFileType::Mission {
+        world_snapshot.particle_system_archive = if save_info.save_type == SaveFileType::Mission {
             // C++ mission saves contain only GameState and Campaign blocks.
             None
         } else {
             client
                 .as_deref_mut()
-                .map(|client| capture_particle_system_xfer_bytes(client.particle_systems_mut()))
-                .transpose()?
+                .map(|client| capture_particle_system_archive(client.particle_systems_mut()))
         };
 
         // C++ GameState::saveGame (GameState.cpp:534) makes sure the save
@@ -1058,7 +1053,7 @@ impl SaveFileManager {
             game_client_xfer: (!client_xfer_bytes.is_empty()).then_some(client_xfer_bytes),
             terrain_visual_archive,
             ghost_object_archive: snapshot.w3d_ghost_archive.as_ref(),
-            particle_system_xfer: snapshot.particle_system_companion.as_deref(),
+            particle_system_archive: snapshot.particle_system_archive.as_ref(),
             map: map_archive.as_ref(),
         };
         let encoded = encode_versioned_save_archive(&archive)?;
@@ -1147,7 +1142,7 @@ impl SaveFileManager {
             game_client_xfer: None,
             terrain_visual_archive: None,
             ghost_object_archive: None,
-            particle_system_xfer: None,
+            particle_system_archive: None,
             map: None,
         };
         encode_versioned_save_archive(&archive)

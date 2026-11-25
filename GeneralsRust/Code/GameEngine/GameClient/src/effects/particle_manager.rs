@@ -4,6 +4,7 @@
 //! matching the C++ implementation exactly for visual effects compatibility.
 
 use glam::{Mat3, Mat4 as GlamMat4, Vec3};
+use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, OnceLock};
 use std::time::Instant;
@@ -81,7 +82,7 @@ fn particle_priority_from_u8(value: u8) -> ParticlePriorityType {
 }
 
 /// Particle system information (matches C++ ParticleSystemInfo)
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ParticleSystemInfo {
     // Basic properties
     pub is_one_shot: bool,
@@ -110,7 +111,9 @@ pub struct ParticleSystemInfo {
     pub size_rate: GameClientRandomVariable,
     pub size_rate_damping: GameClientRandomVariable,
 
-    // Volume particles
+    // Volume particles. The original continuation never serializes this
+    // authored depth; restore takes it from the receiving template.
+    #[serde(skip)]
     pub volume_particle_depth: u32,
 
     // Animation keyframes

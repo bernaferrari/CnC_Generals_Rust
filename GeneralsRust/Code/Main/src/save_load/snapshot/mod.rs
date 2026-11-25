@@ -177,8 +177,8 @@ pub use lifecycle_tail::{
 };
 pub use object::*;
 pub use particle_system_save::{
-    CHUNK_PARTICLE_SYSTEM, capture_particle_system_xfer_bytes,
-    restore_particle_system_from_xfer_bytes,
+    CHUNK_PARTICLE_SYSTEM, ParticleSystemManagerArchive, capture_particle_system_archive,
+    restore_particle_system_from_archive,
 };
 pub use persist_v18::{CameraPersist, TacticalViewPersist, WorldPersistV18};
 pub use player::*;

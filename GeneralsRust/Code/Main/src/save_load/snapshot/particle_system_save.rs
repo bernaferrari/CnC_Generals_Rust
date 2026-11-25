@@ -1,26 +1,26 @@
-//! Host `.sav` companion for leftover `CHUNK_ParticleSystem`.
+//! Host `.sav` companion for the C++ ParticleSystem continuation.
 //!
-//! C++ `ParticleSystemManager::xfer` (`ParticleSys.cpp:3232-3323`) writes
-//! uniqueSystemID, systemCount, then each saveable ParticleSystem. Live save
-//! used a NullSnapshot placeholder, so mid-flight explosions vanished.
+//! The typed archive preserves the original system order, identifiers, random
+//! streams, and native-load side effects without exposing the legacy positional
+//! byte codec to the production save container.
 
 use crate::save_load::{SaveLoadError, SaveLoadResult};
 
 pub const CHUNK_PARTICLE_SYSTEM: &str = "CHUNK_ParticleSystem";
 
-pub fn capture_particle_system_xfer_bytes(
-    manager: &mut game_client::effects::particle_manager::ParticleSystemManager,
-) -> SaveLoadResult<Vec<u8>> {
-    manager
-        .capture_xfer_bytes()
-        .map_err(SaveLoadError::Serialization)
+pub use game_client::effects::particle_archive::ParticleSystemManagerArchive;
+
+pub fn capture_particle_system_archive(
+    manager: &game_client::effects::particle_manager::ParticleSystemManager,
+) -> ParticleSystemManagerArchive {
+    manager.capture_archive()
 }
 
-pub fn restore_particle_system_from_xfer_bytes(
+pub fn restore_particle_system_from_archive(
     manager: &mut game_client::effects::particle_manager::ParticleSystemManager,
-    bytes: &[u8],
-) -> SaveLoadResult<Option<game_client::effects::particle_manager::ParticleSystemRestoreReceipt>> {
+    archive: &ParticleSystemManagerArchive,
+) -> SaveLoadResult<game_client::effects::particle_manager::ParticleSystemRestoreReceipt> {
     manager
-        .restore_xfer_bytes(bytes)
+        .restore_archive(archive)
         .map_err(SaveLoadError::Serialization)
 }

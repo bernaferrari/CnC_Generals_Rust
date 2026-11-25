@@ -1,11 +1,15 @@
 //! Archive-owned particle companions remain attached to their decoded candidate.
 use super::*;
+use game_client::effects::particle_archive::ParticleSystemManagerArchive;
 use game_client::effects::particle_system::{Particle, ParticleInfo};
 use game_client::effects::{ParticleSystemManager, ParticleSystemTemplate};
 use game_client::system::SubsystemInterface;
 use std::sync::Arc;
 
-pub(super) fn local_particle_bytes(name: &str, position: Vec3) -> Vec<u8> {
+pub(super) fn local_particle_archive(
+    name: &str,
+    position: Vec3,
+) -> ParticleSystemManagerArchive {
     let mut manager = local_manager(&[name]);
     let template = manager.find_template(name).unwrap();
     let id = manager.create_particle_system(&template, true).unwrap();
@@ -24,7 +28,7 @@ pub(super) fn local_particle_bytes(name: &str, position: Vec3) -> Vec<u8> {
             ),
         )
         .unwrap();
-    manager.capture_xfer_bytes().unwrap()
+    manager.capture_archive()
 }
 
 fn local_manager(names: &[&str]) -> ParticleSystemManager {
@@ -37,9 +41,13 @@ fn local_manager(names: &[&str]) -> ParticleSystemManager {
     manager
 }
 
-fn archive(companion: Option<Vec<u8>>) -> Vec<u8> {
+fn archive_key(archive: &ParticleSystemManagerArchive) -> Vec<u8> {
+    bincode_legacy::serialize(archive).expect("typed particle archive is serializable")
+}
+
+fn archive(companion: Option<ParticleSystemManagerArchive>) -> Vec<u8> {
     let mut snapshot = WorldSnapshot::default();
-    snapshot.particle_system_companion = companion;
+    snapshot.particle_system_archive = companion;
     encode_snapshot_archive(&snapshot, &fixture_save_info())
 }
 
@@ -49,8 +57,7 @@ fn parsed(bytes: &[u8]) -> WorldSnapshot {
 
 fn assert_loaded(manager: &mut ParticleSystemManager, snapshot: &WorldSnapshot, expected: Vec3) {
     let receipt = manager
-        .restore_xfer_bytes(snapshot.particle_system_companion.as_deref().unwrap())
-        .unwrap()
+        .restore_archive(snapshot.particle_system_archive.as_ref().unwrap())
         .unwrap();
     assert!(receipt.belongs_to(manager));
     assert!(receipt.contains_system(1));
@@ -65,17 +72,19 @@ fn assert_loaded(manager: &mut ParticleSystemManager, snapshot: &WorldSnapshot, 
 fn particle_candidate_archives_interleave_without_stealing_receiving_payloads() {
     let a_position = Vec3::new(12.0, 22.0, 32.0);
     let b_position = Vec3::new(15.0, 25.0, 35.0);
-    let a_bytes = local_particle_bytes("ParticleCandidateA", a_position);
-    let b_bytes = local_particle_bytes("ParticleCandidateB", b_position);
-    let a = parsed(&archive(Some(a_bytes.clone())));
-    let b = parsed(&archive(Some(b_bytes.clone())));
+    let a_archive = local_particle_archive("ParticleCandidateA", a_position);
+    let b_archive = local_particle_archive("ParticleCandidateB", b_position);
+    let a_key = archive_key(&a_archive);
+    let b_key = archive_key(&b_archive);
+    let a = parsed(&archive(Some(a_archive)));
+    let b = parsed(&archive(Some(b_archive)));
     assert_eq!(
-        a.particle_system_companion.as_deref(),
-        Some(a_bytes.as_slice())
+        archive_key(a.particle_system_archive.as_ref().unwrap()),
+        a_key
     );
     assert_eq!(
-        b.particle_system_companion.as_deref(),
-        Some(b_bytes.as_slice())
+        archive_key(b.particle_system_archive.as_ref().unwrap()),
+        b_key
     );
 
     let mut receiving_a = local_manager(&["ParticleCandidateA"]);
@@ -86,44 +95,41 @@ fn particle_candidate_archives_interleave_without_stealing_receiving_payloads() 
     drop(receiving_b);
     assert_loaded(&mut receiving_a, &a, a_position);
     assert_eq!(
-        b.particle_system_companion.as_deref(),
-        Some(b_bytes.as_slice())
+        archive_key(b.particle_system_archive.as_ref().unwrap()),
+        b_key
     );
 }
 
 #[test]
-fn particle_candidate_resave_and_null_forms_are_canonical() {
-    let payload = local_particle_bytes("OwnedResave", Vec3::new(7.0, 8.0, 9.0));
-    let owned = parsed(&archive(Some(payload.clone())));
-    for companion in [None, Some(Vec::new()), Some(vec![1])] {
-        let decoded = parsed(&archive(companion));
-        assert!(
-            decoded.particle_system_companion.is_none(),
-            "empty and historical NullSnapshot payloads normalize to absence"
-        );
-    }
+fn particle_candidate_resave_preserves_the_owned_typed_archive() {
+    let payload = local_particle_archive("OwnedResave", Vec3::new(7.0, 8.0, 9.0));
+    let payload_key = archive_key(&payload);
+    let owned = parsed(&archive(Some(payload)));
+    let decoded = parsed(&archive(None));
+    assert!(decoded.particle_system_archive.is_none());
     let encoded = encode_snapshot_archive(&owned, &fixture_save_info());
     let reparsed = parsed(&encoded);
     assert_eq!(
-        reparsed.particle_system_companion.as_deref(),
-        Some(payload.as_slice()),
-        "resaving uses the candidate's exact owned particle payload"
+        archive_key(reparsed.particle_system_archive.as_ref().unwrap()),
+        payload_key,
+        "resaving uses the candidate's exact owned particle archive"
     );
 }
 
 #[test]
 fn corrupt_particle_candidate_does_not_contaminate_prior_candidate() {
-    let payload = local_particle_bytes("CandidateSurvives", Vec3::new(3.0, 4.0, 5.0));
-    let good = parsed(&archive(Some(payload.clone())));
-    let mut corrupt = decode_versioned_archive(&archive(Some(local_particle_bytes(
+    let payload = local_particle_archive("CandidateSurvives", Vec3::new(3.0, 4.0, 5.0));
+    let payload_key = archive_key(&payload);
+    let good = parsed(&archive(Some(payload)));
+    let mut corrupt = decode_versioned_archive(&archive(Some(local_particle_archive(
         "FailedCandidate",
         Vec3::ZERO,
     ))));
     corrupt.snapshot.version += 1;
     assert!(decode_versioned_save_archive(&encode_versioned_archive(&corrupt)).is_err());
     assert_eq!(
-        good.particle_system_companion.as_deref(),
-        Some(payload.as_slice())
+        archive_key(good.particle_system_archive.as_ref().unwrap()),
+        payload_key
     );
     let mut manager = local_manager(&["CandidateSurvives"]);
     assert_loaded(&mut manager, &good, Vec3::new(3.0, 4.0, 5.0));

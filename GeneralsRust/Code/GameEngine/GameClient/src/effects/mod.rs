@@ -48,6 +48,7 @@ pub mod decals;
 pub mod fxlist_integration;
 pub mod heat_haze;
 pub mod manager;
+pub mod particle_archive;
 pub mod particle_ini_loader;
 pub mod particle_manager;
 pub mod particle_presets;

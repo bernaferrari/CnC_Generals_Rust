@@ -4,6 +4,7 @@
 //! Handles particle creation, physics simulation, and lifecycle management.
 
 use glam::{Mat3, Vec3};
+use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;
 use std::sync::Arc;
 
@@ -12,7 +13,7 @@ use crate::core::DrawableId;
 use game_engine::common::system::{Snapshotable, Xfer, XferMode, XferVersion};
 
 /// Individual particle information (matches C++ ParticleInfo)
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ParticleInfo {
     pub velocity: Vec3,
     pub position: Vec3,
@@ -21,6 +22,9 @@ pub struct ParticleInfo {
 
     pub angle_z: f32,
     pub angular_rate_z: f32,
+    /// Not part of the original particle continuation; a native load keeps
+    /// the one generated prototype value instead.
+    #[serde(skip)]
     pub angular_damping: f32,
 
     pub lifetime: u32,
@@ -78,6 +82,8 @@ pub struct Particle {
 
     pub angle_z: f32,
     pub angular_rate_z: f32,
+    /// Not part of the original particle continuation; a native load keeps
+    /// the one generated prototype value instead.
     pub angular_damping: f32,
 
     pub lifetime: u32,

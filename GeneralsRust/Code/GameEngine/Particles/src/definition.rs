@@ -1,7 +1,8 @@
 use glam::Vec3;
+use serde::{Deserialize, Serialize};
 
 /// Keyframe for scalar values
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct Keyframe {
     pub value: f32,
     pub frame: u32,
@@ -17,7 +18,7 @@ impl Default for Keyframe {
 }
 
 /// RGB color keyframe
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct RGBColorKeyframe {
     pub color: [f32; 3], // RGB
     pub frame: u32,
@@ -33,7 +34,7 @@ impl Default for RGBColorKeyframe {
 }
 
 /// Random keyframe with range
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct RandomKeyframe {
     pub min_value: f32,
     pub max_value: f32,
@@ -53,7 +54,7 @@ impl Default for RandomKeyframe {
 }
 
 /// Authored client random range used by the current particle adapter.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct GameClientRandomVariable {
     pub min: f32,
     pub max: f32,
@@ -94,7 +95,7 @@ impl GameClientRandomVariable {
 }
 
 /// Emission velocity configuration
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub enum EmissionVelocity {
     Ortho {
         x: GameClientRandomVariable,
@@ -128,7 +129,7 @@ impl Default for EmissionVelocity {
 }
 
 /// Emission volume configuration
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize)]
 pub enum EmissionVolume {
     #[default]
     Point,

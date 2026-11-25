@@ -373,10 +373,10 @@ pub struct WorldSnapshot {
     /// outside the unchanged v23-29 GameLogic positional body and direct Xfer stream.
     #[serde(skip)]
     pub(crate) w3d_ghost_archive: Option<super::w3d_ghost_save::W3DGhostObjectManagerArchive>,
-    /// Raw named ParticleSystem block owned by this load/save candidate, never
+    /// Typed ParticleSystem continuation owned by this load/save candidate, never
     /// inserted into the historical GameLogic positional body.
     #[serde(skip)]
-    pub(crate) particle_system_companion: Option<Vec<u8>>,
+    pub(crate) particle_system_archive: Option<super::ParticleSystemManagerArchive>,
 }
 
 /// C++ `ExperienceTracker::xfer` `m_experienceSink` + `m_experienceScalar`.
@@ -688,7 +688,7 @@ impl Default for WorldSnapshot {
             dynamic_debris_generations: 0,
             garrison_original_team_instances: Vec::new(),
             w3d_ghost_archive: None,
-            particle_system_companion: None,
+            particle_system_archive: None,
         };
         // Pure standalone/tool definitions: no world construction/publication.
         // Builder captures the actual receiving session policy instead.

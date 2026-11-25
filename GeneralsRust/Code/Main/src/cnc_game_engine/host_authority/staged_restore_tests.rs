@@ -1896,7 +1896,46 @@ End
                         )
                         .unwrap();
                     let original_particle_state =
-                        snapshot.particle_system_companion.replace(vec![1, 0]);
+                        snapshot.particle_system_archive.replace(
+                        game_client::effects::particle_archive::ParticleSystemManagerArchive {
+                            next_system_id: 1,
+                            random_seed: [0; 6],
+                            systems: vec![
+                                game_client::effects::particle_archive::ParticleSystemArchive {
+                                    template_name: "MissingSavedStageParticles".into(),
+                                    info: Default::default(),
+                                    system_id: 1,
+                                    random_seed: [0; 6],
+                                    attached_drawable_id: 0,
+                                    attached_object_id: 0,
+                                    is_local_identity: true,
+                                    local_transform: glam::Mat3::IDENTITY,
+                                    local_translation: Vec3::ZERO,
+                                    is_identity: true,
+                                    transform: glam::Mat3::IDENTITY,
+                                    transform_translation: Vec3::ZERO,
+                                    burst_delay_left: 0,
+                                    delay_left: 0,
+                                    start_timestamp: 0,
+                                    system_lifetime_left: 0,
+                                    personality_counter: 0,
+                                    is_forever: false,
+                                    accumulated_size_bonus: 0.0,
+                                    is_stopped: false,
+                                    vel_coeff: Vec3::ONE,
+                                    count_coeff: 1.0,
+                                    delay_coeff: 1.0,
+                                    size_coeff: 1.0,
+                                    position: Vec3::ZERO,
+                                    last_position: Vec3::ZERO,
+                                    is_first_pos: true,
+                                    slave_system: None,
+                                    master_system: None,
+                                    particles: Vec::new(),
+                                },
+                            ],
+                        },
+                    );
                     let failure = CnCGameEngine::stage_decoded_saved_world_for_restore_with_native(
                         &snapshot,
                         save_info("terminal-owned-services", map_name.clone()),
@@ -1932,7 +1971,7 @@ End
                         Some(&mut attempt),
                     );
                     drop(attempt);
-                    snapshot.particle_system_companion = original_particle_state;
+                    snapshot.particle_system_archive = original_particle_state;
                     let mut failure = match failure {
                         Err(failure) => failure,
                         Ok(_) => panic!("selected native retirement must reject real saved stage"),
