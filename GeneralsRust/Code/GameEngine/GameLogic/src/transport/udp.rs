@@ -198,17 +198,9 @@ impl UdpTransport {
             let total_len = msg.total_size();
             let mut packet_buf = vec![0u8; total_len];
 
-            // Copy header
-            // SAFETY: `msg` is a live local owned by the out-buffer; its
-            // header is read as `TransportMessageHeader::SIZE` raw bytes
-            // (`repr(C, packed)` makes a field-wise copy unsound) and the
-            // destination slice has exactly that length.
-            unsafe {
-                let header_ptr = &msg.header as *const TransportMessageHeader as *const u8;
-                let header_slice =
-                    std::slice::from_raw_parts(header_ptr, TransportMessageHeader::SIZE);
-                packet_buf[..TransportMessageHeader::SIZE].copy_from_slice(header_slice);
-            }
+            // Copy header in explicit wire byte order.
+            msg.header
+                .write_le_bytes(&mut packet_buf[..TransportMessageHeader::SIZE]);
 
             // Copy data
             packet_buf[TransportMessageHeader::SIZE..].copy_from_slice(msg.get_data());
@@ -260,12 +252,7 @@ impl UdpTransport {
                     }
 
                     // Parse header
-                    let header: TransportMessageHeader =
-                        // SAFETY: `buf` holds at least
-                        // `TransportMessageHeader::SIZE` decrypted bytes at
-                        // this point (len was checked above); reading one
-                        // packed 6-byte header value from it is in bounds.
-                        unsafe { std::ptr::read(buf.as_ptr() as *const TransportMessageHeader) };
+                    let header = TransportMessageHeader::read_le_bytes(&buf[..TransportMessageHeader::SIZE]);
 
                     // Create message
                     let mut msg = TransportMessage::new();

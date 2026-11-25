@@ -45,6 +45,22 @@ impl TransportMessageHeader {
         }
     }
 
+    /// Serialize in the little-endian wire order used by the original x86 executable.
+    pub fn write_le_bytes(&self, out: &mut [u8]) {
+        debug_assert!(out.len() >= Self::SIZE);
+        out[..4].copy_from_slice(&self.crc.to_le_bytes());
+        out[4..6].copy_from_slice(&self.magic.to_le_bytes());
+    }
+
+    /// Deserialize from the little-endian wire order used by the original x86 executable.
+    pub fn read_le_bytes(input: &[u8]) -> Self {
+        debug_assert!(input.len() >= Self::SIZE);
+        Self {
+            crc: u32::from_le_bytes(input[..4].try_into().expect("header crc bytes")),
+            magic: u16::from_le_bytes(input[4..6].try_into().expect("header magic bytes")),
+        }
+    }
+
     /// Validate that this is a Generals packet
     pub fn is_valid(&self) -> bool {
         self.magic == GENERALS_MAGIC_NUMBER
