@@ -998,8 +998,7 @@ fn crate_and_chemsuit_set_terrain_decal_types() {
     let mut it = ThingTemplate::new("AmericaInfantryRanger");
     it.add_kind_of(KindOf::Infantry);
     let mut ranger = Object::new(it, ObjectId(2), Team::USA);
-    ranger.set_terrain_decal_chemsuit(true);
-    assert!(ranger.terrain_decal_chemsuit);
+    ranger.apply_chemical_suit_decal();
     assert_eq!(ranger.terrain_decal_type, TERRAIN_DECAL_CHEMSUIT);
 
     let mut ft = ThingTemplate::new("GLAFakeBarracks");

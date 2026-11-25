@@ -805,7 +805,6 @@ impl Object {
             weapon_bonus_elite: false,
             weapon_bonus_hero: false,
             locomotor_upgrade: false,
-            terrain_decal_chemsuit: false,
             terrain_decal_type: if is_fs_fake {
                 crate::game_logic::host_battlemaster::TERRAIN_DECAL_SHADOW_TEXTURE
             } else {
@@ -1641,7 +1640,6 @@ impl Object {
             weapon_bonus_elite: false,
             weapon_bonus_hero: false,
             locomotor_upgrade: false,
-            terrain_decal_chemsuit: false,
             terrain_decal_type: if is_fs_fake {
                 crate::game_logic::host_battlemaster::TERRAIN_DECAL_SHADOW_TEXTURE
             } else {

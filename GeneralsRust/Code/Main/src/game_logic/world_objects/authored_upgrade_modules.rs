@@ -48,21 +48,20 @@ fn upgrade_mux_triggers(
     upgrade_mux_data(module).satisfied_by(has)
 }
 
-/// Remaining armor effects and command overrides for raw templates without an
-/// admitted behavior roster.
+/// Armor and command overrides for raw templates without admitted behavior modules.
 #[derive(Debug, Default, Clone, PartialEq)]
-pub(crate) struct AuthoredFlagUpgrades {
+pub(crate) struct RawTemplateFlagUpgrades {
     /// ArmorUpgrade -> `setArmorSetFlag(ARMORSET_PLAYER_UPGRADE)`.
     pub armor_set: bool,
+    chemical_suit: bool,
     /// CommandSetUpgrade -> `setCommandSetStringOverride(CommandSet)`.
     pub command_set: Option<String>,
 }
 
-impl AuthoredFlagUpgrades {
+impl RawTemplateFlagUpgrades {
     /// Evaluate `template`'s authored modules against `has(upgrade)`.
     fn triggered(
         template: &ThingTemplate,
-        include_command_set: bool,
         has: impl Fn(&str) -> bool,
     ) -> Self {
         let mut out = Self::default();
@@ -72,13 +71,19 @@ impl AuthoredFlagUpgrades {
         for module in &definition.behavior_modules {
             let class = module.class_name.as_str();
             let is = |name: &str| class.eq_ignore_ascii_case(name);
-            if !(is("ArmorUpgrade") || (include_command_set && is("CommandSetUpgrade")))
+            if !(is("ArmorUpgrade") || is("CommandSetUpgrade"))
                 || !upgrade_mux_triggers(module, &has)
             {
                 continue;
             }
             if is("ArmorUpgrade") {
+                use crate::game_logic::host_upgrades::UPGRADE_AMERICA_CHEMICAL_SUITS;
                 out.armor_set = true;
+                out.chemical_suit |= module.attribute("TriggeredBy").is_some_and(|names| {
+                    names.split_whitespace().any(|name| {
+                        name.eq_ignore_ascii_case(UPGRADE_AMERICA_CHEMICAL_SUITS)
+                    })
+                });
             } else {
                 // CommandSetUpgrade.cpp: TriggerAlt selects CommandSetAlt.
                 let alt = module
@@ -136,20 +141,19 @@ pub(crate) fn authors_triggered_stealth_upgrade(
 }
 
 impl Object {
-    /// Apply the authored flag upgrades triggered by this object's mask plus
-    /// `extra` (C++ Object::updateUpgradeModules). Flags only ever turn on
-    /// here; removal follows UpgradeMux::removeUpgrade paths.
-    pub(crate) fn apply_authored_flag_upgrades(
+    /// Apply raw-template flags for objects without admitted behavior modules.
+    pub(crate) fn apply_raw_template_flag_upgrades(
         &mut self,
-        include_command_set: bool,
         extra: impl Fn(&str) -> bool,
-    ) -> AuthoredFlagUpgrades {
-        let applied =
-            AuthoredFlagUpgrades::triggered(&self.thing().template, include_command_set, |name| {
-                extra(name) || self.has_upgrade_tag(name)
-            });
-        if applied.armor_set {
+    ) -> RawTemplateFlagUpgrades {
+        let applied = RawTemplateFlagUpgrades::triggered(&self.thing().template, |name| {
+            extra(name) || self.has_upgrade_tag(name)
+        });
+        if applied.armor_set && !self.is_inactive_body() {
             self.set_armor_set_player_upgrade(true);
+        }
+        if applied.chemical_suit {
+            self.apply_chemical_suit_decal();
         }
         if let Some(set) = applied.command_set.clone() {
             self.set_command_set_override(Some(set));
@@ -746,7 +750,6 @@ mod unpause_tests {
 
 #[cfg(test)]
 mod flag_tests {
-    use super::AuthoredFlagUpgrades;
     use crate::game_logic::{GameLogic, Player, Team};
 
     #[test]
@@ -855,13 +858,9 @@ mod flag_tests {
         assert!(world.host_object(id).unwrap().test_weapon_condition(3));
         let object = world.host_object_mut(id).unwrap();
         assert_eq!(object.command_set_override.as_deref(), Some("TestUpgradedSet"));
-        assert!(
-            !object
-                .apply_authored_flag_upgrades(false, |n| {
-                    n == "Upgrade_TestPlate" || n == "Upgrade_TestBlock"
-                })
-                .armor_set
-        );
+        world.apply_upgrade_to_object(id, "Upgrade_TestBlock");
+        world.apply_upgrade_to_object(id, "Upgrade_TestPlate");
+        assert!(!world.host_object(id).unwrap().armor_set_player_upgrade);
         world.apply_upgrade_to_object(id, "Upgrade_TestA");
         assert!(!world.host_object(id).unwrap().weapon_bonus_player_upgrade);
         world.apply_upgrade_to_object(id, "Upgrade_TestB");
@@ -915,9 +914,9 @@ mod flag_tests {
     fn unit_named_template_without_modules_gets_no_flags() {
         let (mut world, id) = world("AmericaVehicleHumvee", "");
         world.apply_upgrade_to_object(id, "Upgrade_AmericaTOWMissile");
-        let object = world.host_object_mut(id).unwrap();
-        let flags = object.apply_authored_flag_upgrades(false, |n| n == "Upgrade_AmericaTOWMissile");
-        assert_eq!(flags, AuthoredFlagUpgrades::default());
+        let object = world.host_object(id).unwrap();
+        assert!(!object.armor_set_player_upgrade);
+        assert!(object.command_set_override.is_none());
         assert!(!object.test_weapon_condition(3));
     }
 

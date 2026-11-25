@@ -1,6 +1,8 @@
 //! Object::updateUpgradeModules / removeUpgrade and the typed UpgradeMux pass.
 use super::*;
-use gamelogic::object::upgrade::{CommandSetUpgradeModuleData, ReplaceObjectUpgradeModuleData};
+use gamelogic::object::upgrade::{
+    ArmorUpgradeModuleData, CommandSetUpgradeModuleData, ReplaceObjectUpgradeModuleData,
+};
 
 struct AuthoredObjectCreationUpgrade {
     state_index: usize,
@@ -74,6 +76,17 @@ impl AuthoredReplaceObjectUpgrade {
     }
 }
 
+struct AuthoredArmorUpgrade {
+    source_index: usize,
+    data: ModuleDataView<ArmorUpgradeModuleData>,
+}
+
+impl AuthoredArmorUpgrade {
+    fn executed_key(&self) -> String {
+        format!("ArmorUpgrade#{}", self.source_index)
+    }
+}
+
 struct AuthoredCommandSetUpgrade {
     source_index: usize,
     data: ModuleDataView<CommandSetUpgradeModuleData>,
@@ -98,6 +111,7 @@ struct AuthoredRadarUpgrade {
 enum AuthoredOrderedUpgrade {
     ObjectCreation(AuthoredObjectCreationUpgrade),
     ReplaceObject(AuthoredReplaceObjectUpgrade),
+    Armor(AuthoredArmorUpgrade),
     CommandSet(AuthoredCommandSetUpgrade),
     StatusBits(AuthoredStatusBitsUpgrade),
     CostModifier(AuthoredCostModifierUpgrade),
@@ -125,6 +139,7 @@ impl AuthoredOrderedUpgrade {
         match self {
             Self::ObjectCreation(module) => f(&module.data.read().upgrade_mux_data),
             Self::ReplaceObject(module) => f(&module.data.read().upgrade_mux_data),
+            Self::Armor(module) => f(&module.data.read().upgrade_mux_data),
             Self::CommandSet(module) => f(&module.data.read().upgrade_mux_data),
             Self::StatusBits(module) => f(&module.data.read().upgrade_mux_data),
             Self::CostModifier(module) => f(&module.data.read().upgrade_mux_data),
@@ -180,6 +195,12 @@ impl GameLogic {
                     return Some(AuthoredOrderedUpgrade::ReplaceObject(
                         AuthoredReplaceObjectUpgrade { source_index, data },
                     ));
+                }
+                if module.name.as_str().eq_ignore_ascii_case("ArmorUpgrade") {
+                    let data = upgrade_data_view::<ArmorUpgradeModuleData>(&module.data)?;
+                    return Some(AuthoredOrderedUpgrade::Armor(AuthoredArmorUpgrade {
+                        source_index, data,
+                    }));
                 }
                 if module.name.as_str().eq_ignore_ascii_case("CommandSetUpgrade") {
                     let data = upgrade_data_view::<CommandSetUpgradeModuleData>(&module.data)?;
@@ -368,6 +389,10 @@ impl GameLogic {
                     .objects
                     .get(&object_id)
                     .is_some_and(|object| object.applied_upgrades.contains(&module.executed_key())),
+                AuthoredOrderedUpgrade::Armor(module) => self
+                    .objects
+                    .get(&object_id)
+                    .is_some_and(|object| object.applied_upgrades.contains(&module.executed_key())),
                 AuthoredOrderedUpgrade::CommandSet(module) => self
                     .objects
                     .get(&object_id)
@@ -420,6 +445,27 @@ impl GameLogic {
                         interpreter,
                         presentation_effects,
                     )
+                }
+                AuthoredOrderedUpgrade::Armor(module) => {
+                    use crate::game_logic::host_upgrades::UPGRADE_AMERICA_CHEMICAL_SUITS;
+                    if let Some(object) = self.objects.get_mut(&object_id) {
+                        if !object.is_inactive_body() {
+                            object.set_armor_set_player_upgrade(true);
+                        }
+                        // ArmorUpgrade.cpp:76–80 tests the authored trigger list.
+                        if module
+                            .data
+                            .read()
+                            .upgrade_mux_data
+                            .is_triggered_by(UPGRADE_AMERICA_CHEMICAL_SUITS)
+                        {
+                            object.apply_chemical_suit_decal();
+                        }
+                        if let Some(upgrade) = pending_upgrade {
+                            self.upgrade_module_residuals.record_armor_set(upgrade);
+                        }
+                    }
+                    Ok(())
                 }
                 AuthoredOrderedUpgrade::CommandSet(module) => {
                     let data = module.data.read();
@@ -640,6 +686,9 @@ impl GameLogic {
                             // when the authored replacement template is absent.
                             object.applied_upgrades.insert(module.executed_key());
                         }
+                        AuthoredOrderedUpgrade::Armor(module) => {
+                            object.applied_upgrades.insert(module.executed_key());
+                        }
                         AuthoredOrderedUpgrade::CommandSet(module) => {
                             object.applied_upgrades.insert(module.executed_key());
                         }
@@ -822,6 +871,10 @@ impl GameLogic {
                             object.radar_upgrade_executed[module.state_index] = false;
                         }
                         Some(AuthoredOrderedUpgrade::ReplaceObject(module)) => {
+                            object.applied_upgrades.remove(&module.executed_key());
+                        }
+                        Some(AuthoredOrderedUpgrade::Armor(module)) => {
+                            // Reset leaves the ActiveBody's flag and the Drawable's decal.
                             object.applied_upgrades.remove(&module.executed_key());
                         }
                         Some(AuthoredOrderedUpgrade::CommandSet(module)) => {

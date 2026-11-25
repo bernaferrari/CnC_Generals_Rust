@@ -2700,13 +2700,17 @@ fn armor_upgrade_sets_armor_set_and_chemsuit_decal() {
                 "Behavior = ArmorUpgrade FixtureChemSuits\n TriggeredBy = Upgrade_AmericaChemicalSuits\nEnd",
             )],
     );
+    ensure_test_player_for_team(&mut logic, Team::USA);
     let id = logic
-        .create_object("AmericaInfantryRanger", Team::USA, glam::Vec3::ZERO)
+        .create_object_for_player("AmericaInfantryRanger", 0, glam::Vec3::ZERO)
         .unwrap();
     logic.apply_upgrade_to_object(id, "Upgrade_AmericaChemicalSuits");
     let o = logic.objects.get(&id).unwrap();
     assert!(o.armor_set_player_upgrade);
-    assert!(o.terrain_decal_chemsuit);
+    assert_eq!(
+        o.get_terrain_decal_type(),
+        crate::game_logic::host_battlemaster::TERRAIN_DECAL_CHEMSUIT,
+    );
 }
 
 #[test]

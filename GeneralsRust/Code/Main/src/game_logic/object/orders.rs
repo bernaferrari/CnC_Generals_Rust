@@ -419,26 +419,20 @@ impl Object {
         self.jet_ai.cur_locomotor_set = set;
     }
 
-    /// C++ Drawable::setTerrainDecal(TERRAIN_DECAL_CHEMSUIT) residual.
-    pub fn set_terrain_decal_chemsuit(&mut self, enabled: bool) {
-        use crate::game_logic::host_battlemaster::{TERRAIN_DECAL_CHEMSUIT, TERRAIN_DECAL_NONE};
-        self.terrain_decal_chemsuit = enabled;
-        if enabled {
-            self.set_terrain_decal(TERRAIN_DECAL_CHEMSUIT);
-            if self.terrain_decal_size <= 0.0 {
-                let major = if (*self.geometry_info()).authored {
-                    (*self.geometry_info()).major_radius
-                } else {
-                    self.selection_radius.max(8.0)
-                };
-                self.set_terrain_decal_size(major * 2.0, major * 2.0);
-            }
-            self.set_terrain_decal_opacity_immediate(1.0);
-            self.terrain_decal_fade_rate = 0.0;
-        } else if self.terrain_decal_type == TERRAIN_DECAL_CHEMSUIT {
-            self.set_terrain_decal(TERRAIN_DECAL_NONE);
-            self.set_terrain_decal_opacity_immediate(0.0);
+    /// C++ Drawable::setTerrainDecal(TERRAIN_DECAL_CHEMSUIT).
+    pub(crate) fn apply_chemical_suit_decal(&mut self) {
+        use crate::game_logic::host_battlemaster::TERRAIN_DECAL_CHEMSUIT;
+        self.set_terrain_decal(TERRAIN_DECAL_CHEMSUIT);
+        if self.terrain_decal_size <= 0.0 {
+            let major = if self.geometry_info().authored {
+                self.geometry_info().major_radius
+            } else {
+                self.selection_radius.max(8.0)
+            };
+            self.set_terrain_decal_size(major * 2.0, major * 2.0);
         }
+        self.set_terrain_decal_opacity_immediate(1.0);
+        self.terrain_decal_fade_rate = 0.0;
     }
 
     /// C++ Drawable::setTerrainDecal residual (HordeUpdate rings).

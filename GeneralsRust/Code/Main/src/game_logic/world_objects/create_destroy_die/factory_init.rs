@@ -279,10 +279,8 @@ impl GameLogic {
             if !has_admitted_upgrade_roster {
                 power_plant_bonus =
                     object.run_authored_power_plant_upgrades(|name| player.has_unlocked_upgrade(name));
+                object.apply_raw_template_flag_upgrades(|name| player.has_unlocked_upgrade(name));
             }
-            object.apply_authored_flag_upgrades(!has_admitted_upgrade_roster, |name| {
-                player.has_unlocked_upgrade(name)
-            });
             // StealthUpgrade (Camouflage, Camo Netting): CAN_STEALTH.
             object.run_authored_stealth_upgrades(|name| player.has_unlocked_upgrade(name));
             // UnpauseSpecialPowerUpgrade: the constructor's StartsPaused pause

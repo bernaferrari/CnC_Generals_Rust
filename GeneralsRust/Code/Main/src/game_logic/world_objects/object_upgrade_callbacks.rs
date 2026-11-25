@@ -334,25 +334,22 @@ impl GameLogic {
                 let shown: Vec<&str> = shown.iter().map(String::as_str).collect();
                 self.sub_objects_upgrades.record(&shown);
             }
-            let flags = obj.apply_authored_flag_upgrades(!has_admitted_upgrade_roster, |name| {
-                name.eq_ignore_ascii_case(upgrade)
-            });
             // C++ StealthUpgrade::upgradeImplementation (CAN_STEALTH).
             obj.run_authored_stealth_upgrades(|name| name.eq_ignore_ascii_case(upgrade));
             if newly_triggered_stealth {
                 obj.innate_stealth = true;
                 upgrade_spawn_stealth = obj.is_kind_of(KindOf::SpawnsAreTheWeapons);
             }
-            if let Some(cs) = flags.command_set.as_deref() {
-                self.replace_grant_command_upgrades.record_command_set(cs);
-            }
-            if flags.armor_set {
-                if crate::game_logic::host_upgrade_module_residuals::is_chemical_suits_upgrade(
-                    upgrade,
-                ) {
-                    obj.set_terrain_decal_chemsuit(true);
+            if !has_admitted_upgrade_roster {
+                let flags =
+                    obj.apply_raw_template_flag_upgrades(|name| name.eq_ignore_ascii_case(upgrade));
+                if let Some(command_set) = flags.command_set.as_deref() {
+                    self.replace_grant_command_upgrades
+                        .record_command_set(command_set);
                 }
-                self.upgrade_module_residuals.record_armor_set(upgrade);
+                if flags.armor_set {
+                    self.upgrade_module_residuals.record_armor_set(upgrade);
+                }
             }
             // C++ LocomotorSetUpgrade::upgradeImplementation only — not a
             // name-sniff of Heroic rank or AutoLoader research.
@@ -487,6 +484,8 @@ impl GameLogic {
     }
 }
 
+#[cfg(test)]
+mod armor_upgrade_tests;
 #[cfg(test)]
 mod command_set_tests;
 #[cfg(test)]

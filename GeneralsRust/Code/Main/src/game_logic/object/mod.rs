@@ -1334,9 +1334,6 @@ pub struct Object {
     /// C++ AIUpdate::m_locomotorUpgrade residual (LocomotorSetUpgrade).
     #[serde(default)]
     pub locomotor_upgrade: bool,
-    /// C++ TERRAIN_DECAL_CHEMSUIT residual (ArmorUpgrade ChemicalSuits unique case).
-    #[serde(default)]
-    pub terrain_decal_chemsuit: bool,
     /// C++ Drawable terrain-decal type residual (HordeUpdate rings).
     #[serde(default = "default_terrain_decal_none")]
     pub terrain_decal_type: u8,

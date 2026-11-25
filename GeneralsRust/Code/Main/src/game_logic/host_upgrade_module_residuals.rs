@@ -308,11 +308,6 @@ pub fn tokens_from_kindof(k: KindOf) -> Vec<&'static str> {
 // WeaponSetUpgrade / ArmorUpgrade / LocomotorSetUpgrade residuals
 // ---------------------------------------------------------------------------
 
-/// Chemical suits unique terrain decal residual.
-pub fn is_chemical_suits_upgrade(upgrade: &str) -> bool {
-    upgrade.to_ascii_lowercase().contains("chemicalsuits")
-}
-
 /// Residual name peels used only when Object INI is unavailable.
 /// Retail LocomotorSetUpgrade TriggeredBy: WorkerShoes, NuclearTanks.
 /// Heroic rank (`Upgrade_Veterancy_HEROIC`) and AutoLoader are not modules —

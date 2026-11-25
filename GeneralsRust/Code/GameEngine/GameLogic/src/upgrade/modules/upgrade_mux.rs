@@ -153,11 +153,8 @@ impl UpgradeMuxData {
     pub fn is_triggered_by(&self, upgrade: &str) -> bool {
         self.activation_upgrade_names
             .iter()
-            .any(|n| n.as_str() == upgrade)
-            || self
-                .trigger_upgrade_names
-                .iter()
-                .any(|n| n.as_str() == upgrade)
+            .chain(&self.trigger_upgrade_names)
+            .any(|name| name.as_str().eq_ignore_ascii_case(upgrade))
     }
 
     /// Parse `TriggeredBy` tokens into activation names.

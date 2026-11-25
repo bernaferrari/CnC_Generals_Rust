@@ -1,11 +1,11 @@
-//! Persist native-indexed weapon conditions and RiderChange continuation.
-//! WSFL v3 stores the complete bitset; live weapon instances are separate.
+//! Persist weapon and armor set selection and RiderChange continuation.
+//! WSFL v4 carries the active armor upgrade independently of its trigger or latch.
 use crate::game_logic::{GameLogic, ObjectId};
 use crate::save_load::{SaveLoadError, SaveLoadResult};
 use serde::{Deserialize, Serialize};
 
 const WSFL_MAGIC: &[u8; 4] = b"WSFL";
-const WSFL_VERSION: u32 = 3;
+const WSFL_VERSION: u32 = 4;
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 struct WeaponSetPersistPayload {
@@ -18,6 +18,7 @@ struct ObjectWeaponSetPersist {
     weapon_condition_flags: u32,
     weapon_model_condition_bits: u128,
     armor_crate_upgrade: u8,
+    armor_set_player_upgrade: bool,
     weapon_bonus_veteran: bool,
     weapon_bonus_elite: bool,
     weapon_bonus_hero: bool,
@@ -102,6 +103,7 @@ fn capture(game_logic: &GameLogic) -> WeaponSetPersistPayload {
             weapon_condition_flags: object.weapon_condition_flags(),
             weapon_model_condition_bits: object.model_condition_bits,
             armor_crate_upgrade: object.armor_crate_upgrade,
+            armor_set_player_upgrade: object.armor_set_player_upgrade,
             weapon_bonus_veteran: object.weapon_bonus_veteran,
             weapon_bonus_elite: object.weapon_bonus_elite,
             weapon_bonus_hero: object.weapon_bonus_hero,
@@ -129,6 +131,7 @@ fn apply_payload(game_logic: &mut GameLogic, payload: WeaponSetPersistPayload) {
             entry.rider_change_model_condition_mask,
         );
         object.armor_crate_upgrade = entry.armor_crate_upgrade;
+        object.set_armor_set_player_upgrade(entry.armor_set_player_upgrade);
         object.weapon_bonus_veteran = entry.weapon_bonus_veteran;
         object.weapon_bonus_elite = entry.weapon_bonus_elite;
         object.weapon_bonus_hero = entry.weapon_bonus_hero;

@@ -25,7 +25,7 @@ fn wsfl_record(tail: &[u8]) -> (usize, Vec<u8>) {
             }
             let version = u32::from_le_bytes(tail[*at + 4..*at + 8].try_into().unwrap());
             let length = u32::from_le_bytes(tail[*at + 8..*at + 12].try_into().unwrap()) as usize;
-            version == 1
+            version == 4
                 && at
                     .checked_add(12)
                     .and_then(|n| n.checked_add(length))
@@ -95,7 +95,7 @@ fn malformed_or_duplicate_wsfl_is_rejected_before_receiving_world_mutation() {
             snapshot.lifecycle_tail.extend_from_slice(b"WSFL");
             snapshot
                 .lifecycle_tail
-                .extend_from_slice(&1u32.to_le_bytes());
+                .extend_from_slice(&4u32.to_le_bytes());
         }
 
         let (mut receiving, receiving_id) = receiving_world();
