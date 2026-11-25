@@ -284,4 +284,82 @@ mod team_factory_xfer_tests {
         }
         std::fs::remove_file(file).unwrap();
     }
+
+    #[test]
+    fn core_object_xfer_rejects_duplicate_saved_identity() {
+        #[cfg(not(target_arch = "wasm32"))]
+        if let crate::test_process::TestProcess::ParentVerified = crate::test_process::run_bounded(
+            concat!(
+                module_path!(),
+                "::core_object_xfer_rejects_duplicate_saved_identity"
+            )
+            .strip_prefix("gamelogic::")
+            .unwrap(),
+            "GENERALS_CORE_DUPLICATE_OBJECT_XFER_CHILD",
+        ) {
+            return;
+        }
+
+        let _common = game_engine::common::common_services::CommonServicesScope::new();
+        let source = Arc::new(EngineStores::new_for_world());
+        let (team, other_team) = fixture_teams(&source);
+        let file = std::env::temp_dir().join(format!(
+            "generals-core-duplicate-{}.bin",
+            std::process::id()
+        ));
+        // Registering prepends, so the second object written is the duplicate.
+        const FIRST: ObjectID = 0x2f10_a157;
+        const SECOND: ObjectID = 0x3f2f_b247;
+        with_active_stores(&source, || {
+            let authored = "Object RestoredCoreIdentity\nEnd\n";
+            assert_eq!(
+                load_templates_from_ini_text(authored, "core-identity.ini"),
+                1
+            );
+            let template =
+                crate::helpers::TheThingFactory::find_template("RestoredCoreIdentity").unwrap();
+            let mut writer = GameLogic::new_with_engine_stores(source.clone());
+            for (id, team) in [(SECOND, other_team), (FIRST, team)] {
+                let object = Object::new_with_id(
+                    template.clone(),
+                    id,
+                    ObjectStatusMaskType::none(),
+                    Some(team),
+                )
+                .unwrap();
+                writer.register_object(object).unwrap();
+            }
+            let mut save = XferSave::new();
+            save.open(file.to_string_lossy().into_owned()).unwrap();
+            writer
+                .xfer_native_snapshot_with_campaign(&mut save, &mut Default::default())
+                .unwrap();
+            save.close().unwrap();
+
+            let mut bytes = std::fs::read(&file).unwrap();
+            let needle = SECOND.to_le_bytes();
+            let mut matching = bytes
+                .windows(needle.len())
+                .enumerate()
+                .filter(|(_, bytes)| *bytes == needle);
+            let (offset, _) = matching.next().expect("second object identity in the file");
+            assert!(matching.next().is_none());
+            bytes[offset..offset + needle.len()].copy_from_slice(&FIRST.to_le_bytes());
+            std::fs::write(&file, bytes).unwrap();
+
+            let receiving = Arc::new(EngineStores::new_for_world());
+            let (receiving_team, receiving_other) = fixture_teams(&receiving);
+            let mut receiver = GameLogic::new_with_engine_stores(receiving);
+            let mut load = XferLoad::new();
+            load.open(file.to_string_lossy().into_owned()).unwrap();
+            let status =
+                receiver.xfer_native_snapshot_with_campaign(&mut load, &mut Default::default());
+            load.close().unwrap();
+            std::fs::remove_file(&file).unwrap();
+            assert_eq!(status, Err(XferStatus::InvalidData));
+            assert_eq!(receiver.iter_all_object_ids().collect::<Vec<_>>(), [FIRST]);
+            assert_eq!(receiving_team.read().unwrap().get_members(), [FIRST]);
+            assert!(receiving_other.read().unwrap().get_members().is_empty());
+        });
+    }
 }

@@ -572,7 +572,8 @@ impl Object {
     /// object and phase in the error. Earlier mutations, callbacks and stream
     /// I/O are not rolled back; load into a detached candidate for transactionality.
     pub fn xfer_checked(&mut self, xfer: &mut dyn Xfer) -> Result<(), ObjectXferError> {
-        self.xfer_with_optional_trigger_frame(xfer, None, None, &mut |id| {
+        let id = Self::xfer_identity(self.id, xfer)?;
+        self.xfer_with_optional_trigger_frame(xfer, id, None, None, &mut |id| {
             crate::helpers::TheGameLogic::queue_objects_changed_trigger_areas(id);
         })
     }
@@ -582,21 +583,23 @@ impl Object {
     pub(crate) fn xfer_with_trigger_context(
         &mut self,
         xfer: &mut dyn Xfer,
+        id: ObjectID,
         frame: UnsignedInt,
         teams: Option<&crate::team::TeamFactoryHandle>,
         changed: &mut dyn FnMut(ObjectID),
     ) -> Result<(), ObjectXferError> {
-        self.xfer_with_optional_trigger_frame(xfer, Some(frame), teams, changed)
+        self.xfer_with_optional_trigger_frame(xfer, id, Some(frame), teams, changed)
     }
 
     fn xfer_with_optional_trigger_frame(
         &mut self,
         xfer: &mut dyn Xfer,
+        id: ObjectID,
         frame: Option<UnsignedInt>,
         teams: Option<&crate::team::TeamFactoryHandle>,
         changed: &mut dyn FnMut(ObjectID),
     ) -> Result<(), ObjectXferError> {
-        let mut prefix = self.xfer_prefix(xfer, &mut |object, matrix| {
+        let mut prefix = self.xfer_prefix(xfer, id, &mut |object, matrix| {
             object.set_transform_matrix_with_trigger_context(&matrix, frame, changed)
         })?;
         prefix.frame = frame;
@@ -624,20 +627,28 @@ impl Object {
         self.xfer_tail(xfer, prefix, None)
     }
 
+    /// Transfer the version and identity before changing the receiving object.
+    pub(crate) fn xfer_identity(
+        object_id: ObjectID,
+        xfer: &mut dyn Xfer,
+    ) -> Result<ObjectID, ObjectXferError> {
+        xfer_current_object_version(xfer)
+            .map_err(|error| ObjectXferError::new(object_id, None, "version", error))?;
+
+        let mut id = object_id;
+        xfer.xfer_unsigned_int(&mut id)
+            .map_err(|error| ObjectXferError::new(object_id, None, "id", error))?;
+        Ok(id)
+    }
+
     fn xfer_prefix(
         &mut self,
         xfer: &mut dyn Xfer,
+        id: ObjectID,
         apply_transform: &mut dyn FnMut(&mut Object, Matrix3D) -> Result<(), String>,
     ) -> Result<SavedObjectPrefix, ObjectXferError> {
-        xfer_current_object_version(xfer)
-            .map_err(|error| ObjectXferError::new(self.id, None, "version", error))?;
-
         let xfer_mode = xfer.get_xfer_mode();
         let is_loading = xfer_mode == game_engine::system::XferMode::Load;
-
-        let mut id = self.get_id();
-        xfer.xfer_unsigned_int(&mut id)
-            .map_err(|error| ObjectXferError::new(self.id, None, "id", error))?;
         self.set_id(id);
 
         let transform = self.get_transform_matrix();

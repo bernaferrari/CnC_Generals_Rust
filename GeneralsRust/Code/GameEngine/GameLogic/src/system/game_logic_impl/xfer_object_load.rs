@@ -32,6 +32,17 @@ fn xfer_game_logic_objects_load(
             continue;
         };
 
+        // Read the header before any constructor or admission callback can run.
+        let id = Object::xfer_identity(INVALID_ID, &mut CommonXferBridge { inner: xfer })
+            .map_err(|error| {
+                warn!("Core Object snapshot failed: {error}");
+                XferStatus::ReadError
+            })?;
+        if id == INVALID_ID || logic.objects.contains_key(&id) {
+            warn!("Core Object snapshot has invalid or duplicate identity {id}");
+            return Err(XferStatus::InvalidData);
+        }
+
         let arc = match default_team.clone() {
             Some(team) => crate::helpers::TheThingFactory::get()
                 .ok()
@@ -70,24 +81,24 @@ fn xfer_game_logic_objects_load(
                 &mut obj,
                 xfer,
                 logic.frame,
-                teams,
+                Some(CoreObjectLoad { id, teams }),
                 &mut logic.objects_changed_trigger_areas,
                 &mut logic.frame_objects_changed_trigger_areas,
             )?;
         }
-        let wall_id = arc.read().ok().map(|obj| obj.get_id());
         let walk_on_wall = arc
             .read()
             .ok()
             .map(|obj| obj.is_kind_of(KindOf::WalkOnTopOfWall))
             .unwrap_or(false);
-        let _ = logic.register_object(arc);
+        let id = logic.register_object(arc).map_err(|error| {
+            warn!("Core Object snapshot could not admit object: {error}");
+            XferStatus::InvalidData
+        })?;
         if walk_on_wall {
-            if let Some(object_id) = wall_id {
-                add_loaded_wall_piece(logic, object_id);
-            }
+            add_loaded_wall_piece(logic, id);
         }
-        let _ = xfer.end_block();
+        xfer.end_block()?;
     }
     Ok(())
 }

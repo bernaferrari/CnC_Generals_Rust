@@ -218,32 +218,45 @@ impl game_engine::common::system::xfer::Xfer for CommonXferBridge<'_> {
     }
 }
 
+struct CoreObjectLoad<'a> {
+    id: ObjectID,
+    teams: Option<&'a crate::team::TeamFactoryHandle>,
+}
+
 fn xfer_object_snapshot(
     obj: &mut Object,
     xfer: &mut dyn Xfer,
     frame: UnsignedInt,
-    teams: Option<&crate::team::TeamFactoryHandle>,
+    receiving: Option<CoreObjectLoad<'_>>,
     changed_objects: &mut VecDeque<ObjectID>,
     changed_frame: &mut UnsignedInt,
 ) -> Result<(), XferStatus> {
     let mode = xfer.get_xfer_mode();
     let mut bridge = CommonXferBridge { inner: xfer };
-    obj.xfer_with_trigger_context(&mut bridge, frame, teams, &mut |id| {
-        // Same immediate queue/stamp semantics as GameLogic's normal adapter.
-        if id != INVALID_ID {
-            changed_objects.push_back(id);
-            *changed_frame = frame;
-        }
-    })
-    .map_err(|error| {
-        warn!("Native Object snapshot failed: {error}");
+    let transfer_failure = |error| {
+        warn!("Core Object snapshot failed: {error}");
         match mode {
             XferMode::Load => XferStatus::ReadError,
             XferMode::Save => XferStatus::WriteError,
             XferMode::Crc => XferStatus::InvalidData,
             XferMode::Invalid => XferStatus::ModeUnknown,
         }
+    };
+    let (id, teams) = match receiving {
+        Some(load) => (load.id, load.teams),
+        None => (
+            Object::xfer_identity(obj.get_id(), &mut bridge).map_err(&transfer_failure)?,
+            None,
+        ),
+    };
+    obj.xfer_with_trigger_context(&mut bridge, id, frame, teams, &mut |id| {
+        // Same immediate queue/stamp semantics as GameLogic's normal adapter.
+        if id != INVALID_ID {
+            changed_objects.push_back(id);
+            *changed_frame = frame;
+        }
     })
+    .map_err(transfer_failure)
 }
 
 fn xfer_polygon_snapshot(poly: &mut crate::polygon_trigger::PolygonTrigger, xfer: &mut dyn Xfer) {

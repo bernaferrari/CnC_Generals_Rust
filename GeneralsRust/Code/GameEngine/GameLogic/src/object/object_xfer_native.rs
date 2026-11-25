@@ -718,12 +718,15 @@ impl Object {
         services
             .validate_owner(source)
             .map_err(|error| ObjectXferError::new(object_id, None, "native admission", error))?;
-        let prefix = source
-            .write()
-            .map_err(|error| ObjectXferError::new(object_id, None, "owner", error))?
-            .xfer_prefix(xfer, &mut |object, change| {
+        let prefix = {
+            let mut object = source
+                .write()
+                .map_err(|error| ObjectXferError::new(object_id, None, "owner", error))?;
+            let id = Self::xfer_identity(object.get_id(), xfer)?;
+            object.xfer_prefix(xfer, id, &mut |object, change| {
                 services.transform(object, change)
-            })?;
+            })?
+        };
         services
             .validate_owner(source)
             .map_err(|error| ObjectXferError::new(object_id, None, "native identity", error))?;
