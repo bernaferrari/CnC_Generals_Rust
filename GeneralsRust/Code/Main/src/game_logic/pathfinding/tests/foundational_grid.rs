@@ -67,8 +67,8 @@ fn tall_building_aircraft_detour_inserts_waypoints() {
 fn hover_aircraft_detour_around_tall_building() {
     use crate::game_logic::{
         KindOf, LocomotorAppearance, Object, ObjectId, Team, ThingTemplate,
-        host_combat_chinook::{HostChinookAI, HostChinookAIState},
     };
+    use generals_sim::chinook::{ChinookAi, ChinookAiState};
     let mut sys = PathfindingSystem::new(200.0, 200.0);
     let mut objects = HostObjectStore::new();
     let mut tmpl = ThingTemplate::new("CommandCenter");
@@ -110,8 +110,8 @@ fn hover_aircraft_detour_around_tall_building() {
     let mut drop = Object::new(drop_t, ObjectId(3), Team::USA);
     drop.loco_appearance = LocomotorAppearance::Hover;
     drop.set_position(from);
-    let mut ai = HostChinookAI::new_combat([0.0, 40.0, 0.0]);
-    ai.state = HostChinookAIState::MoveToCombatDrop;
+    let mut ai = ChinookAi::new_combat([0.0, 40.0, 0.0]);
+    ai.state = ChinookAiState::MoveToCombatDrop;
     ai.combat_drop_target = Some(1);
     drop.chinook_ai = Some(ai);
     objects.admit(drop.id, drop);

@@ -1797,7 +1797,7 @@ impl Object {
         self.thing.template.add_kind_of(KindOf::Attackable);
         let p = self.get_position();
         self.chinook_ai = Some(
-            crate::game_logic::host_combat_chinook::HostChinookAI::new_combat([p.x, p.z, p.y]),
+            generals_sim::chinook::ChinookAi::new_combat([p.x, p.z, p.y]),
         );
         // Retail WeaponSet Conditions=None has PRIMARY NONE until PLAYER_UPGRADE
         // (ListeningOutpostUpgradedDummyWeapon). Strip kind-based Weapon::default.
@@ -1820,7 +1820,7 @@ impl Object {
         let p = self.get_position();
         if self.chinook_ai.is_none() {
             self.chinook_ai = Some(
-                crate::game_logic::host_combat_chinook::HostChinookAI::new_vanilla([p.x, p.z, p.y]),
+                generals_sim::chinook::ChinookAi::new_vanilla([p.x, p.z, p.y]),
             );
         }
     }

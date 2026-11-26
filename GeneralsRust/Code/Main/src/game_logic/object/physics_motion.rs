@@ -168,7 +168,7 @@ impl Object {
     ) {
         let chinook_landed = self.chinook_ai.as_ref().is_some_and(|ai| {
             ai.flight_status
-                == crate::game_logic::host_combat_chinook::HostChinookFlightStatus::Landed
+                == generals_sim::chinook::ChinookFlightStatus::Landed
         });
         let jet_ground_taxi = (self.is_kind_of(crate::game_logic::KindOf::Aircraft)
             || self.object_type == ObjectType::Aircraft)

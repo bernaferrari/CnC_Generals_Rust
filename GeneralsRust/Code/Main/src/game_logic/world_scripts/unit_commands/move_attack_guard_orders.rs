@@ -1215,7 +1215,7 @@ impl GameLogic {
             unit.attack_move_sleep_until = 0;
             let landed_chinook = unit.chinook_ai.as_ref().is_some_and(|ai| {
                 ai.flight_status
-                    == crate::game_logic::host_combat_chinook::HostChinookFlightStatus::Landed
+                    == generals_sim::chinook::ChinookFlightStatus::Landed
             });
             unit.is_final_goal = !unit.is_parachuting()
                 && !landed_chinook

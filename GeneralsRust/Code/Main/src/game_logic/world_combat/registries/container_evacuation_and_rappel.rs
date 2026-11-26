@@ -104,13 +104,13 @@ impl GameLogic {
             return Ok(false);
         };
 
-        use crate::game_logic::host_combat_chinook::HostChinookAIState;
+        use generals_sim::chinook::ChinookAiState;
         if !self.objects.get(&container_id).is_some_and(|obj| {
             obj.is_alive()
                 && obj.chinook_ai.as_ref().is_some_and(|ai| {
                     matches!(
                         ai.state,
-                        HostChinookAIState::EvacAndTakeoff | HostChinookAIState::EvacAndExit
+                        ChinookAiState::EvacAndTakeoff | ChinookAiState::EvacAndExit
                     )
                 })
         }) {
@@ -219,8 +219,8 @@ impl GameLogic {
         }
 
         if is_chinook_dropper && mode == TransportEvacuationMode::Command {
-            use crate::game_logic::host_combat_chinook::HostChinookFlightEntry;
-            let mut entry = HostChinookFlightEntry::None;
+            use generals_sim::chinook::ChinookFlightEntry;
+            let mut entry = ChinookFlightEntry::None;
             if let Some(c) = self.objects.get_mut(&container_id) {
                 let p = c.get_position();
                 if let Some(ai) = c.chinook_ai.as_mut() {
@@ -232,7 +232,7 @@ impl GameLogic {
             let doing_drop = self.objects.get(&container_id).is_some_and(|c| {
                 c.chinook_ai.as_ref().is_some_and(|ai| {
                     ai.flight_status
-                        == crate::game_logic::host_combat_chinook::HostChinookFlightStatus::DoingCombatDrop
+                        == generals_sim::chinook::ChinookFlightStatus::DoingCombatDrop
                 })
             });
             if doing_drop {
@@ -245,7 +245,7 @@ impl GameLogic {
             let any_rappeller = self.objects.get(&container_id).is_some_and(|c| {
                 c.contained_units().iter().any(|pid| {
                     self.objects.get(pid).is_some_and(|p| {
-                        crate::game_logic::host_combat_chinook::HostChinookAI::passenger_kind_can_rappel(
+                        generals_sim::chinook::ChinookAi::passenger_kind_can_rappel(
                             p.is_kind_of(KindOf::Infantry),
                         )
                     })
@@ -254,11 +254,11 @@ impl GameLogic {
             let wait = self.objects.get(&container_id).is_some_and(|c| {
                 c.chinook_ai.as_ref().is_some_and(|ai| {
                     ai.ai_free_to_exit(any_rappeller)
-                        != crate::game_logic::host_combat_chinook::HostChinookFreeToExit::FreeToExit
+                        != generals_sim::chinook::ChinookFreeToExit::FreeToExit
                 })
             });
             if wait {
-                let mut entry = HostChinookFlightEntry::None;
+                let mut entry = ChinookFlightEntry::None;
                 if let Some(c) = self.objects.get_mut(&container_id) {
                     let p = c.get_position();
                     let contained = c.contained_units().len() as u32;
@@ -733,14 +733,14 @@ impl GameLogic {
             .unwrap_or_default();
         let rappeller = passengers.iter().copied().find(|pid| {
             self.objects.get(pid).is_some_and(|p| {
-                crate::game_logic::host_combat_chinook::HostChinookAI::passenger_kind_can_rappel(
+                generals_sim::chinook::ChinookAi::passenger_kind_can_rappel(
                     p.is_kind_of(KindOf::Infantry),
                 )
             })
         });
         let Some(pid) = rappeller else {
-            use crate::game_logic::host_combat_chinook::HostChinookFlightEntry;
-            let mut entry = HostChinookFlightEntry::None;
+            use generals_sim::chinook::ChinookFlightEntry;
+            let mut entry = ChinookFlightEntry::None;
             if let Some(c) = self.objects.get_mut(&container_id) {
                 let remaining = c.contained_units().len() as u32;
                 if let Some(ai) = c.chinook_ai.as_mut() {
@@ -774,7 +774,7 @@ impl GameLogic {
             .get(&container_id)
             .and_then(|c| c.chinook_ai.as_ref())
             .map(|ai| ai.apply_rappel_speed())
-            .unwrap_or(crate::game_logic::host_combat_chinook::COMBAT_CHINOOK_RAPPEL_SPEED);
+            .unwrap_or(generals_sim::chinook::DEFAULT_RAPPEL_SPEED);
         // C++ `aiRappelInto(getMachineGoalObject(), *getMachineGoalPosition())`.
         let drop_target = self.objects.get(&container_id).and_then(|c| {
             c.target.or_else(|| {
@@ -824,7 +824,7 @@ impl GameLogic {
         let more = self.objects.get(&container_id).is_some_and(|c| {
             c.contained_units().iter().any(|id| {
                 self.objects.get(id).is_some_and(|p| {
-                    crate::game_logic::host_combat_chinook::HostChinookAI::passenger_kind_can_rappel(
+                    generals_sim::chinook::ChinookAi::passenger_kind_can_rappel(
                         p.is_kind_of(KindOf::Infantry),
                     )
                 })

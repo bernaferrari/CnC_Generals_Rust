@@ -554,9 +554,9 @@ impl GameLogic {
 
         // C++ ChinookAIUpdate::getAiFreeToExit — WAIT_TO_EXIT while flying.
         if container_is_combat_chinook {
-            use crate::game_logic::host_combat_chinook::{HostChinookFlightEntry, HostChinookFreeToExit};
+            use generals_sim::chinook::{ChinookFlightEntry, ChinookFreeToExit};
             let (allow, entry) = self.objects.get_mut(&container_id)
-                .map_or((false, HostChinookFlightEntry::None), |c| {
+                .map_or((false, ChinookFlightEntry::None), |c| {
                     let p = c.get_position();
                     let moving = c.status.moving;
                     if let Some(ai) = c.chinook_ai.as_mut() {
@@ -564,9 +564,9 @@ impl GameLogic {
                         ai.wanting_enter_or_exit = true;
                         ai.parent_idle = !moving;
                         let entry = ai.tick_idle_auto_land();
-                        (ai.ai_free_to_exit(false) == HostChinookFreeToExit::FreeToExit, entry)
+                        (ai.ai_free_to_exit(false) == ChinookFreeToExit::FreeToExit, entry)
                     } else {
-                        (true, HostChinookFlightEntry::None)
+                        (true, ChinookFlightEntry::None)
                     }
                 });
             self.apply_chinook_flight_entry(container_id, entry, effects)?;

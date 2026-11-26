@@ -823,7 +823,7 @@ impl GameLogic {
                 if let Some(o) = self.objects.get_mut(&object_id) {
                     let landed_chinook = o.chinook_ai.as_ref().is_some_and(|ai| {
                         ai.flight_status
-                            == crate::game_logic::host_combat_chinook::HostChinookFlightStatus::Landed
+                            == generals_sim::chinook::ChinookFlightStatus::Landed
                     });
                     o.is_final_goal = !o.is_parachuting()
                         && !landed_chinook

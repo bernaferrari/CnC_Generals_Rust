@@ -129,9 +129,9 @@ impl GameLogic {
                 .and_then(|unit| unit.chinook_ai.as_mut())
             {
                 if matches!(ai.flight_status,
-                    crate::game_logic::host_combat_chinook::HostChinookFlightStatus::TakingOff
-                    | crate::game_logic::host_combat_chinook::HostChinookFlightStatus::Landing
-                    | crate::game_logic::host_combat_chinook::HostChinookFlightStatus::DoingCombatDrop) {
+                    generals_sim::chinook::ChinookFlightStatus::TakingOff
+                    | generals_sim::chinook::ChinookFlightStatus::Landing
+                    | generals_sim::chinook::ChinookFlightStatus::DoingCombatDrop) {
                     ai.pending_evac_dest = None;
                     ai.pending_evac_and_exit = false;
                     ai.pending_ai_idle = true;

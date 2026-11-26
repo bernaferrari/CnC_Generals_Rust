@@ -1,7 +1,7 @@
 //! Chinook, listening outpost and troop crawler flows.
 
 use super::*;
-use crate::game_logic::host_combat_chinook::HostChinookFlightEntry;
+use generals_sim::chinook::ChinookFlightEntry;
 
 impl GameLogic {
     /// Residual Combat Chinook honesty: successful load count.
@@ -47,10 +47,10 @@ impl GameLogic {
     pub(crate) fn apply_chinook_flight_entry(
         &mut self,
         id: ObjectId,
-        entry: HostChinookFlightEntry,
+        entry: ChinookFlightEntry,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> generals_sim::GameLogicResult<()> {
-        if entry == HostChinookFlightEntry::None {
+        if entry == ChinookFlightEntry::None {
             return Ok(());
         }
         let Some(object) = self.objects.get_mut(&id) else {
@@ -61,7 +61,7 @@ impl GameLogic {
         } else {
             object.set_stored_supplies(0);
         }
-        if entry != HostChinookFlightEntry::Landing {
+        if entry != ChinookFlightEntry::Landing {
             return Ok(());
         }
         let Some(object) = self.objects.get_mut(&id) else {
@@ -162,7 +162,7 @@ impl GameLogic {
                     && !obj.status.moving
                     && obj.movement.path.is_empty()
                     && obj.chinook_ai.as_ref().is_some_and(|ai| {
-                        ai.state == crate::game_logic::host_combat_chinook::HostChinookAIState::Idle
+                        ai.state == generals_sim::chinook::ChinookAiState::Idle
                             && ai.pending_ai_idle
                     })
             });
@@ -192,18 +192,18 @@ impl GameLogic {
                 ai.contained_count = contained;
                 let was_landing = matches!(
                     ai.flight_status,
-                    crate::game_logic::host_combat_chinook::HostChinookFlightStatus::Landing
+                    generals_sim::chinook::ChinookFlightStatus::Landing
                 );
                 let was_taking_off = matches!(
                     ai.flight_status,
-                    crate::game_logic::host_combat_chinook::HostChinookFlightStatus::TakingOff
+                    generals_sim::chinook::ChinookFlightStatus::TakingOff
                 );
                 let previous_state = ai.state;
                 let entry = ai.prepare_observed_update(replay_idle);
                 (was_landing, was_taking_off, previous_state, entry)
             };
             self.apply_chinook_flight_entry(id, entry, presentation_effects)?;
-            let was_landing = was_landing || entry == HostChinookFlightEntry::Landing;
+            let was_landing = was_landing || entry == ChinookFlightEntry::Landing;
             let Some(ai) = self.objects.get_mut(&id).and_then(|obj| obj.chinook_ai.as_mut()) else {
                 continue;
             };
@@ -232,40 +232,40 @@ impl GameLogic {
             };
             let landing_now = matches!(
                 ai.flight_status,
-                crate::game_logic::host_combat_chinook::HostChinookFlightStatus::Landing
+                generals_sim::chinook::ChinookFlightStatus::Landing
             );
             let taking_off_now = matches!(
                 ai.flight_status,
-                crate::game_logic::host_combat_chinook::HostChinookFlightStatus::TakingOff
+                generals_sim::chinook::ChinookFlightStatus::TakingOff
             );
             let precise_now = landing_now || taking_off_now;
             let landing_dest = glam::Vec3::new(ai.dest[0], ai.dest[2], ai.dest[1]);
             let path_fly = matches!(
                 ai.state,
-                crate::game_logic::host_combat_chinook::HostChinookAIState::MoveToAndLand
-                    | crate::game_logic::host_combat_chinook::HostChinookAIState::MoveToAndEvac
-                    | crate::game_logic::host_combat_chinook::HostChinookAIState::MoveToAndEvacAndExit
-                    | crate::game_logic::host_combat_chinook::HostChinookAIState::HeadOffMap
+                generals_sim::chinook::ChinookAiState::MoveToAndLand
+                    | generals_sim::chinook::ChinookAiState::MoveToAndEvac
+                    | generals_sim::chinook::ChinookAiState::MoveToAndEvacAndExit
+                    | generals_sim::chinook::ChinookAiState::HeadOffMap
             )
             .then_some(glam::Vec3::new(ai.dest[0], ai.dest[2], ai.dest[1]));
             let landed = matches!(
                 ai.flight_status,
-                crate::game_logic::host_combat_chinook::HostChinookFlightStatus::Landed
+                generals_sim::chinook::ChinookFlightStatus::Landed
             );
             let head_off_map = matches!(
                 ai.state,
-                crate::game_logic::host_combat_chinook::HostChinookAIState::HeadOffMap
+                generals_sim::chinook::ChinookAiState::HeadOffMap
             );
             let entered_head_off_map = head_off_map && ai.state != previous_state;
             let evacuating = matches!(
                 ai.state,
-                crate::game_logic::host_combat_chinook::HostChinookAIState::MoveToAndEvac
-                    | crate::game_logic::host_combat_chinook::HostChinookAIState::MoveToAndEvacAndExit
+                generals_sim::chinook::ChinookAiState::MoveToAndEvac
+                    | generals_sim::chinook::ChinookAiState::MoveToAndEvacAndExit
             );
             let preferred = if matches!(
                 ai.flight_status,
-                crate::game_logic::host_combat_chinook::HostChinookFlightStatus::Landed
-                    | crate::game_logic::host_combat_chinook::HostChinookFlightStatus::Landing
+                generals_sim::chinook::ChinookFlightStatus::Landed
+                    | generals_sim::chinook::ChinookFlightStatus::Landing
             ) {
                 0.0
             } else {

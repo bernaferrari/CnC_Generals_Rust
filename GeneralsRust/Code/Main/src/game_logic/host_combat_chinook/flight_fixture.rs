@@ -1,6 +1,6 @@
 //! Authored object/locomotor fixture shared by owned Chinook flight regressions.
 
-use super::HostChinookAIState;
+use generals_sim::chinook::ChinookAiState;
 use crate::command_executor::CommandExecutor;
 use crate::command_system::{CommandResult, CommandType, DropTarget, GameCommand, ModifierKeys};
 use crate::game_logic::{AIState, GameLogic, ObjectId, Player, Team};
@@ -168,7 +168,7 @@ pub(super) fn combat_drop(logic: &mut GameLogic, transport: ObjectId) {
     let object = logic.host_object(transport).unwrap();
     assert_eq!(
         object.chinook_ai.as_ref().unwrap().state,
-        HostChinookAIState::MoveToCombatDrop
+        ChinookAiState::MoveToCombatDrop
     );
     assert!(
         !object.movement.path.is_empty(),

@@ -7,6 +7,15 @@
 //! Ported from GameLogic/Module/ChinookAIUpdate.h and
 //! GameLogic/Object/Update/AIUpdate/ChinookAIUpdate.cpp.
 
+use generals_sim::chinook::{
+    ARRIVAL_DISTANCE_SQUARED as CHINOOK_ARRIVE_THRESH_SQR, ChinookFlightStatus,
+    attack_allowed_by_kind_of as chinook_attack_allowed_by_kind_of,
+    evac_needs_takeoff_first as chinook_evac_needs_takeoff_first,
+    free_to_exit as chinook_free_to_exit, move_to_bldg_arrived as chinook_move_to_bldg_arrived,
+    move_to_bldg_preferred_height as chinook_move_to_bldg_preferred_height,
+    should_auto_land as chinook_should_auto_land, should_auto_takeoff as chinook_should_auto_takeoff,
+};
+
 use std::sync::{Arc, RwLock};
 
 use crate::ai::AiCommandParams;
@@ -53,16 +62,6 @@ const AUTO_ACQUIRE_ENEMIES_NAMES: &[&str] = &[
 ];
 const INVALID_DRAWABLE_ID: DrawableID = 0;
 
-/// Chinook flight status (matches C++ ChinookFlightStatus).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ChinookFlightStatus {
-    TakingOff = 0,
-    Flying = 1,
-    DoingCombatDrop = 2,
-    Landing = 3,
-    Landed = 4,
-}
-
 /// C++ `ChinookAIStateType` (numerically distinct from `AIStateType`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 enum ChinookAIState {
@@ -84,9 +83,6 @@ enum ChinookAIState {
     DoCombatDrop,
 }
 
-/// C++ `ChinookTakeoffOrLandingState` / `ChinookMoveToBldgState` 3-unit threshold.
-const CHINOOK_ARRIVE_THRESH: Real = 3.0;
-const CHINOOK_ARRIVE_THRESH_SQR: Real = CHINOOK_ARRIVE_THRESH * CHINOOK_ARRIVE_THRESH;
 /// C++ `BIGNUM` used to restore lift after takeoff/landing.
 const CHINOOK_BIGNUM: Real = 99999.0;
 
@@ -105,63 +101,6 @@ fn chinook_kind_of_can_attack(owner: &Object) -> bool {
 /// C++ passenger follow: only riders with `getCurrentVictim()==NULL`.
 fn chinook_passenger_should_follow_attack(passenger_has_victim: bool) -> bool {
     !passenger_has_victim
-}
-
-/// C++ `ChinookAIUpdate.cpp:1408` — KindOf CAN_ATTACK, never garrison ObjectStatus.
-pub fn chinook_attack_allowed_by_kind_of(kind_of_can_attack: bool) -> bool {
-    kind_of_can_attack
-}
-
-/// C++ `ChinookAIUpdate.cpp:1070-1082` idle + want enter/exit + not landed → LANDING.
-pub fn chinook_should_auto_land(parent_idle: bool, waiting: bool, landed: bool) -> bool {
-    parent_idle && waiting && !landed
-}
-
-/// C++ `ChinookAIUpdate.cpp:1084-1086` idle + empty want + landed + no heal pad → TAKING_OFF.
-pub fn chinook_should_auto_takeoff(
-    parent_idle: bool,
-    waiting: bool,
-    landed: bool,
-    healing_airfield: bool,
-) -> bool {
-    parent_idle && !waiting && landed && !healing_airfield
-}
-
-/// C++ `ChinookAIUpdate.cpp:1022-1028` `getAiFreeToExit`.
-pub fn chinook_free_to_exit(
-    landed: bool,
-    doing_combat_drop: bool,
-    exiter_can_rappel: bool,
-) -> bool {
-    landed || (doing_combat_drop && exiter_can_rappel)
-}
-
-/// C++ `ChinookMoveToBldgState::onEnter` preferred-height raise.
-pub fn chinook_move_to_bldg_preferred_height(
-    old_preferred: Real,
-    live_structure: bool,
-    geom_max_height_above: Real,
-    min_drop_height: Real,
-) -> Real {
-    if !live_structure {
-        return old_preferred;
-    }
-    let raised = geom_max_height_above + min_drop_height;
-    if raised < old_preferred {
-        old_preferred
-    } else {
-        raised
-    }
-}
-
-/// C++ `ChinookMoveToBldgState::update` — 2D arrival **and** `|z-destZ|<=3`.
-pub fn chinook_move_to_bldg_arrived(arrived_2d: bool, z: Real, dest_z: Real) -> bool {
-    arrived_2d && (z - dest_z).abs() <= CHINOOK_ARRIVE_THRESH
-}
-
-/// C++ `aiDoCommand` evac: take off first when landed and dest farther than 3.
-pub fn chinook_evac_needs_takeoff_first(landed: bool, dist_sqr: Real) -> bool {
-    landed && dist_sqr > CHINOOK_ARRIVE_THRESH_SQR
 }
 
 /// C++ `MOVE_TO_AND_EVAC` → `LAND_AND_EVAC` → `EVAC_AND_TAKEOFF` → `TAKING_OFF`.

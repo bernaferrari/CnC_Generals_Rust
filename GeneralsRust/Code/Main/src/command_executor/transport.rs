@@ -919,7 +919,7 @@ impl<'a> CommandExecutor<'a> {
                     ai.pos = [p.x, p.z, p.y];
                     ai.command_evac([destination.x, destination.z, destination.y], and_exit);
                     ai.state
-                        == crate::game_logic::host_combat_chinook::HostChinookAIState::TakingOff
+                        == generals_sim::chinook::ChinookAiState::TakingOff
                 } else {
                     false
                 }

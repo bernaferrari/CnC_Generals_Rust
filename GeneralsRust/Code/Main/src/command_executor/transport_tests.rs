@@ -150,11 +150,11 @@ fn execute_combat_drop_uses_hover_not_land_evac() {
     let ai = t.chinook_ai.as_ref().expect("chinook_ai");
     assert_eq!(
         ai.state,
-        crate::game_logic::host_combat_chinook::HostChinookAIState::MoveToCombatDrop
+        generals_sim::chinook::ChinookAiState::MoveToCombatDrop
     );
     assert_ne!(
         ai.flight_status,
-        crate::game_logic::host_combat_chinook::HostChinookFlightStatus::Landing
+        generals_sim::chinook::ChinookFlightStatus::Landing
     );
     assert!(
         logic.host_object(pax).unwrap().contained_by.is_some(),
@@ -269,7 +269,7 @@ fn combat_drop_arrival_rappels_not_teleport() {
             .as_ref()
             .unwrap()
             .ai_free_to_exit(true),
-        crate::game_logic::host_combat_chinook::HostChinookFreeToExit::FreeToExit
+        generals_sim::chinook::ChinookFreeToExit::FreeToExit
     );
 }
 
@@ -1182,7 +1182,7 @@ fn last_rappeller_finish_leaves_do_combat_drop() {
             .as_ref()
             .unwrap()
             .flight_status,
-        crate::game_logic::host_combat_chinook::HostChinookFlightStatus::DoingCombatDrop
+        generals_sim::chinook::ChinookFlightStatus::DoingCombatDrop
     );
     assert!(!logic.evacuate_container_now(transport, false).unwrap());
     assert_eq!(
@@ -1193,7 +1193,7 @@ fn last_rappeller_finish_leaves_do_combat_drop() {
             .as_ref()
             .unwrap()
             .flight_status,
-        crate::game_logic::host_combat_chinook::HostChinookFlightStatus::Flying
+        generals_sim::chinook::ChinookFlightStatus::Flying
     );
 }
 

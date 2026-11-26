@@ -1,7 +1,7 @@
 //! Real command and owned-frame regressions for Chinook flight/locomotor ownership.
 
 use super::flight_fixture::{authored_match, combat_drop};
-use super::{HostChinookAIState, HostChinookFlightStatus};
+use generals_sim::chinook::{ChinookAiState, ChinookFlightStatus};
 use crate::command_executor::CommandExecutor;
 use crate::command_system::{CommandResult, CommandType, GameCommand, ModifierKeys};
 use crate::game_logic::{AIState, LocoGoalType, Team};
@@ -96,7 +96,7 @@ fn authored_combat_drop_full_frame_obeys_one_locomotor_step() {
             );
             assert_eq!(
                 object.chinook_ai.as_ref().unwrap().state,
-                HostChinookAIState::MoveToCombatDrop
+                ChinookAiState::MoveToCombatDrop
             );
         },
     );
@@ -115,7 +115,6 @@ fn live_flight_callback_observes_pose_without_integrating_again() {
                 "two matches intentionally reuse external IDs"
             );
             combat_drop(&mut a, transport);
-            combat_drop(&mut b, other);
             let before_a = a.host_object(transport).unwrap().get_position();
             let before_b = b.host_object(other).unwrap().get_position();
             a.tick_chinook_ai(1.0 / 30.0)
@@ -124,8 +123,15 @@ fn live_flight_callback_observes_pose_without_integrating_again() {
                 .expect("receiving AI operation succeeds");
             a.tick_chinook_ai(0.0)
                 .expect("receiving AI operation succeeds");
-            assert_eq!(a.host_object(transport).unwrap().get_position(), before_a);
-            assert_eq!(b.host_object(other).unwrap().get_position(), before_b);
+            let active = a.host_object(transport).unwrap();
+            let idle = b.host_object(other).unwrap();
+            assert_eq!(active.get_position(), before_a);
+            assert_eq!(idle.get_position(), before_b);
+            assert_eq!(
+                active.chinook_ai.as_ref().unwrap().state,
+                ChinookAiState::MoveToCombatDrop
+            );
+            assert_eq!(idle.chinook_ai.as_ref().unwrap().state, ChinookAiState::Idle);
             assert_eq!(
                 a.host_object(passenger).unwrap().contained_by,
                 Some(transport)
@@ -148,8 +154,8 @@ fn live_takeoff_publishes_explicit_goal_and_preserves_pose() {
             let before = logic.host_object(transport).unwrap().get_position();
             let object = logic.host_object_mut(transport).unwrap();
             let ai = object.chinook_ai.as_mut().unwrap();
-            ai.state = HostChinookAIState::TakingOff;
-            ai.flight_status = HostChinookFlightStatus::TakingOff;
+            ai.state = ChinookAiState::TakingOff;
+            ai.flight_status = ChinookFlightStatus::TakingOff;
             ai.dest = [before.x, before.z, before.y + 20.0];
             logic
                 .tick_chinook_ai(1.0 / 30.0)
@@ -191,7 +197,7 @@ fn live_takeoff_exit_arms_original_position_path_without_integrating() {
             assert_eq!(object.get_position(), arrival);
             assert_eq!(
                 object.chinook_ai.as_ref().unwrap().state,
-                HostChinookAIState::HeadOffMap
+                ChinookAiState::HeadOffMap
             );
             let goal = Vec3::new(original[0], original[2], original[1]);
             assert_eq!(object.movement.path.last(), Some(&goal));
@@ -249,8 +255,8 @@ fn authored_evacuation_retains_passenger_through_takeoff_and_landing() {
             object.frame_exit_not_busy = 10_000;
             let ai = object.chinook_ai.as_mut().unwrap();
             ai.pos = [landed.x, landed.z, landed.y];
-            ai.state = HostChinookAIState::Idle;
-            ai.flight_status = HostChinookFlightStatus::Landed;
+            ai.state = ChinookAiState::Idle;
+            ai.flight_status = ChinookFlightStatus::Landed;
             let destination = Vec3::new(100.0, 0.0, 40.0);
             let command = GameCommand {
                 command_type: CommandType::MoveToAndEvacuate {
@@ -273,7 +279,7 @@ fn authored_evacuation_retains_passenger_through_takeoff_and_landing() {
                 .chinook_ai
                 .as_ref()
                 .unwrap();
-            assert_eq!(ai.state, HostChinookAIState::TakingOff);
+            assert_eq!(ai.state, ChinookAiState::TakingOff);
             assert_eq!(
                 ai.pending_evac_dest,
                 Some([destination.x, destination.z, destination.y])
@@ -282,7 +288,7 @@ fn authored_evacuation_retains_passenger_through_takeoff_and_landing() {
             let object = logic.host_object(transport).unwrap();
             assert_eq!(
                 object.chinook_ai.as_ref().unwrap().state,
-                HostChinookAIState::TakingOff
+                ChinookAiState::TakingOff
             );
             assert_eq!(
                 logic.host_object(passenger).unwrap().contained_by,
@@ -298,7 +304,7 @@ fn authored_evacuation_retains_passenger_through_takeoff_and_landing() {
                 let object = logic.host_object(transport).unwrap();
                 let ai = object.chinook_ai.as_ref().unwrap();
                 let y = object.get_position().y;
-                if ai.state == HostChinookAIState::LandAndEvac
+                if ai.state == ChinookAiState::LandAndEvac
                     && accepted_landing_destination.is_none()
                 {
                     // The move state must reach the requested XZ first. C++
@@ -429,7 +435,7 @@ fn live_host_chinooks_unstack_landing_dest() {
             .expect("receiving AI operation succeeds");
         let object = logic.host_object(arriving).unwrap();
         let ai = object.chinook_ai.as_ref().unwrap();
-        assert_eq!(ai.flight_status, HostChinookFlightStatus::Landing);
+        assert_eq!(ai.flight_status, ChinookFlightStatus::Landing);
         assert_eq!(object.locomotor_goal_type, LocoGoalType::PositionExplicit);
         assert!(object.precise_z_pos && object.ultra_accurate);
         assert_eq!(
@@ -491,8 +497,8 @@ fn near_ground_chinook_resolves_occupied_pad_after_ordered_cargo_loss() {
         let carrier = logic.host_object_mut(arriving).unwrap();
         carrier.set_carried_supply_boxes(3);
         assert_eq!(carrier.get_position(), close);
-        assert_eq!(carrier.chinook_ai.as_ref().unwrap().state, HostChinookAIState::Idle);
-        assert_eq!(carrier.chinook_ai.as_ref().unwrap().flight_status, HostChinookFlightStatus::Flying);
+        assert_eq!(carrier.chinook_ai.as_ref().unwrap().state, ChinookAiState::Idle);
+        assert_eq!(carrier.chinook_ai.as_ref().unwrap().flight_status, ChinookFlightStatus::Flying);
         logic.update_owned_partition_with_effects(&mut Default::default()).unwrap();
 
         let one_pad_search = game_engine::common::random_value::SessionRandom::from_state(
@@ -518,7 +524,7 @@ fn near_ground_chinook_resolves_occupied_pad_after_ordered_cargo_loss() {
             let carrier = logic.host_object(arriving).unwrap();
             let ai = carrier.chinook_ai.as_ref().unwrap();
             assert_eq!(carrier.carried_supply_boxes(), 0);
-            assert_eq!(ai.flight_status, HostChinookFlightStatus::Landing);
+            assert_eq!(ai.flight_status, ChinookFlightStatus::Landing);
             let target = Vec3::new(ai.dest[0], ai.dest[2], ai.dest[1]);
             assert!(target.distance(close) > 3.0);
             assert_eq!(carrier.locomotor_goal_type, LocoGoalType::PositionExplicit);

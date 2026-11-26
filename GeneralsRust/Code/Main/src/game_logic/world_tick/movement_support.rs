@@ -3430,7 +3430,7 @@ impl GameLogic {
         unit.requested_victim_id = None;
         let landed_chinook = unit.chinook_ai.as_ref().is_some_and(|ai| {
             ai.flight_status
-                == crate::game_logic::host_combat_chinook::HostChinookFlightStatus::Landed
+                == generals_sim::chinook::ChinookFlightStatus::Landed
         });
         unit.set_adjust_destinations(!unit.ultra_accurate);
         let adjusts = !unit.is_parachuting()
@@ -3662,7 +3662,7 @@ pub(super) fn adjusts_destination_now(obj: &crate::game_logic::Object) -> bool {
         return false;
     }
     let landed_chinook = obj.chinook_ai.as_ref().is_some_and(|ai| {
-        ai.flight_status == crate::game_logic::host_combat_chinook::HostChinookFlightStatus::Landed
+        ai.flight_status == generals_sim::chinook::ChinookFlightStatus::Landed
     });
     !landed_chinook
         && !(obj.chinook_ai.is_some() && obj.allow_invalid_position)

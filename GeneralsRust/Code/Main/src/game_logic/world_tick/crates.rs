@@ -1128,7 +1128,7 @@ impl GameLogic {
                     if let Some(c) = self.objects.get_mut(&crawler_id) {
                         let landed_chinook = c.chinook_ai.as_ref().is_some_and(|ai| {
                             ai.flight_status
-                                == crate::game_logic::host_combat_chinook::HostChinookFlightStatus::Landed
+                                == generals_sim::chinook::ChinookFlightStatus::Landed
                         });
                         c.is_final_goal = !c.is_parachuting()
                             && !landed_chinook
@@ -1285,7 +1285,7 @@ impl GameLogic {
                 if let Some(unit) = self.objects.get_mut(&mid) {
                     let landed_chinook = unit.chinook_ai.as_ref().is_some_and(|ai| {
                         ai.flight_status
-                            == crate::game_logic::host_combat_chinook::HostChinookFlightStatus::Landed
+                            == generals_sim::chinook::ChinookFlightStatus::Landed
                     });
                     unit.is_final_goal = !unit.is_parachuting()
                         && !landed_chinook

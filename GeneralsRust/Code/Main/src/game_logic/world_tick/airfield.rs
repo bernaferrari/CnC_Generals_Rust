@@ -1857,7 +1857,7 @@ impl GameLogic {
     fn chinook_is_landed_at_airfield(jet: &Object, airfield_id: ObjectId) -> bool {
         jet.chinook_ai.as_ref().is_some_and(|ai| {
             ai.flight_status
-                == crate::game_logic::host_combat_chinook::HostChinookFlightStatus::Landed
+                == generals_sim::chinook::ChinookFlightStatus::Landed
                 && ai.airfield_id == Some(airfield_id.0)
         })
     }
@@ -1932,7 +1932,7 @@ impl GameLogic {
             if !jet.is_alive() || !Self::is_aircraft(jet) { return None; }
             let (owner, add) = if let Some(chinook) = &jet.chinook_ai {
                 let owner = ObjectId(chinook.airfield_id?);
-                let landed = chinook.flight_status == crate::game_logic::host_combat_chinook::HostChinookFlightStatus::Landed;
+                let landed = chinook.flight_status == generals_sim::chinook::ChinookFlightStatus::Landed;
                 let pending = chinook.pending_evac_dest.is_some() || chinook.pending_ai_idle;
                 let full = jet.health.current == jet.health.maximum;
                 (owner, landed && (pending || !full))
@@ -3673,12 +3673,12 @@ End
 
     #[test]
     fn landed_chinook_heals_at_its_explicit_deck_and_stops_after_takeoff() {
-        use crate::game_logic::host_combat_chinook::{HostChinookAI, HostChinookFlightStatus};
+        use generals_sim::chinook::{ChinookAi, ChinookFlightStatus};
         let (mut world, carrier, _) = world();
         let chinook = world.create_object("HealingDeckChinook", Team::USA, glam::Vec3::ZERO).unwrap();
-        let mut ai = HostChinookAI::new_vanilla([0.0; 3]);
+        let mut ai = ChinookAi::new_vanilla([0.0; 3]);
         ai.airfield_id = Some(carrier.0);
-        ai.flight_status = HostChinookFlightStatus::Landed;
+        ai.flight_status = ChinookFlightStatus::Landed;
         let object = world.host_object_mut(chinook).unwrap();
         object.chinook_ai = Some(ai);
         object.health.current = 50.0;
@@ -3688,7 +3688,7 @@ End
         world.tick_airfield_parking_heal().unwrap();
         assert_eq!(world.host_object(chinook).unwrap().health.current, 52.0);
         world.host_object_mut(chinook).unwrap().chinook_ai.as_mut().unwrap().airfield_id = Some(carrier.0);
-        world.host_object_mut(chinook).unwrap().chinook_ai.as_mut().unwrap().flight_status = HostChinookFlightStatus::TakingOff;
+        world.host_object_mut(chinook).unwrap().chinook_ai.as_mut().unwrap().flight_status = ChinookFlightStatus::TakingOff;
         world.frame = 8;
         world.tick_airfield_parking_heal().unwrap();
         world.frame = 14;

@@ -119,11 +119,11 @@ fn is_specific_rider_free_to_exit(
 ) -> bool {
     if let Some(ai) = container.chinook_ai.as_ref() {
         let can_rappel =
-            crate::game_logic::host_combat_chinook::HostChinookAI::passenger_kind_can_rappel(
+            generals_sim::chinook::ChinookAi::passenger_kind_can_rappel(
                 rider.is_kind_of(KindOf::Infantry),
             );
         if ai.ai_free_to_exit(can_rappel)
-            != crate::game_logic::host_combat_chinook::HostChinookFreeToExit::FreeToExit
+            != generals_sim::chinook::ChinookFreeToExit::FreeToExit
         {
             return false;
         }

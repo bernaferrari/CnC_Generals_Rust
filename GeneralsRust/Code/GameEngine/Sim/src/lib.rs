@@ -1,6 +1,7 @@
 //! Simulation components shared by the native game and its tools.
 
 pub mod armor;
+pub mod chinook;
 pub mod damage;
 pub mod debris;
 pub mod error;

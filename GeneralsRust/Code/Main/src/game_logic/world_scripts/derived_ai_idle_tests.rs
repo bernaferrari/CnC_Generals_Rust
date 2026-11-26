@@ -256,7 +256,7 @@ fn actual_chinook_idle_replays_before_auto_land_without_touching_peer() {
             .as_mut()
             .unwrap();
         ai.flight_status =
-            crate::game_logic::host_combat_chinook::HostChinookFlightStatus::TakingOff;
+            generals_sim::chinook::ChinookFlightStatus::TakingOff;
         ai.airfield_id = Some(91);
     }
     assert!(
@@ -273,8 +273,8 @@ fn actual_chinook_idle_replays_before_auto_land_without_touching_peer() {
         let unit = world.objects.get_mut(&id).unwrap();
         unit.restore_ai_state(AIState::Idle);
         let ai = unit.chinook_ai.as_mut().unwrap();
-        ai.flight_status = crate::game_logic::host_combat_chinook::HostChinookFlightStatus::Flying;
-        ai.state = crate::game_logic::host_combat_chinook::HostChinookAIState::Idle;
+        ai.flight_status = generals_sim::chinook::ChinookFlightStatus::Flying;
+        ai.state = generals_sim::chinook::ChinookAiState::Idle;
     }
     world
         .tick_chinook_ai_with_effects(1.0 / 30.0, &mut Default::default())

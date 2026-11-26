@@ -153707,7 +153707,7 @@
     }
   ],
   "generator": "GeneralsRust/Code/Main/scripts/generate_port_provenance.py",
-  "input_digest": "f4eed8885e727879c8988b650f9b9ad89b1cababf6ea7ae50295ce49038b1dd0",
+  "input_digest": "f263a6010d9746065e619d4f4a010deb524cada3b7380ef1152f2c774bd8fd82",
   "metric_contract": {
     "behavior_requires_explicit_evidence": true,
     "candidate_mapping_is_reviewed": false,
@@ -183057,11 +183057,11 @@
       "cargo_reachable": true,
       "classification": "shim",
       "file_range": {
-        "end_line": 10,
+        "end_line": 4,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/ai/modules/chinook_ai.rs",
-      "sha256": "23a444da19d9aea99bb2ad41f23044007ba4c71b733b48cb6dc085aff0a751e6",
+      "sha256": "dacb80086255fe9c25a182637fabc06e2b5690fd392d615e0926dfade621136d",
       "symbol_index_status": "indexed",
       "symbols": []
     },
@@ -204610,11 +204610,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 314,
+        "end_line": 253,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/chinook_ai_update.rs",
-      "sha256": "17cdac3dcdc3f42a7eded2a20ebc28bc132f071968d4fa8e7f67bb5a6f27ee9b",
+      "sha256": "af8a3970cff28084b74eb77b32d4de6ec97de32d5d7e90a7b224d19606894e41",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },

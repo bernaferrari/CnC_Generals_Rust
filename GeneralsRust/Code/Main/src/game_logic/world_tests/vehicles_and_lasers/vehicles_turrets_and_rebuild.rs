@@ -145,7 +145,7 @@ fn taxiing_jet_heals_from_reserved_stall() {
 
 #[test]
 fn chinook_landed_heals_without_stall() {
-    use crate::game_logic::host_combat_chinook::{HostChinookAI, HostChinookFlightStatus};
+    use generals_sim::chinook::{ChinookAi, ChinookFlightStatus};
     use crate::game_logic::{KindOf, ParkingPlaceMetadata, Team, ThingTemplate};
     use glam::Vec3;
 
@@ -182,8 +182,8 @@ fn chinook_landed_heals_without_stall() {
         .unwrap();
     {
         let h = logic.objects.get_mut(&chinook).unwrap();
-        let mut ai = HostChinookAI::new_vanilla([0.0, 4.0, 0.0]);
-        ai.flight_status = HostChinookFlightStatus::Landed;
+        let mut ai = ChinookAi::new_vanilla([0.0, 4.0, 0.0]);
+        ai.flight_status = ChinookFlightStatus::Landed;
         ai.airfield_id = Some(pad.0);
         h.chinook_ai = Some(ai);
         h.status.airborne_target = false;

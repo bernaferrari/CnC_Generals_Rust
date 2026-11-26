@@ -309,8 +309,8 @@ fn passenger_exit_waits_for_the_previous_riders_transport_door() {
 
 #[test]
 fn exit_request_admits_landing_only_at_chinook_update_and_waits_until_landed() {
-    use crate::game_logic::host_combat_chinook::{
-        HostChinookAI, HostChinookAIState, HostChinookFlightStatus,
+    use generals_sim::chinook::{
+        ChinookAi, ChinookAiState, ChinookFlightStatus,
     };
     let (mut owner, rider, _) = world();
     let container = transport(&mut owner);
@@ -321,7 +321,7 @@ fn exit_request_admits_landing_only_at_chinook_update_and_waits_until_landed() {
         &mut Default::default(),
         fixture_partition_hull,
     );
-    hull.chinook_ai = Some(HostChinookAI::new_vanilla([70.0, 70.0, 30.0]));
+    hull.chinook_ai = Some(ChinookAi::new_vanilla([70.0, 70.0, 30.0]));
     load(&mut owner, rider, container);
     evacuate(&mut owner);
     assert_eq!(
@@ -332,7 +332,7 @@ fn exit_request_admits_landing_only_at_chinook_update_and_waits_until_landed() {
             .as_ref()
             .unwrap()
             .state,
-        HostChinookAIState::Idle
+        ChinookAiState::Idle
     );
     owner.update_support_states(&[rider], 1.0 / 30.0);
     assert_eq!(
@@ -349,14 +349,14 @@ fn exit_request_admits_landing_only_at_chinook_update_and_waits_until_landed() {
         .as_ref()
         .unwrap();
     assert!(ai.wanting_enter_or_exit);
-    assert_eq!(ai.state, HostChinookAIState::Landing);
+    assert_eq!(ai.state, ChinookAiState::Landing);
     owner
         .host_object_mut(container)
         .unwrap()
         .chinook_ai
         .as_mut()
         .unwrap()
-        .flight_status = HostChinookFlightStatus::Landed;
+        .flight_status = ChinookFlightStatus::Landed;
     owner.update_support_states(&[rider], 1.0 / 30.0);
     assert_eq!(owner.host_object(rider).unwrap().contained_by, None);
 }

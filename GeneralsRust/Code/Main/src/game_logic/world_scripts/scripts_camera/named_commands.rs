@@ -464,7 +464,7 @@ impl GameLogic {
             || (!rail_contain && container.is_transport_exit_busy(self.frame))
             || container.chinook_ai.as_ref().is_some_and(|ai| {
                 ai.ai_free_to_exit(can_rappel)
-                    == crate::game_logic::host_combat_chinook::HostChinookFreeToExit::WaitToExit
+                    == generals_sim::chinook::ChinookFreeToExit::WaitToExit
             })
         {
             return Ok(());

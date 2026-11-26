@@ -11,7 +11,7 @@
 //! CHNK v3 stores flight continuation. Carried boxes are in the actor inventory.
 
 use super::lifecycle_records::LifecycleRecords;
-use crate::game_logic::host_combat_chinook::HostChinookAI;
+use generals_sim::chinook::ChinookAi;
 use crate::game_logic::{GameLogic, ObjectId};
 use crate::save_load::SaveLoadResult;
 use serde::{Deserialize, Serialize};
@@ -28,7 +28,7 @@ struct ChinookAiPersistPayload {
 struct ObjectChinookAiPersist {
     object_id: u32,
     combat: bool,
-    ai: HostChinookAI,
+    ai: ChinookAi,
 }
 
 pub fn append_to_lifecycle_tail(bytes: &mut Vec<u8>, game_logic: &GameLogic) {
@@ -108,8 +108,8 @@ fn append_u32(out: &mut Vec<u8>, value: u32) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::game_logic::host_combat_chinook::{
-        HostChinookAIState, HostChinookFlightStatus, HostRappelJob,
+    use generals_sim::chinook::{
+        ChinookAiState, ChinookFlightStatus, RappelJob,
     };
     use crate::game_logic::{Player, Team, ThingTemplate};
     use glam::Vec3;
@@ -135,15 +135,15 @@ mod tests {
             let obj = source.host_object_mut(bird).expect("chinook");
             obj.install_combat_chinook_transport(frame);
             let ai = obj.chinook_ai.as_mut().expect("ai");
-            ai.flight_status = HostChinookFlightStatus::DoingCombatDrop;
-            ai.state = HostChinookAIState::DoCombatDrop;
+            ai.flight_status = ChinookFlightStatus::DoingCombatDrop;
+            ai.state = ChinookAiState::DoCombatDrop;
             ai.original_pos = [40.0, 80.0, 24.0];
             ai.combat_drop_next_release_frame = 90;
             ai.combat_drop_releases = 2;
             ai.combat_drop_target = Some(55);
             ai.pending_evac_dest = Some([10.0, 0.0, 12.0]);
             ai.airfield_id = Some(8);
-            ai.rappel_into_jobs = vec![HostRappelJob {
+            ai.rappel_into_jobs = vec![RappelJob {
                 rappeller: 101,
                 building: Some(55),
                 dest_y: 12.0,
@@ -173,8 +173,8 @@ mod tests {
             "chinook_ai must be reinstalled"
         );
         let ai = loaded.chinook_ai.as_ref().expect("ai");
-        assert_eq!(ai.flight_status, HostChinookFlightStatus::DoingCombatDrop);
-        assert_eq!(ai.state, HostChinookAIState::DoCombatDrop);
+        assert_eq!(ai.flight_status, ChinookFlightStatus::DoingCombatDrop);
+        assert_eq!(ai.state, ChinookAiState::DoCombatDrop);
         assert_eq!(ai.original_pos, [40.0, 80.0, 24.0]);
         assert_eq!(ai.combat_drop_next_release_frame, 90);
         assert_eq!(ai.combat_drop_releases, 2);

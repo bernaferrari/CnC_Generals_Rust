@@ -2584,7 +2584,7 @@ impl GameLogic {
         let frame = self.frame;
         let landed_chinook = u.chinook_ai.as_ref().is_some_and(|ai| {
             ai.flight_status
-                == crate::game_logic::host_combat_chinook::HostChinookFlightStatus::Landed
+                == generals_sim::chinook::ChinookFlightStatus::Landed
         });
         let adjusts = !u.is_parachuting()
             && !landed_chinook

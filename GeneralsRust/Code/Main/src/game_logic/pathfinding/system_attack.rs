@@ -591,10 +591,10 @@ impl PathfindingSystem {
     ) -> Option<ObjectId> {
         let obj = seeker.and_then(|id| objects.lookup(&id))?;
         let ai = obj.chinook_ai.as_ref()?;
-        use crate::game_logic::host_combat_chinook::HostChinookAIState;
+        use generals_sim::chinook::ChinookAiState;
         if matches!(
             ai.state,
-            HostChinookAIState::MoveToCombatDrop | HostChinookAIState::DoCombatDrop
+            ChinookAiState::MoveToCombatDrop | ChinookAiState::DoCombatDrop
         ) {
             ai.combat_drop_target.map(ObjectId)
         } else {

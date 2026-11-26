@@ -1442,7 +1442,7 @@ pub struct Object {
     pub is_combat_chinook_transport: bool,
     /// C++ ChinookAIUpdate residual (flight status / auto-land / evac / combat drop).
     #[serde(default)]
-    pub chinook_ai: Option<crate::game_logic::host_combat_chinook::HostChinookAI>,
+    pub chinook_ai: Option<generals_sim::chinook::ChinookAi>,
 
     /// C++ parity (Object::m_containedBy): when this unit is inside a
     /// transport/garrison, stores the container's ID.  None when free.
