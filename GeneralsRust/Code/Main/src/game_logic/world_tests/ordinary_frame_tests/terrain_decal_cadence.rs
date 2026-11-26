@@ -91,13 +91,27 @@ fn terrain_decal_fade_advances_once_per_bare_host_frame() {
 }
 
 #[test]
-fn terrain_decal_fade_advances_once_per_default_owned_frame() {
+fn terrain_decal_fade_publishes_once_per_completed_frame() {
     let (mut logic, id) = admitted_decal();
-    let mut shadow = GameWorldShadow::new(16);
     for frame in 1..=3 {
-        owned_frame(&mut shadow, &mut logic);
+        owned_frame(&mut logic);
         assert_eq!(logic.getFrame(), frame);
         assert_opacity(&logic, id, frame as f32 * CRATE_DECAL_FADE_IN_RATE);
+        let presentation =
+            crate::presentation_frame::PresentationFrame::try_build_from_logic(&mut logic, 0)
+                .unwrap();
+        let crate_row = presentation
+            .objects
+            .iter()
+            .find(|row| row.id == id)
+            .unwrap();
+        // Drawable::updateDrawable submits the sample before advancing the fade.
+        let expected = (frame - 1) as f32 * CRATE_DECAL_FADE_IN_RATE;
+        assert!(
+            (crate_row.terrain_decal_opacity - expected).abs() < 1e-6,
+            "frame {frame}: expected published opacity {expected}, got {}",
+            crate_row.terrain_decal_opacity
+        );
     }
 }
 

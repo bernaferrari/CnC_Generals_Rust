@@ -24,7 +24,7 @@ mod projectiles_air;
 mod radar_owner;
 mod scatter_and_chain;
 mod science_and_upgrades;
-mod shadow_gate_parity;
+mod ordinary_frame_tests;
 mod shells_and_missiles;
 mod strategy_and_stealth;
 mod superweapon_initiate_at_location;

@@ -1578,7 +1578,6 @@ mod tests {
         if crate::gameworld_shadow::isolated_shadow_case(
             module_path!(),
             "take_damage_applies_host_hp_same_frame",
-            true,
         ) {
             return;
         }

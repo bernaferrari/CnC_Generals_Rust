@@ -889,7 +889,6 @@ fn projectile_authority_steps_flight_and_writeback() {
     if super::harness::isolated_shadow_case(
         module_path!(),
         "projectile_authority_steps_flight_and_writeback",
-        true,
     ) {
         return;
     }

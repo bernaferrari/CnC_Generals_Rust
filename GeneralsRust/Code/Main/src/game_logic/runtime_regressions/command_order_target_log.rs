@@ -1,7 +1,9 @@
 //! Executable command and lifecycle regressions.
 
-fn command_order_target_log() -> bool {
+#[test]
+fn idle_order_target_publishes_without_starting_an_attack() {
     use crate::game_logic::{AIState, Team};
+    use crate::presentation_frame::PresentationFrame;
     use crate::skirmish_config::{apply_skirmish_config, golden_skirmish_config};
     use glam::Vec3;
 
@@ -19,60 +21,32 @@ fn command_order_target_log() -> bool {
         &logic,
         &golden_skirmish_config("OrderTgt205"),
     );
-    if apply_skirmish_config(&mut logic, &cfg).is_err() {
-        return false;
-    }
-    let Some(u) = logic.create_object("OrderUnit205", Team::USA, Vec3::new(0.0, 0.0, 0.0)) else {
-        return false;
-    };
-    let Some(b) = logic.create_object("OrderBldg205", Team::China, Vec3::new(40.0, 0.0, 0.0))
-    else {
-        return false;
-    };
+    apply_skirmish_config(&mut logic, &cfg).unwrap();
+    let u = logic
+        .create_object("OrderUnit205", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+        .unwrap();
+    let b = logic
+        .create_object("OrderBldg205", Team::China, Vec3::new(40.0, 0.0, 0.0))
+        .unwrap();
 
     let frame = logic.frame;
-    if let Some((unit, attack_events, audio_events)) = logic.host_object_attack_audio_mut(u) {
-        unit.set_ai_state(
-            AIState::Idle,
-            frame,
-            &mut crate::game_logic::ObjectAudio::queue(audio_events),
-        );
-        unit.set_order_target(
-            Some(b),
-            attack_events,
-            &mut crate::game_logic::ObjectAudio::queue(audio_events),
-        );
-        if unit.target != Some(b) {
-            return false;
-        }
-        // Must not force Attacking AI state.
-        if unit.ai_state() == AIState::Attacking {
-            return false;
-        }
-        if unit.status.attacking {
-            return false;
-        }
-        if unit.force_attack {
-            return false;
-        }
-    } else {
-        return false;
-    }
-    let mut observer = crate::gameworld_shadow::GameWorldShadow::new(64);
-    observer.sync_from_host(&logic);
-    let Some(actor) = observer.entity_for_host(u) else {
-        return false;
-    };
-    let Some(target) = observer.entity_for_host(b) else {
-        return false;
-    };
-    observer
-        .world()
-        .entity(actor)
-        .is_some_and(|object| object.attack_target == Some(target))
-}
+    let (unit, attack_events, audio_events) = logic.host_object_attack_audio_mut(u).unwrap();
+    unit.set_ai_state(
+        AIState::Idle,
+        frame,
+        &mut crate::game_logic::ObjectAudio::queue(audio_events),
+    );
+    unit.set_order_target(
+        Some(b),
+        attack_events,
+        &mut crate::game_logic::ObjectAudio::queue(audio_events),
+    );
+    assert_eq!(unit.target, Some(b));
+    assert_eq!(unit.ai_state(), AIState::Idle);
+    assert!(!unit.status.attacking);
+    assert!(!unit.force_attack);
 
-#[test]
-fn command_order_target_log_runs() {
-    assert!(command_order_target_log());
+    let presentation = PresentationFrame::try_build_from_logic(&mut logic, 0).unwrap();
+    let row = presentation.objects.iter().find(|row| row.id == u).unwrap();
+    assert_eq!(row.attack_target, Some(b));
 }

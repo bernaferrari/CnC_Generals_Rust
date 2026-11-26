@@ -1197,7 +1197,6 @@ fn completed_production_waits_for_open_door_before_entity_first_spawn() {
     if super::harness::isolated_shadow_case(
         module_path!(),
         "completed_production_waits_for_open_door_before_entity_first_spawn",
-        true,
     ) {
         return;
     }
@@ -1315,7 +1314,6 @@ fn completed_quantity_batch_emits_every_entity_first_unit_after_open_door() {
     if super::harness::isolated_shadow_case(
         module_path!(),
         "completed_quantity_batch_emits_every_entity_first_unit_after_open_door",
-        true,
     ) {
         return;
     }
@@ -1437,7 +1435,6 @@ fn queue_exit_sole_tick_releases_one_then_waits_exact_nine_frames() {
     if super::harness::isolated_shadow_case(
         module_path!(),
         "queue_exit_sole_tick_releases_one_then_waits_exact_nine_frames",
-        true,
     ) {
         return;
     }
@@ -1645,7 +1642,6 @@ fn shared_special_power_sole_ticks_player_cds() {
     if super::harness::isolated_shadow_case(
         module_path!(),
         "shared_special_power_sole_ticks_player_cds",
-        true,
     ) {
         return;
     }

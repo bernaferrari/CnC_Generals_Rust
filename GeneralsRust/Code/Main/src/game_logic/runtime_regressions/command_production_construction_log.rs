@@ -1,7 +1,9 @@
 //! Executable command and lifecycle regressions.
 
-fn command_production_construction_log() -> bool {
+#[test]
+fn cancellation_refunds_once_and_preserves_the_other_building_site() {
     use crate::game_logic::Team;
+    use crate::presentation_frame::PresentationFrame;
     use crate::skirmish_config::{apply_skirmish_config, golden_skirmish_config};
     use glam::Vec3;
 
@@ -29,40 +31,29 @@ fn command_production_construction_log() -> bool {
         &logic,
         &golden_skirmish_config("ProdConstr199"),
     );
-    if apply_skirmish_config(&mut logic, &cfg).is_err() {
-        return false;
-    }
+    apply_skirmish_config(&mut logic, &cfg).unwrap();
 
-    let Ok(Some(bid)) = logic.create_object_under_construction(
-        "ConstrBldg199",
-        Team::USA,
-        Vec3::new(50.0, 0.0, 50.0),
-    ) else {
-        return false;
-    };
-    if !logic.host_object(bid).is_some_and(|object| {
-        object.status.under_construction && object.construction_percent == 0.0
-    }) {
-        return false;
-    }
-    let Some(player) = logic
+    let bid = logic
+        .create_object_under_construction("ConstrBldg199", Team::USA, Vec3::new(50.0, 0.0, 50.0))
+        .unwrap()
+        .unwrap();
+    let site = logic.host_object(bid).unwrap();
+    assert!(site.status.under_construction);
+    assert_eq!(site.construction_percent, 0.0);
+    let player = logic
         .get_players()
         .values()
         .find(|player| player.team == Team::USA && player.is_alive)
         .map(|player| player.id)
-    else {
-        return false;
-    };
+        .unwrap();
     logic
         .get_player_mut(player)
         .expect("selected player")
         .resources
         .supplies = 1000;
-    let Some(factory) =
-        logic.create_object_for_player("CancelFactory199", player, Vec3::new(70.0, 0.0, 50.0))
-    else {
-        return false;
-    };
+    let factory = logic
+        .create_object_for_player("CancelFactory199", player, Vec3::new(70.0, 0.0, 50.0))
+        .unwrap();
     {
         use crate::game_logic::buildings::{
             BuildingData, BuildingType, ProductionItem, ProductionKind,
@@ -86,36 +77,32 @@ fn command_production_construction_log() -> bool {
             kind: ProductionKind::Unit,
         });
     }
-    if !logic.cancel_production(factory, "CancelUnit199".into()) {
-        return false;
-    }
-    if logic
-        .get_player(player)
-        .is_none_or(|player| player.resources.supplies != 1250)
-        || logic
-            .host_object(factory)
-            .and_then(|factory| factory.building_data.as_ref())
-            .is_none_or(|building| !building.production_queue.is_empty())
-        || logic.cancel_production(factory, "CancelUnit199".into())
-    {
-        return false;
-    }
-    let mut observer = crate::gameworld_shadow::GameWorldShadow::new(64);
-    observer.sync_from_host(&logic);
-    let Some(entity) = observer
-        .entity_for_host(bid)
-        .and_then(|id| observer.world().entity(id))
-    else {
-        return false;
-    };
-    entity.under_construction
-        && entity.construction_percent == 0.0
-        && logic
-            .get_player(player)
-            .is_some_and(|player| player.resources.supplies == 1250)
-}
+    let queued = PresentationFrame::try_build_from_logic(&mut logic, player).unwrap();
+    let producer = queued.objects.iter().find(|row| row.id == factory).unwrap();
+    assert_eq!(producer.production_queue.len(), 1);
+    assert!(logic.cancel_production(factory, "CancelUnit199".into()));
+    assert!(!logic.cancel_production(factory, "CancelUnit199".into()));
+    assert_eq!(logic.get_player(player).unwrap().resources.supplies, 1250);
+    let building = logic
+        .host_object(factory)
+        .unwrap()
+        .building_data
+        .as_ref()
+        .unwrap();
+    assert!(building.production_queue.is_empty());
 
-#[test]
-fn command_production_construction_log_runs() {
-    assert!(command_production_construction_log());
+    let presentation = PresentationFrame::try_build_from_logic(&mut logic, player).unwrap();
+    let site = presentation
+        .objects
+        .iter()
+        .find(|row| row.id == bid)
+        .unwrap();
+    assert!(site.under_construction);
+    assert_eq!(site.construction_percent, 0.0);
+    let producer = presentation
+        .objects
+        .iter()
+        .find(|row| row.id == factory)
+        .unwrap();
+    assert!(producer.production_queue.is_empty());
 }

@@ -181,7 +181,6 @@ fn economy_authority_pending_blocks_double_spend() {
     if super::harness::isolated_shadow_case(
         module_path!(),
         "economy_authority_pending_blocks_double_spend",
-        true,
     ) {
         return;
     }
@@ -240,7 +239,6 @@ fn economy_authority_mutates_host_supplies_when_shadow_disabled() {
     if super::harness::isolated_shadow_case(
         module_path!(),
         "economy_authority_mutates_host_supplies_when_shadow_disabled",
-        false,
     ) {
         return;
     }
@@ -275,7 +273,6 @@ fn credit_supplies_defers_under_economy_authority() {
     if super::harness::isolated_shadow_case(
         module_path!(),
         "credit_supplies_defers_under_economy_authority",
-        true,
     ) {
         return;
     }

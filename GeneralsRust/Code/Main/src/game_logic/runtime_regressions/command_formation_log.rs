@@ -1,8 +1,9 @@
 //! Executable command and lifecycle regressions.
 
-fn command_formation_log() -> bool {
+#[test]
+fn formation_members_publish_their_own_offsets() {
     use crate::game_logic::Team;
-    use crate::gameworld_shadow::GameWorldShadow;
+    use crate::presentation_frame::PresentationFrame;
     use crate::skirmish_config::{apply_skirmish_config, golden_skirmish_config};
     use glam::{Vec2, Vec3};
     // C++ loads Object INI before NewGame; units are authored content.
@@ -16,50 +17,28 @@ fn command_formation_log() -> bool {
         &logic,
         &golden_skirmish_config("Form204"),
     );
-    if apply_skirmish_config(&mut logic, &cfg).is_err() {
-        return false;
-    }
-    let Some(a) = logic.create_object("FormUnit204", Team::USA, Vec3::new(0.0, 0.0, 0.0)) else {
-        return false;
-    };
-    let Some(b) = logic.create_object("FormUnit204", Team::USA, Vec3::new(10.0, 0.0, 0.0)) else {
-        return false;
-    };
+    apply_skirmish_config(&mut logic, &cfg).unwrap();
+    let a = logic
+        .create_object("FormUnit204", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+        .unwrap();
+    let b = logic
+        .create_object("FormUnit204", Team::USA, Vec3::new(10.0, 0.0, 0.0))
+        .unwrap();
 
-    if let Some(unit) = logic.get_object_mut(a) {
-        unit.set_formation(7, Vec2::new(1.0, -2.0));
-        if unit.formation_id != 7 {
-            return false;
-        }
-    } else {
-        return false;
-    }
-    if let Some(unit) = logic.get_object_mut(b) {
-        unit.set_formation(7, Vec2::new(-1.0, 2.0));
+    let members = [(a, Vec2::new(1.0, -2.0)), (b, Vec2::new(-1.0, 2.0))];
+    for (id, offset) in members {
+        logic.host_object_mut(id).unwrap().set_formation(7, offset);
     }
 
-    let mut shadow = GameWorldShadow::new(64);
-    shadow.sync_from_host(&logic);
-    [(a, Vec2::new(1.0, -2.0)), (b, Vec2::new(-1.0, 2.0))]
-        .into_iter()
-        .all(|(id, offset)| {
-            let Some(owner) = logic.get_object(id) else {
-                return false;
-            };
-            let Some(entity_id) = shadow.entity_for_host(id) else {
-                return false;
-            };
-            let Some(observed) = shadow.world().entity(entity_id) else {
-                return false;
-            };
-            owner.formation_id == 7
-                && owner.formation_offset == offset
-                && observed.formation_id == 7
-                && observed.formation_offset == [offset.x, offset.y]
-        })
-}
-
-#[test]
-fn command_formation_log_runs() {
-    assert!(command_formation_log());
+    let presentation = PresentationFrame::try_build_from_logic(&mut logic, 0).unwrap();
+    for (id, offset) in members {
+        let owner = logic.host_object(id).unwrap();
+        assert_eq!((owner.formation_id, owner.formation_offset), (7, offset));
+        let row = presentation
+            .objects
+            .iter()
+            .find(|row| row.id == id)
+            .unwrap();
+        assert_eq!((row.formation_id, row.formation_offset), (7, offset));
+    }
 }

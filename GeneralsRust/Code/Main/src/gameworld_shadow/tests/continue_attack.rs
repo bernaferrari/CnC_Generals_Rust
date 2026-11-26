@@ -8,7 +8,6 @@ fn ai_decision_buffer_channel_via_push_ai_decision() {
     if super::harness::isolated_shadow_case(
         module_path!(),
         "ai_decision_buffer_channel_via_push_ai_decision",
-        true,
     ) {
         return;
     }
@@ -59,7 +58,6 @@ fn ai_decision_authority_applies_attack_via_gameworld() {
     if super::harness::isolated_shadow_case(
         module_path!(),
         "ai_decision_authority_applies_attack_via_gameworld",
-        true,
     ) {
         return;
     }
@@ -108,7 +106,6 @@ fn apply_ai_command_logs_and_host_applies_under_authority() {
     if super::harness::isolated_shadow_case(
         module_path!(),
         "apply_ai_command_logs_and_host_applies_under_authority",
-        true,
     ) {
         return;
     }
@@ -167,7 +164,6 @@ fn continue_attack_after_kill_decision_authority() {
     if super::harness::isolated_shadow_case(
         module_path!(),
         "continue_attack_after_kill_decision_authority",
-        true,
     ) {
         return;
     }
@@ -244,7 +240,6 @@ fn assign_unit_attack_path_decision_authority() {
     if super::harness::isolated_shadow_case(
         module_path!(),
         "assign_unit_attack_path_decision_authority",
-        true,
     ) {
         return;
     }
@@ -306,7 +301,6 @@ fn path_approach_with_state_decision_authority() {
     if super::harness::isolated_shadow_case(
         module_path!(),
         "path_approach_with_state_decision_authority",
-        true,
     ) {
         return;
     }
@@ -349,7 +343,6 @@ fn troop_crawler_assault_decision_authority() {
     if super::harness::isolated_shadow_case(
         module_path!(),
         "troop_crawler_assault_decision_authority",
-        true,
     ) {
         return;
     }
@@ -419,7 +412,6 @@ fn missile_defender_laser_guided_decision_authority() {
     if super::harness::isolated_shadow_case(
         module_path!(),
         "missile_defender_laser_guided_decision_authority",
-        true,
     ) {
         return;
     }
@@ -508,7 +500,6 @@ fn private_attack_object_decision_authority() {
     if super::harness::isolated_shadow_case(
         module_path!(),
         "private_attack_object_decision_authority",
-        true,
     ) {
         return;
     }
@@ -569,7 +560,6 @@ fn transfer_attack_decision_authority() {
     if super::harness::isolated_shadow_case(
         module_path!(),
         "transfer_attack_decision_authority",
-        true,
     ) {
         return;
     }
@@ -626,7 +616,6 @@ fn apply_engagement_decision_aware_writeback() {
     if super::harness::isolated_shadow_case(
         module_path!(),
         "apply_engagement_decision_aware_writeback",
-        true,
     ) {
         return;
     }
@@ -675,7 +664,6 @@ fn mood_auto_acquire_logs_decision_under_authority() {
     if super::harness::isolated_shadow_case(
         module_path!(),
         "mood_auto_acquire_logs_decision_under_authority",
-        true,
     ) {
         return;
     }
@@ -782,7 +770,6 @@ fn support_guard_engage_uses_decision_authority() {
     if super::harness::isolated_shadow_case(
         module_path!(),
         "support_guard_engage_uses_decision_authority",
-        true,
     ) {
         return;
     }
@@ -829,7 +816,6 @@ fn faction_ai_launch_attack_decision_authority_writeback() {
     if super::harness::isolated_shadow_case(
         module_path!(),
         "faction_ai_launch_attack_decision_authority_writeback",
-        true,
     ) {
         return;
     }
@@ -915,7 +901,6 @@ fn stop_attack_decision_authority_clears_via_writeback() {
     if super::harness::isolated_shadow_case(
         module_path!(),
         "stop_attack_decision_authority_clears_via_writeback",
-        true,
     ) {
         return;
     }
@@ -971,7 +956,6 @@ fn fire_spawn_authority_defers_queue_until_shadow() {
     if super::harness::isolated_shadow_case(
         module_path!(),
         "fire_spawn_authority_defers_queue_until_shadow",
-        true,
     ) {
         return;
     }
@@ -1070,7 +1054,6 @@ fn fire_spawn_authority_enqueues_host_when_shadow_disabled() {
     if super::harness::isolated_shadow_case(
         module_path!(),
         "fire_spawn_authority_enqueues_host_when_shadow_disabled",
-        false,
     ) {
         return;
     }
@@ -1142,7 +1125,6 @@ fn ai_decision_authority_applies_host_state_when_shadow_disabled() {
     if super::harness::isolated_shadow_case(
         module_path!(),
         "ai_decision_authority_applies_host_state_when_shadow_disabled",
-        false,
     ) {
         return;
     }
@@ -1179,7 +1161,6 @@ fn projectile_authority_steps_host_when_shadow_disabled() {
     if super::harness::isolated_shadow_case(
         module_path!(),
         "projectile_authority_steps_host_when_shadow_disabled",
-        false,
     ) {
         return;
     }
@@ -1194,7 +1175,6 @@ fn movement_authority_integrates_host_when_shadow_disabled() {
     if super::harness::isolated_shadow_case(
         module_path!(),
         "movement_authority_integrates_host_when_shadow_disabled",
-        false,
     ) {
         return;
     }
@@ -1270,7 +1250,6 @@ fn ai_attack_authority_gates_fire_intent_writeback() {
     if super::harness::isolated_shadow_case(
         module_path!(),
         "ai_attack_authority_gates_fire_intent_writeback",
-        true,
     ) {
         return;
     }

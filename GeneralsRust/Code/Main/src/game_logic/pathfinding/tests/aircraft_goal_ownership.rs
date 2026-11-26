@@ -315,7 +315,6 @@ fn isolated(name: &str) -> bool {
     let mut child = Command::new(std::env::current_exe().unwrap())
         .args([&name, "--exact", "--test-threads=1", "--nocapture"])
         .env(MARKER, &name)
-        .env("GENERALS_GAMEWORLD_SHADOW", "1")
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()

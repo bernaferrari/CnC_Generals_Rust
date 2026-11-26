@@ -1,9 +1,10 @@
 //! Executable command and lifecycle regressions.
 
-fn command_rally_log() -> bool {
+#[test]
+fn rally_command_commits_and_publishes_factory_exit_point() {
     use crate::command_system::{CommandType, GameCommand, ModifierKeys};
     use crate::game_logic::Team;
-    use crate::gameworld_shadow::GameWorldShadow;
+    use crate::presentation_frame::PresentationFrame;
     use crate::skirmish_config::{apply_skirmish_config, golden_skirmish_config};
     use glam::Vec3;
     use std::time::SystemTime;
@@ -25,14 +26,10 @@ fn command_rally_log() -> bool {
         &logic,
         &golden_skirmish_config("RallyLog200"),
     );
-    if apply_skirmish_config(&mut logic, &cfg).is_err() {
-        return false;
-    }
-    let Some(factory) =
-        logic.create_object("RallyFactory200", Team::USA, Vec3::new(15.0, 0.0, 16.0))
-    else {
-        return false;
-    };
+    apply_skirmish_config(&mut logic, &cfg).unwrap();
+    let factory = logic
+        .create_object("RallyFactory200", Team::USA, Vec3::new(15.0, 0.0, 16.0))
+        .unwrap();
     let dest = Vec3::new(80.0, 0.0, 81.0);
     logic.queue_command(GameCommand {
         command_type: CommandType::SetRallyPoint { location: dest },
@@ -44,31 +41,16 @@ fn command_rally_log() -> bool {
     });
     logic.process_commands();
 
-    if logic.host_object(factory).and_then(|object| {
-        object
-            .building_data
-            .as_ref()
-            .and_then(|building| building.rally_point)
-    }) != Some(dest)
-    {
-        return false;
-    }
-
-    let mut shadow = GameWorldShadow::new(64);
-    shadow.sync_from_host(&logic);
-    // Entity should hold rally after apply.
-    let Some(eid) = shadow.entity_for_host(factory) else {
-        return false;
-    };
-    let Some(ent) = shadow.world().entity(eid) else {
-        return false;
-    };
-    ent.rally_point
-        .map(|p| (p[0] - 80.0).abs() < 1e-3 && (p[2] - 81.0).abs() < 1e-3)
-        .unwrap_or(false)
-}
-
-#[test]
-fn command_rally_log_runs() {
-    assert!(command_rally_log());
+    let owner = logic.host_object(factory).unwrap();
+    assert_eq!(
+        owner.building_data.as_ref().unwrap().rally_point,
+        Some(dest)
+    );
+    let presentation = PresentationFrame::try_build_from_logic(&mut logic, 0).unwrap();
+    let row = presentation
+        .objects
+        .iter()
+        .find(|row| row.id == factory)
+        .unwrap();
+    assert_eq!(row.rally_point, Some(dest));
 }

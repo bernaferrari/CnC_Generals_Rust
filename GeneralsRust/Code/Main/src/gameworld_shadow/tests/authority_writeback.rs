@@ -804,20 +804,6 @@ fn attack_log_feeds_set_attack_target_mutation() {
 }
 
 #[test]
-fn shadow_session_defaults_on() {
-    // Session defaults on when SHADOW unset (process may have gate env from other tests).
-    if std::env::var_os("GENERALS_GAMEWORLD_SHADOW").is_none() {
-        assert!(
-            gameworld_shadow_enabled(),
-            "shadow session should default on when env unset"
-        );
-    } else {
-        // If explicitly set, respect the helper's parse.
-        let _ = gameworld_shadow_enabled();
-    }
-}
-
-#[test]
 fn attack_target_syncs_to_shadow_entity() {
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("AtkTarget");
@@ -1210,7 +1196,6 @@ fn stale_engine_id_does_not_skip_host_movement() {
     if super::harness::isolated_shadow_case(
         module_path!(),
         "stale_engine_id_does_not_skip_host_movement",
-        true,
     ) {
         return;
     }
@@ -1366,11 +1351,9 @@ fn owned_damage_and_move_do_not_implicitly_publish_to_comparison_world() {
     if super::harness::isolated_shadow_case(
         module_path!(),
         "owned_damage_and_move_do_not_implicitly_publish_to_comparison_world",
-        true,
     ) {
         return;
     }
-    assert!(gameworld_shadow_enabled());
 
     let mut logic = GameLogic::new();
 
@@ -1437,11 +1420,9 @@ fn host_object_mut_borrows_owned_fields_without_observation_ingress() {
     if super::harness::isolated_shadow_case(
         module_path!(),
         "host_object_mut_borrows_owned_fields_without_observation_ingress",
-        true,
     ) {
         return;
     }
-    assert!(gameworld_shadow_enabled());
 
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("GwView");
@@ -1491,7 +1472,6 @@ fn owned_fat_fields_remain_visible_without_implicit_shadow_publication() {
     if super::harness::isolated_shadow_case(
         module_path!(),
         "owned_fat_fields_remain_visible_without_implicit_shadow_publication",
-        true,
     ) {
         return;
     }
@@ -1617,7 +1597,6 @@ fn host_object_store_mutation_is_canonical_without_shadow_writeback() {
     if super::harness::isolated_shadow_case(
         module_path!(),
         "host_object_store_mutation_is_canonical_without_shadow_writeback",
-        true,
     ) {
         return;
     }
@@ -1695,7 +1674,6 @@ fn is_alive_uses_owned_body_even_with_conflicting_comparison_health() {
     if super::harness::isolated_shadow_case(
         module_path!(),
         "is_alive_uses_owned_body_even_with_conflicting_comparison_health",
-        true,
     ) {
         return;
     }
@@ -1743,7 +1721,6 @@ fn snapshot_builder_uses_authoritative_health() {
     if super::harness::isolated_shadow_case(
         module_path!(),
         "snapshot_builder_uses_authoritative_health",
-        true,
     ) {
         return;
     }

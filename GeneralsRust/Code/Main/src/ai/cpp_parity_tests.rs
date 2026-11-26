@@ -2376,7 +2376,6 @@ fn launch_attack_sets_target_and_logs_host_attack() {
     if crate::gameworld_shadow::isolated_shadow_case(
         module_path!(),
         "launch_attack_sets_target_and_logs_host_attack",
-        true,
     ) {
         return;
     }

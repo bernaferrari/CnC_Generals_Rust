@@ -83,8 +83,7 @@ End
             90
         );
     }
-    // Lifetime admission binds the authored receiving module; no named range
-    // or diagnostic shadow owns its clock. Poison retains fixed retail constants.
+    // Lifetime uses the authored module attributes. Poison uses fixed retail constants.
     world.admit_receiving_module_content(module).unwrap();
     assert!(world.templates[name].is_kind_of(KindOf::Infantry));
     let id = world.create_object_for_player(name, 0, Vec3::ZERO).unwrap();
@@ -102,17 +101,12 @@ End
     id
 }
 
-fn owned_update(
-    world: &mut GameLogic,
-    shadow: &mut crate::gameworld_shadow::GameWorldShadow,
-) -> u32 {
+fn owned_update(world: &mut GameLogic) -> u32 {
     let before = world.getFrame();
 
-    assert!(crate::gameworld_shadow::gameworld_shadow_enabled());
     world.update();
     assert_eq!(world.getFrame(), before + 1);
     world.complete_presentation_observations();
-    shadow.sync_from_host(world);
     before
 }
 
@@ -132,8 +126,6 @@ fn lifetime_case() {
     };
     assert!(active);
     assert_eq!(due, start + 300);
-    let mut shadow = crate::gameworld_shadow::GameWorldShadow::new(64);
-    shadow.sync_from_host(&world);
     while world.getFrame() < due {
         let owner = world.host_object(id).unwrap();
         assert_eq!(owner.health.current, 100.0);
@@ -141,7 +133,7 @@ fn lifetime_case() {
             !owner.status.on_die_started,
             "CPP Lifetime hasn't executed its due frame yet"
         );
-        let before = owned_update(&mut world, &mut shadow);
+        let before = owned_update(&mut world);
         assert!(before < due);
         let owner = world
             .host_object(id)
@@ -155,7 +147,7 @@ fn lifetime_case() {
     // LifetimeUpdate::update executes kill() on frame300; C++ kill is lethal
     // damage, not destroyObject. This definition has no SlowDeath finalizer, so
     // the dead object remains registered after the one-shot timer fires.
-    assert_eq!(owned_update(&mut world, &mut shadow), due);
+    assert_eq!(owned_update(&mut world), due);
     assert_eq!(world.getFrame(), due + 1);
     let owner = world
         .host_object(id)
@@ -176,7 +168,7 @@ fn lifetime_case() {
 
     // A later ordinary update cannot replay the consumed kill deadline or
     // re-enter onDie. Preserve the actual actor/deadline observations.
-    assert_eq!(owned_update(&mut world, &mut shadow), due + 1);
+    assert_eq!(owned_update(&mut world), due + 1);
     assert_eq!(world.getFrame(), due + 2);
     let owner = world.host_object(id).expect("no finalizer was authored");
     assert_eq!(owner.health.current, 0.0);
@@ -191,27 +183,8 @@ fn lifetime_case() {
 }
 
 #[test]
-fn coupled_default_lifetime_ordinary_deadline_is_not_disabled() {
-    run_isolated_owner(
-        "coupled_default_lifetime_ordinary_deadline_is_not_disabled",
-        || lifetime_case(),
-    );
-}
-
-#[test]
-fn coupled_movement_lifetime_does_not_kill_one_frame_early() {
-    run_isolated_owner(
-        "coupled_movement_lifetime_does_not_kill_one_frame_early",
-        || lifetime_case(),
-    );
-}
-
-#[test]
-fn coupled_movement_damage_lifetime_keeps_initial_kill_deadline() {
-    run_isolated_owner(
-        "coupled_movement_damage_lifetime_keeps_initial_kill_deadline",
-        || lifetime_case(),
-    );
+fn lifetime_kills_on_its_initial_deadline() {
+    run_isolated_owner("lifetime_kills_on_its_initial_deadline", lifetime_case);
 }
 
 fn infect(world: &mut GameLogic, id: ObjectId, amount: f32) {
@@ -245,8 +218,6 @@ fn poison_case() {
     world.update();
     assert_eq!(world.getFrame(), 1);
     let id = parsed_owner(&mut world, false);
-    let mut shadow = crate::gameworld_shadow::GameWorldShadow::new(64);
-    shadow.sync_from_host(&world);
     infect(&mut world, id, 10.0);
     let owner = world.host_object(id).unwrap();
     assert_eq!(owner.health.current, 90.0);
@@ -261,20 +232,20 @@ fn poison_case() {
     // At public clock4, frame4 is still awaiting ordinary execution. The
     // deadline assertion is after its execution (clock5), not a synthetic tick.
     while world.getFrame() < 4 {
-        owned_update(&mut world, &mut shadow);
+        owned_update(&mut world);
         if world.getFrame() < 4 {
             assert_eq!(world.host_object(id).unwrap().health.current, 90.0);
         }
     }
     for executing_frame in 4..=7 {
         assert_eq!(world.getFrame(), executing_frame);
-        assert_eq!(owned_update(&mut world, &mut shadow), executing_frame);
+        assert_eq!(owned_update(&mut world), executing_frame);
         let owner = world.host_object(id).unwrap();
         let expected_ticks = if executing_frame < 7 { 1 } else { 2 };
         assert_eq!(
             owner.health.current,
             90.0 - 10.0 * expected_ticks as f32,
-            "one CPP pulse every three ordinary frames, not every shadow synchronization"
+            "one poison pulse every three logic frames"
         );
         assert_eq!(owner.last_damage_source, None);
         assert_eq!(owner.last_damage_info_type, Some(DamageType::Unresistable));
@@ -296,43 +267,25 @@ fn poison_case() {
 }
 
 #[test]
-fn coupled_default_poison_keeps_owned_periodic_damage_and_tint() {
+fn poison_applies_each_periodic_pulse_once_and_retains_tint() {
     run_isolated_owner(
-        "coupled_default_poison_keeps_owned_periodic_damage_and_tint",
-        || poison_case(),
+        "poison_applies_each_periodic_pulse_once_and_retains_tint",
+        poison_case,
     );
 }
 
 #[test]
-fn coupled_movement_poison_preserves_periodic_damage_not_repeated_sync_damage() {
+fn reinfection_replaces_amount_without_postponing_pulse() {
     run_isolated_owner(
-        "coupled_movement_poison_preserves_periodic_damage_not_repeated_sync_damage",
-        || poison_case(),
-    );
-}
-
-#[test]
-fn coupled_movement_damage_poison_applies_each_accepted_pulse_once() {
-    run_isolated_owner(
-        "coupled_movement_damage_poison_applies_each_accepted_pulse_once",
-        || poison_case(),
-    );
-}
-
-#[test]
-fn coupled_movement_damage_reinfection_replaces_amount_without_postponing_pulse() {
-    run_isolated_owner(
-        "coupled_movement_damage_reinfection_replaces_amount_without_postponing_pulse",
+        "reinfection_replaces_amount_without_postponing_pulse",
         || {
             let mut world = GameLogic::new();
 
             world.update();
             let id = parsed_owner(&mut world, false);
-            let mut shadow = crate::gameworld_shadow::GameWorldShadow::new(64);
-            shadow.sync_from_host(&world);
             infect(&mut world, id, 10.0);
             while world.getFrame() < 5 {
-                owned_update(&mut world, &mut shadow);
+                owned_update(&mut world);
             }
             assert_eq!(world.host_object(id).unwrap().health.current, 80.0);
             infect(&mut world, id, 5.0);
@@ -348,7 +301,7 @@ fn coupled_movement_damage_reinfection_replaces_amount_without_postponing_pulse(
                 7
             );
             while world.getFrame() <= 7 {
-                let before = owned_update(&mut world, &mut shadow);
+                let before = owned_update(&mut world);
                 let owner = world.host_object(id).unwrap();
                 assert_eq!(owner.health.current, if before < 7 { 75.0 } else { 70.0 });
                 let poison = owner.poisoned_behavior.as_ref().unwrap();
@@ -363,62 +316,55 @@ fn coupled_movement_damage_reinfection_replaces_amount_without_postponing_pulse(
 }
 
 #[test]
-fn coupled_default_same_id_poison_uses_each_owners_actual_dose_and_clock() {
-    run_isolated_owner(
-        "coupled_default_same_id_poison_uses_each_owners_actual_dose_and_clock",
-        || {
-            let mut first = GameLogic::new();
-            first.update();
-            let first_id = parsed_owner(&mut first, false);
-            infect(&mut first, first_id, 10.0);
-            let mut second = GameLogic::new();
-            for _ in 0..5 {
-                second.update();
-            }
-            let second_id = parsed_owner(&mut second, false);
-            assert_eq!(first_id, second_id);
-            infect(&mut second, second_id, 5.0);
-            let mut first_shadow = crate::gameworld_shadow::GameWorldShadow::new(64);
-            let mut second_shadow = crate::gameworld_shadow::GameWorldShadow::new(64);
-            first_shadow.sync_from_host(&first);
-            second_shadow.sync_from_host(&second);
-            for _ in 0..4 {
-                owned_update(&mut second, &mut second_shadow);
-                owned_update(&mut first, &mut first_shadow);
-            }
-            let a = first.host_object(first_id).unwrap();
-            let b = second.host_object(second_id).unwrap();
-            assert_eq!((first.getFrame(), second.getFrame()), (5, 9));
-            assert_eq!(a.health.current, 80.0);
-            assert_eq!(b.health.current, 90.0);
-            assert_eq!(a.last_damage_timestamp, Some(4));
-            assert_eq!(b.last_damage_timestamp, Some(8));
-            assert_eq!(a.last_damage_info_type, Some(DamageType::Unresistable));
-            assert_eq!(b.last_damage_info_type, Some(DamageType::Unresistable));
-            assert_eq!(a.poisoned_behavior.as_ref().unwrap().poison_damage_frame, 7);
-            assert_eq!(
-                b.poisoned_behavior.as_ref().unwrap().poison_damage_frame,
-                11
-            );
-            assert_eq!(
-                a.poisoned_behavior
-                    .as_ref()
-                    .unwrap()
-                    .poison_overall_stop_frame,
-                91
-            );
-            assert_eq!(
-                b.poisoned_behavior
-                    .as_ref()
-                    .unwrap()
-                    .poison_overall_stop_frame,
-                95
-            );
-            assert_eq!(a.poisoned_behavior.as_ref().unwrap().tick_count, 1);
-            assert_eq!(b.poisoned_behavior.as_ref().unwrap().tick_count, 1);
-            assert!(a.is_poison_tinted() && b.is_poison_tinted());
-        },
-    );
+fn same_id_poison_uses_each_worlds_dose_and_clock() {
+    run_isolated_owner("same_id_poison_uses_each_worlds_dose_and_clock", || {
+        let mut first = GameLogic::new();
+        first.update();
+        let first_id = parsed_owner(&mut first, false);
+        infect(&mut first, first_id, 10.0);
+        let mut second = GameLogic::new();
+        for _ in 0..5 {
+            second.update();
+        }
+        let second_id = parsed_owner(&mut second, false);
+        assert_eq!(first_id, second_id);
+        infect(&mut second, second_id, 5.0);
+        for _ in 0..4 {
+            owned_update(&mut second);
+            owned_update(&mut first);
+        }
+        let a = first.host_object(first_id).unwrap();
+        let b = second.host_object(second_id).unwrap();
+        assert_eq!((first.getFrame(), second.getFrame()), (5, 9));
+        assert_eq!(a.health.current, 80.0);
+        assert_eq!(b.health.current, 90.0);
+        assert_eq!(a.last_damage_timestamp, Some(4));
+        assert_eq!(b.last_damage_timestamp, Some(8));
+        assert_eq!(a.last_damage_info_type, Some(DamageType::Unresistable));
+        assert_eq!(b.last_damage_info_type, Some(DamageType::Unresistable));
+        assert_eq!(a.poisoned_behavior.as_ref().unwrap().poison_damage_frame, 7);
+        assert_eq!(
+            b.poisoned_behavior.as_ref().unwrap().poison_damage_frame,
+            11
+        );
+        assert_eq!(
+            a.poisoned_behavior
+                .as_ref()
+                .unwrap()
+                .poison_overall_stop_frame,
+            91
+        );
+        assert_eq!(
+            b.poisoned_behavior
+                .as_ref()
+                .unwrap()
+                .poison_overall_stop_frame,
+            95
+        );
+        assert_eq!(a.poisoned_behavior.as_ref().unwrap().tick_count, 1);
+        assert_eq!(b.poisoned_behavior.as_ref().unwrap().tick_count, 1);
+        assert!(a.is_poison_tinted() && b.is_poison_tinted());
+    });
 }
 
 #[test]

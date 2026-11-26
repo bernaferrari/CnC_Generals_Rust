@@ -1,39 +1,16 @@
-//! Host-sole gate parity under a coupled GameWorld shadow session.
-//!
-//! Live default: shadow ON + coupled tick, every authority channel OFF
-//! (C++ parity: one store, one tick). Before the host-sole gate fix,
-//! `update_simulation` skipped these host residuals whenever the shadow was
-//! coupled, while the GameWorld side of each channel drained only under
-//! movement authority (off) — so the channel silently stalled live.
-//!
-//! These tests drive the FULL host tick inside the coupled window, mirroring
-//! the engine frame (host logic inside the scoped authority window → eager
-//! host→GW residual batch → `shadow_session_after_host_tick`), and assert the
-//! host-side observable still happens with all authorities off.
+//! Timed object behaviors through the ordinary logic frame and presentation boundary.
 
 use super::*;
+
 mod terrain_decal_cadence;
-use crate::gameworld_shadow::GameWorldShadow;
 
-/// Serialize against tests that mutate `GENERALS_GAMEWORLD_*` env and pin the
-/// shadow gate on for the duration (prior value restored on drop).
-
-/// One engine-parity logic frame with the shadow coupled: the host tick runs
-/// inside `begin/end_shadow_coupled_tick` with the instance's authority
-/// context published (all channels off in these tests), then the post-logic
-/// eager residual batch and the shadow session boundary run exactly like
-/// `host_run_fast_forward_loop`.
-fn owned_frame(shadow: &mut GameWorldShadow, logic: &mut GameLogic) {
+fn owned_frame(logic: &mut GameLogic) {
     logic.tick_logic_frame(LOGIC_FRAME_TIMESTEP, None, None);
     logic.complete_presentation_observations();
-    shadow.sync_from_host(logic);
 }
 
-/// Wave 780 / Fix A: a damaged BaseRegenerateUpdate structure must self-repair
-/// on the HOST tick while the shadow is coupled and every authority is off,
-/// and the shadow health probe must stay green (no GW dual-peel heal re-apply).
 #[test]
-fn coupled_shadow_base_regen_heals_on_host_and_probe_stays_green() {
+fn base_regeneration_self_repairs_and_publishes_health() {
     let mut logic = GameLogic::new();
     let mut tpl = ThingTemplate::new("AmericaCommandCenter");
     tpl.add_kind_of(KindOf::Structure).set_health(1000.0);
@@ -53,29 +30,24 @@ fn coupled_shadow_base_regen_heals_on_host_and_probe_stays_green() {
     logic.set_current_frame(0);
     logic.notify_base_regenerate_damage(id, false);
 
-    let mut shadow = GameWorldShadow::new(64);
-    // 95 coupled frames cross the 90-frame damage-delay wake (heal rate: 3).
+    // 95 logic frames cross the 90-frame damage-delay wake (heal rate: 3).
     for _ in 0..95 {
-        owned_frame(&mut shadow, &mut logic);
+        owned_frame(&mut logic);
     }
     let hp = logic.host_object(id).unwrap().health.current;
     assert!(
         hp > 500.0,
-        "structure must self-repair on the host tick while the shadow is coupled (hp={hp})"
+        "structure must self-repair after the regeneration delay (hp={hp})"
     );
     assert!(logic.base_regenerate_reg.heal_ticks >= 1);
-    let probe = shadow.probe(&mut logic);
-    assert!(
-        probe.health_match,
-        "shadow health probe must stay green after host-sole heal: {}",
-        probe.detail
-    );
+    let frame =
+        crate::presentation_frame::PresentationFrame::try_build_from_logic(&mut logic, 0).unwrap();
+    let structure = frame.objects.iter().find(|row| row.id == id).unwrap();
+    assert_eq!(structure.health_current, hp);
 }
 
-/// Wave 817 (lifetime expiry representative): a crate DeletionUpdate lifetime
-/// must expire on the HOST tick while the shadow is coupled.
 #[test]
-fn coupled_shadow_crate_lifetime_expires_on_host() {
+fn crate_lifetime_retires_on_its_deadline() {
     let mut logic = GameLogic::new();
     logic
         .admit_object_ini_sources([(
@@ -88,26 +60,23 @@ fn coupled_shadow_crate_lifetime_expires_on_host() {
         .expect("crate");
     logic.host_money_crates.register_salvage_crate(cid, 40);
 
-    let mut shadow = GameWorldShadow::new(64);
     for _ in 0..3 {
-        owned_frame(&mut shadow, &mut logic);
+        owned_frame(&mut logic);
         assert!(logic.host_object(cid).is_some());
     }
-    owned_frame(&mut shadow, &mut logic);
+    owned_frame(&mut logic);
     assert!(
         !logic.host_money_crates.contains(cid),
-        "crate DeletionUpdate lifetime must expire on the host tick while coupled"
+        "crate DeletionUpdate lifetime must expire during the logic update"
     );
     assert!(
         logic.objects.get(&cid).is_none(),
-        "expired crate must be destroyed on the host while coupled"
+        "expired crate must be destroyed at its deadline"
     );
 }
 
-/// Wave 820 (fire spread representative): an ignited flammable must run the
-/// fire-spread pass on the HOST tick while the shadow is coupled.
 #[test]
-fn coupled_shadow_fire_spread_runs_on_host() {
+fn fire_spreads_to_a_neighbor_during_logic_updates() {
     let mut logic = GameLogic::new();
     crate::game_logic::host_fire_spread::admit_fire_fixture(
         &mut logic,
@@ -131,7 +100,10 @@ fn coupled_shadow_fire_spread_runs_on_host() {
     assert!(logic.host_object(a).unwrap().has_fire_spread());
     assert!(logic.host_object(b).unwrap().has_fire_spread());
 
-    assert!(logic.ignite_object_fire_spread(a, &mut crate::game_logic::ScriptPresentationEffects::default()));
+    assert!(logic.ignite_object_fire_spread(
+        a,
+        &mut crate::game_logic::ScriptPresentationEffects::default()
+    ));
     {
         // Force the first spread attempt due immediately. It precedes the
         // partition phase inside the same tick (cells fill after), so pin a
@@ -144,14 +116,13 @@ fn coupled_shadow_fire_spread_runs_on_host() {
         }
     }
 
-    let mut shadow = GameWorldShadow::new(64);
     // Cross frame 30 (the direct-call precedent's spread-due frame).
     for _ in 0..35 {
-        owned_frame(&mut shadow, &mut logic);
+        owned_frame(&mut logic);
     }
     assert!(
         logic.fire_spread_reg.spreads > 0,
-        "aflame tree must attempt spread on the host tick while coupled"
+        "aflame tree must attempt spread during the logic update"
     );
     assert!(
         logic
@@ -159,15 +130,12 @@ fn coupled_shadow_fire_spread_runs_on_host() {
             .and_then(|o| o.fire_spread.as_ref().map(|f| f.is_aflame()))
             .unwrap_or(false)
             || logic.fire_spread_reg.ignitions >= 2,
-        "neighbor within range must ignite on the host tick while coupled"
+        "neighbor within range must ignite during the logic update"
     );
 }
 
-/// Wave 825 (scud poison representative): a MediumPoisonField zone spawned by
-/// a toxin SCUD warhead must tick its DoT on the HOST while the shadow is
-/// coupled.
 #[test]
-fn coupled_shadow_scud_poison_dot_ticks_on_host() {
+fn toxin_scud_field_damages_objects_after_the_blast() {
     let mut logic = GameLogic::new();
     let mut t = ThingTemplate::new("PoisonSponge");
     t.set_health(5000.0);
@@ -179,7 +147,9 @@ fn coupled_shadow_scud_poison_dot_ticks_on_host() {
 
     // Detonate a toxin SCUD warhead on the infantry: spawns the
     // MediumPoisonField DoT zone (host residual registry).
-    let _ = logic.apply_scud_area_at(glam::Vec3::ZERO, None, Team::GLA, true).unwrap();
+    let _ = logic
+        .apply_scud_area_at(glam::Vec3::ZERO, None, Team::GLA, true)
+        .unwrap();
     assert!(
         logic.scud_poison_zones().active_count() >= 1,
         "toxin blast must spawn the poison field zone"
@@ -190,14 +160,13 @@ fn coupled_shadow_scud_poison_dot_ticks_on_host() {
         "blast itself must land (hp={after_blast})"
     );
 
-    let mut shadow = GameWorldShadow::new(64);
     // Zone ticks roughly every 15 frames after activation.
     for _ in 0..50 {
-        owned_frame(&mut shadow, &mut logic);
+        owned_frame(&mut logic);
     }
     let after = logic.host_object(inf).unwrap().health.current;
     assert!(
         after < after_blast,
-        "poison field DoT must tick on the host while coupled (blast={after_blast} after={after})"
+        "poison field DoT must tick at its deadline (blast={after_blast} after={after})"
     );
 }

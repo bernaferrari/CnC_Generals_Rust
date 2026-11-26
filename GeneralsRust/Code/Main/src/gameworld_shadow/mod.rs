@@ -8,9 +8,7 @@ use gamelogic::world::entities::{EntityId, EntityProductionItem, TemplateRef, Tr
 use gamelogic::world::{GameWorld, PlayerId, WorldMutation, WorldSnapshot};
 use std::collections::{HashMap, HashSet};
 
-mod tick;
 mod types;
-pub use tick::*;
 use types::HordePlayerRel;
 pub use types::*;
 
