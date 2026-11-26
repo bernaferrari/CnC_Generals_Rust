@@ -3328,7 +3328,7 @@ End
         template.death_type = crate::damage::DeathType::Normal;
         template.clip_size = 1;
         template.clip_reload_time = 120;
-        template.fire_fx[0] = Some(crate::effects::FXList::new("LinkedDozerDisarm"));
+        template.fire_fx[0] = Some(generals_sim::weapon::WeaponFxName::new("LinkedDozerDisarm"));
         let template = Arc::new(template);
         for (idx, mine) in mines.iter().enumerate() {
             let mut weapon = Weapon::new(Arc::clone(&template), WeaponSlotType::Primary);

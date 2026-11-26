@@ -78,7 +78,11 @@ Object DragonCollisionVehicle
 End
 "#.into()),
             ]).unwrap(),
-            Some([(rules.name.clone(), rules.clone())].into_iter().collect()),
+            Some(
+                generals_sim::weapon::WeaponCatalog::from_named_definitions([
+                    (rules.name.clone(), rules.clone()),
+                ]).unwrap(),
+            ),
         ).unwrap();
         for (id, alliance) in [(1, 1), (2, 2), (3, 1)] {
             let mut player = Player::new(id, Team::China, &format!("Dragon collision {id}"), id == 1);
@@ -289,7 +293,7 @@ fn stream_world(slots: [&str; 3], missing_projectile: bool) -> GameLogic {
                 ("authored-stream-content.ini".into(), content),
             ])
             .unwrap(),
-            Some(rows.into_values().map(|row| (row.name.clone(), row)).collect()),
+            Some(generals_sim::weapon::WeaponCatalog::from_named_definitions(rows).unwrap()),
         )
         .unwrap();
     world

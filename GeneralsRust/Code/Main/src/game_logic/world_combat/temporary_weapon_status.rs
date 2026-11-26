@@ -20,7 +20,7 @@ pub(super) struct TemporaryWeaponStoreFields {
 }
 
 impl TemporaryWeaponStoreFields {
-    pub(super) fn from_template(template: &gamelogic::weapon::WeaponTemplate) -> Self {
+    pub(super) fn from_template(template: &generals_sim::weapon::WeaponDefinition) -> Self {
         Self {
             defaults: TemporaryWeaponConstructionDefaults {
                 min_target_pitch: template.min_target_pitch,

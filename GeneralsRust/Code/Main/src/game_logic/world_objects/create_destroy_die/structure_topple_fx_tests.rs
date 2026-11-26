@@ -74,14 +74,14 @@ fn world(local: u32, x: f32) -> (GameLogic, ObjectId) {
 fn world_with_crushing(
     local: u32,
     x: f32,
-    weapon: Option<&gamelogic::weapon::WeaponTemplate>,
+    weapon: Option<&generals_sim::weapon::WeaponDefinition>,
 ) -> (GameLogic, ObjectId) {
     world_with_filters(local, x, weapon, "")
 }
 fn world_with_filters(
     local: u32,
     x: f32,
-    weapon: Option<&gamelogic::weapon::WeaponTemplate>,
+    weapon: Option<&generals_sim::weapon::WeaponDefinition>,
     filters: &str,
 ) -> (GameLogic, ObjectId) {
     world_fx(local, x, weapon, filters, None)
@@ -92,7 +92,7 @@ fn world_with_filters(
 fn world_fx(
     local: u32,
     x: f32,
-    weapon: Option<&gamelogic::weapon::WeaponTemplate>,
+    weapon: Option<&generals_sim::weapon::WeaponDefinition>,
     filters: &str,
     catalog: Option<&game_client::fx_list::FXListStore>,
 ) -> (GameLogic, ObjectId) {
@@ -149,7 +149,12 @@ End
     world
         .admit_receiving_module_content_with_weapons(
             content,
-            weapon.map(|weapon| vec![(weapon.name.clone(), weapon.clone())]),
+            weapon.map(|weapon| {
+                generals_sim::weapon::WeaponCatalog::from_named_definitions([
+                    (weapon.name.clone(), weapon.clone()),
+                ])
+                .unwrap()
+            }),
         )
         .unwrap();
     let definition = world.templates["AuthoredOwnTopple"]
@@ -491,8 +496,8 @@ fn retained_definition_does_not_change_raw_thing_positional_wire() {
     assert_eq!(decoded.get_transform_matrix(), thing.get_transform_matrix());
 }
 
-fn crushing_weapon(name: &str, damage: f32) -> gamelogic::weapon::WeaponTemplate {
-    let mut weapon = gamelogic::weapon::WeaponTemplate::new(name.into());
+fn crushing_weapon(name: &str, damage: f32) -> generals_sim::weapon::WeaponDefinition {
+    let mut weapon = generals_sim::weapon::WeaponDefinition::new(name.into());
     weapon.primary_damage = damage;
     weapon.primary_damage_radius = 20.0;
     weapon.damage_type = gamelogic::damage::DamageType::Explosion;

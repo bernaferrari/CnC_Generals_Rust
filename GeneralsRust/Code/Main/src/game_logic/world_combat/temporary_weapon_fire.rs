@@ -274,7 +274,9 @@ impl GameLogic {
         if let Some(rule) = rule {
             if fire_state.2 > 1 {
                 fields.delay_between_shots =
-                    rule.get_delay_between_shots_with_random(&bonus, &self.logic_random).max(0) as u32;
+                    crate::game_logic::weapon_bootstrap::weapon_delay_between_shots(
+                        &rule, &bonus, Some(&self.logic_random),
+                    ).max(0) as u32;
             } else {
                 fields.defaults.clip_reload_frames = rule.get_clip_reload_time(&bonus).max(0) as u32;
             }

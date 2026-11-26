@@ -20,7 +20,7 @@ fn authored_snapshot_world(ini: &str) -> GameLogic {
     world
         .admit_receiving_module_content_with_weapons(
             content,
-            Some(weapons.into_values().map(|rule| (rule.name.clone(), rule)).collect()),
+            Some(generals_sim::weapon::WeaponCatalog::from_named_definitions(weapons).unwrap()),
         )
         .expect("receiving snapshot content");
     world

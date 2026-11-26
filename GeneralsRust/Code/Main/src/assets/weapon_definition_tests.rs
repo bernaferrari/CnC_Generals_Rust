@@ -31,7 +31,15 @@ fn owned_archive_definitions_keep_partial_ranger_and_admit_complete_missile_rule
     assert_eq!(missile.min_weapon_speed, 300.0_f32 * (1.0_f32 / 30.0_f32));
     assert_eq!(missile.projectile_name, "MissileDefenderMissile");
     assert_eq!(definitions["rangeradvancedcombatrifle"].primary_damage, 5.0);
-    assert_eq!(owned_weapon_snapshot(definitions).len(), 2);
+    let catalog = WeaponCatalog::from_named_definitions(definitions).unwrap();
+    assert_eq!(
+        catalog.get("hellfiremissileweapon").unwrap().name,
+        "HellfireMissileWeapon",
+    );
+    assert_eq!(
+        catalog.get("rangeradvancedcombatrifle").unwrap().name,
+        "RangerAdvancedCombatRifle",
+    );
 }
 #[test]
 fn owned_override_preserves_base_and_repeated_rank_fields_in_source_order() {
@@ -91,7 +99,7 @@ End
     assert_eq!(range.max_delay_between_shots, 8);
 }
 #[test]
-fn independent_owned_loads_keep_defaults_and_lookup_sorting_out_of_override_order() {
+fn independent_owned_loads_keep_defaults_and_source_order() {
     let mut first = HashMap::new();
     let mut peer = HashMap::new();
     parse_weapon_definitions_ini_into(
@@ -110,18 +118,14 @@ fn independent_owned_loads_keep_defaults_and_lookup_sorting_out_of_override_orde
         peer["samerule"].weapon_speed,
         300.0_f32 * (1.0_f32 / 30.0_f32)
     );
-    let defaults = gamelogic::weapon::WeaponTemplate::new("BaselineDefaults".into());
+    let defaults = generals_sim::weapon::WeaponDefinition::new("BaselineDefaults".into());
     assert_eq!(first["samerule"].weapon_speed, defaults.weapon_speed);
     assert_eq!(first["samerule"].damage_type, defaults.damage_type);
-    let snapshot = owned_weapon_snapshot(first);
-    assert_eq!(
-        snapshot
-            .iter()
-            .map(|(name, _)| name.as_str())
-            .collect::<Vec<_>>(),
-        vec!["SameRule", "ZLast"]
-    );
-    assert_eq!(snapshot[0].1.primary_damage, 7.0);
+    let catalog = WeaponCatalog::from_named_definitions(first).unwrap();
+    let rule = catalog.get("samerule").unwrap();
+    assert_eq!(rule.name, "SameRule");
+    assert_eq!(rule.primary_damage, 7.0);
+    assert_eq!(catalog.get("zlast").unwrap().name, "ZLast");
 }
 
 #[test]
@@ -196,4 +200,35 @@ fn weapon_death_type_admits_every_cpp_death_name() {
         );
         assert_eq!(definitions["w"].death_type, expected, "DeathType = {token}");
     }
+}
+
+#[test]
+fn legacy_override_invalidates_only_the_authored_effect_handles() {
+    use gamelogic::effects::ObjectCreationList;
+    use gamelogic::system::engine_stores::{new_world_services, with_world_services};
+    use std::sync::Arc;
+
+    let services = new_world_services();
+    with_world_services(&services, || {
+        gamelogic::initialize_weapon_store().unwrap();
+        let handle = Arc::new(ObjectCreationList::new());
+        let mut template = gamelogic::weapon::WeaponTemplate::new("SameRule".into());
+        template.fire_ocl[0] = Some(handle.clone());
+        template.fire_ocl[1] = Some(handle.clone());
+        gamelogic::with_weapon_store_mut(|store| store.add_weapon_template(template)).unwrap();
+
+        assert_eq!(
+            register_weapons_from_ini_text(
+                "Weapon SameRule\nVeterancyFireOCL = VETERAN None\nEnd\n",
+            ),
+            1,
+        );
+        gamelogic::with_weapon_store(|store| {
+            let updated = store.find_weapon_template("SameRule").unwrap();
+            assert!(Arc::ptr_eq(updated.fire_ocl[0].as_ref().unwrap(), &handle));
+            assert!(updated.fire_ocl[1].is_none());
+            assert!(updated.fire_ocl_names[1].is_none());
+        })
+        .unwrap();
+    });
 }

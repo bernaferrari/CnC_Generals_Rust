@@ -113,10 +113,7 @@ fn injured_world_with_reaction_threshold(threshold: f32) -> (GameLogic, GameWorl
         ),
         3,
     );
-    let catalog: std::collections::HashMap<_, _> = definitions
-        .into_values()
-        .map(|rule| (rule.name.to_ascii_lowercase(), std::sync::Arc::new(rule)))
-        .collect();
+    let catalog = generals_sim::weapon::WeaponCatalog::from_named_definitions(definitions).unwrap();
     logic.weapon_definition_base = Some(catalog.clone());
     logic.weapon_definitions = Some(catalog);
     logic.admit_armor_definitions(std::sync::Arc::new(

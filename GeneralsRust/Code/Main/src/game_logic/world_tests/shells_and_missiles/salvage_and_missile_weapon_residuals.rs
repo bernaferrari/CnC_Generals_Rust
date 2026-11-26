@@ -9,7 +9,7 @@ fn tomahawk_single_shot_clip_reloads_after_210_frames() {
 
     ensure_host_weapon_store();
     let rule = gamelogic::weapon::with_weapon_store(|store| {
-        store.find_weapon_template(TOMAHAWK_MISSILE_WEAPON).map(|rule| rule.as_ref().clone())
+        store.find_weapon_template(TOMAHAWK_MISSILE_WEAPON).map(|rule| rule.shared_definition().as_ref().clone())
     })
     .unwrap()
     .expect("Tomahawk weapon definition");

@@ -1,4 +1,4 @@
-use gamelogic::weapon::WeaponTemplate;
+use generals_sim::weapon::WeaponDefinition as WeaponTemplate;
 use generals_main::command_executor::CommandExecutor;
 use generals_main::command_system::{CommandType, GameCommand, ModifierKeys};
 use generals_main::game_logic::{GameLogic, KindOf, ObjectId, Player, Team};

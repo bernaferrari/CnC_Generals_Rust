@@ -170,7 +170,7 @@ impl GameLogic {
     pub(crate) fn admit_weapon_fire_definition(
         &mut self,
         name: &str,
-        template: &gamelogic::weapon::WeaponTemplate,
+        template: &generals_sim::weapon::WeaponDefinition,
     ) -> Result<(), String> {
         let name = name.trim();
         if name.is_empty() {
@@ -228,10 +228,10 @@ impl GameLogic {
 mod tests {
     use super::*;
     use crate::game_logic::{Team, ThingTemplate};
-    fn native(prefix: &str) -> gamelogic::weapon::WeaponTemplate {
-        let mut template = gamelogic::weapon::WeaponTemplate::new("SameWeapon".to_owned());
+    fn native(prefix: &str) -> generals_sim::weapon::WeaponDefinition {
+        let mut template = generals_sim::weapon::WeaponDefinition::new("SameWeapon".to_owned());
         for index in 0..4 {
-            template.fire_fx[index] = Some(gamelogic::effects::FXList::new(&format!(
+            template.fire_fx[index] = Some(generals_sim::weapon::WeaponFxName::new(&format!(
                 "{prefix}FX{index}"
             )));
             template.fire_ocl_names[index] = Some(format!("{prefix}OCL{index}"));

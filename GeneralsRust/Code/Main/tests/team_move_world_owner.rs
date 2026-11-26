@@ -74,7 +74,7 @@ fn contact_attack_uses_reachable_nearby_position_in_its_own_world() {
         locomotors.apply_source("Locomotor GroupGround\n Surfaces = GROUND\n Speed = 20\n Acceleration = 60\n TurnRate = 120\n Appearance = TWO_LEGS\nEnd\n").unwrap();
         game.admit_locomotor_definitions(locomotors).unwrap();
         game.admit_object_ini_sources([("Contact.ini".into(), "Object ContactUnit\n KindOf = SELECTABLE INFANTRY\n Locomotor = SET_NORMAL GroupGround\n Body = ActiveBody Body\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = AIUpdateInterface Brain\n End\n WeaponSet\n Conditions = NONE\n Weapon = PRIMARY ContactFixtureWeapon\n End\nEnd\n".into())]).unwrap();
-        let mut weapon = gamelogic::weapon::WeaponTemplate::new("ContactFixtureWeapon".into());
+        let mut weapon = generals_sim::weapon::WeaponDefinition::new("ContactFixtureWeapon".into());
         weapon.primary_damage = 10.0;
         weapon.attack_range = 5.0;
         game.admit_receiving_weapon_snapshot(vec![("ContactFixtureWeapon".into(), weapon)])

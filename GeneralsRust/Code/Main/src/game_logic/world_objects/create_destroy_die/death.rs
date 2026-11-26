@@ -1099,7 +1099,7 @@ impl GameLogic {
     pub(super) fn preflight_owned_structure_topple_crushing(
         &self,
         building_id: ObjectId,
-    ) -> Result<Option<std::sync::Arc<gamelogic::weapon::WeaponTemplate>>, String> {
+    ) -> Result<Option<std::sync::Arc<generals_sim::weapon::WeaponDefinition>>, String> {
         let Some(source) = self.objects.get(&building_id) else {
             return Ok(None);
         };
@@ -1113,15 +1113,19 @@ impl GameLogic {
         // CPP TheWeaponStore->findWeaponTemplate reads this engine's store:
         // the admitted receiving catalog, which the splash route also uses.
         let template = match self.weapon_definitions.as_ref() {
-            Some(definitions) => definitions.get(&name.to_ascii_lowercase()).cloned(),
+            Some(definitions) => definitions.get(&name.to_ascii_lowercase())
+                .map(|rule| (rule.clone(), false)),
             None => crate::game_logic::weapon_bootstrap::with_host_weapon_store(|store| {
-                store.find_weapon_template(name).cloned()
+                store.find_weapon_template(name).map(|rule| (
+                    rule.shared_definition(),
+                    rule.fire_ocl.iter().any(Option::is_some),
+                ))
             })
             .map_err(|error| format!("StructureTopple {building_id:?} weapon {name}: {error}"))?,
         };
         // CPP findWeaponTemplate(NULL) returns without firing or advancing the
         // sweep. A missing definition is not an invented default weapon.
-        let Some(template) = template else {
+        let Some((template, has_direct_fire_ocl)) = template else {
             return Ok(None);
         };
         let authored_name =
@@ -1150,7 +1154,7 @@ impl GameLogic {
         {
             Some("KillsSelf")
         } else if template.fire_fx.iter().any(Option::is_some)
-            || template.fire_ocl.iter().any(Option::is_some)
+            || has_direct_fire_ocl
             || template
                 .fire_ocl_names
                 .iter()
@@ -1200,7 +1204,7 @@ impl GameLogic {
         &self,
         building_id: ObjectId,
         samples: &[crate::game_logic::host_structure_topple::StructureToppleCrushSample],
-        weapon: &gamelogic::weapon::WeaponTemplate,
+        weapon: &generals_sim::weapon::WeaponDefinition,
     ) -> Result<(), String> {
         let Some(source) = self.objects.get(&building_id) else {
             return Ok(());
@@ -1225,7 +1229,7 @@ impl GameLogic {
         &mut self,
         building_id: ObjectId,
         samples: Vec<crate::game_logic::host_structure_topple::StructureToppleCrushSample>,
-        weapon: &gamelogic::weapon::WeaponTemplate,
+        weapon: &generals_sim::weapon::WeaponDefinition,
     ) -> Result<(), String> {
         self.apply_prepared_structure_topple_crush_samples_with_effects(
             building_id,
@@ -1239,7 +1243,7 @@ impl GameLogic {
         &mut self,
         building_id: ObjectId,
         samples: Vec<crate::game_logic::host_structure_topple::StructureToppleCrushSample>,
-        weapon: &gamelogic::weapon::WeaponTemplate,
+        weapon: &generals_sim::weapon::WeaponDefinition,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> Result<(), String> {
         self.validate_structure_topple_crush_points(building_id, &samples, weapon)?;

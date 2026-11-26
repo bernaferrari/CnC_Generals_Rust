@@ -1,5 +1,5 @@
 use gamelogic::common::WeaponSlotType::{self, Primary, Secondary, Tertiary};
-use gamelogic::weapon::WeaponTemplate;
+use generals_sim::weapon::WeaponDefinition as WeaponTemplate;
 use generals_main::game_logic::{GameLogic, ObjectId, Player, Team};
 
 fn world(secondary_radius: f32, bonus: u32, extra_radius: Option<f32>) -> (GameLogic, ObjectId) {

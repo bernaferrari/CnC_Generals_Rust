@@ -26,7 +26,7 @@ impl Object {
         current_time: f32,
         weapon_name: Option<&str>,
         effective_reload: f32,
-        rule: Option<&gamelogic::weapon::WeaponTemplate>,
+        rule: Option<&generals_sim::weapon::WeaponDefinition>,
     ) -> bool {
         if weapon.frame_clock_active {
             return Self::weapon_ready_at_frame(
@@ -98,7 +98,7 @@ impl Object {
 
     fn selected_reload_policy(
         weapon_name: Option<&str>,
-        rule: Option<&gamelogic::weapon::WeaponTemplate>,
+        rule: Option<&generals_sim::weapon::WeaponDefinition>,
     ) -> crate::game_logic::weapon_bootstrap::HostReloadType {
         use crate::game_logic::weapon_bootstrap::HostReloadType;
         rule.map(|rule| match rule.reload_type {
@@ -117,7 +117,7 @@ impl Object {
     pub(super) fn weapon_has_ammo_selected(
         weapon: &Weapon,
         weapon_name: Option<&str>,
-        rule: Option<&gamelogic::weapon::WeaponTemplate>,
+        rule: Option<&generals_sim::weapon::WeaponDefinition>,
     ) -> bool {
         Self::selected_reload_policy(weapon_name, rule)
             == crate::game_logic::weapon_bootstrap::HostReloadType::Auto
@@ -144,7 +144,7 @@ impl Object {
         weapon: &mut Weapon,
         current_time: f32,
         weapon_name: Option<&str>,
-        rule: Option<&gamelogic::weapon::WeaponTemplate>,
+        rule: Option<&generals_sim::weapon::WeaponDefinition>,
     ) {
         use crate::game_logic::weapon_bootstrap::HostReloadType;
         weapon.last_fire_time = current_time;
@@ -201,7 +201,7 @@ impl Object {
     pub(super) fn auto_reloaded_clip_after_firing_selected(
         weapon: &Weapon,
         weapon_name: Option<&str>,
-        rule: Option<&gamelogic::weapon::WeaponTemplate>,
+        rule: Option<&generals_sim::weapon::WeaponDefinition>,
     ) -> bool {
         weapon.clip_size != 0
             && weapon.ammo == Some(0)

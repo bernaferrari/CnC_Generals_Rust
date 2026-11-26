@@ -2999,7 +2999,7 @@ pub(in crate::game_logic) mod tests {
         let parsed = parse_test_weapon_speed();
         const NAME: &str = "Hq0c9b4CombatRifleDelayed";
         let _ = gamelogic::weapon::with_weapon_store_mut(|store| {
-            let mut template = gamelogic::weapon::WeaponTemplate::new(NAME.to_string());
+            let mut template = generals_sim::weapon::WeaponDefinition::new(NAME.to_string());
             template.weapon_speed = parsed.projectile_speed;
             template.projectile_name.clear();
             template.primary_damage = 40.0;
@@ -3197,7 +3197,7 @@ pub(in crate::game_logic) mod tests {
         const NAME: &str = "Hq0c9b4CombatRifleFireAt";
         let leftover_before = leftover_delayed_damage_count_for_test();
         let _ = gamelogic::weapon::with_weapon_store_mut(|store| {
-            let mut template = gamelogic::weapon::WeaponTemplate::new(NAME.to_string());
+            let mut template = generals_sim::weapon::WeaponDefinition::new(NAME.to_string());
             template.weapon_speed = 10.0;
             template.projectile_name.clear();
             template.primary_damage = 15.0;

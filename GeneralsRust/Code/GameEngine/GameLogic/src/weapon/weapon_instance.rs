@@ -1998,7 +1998,8 @@ impl Weapon {
             let position = *object.get_position();
             let transform = object.get_transform_matrix();
             drop(object);
-            let _ = fx.do_fx_pos(&position, Some(&transform), 0.0, Some(&position), 0.0);
+            let _ = crate::effects::FXList::new(fx.name())
+                .do_fx_pos(&position, Some(&transform), 0.0, Some(&position), 0.0);
         };
 
         let mut found = false;

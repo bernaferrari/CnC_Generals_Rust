@@ -138,13 +138,13 @@ fn actual_secondary_pitch_definition_is_independent_of_limited_primary() {
     const SECONDARY: &str = "__RustPitchOwnedSecondary";
     gamelogic::initialize_weapon_store().expect("actual pitch catalog initialization");
     gamelogic::weapon::with_weapon_store_mut(|store| {
-        let mut primary = gamelogic::weapon::WeaponTemplate::new(PRIMARY.to_owned());
+        let mut primary = generals_sim::weapon::WeaponDefinition::new(PRIMARY.to_owned());
         primary.primary_damage = 100.0;
         primary.attack_range = 200.0;
         primary.min_target_pitch = (-15f32).to_radians();
         primary.max_target_pitch = 15f32.to_radians();
         store.add_weapon_template(primary);
-        let mut secondary = gamelogic::weapon::WeaponTemplate::new(SECONDARY.to_owned());
+        let mut secondary = generals_sim::weapon::WeaponDefinition::new(SECONDARY.to_owned());
         secondary.primary_damage = 10.0;
         secondary.attack_range = 200.0;
         secondary.min_target_pitch = (-90f32).to_radians();
@@ -187,7 +187,7 @@ fn contact_range_pitch_limited_weapon_bypasses_target_pitch_like_cpp() {
     }
     gamelogic::initialize_weapon_store().expect("pitch catalog initialization");
     gamelogic::weapon::with_weapon_store_mut(|store| {
-        let mut t = gamelogic::weapon::WeaponTemplate::new(CONTACT.to_owned());
+        let mut t = generals_sim::weapon::WeaponDefinition::new(CONTACT.to_owned());
         t.primary_damage = 10.0;
         t.attack_range = 5.0;
         t.min_target_pitch = (-15f32).to_radians();

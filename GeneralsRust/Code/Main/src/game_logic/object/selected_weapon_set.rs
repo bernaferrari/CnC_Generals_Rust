@@ -4,13 +4,13 @@ use crate::assets::WeaponChoicePolicy;
 use crate::game_logic::{ThingTemplate, Weapon, WeaponLockType};
 
 #[derive(Debug, Clone)]
-pub(crate) struct WeaponDefinition {
+pub(crate) struct WeaponSlotDefinition {
     prototype: Weapon,
     suspend_delay: u32,
     projectile_name: Option<String>,
-    native: Option<std::sync::Arc<gamelogic::weapon::WeaponTemplate>>,
+    native: Option<std::sync::Arc<generals_sim::weapon::WeaponDefinition>>,
 }
-impl WeaponDefinition {
+impl WeaponSlotDefinition {
     fn instantiate(&self, frame: u32) -> Weapon {
         let mut weapon = self.prototype.clone();
         weapon.last_fire_time = 0.0;
@@ -29,7 +29,7 @@ impl WeaponDefinition {
 }
 #[derive(Debug, Clone)]
 pub(crate) struct WeaponRow {
-    slots: [Option<WeaponDefinition>; 3],
+    slots: [Option<WeaponSlotDefinition>; 3],
     pub(crate) names: [Option<String>; 3],
     shared: bool,
     condition_alternatives: Vec<u32>,
@@ -37,7 +37,7 @@ pub(crate) struct WeaponRow {
 }
 
 impl WeaponRow {
-    pub(super) fn native_rule(&self, slot: u8) -> Option<&gamelogic::weapon::WeaponTemplate> {
+    pub(super) fn native_rule(&self, slot: u8) -> Option<&generals_sim::weapon::WeaponDefinition> {
         self.slots.get(usize::from(slot))?.as_ref()?.native.as_deref()
     }
 }
@@ -71,12 +71,12 @@ impl ThingTemplate {
     /// Admit receiving immutable native rules without a second catalog lookup.
     pub(in crate::game_logic) fn bind_native_weapon_row(
         &mut self,
-        native: [Option<&gamelogic::weapon::WeaponTemplate>; 3],
+        native: [Option<&generals_sim::weapon::WeaponDefinition>; 3],
     ) {
         let names = std::array::from_fn(|i| native[i].map(|rule| rule.name.clone()));
         let slots = std::array::from_fn(|i| {
             native[i].and_then(|rule| {
-                Some(WeaponDefinition {
+                Some(WeaponSlotDefinition {
                     prototype: ThingTemplate::weapon_from_template_at(rule, 0)?,
                     suspend_delay: rule.suspend_fx_delay,
                     projectile_name: Some(rule.projectile_name.clone()),
@@ -104,26 +104,20 @@ impl ThingTemplate {
     /// Resolve both active three-slot modes from this match's effective content.
     pub(crate) fn bind_receiving_weapon_sets(
         &mut self,
-        catalog: &std::collections::HashMap<
-            String,
-            std::sync::Arc<gamelogic::weapon::WeaponTemplate>,
-        >,
+        catalog: &generals_sim::weapon::WeaponCatalog,
     ) {
         fn row(
             names: [Option<String>; 3],
             shared: bool,
             condition_alternatives: Vec<u32>,
             choice: Option<WeaponChoicePolicy>,
-            catalog: &std::collections::HashMap<
-                String,
-                std::sync::Arc<gamelogic::weapon::WeaponTemplate>,
-            >,
+            catalog: &generals_sim::weapon::WeaponCatalog,
         ) -> WeaponRow {
             let slots = std::array::from_fn(|i| {
                 let native = catalog
                     .get(&names[i].as_ref()?.to_ascii_lowercase())?
                     .clone();
-                Some(WeaponDefinition {
+                Some(WeaponSlotDefinition {
                     prototype: ThingTemplate::weapon_from_template_at(&native, 0)?,
                     suspend_delay: native.suspend_fx_delay,
                     projectile_name: Some(native.projectile_name.clone()),
@@ -214,24 +208,24 @@ impl ThingTemplate {
         });
     }
     pub(crate) fn bind_selected_weapon_sets(&mut self, base: [Option<Weapon>; 3]) {
-        fn bind(name: Option<&str>, prototype: Option<Weapon>) -> Option<WeaponDefinition> {
+        fn bind(name: Option<&str>, prototype: Option<Weapon>) -> Option<WeaponSlotDefinition> {
             let native = name.and_then(|name| {
                 crate::game_logic::weapon_bootstrap::with_host_weapon_store(|store| {
-                    store.find_weapon_template(name).cloned()
+                    store.find_weapon_template(name).map(|rule| rule.shared_definition())
                 })
                 .ok()
                 .flatten()
             });
             if let Some(native) = native {
                 let prototype = ThingTemplate::weapon_from_template_at(&native, 0)?;
-                Some(WeaponDefinition {
+                Some(WeaponSlotDefinition {
                     prototype,
                     suspend_delay: native.suspend_fx_delay,
                     projectile_name: Some(native.projectile_name.clone()),
                     native: Some(native.clone()),
                 })
             } else {
-                prototype.map(|prototype| WeaponDefinition {
+                prototype.map(|prototype| WeaponSlotDefinition {
                     prototype,
                     suspend_delay: 0,
                     projectile_name: None,
@@ -500,14 +494,14 @@ impl Object {
     pub(in crate::game_logic) fn borrow_selected_native_weapon_rule(
         &self,
         slot: u8,
-    ) -> Option<&gamelogic::weapon::WeaponTemplate> {
+    ) -> Option<&generals_sim::weapon::WeaponDefinition> {
         self.selected_weapon_row()?.native_rule(slot)
     }
 
     pub(in crate::game_logic) fn selected_native_weapon_rule(
         &self,
         slot: u8,
-    ) -> Option<std::sync::Arc<gamelogic::weapon::WeaponTemplate>> {
+    ) -> Option<std::sync::Arc<generals_sim::weapon::WeaponDefinition>> {
         let row = self.selected_weapon_row()?;
         row.slots.get(usize::from(slot))?.as_ref()?.native.clone()
     }
@@ -845,7 +839,7 @@ mod tests {
         );
         world.admit_receiving_module_content_with_weapons(
             content,
-            Some(definitions.into_values().map(|rule| (rule.name.clone(), rule)).collect()),
+            Some(generals_sim::weapon::WeaponCatalog::from_named_definitions(definitions).unwrap()),
         ).expect("receiving weapon slots");
         world.add_player(Player::new(0, Team::USA, "Weapon owner", true));
         let id = world.create_object("ShotFrameOwner", Team::USA, glam::Vec3::ZERO).unwrap();
@@ -897,7 +891,7 @@ mod native_row_admission_tests {
             ..Default::default()
         });
         template.bind_selected_weapon_sets([None, None, None]);
-        let mut native = gamelogic::weapon::WeaponTemplate::new("ReceivingInstant".into());
+        let mut native = generals_sim::weapon::WeaponDefinition::new("ReceivingInstant".into());
         native.primary_damage = 17.0;
         native.attack_range = 100.0;
         native.projectile_name = String::new();

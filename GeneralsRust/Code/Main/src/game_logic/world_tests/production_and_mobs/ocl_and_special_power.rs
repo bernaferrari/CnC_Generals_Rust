@@ -764,7 +764,7 @@ fn spawn_point_exit_uses_pristine_bones_and_refuses_full_slots() {
 
     fn authored_world() -> GameLogic {
         let mut world = GameLogic::new();
-        let mut weapon = gamelogic::weapon::WeaponTemplate::new("StingerMissileWeapon".into());
+        let mut weapon = generals_sim::weapon::WeaponDefinition::new("StingerMissileWeapon".into());
         weapon.primary_damage = 20.0;
         weapon.attack_range = 225.0;
         weapon.projectile_name = "NONE".into();

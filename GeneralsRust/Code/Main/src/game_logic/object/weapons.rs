@@ -948,7 +948,7 @@ impl Object {
         current_time: f32,
         solo_set: Option<&generals_sim::weapon::WeaponBonusSet>,
         command_source: u32,
-        damage_multiplier: impl Fn(&gamelogic::weapon::WeaponTemplate) -> f32,
+        damage_multiplier: impl Fn(&generals_sim::weapon::WeaponDefinition) -> f32,
     ) -> Option<u8> {
         // C++ WeaponSet.cpp:782-783 / leftover weapon_set.rs:683-685 —
         // locked current slot stays until someone unlocks. A reloading
@@ -1155,7 +1155,7 @@ impl Object {
         target: &Object,
         current_time: f32,
         command_source: u32,
-        damage_multiplier: impl Fn(&gamelogic::weapon::WeaponTemplate) -> f32,
+        damage_multiplier: impl Fn(&generals_sim::weapon::WeaponDefinition) -> f32,
     ) -> Option<u8> {
         let policy = row.choice.as_ref()?;
         let frame = (current_time * 30.0).round() as u32;
@@ -1402,7 +1402,7 @@ impl Object {
 
     pub(super) fn is_native_weapon_within_target_pitch(
         &self,
-        rule: &gamelogic::weapon::WeaponTemplate,
+        rule: &generals_sim::weapon::WeaponDefinition,
         victim: &Object,
     ) -> bool {
         use crate::game_logic::weapon_bootstrap::{HostTargetPitchLimits, normalize_pitch_radians};
@@ -1525,7 +1525,7 @@ impl Object {
     }
 
     fn estimate_native_weapon_damage(
-        rule: &gamelogic::weapon::WeaponTemplate,
+        rule: &generals_sim::weapon::WeaponDefinition,
         target: &Object,
         primary_damage: f32,
     ) -> f32 {
@@ -2153,7 +2153,7 @@ impl Object {
         possible_next_shot_frame: u32,
         solo_set: Option<&generals_sim::weapon::WeaponBonusSet>,
         owned_rof: Option<&[f32; 3]>,
-        rule: Option<&gamelogic::weapon::WeaponTemplate>,
+        rule: Option<&generals_sim::weapon::WeaponDefinition>,
     ) {
         self.record_shot_engagement_bookkeeping(
             target_id,

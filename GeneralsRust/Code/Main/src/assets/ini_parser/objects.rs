@@ -206,7 +206,7 @@ impl WeaponSetDefinition {
                 "FROM_PLAYER", "FROM_SCRIPT", "FROM_AI", "FROM_DOZER", "DEFAULT_SWITCH_WEAPON",
             ];
             let mask = &mut self.choice.auto_choose_masks[slot];
-            *mask = crate::assets::ini_template_loader::parse_bit_string_32_with_initial(
+            *mask = generals_game_domain::ini::parse_bit_string_32_with_initial(
                 flags, SOURCE_NAMES, *mask,
             ).unwrap_or(0);
         } else {

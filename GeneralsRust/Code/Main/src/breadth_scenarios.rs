@@ -286,10 +286,8 @@ pub fn breadth_economy_combat() -> BreadthCategoryResult {
         if count != 1 {
             return Err("could not admit breadth stealth weapon".into());
         }
-        let weapons = weapons
-            .into_values()
-            .map(|weapon| (weapon.name.clone(), weapon))
-            .collect();
+        let weapons = generals_sim::weapon::WeaponCatalog::from_named_definitions(weapons)
+            .map_err(|error| error.to_string())?;
         logic
             .admit_receiving_module_content_with_weapons(content, Some(weapons))
             .map_err(|error| error.to_string())

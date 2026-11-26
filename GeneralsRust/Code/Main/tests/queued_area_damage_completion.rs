@@ -145,7 +145,11 @@ End
     // GameLogic::new owns a fresh WorldServices; admit the parsed rule into
     // this session (C++ TheWeaponStore is the one store Object creation reads).
     let weapon = gamelogic::weapon::with_weapon_store(|store| {
-        (**store.find_weapon_template(&rule).expect("authored Area weapon")).clone()
+        store.find_weapon_template(&rule)
+            .expect("authored Area weapon")
+            .shared_definition()
+            .as_ref()
+            .clone()
     })
     .expect("real weapon store");
     assert_eq!(weapon.primary_damage_radius, radius);

@@ -586,14 +586,10 @@ End
     }
     // Weapon.ini: HumveeGun129375, Hellfire129470, BattleDrone133256.
     // These are explicit receiving inputs, never an ambient bootstrap snapshot.
-    let mut weapons: std::collections::HashMap<String, gamelogic::weapon::WeaponTemplate> = game
+    let mut weapons: std::collections::HashMap<String, generals_sim::weapon::WeaponDefinition> = game
         .weapon_definition_base
         .as_ref()
-        .map(|base| {
-            base.iter()
-                .map(|(name, rule)| (name.clone(), (**rule).clone()))
-                .collect()
-        })
+        .map(generals_sim::weapon::WeaponCatalog::override_draft)
         .unwrap_or_default();
     crate::assets::ini_template_loader::parse_weapon_definitions_ini_into(
         &mut weapons,
@@ -884,7 +880,7 @@ fn slave_defect_uses_original_contained_sold_and_construction_status_gates() {
 #[test]
 fn spotting_clear_and_reapply_restart_busy_clock_twice_at_unchanged_rof() {
     let mut game = GameLogic::new();
-    let mut gun = gamelogic::weapon::WeaponTemplate::new("SpottingClockGun".into());
+    let mut gun = generals_sim::weapon::WeaponDefinition::new("SpottingClockGun".into());
     gun.primary_damage = 1.0;
     gun.attack_range = 100.0;
     gun.min_delay_between_shots = 30;

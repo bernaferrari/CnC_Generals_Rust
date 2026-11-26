@@ -103,7 +103,7 @@ impl<'a> DamageHitContext<'a> {
         source: Option<&Object>,
         weapon: Option<&str>,
         kind: DamageType,
-        rule: Option<&gamelogic::weapon::WeaponTemplate>,
+        rule: Option<&generals_sim::weapon::WeaponDefinition>,
     ) -> Self {
         let Some(rule) = rule else {
             return Self::new(source, weapon, kind);

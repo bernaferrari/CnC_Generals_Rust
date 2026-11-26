@@ -483,7 +483,7 @@ mod tests {
             const NAME: &str = "__RustFwwdPerRoleDelay";
             let _ = crate::game_logic::weapon_bootstrap::ensure_host_weapon_store();
             let _ = gamelogic::weapon::with_weapon_store_mut(|store| {
-                let mut t = gamelogic::weapon::WeaponTemplate::new(NAME.to_string());
+                let mut t = generals_sim::weapon::WeaponDefinition::new(NAME.to_string());
                 t.primary_damage = 10.0;
                 t.min_delay_between_shots = 60;
                 t.max_delay_between_shots = 60;
@@ -519,7 +519,7 @@ mod tests {
             let _ = crate::game_logic::weapon_bootstrap::ensure_host_weapon_store();
             let _ = gamelogic::weapon::with_weapon_store_mut(|store| {
                 for (name, auto) in [(AUTO, true), (ONCE, false)] {
-                    let mut t = gamelogic::weapon::WeaponTemplate::new(name.to_string());
+                    let mut t = generals_sim::weapon::WeaponDefinition::new(name.to_string());
                     t.primary_damage = 10.0;
                     t.clip_size = 2;
                     t.clip_reload_time = 90;
@@ -559,7 +559,7 @@ mod tests {
             const W: &str = "__RustFwwdCtorReload";
             let _ = crate::game_logic::weapon_bootstrap::ensure_host_weapon_store();
             let _ = gamelogic::weapon::with_weapon_store_mut(|store| {
-                let mut t = gamelogic::weapon::WeaponTemplate::new(W.to_string());
+                let mut t = generals_sim::weapon::WeaponDefinition::new(W.to_string());
                 t.primary_damage = 10.0;
                 t.clip_size = 2;
                 t.clip_reload_time = 60;
@@ -598,7 +598,7 @@ mod tests {
             let _ = crate::game_logic::weapon_bootstrap::ensure_host_weapon_store();
             let _ = gamelogic::weapon::with_weapon_store_mut(|store| {
                 for (name, auto) in [(AUTO, true), (ONCE, false)] {
-                    let mut t = gamelogic::weapon::WeaponTemplate::new(name.to_string());
+                    let mut t = generals_sim::weapon::WeaponDefinition::new(name.to_string());
                     t.primary_damage = 10.0;
                     t.clip_size = 2;
                     t.clip_reload_time = 90;

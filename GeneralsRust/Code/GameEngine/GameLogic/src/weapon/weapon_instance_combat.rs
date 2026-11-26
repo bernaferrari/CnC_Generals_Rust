@@ -1485,6 +1485,8 @@ impl Weapon {
         } else {
             self.template.get_fire_fx(veterancy)
         };
+        let fx = fx.map(|name| crate::effects::FXList::new(name.name()));
+        let fx = fx.as_ref();
         let weapon_speed = self.template.weapon_speed;
         let damage_radius = self.template.get_primary_damage_radius(bonus);
         // Drop the object read before the drawable write. Model draw reads

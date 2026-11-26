@@ -170,7 +170,7 @@ pub struct StandaloneStartupSources {
     objects: std::sync::Arc<[(String, String)]>,
     sciences: std::sync::Arc<game_engine::common::rts::science::ScienceNameFacts>,
     actions: std::sync::Arc<game_engine::common::thing::receiving_module_content::ReceivingActionDefinitions>,
-    weapons: std::sync::Arc<[(String, gamelogic::weapon::WeaponTemplate)]>,
+    weapons: generals_sim::weapon::WeaponCatalog,
     definitions: std::sync::Arc<[(&'static str, String)]>,
 }
 
@@ -233,11 +233,11 @@ impl StandaloneStartupSources {
 
     /// Build one receiving world's owned startup content from the shared sources.
     pub fn admit(&self) -> Result<crate::assets::ReceivingStartupContent, String> {
-        crate::assets::ReceivingStartupContent::from_sources(
+        crate::assets::ReceivingStartupContent::from_sources_with_weapons(
             self.objects.iter().cloned(),
             std::sync::Arc::clone(&self.sciences),
             std::sync::Arc::clone(&self.actions),
-            self.weapons.to_vec(),
+            self.weapons.clone(),
         ).map_err(|error| error.to_string())
     }
 
@@ -311,8 +311,8 @@ fn capture_standalone_startup_sources(
         &mut weapons, &weapon_source,
         crate::assets::ini_template_loader::WeaponDefinitionLoadType::Normal,
     );
-    let mut weapons: Vec<_> = weapons.into_values().map(|weapon| (weapon.name.clone(), weapon)).collect();
-    weapons.sort_by(|a, b| a.0.cmp(&b.0));
+    let weapons = generals_sim::weapon::WeaponCatalog::from_named_definitions(weapons)
+        .map_err(|error| error.to_string())?;
     let mut actions = ReceivingActionDefinitions::default();
     for (label, paths) in [
         ("SpecialPower", ["Data/INI/Default/SpecialPower.ini", "Data/INI/SpecialPower.ini"]),
@@ -351,7 +351,7 @@ fn capture_standalone_startup_sources(
             .into(),
         sciences,
         actions: Arc::new(actions),
-        weapons: weapons.into(),
+        weapons,
     })
 }
 

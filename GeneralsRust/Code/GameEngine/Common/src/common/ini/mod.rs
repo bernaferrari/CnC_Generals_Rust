@@ -12,7 +12,6 @@ use std::{
     path::PathBuf,
 };
 
-mod integer_prefix;
 
 #[cfg(test)]
 pub(crate) mod global_fixture;
@@ -78,7 +77,7 @@ pub mod ini_weapon;
 pub mod ini_weather;
 pub mod ini_webpage_url;
 
-pub use integer_prefix::parse_decimal_integer_prefix;
+pub use generals_game_domain::ini::parse_decimal_integer_prefix;
 
 // Re-export main types from the batch 1 modules
 pub use ini::{

@@ -373,7 +373,7 @@ End
                     format!("LibraryMoving{label}Projectile")
                 );
                 assert_eq!(parsed.weapon_speed, speed as f32 / 30.0);
-                (**parsed).clone()
+                parsed.shared_definition().as_ref().clone()
             })
             .unwrap()
         })

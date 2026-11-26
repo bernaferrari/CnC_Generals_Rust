@@ -15,8 +15,8 @@ use gamelogic::{
         engine::ScriptEngine,
     },
     sides_list::SidesList,
-    weapon::WeaponTemplate,
 };
+use generals_sim::weapon::WeaponDefinition;
 use generals_main::game_logic::{GameLogic, GameMode, ObjectId};
 
 const UNIT_NAME: &str = "NamedPathLauncher";
@@ -182,7 +182,7 @@ fn admitted_world_with_projectile_ai(
         ),
     )])
     .expect("admit launcher and projectile object definitions");
-    let mut weapon = WeaponTemplate::new(WEAPON.to_owned());
+    let mut weapon = WeaponDefinition::new(WEAPON.to_owned());
     weapon.capable_of_following_waypoint = capable_of_following_waypoint;
     weapon.projectile_name = projectile_name.to_owned();
     if manual_reload {
@@ -191,7 +191,7 @@ fn admitted_world_with_projectile_ai(
     }
     let mut weapons = vec![(WEAPON.into(), weapon)];
     if let Some((name, projectile, capable)) = secondary_weapon {
-        let mut secondary = WeaponTemplate::new(name.to_owned());
+        let mut secondary = WeaponDefinition::new(name.to_owned());
         secondary.capable_of_following_waypoint = capable;
         secondary.projectile_name = projectile.to_owned();
         if manual_reload {

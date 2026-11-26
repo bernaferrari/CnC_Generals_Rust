@@ -1,53 +1,11 @@
 //! Retail Object INI seeding and template/model lookup helpers.
 use super::*;
+use generals_sim::weapon::WeaponCatalog;
 use crate::game_logic::projectile_definitions::ProjectileDefinitions;
 
 #[cfg(test)]
 #[path = "structure_topple_admission_tests.rs"]
 mod structure_topple_admission_tests;
-
-/// One validation contract for archive admission and detached Map/Solo drafts.
-fn validate_receiving_weapon_rule(
-    name: &str,
-    rule: &gamelogic::weapon::WeaponTemplate,
-) -> Result<(), String> {
-    if name.trim().is_empty() || !name.trim().eq_ignore_ascii_case(rule.name.trim()) {
-        return Err("weapon snapshot has an invalid canonical identity".into());
-    }
-    if ![
-        rule.primary_damage,
-        rule.primary_damage_radius,
-        rule.secondary_damage,
-        rule.secondary_damage_radius,
-        rule.weapon_speed,
-        rule.min_weapon_speed,
-        rule.attack_range,
-        rule.minimum_attack_range,
-        rule.request_assist_range,
-        rule.scatter_radius,
-        rule.infantry_inaccuracy_dist,
-        rule.scatter_target_scalar,
-        rule.shock_wave_amount,
-        rule.shock_wave_radius,
-        rule.shock_wave_taper_off,
-        rule.aim_delta,
-        rule.min_target_pitch,
-        rule.max_target_pitch,
-        rule.weapon_recoil,
-        rule.radius_damage_angle,
-        rule.historic_bonus_radius,
-    ]
-    .iter()
-    .all(|value| value.is_finite())
-        || !rule
-            .scatter_targets
-            .iter()
-            .all(|point| point.x.is_finite() && point.y.is_finite())
-    {
-        return Err("weapon snapshot has non-finite simulation values".into());
-    }
-    Ok(())
-}
 
 impl GameLogic {
     /// C++ ThingFactory::reset removes map overrides. Derived projectile data
@@ -195,7 +153,7 @@ impl GameLogic {
     /// after live objects have captured their immutable rows.
     pub fn admit_receiving_weapon_snapshot(
         &mut self,
-        weapons: Vec<(String, gamelogic::weapon::WeaponTemplate)>,
+        weapons: Vec<(String, generals_sim::weapon::WeaponDefinition)>,
     ) -> Result<(), String> {
         if !self.objects.registered_is_empty() {
             return Err("Receiving weapon content must be admitted before live Objects".into());
@@ -216,29 +174,19 @@ impl GameLogic {
     /// are immutable content; neither parsing nor rejection invokes callbacks.
     pub(in crate::game_logic) fn admit_weapon_content_snapshot(
         &mut self,
-        weapons: Vec<(String, gamelogic::weapon::WeaponTemplate)>,
+        weapons: Vec<(String, generals_sim::weapon::WeaponDefinition)>,
         definitions: &[(String, ObjectDefinition)],
     ) -> Result<(), String> {
-        self.with_own_services_mut(|this| {
-            this.admit_weapon_content_snapshot_bound(weapons, definitions)
-        })
+        let catalog = WeaponCatalog::from_named_definitions(weapons)
+            .map_err(|error| error.to_string())?;
+        self.admit_weapon_catalog(catalog, definitions)
     }
 
-    fn admit_weapon_content_snapshot_bound(
+    pub(in crate::game_logic) fn admit_weapon_catalog(
         &mut self,
-        weapons: Vec<(String, gamelogic::weapon::WeaponTemplate)>,
+        catalog: WeaponCatalog,
         definitions: &[(String, ObjectDefinition)],
     ) -> Result<(), String> {
-        let mut catalog: HashMap<String, std::sync::Arc<gamelogic::weapon::WeaponTemplate>> =
-            HashMap::new();
-        for (name, rule) in weapons {
-            let name = name.trim();
-            validate_receiving_weapon_rule(name, &rule)?;
-            let key = name.to_ascii_lowercase();
-            if catalog.insert(key, std::sync::Arc::new(rule)).is_some() {
-                return Err("weapon snapshot has duplicate effective identities".into());
-            }
-        }
         let profiles=crate::game_logic::projectile_definitions::ProjectileDefinitions::from_effective_definitions(definitions.iter().map(|(name,row)|(name.as_str(),row)),self.physics_definitions.base.gravity)?.with_locomotors(self.locomotor_definitions.receiving());
         self.weapon_definition_base = Some(catalog.clone());
         self.weapon_definitions = Some(catalog);
@@ -256,10 +204,7 @@ impl GameLogic {
         let Some(base) = self.weapon_definition_base.as_ref() else {
             return Ok(());
         };
-        let mut draft: HashMap<String, gamelogic::weapon::WeaponTemplate> = base
-            .iter()
-            .map(|(name, rule)| (name.clone(), (**rule).clone()))
-            .collect();
+        let mut draft = base.override_draft();
         for text in texts {
             crate::assets::ini_template_loader::parse_weapon_definitions_ini_into(
                 &mut draft,
@@ -267,15 +212,9 @@ impl GameLogic {
                 crate::assets::ini_template_loader::WeaponDefinitionLoadType::CreateOverrides,
             );
         }
-        for (name, rule) in &draft {
-            validate_receiving_weapon_rule(name, rule)?;
-        }
-        self.weapon_definitions = Some(
-            draft
-                .into_iter()
-                .map(|(name, rule)| (name, std::sync::Arc::new(rule)))
-                .collect(),
-        );
+        let catalog = WeaponCatalog::from_named_definitions(draft)
+            .map_err(|error| error.to_string())?;
+        self.weapon_definitions = Some(catalog);
         Ok(())
     }
 

@@ -178,7 +178,7 @@ impl Object {
         frame: u32,
         random: &game_engine::common::random_value::SessionRandom,
         hulk_override: i32,
-        weapon_definitions: Option<&std::collections::HashMap<String, std::sync::Arc<gamelogic::weapon::WeaponTemplate>>>,
+        weapon_definitions: Option<&generals_sim::weapon::WeaponCatalog>,
     ) {
         let Some(definitions) = self.thing().template.native_lifecycle_definitions.as_ref() else {
             return;

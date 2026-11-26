@@ -2108,7 +2108,7 @@ impl ThingTemplate {
     }
 
     pub(crate) fn weapon_from_template_at(
-        template: &gamelogic::weapon::WeaponTemplate,
+        template: &generals_sim::weapon::WeaponDefinition,
         frame: u32,
     ) -> Option<Weapon> {
         let mut weapon = Self::weapon_from_template(template)?;
@@ -2117,25 +2117,15 @@ impl ThingTemplate {
         Some(weapon)
     }
 
-    fn weapon_from_template(wt: &gamelogic::weapon::WeaponTemplate) -> Option<Weapon> {
+    fn weapon_from_template(wt: &generals_sim::weapon::WeaponDefinition) -> Option<Weapon> {
         use generals_sim::weapon::{WeaponAntiMask, WeaponBonus};
         const FPS: f32 = 30.0;
         // CPP WeaponStore::allocateNewWeapon installs a supplied definition
         // even with zero damage/range (WeaponTemplate constructor defaults).
         // FX-only/status/detonation rules are weapons, not missing content.
-        // Leftover WeaponTemplate::get_delay_between_shots (Weapon.cpp:475-490).
-        // DelayBetweenShots is a Min/Max range, not clip vs between. Identity
-        // RATE_OF_FIRE here — leftover applies the ROF floor at fire. Ready-checks
-        // must not consume GameLogicRandomValue (C++ draws once in privateFireWeapon);
-        // force leftover's min==max branch for the stored yardstick.
-        let delay_frames = if wt.min_delay_between_shots == wt.max_delay_between_shots {
-            wt.get_delay_between_shots(&WeaponBonus::new())
-        } else {
-            let mut yardstick = gamelogic::weapon::WeaponTemplate::new(wt.name.clone());
-            yardstick.min_delay_between_shots = wt.min_delay_between_shots;
-            yardstick.max_delay_between_shots = wt.min_delay_between_shots;
-            yardstick.get_delay_between_shots(&WeaponBonus::new())
-        };
+        // CPP Weapon.cpp:475–490. Read the minimum for the installed stat.
+        // Only private fire draws a delay from the receiving world's RNG.
+        let delay_frames = wt.delay_between_shots(&WeaponBonus::new(), |min, _| min);
         // CPP WeaponTemplate::getDelayBetweenShots returns zero for an
         // authored zero delay; no synthetic one-second cooldown is added.
         let reload_time = delay_frames.max(0) as f32 / FPS;
@@ -2506,7 +2496,7 @@ mod weapon_install_clock_tests {
     use super::*;
     #[test]
     fn authored_suspend_delay_wraps_at_actual_install_but_lookup_is_inert() {
-        let mut definition = gamelogic::weapon::WeaponTemplate::new("OwnedSuspendDelay".into());
+        let mut definition = generals_sim::weapon::WeaponDefinition::new("OwnedSuspendDelay".into());
         definition.primary_damage = 10.0;
         definition.attack_range = 100.0;
         definition.suspend_fx_delay = 10;

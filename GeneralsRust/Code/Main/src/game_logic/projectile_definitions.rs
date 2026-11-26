@@ -339,7 +339,7 @@ mod tests {
             game.admit_weapon_content_snapshot(
                 vec![(
                     " ".into(),
-                    gamelogic::weapon::WeaponTemplate::new("bad".into())
+                    generals_sim::weapon::WeaponDefinition::new("bad".into())
                 )],
                 &[]
             )
@@ -521,7 +521,7 @@ mod tests {
                 .is_err()
         );
         assert_eq!(
-            owner.weapon_definition_base.as_ref().unwrap()["localprofileweapon"].primary_damage,
+            owner.weapon_definition_base.as_ref().unwrap().get("localprofileweapon").unwrap().primary_damage,
             20.0
         );
         let id = owner

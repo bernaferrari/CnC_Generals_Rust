@@ -1,8 +1,8 @@
 use generals_main::game_logic::{GameLogic, ObjectId, Player, Team};
 use generals_main::save_load::SnapshotBuilder;
 
-fn weapon(name: &str, damage: f32) -> gamelogic::weapon::WeaponTemplate {
-    let mut weapon = gamelogic::weapon::WeaponTemplate::new(name.to_owned());
+fn weapon(name: &str, damage: f32) -> generals_sim::weapon::WeaponDefinition {
+    let mut weapon = generals_sim::weapon::WeaponDefinition::new(name.to_owned());
     weapon.primary_damage = damage;
     weapon.attack_range = 100.0;
     weapon.suspend_fx_delay = 7;

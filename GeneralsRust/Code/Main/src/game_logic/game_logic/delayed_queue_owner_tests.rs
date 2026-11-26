@@ -52,7 +52,7 @@ fn queue_authored_shot(
         gamelogic::initialize_weapon_store().expect("initialize actual fixture weapon store");
         crate::game_logic::weapon_bootstrap::ensure_host_weapon_store();
         gamelogic::weapon::with_weapon_store_mut(|store| {
-            let mut template = gamelogic::weapon::WeaponTemplate::new(name.clone());
+            let mut template = generals_sim::weapon::WeaponDefinition::new(name.clone());
             template.weapon_speed = authored.projectile_speed;
             template.primary_damage = authored.primary_damage;
             template.projectile_name.clear();

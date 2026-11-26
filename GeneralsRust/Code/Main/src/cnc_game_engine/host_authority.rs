@@ -2283,9 +2283,7 @@ impl CnCGameEngine {
         active_mode: crate::game_logic::GameMode,
         map_victory_rules: Arc<crate::game_logic::victory_conditions::MapVictoryRules>,
         template_catalog: RestoreTemplateCatalog<'_>,
-        weapon_catalog: &Option<
-            std::collections::HashMap<String, Arc<gamelogic::weapon::WeaponTemplate>>,
-        >,
+        weapon_catalog: &Option<generals_sim::weapon::WeaponCatalog>,
         projectile_definitions: &crate::game_logic::projectile_definitions::ProjectileDefinitions,
         ocl_application_base: &Arc<
             std::collections::HashMap<String, gamelogic::effects::ObjectCreationList>,
@@ -2335,9 +2333,7 @@ impl CnCGameEngine {
         active_mode: crate::game_logic::GameMode,
         campaign_context: crate::save_load::CampaignMapContext,
         template_catalog: RestoreTemplateCatalog<'_>,
-        weapon_catalog: &Option<
-            std::collections::HashMap<String, Arc<gamelogic::weapon::WeaponTemplate>>,
-        >,
+        weapon_catalog: &Option<generals_sim::weapon::WeaponCatalog>,
         projectile_definitions: &crate::game_logic::projectile_definitions::ProjectileDefinitions,
         ocl_application_base: &Arc<
             std::collections::HashMap<String, gamelogic::effects::ObjectCreationList>,
@@ -2712,9 +2708,7 @@ impl CnCGameEngine {
         slot: &str,
         active_mode: crate::game_logic::GameMode,
         template_catalog: RestoreTemplateCatalog<'_>,
-        weapon_catalog: &Option<
-            std::collections::HashMap<String, Arc<gamelogic::weapon::WeaponTemplate>>,
-        >,
+        weapon_catalog: &Option<generals_sim::weapon::WeaponCatalog>,
         projectile_definitions: &crate::game_logic::projectile_definitions::ProjectileDefinitions,
         ocl_application_base: &Arc<
             std::collections::HashMap<String, gamelogic::effects::ObjectCreationList>,
@@ -2781,9 +2775,7 @@ impl CnCGameEngine {
         active_mode: crate::game_logic::GameMode,
         campaign_context: crate::save_load::CampaignMapContext,
         template_catalog: RestoreTemplateCatalog<'_>,
-        weapon_catalog: &Option<
-            std::collections::HashMap<String, Arc<gamelogic::weapon::WeaponTemplate>>,
-        >,
+        weapon_catalog: &Option<generals_sim::weapon::WeaponCatalog>,
         projectile_definitions: &crate::game_logic::projectile_definitions::ProjectileDefinitions,
         ocl_application_base: &Arc<
             std::collections::HashMap<String, gamelogic::effects::ObjectCreationList>,

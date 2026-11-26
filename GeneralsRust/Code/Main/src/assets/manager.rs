@@ -45,7 +45,7 @@ pub struct AssetManager {
     /// WW3D Asset Manager for object definitions and texture lookup
     ww3d_manager: WW3DAssetManager,
     /// Effective native weapons parsed from the same archive content load.
-    weapon_definitions: Vec<(String, gamelogic::weapon::WeaponTemplate)>,
+    weapon_definitions: generals_sim::weapon::WeaponCatalog,
     /// Effective upgrades and mask allocation from this application's archives.
     upgrade_definitions: Option<game_engine::common::system::upgrade::UpgradeCenter>,
     /// Science identities and effective definitions from this application's archives.
@@ -739,7 +739,7 @@ impl AssetManager {
             model_loader: W3DLoader::new(),
             texture_manager: TextureManager::new(),
             ww3d_manager: WW3DAssetManager::new(),
-            weapon_definitions: Vec::new(),
+            weapon_definitions: Default::default(),
             upgrade_definitions: None,
             science_definitions: None,
             model_cache: HashMap::new(),
@@ -1809,7 +1809,7 @@ impl AssetManager {
     /// Owned receiving-content snapshot. Never query an ambient WeaponStore.
     pub(crate) fn weapon_definitions_snapshot(
         &self,
-    ) -> Vec<(String, gamelogic::weapon::WeaponTemplate)> {
+    ) -> generals_sim::weapon::WeaponCatalog {
         self.weapon_definitions.clone()
     }
 

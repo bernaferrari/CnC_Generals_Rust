@@ -97,7 +97,9 @@ impl GameLogic {
                 .find_map(|runtime| runtime.weapon(key)) else { return Ok(hits); };
             if weapon.ammo_in_clip > 1 {
                 fields.delay_between_shots =
-                    rule.get_delay_between_shots_with_random(&bonus, &self.logic_random).max(0) as u32;
+                    crate::game_logic::weapon_bootstrap::weapon_delay_between_shots(
+                        &rule, &bonus, Some(&self.logic_random),
+                    ).max(0) as u32;
             } else if fields.auto_reloads_clip {
                 // reloadAmmo recomputes bonuses after template callbacks.
                 bonus.set_field(
@@ -178,7 +180,7 @@ impl GameLogic {
     pub(in crate::game_logic) fn receiving_temporary_weapon_shot(
         &self,
         object: &crate::game_logic::Object,
-        rule: &gamelogic::weapon::WeaponTemplate,
+        rule: &generals_sim::weapon::WeaponDefinition,
         target: Option<ObjectId>,
         target_position: Vec3,
     ) -> crate::game_logic::combat::PendingProjectile {

@@ -921,7 +921,7 @@ mod flag_tests {
     }
 
     fn weapon_clock_world(modules: &str) -> (GameLogic, crate::game_logic::ObjectId, crate::game_logic::ObjectId) {
-        use gamelogic::weapon::WeaponTemplate;
+        use generals_sim::weapon::WeaponDefinition as WeaponTemplate;
         use generals_sim::weapon::{WeaponBonus, WeaponBonusConditionType, WeaponBonusField, WeaponBonusSet};
         let mut world = GameLogic::new();
         world.add_player(Player::new(0, Team::USA, "Owner", true));

@@ -35,7 +35,7 @@ pub struct GameLogic {
     /// Effective immutable Weapon INI rows admitted for this receiving match.
     /// None retains the explicitly unmigrated bootstrap route; Some(empty) never substitutes it.
     pub(crate) weapon_definition_base:
-        Option<HashMap<String, Arc<gamelogic::weapon::WeaponTemplate>>>,
+        Option<generals_sim::weapon::WeaponCatalog>,
     /// Immutable SOLO WeaponBonus rows admitted with this session's weapon content.
     pub(crate) solo_weapon_bonus_set: generals_sim::weapon::WeaponBonusSet,
     /// Original application GameData values; map overrides are derived from this owner.
@@ -52,7 +52,7 @@ pub struct GameLogic {
     /// Immutable Multiplayer.ini beacon limit admitted with this session.
     /// Snapshot restoration inherits the receiving application's value.
     pub(crate) max_beacons_per_player: i32,
-    pub(crate) weapon_definitions: Option<HashMap<String, Arc<gamelogic::weapon::WeaponTemplate>>>,
+    pub(crate) weapon_definitions: Option<generals_sim::weapon::WeaponCatalog>,
     /// Application and effective map locomotor definitions belong to this match.
     /// An unadmitted fixture resolves in this GameLogic's own fallback catalog.
     pub(crate) locomotor_definition_base:

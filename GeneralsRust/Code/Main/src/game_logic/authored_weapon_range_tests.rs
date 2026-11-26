@@ -39,7 +39,7 @@ End
 /// Authored Weapon rules parsed through the ordinary Weapon.ini loader and
 /// owned by the receiving world (C++ loads TheWeaponStore before any Object,
 /// GameEngine.cpp:428-458); no ambient store is installed or restored.
-pub(super) struct AuthoredRules(Vec<(String, gamelogic::weapon::WeaponTemplate)>);
+pub(super) struct AuthoredRules(Vec<(String, generals_sim::weapon::WeaponDefinition)>);
 
 impl AuthoredRules {
     pub(super) fn parse() -> Self {
@@ -58,7 +58,7 @@ impl AuthoredRules {
     pub(super) fn find_weapon_template(
         &self,
         name: &str,
-    ) -> Option<&gamelogic::weapon::WeaponTemplate> {
+    ) -> Option<&generals_sim::weapon::WeaponDefinition> {
         self.0.iter().find(|(row, _)| row == name).map(|(_, rule)| rule)
     }
 

@@ -84,7 +84,7 @@ fn admit_smoke_objects(game_logic: &mut GameLogic) {
 }
 
 fn install_smoke_templates(game_logic: &mut GameLogic) -> TempDir {
-    let mut ranger_gun = gamelogic::weapon::WeaponTemplate::new("SmokeRangerGun".into());
+    let mut ranger_gun = generals_sim::weapon::WeaponDefinition::new("SmokeRangerGun".into());
     ranger_gun.primary_damage = 60.0;
     ranger_gun.attack_range = 200.0;
     ranger_gun.anti_mask = generals_sim::weapon::WeaponAntiMask::new(

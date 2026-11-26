@@ -66,7 +66,7 @@ pub struct WeaponCursorRadii {
 }
 
 impl ReceivingWeaponRadii {
-    pub fn from_template(weapon: &gamelogic::weapon::WeaponTemplate) -> Self {
+    pub fn from_template(weapon: &generals_sim::weapon::WeaponDefinition) -> Self {
         Self {
             primary_damage: weapon.primary_damage_radius,
             secondary_damage: weapon.secondary_damage_radius,

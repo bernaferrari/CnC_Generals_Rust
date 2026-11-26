@@ -10,4 +10,6 @@ license.workspace = true
 workspace = true
 
 [dependencies]
+generals_game_domain = { path = "../GameDomain" }
+log = { workspace = true }
 glam = { workspace = true }

@@ -9,6 +9,7 @@ rust-version.workspace = true
 workspace = true
 
 [dependencies]
+generals_game_domain = { path = "../GameDomain" }
 generals_fx = { path = "../FX" }
 
 # Common dependencies for game engine functionality

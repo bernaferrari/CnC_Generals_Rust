@@ -1757,7 +1757,7 @@ impl GameLogic {
     pub(in crate::game_logic) fn receiving_weapon_bonus_fields(
         &self,
         source: &Object,
-        definition: Option<&gamelogic::weapon::WeaponTemplate>,
+        definition: Option<&generals_sim::weapon::WeaponDefinition>,
     ) -> (f32, f32, f32, f32, f32) {
         let container = source.contained_by.and_then(|id| self.host_object(id));
         source.weapon_bonus_fields_with_owned_extra(

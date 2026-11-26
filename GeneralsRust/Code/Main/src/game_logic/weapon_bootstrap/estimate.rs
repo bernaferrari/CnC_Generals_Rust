@@ -22,7 +22,7 @@ pub fn host_weapon_allows_attack_garrisoned_bldgs(name: &str) -> bool {
 }
 
 pub(in crate::game_logic) fn damage_estimate_from_rule(
-    rule: &gamelogic::weapon::WeaponTemplate,
+    rule: &generals_sim::weapon::WeaponDefinition,
     primary_damage: f32,
 ) -> HostEstimateWeapon {
     use gamelogic::damage::{DamageType, DeathType};

@@ -333,10 +333,8 @@ End
         ),
         3
     );
-    manager.weapon_definitions = receiving_weapons
-        .into_values()
-        .map(|rule| (rule.name.clone(), rule))
-        .collect();
+    manager.weapon_definitions =
+        generals_sim::weapon::WeaponCatalog::from_named_definitions(receiving_weapons).unwrap();
     futures::executor::block_on(manager.archive_system.load_big_file(&big)).unwrap();
     manager.archive_system.set_local_search_roots(Vec::new());
     futures::executor::block_on(manager.ww3d_manager.initialize(&mut manager.archive_system))

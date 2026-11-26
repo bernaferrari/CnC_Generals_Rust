@@ -10,11 +10,11 @@ fn admitted_game(delay: f32, slot: u8) -> GameLogic {
     let mut game = GameLogic::new();
     game.add_player(Player::new(0, Team::USA, "local", true));
     game.add_player(Player::new(1, Team::China, "enemy", false));
-    let mut primary = gamelogic::weapon::WeaponTemplate::new("PassivePrimary".into());
+    let mut primary = generals_sim::weapon::WeaponDefinition::new("PassivePrimary".into());
     primary.primary_damage = 5.0;
     primary.attack_range = 500.0;
     primary.projectile_name = "NONE".into();
-    let mut secondary = gamelogic::weapon::WeaponTemplate::new("PassiveDelayed".into());
+    let mut secondary = generals_sim::weapon::WeaponDefinition::new("PassiveDelayed".into());
     secondary.primary_damage = 37.0;
     secondary.attack_range = 500.0;
     secondary.clip_size = 2;
@@ -135,7 +135,7 @@ fn admit_passive_container(game: &mut GameLogic, state: AIState) {
 fn authored_held_passengers_obey_each_containers_fire_permission() {
     fn session(container_name: &str, subdued: bool) -> (GameLogic, ObjectId, ObjectId) {
         let mut game = GameLogic::new();
-        let mut weapon = gamelogic::weapon::WeaponTemplate::new("PassengerTestGun".into());
+        let mut weapon = generals_sim::weapon::WeaponDefinition::new("PassengerTestGun".into());
         weapon.primary_damage = 25.0;
         weapon.attack_range = 200.0;
         weapon.projectile_name = "NONE".into();

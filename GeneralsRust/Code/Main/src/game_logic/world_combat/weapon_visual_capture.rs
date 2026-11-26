@@ -7,7 +7,7 @@
 use super::super::*;
 use crate::presentation_frame::FrozenWeaponVisualSourceGate;
 use gamelogic::common::WeaponSlotType;
-use gamelogic::weapon::WeaponTemplate;
+use generals_sim::weapon::WeaponDefinition as WeaponTemplate;
 use std::sync::Arc;
 
 /// Object-local facts sampled before ammo / stealth mutation.
@@ -105,7 +105,7 @@ pub(super) fn select_weapon_template_fx(
 
 fn compatibility_weapon_rule(name: &str) -> Option<Arc<WeaponTemplate>> {
     crate::game_logic::weapon_bootstrap::with_host_weapon_store(|store| {
-        store.find_weapon_template(name).cloned()
+        store.find_weapon_template(name).map(|rule| rule.shared_definition())
     })
     .ok()
     .flatten()

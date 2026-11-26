@@ -2,8 +2,16 @@
 
 use crate::pathfinding::PATHFIND_CELL_SIZE_F;
 
+mod catalog;
+mod definition;
 mod estimate;
+mod ini;
+
+pub use crate::object::WeaponDamageStatus;
+pub use catalog::{WeaponCatalog, WeaponCatalogError};
+pub use definition::{Coord2D, WeaponDefinition, WeaponFxName, WeaponSound};
 pub use estimate::{DamageEstimateTarget, WeaponDamageEstimate, estimate_weapon_template_damage};
+pub use ini::{WeaponEffectOverrides, apply_weapon_ini_fields};
 
 const RANGE_UNDERSIZE: f32 = PATHFIND_CELL_SIZE_F * 0.25;
 

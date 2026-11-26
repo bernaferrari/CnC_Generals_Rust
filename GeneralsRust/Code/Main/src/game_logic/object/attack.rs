@@ -1320,7 +1320,7 @@ impl Object {
         current_time: f32,
         frame: u32,
         name: Option<&str>,
-        rule: Option<&gamelogic::weapon::WeaponTemplate>,
+        rule: Option<&generals_sim::weapon::WeaponDefinition>,
         rof: f32,
         reload_rof: f32,
         random: Option<&game_engine::common::random_value::SessionRandom>,
@@ -1381,7 +1381,7 @@ impl Object {
     }
 
     pub(super) fn authored_weapon_delay_frames(
-        rule: &gamelogic::weapon::WeaponTemplate,
+        rule: &generals_sim::weapon::WeaponDefinition,
         reloading: bool,
         rof: f32,
         random: Option<&game_engine::common::random_value::SessionRandom>,
@@ -1394,10 +1394,7 @@ impl Object {
         let frames = if reloading {
             rule.get_clip_reload_time(&bonus)
         } else {
-            match random {
-                Some(random) => rule.get_delay_between_shots_with_random(&bonus, random),
-                None => rule.get_delay_between_shots(&bonus),
-            }
+            crate::game_logic::weapon_bootstrap::weapon_delay_between_shots(rule, &bonus, random)
         };
         frames as u32
     }
@@ -1412,7 +1409,7 @@ impl Object {
         owned_rof: Option<&[f32; 3]>,
         solo_set: Option<&generals_sim::weapon::WeaponBonusSet>,
         _random: Option<&game_engine::common::random_value::SessionRandom>,
-        native_rule: Option<&gamelogic::weapon::WeaponTemplate>,
+        native_rule: Option<&generals_sim::weapon::WeaponDefinition>,
         auto_reloaded_clip: bool,
         record_tracker: bool,
         sound_events: &mut crate::game_logic::host_fire_sound_loop_log::FireSoundLoopEvents,

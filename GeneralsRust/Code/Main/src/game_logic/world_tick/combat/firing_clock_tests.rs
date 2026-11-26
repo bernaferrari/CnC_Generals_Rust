@@ -14,7 +14,7 @@ fn authored_clock_world_with_setup(
     setup: impl FnOnce(&mut GameLogic),
 ) -> (GameLogic, ObjectId, ObjectId) {
     let mut game = GameLogic::new();
-    let mut primary = gamelogic::weapon::WeaponTemplate::new("DeadlinePrimary".into());
+    let mut primary = generals_sim::weapon::WeaponDefinition::new("DeadlinePrimary".into());
     primary.primary_damage = 1.0;
     primary.attack_range = 100.0;
     primary.min_delay_between_shots = min_delay;

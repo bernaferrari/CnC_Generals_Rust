@@ -1816,7 +1816,7 @@ impl GameLogic {
         carrier_id: ObjectId,
         origin: glam::Vec3,
         config: &crate::game_logic::host_point_defense::PointDefenseConfig,
-        weapon: &gamelogic::weapon::WeaponTemplate,
+        weapon: &generals_sim::weapon::WeaponDefinition,
     ) -> (Option<ObjectId>, bool) {
         use generals_sim::weapon::WeaponAntiMask;
         let mut best: Option<(u8, f32, ObjectId)> = None;

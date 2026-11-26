@@ -3574,6 +3574,7 @@ dependencies = [
  "game_engine",
  "generals_compression",
  "generals_fx",
+ "generals_game_domain",
  "getrandom 0.3.4",
  "getrandom 0.4.2",
  "glam",
@@ -3715,7 +3716,9 @@ dependencies = [
 name = "generals-sim"
 version = "0.1.0"
 dependencies = [
+ "generals_game_domain",
  "glam",
+ "log",
 ]
 
 [[package]]

@@ -1711,7 +1711,7 @@ impl GameLogic {
         &mut self,
         pending: crate::game_logic::combat::PendingProjectile,
         stream_binding: Option<crate::game_logic::combat::ProjectileStreamBinding>,
-        accepted_rule: Option<&gamelogic::weapon::WeaponTemplate>,
+        accepted_rule: Option<&generals_sim::weapon::WeaponDefinition>,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> gamelogic::GameLogicResult<()> {
         let ready = self.materialize_owned_shot_with_effects(
@@ -1761,7 +1761,7 @@ impl GameLogic {
         &mut self,
         shot: &crate::game_logic::combat::LiveProjectilelessDelayedDamage,
         target: Option<ObjectId>,
-        accepted_rule: Option<&gamelogic::weapon::WeaponTemplate>,
+        accepted_rule: Option<&generals_sim::weapon::WeaponDefinition>,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) {
         let rule = accepted_rule.or_else(|| {
@@ -1897,7 +1897,7 @@ impl GameLogic {
         &mut self,
         pending: crate::game_logic::combat::PendingProjectile,
         stream_binding: Option<crate::game_logic::combat::ProjectileStreamBinding>,
-        accepted_rule: Option<&gamelogic::weapon::WeaponTemplate>,
+        accepted_rule: Option<&generals_sim::weapon::WeaponDefinition>,
         inherited_velocity_per_frame: Option<Vec3>,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> gamelogic::GameLogicResult<MaterializedShot> {

@@ -229,7 +229,7 @@ fn fire_at_projectileless_keeps_identity_in_receiving_pending_queue() {
     let _restore = RestoreInputs::install();
     const NAME: &str = "__RustLiveProjectilelessDelay";
     gamelogic::weapon::with_weapon_store_mut(|store| {
-        let mut template = gamelogic::weapon::WeaponTemplate::new(NAME.to_string());
+        let mut template = generals_sim::weapon::WeaponDefinition::new(NAME.to_string());
         template.weapon_speed = 10.0;
         template.min_weapon_speed = 0.0;
         template.projectile_name.clear();

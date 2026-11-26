@@ -292,7 +292,7 @@ mod tests {
         use super::super::tanks_and_upgrades::MoraleUpgrades;
         fn armed_world(ini: &str) -> GameLogic {
             let mut world = GameLogic::new();
-            let mut weapon = gamelogic::weapon::WeaponTemplate::new("MoraleTestGun".into());
+            let mut weapon = generals_sim::weapon::WeaponDefinition::new("MoraleTestGun".into());
             weapon.primary_damage = 1.0;
             weapon.attack_range = 100.0;
             weapon.min_delay_between_shots = 30;
@@ -356,7 +356,7 @@ mod tests {
                     "GameData\nWeaponBonus = HORDE RATE_OF_FIRE 150%\nEnd\n",
                 ]).unwrap();
             }
-            let mut weapon = gamelogic::weapon::WeaponTemplate::new("RedguardMachineGun".into());
+            let mut weapon = generals_sim::weapon::WeaponDefinition::new("RedguardMachineGun".into());
             weapon.primary_damage = 1.0;
             weapon.attack_range = 100.0;
             weapon.min_delay_between_shots = 30;

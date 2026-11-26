@@ -44,7 +44,7 @@ End
             ),
         )])
         .unwrap();
-    let mut weapon = gamelogic::weapon::WeaponTemplate::new("RangeBonusGun".into());
+    let mut weapon = generals_sim::weapon::WeaponDefinition::new("RangeBonusGun".into());
     weapon.primary_damage = 10.0;
     weapon.attack_range = 100.0;
     weapon.clip_size = 4;
@@ -154,7 +154,7 @@ fn authored_pitch_world(
     secondary_pitch: Option<f32>,
     legacy_pitch: f32,
 ) -> (GameLogic, ObjectId, ObjectId) {
-    use gamelogic::weapon::WeaponTemplate;
+    use generals_sim::weapon::WeaponDefinition as WeaponTemplate;
     use generals_sim::weapon::WeaponAntiMask;
 
     fn rule(name: &str, damage: f32, max_pitch: f32) -> WeaponTemplate {

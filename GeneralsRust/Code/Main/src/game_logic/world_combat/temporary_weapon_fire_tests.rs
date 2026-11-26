@@ -375,13 +375,13 @@ fn retail_named_authored_die_health(modules: Vec<FireWeaponWhenDeadMetadata>) ->
     use crate::game_logic::object::OnDieInput;
 
     let mut logic = GameLogic::new();
-    let mut weapon = gamelogic::weapon::WeaponTemplate::new("TestAuthoredDeathWeapon".into());
+    let mut weapon = generals_sim::weapon::WeaponDefinition::new("TestAuthoredDeathWeapon".into());
     weapon.primary_damage = 25.0;
     weapon.primary_damage_radius = 10.0;
     weapon.damage_dealt_at_self_position = true;
-    logic.weapon_definitions = Some(std::collections::HashMap::from([
+    logic.weapon_definitions = Some(generals_sim::weapon::WeaponCatalog::from_named_definitions([
         ("testauthoreddeathweapon".into(), std::sync::Arc::new(weapon)),
-    ]));
+    ]).unwrap());
     let mut template = ThingTemplate::new("GLAVehicleBombTruck");
     let declarations: Vec<_> = modules.iter().map(|_| BehaviorModuleDefinition {
         class_name: "FireWeaponWhenDeadBehavior".into(),
@@ -497,13 +497,13 @@ fn authored_death_callbacks_fire_each_applicable_module_before_removal() {
         ("AuthoredDeathUpgraded", 60.0),
         ("AuthoredDeathExtra", 20.0),
     ] {
-        let mut weapon = gamelogic::weapon::WeaponTemplate::new(name.into());
+        let mut weapon = generals_sim::weapon::WeaponDefinition::new(name.into());
         weapon.primary_damage = damage;
         weapon.primary_damage_radius = 10.0;
         weapon.damage_dealt_at_self_position = true;
         weapons.insert(name.to_ascii_lowercase(), std::sync::Arc::new(weapon));
     }
-    logic.weapon_definitions = Some(weapons);
+    logic.weapon_definitions = Some(generals_sim::weapon::WeaponCatalog::from_named_definitions(weapons).unwrap());
     let mut template = ThingTemplate::new("CustomAuthoredDemolitionUnit");
     let module = |source_index, weapon: &str, starts_active, upgrade_mux| {
         FireWeaponWhenDeadMetadata {
@@ -585,15 +585,15 @@ fn retail_he_bio_death_fires_one_blast_and_one_poison_field() {
 
     let mut logic = GameLogic::new();
     // Retail HE damage and combined HE/Bio effect are distinct die modules.
-    let mut blast = gamelogic::weapon::WeaponTemplate::new("BombTruckHighExplosionBombDamage".into());
+    let mut blast = generals_sim::weapon::WeaponDefinition::new("BombTruckHighExplosionBombDamage".into());
     blast.primary_damage = 2000.0;
     blast.primary_damage_radius = 50.0;
     blast.secondary_damage = 200.0;
     blast.secondary_damage_radius = 85.0;
     blast.damage_dealt_at_self_position = true;
-    let mut weapon = gamelogic::weapon::WeaponTemplate::new("BombTruckHighExplosiveBioBombEffect".into());
+    let mut weapon = generals_sim::weapon::WeaponDefinition::new("BombTruckHighExplosiveBioBombEffect".into());
     weapon.fire_ocl_names[0] = Some("OCL_PoisonFieldMedium".into());
-    let mut poison = gamelogic::weapon::WeaponTemplate::new("MediumPoisonFieldWeapon".into());
+    let mut poison = generals_sim::weapon::WeaponDefinition::new("MediumPoisonFieldWeapon".into());
     poison.primary_damage = 2.0;
     poison.primary_damage_radius = 80.0;
     poison.damage_type = gamelogic::damage::DamageType::Poison;
@@ -601,18 +601,18 @@ fn retail_he_bio_death_fires_one_blast_and_one_poison_field() {
     poison.affects_mask.insert(generals_sim::weapon::WeaponAffectsMask::DOESNT_AFFECT_AIRBORNE);
     poison.min_delay_between_shots = 15;
     poison.max_delay_between_shots = 15;
-    let mut core = gamelogic::weapon::WeaponTemplate::new("HazardFieldCoreWeapon".into());
+    let mut core = generals_sim::weapon::WeaponDefinition::new("HazardFieldCoreWeapon".into());
     core.primary_damage = 200.0;
     core.primary_damage_radius = 10.0;
     core.damage_type = gamelogic::damage::DamageType::HazardCleanup;
     core.clip_size = 1;
     core.clip_reload_time = 3000;
-    logic.weapon_definitions = Some(std::collections::HashMap::from([
+    logic.weapon_definitions = Some(generals_sim::weapon::WeaponCatalog::from_named_definitions([
         ("bombtruckhighexplosionbombdamage".into(), Arc::new(blast)),
         ("bombtruckhighexplosivebiobombeffect".into(), Arc::new(weapon.clone())),
         ("mediumpoisonfieldweapon".into(), Arc::new(poison)),
         ("hazardfieldcoreweapon".into(), Arc::new(core)),
-    ]));
+    ]).unwrap());
     logic.admit_weapon_fire_definition("BombTruckHighExplosiveBioBombEffect", &weapon).unwrap();
     let mut ocl = ObjectCreationList::new();
     ocl.add_nugget(Arc::new(GenericObjectCreationNugget {
@@ -730,14 +730,14 @@ fn authored_fire_weapon_update_suppresses_for_real_weapon_exclusive_delay() {
         FireWeaponUpdateDefinition, NativeLifecycleDefinition, NativeLifecycleKind,
     };
     let mut logic = GameLogic::new();
-    let mut pulse = gamelogic::weapon::WeaponTemplate::new("ExclusiveFieldPulse".into());
+    let mut pulse = generals_sim::weapon::WeaponDefinition::new("ExclusiveFieldPulse".into());
     pulse.primary_damage = 5.0;
     pulse.primary_damage_radius = 20.0;
     pulse.min_delay_between_shots = 15;
     pulse.max_delay_between_shots = 15;
-    logic.weapon_definitions = Some(std::collections::HashMap::from([
+    logic.weapon_definitions = Some(generals_sim::weapon::WeaponCatalog::from_named_definitions([
         ("exclusivefieldpulse".into(), std::sync::Arc::new(pulse))
-    ]));
+    ]).unwrap());
     let mut field = ThingTemplate::new("ExclusiveAuthoredField");
     field.native_lifecycle_definitions = Some(vec![NativeLifecycleDefinition {
         module_tag: Some("Pulse".into()),
@@ -937,12 +937,12 @@ fn damaged_continuous_fires_every_ready_module() {
 #[test]
 fn fx_selection_uses_detonate_only_when_projectile_detonation() {
     use gamelogic::effects::FXList;
-    use gamelogic::weapon::WeaponTemplate;
+    use generals_sim::weapon::WeaponDefinition as WeaponTemplate;
 
     let mut rule = WeaponTemplate::new("TemporaryFX".into());
     let rank = gamelogic::common::VeterancyLevel::Heroic as usize;
-    rule.fire_fx[rank] = Some(FXList::new("FireFX"));
-    rule.projectile_detonate_fx[rank] = Some(FXList::new("DetonateFX"));
+    rule.fire_fx[rank] = Some(generals_sim::weapon::WeaponFxName::new("FireFX"));
+    rule.projectile_detonate_fx[rank] = Some(generals_sim::weapon::WeaponFxName::new("DetonateFX"));
     assert_eq!(
         select_weapon_template_fx(&rule, VeterancyLevel::Heroic, false),
         "FireFX"

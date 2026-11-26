@@ -1,5 +1,6 @@
 //! Opaque paired admission from one ordered archive-source stream.
 use super::ReceivingObjectDefinitions;
+use generals_sim::weapon::WeaponCatalog;
 use game_engine::common::{
     ini::INILoadType,
     name_key_generator::NameKeyNamespace,
@@ -11,7 +12,7 @@ use game_engine::common::{
 #[derive(Clone)]
 pub struct ReceivingStartupContent {
     pub(crate) objects: ReceivingObjectContent,
-    pub(crate) weapons: Vec<(String, gamelogic::weapon::WeaponTemplate)>,
+    pub(crate) weapons: WeaponCatalog,
 }
 
 impl ReceivingStartupContent {
@@ -20,7 +21,21 @@ impl ReceivingStartupContent {
         sources: I,
         sciences: std::sync::Arc<game_engine::common::rts::science::ScienceNameFacts>,
         actions: std::sync::Arc<game_engine::common::thing::receiving_module_content::ReceivingActionDefinitions>,
-        weapons: Vec<(String, gamelogic::weapon::WeaponTemplate)>,
+        weapons: Vec<(String, generals_sim::weapon::WeaponDefinition)>,
+    ) -> Result<Self, ReceivingModuleError>
+    where
+        I: IntoIterator<Item = (String, String)>,
+    {
+        let weapons = WeaponCatalog::from_named_definitions(weapons)
+            .map_err(|error| ReceivingModuleError::from(error.to_string()))?;
+        Self::from_sources_with_weapons(sources, sciences, actions, weapons)
+    }
+
+    pub(crate) fn from_sources_with_weapons<I>(
+        sources: I,
+        sciences: std::sync::Arc<game_engine::common::rts::science::ScienceNameFacts>,
+        actions: std::sync::Arc<game_engine::common::thing::receiving_module_content::ReceivingActionDefinitions>,
+        weapons: WeaponCatalog,
     ) -> Result<Self, ReceivingModuleError>
     where
         I: IntoIterator<Item = (String, String)>,
@@ -31,7 +46,7 @@ impl ReceivingStartupContent {
 
     pub(crate) fn from_admitted(
         objects: ReceivingObjectContent,
-        weapons: Vec<(String, gamelogic::weapon::WeaponTemplate)>,
+        weapons: WeaponCatalog,
     ) -> Self {
         Self { objects, weapons }
     }
@@ -192,7 +207,7 @@ mod tests {
             &facts,
             INILoadType::Overwrite,
         ).unwrap();
-        let weapons = vec![("OwnedWeapon".into(), gamelogic::weapon::WeaponTemplate::new("OwnedWeapon".into()))];
+        let weapons = vec![("OwnedWeapon".into(), generals_sim::weapon::WeaponDefinition::new("OwnedWeapon".into()))];
         let bundle = ReceivingStartupContent::from_sources(sources(2.5), facts, Arc::new(actions), weapons).unwrap();
         let mut world = crate::game_logic::GameLogic::new();
         world.admit_startup_content(bundle).unwrap();

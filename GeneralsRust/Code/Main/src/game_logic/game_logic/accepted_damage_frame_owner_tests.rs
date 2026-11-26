@@ -12,7 +12,7 @@ fn assert_finite_weapon(world: &GameLogic, name: &str, damage_type: &str) {
         .weapon_definitions
         .as_ref()
         .expect("receiving immutable rules");
-    let rules = &catalog[&name.to_ascii_lowercase()];
+    let rules = catalog.get(&name.to_ascii_lowercase()).unwrap();
     assert_eq!(rules.primary_damage, 17.0);
     assert_eq!(rules.weapon_speed.to_bits(), 0x4120_0001);
     assert!(rules.projectile_name.eq_ignore_ascii_case("NONE"));

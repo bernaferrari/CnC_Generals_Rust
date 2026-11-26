@@ -20,7 +20,7 @@ fn world(damage_at_self: bool, laser: bool) -> (GameLogic, ObjectId, ObjectId, O
         1
     );
     let mut rule = gamelogic::weapon::with_weapon_store(|store| {
-        (**store.find_weapon_template(WEAPON).unwrap()).clone()
+        store.find_weapon_template(WEAPON).unwrap().shared_definition().as_ref().clone()
     })
     .unwrap();
     rule.damage_dealt_at_self_position = damage_at_self;

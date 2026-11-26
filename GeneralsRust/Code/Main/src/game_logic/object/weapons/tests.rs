@@ -419,7 +419,7 @@ fn leftover_choose_best_skips_zero_damage_unless_unresistable() {
 
     const UNRES: &str = "__RustChooseBestZeroUnresistable";
     let _ = gamelogic::weapon::with_weapon_store_mut(|store| {
-        let mut template = gamelogic::weapon::WeaponTemplate::new(UNRES.to_string());
+        let mut template = generals_sim::weapon::WeaponDefinition::new(UNRES.to_string());
         template.primary_damage = 0.0;
         template.damage_type = gamelogic::damage::DamageType::Unresistable;
         template.attack_range = 200.0;
@@ -472,7 +472,7 @@ fn leftover_choose_best_skips_slot_outside_target_pitch() {
     const LOFT: &str = "__RustChooseBestLoftLimited";
     gamelogic::initialize_weapon_store().expect("actual pitch catalog initialization");
     gamelogic::weapon::with_weapon_store_mut(|store| {
-        let mut template = gamelogic::weapon::WeaponTemplate::new(LOFT.to_string());
+        let mut template = generals_sim::weapon::WeaponDefinition::new(LOFT.to_string());
         template.primary_damage = 100.0;
         template.attack_range = 200.0;
         template.min_target_pitch = (-15f32).to_radians();
@@ -538,7 +538,7 @@ fn leftover_choose_best_skips_empty_no_auto_reload_slot() {
     // An empty no-auto-reload PRIMARY must not win leftover backup.
     const EMPTY: &str = "__RustChooseBestEmptyNoReload";
     let _ = gamelogic::weapon::with_weapon_store_mut(|store| {
-        let mut template = gamelogic::weapon::WeaponTemplate::new(EMPTY.to_string());
+        let mut template = generals_sim::weapon::WeaponDefinition::new(EMPTY.to_string());
         template.primary_damage = 100.0;
         template.attack_range = 200.0;
         template.reload_type = generals_sim::weapon::WeaponReloadType::NoReload;

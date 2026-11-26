@@ -20,7 +20,7 @@ fn world(deployed: bool, pre_delay: f32) -> GameLogic {
     } else {
         crate::game_logic::host_slave_drones::HELLFIRE_MISSILE_WEAPON
     };
-    let mut weapon = gamelogic::weapon::WeaponTemplate::new(weapon_name.into());
+    let mut weapon = generals_sim::weapon::WeaponDefinition::new(weapon_name.into());
     weapon.primary_damage = 37.0;
     weapon.attack_range = 200.0;
     weapon.clip_size = 2;

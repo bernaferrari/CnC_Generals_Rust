@@ -41,7 +41,7 @@ fn world(child_name: &str) -> (GameLogic, ObjectId, ObjectId) {
         .admit_object_ini_sources([("OwnerTransition.ini".to_owned(), object_ini)])
         .expect("receiving Object/TransitionDamageFX definitions");
 
-    let mut weapon = gamelogic::weapon::WeaponTemplate::new(WEAPON.to_owned());
+    let mut weapon = generals_sim::weapon::WeaponDefinition::new(WEAPON.to_owned());
     weapon.damage_type = NativeDamageType::KillPilot;
     weapon.primary_damage = 100.0;
     weapon.attack_range = 200.0;

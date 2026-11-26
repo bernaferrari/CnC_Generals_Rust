@@ -115,7 +115,7 @@ pub(crate) fn admit_retail_remote_c4_with_actions(game: &mut GameLogic, actions:
     .expect("retail remote C4 object content");
     game.admit_receiving_module_content_with_weapons(
         source,
-        Some(weapons.into_iter().collect()),
+        Some(generals_sim::weapon::WeaponCatalog::from_named_definitions(weapons).unwrap()),
     ).expect("admit retail remote C4 and weapon");
     if !actions.is_empty() {
         game.load_own_command_ini_for_test(actions);
@@ -435,7 +435,7 @@ pub(crate) fn admit_fixture_content_with_actions(
             std::sync::Arc::new(definitions),
         )
         .expect("fixture Object content parses");
-        let weapons = (!weapons.is_empty()).then(|| fixture_weapon_rules(weapons));
+        let weapons = (!weapons.is_empty()).then(|| fixture_weapon_catalog(weapons));
         world
             .admit_receiving_module_content_with_weapons(content, weapons)
             .expect("fixture Object, Weapon and action content admitted before NewGame");
@@ -453,7 +453,7 @@ pub(crate) fn admit_fixture_content_with_actions(
     let content = crate::assets::ReceivingObjectContent::from_sources(sources)
         .expect("fixture Object content parses");
     world
-        .admit_receiving_module_content_with_weapons(content, Some(fixture_weapon_rules(weapons)))
+        .admit_receiving_module_content_with_weapons(content, Some(fixture_weapon_catalog(weapons)))
         .expect("fixture Object and Weapon content admitted before NewGame");
 }
 
@@ -570,7 +570,7 @@ impl FixtureWeapon {
 /// Parse fixture Weapons through the ordinary Weapon.ini loader.
 pub(crate) fn fixture_weapon_rules(
     weapons: &[FixtureWeapon],
-) -> Vec<(String, gamelogic::weapon::WeaponTemplate)> {
+) -> Vec<(String, generals_sim::weapon::WeaponDefinition)> {
     let text: String = weapons.iter().map(FixtureWeapon::ini).collect();
     let mut rules = std::collections::HashMap::new();
     let parsed = crate::assets::ini_template_loader::parse_weapon_definitions_ini_into(
@@ -591,6 +591,11 @@ pub(crate) fn fixture_weapon_rules(
     rules
 }
 
+fn fixture_weapon_catalog(weapons: &[FixtureWeapon]) -> generals_sim::weapon::WeaponCatalog {
+    generals_sim::weapon::WeaponCatalog::from_named_definitions(fixture_weapon_rules(weapons))
+        .expect("valid fixture weapon catalog")
+}
+
 /// Author a hand-built template's default WeaponSet (`Weapon = PRIMARY/
 /// SECONDARY/TERTIARY` from `weapons` in slot order) bound to the fixture
 /// Weapons parsed as Weapon.ini, as C++ ThingTemplate WeaponSets name
@@ -605,10 +610,7 @@ pub(crate) fn arm_template(
     template.secondary_weapon_name = names[1].clone();
     template.tertiary_weapon_name = names[2].clone();
     let weapons: Vec<_> = slots.into_iter().flatten().collect();
-    let catalog = fixture_weapon_rules(&weapons)
-        .into_iter()
-        .map(|(name, rule)| (name.to_ascii_lowercase(), std::sync::Arc::new(rule)))
-        .collect();
+    let catalog = fixture_weapon_catalog(&weapons);
     template.bind_receiving_weapon_sets(&catalog);
 }
 

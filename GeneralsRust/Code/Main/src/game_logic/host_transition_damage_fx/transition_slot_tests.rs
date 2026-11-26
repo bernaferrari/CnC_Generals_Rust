@@ -65,13 +65,13 @@ End
 "#)]).unwrap();
         let weapons = [("TransitionRetaliationWeapon", 10.0), ("OtherRetaliationWeapon", 20.0)]
             .into_iter().map(|(name, damage)| {
-                let mut weapon = gamelogic::weapon::WeaponTemplate::new(name.into());
+                let mut weapon = generals_sim::weapon::WeaponDefinition::new(name.into());
                 weapon.primary_damage = damage;
                 weapon.primary_damage_radius = 5.0;
                 weapon.damage_type = gamelogic::damage::DamageType::Unresistable;
                 (name.to_ascii_lowercase(), std::sync::Arc::new(weapon))
-            }).collect();
-        world.weapon_definitions = Some(weapons);
+            });
+        world.weapon_definitions = Some(generals_sim::weapon::WeaponCatalog::from_named_definitions(weapons).unwrap());
         for name in ["TransitionVictim", "TransitionAttacker", "BeforeRetaliation", "AfterRetaliation"] {
             let mut template = ThingTemplate::new(name);
             template.set_health(100.0);
@@ -153,18 +153,16 @@ End
     // u32::MAX-1 consumer frame below that deadline wraps to an already-due
     // value, so the appended entry is due inside the same walk.
     let mut weapon =
-        gamelogic::weapon::WeaponTemplate::new("DelayedTransitionRetaliation".into());
+        generals_sim::weapon::WeaponDefinition::new("DelayedTransitionRetaliation".into());
     weapon.primary_damage = 10.0;
     weapon.primary_damage_radius = 5.0;
     weapon.damage_type = gamelogic::damage::DamageType::Unresistable;
     weapon.weapon_speed = 10.0;
     world.weapon_definitions = Some(
-        [(
-            "delayedtransitionretaliation".to_string(),
-            std::sync::Arc::new(weapon),
-        )]
-        .into_iter()
-        .collect(),
+        generals_sim::weapon::WeaponCatalog::from_named_definitions([
+            ("delayedtransitionretaliation".to_string(), weapon),
+        ])
+        .unwrap(),
     );
     for name in ["DelayedTransitionVictim", "DelayedTransitionAttacker"] {
         let mut template = ThingTemplate::new(name);

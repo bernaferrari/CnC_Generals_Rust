@@ -99,7 +99,7 @@ impl GameLogic {
     pub(crate) fn admit_receiving_module_content_with_weapons(
         &mut self,
         source: crate::assets::ReceivingObjectContent,
-        weapons: Option<Vec<(String, gamelogic::weapon::WeaponTemplate)>>,
+        weapons: Option<generals_sim::weapon::WeaponCatalog>,
     ) -> Result<(), String> {
         if self.receiving_module_content.is_some() || !self.objects.registered_is_empty() {
             return Err("Receiving module content must be admitted before live Objects".into());
@@ -122,7 +122,7 @@ impl GameLogic {
             .map(|row| (row.name.clone(), (**row).clone()))
             .collect::<Vec<_>>();
         if let Some(weapons) = weapons {
-            self.admit_weapon_content_snapshot(weapons, &definitions)?;
+            self.admit_weapon_catalog(weapons, &definitions)?;
         }
         let projectile_candidate=crate::game_logic::projectile_definitions::ProjectileDefinitions::from_effective_definitions(definitions.iter().map(|(name,row)|(name.as_str(),row)),self.physics_definitions.effective.gravity)?.with_locomotors(self.locomotor_definitions.receiving());
         self.templates.clear();

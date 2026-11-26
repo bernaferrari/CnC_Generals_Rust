@@ -29,7 +29,7 @@ fn missing_session_death_fx_does_not_play_a_foreign_global_sound() {
         1
     );
     let weapon = gamelogic::weapon::with_weapon_store(|store| {
-        (**store.find_weapon_template(LETHAL_SHOT).unwrap()).clone()
+        store.find_weapon_template(LETHAL_SHOT).unwrap().shared_definition().as_ref().clone()
     })
     .unwrap();
     world

@@ -43,7 +43,7 @@ impl GameLogic {
         slot: u8,
         mut shot: crate::game_logic::combat::PendingProjectile,
         capture: Option<super::weapon_visual_capture::PendingWeaponVisualDispatchCapture>,
-        explicit_rule: Option<std::sync::Arc<gamelogic::weapon::WeaponTemplate>>,
+        explicit_rule: Option<std::sync::Arc<generals_sim::weapon::WeaponDefinition>>,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> gamelogic::GameLogicResult<bool> {
         // Retain the selected immutable template before FireFX/FireOCL callbacks
@@ -189,7 +189,7 @@ impl GameLogic {
         target_position: Option<Vec3>,
         origin: Vec3,
         prepared_capture: Option<super::weapon_visual_capture::PendingWeaponVisualDispatchCapture>,
-        explicit_rule: Option<std::sync::Arc<gamelogic::weapon::WeaponTemplate>>,
+        explicit_rule: Option<std::sync::Arc<generals_sim::weapon::WeaponDefinition>>,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> gamelogic::GameLogicResult<Option<AcceptedWeaponDischarge>> {
         let Some(object) = self.objects.get(&source) else { return Ok(None) };
@@ -387,7 +387,7 @@ mod ye145_source_generation_tests {
         let mut world = GameLogic::new();
         world.add_player(Player::new(0, Team::USA, "owner", false));
         world.add_player(Player::new(1, Team::GLA, "enemy", false));
-        let mut native = gamelogic::weapon::WeaponTemplate::new("Ye145Weapon".into());
+        let mut native = generals_sim::weapon::WeaponDefinition::new("Ye145Weapon".into());
         native.fire_ocl_names[0] = Some("Ye145FireOCL".into());
         world.admit_weapon_fire_definition("Ye145Weapon", &native).unwrap();
         let mut ocl = gamelogic::effects::ObjectCreationList::new();

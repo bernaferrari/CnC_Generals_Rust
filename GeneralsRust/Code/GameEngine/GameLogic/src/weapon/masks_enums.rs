@@ -2,7 +2,10 @@
 
 use crate::common::Coord3D;
 
+pub use generals_sim::weapon::WeaponDamageStatus as ObjectStatusTypes;
+
 pub use generals_sim::weapon::{
+    Coord2D,
     WEAPON_AFFECTS_MASK_NAMES,
     WEAPON_BONUS_CONDITION_COUNT,
     WEAPON_BONUS_FIELD_COUNT,
@@ -37,19 +40,6 @@ impl HistoricWeaponDamageInfo {
     }
 }
 
-/// 2D coordinate for scatter targets
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct Coord2D {
-    pub x: f32,
-    pub y: f32,
-}
-
-impl Coord2D {
-    pub fn new(x: f32, y: f32) -> Self {
-        Self { x, y }
-    }
-}
-
 /// Weapon slot types
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WeaponSlotType {
@@ -65,18 +55,6 @@ pub enum VeterancyLevel {
     Veteran = 1,
     Elite = 2,
     Heroic = 3,
-}
-
-impl From<ObjectStatusTypes> for crate::common::ObjectStatusTypes {
-    fn from(value: ObjectStatusTypes) -> crate::common::ObjectStatusTypes {
-        crate::common::ObjectStatusTypes::from_u32(value.0)
-    }
-}
-
-impl From<crate::common::ObjectStatusTypes> for ObjectStatusTypes {
-    fn from(value: crate::common::ObjectStatusTypes) -> Self {
-        ObjectStatusTypes::new(value as u32)
-    }
 }
 
 // damage_system now re-exports canonical types from crate::damage,
@@ -99,22 +77,6 @@ impl From<crate::common::WeaponSlotType> for WeaponSlotType {
             crate::common::WeaponSlotType::Secondary => WeaponSlotType::Secondary,
             crate::common::WeaponSlotType::Tertiary => WeaponSlotType::Tertiary,
         }
-    }
-}
-
-/// Object status types
-#[derive(Debug, Clone, Copy)]
-pub struct ObjectStatusTypes(pub(super) u32);
-
-impl ObjectStatusTypes {
-    pub const fn bits(&self) -> u32 {
-        self.0
-    }
-
-    pub const NONE: u32 = 0;
-
-    pub fn new(status: u32) -> Self {
-        Self(status)
     }
 }
 

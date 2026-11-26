@@ -120,6 +120,24 @@ pub fn host_delay_between_shots_secs_nominal_with_rof(name: &str, rof: f32) -> O
     leftover_delay_between_shots_secs(name, rof, false)
 }
 
+/// Draw only after a shot has been accepted by the receiving weapon.
+pub(crate) fn weapon_delay_between_shots(
+    rule: &generals_sim::weapon::WeaponDefinition,
+    bonus: &generals_sim::weapon::WeaponBonus,
+    random: Option<&game_engine::common::random_value::SessionRandom>,
+) -> i32 {
+    match random {
+        Some(random) => rule.delay_between_shots(bonus, |min, max| {
+            if max < min {
+                max
+            } else {
+                random.next_int(min, max)
+            }
+        }),
+        None => rule.delay_between_shots(bonus, gamelogic::helpers::get_game_logic_random_value),
+    }
+}
+
 /// C++ WeaponTemplate::getDelayBetweenShots frame draw before RATE_OF_FIRE.
 /// Inclusive GameLogicRandomValue when Min != Max.
 pub fn delay_between_shots_frames(min_frames: i32, max_frames: i32) -> i32 {
@@ -152,10 +170,7 @@ fn leftover_delay_between_shots_secs_using(
             let mut bonus = WeaponBonus::new();
             bonus.set_field(WeaponBonusField::RateOfFire, rof.max(0.01));
             let frames = if roll || wt.min_delay_between_shots == wt.max_delay_between_shots {
-                match random {
-                    Some(random) => wt.get_delay_between_shots_with_random(&bonus, random),
-                    None => wt.get_delay_between_shots(&bonus),
-                }
+                weapon_delay_between_shots(wt, &bonus, random)
             } else {
                 bonus.reload_frames(wt.min_delay_between_shots)
             };

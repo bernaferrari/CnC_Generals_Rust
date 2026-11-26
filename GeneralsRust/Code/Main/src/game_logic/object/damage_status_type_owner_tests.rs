@@ -14,7 +14,7 @@ fn authored_weapon_damage_status_type_paints_receiving_body() {
             world.frame = 50;
             world.add_player(Player::new(1, Team::USA, "Victim", true));
             world.add_player(Player::new(2, Team::China, "Painter", false));
-            let mut rule = gamelogic::weapon::WeaponTemplate::new("StatusPaintRule".to_string());
+            let mut rule = generals_sim::weapon::WeaponDefinition::new("StatusPaintRule".to_string());
             rule.damage_status_type =
                 gamelogic::common::ObjectStatusTypes::FaerieFire.into();
             let mut vt = ThingTemplate::new("StatusPaintVictim");

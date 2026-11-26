@@ -1,6 +1,6 @@
 //! Exact immutable receiving rows, including authoritative false/zero values.
 use super::*;
-use gamelogic::weapon::WeaponTemplate;
+use generals_sim::weapon::WeaponDefinition as WeaponTemplate;
 use generals_sim::weapon::{WeaponAntiMask, WeaponReloadType};
 fn owner(rule: &WeaponTemplate) -> Object {
     let mut template = ThingTemplate::new("ReceivingSelectedRuleOwner");

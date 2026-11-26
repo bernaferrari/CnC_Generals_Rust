@@ -1057,7 +1057,7 @@ impl GameLogic {
         &mut self,
         impact: &crate::game_logic::combat::ProjectileImpactFx,
         name: Option<&str>,
-        rule: Option<&gamelogic::weapon::WeaponTemplate>,
+        rule: Option<&generals_sim::weapon::WeaponDefinition>,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) {
         use crate::game_logic::combat::ProjectileDetonationSource;
@@ -1118,7 +1118,7 @@ impl GameLogic {
                 // Weapon.cpp:936–939. A contact weapon changes the primary
                 // point of the fallback and keeps the source basis.
                 let Some(name) = name.filter(|_| has_fx) else { return };
-                let position = if rule.is_some_and(gamelogic::weapon::WeaponTemplate::is_contact_weapon) {
+                let position = if rule.is_some_and(generals_sim::weapon::WeaponDefinition::is_contact_weapon) {
                     impact.position
                 } else {
                     source_pose.w_axis.truncate()

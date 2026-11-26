@@ -157,7 +157,7 @@ End
             .into(),
         )])
         .unwrap();
-    let mut weapon = gamelogic::weapon::WeaponTemplate::new("TraceGun".into());
+    let mut weapon = generals_sim::weapon::WeaponDefinition::new("TraceGun".into());
     weapon.primary_damage = 25.0;
     weapon.attack_range = 100.0;
     weapon.projectile_name = "NONE".into();

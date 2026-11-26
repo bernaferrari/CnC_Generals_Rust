@@ -1259,7 +1259,7 @@ fn attack_position_continue_range_uses_owned_map_status_across_worlds_and_restor
     use crate::command_system::{CommandResult, CommandType};
     use crate::game_logic::{GameLogic, KindOf, ObjectId, Player, Team};
     use crate::save_load::SnapshotBuilder;
-    use gamelogic::weapon::WeaponTemplate;
+    use generals_sim::weapon::WeaponDefinition as WeaponTemplate;
     use glam::Vec3;
 
     fn session(width: f32) -> (GameLogic, ObjectId, ObjectId, ObjectId) {

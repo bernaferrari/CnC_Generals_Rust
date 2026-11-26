@@ -604,7 +604,7 @@ mod integration_tests {
     use generals_main::command_system::{CommandType, GameCommand, ModifierKeys};
     use generals_main::game_logic::GameMode;
     use game_engine::common::ini::ini_locomotor::LocomotorStore;
-    use gamelogic::weapon::WeaponTemplate;
+    use generals_sim::weapon::WeaponDefinition as WeaponTemplate;
     use glam::Vec3;
 
     fn command(

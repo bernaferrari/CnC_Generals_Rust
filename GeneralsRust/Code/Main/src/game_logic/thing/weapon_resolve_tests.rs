@@ -183,7 +183,7 @@ fn weapon_from_store_uses_leftover_delay_not_max_flatten() {
     const NAME: &str = "__RustLiveDelayBetweenShotsRange";
     let _ = super::super::weapon_bootstrap::ensure_host_weapon_store();
     let _ = gamelogic::weapon::with_weapon_store_mut(|store| {
-        let mut template = gamelogic::weapon::WeaponTemplate::new(NAME.to_string());
+        let mut template = generals_sim::weapon::WeaponDefinition::new(NAME.to_string());
         template.primary_damage = 10.0;
         template.attack_range = 100.0;
         template.min_delay_between_shots = 6;
@@ -193,10 +193,10 @@ fn weapon_from_store_uses_leftover_delay_not_max_flatten() {
     });
     let weapon = ThingTemplate::weapon_from_store(NAME).expect("store weapon");
     let leftover = {
-        let mut yardstick = gamelogic::weapon::WeaponTemplate::new(NAME.to_string());
+        let mut yardstick = generals_sim::weapon::WeaponDefinition::new(NAME.to_string());
         yardstick.min_delay_between_shots = 6;
         yardstick.max_delay_between_shots = 6;
-        yardstick.get_delay_between_shots(&generals_sim::weapon::WeaponBonus::new())
+        yardstick.delay_between_shots(&generals_sim::weapon::WeaponBonus::new(), |_, _| unreachable!())
     };
     assert_eq!(leftover, 6);
     assert!(
@@ -221,7 +221,7 @@ fn weapon_from_store_uses_leftover_rationalize_attack_range() {
     const NAME: &str = "__RustLiveRationalizeAttackRange";
     let _ = super::super::weapon_bootstrap::ensure_host_weapon_store();
     let _ = gamelogic::weapon::with_weapon_store_mut(|store| {
-        let mut template = gamelogic::weapon::WeaponTemplate::new(NAME.to_string());
+        let mut template = generals_sim::weapon::WeaponDefinition::new(NAME.to_string());
         template.primary_damage = 10.0;
         template.attack_range = 100.0;
         template.minimum_attack_range = 10.0;
@@ -229,7 +229,7 @@ fn weapon_from_store_uses_leftover_rationalize_attack_range() {
     });
     let weapon = ThingTemplate::weapon_from_store(NAME).expect("store weapon");
     let leftover = {
-        let mut yardstick = gamelogic::weapon::WeaponTemplate::new(NAME.to_string());
+        let mut yardstick = generals_sim::weapon::WeaponDefinition::new(NAME.to_string());
         yardstick.attack_range = 100.0;
         yardstick.minimum_attack_range = 10.0;
         (
@@ -279,10 +279,10 @@ fn weapon_from_store_uses_leftover_rationalize_attack_range() {
 
 #[test]
 fn leftover_is_contact_weapon_authored_range_under_12_5() {
-    let mut contact = gamelogic::weapon::WeaponTemplate::new("c".into());
+    let mut contact = generals_sim::weapon::WeaponDefinition::new("c".into());
     contact.attack_range = 10.0;
     assert!(contact.is_contact_weapon());
-    let mut edge = gamelogic::weapon::WeaponTemplate::new("e".into());
+    let mut edge = generals_sim::weapon::WeaponDefinition::new("e".into());
     edge.attack_range = 12.5;
     assert!(!edge.is_contact_weapon());
     assert!(super::super::weapon_bootstrap::is_contact_weapon_range(
@@ -297,11 +297,11 @@ fn leftover_is_contact_weapon_authored_range_under_12_5() {
     const EDGE: &str = "__RustLiveContactAuthored12_5";
     let _ = super::super::weapon_bootstrap::ensure_host_weapon_store();
     let _ = gamelogic::weapon::with_weapon_store_mut(|store| {
-        let mut t = gamelogic::weapon::WeaponTemplate::new(CONTACT.to_string());
+        let mut t = generals_sim::weapon::WeaponDefinition::new(CONTACT.to_string());
         t.primary_damage = 10.0;
         t.attack_range = 10.0;
         store.add_weapon_template(t);
-        let mut t = gamelogic::weapon::WeaponTemplate::new(EDGE.to_string());
+        let mut t = generals_sim::weapon::WeaponDefinition::new(EDGE.to_string());
         t.primary_damage = 10.0;
         t.attack_range = 12.5;
         store.add_weapon_template(t);
@@ -326,7 +326,7 @@ fn leftover_is_contact_weapon_authored_range_under_12_5() {
 fn native_zero_delay_stays_zero_and_finite_delay_keeps_logic_frame_units() {
     // CPP Weapon.cpp475-489 returns the floor of the authored delay; zero
     // remains zero. Native prototypes have no world-clock side effects.
-    let mut rule = gamelogic::weapon::WeaponTemplate::new("LocalZeroDelay".into());
+    let mut rule = generals_sim::weapon::WeaponDefinition::new("LocalZeroDelay".into());
     rule.primary_damage = 20.0;
     rule.attack_range = 100.0;
     rule.min_delay_between_shots = 0;
@@ -344,7 +344,7 @@ fn native_zero_delay_stays_zero_and_finite_delay_keeps_logic_frame_units() {
 fn native_zero_damage_and_range_are_valid_supplied_weapon_facts() {
     // CPP WeaponTemplate ctor231+ and Weapon.h815 allocate a real weapon
     // without positive-damage/range admission filters.
-    let rule = gamelogic::weapon::WeaponTemplate::new("LocalFxOnlyRule".into());
+    let rule = generals_sim::weapon::WeaponDefinition::new("LocalFxOnlyRule".into());
     let weapon = ThingTemplate::weapon_from_template_at(&rule, 0).unwrap();
     assert_eq!(weapon.damage, 0.0);
     assert_eq!(weapon.range, 0.0);

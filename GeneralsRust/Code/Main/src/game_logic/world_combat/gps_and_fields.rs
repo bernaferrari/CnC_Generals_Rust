@@ -1399,7 +1399,7 @@ mod tests {
         let mut game = GameLogic::new();
         // No numerical ROF bonus: each genuine bit transition must still draw.
         game.admit_weapon_bonus_entries(&[]);
-        let mut rule = gamelogic::weapon::WeaponTemplate::new("PropagandaClockGun".into());
+        let mut rule = generals_sim::weapon::WeaponDefinition::new("PropagandaClockGun".into());
         rule.primary_damage = 1.0;
         rule.attack_range = 1000.0;
         rule.min_delay_between_shots = 600;

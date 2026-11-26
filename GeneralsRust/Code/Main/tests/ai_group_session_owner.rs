@@ -162,13 +162,13 @@ fn world_with_options(
     world
         .admit_object_ini_sources([("AiGroupOwner.ini".into(), source)])
         .unwrap();
-    let mut spawn_weapon = gamelogic::weapon::WeaponTemplate::new("SpawnFixtureWeapon".into());
+    let mut spawn_weapon = generals_sim::weapon::WeaponDefinition::new("SpawnFixtureWeapon".into());
     spawn_weapon.primary_damage = 10.0;
     spawn_weapon.attack_range = 200.0;
     spawn_weapon.projectile_name = "NONE".into();
     let mut weapons = vec![("SpawnFixtureWeapon".into(), spawn_weapon)];
     if armed {
-        let mut weapon = gamelogic::weapon::WeaponTemplate::new("GroupFixtureWeapon".into());
+        let mut weapon = generals_sim::weapon::WeaponDefinition::new("GroupFixtureWeapon".into());
         weapon.primary_damage = 1.0;
         weapon.attack_range = 200.0;
         weapon.projectile_name = "NONE".into();

@@ -3,6 +3,7 @@
 use serde::{Deserialize, Serialize};
 
 pub mod difficulty;
+pub mod ini;
 pub use difficulty::AIDifficulty;
 
 /// Unique identifier for Main host game objects.

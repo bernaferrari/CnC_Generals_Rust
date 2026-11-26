@@ -354,7 +354,7 @@ impl GameLogic {
         &self,
         template_name: &str,
     ) -> Option<(
-        Option<std::sync::Arc<gamelogic::weapon::WeaponTemplate>>,
+        Option<std::sync::Arc<generals_sim::weapon::WeaponDefinition>>,
         Option<String>,
         Option<gamelogic::effects::FXList>,
     )> {
@@ -375,7 +375,7 @@ impl GameLogic {
                 let guard = module.data.read();
                 let data = guard.downcast_ref::<gamelogic::object::behavior::StickyBombUpdateModuleData>()?;
                 Some((
-                    data.geometry_based_damage_weapon_template.clone(),
+                    data.geometry_based_damage_weapon_template.as_ref().map(|rule| rule.shared_definition()),
                     data.geometry_based_damage_weapon_name.clone(),
                     data.geometry_based_damage_fx.clone(),
                 ))

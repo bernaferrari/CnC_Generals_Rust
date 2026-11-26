@@ -1593,7 +1593,7 @@ fn slow_death_final_fx_precedes_final_weapon_fx_and_damage() {
         "slow-final-order.ini".into(),
         "Object SlowFinalSource\n KindOf = VEHICLE\n Body = ActiveBody Body\n MaxHealth = 1\n InitialHealth = 1\n End\n Behavior = SlowDeathBehavior Slow\n DestructionDelay = 1\n FX = FINAL FX_SlowFinalOrder\n Weapon = FINAL SlowFinalWeapon\n End\nEnd\nObject SlowFinalVictim\n KindOf = VEHICLE\n Body = ActiveBody Body\n MaxHealth = 100\n InitialHealth = 100\n End\nEnd\n".into(),
     )]).unwrap();
-    world.admit_receiving_module_content_with_weapons(content, Some(weapons.into_iter().collect())).unwrap();
+    world.admit_receiving_module_content_with_weapons(content, Some(generals_sim::weapon::WeaponCatalog::from_named_definitions(weapons).unwrap())).unwrap();
     world.add_player(Player::new(0, Team::USA, "SlowDeathOwner", true));
     let source = world.create_object_for_player("SlowFinalSource", 0, Vec3::new(80.0, 0.0, 80.0)).unwrap();
     let victim = world.create_object_for_player("SlowFinalVictim", 0, Vec3::new(85.0, 0.0, 80.0)).unwrap();

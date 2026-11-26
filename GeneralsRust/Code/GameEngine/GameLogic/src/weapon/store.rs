@@ -264,11 +264,11 @@ impl WeaponStore {
             template.fire_fx = source
                 .fire_fx
                 .clone()
-                .map(|name| name.map(|name| FXList::new(&name)));
+                .map(|name| name.map(|name| generals_sim::weapon::WeaponFxName::new(&name)));
             template.projectile_detonate_fx = source
                 .projectile_detonate_fx
                 .clone()
-                .map(|name| name.map(|name| FXList::new(&name)));
+                .map(|name| name.map(|name| generals_sim::weapon::WeaponFxName::new(&name)));
             template.fire_ocl_names = source.fire_ocl.clone();
             template.projectile_detonation_ocl_names = source.projectile_detonate_ocl.clone();
             template.projectile_exhaust_names = source.projectile_exhaust.clone();
@@ -483,7 +483,8 @@ impl WeaponStore {
     }
 
     /// Add a new weapon template. Assigns a NameKey when the leftover key is 0.
-    pub fn add_weapon_template(&mut self, mut template: WeaponTemplate) -> Arc<WeaponTemplate> {
+    pub fn add_weapon_template(&mut self, template: impl Into<WeaponTemplate>) -> Arc<WeaponTemplate> {
+        let mut template = template.into();
         if template.name_key == 0 && !template.name.is_empty() {
             template.name_key = NameKeyGenerator::name_to_key(&template.name);
         }

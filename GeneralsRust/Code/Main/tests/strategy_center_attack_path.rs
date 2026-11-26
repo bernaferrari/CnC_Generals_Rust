@@ -67,7 +67,7 @@ End
     logic
         .admit_object_ini_sources([("TurretPath.ini".into(), objects.into())])
         .unwrap();
-    let mut weapon = gamelogic::weapon::WeaponTemplate::new("TurretPathWeapon".into());
+    let mut weapon = generals_sim::weapon::WeaponDefinition::new("TurretPathWeapon".into());
     weapon.primary_damage = 25.0;
     weapon.attack_range = 150.0;
     weapon.projectile_name = "NONE".into();

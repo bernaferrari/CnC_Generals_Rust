@@ -369,7 +369,7 @@ pub struct TemporaryWeaponConstructionDefaults {
 
 impl TemporaryWeaponConstructionDefaults {
     /// Identical value extraction for owned and compatibility template lookup.
-    pub(crate) fn from_weapon_template(template: &gamelogic::weapon::WeaponTemplate) -> Self {
+    pub(crate) fn from_weapon_template(template: &generals_sim::weapon::WeaponDefinition) -> Self {
         Self {
             min_target_pitch: template.min_target_pitch,
             max_target_pitch: template.max_target_pitch,

@@ -337,10 +337,10 @@ fn ammo_pip_and_waypoint_weapon_helpers() {
     const PIPS: &str = "AmericaJetRaptorMissileWeapon";
     const WAYPT: &str = "HuntWaypointFollowWeapon";
     let _ = gamelogic::weapon::with_weapon_store_mut(|store| {
-        let mut pips = gamelogic::weapon::WeaponTemplate::new(PIPS.to_string());
+        let mut pips = generals_sim::weapon::WeaponDefinition::new(PIPS.to_string());
         pips.is_shows_ammo_pips = true;
         store.add_weapon_template(pips);
-        let mut waypt = gamelogic::weapon::WeaponTemplate::new(WAYPT.to_string());
+        let mut waypt = generals_sim::weapon::WeaponDefinition::new(WAYPT.to_string());
         waypt.capable_of_following_waypoint = true;
         store.add_weapon_template(waypt);
     });
@@ -800,7 +800,7 @@ fn construct_binds_continuous_fire_and_auto_reload_from_store() {
     crate::game_logic::weapon_bootstrap::ensure_host_weapon_store();
     const NAME: &str = "Hunt4GattlingGun";
     let _ = gamelogic::weapon::with_weapon_store_mut(|store| {
-        let mut template = gamelogic::weapon::WeaponTemplate::new(NAME.to_string());
+        let mut template = generals_sim::weapon::WeaponDefinition::new(NAME.to_string());
         template.primary_damage = 5.0;
         template.attack_range = 150.0;
         template.continuous_fire_one_shots_needed = 2;
@@ -826,7 +826,7 @@ fn take_scatter_table_offset_uses_store_pattern() {
     crate::game_logic::weapon_bootstrap::ensure_host_weapon_store();
     const NAME: &str = "Hunt4ScatterFireWeapon";
     let _ = gamelogic::weapon::with_weapon_store_mut(|store| {
-        let mut template = gamelogic::weapon::WeaponTemplate::new(NAME.to_string());
+        let mut template = generals_sim::weapon::WeaponDefinition::new(NAME.to_string());
         template.primary_damage = 10.0;
         template.attack_range = 100.0;
         template.scatter_target_scalar = 10.0;
