@@ -147,37 +147,24 @@ impl CnCGameEngine {
         if self.last_presentation_frame.is_some() {
             return Ok(());
         }
-        // Wave 195/590/926: shadow sync + presentation build via single host boundary.
-        let frame = self.host_sync_shadow_and_build_presentation(false)?;
+        let frame = self.host_build_presentation(false)?;
         self.last_presentation_frame = Some(frame.into());
         Ok(())
     }
 
-    /// Wave 590: pipeline env seed residual (host+GW) when pipeline has no frame.
+    /// Freeze the receiving world when the render pipeline needs its first frame.
     #[inline]
     pub(in crate::cnc_game_engine) fn host_ensure_presentation_env_for_hints(
         &mut self,
     ) -> Result<(), String> {
-        // Wave 590: pipeline env seed residual.
-        // Wave 466: prefer host+GameWorld shadow freeze when a shadow session exists.
-        // Wave 455: presentation-only env boundary — seed via build_for_engine only.
         if self.render_pipeline.presentation_frame().is_some() {
             return Ok(());
-        }
-        // Wave 466: sync shadow then freeze via build_for_engine (not host-only None).
-        // Wave 466/474: seed via build_for_engine(host + self.gameworld_shadow).
-        self.game_logic.owned_script_engine.as_ref().ok_or(
-            "Cannot freeze native camera fade: receiving interpreter is unavailable or lent",
-        )?;
-        if let Some(ref mut shadow) = self.gameworld_shadow {
-            shadow.sync_from_host(&self.game_logic);
         }
         let runtime_heightmap = self.presentation_runtime_heightmap_for_frame();
         let mut env_frame =
             crate::presentation_frame::PresentationFrame::try_publish_for_engine_with_runtime_heightmap(
                 &mut self.game_logic,
                 self.current_player_id,
-                self.gameworld_shadow.as_ref(),
                 runtime_heightmap,
                 false,
             )?;
@@ -404,22 +391,16 @@ impl CnCGameEngine {
         }
     }
 
-    /// Complete each actual logic step before observing it. Optional authority
-    /// experiments retain their separate scoped publication path.
+    /// Complete each actual logic step before publishing the outer frame.
     pub(super) fn host_run_fast_forward_loop(
         &mut self,
         dt: f32,
         ff_steps: usize,
         headless_step_budget: Option<usize>,
-        mut owned_observer: Option<&mut crate::gameworld_shadow::GameWorldShadow>,
     ) -> std::result::Result<(), String> {
         for _ in 0..ff_steps {
-            let (_, interrupted) = self.drive_native_command_phase(
-                dt,
-                headless_step_budget,
-                false,
-                owned_observer.as_deref_mut(),
-            )?;
+            let (_, interrupted) =
+                self.drive_native_command_phase(dt, headless_step_budget, false)?;
             self.dispatch_game_logic_audio_events();
             if interrupted {
                 break;
@@ -428,19 +409,7 @@ impl CnCGameEngine {
         Ok(())
     }
 
-    /// Wave 597: GameWorld shadow session residual via single boundary.
-    ///
-    /// Compatibility boundary for explicit authority experiments and probes.
-    /// Ordinary match frames pass their observation mirror directly.
-
-    /// Wave 589: post-logic presentation finalize residual.
-    ///
-    /// Builds immutable `PresentationFrame` (victory + GameWorld object path when
-    /// shadow live), dispatches presentation audio events, mirrors particle FX to
-    /// the client, stores `last_presentation_frame`, then applies InGame script FPS.
-    ///
-    /// Call after host logic + shadow writeback. Borrow-first: no live dual-read
-    /// during later render. Fail-closed: not sole GameWorld authority / playable_claim.
+    /// Publish the completed simulation step and dispatch its client events.
     pub(in crate::cnc_game_engine) fn host_finalize_presentation_after_logic(
         &mut self,
     ) -> Result<(), String> {
@@ -450,10 +419,9 @@ impl CnCGameEngine {
         // Native ControlBar pause requests are admitted once by
         // host_tick_control_bar_bridge; never poll a standalone Core UI queue.
         // Wave 589: presentation finalize residual.
-        // Wave 589/838/926: shadow sync + victory presentation build via single boundary.
         // Client particle systems are created at their authored source point
         // (FXList.cpp:580-584); presentation frames only observe them.
-        let mut pres = self.host_sync_shadow_and_build_presentation(true)?;
+        let mut pres = self.host_build_presentation(true)?;
         // Presentation → audio subsystem directly (no GameLogic dual-write mid-frame).
         let audio_observer = self.receiving_audio_observer_target();
         let audio_n = pres.dispatch_audio_events_direct(

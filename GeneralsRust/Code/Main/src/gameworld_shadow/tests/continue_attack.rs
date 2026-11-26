@@ -330,7 +330,7 @@ fn path_approach_with_state_decision_authority() {
         AIState::Gathering,
     );
 
-    let gathering_ord = GameWorldShadow::host_ai_state_ordinal(&AIState::Gathering);
+    let gathering_ord = AIState::Gathering.to_ordinal();
 
     // assign_unit_path may stamp Moving on the host; decision log carries Gathering
     // and GameWorld writeback is last-writer (AIUpdate.cpp state is the last write).

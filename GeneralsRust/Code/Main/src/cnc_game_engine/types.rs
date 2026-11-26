@@ -1012,13 +1012,6 @@ pub struct CnCGameEngine {
     pub(crate) host_match_world_bounds: Option<(glam::Vec3, glam::Vec3)>,
     /// Wave 863: host-owned first-opponent residual (debug victory hotkey peel).
     pub(crate) host_match_first_opponent_id: Option<Option<u32>>,
-    /// Optional GameWorld shadow session (stable ObjectId→EntityId).
-    /// Production default ON (`GENERALS_GAMEWORLD_SHADOW=0` to opt out).
-    /// Last-writer for HP/cash/pose/targets/move; not sole GameWorld authority yet.
-    pub(crate) gameworld_shadow: Option<crate::gameworld_shadow::GameWorldShadow>,
-    /// Observe-path entity count from GameWorld presentation view after coupled tick
-    /// (architecture residual: GameWorld → presentation without Main dual-read).
-    pub(crate) last_gameworld_presentation_entity_count: usize,
     /// Last presentation-overlaid UI state (selection health/minimap identity retained
     /// after render build so consumers are not dropped each frame).
     pub(crate) last_ui_state: Option<GameUIState>,

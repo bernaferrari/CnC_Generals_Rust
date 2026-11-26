@@ -739,7 +739,7 @@ impl GameLogic {
     ) -> gamelogic::GameLogicResult<bool> {
         // Host applies immediately so residual FSM/combat sees the new state
         // same-frame. Decision authority still logs for GameWorld last-write.
-        let ordinal = crate::gameworld_shadow::GameWorldShadow::host_ai_state_ordinal(&state);
+        let ordinal = state.to_ordinal();
         let _ = ordinal;
         let Some(unit) = self.objects.get(&unit_id) else {
             return Ok(false);

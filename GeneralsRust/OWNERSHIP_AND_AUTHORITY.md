@@ -21,6 +21,12 @@ Match -> completed presentation facts -> UI / world renderer / audio
 Match -> subsystem save continuations
 ```
 
+The native `CnCGameEngine` builds `PresentationFrame` from its receiving
+`GameLogic`. Registered objects supply the roster for match start, hint
+initialization, and frames published after simulation steps. The engine and
+renderer share the completed frame. Explicit `GameWorldShadow` probes can
+still create a separate observer for diagnostics.
+
 Move WGPU, model, texture, and widget handles into their consumers as the
 presentation interface is narrowed. A pixel renderer or a different UI
 should consume the same completed facts and submit the same commands.
@@ -848,7 +854,7 @@ and neither the full host test suite nor the full WASM host is claimed green.
 No whole-match isolation, retail playthrough, C++ executable differential,
 or frame-rate improvement is inferred from this review.
 
-## Current production ownership (2026-09-30)
+## Production ownership as of 2026-09-30
 
 The default Main host owns its objects and player runtime. The eleven authority
 switches in `Code/Main/src/game_logic/game_logic/gameworld_authority.rs` default
@@ -934,9 +940,9 @@ FlightDeck custom-field roundtrips preserve the
 current Rust format; the missing original AIUpdate base payload is hq-hfbvn,
 so original-save compatibility is not verified.
 
-The table below describes current defaults. Later wave logs record historical
-experiments and feature-gated configurations; descriptions of GameWorld as
-last writer do not override the current all-false default authority policy.
+The table below records the defaults at this stage of the migration. See
+[Runtime interfaces and original-game comparisons](#runtime-interfaces-and-original-game-comparisons)
+for the current native frame publisher.
 
 ## Host object access idiom (Wave 955–961)
 
@@ -973,8 +979,8 @@ Authority channels are per-`GameLogic` context fields (`gameworld_authority.rs`,
 every channel — damage / economy / movement / ai_attack / projectile / ai_decision /
 fire_spawn / construction / special_power / production / weapon — defaults **off**
 (host sole writer, C++ parity). The retired `GENERALS_GAMEWORLD_*_AUTHORITY` env
-flags no longer exist. The wave-numbered phase notes below were written against
-older gates and may lag the code; the code (and this table) is the truth.
+flags no longer exist. The wave-numbered phase notes below describe earlier
+experiments.
 
 - Target end state: `gamelogic::GameWorld` sole host; Main = composition root only.
 - Deferred-destroy bridge: GameWorld `Destroy` marks same-frame (`destroyed` + `destroyed_at_frame`, still findable by id) and `process_destroy_list` removes at host process; shadow probe adds pose/attack/move/weapon/contain/destroy-visibility (warning-only). Opt in `GENERALS_GAMEWORLD_DEFERRED_DESTROY=1` (default off).
@@ -1007,7 +1013,7 @@ older gates and may lag the code; the code (and this table) is the truth.
 | `AuthorityProbe` | `authoritative_world.rs` | Gate checkpoints |
 | `SkirmishMatchConfig` | `skirmish_config.rs` | UI → match rules/slots |
 
-## Migration order
+## Earlier GameWorld migration plan
 
 1. PresentationFrame consumers (render/HUD) — stop locking live sim during GPU passes. **Host get_objects dual-reads closed (2026-07-21).**
 2. Unify IDs across Main and crate.
@@ -1025,7 +1031,7 @@ older gates and may lag the code; the code (and this table) is the truth.
 | `executable_smoke_gate` | Real binary Menu→InGame via `click_skirmish_start` (SkirmishMenu Start button residual) + select/move; **not** full WND widget tree (`playable_claim=false`; `skirmish_start_click_ok` honesty) |
 | `shell_smoke_gate` | Headless host skirmish stack; not windowed WND |
 
-## Frame phase order (InGame logic tick)
+## Historical frame phase order with a shadow session
 
 1. `GameLogic::update` (AI, production, movement, combat modules mid-frame)
 2. Dual-crate tick (**removed** — `AuthorityOnly` only)
@@ -2700,11 +2706,11 @@ Under GENERALS_GAMEWORLD_SPECIAL_POWER_AUTHORITY+shadow (default on), GameWorld 
 
 Superweapon/strike residual uses `take_damage_from_immediate` so host HP mutates even under DAMAGE_AUTHORITY (combat fire still defers HP to GameWorld writeback).
 
-## Authority-switch runbook (hq-48k) — production truth 2026-08-16
+## Historical authority-switch runbook (hq-48k, 2026-08-16)
 
-C++ has one `TheGameLogic` store. Production truth is now host `GameLogic` as
-the sole writer. GameWorldShadow is an observe-only mirror (session still
-default-on; last-writer `*_AUTHORITY` flags default **off**).
+C++ has one `TheGameLogic` store. At this stage, the host `GameLogic` became
+the sole default writer. `GameWorldShadow` still ran by default as an
+observer, and the last-writer `*_AUTHORITY` flags defaulted to off.
 
 | Step | Production truth | Opt-in / rollback |
 |------|------------------|-------------------|

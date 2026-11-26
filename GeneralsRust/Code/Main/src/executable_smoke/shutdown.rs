@@ -82,19 +82,9 @@ fn merge_shutdown_residuals(result: &mut ExecutableSmokeResult, st: &SmokeRunSta
         .max(st.max_render_alive_objects);
     result.render_items_stable_ok = result.render_items_stable_ok
         || (result.reached_ingame && st.max_render_item_count > 0 && st.render_items_nonzero_polls >= 3);
-    result.gameworld_presentation_entities_ok =
-        result.gameworld_presentation_entities_ok || st.saw_gameworld_presentation_entities_ok;
-    result.max_gameworld_presentation_entities = result
-        .max_gameworld_presentation_entities
-        .max(st.max_gameworld_presentation_entities);
-    result.gameworld_overlay_stamped_ok =
-        result.gameworld_overlay_stamped_ok || st.saw_gameworld_overlay_stamped_ok;
-    result.max_gameworld_overlay_stamped = result
-        .max_gameworld_overlay_stamped
-        .max(st.max_gameworld_overlay_stamped);
-    result.max_gameworld_appended = result.max_gameworld_appended.max(st.max_gameworld_appended);
-    result.max_gameworld_rebuilt = result.max_gameworld_rebuilt.max(st.max_gameworld_rebuilt);
-    result.gameworld_rebuilt_ok = result.gameworld_rebuilt_ok || st.saw_gameworld_rebuilt_ok;
+    result.max_shared_presentation_objects = result
+        .max_shared_presentation_objects
+        .max(st.max_shared_presentation_objects);
     // Host command residuals observed during polls (even if chain cut short).
     result.gameplay_cmd_ok = result.gameplay_cmd_ok
         || (st.saw_select_ok && st.saw_move_ok && st.saw_attack_ok)

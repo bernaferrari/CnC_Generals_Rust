@@ -11,27 +11,20 @@ fn latch_presentation_frame_residuals(st: &mut SmokeRunState, snap: &StatusSnap)
     if snap.presentation_frame_ok && snap.presentation_live_fallback_reads == 0 {
         st.saw_presentation_live_fallback_ok = true;
     }
-    if snap.gameworld_presentation_entities > 0 {
-        st.saw_gameworld_presentation_entities_ok = true;
-        st.max_gameworld_presentation_entities =
-            st.max_gameworld_presentation_entities.max(snap.gameworld_presentation_entities);
-    }
-    if snap.gameworld_overlay_stamped > 0 {
-        st.saw_gameworld_overlay_stamped_ok = true;
-        st.max_gameworld_overlay_stamped =
-            st.max_gameworld_overlay_stamped.max(snap.gameworld_overlay_stamped);
-    }
-    if snap.gameworld_appended > 0 {
-        st.max_gameworld_appended = st.max_gameworld_appended.max(snap.gameworld_appended);
-    }
-    if snap.gameworld_rebuilt > 0 {
-        st.saw_gameworld_rebuilt_ok = true;
-        st.max_gameworld_rebuilt = st.max_gameworld_rebuilt.max(snap.gameworld_rebuilt);
+    if snap.state == "InGame"
+        && snap.presentation_frame_ok
+        && snap.presentation_frame_shared
+        && snap.presentation_live_fallback_reads == 0
+    {
+        st.max_shared_presentation_objects = st
+            .max_shared_presentation_objects
+            .max(snap.presentation_object_count);
     }
     if snap.presentation_frame_ok || snap.presentation_live_fallback_reads > 0 {
         st.presentation_detail = format!(
-            "frame_ok={} live_fallback={}",
-            snap.presentation_frame_ok, snap.presentation_live_fallback_reads
+            "frame_ok={} shared={} objects={} live_fallback={}",
+            snap.presentation_frame_ok, snap.presentation_frame_shared,
+            snap.presentation_object_count, snap.presentation_live_fallback_reads
         );
     }
 }

@@ -133,6 +133,15 @@ fn publish_shadow_case(
 
 #[test]
 fn accepted_discharge_publication_fifo_duplicates_and_same_id_worlds() {
+    let publish = |logic: &mut GameLogic, with_victory| {
+        PresentationFrame::try_publish_for_engine_with_runtime_heightmap(
+            logic,
+            0,
+            None,
+            with_victory,
+        )
+        .unwrap()
+    };
     let mut first = admitted_world(2);
     let mut second = admitted_world(1);
     accept_shot(&mut first, 1.0);
@@ -142,14 +151,14 @@ fn accepted_discharge_publication_fifo_duplicates_and_same_id_worlds() {
     assert_eq!(second.weapon_discharge_next_sequence_for_snapshot(), 2);
     assert_eq!(first.weapon_discharge_log.len(), 2);
     assert_eq!(second.weapon_discharge_log.len(), 1);
-    assert_eq!(cues(&publish(&mut second)), vec![(SOURCE, 1, 0, 1, 30)]);
+    assert_eq!(cues(&publish(&mut second, false)), vec![(SOURCE, 1, 0, 1, 30)]);
     assert_eq!(first.weapon_discharge_log.len(), 2);
     assert_eq!(
-        cues(&publish(&mut first)),
+        cues(&publish(&mut first, true)),
         vec![(SOURCE, 1, 0, 2, 30), (SOURCE, 2, 0, 0, 30)]
     );
-    assert!(cues(&publish(&mut first)).is_empty());
-    assert!(cues(&publish(&mut second)).is_empty());
+    assert!(cues(&publish(&mut first, true)).is_empty());
+    assert!(cues(&publish(&mut second, false)).is_empty());
     assert_eq!(
         first
             .host_object(SOURCE)

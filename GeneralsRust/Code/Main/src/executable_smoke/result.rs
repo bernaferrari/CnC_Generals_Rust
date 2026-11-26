@@ -90,19 +90,8 @@ pub struct ExecutableSmokeResult {
     pub presentation_frame_ok: bool,
     /// No live GameLogic dual-reads while presentation owned collect (status residual).
     pub presentation_live_fallback_ok: bool,
-    /// InGame observed gameworld_presentation_entities>0 at least once (shadow observe-path).
-    pub gameworld_presentation_entities_ok: bool,
-    /// Peak InGame gameworld_presentation_entities from runtime-host status.
-    pub max_gameworld_presentation_entities: u32,
-    /// InGame observed gameworld_overlay_stamped>0 at least once.
-    pub gameworld_overlay_stamped_ok: bool,
-    /// Peak InGame gameworld_overlay_stamped from runtime-host status.
-    pub max_gameworld_overlay_stamped: u32,
-    pub max_gameworld_appended: u32,
-    /// Peak gameworld_rebuilt (Wave 194 default GW roster).
-    pub max_gameworld_rebuilt: u32,
-    /// InGame observed gameworld_rebuilt>0 at least once (Wave 196).
-    pub gameworld_rebuilt_ok: bool,
+    /// Peak roster size of an InGame frame shared by the engine and renderer.
+    pub max_shared_presentation_objects: u32,
     pub select_similar_cmd_ok: bool,
     pub select_on_screen_cmd_ok: bool,
     pub select_structures_cmd_ok: bool,
@@ -291,21 +280,15 @@ impl ExecutableSmokeResult {
         );
         let map_is_shell_residual = Self::map_is_shell_for_claim(&self.map_seen);
         let skirmish_map_boundary_ok = !self.reached_ingame || !map_is_shell_residual;
-        let gameworld_presentation_boundary_ok = !self.reached_ingame
-            || !self.presentation_frame_ok
-            || self.max_render_alive_objects == 0
-            || self.gameworld_presentation_entities_ok;
-        let gameworld_overlay_boundary_ok =
-            !self.gameworld_presentation_entities_ok || self.gameworld_overlay_stamped_ok;
-        let gameworld_rebuilt_boundary_ok =
-            !self.gameworld_presentation_entities_ok || self.gameworld_rebuilt_ok;
         let render_mesh_boundary_ok = !self.reached_ingame
             || (self.max_render_alive_objects > 0
                 && self.max_render_item_count > 0
                 && self.render_items_stable_ok
                 && self.presentation_live_fallback_ok);
         let presentation_boundary_ok = !self.reached_ingame
-            || (self.presentation_frame_ok && self.presentation_live_fallback_ok);
+            || (self.presentation_frame_ok
+                && self.presentation_live_fallback_ok
+                && self.max_shared_presentation_objects > 0);
         self.host_vertical_slice_ok = self.shell_wnd_ok
             && self.main_menu_skirmish_wnd_ok
             && self.skirmish_map_select_wnd_ok
@@ -318,9 +301,6 @@ impl ExecutableSmokeResult {
             && self.train_cmd_ok
             && self.executable_host_ok
             && presentation_boundary_ok
-            && gameworld_presentation_boundary_ok
-            && gameworld_overlay_boundary_ok
-            && gameworld_rebuilt_boundary_ok
             && render_mesh_boundary_ok
             && skirmish_map_boundary_ok;
     }
@@ -384,13 +364,7 @@ impl Default for ExecutableSmokeResult {
             box_select_cmd_ok: false,
             presentation_frame_ok: false,
             presentation_live_fallback_ok: false,
-            gameworld_presentation_entities_ok: false,
-            max_gameworld_presentation_entities: 0,
-            gameworld_overlay_stamped_ok: false,
-            max_gameworld_overlay_stamped: 0,
-            max_gameworld_appended: 0,
-            max_gameworld_rebuilt: 0,
-            gameworld_rebuilt_ok: false,
+            max_shared_presentation_objects: 0,
             select_similar_cmd_ok: false,
             select_on_screen_cmd_ok: false,
             select_structures_cmd_ok: false,

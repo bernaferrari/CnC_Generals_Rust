@@ -17,7 +17,6 @@ use std::time::{Duration, Instant};
 pub(super) struct RuntimeUpdateTimings {
     pub(super) fixed_logic: Duration,
     pub(super) publish_frame: Duration,
-    pub(super) shadow_sync: Duration,
     pub(super) snapshot_build: Duration,
     pub(super) client_shell: Duration,
     pub(super) hud_and_post_update: Duration,
@@ -56,16 +55,8 @@ pub(super) struct RuntimeHostSnapshot {
     pub(super) presentation_frame_ok: bool,
     /// Runtime-only proof that engine and renderer share the frozen allocation.
     pub(super) presentation_frame_shared: bool,
-    /// GameWorld observe-path presentation entity count (after coupled shadow tick).
-    pub(super) gameworld_presentation_entities: u32,
-    /// PresentationFrame.gameworld_overlay_stamped after last overlay call.
-    pub(super) gameworld_overlay_stamped: u32,
-    /// PresentationFrame.gameworld_appended after last append_missing_from_gameworld.
-    pub(super) gameworld_appended: u32,
-    /// PresentationFrame.gameworld_rebuilt after last rebuild_objects_from_gameworld.
-    pub(super) gameworld_rebuilt: u32,
-    /// PresentationFrame.gameworld_primary_objects residual.
-    pub(super) gameworld_primary_objects: bool,
+    /// Number of objects in the latest frozen presentation frame.
+    pub(super) presentation_object_count: u32,
     /// Shell screen stack depth residual (retail WND push honesty).
     pub(super) shell_screen_count: u32,
     /// Top shell layout filename residual (e.g. Menus/MainMenu.wnd).
@@ -407,11 +398,7 @@ impl RuntimeHostBridge {
             victory_label: String::new(),
             presentation_frame_ok: false,
             presentation_frame_shared: false,
-            gameworld_presentation_entities: 0,
-            gameworld_overlay_stamped: 0,
-            gameworld_appended: 0,
-            gameworld_rebuilt: 0,
-            gameworld_primary_objects: false,
+            presentation_object_count: 0,
             shell_screen_count: 0,
             shell_top_wnd: String::new(),
             shell_active: false,
@@ -524,24 +511,8 @@ impl RuntimeHostBridge {
             snapshot.presentation_frame_ok
         ));
         payload.push_str(&format!(
-            "gameworld_presentation_entities={}\n",
-            snapshot.gameworld_presentation_entities
-        ));
-        payload.push_str(&format!(
-            "gameworld_overlay_stamped={}\n",
-            snapshot.gameworld_overlay_stamped
-        ));
-        payload.push_str(&format!(
-            "gameworld_appended={}\n",
-            snapshot.gameworld_appended
-        ));
-        payload.push_str(&format!(
-            "gameworld_rebuilt={}\n",
-            snapshot.gameworld_rebuilt
-        ));
-        payload.push_str(&format!(
-            "gameworld_primary_objects={}\n",
-            snapshot.gameworld_primary_objects
+            "presentation_object_count={}\n",
+            snapshot.presentation_object_count
         ));
         payload.push_str(&format!(
             "shell_screen_count={}\n",
@@ -651,7 +622,6 @@ impl RuntimeHostBridge {
             for (key, duration) in [
                 ("host_fixed_logic_ms", timings.fixed_logic),
                 ("host_publish_frame_ms", timings.publish_frame),
-                ("host_shadow_sync_ms", timings.shadow_sync),
                 ("host_snapshot_build_ms", timings.snapshot_build),
                 ("host_client_shell_ms", timings.client_shell),
                 ("host_hud_and_post_update_ms", timings.hud_and_post_update),

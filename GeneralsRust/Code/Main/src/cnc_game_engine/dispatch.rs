@@ -1326,27 +1326,10 @@ impl CnCGameEngine {
                 .last_presentation_frame
                 .as_ref()
                 .is_some_and(|frame| self.render_pipeline.shares_presentation_frame(frame)),
-            gameworld_presentation_entities: self.last_gameworld_presentation_entity_count as u32,
-            gameworld_overlay_stamped: self
+            presentation_object_count: self
                 .last_presentation_frame
                 .as_ref()
-                .map(|f| f.gameworld_overlay_stamped as u32)
-                .unwrap_or(0),
-            gameworld_appended: self
-                .last_presentation_frame
-                .as_ref()
-                .map(|f| f.gameworld_appended as u32)
-                .unwrap_or(0),
-            gameworld_rebuilt: self
-                .last_presentation_frame
-                .as_ref()
-                .map(|f| f.gameworld_rebuilt as u32)
-                .unwrap_or(0),
-            gameworld_primary_objects: self
-                .last_presentation_frame
-                .as_ref()
-                .map(|f| f.gameworld_primary_objects)
-                .unwrap_or(false),
+                .map_or(0, |frame| u32::try_from(frame.objects.len()).unwrap_or(u32::MAX)),
             shell_screen_count: {
                 #[cfg(feature = "game_client")]
                 {

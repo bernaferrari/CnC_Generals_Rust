@@ -10,7 +10,7 @@ pub fn format_executable_smoke_report(r: &ExecutableSmokeResult) -> String {
         r.interactive_gameplay,
     );
     format!(
-        "executable_smoke status={} host_ok={} playable_claim={} window_visible={} wnd_widget_tree_nav={} live_frame_ok={} ingame={} gameplay={} retail_sit_through_missing={} host_vertical_slice={} presentation_fallback={} started={} menu={} shell_wnd={} main_menu_skirmish_wnd={} map_select_wnd={} slot_config_wnd={} rules_wnd={} ingame={} gameplay_cmd={} construct_cmd={} train_cmd={} upgrade_cmd={} save_cmd={} load_cmd={} stop_cmd={} sell_cmd={} guard_cmd={} attack_move_cmd={} combat_damage={} scatter_cmd={} patrol_cmd={} deploy_cmd={} cheer_cmd={} formation_cmd={} capture_cmd={} return_supplies_cmd={} physical_build_and_produce={} physical_gather_resources={} physical_save_load_continue={} evacuate_cmd={} repair_cmd={} return_to_base_cmd={} attitude_cmd={} rally_cmd={} switch_weapons_cmd={} view_cc_cmd={} clear_mines_cmd={} beacon_cmd={} hack_cmd={} cleanup_cmd={} combat_drop_cmd={} overcharge_cmd={} special_power_cmd={} remove_beacon_cmd={} demo_cmd={} view_radar_cmd={} force_attack_cmd={} force_attack_object_cmd={} select_all_cmd={} control_group_cmd={} waypoint_cmd={} box_select_cmd={} presentation_frame_ok={} gw_pres_ents_ok={} max_gw_pres_ents={} gw_overlay_stamp_ok={} gw_appended={} gw_rebuilt_ok={} gw_rebuilt={} max_gw_overlay_stamp={} max_render_items={} render_items_stable={} max_render_alive={} presentation_live_fallback_ok={} select_similar_cmd={} select_on_screen_cmd={} select_structures_cmd={} select_aircraft_cmd={} select_idle_cmd={} camera_reset_cmd={} camera_zoom_cmd={} pause_cmd={} cancel_production_cmd={} diplomacy_cmd={} live_frame_ok={} window_visible={} wnd_widget_tree_nav={} auto_attack_cmd={} options_cmd={} request_capture_cmd={} skirmish_start_wnd={} skirmish_menu={} skirmish_start_click={} frames={} map={} exit={:?} new_game={} detail={}",
+        "executable_smoke status={} host_ok={} playable_claim={} window_visible={} wnd_widget_tree_nav={} live_frame_ok={} ingame={} gameplay={} retail_sit_through_missing={} host_vertical_slice={} presentation_fallback={} started={} menu={} shell_wnd={} main_menu_skirmish_wnd={} map_select_wnd={} slot_config_wnd={} rules_wnd={} ingame={} gameplay_cmd={} construct_cmd={} train_cmd={} upgrade_cmd={} save_cmd={} load_cmd={} stop_cmd={} sell_cmd={} guard_cmd={} attack_move_cmd={} combat_damage={} scatter_cmd={} patrol_cmd={} deploy_cmd={} cheer_cmd={} formation_cmd={} capture_cmd={} return_supplies_cmd={} physical_build_and_produce={} physical_gather_resources={} physical_save_load_continue={} evacuate_cmd={} repair_cmd={} return_to_base_cmd={} attitude_cmd={} rally_cmd={} switch_weapons_cmd={} view_cc_cmd={} clear_mines_cmd={} beacon_cmd={} hack_cmd={} cleanup_cmd={} combat_drop_cmd={} overcharge_cmd={} special_power_cmd={} remove_beacon_cmd={} demo_cmd={} view_radar_cmd={} force_attack_cmd={} force_attack_object_cmd={} select_all_cmd={} control_group_cmd={} waypoint_cmd={} box_select_cmd={} presentation_frame_ok={} max_shared_presentation_objects={} max_render_items={} render_items_stable={} max_render_alive={} presentation_live_fallback_ok={} select_similar_cmd={} select_on_screen_cmd={} select_structures_cmd={} select_aircraft_cmd={} select_idle_cmd={} camera_reset_cmd={} camera_zoom_cmd={} pause_cmd={} cancel_production_cmd={} diplomacy_cmd={} live_frame_ok={} window_visible={} wnd_widget_tree_nav={} auto_attack_cmd={} options_cmd={} request_capture_cmd={} skirmish_start_wnd={} skirmish_menu={} skirmish_start_click={} frames={} map={} exit={:?} new_game={} detail={}",
         r.status,
         r.executable_host_ok,
         r.playable_claim,
@@ -75,13 +75,7 @@ pub fn format_executable_smoke_report(r: &ExecutableSmokeResult) -> String {
         r.waypoint_cmd_ok,
         r.box_select_cmd_ok,
         r.presentation_frame_ok,
-        r.gameworld_presentation_entities_ok,
-        r.max_gameworld_presentation_entities,
-        r.gameworld_overlay_stamped_ok,
-        r.max_gameworld_appended,
-        r.gameworld_rebuilt_ok,
-        r.max_gameworld_rebuilt,
-        r.max_gameworld_overlay_stamped,
+        r.max_shared_presentation_objects,
         r.max_render_item_count,
         r.render_items_stable_ok,
         r.max_render_alive_objects,

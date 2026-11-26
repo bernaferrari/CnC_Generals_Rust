@@ -2760,6 +2760,81 @@ pub enum AIState {
     Dead,
 }
 
+// Stable AI state ordinals used by presentation and world snapshots.
+impl AIState {
+    pub(crate) fn to_ordinal(&self) -> u8 {
+        match self {
+            Self::Idle => 0,
+            Self::Moving => 1,
+            Self::Attacking => 2,
+            Self::AttackMoving => 3,
+            Self::AttackingGround => 4,
+            Self::Gathering => 5,
+            Self::ReturningResources => 6,
+            Self::Constructing => 7,
+            Self::Repairing => 8,
+            Self::GuardingArea => 9,
+            Self::GuardingObject => 10,
+            Self::GuardRetaliating => 20,
+            Self::Patrolling => 11,
+            Self::Docked => 12,
+            Self::Garrisoned => 13,
+            Self::SpecialAbility => 14,
+            Self::SeekingRepair => 15,
+            Self::SeekingHealing => 16,
+            Self::Entering => 17,
+            Self::Docking => 18,
+            Self::Capturing => 19,
+            Self::FacingObject => 21,
+            Self::FacingPosition => 22,
+            Self::Panic => 23,
+            Self::Exiting => 24,
+            Self::Uninitialized => 25,
+            Self::Hunting => 26,
+            Self::JetReturningForLanding => 27,
+            Self::JetReturnToDeadAirfield => 28,
+            Self::JetCirclingDeadAirfield => 29,
+            Self::Dead => 30,
+        }
+    }
+
+    pub(crate) fn from_ordinal(ordinal: u8) -> Self {
+        match ordinal {
+            1 => Self::Moving,
+            2 => Self::Attacking,
+            3 => Self::AttackMoving,
+            4 => Self::AttackingGround,
+            5 => Self::Gathering,
+            6 => Self::ReturningResources,
+            7 => Self::Constructing,
+            8 => Self::Repairing,
+            9 => Self::GuardingArea,
+            10 => Self::GuardingObject,
+            11 => Self::Patrolling,
+            12 => Self::Docked,
+            13 => Self::Garrisoned,
+            14 => Self::SpecialAbility,
+            15 => Self::SeekingRepair,
+            16 => Self::SeekingHealing,
+            17 => Self::Entering,
+            18 => Self::Docking,
+            19 => Self::Capturing,
+            20 => Self::GuardRetaliating,
+            21 => Self::FacingObject,
+            22 => Self::FacingPosition,
+            23 => Self::Panic,
+            24 => Self::Exiting,
+            25 => Self::Uninitialized,
+            26 => Self::Hunting,
+            27 => Self::JetReturningForLanding,
+            28 => Self::JetReturnToDeadAirfield,
+            29 => Self::JetCirclingDeadAirfield,
+            30 => Self::Dead,
+            _ => Self::Idle,
+        }
+    }
+}
+
 /// C++ `SpecialAbilityUpdate::PackingState` subset for capture abilities.
 /// `Unpacking` remains distinct from `Preparing`: the SpecialPower charge is
 /// not triggered until preparation begins.

@@ -462,7 +462,7 @@ impl CnCGameEngine {
             let _ = budget;
             return Ok(());
         }
-        self.drive_native_command_phase(dt, Some(budget), true, None)?;
+        self.drive_native_command_phase(dt, Some(budget), true)?;
         self.dispatch_game_logic_audio_events();
         Ok(())
     }
@@ -725,9 +725,6 @@ impl CnCGameEngine {
             self.pending_state = None;
             self.current_state = GameState::Exiting;
             return Err(NativeBoundaryFailure::InstalledWorld(error));
-        }
-        if let Some(shadow) = self.gameworld_shadow.as_mut() {
-            shadow.reset_for_world_boundary();
         }
         self.host_advance_direct_visual_world_epoch();
         #[cfg(feature = "game_client")]
@@ -1576,14 +1573,6 @@ impl CnCGameEngine {
         self.ui_manager
             .admit_camera_input_defaults(self.game_logic.camera_input_rules());
         self.host_admit_snow_for_world();
-        if let Some(shadow) = self.gameworld_shadow.as_mut() {
-            shadow.reset_for_world_boundary();
-            // The replacement is already a complete host world.  Seed the
-            // fresh GameWorld before any boot/menu probe can observe it; the
-            // staged-restore and successful map-load boundaries use the same
-            // reset-then-sync ordering.
-            shadow.sync_from_host(&self.game_logic);
-        }
         self.commit_native_world_epoch(epoch);
         #[cfg(feature = "game_client")]
         self.game_client
@@ -1966,10 +1955,6 @@ impl CnCGameEngine {
         // save-point stream.
         Self::host_restore_staged_logic_rng(&mut self.game_logic, logic_rng_seed_words);
         self.invalidate_presentation_terrain_cache();
-        if let Some(shadow) = self.gameworld_shadow.as_mut() {
-            shadow.reset_for_world_boundary();
-            shadow.sync_from_host(&self.game_logic);
-        }
         // Recreate map defaults only for older pose-only saves. Full native
         // continuation already admitted its fixed basis, HAG goal, pending
         // movements and impulses; rebuilding them here would discard callback FX.

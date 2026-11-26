@@ -20,11 +20,8 @@ struct StatusSnap {
     match_over: bool,
     victory_label: String,
     presentation_frame_ok: bool,
-    gameworld_presentation_entities: u32,
-    gameworld_overlay_stamped: u32,
-    gameworld_appended: u32,
-    gameworld_rebuilt: u32,
-    gameworld_primary_objects: bool,
+    presentation_frame_shared: bool,
+    presentation_object_count: u32,
     shell_screen_count: u32,
     shell_top_wnd: String,
     shell_active: bool,
@@ -98,23 +95,14 @@ fn parse_status(path: &Path) -> Option<StatusSnap> {
                     "1" | "true" | "yes" | "on"
                 );
             }
-            "gameworld_presentation_entities" => {
-                snap.gameworld_presentation_entities = v.trim().parse().unwrap_or(0);
-            }
-            "gameworld_overlay_stamped" => {
-                snap.gameworld_overlay_stamped = v.trim().parse().unwrap_or(0);
-            }
-            "gameworld_appended" => {
-                snap.gameworld_appended = v.parse().unwrap_or(0);
-            }
-            "gameworld_rebuilt" => {
-                snap.gameworld_rebuilt = v.trim().parse().unwrap_or(0);
-            }
-            "gameworld_primary_objects" => {
-                snap.gameworld_primary_objects = matches!(
+            "presentation_frame_shared" => {
+                snap.presentation_frame_shared = matches!(
                     v.trim().to_ascii_lowercase().as_str(),
                     "1" | "true" | "yes" | "on"
                 );
+            }
+            "presentation_object_count" => {
+                snap.presentation_object_count = v.trim().parse().unwrap_or(0);
             }
             "shell_screen_count" => {
                 snap.shell_screen_count = v.trim().parse().unwrap_or(0);

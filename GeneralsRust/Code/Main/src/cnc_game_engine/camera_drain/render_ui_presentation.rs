@@ -135,31 +135,22 @@ impl CnCGameEngine {
         }
     }
 
-    pub(in crate::cnc_game_engine) fn host_sync_shadow_and_build_presentation(
+    pub(in crate::cnc_game_engine) fn host_build_presentation(
         &mut self,
         with_victory: bool,
     ) -> Result<crate::presentation_frame::PresentationFrame, String> {
-        // Availability is checked before mutating the shadow observation mirror.
+        // Validate the interpreter before advancing presentation animations.
         self.game_logic.owned_script_engine.as_ref().ok_or(
             "Cannot freeze native camera fade: receiving interpreter is unavailable or lent",
         )?;
         self.game_logic.advance_world_animations_for_presentation();
         let timed = self.runtime_host_update_timings.is_some();
-        // Wave 926: single host→shadow sync + presentation build boundary.
-        if let Some(ref mut shadow) = self.gameworld_shadow {
-            let started = timed.then(Instant::now);
-            shadow.sync_from_host(&self.game_logic);
-            if let Some((timings, started)) = self.runtime_host_update_timings.as_mut().zip(started) {
-                timings.shadow_sync = started.elapsed();
-            }
-        }
         let runtime_heightmap = self.presentation_runtime_heightmap_for_frame();
         let local_id = self.current_player_id;
         let started = timed.then(Instant::now);
         let mut frame = crate::presentation_frame::PresentationFrame::try_publish_for_engine_with_runtime_heightmap(
             &mut self.game_logic,
             local_id,
-            self.gameworld_shadow.as_ref(),
             runtime_heightmap,
             with_victory,
         )?;
@@ -227,17 +218,11 @@ impl CnCGameEngine {
         self.match_kills = 0;
         self.game_logic.health_events.reset_cumulative();
 
-        // Wave 172/590: match-start seed always syncs GameWorldShadow from host
-        // then build_for_engine (GW overlay/rebuild lives inside that freeze).
-        if let Some(ref mut shadow) = self.gameworld_shadow {
-            shadow.sync_from_host(&self.game_logic);
-        }
         let runtime_heightmap = self.presentation_runtime_heightmap_for_frame();
         let mut pres =
             crate::presentation_frame::PresentationFrame::try_publish_for_engine_with_runtime_heightmap(
                 &mut self.game_logic,
                 self.current_player_id,
-                self.gameworld_shadow.as_ref(),
                 runtime_heightmap,
                 false,
             )?;

@@ -1605,15 +1605,7 @@ fn smoke_drive_gameplay_chain(
         result.box_select_cmd_ok = st.saw_box_select_ok;
         result.presentation_frame_ok = st.saw_presentation_frame_ok;
         result.presentation_live_fallback_ok = st.saw_presentation_live_fallback_ok;
-        result.gameworld_presentation_entities_ok =
-            st.saw_gameworld_presentation_entities_ok;
-        result.max_gameworld_presentation_entities =
-            st.max_gameworld_presentation_entities;
-        result.gameworld_overlay_stamped_ok = st.saw_gameworld_overlay_stamped_ok;
-        result.max_gameworld_overlay_stamped = st.max_gameworld_overlay_stamped;
-        result.max_gameworld_appended = st.max_gameworld_appended;
-        result.max_gameworld_rebuilt = st.max_gameworld_rebuilt;
-        result.gameworld_rebuilt_ok = st.saw_gameworld_rebuilt_ok;
+        result.max_shared_presentation_objects = st.max_shared_presentation_objects;
         result.shell_wnd_ok = st.saw_shell_wnd_ok;
         result.max_render_item_count = st.max_render_item_count;
         result.max_render_alive_objects = st.max_render_alive_objects;

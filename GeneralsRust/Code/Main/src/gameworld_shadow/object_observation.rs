@@ -850,7 +850,7 @@ impl GameWorldShadow {
         e.target_location = obj.target_location.map(|p| [p.x, p.y, p.z]);
         e.guard_position = obj.active_guard_position().map(|p| [p.x, p.y, p.z]);
         e.guard_target_host = obj.active_guard_target().map(|id| id.0).unwrap_or(0);
-        e.ai_state_ordinal = Self::host_ai_state_ordinal(&obj.ai_state());
+        e.ai_state_ordinal = obj.ai_state().to_ordinal();
         e.occupant_count = obj.contained_unit_ids().len().min(u16::MAX as usize) as u16;
         e.experience_points = obj.experience.current;
         e.veterancy_ordinal = Self::host_veterancy_ordinal(obj.experience.level);

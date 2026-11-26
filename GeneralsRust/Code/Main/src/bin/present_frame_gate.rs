@@ -91,6 +91,7 @@ fn main() {
         && r.gameplay_cmd_ok
         && r.render_items_stable_ok
         && r.max_render_item_count > 0
+        && r.max_shared_presentation_objects > 0
         && r.live_frame_ok
         && categories_ok
         && (r.status == "success" || r.status == "success_forced_exit");

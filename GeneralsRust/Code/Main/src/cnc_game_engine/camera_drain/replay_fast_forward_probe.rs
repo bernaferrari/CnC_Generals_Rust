@@ -5,7 +5,6 @@ use crate::game_logic::{
     BuildingData, BuildingType, GameLogic, KindOf, ObjectId, ProductionItem, ProductionKind,
     Resources, Team, ThingTemplate,
 };
-use crate::gameworld_shadow::GameWorldShadow;
 use glam::Vec3;
 use std::sync::Arc;
 use winit::{event_loop::EventLoop, window::WindowAttributes};
@@ -105,7 +104,6 @@ fn install_replay_factory(engine: &mut CnCGameEngine) -> ObjectId {
     // The synthetic world replaces the camera owner after application startup.
     // Keep the admitted application basis so ClearGameData can reset the view.
     engine.game_logic.session_view.camera.settings = camera;
-    engine.gameworld_shadow = Some(GameWorldShadow::new(64));
     engine.last_frame_timing = None;
     engine.last_presentation_frame = None;
     engine.host_match_time_frozen = None;
@@ -183,21 +181,30 @@ fn run_engine_replay_batch(
     let before = host_queue_state(engine, producer_id);
     for _ in 0..outer_frames {
         // Exercise the actual engine boundary: it decides fixed-step count,
-        // completes Main gameplay, copies observations, and finalizes one
+        // completes Main gameplay and finalizes one
         // presentation frame per outer update.
         direct_probe_frame(engine, dt).expect("complete replay probe frame");
     }
     let after = host_queue_state(engine, producer_id);
-    let shadow = engine.gameworld_shadow.as_ref().expect("receiving observer");
+    let frame = engine.last_presentation_frame.as_ref().expect("published frame");
+    assert_eq!(frame.frame.0, engine.game_logic.get_frame());
+    let producer = frame
+        .objects
+        .iter()
+        .find(|object| object.id == producer_id)
+        .expect("producer in published roster");
+    let live_queue = &engine
+        .game_logic
+        .host_object(producer_id)
+        .unwrap()
+        .building_data
+        .as_ref()
+        .unwrap()
+        .production_queue;
     assert_eq!(
-        shadow.world().frame(),
-        u64::from(engine.game_logic.get_frame())
+        producer.production_queue[0],
+        crate::presentation_frame::PresentationProductionItem::from_host_item(&live_queue[0])
     );
-    let producer = shadow
-        .entity_for_host(producer_id)
-        .and_then(|entity| shadow.world().entity(entity))
-        .expect("producer in published observation");
-    assert_eq!(producer.production_queue_items[0].construction_frames, after.0);
     (
         after.0 - before.0,
         before.1 - after.1,
@@ -396,7 +403,7 @@ fn source_command_phase_engine_witness(engine: &mut CnCGameEngine) {
         "source Clear-only tail advances cleared frame0 once"
     );
     assert!(engine.game_logic.host_object(ObjectId(1)).is_none());
-    assert_eq!(engine.gameworld_shadow.as_ref().unwrap().world().frame(), 1);
+    assert!(engine.last_presentation_frame.as_ref().is_none_or(|frame| frame.objects.is_empty()));
 
     // Shell.cpp448–472 legitimately admits [CLEAR, NEW_GAME(SHELL)]. It
     // must survive subsystem reset and park exact Shell map loading.
@@ -1521,10 +1528,6 @@ fn visual_physics_display_witness(engine: &mut CnCGameEngine) -> anyhow::Result<
 }
 
 pub(super) fn run_replay_fast_forward_engine_probe() -> anyhow::Result<()> {
-    anyhow::ensure!(
-        crate::gameworld_shadow::gameworld_shadow_enabled(),
-        "replay fast-forward probe requires shadow enabled at process launch"
-    );
     if std::env::var_os("GENERALS_SKIRMISH_LONGEVITY_GATE_MAP").is_some() {
         eprintln!("Running skirmish longevity only: replay fast-forward, command-phase and team-failure regressions are NOT RUN");
         anyhow::ensure!(

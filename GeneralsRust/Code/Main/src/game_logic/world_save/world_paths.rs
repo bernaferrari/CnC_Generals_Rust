@@ -2569,7 +2569,7 @@ impl GameLogic {
     ) -> bool {
         let state = self.mood_adjusted_move_state(object_id, state);
 
-        let ordinal = crate::gameworld_shadow::GameWorldShadow::host_ai_state_ordinal(&state);
+        let ordinal = state.to_ordinal();
         let attack_moving = matches!(state, AIState::AttackMoving);
         let already = self
             .objects

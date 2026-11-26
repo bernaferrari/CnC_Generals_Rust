@@ -4,7 +4,7 @@ use gamelogic::path::PathfindLayerEnum;
 use gamelogic::terrain::{BridgeInfo, TerrainLogic};
 
 fn publish(logic: &mut GameLogic) -> PresentationFrame {
-    PresentationFrame::try_publish_for_engine_with_runtime_heightmap(logic, 0, None, None, false)
+    PresentationFrame::try_publish_for_engine_with_runtime_heightmap(logic, 0, None, false)
         .expect("receiving presentation publication")
 }
 

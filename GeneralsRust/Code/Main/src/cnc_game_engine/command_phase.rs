@@ -110,7 +110,6 @@ impl CnCGameEngine {
         budget: Option<usize>,
         shell: bool,
         operation: NativeLogicOperation,
-        mut owned_observer: Option<&mut crate::gameworld_shadow::GameWorldShadow>,
     ) -> crate::game_logic::NativeTickProgress {
         #[cfg(feature = "game_client")]
         let receiving_callback_observation = self.receiving_control_bar_callback_observation();
@@ -123,7 +122,6 @@ impl CnCGameEngine {
         }
         let gather_eligible = self.host_physical_gather_evidence_eligible();
         let local_player_id = self.local_player_id_for_ui();
-        let presentation_entity_count = &mut self.last_gameworld_presentation_entity_count;
         let tracked_carriers = &self.physical_gather_carrier_ids;
         let playability = &mut self.interactive_playability;
         #[cfg(feature = "game_client")]
@@ -242,14 +240,7 @@ impl CnCGameEngine {
                     tracked_carriers,
                     playability,
                 );
-            }
-            // Keep step-scoped events and observer identities in source order.
-            // Publication copies the final world fields after the batch.
-            if !shell {
                 logic.complete_presentation_observations();
-                *presentation_entity_count = owned_observer
-                    .as_deref_mut()
-                    .map_or(0, |shadow| shadow.observe_completed_host_step(logic));
             }
         };
         match operation {
@@ -538,7 +529,6 @@ impl CnCGameEngine {
         dt: f32,
         budget: Option<usize>,
         shell: bool,
-        mut owned_observer: Option<&mut crate::gameworld_shadow::GameWorldShadow>,
     ) -> std::result::Result<(crate::game_logic::SimTimingSnapshot, bool), String> {
         use crate::game_logic::{NativeCommandAction, NativeCommandCompletion, NativeTickProgress};
         if let Some(error) = self.game_logic.team_creation_error() {
@@ -549,7 +539,6 @@ impl CnCGameEngine {
             budget,
             shell,
             NativeLogicOperation::Begin,
-            owned_observer.as_deref_mut(),
         );
         let mut interrupted = false;
         let mut last_clear_score = false;
@@ -585,14 +574,7 @@ impl CnCGameEngine {
                             if self.is_quitting() {
                                 return Err("ClearGameData rejected a terminal native owner".into());
                             }
-                            if reset_performed {
-                                interrupted = true;
-                                // The normal match observer is temporarily moved out of self;
-                                // clear this exact observer before admitting new identities.
-                                if let Some(observer) = owned_observer.as_deref_mut() {
-                                    observer.reset_for_world_boundary();
-                                }
-                            }
+                            interrupted |= reset_performed;
                             NativeCommandCompletion::Cleared { reset_performed }
                         }
                         NativeCommandAction::PrepareNewGame(message) => {
@@ -609,7 +591,6 @@ impl CnCGameEngine {
                         budget,
                         shell,
                         NativeLogicOperation::Resume(cursor, completion),
-                        owned_observer.as_deref_mut(),
                     );
                 }
             }

@@ -1130,12 +1130,6 @@ impl CnCGameEngine {
             host_match_in_multiplayer: None,
             host_match_world_bounds: None,
             host_match_first_opponent_id: None,
-            gameworld_shadow: if crate::gameworld_shadow::gameworld_shadow_enabled() {
-                Some(crate::gameworld_shadow::GameWorldShadow::new(4096))
-            } else {
-                None
-            },
-            last_gameworld_presentation_entity_count: 0,
             last_ui_state: None,
             resource_manager,
             save_file_manager,

@@ -2538,15 +2538,8 @@ impl PresentationFrame {
         n
     }
 
-    /// Build a PresentationFrame whose **object roster** is GameWorld-primary (Wave 193).
-    ///
-    /// When `host` is provided, non-object presentation residual (world_env, scripts,
-    /// camera, FX packs) still comes from `build_from_logic`, then objects are rebuilt
-    /// from the shadow. When `host` is `None`, a minimal shell frame is filled with
-    /// GameWorld objects + local player residual only.
-    ///
-    /// Default engine path (Wave 194) rebuilds objects from GameWorld after host
-    /// non-object residual. Fail-closed: not full authority cutover / playable_claim.
+    /// Build a diagnostic frame with an explicitly supplied GameWorld shadow.
+    /// An optional receiving simulation supplies host-owned state.
     pub fn build_from_gameworld(
         shadow: &crate::gameworld_shadow::GameWorldShadow,
         local_player_id: u32,
@@ -2637,16 +2630,8 @@ impl PresentationFrame {
         frame
     }
 
-    /// Standard engine presentation build (Wave 195).
-    ///
-    /// When a live `GameWorldShadow` is present and
-    /// [`presentation_from_gameworld_enabled`] is true (default), this is equivalent to
-    /// [`build_from_gameworld`] — host supplies non-object residual, objects come from
-    /// the borrow-first entity store. Otherwise falls back to host
-    /// [`build_from_logic`] plus overlay/append when a shadow is available.
-    ///
-    /// Callers must `sync_from_host` before this when a shadow is provided.
-    /// Fail-closed: not full GameWorld authority cutover / playable_claim.
+    /// Programmatic frame builder with an optional diagnostic shadow.
+    /// A supplied shadow must be synchronized before the call.
     pub fn build_for_engine(
         logic: &mut GameLogic,
         local_player_id: u32,
@@ -2750,10 +2735,7 @@ impl PresentationFrame {
         }
     }
 
-    /// Engine tick presentation build with victory residual (Wave 195).
-    ///
-    /// Freezes victory via [`build_with_victory`], then applies the standard
-    /// GameWorld object roster path when a shadow is live.
+    /// Programmatic victory publication with an optional diagnostic shadow.
     pub fn build_with_victory_for_engine(
         logic: &mut GameLogic,
         local_player_id: u32,

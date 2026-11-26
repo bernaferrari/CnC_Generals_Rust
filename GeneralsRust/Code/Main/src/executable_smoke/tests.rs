@@ -605,10 +605,10 @@ mod tests {
         r.max_render_alive_objects = 8;
         r.max_render_item_count = 16;
         r.render_items_stable_ok = true;
-        r.gameworld_presentation_entities_ok = true;
-        r.gameworld_overlay_stamped_ok = true;
-        r.gameworld_rebuilt_ok = true;
         r.map_seen = "Lone Eagle".into();
+        r.apply_host_vertical_slice_gate();
+        assert!(!r.host_vertical_slice_ok, "the renderer needs a shared object roster");
+        r.max_shared_presentation_objects = 8;
         r.apply_host_vertical_slice_gate();
         assert!(
             r.host_vertical_slice_ok,

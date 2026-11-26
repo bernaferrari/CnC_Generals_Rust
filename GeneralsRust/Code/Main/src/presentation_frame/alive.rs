@@ -699,7 +699,7 @@ impl PresentationFrame {
         &self,
         player_team: crate::game_logic::Team,
     ) -> Vec<ObjectId> {
-        // host_ai_state_ordinal: GuardingArea=9, GuardingObject=10, GuardRetaliating=20
+        // AIState ordinals: GuardingArea=9, GuardingObject=10, GuardRetaliating=20
         self.alive_selectable_friendly_filtered_ids(player_team, |o| {
             o.guard_position.is_some()
                 || o.guard_target.is_some()
@@ -711,7 +711,7 @@ impl PresentationFrame {
         &self,
         player_team: crate::game_logic::Team,
     ) -> Vec<ObjectId> {
-        // host_ai_state_ordinal: Patrolling = 11
+        // AIState ordinals: Patrolling = 11
         self.alive_selectable_friendly_filtered_ids(player_team, |o| o.ai_state_ordinal == 11)
     }
 
@@ -791,7 +791,7 @@ impl PresentationFrame {
         &self,
         player_team: crate::game_logic::Team,
     ) -> Vec<ObjectId> {
-        // host_ai_state_ordinal Docked = 12
+        // AIState ordinals Docked = 12
         self.alive_selectable_friendly_filtered_ids(player_team, |o| {
             (o.object_type == PresentationObjectType::Aircraft || o.airborne_target)
                 && o.ai_state_ordinal == 12

@@ -72,26 +72,27 @@ impl PresentationFrame {
     pub(crate) fn try_publish_for_engine_with_runtime_heightmap(
         logic: &mut GameLogic,
         local: u32,
-        shadow: Option<&crate::gameworld_shadow::GameWorldShadow>,
         runtime_heightmap: Option<std::sync::Arc<PresentationRuntimeHeightmap>>,
         with_victory: bool,
     ) -> Result<Self, String> {
         let fade = FrameFade::receiving(logic)?;
         Ok(if with_victory {
-            Self::build_with_victory_for_engine_with_runtime_heightmap_and_fade(
+            Self::build_with_victory_with_tint_update(
                 logic,
                 local,
-                shadow,
                 runtime_heightmap,
+                true,
                 fade,
+                super::build::HostRoster::Keep,
+                &mut super::build::RiderChangeRosters::default(),
             )
         } else {
             let discharges = logic.take_weapon_discharges_for_presentation();
-            Self::build_for_engine_with_runtime_heightmap_and_discharges(
+            Self::build_from_logic_with_tint_update(
                 logic,
                 local,
-                shadow,
                 runtime_heightmap,
+                true,
                 discharges,
                 fade,
             )

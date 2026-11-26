@@ -769,9 +769,7 @@ impl PresentationFrame {
                 cell_is_underwater: obj.cell_is_underwater,
                 move_max_speed: obj.movement.max_speed,
                 velocity: obj.movement.velocity,
-                ai_state_ordinal: crate::gameworld_shadow::GameWorldShadow::host_ai_state_ordinal(
-                    &obj.ai_state(),
-                ),
+                ai_state_ordinal: obj.ai_state().to_ordinal(),
                 attack_target: auth_target,
                 path_waypoints: obj.movement.path.iter().copied().take(16).collect(),
                 path_len: obj.movement.path.len().min(u16::MAX as usize) as u16,

@@ -1319,8 +1319,21 @@ fn gameworld_primary_presentation_retains_unattackable_weaponset_override() {
     assert!(!UnitControlSystem::presentation_is_attackable(object));
 }
 
+fn publish_with_diagnostic_shadow(
+    world: &mut GameLogic,
+    player: u32,
+    shadow: &crate::gameworld_shadow::GameWorldShadow,
+    with_victory: bool,
+) -> PresentationFrame {
+    if with_victory {
+        PresentationFrame::build_with_victory_for_engine(world, player, Some(shadow))
+    } else {
+        PresentationFrame::publish_for_engine(world, player, Some(shadow))
+    }
+}
+
 #[test]
-fn live_publication_keeps_receiving_player_facts_with_stale_shadow() {
+fn diagnostic_shadow_keeps_receiving_player_facts() {
     use crate::game_logic::Player;
     use crate::gameworld_shadow::GameWorldShadow;
 
@@ -1346,14 +1359,7 @@ fn live_publication_keeps_receiving_player_facts_with_stale_shadow() {
     world.get_player_mut(3).unwrap().color_rgb = (25, 50, 75);
 
     for with_victory in [false, true] {
-        let frame = PresentationFrame::try_publish_for_engine_with_runtime_heightmap(
-            &mut world,
-            0,
-            Some(&shadow),
-            None,
-            with_victory,
-        )
-        .unwrap();
+        let frame = publish_with_diagnostic_shadow(&mut world, 0, &shadow, with_victory);
         assert!(!frame.local_is_alive);
         assert_eq!(frame.local_radar_count, 3);
         assert!(frame.local_radar_disabled);
@@ -1368,14 +1374,7 @@ fn live_publication_keeps_receiving_player_facts_with_stale_shadow() {
             [(0, false, (9, 8, 7)), (3, true, (25, 50, 75))]
         );
 
-        let peer_frame = PresentationFrame::try_publish_for_engine_with_runtime_heightmap(
-            &mut peer,
-            0,
-            Some(&peer_shadow),
-            None,
-            with_victory,
-        )
-        .unwrap();
+        let peer_frame = publish_with_diagnostic_shadow(&mut peer, 0, &peer_shadow, with_victory);
         assert!(peer_frame.local_is_alive);
         assert_eq!(peer_frame.local_color_rgb, (5, 6, 7));
     }
@@ -1415,14 +1414,17 @@ fn hidden_actor_roster_survives_without_a_drawable_or_shadow_row() {
         (Some(&shadow), false),
         (Some(&shadow), true),
     ] {
-        let frame = PresentationFrame::try_publish_for_engine_with_runtime_heightmap(
-            &mut world,
-            0,
-            observer,
-            None,
-            with_victory,
-        )
-        .unwrap();
+        let frame = if let Some(shadow) = observer {
+            publish_with_diagnostic_shadow(&mut world, 0, shadow, with_victory)
+        } else {
+            PresentationFrame::try_publish_for_engine_with_runtime_heightmap(
+                &mut world,
+                0,
+                None,
+                with_victory,
+            )
+            .unwrap()
+        };
         let row = frame
             .objects
             .iter()
@@ -1462,7 +1464,7 @@ fn hidden_actor_roster_survives_without_a_drawable_or_shadow_row() {
 }
 
 #[test]
-fn live_publication_reads_body_and_pose_from_receiving_objects() {
+fn diagnostic_shadow_reads_body_and_pose_from_receiving_objects() {
     use crate::game_logic::{Object, host_enum_table_residual::HostBodyDamageType};
     use crate::gameworld_shadow::GameWorldShadow;
 
@@ -1486,14 +1488,7 @@ fn live_publication_reads_body_and_pose_from_receiving_objects() {
     object.body_damage_state = HostBodyDamageType::ReallyDamaged;
 
     for with_victory in [false, true] {
-        let frame = PresentationFrame::try_publish_for_engine_with_runtime_heightmap(
-            &mut world,
-            0,
-            Some(&shadow),
-            None,
-            with_victory,
-        )
-        .unwrap();
+        let frame = publish_with_diagnostic_shadow(&mut world, 0, &shadow, with_victory);
         let row = frame.objects.iter().find(|row| row.id == id).unwrap();
         assert_eq!(row.position, position);
         assert_eq!(row.orientation, 1.25);
@@ -1510,17 +1505,44 @@ fn live_publication_reads_body_and_pose_from_receiving_objects() {
     let stale = shadow.world_mut().world_mut().entity_mut(entity).unwrap();
     stale.health = 0.0;
     stale.destroyed = true;
-    let frame = PresentationFrame::try_publish_for_engine_with_runtime_heightmap(
-        &mut peer,
-        0,
-        Some(&shadow),
-        None,
-        false,
-    )
-    .unwrap();
+    let frame = publish_with_diagnostic_shadow(&mut peer, 0, &shadow, false);
     let row = frame.objects.iter().find(|row| row.id == id).unwrap();
     assert_eq!(row.health_current, 100.0);
     assert!(!row.destroyed);
+}
+
+#[test]
+fn native_publication_tracks_registered_visible_objects_at_the_frame_boundary() {
+    use crate::game_logic::Object;
+
+    let mut template = ThingTemplate::new("RosterInfantry");
+    template.set_health(100.0);
+    template.set_model("airngr_skn");
+    template.add_kind_of(KindOf::Infantry);
+    let survivor = ObjectId(3);
+    let removed = ObjectId(42);
+    let admitted = ObjectId(24);
+    let mut world = GameLogic::new();
+    world.add_object(Object::new(template.clone(), removed, Team::USA));
+    world.add_object(Object::new(template.clone(), survivor, Team::USA));
+
+    let first =
+        PresentationFrame::try_publish_for_engine_with_runtime_heightmap(&mut world, 0, None, false)
+            .unwrap();
+    assert_eq!(first.renderable_object_ids(), [survivor, removed]);
+
+    world.destroy_object(removed).unwrap();
+    world.process_destroy_list();
+    world.add_object(Object::new(template, admitted, Team::USA));
+    let next =
+        PresentationFrame::try_publish_for_engine_with_runtime_heightmap(&mut world, 0, None, true)
+            .unwrap();
+    assert_eq!(next.renderable_object_ids(), [survivor, admitted]);
+    assert_eq!(
+        next.unit_render_inputs().iter().map(|draw| draw.id).collect::<Vec<_>>(),
+        [survivor, admitted],
+    );
+    assert_eq!(first.renderable_object_ids(), [survivor, removed]);
 }
 
 #[test]

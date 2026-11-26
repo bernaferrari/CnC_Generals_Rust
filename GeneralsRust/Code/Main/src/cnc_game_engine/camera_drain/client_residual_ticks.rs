@@ -479,15 +479,9 @@ impl CnCGameEngine {
             Some(remaining) => Some(step_budget.unwrap_or(1).min(remaining)),
             None => step_budget,
         };
-        // Preserve observer identities during fixed steps. The presentation
-        // copies the final Main state after the batch.
         let timed = self.runtime_host_update_timings.is_some();
         let logic_started = timed.then(Instant::now);
-        let mut observer_slot = self.gameworld_shadow.take();
-        let result =
-            self.host_run_fast_forward_loop(dt, ff_steps, step_budget, observer_slot.as_mut());
-        // Restore the real observer owner on success and failure.
-        self.gameworld_shadow = observer_slot.take();
+        let result = self.host_run_fast_forward_loop(dt, ff_steps, step_budget);
         if let Some((timings, started)) =
             self.runtime_host_update_timings.as_mut().zip(logic_started)
         {
