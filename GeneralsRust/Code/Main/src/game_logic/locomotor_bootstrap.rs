@@ -367,8 +367,77 @@ pub fn default_host_locomotor_store() -> LocomotorStore {
     try_load_locomotor_ini_from_disk(&mut store);
     seed_missing_host_locomotors(&mut store);
     ensure_chinook_helix_slide_into_place(&mut store);
-    crate::game_logic::host_upgrade_module_residuals::seed_set_switch_locomotors(&mut store);
+    seed_set_switch_locomotors(&mut store);
     store
+}
+
+/// The set-switch members (panic / upgraded / taxi) a fallback catalog adds
+/// where its source lacks them.
+const SET_SWITCH_LOCOMOTORS: [&str; 8] = [
+    "FastHumanLocomotor",
+    "WorkerShoesLocomotor",
+    "PanicHumanLocomotor",
+    "WanderHumanLocomotor",
+    "NuclearOverlordLocomotor",
+    "NuclearBattleMasterLocomotor",
+    "BasicJetTaxiLocomotor",
+    "BasicHelicopterTaxiLocomotor",
+];
+
+fn seed_set_switch_locomotors(store: &mut LocomotorStore) {
+    for name in SET_SWITCH_LOCOMOTORS {
+        seed_set_switch_locomotor(store, name);
+    }
+}
+
+fn seed_set_switch_locomotor(store: &mut LocomotorStore, name: &str) {
+    if store.find_template(name).is_some() {
+        return;
+    }
+    let (speed, accel, turn_deg, speed_dmg, accel_dmg, braking, appearance) = match name {
+        // INIZH Locomotor.ini retail values (Speed 25 / SpeedDamaged 15).
+        "FastHumanLocomotor" => ("25", "100", "500", "15", "50", None, "TWO_LEGS"),
+        // INIZH.big/Data/INI/Locomotor.ini, WorkerShoesLocomotor.
+        "WorkerShoesLocomotor" => ("30", "150", "500", "20", "75", Some("150"), "TWO_LEGS"),
+        "PanicHumanLocomotor" => ("25", "100", "350", "10", "50", Some("100"), "TWO_LEGS"),
+        "WanderHumanLocomotor" => ("10", "100", "350", "10", "50", None, "TWO_LEGS"),
+        "NuclearOverlordLocomotor" => ("30", "15", "60", "30", "15", None, "TREADS"),
+        "NuclearBattleMasterLocomotor" => ("35", "1000", "180", "32", "1000", None, "TREADS"),
+        "BasicJetTaxiLocomotor" => ("50", "100", "180", "50", "100", Some("999999"), "TREADS"),
+        "BasicHelicopterTaxiLocomotor" => ("30", "30", "90", "30", "8", Some("50"), "TREADS"),
+        _ => return,
+    };
+    let mut props = HashMap::new();
+    props.insert("Speed".to_string(), speed.to_string());
+    props.insert("Acceleration".to_string(), accel.to_string());
+    props.insert("TurnRate".to_string(), turn_deg.to_string());
+    if name == "BasicHelicopterTaxiLocomotor" {
+        props.insert("TurnRateDamaged".to_string(), "60".to_string());
+    } else {
+        props.insert("TurnRateDamaged".to_string(), turn_deg.to_string());
+    }
+    if name == "BasicJetTaxiLocomotor" || name == "BasicHelicopterTaxiLocomotor" {
+        props.insert("MinTurnSpeed".to_string(), "0".to_string());
+    }
+    props.insert("SpeedDamaged".to_string(), speed_dmg.to_string());
+    props.insert("AccelerationDamaged".to_string(), accel_dmg.to_string());
+    let surfaces = if name == "WorkerShoesLocomotor" {
+        props.insert("MinTurnSpeed".to_owned(), "0".to_owned());
+        props.insert("StickToGround".to_owned(), "Yes".to_owned());
+        props.insert("GroupMovementPriority".to_owned(), "MOVES_FRONT".to_owned());
+        "GROUND RUBBLE"
+    } else {
+        "GROUND"
+    };
+    props.insert("Surfaces".to_owned(), surfaces.to_owned());
+    props.insert("Appearance".to_string(), appearance.to_string());
+    props.insert("ZAxisBehavior".to_string(), "NO_Z_MOTIVE_FORCE".to_string());
+    if let Some(brake) = braking {
+        props.insert("Braking".to_string(), brake.to_string());
+    }
+    if let Ok(template) = parse_locomotor_template_definition(name, &props) {
+        let _ = store.add_template(template);
+    }
 }
 
 /// A binding from a fresh fallback catalog (fixtures without a GameLogic).

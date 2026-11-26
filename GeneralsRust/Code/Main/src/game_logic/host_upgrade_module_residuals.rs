@@ -406,24 +406,6 @@ pub fn locomotor_set_kind_token(kind: HostLocomotorSetKind) -> &'static str {
     }
 }
 
-/// Whole-template swap C++ `chooseLocomotorSetExplicit` installs
-/// (`AIUpdate.cpp:813` + `LocomotorSetUpgrade.cpp:30`). Not a speed peel.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct LocomotorSetSwap {
-    pub locomotor_name: &'static str,
-    pub max_speed: f32,
-    pub max_speed_damaged: f32,
-    pub acceleration: f32,
-    pub acceleration_damaged: f32,
-    pub turn_rate: f32,
-    pub turn_rate_damaged: f32,
-    pub braking: f32,
-    pub locomotor_surfaces: u32,
-}
-
-const LOCO_BIGNUM_BRAKE: f32 = crate::game_logic::locomotor_bootstrap::DEFAULT_HOST_BRAKING;
-const DEG_TO_RAD: f32 = std::f32::consts::PI / 180.0;
-
 /// Retail SET_NORMAL / SET_NORMAL_UPGRADED / SET_PANIC / SET_TAXIING /
 /// SET_SUPERSONIC / SET_SLUGGISH names for known templates.
 pub fn locomotor_name_for_set_kind(
@@ -575,204 +557,15 @@ fn is_human_panic_wander_template(t: &str) -> bool {
         || t.contains("flee")
 }
 
-/// The set-switch members (panic / upgraded / taxi) a fallback catalog adds
-/// where its source lacks them.
-const SET_SWITCH_LOCOMOTORS: [&str; 8] = [
-    "FastHumanLocomotor",
-    "WorkerShoesLocomotor",
-    "PanicHumanLocomotor",
-    "WanderHumanLocomotor",
-    "NuclearOverlordLocomotor",
-    "NuclearBattleMasterLocomotor",
-    "BasicJetTaxiLocomotor",
-    "BasicHelicopterTaxiLocomotor",
-];
-
-pub(crate) fn seed_set_switch_locomotors(
-    store: &mut game_engine::common::ini::ini_locomotor::LocomotorStore,
-) {
-    for name in SET_SWITCH_LOCOMOTORS {
-        seed_set_switch_locomotor(store, name);
-    }
-}
-
-fn seed_set_switch_locomotor(
-    store: &mut game_engine::common::ini::ini_locomotor::LocomotorStore,
-    name: &str,
-) {
-    use game_engine::common::ini::ini_locomotor::parse_locomotor_template_definition;
-    if store.find_template(name).is_some() {
-        return;
-    }
-    let (speed, accel, turn_deg, speed_dmg, accel_dmg, braking, appearance) = match name {
-        // INIZH Locomotor.ini retail values (Speed 25 / SpeedDamaged 10).
-        "FastHumanLocomotor" => ("25", "100", "500", "15", "50", None, "TWO_LEGS"),
-        "WorkerShoesLocomotor" => ("30", "100", "500", "15", "50", None, "TWO_LEGS"),
-        "PanicHumanLocomotor" => ("25", "100", "350", "10", "50", Some("100"), "TWO_LEGS"),
-        "WanderHumanLocomotor" => ("10", "100", "350", "10", "50", None, "TWO_LEGS"),
-        "NuclearOverlordLocomotor" => ("30", "15", "60", "30", "15", None, "TREADS"),
-        "NuclearBattleMasterLocomotor" => ("35", "1000", "180", "32", "1000", None, "TREADS"),
-        "BasicJetTaxiLocomotor" => ("50", "100", "180", "50", "100", Some("999999"), "TREADS"),
-        "BasicHelicopterTaxiLocomotor" => ("30", "30", "90", "30", "8", Some("50"), "TREADS"),
-        _ => return,
-    };
-    let mut props = std::collections::HashMap::new();
-    props.insert("Speed".to_string(), speed.to_string());
-    props.insert("Acceleration".to_string(), accel.to_string());
-    props.insert("TurnRate".to_string(), turn_deg.to_string());
-    if name == "BasicHelicopterTaxiLocomotor" {
-        props.insert("TurnRateDamaged".to_string(), "60".to_string());
-    } else {
-        props.insert("TurnRateDamaged".to_string(), turn_deg.to_string());
-    }
-    if name == "BasicJetTaxiLocomotor" || name == "BasicHelicopterTaxiLocomotor" {
-        props.insert("MinTurnSpeed".to_string(), "0".to_string());
-    }
-    props.insert("SpeedDamaged".to_string(), speed_dmg.to_string());
-    props.insert("AccelerationDamaged".to_string(), accel_dmg.to_string());
-    props.insert("Surfaces".to_string(), "GROUND".to_string());
-    props.insert("Appearance".to_string(), appearance.to_string());
-    props.insert("ZAxisBehavior".to_string(), "NO_Z_MOTIVE_FORCE".to_string());
-    if let Some(brake) = braking {
-        props.insert("Braking".to_string(), brake.to_string());
-    }
-    if let Ok(template) = parse_locomotor_template_definition(name, &props) {
-        let _ = store.add_template(template);
-    }
-}
-
-fn residual_swap_for_name(
-    name: &'static str,
-    kind: HostLocomotorSetKind,
-) -> Option<LocomotorSetSwap> {
-    let (speed, accel, turn_deg, speed_dmg, accel_dmg, braking) = match name {
-        // INIZH Locomotor.ini: PanicHuman Speed 25 (SpeedDamaged 10, TurnRate
-        // 350, Accel 100/50, Braking 100); WanderHuman Speed 10.
-        "FastHumanLocomotor" => (25.0, 100.0, 500.0, 15.0, 50.0, LOCO_BIGNUM_BRAKE),
-        "WorkerShoesLocomotor" => (30.0, 100.0, 500.0, 15.0, 50.0, LOCO_BIGNUM_BRAKE),
-        "PanicHumanLocomotor" => (25.0, 100.0, 350.0, 10.0, 50.0, 100.0),
-        "WanderHumanLocomotor" => (10.0, 100.0, 350.0, 10.0, 50.0, 100.0),
-        "NuclearOverlordLocomotor" => (30.0, 15.0, 60.0, 30.0, 15.0, LOCO_BIGNUM_BRAKE),
-        "NuclearBattleMasterLocomotor" => (35.0, 1000.0, 180.0, 32.0, 1000.0, LOCO_BIGNUM_BRAKE),
-        "BattleMasterLocomotor" => (25.0, 1000.0, 180.0, 25.0, 1000.0, LOCO_BIGNUM_BRAKE),
-        "OverlordLocomotor" => (20.0, 15.0, 60.0, 20.0, 15.0, LOCO_BIGNUM_BRAKE),
-        "BasicJetTaxiLocomotor" => (50.0, 100.0, 180.0, 50.0, 100.0, 999999.0),
-        "BasicHelicopterTaxiLocomotor" => (30.0, 30.0, 90.0, 30.0, 8.0, 50.0),
-        // INIZH Locomotor.ini: SET_SLUGGISH is heterogeneous — ground
-        // ";25% slower" Speed 90 (SpeedDamaged 68, Accel 68/60) vs cliff
-        // Speed 60 (SpeedDamaged 45, Accel 50/40); TurnRate 120, Braking 60.
-        "CombatBikeTerroristGroundLocomotor" => (90.0, 68.0, 120.0, 68.0, 60.0, 60.0),
-        "CombatBikeTerroristCliffLocomotor" => (60.0, 50.0, 120.0, 45.0, 40.0, 60.0),
-        _ => return None,
-    };
-    let turn = turn_deg * DEG_TO_RAD;
-    // C++ Locomotor.ini Surfaces for SET_SUPERSONIC are AIR; do not invent
-    // from a name peel when the set kind is already known.
-    let locomotor_surfaces = match kind {
-        HostLocomotorSetKind::Supersonic => crate::game_logic::object::LOCO_SURFACE_AIR,
-        _ => crate::game_logic::object::LOCO_SURFACE_GROUND,
-    };
-    Some(LocomotorSetSwap {
-        locomotor_name: name,
-        max_speed: speed,
-        max_speed_damaged: speed_dmg,
-        acceleration: accel,
-        acceleration_damaged: accel_dmg,
-        turn_rate: turn,
-        turn_rate_damaged: if name == "BasicHelicopterTaxiLocomotor" {
-            60.0 * DEG_TO_RAD
-        } else {
-            turn
-        },
-        braking,
-        locomotor_surfaces,
-    })
-}
-
-fn binding_to_swap(
-    name: &'static str,
-    binding: &crate::game_logic::locomotor_bootstrap::HostLocomotorBinding,
-) -> LocomotorSetSwap {
-    LocomotorSetSwap {
-        locomotor_name: name,
-        max_speed: binding.movement.max_speed,
-        max_speed_damaged: binding.max_speed_damaged,
-        acceleration: binding.movement.acceleration,
-        acceleration_damaged: binding.acceleration_damaged,
-        turn_rate: binding.movement.turn_rate,
-        turn_rate_damaged: binding.turn_rate_damaged,
-        braking: binding.braking,
-        locomotor_surfaces: binding.locomotor_surfaces,
-    }
-}
-
-/// Resolve the whole SET_* template (turn/accel/brake/surfaces/speed).
-pub fn locomotor_set_swap_for_kind(
-    template_name: &str,
-    kind: HostLocomotorSetKind,
-) -> Option<LocomotorSetSwap> {
-    locomotor_set_swap_for_kind_in(template_name, kind, None)
-}
-
-fn locomotor_set_swap_for_kind_in(
+fn locomotor_binding_for_set(
     template_name: &str,
     kind: HostLocomotorSetKind,
     store: Option<&game_engine::common::ini::ini_locomotor::LocomotorStore>,
-) -> Option<LocomotorSetSwap> {
+) -> Option<(&'static str, crate::game_logic::locomotor_bootstrap::HostLocomotorBinding)> {
     let name = locomotor_name_for_set_kind(template_name, kind)?;
-    if let Some(binding) =
-        crate::game_logic::locomotor_bootstrap::resolve_host_locomotor_binding_in(store, name)
-    {
-        return Some(binding_to_swap(name, &binding));
-    }
-    store
-        .is_none()
-        .then(|| residual_swap_for_name(name, kind))
-        .flatten()
-}
-
-fn upgrade_set_kind(upgrade: &str) -> Option<HostLocomotorSetKind> {
-    let u = upgrade.to_ascii_lowercase();
-    if is_residual_locomotor_set_upgrade_peel(&u) {
-        Some(HostLocomotorSetKind::NormalUpgraded)
-    } else if u.contains("panic") {
-        Some(HostLocomotorSetKind::Panic)
-    } else {
-        None
-    }
-}
-
-/// C++ `LocomotorSetUpgrade` / panic / veteran set switch — whole template.
-pub fn locomotor_upgrade_set(upgrade: &str, template_name: &str) -> Option<LocomotorSetSwap> {
-    let kind = upgrade_set_kind(upgrade)?;
-    locomotor_set_swap_for_kind(template_name, kind)
-}
-
-/// Retail LocomotorSetUpgrade speed (derived from the whole-template swap).
-pub fn locomotor_upgrade_speed(upgrade: &str, template_name: &str) -> Option<f32> {
-    locomotor_upgrade_set(upgrade, template_name).map(|swap| swap.max_speed)
-}
-
-fn apply_swap_fields(
-    obj: &mut crate::game_logic::object::Object,
-    swap: &LocomotorSetSwap,
-    store: Option<&game_engine::common::ini::ini_locomotor::LocomotorStore>,
-) {
-    if let Some(binding) = crate::game_logic::locomotor_bootstrap::resolve_host_locomotor_binding_in(
-        store,
-        swap.locomotor_name,
-    ) {
-        crate::game_logic::locomotor_bootstrap::apply_host_locomotor_binding(obj, &binding);
-        return;
-    }
-    obj.movement.max_speed = swap.max_speed;
-    obj.movement.max_speed_damaged = swap.max_speed_damaged;
-    obj.movement.acceleration = swap.acceleration;
-    obj.movement.acceleration_damaged = swap.acceleration_damaged;
-    obj.movement.turn_rate = swap.turn_rate;
-    obj.movement.turn_rate_damaged = swap.turn_rate_damaged;
-    obj.braking = swap.braking;
-    obj.locomotor_surfaces = swap.locomotor_surfaces;
+    let binding =
+        crate::game_logic::locomotor_bootstrap::resolve_host_locomotor_binding_in(store, name)?;
+    Some((name, binding))
 }
 
 /// C++ `AIUpdateInterface::chooseLocomotorSet` residual — swap the whole template.
@@ -865,32 +658,28 @@ pub(crate) fn apply_locomotor_set_kind_for_surfaces_in(
         obj.ultra_accurate = false;
         return true;
     }
-    let swap = locomotor_set_swap_for_kind_in(&obj.template_name, kind, store).or_else(|| {
+    let selection = locomotor_binding_for_set(&obj.template_name, kind, store).or_else(|| {
         if obj.is_kind_of(crate::game_logic::KindOf::Infantry)
             || obj.is_kind_of(crate::game_logic::KindOf::CanBeRepulsed)
             || obj.angry_mob_member
         {
-            locomotor_set_swap_for_kind_in("CivilianInfantry", kind, store)
+            locomotor_binding_for_set("CivilianInfantry", kind, store)
         } else if kind == HostLocomotorSetKind::Taxiing
             && (obj.is_kind_of(crate::game_logic::KindOf::Aircraft)
                 || obj.object_type == crate::game_logic::ObjectType::Aircraft)
         {
-            locomotor_set_swap_for_kind_in("AmericaJetRaptor", kind, store)
+            locomotor_binding_for_set("AmericaJetRaptor", kind, store)
         } else {
             None
         }
     });
-    let Some(swap) = swap else {
+    let Some((name, binding)) = selection else {
         return false;
     };
-    apply_swap_fields(obj, &swap, store);
-    obj.locomotor_set_names = vec![swap.locomotor_name.to_string()];
-    obj.cur_locomotor_name = Some(swap.locomotor_name.to_string());
-    obj.selected_locomotor_definition =
-        crate::game_logic::locomotor_bootstrap::resolve_host_locomotor_binding_in(
-            store,
-            swap.locomotor_name,
-        );
+    crate::game_logic::locomotor_bootstrap::apply_host_locomotor_binding(obj, &binding);
+    obj.locomotor_set_names = vec![name.to_owned()];
+    obj.cur_locomotor_name = Some(name.to_owned());
+    obj.selected_locomotor_definition = Some(binding);
     obj.jet_ai.cur_locomotor_set = Some(token.to_string());
     true
 }
@@ -1043,6 +832,25 @@ pub const ARMORSET_PLAYER_UPGRADE: u8 = 1; // after ARMORSET_VETERAN=0 in residu
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::game_logic::locomotor_bootstrap::HostLocomotorBinding;
+
+    const DEG_TO_RAD: f32 = std::f32::consts::PI / 180.0;
+
+    fn fixture_locomotor_set(
+        template: &str,
+        kind: HostLocomotorSetKind,
+    ) -> Option<(&'static str, HostLocomotorBinding)> {
+        locomotor_binding_for_set(template, kind, None)
+    }
+
+    fn fixture_upgraded_locomotor(
+        upgrade: &str,
+        template: &str,
+    ) -> Option<(&'static str, HostLocomotorBinding)> {
+        is_residual_locomotor_set_upgrade_peel(upgrade)
+            .then(|| fixture_locomotor_set(template, HostLocomotorSetKind::NormalUpgraded))
+            .flatten()
+    }
 
     #[test]
     fn authored_locomotor_taxi_values_match_retail_jets_and_helicopters() {
@@ -1072,11 +880,11 @@ mod tests {
                 50.0,
             ),
         ] {
-            let taxi = locomotor_set_swap_for_kind(name, HostLocomotorSetKind::Taxiing).unwrap();
-            assert_eq!(taxi.locomotor_name, locomotor);
-            assert!((taxi.max_speed - speed).abs() < 0.01);
-            assert!((taxi.acceleration - acceleration).abs() < 0.01);
-            assert!((taxi.turn_rate - turn_degrees * DEG_TO_RAD).abs() < 0.001);
+            let (taxi_name, taxi) = fixture_locomotor_set(name, HostLocomotorSetKind::Taxiing).unwrap();
+            assert_eq!(taxi_name, locomotor);
+            assert!((taxi.movement.max_speed - speed).abs() < 0.01);
+            assert!((taxi.movement.acceleration - acceleration).abs() < 0.01);
+            assert!((taxi.movement.turn_rate - turn_degrees * DEG_TO_RAD).abs() < 0.001);
             // sec²→frame²→sec² round-trip through the C++ per-frame store
             // introduces sub-unit f32 error at BIGNUM braking magnitudes.
             assert!((taxi.braking - braking).abs() < 0.5);
@@ -1337,26 +1145,29 @@ mod tests {
     /// whole SET_NORMAL_UPGRADED template, not a max_speed peel.
     #[test]
     fn locomotor_set_upgrade_swaps_turn_accel_brake_surfaces() {
-        let shoes = locomotor_upgrade_set("Upgrade_GLAWorkerShoes", "GLAInfantryWorker")
+        let (shoes_name, shoes) = fixture_upgraded_locomotor("Upgrade_GLAWorkerShoes", "GLAInfantryWorker")
             .expect("WorkerShoes SET_NORMAL_UPGRADED");
-        assert_eq!(shoes.locomotor_name, "WorkerShoesLocomotor");
-        assert!((shoes.max_speed - 30.0).abs() < 0.05);
-        assert!(shoes.acceleration > 0.0);
-        assert!(shoes.turn_rate > 0.0);
-        assert!(shoes.braking > 0.0);
+        assert_eq!(shoes_name, "WorkerShoesLocomotor");
+        assert!((shoes.movement.max_speed - 30.0).abs() < 0.05);
+        assert!((shoes.max_speed_damaged - 20.0).abs() < 0.01);
+        assert!((shoes.movement.acceleration - 150.0).abs() < 0.01);
+        assert!((shoes.acceleration_damaged - 75.0).abs() < 0.01);
+        assert!((shoes.movement.turn_rate - 500.0 * DEG_TO_RAD).abs() < 0.001);
+        assert!((shoes.braking - 150.0).abs() < 0.01);
+        assert!(shoes.stick_to_ground);
         assert_eq!(
             shoes.locomotor_surfaces,
             crate::game_logic::object::LOCO_SURFACE_GROUND
                 | crate::game_logic::object::LOCO_SURFACE_RUBBLE
         );
 
-        let nuclear = locomotor_upgrade_set("Upgrade_ChinaNuclearTanks", "ChinaTankBattleMaster")
+        let (nuclear_name, nuclear) = fixture_upgraded_locomotor("Upgrade_ChinaNuclearTanks", "ChinaTankBattleMaster")
             .expect("Nuclear Battlemaster SET_NORMAL_UPGRADED");
-        assert_eq!(nuclear.locomotor_name, "NuclearBattleMasterLocomotor");
-        assert!((nuclear.max_speed - 35.0).abs() < 0.05);
+        assert_eq!(nuclear_name, "NuclearBattleMasterLocomotor");
+        assert!((nuclear.movement.max_speed - 35.0).abs() < 0.05);
         assert!(
-            (nuclear.acceleration - shoes.acceleration).abs() > 1.0
-                || (nuclear.turn_rate - shoes.turn_rate).abs() > 0.1,
+            (nuclear.movement.acceleration - shoes.movement.acceleration).abs() > 1.0
+                || (nuclear.movement.turn_rate - shoes.movement.turn_rate).abs() > 0.1,
             "upgraded tank template must differ in accel/turn from worker shoes"
         );
     }
@@ -1365,29 +1176,29 @@ mod tests {
     /// the panic template's turn/accel/brake, not a speed scalar.
     #[test]
     fn panic_and_veteran_set_switch_is_whole_template() {
-        let normal = locomotor_set_swap_for_kind("GLAInfantryWorker", HostLocomotorSetKind::Normal)
+        let (_, normal) = fixture_locomotor_set("GLAInfantryWorker", HostLocomotorSetKind::Normal)
             .expect("SET_NORMAL");
-        let panic = locomotor_set_swap_for_kind("GLAInfantryWorker", HostLocomotorSetKind::Panic)
+        let (panic_name, panic) = fixture_locomotor_set("GLAInfantryWorker", HostLocomotorSetKind::Panic)
             .expect("SET_PANIC");
         assert!(
-            locomotor_upgrade_set("Upgrade_Veterancy_HEROIC", "GLAInfantryWorker").is_none(),
+            fixture_upgraded_locomotor("Upgrade_Veterancy_HEROIC", "GLAInfantryWorker").is_none(),
             "Heroic rank is giveUpgrade, not LocomotorSetUpgrade"
         );
         assert!(
-            locomotor_upgrade_set("Tank_Upgrade_ChinaTankAutoLoader", "ChinaTankBattleMaster")
+            fixture_upgraded_locomotor("Tank_Upgrade_ChinaTankAutoLoader", "ChinaTankBattleMaster")
                 .is_none(),
             "AutoLoader is WeaponSetUpgrade, not LocomotorSetUpgrade"
         );
-        assert_eq!(panic.locomotor_name, "PanicHumanLocomotor");
+        assert_eq!(panic_name, "PanicHumanLocomotor");
         // Retail FastHuman and PanicHuman both have Speed=25; turning,
         // damaged speed and wander behavior distinguish the sets.
-        assert!((normal.max_speed - 25.0).abs() < 0.01);
-        assert!((panic.max_speed - 25.0).abs() < 0.01);
-        assert!((panic.turn_rate - 350.0 * DEG_TO_RAD).abs() < 0.001);
+        assert!((normal.movement.max_speed - 25.0).abs() < 0.01);
+        assert!((panic.movement.max_speed - 25.0).abs() < 0.01);
+        assert!((panic.movement.turn_rate - 350.0 * DEG_TO_RAD).abs() < 0.001);
         assert!((panic.max_speed_damaged - 10.0).abs() < 0.01);
         assert!(
-            (panic.acceleration - normal.acceleration).abs() > 1.0
-                || (panic.turn_rate - normal.turn_rate).abs() > 0.1
+            (panic.movement.acceleration - normal.movement.acceleration).abs() > 1.0
+                || (panic.movement.turn_rate - normal.movement.turn_rate).abs() > 0.1
                 || (panic.braking - normal.braking).abs() > 1.0,
             "panic must swap accel/turn/brake, not speed only"
         );
@@ -1479,21 +1290,21 @@ mod tests {
     #[test]
     fn taxiing_supersonic_sluggish_sets_swap_whole_template() {
         use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate};
-        let taxi = locomotor_set_swap_for_kind("AmericaJetRaptor", HostLocomotorSetKind::Taxiing)
+        let (taxi_name, taxi) = fixture_locomotor_set("AmericaJetRaptor", HostLocomotorSetKind::Taxiing)
             .expect("SET_TAXIING");
-        let cruise = locomotor_set_swap_for_kind("AmericaJetRaptor", HostLocomotorSetKind::Normal)
+        let (_, cruise) = fixture_locomotor_set("AmericaJetRaptor", HostLocomotorSetKind::Normal)
             .expect("SET_NORMAL");
-        let dash =
-            locomotor_set_swap_for_kind("AmericaJetAurora", HostLocomotorSetKind::Supersonic)
+        let (dash_name, dash) =
+            fixture_locomotor_set("AmericaJetAurora", HostLocomotorSetKind::Supersonic)
                 .expect("Aurora SET_SUPERSONIC");
-        assert_eq!(taxi.locomotor_name, "BasicJetTaxiLocomotor");
-        assert!((taxi.max_speed - 50.0).abs() < 0.05);
+        assert_eq!(taxi_name, "BasicJetTaxiLocomotor");
+        assert!((taxi.movement.max_speed - 50.0).abs() < 0.05);
         assert!(
-            (taxi.max_speed - cruise.max_speed).abs() > 1.0,
+            (taxi.movement.max_speed - cruise.movement.max_speed).abs() > 1.0,
             "taxi must be slower than cruise"
         );
         assert!(
-            (dash.max_speed - cruise.max_speed).abs() > 1.0,
+            (dash.movement.max_speed - cruise.movement.max_speed).abs() > 1.0,
             "supersonic must be faster than cruise"
         );
         assert_eq!(
@@ -1526,24 +1337,75 @@ mod tests {
         assert_eq!(jet.jet_ai.cur_locomotor_set.as_deref(), Some("SET_TAXIING"));
         assert!((jet.movement.max_speed - 50.0).abs() < 0.01);
         assert!(
-            locomotor_set_swap_for_kind("ChinaJetMIG", HostLocomotorSetKind::Supersonic).is_none()
+            fixture_locomotor_set("ChinaJetMIG", HostLocomotorSetKind::Supersonic).is_none()
         );
-        assert_eq!(dash.locomotor_name, "AuroraJetSupersonicLocomotor");
-        assert!((dash.max_speed - 480.0).abs() < 0.01);
+        assert_eq!(dash_name, "AuroraJetSupersonicLocomotor");
+        assert!((dash.movement.max_speed - 480.0).abs() < 0.01);
         assert!((dash.max_speed_damaged - 240.0).abs() < 0.01);
-        assert!((dash.acceleration - 480.0).abs() < 0.01);
+        assert!((dash.movement.acceleration - 480.0).abs() < 0.01);
         assert!((dash.braking - 10.0).abs() < 0.01);
 
-        let sluggish =
-            locomotor_set_swap_for_kind("GLAVehicleCombatBike", HostLocomotorSetKind::Sluggish)
+        let (sluggish_name, sluggish) =
+            fixture_locomotor_set("GLAVehicleCombatBike", HostLocomotorSetKind::Sluggish)
                 .expect("SET_SLUGGISH");
         assert_eq!(
-            sluggish.locomotor_name,
+            sluggish_name,
             "CombatBikeTerroristGroundLocomotor"
         );
         // INIZH Locomotor.ini CombatBikeTerroristGroundLocomotor Speed=90
         // (";25% slower" than the SET_NORMAL 120 ground member).
-        assert!((sluggish.max_speed - 90.0).abs() < 0.05);
+        assert!((sluggish.movement.max_speed - 90.0).abs() < 0.05);
+    }
+
+    #[test]
+    fn worker_shoes_use_each_receiving_worlds_locomotor() {
+        use crate::game_logic::object::{LOCO_SURFACE_GROUND, LOCO_SURFACE_RUBBLE};
+        use crate::game_logic::{GameLogic, KindOf, Player, Team, ThingTemplate};
+        use game_engine::common::ini::ini_locomotor::LocomotorStore;
+
+        fn world(speed: f32, surfaces: &str) -> (GameLogic, crate::game_logic::ObjectId) {
+            let mut world = GameLogic::new();
+            let mut store = LocomotorStore::new_owned();
+            store
+                .apply_source(&format!(
+                    "Locomotor WorkerShoesLocomotor\nSpeed = {speed}\nSurfaces = {surfaces}\nEnd\n"
+                ))
+                .unwrap();
+            world.admit_locomotor_definitions(store).unwrap();
+            world.add_player(Player::new(0, Team::GLA, "worker owner", true));
+            crate::game_logic::host_upgrade_rules::register_test_upgrade(
+                &mut world,
+                "Upgrade_GLAWorkerShoes",
+                "PLAYER",
+                0,
+                1,
+            );
+            let mut template = ThingTemplate::new("GLAInfantryWorker");
+            template.add_kind_of(KindOf::Infantry).set_health(100.0);
+            world.templates.insert(template.name.clone(), template);
+            let id = world
+                .create_object_for_player("GLAInfantryWorker", 0, glam::Vec3::ZERO)
+                .unwrap();
+            (world, id)
+        }
+
+        let (mut owner, owner_id) = world(30.0, "GROUND RUBBLE");
+        let (mut peer, peer_id) = world(41.0, "GROUND");
+        assert_eq!(owner_id, peer_id);
+        owner.apply_upgrade_to_object(owner_id, "Upgrade_GLAWorkerShoes");
+        assert!(!peer.host_object(peer_id).unwrap().locomotor_upgrade);
+        peer.apply_upgrade_to_object(peer_id, "Upgrade_GLAWorkerShoes");
+
+        for (world, id, speed, surfaces) in [
+            (&owner, owner_id, 30.0, LOCO_SURFACE_GROUND | LOCO_SURFACE_RUBBLE),
+            (&peer, peer_id, 41.0, LOCO_SURFACE_GROUND),
+        ] {
+            let worker = world.host_object(id).unwrap();
+            assert_eq!(worker.cur_locomotor_name.as_deref(), Some("WorkerShoesLocomotor"));
+            assert!((worker.movement.max_speed - speed).abs() < 0.01);
+            assert_eq!(worker.locomotor_surfaces, surfaces);
+            assert_eq!(worker.selected_locomotor_definition.unwrap().locomotor_surfaces, surfaces);
+        }
     }
 
     #[test]
