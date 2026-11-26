@@ -53,11 +53,9 @@ reqwest = { workspace = true }
 serde = { workspace = true }
 serde_json = {workspace = true}
 bincode = {workspace = true}
-byteorder = { workspace = true }
 chrono = { workspace = true }
 
 # 3D Math and linear algebra  
-num-traits = {workspace = true}
 glam = {workspace = true, features = ["serde"]}
 ultraviolet = {workspace = true, features = ["serde", "bytemuck"]}
 mint = {workspace = true}
@@ -71,8 +69,6 @@ bytemuck = {workspace = true, features = ["derive"]}
 raw-window-handle = {workspace = true}
 
 # Advanced 3D formats and processing
-gltf = {workspace = true, features = ["KHR_lights_punctual", "KHR_materials_transmission"]}
-meshopt = {workspace = true}
 # rend3 = { version = "0.3", optional = true }  # Removed due to wgpu version conflicts
 
 # Modern shader compilation
@@ -81,7 +77,6 @@ naga = {workspace = true, features = ["wgsl-in", "spv-out", "hlsl-out"]}
 
 # Image loading and processing
 image = {workspace = true, features = ["png", "tga", "jpeg", "bmp", "dds"]}
-tiff = {workspace = true}
 
 # Audio support
 # Single comprehensive game audio library (replaces cpal + rodio + hound)
@@ -102,7 +97,6 @@ gilrs = {workspace = true}
 
 # File system and compression
 walkdir = {workspace = true}
-zip = {workspace = true}
 lz4 = {workspace = true}
 flate2 = {workspace = true}
 
@@ -111,27 +105,11 @@ notify = {workspace = true}
 sha2 = {workspace = true}
 crc32fast = {workspace = true}
 regex = {workspace = true}
-lazy_static = {workspace = true}
 
 # Memory management and performance
 rayon = {workspace = true}
 crossbeam = {workspace = true}
 dashmap = {workspace = true}
-smallvec = {workspace = true, features = ["serde"]}
-bumpalo = {workspace = true}
-slotmap = {workspace = true}
-
-# SIMD optimizations  
-wide = {workspace = true}
-
-# Advanced graphics features
-
-half = {workspace = true, features = ["bytemuck", "serde"]}
-noise = {workspace = true}
-bracket-noise = {workspace = true}
-
-# Network (for multiplayer support)
-quinn = {workspace = true, optional = true}
 
 # Platform-specific dependencies
 # Windows `windows` crate (Foundation / Direct3D / DXGI / WASAPI / input) is unused.
@@ -141,39 +119,15 @@ quinn = {workspace = true, optional = true}
 [target.'cfg(any(target_os = "linux", target_os = "freebsd"))'.dependencies]
 libc = { workspace = true }
 
-# X11 support
-x11 = { workspace = true, optional = true }
-xcursor = { workspace = true, optional = true }
-
-# Wayland support
-wayland-client = { workspace = true, optional = true }
-wayland-protocols = { workspace = true, optional = true }
-
-# Cross-platform audio (handled by cpal/rodio in main dependencies)
-
-# Input device support
-evdev = { workspace = true, optional = true }
-
-# Hardware detection
-udev = { workspace = true, optional = true }
-
-# System integration
-dbus = { workspace = true, optional = true }
 
 # macOS Platform - Cocoa, Metal, Core Audio support
 [target.'cfg(target_os = "macos")'.dependencies]
 # Core Foundation and Cocoa
-core-foundation = { workspace = true, optional = true }
 cocoa = { workspace = true, optional = true }
 
-# Metal graphics
-metal = { workspace = true, optional = true }
 objc = { workspace = true, optional = true }
 
 # Audio handled cross-platform by cpal/rodio
-
-# IOKit for hardware access
-IOKit-sys = { workspace = true, optional = true }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 rodio = { workspace = true }
@@ -191,7 +145,7 @@ mockall = {workspace = true}
 default = ["platform-native"]
 video = []  # Video features temporarily disabled
 network = ["dep:game_network_crate"]
-multiplayer = ["network", "quinn"]
+multiplayer = ["network"]
 online_ui = ["network"]
 debug_graphics = []
 benchmark = []
@@ -208,20 +162,20 @@ platform-native = ["platform-windows", "platform-linux", "platform-macos"]
 platform-windows = []
 
 # Linux platform features  
-platform-linux = ["x11", "wayland", "evdev", "udev", "dbus"]
-x11 = ["dep:x11", "dep:xcursor"]
-wayland = ["dep:wayland-client", "dep:wayland-protocols"]
+platform-linux = []
+x11 = []
+wayland = []
 # Audio is handled cross-platform by cpal/rodio 
-evdev = ["dep:evdev"]
-udev = ["dep:udev"]
-dbus = ["dep:dbus"]
+evdev = []
+udev = []
+dbus = []
 
 # macOS platform features
-platform-macos = ["cocoa", "metal", "iokit"]
-cocoa = ["dep:core-foundation", "dep:cocoa", "dep:objc"]
-metal = ["dep:metal", "dep:objc"]
+platform-macos = ["cocoa"]
+cocoa = ["dep:cocoa", "dep:objc"]
+metal = []
 # Audio handled cross-platform by cpal/rodio
-iokit = ["dep:IOKit-sys"]
+iokit = []
 
 # Cross-platform optional features
 async-trait = []

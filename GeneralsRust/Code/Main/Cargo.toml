@@ -112,9 +112,6 @@ image = {workspace = true}
 # Crossbeam for concurrent data structures
 crossbeam = {workspace = true}
 
-# Rayon for parallel processing
-rayon = {workspace = true}
-
 # Futures for async utilities
 futures = {workspace = true}
 
@@ -128,21 +125,16 @@ thiserror = {workspace = true}
 serde_json = { workspace = true }
 hex = { workspace = true }
 parking_lot = { workspace = true }
-once_cell = {workspace = true}
 
 # Save/Load system dependencies
 lz4_flex = {workspace = true}
 zstd = {workspace = true}
-lazy_static = {workspace = true}
 
 # Compression / chunk decoding
 generals_compression = { path = "../Libraries/Source/Compression" }
 
 # Configuration system
 toml = {workspace = true}
-
-# CLI dependencies
-clap = {workspace = true}
 
 # UI framework dependencies
 bitflags = {workspace = true}

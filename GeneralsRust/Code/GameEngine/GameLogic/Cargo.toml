@@ -28,44 +28,23 @@ glam = {workspace = true, features = ["serde"]}
 
 # Synchronization and collections
 parking_lot = {workspace = true}
-dashmap = {workspace = true}
-crossbeam = {workspace = true}
 slotmap = {workspace = true}
 
 # Utilities
 once_cell = {workspace = true}
 lazy_static = {workspace = true}
 scoped-tls = {workspace = true}
-uuid = {workspace = true, features = ["v4"]}
 bitflags = {workspace = true, features = ["serde"]}
 num_enum = {workspace = true}
 
-bincode = {workspace = true}
 crc32fast = {workspace = true}
 futures = {workspace = true}
-
-# Time handling
-chrono = {workspace = true, features = ["serde"]}
 
 # Async support
 
 async-trait = {workspace = true}
 
 # Random number generation
-
-# For AI pathfinding algorithms
-pathfinding = {workspace = true}
-
-# For SIMD optimizations
-wide = {workspace = true, optional = true}
-
-# For parallel processing
-rayon = {workspace = true}
-num_cpus = {workspace = true}
-
-# For spatial data structures
-
-# For physics calculations
 
 # For scripting engine
 rhai = {workspace = true, features = ["sync"]}
@@ -111,7 +90,7 @@ modern_behaviors = []
 
 # Performance and debugging features
 dump_perf_stats = []
-simd = ["wide"]
+simd = []
 
 # Transitional feature gate for the unfinished direct C++ port.
 legacy_port = []
