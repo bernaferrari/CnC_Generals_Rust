@@ -122,7 +122,7 @@ impl RenderPipeline {
                     });
                 }
             }
-            for unit in &frame.objects {
+            for unit in frame.drawable_objects() {
                 if unit.shadow_type_bits != SHADOW_DECAL || handled.contains(&unit.id.0) {
                     continue;
                 }

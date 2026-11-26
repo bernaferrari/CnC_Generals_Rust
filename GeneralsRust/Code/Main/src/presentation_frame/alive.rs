@@ -1098,7 +1098,7 @@ impl PresentationFrame {
 
     fn presentation_can_player_garrison(&self, object: &RenderableObject) -> bool {
         use crate::game_logic::KindOf;
-        if object.destroyed || object.sold {
+        if object.drawable_hidden || object.destroyed || object.sold {
             return false;
         }
         if !object.capture_garrisonable && object.max_garrison == 0 {
@@ -1127,6 +1127,9 @@ impl PresentationFrame {
         object: &'a RenderableObject,
     ) -> Option<&'a RenderableObject> {
         use crate::unit_control::UnitControlSystem;
+        if object.drawable_hidden {
+            return None;
+        }
         if UnitControlSystem::presentation_is_selectable(object) && object.contained_by.is_none() {
             if self.box_pick_hides_non_local(object) {
                 return None;

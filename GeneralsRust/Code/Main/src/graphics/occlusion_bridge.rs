@@ -52,7 +52,7 @@ pub(crate) fn stage_occluded_player_color_pass(
     };
     let mut units = Vec::new();
     let mut roles = HashMap::new();
-    for object in &frame.objects {
+    for object in frame.drawable_objects() {
         if object.destroyed {
             continue;
         }

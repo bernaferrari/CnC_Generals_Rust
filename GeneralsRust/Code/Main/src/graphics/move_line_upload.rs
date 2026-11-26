@@ -68,7 +68,7 @@ impl MoveLineUpload {
         // Cyan order-line residual.
         let color = [0.2f32, 0.9, 1.0, 0.85];
         for o in objects {
-            if o.destroyed {
+            if o.destroyed || o.drawable_hidden {
                 continue;
             }
             if let Some(dest) = o.move_destination {

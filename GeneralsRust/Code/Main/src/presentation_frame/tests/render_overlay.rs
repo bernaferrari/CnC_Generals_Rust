@@ -110,7 +110,7 @@ End
     assert_eq!(riders(&first, hidden_bike), ["MemoRifle"]);
     assert!(
         first.direct_host_drawables.iter().all(|row| row.object.id != hidden_bike),
-        "the hidden bike only appears in the GameWorld roster"
+        "the hidden bike has a roster row without a resident Drawable"
     );
 
     let rider = spawn(&mut world, "MemoAlternate", 48.0);
@@ -136,6 +136,9 @@ End
             .collect::<Vec<_>>(),
         [bike, rider],
     );
+    let direct = PresentationFrame::build_from_logic(&mut world, 1);
+    assert_eq!(riders(&direct, hidden_bike), ["MemoRifle", "MemoAlternate"]);
+    assert_eq!(riders(&direct, blocked_bike), ["MemoRifle"]);
 
     let builder = SnapshotBuilder::new();
     let saved = builder.create_world_snapshot(&world).unwrap();
@@ -1376,6 +1379,86 @@ fn live_publication_keeps_receiving_player_facts_with_stale_shadow() {
         assert!(peer_frame.local_is_alive);
         assert_eq!(peer_frame.local_color_rgb, (5, 6, 7));
     }
+}
+
+#[test]
+fn hidden_actor_roster_survives_without_a_drawable_or_shadow_row() {
+    use crate::game_logic::Object;
+    use crate::gameworld_shadow::GameWorldShadow;
+    use crate::unit_control::UnitControlSystem;
+
+    let mut template = ThingTemplate::new("RosterInfantry");
+    template.set_health(100.0);
+    template.set_model("airngr_skn");
+    template.add_kind_of(KindOf::Infantry);
+    template.add_kind_of(KindOf::Selectable);
+    template.add_kind_of(KindOf::Attackable);
+    let id = ObjectId(42);
+    let mut world = GameLogic::new();
+    world.add_object(Object::new(template.clone(), ObjectId(1), Team::USA));
+    let mut shadow = GameWorldShadow::new(16);
+    shadow.sync_from_host(&world);
+    let position = glam::Vec3::new(36.0, 0.0, 24.0);
+    world.add_object(Object::new(template.clone(), id, Team::USA));
+    let (actor, partition) = world.host_object_and_partition_mut(id).unwrap();
+    actor.set_position_with_partition_owner(position, 0, &mut Default::default(), partition);
+    actor.set_drawable_hidden(true);
+
+    let mut peer = GameLogic::new();
+    peer.add_object(Object::new(template, id, Team::USA));
+    let visible = PresentationFrame::build_from_logic(&mut peer, 0);
+    assert!(visible.unit_render_inputs().iter().any(|input| input.id == id));
+
+    for (observer, with_victory) in [
+        (None, false),
+        (None, true),
+        (Some(&shadow), false),
+        (Some(&shadow), true),
+    ] {
+        let frame = PresentationFrame::try_publish_for_engine_with_runtime_heightmap(
+            &mut world,
+            0,
+            observer,
+            None,
+            with_victory,
+        )
+        .unwrap();
+        let row = frame
+            .objects
+            .iter()
+            .find(|row| row.id == id)
+            .expect("hidden actor row");
+        assert!(row.drawable_hidden);
+        assert_eq!(row.position, position);
+        assert_eq!(row.health_current, 100.0);
+        assert!(!UnitControlSystem::presentation_is_selectable(row));
+        assert!(frame.direct_host_drawables.iter().all(|draw| draw.object.id != id));
+        assert!(frame.unit_render_inputs().iter().all(|input| input.id != id));
+        assert!(!frame.renderable_object_ids().contains(&id));
+        assert_eq!(
+            UnitControlSystem::pick_object_id_at_world_from_presentation(
+                &frame, position, Some(Team::USA), true, 2.0,
+            ),
+            None
+        );
+        assert_eq!(
+            crate::pick_ray::pick_object_id_along_camera_ray(
+                &frame,
+                position + glam::Vec3::Y * 15.0,
+                position - glam::Vec3::Y * 15.0,
+                Some(Team::USA),
+                true,
+            ),
+            None
+        );
+        let encoded = bincode_legacy::serialize(row).unwrap();
+        let decoded: RenderableObject = bincode_legacy::deserialize(&encoded).unwrap();
+        assert!(decoded.drawable_hidden);
+    }
+
+    world.host_object_mut(id).unwrap().set_drawable_hidden(false);
+    let revealed = PresentationFrame::build_from_logic(&mut world, 0);
+    assert!(revealed.unit_render_inputs().iter().any(|input| input.id == id));
 }
 
 #[test]

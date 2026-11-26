@@ -230,11 +230,14 @@ impl PresentationFrame {
     /// Presentation owns unit identity + unit FOW; mesh asset load may still
     /// consult asset systems (not live object transform / shroud re-read).
     pub fn renderable_object_ids(&self) -> Vec<ObjectId> {
-        self.objects
-            .iter()
+        self.drawable_objects()
             .filter(|o| !o.destroyed)
             .map(|o| o.id)
             .collect()
+    }
+
+    pub(crate) fn drawable_objects(&self) -> impl Iterator<Item = &RenderableObject> {
+        self.objects.iter().filter(|object| !object.drawable_hidden)
     }
 
     /// Main unit mesh pass inputs from the snapshot only (no GameLogic / shroud borrow).
@@ -287,6 +290,7 @@ impl PresentationFrame {
         // opacity. FOW alpha must remain untouched for this path.
         let mesh_allowed = |object: &RenderableObject, allow_destroyed: bool| {
             (allow_destroyed || !object.destroyed)
+                && !object.drawable_hidden
                 && !object.engine_bridged
                 // Wave 504: contained units are not drawn as free world meshes
                 // unless they are the C++ OverlordContain friend_getRider()
@@ -438,7 +442,7 @@ impl PresentationFrame {
 
         let mut inputs = Vec::new();
         let mut owned_mesh_ids = FxHashSet::default();
-        for object in &self.objects {
+        for object in self.drawable_objects() {
             if object.engine_bridged {
                 // RenderBridge owns this ID even if a host Drawable is resident.
                 owned_mesh_ids.insert(object.id);

@@ -14,6 +14,7 @@ struct ObjectBodyObservation {
     max_health: f32,
     status_destroyed: bool,
     damage_state: u8,
+    drawable_hidden: bool,
 }
 
 impl ObjectBodyObservation {
@@ -26,6 +27,7 @@ impl ObjectBodyObservation {
                 max_health: object.max_health.max(object.health.current).max(1.0),
                 status_destroyed: object.status.destroyed,
                 damage_state: object.body_damage_state.ordinal(),
+                drawable_hidden: object.drawable_hidden,
             };
         }
         let position = entity.transform.position;
@@ -36,6 +38,7 @@ impl ObjectBodyObservation {
             max_health: entity.max_health,
             status_destroyed: entity.destroyed,
             damage_state: entity.body_damage_state,
+            drawable_hidden: false,
         }
     }
 
@@ -86,6 +89,9 @@ impl PresentationFrame {
         let asset_manager = self.asset_owner.0.as_deref();
         let mut updated = 0;
         for obj in &mut self.objects {
+            if logic.is_some() && obj.drawable_hidden {
+                continue;
+            }
             let entity = shadow.entity_for_host(obj.id);
             updated += usize::from(Self::overlay_gameworld_object_by_id(
                 obj,
@@ -1847,6 +1853,7 @@ impl PresentationFrame {
             max_height_above_position: 0.0,
 
             // Wave 493: engine-bridge + ground height from GW entity residual.
+            drawable_hidden: body.drawable_hidden,
             engine_bridged: ent.engine_bridged,
             fow_visibility: {
                 // Entity FOW floats: alpha≈1 visible; explored-but-low alpha → fogged; else hidden.
@@ -2400,8 +2407,7 @@ impl PresentationFrame {
         stamped
     }
 
-    /// Keep host objects only if the following GameWorld rebuild needs the
-    /// empty-world fallback. Direct host drawables are frozen either way.
+    /// Keep the complete host roster for the empty-shadow fallback.
     fn host_roster_for_gameworld(
         shadow: Option<&crate::gameworld_shadow::GameWorldShadow>,
         logic: &GameLogic,
@@ -2420,7 +2426,7 @@ impl PresentationFrame {
                     .retired()
                 })
         }) {
-            super::build::HostRoster::DrawablesOnly
+            super::build::HostRoster::DrawablesAndHiddenObjects
         } else {
             super::build::HostRoster::Keep
         }
@@ -2432,26 +2438,37 @@ impl PresentationFrame {
         &mut self,
         shadow: &crate::gameworld_shadow::GameWorldShadow,
     ) -> usize {
-        self.rebuild_observed_objects(shadow, None)
+        self.rebuild_observed_objects(shadow, None, &[])
     }
 
     fn rebuild_observed_objects(
         &mut self,
         shadow: &crate::gameworld_shadow::GameWorldShadow,
         logic: Option<&GameLogic>,
+        host_objects: &[RenderableObject],
     ) -> usize {
         let world = shadow.world().world();
         self.objects.clear();
         self.objects.reserve(world.entity_count());
+        let mut hidden_objects: FxHashMap<_, _> = host_objects
+            .iter()
+            .filter(|object| object.drawable_hidden)
+            .map(|object| (object.id, object))
+            .collect();
         let asset_manager = self.asset_owner.0.as_deref();
         let catalog = asset_manager.map(|assets| {
             assets.lock().map(|assets| assets.object_catalog()).map_err(|_| ())
         });
         let mut updated = 0;
+        let mut rebuilt = 0;
         let mut command_sets = FxHashMap::default();
         let mut draw_selections = FxHashMap::default();
         for ent in world.entities() {
             let host = shadow.host_for_entity(ent.id);
+            if let Some(object) = host.and_then(|id| hidden_objects.remove(&id)) {
+                self.objects.push(object.clone());
+                continue;
+            }
             let body = ObjectBodyObservation::capture(logic, host, ent);
             if body.retired() {
                 continue;
@@ -2503,10 +2520,20 @@ impl PresentationFrame {
             };
             updated += usize::from(changed);
             self.objects.push(object);
+            rebuilt += 1;
+        }
+        if !self.objects.is_empty() {
+            // A newly admitted actor can be missing from the last observation.
+            self.objects.extend(
+                host_objects
+                    .iter()
+                    .filter(|object| hidden_objects.contains_key(&object.id))
+                    .cloned(),
+            );
         }
         let n = self.objects.len();
-        self.gameworld_rebuilt = n;
-        self.gameworld_primary_objects = n > 0 || self.gameworld_primary_objects;
+        self.gameworld_rebuilt = rebuilt;
+        self.gameworld_primary_objects = rebuilt > 0 || self.gameworld_primary_objects;
         self.gameworld_overlay_stamped = updated;
         n
     }
@@ -2588,7 +2615,7 @@ impl PresentationFrame {
             f
         };
         let host_objects = std::mem::take(&mut frame.objects);
-        let gw_n = frame.rebuild_observed_objects(shadow, host.as_deref());
+        let gw_n = frame.rebuild_observed_objects(shadow, host.as_deref(), &host_objects);
         // Wave 838: keep host objects when shadow yields nothing.
         if gw_n == 0 && !host_objects.is_empty() {
             frame.objects = host_objects;
@@ -2777,7 +2804,7 @@ impl PresentationFrame {
         match shadow {
             Some(shadow) if presentation_from_gameworld_enabled() => {
                 let host_objects = std::mem::take(&mut frame.objects);
-                let gw_n = frame.rebuild_observed_objects(shadow, Some(logic));
+                let gw_n = frame.rebuild_observed_objects(shadow, Some(logic), &host_objects);
                 // Wave 838: empty GameWorld shadow must not erase a non-empty host
                 // roster (construct/train/map objects) or unit mesh collect stays 0.
                 if gw_n == 0 && !host_objects.is_empty() {

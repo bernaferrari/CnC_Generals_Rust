@@ -33,8 +33,7 @@ impl FrozenSpecializedDrawFrame {
         // direct rows additionally retain C++ deferred death/rubble visuals.
         // Build this set once at capture, never once per object or mesh.
         let roster: HashSet<_> = frame
-            .objects
-            .iter()
+            .drawable_objects()
             .map(|object| object.id)
             .chain(
                 frame

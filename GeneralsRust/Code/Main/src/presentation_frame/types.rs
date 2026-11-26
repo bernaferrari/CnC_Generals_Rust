@@ -1070,6 +1070,9 @@ pub struct RenderableObject {
     #[serde(default)]
     pub max_height_above_position: f32,
 
+    /// C++ Drawable::m_hidden. The Object still participates in roster queries.
+    #[serde(default)]
+    pub drawable_hidden: bool,
     /// True when bridged to GameEngine ObjectFactory (retired host dual-id).
     /// Presentation-owned so the unit mesh pass can skip double-draw without
     /// locking live GameLogic for identity.

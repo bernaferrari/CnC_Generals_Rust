@@ -315,6 +315,9 @@ impl UnitControlSystem {
     /// C++ `Object::isSelectable` / `CanSelectDrawable` have no disabled-type
     /// gate — EMP / underpowered / unmanned units stay clickable.
     pub fn presentation_is_selectable(o: &RenderableObject) -> bool {
+        if o.drawable_hidden {
+            return false;
+        }
         // Wave 1092: presentation selectable residual fail-closed on sold /
         // unselectable/masked (catalog + pick peels match C++ status).
         // C++ CanSelectDrawable (SelectionXlat.cpp:113-116) keeps
@@ -381,7 +384,7 @@ impl UnitControlSystem {
             .objects
             .iter()
             .filter_map(|o| {
-                if Self::presentation_pick_skips_dead(o) {
+                if o.drawable_hidden || Self::presentation_pick_skips_dead(o) {
                     return None;
                 }
                 // Wave 1094: non-local FOW residual fail-closed (Clear only),

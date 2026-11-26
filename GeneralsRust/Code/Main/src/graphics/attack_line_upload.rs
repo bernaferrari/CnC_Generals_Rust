@@ -66,7 +66,7 @@ impl AttackLineUpload {
     ) -> Self {
         let mut by_id: HashMap<u32, Vec3> = HashMap::new();
         for o in objects {
-            if !o.destroyed {
+            if !o.destroyed && !o.drawable_hidden {
                 by_id.insert(o.id.0, o.position);
             }
         }
@@ -76,7 +76,7 @@ impl AttackLineUpload {
         // Red attack-order residual.
         let color = [1.0f32, 0.25, 0.15, 0.9];
         for o in objects {
-            if o.destroyed {
+            if o.destroyed || o.drawable_hidden {
                 continue;
             }
             let Some(tid) = o.attack_target else {

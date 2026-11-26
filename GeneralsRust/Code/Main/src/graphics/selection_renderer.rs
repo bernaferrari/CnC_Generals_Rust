@@ -920,8 +920,7 @@ fn pack_health_bar_quads(
     // and the id shares the presentation ObjectId u32 space.
 
     for object in frame
-        .objects
-        .iter()
+        .drawable_objects()
         .filter(|o| !o.destroyed && (o.selected || hovered_id == Some(o.id.0)))
     {
         // C++ bails when maxHealth == 0 or health == 0 (`Drawable.cpp:3860`).

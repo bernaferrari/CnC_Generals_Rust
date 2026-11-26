@@ -132,6 +132,9 @@ pub fn object_hit_along_ray(
     ray_start: Vec3,
     ray_dir: Vec3,
 ) -> Option<f32> {
+    if object.drawable_hidden {
+        return None;
+    }
     let center = extrapolated_pick_position(object, frame_stamp, now_logic_frame);
     let radius = presentation_mesh_pick_radius(object.selection_radius);
     let height = object.max_height_above_position;

@@ -258,10 +258,14 @@ fn control_group_recall_drops_enclosed_unselectable_and_keeps_live_non_local_lik
     let stored = [local, garrisoned, captured];
     let click = frame.filter_alive_selectable_ids(&stored, Team::USA);
     assert_eq!(click, vec![local], "click path still peels contained");
-    assert!(
-        frame.objects.iter().all(|o| o.id != garrisoned),
-        "enclosing containment hides the drawable from presentation"
-    );
+    let enclosed = frame
+        .objects
+        .iter()
+        .find(|object| object.id == garrisoned)
+        .expect("enclosed actor remains in the simulation roster");
+    assert_eq!(enclosed.contained_by, Some(ObjectId(50)));
+    assert!(enclosed.drawable_hidden);
+    assert!(!frame.renderable_object_ids().contains(&garrisoned));
     let select_team = frame.filter_live_squad_ids(&stored, true);
     assert_eq!(
         select_team,

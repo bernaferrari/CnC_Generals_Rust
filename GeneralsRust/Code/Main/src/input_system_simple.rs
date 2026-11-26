@@ -68,7 +68,8 @@ impl SimpleInputProcessor {
     }
 
     fn presentation_is_selectable(o: &crate::presentation_frame::RenderableObject) -> bool {
-        !o.destroyed
+        !o.drawable_hidden
+            && !o.destroyed
             && PresentationFrame::object_has_kind(o, KindOf::Selectable)
             && o.contained_by.is_none()
     }
@@ -503,7 +504,7 @@ impl SimpleInputProcessor {
         let frame = self.presentation_frame.as_ref()?;
         let mut closest_object = None;
         let mut closest_distance = SELECTION_RADIUS;
-        for o in &frame.objects {
+        for o in frame.drawable_objects() {
             if o.destroyed || o.sold || o.masked {
                 continue;
             }

@@ -384,10 +384,8 @@ impl PresentationFrame {
         )
     }
 
-    /// `HostRoster::DrawablesOnly` is for callers that replace `objects`
-    /// wholesale (the GameWorld roster rebuild): the host renderables are
-    /// moved into `direct_host_drawables` instead of being cloned into an
-    /// `objects` list that would be discarded unread.
+    /// The shadow rebuild reuses direct hidden Object rows and freezes visible
+    /// host drawables for the renderer.
     pub(super) fn build_from_logic_with_host_roster(
         logic: &mut GameLogic,
         local_player_id: u32,
@@ -498,9 +496,6 @@ impl PresentationFrame {
             }
             let remembers_ghost = obj.is_kind_of(KindOf::Immobile)
                 && !obj.get_template().default_draw_without_fog_memory;
-            if obj.drawable_hidden && !remembers_ghost {
-                continue;
-            }
             let draw_identity = logic.live_draw_playback_identity(obj);
             if remembers_ghost {
                 use crate::game_logic::game_logic::world_objects::fog_ghosts::HostGhostScaleSource;
@@ -514,8 +509,7 @@ impl PresentationFrame {
                     },
                 );
             }
-            // C++ Drawable::setDrawableHidden — ride-hide hijacker has no mesh.
-            if obj.drawable_hidden {
+            if obj.drawable_hidden && obj.status.destroyed && obj.health.current <= 0.0 {
                 continue;
             }
 
@@ -1197,6 +1191,7 @@ impl PresentationFrame {
                     }
                 },
 
+                drawable_hidden: obj.drawable_hidden,
                 engine_bridged: false,
                 fow_visibility,
                 drawable_shroud,
@@ -1209,6 +1204,10 @@ impl PresentationFrame {
                 drawable_explicit_opacity: obj.drawable_explicit_opacity,
                 camo_heat_vision_opacity: obj.pending_second_material_pass().unwrap_or(0.0),
             };
+            if renderable.drawable_hidden {
+                objects.push(renderable);
+                continue;
+            }
             let (object, roster_entry) = if keep_host_roster {
                 (renderable.clone(), Some(renderable))
             } else {
@@ -1962,8 +1961,7 @@ impl PresentationFrame {
             }
         }
 
-        // Every host renderable lands in `direct_host_drawables`; `objects`
-        // holds the same set only when the host roster is kept.
+        // A hidden Object has a roster row without a resident Drawable.
         let dual_tick = PresentationDualTickResidual::from_counts(
             direct_host_drawables.len(),
             selected.len(),
@@ -2317,7 +2315,9 @@ impl PresentationFrame {
         };
         frame.stamp_restrict_a(logic);
         // Wave 500: named damage/death/bone FX residual → particle observe list.
-        let _ = frame.append_object_residual_fx_particles();
+        if keep_host_roster {
+            let _ = frame.append_object_residual_fx_particles();
+        }
         if freeze_tints {
             frame.freeze_drawable_status_tints_from_logic(logic, None);
         }
@@ -2413,6 +2413,7 @@ impl PresentationFrame {
             o.health_current.to_bits().hash(&mut h);
             o.selected.hash(&mut h);
             o.destroyed.hash(&mut h);
+            o.drawable_hidden.hash(&mut h);
             o.fow_visibility.visibility_alpha.to_bits().hash(&mut h);
             o.fow_visibility.is_explored.to_bits().hash(&mut h);
             o.drawable_shroud.hash(&mut h);
@@ -3028,5 +3029,5 @@ mod sw_hud_tests {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum HostRoster {
     Keep,
-    DrawablesOnly,
+    DrawablesAndHiddenObjects,
 }

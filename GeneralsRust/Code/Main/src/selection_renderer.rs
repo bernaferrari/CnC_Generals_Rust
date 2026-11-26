@@ -171,7 +171,7 @@ impl SelectionRenderer {
         let by_id: std::collections::HashMap<
             ObjectId,
             &crate::presentation_frame::RenderableObject,
-        > = frame.objects.iter().map(|o| (o.id, o)).collect();
+        > = frame.drawable_objects().map(|o| (o.id, o)).collect();
 
         // Selected units: prefer unit_control list, then frame.selected, then
         // snapshot object.selected flags (presentation-owned identity).
@@ -276,7 +276,7 @@ impl SelectionRenderer {
             }
         }
 
-        for ro in &frame.objects {
+        for ro in frame.drawable_objects() {
             if ro.destroyed {
                 continue;
             }
@@ -661,7 +661,7 @@ impl SelectionRenderer {
         let by_id: std::collections::HashMap<
             ObjectId,
             &crate::presentation_frame::RenderableObject,
-        > = frame.objects.iter().map(|o| (o.id, o)).collect();
+        > = frame.drawable_objects().map(|o| (o.id, o)).collect();
 
         // Prefer control-system membership walk; fall back to every snapshot object.
         let mut seen = std::collections::HashSet::new();
@@ -670,7 +670,7 @@ impl SelectionRenderer {
             .iter()
             .copied()
             .collect();
-        for o in &frame.objects {
+        for o in frame.drawable_objects() {
             candidates.push(o.id);
         }
         for object_id in candidates {
