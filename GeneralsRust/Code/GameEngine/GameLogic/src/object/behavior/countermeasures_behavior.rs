@@ -1118,7 +1118,7 @@ mod tests {
         assert_eq!(data.volley_size, 3);
         assert_eq!(data.number_of_volleys, 5);
         assert_eq!(
-            data.upgrade_mux_data
+            data.upgrade_mux_data.definition
                 .activation_upgrade_names
                 .iter()
                 .map(|name| name.as_str())
@@ -1126,19 +1126,19 @@ mod tests {
             ["Upgrade_A", "Upgrade_B"]
         );
         assert_eq!(
-            data.upgrade_mux_data.conflicting_upgrade_names[0].as_str(),
+            data.upgrade_mux_data.definition.conflicting_upgrade_names[0].as_str(),
             "Upgrade_Conflict"
         );
         assert_eq!(
-            data.upgrade_mux_data.removal_upgrade_names[0].as_str(),
+            data.upgrade_mux_data.definition.removal_upgrade_names[0].as_str(),
             "Upgrade_Remove"
         );
-        assert!(data.upgrade_mux_data.requires_all_triggers);
+        assert!(data.upgrade_mux_data.definition.requires_all_triggers);
         assert_eq!(
-            data.upgrade_mux_data
-                .fx_list_upgrade
+            data.upgrade_mux_data.definition
+                .fx_list_name
                 .as_ref()
-                .map(|fx| fx.name()),
+                .map(|name| name.as_str()),
             Some("FX_Upgrade")
         );
         // The old second parser also rejected a valid empty body after End.

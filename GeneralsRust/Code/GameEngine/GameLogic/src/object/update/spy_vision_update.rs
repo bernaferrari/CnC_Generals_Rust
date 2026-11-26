@@ -903,7 +903,7 @@ fn parse_triggered_by(
 ) -> Result<(), INIError> {
     for token in tokens.iter().skip_while(|t| **t == "=") {
         if !token.is_empty() {
-            data.upgrade_mux_data
+            data.upgrade_mux_data.definition
                 .trigger_upgrade_names
                 .push(crate::common::AsciiString::from(*token));
         }
@@ -918,7 +918,7 @@ fn parse_conflicts_with(
 ) -> Result<(), INIError> {
     for token in tokens.iter().skip_while(|t| **t == "=") {
         if !token.is_empty() {
-            data.upgrade_mux_data
+            data.upgrade_mux_data.definition
                 .conflicting_upgrade_names
                 .push(crate::common::AsciiString::from(*token));
         }
@@ -933,7 +933,7 @@ fn parse_removes_upgrades(
 ) -> Result<(), INIError> {
     for token in tokens.iter().skip_while(|t| **t == "=") {
         if !token.is_empty() {
-            data.upgrade_mux_data
+            data.upgrade_mux_data.definition
                 .removal_upgrade_names
                 .push(crate::common::AsciiString::from(*token));
         }
@@ -951,7 +951,7 @@ fn parse_requires_all_triggers(
         .skip_while(|t| **t == "=")
         .next()
         .ok_or(INIError::InvalidData)?;
-    data.upgrade_mux_data.requires_all_triggers = INI::parse_bool(value)?;
+    data.upgrade_mux_data.definition.requires_all_triggers = INI::parse_bool(value)?;
     Ok(())
 }
 

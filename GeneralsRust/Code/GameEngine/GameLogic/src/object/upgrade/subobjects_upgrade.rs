@@ -253,7 +253,7 @@ fn parse_triggered_by(
     tokens: &[&str],
 ) -> Result<(), INIError> {
     // C++ UpgradeMuxData TriggeredBy uses parseAsciiStringVector (replace).
-    data.upgrade_mux_data.parse_triggered_by_tokens(tokens)
+    data.upgrade_mux_data.definition.parse_triggered_by_tokens(tokens)
 }
 
 fn parse_conflicts_with(
@@ -261,7 +261,7 @@ fn parse_conflicts_with(
     data: &mut SubObjectsUpgradeModuleData,
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    data.upgrade_mux_data.parse_conflicts_with_tokens(tokens)
+    data.upgrade_mux_data.definition.parse_conflicts_with_tokens(tokens)
 }
 
 fn parse_removes_upgrades(
@@ -269,7 +269,7 @@ fn parse_removes_upgrades(
     data: &mut SubObjectsUpgradeModuleData,
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    data.upgrade_mux_data.parse_removes_upgrades_tokens(tokens)
+    data.upgrade_mux_data.definition.parse_removes_upgrades_tokens(tokens)
 }
 
 fn parse_requires_all_triggers(
@@ -277,7 +277,7 @@ fn parse_requires_all_triggers(
     data: &mut SubObjectsUpgradeModuleData,
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    data.upgrade_mux_data
+    data.upgrade_mux_data.definition
         .parse_requires_all_triggers_tokens(tokens)
 }
 
@@ -286,7 +286,7 @@ fn parse_fx_list_upgrade(
     data: &mut SubObjectsUpgradeModuleData,
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    data.upgrade_mux_data.parse_fx_list_upgrade_tokens(tokens)
+    data.upgrade_mux_data.definition.parse_fx_list_upgrade_tokens(tokens)
 }
 
 const SUBOBJECTS_UPGRADE_FIELDS: &[FieldParse<SubObjectsUpgradeModuleData>] = &[

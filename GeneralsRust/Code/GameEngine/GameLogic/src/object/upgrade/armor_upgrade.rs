@@ -106,7 +106,7 @@ impl ArmorUpgradeModuleData {
                 .expect("ArmorUpgrade body armor setter failed");
         }
         if self
-            .upgrade_mux_data
+            .upgrade_mux_data.definition
             .is_triggered_by("Upgrade_AmericaChemicalSuits")
         {
             if let Some(drawable) = owner.get_drawable() {

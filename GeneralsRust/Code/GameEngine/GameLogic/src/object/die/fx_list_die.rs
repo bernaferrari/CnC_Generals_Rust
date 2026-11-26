@@ -155,7 +155,7 @@ fn parse_triggered_by(
     }
     let mut parsed_any = false;
     for token in value_tokens(tokens) {
-        data.upgrade_mux_data
+        data.upgrade_mux_data.definition
             .trigger_upgrade_names
             .push(AsciiString::from(token));
         parsed_any = true;
@@ -176,7 +176,7 @@ fn parse_conflicts_with(
     }
     let mut parsed_any = false;
     for token in value_tokens(tokens) {
-        data.upgrade_mux_data
+        data.upgrade_mux_data.definition
             .conflicting_upgrade_names
             .push(AsciiString::from(token));
         parsed_any = true;
@@ -197,7 +197,7 @@ fn parse_removes_upgrades(
     }
     let mut parsed_any = false;
     for token in value_tokens(tokens) {
-        data.upgrade_mux_data
+        data.upgrade_mux_data.definition
             .removal_upgrade_names
             .push(AsciiString::from(token));
         parsed_any = true;
@@ -214,7 +214,7 @@ fn parse_requires_all_triggers(
     tokens: &[&str],
 ) -> Result<(), INIError> {
     let token = required_value(tokens)?;
-    data.upgrade_mux_data.requires_all_triggers = INI::parse_bool(token)?;
+    data.upgrade_mux_data.definition.requires_all_triggers = INI::parse_bool(token)?;
     Ok(())
 }
 
@@ -444,9 +444,9 @@ mod tests {
         assert_eq!(data.default_death_fx, None);
         assert_eq!(data.orient_to_object, true);
         assert_eq!(data.initially_active, true);
-        assert_eq!(data.upgrade_mux_data.trigger_upgrade_names.len(), 0);
-        assert_eq!(data.upgrade_mux_data.conflicting_upgrade_names.len(), 0);
-        assert_eq!(data.upgrade_mux_data.requires_all_triggers, false);
+        assert_eq!(data.upgrade_mux_data.definition.trigger_upgrade_names.len(), 0);
+        assert_eq!(data.upgrade_mux_data.definition.conflicting_upgrade_names.len(), 0);
+        assert_eq!(data.upgrade_mux_data.definition.requires_all_triggers, false);
     }
 
     #[test]
@@ -457,13 +457,13 @@ mod tests {
         let object = Arc::new(RwLock::new(Object::new_test(42, 100.0)));
         let module = FXListDie::new(object, data.clone());
         assert!(super::super::ModuleDataHandle::ptr_eq(&data, module.base.module_data.handle()));
-        assert!(!module.upgrade_mux.data_snapshot().requires_all_triggers);
+        assert!(!module.upgrade_mux.data_snapshot().definition.requires_all_triggers);
         {
             let mut guard = data.write();
             let any: &mut dyn std::any::Any = &mut *guard;
-            any.downcast_mut::<FXListDieModuleData>().unwrap().upgrade_mux_data.requires_all_triggers = true;
+            any.downcast_mut::<FXListDieModuleData>().unwrap().upgrade_mux_data.definition.requires_all_triggers = true;
         }
-        assert!(module.upgrade_mux.data_snapshot().requires_all_triggers);
+        assert!(module.upgrade_mux.data_snapshot().definition.requires_all_triggers);
     }
 
     #[test]
@@ -502,7 +502,7 @@ mod tests {
         assert_eq!(data.default_death_fx.as_deref(), Some("FX_TankExplosion"));
         assert!(!data.orient_to_object);
         assert_eq!(
-            data.upgrade_mux_data
+            data.upgrade_mux_data.definition
                 .trigger_upgrade_names
                 .iter()
                 .map(|name| name.as_str())
@@ -510,14 +510,14 @@ mod tests {
             vec!["Upgrade_A", "Upgrade_B"]
         );
         assert_eq!(
-            data.upgrade_mux_data.conflicting_upgrade_names[0].as_str(),
+            data.upgrade_mux_data.definition.conflicting_upgrade_names[0].as_str(),
             "Upgrade_C"
         );
         assert_eq!(
-            data.upgrade_mux_data.removal_upgrade_names[0].as_str(),
+            data.upgrade_mux_data.definition.removal_upgrade_names[0].as_str(),
             "Upgrade_D"
         );
-        assert!(data.upgrade_mux_data.requires_all_triggers);
+        assert!(data.upgrade_mux_data.definition.requires_all_triggers);
     }
 
     #[test]

@@ -17878,6 +17878,11 @@
             {
               "cargo_reachable": true,
               "classification": "implementation",
+              "path": "GeneralsRust/Code/GameEngine/Common/src/common/system/upgrade/mux.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "implementation",
               "path": "GeneralsRust/Code/GameEngine/Common/src/common/system/upgrade/template.rs"
             },
             {
@@ -187687,7 +187692,7 @@
       ]
     }
   ],
-  "provenance_input_digest": "e984ebda1b4191bb07c0f4f3bcb65cecebac1b2a44b4075cf936d492e2a3a182",
+  "provenance_input_digest": "8c48191a7a003e081f65a54a7cef1edc2bd0a6d75728e1713865a20629abeeb0",
   "schema_version": 1,
   "summary": {
     "maximum_packet_size": 15,

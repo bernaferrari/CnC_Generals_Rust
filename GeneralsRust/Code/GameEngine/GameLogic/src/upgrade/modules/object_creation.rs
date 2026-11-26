@@ -303,7 +303,7 @@ fn parse_triggered_by(
     data: &mut ObjectCreationUpgradeModuleData,
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    data.upgrade_mux_data.parse_triggered_by_tokens(tokens)
+    data.upgrade_mux_data.definition.parse_triggered_by_tokens(tokens)
 }
 
 fn parse_conflicts_with(
@@ -311,7 +311,7 @@ fn parse_conflicts_with(
     data: &mut ObjectCreationUpgradeModuleData,
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    data.upgrade_mux_data.parse_conflicts_with_tokens(tokens)
+    data.upgrade_mux_data.definition.parse_conflicts_with_tokens(tokens)
 }
 
 fn parse_removes_upgrades(
@@ -319,7 +319,7 @@ fn parse_removes_upgrades(
     data: &mut ObjectCreationUpgradeModuleData,
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    data.upgrade_mux_data.parse_removes_upgrades_tokens(tokens)
+    data.upgrade_mux_data.definition.parse_removes_upgrades_tokens(tokens)
 }
 
 fn parse_requires_all_triggers(
@@ -327,7 +327,7 @@ fn parse_requires_all_triggers(
     data: &mut ObjectCreationUpgradeModuleData,
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    data.upgrade_mux_data
+    data.upgrade_mux_data.definition
         .parse_requires_all_triggers_tokens(tokens)
 }
 
@@ -336,7 +336,7 @@ fn parse_fx_list_upgrade(
     data: &mut ObjectCreationUpgradeModuleData,
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    data.upgrade_mux_data.parse_fx_list_upgrade_tokens(tokens)
+    data.upgrade_mux_data.definition.parse_fx_list_upgrade_tokens(tokens)
 }
 
 const OBJECT_CREATION_UPGRADE_FIELDS: &[FieldParse<ObjectCreationUpgradeModuleData>] = &[
@@ -398,7 +398,7 @@ mod tests {
             let mut data = handle.write();
             let any: &mut dyn std::any::Any = &mut *data;
             let data = any.downcast_mut::<ObjectCreationUpgradeModuleData>().unwrap();
-            data.upgrade_mux_data.activation_upgrade_names.push(AsciiString::from("Upgrade_Tank"));
+            data.upgrade_mux_data.definition.activation_upgrade_names.push(AsciiString::from("Upgrade_Tank"));
             data.set_module_tag_name_key(42);
         }
         assert!(upgrade.would_upgrade(mask));
@@ -412,6 +412,7 @@ mod tests {
 
         let mut mask_data = UpgradeMuxData::default();
         mask_data
+            .definition
             .activation_upgrade_names
             .push(AsciiString::from("Upgrade_Tank"));
         data.upgrade_mux_data = mask_data;

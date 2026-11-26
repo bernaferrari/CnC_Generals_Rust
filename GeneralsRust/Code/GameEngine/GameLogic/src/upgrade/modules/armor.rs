@@ -206,8 +206,8 @@ mod tests {
     fn test_armor_upgrade_data_has_no_invented_fields() {
         // C++ ArmorUpgrade.h:45-60 — UpgradeMux only; no ArmorBonus/IsMultiplier.
         let data = ArmorUpgradeModuleData::default();
-        assert!(data.upgrade_mux_data.activation_upgrade_names.is_empty());
-        assert!(!data.upgrade_mux_data.requires_all_triggers);
+        assert!(data.upgrade_mux_data.definition.activation_upgrade_names.is_empty());
+        assert!(!data.upgrade_mux_data.definition.requires_all_triggers);
     }
 
     #[test]

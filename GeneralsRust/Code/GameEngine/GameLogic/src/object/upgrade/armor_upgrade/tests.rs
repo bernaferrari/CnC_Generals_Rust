@@ -448,12 +448,12 @@ fn crc_and_xfer_match_cpp_and_do_not_replay_armor_after_load() {
 #[test]
 fn chem_suit_decal_uses_module_triggered_by() {
     let mut chem = ArmorUpgradeModuleData::default();
-    chem.upgrade_mux_data
+    chem.upgrade_mux_data.definition
         .activation_upgrade_names
         .push(AsciiString::from(CHEM));
-    assert!(chem.upgrade_mux_data.is_triggered_by(CHEM));
+    assert!(chem.upgrade_mux_data.definition.is_triggered_by(CHEM));
     let other = ArmorUpgradeModuleData::default();
-    assert!(!other.upgrade_mux_data.is_triggered_by(CHEM));
+    assert!(!other.upgrade_mux_data.definition.is_triggered_by(CHEM));
     assert!(!mux_can_upgrade(
         &other.upgrade_mux_data,
         false,

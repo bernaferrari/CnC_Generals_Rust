@@ -208,7 +208,7 @@ impl FXListManagerInterface for Effects {
                 .unwrap()
                 .data
                 .read()
-                .upgrade_mux_data
+                .upgrade_mux_data.definition
                 .removal_upgrade_names
                 .clone()
         });
@@ -500,15 +500,15 @@ End
             .collect::<Vec<_>>()
     };
     assert_eq!(
-        names(&data.upgrade_mux_data.activation_upgrade_names),
+        names(&data.upgrade_mux_data.definition.activation_upgrade_names),
         ["FinalA", "FinalB"]
     );
     assert_eq!(
-        names(&data.upgrade_mux_data.conflicting_upgrade_names),
+        names(&data.upgrade_mux_data.definition.conflicting_upgrade_names),
         ["FinalConflict"]
     );
     assert_eq!(
-        names(&data.upgrade_mux_data.removal_upgrade_names),
+        names(&data.upgrade_mux_data.definition.removal_upgrade_names),
         ["FinalRemoval"]
     );
     assert_eq!(names(data.show_sub_object_names()), ["Arm", "Torso"]);

@@ -17,14 +17,14 @@ fn strict_minefield_admits_original_upgrade_mux_and_leaf_values_in_one_body() {
         .downcast_ref::<GenerateMinefieldBehaviorModuleData>()
         .expect("actual typed minefield");
     assert_eq!(
-        data.upgrade_mux_data
+        data.upgrade_mux_data.definition
             .activation_upgrade_names
             .iter()
             .map(|n| n.as_str())
             .collect::<Vec<_>>(),
         ["Upgrade_ChinaMines"]
     );
-    assert!(data.upgrade_mux_data.requires_all_triggers);
+    assert!(data.upgrade_mux_data.definition.requires_all_triggers);
     assert_eq!(data.mine_name, "ChinaMine");
     assert_eq!(data.distance_around_object, 12.5);
     assert_eq!(data.random_jitter, 0.2);

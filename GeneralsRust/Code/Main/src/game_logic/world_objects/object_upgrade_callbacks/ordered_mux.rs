@@ -1,6 +1,6 @@
 //! Object::updateUpgradeModules / removeUpgrade and the typed UpgradeMux pass.
 use super::*;
-use game_engine::common::system::upgrade::UpgradeMask;
+use game_engine::common::system::upgrade::{UpgradeMask, UpgradeMuxDefinition};
 use gamelogic::object::upgrade::{
     ArmorUpgradeModuleData, CommandSetUpgradeModuleData, ModelConditionUpgradeModuleData,
     ReplaceObjectUpgradeModuleData, StealthUpgradeModuleData, SubObjectsUpgradeModuleData,
@@ -55,7 +55,7 @@ enum AuthoredWeaponUpgradeKind {
 struct AuthoredWeaponUpgrade {
     source_index: usize,
     kind: AuthoredWeaponUpgradeKind,
-    mux: ModuleDataView<gamelogic::upgrade::modules::upgrade_mux::UpgradeMuxData>,
+    mux: ModuleDataView<UpgradeMuxDefinition>,
 }
 
 impl AuthoredWeaponUpgrade {
@@ -168,26 +168,26 @@ pub(super) struct AuthoredUpgradePass<'a> {
 }
 
 impl AuthoredOrderedUpgrade {
-    fn with_mux<R>(
+    fn with_upgrade_definition<R>(
         &self,
-        f: impl FnOnce(&gamelogic::upgrade::modules::upgrade_mux::UpgradeMuxData) -> R,
+        f: impl FnOnce(&UpgradeMuxDefinition) -> R,
     ) -> R {
         match self {
-            Self::ObjectCreation(module) => f(&module.data.read().upgrade_mux_data),
-            Self::ReplaceObject(module) => f(&module.data.read().upgrade_mux_data),
-            Self::Armor(module) => f(&module.data.read().upgrade_mux_data),
-            Self::Stealth(module) => f(&module.data.read().upgrade_mux_data),
+            Self::ObjectCreation(module) => f(&module.data.read().upgrade_mux_data.definition),
+            Self::ReplaceObject(module) => f(&module.data.read().upgrade_mux_data.definition),
+            Self::Armor(module) => f(&module.data.read().upgrade_mux_data.definition),
+            Self::Stealth(module) => f(&module.data.read().upgrade_mux_data.definition),
             Self::Visual(module) => match &module.effect {
-                VisualUpgradeEffect::ModelCondition(data) => f(&data.read().upgrade_mux_data),
-                VisualUpgradeEffect::SubObjects(data) => f(&data.read().upgrade_mux_data),
+                VisualUpgradeEffect::ModelCondition(data) => f(&data.read().upgrade_mux_data.definition),
+                VisualUpgradeEffect::SubObjects(data) => f(&data.read().upgrade_mux_data.definition),
             },
-            Self::CommandSet(module) => f(&module.data.read().upgrade_mux_data),
-            Self::StatusBits(module) => f(&module.data.read().upgrade_mux_data),
-            Self::CostModifier(module) => f(&module.data.read().upgrade_mux_data),
-            Self::PowerPlant(module) => f(&module.data.read().upgrade_mux_data),
-            Self::Radar(module) => f(&module.data.read().upgrade_mux_data),
-            Self::PassengersFire(module) => f(&module.data.read().upgrade_mux_data),
-            Self::MaxHealth(module) => f(&module.data.read().upgrade_mux_data),
+            Self::CommandSet(module) => f(&module.data.read().upgrade_mux_data.definition),
+            Self::StatusBits(module) => f(&module.data.read().upgrade_mux_data.definition),
+            Self::CostModifier(module) => f(&module.data.read().upgrade_mux_data.definition),
+            Self::PowerPlant(module) => f(&module.data.read().upgrade_mux_data.definition),
+            Self::Radar(module) => f(&module.data.read().upgrade_mux_data.definition),
+            Self::PassengersFire(module) => f(&module.data.read().upgrade_mux_data.definition),
+            Self::MaxHealth(module) => f(&module.data.read().upgrade_mux_data.definition),
             Self::Weapon(module) => f(&module.mux.read()),
         }
     }
@@ -333,7 +333,7 @@ impl GameLogic {
                     return Some(AuthoredOrderedUpgrade::Weapon(AuthoredWeaponUpgrade {
                         source_index,
                         kind: AuthoredWeaponUpgradeKind::Set,
-                        mux: ModuleDataView::new(module.data.clone(), |data| &data.as_any().downcast_ref::<gamelogic::object::upgrade::weapon_set_upgrade::WeaponSetUpgradeModuleData>().expect("weapon set data").upgrade_mux_data),
+                        mux: ModuleDataView::new(module.data.clone(), |data| &data.as_any().downcast_ref::<gamelogic::object::upgrade::weapon_set_upgrade::WeaponSetUpgradeModuleData>().expect("weapon set data").upgrade_mux_data.definition),
                     }));
                 }
                 if module.name.as_str().eq_ignore_ascii_case("WeaponBonusUpgrade") {
@@ -341,7 +341,7 @@ impl GameLogic {
                     return Some(AuthoredOrderedUpgrade::Weapon(AuthoredWeaponUpgrade {
                         source_index,
                         kind: AuthoredWeaponUpgradeKind::Bonus,
-                        mux: ModuleDataView::new(module.data.clone(), |data| &data.as_any().downcast_ref::<gamelogic::object::upgrade::weapon_bonus_upgrade::WeaponBonusUpgradeModuleData>().expect("weapon bonus data").upgrade_mux_data),
+                        mux: ModuleDataView::new(module.data.clone(), |data| &data.as_any().downcast_ref::<gamelogic::object::upgrade::weapon_bonus_upgrade::WeaponBonusUpgradeModuleData>().expect("weapon bonus data").upgrade_mux_data.definition),
                     }));
                 }
                 None
@@ -476,12 +476,13 @@ impl GameLogic {
                     .get(&object_id)
                     .is_some_and(|object| object.applied_upgrades.contains(&module.executed_key())),
             };
-            if already_executed || !module.with_mux(|mux| self.upgrade_mux_would_run(mux, key_mask))
+            if already_executed || !module.with_upgrade_definition(|mux| self.upgrade_mux_would_run(mux, key_mask))
             {
                 continue;
             }
-            let fx_list =
-                module.with_mux(|mux| mux.fx_list_upgrade.as_ref().map(|fx| fx.name().to_owned()));
+            let fx_list = module.with_upgrade_definition(|definition| {
+                definition.fx_list_name.as_ref().map(|name| name.as_str().to_owned())
+            });
             if let Some(fx_list) = fx_list {
                 let _ = self.dispatch_fx_list_at_host_object_with_effects(
                     &fx_list,
@@ -496,7 +497,7 @@ impl GameLogic {
                     return Ok(());
                 }
             }
-            let removal_names = module.with_mux(|mux| mux.removal_upgrade_names.clone());
+            let removal_names = module.with_upgrade_definition(|mux| mux.removal_upgrade_names.clone());
             for removed in &removal_names {
                 self.remove_object_upgrade_with_receiving_rules(object_id, removed.as_str());
             }
@@ -540,6 +541,7 @@ impl GameLogic {
                             .data
                             .read()
                             .upgrade_mux_data
+                            .definition
                             .is_triggered_by(UPGRADE_AMERICA_CHEMICAL_SUITS)
                         {
                             object.apply_chemical_suit_decal();
@@ -711,8 +713,7 @@ impl GameLogic {
                             .map(str::to_owned);
                         let kind = pending_upgrade
                             .and_then(crate::game_logic::host_slave_drones::SlaveDroneKind::from_upgrade_name)
-                            .or_else(|| data.upgrade_mux_data.activation_upgrade_names.iter()
-                                .chain(&data.upgrade_mux_data.trigger_upgrade_names)
+                            .or_else(|| data.upgrade_mux_data.definition.activation_names()
                                 .find_map(|name| crate::game_logic::host_slave_drones::SlaveDroneKind::from_upgrade_name(name.as_str())));
                         (ocl_name, kind)
                     };
@@ -872,7 +873,7 @@ impl GameLogic {
         let modules = self.authored_ordered_upgrade_modules(object_id);
         let activation_masks: Vec<_> = modules
             .iter()
-            .map(|module| module.with_mux(|mux| self.upgrade_activation_mask(mux)))
+            .map(|module| module.with_upgrade_definition(|mux| self.upgrade_activation_mask(mux)))
             .collect();
         let mut tags_to_remove = self
             .objects
@@ -1000,11 +1001,9 @@ impl GameLogic {
 
     fn upgrade_activation_mask(
         &self,
-        data: &gamelogic::upgrade::modules::upgrade_mux::UpgradeMuxData,
+        data: &UpgradeMuxDefinition,
     ) -> u128 {
-        data.activation_upgrade_names
-            .iter()
-            .chain(&data.trigger_upgrade_names)
+        data.activation_names()
             .filter_map(|name| self.upgrade_template(name.as_str()))
             .fold(0u128, |mask, template| mask | template.get_mask().bits())
     }
@@ -1016,7 +1015,7 @@ impl GameLogic {
         id: ObjectId,
         data: &SubObjectsUpgradeModuleData,
     ) {
-        let conflicts = self.upgrade_conflict_mask(&data.upgrade_mux_data);
+        let conflicts = self.upgrade_conflict_mask(&data.upgrade_mux_data.definition);
         if conflicts.any()
             && self
                 .combined_object_and_player_upgrade_mask(id, None)
@@ -1075,7 +1074,7 @@ impl GameLogic {
 
     fn upgrade_conflict_mask(
         &self,
-        data: &gamelogic::upgrade::modules::upgrade_mux::UpgradeMuxData,
+        data: &UpgradeMuxDefinition,
     ) -> UpgradeMask {
         data.conflicting_upgrade_names
             .iter()
@@ -1087,7 +1086,7 @@ impl GameLogic {
 
     fn upgrade_mux_would_run(
         &self,
-        data: &gamelogic::upgrade::modules::upgrade_mux::UpgradeMuxData,
+        data: &UpgradeMuxDefinition,
         key_mask: UpgradeMask,
     ) -> bool {
         UpgradeConditions {

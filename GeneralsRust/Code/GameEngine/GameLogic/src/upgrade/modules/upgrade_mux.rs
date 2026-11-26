@@ -25,7 +25,8 @@ fn resolve_named_upgrade_mask(name: &str) -> UpgradeMask {
 }
 
 use crate::common::*;
-use game_engine::common::ini::{FieldParse, INI, INIError};
+use game_engine::common::ini::{INI, INIError};
+use game_engine::common::system::upgrade::UpgradeMuxDefinition;
 use game_engine::common::system::{Snapshotable, Xfer};
 use game_engine::common::thing::module::ModuleDataView;
 use generals_sim::upgrade::UpgradeConditions;
@@ -57,27 +58,16 @@ pub trait UpgradeModuleInterface {
 /// Matches C++ UpgradeMuxData from UpgradeModule.h
 #[derive(Debug, Clone, Default)]
 pub struct UpgradeMuxData {
-    /// Upgrades that trigger this module (activation conditions)
-    pub trigger_upgrade_names: Vec<AsciiString>,
-    /// Same as trigger names (legacy field)
-    pub activation_upgrade_names: Vec<AsciiString>,
-    /// Upgrades that conflict with this (prevent activation)
-    pub conflicting_upgrade_names: Vec<AsciiString>,
-    /// Upgrades to remove when this activates
-    pub removal_upgrade_names: Vec<AsciiString>,
-    /// FX list to play when upgrade triggers
-    pub fx_list_upgrade: Option<FXList>,
-    /// Cached activation mask
+    pub definition: UpgradeMuxDefinition,
     activation_mask: Option<UpgradeMask>,
-    /// Cached conflicting mask
     conflicting_mask: Option<UpgradeMask>,
-    /// Require all triggers (AND) vs any trigger (OR)
-    pub requires_all_triggers: bool,
 }
 
 impl UpgradeMuxData {
     fn activation_masks(&self) -> (UpgradeMask, UpgradeMask) {
-        if self.activation_upgrade_names.is_empty() && self.conflicting_upgrade_names.is_empty() {
+        if self.definition.activation_upgrade_names.is_empty()
+            && self.definition.conflicting_upgrade_names.is_empty()
+        {
             return (
                 self.activation_mask.unwrap_or_else(UpgradeMask::none),
                 self.conflicting_mask.unwrap_or_else(UpgradeMask::none),
@@ -85,11 +75,11 @@ impl UpgradeMuxData {
         }
 
         let mut activation = UpgradeMask::none();
-        for name in &self.activation_upgrade_names {
+        for name in &self.definition.activation_upgrade_names {
             activation |= resolve_named_upgrade_mask(name.as_str());
         }
         let mut conflicting = UpgradeMask::none();
-        for name in &self.conflicting_upgrade_names {
+        for name in &self.definition.conflicting_upgrade_names {
             conflicting |= resolve_named_upgrade_mask(name.as_str());
         }
         (activation, conflicting)
@@ -100,7 +90,7 @@ impl UpgradeMuxData {
         UpgradeConditions {
             activation: activation.bits(),
             conflicts: conflicting.bits(),
-            requires_all_triggers: self.requires_all_triggers,
+            requires_all_triggers: self.definition.requires_all_triggers,
         }
     }
 
@@ -108,13 +98,15 @@ impl UpgradeMuxData {
     /// Matches C++ UpgradeMuxData::getUpgradeActivationMasks (Module.cpp:264-310).
     pub fn get_upgrade_activation_masks(&mut self) -> (UpgradeMask, UpgradeMask) {
         let (activation, conflicting) = self.activation_masks();
-        if self.activation_upgrade_names.is_empty() && self.conflicting_upgrade_names.is_empty() {
+        if self.definition.activation_upgrade_names.is_empty()
+            && self.definition.conflicting_upgrade_names.is_empty()
+        {
             return (activation, conflicting);
         }
         // C++ copies activation names into trigger list, then clears both vectors.
-        self.trigger_upgrade_names = self.activation_upgrade_names.clone();
-        self.activation_upgrade_names.clear();
-        self.conflicting_upgrade_names.clear();
+        self.definition.trigger_upgrade_names = self.definition.activation_upgrade_names.clone();
+        self.definition.activation_upgrade_names.clear();
+        self.definition.conflicting_upgrade_names.clear();
         self.activation_mask = Some(activation);
         self.conflicting_mask = Some(conflicting);
         (activation, conflicting)
@@ -123,9 +115,12 @@ impl UpgradeMuxData {
     /// Perform upgrade FX
     /// Matches C++ UpgradeMuxData::performUpgradeFX
     pub fn perform_upgrade_fx(&self, object: &mut Object) {
-        if let Some(fx_list) = &self.fx_list_upgrade {
+        if let Some(fx_name) = &self.definition.fx_list_name {
             if let Some(fx_mgr) = crate::helpers::get_fx_list_manager() {
-                fx_mgr.do_fx_for_object(fx_list.id(), object);
+                fx_mgr.do_fx_for_object(
+                    NameKeyGenerator::name_to_key(fx_name.as_str()) as FXListId,
+                    object,
+                );
             } else {
                 log::debug!(
                     "Upgrade FX list requested for object {}, but FX manager is not registered",
@@ -138,7 +133,7 @@ impl UpgradeMuxData {
     /// Process upgrade removals
     /// Matches C++ UpgradeMuxData::muxDataProcessUpgradeRemoval
     pub fn process_upgrade_removal(&self, object: &mut Object) {
-        for name in &self.removal_upgrade_names {
+        for name in &self.definition.removal_upgrade_names {
             let mask = upgrade_mask_for_name(name.as_str());
 
             // Convert UpgradeMask to UpgradeMaskType for object methods
@@ -158,82 +153,9 @@ impl UpgradeMuxData {
         }
     }
 
-    /// Check if triggered by specific upgrade name
-    /// Matches C++ UpgradeMuxData::isTriggeredBy
-    pub fn is_triggered_by(&self, upgrade: &str) -> bool {
-        self.activation_upgrade_names
-            .iter()
-            .chain(&self.trigger_upgrade_names)
-            .any(|name| name.as_str().eq_ignore_ascii_case(upgrade))
-    }
-
-    /// Parse `TriggeredBy` tokens into activation names.
-    pub fn parse_triggered_by_tokens(&mut self, tokens: &[&str]) -> Result<(), INIError> {
-        // UpgradeModule.h:73-76 uses INI.cpp:649-657's replacing vector
-        // parser, including an empty field clearing the previously read list.
-        self.activation_upgrade_names.clear();
-        for token in tokens.iter().skip_while(|t| **t == "=") {
-            if !token.is_empty() {
-                self.activation_upgrade_names
-                    .push(AsciiString::from(*token));
-            }
-        }
-        Ok(())
-    }
-
-    /// Parse `ConflictsWith` tokens into conflicting names.
-    pub fn parse_conflicts_with_tokens(&mut self, tokens: &[&str]) -> Result<(), INIError> {
-        self.conflicting_upgrade_names.clear();
-        for token in tokens.iter().skip_while(|t| **t == "=") {
-            if !token.is_empty() {
-                self.conflicting_upgrade_names
-                    .push(AsciiString::from(*token));
-            }
-        }
-        Ok(())
-    }
-
-    /// Parse `RemovesUpgrades` tokens into removal names.
-    pub fn parse_removes_upgrades_tokens(&mut self, tokens: &[&str]) -> Result<(), INIError> {
-        self.removal_upgrade_names.clear();
-        for token in tokens.iter().skip_while(|t| **t == "=") {
-            if !token.is_empty() {
-                self.removal_upgrade_names.push(AsciiString::from(*token));
-            }
-        }
-        Ok(())
-    }
-
-    /// Parse `RequiresAllTriggers`.
-    pub fn parse_requires_all_triggers_tokens(&mut self, tokens: &[&str]) -> Result<(), INIError> {
-        let value = tokens
-            .iter()
-            .skip_while(|t| **t == "=")
-            .next()
-            .ok_or(INIError::InvalidData)?;
-        self.requires_all_triggers = INI::parse_bool(value)?;
-        Ok(())
-    }
-
-    /// Parse `FXListUpgrade` into a named FX list handle.
-    /// Matches C++ `INI::parseFXList` stored on `UpgradeMuxData::m_fxListUpgrade`.
-    pub fn parse_fx_list_upgrade_tokens(&mut self, tokens: &[&str]) -> Result<(), INIError> {
-        let value = tokens
-            .iter()
-            .skip_while(|t| **t == "=")
-            .next()
-            .ok_or(INIError::InvalidData)?;
-        if value.eq_ignore_ascii_case("None") {
-            self.fx_list_upgrade = None;
-            return Ok(());
-        }
-        self.fx_list_upgrade = Some(FXList::new(value));
-        Ok(())
-    }
-
-    /// Parse from INI
+    /// Parse the authored fields, including inherited module fields.
     pub fn parse_from_ini(&mut self, ini: &mut INI) -> Result<(), INIError> {
-        ini.init_from_ini_with_fields(self, UPGRADE_MUX_DATA_FIELDS)
+        self.definition.parse_from_ini(ini)
     }
 }
 
@@ -301,7 +223,7 @@ impl UpgradeMux {
     }
 
     pub(crate) fn is_triggered_by(&self, upgrade: &str) -> bool {
-        self.current_data().is_triggered_by(upgrade)
+        self.current_data().definition.is_triggered_by(upgrade)
     }
 
     pub(crate) fn activation_masks(&self) -> (UpgradeMask, UpgradeMask) {
@@ -350,7 +272,9 @@ impl UpgradeMux {
     /// Test upgrade conditions
     /// Matches C++ UpgradeMux::testUpgradeConditions
     pub fn test_upgrade_conditions(&self, key_mask: UpgradeMask) -> bool {
-        self.current_data().conditions().is_satisfied(key_mask.bits())
+        self.current_data()
+            .conditions()
+            .is_satisfied(key_mask.bits())
     }
 
     /// Reset upgrade
@@ -421,69 +345,6 @@ impl Snapshotable for UpgradeMux {
 }
 
 // INI parsing functions
-fn parse_triggered_by(
-    _ini: &mut INI,
-    data: &mut UpgradeMuxData,
-    tokens: &[&str],
-) -> Result<(), INIError> {
-    data.parse_triggered_by_tokens(tokens)
-}
-
-fn parse_conflicts_with(
-    _ini: &mut INI,
-    data: &mut UpgradeMuxData,
-    tokens: &[&str],
-) -> Result<(), INIError> {
-    data.parse_conflicts_with_tokens(tokens)
-}
-
-fn parse_removes_upgrades(
-    _ini: &mut INI,
-    data: &mut UpgradeMuxData,
-    tokens: &[&str],
-) -> Result<(), INIError> {
-    data.parse_removes_upgrades_tokens(tokens)
-}
-
-fn parse_requires_all_triggers(
-    _ini: &mut INI,
-    data: &mut UpgradeMuxData,
-    tokens: &[&str],
-) -> Result<(), INIError> {
-    data.parse_requires_all_triggers_tokens(tokens)
-}
-
-fn parse_fx_list_upgrade(
-    _ini: &mut INI,
-    data: &mut UpgradeMuxData,
-    tokens: &[&str],
-) -> Result<(), INIError> {
-    data.parse_fx_list_upgrade_tokens(tokens)
-}
-
-const UPGRADE_MUX_DATA_FIELDS: &[FieldParse<UpgradeMuxData>] = &[
-    FieldParse {
-        token: "TriggeredBy",
-        parse: parse_triggered_by,
-    },
-    FieldParse {
-        token: "ConflictsWith",
-        parse: parse_conflicts_with,
-    },
-    FieldParse {
-        token: "RemovesUpgrades",
-        parse: parse_removes_upgrades,
-    },
-    FieldParse {
-        token: "RequiresAllTriggers",
-        parse: parse_requires_all_triggers,
-    },
-    FieldParse {
-        token: "FXListUpgrade",
-        parse: parse_fx_list_upgrade,
-    },
-];
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -520,7 +381,10 @@ mod tests {
     #[test]
     fn test_upgrade_mux_basic() {
         let data = UpgradeMuxData {
-            activation_upgrade_names: vec![AsciiString::from("TestUpgrade")],
+            definition: UpgradeMuxDefinition {
+                activation_upgrade_names: vec![AsciiString::from("TestUpgrade")],
+                ..Default::default()
+            },
             ..Default::default()
         };
 
@@ -532,8 +396,11 @@ mod tests {
     fn test_would_upgrade() {
         crate::upgrade::test_upgrade_mask("TestUpgrade");
         let mut data = UpgradeMuxData {
-            activation_upgrade_names: vec![AsciiString::from("TestUpgrade")],
-            requires_all_triggers: false,
+            definition: UpgradeMuxDefinition {
+                activation_upgrade_names: vec![AsciiString::from("TestUpgrade")],
+                requires_all_triggers: false,
+                ..Default::default()
+            },
             ..Default::default()
         };
 
@@ -553,9 +420,12 @@ mod tests {
         // C++ resolves declared UpgradeCenter templates, not invented masks.
         declare_activation_and_conflict();
         let mut data = UpgradeMuxData {
-            activation_upgrade_names: vec![AsciiString::from("UpgradeA")],
-            conflicting_upgrade_names: vec![AsciiString::from("UpgradeB")],
-            requires_all_triggers: false,
+            definition: UpgradeMuxDefinition {
+                activation_upgrade_names: vec![AsciiString::from("UpgradeA")],
+                conflicting_upgrade_names: vec![AsciiString::from("UpgradeB")],
+                requires_all_triggers: false,
+                ..Default::default()
+            },
             ..Default::default()
         };
 
@@ -580,11 +450,14 @@ mod tests {
         // C++ resolves declared UpgradeCenter templates, not invented masks.
         declare_activation_and_conflict();
         let mut data = UpgradeMuxData {
-            activation_upgrade_names: vec![
-                AsciiString::from("UpgradeA"),
-                AsciiString::from("UpgradeB"),
-            ],
-            requires_all_triggers: true,
+            definition: UpgradeMuxDefinition {
+                activation_upgrade_names: vec![
+                    AsciiString::from("UpgradeA"),
+                    AsciiString::from("UpgradeB"),
+                ],
+                requires_all_triggers: true,
+                ..Default::default()
+            },
             ..Default::default()
         };
 
@@ -603,15 +476,20 @@ mod tests {
     #[test]
     fn parse_fx_list_upgrade_stores_named_list() {
         let mut data = UpgradeMuxData::default();
-        data.parse_fx_list_upgrade_tokens(&["FX_UpgradeFlash"])
+        data.definition
+            .parse_fx_list_upgrade_tokens(&["FX_UpgradeFlash"])
             .expect("parse FXListUpgrade");
         assert_eq!(
-            data.fx_list_upgrade.as_ref().map(|fx| fx.name()),
+            data.definition
+                .fx_list_name
+                .as_ref()
+                .map(AsciiString::as_str),
             Some("FX_UpgradeFlash")
         );
-        data.parse_fx_list_upgrade_tokens(&["None"])
+        data.definition
+            .parse_fx_list_upgrade_tokens(&["None"])
             .expect("parse None");
-        assert!(data.fx_list_upgrade.is_none());
+        assert!(data.definition.fx_list_name.is_none());
     }
 
     /// C++ UpgradeMux::testUpgradeConditions: ConflictsWith is not an always-off switch.
@@ -625,7 +503,10 @@ mod tests {
             crate::system::engine_stores::with_active_stores(&stores, || {
                 crate::upgrade::test_upgrade_mask("Upgrade_HE");
                 let data = UpgradeMuxData {
-                    conflicting_upgrade_names: vec![AsciiString::from("Upgrade_HE")],
+                    definition: UpgradeMuxDefinition {
+                        conflicting_upgrade_names: vec![AsciiString::from("Upgrade_HE")],
+                        ..Default::default()
+                    },
                     ..Default::default()
                 };
                 let mux = UpgradeMux::new(data);
@@ -648,7 +529,8 @@ mod tests {
             let stores = Arc::new(crate::system::engine_stores::EngineStores::new_for_world());
             crate::system::engine_stores::with_active_stores(&stores, || {
                 let mut data = UpgradeMuxData::default();
-                data.activation_upgrade_names
+                data.definition
+                    .activation_upgrade_names
                     .push(AsciiString::from("Upgrade_DefinitelyMissingForMux"));
                 let _ = data.get_upgrade_activation_masks();
             });
@@ -658,10 +540,13 @@ mod tests {
     #[test]
     fn upgrade_mux_repeated_vector_fields_replace_instead_of_append() {
         let mut data = UpgradeMuxData {
-            trigger_upgrade_names: vec![AsciiString::from("LegacyTrigger")],
-            activation_upgrade_names: vec![AsciiString::from("StaleActivation")],
-            conflicting_upgrade_names: vec![AsciiString::from("StaleConflict")],
-            removal_upgrade_names: vec![AsciiString::from("StaleRemoval")],
+            definition: UpgradeMuxDefinition {
+                trigger_upgrade_names: vec![AsciiString::from("LegacyTrigger")],
+                activation_upgrade_names: vec![AsciiString::from("StaleActivation")],
+                conflicting_upgrade_names: vec![AsciiString::from("StaleConflict")],
+                removal_upgrade_names: vec![AsciiString::from("StaleRemoval")],
+                ..Default::default()
+            },
             ..Default::default()
         };
         // The actual canonical field table invokes parseAsciiStringVector's
@@ -688,9 +573,9 @@ mod tests {
         };
         assert_eq!(
             (
-                names(&data.activation_upgrade_names),
-                names(&data.conflicting_upgrade_names),
-                names(&data.removal_upgrade_names),
+                names(&data.definition.activation_upgrade_names),
+                names(&data.definition.conflicting_upgrade_names),
+                names(&data.definition.removal_upgrade_names),
             ),
             (
                 vec!["FinalA".to_owned(), "FinalB".to_owned()],
@@ -699,20 +584,30 @@ mod tests {
             ),
             "C++ replacing vector fields keep only each last authored list"
         );
-        assert_eq!(names(&data.trigger_upgrade_names), ["LegacyTrigger"]);
-        assert!(data.requires_all_triggers);
+        assert_eq!(
+            names(&data.definition.trigger_upgrade_names),
+            ["LegacyTrigger"]
+        );
+        assert!(data.definition.requires_all_triggers);
     }
 
     #[test]
     fn upgrade_mux_empty_vector_fields_clear_only_the_selected_lists() {
         let mut data = UpgradeMuxData {
-            trigger_upgrade_names: vec![AsciiString::from("LegacyTrigger")],
+            definition: UpgradeMuxDefinition {
+                trigger_upgrade_names: vec![AsciiString::from("LegacyTrigger")],
+                ..Default::default()
+            },
             ..Default::default()
         };
-        data.parse_triggered_by_tokens(&["=", "BeforeA"]).unwrap();
-        data.parse_conflicts_with_tokens(&["=", "BeforeConflict"])
+        data.definition
+            .parse_triggered_by_tokens(&["=", "BeforeA"])
             .unwrap();
-        data.parse_removes_upgrades_tokens(&["=", "BeforeRemoval"])
+        data.definition
+            .parse_conflicts_with_tokens(&["=", "BeforeConflict"])
+            .unwrap();
+        data.definition
+            .parse_removes_upgrades_tokens(&["=", "BeforeRemoval"])
             .unwrap();
         INI::new()
             .with_inline_source(
@@ -722,9 +617,9 @@ mod tests {
             .unwrap();
         assert_eq!(
             (
-                data.activation_upgrade_names.len(),
-                data.conflicting_upgrade_names.len(),
-                data.removal_upgrade_names.len(),
+                data.definition.activation_upgrade_names.len(),
+                data.definition.conflicting_upgrade_names.len(),
+                data.definition.removal_upgrade_names.len(),
             ),
             (0, 0, 0),
             "C++ empty vector fields clear all three previously populated lists"
@@ -732,20 +627,35 @@ mod tests {
         // The direct token adapters retain '=' handling and clear only their
         // target. No legacy trigger list, mask resolution, world, or FX owner
         // is mutated to exercise definition parsing.
-        data.parse_triggered_by_tokens(&["=", "KeepA"]).unwrap();
-        data.parse_conflicts_with_tokens(&["=", "KeepConflict"])
+        data.definition
+            .parse_triggered_by_tokens(&["=", "KeepA"])
             .unwrap();
-        data.parse_removes_upgrades_tokens(&["=", "KeepRemoval"])
+        data.definition
+            .parse_conflicts_with_tokens(&["=", "KeepConflict"])
             .unwrap();
-        data.parse_conflicts_with_tokens(&["="]).unwrap();
-        assert_eq!(data.activation_upgrade_names[0].as_str(), "KeepA");
-        assert!(data.conflicting_upgrade_names.is_empty());
-        assert_eq!(data.removal_upgrade_names[0].as_str(), "KeepRemoval");
-        data.parse_triggered_by_tokens(&[]).unwrap();
-        data.parse_removes_upgrades_tokens(&["="]).unwrap();
-        assert!(data.activation_upgrade_names.is_empty());
-        assert!(data.removal_upgrade_names.is_empty());
-        assert_eq!(data.trigger_upgrade_names.len(), 1);
-        assert_eq!(data.trigger_upgrade_names[0].as_str(), "LegacyTrigger");
+        data.definition
+            .parse_removes_upgrades_tokens(&["=", "KeepRemoval"])
+            .unwrap();
+        data.definition.parse_conflicts_with_tokens(&["="]).unwrap();
+        assert_eq!(
+            data.definition.activation_upgrade_names[0].as_str(),
+            "KeepA"
+        );
+        assert!(data.definition.conflicting_upgrade_names.is_empty());
+        assert_eq!(
+            data.definition.removal_upgrade_names[0].as_str(),
+            "KeepRemoval"
+        );
+        data.definition.parse_triggered_by_tokens(&[]).unwrap();
+        data.definition
+            .parse_removes_upgrades_tokens(&["="])
+            .unwrap();
+        assert!(data.definition.activation_upgrade_names.is_empty());
+        assert!(data.definition.removal_upgrade_names.is_empty());
+        assert_eq!(data.definition.trigger_upgrade_names.len(), 1);
+        assert_eq!(
+            data.definition.trigger_upgrade_names[0].as_str(),
+            "LegacyTrigger"
+        );
     }
 }

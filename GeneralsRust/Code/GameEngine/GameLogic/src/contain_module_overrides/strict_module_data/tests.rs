@@ -648,14 +648,14 @@ fn strict_countermeasures_admits_the_real_airforce_spectre_upgrade_and_rejects_u
     >().expect("actual typed Countermeasures data");
     assert_eq!(
         countermeasures
-            .upgrade_mux_data
+            .upgrade_mux_data.definition
             .activation_upgrade_names
             .iter()
             .map(|name| name.as_str())
             .collect::<Vec<_>>(),
         ["Upgrade_AmericaCountermeasures"]
     );
-    assert!(!countermeasures.upgrade_mux_data.requires_all_triggers);
+    assert!(!countermeasures.upgrade_mux_data.definition.requires_all_triggers);
     assert_eq!(
         countermeasures.flare_template_name.as_str(),
         "CountermeasureFlare"

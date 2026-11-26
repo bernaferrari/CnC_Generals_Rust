@@ -67,28 +67,28 @@ macro_rules! impl_upgrade_mux_field_parsers {
             data: &mut $data_ty,
             tokens: &[&str],
         ) -> Result<(), game_engine::common::ini::INIError> {
-            data.upgrade_mux_data.parse_triggered_by_tokens(tokens)
+            data.upgrade_mux_data.definition.parse_triggered_by_tokens(tokens)
         }
         fn parse_mux_conflicts_with(
             _ini: &mut game_engine::common::ini::INI,
             data: &mut $data_ty,
             tokens: &[&str],
         ) -> Result<(), game_engine::common::ini::INIError> {
-            data.upgrade_mux_data.parse_conflicts_with_tokens(tokens)
+            data.upgrade_mux_data.definition.parse_conflicts_with_tokens(tokens)
         }
         fn parse_mux_removes_upgrades(
             _ini: &mut game_engine::common::ini::INI,
             data: &mut $data_ty,
             tokens: &[&str],
         ) -> Result<(), game_engine::common::ini::INIError> {
-            data.upgrade_mux_data.parse_removes_upgrades_tokens(tokens)
+            data.upgrade_mux_data.definition.parse_removes_upgrades_tokens(tokens)
         }
         fn parse_mux_requires_all_triggers(
             _ini: &mut game_engine::common::ini::INI,
             data: &mut $data_ty,
             tokens: &[&str],
         ) -> Result<(), game_engine::common::ini::INIError> {
-            data.upgrade_mux_data
+            data.upgrade_mux_data.definition
                 .parse_requires_all_triggers_tokens(tokens)
         }
         fn parse_mux_fx_list_upgrade(
@@ -96,7 +96,7 @@ macro_rules! impl_upgrade_mux_field_parsers {
             data: &mut $data_ty,
             tokens: &[&str],
         ) -> Result<(), game_engine::common::ini::INIError> {
-            data.upgrade_mux_data.parse_fx_list_upgrade_tokens(tokens)
+            data.upgrade_mux_data.definition.parse_fx_list_upgrade_tokens(tokens)
         }
     };
 }
@@ -215,7 +215,7 @@ mod tests {
     #[test]
     fn mux_reset_upgrade_clears_applied_when_activation_intersects() {
         let mut data = UpgradeMuxData::default();
-        data.activation_upgrade_names
+        data.definition.activation_upgrade_names
             .push(game_engine::common::ascii_string::AsciiString::from(
                 "ResetUpgradeA",
             ));
