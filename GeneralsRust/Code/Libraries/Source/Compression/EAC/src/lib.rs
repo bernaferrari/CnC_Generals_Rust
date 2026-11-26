@@ -13,7 +13,7 @@
 //!
 //! - **SIMD Optimizations** - Vectorized operations for maximum performance
 //! - **Multi-threading** - Parallel compression/decompression with rayon
-//! - **Streaming Support** - Process large files without loading into memory
+//! - **Streaming Support** - Process small files in chunks or large files with explicit in-memory chunking
 //! - **GPU Acceleration** - WGPU-based compression for massive datasets
 //! - **Memory Safety** - Zero memory leaks with Rust's ownership system
 //!

@@ -1,8 +1,8 @@
 //! Streaming compression and decompression for large files
 //!
 //! This module provides efficient streaming interfaces for processing large files
-//! without loading them entirely into memory. Features include:
-//! - Memory-mapped file I/O for optimal performance
+//! using either chunked streaming or whole-file in-memory processing. Features include:
+//! - In-memory processing for large files where parallel chunking is useful
 //! - Real-time progress tracking
 //! - Cancellable operations
 //! - Async support with Tokio
@@ -28,10 +28,10 @@ pub struct StreamingConfig {
     pub buffer_size: usize,
     /// Compression chunk size
     pub chunk_size: usize,
-    /// Enable memory mapping for large files
-    pub use_mmap: bool,
-    /// Memory mapping threshold (use mmap if file > threshold)
-    pub mmap_threshold: usize,
+    /// Enable whole-file in-memory processing for large files
+    pub use_in_memory: bool,
+    /// In-memory processing threshold (buffer the whole file if file > threshold)
+    pub in_memory_threshold: usize,
     /// Enable parallel processing
     pub parallel: bool,
     /// Maximum number of parallel workers
@@ -43,8 +43,8 @@ impl Default for StreamingConfig {
         Self {
             buffer_size: 64 * 1024,  // 64KB buffer
             chunk_size: 1024 * 1024, // 1MB chunks
-            use_mmap: true,
-            mmap_threshold: 16 * 1024 * 1024, // 16MB threshold
+            use_in_memory: true,
+            in_memory_threshold: 16 * 1024 * 1024, // 16MB threshold
             parallel: true,
             max_workers: rayon::current_num_threads(),
         }
@@ -117,8 +117,8 @@ impl StreamingCompressor {
         let output_file = File::create(output_path)?;
 
         // Choose compression strategy based on file size
-        let compressed_size = if self.config.use_mmap && input_size >= self.config.mmap_threshold {
-            self.compress_with_mmap(input_file, output_file, input_size)?
+        let compressed_size = if self.config.use_in_memory && input_size >= self.config.in_memory_threshold {
+            self.compress_in_memory(input_file, output_file, input_size)?
         } else {
             self.compress_with_buffers(input_file, output_file, input_size)?
         };
@@ -131,14 +131,14 @@ impl StreamingCompressor {
         })
     }
 
-    /// Compress using memory-mapped I/O for large files
-    fn compress_with_mmap(
+    /// Compress using whole-file in-memory input for large files
+    fn compress_in_memory(
         &mut self,
         input_file: File,
         mut output_file: File,
         input_size: usize,
     ) -> Result<usize> {
-        log::debug!("Using memory-mapped compression for {} bytes", input_size);
+        log::debug!("Using in-memory compression for {} bytes", input_size);
 
         // Read the input into memory instead of memory-mapping it. A memory map is unsafe
         // in Rust because another process can truncate or mutate the file while it is mapped.
@@ -155,11 +155,11 @@ impl StreamingCompressor {
         let chunks_count = input_size.div_ceil(self.config.chunk_size);
 
         let total_compressed = if self.config.parallel && chunks_count > 1 {
-            // Parallel compression using memory-mapped chunks
-            self.compress_mmap_parallel(&input, &mut output_file, chunks_count)?
+            // Parallel compression using in-memory chunks
+            self.compress_in_memory_parallel(&input, &mut output_file, chunks_count)?
         } else {
             // Sequential compression
-            self.compress_mmap_sequential(&input, &mut output_file)?
+            self.compress_in_memory_sequential(&input, &mut output_file)?
         };
 
         output_file.flush()?;
@@ -167,8 +167,8 @@ impl StreamingCompressor {
         Ok(total_compressed)
     }
 
-    /// Parallel memory-mapped compression
-    fn compress_mmap_parallel(
+    /// Parallel in-memory compression
+    fn compress_in_memory_parallel(
         &mut self,
         data: &[u8],
         output_file: &mut File,
@@ -217,8 +217,8 @@ impl StreamingCompressor {
         Ok(total_size)
     }
 
-    /// Sequential memory-mapped compression
-    fn compress_mmap_sequential(&mut self, data: &[u8], output_file: &mut File) -> Result<usize> {
+    /// Sequential in-memory compression
+    fn compress_in_memory_sequential(&mut self, data: &[u8], output_file: &mut File) -> Result<usize> {
         let compressed = self.encoder.encode(data, self.compression_type)?;
         output_file.write_all(&compressed)?;
 
@@ -331,8 +331,8 @@ impl StreamingDecompressor {
 
         // Choose decompression strategy
         let decompressed_size =
-            if self.config.use_mmap && compressed_size >= self.config.mmap_threshold {
-                self.decompress_with_mmap(input_file, output_file, compressed_size)?
+            if self.config.use_in_memory && compressed_size >= self.config.in_memory_threshold {
+                self.decompress_in_memory(input_file, output_file, compressed_size)?
             } else {
                 self.decompress_with_buffers(input_file, output_file, compressed_size)?
             };
@@ -344,15 +344,15 @@ impl StreamingDecompressor {
         })
     }
 
-    /// Decompress using memory-mapped I/O
-    fn decompress_with_mmap(
+    /// Decompress using whole-file in-memory input
+    fn decompress_in_memory(
         &mut self,
         input_file: File,
         mut output_file: File,
         compressed_size: usize,
     ) -> Result<usize> {
         log::debug!(
-            "Using memory-mapped decompression for {} bytes",
+            "Using in-memory decompression for {} bytes",
             compressed_size
         );
 
@@ -608,7 +608,7 @@ mod tests {
         let config = StreamingConfig::default();
         assert_eq!(config.buffer_size, 64 * 1024);
         assert_eq!(config.chunk_size, 1024 * 1024);
-        assert!(config.use_mmap);
+        assert!(config.use_in_memory);
         assert!(config.parallel);
     }
 
