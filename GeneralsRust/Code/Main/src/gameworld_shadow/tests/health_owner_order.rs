@@ -117,7 +117,7 @@ fn injured_world_with_reaction_threshold(threshold: f32) -> (GameLogic, GameWorl
     logic.weapon_definition_base = Some(catalog.clone());
     logic.weapon_definitions = Some(catalog);
     logic.admit_armor_definitions(std::sync::Arc::new(
-        gamelogic::object::armor::ArmorDefinitions::load_from_str(
+        generals_sim::armor::ArmorDefinitions::load_from_str(
             "Armor OwnerReactionArmor\n Armor = Default 100%\n Armor = Poison 25%\nEnd\n",
         )
         .unwrap(),
@@ -156,7 +156,7 @@ fn install_reaction_target(logic: &mut GameLogic) -> ObjectId {
         )
         .unwrap();
     assert_eq!(
-        crate::game_logic::host_armor_residual::residual_armor_for_object(
+        crate::game_logic::armor::armor_for_object(
             logic.host_object(id).unwrap()
         )
         .adjust_damage(gamelogic::damage::DamageType::Poison, 1.0),

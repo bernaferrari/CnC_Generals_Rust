@@ -2,8 +2,8 @@
 use super::*;
 
 fn receiving_world(coefficient: f32) -> GameLogic {
-    let mut catalog = gamelogic::object::armor::ArmorDefinitions::new();
-    let mut row = gamelogic::object::armor::ArmorTemplate::new();
+    let mut catalog = generals_sim::armor::ArmorDefinitions::new();
+    let mut row = generals_sim::armor::ArmorTemplate::new();
     row.set_default(coefficient);
     catalog.register_template("SharedArmor", row);
     let mut world = GameLogic::new();

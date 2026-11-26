@@ -20,8 +20,6 @@ pub use super::host_angry_mob::{
     UPGRADE_GLA_ARM_THE_MOB, angry_mob_damage_for_tick, angry_mob_skips_stealthed_undetected,
     is_angry_mob_nexus_template, is_legal_angry_mob_damage_target,
 };
-pub use super::host_armor_residual::honesty_armor_residual_expand_wave92;
-pub use super::host_armor_residual::honesty_armor_residual_expand_wave103;
 pub use super::host_aurora_bomb::{
     AURORA_BOMB_ATTACK_RANGE, AURORA_BOMB_DAMAGE, AURORA_BOMB_DIVE_DELAY_FRAMES,
     AURORA_BOMB_PRIMARY_WEAPON, AURORA_BOMB_RADIUS, AURORA_FUEL_AIR_DAMAGE,

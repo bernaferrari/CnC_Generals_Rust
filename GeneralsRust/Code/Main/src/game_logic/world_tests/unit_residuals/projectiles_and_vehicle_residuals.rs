@@ -540,7 +540,7 @@ fn humvee_tow_object_hit_and_unit_map_key_on_authored_weapon_not_chassis_name_hq
     let damage_type = crate::game_logic::combat::DamageType::Explosive;
     let victim = game_logic.host_object(victim_id).unwrap();
     let before = victim.health.current;
-    let expected_damage = crate::game_logic::host_armor_residual::apply_residual_armor(
+    let expected_damage = crate::game_logic::armor::adjust_damage(
         victim,
         damage_type,
         HUMVEE_GROUND_TOW_DAMAGE,

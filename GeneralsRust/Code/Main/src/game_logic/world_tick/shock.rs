@@ -746,9 +746,9 @@ impl GameLogic {
             }) {
                 let Some(damage_type) = native_rule
                     .as_ref()
-                    .map(|rule| crate::game_logic::host_armor_residual::map_store_damage_type(rule.damage_type))
+                    .map(|rule| crate::game_logic::armor::map_store_damage_type(rule.damage_type))
                     .or_else(|| match weapon_name {
-                        Some(name) => crate::game_logic::host_armor_residual::host_damage_type_for_weapon_name(name),
+                        Some(name) => crate::game_logic::armor::host_damage_type_for_weapon_name(name),
                         None => Some(crate::game_logic::combat::DamageType::Explosive),
                     })
                 else { continue; };
@@ -760,7 +760,7 @@ impl GameLogic {
                         )
                     })
                     .unwrap_or_else(|| {
-                        crate::game_logic::host_armor_residual::resolve_host_death_type(
+                        crate::game_logic::armor::resolve_host_death_type(
                             weapon_name,
                             damage_type,
                         )
@@ -1058,9 +1058,9 @@ impl GameLogic {
             }) {
                 let Some(damage_type) = native_rule
                     .as_ref()
-                    .map(|rule| crate::game_logic::host_armor_residual::map_store_damage_type(rule.damage_type))
+                    .map(|rule| crate::game_logic::armor::map_store_damage_type(rule.damage_type))
                     .or_else(|| match weapon_name {
-                        Some(name) => crate::game_logic::host_armor_residual::host_damage_type_for_weapon_name(name),
+                        Some(name) => crate::game_logic::armor::host_damage_type_for_weapon_name(name),
                         None => Some(crate::game_logic::combat::DamageType::Explosive),
                     })
                 else { continue; };
@@ -1072,7 +1072,7 @@ impl GameLogic {
                         )
                     })
                     .unwrap_or_else(|| {
-                        crate::game_logic::host_armor_residual::resolve_host_death_type(
+                        crate::game_logic::armor::resolve_host_death_type(
                             weapon_name,
                             damage_type,
                         )

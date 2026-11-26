@@ -737,13 +737,13 @@ fn nuclear_missile_spawns_radiation_field_object() {
 fn radiation_field_object_carries_cleanup_hazard_kindof_and_hazardous_armor() {
     use crate::game_logic::KindOf;
     use crate::game_logic::combat::DamageType;
-    use crate::game_logic::host_armor_residual::apply_residual_armor;
+    use crate::game_logic::armor::adjust_damage;
     use crate::game_logic::special_power_strikes::NUKE_RADIATION_OBJECT_NAME;
     let mut logic = GameLogic::new();
-    let mut definitions = gamelogic::object::armor::ArmorDefinitions::new();
+    let mut definitions = generals_sim::armor::ArmorDefinitions::new();
     definitions.register_template(
-        crate::game_logic::host_armor_residual::HAZARDOUS_MATERIAL_ARMOR,
-        crate::game_logic::host_armor_residual::build_hazardous_material_armor_residual(),
+        crate::game_logic::armor::HAZARDOUS_MATERIAL_ARMOR,
+        crate::game_logic::armor::hazardous_material_armor_fallback(),
     );
     logic.admit_armor_definitions(std::sync::Arc::new(definitions));
     ensure_test_tank_template(&mut logic);
@@ -789,8 +789,8 @@ fn radiation_field_object_carries_cleanup_hazard_kindof_and_hazardous_armor() {
     }
     // C++ HazardousMaterialArmor: HAZARD_CLEANUP 100%, FLAME 0% (flame cannot
     // clean). Pre-fix fallback was StructureArmor (HAZARD_CLEANUP 0%, FLAME 50%).
-    assert_eq!(apply_residual_armor(obj, DamageType::Flame, 100.0), 0.0);
-    let cleanup = apply_residual_armor(obj, DamageType::HazardCleanup, 100.0);
+    assert_eq!(adjust_damage(obj, DamageType::Flame, 100.0), 0.0);
+    let cleanup = adjust_damage(obj, DamageType::HazardCleanup, 100.0);
     assert!(
         (cleanup - 100.0).abs() < 0.01,
         "HAZARD_CLEANUP must be 100%, got {cleanup}"
@@ -810,12 +810,12 @@ fn radiation_field_object_carries_cleanup_hazard_kindof_and_hazardous_armor() {
 fn toxin_field_object_carries_cleanup_hazard_kindof_and_hazardous_armor() {
     use crate::game_logic::KindOf;
     use crate::game_logic::combat::DamageType;
-    use crate::game_logic::host_armor_residual::apply_residual_armor;
+    use crate::game_logic::armor::adjust_damage;
     let mut logic = GameLogic::new();
-    let mut definitions = gamelogic::object::armor::ArmorDefinitions::new();
+    let mut definitions = generals_sim::armor::ArmorDefinitions::new();
     definitions.register_template(
-        crate::game_logic::host_armor_residual::HAZARDOUS_MATERIAL_ARMOR,
-        crate::game_logic::host_armor_residual::build_hazardous_material_armor_residual(),
+        crate::game_logic::armor::HAZARDOUS_MATERIAL_ARMOR,
+        crate::game_logic::armor::hazardous_material_armor_fallback(),
     );
     logic.admit_armor_definitions(std::sync::Arc::new(definitions));
     ensure_test_tank_template(&mut logic);
@@ -851,8 +851,8 @@ fn toxin_field_object_carries_cleanup_hazard_kindof_and_hazardous_armor() {
         logic.current_armor_definitions().unwrap(),
     ));
     // C++ HazardousMaterialArmor: flame cannot clean poison fields either.
-    assert_eq!(apply_residual_armor(obj, DamageType::Flame, 100.0), 0.0);
-    let cleanup = apply_residual_armor(obj, DamageType::HazardCleanup, 100.0);
+    assert_eq!(adjust_damage(obj, DamageType::Flame, 100.0), 0.0);
+    let cleanup = adjust_damage(obj, DamageType::HazardCleanup, 100.0);
     assert!(
         (cleanup - 100.0).abs() < 0.01,
         "HAZARD_CLEANUP must be 100%, got {cleanup}"

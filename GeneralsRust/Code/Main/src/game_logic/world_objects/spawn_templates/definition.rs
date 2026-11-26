@@ -386,7 +386,7 @@ impl GameLogic {
         let build = || -> Result<ThingTemplate, String> {
             let mut template = ThingTemplate::new(template_name);
             template.armor_definitions = Some(std::sync::Arc::new(
-                gamelogic::object::armor::ArmorDefinitions::new(),
+                generals_sim::armor::ArmorDefinitions::new(),
             ));
             template.native_die_declarations = Some(
                 crate::game_logic::native_die_definition::bind(&definition.behavior_modules)
@@ -776,7 +776,7 @@ impl GameLogic {
                     let mut conditions = 0u8;
                     for token in &set.conditions {
                         if let Some(bit) =
-                            crate::game_logic::host_armor_residual::armor_set_condition_bit(token)
+                            generals_sim::armor::armor_set_condition_bit(token)
                         {
                             conditions |= bit;
                         }

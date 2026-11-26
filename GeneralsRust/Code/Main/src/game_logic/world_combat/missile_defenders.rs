@@ -824,10 +824,10 @@ impl GameLogic {
                     receiving_damage_target_id,
                     dmg,
                     source,
-                    crate::game_logic::host_armor_residual::host_damage_type_from_residual_name(
+                    crate::game_logic::armor::damage_type_from_legacy_name(
                         ROCKET_POD_DAMAGE_TYPE,
                     ),
-                    crate::game_logic::host_armor_residual::host_death_type_from_residual_name(
+                    crate::game_logic::armor::death_type_from_legacy_name(
                         ROCKET_POD_DEATH_TYPE,
                     ),
                     None,
@@ -1400,7 +1400,7 @@ impl GameLogic {
             // 100 of its damage/death type; without one, killAllContained
             // (Object::kill: DAMAGE_UNRESISTABLE, DEATH_NORMAL).
             let occupant_weapon =
-                crate::game_logic::host_armor_residual::host_damage_type_for_weapon_name(
+                crate::game_logic::armor::host_damage_type_for_weapon_name(
                     BUNKER_BUSTER_OCCUPANT_WEAPON,
                 );
             let Some(occ) = self.objects.get(&occ_id) else {
@@ -1412,7 +1412,7 @@ impl GameLogic {
             let identity = self.live_draw_playback_identity(occ);
             let killed = if let Some(occupant_damage_type) = occupant_weapon {
                 let occupant_death_type =
-                    crate::game_logic::host_armor_residual::resolve_host_death_type(
+                    crate::game_logic::armor::resolve_host_death_type(
                         Some(BUNKER_BUSTER_OCCUPANT_WEAPON),
                         occupant_damage_type,
                     );
@@ -1485,10 +1485,10 @@ impl GameLogic {
                 receiving_damage_target_id,
                 structure_dmg,
                 attacker_id,
-                crate::game_logic::host_armor_residual::host_damage_type_from_residual_name(
+                crate::game_logic::armor::damage_type_from_legacy_name(
                     STEALTH_JET_MISSILE_DAMAGE_TYPE,
                 ),
-                crate::game_logic::host_armor_residual::host_death_type_from_residual_name(
+                crate::game_logic::armor::death_type_from_legacy_name(
                     STEALTH_JET_MISSILE_DEATH_TYPE,
                 ),
                 None,

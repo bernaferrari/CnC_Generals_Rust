@@ -1258,7 +1258,7 @@ pub struct ThingTemplate {
     /// Receiving immutable Armor.ini definitions, rebound after historical Xfer.
     #[serde(skip)]
     pub(crate) armor_definitions:
-        Option<std::sync::Arc<gamelogic::object::armor::ArmorDefinitions>>,
+        Option<std::sync::Arc<generals_sim::armor::ArmorDefinitions>>,
     /// C++ `ActiveBodyModuleData::m_subdualDamageCap`. Default 0 = immune.
     #[serde(default)]
     pub subdual_damage_cap: f32,

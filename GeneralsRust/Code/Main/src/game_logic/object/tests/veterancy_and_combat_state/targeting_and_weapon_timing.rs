@@ -445,7 +445,7 @@ fn flame_kill_sets_burned_death_type() {
 #[test]
 fn resolve_death_type_from_damage_class() {
     use crate::game_logic::combat::DamageType;
-    use crate::game_logic::host_armor_residual::resolve_host_death_type;
+    use crate::game_logic::armor::resolve_host_death_type;
     use crate::game_logic::host_usa_pilot::HostDeathType;
     assert_eq!(
         resolve_host_death_type(None, DamageType::Explosive),

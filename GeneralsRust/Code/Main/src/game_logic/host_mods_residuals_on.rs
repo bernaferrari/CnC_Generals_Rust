@@ -15,8 +15,8 @@ use super::combat;
 #[path = "host_ai_path_combat_residual_wave105.rs"]
 pub mod host_ai_path_combat_residual_wave105;
 
-#[path = "host_armor_residual.rs"]
-pub mod host_armor_residual;
+#[path = "armor.rs"]
+pub mod armor;
 
 #[path = "host_dock_contain_exit_heal_residual.rs"]
 pub mod host_dock_contain_exit_heal_residual;

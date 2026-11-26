@@ -889,8 +889,8 @@ impl Object {
         // are not stacked again with weapon_bonus_fields veterancy.
         let native_rule = self.selected_native_weapon_rule(slot);
         let weapon_dtype = native_rule.as_ref()
-            .map(|rule| crate::game_logic::host_armor_residual::map_store_damage_type(rule.damage_type))
-            .or_else(|| name.and_then(crate::game_logic::host_armor_residual::host_damage_type_for_weapon_name))?;
+            .map(|rule| crate::game_logic::armor::map_store_damage_type(rule.damage_type))
+            .or_else(|| name.and_then(crate::game_logic::armor::host_damage_type_for_weapon_name))?;
         let template_damage = native_rule
             .as_ref()
             .map(|rule| rule.primary_damage)
@@ -1197,7 +1197,7 @@ impl Object {
                 // C++ initializes DEATH_NORMAL independently of DamageType.
                 crate::game_logic::host_usa_pilot::HostDeathType::Normal
             } else {
-                crate::game_logic::host_armor_residual::resolve_host_death_type(name, weapon_dtype)
+                crate::game_logic::armor::resolve_host_death_type(name, weapon_dtype)
             },
             projectile_object_name,
             projectile_lifecycle,

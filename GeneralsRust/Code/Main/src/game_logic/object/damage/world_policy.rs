@@ -99,10 +99,10 @@ impl Object {
         repulsor_policy: &bool,
     ) -> bool {
         let damage_type =
-            crate::game_logic::host_armor_residual::host_damage_type_from_residual_name(
+            crate::game_logic::armor::damage_type_from_legacy_name(
                 damage_type_name,
             );
-        let death_type = crate::game_logic::host_armor_residual::host_death_type_from_residual_name(
+        let death_type = crate::game_logic::armor::death_type_from_legacy_name(
             death_type_name,
         );
         self.take_damage_from_immediate_typed_death_with_repulsor_policy(

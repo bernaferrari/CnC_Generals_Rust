@@ -2,6 +2,7 @@
 
 use serde::{Deserialize, Serialize};
 
+pub mod armor_ini;
 pub mod difficulty;
 pub mod ini;
 pub use difficulty::AIDifficulty;

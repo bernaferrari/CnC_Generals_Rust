@@ -258,10 +258,10 @@ impl GameLogic {
                     receiving_damage_target_id,
                     dmg,
                     source,
-                    crate::game_logic::host_armor_residual::host_damage_type_from_residual_name(
+                    crate::game_logic::armor::damage_type_from_legacy_name(
                         dt_name,
                     ),
-                    crate::game_logic::host_armor_residual::host_death_type_from_residual_name(
+                    crate::game_logic::armor::death_type_from_legacy_name(
                         death_name,
                     ),
                     None,
@@ -709,10 +709,10 @@ impl GameLogic {
                     receiving_damage_target_id,
                     dmg,
                     source,
-                    crate::game_logic::host_armor_residual::host_damage_type_from_residual_name(
+                    crate::game_logic::armor::damage_type_from_legacy_name(
                         DRAGON_DAMAGE_TYPE,
                     ),
-                    crate::game_logic::host_armor_residual::host_death_type_from_residual_name(
+                    crate::game_logic::armor::death_type_from_legacy_name(
                         DRAGON_DEATH_TYPE,
                     ),
                     None,

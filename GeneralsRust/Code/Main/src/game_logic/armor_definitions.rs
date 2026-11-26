@@ -1,5 +1,5 @@
 //! Immutable receiving armor definitions. C++ ArmorStore::reset is a no-op.
-pub(crate) use gamelogic::object::armor::ArmorDefinitions;
+pub(crate) use generals_sim::armor::ArmorDefinitions;
 use std::sync::Arc;
 
 impl super::GameLogic {

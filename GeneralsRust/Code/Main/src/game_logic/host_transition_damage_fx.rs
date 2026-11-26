@@ -1170,23 +1170,9 @@ pub fn find_best_armor_set_damage_fx(
     sets: &[crate::game_logic::HostArmorSet],
     flags: u8,
 ) -> Option<String> {
-    if sets.is_empty() {
-        return None;
-    }
-    let mut best: Option<&crate::game_logic::HostArmorSet> = None;
-    let mut best_yes = 0u32;
-    let mut best_extra = u32::MAX;
-    for set in sets {
-        let yes = u32::from(set.conditions & flags).count_ones();
-        let extra = u32::from(set.conditions & !flags).count_ones();
-        if yes > best_yes || (yes >= best_yes && extra < best_extra) {
-            best = Some(set);
-            best_yes = yes;
-            best_extra = extra;
-        }
-    }
-    best.and_then(|set| set.damage_fx.clone())
-        .filter(|n| !n.is_empty() && !n.eq_ignore_ascii_case("none"))
+    generals_sim::armor::best_armor_set(sets, flags)
+        .and_then(|set| set.damage_fx.clone())
+        .filter(|name| !name.is_empty() && !name.eq_ignore_ascii_case("none"))
 }
 
 fn host_to_ini_damage_type(
@@ -1382,7 +1368,7 @@ fn select_armor_damage_fx(
     source: Option<&HostDamageFxVictim>,
     store: &game_engine::common::ini::ini_damage_fx::DamageFXStore,
 ) -> Option<(String, Option<String>)> {
-    let flags = crate::game_logic::host_armor_residual::live_armor_set_flags(obj);
+    let flags = crate::game_logic::armor::live_armor_set_flags(obj);
     let dfx_name = find_best_armor_set_damage_fx(&obj.thing().template.armor_sets, flags)?;
     if obj.last_damage_fx_done == Some(damage_type) && now < obj.next_damage_fx_time {
         return None;

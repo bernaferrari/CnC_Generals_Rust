@@ -1515,11 +1515,11 @@ impl Object {
         let Some((damage_type, est)) = crate::game_logic::weapon_bootstrap::host_estimate_named_weapon(name) else {
             return 0.0;
         };
-        let dt = crate::game_logic::host_armor_residual::map_store_damage_type(damage_type);
+        let dt = crate::game_logic::armor::map_store_damage_type(damage_type);
         let victim = crate::game_logic::weapon_bootstrap::host_estimate_victim_from_object(
             target,
             target.garrison_count() as u32,
-            crate::game_logic::host_armor_residual::apply_residual_armor(target, dt, 1.0),
+            crate::game_logic::armor::adjust_damage(target, dt, 1.0),
         );
         generals_sim::weapon::estimate_weapon_template_damage(&est, Some(&victim))
     }
@@ -1535,9 +1535,9 @@ impl Object {
         let victim = crate::game_logic::weapon_bootstrap::host_estimate_victim_from_object(
             target,
             target.garrison_count() as u32,
-            crate::game_logic::host_armor_residual::apply_residual_armor(
+            crate::game_logic::armor::adjust_damage(
                 target,
-                crate::game_logic::host_armor_residual::map_store_damage_type(rule.damage_type),
+                crate::game_logic::armor::map_store_damage_type(rule.damage_type),
                 1.0,
             ),
         );

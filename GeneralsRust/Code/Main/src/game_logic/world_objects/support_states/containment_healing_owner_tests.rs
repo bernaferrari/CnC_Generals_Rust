@@ -447,7 +447,7 @@ fn containment_amounts_preserve_authored_negative_maximum_before_armor() {
     use gamelogic::object::contain::garrison_heal_single_amount;
     // The original methods submit these amounts to Body::attemptHealing;
     // armor adjustment happens there, not in the containment calculator.
-    let mut armor = gamelogic::object::armor::ArmorTemplate::new();
+    let mut armor = generals_sim::armor::ArmorTemplate::new();
     armor.set_coefficient(gamelogic::damage::DamageType::Healing, -1.0);
     for (elapsed, duration, expected) in [(0, 6, -20.0), (6, 6, -120.0), (0, 0, -120.0)] {
         assert_eq!(

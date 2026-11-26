@@ -10,32 +10,32 @@ const ARMOR_PATHS: [&str; 2] = ["Data/INI/Armor.ini", "Data/INI/Default/Armor.in
 /// dispatcher accepts an empty file; malformed present content still rejects.
 async fn select_armor_source<F, Fut>(
     mut read: F,
-) -> Result<Arc<gamelogic::object::armor::ArmorDefinitions>, String>
+) -> Result<Arc<generals_sim::armor::ArmorDefinitions>, String>
 where
     F: FnMut(&'static str) -> Fut,
     Fut: Future<Output = Result<Option<String>, String>>,
 {
     for path in ARMOR_PATHS {
         if let Some(text) = read(path).await? {
-            let catalog = match gamelogic::object::armor::ArmorDefinitions::load_from_str(&text) {
+            let catalog = match generals_sim::armor::ArmorDefinitions::load_from_str(&text) {
                 Ok(catalog) => catalog,
                 // INI.cpp327-389 has no minimum block count. A present empty
                 // source is authoritative, never a reason to open another file.
-                Err(gamelogic::object::armor::ArmorLoadError::Empty) => {
-                    gamelogic::object::armor::ArmorDefinitions::new()
+                Err(generals_sim::armor::ArmorParseError::Empty) => {
+                    generals_sim::armor::ArmorDefinitions::new()
                 }
                 Err(error) => return Err(format!("{path}: {error}")),
             };
             return Ok(Arc::new(catalog));
         }
     }
-    Ok(Arc::new(gamelogic::object::armor::ArmorDefinitions::new()))
+    Ok(Arc::new(generals_sim::armor::ArmorDefinitions::new()))
 }
 /// The same GameEngine.cpp445 selection over sources that were already read
 /// (path, text), for receivers that do not own a startup asset manager.
 pub(crate) fn armor_definitions_from_texts(
     texts: &[(&str, &str)],
-) -> Result<Arc<gamelogic::object::armor::ArmorDefinitions>, String> {
+) -> Result<Arc<generals_sim::armor::ArmorDefinitions>, String> {
     pollster::block_on(select_armor_source(|path| {
         let text = texts
             .iter()
@@ -47,7 +47,7 @@ pub(crate) fn armor_definitions_from_texts(
 impl CnCGameEngine {
     pub(super) async fn load_application_armor_definitions(
         assets: &StartupAssets,
-    ) -> Result<Arc<gamelogic::object::armor::ArmorDefinitions>, String> {
+    ) -> Result<Arc<generals_sim::armor::ArmorDefinitions>, String> {
         select_armor_source(|path| async move {
             // The existing loose/archive resolver is unchanged. A singleton
             // request ensures its eager collection cannot touch the next path.
@@ -73,7 +73,7 @@ mod tests {
         fn load(
             directory: &std::path::Path,
             requested: &mut Vec<&'static str>,
-        ) -> Result<Arc<gamelogic::object::armor::ArmorDefinitions>, String> {
+        ) -> Result<Arc<generals_sim::armor::ArmorDefinitions>, String> {
             requested.clear();
             futures::executor::block_on(select_armor_source(|path| {
                 requested.push(path);

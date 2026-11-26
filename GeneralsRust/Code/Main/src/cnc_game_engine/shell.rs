@@ -1277,7 +1277,7 @@ impl CnCGameEngine {
             std::collections::HashMap<String, gamelogic::effects::ObjectCreationList>,
         >,
         terrain_definition_seed: Arc<game_engine::common::ini::ini_terrain::TerrainTypes>,
-        armor_definition_seed: Arc<gamelogic::object::armor::ArmorDefinitions>,
+        armor_definition_seed: Arc<generals_sim::armor::ArmorDefinitions>,
         mut recorder_inputs: game_engine::common::recorder::RecorderOwnerInputs,
     ) -> StartupLoadState {
         let (sender, receiver) = mpsc::channel();

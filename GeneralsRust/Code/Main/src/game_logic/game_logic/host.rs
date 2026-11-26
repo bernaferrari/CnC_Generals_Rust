@@ -68,7 +68,7 @@ pub struct GameLogic {
         crate::game_logic::terrain_definitions::TerrainRoadDefinitions,
     /// Immutable current Armor.ini definitions; None is the explicit mapless residual profile.
     pub(crate) armor_definitions:
-        Option<std::sync::Arc<gamelogic::object::armor::ArmorDefinitions>>,
+        Option<std::sync::Arc<generals_sim::armor::ArmorDefinitions>>,
     pub(crate) object_lifecycle_callback_depth: u32,
     pub(crate) body_damage_definitions: crate::game_logic::body_damage_rules::BodyDamageDefinitions,
     /// Application and effective map DamageFX definitions for this session.

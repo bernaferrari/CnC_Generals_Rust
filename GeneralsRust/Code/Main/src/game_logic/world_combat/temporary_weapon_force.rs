@@ -219,7 +219,7 @@ impl GameLogic {
             speed_unit: crate::game_logic::combat::ProjectileSpeedUnit::DistancePerLogicFrame,
             splash_radius: rule.primary_damage_radius * bonuses.4,
             is_homing: false,
-            damage_type: crate::game_logic::host_armor_residual::map_store_damage_type(rule.damage_type),
+            damage_type: crate::game_logic::armor::map_store_damage_type(rule.damage_type),
             death_type: crate::game_logic::host_usa_pilot::HostDeathType::from_store(rule.death_type),
             projectile_object_name: rule.projectile_name.clone(),
             projectile_lifecycle,

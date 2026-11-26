@@ -323,10 +323,10 @@ impl GameLogic {
                     receiving_damage_id,
                     dmg,
                     source,
-                    crate::game_logic::host_armor_residual::host_damage_type_from_residual_name(
+                    crate::game_logic::armor::damage_type_from_legacy_name(
                         HUMVEE_TOW_DAMAGE_TYPE,
                     ),
-                    crate::game_logic::host_armor_residual::host_death_type_from_residual_name(
+                    crate::game_logic::armor::death_type_from_legacy_name(
                         HUMVEE_TOW_DEATH_TYPE,
                     ),
                     None,
@@ -485,10 +485,10 @@ impl GameLogic {
                         receiving_damage_target_id,
                         dmg,
                         source,
-                        crate::game_logic::host_armor_residual::host_damage_type_from_residual_name(
+                        crate::game_logic::armor::damage_type_from_legacy_name(
                             FLASHBANG_DAMAGE_TYPE,
                         ),
-                        crate::game_logic::host_armor_residual::host_death_type_from_residual_name(
+                        crate::game_logic::armor::death_type_from_legacy_name(
                             FLASHBANG_DEATH_TYPE,
                         ),
                         None,
@@ -549,10 +549,10 @@ impl GameLogic {
                     receiving_damage_target_id,
                     damage,
                     source,
-                    crate::game_logic::host_armor_residual::host_damage_type_from_residual_name(
+                    crate::game_logic::armor::damage_type_from_legacy_name(
                         RANGER_RIFLE_DAMAGE_TYPE,
                     ),
-                    crate::game_logic::host_armor_residual::host_death_type_from_residual_name(
+                    crate::game_logic::armor::death_type_from_legacy_name(
                         RANGER_RIFLE_DEATH_TYPE,
                     ),
                     None,
@@ -666,10 +666,10 @@ impl GameLogic {
                     receiving_damage_target_id,
                     dmg,
                     source,
-                    crate::game_logic::host_armor_residual::host_damage_type_from_residual_name(
+                    crate::game_logic::armor::damage_type_from_legacy_name(
                         dt_name,
                     ),
-                    crate::game_logic::host_armor_residual::host_death_type_from_residual_name(
+                    crate::game_logic::armor::death_type_from_legacy_name(
                         death_name,
                     ),
                     None,
@@ -985,10 +985,10 @@ impl GameLogic {
                     receiving_damage_target_id,
                     dmg,
                     source,
-                    crate::game_logic::host_armor_residual::host_damage_type_from_residual_name(
+                    crate::game_logic::armor::damage_type_from_legacy_name(
                         RPG_TROOPER_DAMAGE_TYPE,
                     ),
-                    crate::game_logic::host_armor_residual::host_death_type_from_residual_name(
+                    crate::game_logic::armor::death_type_from_legacy_name(
                         RPG_TROOPER_DEATH_TYPE,
                     ),
                     None,
@@ -1182,10 +1182,10 @@ impl GameLogic {
                     receiving_damage_target_id,
                     dmg,
                     source,
-                    crate::game_logic::host_armor_residual::host_damage_type_from_residual_name(
+                    crate::game_logic::armor::damage_type_from_legacy_name(
                         dt_name,
                     ),
-                    crate::game_logic::host_armor_residual::host_death_type_from_residual_name(
+                    crate::game_logic::armor::death_type_from_legacy_name(
                         MISSILE_DEFENDER_DEATH_TYPE,
                     ),
                     None,

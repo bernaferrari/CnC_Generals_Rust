@@ -1574,13 +1574,13 @@ fn estimate_sniper_vs_tank_applies_residual_armor() {
     tmpl.add_kind_of(KindOf::Vehicle).set_health(400.0);
     let tank = crate::game_logic::Object::new(tmpl, crate::game_logic::ObjectId(1), Team::GLA);
     let est = host_estimate_weapon_from_name("EstimateAuthoredRifle");
-    let dt = crate::game_logic::host_armor_residual::host_damage_type_for_weapon_name(
+    let dt = crate::game_logic::armor::host_damage_type_for_weapon_name(
         "EstimateAuthoredRifle",
     ).expect("authored sniper weapon");
     let victim = host_estimate_victim_from_object(
         &tank,
         0,
-        crate::game_logic::host_armor_residual::apply_residual_armor(&tank, dt, 1.0),
+        crate::game_logic::armor::adjust_damage(&tank, dt, 1.0),
     );
     assert_eq!(estimate_weapon_template_damage(&est, Some(&victim)), 0.0);
     let infantry_t = {
@@ -1593,7 +1593,7 @@ fn estimate_sniper_vs_tank_applies_residual_armor() {
     let inf_victim = host_estimate_victim_from_object(
         &infantry,
         0,
-        crate::game_logic::host_armor_residual::apply_residual_armor(&infantry, dt, 1.0),
+        crate::game_logic::armor::adjust_damage(&infantry, dt, 1.0),
     );
     assert!(estimate_weapon_template_damage(&est, Some(&inf_victim)) > 0.0);
 }

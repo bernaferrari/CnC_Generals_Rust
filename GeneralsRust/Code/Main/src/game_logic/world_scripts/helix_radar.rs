@@ -171,7 +171,7 @@ impl GameLogic {
                 if {
                     let owned_victim_id = victim.id;
                     let owned_damage_type =
-                        crate::game_logic::host_armor_residual::host_damage_type_from_residual_name(
+                        crate::game_logic::armor::damage_type_from_legacy_name(
                             NUCLEAR_TANK_DAMAGE_TYPE,
                         );
                     self.apply_residual_damage_owned_with_effects(
@@ -179,7 +179,7 @@ impl GameLogic {
                         dmg,
                         Some(tank_id),
                         owned_damage_type,
-                        crate::game_logic::host_armor_residual::host_death_type_from_residual_name(
+                        crate::game_logic::armor::death_type_from_legacy_name(
                             NUCLEAR_TANK_DEATH_TYPE,
                         ),
                         None,
@@ -1556,8 +1556,8 @@ impl GameLogic {
                     blast_hits = blast_hits.saturating_add(1);
                     if {
                         let owned_victim_id = victim.id;
-                        let owned_damage_type = crate::game_logic::host_armor_residual::host_damage_type_from_residual_name(crate::game_logic::host_helix_napalm::HELIX_NAPALM_DAMAGE_TYPE);
-                        self.apply_residual_damage_owned_with_effects(owned_victim_id, dmg, Some(source_object), owned_damage_type, crate::game_logic::host_armor_residual::host_death_type_from_residual_name(crate::game_logic::host_helix_napalm::HELIX_NAPALM_DEATH_TYPE), None, effects)?
+                        let owned_damage_type = crate::game_logic::armor::damage_type_from_legacy_name(crate::game_logic::host_helix_napalm::HELIX_NAPALM_DAMAGE_TYPE);
+                        self.apply_residual_damage_owned_with_effects(owned_victim_id, dmg, Some(source_object), owned_damage_type, crate::game_logic::armor::death_type_from_legacy_name(crate::game_logic::host_helix_napalm::HELIX_NAPALM_DEATH_TYPE), None, effects)?
                     } {
                         destroy_ids.push((vid, source_team));
                     }

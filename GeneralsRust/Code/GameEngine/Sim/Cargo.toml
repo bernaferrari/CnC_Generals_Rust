@@ -13,3 +13,5 @@ workspace = true
 generals_game_domain = { path = "../GameDomain" }
 log = { workspace = true }
 glam = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+thiserror = { workspace = true }

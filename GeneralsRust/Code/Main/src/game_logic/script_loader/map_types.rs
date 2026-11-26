@@ -88,7 +88,7 @@ pub struct MapMetadata {
     pub(crate) particle_definition_overlays: Vec<String>,
     pub(crate) lighting: Option<crate::game_logic::lighting_rules::MapLighting>,
     pub(crate) armor_definitions:
-        Option<std::sync::Arc<gamelogic::object::armor::ArmorDefinitions>>,
+        Option<std::sync::Arc<generals_sim::armor::ArmorDefinitions>>,
     pub(crate) terrain_definitions:
         Option<std::sync::Arc<game_engine::common::ini::ini_terrain::TerrainTypes>>,
     pub(crate) road_definitions: Option<game_engine::common::ini::ini_road::TerrainRoadCollection>,

@@ -1479,19 +1479,7 @@ impl CapturePowerKind {
     }
 }
 
-/// C++ `ArmorTemplateSet` residual: one Object INI `ArmorSet` row.
-#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
-pub struct HostArmorSet {
-    /// C++ `ArmorSetFlags` mask (`ArmorSetType` bits).
-    #[serde(default)]
-    pub conditions: u8,
-    /// Armor.ini template name (`Armor = ...`).
-    #[serde(default)]
-    pub armor: Option<String>,
-    /// DamageFX.ini name (`DamageFX = ...`).
-    #[serde(default)]
-    pub damage_fx: Option<String>,
-}
+pub use generals_sim::armor::ArmorSet as HostArmorSet;
 
 /// C++ `GeometryType` (`Geometry.h:25-33`). SPHERE=0, CYLINDER=1, BOX=2.
 #[repr(u8)]

@@ -9,7 +9,7 @@ is part of this architecture.
 | Owner | Responsibility | Dependencies and consumers |
 | --- | --- | --- |
 | `generals_game_domain` | Canonical host object ID, faction value, combat particle kind, AI difficulty | Depends on serde. Main and Presentation use the same types through reexports. |
-| `generals-sim` | Fixed-step clock, grid search, authored weapon definitions and combat rules | Owns the immutable weapon catalog and ordered Weapon.ini property parsing. Main installs the catalog in each world and supplies its RNG at firing. Legacy templates share the definition type and retain their runtime handles. |
+| `generals-sim` | Fixed-step clock, grid search, authored weapon and armor rules | Owns receiving catalogs, ordered weapon and armor coefficient application, and ArmorSet selection shared by damage and damage FX. Main supplies the receiving RNG at firing. Legacy runtime adapters consume the same rules. |
 | `generals_presentation` | Frozen events, HUD records, objectives, command buttons, weapon visual dispatch records | Depends on GameDomain, serde and glam. Does not depend on simulation, assets, UI widgets or GPU types. |
 | Main `presentation_frame` | Builds the completed frame from simulation and adapts it to existing UI/render consumers | Owns `PresentationFrame`, renderable objects and live-host conversions. Its HUD view borrows existing frame fields. |
 | Main `assets` | Finds and loads live assets | Each `AssetManager` owns an `ArchiveFileSystem`, which owns the local resolver and BIG mounts. Existing worker synchronization remains at actual I/O boundaries. |

@@ -221,15 +221,15 @@ fn actual_saved_map_ocl_candidate_uses_own_base_and_solo_without_mutating_active
             let actor_id = source
                 .create_object_for_player("MappedArmorActor", 0, glam::Vec3::new(30.0, 0.0, 30.0))
                 .unwrap();
-            fn armor(coefficient: f32) -> Arc<gamelogic::object::armor::ArmorDefinitions> {
-                let mut definitions = gamelogic::object::armor::ArmorDefinitions::new();
-                let mut row = gamelogic::object::armor::ArmorTemplate::new();
+            fn armor(coefficient: f32) -> Arc<generals_sim::armor::ArmorDefinitions> {
+                let mut definitions = generals_sim::armor::ArmorDefinitions::new();
+                let mut row = generals_sim::armor::ArmorTemplate::new();
                 row.set_default(coefficient);
                 definitions.register_template("SharedArmor", row);
                 Arc::new(definitions)
             }
             fn adjusted(world: &GameLogic, id: crate::game_logic::ObjectId) -> f32 {
-                crate::game_logic::host_armor_residual::apply_residual_armor(
+                crate::game_logic::armor::adjust_damage(
                     world.host_object(id).unwrap(),
                     crate::game_logic::combat::DamageType::Explosive,
                     100.0,

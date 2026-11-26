@@ -19,7 +19,7 @@ fn world(behaviors: &str, upgraded_percent: u32) -> GameLogic {
         register_test_upgrade(&mut world, upgrade, "OBJECT", 0, 1);
     }
     world.admit_armor_definitions(Arc::new(
-        gamelogic::object::armor::ArmorDefinitions::load_from_str(&format!(
+        generals_sim::armor::ArmorDefinitions::load_from_str(&format!(
             "Armor FixtureArmor\n Armor = DEFAULT 100%\nEnd\n\
              Armor FixtureUpgradedArmor\n Armor = DEFAULT {upgraded_percent}%\nEnd\n"
         ))

@@ -65,7 +65,7 @@ struct RetailLogicRules {
     tunnel_capacity: i32,
     historic_damage_limit: u32,
     sell_percentage: f32,
-    armor: Arc<gamelogic::object::armor::ArmorDefinitions>,
+    armor: Arc<generals_sim::armor::ArmorDefinitions>,
     terrain: Arc<game_engine::common::ini::ini_terrain::TerrainTypes>,
     roads: game_engine::common::ini::ini_road::TerrainRoadCollection,
     object_creation_lists: Vec<String>,

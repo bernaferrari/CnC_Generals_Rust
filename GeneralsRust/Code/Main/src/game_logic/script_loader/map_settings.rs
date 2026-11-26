@@ -545,7 +545,7 @@ pub(crate) fn parse_map_settings_from_chunky_with_owned_definition_catalogs(
     camera_shake_rules: Option<game_engine::common::ini::ini_game_data::CameraShakeRules>,
     terrain_definitions: std::sync::Arc<game_engine::common::ini::ini_terrain::TerrainTypes>,
     road_definitions: game_engine::common::ini::ini_road::TerrainRoadCollection,
-    armor_definitions: Option<std::sync::Arc<gamelogic::object::armor::ArmorDefinitions>>,
+    armor_definitions: Option<std::sync::Arc<generals_sim::armor::ArmorDefinitions>>,
     admitted_object_sources: Option<&[(PathBuf, String)]>,
     upgrade_definitions: gamelogic::upgrade::center::UpgradeCenter,
     science_facts: std::sync::Arc<game_engine::common::rts::science::ScienceNameFacts>,
@@ -757,7 +757,7 @@ fn parse_map_settings_from_loaded_chunky(
                         science_facts.clone(),
                         terrain_definitions,
                         road_definitions,
-                        armor_definitions.to_parsed(),
+                        Default::default(),
                         admitted_object_sources.is_some(),
                         player_templates_admitted,
                         locomotor_definitions_admitted,
@@ -768,7 +768,7 @@ fn parse_map_settings_from_loaded_chunky(
                 terrain_definitions = updated;
                 road_definitions = roads;
                 armor_definitions
-                    .overlay_parsed(&armor)
+                    .overlay_rows(&armor)
                     .map_err(|error| GameLogicError::Configuration(error.to_string()))?;
                 collect_map_ini_particle_systems(&contents, &mut meta.particle_definition_overlays);
                 // Weather CREATE_OVERRIDES + SnowManager flake spacing.
@@ -877,7 +877,7 @@ fn parse_map_settings_from_loaded_chunky(
                         science_facts.clone(),
                         terrain_definitions,
                         road_definitions,
-                        armor_definitions.to_parsed(),
+                        Default::default(),
                         admitted_object_sources.is_some(),
                         player_templates_admitted,
                         locomotor_definitions_admitted,
@@ -888,7 +888,7 @@ fn parse_map_settings_from_loaded_chunky(
                 terrain_definitions = updated;
                 road_definitions = roads;
                 armor_definitions
-                    .overlay_parsed(&armor)
+                    .overlay_rows(&armor)
                     .map_err(|error| GameLogicError::Configuration(error.to_string()))?;
                 collect_map_ini_particle_systems(&contents, &mut meta.particle_definition_overlays);
                 overlay_owned_map_weather(

@@ -416,7 +416,7 @@ impl Object {
             damage_type,
             crate::game_logic::combat::DamageType::KillGarrisoned
         ) {
-            let amount = crate::game_logic::host_armor_residual::apply_residual_armor(
+            let amount = crate::game_logic::armor::adjust_damage(
                 self,
                 damage_type,
                 damage,
@@ -477,7 +477,7 @@ impl Object {
             }
             let old_state = self.body_damage_state;
             let before_hp = self.health.current;
-            let amount = crate::game_logic::host_armor_residual::apply_residual_armor(
+            let amount = crate::game_logic::armor::adjust_damage(
                 self,
                 damage_type,
                 damage,
@@ -551,7 +551,7 @@ impl Object {
             damage_type,
             crate::game_logic::combat::DamageType::KillPilot
         ) {
-            let amount = crate::game_logic::host_armor_residual::apply_residual_armor(
+            let amount = crate::game_logic::armor::adjust_damage(
                 self,
                 damage_type,
                 damage,
@@ -713,7 +713,7 @@ impl Object {
             if !self.can_be_subdued() {
                 return DamageApplication::Complete(false);
             }
-            let typed = crate::game_logic::host_armor_residual::apply_residual_armor(
+            let typed = crate::game_logic::armor::adjust_damage(
                 self,
                 damage_type,
                 damage,
@@ -751,7 +751,7 @@ impl Object {
         }
         // C++ DAMAGE_STATUS residual: amount is duration msec, not hitpoints.
         if matches!(damage_type, crate::game_logic::combat::DamageType::Status) {
-            let amount = crate::game_logic::host_armor_residual::apply_residual_armor(
+            let amount = crate::game_logic::armor::adjust_damage(
                 self,
                 damage_type,
                 damage,
@@ -968,7 +968,7 @@ impl Object {
         // C++ ActiveBody::attemptDamage: ArmorTemplate::adjustDamage, then
         // m_damageScalar only for non-UNRESISTABLE (ActiveBody.cpp:351, 490-497).
         // No invented armor/(armor+100) extra mitigation.
-        let typed = crate::game_logic::host_armor_residual::apply_residual_armor(
+        let typed = crate::game_logic::armor::adjust_damage(
             self,
             damage_type,
             incoming,
@@ -1680,11 +1680,11 @@ mod tests {
         name: &str,
         dt: gamelogic::damage::DamageType,
         coeff: f32,
-    ) -> std::sync::Arc<gamelogic::object::armor::ArmorDefinitions> {
-        let mut row = gamelogic::object::armor::ArmorTemplate::new();
+    ) -> std::sync::Arc<generals_sim::armor::ArmorDefinitions> {
+        let mut row = generals_sim::armor::ArmorTemplate::new();
         row.set_default(1.0);
         row.set_coefficient(dt, coeff);
-        let mut catalog = gamelogic::object::armor::ArmorDefinitions::new();
+        let mut catalog = generals_sim::armor::ArmorDefinitions::new();
         catalog.register_template(name, row);
         let admitted = catalog.find_template(name).expect("fixture row admitted");
         assert_eq!(admitted.adjust_damage(dt, 1.0), coeff);

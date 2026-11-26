@@ -186,10 +186,10 @@ impl GameLogic {
                     receiving_damage_target_id,
                     dmg,
                     source,
-                    crate::game_logic::host_armor_residual::host_damage_type_from_residual_name(
+                    crate::game_logic::armor::damage_type_from_legacy_name(
                         dt_name,
                     ),
-                    crate::game_logic::host_armor_residual::host_death_type_from_residual_name(
+                    crate::game_logic::armor::death_type_from_legacy_name(
                         death_name,
                     ),
                     None,
@@ -703,10 +703,10 @@ impl GameLogic {
                     receiving_damage_target_id,
                     dmg,
                     source,
-                    crate::game_logic::host_armor_residual::host_damage_type_from_residual_name(
+                    crate::game_logic::armor::damage_type_from_legacy_name(
                         TOMAHAWK_DAMAGE_TYPE,
                     ),
-                    crate::game_logic::host_armor_residual::host_death_type_from_residual_name(
+                    crate::game_logic::armor::death_type_from_legacy_name(
                         TOMAHAWK_DEATH_TYPE,
                     ),
                     None,
@@ -943,10 +943,10 @@ impl GameLogic {
                     receiving_damage_target_id,
                     dmg,
                     source,
-                    crate::game_logic::host_armor_residual::host_damage_type_from_residual_name(
+                    crate::game_logic::armor::damage_type_from_legacy_name(
                         RAPTOR_DAMAGE_TYPE,
                     ),
-                    crate::game_logic::host_armor_residual::host_death_type_from_residual_name(
+                    crate::game_logic::armor::death_type_from_legacy_name(
                         RAPTOR_DEATH_TYPE,
                     ),
                     None,
@@ -1250,10 +1250,10 @@ impl GameLogic {
                     receiving_damage_target_id,
                     dmg,
                     source,
-                    crate::game_logic::host_armor_residual::host_damage_type_from_residual_name(
+                    crate::game_logic::armor::damage_type_from_legacy_name(
                         dt_name,
                     ),
-                    crate::game_logic::host_armor_residual::host_death_type_from_residual_name(
+                    crate::game_logic::armor::death_type_from_legacy_name(
                         death_name,
                     ),
                     None,
@@ -1685,10 +1685,10 @@ impl GameLogic {
                     receiving_damage_target_id,
                     dmg,
                     source,
-                    crate::game_logic::host_armor_residual::host_damage_type_from_residual_name(
+                    crate::game_logic::armor::damage_type_from_legacy_name(
                         FIRE_BASE_DAMAGE_TYPE,
                     ),
-                    crate::game_logic::host_armor_residual::host_death_type_from_residual_name(
+                    crate::game_logic::armor::death_type_from_legacy_name(
                         FIRE_BASE_DEATH_TYPE,
                     ),
                     None,

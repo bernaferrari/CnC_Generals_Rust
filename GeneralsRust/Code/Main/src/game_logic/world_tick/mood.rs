@@ -1339,12 +1339,12 @@ impl GameLogic {
                     if skip_hero_kill_pilot && damage_type == gamelogic::damage::DamageType::KillPilot {
                         return false;
                     }
-                    let dt = crate::game_logic::host_armor_residual::map_store_damage_type(damage_type);
+                    let dt = crate::game_logic::armor::map_store_damage_type(damage_type);
                     let victim_est =
                         crate::game_logic::weapon_bootstrap::host_estimate_victim_from_object(
                             v,
                             contain_count,
-                            crate::game_logic::host_armor_residual::apply_residual_armor(
+                            crate::game_logic::armor::adjust_damage(
                                 v, dt, 1.0,
                             ),
                         );

@@ -883,7 +883,7 @@ impl GameLogic {
                 let destroyed = {
                     let owned_victim_id = obj.id;
                     let owned_damage_type =
-                        crate::game_logic::host_armor_residual::host_damage_type_from_residual_name(
+                        crate::game_logic::armor::damage_type_from_legacy_name(
                             INFERNO_CANNON_DAMAGE_TYPE,
                         );
                     self.apply_residual_damage_owned_with_effects(
@@ -891,7 +891,7 @@ impl GameLogic {
                         dmg,
                         source,
                         owned_damage_type,
-                        crate::game_logic::host_armor_residual::host_death_type_from_residual_name(
+                        crate::game_logic::armor::death_type_from_legacy_name(
                             INFERNO_CANNON_DEATH_TYPE,
                         ),
                         None,
@@ -1562,8 +1562,8 @@ impl GameLogic {
                     }
                     let killed = {
                         let owned_victim_id = target.id;
-                        let owned_damage_type = crate::game_logic::host_armor_residual::host_damage_type_from_residual_name(crate::game_logic::host_angry_mob::ANGRY_MOB_PISTOL_DAMAGE_TYPE);
-                        self.apply_residual_damage_owned_with_effects(owned_victim_id, hit.damage, Some(plan.mob_id), owned_damage_type, crate::game_logic::host_armor_residual::host_death_type_from_residual_name(crate::game_logic::host_angry_mob::ANGRY_MOB_PISTOL_DEATH_TYPE), None, effects)
+                        let owned_damage_type = crate::game_logic::armor::damage_type_from_legacy_name(crate::game_logic::host_angry_mob::ANGRY_MOB_PISTOL_DAMAGE_TYPE);
+                        self.apply_residual_damage_owned_with_effects(owned_victim_id, hit.damage, Some(plan.mob_id), owned_damage_type, crate::game_logic::armor::death_type_from_legacy_name(crate::game_logic::host_angry_mob::ANGRY_MOB_PISTOL_DEATH_TYPE), None, effects)
                     }?;
                     total_damage += hit.damage;
                     applications += 1;

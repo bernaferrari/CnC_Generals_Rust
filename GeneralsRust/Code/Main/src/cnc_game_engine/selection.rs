@@ -99,7 +99,7 @@ fn presentation_object_has_flame_weapon(o: &crate::presentation_frame::Renderabl
     let Some(name) = crate::game_logic::primary_weapon_name_for_unit(&o.template_name) else {
         return false;
     };
-    crate::game_logic::host_armor_residual::host_damage_type_for_weapon_name(name)
+    crate::game_logic::armor::host_damage_type_for_weapon_name(name)
         == Some(crate::game_logic::combat::DamageType::Flame)
 }
 
@@ -352,7 +352,7 @@ impl CnCGameEngine {
         for id in selected {
             if let Some(obj) = self.game_logic.host_object(id) {
                 if let Some(name) = obj.get_template().primary_weapon_name.as_deref() {
-                    if crate::game_logic::host_armor_residual::host_damage_type_for_weapon_name(
+                    if crate::game_logic::armor::host_damage_type_for_weapon_name(
                         name,
                     ) == Some(crate::game_logic::combat::DamageType::Flame)
                     {

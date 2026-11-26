@@ -3719,6 +3719,8 @@ dependencies = [
  "generals_game_domain",
  "glam",
  "log",
+ "serde",
+ "thiserror 2.0.20",
 ]
 
 [[package]]

@@ -2882,7 +2882,7 @@ impl GameLogic {
                 t.armor_sets.push(crate::game_logic::HostArmorSet {
                     conditions: 0,
                     armor: Some(
-                        crate::game_logic::host_armor_residual::HAZARDOUS_MATERIAL_ARMOR
+                        crate::game_logic::armor::HAZARDOUS_MATERIAL_ARMOR
                             .to_string(),
                     ),
                     damage_fx: None,
@@ -2975,7 +2975,7 @@ impl GameLogic {
             t.armor_sets.push(crate::game_logic::HostArmorSet {
                 conditions: 0,
                 armor: Some(
-                    crate::game_logic::host_armor_residual::HAZARDOUS_MATERIAL_ARMOR.to_string(),
+                    crate::game_logic::armor::HAZARDOUS_MATERIAL_ARMOR.to_string(),
                 ),
                 damage_fx: None,
             });

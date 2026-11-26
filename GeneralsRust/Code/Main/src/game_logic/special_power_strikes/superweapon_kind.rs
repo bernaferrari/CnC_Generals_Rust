@@ -468,7 +468,7 @@ impl HostSuperweaponKind {
     pub fn authored_damage_type(self) -> crate::game_logic::combat::DamageType {
         use crate::game_logic::combat::DamageType;
         if let Some(name) = self.blast_weapon_name() {
-            if let Some(damage_type) = crate::game_logic::host_armor_residual::host_damage_type_for_weapon_name(name) {
+            if let Some(damage_type) = crate::game_logic::armor::host_damage_type_for_weapon_name(name) {
                 return damage_type;
             }
         }
@@ -484,7 +484,7 @@ impl HostSuperweaponKind {
         use crate::game_logic::host_usa_pilot::HostDeathType;
         if let Some(name) = self.blast_weapon_name() {
             if crate::game_logic::thing::ThingTemplate::weapon_from_host_store(name).is_some() {
-                return crate::game_logic::host_armor_residual::resolve_host_death_type(
+                return crate::game_logic::armor::resolve_host_death_type(
                     Some(name),
                     self.authored_damage_type(),
                 );
