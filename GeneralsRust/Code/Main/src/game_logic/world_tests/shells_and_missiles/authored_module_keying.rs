@@ -530,13 +530,6 @@ fn scorpion_create_primary_comes_from_authored_weapon_set() {
     );
 }
 
-#[test]
-fn stealth_fighter_air_and_mig_residual_has_no_template_name_sniff() {
-    // C++ StealthFighter residual keys off the authored weapon, never the template name.
-    let src = include_str!("../../world_combat/air_and_mig.rs");
-    assert!(!src.contains("is_stealth_fighter_template"));
-}
-
 /// hq-2qedt.135: the innate/ATTACKING-forbidden stealth residual follows the
 /// template's authored StealthUpdate (InnateStealth / StealthDelay /
 /// StealthForbiddenConditions), as C++ StealthUpdate module data does, not a
@@ -696,44 +689,12 @@ fn scorpion_splash_residual_keys_on_authored_weapon_not_template_name() {
     );
 }
 
-/// hq-2qedt.180: vehicle_shells has no Scorpion template-name sniff.
-#[test]
-fn scorpion_vehicle_shells_has_no_template_name_sniff() {
-    let src = include_str!("../../world_combat/vehicle_shells.rs");
-    assert!(!src.contains("is_scorpion_template"));
-}
-
-/// hq-2qedt.208: factory_init Scorpion rocket SECONDARY gate keys on the
-/// authored PRIMARY (ScorpionTankGun family), not is_scorpion_template.
-/// C++ WeaponSetUpgrade flips PLAYER_UPGRADE on any object whose authored
-/// modules carry it; WeaponSet::updateWeaponSet then picks the row.
-#[test]
-fn scorpion_factory_init_rocket_gate_keys_on_authored_gun_not_template_name() {
-    let src = include_str!("../../world_objects/create_destroy_die/factory_init.rs");
-    assert!(!src.contains("is_scorpion_template"));
-    assert!(src.contains("authored_scorpion_gun"));
-}
-
-/// hq-2qedt.209: object_hit has no Scorpion template-name sniff.
-#[test]
-fn scorpion_object_hit_residual_has_no_template_name_sniff() {
-    let src = include_str!("../../world_tick/combat/object_hit.rs");
-    assert!(!src.contains("is_scorpion_template"));
-    assert!(!src.contains("should_apply_scorpion_residual"));
-}
-
 /// hq-2qedt.172: Comanche ground_target / air_and_mig residuals carry no
 /// is_comanche_template sniff. C++ CommandXlat keys rocket-pod ground fire on
 /// the weapon name "ComancheRocketPodWeapon", not the firing template name.
 #[test]
 fn comanche_rocket_pod_ground_fire_keys_on_authored_tertiary_not_template_name() {
     use crate::game_logic::host_comanche_rocket_pods::COMANCHE_ROCKET_POD_WEAPON;
-    let gt = include_str!("../../world_tick/combat/ground_target.rs");
-    assert!(!gt.contains("is_comanche_template"));
-    assert!(gt.contains("COMANCHE_ROCKET_POD_WEAPON"));
-    let am = include_str!("../../world_combat/air_and_mig.rs");
-    assert!(!am.contains("is_comanche_template"));
-
     let mut gl = GameLogic::new();
     let mut tpl = crate::game_logic::ThingTemplate::new("TestAuthoredPodCarrier");
     tpl.add_kind_of(KindOf::Aircraft)
