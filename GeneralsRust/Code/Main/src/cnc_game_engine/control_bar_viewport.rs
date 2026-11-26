@@ -454,9 +454,9 @@ impl<'a> NativeScriptUi<'a> {
 
 #[cfg(feature = "game_client")]
 impl crate::game_logic::ScriptUiEffects for NativeScriptUi<'_> {
-    fn game_text(&mut self, key: &str) -> gamelogic::GameLogicResult<String> {
+    fn game_text(&mut self, key: &str) -> generals_sim::GameLogicResult<String> {
         let text = self.game_text.ok_or_else(|| {
-            gamelogic::GameLogicError::Configuration(
+            generals_sim::GameLogicError::Configuration(
                 "script rank reset requires receiving client text".into(),
             )
         })?;
@@ -558,13 +558,13 @@ impl crate::game_logic::ScriptUiEffects for NativeScriptUi<'_> {
         hints.record(kind, position, source, frame, eligible);
     }
 
-    fn set_campaign_victorious(&mut self, victorious: bool) -> gamelogic::GameLogicResult<()> {
+    fn set_campaign_victorious(&mut self, victorious: bool) -> generals_sim::GameLogicResult<()> {
         let manager = match self.window_effects.as_mut() {
             Some(effects) => effects.receiving_campaign_manager_mut(),
             None => self.campaign_manager.as_deref_mut(),
         }
         .ok_or_else(|| {
-            gamelogic::GameLogicError::Configuration(
+            generals_sim::GameLogicError::Configuration(
                 "native script action has no receiving CampaignManager".into(),
             )
         })?;
@@ -586,16 +586,16 @@ impl crate::game_logic::ScriptUiEffects for NativeScriptUi<'_> {
         enabled: bool,
         was_enabled: bool,
         deselect: &mut dyn FnMut(u32),
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         let effects = self.window_effects.as_mut().ok_or_else(|| {
-            gamelogic::GameLogicError::Configuration(
+            generals_sim::GameLogicError::Configuration(
                 "native cinematic input requires receiving callback services".into(),
             )
         })?;
         self.input
             .as_mut()
             .ok_or_else(|| {
-                gamelogic::GameLogicError::Configuration(
+                generals_sim::GameLogicError::Configuration(
                     "native cinematic input loan is absent".into(),
                 )
             })?
@@ -658,9 +658,9 @@ impl crate::game_logic::ScriptUiEffects for NativeScriptUi<'_> {
         });
     }
 
-    fn create_win_lose_window(&mut self, layout_filename: &str) -> gamelogic::GameLogicResult<()> {
+    fn create_win_lose_window(&mut self, layout_filename: &str) -> generals_sim::GameLogicResult<()> {
         let effects = self.window_effects.as_mut().ok_or_else(|| {
-            gamelogic::GameLogicError::Configuration(
+            generals_sim::GameLogicError::Configuration(
                 "native script window creation requires receiving callback services".into(),
             )
         })?;
@@ -669,9 +669,9 @@ impl crate::game_logic::ScriptUiEffects for NativeScriptUi<'_> {
         });
         self.flush_window_callbacks()
     }
-    fn destroy_win_lose_window(&mut self) -> gamelogic::GameLogicResult<()> {
+    fn destroy_win_lose_window(&mut self) -> generals_sim::GameLogicResult<()> {
         let effects = self.window_effects.as_mut().ok_or_else(|| {
-            gamelogic::GameLogicError::Configuration(
+            generals_sim::GameLogicError::Configuration(
                 "native script window destruction requires receiving callback services".into(),
             )
         })?;
@@ -680,9 +680,9 @@ impl crate::game_logic::ScriptUiEffects for NativeScriptUi<'_> {
         });
         self.flush_window_callbacks()
     }
-    fn close_game_windows(&mut self) -> gamelogic::GameLogicResult<()> {
+    fn close_game_windows(&mut self) -> generals_sim::GameLogicResult<()> {
         let effects = self.window_effects.as_mut().ok_or_else(|| {
-            gamelogic::GameLogicError::Configuration(
+            generals_sim::GameLogicError::Configuration(
                 "native closeWindows requires receiving callback services".into(),
             )
         })?;
@@ -695,14 +695,14 @@ impl crate::game_logic::ScriptUiEffects for NativeScriptUi<'_> {
     fn popup_message(
         &mut self,
         popup: &crate::game_logic::ScriptPopupMessageRequest,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         let effects = self.window_effects.as_mut().ok_or_else(|| {
-            gamelogic::GameLogicError::Configuration(
+            generals_sim::GameLogicError::Configuration(
                 "native popup requires receiving client services".into(),
             )
         })?;
         let text = self.game_text.ok_or_else(|| {
-            gamelogic::GameLogicError::Configuration(
+            generals_sim::GameLogicError::Configuration(
                 "native popup requires receiving client text".into(),
             )
         })?;
@@ -722,12 +722,12 @@ impl crate::game_logic::ScriptUiEffects for NativeScriptUi<'_> {
         drop(text);
         self.flush_window_callbacks()
     }
-    fn flush_window_callbacks(&mut self) -> gamelogic::GameLogicResult<()> {
+    fn flush_window_callbacks(&mut self) -> generals_sim::GameLogicResult<()> {
         let Some(effects) = self.window_effects.as_mut() else {
             return Ok(());
         };
         let stream = self.message_stream.as_deref_mut().ok_or_else(|| {
-            gamelogic::GameLogicError::Configuration(
+            generals_sim::GameLogicError::Configuration(
                 "native script callbacks require their receiving message stream".into(),
             )
         })?;

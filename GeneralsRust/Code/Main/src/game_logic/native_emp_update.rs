@@ -20,7 +20,7 @@ impl GameLogic {
         identity: &Arc<()>,
         definition: &EmpUpdateDefinition,
         effects: &mut ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         let frame = self.frame;
         let (fade_frame, die_frame, scale) = {
             let Some(object) = self.objects.get_mut(&id) else {
@@ -67,7 +67,7 @@ impl GameLogic {
                 None
             };
             view.write_emp_drawable_visual(&self.live_draw_playback_identity(object), scale, color)
-                .map_err(gamelogic::GameLogicError::Configuration)?;
+                .map_err(generals_sim::GameLogicError::Configuration)?;
         }
         #[cfg(not(feature = "game_client"))]
         let _ = scale;
@@ -96,7 +96,7 @@ impl GameLogic {
         id: ObjectId,
         definition: &EmpUpdateDefinition,
         effects: &mut ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         use super::combat::DamageType;
         use super::host_usa_pilot::HostDeathType;
 

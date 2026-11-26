@@ -8,7 +8,7 @@ impl GameLogic {
         template_name: &str,
         team: Team,
         position: Vec3,
-    ) -> gamelogic::GameLogicResult<Option<ObjectId>> {
+    ) -> generals_sim::GameLogicResult<Option<ObjectId>> {
         self.with_own_services_mut(|this| {
             let owner = this.unique_player_id_for_team(team);
             Ok(this.create_scaffold(template_name, team, owner, position, 0.0, None, None)?)
@@ -21,7 +21,7 @@ impl GameLogic {
         owner_player_id: u32,
         position: Vec3,
         orientation: f32,
-    ) -> gamelogic::GameLogicResult<Option<ObjectId>> {
+    ) -> generals_sim::GameLogicResult<Option<ObjectId>> {
         self.with_own_services_mut(|this| {
             let team = (match this.players.get(&owner_player_id) {
                 Some(value) => value,
@@ -53,7 +53,7 @@ impl GameLogic {
         position: Vec3,
         orientation: f32,
         cost: Resources,
-    ) -> gamelogic::GameLogicResult<Option<ObjectId>> {
+    ) -> generals_sim::GameLogicResult<Option<ObjectId>> {
         Ok(self.create_dozer_scaffold_with_effects(
             template_name,
             owner_player_id,
@@ -74,7 +74,7 @@ impl GameLogic {
         orientation: f32,
         cost: Resources,
         ui: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<Option<ObjectId>> {
+    ) -> generals_sim::GameLogicResult<Option<ObjectId>> {
         if let Some(birth) = self
             .objects
             .get(&constructor)
@@ -144,7 +144,7 @@ impl GameLogic {
         orientation: f32,
         constructor: Option<ObjectId>,
         cost: Option<Resources>,
-    ) -> gamelogic::GameLogicResult<Option<ObjectId>> {
+    ) -> generals_sim::GameLogicResult<Option<ObjectId>> {
         Ok(self.create_scaffold_with_factory_observer(
             template_name,
             team,
@@ -169,7 +169,7 @@ impl GameLogic {
         constructor: Option<ObjectId>,
         cost: Option<Resources>,
         observe_factory: impl FnMut(&GameLogic, ObjectId),
-    ) -> gamelogic::GameLogicResult<Option<ObjectId>> {
+    ) -> generals_sim::GameLogicResult<Option<ObjectId>> {
         Ok(self.create_scaffold_with_factory_observer_and_ui(
             template_name,
             team,
@@ -194,7 +194,7 @@ impl GameLogic {
         cost: Option<Resources>,
         observe_factory: impl FnMut(&GameLogic, ObjectId),
         ui: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<Option<ObjectId>> {
+    ) -> generals_sim::GameLogicResult<Option<ObjectId>> {
         self.create_scaffold_with_purpose_and_effects(
             template_name,
             team,
@@ -230,7 +230,7 @@ impl GameLogic {
         orientation: f32,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
         observer: impl FnMut(&GameLogic, ObjectId),
-    ) -> gamelogic::GameLogicResult<Option<ObjectId>> {
+    ) -> generals_sim::GameLogicResult<Option<ObjectId>> {
         let Some(birth) = self
             .objects
             .get(&constructor)
@@ -269,7 +269,7 @@ impl GameLogic {
         position: Vec3,
         orientation: f32,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<Option<ObjectId>> {
+    ) -> generals_sim::GameLogicResult<Option<ObjectId>> {
         self.create_rebuild_scaffold_observed(
             template_name,
             team,
@@ -294,7 +294,7 @@ impl GameLogic {
         purpose: FactoryCreationPurpose,
         mut observe_factory: impl FnMut(&GameLogic, ObjectId),
         ui: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<Option<ObjectId>> {
+    ) -> generals_sim::GameLogicResult<Option<ObjectId>> {
         if owner_player_id.is_some_and(|player_id| {
             self.players.get(&player_id).map(|player| player.team) != Some(team)
         }) {
@@ -409,7 +409,7 @@ impl GameLogic {
         constructor: ObjectId,
         position: Vec3,
         observer: impl FnMut(&GameLogic, ObjectId),
-    ) -> gamelogic::GameLogicResult<Option<ObjectId>> {
+    ) -> generals_sim::GameLogicResult<Option<ObjectId>> {
         self.create_rebuild_scaffold_observed(
             template,
             team,

@@ -788,14 +788,14 @@ impl GameLogic {
     /// CarpetBomb residual applies multi-point line damage after approach delay.
     /// ArtilleryBarrage residual applies multi-shell scatter damage after delay.
     /// CruiseMissile residual applies MOAB area damage after loft delay.
-    pub fn update_special_power_strikes(&mut self) -> gamelogic::GameLogicResult<()> {
+    pub fn update_special_power_strikes(&mut self) -> generals_sim::GameLogicResult<()> {
         self.update_special_power_strikes_with_effects(&mut Default::default())
     }
 
     pub(crate) fn update_special_power_strikes_with_effects(
         &mut self,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         #[cfg(feature = "game_client")]
         let fx_operation_environment = self.observe_object_fx_environment();
 
@@ -1098,14 +1098,14 @@ impl GameLogic {
     /// C++ NeutronMissileSlowDeathBehavior multi-blast residual.
     pub(in super::super) fn update_neutron_slow_death_fields(
         &mut self,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         self.update_neutron_slow_death_fields_with_effects(&mut Default::default())
     }
 
     pub(in super::super) fn update_neutron_slow_death_fields_with_effects(
         &mut self,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         #[cfg(feature = "game_client")]
         let fx_operation_environment = self.observe_object_fx_environment();
 
@@ -1283,14 +1283,14 @@ impl GameLogic {
     }
 
     /// C++ WaveGuideUpdate residual — flood wave motion + damage after DamDie.
-    pub(in super::super) fn update_wave_guides(&mut self) -> gamelogic::GameLogicResult<()> {
+    pub(in super::super) fn update_wave_guides(&mut self) -> generals_sim::GameLogicResult<()> {
         self.update_wave_guides_with_effects(&mut Default::default())
     }
 
     pub(in super::super) fn update_wave_guides_with_effects(
         &mut self,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         let tree_move_frame = self.frame;
         use crate::game_logic::host_bridge_behavior::is_bridge_span_template;
         use crate::game_logic::host_topple::{
@@ -1633,14 +1633,14 @@ impl GameLogic {
         Ok(())
     }
 
-    pub(in super::super) fn update_nuclear_radiation_fields(&mut self) -> gamelogic::GameLogicResult<()> {
+    pub(in super::super) fn update_nuclear_radiation_fields(&mut self) -> generals_sim::GameLogicResult<()> {
         self.update_nuclear_radiation_fields_with_effects(&mut Default::default())
     }
 
     pub(in super::super) fn update_nuclear_radiation_fields_with_effects(
         &mut self,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         let object_positions: Vec<(ObjectId, Vec3, Team, bool)> = self
             .objects
             .registered()
@@ -1694,14 +1694,14 @@ impl GameLogic {
     /// Fail-closed vs full HazardousMaterialArmor / cleanup-hazard / gamma objects.
     pub(in super::super) fn update_anthrax_toxin_fields(
         &mut self,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         self.update_anthrax_toxin_fields_with_effects(&mut Default::default())
     }
 
     pub(in super::super) fn update_anthrax_toxin_fields_with_effects(
         &mut self,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         let object_positions: Vec<(ObjectId, Vec3, Team, bool, bool)> = self
             .objects
             .registered()
@@ -2136,14 +2136,14 @@ impl GameLogic {
     /// Fail-closed vs full SpectreGunshipUpdate gattling-strafe / howitzer projectile.
     pub(in super::super) fn update_spectre_orbit_fields(
         &mut self,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         self.update_spectre_orbit_fields_with_effects(&mut Default::default())
     }
 
     pub(in super::super) fn update_spectre_orbit_fields_with_effects(
         &mut self,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         use crate::game_logic::special_power_strikes::{
             HostSpectreOrbitDamageStream, SPECTRE_VOICE_RAPID_FIRE_SLOT,
             spectre_voice_rapid_fire_crossings,
@@ -2388,14 +2388,14 @@ impl GameLogic {
     /// Swath + DamagePulseRemnant residual closed.
     pub(in super::super) fn update_particle_beam_fields(
         &mut self,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         self.update_particle_beam_fields_with_effects(&mut Default::default())
     }
 
     pub(in super::super) fn update_particle_beam_fields_with_effects(
         &mut self,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         #[cfg(feature = "game_client")]
         let fx_operation_environment = self.observe_object_fx_environment();
 
@@ -2725,14 +2725,14 @@ impl GameLogic {
     }
 
     /// Natural shell end (HeightDie impact or MaxLifespan detonate-at-end).
-    pub fn update_spectre_howitzer_shell_objects(&mut self) -> gamelogic::GameLogicResult<()> {
+    pub fn update_spectre_howitzer_shell_objects(&mut self) -> generals_sim::GameLogicResult<()> {
         self.update_spectre_howitzer_shell_objects_with_effects(&mut Default::default())
     }
 
     pub(crate) fn update_spectre_howitzer_shell_objects_with_effects(
         &mut self,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         use crate::game_logic::special_power_strikes::{
             SPECTRE_HOWITZER_DETONATION_FX, SPECTRE_HOWITZER_HEIGHT_DIE_INITIAL_DELAY_FRAMES,
             SPECTRE_HOWITZER_HEIGHT_DIE_TARGET_HEIGHT, SPECTRE_HOWITZER_SHELL_MAX_LIFESPAN_FRAMES,
@@ -3120,14 +3120,14 @@ impl GameLogic {
         }
     }
 
-    pub fn update_particle_connector_laser_objects(&mut self) -> gamelogic::GameLogicResult<()> {
+    pub fn update_particle_connector_laser_objects(&mut self) -> generals_sim::GameLogicResult<()> {
         self.update_particle_connector_laser_objects_with_effects(&mut Default::default())
     }
 
     pub(crate) fn update_particle_connector_laser_objects_with_effects(
         &mut self,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         let frame = self.frame;
         let due: Vec<ObjectId> = self
             .objects
@@ -3231,14 +3231,14 @@ impl GameLogic {
         }
     }
 
-    pub fn update_particle_orbital_laser_objects(&mut self) -> gamelogic::GameLogicResult<()> {
+    pub fn update_particle_orbital_laser_objects(&mut self) -> generals_sim::GameLogicResult<()> {
         self.update_particle_orbital_laser_objects_with_effects(&mut Default::default())
     }
 
     pub(crate) fn update_particle_orbital_laser_objects_with_effects(
         &mut self,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         let frame = self.frame;
         let due: Vec<ObjectId> = self
             .objects
@@ -3335,14 +3335,14 @@ impl GameLogic {
         }
     }
 
-    pub fn update_particle_trail_remnant_objects(&mut self) -> gamelogic::GameLogicResult<()> {
+    pub fn update_particle_trail_remnant_objects(&mut self) -> generals_sim::GameLogicResult<()> {
         self.update_particle_trail_remnant_objects_with_effects(&mut Default::default())
     }
 
     pub(crate) fn update_particle_trail_remnant_objects_with_effects(
         &mut self,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         let frame = self.frame;
         let due: Vec<ObjectId> = self
             .objects
@@ -3378,14 +3378,14 @@ impl GameLogic {
     /// beam pulses. ParticleUplinkCannonTrailRemnant Object residual closed.
     pub(in super::super) fn update_particle_remnant_fields(
         &mut self,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         self.update_particle_remnant_fields_with_effects(&mut Default::default())
     }
 
     pub(in super::super) fn update_particle_remnant_fields_with_effects(
         &mut self,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         let object_positions: Vec<(ObjectId, Vec3, Team, bool)> = self
             .objects
             .registered()

@@ -1059,7 +1059,7 @@ impl crate::game_logic::GameLogic {
     }
 
     /// C++ `SupplyWarehouseCripplingBehavior` + `WAREHOUSE_SET_VALUE` drain.
-    pub fn update_supply_warehouse_crippling(&mut self) -> gamelogic::GameLogicResult<()> {
+    pub fn update_supply_warehouse_crippling(&mut self) -> generals_sim::GameLogicResult<()> {
         self.update_supply_warehouse_crippling_with_effects(
             &mut crate::game_logic::ScriptPresentationEffects::default(),
         )
@@ -1068,7 +1068,7 @@ impl crate::game_logic::GameLogic {
     pub(crate) fn update_supply_warehouse_crippling_with_effects(
         &mut self,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         self.drain_warehouse_script_set_values_with_effects(effects);
         let frame = self.frame as u32;
         let objects = &self.objects;

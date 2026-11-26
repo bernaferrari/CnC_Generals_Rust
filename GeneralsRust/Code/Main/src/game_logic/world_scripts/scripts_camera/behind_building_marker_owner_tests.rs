@@ -11,7 +11,7 @@ fn authored_mode(mode: i32) -> ScriptAction {
     action
 }
 
-fn dispatch(world: &mut GameLogic, action: &ScriptAction) -> gamelogic::GameLogicResult<()> {
+fn dispatch(world: &mut GameLogic, action: &ScriptAction) -> generals_sim::GameLogicResult<()> {
     world
         .with_owned_script_engine(|engine, world| {
             world.execute_checked_factory_actions_for_test(engine, action)

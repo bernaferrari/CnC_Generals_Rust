@@ -59,7 +59,7 @@ impl GameLogic {
         &mut self,
         player: u32,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         self.prepend_owned_campaign_factories(player);
         let Some(ai) = self.ai_manager.ai_players.get_mut(&player) else {
             return Ok(());

@@ -6,7 +6,7 @@ use crate::game_logic::game_logic::{AudioEventRequest, FlightTerrainView};
 use crate::game_logic::native_die_definition::{
     NativeHelicopterFlight, NativeHelicopterSlowDeath, NativeSlowFamily,
 };
-use gamelogic::GameLogicResult;
+use generals_sim::GameLogicResult;
 
 impl GameLogic {
     pub(super) fn begin_authored_helicopter_slow_death(
@@ -89,7 +89,7 @@ impl GameLogic {
         }
         let transforms = self
             .query_pristine_local_bone_transforms(object, effects.pristine_bones, bone, 0, 1, 0, 0)
-            .map_err(gamelogic::GameLogicError::Configuration)?;
+            .map_err(generals_sim::GameLogicError::Configuration)?;
         Ok(transforms.first().map(|local| {
             let p = local.w_axis;
             Vec3::new(p.x, p.z, p.y)
@@ -118,7 +118,7 @@ impl GameLogic {
                 _ => None,
             })
             .ok_or_else(|| {
-                gamelogic::GameLogicError::Configuration(
+                generals_sim::GameLogicError::Configuration(
                     "authored HelicopterSlowDeath slot is missing".into(),
                 )
             })?;

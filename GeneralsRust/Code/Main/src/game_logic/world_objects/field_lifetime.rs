@@ -78,40 +78,40 @@ impl FieldLifetime {
 }
 
 impl GameLogic {
-    pub fn update_inferno_fire_field_objects(&mut self) -> gamelogic::GameLogicResult<()> {
+    pub fn update_inferno_fire_field_objects(&mut self) -> generals_sim::GameLogicResult<()> {
         self.update_inferno_fire_field_objects_with_effects(&mut Default::default())
     }
 
     pub(crate) fn update_inferno_fire_field_objects_with_effects(
         &mut self,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         self.expire_field_lifetimes_with_effects(FieldLifetime::Fire, effects)
     }
 
-    pub fn update_anthrax_toxin_field_objects(&mut self) -> gamelogic::GameLogicResult<()> {
+    pub fn update_anthrax_toxin_field_objects(&mut self) -> generals_sim::GameLogicResult<()> {
         self.update_anthrax_toxin_field_objects_with_effects(&mut Default::default())
     }
 
     pub(crate) fn update_anthrax_toxin_field_objects_with_effects(
         &mut self,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         self.expire_field_lifetimes_with_effects(FieldLifetime::Toxin, effects)
     }
 
-    pub fn update_nuke_radiation_field_objects(&mut self) -> gamelogic::GameLogicResult<()> {
+    pub fn update_nuke_radiation_field_objects(&mut self) -> generals_sim::GameLogicResult<()> {
         self.update_nuke_radiation_field_objects_with_effects(&mut Default::default())
     }
 
     pub(crate) fn update_nuke_radiation_field_objects_with_effects(
         &mut self,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         self.expire_field_lifetimes_with_effects(FieldLifetime::Radiation, effects)
     }
 
-    fn expire_field_lifetimes(&mut self, kind: FieldLifetime) -> gamelogic::GameLogicResult<()> {
+    fn expire_field_lifetimes(&mut self, kind: FieldLifetime) -> generals_sim::GameLogicResult<()> {
         self.expire_field_lifetimes_with_effects(kind, &mut Default::default())
     }
 
@@ -119,7 +119,7 @@ impl GameLogic {
         &mut self,
         kind: FieldLifetime,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         let frame = self.frame;
         let hulk_override_frames = self.native_hulk_max_lifetime_override;
         let due: Vec<_> = self

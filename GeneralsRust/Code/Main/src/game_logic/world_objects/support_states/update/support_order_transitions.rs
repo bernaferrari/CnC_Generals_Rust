@@ -10,7 +10,7 @@ impl GameLogic {
         team: Team,
         owner_player_id: Option<u32>,
         position: glam::Vec3,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         let Some(center_id) =
             self.preferred_or_allied_supply_center(object_id, team, owner_player_id, position)
         else {
@@ -24,7 +24,7 @@ impl GameLogic {
     pub(super) fn release_dozer_repair_order(
         &mut self,
         object_id: ObjectId,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         if let Some(obj) = self.objects.get_mut(&object_id) {
             obj.stop_moving(&mut crate::game_logic::ObjectAudio::queue(
                 &mut self.queued_audio_events,
@@ -47,7 +47,7 @@ impl GameLogic {
         &mut self,
         object_id: ObjectId,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         self.pending_special_abilities.remove(&object_id);
         if let Some(obj) = self.objects.get_mut(&object_id) {
             obj.stop_moving(&mut crate::game_logic::ObjectAudio::queue(

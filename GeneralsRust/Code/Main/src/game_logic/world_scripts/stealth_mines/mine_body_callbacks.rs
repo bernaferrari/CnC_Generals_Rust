@@ -8,7 +8,7 @@ impl GameLogic {
         healing: bool,
         self_drain: bool,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         // Tick/splash callers finish their deferred death only AFTER
         // the real callback kernel. Canonical Body owns its own final onDie.
         if !self.synchronize_mine_body_callback_with_effects(mine_id, healing, self_drain, effects)?
@@ -32,7 +32,7 @@ impl GameLogic {
         healing: bool,
         self_drain: bool,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<bool> {
+    ) -> generals_sim::GameLogicResult<bool> {
         // CPP onDamage rereads Body health after every nested detonateOnce.
         loop {
             let Some(obj) = self.objects.get(&mine_id) else {

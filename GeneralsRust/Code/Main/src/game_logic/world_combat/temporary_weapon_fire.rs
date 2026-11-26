@@ -17,7 +17,7 @@ impl GameLogic {
         source: ObjectId,
         actual_damage: f32,
         damage_type_ordinal: u32,
-    ) -> gamelogic::GameLogicResult<u32> {
+    ) -> generals_sim::GameLogicResult<u32> {
         self.execute_temporary_weapon_on_damage_with_effects(
             source,
             actual_damage,
@@ -32,7 +32,7 @@ impl GameLogic {
         actual_damage: f32,
         damage_type_ordinal: u32,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<u32> {
+    ) -> generals_sim::GameLogicResult<u32> {
         // C++ Object::onDamage delivers to every damage module; leftover
         // FireWeaponWhenDamagedBehavior::on_damage fires each instance whose
         // reaction weapon is READY_TO_FIRE. Do not stop at the first ready.
@@ -75,7 +75,7 @@ impl GameLogic {
         actual_damage: f32,
         damage_type_ordinal: u32,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<u32> {
+    ) -> generals_sim::GameLogicResult<u32> {
         let Some(object) = self.objects.get(&source) else {
             return Ok(0);
         };
@@ -105,7 +105,7 @@ impl GameLogic {
     pub(in super::super) fn execute_temporary_weapon_continuous(
         &mut self,
         source: ObjectId,
-    ) -> gamelogic::GameLogicResult<u32> {
+    ) -> generals_sim::GameLogicResult<u32> {
         self.execute_temporary_weapon_continuous_with_effects(source, &mut Default::default())
     }
 
@@ -113,7 +113,7 @@ impl GameLogic {
         &mut self,
         source: ObjectId,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<u32> {
+    ) -> generals_sim::GameLogicResult<u32> {
         // Each update observes Body/upgrade state after the preceding module's
         // synchronous fire callbacks (FireWeaponWhenDamagedBehavior.cpp:208).
         let Some(object) = self.objects.get(&source) else { return Ok(0); };
@@ -139,7 +139,7 @@ impl GameLogic {
         Ok(hits)
     }
 
-    pub(in super::super) fn execute_temporary_weapon_on_die(&mut self, source: ObjectId) -> gamelogic::GameLogicResult<u32> {
+    pub(in super::super) fn execute_temporary_weapon_on_die(&mut self, source: ObjectId) -> generals_sim::GameLogicResult<u32> {
         self.execute_temporary_weapon_on_die_with_effects(source, &mut Default::default())
     }
 
@@ -147,7 +147,7 @@ impl GameLogic {
         &mut self,
         source: ObjectId,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<u32> {
+    ) -> generals_sim::GameLogicResult<u32> {
         let specs = self.dead_ephemeral_specs(source);
         if specs.is_empty() {
             return Ok(0);
@@ -179,7 +179,7 @@ impl GameLogic {
         source_index: usize,
         death_type: crate::game_logic::host_usa_pilot::HostDeathType,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<u32> {
+    ) -> generals_sim::GameLogicResult<u32> {
         let specs = self.dead_ephemeral_specs_for(source, Some(source_index), Some(death_type));
         let mut hits = 0;
         for spec in specs
@@ -195,14 +195,14 @@ impl GameLogic {
         Ok(hits)
     }
 
-    pub(in super::super) fn fire_temporary_weapons_for_pending_deaths(&mut self) -> gamelogic::GameLogicResult<()> {
+    pub(in super::super) fn fire_temporary_weapons_for_pending_deaths(&mut self) -> generals_sim::GameLogicResult<()> {
         self.fire_temporary_weapons_for_pending_deaths_with_effects(&mut Default::default())
     }
 
     pub(in super::super) fn fire_temporary_weapons_for_pending_deaths_with_effects(
         &mut self,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         let ids: Vec<ObjectId> = self
             .objects
             .registered()
@@ -224,7 +224,7 @@ impl GameLogic {
         source: ObjectId,
         index: usize,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         use crate::game_logic::native_lifecycle::NativeLifecycleState;
         use crate::game_logic::native_lifecycle_definition::NativeLifecycleKind;
         use crate::game_logic::host_temporary_weapon_behavior::{

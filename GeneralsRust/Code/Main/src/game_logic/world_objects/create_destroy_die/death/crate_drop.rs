@@ -14,7 +14,7 @@ impl GameLogic {
         module_tag: Option<&str>,
         interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         let Some(victim) = self.objects.get(&victim_id) else {
             return Ok(());
         };

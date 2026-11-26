@@ -6,7 +6,7 @@ impl GameLogic {
     pub(super) fn apply_owned_nearest_object_move(
         &mut self,
         request: ScriptNearestObjectRequest<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         let members = match request.recipient {
             ScriptNearestRecipient::Named(name) => {
                 let Some(id) =

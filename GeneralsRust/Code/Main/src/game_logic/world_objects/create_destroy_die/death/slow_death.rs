@@ -54,7 +54,7 @@ impl GameLogic {
         base: &NativeSlowDeathBase,
         interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<bool> {
+    ) -> generals_sim::GameLogicResult<bool> {
         let Some(object) = self.objects.get_mut(&id) else {
             return Ok(false);
         };
@@ -106,7 +106,7 @@ impl GameLogic {
         phase: SlowDeathEffectPhase,
         interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         let Some(object) = self.objects.get(&id) else {
             return Ok(());
         };
@@ -123,7 +123,7 @@ impl GameLogic {
             .map(NativeSlowFamily::base)
             .cloned();
         let Some(data) = data else {
-            return Err(gamelogic::GameLogicError::Configuration(
+            return Err(generals_sim::GameLogicError::Configuration(
                 "authored SlowDeath slot is missing".into(),
             ));
         };
@@ -267,7 +267,7 @@ impl GameLogic {
         flight: SlowDeathFlight,
         sink_rate: f32,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<bool> {
+    ) -> generals_sim::GameLogicResult<bool> {
         let object = self.objects.get_mut(&id).unwrap();
         let timer = object.slow_death.as_mut().unwrap();
         let receipt = object.native_die_runtime.slow_death.as_mut().unwrap();
@@ -326,7 +326,7 @@ impl GameLogic {
         &mut self,
         id: ObjectId,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<bool> {
+    ) -> generals_sim::GameLogicResult<bool> {
         let Some(object) = self.objects.get_mut(&id) else {
             return Ok(false);
         };
@@ -422,7 +422,7 @@ impl GameLogic {
         ocl: Option<&str>,
         interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<bool> {
+    ) -> generals_sim::GameLogicResult<bool> {
         let birth = (
             self.objects[&id].visual_object_generation,
             self.visual_world_epoch,

@@ -25,7 +25,7 @@ impl GameLogic {
         caster_id: ObjectId,
         victim_id: ObjectId,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<bool> {
+    ) -> generals_sim::GameLogicResult<bool> {
         use crate::game_logic::host_defector_special_power::DEFECTOR_DETECTION_FRAMES;
         if caster_id == victim_id {
             return Ok(false);

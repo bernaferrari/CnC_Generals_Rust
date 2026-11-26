@@ -95,7 +95,7 @@ impl GameLogic {
         calling: Option<u32>,
         condition: Option<u32>,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         let Some(player) = self.host_player_id_for_script_token(player) else {
             return Ok(());
         };
@@ -185,7 +185,7 @@ impl GameLogic {
         path: Option<&str>,
         calling: Option<u32>,
         condition: Option<u32>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         let Some((_, members)) = self.resolve_owned_script_team(team, calling, condition)? else {
             return Ok(());
         };
@@ -220,7 +220,7 @@ impl GameLogic {
         path: &str,
         calling: Option<u32>,
         condition: Option<u32>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         let Some((_, members)) = self.resolve_owned_script_team(team, calling, condition)? else {
             return Ok(());
         };

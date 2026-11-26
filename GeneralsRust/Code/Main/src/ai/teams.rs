@@ -20,7 +20,7 @@ impl AIPlayer {
         game_logic: &mut GameLogic,
         current_time: f32,
         ai_data: &AiDataView,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         if self.ordinary_timing.is_some() {
             return self.process_ordinary_team_queue(
                 game_logic,
@@ -77,7 +77,7 @@ impl AIPlayer {
         game_logic: &mut GameLogic,
         now: f32,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         let epoch = game_logic.host_visual_world_epoch();
         self.queue_supply_truck(game_logic, now)?;
         let distance = game_logic.ai_definitions.data().max_recruit_distance;

@@ -97,7 +97,7 @@ impl AIManager {
         game_logic: &mut GameLogic,
         current_time: f32,
         ui: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         let ai_data = AiDataView::from_world(game_logic);
         // C++ PlayerList::update visits numeric player slots, including human
         // and inactive-AI players. Generic Team hooks are a Player::update
@@ -173,7 +173,7 @@ impl AIManager {
             }) {
                 Some(result) => result?,
                 None if requires_interpreter => {
-                    return Err(gamelogic::GameLogicError::Configuration(format!(
+                    return Err(generals_sim::GameLogicError::Configuration(format!(
                         "Team generic scripts for player {id} have no receiving ScriptEngine"
                     )));
                 }

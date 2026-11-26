@@ -96,7 +96,7 @@ impl GameLogic {
     }
 
     /// Run every StealthUpdate module once (C++ per-object update).
-    pub(super) fn update_stealth_update_modules(&mut self, now: u32) -> gamelogic::GameLogicResult<()> {
+    pub(super) fn update_stealth_update_modules(&mut self, now: u32) -> generals_sim::GameLogicResult<()> {
         let ids: Vec<ObjectId> = self
             .objects
             .registered()
@@ -109,7 +109,7 @@ impl GameLogic {
         Ok(())
     }
 
-    fn update_stealth_update_module(&mut self, id: ObjectId, now: u32) -> gamelogic::GameLogicResult<()> {
+    fn update_stealth_update_module(&mut self, id: ObjectId, now: u32) -> generals_sim::GameLogicResult<()> {
         use crate::game_logic::host_radar_stealth_vision_residual::is_mine_stealth_kind_residual;
         let Some(obj) = self.objects.get(&id) else {
             return Ok(());

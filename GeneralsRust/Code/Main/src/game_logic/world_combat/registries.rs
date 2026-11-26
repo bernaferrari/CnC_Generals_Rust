@@ -538,7 +538,7 @@ impl GameLogic {
     }
 
     /// C++ GarrisonContain::onBodyDamageStateChange → orderAllPassengersToExit.
-    pub fn flush_pending_garrison_really_damaged_ejects(&mut self) -> gamelogic::GameLogicResult<()> {
+    pub fn flush_pending_garrison_really_damaged_ejects(&mut self) -> generals_sim::GameLogicResult<()> {
         self.flush_pending_garrison_really_damaged_ejects_with_effects(
             &mut crate::game_logic::ScriptPresentationEffects::default(),
         )

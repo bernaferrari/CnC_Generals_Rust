@@ -997,7 +997,7 @@ impl crate::game_logic::GameLogic {
             &mut crate::game_logic::ObjectAudio<'_>,
         ) -> ContactStep<S, T>,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<Option<T>> {
+    ) -> generals_sim::GameLogicResult<Option<T>> {
         let Some(birth) = self
             .objects
             .get(&id)

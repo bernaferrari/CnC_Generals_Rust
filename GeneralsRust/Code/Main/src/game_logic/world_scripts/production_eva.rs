@@ -49,7 +49,7 @@ impl GameLogic {
     /// (SUICIDED). The unit's authored FireWeaponWhenDeadBehavior modules
     /// (`DeathTypes = NONE +SUICIDED`, TriggeredBy Demo_Upgrade_SuicideBomb)
     /// then fire on the ordinary die path. No unit name selects the unit.
-    pub fn issue_demo_tertiary_suicide(&mut self, unit_id: ObjectId) -> gamelogic::GameLogicResult<bool> {
+    pub fn issue_demo_tertiary_suicide(&mut self, unit_id: ObjectId) -> generals_sim::GameLogicResult<bool> {
         self.issue_demo_tertiary_suicide_with_effects(unit_id, &mut Default::default())
     }
 
@@ -57,7 +57,7 @@ impl GameLogic {
         &mut self,
         unit_id: ObjectId,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<bool> {
+    ) -> generals_sim::GameLogicResult<bool> {
         /// C++ `HUGE_DAMAGE_AMOUNT` (Damage.h).
         const HUGE_DAMAGE_AMOUNT: f32 = 999_999.0;
         let Some(object) = self.objects.get(&unit_id) else {
@@ -1027,7 +1027,7 @@ impl GameLogic {
     pub fn notify_structure_construction_complete(
         &mut self,
         structure_id: ObjectId,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         self.notify_structure_construction_complete_with_prepared_observer(
             structure_id,
             |_, _| {},
@@ -1040,7 +1040,7 @@ impl GameLogic {
         &mut self,
         structure_id: ObjectId,
         observe_prepared: impl FnMut(&GameLogic, ObjectId),
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         self.finish_structure_construction(
             structure_id,
             None,
@@ -1055,7 +1055,7 @@ impl GameLogic {
         &mut self,
         structure_id: ObjectId,
         interpreter: &gamelogic::scripting::engine::ScriptEngine,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         self.notify_structure_construction_complete_with_effects(
             structure_id,
             Some(interpreter),
@@ -1070,7 +1070,7 @@ impl GameLogic {
         structure_id: ObjectId,
         interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
         ui: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         self.finish_structure_construction(structure_id, interpreter, |_, _| {}, ui)?;
 
         Ok(())
@@ -1081,7 +1081,7 @@ impl GameLogic {
         structure_id: ObjectId,
         interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
         ui: &mut Option<&mut dyn crate::game_logic::ScriptUiEffects>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         let mut effects = crate::game_logic::ScriptPresentationEffects {
             pristine_bones: None,
             script_events: None,
@@ -1109,7 +1109,7 @@ impl GameLogic {
         interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
         observe_prepared: impl FnMut(&GameLogic, ObjectId),
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         self.finish_structure_construction_from_builder(
             structure_id,
             None,
@@ -1125,7 +1125,7 @@ impl GameLogic {
         unit_id: ObjectId,
         producer_id: ObjectId,
         template_name: &str,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         self.notify_unit_production_complete_with_build_complete(
             unit_id,
             producer_id,
@@ -1148,7 +1148,7 @@ impl GameLogic {
             ObjectId,
             &mut crate::game_logic::ScriptPresentationEffects<'_>,
         ),
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         if !self.objects.contains_key(&unit_id) {
             return Ok(());
         }
@@ -1266,7 +1266,7 @@ impl GameLogic {
     /// Object::setDisabled(DISABLED_UNMANNED) calls Object::kill for a
     /// non-drone whose template has a matching CARBOMB weapon set. Any
     /// explosion is produced by the object's authored death modules.
-    pub fn maybe_detonate_carbomb_on_unmanned(&mut self, vehicle_id: ObjectId) -> gamelogic::GameLogicResult<bool> {
+    pub fn maybe_detonate_carbomb_on_unmanned(&mut self, vehicle_id: ObjectId) -> generals_sim::GameLogicResult<bool> {
         self.maybe_detonate_carbomb_on_unmanned_with_effects(vehicle_id, &mut Default::default())
     }
 
@@ -1274,7 +1274,7 @@ impl GameLogic {
         &mut self,
         vehicle_id: ObjectId,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<bool> {
+    ) -> generals_sim::GameLogicResult<bool> {
         let dead_man = self.objects.get(&vehicle_id).is_some_and(|object| {
             object.is_alive()
                 && !object.is_kind_of(KindOf::Drone)
@@ -1301,7 +1301,7 @@ impl GameLogic {
         &mut self,
         vehicle_id: ObjectId,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<bool> {
+    ) -> generals_sim::GameLogicResult<bool> {
         let Some(object) = self.objects.get(&vehicle_id) else { return Ok(false) };
         let birth = std::sync::Arc::downgrade(&object.visual_draw_identity_token);
         if let Some(source) = object.last_damage_source.filter(|id| self.objects.get(id).is_some()) {
@@ -1393,7 +1393,7 @@ impl GameLogic {
 
     /// C++ OverchargeBehavior::update residual — drain HP while the typed
     /// behavior is active, then evaluate its authored strict health threshold.
-    pub fn update_overcharge_drain(&mut self, dt: f32) -> gamelogic::GameLogicResult<()> {
+    pub fn update_overcharge_drain(&mut self, dt: f32) -> generals_sim::GameLogicResult<()> {
         self.update_overcharge_drain_with_effects(dt, &mut Default::default())
     }
 
@@ -1401,7 +1401,7 @@ impl GameLogic {
         &mut self,
         dt: f32,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         if dt <= 0.0 {
             return Ok(());
         }
@@ -1881,7 +1881,7 @@ impl GameLogic {
         interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
         mut observe_prepared: impl FnMut(&GameLogic, ObjectId),
         ui: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         if self
             .objects
             .get(&structure_id)
@@ -1899,11 +1899,11 @@ impl GameLogic {
                 .map(|actor| (id, std::sync::Arc::clone(&actor.visual_draw_identity_token)))
         });
         if source_builder.is_some() && builder.is_none() {
-            return Err(gamelogic::GameLogicError::Configuration(
+            return Err(generals_sim::GameLogicError::Configuration(
                 "Construction builder missing before callbacks".into(),
             ));
         }
-        let stable = |world: &GameLogic| -> gamelogic::GameLogicResult<()> {
+        let stable = |world: &GameLogic| -> generals_sim::GameLogicResult<()> {
             if !world.objects.get(&structure_id).is_some_and(|object| {
                 std::sync::Arc::ptr_eq(&birth, &object.visual_draw_identity_token)
             }) || builder.as_ref().is_some_and(|(id, birth)| {
@@ -1911,7 +1911,7 @@ impl GameLogic {
                     std::sync::Arc::ptr_eq(birth, &actor.visual_draw_identity_token)
                 })
             }) {
-                return Err(gamelogic::GameLogicError::Configuration(
+                return Err(generals_sim::GameLogicError::Configuration(
                     "Construction lifetime changed during completion callbacks".into(),
                 ));
             }
@@ -2089,7 +2089,7 @@ impl GameLogic {
         structure_id: ObjectId,
         builder: ObjectId,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         self.finish_structure_construction_from_builder(
             structure_id,
             Some(builder),

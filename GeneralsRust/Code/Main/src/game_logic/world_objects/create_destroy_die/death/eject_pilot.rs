@@ -12,7 +12,7 @@ impl GameLogic {
         damage_dealer: Option<ObjectId>,
         interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
         presentation_effects: &mut ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         use crate::game_logic::host_usa_pilot::HostDeathType;
 
         let (metadata, veterancy, death_type, is_hijacked) = {
@@ -122,7 +122,7 @@ impl GameLogic {
         damage_dealer: Option<ObjectId>,
         interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
         effects: &mut ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         let Some(actor) = self.objects.get(&id) else {
             return Ok(());
         };
@@ -149,7 +149,7 @@ impl GameLogic {
         damage_dealer: Option<ObjectId>,
         interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
         effects: &mut ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         use crate::game_logic::host_usa_pilot::{PILOT_EJECT_AUDIO, PILOT_SOUND_EJECT_AUDIO};
 
         if !self.has_object_creation_list(list) {

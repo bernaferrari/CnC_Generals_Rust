@@ -17,7 +17,7 @@ mod tests;
 /// Receipts retain the birth identity needed by reentrant callers.
 pub(crate) struct OclExecutionOutcome {
     pub(crate) created: Vec<(ObjectId, (u64, u64))>,
-    pub(crate) error: Option<gamelogic::GameLogicError>,
+    pub(crate) error: Option<generals_sim::GameLogicError>,
 }
 
 /// The OCL overload controls which source data affects a created object's pose.
@@ -40,7 +40,7 @@ impl OclExecutionOutcome {
 
     fn failure(
         created: Vec<(ObjectId, (u64, u64))>,
-        error: gamelogic::GameLogicError,
+        error: generals_sim::GameLogicError,
     ) -> Self {
         Self {
             created,
@@ -102,7 +102,7 @@ impl GameLogic {
         source_orientation: f32,
         source_velocity: Vec3,
         origin: Vec3,
-    ) -> gamelogic::GameLogicResult<Vec<ObjectId>> {
+    ) -> generals_sim::GameLogicResult<Vec<ObjectId>> {
         self.execute_parsed_weapon_ocl_at_with_effects(
             ocl_name,
             source_id,
@@ -125,7 +125,7 @@ impl GameLogic {
         source_velocity: Vec3,
         origin: Vec3,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<Vec<ObjectId>> {
+    ) -> generals_sim::GameLogicResult<Vec<ObjectId>> {
         self.execute_parsed_weapon_ocl_at_with_interpreter_and_effects(
             ocl_name,
             source_id,
@@ -150,7 +150,7 @@ impl GameLogic {
         origin: Vec3,
         interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<Vec<ObjectId>> {
+    ) -> generals_sim::GameLogicResult<Vec<ObjectId>> {
         let outcome = self.execute_parsed_weapon_ocl_with_births(
             ocl_name,
             source_id,
@@ -770,7 +770,7 @@ impl GameLogic {
     /// Materialize FireFX and FireOCL events stamped when pending projectiles
     /// were drained. This is kept in GameLogic so both the normal host tick
     /// and GameWorld fire-spawn apply path use the same real object lifecycle.
-    pub(crate) fn execute_pending_weapon_fire_ocls(&mut self) -> gamelogic::GameLogicResult<()> {
+    pub(crate) fn execute_pending_weapon_fire_ocls(&mut self) -> generals_sim::GameLogicResult<()> {
         self.execute_pending_weapon_fire_ocls_with_effects(
             &mut crate::game_logic::ScriptPresentationEffects::default(),
         )
@@ -779,7 +779,7 @@ impl GameLogic {
     pub(crate) fn execute_pending_weapon_fire_ocls_with_effects(
         &mut self,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         let fire_ocls = self.combat_system.take_fire_ocl();
         for fire in fire_ocls {
             // C++ Weapon.cpp:889 wraps FireFX/muzzle in getDrawable(); FireOCL
@@ -835,7 +835,7 @@ impl GameLogic {
     /// Flush real projectile impacts after either host- or GameWorld-owned
     /// flight integration.  Keeping this at the combat boundary ensures an
     /// OCL-only detonation cannot become a presentation-only no-op.
-    pub(crate) fn flush_projectile_impact_fx(&mut self) -> gamelogic::GameLogicResult<()> {
+    pub(crate) fn flush_projectile_impact_fx(&mut self) -> generals_sim::GameLogicResult<()> {
         self.flush_projectile_impact_fx_with_effects(
             &mut crate::game_logic::ScriptPresentationEffects::default(),
         )
@@ -844,7 +844,7 @@ impl GameLogic {
     pub(crate) fn flush_projectile_impact_fx_with_effects(
         &mut self,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         let impacts = self.combat_system.take_impact_fx();
         self.dispatch_projectile_impacts_with_effects(
             &impacts, self.visual_world_epoch, presentation_effects,
@@ -856,7 +856,7 @@ impl GameLogic {
         impacts: &[crate::game_logic::combat::ProjectileImpactFx],
         epoch: u64,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         use crate::game_logic::combat::ProjectileDetonationSource;
         use crate::game_logic::weapon_bootstrap::game_logic_veterancy;
 
@@ -960,7 +960,7 @@ impl GameLogic {
         death: crate::game_logic::combat::VirtualProjectileDeath,
         epoch: u64,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         use crate::game_logic::combat::ProjectileDieEffect;
 
         let projectile = death.projectile;

@@ -26,7 +26,7 @@ impl GameLogic {
         now: f32,
         data: &AiDataView,
         effects: &mut ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         if !self.get_player(player).is_some_and(|p| p.can_build_base) {
             return Ok(());
         }
@@ -82,7 +82,7 @@ impl GameLogic {
         now: f32,
         rules: &AIData,
         effects: &mut ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         let frame = self.get_frame();
         let lost_on = frame.wrapping_add(1);
         let rebuild_frames = (rules.rebuild_delay_seconds as u32).wrapping_mul(LOGIC_SECOND as u32);
@@ -233,7 +233,7 @@ impl GameLogic {
                     .get_player(player)
                     .map_or(0, |p| p.effective_supplies() as i32);
                 let ai = self.ai_manager.ai_players.get_mut(&player).ok_or_else(|| {
-                    gamelogic::GameLogicError::Configuration(
+                    generals_sim::GameLogicError::Configuration(
                         "ordinary structure lost its AI owner".into(),
                     )
                 })?;
@@ -242,7 +242,7 @@ impl GameLogic {
                     .iter_mut()
                     .find(|row| row.runtime_visit_token == token)
                     .ok_or_else(|| {
-                        gamelogic::GameLogicError::Configuration(
+                        generals_sim::GameLogicError::Configuration(
                             "ordinary structure lost its BuildList row during birth".into(),
                         )
                     })?;
@@ -270,10 +270,10 @@ impl GameLogic {
 
     fn ordinary_row_fields(
         row: &mut AIBuildingInfo,
-    ) -> gamelogic::GameLogicResult<&mut OrdinaryBuildListFields> {
+    ) -> generals_sim::GameLogicResult<&mut OrdinaryBuildListFields> {
         let template = &row.template_name;
         row.ordinary.as_deref_mut().ok_or_else(|| {
-            gamelogic::GameLogicError::Configuration(format!(
+            generals_sim::GameLogicError::Configuration(format!(
                 "ordinary BuildList row {template} is missing its authored fields"
             ))
         })

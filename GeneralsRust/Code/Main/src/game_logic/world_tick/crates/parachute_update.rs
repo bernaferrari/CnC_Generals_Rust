@@ -21,7 +21,7 @@ impl GameLogic {
         &mut self,
         id: ObjectId,
         effects: &mut ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<bool> {
+    ) -> generals_sim::GameLogicResult<bool> {
         let Some(object) = self.objects.get(&id) else {
             return Ok(false);
         };
@@ -44,7 +44,7 @@ impl GameLogic {
             .parachute
             .clone()
             .ok_or_else(|| {
-                gamelogic::GameLogicError::Configuration("ParachuteContain data missing".into())
+                generals_sim::GameLogicError::Configuration("ParachuteContain data missing".into())
             })?;
         let birth = std::sync::Arc::downgrade(&object.visual_draw_identity_token);
         let original = |world: &Self| {
@@ -110,7 +110,7 @@ impl GameLogic {
                     .parachute_attachments
                     .as_mut()
                     .ok_or_else(|| {
-                        gamelogic::GameLogicError::Configuration(
+                        generals_sim::GameLogicError::Configuration(
                             "ParachuteContain cache missing".into(),
                         )
                     })?
@@ -200,7 +200,7 @@ impl GameLogic {
                 self.locomotor_definitions.receiving(),
             ) && requested_exists
             {
-                return Err(gamelogic::GameLogicError::Configuration(
+                return Err(generals_sim::GameLogicError::Configuration(
                     "ParachuteContain selected locomotor set unavailable".into(),
                 ));
             }
@@ -254,14 +254,14 @@ impl GameLogic {
                             effects.view.as_ref().unwrap().local_player_id(),
                         )
                         .map_err(|error| {
-                            gamelogic::GameLogicError::Configuration(error.to_owned())
+                            generals_sim::GameLogicError::Configuration(error.to_owned())
                         })?;
                     effects
                         .view
                         .as_deref_mut()
                         .unwrap()
                         .set_drawable_instance_transform(&source, Some(matrix))
-                        .map_err(gamelogic::GameLogicError::Configuration)?;
+                        .map_err(generals_sim::GameLogicError::Configuration)?;
                 }
                 if let Some(rider) = self.objects.get(&id).unwrap().occupants.first().copied() {
                     if !self.position_parachute_rider_owned(id, rider, effects)? || !original(self)
@@ -350,19 +350,19 @@ impl GameLogic {
         &mut self,
         id: ObjectId,
         effects: &mut ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         // OpenContain::update clears the entrant before monitoring its art.
         self.objects.get_mut(&id).unwrap().player_who_entered = None;
         let bits = if let Some(view) = effects.view.as_ref() {
             let source = self
                 .current_native_slave_source(id, view.local_player_id())
-                .map_err(|error| gamelogic::GameLogicError::Configuration(error.to_owned()))?;
+                .map_err(|error| generals_sim::GameLogicError::Configuration(error.to_owned()))?;
             effects
                 .view
                 .as_deref_mut()
                 .unwrap()
                 .drawable_model_condition_bits(&source)
-                .map_err(gamelogic::GameLogicError::Configuration)?
+                .map_err(generals_sim::GameLogicError::Configuration)?
         } else {
             None
         };
@@ -371,7 +371,7 @@ impl GameLogic {
             .parachute_attachments
             .as_ref()
             .ok_or_else(|| {
-                gamelogic::GameLogicError::Configuration(
+                generals_sim::GameLogicError::Configuration(
                     "ParachuteContain source cache missing".into(),
                 )
             })?

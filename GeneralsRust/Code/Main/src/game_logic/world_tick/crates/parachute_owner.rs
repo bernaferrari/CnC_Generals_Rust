@@ -15,11 +15,11 @@ impl GameLogic {
         rider_id: ObjectId,
         eject: Vec3,
         effects: &mut ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         let rider = self
             .objects
             .get(&rider_id)
-            .ok_or(gamelogic::GameLogicError::InvalidObject(rider_id.0))?;
+            .ok_or(generals_sim::GameLogicError::InvalidObject(rider_id.0))?;
         let name = rider
             .thing()
             .template
@@ -27,12 +27,12 @@ impl GameLogic {
             .clone()
             .filter(|name| !name.is_empty())
             .ok_or_else(|| {
-                gamelogic::GameLogicError::Configuration(
+                generals_sim::GameLogicError::Configuration(
                     "HijackerUpdate missing authored ParachuteName".into(),
                 )
             })?;
         if !self.templates.contains_key(&name) {
-            return Err(gamelogic::GameLogicError::Configuration(format!(
+            return Err(generals_sim::GameLogicError::Configuration(format!(
                 "HijackerUpdate ParachuteName {name} is unavailable"
             )));
         }
@@ -52,7 +52,7 @@ impl GameLogic {
             self.create_object_with_script_effects_checked(&name, team, Vec3::ZERO, None, effects)?
         }
         .ok_or_else(|| {
-            gamelogic::GameLogicError::Configuration(format!(
+            generals_sim::GameLogicError::Configuration(format!(
                 "HijackerUpdate could not create {name}"
             ))
         })?;
@@ -60,7 +60,7 @@ impl GameLogic {
             &self
                 .objects
                 .get(&chute_id)
-                .ok_or(gamelogic::GameLogicError::InvalidObject(chute_id.0))?
+                .ok_or(generals_sim::GameLogicError::InvalidObject(chute_id.0))?
                 .visual_draw_identity_token,
         );
         let original = |world: &Self| {
@@ -83,7 +83,7 @@ impl GameLogic {
             return Ok(());
         }
         if !self.parachute_can_contain(chute_id, rider_id) {
-            return Err(gamelogic::GameLogicError::Configuration(format!(
+            return Err(generals_sim::GameLogicError::Configuration(format!(
                 "HijackerUpdate PutInContainer {name} is invalid for receiving rider"
             )));
         }
@@ -101,7 +101,7 @@ impl GameLogic {
         chute_id: ObjectId,
         rider_id: ObjectId,
         effects: &mut ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<bool> {
+    ) -> generals_sim::GameLogicResult<bool> {
         let (Some(chute), Some(rider)) = (self.objects.get(&chute_id), self.objects.get(&rider_id))
         else {
             return Ok(false);
@@ -176,7 +176,7 @@ impl GameLogic {
             .parachute_attachments
             .as_mut()
             .ok_or_else(|| {
-                gamelogic::GameLogicError::Configuration(
+                generals_sim::GameLogicError::Configuration(
                     "ParachuteContain constructor state missing".into(),
                 )
             })?
@@ -231,11 +231,11 @@ impl GameLogic {
         name: &str,
         start: i32,
         effects: &mut ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<Option<glam::Mat4>> {
+    ) -> generals_sim::GameLogicResult<Option<glam::Mat4>> {
         let source = self
             .current_native_slave_source(id, self.local_player_id().unwrap_or(0))
             .map_err(|error| {
-                gamelogic::GameLogicError::Configuration(format!(
+                generals_sim::GameLogicError::Configuration(format!(
                     "ParachuteContain bone source: {error}"
                 ))
             })?;
@@ -255,7 +255,7 @@ impl GameLogic {
                 Err("ParachuteContain requires receiving pristine assets".to_owned())
             }
         }
-        .map_err(gamelogic::GameLogicError::Configuration)?;
+        .map_err(generals_sim::GameLogicError::Configuration)?;
         let basis =
             glam::Mat4::from_cols(glam::Vec4::X, glam::Vec4::Z, glam::Vec4::Y, glam::Vec4::W);
         Ok(bones.first().map(|matrix| basis * (*matrix) * basis))
@@ -266,7 +266,7 @@ impl GameLogic {
         name: &str,
         start: i32,
         effects: &mut ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<Option<Vec3>> {
+    ) -> generals_sim::GameLogicResult<Option<Vec3>> {
         Ok(self
             .parachute_bone_matrix(id, name, start, effects)?
             .map(|matrix| matrix.w_axis.truncate()))
@@ -277,19 +277,19 @@ impl GameLogic {
         chute_id: ObjectId,
         rider_id: ObjectId,
         effects: &mut ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<bool> {
+    ) -> generals_sim::GameLogicResult<bool> {
         let chute_birth = std::sync::Arc::downgrade(
             &self
                 .objects
                 .get(&chute_id)
-                .ok_or(gamelogic::GameLogicError::InvalidObject(chute_id.0))?
+                .ok_or(generals_sim::GameLogicError::InvalidObject(chute_id.0))?
                 .visual_draw_identity_token,
         );
         let rider_birth = std::sync::Arc::downgrade(
             &self
                 .objects
                 .get(&rider_id)
-                .ok_or(gamelogic::GameLogicError::InvalidObject(rider_id.0))?
+                .ok_or(generals_sim::GameLogicError::InvalidObject(rider_id.0))?
                 .visual_draw_identity_token,
         );
         let original = |world: &Self| {
@@ -364,7 +364,7 @@ impl GameLogic {
                     rider_id,
                     effects.view.as_ref().unwrap().local_player_id(),
                 )
-                .map_err(|error| gamelogic::GameLogicError::Configuration(error.to_owned()))?;
+                .map_err(|error| generals_sim::GameLogicError::Configuration(error.to_owned()))?;
             // Source positionRider uses current HELD after callbacks, not a saved flag.
             let instance = self
                 .objects
@@ -377,7 +377,7 @@ impl GameLogic {
                 .as_deref_mut()
                 .unwrap()
                 .set_drawable_instance_transform(&source, instance)
-                .map_err(gamelogic::GameLogicError::Configuration)?;
+                .map_err(generals_sim::GameLogicError::Configuration)?;
         }
         Ok(true)
     }
@@ -422,13 +422,13 @@ impl GameLogic {
         chute: ObjectId,
         rider: Option<ObjectId>,
         effects: &mut ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         let cache = self
             .objects
             .get(&chute)
             .and_then(|object| object.parachute_attachments.as_ref())
             .ok_or_else(|| {
-                gamelogic::GameLogicError::Configuration(
+                generals_sim::GameLogicError::Configuration(
                     "ParachuteContain source attachment state unavailable".into(),
                 )
             })?;

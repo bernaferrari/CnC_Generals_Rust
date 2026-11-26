@@ -18,7 +18,7 @@ impl GameLogic {
         source: Option<ObjectId>,
         intended_target: Option<ObjectId>,
         slot: u8,
-    ) -> gamelogic::GameLogicResult<(u32, bool)> {
+    ) -> generals_sim::GameLogicResult<(u32, bool)> {
         self.apply_scorpion_residual_at_with_effects(
             impact,
             source,
@@ -35,7 +35,7 @@ impl GameLogic {
         intended_target: Option<ObjectId>,
         slot: u8,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<(u32, bool)> {
+    ) -> generals_sim::GameLogicResult<(u32, bool)> {
         use crate::game_logic::host_scorpion::{
             SCORPION_GUN_DAMAGE_TYPE, SCORPION_GUN_DEATH_TYPE, SCORPION_GUN_FIRE_AUDIO,
             SCORPION_GUN_SPLASH_RADIUS, SCORPION_MISSILE_DAMAGE_TYPE, SCORPION_MISSILE_DEATH_TYPE,
@@ -394,7 +394,7 @@ impl GameLogic {
         Some(pid)
     }
 
-    pub fn update_tomahawk_missile_projectiles(&mut self) -> gamelogic::GameLogicResult<()> {
+    pub fn update_tomahawk_missile_projectiles(&mut self) -> generals_sim::GameLogicResult<()> {
         self.update_tomahawk_missile_projectiles_with_effects(
             &mut crate::game_logic::ScriptPresentationEffects::default(),
         )
@@ -403,7 +403,7 @@ impl GameLogic {
     pub(crate) fn update_tomahawk_missile_projectiles_with_effects(
         &mut self,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         use crate::game_logic::host_tomahawk::{
             TOMAHAWK_DISTANCE_BEFORE_DIVING, TOMAHAWK_DISTANCE_BEFORE_TURNING,
             TOMAHAWK_INITIAL_VELOCITY, TOMAHAWK_PREFERRED_HEIGHT, TOMAHAWK_PROJECTILE_SPEED,
@@ -579,7 +579,7 @@ impl GameLogic {
         impact: Vec3,
         source: Option<ObjectId>,
         intended_target: Option<ObjectId>,
-    ) -> gamelogic::GameLogicResult<(u32, bool)> {
+    ) -> generals_sim::GameLogicResult<(u32, bool)> {
         self.apply_tomahawk_residual_at_with_effects(
             impact,
             source,
@@ -594,7 +594,7 @@ impl GameLogic {
         source: Option<ObjectId>,
         intended_target: Option<ObjectId>,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<(u32, bool)> {
+    ) -> generals_sim::GameLogicResult<(u32, bool)> {
         use crate::game_logic::host_tomahawk::{
             TOMAHAWK_DAMAGE_TYPE, TOMAHAWK_DEATH_TYPE, TOMAHAWK_FIRE_AUDIO,
             TOMAHAWK_SECONDARY_RADIUS, is_legal_tomahawk_splash_target,
@@ -807,7 +807,7 @@ impl GameLogic {
         impact: Vec3,
         source: Option<ObjectId>,
         intended_target: Option<ObjectId>,
-    ) -> gamelogic::GameLogicResult<(u32, bool)> {
+    ) -> generals_sim::GameLogicResult<(u32, bool)> {
         self.apply_raptor_residual_at_with_effects(
             impact,
             source,
@@ -822,7 +822,7 @@ impl GameLogic {
         source: Option<ObjectId>,
         intended_target: Option<ObjectId>,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<(u32, bool)> {
+    ) -> generals_sim::GameLogicResult<(u32, bool)> {
         use crate::game_logic::host_raptor::{
             RAPTOR_DAMAGE_TYPE, RAPTOR_DEATH_TYPE, RAPTOR_FIRE_AUDIO, RAPTOR_PRIMARY_RADIUS,
             has_laser_missiles_upgrade, is_king_raptor_template, is_legal_raptor_target,
@@ -1095,7 +1095,7 @@ impl GameLogic {
         impact: Vec3,
         source: Option<ObjectId>,
         intended_target: Option<ObjectId>,
-    ) -> gamelogic::GameLogicResult<(u32, bool)> {
+    ) -> generals_sim::GameLogicResult<(u32, bool)> {
         self.apply_mig_residual_at_with_effects(
             impact,
             source,
@@ -1110,7 +1110,7 @@ impl GameLogic {
         source: Option<ObjectId>,
         intended_target: Option<ObjectId>,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<(u32, bool)> {
+    ) -> generals_sim::GameLogicResult<(u32, bool)> {
         use crate::game_logic::host_mig::{
             MIG_BLACK_DAMAGE_TYPE, MIG_BLACK_DEATH_TYPE, MIG_DAMAGE_TYPE, MIG_DEATH_TYPE,
             MIG_FIRE_AUDIO, MIG_PRIMARY_RADIUS, MigLoadout, is_legal_mig_target,
@@ -1451,7 +1451,7 @@ impl GameLogic {
         Some(pid)
     }
 
-    pub fn update_fire_base_shell_projectiles(&mut self) -> gamelogic::GameLogicResult<()> {
+    pub fn update_fire_base_shell_projectiles(&mut self) -> generals_sim::GameLogicResult<()> {
         self.update_fire_base_shell_projectiles_with_effects(
             &mut crate::game_logic::ScriptPresentationEffects::default(),
         )
@@ -1460,7 +1460,7 @@ impl GameLogic {
     pub(crate) fn update_fire_base_shell_projectiles_with_effects(
         &mut self,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         use crate::game_logic::host_fire_base::fire_base_shell_bezier_point;
         let frame = self.frame;
         let flying: Vec<ObjectId> = self
@@ -1561,7 +1561,7 @@ impl GameLogic {
         impact: Vec3,
         source: Option<ObjectId>,
         intended_target: Option<ObjectId>,
-    ) -> gamelogic::GameLogicResult<(u32, bool)> {
+    ) -> generals_sim::GameLogicResult<(u32, bool)> {
         self.apply_fire_base_residual_at_with_effects(
             impact,
             source,
@@ -1576,7 +1576,7 @@ impl GameLogic {
         source: Option<ObjectId>,
         intended_target: Option<ObjectId>,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<(u32, bool)> {
+    ) -> generals_sim::GameLogicResult<(u32, bool)> {
         use crate::game_logic::host_fire_base::{
             FIRE_BASE_DAMAGE_TYPE, FIRE_BASE_DEATH_TYPE, FIRE_BASE_FIRE_AUDIO,
             FIRE_BASE_PRIMARY_RADIUS, fire_base_damage_at, fire_base_scatter_aim,

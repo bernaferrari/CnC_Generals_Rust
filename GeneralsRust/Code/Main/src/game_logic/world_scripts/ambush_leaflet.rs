@@ -840,14 +840,14 @@ impl GameLogic {
     /// - Tunnel template GLASneakAttackTunnelNetwork or residual TestSneakTunnel
     ///
     /// TunnelStart object residual closed; fail-closed vs full Start animation / TunnelContain.
-    pub fn update_sneak_attacks(&mut self) -> gamelogic::GameLogicResult<()> {
+    pub fn update_sneak_attacks(&mut self) -> generals_sim::GameLogicResult<()> {
         self.update_sneak_attacks_with_effects(&mut Default::default())
     }
 
     pub(crate) fn update_sneak_attacks_with_effects(
         &mut self,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         use crate::game_logic::host_sneak_attack::{
             SNEAK_ATTACK_RESIDUAL_TEMPLATE, in_sneak_shockwave_radius_2d,
             is_legal_sneak_shockwave_target,

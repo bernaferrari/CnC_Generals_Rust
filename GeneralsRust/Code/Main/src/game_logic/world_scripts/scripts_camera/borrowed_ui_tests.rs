@@ -67,13 +67,13 @@ impl ScriptExecutionDriver for ObserveNextAction<'_> {
     fn camera(
         &mut self,
         request: gamelogic::scripting::engine::ScriptCameraRequest<'_>,
-    ) -> Option<gamelogic::GameLogicResult<()>> {
+    ) -> Option<generals_sim::GameLogicResult<()>> {
         self.actual.camera(request)
     }
     fn camera_waypoint_position(
         &mut self,
         name: &str,
-    ) -> Option<gamelogic::GameLogicResult<Option<gamelogic::common::Coord3D>>> {
+    ) -> Option<generals_sim::GameLogicResult<Option<gamelogic::common::Coord3D>>> {
         assert_eq!(
             self.parent.borrow().is_hidden(),
             name == "Hidden",
@@ -82,7 +82,7 @@ impl ScriptExecutionDriver for ObserveNextAction<'_> {
         self.observations += 1;
         Some(Ok(None))
     }
-    fn after_action(&mut self) -> gamelogic::GameLogicResult<()> {
+    fn after_action(&mut self) -> generals_sim::GameLogicResult<()> {
         self.actual.after_action()
     }
 }

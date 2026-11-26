@@ -368,7 +368,7 @@ fn actual_airfield_sale_runs_body_die_before_native_retirement_and_checks_the_en
     let error = peer
         .process_destroy_list_with_effects_checked(&mut Default::default())
         .unwrap_err();
-    let gamelogic::GameLogicError::Configuration(reason) = error else {
+    let generals_sim::GameLogicError::Configuration(reason) = error else {
         panic!("expected typed native retirement owner error");
     };
     assert!(reason.contains("requires its native Drawable owner"));

@@ -301,7 +301,7 @@ impl Object {
     }
 }
 impl GameLogic {
-    pub(crate) fn tick_native_lifecycle(&mut self, id: ObjectId) -> gamelogic::GameLogicResult<()> {
+    pub(crate) fn tick_native_lifecycle(&mut self, id: ObjectId) -> generals_sim::GameLogicResult<()> {
         self.tick_native_lifecycle_with_effects(id, &mut Default::default())
     }
 
@@ -309,11 +309,11 @@ impl GameLogic {
         &mut self,
         id: ObjectId,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         self.drive_native_lifecycle_with_effects(id, false, effects)
     }
     /// Field expiry has its existing phase, but must not advance HeightDie twice.
-    pub(crate) fn tick_native_lifetime_timers(&mut self, id: ObjectId) -> gamelogic::GameLogicResult<()> {
+    pub(crate) fn tick_native_lifetime_timers(&mut self, id: ObjectId) -> generals_sim::GameLogicResult<()> {
         self.tick_native_lifetime_timers_with_effects(id, &mut Default::default())
     }
 
@@ -321,10 +321,10 @@ impl GameLogic {
         &mut self,
         id: ObjectId,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         self.drive_native_lifecycle_with_effects(id, true, effects)
     }
-    fn drive_native_lifecycle(&mut self, id: ObjectId, timers_only: bool) -> gamelogic::GameLogicResult<()> {
+    fn drive_native_lifecycle(&mut self, id: ObjectId, timers_only: bool) -> generals_sim::GameLogicResult<()> {
         self.drive_native_lifecycle_with_effects(id, timers_only, &mut Default::default())
     }
 
@@ -333,7 +333,7 @@ impl GameLogic {
         id: ObjectId,
         timers_only: bool,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         let Some(object) = self.objects.get(&id) else {
             return Ok(());
         };
@@ -420,7 +420,7 @@ impl GameLogic {
         index: usize,
         def: &FireOclAfterCooldownDefinition,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         let frame = self.frame;
         let (
             last_shot,
@@ -594,7 +594,7 @@ impl GameLogic {
         index: usize,
         identity: &std::sync::Arc<()>,
         definition: HeightDieDefinition,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         self.tick_native_height_die_with_effects(
             id,
             index,
@@ -611,7 +611,7 @@ impl GameLogic {
         identity: &std::sync::Arc<()>,
         definition: HeightDieDefinition,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         let pose_frame = self.frame;
         let Some(object) = self.objects.get_mut(&id) else {
             return Ok(());

@@ -29,9 +29,9 @@ impl CinematicInputLoan<'_> {
         deselect: &mut dyn FnMut(u32),
         bar: &mut game_client::gui::control_bar::ControlBar,
         effects: &mut game_client::gui::game_window::WindowEventEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         if !effects.has_ui() {
-            return Err(gamelogic::GameLogicError::Configuration(
+            return Err(generals_sim::GameLogicError::Configuration(
                 "cinematic input requires the receiving InGameUI".into(),
             ));
         }

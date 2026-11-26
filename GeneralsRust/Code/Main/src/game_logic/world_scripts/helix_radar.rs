@@ -105,7 +105,7 @@ impl GameLogic {
         tank_team: Team,
         tank_pos: Vec3,
         nuke_general: bool,
-    ) -> gamelogic::GameLogicResult<bool> {
+    ) -> generals_sim::GameLogicResult<bool> {
         self.apply_nuclear_tanks_death_detonation_at_with_effects(
             tank_id,
             tank_team,
@@ -122,7 +122,7 @@ impl GameLogic {
         tank_pos: Vec3,
         nuke_general: bool,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<bool> {
+    ) -> generals_sim::GameLogicResult<bool> {
         use crate::game_logic::host_nuclear_tanks::{
             NUCLEAR_TANK_DAMAGE_TYPE, NUCLEAR_TANK_DEATH_AUDIO, NUCLEAR_TANK_DEATH_TYPE,
             SMALL_RADIATION_AUDIO, is_legal_nuclear_death_target, nuclear_tank_death_damage_at,
@@ -223,14 +223,14 @@ impl GameLogic {
     }
 
     /// Advance Nuclear Tanks SmallRadiationField residual zones.
-    pub(in super::super) fn update_nuclear_tanks_radiation_zones(&mut self) -> gamelogic::GameLogicResult<()> {
+    pub(in super::super) fn update_nuclear_tanks_radiation_zones(&mut self) -> generals_sim::GameLogicResult<()> {
         self.update_nuclear_tanks_radiation_zones_with_effects(&mut Default::default())
     }
 
     pub(in super::super) fn update_nuclear_tanks_radiation_zones_with_effects(
         &mut self,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         let object_positions: Vec<(ObjectId, Vec3, Team, bool)> = self
             .objects
             .registered()
@@ -434,7 +434,7 @@ impl GameLogic {
         target_id: ObjectId,
         interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<Option<ObjectId>> {
+    ) -> generals_sim::GameLogicResult<Option<ObjectId>> {
         use crate::game_logic::KindOf;
 
         let (target_birth, team, owner_player_id, team_name, team_id, radius) = {
@@ -897,7 +897,7 @@ impl GameLogic {
         trigger_unit: Option<ObjectId>,
         via_capture: bool,
         via_death: bool,
-    ) -> gamelogic::GameLogicResult<u32> {
+    ) -> generals_sim::GameLogicResult<u32> {
         self.detonate_booby_trap_at_with_effects(
             structure_id,
             structure_pos,
@@ -916,7 +916,7 @@ impl GameLogic {
         via_capture: bool,
         via_death: bool,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<u32> {
+    ) -> generals_sim::GameLogicResult<u32> {
         if !self
             .sticky_bomb_detonations_in_progress
             .insert(structure_id.0)
@@ -944,7 +944,7 @@ impl GameLogic {
         via_capture: bool,
         via_death: bool,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<u32> {
+    ) -> generals_sim::GameLogicResult<u32> {
         use crate::game_logic::host_booby_trap::BOOBY_TRAP_SCAN_RANGE;
         use crate::game_logic::object::DamageHitContext;
         use crate::game_logic::thing::HostGeometryType;
@@ -1214,7 +1214,7 @@ impl GameLogic {
         damage_fx: Option<gamelogic::effects::FXList>,
         secondary_range: f32,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         if let Some(fx) = damage_fx {
             let dispatched = self.dispatch_fx_list_at_host_position_oriented_with_effects(
                 fx.name(),
@@ -1460,7 +1460,7 @@ impl GameLogic {
         &mut self,
         source_object: ObjectId,
         target_position: Vec3,
-    ) -> gamelogic::GameLogicResult<Option<u32>> {
+    ) -> generals_sim::GameLogicResult<Option<u32>> {
         self.activate_helix_napalm_bomb_with_effects(
             source_object,
             target_position,
@@ -1473,7 +1473,7 @@ impl GameLogic {
         source_object: ObjectId,
         target_position: Vec3,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<Option<u32>> {
+    ) -> generals_sim::GameLogicResult<Option<u32>> {
         use crate::game_logic::host_helix_napalm::{
             HELIX_FIRESTORM_AUDIO, HELIX_NAPALM_DROP_AUDIO, UPGRADE_CHINA_BLACK_NAPALM,
             UPGRADE_HELIX_NAPALM_BOMB, helix_napalm_unlocked, is_helix_napalm_caster,
@@ -1606,14 +1606,14 @@ impl GameLogic {
     }
 
     /// Advance Helix Napalm FirestormSmall residual zones.
-    pub(in super::super) fn update_helix_napalm_firestorms(&mut self) -> gamelogic::GameLogicResult<()> {
+    pub(in super::super) fn update_helix_napalm_firestorms(&mut self) -> generals_sim::GameLogicResult<()> {
         self.update_helix_napalm_firestorms_with_effects(&mut Default::default())
     }
 
     pub(in super::super) fn update_helix_napalm_firestorms_with_effects(
         &mut self,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         let frame = self.frame;
         self.helix_napalm.advance_geometry(frame);
         let object_positions: Vec<(ObjectId, Vec3, Team, bool)> = self

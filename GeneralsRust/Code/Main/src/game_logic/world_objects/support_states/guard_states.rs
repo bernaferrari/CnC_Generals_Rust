@@ -342,7 +342,7 @@ impl GameLogic {
         target_id: ObjectId,
         aggressor: bool,
         effects: &mut ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<bool> {
+    ) -> generals_sim::GameLogicResult<bool> {
         if self
             .objects
             .get(&object_id)
@@ -599,7 +599,7 @@ impl GameLogic {
         object_id: ObjectId,
         team: Team,
         effects: &mut ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<bool> {
+    ) -> generals_sim::GameLogicResult<bool> {
         let last = self
             .objects
             .get_mut(&object_id)

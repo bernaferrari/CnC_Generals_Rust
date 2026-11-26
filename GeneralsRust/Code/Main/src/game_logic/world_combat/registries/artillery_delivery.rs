@@ -284,14 +284,14 @@ impl GameLogic {
         first
     }
 
-    pub fn update_artillery_barrage_flights(&mut self) -> gamelogic::GameLogicResult<()> {
+    pub fn update_artillery_barrage_flights(&mut self) -> generals_sim::GameLogicResult<()> {
         self.update_artillery_barrage_flights_with_effects(&mut Default::default())
     }
 
     pub(in crate::game_logic) fn update_artillery_barrage_flights_with_effects(
         &mut self,
         effects: &mut ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         // Preserve the world's registration order when several carriers are ready.
         let carriers: Vec<_> = self
             .objects
@@ -531,7 +531,7 @@ impl GameLogic {
         id: ObjectId,
         new_destination: Option<Vec3>,
         effects: &mut ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         if let Some(destination) = new_destination {
             self.issue_artillery_aircraft_move(id, destination);
         }
@@ -573,7 +573,7 @@ impl GameLogic {
         id: ObjectId,
         move_goal: Option<(Vec3, f32)>,
         effects: &mut ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         let object = &self.objects[&id];
         if object.is_disabled() || object.is_shock_stunned() {
             return Ok(());
@@ -670,7 +670,7 @@ impl GameLogic {
         &mut self,
         id: ObjectId,
         effects: &mut ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         let object = &self.objects[&id];
         let position = object.get_position();
         let entry = {
@@ -680,7 +680,7 @@ impl GameLogic {
                 .read()
                 .unwrap_or_else(|error| error.into_inner());
             if !terrain.has_height_map() {
-                return Err(gamelogic::GameLogicError::Configuration(
+                return Err(generals_sim::GameLogicError::Configuration(
                     "artillery recovery requires the receiving terrain".into(),
                 ));
             }
@@ -725,7 +725,7 @@ impl GameLogic {
         aim: Vec3,
         payload: ArtilleryPayload,
         effects: &mut ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<Option<ObjectId>> {
+    ) -> generals_sim::GameLogicResult<Option<ObjectId>> {
         let ArtilleryPayload::Visible(payload) = payload else {
             return Ok(self.release_template_only_artillery_shell(carrier, aim, effects));
         };
@@ -762,7 +762,7 @@ impl GameLogic {
         {
             let bones = self
                 .query_pristine_world_bone_poses(object, Some(assets), &payload.bone, 1, 1, 0, 0)
-                .map_err(gamelogic::GameLogicError::Configuration)?;
+                .map_err(generals_sim::GameLogicError::Configuration)?;
             if let Some((position, _)) = bones.first() {
                 launch.w_axis = position.extend(1.0);
             }
@@ -820,7 +820,7 @@ impl GameLogic {
     fn update_template_only_artillery_shells(
         &mut self,
         presentation_effects: &mut ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         use crate::game_logic::combat::DamageType;
         use crate::game_logic::special_power_strikes::{
             ARTILLERY_BARRAGE_DAMAGE, ARTILLERY_BARRAGE_RADIUS,

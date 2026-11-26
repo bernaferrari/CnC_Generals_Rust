@@ -12,7 +12,7 @@ impl GameLogic {
     pub(in crate::game_logic) fn complete_owned_bridge_body_callbacks(
         &mut self,
         callbacks: BridgeBodyCallbacks,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         self.complete_owned_bridge_body_callbacks_with_effects(
             callbacks,
             &mut crate::game_logic::ScriptPresentationEffects::default(),
@@ -23,7 +23,7 @@ impl GameLogic {
         &mut self,
         callbacks: BridgeBodyCallbacks,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         if callbacks.health_changed {
             self.propagate_owned_bridge_body_change_with_effects(callbacks, presentation_effects)?;
         }
@@ -55,7 +55,7 @@ impl GameLogic {
         Ok(())
     }
 
-    fn propagate_owned_bridge_body_change(&mut self, callbacks: BridgeBodyCallbacks) -> gamelogic::GameLogicResult<()> {
+    fn propagate_owned_bridge_body_change(&mut self, callbacks: BridgeBodyCallbacks) -> generals_sim::GameLogicResult<()> {
         self.propagate_owned_bridge_body_change_with_effects(
             callbacks,
             &mut crate::game_logic::ScriptPresentationEffects::default(),
@@ -67,8 +67,8 @@ impl GameLogic {
     pub(in crate::game_logic) fn visit_owned_bridge_mirror_recipients(
         &mut self,
         callbacks: BridgeBodyCallbacks,
-        mut deliver: impl FnMut(&mut Self, ObjectId, f32) -> gamelogic::GameLogicResult<()>,
-    ) -> gamelogic::GameLogicResult<()> {
+        mut deliver: impl FnMut(&mut Self, ObjectId, f32) -> generals_sim::GameLogicResult<()>,
+    ) -> generals_sim::GameLogicResult<()> {
         if callbacks.input_amount <= 0.0 || !callbacks.input_amount.is_finite() {
             return Ok(());
         }
@@ -127,7 +127,7 @@ impl GameLogic {
         &mut self,
         callbacks: BridgeBodyCallbacks,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         self.visit_owned_bridge_mirror_recipients(callbacks, |owner, target, amount| {
             if callbacks.damage_type == DamageType::Healing {
                 owner.apply_owned_healing_with_effects(
@@ -517,7 +517,7 @@ impl GameLogic {
         source: ObjectId,
         duration_frames: u32,
         frame: u32,
-    ) -> gamelogic::GameLogicResult<bool> {
+    ) -> generals_sim::GameLogicResult<bool> {
         self.attempt_owned_healing_from_sole_benefactor_with_effects(
             victim,
             amount,
@@ -536,7 +536,7 @@ impl GameLogic {
         duration_frames: u32,
         frame: u32,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<bool> {
+    ) -> generals_sim::GameLogicResult<bool> {
         if !self.objects.contains_key(&source) {
             return Ok(false);
         }

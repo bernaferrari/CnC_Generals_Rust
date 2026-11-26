@@ -310,7 +310,7 @@ impl GameLogic {
         &mut self,
         garrisoned_id: ObjectId,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         let current_time = self.frame as f32 * LOGIC_FRAME_TIMESTEP;
 
         let Some(attacker) = self.objects.get(&garrisoned_id) else {
@@ -577,7 +577,7 @@ impl GameLogic {
         position: glam::Vec3,
         interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
         ui: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         let Some(container) = self.objects.get(&container_id) else {
             return Ok(());
         };
@@ -622,7 +622,7 @@ impl GameLogic {
                 // Team even for a neutral map garrison. The player-command
                 // factory intentionally refuses Neutral and is not this path.
                 let player = self.players.get(&owner).ok_or_else(|| {
-                    gamelogic::GameLogicError::Configuration(
+                    generals_sim::GameLogicError::Configuration(
                         "Garrison controlling Player disappeared".into(),
                     )
                 })?;
@@ -631,19 +631,19 @@ impl GameLogic {
                     let factory = self
                         .team_factory
                         .lock()
-                        .map_err(|error| gamelogic::GameLogicError::Threading(error.to_string()))?;
+                        .map_err(|error| generals_sim::GameLogicError::Threading(error.to_string()))?;
                     let default_team = factory
                         .find_team_instances(&name)
                         .into_iter()
                         .next()
                         .ok_or_else(|| {
-                            gamelogic::GameLogicError::Configuration(
+                            generals_sim::GameLogicError::Configuration(
                                 "Garrison controller has no receiving default Team".into(),
                             )
                         })?;
                     let team = default_team
                         .read()
-                        .map_err(|error| gamelogic::GameLogicError::Threading(error.to_string()))?;
+                        .map_err(|error| generals_sim::GameLogicError::Threading(error.to_string()))?;
                     team.get_id()
                 };
                 // Release Team loans before the nested factory/callback chain.
@@ -792,7 +792,7 @@ impl GameLogic {
         container_id: ObjectId,
         occupant_id: ObjectId,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         self.apply_garrison_contain_on_enter_at(
             container_id, occupant_id, None, presentation_effects,
         )
@@ -804,7 +804,7 @@ impl GameLogic {
         occupant_id: ObjectId,
         enclosing_center: Option<glam::Vec3>,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         let Some(container) = self.objects.get(&container_id) else {
             return Ok(());
         };
@@ -1003,7 +1003,7 @@ impl GameLogic {
     pub(in crate::game_logic) fn recalc_garrison_apparent_controller(
         &mut self,
         container_id: ObjectId,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         self.recalc_garrison_apparent_controller_with_effects(
             container_id,
             &mut crate::game_logic::ScriptPresentationEffects::default(),
@@ -1014,7 +1014,7 @@ impl GameLogic {
         &mut self,
         container_id: ObjectId,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         let occupants = self
             .objects
             .get(&container_id)
@@ -1041,7 +1041,7 @@ impl GameLogic {
             }
             if let Some((Some(original_id), _, _, _)) = original {
                 if !self.set_host_object_team_with_effects(container_id, original_id, effects)? {
-                    return Err(gamelogic::GameLogicError::Configuration(
+                    return Err(generals_sim::GameLogicError::Configuration(
                         "Garrison original Team is unavailable in the receiving factory".into(),
                     ));
                 }
@@ -1113,7 +1113,7 @@ impl GameLogic {
             return Ok(());
         };
         let player = self.players.get(&owner).ok_or_else(|| {
-            gamelogic::GameLogicError::Configuration(
+            generals_sim::GameLogicError::Configuration(
                 "Garrison rider controller is missing from the receiving world".into(),
             )
         })?;
@@ -1123,12 +1123,12 @@ impl GameLogic {
             return Ok(());
         }
         let default_team = self.host_default_team_id(owner).ok_or_else(|| {
-            gamelogic::GameLogicError::Configuration(
+            generals_sim::GameLogicError::Configuration(
                 "Garrison rider controller has no receiving default Team".into(),
             )
         })?;
         if !self.set_host_object_team_with_effects(container_id, default_team, effects)? {
-            return Err(gamelogic::GameLogicError::Configuration(
+            return Err(generals_sim::GameLogicError::Configuration(
                 "Garrison owner failed receiving default-Team transfer".into(),
             ));
         }
@@ -1141,7 +1141,7 @@ impl GameLogic {
     pub(in crate::game_logic) fn recalc_garrisons_after_occupant_detect_change(
         &mut self,
         container_ids: &[ObjectId],
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         let mut seen: Vec<ObjectId> = Vec::new();
         for &cid in container_ids {
             if seen.contains(&cid) {
@@ -1165,7 +1165,7 @@ impl GameLogic {
         &mut self,
         container_id: ObjectId,
         arriver_id: ObjectId,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         self.kick_other_controller_occupants_for_enter_with_effects(
             container_id,
             arriver_id,
@@ -1178,7 +1178,7 @@ impl GameLogic {
         container_id: ObjectId,
         arriver_id: ObjectId,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         let arriver_owner = self
             .objects
             .get(&arriver_id)
@@ -1223,11 +1223,11 @@ impl GameLogic {
                 if self.objects.get(&pid).is_some_and(|rider| rider.has_ai_update_interface()) {
                     if let Some(config) = self.railed_dock_config(container_id) {
                         self.railed_dock_unload(container_id, config, false, presentation_effects)
-                            .map_err(gamelogic::GameLogicError::Configuration)?;
+                            .map_err(generals_sim::GameLogicError::Configuration)?;
                     }
                 } else {
                     self.railed_remove_contained_with_effects(container_id, pid, presentation_effects)
-                        .map_err(gamelogic::GameLogicError::Configuration)?;
+                        .map_err(generals_sim::GameLogicError::Configuration)?;
                 }
                 continue;
             }

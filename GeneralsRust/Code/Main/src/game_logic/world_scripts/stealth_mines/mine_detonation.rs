@@ -14,7 +14,7 @@ impl GameLogic {
         mine: ObjectId,
         position: Vec3,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<bool> {
+    ) -> generals_sim::GameLogicResult<bool> {
         let Some(module) = self.objects.get(&mine)
             .and_then(|object| object.thing().template.receiving_object_definition.as_deref())
             .and_then(|definition| definition.behavior_modules.iter()
@@ -42,7 +42,7 @@ impl GameLogic {
         id: ObjectId,
         weapon: Option<&str>,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         let Some((position, generation)) = self
             .objects
             .get(&id)
@@ -68,7 +68,7 @@ impl GameLogic {
     /// Safely disarm/clear a residual mine without detonation or area damage.
     /// C++ Weapon DAMAGE_DISARM → LandMineInterface::disarm / destroyObject residual.
     /// Demo traps (KINDOF_DEMOTRAP) are disarmed the same way — no explosion.
-    pub fn clear_mine_internal(&mut self, mine_id: ObjectId, clearer_id: ObjectId) -> gamelogic::GameLogicResult<bool> {
+    pub fn clear_mine_internal(&mut self, mine_id: ObjectId, clearer_id: ObjectId) -> generals_sim::GameLogicResult<bool> {
         self.clear_mine_internal_with_effects(mine_id, clearer_id, &mut Default::default())
     }
 
@@ -77,7 +77,7 @@ impl GameLogic {
         mine_id: ObjectId,
         clearer_id: ObjectId,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<bool> {
+    ) -> generals_sim::GameLogicResult<bool> {
         use crate::game_logic::host_mines::{MINE_CLEARED_AUDIO, can_clear_mine_kind};
 
         let Some(mine) = self.objects.get(&mine_id) else {
@@ -171,7 +171,7 @@ impl GameLogic {
         // detonation weapon at the clipped victim point (MinefieldBehavior.cpp:257,
         // :422-424); DemoTrapUpdate::detonate / onDamage pass the object position.
         blast_at: Option<Vec3>,
-    ) -> gamelogic::GameLogicResult<bool> {
+    ) -> generals_sim::GameLogicResult<bool> {
         self.detonate_mine_internal_with_effects(mine_id, reason, blast_at, &mut Default::default())
     }
 
@@ -184,7 +184,7 @@ impl GameLogic {
         // :422-424); DemoTrapUpdate::detonate / onDamage pass the object position.
         blast_at: Option<Vec3>,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<bool> {
+    ) -> generals_sim::GameLogicResult<bool> {
         use crate::game_logic::host_mines::{HostMineDetonateReason, damage_at_distance};
 
         let Some(mine) = self.objects.get(&mine_id) else {
@@ -485,7 +485,7 @@ impl GameLogic {
         kind: crate::game_logic::host_mines::HostMineKind,
         mine_team: Team,
         producer: Option<ObjectId>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         self.apply_mine_splash_with_effects(
             mine_id,
             blast_pos,
@@ -508,7 +508,7 @@ impl GameLogic {
         mine_team: Team,
         producer: Option<ObjectId>,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         use crate::game_logic::host_mines::damage_at_distance;
         if self.try_fire_authored_mine_weapon(mine_id, blast_pos, effects)? {
             return Ok(());
@@ -659,7 +659,7 @@ impl GameLogic {
     }
 
     /// C++ MinefieldBehavior::onDamage after splash `attemptDamage`.
-    pub(super) fn chain_detonate_land_mine_from_splash(&mut self, mine_id: ObjectId) -> gamelogic::GameLogicResult<()> {
+    pub(super) fn chain_detonate_land_mine_from_splash(&mut self, mine_id: ObjectId) -> generals_sim::GameLogicResult<()> {
         self.chain_detonate_land_mine_from_splash_with_effects(mine_id, &mut Default::default())
     }
 
@@ -667,7 +667,7 @@ impl GameLogic {
         &mut self,
         mine_id: ObjectId,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         self.synchronize_mine_body_owned_with_effects(mine_id, false, false, effects)
     }
 
@@ -676,7 +676,7 @@ impl GameLogic {
         mine_id: ObjectId,
         healing: bool,
         self_drain: bool,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         self.synchronize_mine_body_owned_with_effects(
             mine_id,
             healing,

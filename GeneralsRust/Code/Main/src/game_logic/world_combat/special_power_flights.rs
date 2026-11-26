@@ -116,7 +116,7 @@ impl GameLogic {
     pub(crate) fn update_initial_transport_payloads_with_effects(
         &mut self,
         ui: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         // GameLogic::registerObject clamps a constructor's first wake to1.
         if self.frame == 0 {
             return Ok(());
@@ -180,7 +180,7 @@ impl GameLogic {
             } else {
                 // Keep the latch false throughout callbacks: RiderChange's
                 // onContaining suppresses evacuation until createPayload ends.
-                let result = (|| -> gamelogic::GameLogicResult<()> {
+                let result = (|| -> generals_sim::GameLogicResult<()> {
                     if let Some((name, count)) = rider_payload {
                         for _ in 0..count.max(0) {
                             let Some(rider_id) = self.create_object_for_owner_or_team_with_effects_checked(

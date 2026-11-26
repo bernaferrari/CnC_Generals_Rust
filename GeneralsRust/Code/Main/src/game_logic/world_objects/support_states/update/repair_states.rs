@@ -12,7 +12,7 @@ impl GameLogic {
         is_alive: bool,
         dt: f32,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         let Some(repair_target_id) = target_id else {
             self.release_dozer_repair_order(object_id)?;
             return Ok(());
@@ -212,7 +212,7 @@ impl GameLogic {
         is_alive: bool,
         dt: f32,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         if matches!(state, AIState::SeekingHealing) && health_current >= health_maximum - 0.01 {
             if let Some(tid) = target_id {
                 self.release_dock_if_holder(tid, object_id);

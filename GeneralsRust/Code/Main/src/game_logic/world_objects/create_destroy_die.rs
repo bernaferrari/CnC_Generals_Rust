@@ -5,7 +5,7 @@ use super::super::*;
 use glam::Mat4;
 
 pub(crate) struct CheckedFactoryError {
-    pub(crate) error: gamelogic::GameLogicError,
+    pub(crate) error: generals_sim::GameLogicError,
     pub(crate) committed: Option<(ObjectId, (u64, u64))>,
 }
 
@@ -336,7 +336,7 @@ impl GameLogic {
         parent_id: ObjectId,
         child_id: ObjectId,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         let Some((exit, origin, forward, orientation, rally, parent_birth)) =
             self.host_object(parent_id).and_then(|parent| {
                 let exit = parent.get_template().production_exit_metadata.filter(|exit| exit.is_supply_center())?;
@@ -351,7 +351,7 @@ impl GameLogic {
         let Some(child_birth) = self.host_object(child_id)
             .map(|child| child.visual_object_generation)
         else {
-            return Err(gamelogic::GameLogicError::InvalidObject(child_id.0));
+            return Err(generals_sim::GameLogicError::InvalidObject(child_id.0));
         };
         let epoch = self.visual_world_epoch;
         let transform = |point: [f32; 3]| {
@@ -362,13 +362,13 @@ impl GameLogic {
         let mut spawn_pos = transform(exit.unit_create_point);
         spawn_pos.y = self.terrain_height_at(spawn_pos).unwrap_or(0.0);
         if !self.set_owned_object_position_with_effects(child_id, spawn_pos, self.frame, effects) {
-            return Err(gamelogic::GameLogicError::InvalidObject(child_id.0));
+            return Err(generals_sim::GameLogicError::InvalidObject(child_id.0));
         }
         if !self.spawn_identity_matches(parent_id, parent_birth, epoch) {
-            return Err(gamelogic::GameLogicError::InvalidObject(parent_id.0));
+            return Err(generals_sim::GameLogicError::InvalidObject(parent_id.0));
         }
         if !self.spawn_identity_matches(child_id, child_birth, epoch) {
-            return Err(gamelogic::GameLogicError::InvalidObject(child_id.0));
+            return Err(generals_sim::GameLogicError::InvalidObject(child_id.0));
         }
         if let Some((child, partition)) = self.host_object_and_partition_mut(child_id) {
             child.set_orientation_with_partition_owner(orientation, partition);
@@ -553,7 +553,7 @@ impl GameLogic {
         slot: Option<u8>,
         interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
         ui: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<Option<ObjectId>> {
+    ) -> generals_sim::GameLogicResult<Option<ObjectId>> {
         if !self.ensure_spawn_behavior_unit_template(spawn_template) {
             return Ok(None);
         }
@@ -589,10 +589,10 @@ impl GameLogic {
         };
         if !self.spawn_identity_matches(parent_id, parent_birth, epoch) {
             self.destroy_spawn_birth_with_effects(spawned_id, child_birth, ui)?;
-            return Err(gamelogic::GameLogicError::InvalidObject(parent_id.0));
+            return Err(generals_sim::GameLogicError::InvalidObject(parent_id.0));
         }
         if !self.spawn_identity_matches(spawned_id, child_birth.0, child_birth.1) {
-            return Err(gamelogic::GameLogicError::InvalidObject(spawned_id.0));
+            return Err(generals_sim::GameLogicError::InvalidObject(spawned_id.0));
         }
         // SpawnBehavior notifies the player before assigning the producer,
         // enslaving the child, admitting its roster entry, or exiting it.
@@ -607,10 +607,10 @@ impl GameLogic {
         self.notify_owned_ai_unit_produced_with_effects(parent_id, spawned_id, ui)?;
         if !self.spawn_identity_matches(parent_id, parent_birth, epoch) {
             self.destroy_spawn_birth_with_effects(spawned_id, child_birth, ui)?;
-            return Err(gamelogic::GameLogicError::InvalidObject(parent_id.0));
+            return Err(generals_sim::GameLogicError::InvalidObject(parent_id.0));
         }
         if !self.spawn_identity_matches(spawned_id, child_birth.0, child_birth.1) {
-            return Err(gamelogic::GameLogicError::InvalidObject(spawned_id.0));
+            return Err(generals_sim::GameLogicError::InvalidObject(spawned_id.0));
         }
         if let Some(parent) = self.host_object_mut(parent_id) {
             if let Some(spec) = Self::resolve_host_spawn_behavior_spec(parent) {
@@ -628,7 +628,7 @@ impl GameLogic {
             && !self.enslave_owned_drone(spawned_id, parent_id, (parent_birth, epoch))
         {
             self.destroy_spawn_birth_with_effects(spawned_id, child_birth, ui)?;
-            return Err(gamelogic::GameLogicError::InvalidObject(parent_id.0));
+            return Err(generals_sim::GameLogicError::InvalidObject(parent_id.0));
         }
         // C++ SpawnBehavior::createSpawn appends the child ID after assigning
         // its producer/slaved state and before the exit callback can observe it.
@@ -688,7 +688,7 @@ impl GameLogic {
     }
 
     /// C++ `SpawnBehavior::onDie` / `onDelete` SpawnedRequireSpawner kill.
-    pub(crate) fn apply_spawned_require_spawner_on_die(&mut self, parent_id: ObjectId) -> gamelogic::GameLogicResult<()> {
+    pub(crate) fn apply_spawned_require_spawner_on_die(&mut self, parent_id: ObjectId) -> generals_sim::GameLogicResult<()> {
         self.apply_spawned_require_spawner_on_die_with_effects(parent_id, &mut Default::default())
     }
 
@@ -696,7 +696,7 @@ impl GameLogic {
         &mut self,
         parent_id: ObjectId,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         let Some((children, spawned_require_spawner)) = self.host_object(parent_id).map(|parent| {
             (
                 parent.spawn_behavior_children(),
@@ -809,7 +809,7 @@ impl GameLogic {
         position: Vec3,
         interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
         ui: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<Option<ObjectId>> {
+    ) -> generals_sim::GameLogicResult<Option<ObjectId>> {
         self.with_own_services_mut(|this| {
             let owner_player_id = this.unique_player_id_for_team(team);
             let Some(id) = this.create_object_with_initial_team_and_ui_checked(
@@ -836,7 +836,7 @@ impl GameLogic {
         &mut self,
         position: Vec3,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<Option<ObjectId>> {
+    ) -> generals_sim::GameLogicResult<Option<ObjectId>> {
         const TEMPLATE: &str = "GenericBridge";
         // Receiving content resolves its authored ThingFactory entry. In a
         // standalone host, require an already admitted template.
@@ -906,7 +906,7 @@ impl GameLogic {
         position: Vec3,
         interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
         ui: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<Option<ObjectId>> {
+    ) -> generals_sim::GameLogicResult<Option<ObjectId>> {
         self.with_own_services_mut(|this| {
             let Some(player) = this.players.get(&owner_player_id) else {
                 return Ok(None);
@@ -942,7 +942,7 @@ impl GameLogic {
         owner_player_id: u32,
         position: Vec3,
         ui: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<Option<ObjectId>> {
+    ) -> generals_sim::GameLogicResult<Option<ObjectId>> {
         let Some(team) = self.players.get(&owner_player_id).map(|player| player.team) else {
             return Ok(None);
         };
@@ -988,17 +988,17 @@ impl GameLogic {
         }
         let team_name = if let Some(identity) = team_identity {
             let factory = self.team_factory.lock().map_err(|error| CheckedFactoryError {
-                error: gamelogic::GameLogicError::Threading(error.to_string()),
+                error: generals_sim::GameLogicError::Threading(error.to_string()),
                 committed: None,
             })?;
             let selected = factory.find_team_by_id(identity).ok_or_else(|| CheckedFactoryError {
-                error: gamelogic::GameLogicError::Configuration(
+                error: generals_sim::GameLogicError::Configuration(
                     "projectile's captured Team identity is missing".into(),
                 ),
                 committed: None,
             })?;
             let selected = selected.read().map_err(|error| CheckedFactoryError {
-                error: gamelogic::GameLogicError::Threading(error.to_string()),
+                error: generals_sim::GameLogicError::Threading(error.to_string()),
                 committed: None,
             })?;
             Some(selected.get_name().as_str().to_owned())
@@ -1045,7 +1045,7 @@ impl GameLogic {
         orientation: f32,
         producer_id: ObjectId,
         ui: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<Option<ObjectId>> {
+    ) -> generals_sim::GameLogicResult<Option<ObjectId>> {
         if self.players.get(&owner_player_id).is_none_or(Player::is_reserved_neutral) {
             return Ok(None);
         }
@@ -1077,7 +1077,7 @@ impl GameLogic {
         orientation: f32,
         producer_id: Option<ObjectId>,
         ui: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<Option<ObjectId>> {
+    ) -> generals_sim::GameLogicResult<Option<ObjectId>> {
         let Some(player) = self.players.get(&owner_player_id) else {
             return Ok(None);
         };
@@ -1215,7 +1215,7 @@ impl GameLogic {
         position: Vec3,
         interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
         ui: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<Option<ObjectId>> {
+    ) -> generals_sim::GameLogicResult<Option<ObjectId>> {
         match owner_player_id {
             Some(owner) => self.create_object_for_player_with_effects_checked(
                 template_name,
@@ -1289,7 +1289,7 @@ impl GameLogic {
 
     fn complete_birth_checked_creation(
         &mut self,
-        creation: gamelogic::GameLogicResult<Option<ObjectId>>,
+        creation: generals_sim::GameLogicResult<Option<ObjectId>>,
         birth: Option<(ObjectId, (u64, u64))>,
     ) -> Result<Option<(ObjectId, (u64, u64))>, CheckedFactoryError> {
         let id = match creation {
@@ -1304,7 +1304,7 @@ impl GameLogic {
         };
         let Some((birth_id, birth)) = birth else {
             return Err(CheckedFactoryError {
-                error: gamelogic::GameLogicError::InvalidObject(id.0),
+                error: generals_sim::GameLogicError::InvalidObject(id.0),
                 committed: None,
             });
         };
@@ -1312,14 +1312,14 @@ impl GameLogic {
             || !self.spawn_identity_matches(id, birth.0, birth.1)
         {
             return Err(CheckedFactoryError {
-                error: gamelogic::GameLogicError::InvalidObject(id.0),
+                error: generals_sim::GameLogicError::InvalidObject(id.0),
                 committed: Some((birth_id, birth)),
             });
         }
         self.apply_cash_bounty_on_object_created(id);
         if !self.spawn_identity_matches(id, birth.0, birth.1) {
             return Err(CheckedFactoryError {
-                error: gamelogic::GameLogicError::InvalidObject(id.0),
+                error: generals_sim::GameLogicError::InvalidObject(id.0),
                 committed: Some((id, birth)),
             });
         }
@@ -1613,7 +1613,7 @@ impl GameLogic {
         activate: bool,
         interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
         ui: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<Option<ObjectId>> {
+    ) -> generals_sim::GameLogicResult<Option<ObjectId>> {
         self.create_object_on_exact_team_with_purpose_checked(
             template,
             controller,
@@ -1633,7 +1633,7 @@ impl GameLogic {
         team_id: u32,
         position: Vec3,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<Option<ObjectId>> {
+    ) -> generals_sim::GameLogicResult<Option<ObjectId>> {
         self.create_object_on_exact_team_with_purpose_checked(
             template,
             controller,
@@ -1654,7 +1654,7 @@ impl GameLogic {
         transform: Mat4,
         interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<Option<ObjectId>> {
+    ) -> generals_sim::GameLogicResult<Option<ObjectId>> {
         self.create_object_on_exact_team_with_purpose_checked(
             template,
             controller,
@@ -1675,7 +1675,7 @@ impl GameLogic {
         creation_purpose: FactoryCreationPurpose,
         interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
         ui: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<Option<ObjectId>> {
+    ) -> generals_sim::GameLogicResult<Option<ObjectId>> {
         let Some(player) = self.players.get(&controller) else {
             return Ok(None);
         };
@@ -1726,7 +1726,7 @@ impl GameLogic {
         owner: Option<u32>,
         position: Vec3,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<Option<ObjectId>> {
+    ) -> generals_sim::GameLogicResult<Option<ObjectId>> {
         match owner {
             Some(owner) => self.create_object_for_player_with_effects_checked(
                 template, owner, position, None, effects,
@@ -1775,7 +1775,7 @@ impl GameLogic {
         initial_team: Option<(&str, u32, bool)>,
         interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
         ui: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<Option<ObjectId>> {
+    ) -> generals_sim::GameLogicResult<Option<ObjectId>> {
         self.create_object_with_initial_team_and_ui_birth_checked(
             template_name,
             team,
@@ -1800,7 +1800,7 @@ impl GameLogic {
         interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
         ui: &mut crate::game_logic::ScriptPresentationEffects<'_>,
         birth_out: Option<&mut Option<(ObjectId, (u64, u64))>>,
-    ) -> gamelogic::GameLogicResult<Option<ObjectId>> {
+    ) -> generals_sim::GameLogicResult<Option<ObjectId>> {
         // Bind World+Main for Object birth (asset manager / squish / NameKey).
         // Nested with outer create_object wraps is fine (same Arc stack).
         self.with_own_services_mut(|this| {
@@ -1829,7 +1829,7 @@ impl GameLogic {
         interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
         ui: &mut crate::game_logic::ScriptPresentationEffects<'_>,
         birth_out: Option<&mut Option<(ObjectId, (u64, u64))>>,
-    ) -> gamelogic::GameLogicResult<Option<ObjectId>> {
+    ) -> generals_sim::GameLogicResult<Option<ObjectId>> {
         if let Some(error) = self.object_retirement_error() {
             return Err(error);
         }
@@ -1862,7 +1862,7 @@ impl GameLogic {
 
         self.admit_object_client_template(template_name)
             .map_err(|error| {
-                gamelogic::GameLogicError::Configuration(format!(
+                generals_sim::GameLogicError::Configuration(format!(
                     "Object '{template_name}' receiving template: {error}"
                 ))
             })?;
@@ -1871,30 +1871,30 @@ impl GameLogic {
             if Self::authored_spawn_behavior_template(&template).is_some()
                 && let Some(reason) = Self::unsupported_spawn_exit(&template)
             {
-                return Err(gamelogic::GameLogicError::Configuration(format!(
+                return Err(generals_sim::GameLogicError::Configuration(format!(
                     "Object '{template_name}': SpawnBehavior exit unsupported: {reason}"
                 )));
             }
             if let Some(source) = &template.receiving_client_template {
                 source.validate_turret_slots().map_err(|error| {
-                    gamelogic::GameLogicError::Configuration(format!(
+                    generals_sim::GameLogicError::Configuration(format!(
                         "Object '{template_name}' turret definition: {error}"
                     ))
                 })?;
             }
             if let Some(error) = &template.native_lifecycle_error {
-                return Err(gamelogic::GameLogicError::Configuration(format!(
+                return Err(generals_sim::GameLogicError::Configuration(format!(
                     "Object '{template_name}' native lifecycle: {error}"
                 )));
             }
             if let Some(error) = &template.body_definition_error {
-                return Err(gamelogic::GameLogicError::Configuration(format!(
+                return Err(generals_sim::GameLogicError::Configuration(format!(
                     "Object '{template_name}' Body definition: {error}"
                 )));
             }
 
             if let Some(Err(error)) = &template.structure_topple_definition {
-                return Err(gamelogic::GameLogicError::Configuration(format!(
+                return Err(generals_sim::GameLogicError::Configuration(format!(
                     "Object '{template_name}' structure topple: {error}"
                 )));
             }
@@ -1902,19 +1902,19 @@ impl GameLogic {
                 let factory = self
                     .team_factory
                     .lock()
-                    .map_err(|error| gamelogic::GameLogicError::Threading(error.to_string()))?;
+                    .map_err(|error| generals_sim::GameLogicError::Threading(error.to_string()))?;
                 let selected = factory.find_team_by_id(identity).ok_or_else(|| {
-                    gamelogic::GameLogicError::Configuration(
+                    generals_sim::GameLogicError::Configuration(
                         "constructor exact Team identity is missing".into(),
                     )
                 })?;
                 let selected = selected
                     .read()
-                    .map_err(|error| gamelogic::GameLogicError::Threading(error.to_string()))?;
+                    .map_err(|error| generals_sim::GameLogicError::Threading(error.to_string()))?;
                 if selected.get_name().as_str() != name
                     || selected.get_controlling_player_id() != owner_player_id
                 {
-                    return Err(gamelogic::GameLogicError::Configuration(
+                    return Err(generals_sim::GameLogicError::Configuration(
                         "constructor exact Team/controller does not match its receiving arguments"
                             .into(),
                     ));
@@ -2495,14 +2495,14 @@ impl GameLogic {
             // callback can synchronously remove it and reuse its numeric ID.
             let birth = (self.objects.get(&id)
                 .map(|object| object.visual_object_generation)
-                .ok_or(gamelogic::GameLogicError::InvalidObject(id.0))?, self.visual_world_epoch);
+                .ok_or(generals_sim::GameLogicError::InvalidObject(id.0))?, self.visual_world_epoch);
             if let Some(birth_out) = birth_out {
                 *birth_out = Some((id, birth));
             }
             macro_rules! verify_factory_birth {
                 () => {
                     if !self.spawn_identity_matches(id, birth.0, birth.1) {
-                        return Err(gamelogic::GameLogicError::InvalidObject(id.0));
+                        return Err(generals_sim::GameLogicError::InvalidObject(id.0));
                     }
                 };
             }
@@ -2772,7 +2772,7 @@ impl GameLogic {
             // Factory return-equivalent boundary: caller placement must never
             // become observable during constructor, onCreate or Drawable birth.
             if self.objects.get(&id).is_none() {
-                return Err(gamelogic::GameLogicError::Configuration(format!(
+                return Err(generals_sim::GameLogicError::Configuration(format!(
                     "Object {id} disappeared during factory initialization"
                 )));
             }
@@ -2783,7 +2783,7 @@ impl GameLogic {
                 _ => self.set_owned_object_position_with_effects(id, position, self.frame, ui),
             };
             if !placed {
-                return Err(gamelogic::GameLogicError::Configuration(format!(
+                return Err(generals_sim::GameLogicError::Configuration(format!(
                     "Object {id} disappeared during factory placement"
                 )));
             }
@@ -2913,7 +2913,7 @@ impl GameLogic {
         object_id: ObjectId,
         interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         let Some(obj) = self.objects.get(&object_id) else {
             return Ok(());
         };
@@ -2969,7 +2969,7 @@ impl GameLogic {
         object_id: ObjectId,
         interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
         ui: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         let Some(object) = self.objects.get(&object_id) else {
             return Ok(());
         };

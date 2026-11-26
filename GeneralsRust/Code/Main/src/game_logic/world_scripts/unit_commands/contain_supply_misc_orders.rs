@@ -40,7 +40,7 @@ impl GameLogic {
         &mut self,
         id: ObjectId,
         target: Option<ObjectId>,
-    ) -> gamelogic::GameLogicResult<bool> {
+    ) -> generals_sim::GameLogicResult<bool> {
         if self.unit_refuses_ai_orders(id) {
             return Ok(false);
         }
@@ -368,14 +368,14 @@ impl GameLogic {
         &mut self,
         ferry_id: ObjectId,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<bool> {
+    ) -> generals_sim::GameLogicResult<bool> {
         let Some(ferry) = self.objects.get(&ferry_id) else { return Ok(false) };
         if !ferry.is_railed_transport() || ferry.railed_in_transit || ferry.railed_dock.busy() {
             return Ok(false);
         }
         let Some(config) = self.railed_dock_config(ferry_id) else { return Ok(false) };
         self.railed_dock_unload(ferry_id, config, true, effects)
-            .map_err(gamelogic::GameLogicError::Configuration)?;
+            .map_err(generals_sim::GameLogicError::Configuration)?;
         Ok(true)
     }
 
@@ -413,7 +413,7 @@ impl GameLogic {
         &mut self,
         container_id: ObjectId,
         occupant_id: ObjectId,
-    ) -> gamelogic::GameLogicResult<bool> {
+    ) -> generals_sim::GameLogicResult<bool> {
         self.unit_command_remove_occupant_with_effects(
             container_id,
             occupant_id,
@@ -426,12 +426,12 @@ impl GameLogic {
         container_id: ObjectId,
         occupant_id: ObjectId,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<bool> {
+    ) -> generals_sim::GameLogicResult<bool> {
         if self.objects.get(&container_id).is_some_and(|container| {
             container.thing().template.contain_module.kind == crate::game_logic::ContainModuleKind::RailedTransport
         }) {
             return self.railed_remove_contained_with_effects(container_id, occupant_id, effects)
-                .map_err(gamelogic::GameLogicError::Configuration);
+                .map_err(generals_sim::GameLogicError::Configuration);
         }
         let is_rider_change = self.objects.get(&container_id).is_some_and(|container| {
             container.thing().template.contain_module.kind
@@ -505,7 +505,7 @@ impl GameLogic {
         &mut self,
         id: ObjectId,
         drop_position: glam::Vec3,
-    ) -> gamelogic::GameLogicResult<bool> {
+    ) -> generals_sim::GameLogicResult<bool> {
         self.unit_command_exit_drop_with_effects(id, drop_position, &mut Default::default())
     }
 
@@ -514,7 +514,7 @@ impl GameLogic {
         id: ObjectId,
         drop_position: glam::Vec3,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<bool> {
+    ) -> generals_sim::GameLogicResult<bool> {
         let container_id = self.objects.get(&id).and_then(|u| u.contained_by);
         let walk = container_id.is_some_and(|cid| {
             self.objects
@@ -764,7 +764,7 @@ impl GameLogic {
         &mut self,
         id: ObjectId,
         state: AIState,
-    ) -> gamelogic::GameLogicResult<bool> {
+    ) -> generals_sim::GameLogicResult<bool> {
         self.unit_command_set_ai_state_with_effects(
             id,
             state,
@@ -777,7 +777,7 @@ impl GameLogic {
         id: ObjectId,
         state: AIState,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<bool> {
+    ) -> generals_sim::GameLogicResult<bool> {
         self.cancel_dock_reservation(id);
         if self.objects.get(&id).is_none() {
             return Ok(false);
@@ -912,7 +912,7 @@ impl GameLogic {
         id: ObjectId,
         slot: u8,
         lock_type: WeaponLockType,
-    ) -> gamelogic::GameLogicResult<bool> {
+    ) -> generals_sim::GameLogicResult<bool> {
         self.unit_command_set_weapon_lock_with_effects(id, slot, lock_type, &mut Default::default())
     }
 
@@ -922,7 +922,7 @@ impl GameLogic {
         slot: u8,
         lock_type: WeaponLockType,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<bool> {
+    ) -> generals_sim::GameLogicResult<bool> {
         let is_demo_trap = self
             .objects
             .get(&id)
@@ -1134,7 +1134,7 @@ impl GameLogic {
         id: ObjectId,
         goal: glam::Vec3,
         state: AIState,
-    ) -> gamelogic::GameLogicResult<bool> {
+    ) -> generals_sim::GameLogicResult<bool> {
         self.unit_command_path_with_state_ignoring(id, goal, state, None)
     }
 
@@ -1145,7 +1145,7 @@ impl GameLogic {
         goal: glam::Vec3,
         state: AIState,
         ignore_obstacle: Option<ObjectId>,
-    ) -> gamelogic::GameLogicResult<bool> {
+    ) -> generals_sim::GameLogicResult<bool> {
         self.unit_command_path_with_state_ignoring_with_effects(
             id,
             goal,
@@ -1162,7 +1162,7 @@ impl GameLogic {
         state: AIState,
         ignore_obstacle: Option<ObjectId>,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<bool> {
+    ) -> generals_sim::GameLogicResult<bool> {
         if self.unit_refuses_ai_orders(id) {
             return Ok(false);
         }

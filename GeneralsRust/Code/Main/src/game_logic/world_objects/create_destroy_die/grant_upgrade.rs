@@ -63,7 +63,7 @@ impl GameLogic {
         grants: &[crate::game_logic::GrantUpgradeCreateMetadata],
         interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         if grants.is_empty() {
             return Ok(());
         }

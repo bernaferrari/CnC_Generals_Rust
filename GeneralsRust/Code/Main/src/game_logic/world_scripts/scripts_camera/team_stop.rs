@@ -8,7 +8,7 @@ impl GameLogic {
         calling: Option<u32>,
         condition: Option<u32>,
         disband: bool,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         self.apply_owned_team_stop_with_effects(
             raw_team,
             calling,
@@ -25,7 +25,7 @@ impl GameLogic {
         condition: Option<u32>,
         disband: bool,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         let Some((source_id, members)) =
             self.resolve_owned_script_team(raw_team, calling, condition)?
         else {
@@ -47,13 +47,13 @@ impl GameLogic {
             let factory = self
                 .team_factory
                 .lock()
-                .map_err(|error| gamelogic::GameLogicError::Threading(error.to_string()))?;
+                .map_err(|error| generals_sim::GameLogicError::Threading(error.to_string()))?;
             let Some(source) = factory.find_team_by_id(source_id) else {
                 return Ok(());
             };
             let source = source
                 .read()
-                .map_err(|error| gamelogic::GameLogicError::Threading(error.to_string()))?;
+                .map_err(|error| generals_sim::GameLogicError::Threading(error.to_string()))?;
             source.get_controlling_player_id()
         };
         for id in &members {
@@ -71,7 +71,7 @@ impl GameLogic {
             let mut factory = self
                 .team_factory
                 .lock()
-                .map_err(|error| gamelogic::GameLogicError::Threading(error.to_string()))?;
+                .map_err(|error| generals_sim::GameLogicError::Threading(error.to_string()))?;
             let Some(source) = factory.find_team_by_id(source_id) else {
                 return Ok(());
             };
@@ -88,7 +88,7 @@ impl GameLogic {
         // pointer the Object destructor later unlinks from (Object.cpp:607).
         let destination_id = destination
             .read()
-            .map_err(|error| gamelogic::GameLogicError::Threading(error.to_string()))?
+            .map_err(|error| generals_sim::GameLogicError::Threading(error.to_string()))?
             .get_id();
         for id in members {
             let Some(object) = self.host_object_mut(ObjectId(id)) else {
@@ -102,16 +102,16 @@ impl GameLogic {
             // original member iterator observes each transfer before the next.
             source
                 .write()
-                .map_err(|error| gamelogic::GameLogicError::Threading(error.to_string()))?
+                .map_err(|error| generals_sim::GameLogicError::Threading(error.to_string()))?
                 .remove_member(id);
             destination
                 .write()
-                .map_err(|error| gamelogic::GameLogicError::Threading(error.to_string()))?
+                .map_err(|error| generals_sim::GameLogicError::Threading(error.to_string()))?
                 .add_member(id);
         }
         destination
             .write()
-            .map_err(|error| gamelogic::GameLogicError::Threading(error.to_string()))?
+            .map_err(|error| generals_sim::GameLogicError::Threading(error.to_string()))?
             .set_active();
         Ok(())
     }

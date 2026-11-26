@@ -420,14 +420,14 @@ impl GameLogic {
 
     /// CPP AIExitState::update. The goal and passenger are resolved from this
     /// instance each time, so deletion/replacement cannot select another world.
-    pub(crate) fn update_owned_passenger_exit(&mut self, passenger: ObjectId) -> gamelogic::GameLogicResult<()> {
+    pub(crate) fn update_owned_passenger_exit(&mut self, passenger: ObjectId) -> generals_sim::GameLogicResult<()> {
         self.update_owned_passenger_exit_with_effects(passenger, &mut Default::default())
     }
     pub(crate) fn update_owned_passenger_exit_with_effects(
         &mut self,
         passenger: ObjectId,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         let Some(object) = self.host_object(passenger) else {
             return Ok(());
         };
@@ -489,7 +489,7 @@ impl GameLogic {
         request: ScriptNamedCommand<'_>,
         this_object: Option<ObjectId>,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         match request {
             ScriptNamedCommand::Stop { unit } => {
                 if let Some(id) = self.owned_named_script_object(unit, this_object) {

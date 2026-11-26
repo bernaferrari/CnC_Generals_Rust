@@ -148,7 +148,7 @@ impl GameLogic {
     }
 
     /// Bounded owned continuation after this object's real motion/arrival phase.
-    pub(crate) fn finish_transport_return_phase(&mut self, id: ObjectId) -> gamelogic::GameLogicResult<()> {
+    pub(crate) fn finish_transport_return_phase(&mut self, id: ObjectId) -> generals_sim::GameLogicResult<()> {
         self.finish_transport_return_phase_with_effects(id, &mut Default::default())
     }
 
@@ -156,7 +156,7 @@ impl GameLogic {
         &mut self,
         id: ObjectId,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         if self.host_object(id).is_some_and(|object| {
             matches!(
                 object.transport_return_state,

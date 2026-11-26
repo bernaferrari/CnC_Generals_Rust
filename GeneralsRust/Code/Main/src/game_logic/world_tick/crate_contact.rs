@@ -18,7 +18,7 @@ impl GameLogic {
         picker_id: ObjectId,
         collides: &[AuthoredCrateCollide],
         effects: &mut ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<bool> {
+    ) -> generals_sim::GameLogicResult<bool> {
         let Some(crate_object) = self.objects.get(&crate_id) else {
             return Ok(false);
         };

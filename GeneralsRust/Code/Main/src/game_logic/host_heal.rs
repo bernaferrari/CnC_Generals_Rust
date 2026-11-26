@@ -400,7 +400,7 @@ impl GameLogic {
     /// C++ `TransportContain::update` HealthRegen%PerSec on embarked riders.
     ///
     /// Leftover tick uses `dt` seconds: `maxHealth * percent / 100 * dt`.
-    pub fn update_transport_health_regen(&mut self, dt: f32) -> gamelogic::GameLogicResult<()> {
+    pub fn update_transport_health_regen(&mut self, dt: f32) -> generals_sim::GameLogicResult<()> {
         self.update_transport_health_regen_with_effects(
             dt,
             &mut crate::game_logic::ScriptPresentationEffects::default(),
@@ -411,7 +411,7 @@ impl GameLogic {
         &mut self,
         dt: f32,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         if dt <= 0.0 {
             return Ok(());
         }

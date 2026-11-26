@@ -13,7 +13,7 @@ impl GameLogic {
     pub(in super::super) fn destroy_live_object(
         &mut self,
         id: ObjectId,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         self.destroy_live_object_with_effects(id, &mut Default::default())
     }
 
@@ -21,7 +21,7 @@ impl GameLogic {
         &mut self,
         id: ObjectId,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         let Some(object) = self.objects.get_mut(&id) else {
             return Ok(());
         };
@@ -49,7 +49,7 @@ impl GameLogic {
     pub(in super::super) fn apply_object_delete_callbacks(
         &mut self,
         id: ObjectId,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         self.apply_object_delete_callbacks_with_effects(id, &mut Default::default())
     }
 
@@ -57,7 +57,7 @@ impl GameLogic {
         &mut self,
         id: ObjectId,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         self.object_lifecycle_callback_depth += 1;
         let result = self.apply_object_delete_callbacks_body_with_effects(id, effects);
         self.object_lifecycle_callback_depth -= 1;
@@ -68,7 +68,7 @@ impl GameLogic {
         &mut self,
         id: ObjectId,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         let Some(object) = self.objects.get(&id) else {
             return Ok(());
         };
@@ -152,7 +152,7 @@ impl GameLogic {
         &mut self,
         id: ObjectId,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         // SpawnBehavior::onDelete destroys live required children directly,
         // unlike onDie which kills them through their death modules.
         let spawn_children = self.objects.get(&id).and_then(|parent| {
@@ -187,7 +187,7 @@ impl GameLogic {
     }
 
     /// Containment onDelete. Cave's shared cave-in belongs to onDie.
-    fn delete_direct_containment(&mut self, id: ObjectId) -> gamelogic::GameLogicResult<()> {
+    fn delete_direct_containment(&mut self, id: ObjectId) -> generals_sim::GameLogicResult<()> {
         self.delete_direct_containment_with_effects(id, &mut Default::default())
     }
 
@@ -195,7 +195,7 @@ impl GameLogic {
         &mut self,
         id: ObjectId,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         let redirected = self.redirected_containment_owner(id);
         if redirected != id {
             let children = self
@@ -268,7 +268,7 @@ impl GameLogic {
         &mut self,
         container_id: ObjectId,
         child_id: ObjectId,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         self.remove_direct_contained_child_with_effects(
             container_id,
             child_id,
@@ -281,7 +281,7 @@ impl GameLogic {
         container_id: ObjectId,
         child_id: ObjectId,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         let Some(container) = self.teardown_object(container_id) else {
             return Ok(());
         };
@@ -294,7 +294,7 @@ impl GameLogic {
         let kind = container.get_template().contain_module.kind;
         if kind == ContainModuleKind::RailedTransport {
             self.railed_remove_contained_with_effects(container_id, child_id, effects)
-                .map_err(gamelogic::GameLogicError::Configuration)?;
+                .map_err(generals_sim::GameLogicError::Configuration)?;
             return Ok(());
         }
         if kind == ContainModuleKind::Parachute {
@@ -391,7 +391,7 @@ impl GameLogic {
     pub(in super::super) fn unregister_tunnel_containment(
         &mut self,
         id: ObjectId,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         self.unregister_tunnel_containment_with_effects(id, &mut Default::default())
     }
 
@@ -399,7 +399,7 @@ impl GameLogic {
         &mut self,
         id: ObjectId,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         let Some(object) = self.objects.get(&id) else {
             return Ok(());
         };
@@ -475,7 +475,7 @@ impl GameLogic {
     /// still installed. Physical deletion must not be needed to free its slot.
     fn detach_destroyed_object_from_contain(
         &mut self, id: ObjectId, effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         let containing = self.objects.get(&id).and_then(|o| o.contained_by);
         if let Some(cave) = containing {
             if self.cave_system.index_holding_unit(id).is_some_and(|index| {
@@ -492,7 +492,7 @@ impl GameLogic {
                 container.thing().template.contain_module.kind == ContainModuleKind::RailedTransport
             }) {
                 self.railed_remove_contained_with_effects(cid, id, effects)
-                    .map_err(gamelogic::GameLogicError::Configuration)?;
+                    .map_err(generals_sim::GameLogicError::Configuration)?;
                 return Ok(());
             }
             if self.objects.get(&cid).is_some_and(|container| {
@@ -553,7 +553,7 @@ impl GameLogic {
         &mut self,
         id: ObjectId,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<bool> {
+    ) -> generals_sim::GameLogicResult<bool> {
         if let Some(error) = self.object_retirement_error() {
             return Err(error);
         }

@@ -4,22 +4,22 @@ impl GameLogic {
     pub(super) fn resolve_owned_player_default_team(
         &self,
         player_id: u32,
-    ) -> gamelogic::GameLogicResult<Option<(u32, Vec<u32>)>> {
+    ) -> generals_sim::GameLogicResult<Option<(u32, Vec<u32>)>> {
         let Some(identity) = self.host_default_team_id(player_id) else {
             return Ok(None);
         };
         let factory = self
             .team_factory
             .lock()
-            .map_err(|error| gamelogic::GameLogicError::Threading(error.to_string()))?;
+            .map_err(|error| generals_sim::GameLogicError::Threading(error.to_string()))?;
         let Some(team) = factory.find_team_by_id(identity) else {
             return Ok(None);
         };
         let team = team
             .read()
-            .map_err(|error| gamelogic::GameLogicError::Threading(error.to_string()))?;
+            .map_err(|error| generals_sim::GameLogicError::Threading(error.to_string()))?;
         if let Some(reason) = team.creation_failure() {
-            return Err(gamelogic::GameLogicError::TeamCreationFailed(reason.into()));
+            return Err(generals_sim::GameLogicError::TeamCreationFailed(reason.into()));
         }
         Ok(Some((identity, team.get_members().to_vec())))
     }
@@ -32,7 +32,7 @@ impl GameLogic {
         waypoint: &str,
         calling: Option<u32>,
         condition: Option<u32>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         let Some((_, members)) = self.resolve_owned_script_team(team, calling, condition)? else {
             return Ok(());
         };
@@ -43,7 +43,7 @@ impl GameLogic {
         &mut self,
         members: &[u32],
         waypoint: &str,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         let group = self.create_team_ai_group(members);
         let ordered_members = self.ai_group_members(group);
         let Some(destination) = self.host_script_waypoint_position(waypoint) else {
@@ -62,7 +62,7 @@ impl GameLogic {
         waypoint: &str,
         calling: Option<u32>,
         condition: Option<u32>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         let position = self.host_script_waypoint_position(waypoint);
         let members = self.resolve_owned_script_team(team, calling, condition)?;
         let (Some(position), Some((_, members))) = (position, members) else {
@@ -85,7 +85,7 @@ impl GameLogic {
         area: &str,
         calling: Option<u32>,
         condition: Option<u32>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         let Some((center, _, polygon)) = self.host_named_guard_area_polygon(area) else {
             return Ok(());
         };
@@ -109,7 +109,7 @@ impl GameLogic {
         this_object: Option<ObjectId>,
         calling: Option<u32>,
         condition: Option<u32>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         let Some(target) = self.owned_named_script_object(target, this_object) else {
             return Ok(());
         };
@@ -133,7 +133,7 @@ impl GameLogic {
         calling: Option<u32>,
         condition: Option<u32>,
         interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         self.apply_owned_team_damage_with_effects(
             team,
             amount,
@@ -152,7 +152,7 @@ impl GameLogic {
         condition: Option<u32>,
         interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         let Some((_, members)) = self.resolve_owned_script_team(team, calling, condition)? else {
             return Ok(());
         };
@@ -181,7 +181,7 @@ impl GameLogic {
         condition: Option<u32>,
         force_normal: bool,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         let Some((target_id, _)) = self.resolve_owned_script_team(target, calling, condition)?
         else {
             return Ok(());
@@ -263,7 +263,7 @@ impl GameLogic {
         button: &str,
         calling: Option<u32>,
         condition: Option<u32>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         let Some((_, members)) = self.resolve_owned_script_team(team, calling, condition)? else {
             return Ok(());
         };
@@ -287,7 +287,7 @@ impl GameLogic {
         condition: Option<u32>,
         interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         let Some((team_id, _)) = self.resolve_owned_script_team(team, calling, condition)? else {
             return Ok(());
         };
@@ -300,14 +300,14 @@ impl GameLogic {
         player: u32,
         interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         let Some(side) = self.players.get(&player).map(|player| player.team) else {
             return Ok(());
         };
         let Some(transfer) = self
             .team_factory
             .transfer_prototype_controller_without_flushing(team_id, player)
-            .map_err(gamelogic::GameLogicError::Threading)?
+            .map_err(generals_sim::GameLogicError::Threading)?
         else {
             return Ok(());
         };
@@ -315,10 +315,10 @@ impl GameLogic {
             .team_factory
             .with_read_without_flushing(|factory| factory.find_team_by_id(team_id))
             .map_err(|_| {
-                gamelogic::GameLogicError::Threading("receiving TeamFactory lock poisoned".into())
+                generals_sim::GameLogicError::Threading("receiving TeamFactory lock poisoned".into())
             })?
             .ok_or_else(|| {
-                gamelogic::GameLogicError::Configuration(
+                generals_sim::GameLogicError::Configuration(
                     "transferred Team disappeared before its callbacks".into(),
                 )
             })?;
@@ -368,7 +368,7 @@ impl GameLogic {
                     })
                 })
                 .map_err(|_| {
-                    gamelogic::GameLogicError::Threading(
+                    generals_sim::GameLogicError::Threading(
                         "receiving TeamFactory lock poisoned".into(),
                     )
                 })?;
@@ -391,7 +391,7 @@ impl GameLogic {
         Ok(())
     }
 
-    pub(super) fn apply_owned_sell_everything(&mut self, player: u32) -> gamelogic::GameLogicResult<()> {
+    pub(super) fn apply_owned_sell_everything(&mut self, player: u32) -> generals_sim::GameLogicResult<()> {
         self.apply_owned_sell_everything_with_effects(player, &mut Default::default())
     }
 
@@ -399,7 +399,7 @@ impl GameLogic {
         &mut self,
         player: u32,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         let ids: Vec<ObjectId> = self
             .host_objects()
             .registered_values()
@@ -431,7 +431,7 @@ impl GameLogic {
         exact: bool,
         calling: Option<u32>,
         condition: Option<u32>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         let Some((_, roster)) = self.resolve_owned_script_team(team, calling, condition)? else {
             return Ok(());
         };

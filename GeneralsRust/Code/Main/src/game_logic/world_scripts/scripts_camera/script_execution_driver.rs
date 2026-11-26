@@ -161,7 +161,7 @@ impl HostScriptExecutionDriver<'_> {
         &mut self,
         event: &game_engine::common::audio::AudioEventRts,
         source_player: i32,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         let locality = self
             .world
             .receiving_audio_locality_for_player(source_player);
@@ -179,7 +179,7 @@ impl HostScriptExecutionDriver<'_> {
                 &mut selection,
                 self.world.queued_audio_events.policy(),
             )
-            .map_err(gamelogic::GameLogicError::Configuration)
+            .map_err(generals_sim::GameLogicError::Configuration)
     }
 
     /// CPP OpenContain::addOrRemoveObjFromWorld removes enclosed riders and
@@ -247,12 +247,12 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
         &mut self,
         track: &str,
         number_of_times: i32,
-    ) -> Option<gamelogic::GameLogicResult<bool>> {
+    ) -> Option<generals_sim::GameLogicResult<bool>> {
         let extra_handles = self.owned_audio_extra_receipts();
         Some(match self.ui.audio.as_deref_mut() {
             Some(audio) => audio
                 .music_track_completed(track, number_of_times, &extra_handles)
-                .map_err(gamelogic::GameLogicError::Configuration),
+                .map_err(generals_sim::GameLogicError::Configuration),
             None => Ok(false),
         })
     }
@@ -261,7 +261,7 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
         &mut self,
         name: &str,
         allow_overlap: bool,
-    ) -> Option<gamelogic::GameLogicResult<()>> {
+    ) -> Option<generals_sim::GameLogicResult<()>> {
         let mut event = game_engine::common::audio::AudioEventRts::with_event_name(name);
         event.set_is_logical_audio(true);
         event.set_uninterruptable(!allow_overlap);
@@ -281,7 +281,7 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
     fn audio(
         &mut self,
         request: gamelogic::scripting::engine::ScriptAudioRequest<'_>,
-    ) -> Option<gamelogic::GameLogicResult<()>> {
+    ) -> Option<generals_sim::GameLogicResult<()>> {
         use gamelogic::scripting::engine::ScriptAudioRequest as Request;
         let valid = match request {
             Request::SetVolume { volume, .. } | Request::NamedVolume { volume, .. } => {
@@ -290,7 +290,7 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
             _ => true,
         };
         if !valid {
-            return Some(Err(gamelogic::GameLogicError::Configuration(
+            return Some(Err(generals_sim::GameLogicError::Configuration(
                 "nonfinite script audio policy".into(),
             )));
         }
@@ -313,7 +313,7 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
                     self.world.queued_audio_events.policy(),
                     &extra_handles,
                 )
-                .map_err(gamelogic::GameLogicError::Configuration)
+                .map_err(generals_sim::GameLogicError::Configuration)
         } else {
             // Explicit non-presentation/headless execution owns policy but no playing receipts.
             Ok(())
@@ -323,11 +323,11 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
     fn set_campaign_victorious(
         &mut self,
         victorious: bool,
-    ) -> Option<gamelogic::GameLogicResult<()>> {
+    ) -> Option<generals_sim::GameLogicResult<()>> {
         Some(match self.ui.ui.as_deref_mut() {
             Some(ui) => ui.set_campaign_victorious(victorious),
             None if self.world.has_campaign_session() => {
-                Err(gamelogic::GameLogicError::Configuration(
+                Err(generals_sim::GameLogicError::Configuration(
                     "campaign victory requires the receiving application's UI owner".into(),
                 ))
             }
@@ -338,20 +338,20 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
     fn create_win_lose_window(
         &mut self,
         layout_filename: &str,
-    ) -> Option<gamelogic::GameLogicResult<()>> {
+    ) -> Option<generals_sim::GameLogicResult<()>> {
         Some(match self.ui.ui.as_deref_mut() {
             Some(ui) => ui.create_win_lose_window(layout_filename),
             None => Ok(()),
         })
     }
 
-    fn destroy_win_lose_window(&mut self) -> Option<gamelogic::GameLogicResult<()>> {
+    fn destroy_win_lose_window(&mut self) -> Option<generals_sim::GameLogicResult<()>> {
         Some(match self.ui.ui.as_deref_mut() {
             Some(ui) => ui.destroy_win_lose_window(),
             None => Ok(()),
         })
     }
-    fn close_game_windows(&mut self) -> Option<gamelogic::GameLogicResult<()>> {
+    fn close_game_windows(&mut self) -> Option<generals_sim::GameLogicResult<()>> {
         Some(match self.ui.ui.as_deref_mut() {
             Some(ui) => ui.close_game_windows(),
             None => Ok(()),
@@ -367,7 +367,7 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
         &mut self,
         template: &str,
         status: i32,
-    ) -> Option<gamelogic::GameLogicResult<()>> {
+    ) -> Option<generals_sim::GameLogicResult<()>> {
         self.world.script_set_buildable_override(template, status);
         Some(Ok(()))
     }
@@ -376,7 +376,7 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
         button: &str,
         template: &str,
         slot: Option<i32>,
-    ) -> Option<gamelogic::GameLogicResult<()>> {
+    ) -> Option<generals_sim::GameLogicResult<()>> {
         self.world
             .script_command_bar_override(button, template, slot);
         Some(Ok(()))
@@ -402,7 +402,7 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
         ))
     }
 
-    fn set_draw_icon_ui(&mut self, enabled: bool) -> Option<gamelogic::GameLogicResult<()>> {
+    fn set_draw_icon_ui(&mut self, enabled: bool) -> Option<generals_sim::GameLogicResult<()>> {
         self.world.set_draw_icon_ui(enabled);
         Some(Ok(()))
     }
@@ -410,12 +410,12 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
     fn set_show_behind_building_markers(
         &mut self,
         enabled: bool,
-    ) -> Option<gamelogic::GameLogicResult<()>> {
+    ) -> Option<generals_sim::GameLogicResult<()>> {
         self.world.set_show_behind_building_markers(enabled);
         Some(Ok(()))
     }
 
-    fn override_hulk_lifetime(&mut self, frames: i32) -> Option<gamelogic::GameLogicResult<()>> {
+    fn override_hulk_lifetime(&mut self, frames: i32) -> Option<generals_sim::GameLogicResult<()>> {
         self.world.native_hulk_max_lifetime_override = frames;
         Some(Ok(()))
     }
@@ -425,7 +425,7 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
         this_object: Option<u32>,
         calling: Option<u32>,
         condition: Option<u32>,
-    ) -> Option<gamelogic::GameLogicResult<()>> {
+    ) -> Option<generals_sim::GameLogicResult<()>> {
         Some(self.world.apply_owned_script_lifecycle_with_effects(
             request,
             this_object.map(ObjectId),
@@ -440,7 +440,7 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
         &mut self,
         player: &str,
         current: Option<&str>,
-    ) -> Option<gamelogic::GameLogicResult<()>> {
+    ) -> Option<generals_sim::GameLogicResult<()>> {
         if let Some(id) = self.script_player_id(player, current) {
             return Some(self.world.kill_player_with_interpreter_with_effects(
                 id,
@@ -490,7 +490,7 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
         &mut self,
         request: &gamelogic::scripting::HostScriptMoneyRequest,
         current_player: Option<&str>,
-    ) -> Option<gamelogic::GameLogicResult<()>> {
+    ) -> Option<generals_sim::GameLogicResult<()>> {
         use gamelogic::scripting::HostScriptMoneyRequest;
         let (player, amount) = match request {
             HostScriptMoneyRequest::Set { player, amount }
@@ -515,7 +515,7 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
         this_object: Option<u32>,
         calling: Option<u32>,
         condition: Option<u32>,
-    ) -> Option<gamelogic::GameLogicResult<()>> {
+    ) -> Option<generals_sim::GameLogicResult<()>> {
         use gamelogic::scripting::engine::ScriptObjectEffect;
         use gamelogic::scripting::{
             HostScriptObjectSoundRequest as Sound, HostScriptRadarEventRequest as Radar,
@@ -524,13 +524,13 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
         let named = |world: &GameLogic, name: &str| {
             world.owned_named_script_object(name, this_object.map(ObjectId))
         };
-        let members = |world: &GameLogic, name: &str| -> gamelogic::GameLogicResult<Vec<u32>> {
+        let members = |world: &GameLogic, name: &str| -> generals_sim::GameLogicResult<Vec<u32>> {
             Ok(world
                 .resolve_owned_script_team(name, calling, condition)?
                 .map(|(_, ids)| ids)
                 .unwrap_or_default())
         };
-        let result = (|| -> gamelogic::GameLogicResult<()> {
+        let result = (|| -> generals_sim::GameLogicResult<()> {
             match request {
                 ScriptObjectEffect::Sound(Sound::PlayNamed { sound, unit }) => {
                     if let Some(id) = named(self.world, unit) {
@@ -540,7 +540,7 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
                             game_engine::common::audio::AudioEventRts::with_object_id(sound, id.0);
                         event.set_is_logical_audio(true);
                         let object = self.world.host_object(id).ok_or_else(|| {
-                            gamelogic::GameLogicError::Configuration(
+                            generals_sim::GameLogicError::Configuration(
                                 "named audio object left its receiving world during admission"
                                     .into(),
                             )
@@ -564,7 +564,7 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
                     if let Some(id) = named(self.world, unit) {
                         self.world
                             .enable_owned_object_sound_with_effects(id, *enable, &mut self.ui)
-                            .map_err(gamelogic::GameLogicError::Configuration)?;
+                            .map_err(generals_sim::GameLogicError::Configuration)?;
                     }
                 }
                 ScriptObjectEffect::Unmanned(request) => {
@@ -678,7 +678,7 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
     fn update_team_states(
         &mut self,
         engine: &gamelogic::scripting::engine::ScriptEngine,
-    ) -> Option<gamelogic::GameLogicResult<()>> {
+    ) -> Option<generals_sim::GameLogicResult<()>> {
         Some(
             self.world
                 .update_owned_script_team_states_with_effects(engine, &mut self.ui),
@@ -698,7 +698,7 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
         &mut self,
         name: Option<&str>,
         request: gamelogic::scripting::engine::ScriptObjectCreation<'_>,
-    ) -> Option<gamelogic::GameLogicResult<()>> {
+    ) -> Option<generals_sim::GameLogicResult<()>> {
         self.receive_create_named_object(name, request)
     }
 
@@ -708,7 +708,7 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
         template: &str,
         team: &str,
         waypoint: &str,
-    ) -> Option<gamelogic::GameLogicResult<()>> {
+    ) -> Option<generals_sim::GameLogicResult<()>> {
         self.receive_create_named_object_at_waypoint(name, template, team, waypoint)
     }
 
@@ -717,7 +717,7 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
         request: gamelogic::scripting::engine::ScriptObjectCreation<'_>,
         calling: Option<u32>,
         condition: Option<u32>,
-    ) -> Option<gamelogic::GameLogicResult<()>> {
+    ) -> Option<generals_sim::GameLogicResult<()>> {
         Some(self.world.apply_owned_script_create_object_with_effects(
             request,
             calling,
@@ -731,7 +731,7 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
         &mut self,
         request: gamelogic::scripting::engine::ScriptNamedPresentation<'_>,
         this_object: Option<gamelogic::common::ObjectID>,
-    ) -> Option<gamelogic::GameLogicResult<()>> {
+    ) -> Option<generals_sim::GameLogicResult<()>> {
         use gamelogic::scripting::engine::ScriptNamedPresentation;
         let name = match request {
             ScriptNamedPresentation::Flash { unit, .. }
@@ -766,7 +766,7 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
         this_object: Option<gamelogic::common::ObjectID>,
         calling: Option<u32>,
         condition: Option<u32>,
-    ) -> Option<gamelogic::GameLogicResult<()>> {
+    ) -> Option<generals_sim::GameLogicResult<()>> {
         Some(self.world.apply_owned_team_attack_named(
             team,
             target,
@@ -781,7 +781,7 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
         &mut self,
         name: &str,
         direction: gamelogic::common::Coord3D,
-    ) -> Option<gamelogic::GameLogicResult<()>> {
+    ) -> Option<generals_sim::GameLogicResult<()>> {
         if let Some(engine) = self.interpreter.or(self.world.owned_script_engine.as_ref()) {
             engine.set_topple_direction(name, Some(direction));
         }
@@ -799,7 +799,7 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
         name: &str,
         show: bool,
         this_object: Option<u32>,
-    ) -> Option<gamelogic::GameLogicResult<()>> {
+    ) -> Option<generals_sim::GameLogicResult<()>> {
         let Some(id) = self
             .world
             .owned_named_script_object(name, this_object.map(ObjectId))
@@ -826,7 +826,7 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
         waypoint: &str,
         calling: Option<u32>,
         condition: Option<u32>,
-    ) -> Option<gamelogic::GameLogicResult<()>> {
+    ) -> Option<generals_sim::GameLogicResult<()>> {
         Some(
             self.world
                 .apply_owned_team_guard_position(team, waypoint, calling, condition),
@@ -839,7 +839,7 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
         current_player: Option<&str>,
         calling: Option<u32>,
         condition: Option<u32>,
-    ) -> Option<gamelogic::GameLogicResult<()>> {
+    ) -> Option<generals_sim::GameLogicResult<()>> {
         let Some(area) = self.world.qualified_script_area(area, current_player) else {
             return Some(Ok(()));
         };
@@ -855,7 +855,7 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
         this_object: Option<u32>,
         calling: Option<u32>,
         condition: Option<u32>,
-    ) -> Option<gamelogic::GameLogicResult<()>> {
+    ) -> Option<generals_sim::GameLogicResult<()>> {
         Some(self.world.apply_owned_team_guard_object(
             team,
             target,
@@ -870,7 +870,7 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
         amount: f32,
         calling: Option<u32>,
         condition: Option<u32>,
-    ) -> Option<gamelogic::GameLogicResult<()>> {
+    ) -> Option<generals_sim::GameLogicResult<()>> {
         Some(self.world.apply_owned_team_damage_with_effects(
             team,
             amount,
@@ -886,7 +886,7 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
         target: &str,
         calling: Option<u32>,
         condition: Option<u32>,
-    ) -> Option<gamelogic::GameLogicResult<()>> {
+    ) -> Option<generals_sim::GameLogicResult<()>> {
         let force_normal = self.choose_victim_uses_normal();
         Some(self.world.apply_owned_team_attack_team(
             source,
@@ -903,7 +903,7 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
         waypoint: &str,
         follow: Option<bool>,
         this_object: Option<u32>,
-    ) -> Option<gamelogic::GameLogicResult<()>> {
+    ) -> Option<generals_sim::GameLogicResult<()>> {
         self.world
             .apply_owned_named_waypoint(unit, waypoint, follow, this_object.map(ObjectId));
         Some(Ok(()))
@@ -912,7 +912,7 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
         &mut self,
         unit: &str,
         waypoint_path: &str,
-    ) -> Option<gamelogic::GameLogicResult<()>> {
+    ) -> Option<generals_sim::GameLogicResult<()>> {
         Some(self.world
             .host_script_named_fire_weapon_following_path_with_effects(
                 unit,
@@ -926,7 +926,7 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
         button: &str,
         calling: Option<u32>,
         condition: Option<u32>,
-    ) -> Option<gamelogic::GameLogicResult<()>> {
+    ) -> Option<generals_sim::GameLogicResult<()>> {
         Some(
             self.world
                 .apply_owned_team_hunt_button(team, button, calling, condition),
@@ -937,7 +937,7 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
         team: &str,
         calling: Option<u32>,
         condition: Option<u32>,
-    ) -> Option<gamelogic::GameLogicResult<()>> {
+    ) -> Option<generals_sim::GameLogicResult<()>> {
         Some(self.world.apply_owned_team_hunt(team, calling, condition))
     }
     fn team_load_transports(
@@ -945,7 +945,7 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
         team: &str,
         calling: Option<u32>,
         condition: Option<u32>,
-    ) -> Option<gamelogic::GameLogicResult<()>> {
+    ) -> Option<generals_sim::GameLogicResult<()>> {
         Some(
             self.world
                 .apply_owned_team_load_transports(team, calling, condition),
@@ -956,7 +956,7 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
         action: gamelogic::scripting::engine::ScriptTeamRelationship<'_>,
         calling: Option<u32>,
         condition: Option<u32>,
-    ) -> Option<gamelogic::GameLogicResult<()>> {
+    ) -> Option<generals_sim::GameLogicResult<()>> {
         Some(
             self.world
                 .apply_owned_team_relationship_override(action, calling, condition),
@@ -967,7 +967,7 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
         action: gamelogic::scripting::engine::ScriptPlayerTeamRelationship<'_>,
         calling: Option<u32>,
         condition: Option<u32>,
-    ) -> Option<gamelogic::GameLogicResult<()>> {
+    ) -> Option<generals_sim::GameLogicResult<()>> {
         Some(
             self.world
                 .apply_owned_player_team_relationship_override(action, calling, condition),
@@ -978,7 +978,7 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
         team: &str,
         calling: Option<u32>,
         condition: Option<u32>,
-    ) -> Option<gamelogic::GameLogicResult<()>> {
+    ) -> Option<generals_sim::GameLogicResult<()>> {
         if team == gamelogic::scripting::core::TEAM_THE_PLAYER && self.world.is_challenge_session()
         {
             let result = (|| {
@@ -1007,7 +1007,7 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
         current_player: Option<&str>,
         calling: Option<u32>,
         condition: Option<u32>,
-    ) -> Option<gamelogic::GameLogicResult<()>> {
+    ) -> Option<generals_sim::GameLogicResult<()>> {
         let Some(player) = self.script_player_id(player, current_player) else {
             return Some(Ok(()));
         };
@@ -1025,7 +1025,7 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
         source: &str,
         destination: &str,
         current_player: Option<&str>,
-    ) -> Option<gamelogic::GameLogicResult<()>> {
+    ) -> Option<generals_sim::GameLogicResult<()>> {
         let (Some(source), Some(destination)) = (
             self.script_player_id(source, current_player),
             self.script_player_id(destination, current_player),
@@ -1042,7 +1042,7 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
         &mut self,
         player: &str,
         current_player: Option<&str>,
-    ) -> Option<gamelogic::GameLogicResult<()>> {
+    ) -> Option<generals_sim::GameLogicResult<()>> {
         if let Some(player) = self.script_player_id(player, current_player) {
             return Some(self.world
                 .apply_owned_sell_everything_with_effects(player, &mut self.ui));
@@ -1058,7 +1058,7 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
         exact: bool,
         calling: Option<u32>,
         condition: Option<u32>,
-    ) -> Option<gamelogic::GameLogicResult<()>> {
+    ) -> Option<generals_sim::GameLogicResult<()>> {
         Some(
             self.world
                 .apply_owned_team_waypoint_path(team, path, as_team, exact, calling, condition),
@@ -1071,18 +1071,18 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
         waypoint: &str,
         calling: Option<u32>,
         condition: Option<u32>,
-    ) -> Option<gamelogic::GameLogicResult<()>> {
+    ) -> Option<generals_sim::GameLogicResult<()>> {
         if team == gamelogic::scripting::core::TEAM_THE_PLAYER && self.world.is_challenge_session()
         {
             let Some(player_id) = self.world.local_player_id() else {
-                return Some(Err(gamelogic::GameLogicError::Configuration(
+                return Some(Err(generals_sim::GameLogicError::Configuration(
                     "challenge TeamMove has no receiving local Player".into(),
                 )));
             };
             let members = match self.world.resolve_owned_player_default_team(player_id) {
                 Ok(Some((_, members))) => members,
                 Ok(None) => {
-                    return Some(Err(gamelogic::GameLogicError::Configuration(
+                    return Some(Err(generals_sim::GameLogicError::Configuration(
                         "challenge TeamMove has no admitted local default Team".into(),
                     )));
                 }
@@ -1105,7 +1105,7 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
         area: &str,
         current_player: Option<&str>,
         this_object: Option<gamelogic::common::ObjectID>,
-    ) -> Option<gamelogic::GameLogicResult<()>> {
+    ) -> Option<generals_sim::GameLogicResult<()>> {
         let Some(source) = self.world.owned_named_script_object(unit, this_object.map(ObjectId))
         else {
             return Some(Ok(()));
@@ -1127,7 +1127,7 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
         this_object: Option<gamelogic::common::ObjectID>,
         calling: Option<u32>,
         condition: Option<u32>,
-    ) -> Option<gamelogic::GameLogicResult<()>> {
+    ) -> Option<generals_sim::GameLogicResult<()>> {
         let force_normal = self.choose_victim_uses_normal();
         Some(self.world.apply_owned_named_attack_team(
             unit,
@@ -1145,7 +1145,7 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
         request: &gamelogic::scripting::HostScriptUseCommandButtonRequest,
         calling: Option<u32>,
         condition: Option<u32>,
-    ) -> Option<gamelogic::GameLogicResult<()>> {
+    ) -> Option<generals_sim::GameLogicResult<()>> {
         Some(
             self.world
                 .apply_owned_team_nearest_button(request, calling, condition),
@@ -1159,7 +1159,7 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
         percentage: f32,
         calling: Option<u32>,
         condition: Option<u32>,
-    ) -> Option<gamelogic::GameLogicResult<()>> {
+    ) -> Option<generals_sim::GameLogicResult<()>> {
         Some(
             self.world
                 .apply_owned_team_partial_button(team, button, percentage, calling, condition),
@@ -1171,7 +1171,7 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
         path: &str,
         calling: Option<u32>,
         condition: Option<u32>,
-    ) -> Option<gamelogic::GameLogicResult<()>> {
+    ) -> Option<generals_sim::GameLogicResult<()>> {
         Some(
             self.world
                 .apply_owned_team_panic(team, path, calling, condition),
@@ -1183,7 +1183,7 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
         path: Option<&str>,
         calling: Option<u32>,
         condition: Option<u32>,
-    ) -> Option<gamelogic::GameLogicResult<()>> {
+    ) -> Option<generals_sim::GameLogicResult<()>> {
         Some(
             self.world
                 .apply_owned_team_wander(team, path, calling, condition),
@@ -1197,7 +1197,7 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
         follow: bool,
         calling: Option<u32>,
         condition: Option<u32>,
-    ) -> Option<gamelogic::GameLogicResult<()>> {
+    ) -> Option<generals_sim::GameLogicResult<()>> {
         Some(
             self.world.apply_owned_skirmish_approach_path(
                 team, path, as_team, follow, calling, condition,
@@ -1859,7 +1859,7 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
         &mut self,
         request: ScriptPlayerConstructionRequest,
         current_player: Option<&str>,
-    ) -> Option<gamelogic::GameLogicResult<()>> {
+    ) -> Option<generals_sim::GameLogicResult<()>> {
         let player_token = match &request {
             ScriptPlayerConstructionRequest::Units { player, .. }
             | ScriptPlayerConstructionRequest::Base { player, .. }
@@ -1927,7 +1927,7 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
         science: &str,
         grant: bool,
         current_player: Option<&str>,
-    ) -> Option<gamelogic::GameLogicResult<()>> {
+    ) -> Option<generals_sim::GameLogicResult<()>> {
         use game_engine::common::message_stream::ReceivingRankScienceUi;
 
         let Some((player, _, _)) = self.script_science_source(player, 0, science, current_player)
@@ -1957,7 +1957,7 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
             },
         );
         Some(match callback_error {
-            Some(error) => Err(gamelogic::GameLogicError::Configuration(error)),
+            Some(error) => Err(generals_sim::GameLogicError::Configuration(error)),
             None => Ok(()),
         })
     }
@@ -1985,7 +1985,7 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
         &mut self,
         request: ScriptPlayerRankRequest,
         current_player: Option<&str>,
-    ) -> Option<gamelogic::GameLogicResult<()>> {
+    ) -> Option<generals_sim::GameLogicResult<()>> {
         use ScriptPlayerRankRequest as Request;
 
         let player_token = match &request {
@@ -2023,9 +2023,9 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
                         ui.game_text("SCIENCE:GeneralName")
                     } else if let Some(view) = self.ui.view.as_deref_mut() {
                         view.admission_rank_text("SCIENCE:GeneralName")
-                            .map_err(gamelogic::GameLogicError::Configuration)
+                            .map_err(generals_sim::GameLogicError::Configuration)
                     } else {
-                        Err(gamelogic::GameLogicError::Configuration(
+                        Err(generals_sim::GameLogicError::Configuration(
                             "script rank reset requires receiving GameText".into(),
                         ))
                     };
@@ -2058,10 +2058,10 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
                     },
                 );
                 if let Some(error) = callback_error {
-                    return Some(Err(gamelogic::GameLogicError::Configuration(error)));
+                    return Some(Err(generals_sim::GameLogicError::Configuration(error)));
                 }
                 if let Err(error) = result {
-                    return Some(Err(gamelogic::GameLogicError::Configuration(error)));
+                    return Some(Err(generals_sim::GameLogicError::Configuration(error)));
                 }
             }
             Request::AffectReceivingExperience { modifier, .. } => {
@@ -2121,7 +2121,7 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
         team: &str,
         calling_team: Option<u32>,
         condition_team: Option<u32>,
-    ) -> Option<gamelogic::GameLogicResult<()>> {
+    ) -> Option<generals_sim::GameLogicResult<()>> {
         // CPP5936 returns the exact default Team pointer in Challenge mode.
         // That identity is not yet admitted by Main (hq-dryhs/hq-9bqdm);
         // retain the existing adapter for this capability rather than invent
@@ -2141,7 +2141,7 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
         team: &str,
         calling: Option<u32>,
         condition: Option<u32>,
-    ) -> Option<gamelogic::GameLogicResult<()>> {
+    ) -> Option<generals_sim::GameLogicResult<()>> {
         Some(self.world.apply_owned_team_idle(team, calling, condition))
     }
 
@@ -2151,7 +2151,7 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
         calling: Option<gamelogic::team::TeamID>,
         condition: Option<gamelogic::team::TeamID>,
         disband: bool,
-    ) -> Option<gamelogic::GameLogicResult<()>> {
+    ) -> Option<generals_sim::GameLogicResult<()>> {
         Some(self.world.apply_owned_team_stop_with_effects(
             team,
             calling,
@@ -2167,7 +2167,7 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
         calling_team: Option<u32>,
         condition_team: Option<u32>,
         mood: i32,
-    ) -> Option<gamelogic::GameLogicResult<()>> {
+    ) -> Option<generals_sim::GameLogicResult<()>> {
         if team == gamelogic::scripting::core::TEAM_THE_PLAYER && self.world.is_challenge_session()
         {
             return None;
@@ -2185,7 +2185,7 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
         condition_team: Option<u32>,
         script: Option<(gamelogic::scripting::core::Script, i32)>,
         engine: &gamelogic::scripting::engine::ScriptEngine,
-    ) -> Option<gamelogic::GameLogicResult<()>> {
+    ) -> Option<generals_sim::GameLogicResult<()>> {
         if team == gamelogic::scripting::core::TEAM_THE_PLAYER && self.world.is_challenge_session()
         {
             return None;
@@ -2202,7 +2202,7 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
     fn nearest_object_move(
         &mut self,
         request: gamelogic::scripting::engine::ScriptNearestObjectRequest<'_>,
-    ) -> Option<gamelogic::GameLogicResult<()>> {
+    ) -> Option<generals_sim::GameLogicResult<()>> {
         Some(self.world.apply_owned_nearest_object_move(request))
     }
 
@@ -2211,7 +2211,7 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
         unit: &str,
         this_object: Option<gamelogic::common::ObjectID>,
         mood: i32,
-    ) -> Option<gamelogic::GameLogicResult<()>> {
+    ) -> Option<generals_sim::GameLogicResult<()>> {
         let Some(id) = self
             .world
             .owned_named_script_object(unit, this_object.map(ObjectId))
@@ -2238,7 +2238,7 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
         name: &str,
         set: &str,
         this_object: Option<u32>,
-    ) -> Option<gamelogic::GameLogicResult<()>> {
+    ) -> Option<generals_sim::GameLogicResult<()>> {
         self.receive_named_attack_priority(name, set, this_object)
     }
 
@@ -2247,7 +2247,7 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
         name: &str,
         disposition: i32,
         this_object: Option<u32>,
-    ) -> Option<gamelogic::GameLogicResult<()>> {
+    ) -> Option<generals_sim::GameLogicResult<()>> {
         self.receive_named_evac_disposition(name, disposition, this_object)
     }
 
@@ -2257,7 +2257,7 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
         flag: &str,
         enabled: bool,
         this_object: Option<u32>,
-    ) -> Option<gamelogic::GameLogicResult<()>> {
+    ) -> Option<generals_sim::GameLogicResult<()>> {
         self.receive_named_panel_flag(name, flag, enabled, this_object)
     }
 
@@ -2268,7 +2268,7 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
         enabled: bool,
         calling: Option<u32>,
         condition: Option<u32>,
-    ) -> Option<gamelogic::GameLogicResult<()>> {
+    ) -> Option<generals_sim::GameLogicResult<()>> {
         Some(self.receive_team_panel_flag(team, flag, enabled, calling, condition))
     }
 
@@ -2277,7 +2277,7 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
         name: &str,
         cash: i32,
         this_object: Option<u32>,
-    ) -> Option<gamelogic::GameLogicResult<()>> {
+    ) -> Option<generals_sim::GameLogicResult<()>> {
         self.receive_named_warehouse_value(name, cash, this_object)
     }
 
@@ -2285,7 +2285,7 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
         &mut self,
         request: gamelogic::scripting::engine::ScriptNamedRuntimeRequest<'_>,
         this_object: Option<u32>,
-    ) -> Option<gamelogic::GameLogicResult<()>> {
+    ) -> Option<generals_sim::GameLogicResult<()>> {
         self.receive_named_runtime(request, this_object)
     }
 
@@ -2295,7 +2295,7 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
         this_object: Option<u32>,
         calling: Option<u32>,
         condition: Option<u32>,
-    ) -> Option<gamelogic::GameLogicResult<()>> {
+    ) -> Option<generals_sim::GameLogicResult<()>> {
         self.receive_garrison_request(request, this_object, calling, condition)
     }
 
@@ -2304,7 +2304,7 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
         team: &str,
         calling: Option<u32>,
         condition: Option<u32>,
-    ) -> Option<gamelogic::GameLogicResult<()>> {
+    ) -> Option<generals_sim::GameLogicResult<()>> {
         Some(
             self.world
                 .apply_receiving_team_exit_all(team, calling, condition, &mut self.ui),
@@ -2315,7 +2315,7 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
         &mut self,
         request: gamelogic::scripting::HostScriptNamedFireSpecialPowerRequest,
         this_object: Option<u32>,
-    ) -> Option<gamelogic::GameLogicResult<()>> {
+    ) -> Option<generals_sim::GameLogicResult<()>> {
         self.receive_named_special_power(request, this_object)
     }
 
@@ -2325,7 +2325,7 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
         this_object: Option<u32>,
         calling: Option<u32>,
         condition: Option<u32>,
-    ) -> Option<gamelogic::GameLogicResult<()>> {
+    ) -> Option<generals_sim::GameLogicResult<()>> {
         self.receive_command_button_request(request, this_object, calling, condition)
     }
 
@@ -2336,7 +2336,7 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
         this_object: Option<u32>,
         calling: Option<u32>,
         condition: Option<u32>,
-    ) -> Option<gamelogic::GameLogicResult<()>> {
+    ) -> Option<generals_sim::GameLogicResult<()>> {
         self.receive_team_face_named(team, target, this_object, calling, condition)
     }
 
@@ -2344,7 +2344,7 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
         &mut self,
         request: ScriptNamedCommand<'_>,
         this_object: Option<gamelogic::common::ObjectID>,
-    ) -> Option<gamelogic::GameLogicResult<()>> {
+    ) -> Option<generals_sim::GameLogicResult<()>> {
         Some(self.world.apply_owned_named_script_command(
             request,
             this_object.map(ObjectId),
@@ -2507,7 +2507,7 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
         name: &str,
         upgrade: &str,
         this_object: Option<u32>,
-    ) -> Option<gamelogic::GameLogicResult<()>> {
+    ) -> Option<generals_sim::GameLogicResult<()>> {
         let Some(id) = self
             .world
             .owned_named_script_object(name, this_object.map(ObjectId))
@@ -2538,7 +2538,7 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
         action: gamelogic::scripting::core::ScriptActionType,
         seconds: i32,
         this_object: Option<u32>,
-    ) -> Option<gamelogic::GameLogicResult<()>> {
+    ) -> Option<generals_sim::GameLogicResult<()>> {
         self.receive_named_special_power_countdown(name, power_name, action, seconds, this_object)
     }
 
@@ -2547,7 +2547,7 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
         name: &str,
         amount: i32,
         this_object: Option<u32>,
-    ) -> Option<gamelogic::GameLogicResult<()>> {
+    ) -> Option<generals_sim::GameLogicResult<()>> {
         // A foreign Core registry/tracker entry must never select the receiver.
         let id = self
             .world
@@ -2564,7 +2564,7 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
         Some(Ok(()))
     }
 
-    fn water(&mut self, request: ScriptWaterRequest<'_>) -> Option<gamelogic::GameLogicResult<()>> {
+    fn water(&mut self, request: ScriptWaterRequest<'_>) -> Option<generals_sim::GameLogicResult<()>> {
         Some(
             self.world
                 .apply_owned_script_water_with_effects(request, &mut self.ui),
@@ -2576,7 +2576,7 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
         operation: gamelogic::scripting::engine::ScriptMapVisibilityOperation,
         player_name: &str,
         current_player: Option<&str>,
-    ) -> Option<gamelogic::GameLogicResult<()>> {
+    ) -> Option<generals_sim::GameLogicResult<()>> {
         let player_id = if player_name.is_empty() {
             None
         } else {
@@ -2598,7 +2598,7 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
         };
         player_ids.sort_unstable();
         let Ok(mut shroud) = self.world.world_services.shroud().lock() else {
-            return Some(Err(gamelogic::GameLogicError::Threading(
+            return Some(Err(generals_sim::GameLogicError::Threading(
                 "Failed to lock receiving ShroudManager".to_string(),
             )));
         };
@@ -2627,7 +2627,7 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
     fn ai_player(
         &mut self,
         request: ScriptAiPlayerRequest<'_>,
-    ) -> Option<gamelogic::GameLogicResult<()>> {
+    ) -> Option<generals_sim::GameLogicResult<()>> {
         match request {
             ScriptAiPlayerRequest::BuildUpgrade { player, upgrade } => {
                 if let Some(id) = self.world.host_player_id_for_script_token(player) {
@@ -2733,7 +2733,7 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
     fn camera_waypoint_position(
         &mut self,
         name: &str,
-    ) -> Option<gamelogic::GameLogicResult<Option<gamelogic::common::Coord3D>>> {
+    ) -> Option<generals_sim::GameLogicResult<Option<gamelogic::common::Coord3D>>> {
         Some(
             self.world
                 .world_services
@@ -2747,7 +2747,7 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
                         .map(|waypoint| *waypoint.get_location())
                 })
                 .map_err(|_| {
-                    gamelogic::GameLogicError::Threading(
+                    generals_sim::GameLogicError::Threading(
                         "receiving camera waypoint terrain poisoned".into(),
                     )
                 }),
@@ -2761,7 +2761,7 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
     fn world(
         &mut self,
         request: gamelogic::scripting::engine::ScriptWorldRequest<'_>,
-    ) -> Option<gamelogic::GameLogicResult<()>> {
+    ) -> Option<generals_sim::GameLogicResult<()>> {
         use gamelogic::scripting::engine::ScriptWorldRequest;
         // These effects belong to the receiving match, regardless of which
         // interpreter/service adapter invoked it. The existing after_action
@@ -2771,7 +2771,7 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
                 return Some(
                     self.world
                         .switch_owned_map_boundary(boundary, &mut self.ui)
-                        .map_err(gamelogic::GameLogicError::Configuration),
+                        .map_err(generals_sim::GameLogicError::Configuration),
                 );
             }
             ScriptWorldRequest::RadarRefreshTerrain => {
@@ -2822,7 +2822,7 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
         if let ScriptWorldRequest::Input { enabled } = request {
             if let Some(ui) = self.ui.ui.as_mut() {
                 if !ui.has_cinematic_input() {
-                    return Some(Err(gamelogic::GameLogicError::Configuration(
+                    return Some(Err(generals_sim::GameLogicError::Configuration(
                         "native presentation lacks receiving cinematic input capability".into(),
                     )));
                 }
@@ -2834,7 +2834,7 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
                 }));
             }
             if self.ui.view.is_some() {
-                return Some(Err(gamelogic::GameLogicError::Configuration(
+                return Some(Err(generals_sim::GameLogicError::Configuration(
                     "native view operation cannot fall back to ambient cinematic input".into(),
                 )));
             }
@@ -2879,7 +2879,7 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
     fn camera(
         &mut self,
         request: ScriptCameraRequest<'_>,
-    ) -> Option<gamelogic::GameLogicResult<()>> {
+    ) -> Option<generals_sim::GameLogicResult<()>> {
         match request {
             ScriptCameraRequest::ScreenShake { intensity } => {
                 self.world.admit_script_screen_shake(intensity);
@@ -2892,7 +2892,7 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
     fn display(
         &mut self,
         request: ScriptDisplayRequest<'_>,
-    ) -> Option<gamelogic::GameLogicResult<()>> {
+    ) -> Option<generals_sim::GameLogicResult<()>> {
         // Queue on this world, at the same drain boundary as the legacy
         // callback. Do not use an engine's retained presentation owner.
         match request {
@@ -2923,7 +2923,7 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
         &mut self,
         team: &str,
         waypoint: &str,
-    ) -> Option<gamelogic::GameLogicResult<()>> {
+    ) -> Option<generals_sim::GameLogicResult<()>> {
         self.world
             .host_script_create_reinforcement_team_with_effects(
                 team,
@@ -2940,7 +2940,7 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
         destination: &str,
         calling: Option<u32>,
         condition: Option<u32>,
-    ) -> Option<gamelogic::GameLogicResult<()>> {
+    ) -> Option<generals_sim::GameLogicResult<()>> {
         Some(self.world.merge_owned_script_team_with_effects(
             source,
             destination,
@@ -2951,7 +2951,7 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
         ))
     }
 
-    fn after_action(&mut self) -> gamelogic::GameLogicResult<()> {
+    fn after_action(&mut self) -> generals_sim::GameLogicResult<()> {
         self.world
             .apply_script_action_requests_with_effects(self.interpreter, self.ui.reborrow())?;
         if let Some(ui) = self.ui.ui.as_deref_mut() {
@@ -3142,7 +3142,7 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
         state: &str,
         calling: Option<u32>,
         condition: Option<u32>,
-    ) -> Option<gamelogic::GameLogicResult<()>> {
+    ) -> Option<generals_sim::GameLogicResult<()>> {
         Some((|| {
             let Some((id, _)) = self
                 .world
@@ -3154,7 +3154,7 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
                 return Ok(());
             };
             team.write()
-                .map_err(|error| gamelogic::GameLogicError::Threading(error.to_string()))?
+                .map_err(|error| generals_sim::GameLogicError::Threading(error.to_string()))?
                 .set_state(state.to_owned().into());
             Ok(())
         })())
@@ -3731,7 +3731,7 @@ impl GameLogic {
     pub fn update_local_script_engine_with_owner(
         &mut self,
         engine: &gamelogic::scripting::engine::ScriptEngine,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         self.with_own_services_mut(|world| {
             engine.update_with_driver(
                 gamelogic::scripting::executor::ScriptContext::at_frame(world.frame)
@@ -3746,7 +3746,7 @@ impl GameLogic {
         &mut self,
         engine: &gamelogic::scripting::engine::ScriptEngine,
         mut effects: crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         self.with_own_services_mut(|world| {
             engine.update_with_driver(
                 gamelogic::scripting::executor::ScriptContext::at_frame(world.frame)

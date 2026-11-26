@@ -152,7 +152,7 @@ impl GameLogic {
         &mut self,
         host_id: ObjectId,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         let Some(host) = self.objects.get(&host_id) else {
             return Ok(());
         };
@@ -172,7 +172,7 @@ impl GameLogic {
             return Ok(());
         };
         let destination = self.host_default_team_id(owner).ok_or_else(|| {
-            gamelogic::GameLogicError::Configuration(
+            generals_sim::GameLogicError::Configuration(
                 "captured portable payload requires its controller's default Team".into(),
             )
         })?;
@@ -180,7 +180,7 @@ impl GameLogic {
         // child transfer. Object::setTeam runs the child's capture callbacks
         // synchronously and keeps the physical attachment.
         if !self.set_host_object_team_with_effects(payload, destination, effects)? {
-            return Err(gamelogic::GameLogicError::Configuration(
+            return Err(generals_sim::GameLogicError::Configuration(
                 "captured portable payload could not enter its controller's default Team".into(),
             ));
         }

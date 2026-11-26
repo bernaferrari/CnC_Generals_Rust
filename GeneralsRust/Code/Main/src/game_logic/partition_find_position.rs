@@ -84,7 +84,7 @@ impl GameLogic {
     pub(crate) fn find_owned_parachute_landing_position(
         &self,
         center: Vec3,
-    ) -> gamelogic::GameLogicResult<Vec3> {
+    ) -> generals_sim::GameLogicResult<Vec3> {
         Ok(self
             .find_owned_unfiltered_position_around(center, 100.)?
             .unwrap_or(center))
@@ -97,7 +97,7 @@ impl GameLogic {
         &self,
         center: Vec3,
         bounding_circle_radius: f32,
-    ) -> gamelogic::GameLogicResult<Option<Vec3>> {
+    ) -> generals_sim::GameLogicResult<Option<Vec3>> {
         self.find_owned_unfiltered_position_around(center, bounding_circle_radius * 100.0)
     }
 
@@ -108,7 +108,7 @@ impl GameLogic {
         &self,
         center: Vec3,
         max_radius: f32,
-    ) -> gamelogic::GameLogicResult<Option<Vec3>> {
+    ) -> generals_sim::GameLogicResult<Option<Vec3>> {
         if center.x < self.world_min.x
             || center.x > self.world_max.x
             || center.z < self.world_min.z
@@ -127,7 +127,7 @@ impl GameLogic {
                 && self.terrain.is_none()
                 && self.pathfinding_height_samples.is_none()
             {
-                return Err(gamelogic::GameLogicError::Configuration(
+                return Err(generals_sim::GameLogicError::Configuration(
                     "Partition landing query lacks receiving terrain".into(),
                 ));
             }
@@ -143,7 +143,7 @@ impl GameLogic {
     pub(crate) fn find_owned_crate_drop_position(
         &self,
         victim: &Object,
-    ) -> gamelogic::GameLogicResult<Option<Vec3>> {
+    ) -> generals_sim::GameLogicResult<Option<Vec3>> {
         use gamelogic::path::PathfindLayerEnum;
 
         let center = victim.get_position();
@@ -161,7 +161,7 @@ impl GameLogic {
                 terrain.get_maximum_pathfind_extent()
             } else {
                 if self.map_loaded && self.terrain.is_none() && self.pathfinding_height_samples.is_none() {
-                    return Err(gamelogic::GameLogicError::Configuration(
+                    return Err(generals_sim::GameLogicError::Configuration(
                         "Crate placement requires the receiving terrain".into(),
                     ));
                 }
@@ -265,9 +265,9 @@ impl GameLogic {
     /// ignoring the source and, for airborne locomotors, the dock.
     pub(crate) fn find_owned_dock_approach_position(
         &self, dock_id: ObjectId, source_id: ObjectId, center: Vec3,
-    ) -> gamelogic::GameLogicResult<Vec3> {
+    ) -> generals_sim::GameLogicResult<Vec3> {
         let source = self.objects.get(&source_id)
-            .ok_or(gamelogic::GameLogicError::InvalidObject(source_id.0))?;
+            .ok_or(generals_sim::GameLogicError::InvalidObject(source_id.0))?;
         if center.x < self.world_min.x || center.x > self.world_max.x
             || center.z < self.world_min.z || center.z > self.world_max.z {
             return Ok(center);
@@ -277,7 +277,7 @@ impl GameLogic {
             let terrain = terrain_owner.read().unwrap_or_else(|error| error.into_inner());
             if self.map_loaded && !terrain.has_height_map() && self.terrain.is_none()
                 && self.pathfinding_height_samples.is_none() {
-                return Err(gamelogic::GameLogicError::Configuration(
+                return Err(generals_sim::GameLogicError::Configuration(
                     "Partition dock query lacks receiving terrain".into(),
                 ));
             }
@@ -305,9 +305,9 @@ impl GameLogic {
         &self,
         source_id: ObjectId,
         center: Vec3,
-    ) -> gamelogic::GameLogicResult<Vec3> {
+    ) -> generals_sim::GameLogicResult<Vec3> {
         let Some(source) = self.host_object(source_id) else {
-            return Err(gamelogic::GameLogicError::InvalidObject(source_id.0));
+            return Err(generals_sim::GameLogicError::InvalidObject(source_id.0));
         };
         let start_pos = source.get_position();
         let surfaces = if source.locomotor_surfaces == 0 {
@@ -338,7 +338,7 @@ impl GameLogic {
                 && self.terrain.is_none()
                 && self.pathfinding_height_samples.is_none()
             {
-                return Err(gamelogic::GameLogicError::Configuration(
+                return Err(generals_sim::GameLogicError::Configuration(
                     "Partition contact attack query lacks receiving terrain".into(),
                 ));
             }

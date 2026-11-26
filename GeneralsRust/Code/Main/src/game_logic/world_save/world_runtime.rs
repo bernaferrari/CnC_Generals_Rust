@@ -318,14 +318,14 @@ impl GameLogic {
         &mut self,
         mode: GameMode,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         self.with_own_services_mut(|this| {
-            this.require_startup_content().map_err(gamelogic::GameLogicError::Configuration)?;
+            this.require_startup_content().map_err(generals_sim::GameLogicError::Configuration)?;
             log::info!("Starting new game: {:?}", mode);
             clear_live_campaign_victorious_for_new_game(this);
             this.reset_with_effects_checked(effects)?;
             this.finish_start_new_game_state(mode, NewGamePlayerAdmission::Resolved, false, false)
-                .map_err(gamelogic::GameLogicError::Configuration)?;
+                .map_err(generals_sim::GameLogicError::Configuration)?;
             Ok(())
         })
     }

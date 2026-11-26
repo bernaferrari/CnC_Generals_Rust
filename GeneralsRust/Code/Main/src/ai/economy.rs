@@ -19,7 +19,7 @@ impl AIPlayer {
         &mut self,
         game_logic: &mut GameLogic,
         current_time: f32,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         let ai_data = AiDataView::from_world(game_logic);
         self.update_economic_management_with_ai_data(game_logic, current_time, &ai_data)?;
         Ok(())
@@ -30,7 +30,7 @@ impl AIPlayer {
         game_logic: &mut GameLogic,
         current_time: f32,
         ai_data: &AiDataView,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         if current_time < self.next_building_time {
             return Ok(());
         }
@@ -396,7 +396,7 @@ impl AIPlayer {
         &mut self,
         game_logic: &mut GameLogic,
         current_time: f32,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         let ai_data = AiDataView::from_world(game_logic);
         self.process_building_queue_with_ai_data(game_logic, current_time, &ai_data)?;
         Ok(())
@@ -407,7 +407,7 @@ impl AIPlayer {
         game_logic: &mut GameLogic,
         current_time: f32,
         ai_data: &AiDataView,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         let sites = self.building_queue.iter().filter_map(|pad| pad.object_id).collect();
         game_logic.resume_owned_ai_construction(self.player_id, self.repair_dozer, sites, |world| {
             self.queue_dozer(world, current_time);
@@ -1446,7 +1446,7 @@ impl AIPlayer {
         game_logic: &mut GameLogic,
         collector_id: ObjectId,
         center_id: ObjectId,
-    ) -> gamelogic::GameLogicResult<bool> {
+    ) -> generals_sim::GameLogicResult<bool> {
         let Some(source_id) = self.nearest_supply_source_for_center(game_logic, center_id) else {
             return Ok(false);
         };
@@ -1482,7 +1482,7 @@ impl AIPlayer {
         &self,
         game_logic: &mut GameLogic,
         center_id: ObjectId,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         let mut collectors: Vec<ObjectId> = game_logic
             .host_objects()
             .registered()
@@ -1600,7 +1600,7 @@ impl AIPlayer {
         &mut self,
         game_logic: &mut GameLogic,
         current_time: f32,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         if self.team_queue.iter().any(|team| {
             team.work_orders
                 .iter()

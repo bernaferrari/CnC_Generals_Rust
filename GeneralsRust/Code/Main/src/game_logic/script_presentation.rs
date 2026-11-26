@@ -846,7 +846,7 @@ impl ScriptPresentationEffects<'_> {
     pub(crate) fn validate_projected_radius_recipient(
         &mut self,
         required_native: bool,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         if !required_native {
             return Ok(());
         }
@@ -859,7 +859,7 @@ impl ScriptPresentationEffects<'_> {
         {
             return Ok(());
         }
-        Err(gamelogic::GameLogicError::Configuration(
+        Err(generals_sim::GameLogicError::Configuration(
             "native operation requires its receiving projected resource owner".into(),
         ))
     }

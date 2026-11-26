@@ -1704,7 +1704,7 @@ impl CnCGameEngine {
         let retire_outgoing = (|| {
             if entry == SaveLoadEntry::UserInterface {
                 self.enter_accepted_save_loading()
-                    .map_err(gamelogic::GameLogicError::Configuration)?;
+                    .map_err(generals_sim::GameLogicError::Configuration)?;
             }
             self.with_native_camera_input_effects(|world, effects, _| {
                 world.destroy_all_objects_immediate_with_effects_checked(effects)

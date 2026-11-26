@@ -19,8 +19,8 @@ impl GameLogic {
     pub(in crate::game_logic) fn admit_direct_map_players_from_prepared_sides(
         &mut self,
         general_name: Option<&str>,
-    ) -> gamelogic::GameLogicResult<()> {
-        let invalid = |reason: &str| gamelogic::GameLogicError::Configuration(reason.into());
+    ) -> generals_sim::GameLogicResult<()> {
+        let invalid = |reason: &str| generals_sim::GameLogicError::Configuration(reason.into());
         if let Some(error) = self.object_retirement_error() {
             return Err(error);
         }

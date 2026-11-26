@@ -209,7 +209,7 @@ impl GameLogic {
         &mut self,
         factory_id: ObjectId,
         unit_id: ObjectId,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         self.notify_owned_ai_unit_produced_with_effects(
             factory_id,
             unit_id,
@@ -222,7 +222,7 @@ impl GameLogic {
         factory_id: ObjectId,
         unit_id: ObjectId,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         self.deliver_owned_ai_unit_with_dock(factory_id, unit_id, effects, |world, unit, center| {
             world.unit_command_ai_dock_supply_center(unit, center);
         })
@@ -234,7 +234,7 @@ impl GameLogic {
         unit_id: ObjectId,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
         mut dock: impl FnMut(&mut GameLogic, ObjectId, ObjectId),
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         let Some(factory) = self.host_object(factory_id) else {
             return Ok(());
         };

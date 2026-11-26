@@ -655,7 +655,7 @@ impl GameLogic {
         shooter_pos: glam::Vec3,
         weapon: Option<&crate::game_logic::Weapon>,
         slot: u8,
-    ) -> gamelogic::GameLogicResult<(bool, f32)> {
+    ) -> generals_sim::GameLogicResult<(bool, f32)> {
         self.residual_auto_fire_apply_damage_with_effects(
             attacker_id,
             target_id,
@@ -676,7 +676,7 @@ impl GameLogic {
         weapon: Option<&crate::game_logic::Weapon>,
         slot: u8,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<(bool, f32)> {
+    ) -> generals_sim::GameLogicResult<(bool, f32)> {
         use crate::game_logic::combat::{self, DamageType, PendingProjectile};
         use crate::game_logic::host_usa_pilot::HostDeathType;
 
@@ -736,7 +736,7 @@ impl GameLogic {
         unit_id: ObjectId,
         state: AIState,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<bool> {
+    ) -> generals_sim::GameLogicResult<bool> {
         // Host applies immediately so residual FSM/combat sees the new state
         // same-frame. Decision authority still logs for GameWorld last-write.
         let ordinal = state.to_ordinal();
@@ -769,7 +769,7 @@ impl GameLogic {
             );
         }
         if entering_attack_move && !self.enter_attack_move_idle_child_owned(unit_id) {
-            return Err(gamelogic::GameLogicError::Configuration(
+            return Err(generals_sim::GameLogicError::Configuration(
                 "AttackMove could not enter its child Idle body".into(),
             ));
         }
@@ -1005,7 +1005,7 @@ impl GameLogic {
         &mut self,
         unit_id: ObjectId,
         state: AIState,
-    ) -> gamelogic::GameLogicResult<bool> {
+    ) -> generals_sim::GameLogicResult<bool> {
         self.set_ai_state_decision_aware_with_effects(
             unit_id,
             state,
@@ -1058,7 +1058,7 @@ impl GameLogic {
         &mut self,
         command: AICommand,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         // Host applies immediately so AI aggression/combat is same-frame.
         // Decision authority still logs every command for GameWorld last-write.
 

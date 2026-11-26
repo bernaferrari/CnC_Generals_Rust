@@ -117,7 +117,7 @@ impl GameLogic {
         infantry_id: ObjectId,
         vehicle_id: ObjectId,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<bool> {
+    ) -> generals_sim::GameLogicResult<bool> {
         let (inf_team, inf_owner_player_id, inf_level, is_pilot) =
             match self.objects.get(&infantry_id) {
                 Some(inf) => (
@@ -171,7 +171,7 @@ impl GameLogic {
         infantry_id: ObjectId,
         vehicle_id: ObjectId,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<bool> {
+    ) -> generals_sim::GameLogicResult<bool> {
         use crate::game_logic::object::TimedDisable;
 
         let Some(infantry) = self.objects.get(&infantry_id) else {
@@ -391,7 +391,7 @@ impl GameLogic {
         object_id: ObjectId,
         old_team: Team,
         new_team: Team,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         self.on_capture_object_residual_with_effects(
             object_id,
             old_team,
@@ -406,7 +406,7 @@ impl GameLogic {
         old_team: Team,
         new_team: Team,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         // Compatibility entrypoint for callers that still identify owners by faction.
         self.on_capture_object_owned_with_effects(
             object_id,
@@ -443,7 +443,7 @@ impl GameLogic {
         old_team: Team,
         new_team: Team,
         owner_changed: bool,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         self.on_capture_object_owned_with_effects(
             object_id,
             old_team,
@@ -462,7 +462,7 @@ impl GameLogic {
         owner_changed: bool,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
         capture_context: Option<ObjectCapture>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         let Some(object) = self.objects.get(&object_id) else {
             return Ok(());
         };
@@ -615,7 +615,7 @@ impl GameLogic {
         container_id: ObjectId,
         owner_changed: bool,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         if self.objects.get(&container_id).is_some_and(|container| {
             container.is_helix_transport || container.is_overlord_style_container()
         }) {
@@ -974,7 +974,7 @@ impl GameLogic {
         }
     }
 
-    pub fn start_sell_object(&mut self, object_id: ObjectId) -> gamelogic::GameLogicResult<bool> {
+    pub fn start_sell_object(&mut self, object_id: ObjectId) -> generals_sim::GameLogicResult<bool> {
         self.start_sell_object_with_effects(object_id, &mut Default::default())
     }
 
@@ -982,7 +982,7 @@ impl GameLogic {
         &mut self,
         object_id: ObjectId,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<bool> {
+    ) -> generals_sim::GameLogicResult<bool> {
         let Some(obj) = self.objects.get(&object_id) else {
             return Ok(false);
         };
@@ -1179,7 +1179,7 @@ impl GameLogic {
     pub fn cancel_dozers_building(
         &mut self,
         structure_id: ObjectId,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         let ids: Vec<_> = self
             .objects
             .registered_values()
@@ -1323,7 +1323,7 @@ impl GameLogic {
         &mut self,
         dozer_ids: &[ObjectId],
         structure_id: ObjectId,
-    ) -> gamelogic::GameLogicResult<bool> {
+    ) -> generals_sim::GameLogicResult<bool> {
         // Only one dozer resumes (C++ groupResumeConstruction — first that accepts).
         for &dozer_id in dozer_ids {
             self.dozer_prepare_repair_or_resume_owned(dozer_id)?;
@@ -1548,7 +1548,7 @@ impl GameLogic {
     pub(crate) fn process_dozer_bored_event(
         &mut self,
         id: ObjectId,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         if self.worker_is_acting_as_supply_truck(id) {
             return Ok(());
         }
@@ -1606,7 +1606,7 @@ impl GameLogic {
         Ok(())
     }
 
-    pub(in super::super) fn update_dozer_bored_repair(&mut self) -> gamelogic::GameLogicResult<()> {
+    pub(in super::super) fn update_dozer_bored_repair(&mut self) -> generals_sim::GameLogicResult<()> {
         let now = self.frame;
         let bored = crate::game_logic::host_repair::DOZER_BORED_TIME_FRAMES;
         let ids: Vec<ObjectId> = self.objects.registered_keys().copied().collect();
@@ -1704,7 +1704,7 @@ impl GameLogic {
     /// C++ RebuildHoleBehavior::onDie / newWorkerRespawnProcess / dtor:
     /// always `TheGameLogic->destroyObject(worker)` so the UNSELECTABLE
     /// generated worker cannot leak when the hole or scaffold dies.
-    fn destroy_rebuild_hole_worker(&mut self, hole_id: ObjectId) -> gamelogic::GameLogicResult<()> {
+    fn destroy_rebuild_hole_worker(&mut self, hole_id: ObjectId) -> generals_sim::GameLogicResult<()> {
         self.destroy_rebuild_hole_worker_with_effects(hole_id, &mut Default::default())
     }
 
@@ -1712,7 +1712,7 @@ impl GameLogic {
         &mut self,
         hole_id: ObjectId,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         let Some(wid) = self.objects.get(&hole_id).and_then(|h| h.rebuild_worker_id) else {
             return Ok(());
         };
@@ -1730,7 +1730,7 @@ impl GameLogic {
     pub fn handle_reconstructing_death(
         &mut self,
         destroyed_id: ObjectId,
-    ) -> gamelogic::GameLogicResult<bool> {
+    ) -> generals_sim::GameLogicResult<bool> {
         self.handle_reconstructing_death_with_effects(destroyed_id, &mut Default::default())
     }
 
@@ -1738,7 +1738,7 @@ impl GameLogic {
         &mut self,
         destroyed_id: ObjectId,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<bool> {
+    ) -> generals_sim::GameLogicResult<bool> {
         let (is_recon, producer, template_name) = {
             let Some(o) = self.objects.get(&destroyed_id) else {
                 return Ok(false);
@@ -1988,14 +1988,14 @@ impl GameLogic {
     /// - spawn unselectable worker after WorkerRespawnDelay
     /// - worker starts reconstruction; hole masked while reconstructing
     /// - when reconstruction completes, hole is destroyed
-    pub fn update_rebuild_holes(&mut self) -> gamelogic::GameLogicResult<()> {
+    pub fn update_rebuild_holes(&mut self) -> generals_sim::GameLogicResult<()> {
         self.update_rebuild_holes_with_effects(&mut Default::default())
     }
 
     pub(crate) fn update_rebuild_holes_with_effects(
         &mut self,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         let now = self.frame;
         let dt = 1.0 / 30.0;
         let heal_frac = REBUILD_HOLE_HEALTH_REGEN_PERCENT_PER_SEC * dt;

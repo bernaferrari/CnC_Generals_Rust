@@ -10,7 +10,7 @@ impl GameLogic {
         legacy_fallback: bool,
         interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         let Some((source, team, owner, team_name, team_id, transform, position)) =
             self.host_object(object_id).map(|object| {
                 (
@@ -35,7 +35,7 @@ impl GameLogic {
 
         let exact_team = owner.zip(team_id);
         if !legacy_fallback && exact_team.is_none() {
-            return Err(gamelogic::GameLogicError::Configuration(format!(
+            return Err(generals_sim::GameLogicError::Configuration(format!(
                 "ReplaceObjectUpgrade on '{source}' has no exact receiving Team"
             )));
         }
@@ -99,7 +99,7 @@ impl GameLogic {
                 .map(|replacement| {
                     std::sync::Arc::downgrade(&replacement.visual_draw_identity_token)
                 })
-                .ok_or(gamelogic::GameLogicError::InvalidObject(new_id.0))?;
+                .ok_or(generals_sim::GameLogicError::InvalidObject(new_id.0))?;
             self.classify_object_path(new_id);
             self.with_own_services_mut(|world| {
                 world.apply_create_modules_on_build_complete_with_effects_checked(
@@ -108,7 +108,7 @@ impl GameLogic {
                     effects,
                 )?;
                 if !world.object_birth_matches(new_id, &replacement_birth) {
-                    return Err(gamelogic::GameLogicError::InvalidObject(new_id.0));
+                    return Err(generals_sim::GameLogicError::InvalidObject(new_id.0));
                 }
                 if let Some(controller) = world
                     .host_object(new_id)
@@ -166,7 +166,7 @@ impl GameLogic {
         master_birth: &std::sync::Weak<()>,
         interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         let ctx = self
             .objects
             .get(&object_id)
@@ -183,7 +183,7 @@ impl GameLogic {
                 )
             });
         let Some((team, pos, orient, vet, vel)) = ctx else {
-            return Err(gamelogic::GameLogicError::InvalidObject(object_id.0));
+            return Err(generals_sim::GameLogicError::InvalidObject(object_id.0));
         };
         let outcome = self.execute_parsed_weapon_ocl_with_births(
             ocl_name,
@@ -203,7 +203,7 @@ impl GameLogic {
                 return Err(error);
             }
             if !self.object_birth_matches(object_id, master_birth) {
-                return Err(gamelogic::GameLogicError::InvalidObject(object_id.0));
+                return Err(generals_sim::GameLogicError::InvalidObject(object_id.0));
             }
             return Ok(());
         }
@@ -230,7 +230,7 @@ impl GameLogic {
             if let Some(error) = ocl_error {
                 return Err(error);
             }
-            return Err(gamelogic::GameLogicError::InvalidObject(object_id.0));
+            return Err(generals_sim::GameLogicError::InvalidObject(object_id.0));
         }
         // C++ SlavedUpdate startSlavedEffects + UpgradeDie on the OCL spawn.
         for (drone_id, (generation, epoch)) in spawned {

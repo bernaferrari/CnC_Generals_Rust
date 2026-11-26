@@ -25,7 +25,7 @@ impl GameLogic {
         &mut self,
         id: ObjectId,
         goal: Vec3,
-    ) -> gamelogic::GameLogicResult<bool> {
+    ) -> generals_sim::GameLogicResult<bool> {
         let Some(unit) = self.objects.get_mut(&id) else {
             return Ok(false);
         };
@@ -79,7 +79,7 @@ impl GameLogic {
         id: ObjectId,
         leg: FollowPathLeg,
         entering: bool,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         let Some(unit) = self.objects.get(&id) else {
             return Ok(());
         };
@@ -135,7 +135,7 @@ impl GameLogic {
         &mut self,
         id: ObjectId,
         effects: &mut ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         let Some(unit) = self.objects.get_mut(&id).filter(|unit| {
             unit.has_active_selected_follow_path() && unit.can_move() && !unit.waiting_for_path
         }) else {
@@ -160,7 +160,7 @@ impl GameLogic {
         &mut self,
         id: ObjectId,
         effects: &mut ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         if self.enter_base_ai_idle_owned(id, effects)? {
             if let Some(unit) = self.objects.get_mut(&id) {
                 unit.stop_moving(&mut crate::game_logic::ObjectAudio::queue(

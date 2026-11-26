@@ -665,7 +665,7 @@ impl GameLogic {
     }
 
     /// Advance Toxin Tractor poison field residual zones (medium spray + small death).
-    pub(in super::super) fn update_toxin_tractor_poison_zones(&mut self) -> gamelogic::GameLogicResult<()> {
+    pub(in super::super) fn update_toxin_tractor_poison_zones(&mut self) -> generals_sim::GameLogicResult<()> {
         self.update_toxin_tractor_poison_zones_with_effects(
             &mut crate::game_logic::ScriptPresentationEffects::default(),
         )
@@ -674,7 +674,7 @@ impl GameLogic {
     pub(in super::super) fn update_toxin_tractor_poison_zones_with_effects(
         &mut self,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         let object_positions: Vec<(ObjectId, Vec3, Team, bool, bool)> = self
             .objects
             .registered()
@@ -753,7 +753,7 @@ impl GameLogic {
         &mut self,
         impact: Vec3,
         source: Option<ObjectId>,
-    ) -> gamelogic::GameLogicResult<(u32, bool)> {
+    ) -> generals_sim::GameLogicResult<(u32, bool)> {
         self.apply_comanche_rocket_pod_area_at_with_effects(
             impact,
             source,
@@ -766,7 +766,7 @@ impl GameLogic {
         impact: Vec3,
         source: Option<ObjectId>,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<(u32, bool)> {
+    ) -> generals_sim::GameLogicResult<(u32, bool)> {
         use crate::game_logic::host_comanche_rocket_pods::{
             ROCKET_POD_AUDIO, ROCKET_POD_DAMAGE_TYPE, ROCKET_POD_DEATH_TYPE,
             ROCKET_POD_SECONDARY_RADIUS, is_legal_rocket_pod_splash_target,
@@ -879,7 +879,7 @@ impl GameLogic {
         &mut self,
         sentry_id: ObjectId,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         use crate::game_logic::host_sentry_drone::is_legal_sentry_auto_fire_target;
 
         let Some(attacker) = self.objects.get(&sentry_id) else {
@@ -1067,7 +1067,7 @@ impl GameLogic {
         kind: crate::game_logic::host_slave_drones::SlaveDroneKind,
         interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<Option<ObjectId>> {
+    ) -> generals_sim::GameLogicResult<Option<ObjectId>> {
         use crate::game_logic::host_slave_drones::{
             SlaveDroneKind, drone_spawn_offset_from_master, is_slave_drone_master_template,
         };
@@ -1141,10 +1141,10 @@ impl GameLogic {
             if self.spawn_identity_matches(drone_id, drone_birth.0, drone_birth.1) {
                 self.destroy_object_with_effects(drone_id, presentation_effects)?;
             }
-            return Err(gamelogic::GameLogicError::InvalidObject(master_id.0));
+            return Err(generals_sim::GameLogicError::InvalidObject(master_id.0));
         }
         if !self.spawn_identity_matches(drone_id, drone_birth.0, drone_birth.1) {
-            return Err(gamelogic::GameLogicError::InvalidObject(drone_id.0));
+            return Err(generals_sim::GameLogicError::InvalidObject(drone_id.0));
         }
 
         if let Some(drone) = self.objects.get_mut(&drone_id) {
@@ -1152,13 +1152,13 @@ impl GameLogic {
             // first SlavedUpdateInterface::onEnslave callback.
             drone.producer_id = Some(master_id);
         } else {
-            return Err(gamelogic::GameLogicError::InvalidObject(drone_id.0));
+            return Err(generals_sim::GameLogicError::InvalidObject(drone_id.0));
         }
         if !self.enslave_owned_drone(drone_id, master_id, master_spawn_birth) {
             if self.spawn_identity_matches(drone_id, drone_birth.0, drone_birth.1) {
                 self.destroy_object_with_effects(drone_id, presentation_effects)?;
             }
-            return Err(gamelogic::GameLogicError::ModuleError(
+            return Err(generals_sim::GameLogicError::ModuleError(
                 "spawned slave drone could not bind to its original master birth".into(),
             ));
         }
@@ -1172,7 +1172,7 @@ impl GameLogic {
         if !self.spawn_identity_matches(drone_id, drone_birth.0, drone_birth.1)
             || !self.spawn_identity_matches(master_id, master_spawn_birth.0, master_spawn_birth.1)
         {
-            return Err(gamelogic::GameLogicError::InvalidObject(drone_id.0));
+            return Err(generals_sim::GameLogicError::InvalidObject(drone_id.0));
         }
 
         // SpawnBehavior aggregate rank synchronization occurs at spawn.
@@ -1180,7 +1180,7 @@ impl GameLogic {
         let (master_level, drone_level) =
             match (self.objects.get(&master_id), self.objects.get(&drone_id)) {
                 (Some(m), Some(d)) => (m.experience.level, d.experience.level),
-                _ => return Err(gamelogic::GameLogicError::InvalidObject(drone_id.0)),
+                _ => return Err(generals_sim::GameLogicError::InvalidObject(drone_id.0)),
             };
         let (sync_master, sync_drone) =
             crate::game_logic::host_slave_drones::synced_spawn_veterancy(master_level, drone_level);
@@ -1202,7 +1202,7 @@ impl GameLogic {
         if !self.spawn_identity_matches(drone_id, drone_birth.0, drone_birth.1)
             || !self.spawn_identity_matches(master_id, master_spawn_birth.0, master_spawn_birth.1)
         {
-            return Err(gamelogic::GameLogicError::InvalidObject(drone_id.0));
+            return Err(generals_sim::GameLogicError::InvalidObject(drone_id.0));
         }
         if sync_drone != drone_level {
             self.with_object_veterancy_feedback_and_locomotors(
@@ -1221,7 +1221,7 @@ impl GameLogic {
         if !self.spawn_identity_matches(drone_id, drone_birth.0, drone_birth.1)
             || !self.spawn_identity_matches(master_id, master_spawn_birth.0, master_spawn_birth.1)
         {
-            return Err(gamelogic::GameLogicError::InvalidObject(drone_id.0));
+            return Err(generals_sim::GameLogicError::InvalidObject(drone_id.0));
         }
 
         // C++ ObjectCreationUpgrade never sets the master upgrade bit; that is
@@ -1282,7 +1282,7 @@ impl GameLogic {
         attacker_team: Team,
         base_weapon_damage: f32,
         attacker_id: Option<ObjectId>,
-    ) -> gamelogic::GameLogicResult<(u32, f32, bool)> {
+    ) -> generals_sim::GameLogicResult<(u32, f32, bool)> {
         self.apply_bunker_buster_to_target_with_effects(
             target_id,
             attacker_team,
@@ -1299,7 +1299,7 @@ impl GameLogic {
         base_weapon_damage: f32,
         attacker_id: Option<ObjectId>,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<(u32, f32, bool)> {
+    ) -> generals_sim::GameLogicResult<(u32, f32, bool)> {
         use crate::game_logic::host_bunker_buster::{
             BUNKER_BUSTER_AUDIO, BUNKER_BUSTER_HARM_AMOUNT, BUNKER_BUSTER_OCCUPANT_WEAPON,
             BUNKER_BUSTER_SHOCKWAVE_DAMAGE, BUNKER_BUSTER_SHOCKWAVE_RADIUS,
@@ -1350,7 +1350,7 @@ impl GameLogic {
                     .and_then(|target| target.contained_unit_ids().first().copied()) else { break };
                 let Some(rider_birth) = self.objects.get(&id).map(|rider| rider.visual_object_generation) else { break };
                 if !self.railed_remove_contained_with_effects(target_id, id, presentation_effects)
-                    .map_err(gamelogic::GameLogicError::Configuration)?
+                    .map_err(generals_sim::GameLogicError::Configuration)?
                 {
                     break;
                 }
@@ -1556,7 +1556,7 @@ impl GameLogic {
         target_id: ObjectId,
         attacker_id: Option<ObjectId>,
         attacker_team: Team,
-    ) -> gamelogic::GameLogicResult<u32> {
+    ) -> generals_sim::GameLogicResult<u32> {
         self.flush_pending_kill_garrisoned_with_effects(
             target_id,
             attacker_id,
@@ -1571,7 +1571,7 @@ impl GameLogic {
         attacker_id: Option<ObjectId>,
         attacker_team: Team,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<u32> {
+    ) -> generals_sim::GameLogicResult<u32> {
         let pending = self
             .objects
             .get_mut(&target_id)
@@ -1596,7 +1596,7 @@ impl GameLogic {
         attacker_team: Team,
         damage_amount: f32,
         attacker_id: Option<ObjectId>,
-    ) -> gamelogic::GameLogicResult<u32> {
+    ) -> generals_sim::GameLogicResult<u32> {
         self.apply_kill_garrisoned_to_target_with_effects(
             target_id,
             attacker_team,
@@ -1613,7 +1613,7 @@ impl GameLogic {
         damage_amount: f32,
         attacker_id: Option<ObjectId>,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<u32> {
+    ) -> generals_sim::GameLogicResult<u32> {
         use crate::game_logic::host_bunker_buster::{
             BUNKER_BUSTER_OCCUPANT_DAMAGE, kill_garrisoned_count,
         };

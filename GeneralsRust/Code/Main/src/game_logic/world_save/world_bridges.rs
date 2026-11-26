@@ -101,8 +101,8 @@ impl GameLogic {
         &mut self,
         spans: Vec<(BridgeInfo, AsciiString)>,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
-        use gamelogic::GameLogicError;
+    ) -> generals_sim::GameLogicResult<()> {
+        use generals_sim::GameLogicError;
 
         let owner = self.world_services.terrain().clone();
         let mut missing_template = false;

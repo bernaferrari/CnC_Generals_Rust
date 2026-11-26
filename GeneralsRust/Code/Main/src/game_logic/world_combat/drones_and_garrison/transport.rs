@@ -25,7 +25,7 @@ impl GameLogic {
         &mut self,
         passenger_id: ObjectId,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         let current_time = self.frame as f32 * LOGIC_FRAME_TIMESTEP;
 
         let Some(attacker) = self.objects.get(&passenger_id) else {

@@ -834,9 +834,9 @@ impl GameLogic {
 
     /// A reset must not discard an interpreter that is currently on a
     /// callback stack or erase a failed Team admission owned by this world.
-    fn validate_reset_owners(&self) -> gamelogic::GameLogicResult<()> {
+    fn validate_reset_owners(&self) -> generals_sim::GameLogicResult<()> {
         if self.owned_script_engine.is_none() {
-            return Err(gamelogic::GameLogicError::Configuration(
+            return Err(generals_sim::GameLogicError::Configuration(
                 "GameLogic reset requires its receiving script interpreter".into(),
             ));
         }
@@ -850,10 +850,10 @@ impl GameLogic {
     pub(crate) fn validate_reset_with_effects(
         &self,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         self.validate_reset_owners()?;
         if self.has_unregistered_host_objects() {
-            return Err(gamelogic::GameLogicError::Configuration(
+            return Err(generals_sim::GameLogicError::Configuration(
                 "GameLogic reset cannot discard an unfinished Object constructor".into(),
             ));
         }
@@ -864,18 +864,18 @@ impl GameLogic {
                 let manager = effects
                     .particle_systems_mut()
                     .ok_or_else(|| {
-                        gamelogic::GameLogicError::Configuration(
+                        generals_sim::GameLogicError::Configuration(
                             "GameLogic reset requires its live receiving particle manager".into(),
                         )
                     })?;
                 if !self.combat_particles.can_clear_with_client_manager(manager) {
-                    return Err(gamelogic::GameLogicError::Configuration(
+                    return Err(generals_sim::GameLogicError::Configuration(
                         "GameLogic reset received a peer particle manager".into(),
                     ));
                 }
             }
             #[cfg(not(feature = "game_client"))]
-            return Err(gamelogic::GameLogicError::Configuration(
+            return Err(generals_sim::GameLogicError::Configuration(
                 "GameLogic reset requires its live receiving particle manager".into(),
             ));
         }
@@ -887,7 +887,7 @@ impl GameLogic {
     pub(crate) fn reset_with_effects_checked(
         &mut self,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         self.with_own_services_mut(|this| {
             this.validate_reset_with_effects(effects)?;
 
@@ -909,7 +909,7 @@ impl GameLogic {
     fn reset_with_receiving_services(
         &mut self,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         self.validate_reset_owners()?;
         self.intro_movie_playing = false;
         self.campaign_session_kind = super::host::CampaignSessionKind::None;
@@ -1080,16 +1080,16 @@ impl GameLogic {
         if let Some(manager) = effects.particle_systems_mut() {
             self.combat_particles
                 .clear_with_client_manager_checked(manager)
-                .map_err(gamelogic::GameLogicError::Configuration)?;
+                .map_err(generals_sim::GameLogicError::Configuration)?;
         } else {
             self.combat_particles
                 .clear()
-                .map_err(gamelogic::GameLogicError::Configuration)?;
+                .map_err(generals_sim::GameLogicError::Configuration)?;
         }
         #[cfg(not(feature = "game_client"))]
         self.combat_particles
             .clear()
-            .map_err(gamelogic::GameLogicError::Configuration)?;
+            .map_err(generals_sim::GameLogicError::Configuration)?;
         self.special_power_strikes.clear();
         self.host_paradrops.clear();
         self.host_ambushes.clear();

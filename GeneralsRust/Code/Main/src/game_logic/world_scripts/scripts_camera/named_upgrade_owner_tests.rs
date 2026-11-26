@@ -59,7 +59,7 @@ struct NextActionProbe<'a> {
     observed: bool,
 }
 impl ScriptExecutionDriver for NextActionProbe<'_> {
-    fn after_action(&mut self) -> gamelogic::GameLogicResult<()> {
+    fn after_action(&mut self) -> generals_sim::GameLogicResult<()> {
         self.inner.after_action()
     }
     fn object_count_changed_frame(&self) -> ScriptOwnerQuery<u32> {
@@ -70,7 +70,7 @@ impl ScriptExecutionDriver for NextActionProbe<'_> {
         name: &str,
         upgrade: &str,
         this: Option<u32>,
-    ) -> Option<gamelogic::GameLogicResult<()>> {
+    ) -> Option<generals_sim::GameLogicResult<()>> {
         self.inner.named_upgrade(name, upgrade, this)
     }
     fn named_damage(
@@ -78,7 +78,7 @@ impl ScriptExecutionDriver for NextActionProbe<'_> {
         name: &str,
         amount: i32,
         this_object: Option<u32>,
-    ) -> Option<gamelogic::GameLogicResult<()>> {
+    ) -> Option<generals_sim::GameLogicResult<()>> {
         assert!(
             self.inner.interpreter.is_some(),
             "callback keeps the actual held interpreter"

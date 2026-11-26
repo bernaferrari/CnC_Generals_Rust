@@ -23,7 +23,7 @@ impl<'a> CommandExecutor<'a> {
     pub(super) fn execute_hack_internet(
         &mut self,
         units: &[ObjectId],
-    ) -> gamelogic::GameLogicResult<CommandResult> {
+    ) -> generals_sim::GameLogicResult<CommandResult> {
         let _bind = self.bind_services();
         let mut any = false;
         for &unit_id in units {
@@ -49,7 +49,7 @@ impl<'a> CommandExecutor<'a> {
         &mut self,
         units: &[ObjectId],
         target_id: ObjectId,
-    ) -> gamelogic::GameLogicResult<CommandResult> {
+    ) -> generals_sim::GameLogicResult<CommandResult> {
         let _bind = self.bind_services();
         // C++ ConvertToHijackedVehicleCrateCollide residual: enemy ground vehicle
         // only, not already HIJACKED, not neutral, not airborne.
@@ -127,7 +127,7 @@ impl<'a> CommandExecutor<'a> {
         &mut self,
         units: &[ObjectId],
         target_id: ObjectId,
-    ) -> gamelogic::GameLogicResult<CommandResult> {
+    ) -> generals_sim::GameLogicResult<CommandResult> {
         let _bind = self.bind_services();
         // C++ Sabotage*CrateCollide residual: GLA Saboteur only → enemy structure.
         let (target_team, target_pos, target_alive, target_is_structure) =
@@ -200,7 +200,7 @@ impl<'a> CommandExecutor<'a> {
         &mut self,
         units: &[ObjectId],
         target_id: ObjectId,
-    ) -> gamelogic::GameLogicResult<CommandResult> {
+    ) -> generals_sim::GameLogicResult<CommandResult> {
         let _bind = self.bind_services();
         // C++ ConvertToCarBombCrateCollide: vehicle only (not aircraft/boat),
         // not already IS_CARBOMB. Neutral civilian cars are valid.
@@ -268,7 +268,7 @@ impl<'a> CommandExecutor<'a> {
         &mut self,
         units: &[ObjectId],
         target_id: ObjectId,
-    ) -> gamelogic::GameLogicResult<CommandResult> {
+    ) -> generals_sim::GameLogicResult<CommandResult> {
         let _bind = self.bind_services();
         self.execute_capture_building_for_power(units, target_id, None)
     }
@@ -282,7 +282,7 @@ impl<'a> CommandExecutor<'a> {
         units: &[ObjectId],
         target_id: ObjectId,
         required_power: Option<crate::game_logic::CapturePowerKind>,
-    ) -> gamelogic::GameLogicResult<CommandResult> {
+    ) -> generals_sim::GameLogicResult<CommandResult> {
         let _bind = self.bind_services();
         let building_pos = match self.game_logic.host_object(target_id) {
             Some(building) => building.get_position(),
@@ -352,7 +352,7 @@ impl<'a> CommandExecutor<'a> {
         &mut self,
         units: &[ObjectId],
         target_id: ObjectId,
-    ) -> gamelogic::GameLogicResult<CommandResult> {
+    ) -> generals_sim::GameLogicResult<CommandResult> {
         let _bind = self.bind_services();
         let (
             target_team,
@@ -456,7 +456,7 @@ impl<'a> CommandExecutor<'a> {
         &mut self,
         units: &[ObjectId],
         target_id: ObjectId,
-    ) -> gamelogic::GameLogicResult<CommandResult> {
+    ) -> generals_sim::GameLogicResult<CommandResult> {
         let _bind = self.bind_services();
         let (target_team, target_pos, target_alive, target_is_structure) =
             match self.game_logic.host_object(target_id) {
@@ -528,7 +528,7 @@ impl<'a> CommandExecutor<'a> {
         &mut self,
         units: &[ObjectId],
         target_id: ObjectId,
-    ) -> gamelogic::GameLogicResult<CommandResult> {
+    ) -> generals_sim::GameLogicResult<CommandResult> {
         let _bind = self.bind_services();
         let (
             target_team,
@@ -606,7 +606,7 @@ impl<'a> CommandExecutor<'a> {
         &mut self,
         units: &[ObjectId],
         target_id: ObjectId,
-    ) -> gamelogic::GameLogicResult<CommandResult> {
+    ) -> generals_sim::GameLogicResult<CommandResult> {
         let _bind = self.bind_services();
         let (
             target_team,
@@ -683,7 +683,7 @@ impl<'a> CommandExecutor<'a> {
     pub(super) fn execute_detonate_remote_demo_charges(
         &mut self,
         units: &[ObjectId],
-    ) -> gamelogic::GameLogicResult<CommandResult> {
+    ) -> generals_sim::GameLogicResult<CommandResult> {
         let _bind = self.bind_services();
         let producers: Vec<ObjectId> = units
             .iter()
@@ -711,7 +711,7 @@ impl<'a> CommandExecutor<'a> {
     /// Demo SuicideBomb residual: intentional SUICIDED PlusFire detonation.
     ///
     /// Fail-closed: requires SuicideBomb CommandSetUpgrade residual tag.
-    pub(super) fn execute_demo_tertiary_suicide(&mut self, units: &[ObjectId]) -> gamelogic::GameLogicResult<CommandResult> {
+    pub(super) fn execute_demo_tertiary_suicide(&mut self, units: &[ObjectId]) -> generals_sim::GameLogicResult<CommandResult> {
         let _bind = self.bind_services();
         let mut any = false;
         for &unit_id in units {
@@ -738,7 +738,7 @@ impl<'a> CommandExecutor<'a> {
         &mut self,
         units: &[ObjectId],
         target_id: ObjectId,
-    ) -> gamelogic::GameLogicResult<CommandResult> {
+    ) -> generals_sim::GameLogicResult<CommandResult> {
         let _bind = self.bind_services();
         use crate::game_logic::host_hero_abilities::{
             can_activate_black_lotus_ability, is_black_lotus_template, is_cash_hack_target,
@@ -834,7 +834,7 @@ impl<'a> CommandExecutor<'a> {
         &mut self,
         units: &[ObjectId],
         target_id: ObjectId,
-    ) -> gamelogic::GameLogicResult<CommandResult> {
+    ) -> generals_sim::GameLogicResult<CommandResult> {
         let _bind = self.bind_services();
         use crate::game_logic::host_hero_abilities::{
             can_activate_black_lotus_ability, is_black_lotus_template,
@@ -961,7 +961,7 @@ impl<'a> CommandExecutor<'a> {
         &mut self,
         units: &[ObjectId],
         target_id: ObjectId,
-    ) -> gamelogic::GameLogicResult<CommandResult> {
+    ) -> generals_sim::GameLogicResult<CommandResult> {
         let _bind = self.bind_services();
         use crate::game_logic::host_bomb_truck_disguise::is_legal_disguise_target;
 
@@ -1053,7 +1053,7 @@ impl<'a> CommandExecutor<'a> {
         })
     }
 
-    pub(super) fn execute_switch_weapons(&mut self, units: &[ObjectId], slot: u8) -> gamelogic::GameLogicResult<CommandResult> {
+    pub(super) fn execute_switch_weapons(&mut self, units: &[ObjectId], slot: u8) -> generals_sim::GameLogicResult<CommandResult> {
         let _bind = self.bind_services();
         // C++ GameLogicDispatch.cpp:583-590 MSG_SWITCH_WEAPONS:
         // currentlySelectedGroup->setWeaponLockForGroup(weaponSlot, LOCKED_PERMANENTLY).

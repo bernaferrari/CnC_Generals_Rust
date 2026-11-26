@@ -138,7 +138,7 @@ impl GameLogic {
         object_id: ObjectId,
         birth: &std::sync::Weak<()>,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<bool> {
+    ) -> generals_sim::GameLogicResult<bool> {
         if !self.object_birth_matches(object_id, birth) {
             return Ok(false);
         }
@@ -171,7 +171,7 @@ impl GameLogic {
         object_id: ObjectId,
         upgrade: &str,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         self.apply_upgrade_to_object_with_interpreter_checked(
             object_id,
             upgrade,
@@ -185,7 +185,7 @@ impl GameLogic {
         upgrade: &str,
         interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         self.apply_upgrade_to_object_with_interpreter_and_origin_checked(
             object_id,
             upgrade,
@@ -201,7 +201,7 @@ impl GameLogic {
         upgrade: &str,
         interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         self.apply_upgrade_to_object_with_interpreter_and_origin_checked(
             object_id,
             upgrade,
@@ -219,7 +219,7 @@ impl GameLogic {
         upgrade: &str,
         interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         self.apply_upgrade_to_object_with_interpreter_and_origin_checked(
             object_id,
             upgrade,
@@ -236,7 +236,7 @@ impl GameLogic {
         interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
         origin: UpgradeGrantOrigin,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         let mut satellite_hack_activate = None;
         let Some((identity, status_upgrade_first_give, object_birth)) =
             self.objects.get(&object_id).map(|object| {

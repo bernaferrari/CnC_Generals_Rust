@@ -7,7 +7,7 @@ use generals_main::game_logic::GameLogic;
 
 struct NoopDriver;
 impl ScriptExecutionDriver for NoopDriver {
-    fn after_action(&mut self) -> gamelogic::GameLogicResult<()> {
+    fn after_action(&mut self) -> generals_sim::GameLogicResult<()> {
         Ok(())
     }
 }

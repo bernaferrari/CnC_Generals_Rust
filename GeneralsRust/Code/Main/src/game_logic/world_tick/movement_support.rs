@@ -391,7 +391,7 @@ impl GameLogic {
         &mut self,
         object_ids: &[ObjectId],
         dt: f32,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         self.update_movement_locomotor_pass_with_effects(object_ids, dt, &mut Default::default())
     }
 
@@ -400,7 +400,7 @@ impl GameLogic {
         object_ids: &[ObjectId],
         dt: f32,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         let pose_frame = self.frame;
         // C++ m_isBlockedAndStuck → patchPath; requestSafePath → findSafePath Dijkstra.
         let mut repaths: Vec<(ObjectId, crate::game_logic::pathfinding::PathRoute, bool)> = Vec::new();
@@ -3552,7 +3552,7 @@ impl GameLogic {
         &mut self,
         object_ids: &[ObjectId],
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         for &id in object_ids {
             let Some((pos, fallback)) = self.objects.get(&id).and_then(|obj| {
                 (!(obj.is_disabled() && !obj.status.disabled_freefall))
@@ -3575,14 +3575,14 @@ impl GameLogic {
     /// C++ AIExitState::update polls isExitBusy / getAiFreeToExit every frame
     /// with no hull-stop requirement. move-to-and-evacuate still waits for
     /// arrival (`pending_stream_exit` stays false until the first dump).
-    pub(in super::super) fn drain_pending_transport_exits(&mut self) -> gamelogic::GameLogicResult<()> {
+    pub(in super::super) fn drain_pending_transport_exits(&mut self) -> generals_sim::GameLogicResult<()> {
         self.drain_pending_transport_exits_with_effects(&mut Default::default())
     }
 
     pub(in super::super) fn drain_pending_transport_exits_with_effects(
         &mut self,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         let mut evac_now: Vec<(ObjectId, bool)> = Vec::new();
         for (id, obj) in self.objects.registered() {
             if !obj.pending_evacuate_on_stop {
@@ -3630,7 +3630,7 @@ impl GameLogic {
     pub(crate) fn drain_pending_projectiles_into_combat_with_effects(
         &mut self,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         self.materialize_owned_queued_projectiles_with_effects(effects)?;
         self.update_projectile_weapon_bonus_upgrades(None);
         self.apply_owned_projectileless_delayed_damage_with_effects(effects)?;
@@ -3647,7 +3647,7 @@ impl GameLogic {
     pub(crate) fn resolve_projectiles_hits_only_with_effects(
         &mut self,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<Vec<ObjectId>> {
+    ) -> generals_sim::GameLogicResult<Vec<ObjectId>> {
         self.combat_system.refresh_homing_aims(self.objects.read());
         // Use the same installed receiving-owner completion as the ordinary
         // projectile step; zero dt preserves this hit-only admission boundary.

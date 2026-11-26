@@ -11,7 +11,7 @@ impl GameLogic {
         owner_changed: bool,
         capture: Option<&ObjectCapture>,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<bool> {
+    ) -> generals_sim::GameLogicResult<bool> {
         let Some(object) = self.objects.get(&id) else {
             return Ok(false);
         };

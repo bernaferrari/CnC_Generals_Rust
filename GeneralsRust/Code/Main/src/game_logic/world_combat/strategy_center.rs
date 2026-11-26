@@ -43,7 +43,7 @@ impl GameLogic {
     pub(in super::super) fn try_strategy_center_bombardment_turret_fire(
         &mut self,
         center_id: ObjectId,
-    ) -> gamelogic::GameLogicResult<AttackFireResult> {
+    ) -> generals_sim::GameLogicResult<AttackFireResult> {
         self.try_strategy_center_bombardment_turret_fire_with_effects(
             center_id,
             &mut crate::game_logic::ScriptPresentationEffects::default(),
@@ -54,7 +54,7 @@ impl GameLogic {
         &mut self,
         center_id: ObjectId,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<AttackFireResult> {
+    ) -> generals_sim::GameLogicResult<AttackFireResult> {
         use crate::game_logic::host_strategy_center::{
             STRATEGY_CENTER_GUN_FIRE_AUDIO, STRATEGY_CENTER_GUN_PRIMARY_RADIUS,
             is_legal_strategy_center_gun_target, strategy_center_gun_damage_at,
@@ -429,7 +429,7 @@ impl GameLogic {
         &mut self,
         defense_id: ObjectId,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         use crate::game_logic::host_base_defense::{
             GATTLING_BUILDING_FIRE_AUDIO, PATRIOT_FIRE_AUDIO, STINGER_FIRE_AUDIO,
             is_authored_gattling_building,
@@ -1840,7 +1840,7 @@ impl GameLogic {
         (best.map(|(_, _, id)| id), best.is_some_and(|(band, _, _)| band < 2))
     }
 
-    pub fn update_point_defense_intercept(&mut self) -> gamelogic::GameLogicResult<()> {
+    pub fn update_point_defense_intercept(&mut self) -> generals_sim::GameLogicResult<()> {
         self.update_point_defense_intercept_with_effects(
             &mut crate::game_logic::ScriptPresentationEffects::default(),
         )
@@ -1849,7 +1849,7 @@ impl GameLogic {
     pub(crate) fn update_point_defense_intercept_with_effects(
         &mut self,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         use crate::game_logic::host_point_defense::{authored_modules, PointDefenseState};
 
         let carriers: Vec<_> = self.objects.registered().filter_map(|(&id, object)| {

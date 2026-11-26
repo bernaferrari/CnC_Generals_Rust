@@ -30,13 +30,13 @@ impl ScriptExecutionDriver for ReceivingClientScriptDriver<'_, '_> {
     fn display(
         &mut self,
         request: gamelogic::scripting::engine::ScriptDisplayRequest<'_>,
-    ) -> Option<gamelogic::GameLogicResult<()>> {
+    ) -> Option<generals_sim::GameLogicResult<()>> {
         let frame = self.world.get_frame();
         match request {
             gamelogic::scripting::engine::ScriptDisplayRequest::Text(text)
             | gamelogic::scripting::engine::ScriptDisplayRequest::Cinematic { text, .. } => {
                 if !self.effects.has_ui() {
-                    return Some(Err(gamelogic::GameLogicError::Configuration(
+                    return Some(Err(generals_sim::GameLogicError::Configuration(
                         "display text requires receiving InGameUI".into(),
                     )));
                 }
@@ -50,7 +50,7 @@ impl ScriptExecutionDriver for ReceivingClientScriptDriver<'_, '_> {
                 duration_ms,
             } => {
                 if !self.effects.has_ui() {
-                    return Some(Err(gamelogic::GameLogicError::Configuration(
+                    return Some(Err(generals_sim::GameLogicError::Configuration(
                         "military caption requires receiving InGameUI".into(),
                     )));
                 };
@@ -65,9 +65,9 @@ impl ScriptExecutionDriver for ReceivingClientScriptDriver<'_, '_> {
         &mut self,
         name: &str,
         allow_overlap: bool,
-    ) -> Option<gamelogic::GameLogicResult<()>> {
+    ) -> Option<generals_sim::GameLogicResult<()>> {
         if !self.effects.has_ui() {
-            return Some(Err(gamelogic::GameLogicError::Configuration(
+            return Some(Err(generals_sim::GameLogicError::Configuration(
                 "speech subtitles require receiving InGameUI".into(),
             )));
         };
@@ -85,7 +85,7 @@ impl ScriptExecutionDriver for ReceivingClientScriptDriver<'_, '_> {
         width: i32,
         pause: bool,
         pause_music: bool,
-    ) -> Option<gamelogic::GameLogicResult<()>> {
+    ) -> Option<generals_sim::GameLogicResult<()>> {
         let old = crate::gui::callbacks::in_game_popup_message::clear_receiving_popup_message(
             &mut self.effects,
         );
@@ -117,19 +117,19 @@ impl ScriptExecutionDriver for ReceivingClientScriptDriver<'_, '_> {
         Some(self.after_action())
     }
 
-    fn create_win_lose_window(&mut self, layout: &str) -> Option<gamelogic::GameLogicResult<()>> {
+    fn create_win_lose_window(&mut self, layout: &str) -> Option<generals_sim::GameLogicResult<()>> {
         self.effects.with_manager(|manager, effects| {
             manager.create_script_message_window_with_effects(layout, effects)
         });
         Some(Ok(()))
     }
-    fn destroy_win_lose_window(&mut self) -> Option<gamelogic::GameLogicResult<()>> {
+    fn destroy_win_lose_window(&mut self) -> Option<generals_sim::GameLogicResult<()>> {
         self.effects.with_manager(|manager, effects| {
             manager.destroy_script_message_window_with_effects(effects)
         });
         Some(Ok(()))
     }
-    fn close_game_windows(&mut self) -> Option<gamelogic::GameLogicResult<()>> {
+    fn close_game_windows(&mut self) -> Option<generals_sim::GameLogicResult<()>> {
         let bar = &mut *self.bar;
         self.effects
             .with_manager(|manager, effects| close_receiving_game_windows(manager, bar, effects));
@@ -138,18 +138,18 @@ impl ScriptExecutionDriver for ReceivingClientScriptDriver<'_, '_> {
     fn set_campaign_victorious(
         &mut self,
         victorious: bool,
-    ) -> Option<gamelogic::GameLogicResult<()>> {
+    ) -> Option<generals_sim::GameLogicResult<()>> {
         Some(match self.effects.campaign_manager.as_deref_mut() {
             Some(manager) => {
                 manager.set_victorious(victorious);
                 Ok(())
             }
-            None => Err(gamelogic::GameLogicError::Configuration(
+            None => Err(generals_sim::GameLogicError::Configuration(
                 "script victory requires the receiving CampaignManager".into(),
             )),
         })
     }
-    fn after_action(&mut self) -> gamelogic::GameLogicResult<()> {
+    fn after_action(&mut self) -> generals_sim::GameLogicResult<()> {
         if let Some(owner) = self.effects.window_manager_owner {
             owner.complete_event_callbacks(&mut self.effects);
         }
@@ -217,8 +217,8 @@ impl GameClient {
         &mut self,
         bar: &mut crate::gui::control_bar::ControlBar,
         world: &mut gamelogic::system::game_logic::GameLogic,
-        operation: impl FnOnce(&mut dyn ScriptExecutionDriver) -> gamelogic::GameLogicResult<R>,
-    ) -> gamelogic::GameLogicResult<R> {
+        operation: impl FnOnce(&mut dyn ScriptExecutionDriver) -> generals_sim::GameLogicResult<R>,
+    ) -> generals_sim::GameLogicResult<R> {
         self.script_display
             .bind(self.subsystem_manager.display.as_ref());
         let mut messages = Vec::new();
@@ -280,7 +280,7 @@ impl GameClient {
         bar: &mut crate::gui::control_bar::ControlBar,
         frame: u32,
         observe_camera: impl FnOnce() -> Option<gamelogic::helpers::CameraTimeObservation>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         logic
             .update_with_script_phase(
                 frame,
@@ -300,7 +300,7 @@ impl GameClient {
                 },
                 observe_camera,
             )
-            .map_err(|error| gamelogic::GameLogicError::Configuration(error.to_string()))
+            .map_err(|error| generals_sim::GameLogicError::Configuration(error.to_string()))
     }
 
     pub fn execute_core_script_subroutine(
@@ -310,7 +310,7 @@ impl GameClient {
         world: &mut gamelogic::system::game_logic::GameLogic,
         name: &str,
         context: gamelogic::scripting::executor::ScriptContext,
-    ) -> gamelogic::GameLogicResult<bool> {
+    ) -> generals_sim::GameLogicResult<bool> {
         self.with_receiving_core_script_driver(bar, world, |driver| {
             scripts.execute_subroutine_by_name_with_driver(name, context, driver)
         })

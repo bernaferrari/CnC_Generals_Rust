@@ -13,7 +13,7 @@ impl GameLogic {
         &mut self,
         object_ids: &[ObjectId],
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         for &object_id in object_ids {
             let Some(unit) = self.objects.get(&object_id) else {
                 continue;
@@ -49,7 +49,7 @@ impl GameLogic {
         &mut self,
         object_id: ObjectId,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         let Some(unit) = self.objects.get(&object_id) else {
             return Ok(());
         };

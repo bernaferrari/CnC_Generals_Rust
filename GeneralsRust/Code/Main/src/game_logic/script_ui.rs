@@ -5,8 +5,8 @@
 //! window resources or selecting another session's UI inside GameLogic.
 pub(crate) trait ScriptUiEffects {
     /// Resolve text at the synchronous action boundary on the receiving client.
-    fn game_text(&mut self, _key: &str) -> gamelogic::GameLogicResult<String> {
-        Err(gamelogic::GameLogicError::Configuration(
+    fn game_text(&mut self, _key: &str) -> generals_sim::GameLogicResult<String> {
+        Err(generals_sim::GameLogicError::Configuration(
             "script rank reset requires receiving GameText".into(),
         ))
     }
@@ -39,8 +39,8 @@ pub(crate) trait ScriptUiEffects {
     fn popup_message(
         &mut self,
         _popup: &crate::game_logic::ScriptPopupMessageRequest,
-    ) -> gamelogic::GameLogicResult<()> {
-        Err(gamelogic::GameLogicError::Configuration(
+    ) -> generals_sim::GameLogicResult<()> {
+        Err(generals_sim::GameLogicError::Configuration(
             "popup requires receiving client services".into(),
         ))
     }
@@ -59,8 +59,8 @@ pub(crate) trait ScriptUiEffects {
 
     /// Apply `setCampaignVictorious` to this invocation's receiving application.
     /// UI-less paths reject the operation instead of mutating ambient state.
-    fn set_campaign_victorious(&mut self, _victorious: bool) -> gamelogic::GameLogicResult<()> {
-        Err(gamelogic::GameLogicError::Configuration(
+    fn set_campaign_victorious(&mut self, _victorious: bool) -> generals_sim::GameLogicResult<()> {
+        Err(generals_sim::GameLogicError::Configuration(
             "campaign victory requires its receiving CampaignManager".into(),
         ))
     }
@@ -74,8 +74,8 @@ pub(crate) trait ScriptUiEffects {
         _enabled: bool,
         _was_enabled: bool,
         _deselect: &mut dyn FnMut(u32),
-    ) -> gamelogic::GameLogicResult<()> {
-        Err(gamelogic::GameLogicError::Configuration(
+    ) -> generals_sim::GameLogicResult<()> {
+        Err(generals_sim::GameLogicError::Configuration(
             "receiving cinematic input service unavailable".into(),
         ))
     }
@@ -85,23 +85,23 @@ pub(crate) trait ScriptUiEffects {
 
     /// Apply C++ ScriptActions::winCreateFromScript at the next synchronous
     /// action-delivery boundary using the receiving client's window owner.
-    fn create_win_lose_window(&mut self, _layout_filename: &str) -> gamelogic::GameLogicResult<()> {
+    fn create_win_lose_window(&mut self, _layout_filename: &str) -> generals_sim::GameLogicResult<()> {
         Ok(())
     }
 
     /// Apply C++ ScriptActions::winDestroy to the receiving client's tracked
     /// message window, preserving callback order within the current action.
-    fn destroy_win_lose_window(&mut self) -> gamelogic::GameLogicResult<()> {
+    fn destroy_win_lose_window(&mut self) -> generals_sim::GameLogicResult<()> {
         Ok(())
     }
 
     /// C++ GameLogic::closeWindows, delivered before input disabling/window creation.
-    fn close_game_windows(&mut self) -> gamelogic::GameLogicResult<()> {
-        Err(gamelogic::GameLogicError::Configuration(
+    fn close_game_windows(&mut self) -> generals_sim::GameLogicResult<()> {
+        Err(generals_sim::GameLogicError::Configuration(
             "closeWindows requires its receiving GUI services".into(),
         ))
     }
-    fn flush_window_callbacks(&mut self) -> gamelogic::GameLogicResult<()> {
+    fn flush_window_callbacks(&mut self) -> generals_sim::GameLogicResult<()> {
         Ok(())
     }
 

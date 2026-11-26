@@ -22,7 +22,7 @@ impl GameLogic {
         id: ObjectId,
         birth: (u64, u64),
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         if self.spawn_identity_matches(id, birth.0, birth.1) {
             self.destroy_object_with_effects(id, effects)?;
         }
@@ -79,7 +79,7 @@ impl GameLogic {
         child_id: ObjectId,
         exit: SpawnExit,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<bool> {
+    ) -> generals_sim::GameLogicResult<bool> {
         let Some(owner) = self.host_object(exit_owner) else { return Ok(false) };
         let owner_birth = owner.visual_object_generation;
         let epoch = self.visual_world_epoch;
@@ -205,12 +205,12 @@ impl GameLogic {
             }
             SpawnExit::Railed => {
                 let config = self.railed_dock_config(exit_owner).ok_or_else(|| {
-                    gamelogic::GameLogicError::Configuration(
+                    generals_sim::GameLogicError::Configuration(
                         "railed spawn exit requires receiving RailedTransportDockUpdate module data".into()
                     )
                 })?;
                 self.railed_dock_unload(exit_owner, config, false, effects)
-                    .map_err(gamelogic::GameLogicError::Configuration)?;
+                    .map_err(generals_sim::GameLogicError::Configuration)?;
             }
         }
         Ok(self.spawn_identity_matches(exit_owner, owner_birth, epoch) && self.spawn_identity_matches(child_id, child_birth, epoch))
@@ -221,11 +221,11 @@ impl GameLogic {
         parent_id: ObjectId,
         spec: &HostSpawnBehaviorSpec,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<bool> {
+    ) -> generals_sim::GameLogicResult<bool> {
         if let Some(parent) = self.host_object(parent_id)
             && let Some(reason) = Self::unsupported_spawn_exit(parent.get_template())
         {
-            return Err(gamelogic::GameLogicError::Configuration(format!(
+            return Err(generals_sim::GameLogicError::Configuration(format!(
                 "Object '{}': SpawnBehavior exit unsupported: {reason}", parent.template_name
             )));
         }
@@ -254,7 +254,7 @@ impl GameLogic {
                 if let Some(owner) = self.host_object(producer)
                     && let Some(reason) = Self::unsupported_spawn_exit(owner.get_template())
                 {
-                    return Err(gamelogic::GameLogicError::Configuration(format!(
+                    return Err(generals_sim::GameLogicError::Configuration(format!(
                         "Object '{}': SpawnBehavior budding exit unsupported: {reason}", owner.template_name
                     )));
                 }
@@ -311,7 +311,7 @@ impl GameLogic {
     pub(crate) fn update_spawn_behavior_with_effects(
         &mut self,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         let epoch = self.visual_world_epoch;
         // GameLogic::update gates sleepy modules only on disabled flags, and
         // SpawnBehavior keeps UpdateModule's DISABLEDMASK_NONE
@@ -332,7 +332,7 @@ impl GameLogic {
             let Some(parent) = self.host_object(id) else { continue };
             let Some(spec) = Self::authored_spawn_behavior_data(parent.get_template()) else { continue };
             if let Some(reason) = Self::unsupported_spawn_exit(parent.get_template()) {
-                return Err(gamelogic::GameLogicError::Configuration(format!(
+                return Err(generals_sim::GameLogicError::Configuration(format!(
                     "Object '{}': SpawnBehavior exit unsupported: {reason}", parent.template_name
                 )));
             }
@@ -346,7 +346,7 @@ impl GameLogic {
                 && producer.is_kind_of(KindOf::Structure)
                 && let Some(reason) = Self::unsupported_spawn_exit(producer.get_template())
             {
-                return Err(gamelogic::GameLogicError::Configuration(format!(
+                return Err(generals_sim::GameLogicError::Configuration(format!(
                     "Object '{}': SpawnBehavior budding exit unsupported: {reason}", producer.template_name
                 )));
             }

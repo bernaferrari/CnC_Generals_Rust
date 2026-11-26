@@ -18,7 +18,7 @@ impl GameLogic {
     pub(in super::super) fn update_match_ai_with_effects(
         &mut self,
         ui: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         // AIStates.cpp:2052-2085 updates the selected object goal during
         // object AI; AI.cpp:332 then consumes its path queue. Re-read the
         // driving object here so queued work sees this frame's goal pose.
@@ -34,7 +34,7 @@ impl GameLogic {
     pub(in super::super) fn update_match_ai_with_ui(
         &mut self,
         ui: &mut Option<&mut dyn crate::game_logic::ScriptUiEffects>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         let mut effects = crate::game_logic::ScriptPresentationEffects {
             pristine_bones: None,
             script_events: None,

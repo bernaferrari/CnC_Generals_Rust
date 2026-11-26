@@ -118,11 +118,11 @@ pub fn resolve_first_map(candidates: &[&str]) -> Option<(String, PathBuf)> {
 pub fn run_map_frame_scenario(
     map_name: Option<&str>,
     frames: u32,
-) -> gamelogic::GameLogicResult<MapFrameScenarioResult> {
+) -> generals_sim::GameLogicResult<MapFrameScenarioResult> {
     let frames = frames.max(1);
     let mut logic = GameLogic::new();
     crate::cnc_game_engine::start_standalone_game(&mut logic, GameMode::Skirmish)
-        .map_err(gamelogic::GameLogicError::Configuration)?;
+        .map_err(generals_sim::GameLogicError::Configuration)?;
 
     let resolved = match map_name {
         Some(name) => {

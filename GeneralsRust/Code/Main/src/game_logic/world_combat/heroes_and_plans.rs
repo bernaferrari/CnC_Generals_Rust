@@ -453,7 +453,7 @@ impl GameLogic {
     /// - an AmericaParachute container (C++ onDie on the chute Object).
     ///
     /// Returns true when residual applied to at least one rider/pilot.
-    pub fn destroy_eject_parachute_midair(&mut self, id: ObjectId) -> gamelogic::GameLogicResult<bool> {
+    pub fn destroy_eject_parachute_midair(&mut self, id: ObjectId) -> generals_sim::GameLogicResult<bool> {
         self.destroy_eject_parachute_midair_with_effects(
             id,
             &mut crate::game_logic::ScriptPresentationEffects::default(),
@@ -464,7 +464,7 @@ impl GameLogic {
         &mut self,
         id: ObjectId,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<bool> {
+    ) -> generals_sim::GameLogicResult<bool> {
         use crate::game_logic::host_car_bomb::HIJACKER_PARACHUTE_NAME;
         use crate::game_logic::host_usa_pilot::{
             HostDeathType, PILOT_FREE_FALL_DAMAGE_AUDIO, free_fall_damage_amount,
@@ -531,7 +531,7 @@ impl GameLogic {
         &mut self,
         rider_id: ObjectId,
         eject_pos: glam::Vec3,
-    ) -> gamelogic::GameLogicResult<bool> {
+    ) -> generals_sim::GameLogicResult<bool> {
         self.apply_rider_free_fall_damage_with_effects(
             rider_id,
             eject_pos,
@@ -544,7 +544,7 @@ impl GameLogic {
         rider_id: ObjectId,
         eject_pos: glam::Vec3,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<bool> {
+    ) -> generals_sim::GameLogicResult<bool> {
         use crate::game_logic::host_usa_pilot::{
             HostDeathType, PILOT_FREE_FALL_DAMAGE_AUDIO, free_fall_damage_amount,
             should_apply_parachute_free_fall_damage,
@@ -663,7 +663,7 @@ impl GameLogic {
     /// Also ticks TurretAI idle-scan residual for Bombardment ACTIVE centers.
     pub(in super::super) fn tick_battle_plan_door_residuals(
         &mut self,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         self.tick_battle_plan_door_residuals_with_effects(
             &mut crate::game_logic::ScriptPresentationEffects::default(),
         )
@@ -672,7 +672,7 @@ impl GameLogic {
     pub(in super::super) fn tick_battle_plan_door_residuals_with_effects(
         &mut self,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         use crate::game_logic::host_strategy_center::{
             HostBattlePlanDoorEvent, step_turret_toward_natural,
         };
@@ -1631,7 +1631,7 @@ impl GameLogic {
     }
 
     /// C++ CleanupHazardUpdate::update — drive first, then scan/spray until clean.
-    pub fn update_cleanup_area_orders(&mut self) -> gamelogic::GameLogicResult<()> {
+    pub fn update_cleanup_area_orders(&mut self) -> generals_sim::GameLogicResult<()> {
         self.update_cleanup_area_orders_with_effects(
             &mut crate::game_logic::ScriptPresentationEffects::default(),
         )
@@ -1640,7 +1640,7 @@ impl GameLogic {
     pub(crate) fn update_cleanup_area_orders_with_effects(
         &mut self,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         use crate::game_logic::host_cleanup_area::{
             HOST_CLEANUP_ARRIVE_DISTANCE, HOST_CLEANUP_SCAN_RANGE,
             HOST_CLEANUP_WEAPON_ATTACK_RANGE, HOST_CLEANUP_WEAPON_DELAY_FRAMES,
@@ -1778,7 +1778,7 @@ impl GameLogic {
         player_id: u32,
         location: Vec3,
         caster_id: Option<ObjectId>,
-    ) -> gamelogic::GameLogicResult<bool> {
+    ) -> generals_sim::GameLogicResult<bool> {
         self.apply_cleanup_area_at_with_effects(
             player_id,
             location,
@@ -1793,7 +1793,7 @@ impl GameLogic {
         location: Vec3,
         caster_id: Option<ObjectId>,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<bool> {
+    ) -> generals_sim::GameLogicResult<bool> {
         use crate::game_logic::host_cleanup_area::{
             CLEANUP_AREA_ACTIVATE_AUDIO, CLEANUP_AREA_HAZARD_AUDIO, CLEANUP_AREA_MINE_AUDIO,
             HOST_CLEANUP_AREA_RADIUS, HostCleanupArea,
@@ -1982,7 +1982,7 @@ impl GameLogic {
         Some(pid)
     }
 
-    pub fn update_cleanup_stream_projectiles(&mut self) -> gamelogic::GameLogicResult<()> {
+    pub fn update_cleanup_stream_projectiles(&mut self) -> generals_sim::GameLogicResult<()> {
         self.update_cleanup_stream_projectiles_with_effects(
             &mut crate::game_logic::ScriptPresentationEffects::default(),
         )
@@ -1991,7 +1991,7 @@ impl GameLogic {
     pub(crate) fn update_cleanup_stream_projectiles_with_effects(
         &mut self,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         use crate::game_logic::host_cleanup_area::{
             CLEANUP_STREAM_MISSILE_TURN_DISTANCE, HOST_CLEANUP_PROJECTILE_STREAM,
             cleanup_stream_missile_step_speed,
@@ -2185,7 +2185,7 @@ impl GameLogic {
         Some(pid)
     }
 
-    pub fn update_angry_mob_projectiles(&mut self) -> gamelogic::GameLogicResult<()> {
+    pub fn update_angry_mob_projectiles(&mut self) -> generals_sim::GameLogicResult<()> {
         self.update_angry_mob_projectiles_with_effects(
             &mut crate::game_logic::ScriptPresentationEffects::default(),
         )
@@ -2194,7 +2194,7 @@ impl GameLogic {
     pub(crate) fn update_angry_mob_projectiles_with_effects(
         &mut self,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         use crate::game_logic::host_angry_mob::{
             AngryMobProjectileKind, angry_mob_projectile_bezier_point,
             angry_mob_projectile_damage_at,
@@ -2293,7 +2293,7 @@ impl GameLogic {
         source: Option<ObjectId>,
         intended_target: Option<ObjectId>,
         kind: crate::game_logic::host_angry_mob::AngryMobProjectileKind,
-    ) -> gamelogic::GameLogicResult<(u32, bool)> {
+    ) -> generals_sim::GameLogicResult<(u32, bool)> {
         self.apply_angry_mob_projectile_at_with_effects(
             impact,
             source,
@@ -2310,7 +2310,7 @@ impl GameLogic {
         intended_target: Option<ObjectId>,
         kind: crate::game_logic::host_angry_mob::AngryMobProjectileKind,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<(u32, bool)> {
+    ) -> generals_sim::GameLogicResult<(u32, bool)> {
         use crate::game_logic::host_angry_mob::{
             ANGRY_MOB_MOLOTOV_DAMAGE_TYPE, ANGRY_MOB_MOLOTOV_DEATH_TYPE,
             ANGRY_MOB_ROCK_DAMAGE_TYPE, ANGRY_MOB_ROCK_DEATH_TYPE, AngryMobProjectileKind,
@@ -2434,7 +2434,7 @@ impl GameLogic {
         location: Vec3,
         caster_id: Option<ObjectId>,
         level: crate::game_logic::host_emergency_repair::HostEmergencyRepairLevel,
-    ) -> gamelogic::GameLogicResult<bool> {
+    ) -> generals_sim::GameLogicResult<bool> {
         self.activate_emergency_repair_with_effects(
             player_id,
             location,
@@ -2451,7 +2451,7 @@ impl GameLogic {
         caster_id: Option<ObjectId>,
         level: crate::game_logic::host_emergency_repair::HostEmergencyRepairLevel,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<bool> {
+    ) -> generals_sim::GameLogicResult<bool> {
         use crate::game_logic::host_emergency_repair::{
             EMERGENCY_REPAIR_ACTIVATE_AUDIO, HOST_EMERGENCY_REPAIR_RADIUS, HostEmergencyRepair,
             emergency_repair_is_ally, in_emergency_repair_radius_2d,

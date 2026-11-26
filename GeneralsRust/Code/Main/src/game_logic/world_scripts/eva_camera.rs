@@ -614,9 +614,9 @@ impl GameLogic {
         &mut self,
         position: Vec3,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         if !position.is_finite() {
-            return Err(gamelogic::GameLogicError::Configuration(
+            return Err(generals_sim::GameLogicError::Configuration(
                 "nonfinite receiving LookAt".into(),
             ));
         }
@@ -634,7 +634,7 @@ impl GameLogic {
             world.pending_camera_focus = Some(position);
             Ok(())
         })
-        .map_err(gamelogic::GameLogicError::Configuration)
+        .map_err(generals_sim::GameLogicError::Configuration)
     }
 
     /// Source waypoint movement saves the old logical View position before
@@ -731,7 +731,7 @@ impl GameLogic {
         &mut self,
         position: Vec3,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         self.cancel_scripted_camera_from_player_look_at();
         self.request_camera_focus_with_effects(position, effects)
     }

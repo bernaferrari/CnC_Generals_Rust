@@ -331,7 +331,7 @@ impl GameLogic {
     /// Leftover queues [`gamelogic::scripting::HostScriptBoobytrapRequest`].
     pub(super) fn apply_host_boobytrap_script_requests(
         &mut self,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         self.apply_host_boobytrap_script_requests_with_effects(None, &mut Default::default())
     }
 
@@ -339,7 +339,7 @@ impl GameLogic {
         &mut self,
         interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         use gamelogic::scripting::HostScriptBoobytrapRequest;
         for req in gamelogic::scripting::take_host_script_boobytrap_requests() {
             match req {
@@ -386,7 +386,7 @@ impl GameLogic {
     pub(in crate::game_logic::game_logic) fn apply_host_unmanned_script_requests_with_effects(
         &mut self,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         for request in gamelogic::scripting::take_host_script_unmanned_requests() {
             self.apply_owned_script_unmanned_request(&request, None, None, None, effects)?;
         }
@@ -400,7 +400,7 @@ impl GameLogic {
         calling_team: Option<u32>,
         condition_team: Option<u32>,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         use gamelogic::scripting::HostScriptUnmannedRequest as Request;
         let targets: Vec<_> = match request {
             Request::Named { unit } => {
@@ -445,7 +445,7 @@ impl GameLogic {
         &mut self,
         id: ObjectId,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         let Some(object) = self.objects.get_mut(&id) else {
             return Ok(());
         };
@@ -557,7 +557,7 @@ impl GameLogic {
         &mut self,
         thing: &str,
         target_id: ObjectId,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         self.host_script_plant_boobytrap_with_effects(
             thing,
             target_id,
@@ -572,7 +572,7 @@ impl GameLogic {
         target_id: ObjectId,
         interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         self.create_script_sticky_bomb_with_effects(thing, target_id, interpreter, effects)?;
         Ok(())
     }
@@ -993,7 +993,7 @@ impl GameLogic {
         calling: Option<u32>,
         condition: Option<u32>,
         interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         self.apply_owned_script_create_object_with_effects(
             request,
             calling,
@@ -1010,7 +1010,7 @@ impl GameLogic {
         condition: Option<u32>,
         interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
         ui: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         let mut created_identity = None;
         let resolved = self.resolve_owned_script_team(request.team, calling, condition)?;
         let team_id = if let Some((id, _)) = resolved {
@@ -1023,7 +1023,7 @@ impl GameLogic {
             let creation = self
                 .team_factory
                 .lock()
-                .map_err(|error| gamelogic::GameLogicError::Threading(error.to_string()))?
+                .map_err(|error| generals_sim::GameLogicError::Threading(error.to_string()))?
                 .create_inactive_team_with_owned_effects(request.team);
             let Some((team, effects)) = creation else {
                 return Ok(());
@@ -1031,7 +1031,7 @@ impl GameLogic {
             let id = {
                 let team = team
                     .read()
-                    .map_err(|error| gamelogic::GameLogicError::Threading(error.to_string()))?;
+                    .map_err(|error| generals_sim::GameLogicError::Threading(error.to_string()))?;
                 team.get_id()
             };
             created_identity = Some(team.clone());
@@ -1039,7 +1039,7 @@ impl GameLogic {
             if let Some(current) = self
                 .team_factory
                 .lock()
-                .map_err(|error| gamelogic::GameLogicError::Threading(error.to_string()))?
+                .map_err(|error| generals_sim::GameLogicError::Threading(error.to_string()))?
                 .find_team_by_id(id)
             {
                 if !std::sync::Arc::ptr_eq(&current, &team) {
@@ -1047,7 +1047,7 @@ impl GameLogic {
                 }
                 current
                     .write()
-                    .map_err(|error| gamelogic::GameLogicError::Threading(error.to_string()))?
+                    .map_err(|error| generals_sim::GameLogicError::Threading(error.to_string()))?
                     .set_active();
             }
             id
@@ -1056,7 +1056,7 @@ impl GameLogic {
         let identity = self
             .team_factory
             .lock()
-            .map_err(|error| gamelogic::GameLogicError::Threading(error.to_string()))?
+            .map_err(|error| generals_sim::GameLogicError::Threading(error.to_string()))?
             .find_team_by_id(team_id)
             .filter(|current| {
                 created_identity
@@ -1398,7 +1398,7 @@ impl GameLogic {
         team: &str,
         button: &str,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         // C++ findCommandButton + command-type switch before any unit is armed.
         // Leftover `command_button_is_hunt_capable` is the same gate.
         if !self.leftover_command_button_is_hunt_capable(button) {
@@ -1438,7 +1438,7 @@ impl GameLogic {
         name: &str,
         calling: Option<u32>,
         condition: Option<u32>,
-    ) -> gamelogic::GameLogicResult<Vec<ObjectId>> {
+    ) -> generals_sim::GameLogicResult<Vec<ObjectId>> {
         Ok(self
             .resolve_owned_script_team(name, calling, condition)?
             .map(|(_, members)| members.into_iter().map(ObjectId).collect())
@@ -1451,7 +1451,7 @@ impl GameLogic {
         calling: Option<u32>,
         condition: Option<u32>,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         let Some((_, members)) = self.resolve_owned_script_team(team, calling, condition)? else {
             return Ok(());
         };
@@ -1517,7 +1517,7 @@ impl GameLogic {
         calling: Option<u32>,
         condition: Option<u32>,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         use gamelogic::scripting::HostScriptGarrisonEnterExitRequest;
 
         match req {
@@ -1640,7 +1640,7 @@ impl GameLogic {
         &mut self,
         unit: ObjectId,
         dest: ObjectId,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         use crate::game_logic::AIState;
         if !self
             .host_object(unit)
@@ -1667,7 +1667,7 @@ impl GameLogic {
         }
         Ok(())
     }
-    pub(super) fn host_script_ai_evacuate(&mut self, id: ObjectId) -> gamelogic::GameLogicResult<()> {
+    pub(super) fn host_script_ai_evacuate(&mut self, id: ObjectId) -> generals_sim::GameLogicResult<()> {
         self.host_script_ai_evacuate_with_effects(id, &mut Default::default())
     }
 
@@ -1675,7 +1675,7 @@ impl GameLogic {
         &mut self,
         id: ObjectId,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         self.host_object_leave_group(id);
         let _ = self.apply_unit_locomotor_set(id, "normal");
         self.evacuate_container_now_with_effects(id, false, effects)?;
@@ -1749,7 +1749,7 @@ impl GameLogic {
         team: &str,
         calling: Option<u32>,
         condition: Option<u32>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         use crate::game_logic::KindOf;
         let Some((team_id, members)) = self.resolve_owned_script_team(team, calling, condition)?
         else {
@@ -1757,13 +1757,13 @@ impl GameLogic {
         };
         let player_id = {
             let factory = self.team_factory.lock().map_err(|error| {
-                gamelogic::GameLogicError::Threading(error.to_string())
+                generals_sim::GameLogicError::Threading(error.to_string())
             })?;
             let Some(team) = factory.find_team_by_id(team_id) else {
                 return Ok(());
             };
             let team = team.read().map_err(|error| {
-                gamelogic::GameLogicError::Threading(error.to_string())
+                generals_sim::GameLogicError::Threading(error.to_string())
             })?;
             team.get_controlling_player_id()
         };
@@ -1837,7 +1837,7 @@ impl GameLogic {
     pub(super) fn host_script_named_garrison_nearest(
         &mut self,
         unit: &str,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         if let Some(id) = self.host_object_id_by_script_name(unit) {
             self.host_script_garrison_nearest_for_object(id)?;
         }
@@ -1847,7 +1847,7 @@ impl GameLogic {
     pub(super) fn host_script_garrison_nearest_for_object(
         &mut self,
         unit_id: ObjectId,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         use crate::game_logic::KindOf;
         let Some((unit_pos, unit_off_map, unit_is_hacker, player_id)) =
             self.host_object(unit_id).map(|obj| {
@@ -1902,7 +1902,7 @@ impl GameLogic {
     pub(super) fn host_script_player_garrison_all(
         &mut self,
         player: &str,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         use crate::game_logic::KindOf;
         let Some(pid) = self.host_player_id_for_script_token(player) else {
             return Ok(());
@@ -1949,7 +1949,7 @@ impl GameLogic {
         Ok(())
     }
 
-    pub(super) fn host_script_player_exit_all(&mut self, player: &str) -> gamelogic::GameLogicResult<()> {
+    pub(super) fn host_script_player_exit_all(&mut self, player: &str) -> generals_sim::GameLogicResult<()> {
         self.host_script_player_exit_all_with_effects(player, &mut Default::default())
     }
 
@@ -1957,7 +1957,7 @@ impl GameLogic {
         &mut self,
         player: &str,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         use crate::game_logic::KindOf;
         let Some(pid) = self.host_player_id_for_script_token(player) else {
             return Ok(());
@@ -2399,7 +2399,7 @@ impl GameLogic {
         condition: Option<u32>,
         force_normal: bool,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         let Some(id) = self.owned_named_script_object(unit, this_object) else {
             return Ok(());
         };
@@ -2425,7 +2425,7 @@ impl GameLogic {
         team_id: u32,
         force_normal: bool,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         if self.unit_refuses_ai_orders(id) {
             return Ok(());
         }
@@ -2464,7 +2464,7 @@ impl GameLogic {
         unit_id: ObjectId,
         victim_team: &str,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         if self.unit_refuses_ai_orders(unit_id) {
             return Ok(());
         }
@@ -2500,7 +2500,7 @@ impl GameLogic {
         unit: &str,
         area: &str,
         this_object: Option<ObjectId>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         let Some(id) = self.owned_named_script_object(unit, this_object) else {
             return Ok(());
         };
@@ -2512,7 +2512,7 @@ impl GameLogic {
         id: ObjectId,
         area: &str,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         if self.host_named_guard_area_polygon(area).is_none()
             || !self
                 .host_object(id)
@@ -2530,7 +2530,7 @@ impl GameLogic {
         &mut self,
         unit_id: ObjectId,
         area_name: &str,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         self.host_script_attack_area_with_effects(unit_id, area_name, &mut Default::default())
     }
 
@@ -2539,7 +2539,7 @@ impl GameLogic {
         unit_id: ObjectId,
         area_name: &str,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         if self.unit_refuses_ai_orders(unit_id) {
             return Ok(());
         }

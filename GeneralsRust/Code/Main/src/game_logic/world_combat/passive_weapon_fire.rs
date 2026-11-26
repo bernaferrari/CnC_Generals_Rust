@@ -26,7 +26,7 @@ impl GameLogic {
         slot: u8,
         origin: Vec3,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<bool> {
+    ) -> generals_sim::GameLogicResult<bool> {
         let Some(victim) = self.objects.get(&target).filter(|o| o.is_alive()) else {
             return Ok(false);
         };

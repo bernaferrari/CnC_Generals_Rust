@@ -11,7 +11,7 @@ impl GameLogic {
         row_index: usize,
         authored: &HostAuthoredBuild,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<Option<ObjectId>> {
+    ) -> generals_sim::GameLogicResult<Option<ObjectId>> {
         if !authored.initially_built
             || self
                 .get_player(player)
@@ -69,7 +69,7 @@ impl GameLogic {
         properties.set_int(key_object_initial_health(), completion.health_percent);
         properties.set_bool(key_object_unsellable(), completion.unsellable);
         self.apply_update_obj_values_from_map_properties_with_effects(id, &properties, effects)
-            .map_err(gamelogic::GameLogicError::Configuration)?;
+            .map_err(generals_sim::GameLogicError::Configuration)?;
         if !self.object_birth_matches(id, &birth) {
             return Ok(None);
         }
@@ -81,7 +81,7 @@ impl GameLogic {
                 .iter_mut()
                 .find(|row| row.runtime_visit_token == row_token)
         }) else {
-            return Err(gamelogic::GameLogicError::Configuration(
+            return Err(generals_sim::GameLogicError::Configuration(
                 "campaign initial construction lost its authored BuildList row".into(),
             ));
         };

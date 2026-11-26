@@ -1081,41 +1081,7 @@ impl AiCommandInterface for AiGroup {
     }
 }
 
-// AI error types
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum AiError {
-    InvalidObject,
-    EmptyGroup,
-    InvalidCommand,
-    PathfindingFailed,
-    NoPathfinder,
-    InvalidTarget,
-    LockFailed,
-    NotInitialized,
-}
-
-impl std::fmt::Display for AiError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            AiError::InvalidObject => write!(f, "Invalid object"),
-            AiError::EmptyGroup => write!(f, "Empty group"),
-            AiError::InvalidCommand => write!(f, "Invalid command"),
-            AiError::PathfindingFailed => write!(f, "Pathfinding failed"),
-            AiError::NoPathfinder => write!(f, "No pathfinder available"),
-            AiError::InvalidTarget => write!(f, "Invalid target"),
-            AiError::LockFailed => write!(f, "Lock failed"),
-            AiError::NotInitialized => write!(f, "AI integration not initialized"),
-        }
-    }
-}
-
-impl std::error::Error for AiError {}
-
-impl From<String> for AiError {
-    fn from(_: String) -> Self {
-        AiError::PathfindingFailed
-    }
-}
+pub use generals_sim::error::AiError;
 
 // Main AI subsystem
 /// Matches C++ AI.cpp TheAI singleton

@@ -1,7 +1,7 @@
 //! Installed-actor StateMachine::clear and base Idle admission.
 use super::*;
 use crate::game_logic::{AIState, GameLogic, GuardChasePhase, ObjectId};
-use gamelogic::{GameLogicError, GameLogicResult};
+use generals_sim::{GameLogicError, GameLogicResult};
 use glam::Vec3;
 
 #[derive(PartialEq, Eq)]
@@ -398,7 +398,7 @@ impl GameLogic {
     pub(crate) fn complete_attack_move_child_attack_owned(
         &mut self,
         id: ObjectId,
-    ) -> gamelogic::GameLogicResult<bool> {
+    ) -> generals_sim::GameLogicResult<bool> {
         let Some(unit) = self.objects.get(&id) else {
             return Ok(false);
         };
@@ -425,7 +425,7 @@ impl GameLogic {
             .get_mut(&id)
             .filter(|unit| std::sync::Arc::ptr_eq(&unit.visual_draw_identity_token, &birth))
         else {
-            return Err(gamelogic::GameLogicError::Configuration(
+            return Err(generals_sim::GameLogicError::Configuration(
                 "AttackMove child exit lost its receiving actor".into(),
             ));
         };
@@ -437,7 +437,7 @@ impl GameLogic {
         unit.set_status_moving(false);
         unit.set_locomotor_goal_none();
         if !self.enter_ai_idle_child_from_result_owned(id) {
-            return Err(gamelogic::GameLogicError::Configuration(
+            return Err(generals_sim::GameLogicError::Configuration(
                 "AttackMove child could not re-enter Idle".into(),
             ));
         }
@@ -454,7 +454,7 @@ impl GameLogic {
             .get(&id)
             .is_some_and(|unit| std::sync::Arc::ptr_eq(&unit.visual_draw_identity_token, &birth))
         {
-            return Err(gamelogic::GameLogicError::Configuration(
+            return Err(generals_sim::GameLogicError::Configuration(
                 "AttackMove child resume lost its receiving actor".into(),
             ));
         }

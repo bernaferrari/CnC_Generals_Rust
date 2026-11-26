@@ -32,7 +32,7 @@ impl GameLogic {
         dt: f32,
         tree_move_frame: u32,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         // C++ WorkerAIUpdate.cpp:283-287 — harvest path arms
         // WEAPONSET_MINE_CLEARING_DETAIL so GLA workers can be
         // diverted onto mines while ferrying.
@@ -300,7 +300,7 @@ impl GameLogic {
         can_move: bool,
         is_alive: bool,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         self.arm_worker_harvest_mine_clearing(object_id);
         if !self.collector_available_for_supplying(object_id) {
             self.set_ai_state_decision_aware_with_effects(object_id, AIState::Idle, effects)?;
@@ -617,7 +617,7 @@ impl GameLogic {
         is_alive: bool,
         tree_move_frame: u32,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         // Aircraft parking: C++ JetTakeoffOrLandingState reserves the
         // stall-column runway and keeps the hangar when
         // KeepsParkingSpaceWhenAirborne (JetAIUpdate.cpp:1630, 897-900).

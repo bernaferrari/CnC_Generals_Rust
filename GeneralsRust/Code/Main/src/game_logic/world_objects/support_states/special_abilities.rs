@@ -200,7 +200,7 @@ impl GameLogic {
     pub(super) fn abort_capture_channel(
         &mut self,
         object_id: ObjectId,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         if let Some(object) = self.objects.get_mut(&object_id) {
             object.stop_moving(&mut crate::game_logic::ObjectAudio::queue(
                 &mut self.queued_audio_events,
@@ -227,7 +227,7 @@ impl GameLogic {
     pub(super) fn finish_capture_channel(
         &mut self,
         object_id: ObjectId,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         if let Some(object) = self.objects.get_mut(&object_id) {
             object.stop_moving(&mut crate::game_logic::ObjectAudio::queue(
                 &mut self.queued_audio_events,
@@ -932,7 +932,7 @@ impl GameLogic {
         &mut self,
         object_id: ObjectId,
         ability: crate::game_logic::PendingSpecialAbility,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         self.update_helix_napalm_bomb_channel_with_effects(
             object_id,
             ability,
@@ -945,7 +945,7 @@ impl GameLogic {
         object_id: ObjectId,
         ability: crate::game_logic::PendingSpecialAbility,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         use crate::command_system::SpecialPowerType;
         use crate::game_logic::host_helix_napalm::helix_napalm_in_start_range;
 
@@ -1482,7 +1482,7 @@ impl GameLogic {
         planter_id: ObjectId,
         target_id: ObjectId,
         planter_team: crate::game_logic::Team,
-    ) -> gamelogic::GameLogicResult<bool> {
+    ) -> generals_sim::GameLogicResult<bool> {
         self.leftover_probe_booby_at_target_with_effects(
             planter_id,
             target_id,
@@ -1497,7 +1497,7 @@ impl GameLogic {
         target_id: ObjectId,
         _planter_team: crate::game_logic::Team,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<bool> {
+    ) -> generals_sim::GameLogicResult<bool> {
         let trap_position = self.objects.get(&target_id).map(|t| t.get_position());
         // C++ Object::checkAndDetonateBoobyTrap gates on the object's status
         // bit. The registry carries planter/charge metadata, not trap authority.
@@ -1539,7 +1539,7 @@ impl GameLogic {
         &mut self,
         container_id: ObjectId,
         rider_id: ObjectId,
-    ) -> gamelogic::GameLogicResult<bool> {
+    ) -> generals_sim::GameLogicResult<bool> {
         self.should_cancel_containment_after_booby_trap_with_effects(
             container_id,
             rider_id,
@@ -1552,7 +1552,7 @@ impl GameLogic {
         container_id: ObjectId,
         rider_id: ObjectId,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<bool> {
+    ) -> generals_sim::GameLogicResult<bool> {
         let Some(rider_team) = self.objects.get(&rider_id).map(|r| r.team) else {
             return Ok(false);
         };
@@ -1738,7 +1738,7 @@ impl GameLogic {
         target_id: ObjectId,
         kind: crate::game_logic::host_hero_abilities::LeftoverSaKind,
         dt: f32,
-    ) -> gamelogic::GameLogicResult<LeftoverSaTick> {
+    ) -> generals_sim::GameLogicResult<LeftoverSaTick> {
         self.tick_leftover_special_ability_with_effects(
             object_id,
             target_id,
@@ -1755,7 +1755,7 @@ impl GameLogic {
         kind: crate::game_logic::host_hero_abilities::LeftoverSaKind,
         dt: f32,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<LeftoverSaTick> {
+    ) -> generals_sim::GameLogicResult<LeftoverSaTick> {
         use crate::game_logic::host_hero_abilities::{
             LeftoverSaChannel, LeftoverSaPhase, leftover_should_unstealth_during_unpack,
         };
@@ -1960,7 +1960,7 @@ impl GameLogic {
         target_id: ObjectId,
         kind: crate::game_logic::host_hero_abilities::LeftoverSaKind,
         pack_ms: u32,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         self.leftover_begin_packing_with_effects(
             object_id,
             target_id,
@@ -1977,7 +1977,7 @@ impl GameLogic {
         kind: crate::game_logic::host_hero_abilities::LeftoverSaKind,
         pack_ms: u32,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         use crate::game_logic::host_hero_abilities::{LeftoverSaChannel, LeftoverSaPhase};
         self.stop_lotus_prep_sound_loop(object_id);
         self.leftover_kill_special_objects_with_effects(object_id, effects);
@@ -2261,7 +2261,7 @@ impl GameLogic {
         &mut self,
         rider_id: ObjectId,
         container_id: ObjectId,
-    ) -> gamelogic::GameLogicResult<bool> {
+    ) -> generals_sim::GameLogicResult<bool> {
         self.rider_change_enter_at_arrival_with_effects(
             rider_id,
             container_id,
@@ -2274,7 +2274,7 @@ impl GameLogic {
         rider_id: ObjectId,
         container_id: ObjectId,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<bool> {
+    ) -> generals_sim::GameLogicResult<bool> {
         self.rider_change_enter_with_effects(rider_id, container_id, false, effects)
     }
 
@@ -2283,7 +2283,7 @@ impl GameLogic {
         rider_id: ObjectId,
         container_id: ObjectId,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<bool> {
+    ) -> generals_sim::GameLogicResult<bool> {
         self.rider_change_enter_with_effects(rider_id, container_id, true, effects)
     }
 
@@ -2293,7 +2293,7 @@ impl GameLogic {
         container_id: ObjectId,
         initial_payload: bool,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<bool> {
+    ) -> generals_sim::GameLogicResult<bool> {
         let tree_move_frame = self.frame;
         let veterancy_health_bonus = self.veterancy_health_bonus;
         let Some(plan) = self.rider_change_enter_plan(rider_id, container_id, initial_payload) else {
@@ -2853,7 +2853,7 @@ impl GameLogic {
         &mut self,
         container_id: ObjectId,
         entering_id: ObjectId,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         self.eject_foreign_occupants_on_enter_with_effects(
             container_id,
             entering_id,
@@ -2865,7 +2865,7 @@ impl GameLogic {
         container_id: ObjectId,
         entering_id: ObjectId,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         if self.objects.get(&container_id).is_some_and(|container| {
             container.thing().template.contain_module.kind == crate::game_logic::ContainModuleKind::RailedTransport
         }) {
@@ -2923,14 +2923,14 @@ impl GameLogic {
     pub(super) fn evacuate_garrison_for_capture(
         &mut self,
         structure_id: ObjectId,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         self.evacuate_garrison_for_capture_with_effects(structure_id, &mut Default::default())
     }
     pub(super) fn evacuate_garrison_for_capture_with_effects(
         &mut self,
         structure_id: ObjectId,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         let Some((position, occupants)) = self
             .objects
             .get(&structure_id)
@@ -2966,7 +2966,7 @@ impl GameLogic {
         target_id: ObjectId,
         power: crate::game_logic::CapturePowerKind,
         preparation_time_ms: u32,
-    ) -> gamelogic::GameLogicResult<bool> {
+    ) -> generals_sim::GameLogicResult<bool> {
         self.start_capture_preparation_with_effects(
             object_id,
             target_id,
@@ -2983,7 +2983,7 @@ impl GameLogic {
         power: crate::game_logic::CapturePowerKind,
         preparation_time_ms: u32,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<bool> {
+    ) -> generals_sim::GameLogicResult<bool> {
         let Some(power_type) = power.special_power_type() else {
             return Ok(false);
         };
@@ -3104,7 +3104,7 @@ impl GameLogic {
     fn finish_hacker_disable_building_channel(
         &mut self,
         object_id: ObjectId,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         self.finish_hacker_disable_building_channel_with_effects(object_id, &mut Default::default())
     }
 
@@ -3112,7 +3112,7 @@ impl GameLogic {
         &mut self,
         object_id: ObjectId,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         self.stop_hacker_disable_prep_sound_loop(object_id);
         self.leftover_kill_special_objects_with_effects(object_id, effects);
         self.pending_special_abilities.remove(&object_id);
@@ -3140,7 +3140,7 @@ impl GameLogic {
         object_id: ObjectId,
         target_id: ObjectId,
         pack_time_ms: u32,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         self.begin_hacker_disable_building_packing_with_effects(
             object_id,
             target_id,
@@ -3155,7 +3155,7 @@ impl GameLogic {
         target_id: ObjectId,
         pack_time_ms: u32,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         self.stop_hacker_disable_prep_sound_loop(object_id);
         self.leftover_kill_special_objects_with_effects(object_id, effects);
         let mut finish_now = false;
@@ -3420,7 +3420,7 @@ impl GameLogic {
         object_id: ObjectId,
         target_id: ObjectId,
         metadata: &crate::game_logic::HackerDisableBuildingMetadata,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         self.trigger_hacker_disable_building_with_effects(
             object_id,
             target_id,
@@ -3435,7 +3435,7 @@ impl GameLogic {
         target_id: ObjectId,
         metadata: &crate::game_logic::HackerDisableBuildingMetadata,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         let duration_frames =
             ((metadata.effect_duration_ms as u64 * 30 + 999) / 1_000).min(u32::MAX as u64) as u32;
         let until = self.frame.saturating_add(duration_frames);
@@ -3511,7 +3511,7 @@ impl GameLogic {
         object_id: ObjectId,
         pending_target_id: ObjectId,
         dt: f32,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         self.update_hacker_disable_building_channel_with_effects(
             object_id,
             pending_target_id,
@@ -3526,7 +3526,7 @@ impl GameLogic {
         pending_target_id: ObjectId,
         dt: f32,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         const COMPLETE_EPSILON: f32 = 0.000_1;
 
         let Some((metadata, channel)) = self.objects.get(&object_id).and_then(|object| {

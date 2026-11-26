@@ -72,7 +72,7 @@ impl GameLogic {
         unit_id: ObjectId,
         victim_id: ObjectId,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<AttackMachineResult> {
+    ) -> generals_sim::GameLogicResult<AttackMachineResult> {
         Ok({
             {
                 let Some(u) = self.objects.get(&unit_id) else {
@@ -220,7 +220,7 @@ impl GameLogic {
         current_time: f32,
         logic_frame: u32,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         let mut stop: Vec<ObjectId> = Vec::new();
         for &id in object_ids {
             let (drive, victim) = {
@@ -299,7 +299,7 @@ impl GameLogic {
                         self.enter_ai_idle_child_owned(id)
                     };
                     if !entered {
-                        return Err(gamelogic::GameLogicError::Configuration(
+                        return Err(generals_sim::GameLogicError::Configuration(
                             "nested attack could not return to its parent Idle child".into(),
                         ));
                     }
@@ -308,7 +308,7 @@ impl GameLogic {
                     AIState::Idle,
                     presentation_effects,
                 )? {
-                    return Err(gamelogic::GameLogicError::Configuration(
+                    return Err(generals_sim::GameLogicError::Configuration(
                         "completed attack lost its receiving actor before Idle entry".into(),
                     ));
                 }
@@ -498,7 +498,7 @@ impl GameLogic {
         logic_frame: u32,
         max_turn_rad: f32,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<AttackMachineResult> {
+    ) -> generals_sim::GameLogicResult<AttackMachineResult> {
         {
             let Some(u) = self.objects.get(&unit_id) else {
                 return Ok(AttackMachineResult::Failure);
@@ -1248,7 +1248,7 @@ impl GameLogic {
         current_time: f32,
         logic_frame: u32,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<AttackAimResult> {
+    ) -> generals_sim::GameLogicResult<AttackAimResult> {
         Ok({
             use crate::game_logic::object::TurretSubState;
 
@@ -1735,7 +1735,7 @@ impl GameLogic {
         current_time: f32,
         logic_frame: u32,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<AttackAimResult> {
+    ) -> generals_sim::GameLogicResult<AttackAimResult> {
         if turret_index == 0 {
             return self.tick_turret_state_machine_with_effects(
                 unit_id,
@@ -1764,7 +1764,7 @@ impl GameLogic {
         turret_index: usize,
         max_rate_modifier: f32,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<AttackAimResult> {
+    ) -> generals_sim::GameLogicResult<AttackAimResult> {
         if turret_index == 0 {
             return self.tick_turret_aim_with_effects(
                 unit_id,
@@ -1804,7 +1804,7 @@ impl GameLogic {
         current_time: f32,
         logic_frame: u32,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         use crate::game_logic::object::TurretSubState;
         for &id in object_ids {
             // AIUpdate.cpp: for each m_turretAI[i] (MAIN, then ALT) updateTurretAI.
@@ -1859,7 +1859,7 @@ impl GameLogic {
         max_rate_modifier: f32,
 
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<AttackAimResult> {
+    ) -> generals_sim::GameLogicResult<AttackAimResult> {
         Ok({
             let Some(owner) = self.objects.get_mut(&unit_id) else {
                 return Ok(AttackAimResult::Failure);
@@ -2084,7 +2084,7 @@ impl GameLogic {
         &mut self,
         unit_id: ObjectId,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<bool> {
+    ) -> generals_sim::GameLogicResult<bool> {
         Ok({
             let (alive, has_wpn, tid) = {
                 let Some(u) = self.objects.get(&unit_id) else {
@@ -2167,7 +2167,7 @@ impl GameLogic {
         max_turn_rad: f32,
 
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<AttackAimResult> {
+    ) -> generals_sim::GameLogicResult<AttackAimResult> {
         Ok({
             // Snapshot victim position + liveness.
             let victim_pos = {
@@ -2343,7 +2343,7 @@ impl GameLogic {
         victim_id: ObjectId,
         current_time: f32,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<AttackFireResult> {
+    ) -> generals_sim::GameLogicResult<AttackFireResult> {
         // Snapshot checks without holding mut.
         let (alive, can_fire_now, pre_continue, in_range) = {
             let Some(atk) = self.objects.get(&unit_id) else {
@@ -2904,7 +2904,7 @@ impl GameLogic {
         unit_id: ObjectId,
         victim_id: Option<ObjectId>,
         fixed_pos: Option<glam::Vec3>,
-    ) -> gamelogic::GameLogicResult<bool> {
+    ) -> generals_sim::GameLogicResult<bool> {
         let frame = self.frame;
         let (mobile, stuck, waiting, path_empty, approach_ts, prev_vic, has_weapon, from) = {
             let Some(u) = self.objects.get(&unit_id) else {
@@ -3118,7 +3118,7 @@ impl GameLogic {
         unit_id: ObjectId,
         victim_id: Option<ObjectId>,
         victim_pos: glam::Vec3,
-    ) -> gamelogic::GameLogicResult<bool> {
+    ) -> generals_sim::GameLogicResult<bool> {
         let frame = self.frame;
         let can_compute = {
             let Some(u) = self.objects.get_mut(&unit_id) else {
@@ -3150,7 +3150,7 @@ impl GameLogic {
         unit_id: ObjectId,
         victim_id: ObjectId,
         max_shots: i32,
-    ) -> gamelogic::GameLogicResult<bool> {
+    ) -> generals_sim::GameLogicResult<bool> {
         self.private_attack_object_with_effects(
             unit_id,
             victim_id,
@@ -3166,7 +3166,7 @@ impl GameLogic {
         max_shots: i32,
 
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<bool> {
+    ) -> generals_sim::GameLogicResult<bool> {
         let victim_pos = match self.objects.get(&victim_id) {
             Some(v) if v.is_alive() => v.get_position(),
             _ => return Ok(false),

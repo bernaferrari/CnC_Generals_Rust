@@ -91,50 +91,7 @@ pub enum WeaponStatus {
     PreAttack,          // C++ = 4
 }
 
-/// Weapon firing errors
-#[derive(Debug, Clone, PartialEq)]
-pub enum WeaponError {
-    NoAmmo,
-    NotReady { time_remaining: f32 },
-    OutOfRange { distance: f32, max_range: f32 },
-    TargetObstructed,
-    TargetNotVisible,
-    InvalidTarget,
-    NoTemplate,
-    SystemError(String),
-}
-
-impl std::fmt::Display for WeaponError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            WeaponError::NoAmmo => write!(f, "Weapon has no ammunition"),
-            WeaponError::NotReady { time_remaining } => {
-                write!(
-                    f,
-                    "Weapon not ready to fire ({:.2}s remaining)",
-                    time_remaining
-                )
-            }
-            WeaponError::OutOfRange {
-                distance,
-                max_range,
-            } => {
-                write!(
-                    f,
-                    "Target out of range ({:.1} > {:.1})",
-                    distance, max_range
-                )
-            }
-            WeaponError::TargetObstructed => write!(f, "Line of sight to target obstructed"),
-            WeaponError::TargetNotVisible => write!(f, "Target is outside vision range"),
-            WeaponError::InvalidTarget => write!(f, "Invalid or dead target"),
-            WeaponError::NoTemplate => write!(f, "Weapon template not available"),
-            WeaponError::SystemError(msg) => write!(f, "System error: {}", msg),
-        }
-    }
-}
-
-impl std::error::Error for WeaponError {}
+pub use generals_sim::error::WeaponError;
 
 /// Fire mode for different weapon types
 #[derive(Debug, Clone, Copy, PartialEq)]

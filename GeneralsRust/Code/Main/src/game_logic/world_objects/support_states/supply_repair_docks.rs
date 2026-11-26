@@ -302,20 +302,20 @@ impl GameLogic {
     }
 
 
-    pub(crate) fn try_claim_dock(&mut self, dock_id: ObjectId, docker_id: ObjectId) -> gamelogic::GameLogicResult<bool> {
+    pub(crate) fn try_claim_dock(&mut self, dock_id: ObjectId, docker_id: ObjectId) -> generals_sim::GameLogicResult<bool> {
         self.with_own_services_mut(|this| this.try_claim_dock_bound(dock_id, docker_id, None))
     }
 
     pub(crate) fn try_claim_railed_dock(
         &mut self, dock_id: ObjectId, docker_id: ObjectId,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<bool> {
+    ) -> generals_sim::GameLogicResult<bool> {
         let waiting = self.railed_dock_waiting_world(dock_id, effects)
-            .map_err(gamelogic::GameLogicError::Configuration)?;
+            .map_err(generals_sim::GameLogicError::Configuration)?;
         self.with_own_services_mut(|this| this.try_claim_dock_bound(dock_id, docker_id, Some(waiting)))
     }
 
-    fn try_claim_dock_bound(&mut self, dock_id: ObjectId, docker_id: ObjectId, rail_waiting: Option<Vec<Vec3>>) -> gamelogic::GameLogicResult<bool> {
+    fn try_claim_dock_bound(&mut self, dock_id: ObjectId, docker_id: ObjectId, rail_waiting: Option<Vec<Vec3>>) -> generals_sim::GameLogicResult<bool> {
         self.reconcile_host_dock_cancellations_for_dock(dock_id);
         if rail_waiting.is_some() {
             let pending = self.objects.get(&dock_id)
@@ -411,7 +411,7 @@ impl GameLogic {
             .unwrap_or(dock_pos);
         let n = if dock_kind == crate::game_logic::DockKind::RailedTransport {
             self.railed_dock_approach_settings(dock_id)
-                .ok_or_else(|| gamelogic::GameLogicError::Configuration(
+                .ok_or_else(|| generals_sim::GameLogicError::Configuration(
                     "railed dock requires receiving RailedTransportDockUpdate module data".into()
                 ))?.0
         } else {
@@ -510,7 +510,7 @@ impl GameLogic {
         &mut self,
         dock_id: ObjectId,
         docker_id: ObjectId,
-    ) -> gamelogic::GameLogicResult<bool> {
+    ) -> generals_sim::GameLogicResult<bool> {
         self.try_claim_dock(dock_id, docker_id)
     }
 
@@ -639,7 +639,7 @@ impl GameLogic {
         &mut self,
         docker_id: ObjectId,
         dock_id: ObjectId,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         let Some(dock) = self.objects.get(&dock_id) else {
             return Ok(());
         };
@@ -784,7 +784,7 @@ impl GameLogic {
         &mut self,
         dock_id: ObjectId,
         docker_id: ObjectId,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         let Some((state, team, owner, pos)) = self.objects.get(&docker_id).map(|o| {
             (
                 o.ai_state().clone(),

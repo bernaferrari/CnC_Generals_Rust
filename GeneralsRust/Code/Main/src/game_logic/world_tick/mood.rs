@@ -803,7 +803,7 @@ impl GameLogic {
         &mut self,
         unit_id: ObjectId,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<Option<ObjectId>> {
+    ) -> generals_sim::GameLogicResult<Option<ObjectId>> {
         let Some(eligible) = self.objects.get(&unit_id).map(|o| {
             let idle = matches!(o.ai_state(), AIState::Idle) && !o.status.attacking;
             let attack_moving = matches!(o.ai_state(), AIState::AttackMoving) || o.is_attack_path;

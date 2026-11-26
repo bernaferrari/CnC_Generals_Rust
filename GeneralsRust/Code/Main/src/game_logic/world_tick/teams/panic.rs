@@ -43,7 +43,7 @@ impl GameLogic {
         &mut self,
         id: ObjectId,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         if !self.set_ai_state_decision_aware_with_effects(id, AIState::Idle, effects)? {
             return Ok(());
         }
@@ -229,7 +229,7 @@ impl GameLogic {
     pub(in super::super::super) fn tick_host_panic_states(
         &mut self,
         object_ids: &[ObjectId],
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         self.tick_host_panic_states_with_effects(
             object_ids,
             &mut crate::game_logic::ScriptPresentationEffects::default(),
@@ -240,7 +240,7 @@ impl GameLogic {
         &mut self,
         object_ids: &[ObjectId],
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         for &id in object_ids {
             let Some((mut panic, can_be_repulsed, vision)) =
                 self.objects.get(&id).and_then(|unit| {

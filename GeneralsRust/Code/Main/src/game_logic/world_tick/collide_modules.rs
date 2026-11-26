@@ -9,7 +9,7 @@ impl super::super::GameLogic {
         &mut self,
         self_id: ObjectId,
         other_id: ObjectId,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         self.dispatch_host_collide_modules_with_effects(self_id, other_id, &mut Default::default())
     }
 
@@ -18,7 +18,7 @@ impl super::super::GameLogic {
         self_id: ObjectId,
         other_id: ObjectId,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         if self_id == other_id {
             return Ok(());
         }
@@ -167,7 +167,7 @@ impl super::super::GameLogic {
             let rider_birth = self.objects.get(&self_id).map(|rider| rider.visual_object_generation);
             let mut boarded = if ready && rail {
                 self.railed_add_contained_with_effects(other_id, self_id, effects)
-                    .map_err(gamelogic::GameLogicError::Configuration)?
+                    .map_err(generals_sim::GameLogicError::Configuration)?
                     && self.objects.get(&self_id).is_some_and(|rider| {
                         Some(rider.visual_object_generation) == rider_birth && rider.contained_by == Some(other_id)
                     })

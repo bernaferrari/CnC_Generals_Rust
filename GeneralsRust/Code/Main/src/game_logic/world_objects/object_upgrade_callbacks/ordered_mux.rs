@@ -398,7 +398,7 @@ impl GameLogic {
         pass: AuthoredUpgradePass<'_>,
         interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         let AuthoredUpgradePass {
             object_id,
             birth,
@@ -814,7 +814,7 @@ impl GameLogic {
         object_id: ObjectId,
         interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         let Some(pass) = self.prepare_authored_upgrade_pass(object_id, None) else {
             return Ok(());
         };

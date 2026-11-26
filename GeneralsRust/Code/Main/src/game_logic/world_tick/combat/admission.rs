@@ -18,7 +18,7 @@ impl GameLogic {
         &mut self,
         attacker_id: ObjectId,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<Option<CombatAttackInput>> {
+    ) -> generals_sim::GameLogicResult<Option<CombatAttackInput>> {
         Ok({
             // Combat can run before an inactive host AI has cleared its attack
             // state. Apply the same controller-scoped pause at admission so an

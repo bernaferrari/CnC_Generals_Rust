@@ -17,7 +17,7 @@ impl GameLogic {
         slot: u8,
         mut shot: crate::game_logic::combat::PendingProjectile,
         capture: Option<super::weapon_visual_capture::PendingWeaponVisualDispatchCapture>,
-    ) -> gamelogic::GameLogicResult<bool> {
+    ) -> generals_sim::GameLogicResult<bool> {
         self.deliver_owned_weapon_shot_with_effects(
             slot,
             shot,
@@ -32,7 +32,7 @@ impl GameLogic {
         shot: crate::game_logic::combat::PendingProjectile,
         capture: Option<super::weapon_visual_capture::PendingWeaponVisualDispatchCapture>,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<bool> {
+    ) -> generals_sim::GameLogicResult<bool> {
         self.deliver_owned_weapon_shot_with_rule_and_effects(
             slot, shot, capture, None, presentation_effects,
         )
@@ -45,7 +45,7 @@ impl GameLogic {
         capture: Option<super::weapon_visual_capture::PendingWeaponVisualDispatchCapture>,
         explicit_rule: Option<std::sync::Arc<generals_sim::weapon::WeaponDefinition>>,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<bool> {
+    ) -> generals_sim::GameLogicResult<bool> {
         // Retain the selected immutable template before FireFX/FireOCL callbacks
         // can change content, selection, ownership or the firing object itself.
         let stream_rule = explicit_rule.clone().or_else(|| {
@@ -153,7 +153,7 @@ impl GameLogic {
         target_position: Option<Vec3>,
         origin: Vec3,
         prepared_capture: Option<super::weapon_visual_capture::PendingWeaponVisualDispatchCapture>,
-    ) -> gamelogic::GameLogicResult<Option<AcceptedWeaponDischarge>> {
+    ) -> generals_sim::GameLogicResult<Option<AcceptedWeaponDischarge>> {
         self.begin_owned_weapon_effects_with_effects(
             source,
             slot,
@@ -174,7 +174,7 @@ impl GameLogic {
         origin: Vec3,
         prepared_capture: Option<super::weapon_visual_capture::PendingWeaponVisualDispatchCapture>,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<Option<AcceptedWeaponDischarge>> {
+    ) -> generals_sim::GameLogicResult<Option<AcceptedWeaponDischarge>> {
         self.begin_owned_weapon_effects_with_rule_and_effects(
             source, slot, target, target_position, origin, prepared_capture, None,
             presentation_effects,
@@ -191,7 +191,7 @@ impl GameLogic {
         prepared_capture: Option<super::weapon_visual_capture::PendingWeaponVisualDispatchCapture>,
         explicit_rule: Option<std::sync::Arc<generals_sim::weapon::WeaponDefinition>>,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<Option<AcceptedWeaponDischarge>> {
+    ) -> generals_sim::GameLogicResult<Option<AcceptedWeaponDischarge>> {
         let Some(object) = self.objects.get(&source) else { return Ok(None) };
         let name = explicit_rule.as_ref().map(|rule| rule.name.clone())
             .or_else(|| object.weapon_name_for_slot(slot).map(str::to_owned));

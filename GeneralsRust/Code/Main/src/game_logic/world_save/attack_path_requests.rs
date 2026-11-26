@@ -8,7 +8,7 @@ impl GameLogic {
     pub(in crate::game_logic) fn resolve_initialized_path_request(
         &mut self,
         mut req: crate::game_logic::pathfinding::PendingHostPath,
-    ) -> gamelogic::GameLogicResult<bool> {
+    ) -> generals_sim::GameLogicResult<bool> {
         let (
             start,
             can_move,

@@ -248,7 +248,7 @@ impl<'a> CommandExecutor<'a> {
         units: &[ObjectId],
         power_type: &crate::command_system::SpecialPowerType,
         location: Vec3,
-    ) -> gamelogic::GameLogicResult<CommandResult> {
+    ) -> generals_sim::GameLogicResult<CommandResult> {
         let _bind = self.bind_services();
         self.execute_special_power(
             units,
@@ -263,7 +263,7 @@ impl<'a> CommandExecutor<'a> {
         units: &[ObjectId],
         power_type: &crate::command_system::SpecialPowerType,
         target: ObjectId,
-    ) -> gamelogic::GameLogicResult<CommandResult> {
+    ) -> generals_sim::GameLogicResult<CommandResult> {
         let _bind = self.bind_services();
         self.execute_special_power(
             units,
@@ -279,7 +279,7 @@ impl<'a> CommandExecutor<'a> {
         units: &[ObjectId],
         power_type: &SpecialPowerType,
         target: &PowerTarget,
-    ) -> gamelogic::GameLogicResult<CommandResult> {
+    ) -> generals_sim::GameLogicResult<CommandResult> {
         let _bind = self.bind_services();
         // C++ CommandXlat.cpp:1055-1078 NEED_TARGET_POS: unit under the cursor
         // is only object-in-way. Leftover canDoSpecialPowerAtObject is FALSE;
@@ -1109,7 +1109,7 @@ impl<'a> CommandExecutor<'a> {
         weapon_slot: &WeaponSlot,
         max_shots_to_fire: i32,
         target: &WeaponTarget,
-    ) -> gamelogic::GameLogicResult<CommandResult> {
+    ) -> generals_sim::GameLogicResult<CommandResult> {
         let _bind = self.bind_services();
         let Some(slot) = weapon_slot.concrete() else {
             warn!(
@@ -1184,7 +1184,7 @@ impl<'a> CommandExecutor<'a> {
         unit_id: ObjectId,
         target_id: ObjectId,
         power_type: &SpecialPowerType,
-    ) -> gamelogic::GameLogicResult<bool> {
+    ) -> generals_sim::GameLogicResult<bool> {
         use crate::game_logic::{AIState, PendingSpecialAbility};
 
         let Some(unit) = self.game_logic.host_object(unit_id) else {
@@ -1230,7 +1230,7 @@ impl<'a> CommandExecutor<'a> {
         &mut self,
         unit_id: ObjectId,
         target_id: ObjectId,
-    ) -> gamelogic::GameLogicResult<bool> {
+    ) -> generals_sim::GameLogicResult<bool> {
         use crate::game_logic::{AIState, PendingSpecialAbility};
 
         let Some(unit) = self.game_logic.host_object(unit_id) else {
@@ -1269,7 +1269,7 @@ impl<'a> CommandExecutor<'a> {
         &mut self,
         unit_id: ObjectId,
         target_id: ObjectId,
-    ) -> gamelogic::GameLogicResult<bool> {
+    ) -> generals_sim::GameLogicResult<bool> {
         use crate::game_logic::host_tank_hunter::{
             TNT_START_ABILITY_RANGE, is_tank_hunter_template, tnt_in_start_range, tnt_ready,
         };
@@ -1332,7 +1332,7 @@ impl<'a> CommandExecutor<'a> {
         &mut self,
         unit_id: ObjectId,
         pos: Vec3,
-    ) -> gamelogic::GameLogicResult<bool> {
+    ) -> generals_sim::GameLogicResult<bool> {
         use crate::game_logic::host_helix_napalm::{
             UPGRADE_HELIX_NAPALM_BOMB, UPGRADE_HELIX_NUKE_BOMB, helix_napalm_unlocked,
             is_helix_napalm_caster,

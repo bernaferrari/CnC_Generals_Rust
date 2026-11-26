@@ -7,7 +7,7 @@ impl<'a> HostScriptExecutionDriver<'a> {
         name: &str,
         set: &str,
         this_object: Option<u32>,
-    ) -> Option<gamelogic::GameLogicResult<()>> {
+    ) -> Option<generals_sim::GameLogicResult<()>> {
         let Some(id) = self
             .world
             .owned_named_script_object(name, this_object.map(ObjectId))
@@ -45,7 +45,7 @@ impl<'a> HostScriptExecutionDriver<'a> {
         name: &str,
         disposition: i32,
         this_object: Option<u32>,
-    ) -> Option<gamelogic::GameLogicResult<()>> {
+    ) -> Option<generals_sim::GameLogicResult<()>> {
         if let Some(id) = self
             .world
             .owned_named_script_object(name, this_object.map(ObjectId))
@@ -63,7 +63,7 @@ impl<'a> HostScriptExecutionDriver<'a> {
         flag: &str,
         enabled: bool,
         this_object: Option<u32>,
-    ) -> Option<gamelogic::GameLogicResult<()>> {
+    ) -> Option<generals_sim::GameLogicResult<()>> {
         if let Some(id) = self
             .world
             .owned_named_script_object(name, this_object.map(ObjectId))
@@ -78,7 +78,7 @@ impl<'a> HostScriptExecutionDriver<'a> {
         name: &str,
         cash: i32,
         this_object: Option<u32>,
-    ) -> Option<gamelogic::GameLogicResult<()>> {
+    ) -> Option<generals_sim::GameLogicResult<()>> {
         if let Some(id) = self
             .world
             .owned_named_script_object(name, this_object.map(ObjectId))
@@ -97,7 +97,7 @@ impl<'a> HostScriptExecutionDriver<'a> {
         enabled: bool,
         calling: Option<u32>,
         condition: Option<u32>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         let Some((team, members)) = self.world.resolve_owned_script_team(team, calling, condition)? else {
             return Ok(());
         };
@@ -120,7 +120,7 @@ impl<'a> HostScriptExecutionDriver<'a> {
         &mut self,
         request: gamelogic::scripting::engine::ScriptNamedRuntimeRequest<'_>,
         this_object: Option<u32>,
-    ) -> Option<gamelogic::GameLogicResult<()>> {
+    ) -> Option<generals_sim::GameLogicResult<()>> {
         use gamelogic::scripting::engine::ScriptNamedRuntimeRequest as Request;
         let name = match request {
             Request::Held { unit, .. }

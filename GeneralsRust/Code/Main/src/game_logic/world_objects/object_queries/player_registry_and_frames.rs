@@ -25,7 +25,7 @@ impl GameLogic {
     pub(crate) fn clear_all_objects_with_effects_checked(
         &mut self,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         self.destroy_all_objects_immediate_with_effects_checked(effects)?;
         self.host_ghost_draws.clear();
         // Recreated ObjectIDs must not inherit the old roster's comparisons.
@@ -115,15 +115,15 @@ impl GameLogic {
             .expect("Player admission requires an exact unambiguous script identity");
     }
 
-    pub fn try_add_player(&mut self, player: Player) -> gamelogic::GameLogicResult<()> {
+    pub fn try_add_player(&mut self, player: Player) -> generals_sim::GameLogicResult<()> {
         self.with_own_services_mut(|this| this.try_add_player_with_services(player))
     }
 
     pub(super) fn try_add_player_with_services(
         &mut self,
         player: Player,
-    ) -> gamelogic::GameLogicResult<()> {
-        let invalid = |text: &str| gamelogic::GameLogicError::Configuration(text.into());
+    ) -> generals_sim::GameLogicResult<()> {
+        let invalid = |text: &str| generals_sim::GameLogicError::Configuration(text.into());
         let owner = player
             .script_identity()
             .ok_or_else(|| invalid("Player has no admitted script identity"))?;

@@ -254,7 +254,7 @@ impl super::GameLogic {
         id: super::ObjectId,
         level: super::VeterancyLevel,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<bool> {
+    ) -> generals_sim::GameLogicResult<bool> {
         self.set_exact_veterancy_level_with_upgrade_callback_mode(id, level, true, effects)
     }
 
@@ -268,7 +268,7 @@ impl super::GameLogic {
         level: super::VeterancyLevel,
         interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<bool> {
+    ) -> generals_sim::GameLogicResult<bool> {
         let Some(birth) = self
             .objects
             .get(&id)
@@ -322,7 +322,7 @@ impl super::GameLogic {
         id: super::ObjectId,
         level: super::VeterancyLevel,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<bool> {
+    ) -> generals_sim::GameLogicResult<bool> {
         self.set_exact_veterancy_level_with_upgrade_callback_mode(id, level, false, effects)
     }
 
@@ -332,7 +332,7 @@ impl super::GameLogic {
         level: super::VeterancyLevel,
         provide_feedback: bool,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<bool> {
+    ) -> generals_sim::GameLogicResult<bool> {
         let Some(object) = self.objects.get(&id) else {
             return Ok(false);
         };

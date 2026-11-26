@@ -224,7 +224,7 @@ impl GameLogic {
     /// C++ `Player::killPlayer` after `VictoryConditions` marks a slot dead:
     /// evacuate containers, Neutral-transfer KINDOF_TECH_BUILDING, kill army
     /// (including beacons), then wipe money unless single-player computer.
-    pub(crate) fn kill_player_for_victory(&mut self, player_id: u32) -> gamelogic::GameLogicResult<()> {
+    pub(crate) fn kill_player_for_victory(&mut self, player_id: u32) -> generals_sim::GameLogicResult<()> {
         self.kill_player_for_victory_with_effects(player_id, &mut Default::default())
     }
 
@@ -232,7 +232,7 @@ impl GameLogic {
         &mut self,
         player_id: u32,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         self.kill_player_with_interpreter_with_effects(player_id, None, effects)
     }
 
@@ -240,7 +240,7 @@ impl GameLogic {
         &mut self,
         player_id: u32,
         interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         self.kill_player_with_interpreter_with_effects(
             player_id,
             interpreter,
@@ -253,7 +253,7 @@ impl GameLogic {
         player_id: u32,
         interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         let player_team = self.players.get(&player_id).map(|p| p.team);
         let unique_team = player_team.and_then(|team| {
             let mut found = None;

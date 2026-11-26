@@ -35,14 +35,14 @@ impl GameLogic {
         &self,
         id: ObjectId,
         effects: &mut ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         #[cfg(feature = "game_client")]
         self.apply_native_drawable_ambient(
             id,
             game_client::drawable::drawable::NativeAmbientChange::StopPlayback,
             effects,
         )
-        .map_err(gamelogic::GameLogicError::Configuration)?;
+        .map_err(generals_sim::GameLogicError::Configuration)?;
         #[cfg(not(feature = "game_client"))]
         let _ = (id, effects);
         Ok(())
@@ -55,7 +55,7 @@ impl GameLogic {
         &mut self,
         id: ObjectId,
         effects: &mut ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         if effects.view.is_none() {
             return Ok(());
         }
@@ -86,7 +86,7 @@ impl GameLogic {
                     game_client::drawable::drawable::NativeAmbientChange::GameplayEnabled(enabled),
                     effects,
                 )
-                .map_err(gamelogic::GameLogicError::Configuration)?
+                .map_err(generals_sim::GameLogicError::Configuration)?
         {
             if let Some(jet) = self.objects.get_mut(&id) {
                 jet.jet_ai.engines_stopped = !enabled;

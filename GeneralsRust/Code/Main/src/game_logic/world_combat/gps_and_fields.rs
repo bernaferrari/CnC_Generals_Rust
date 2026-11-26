@@ -324,7 +324,7 @@ impl GameLogic {
         self.ecm_missiles_jammed > 0
     }
 
-    pub fn update_microwave_disable(&mut self) -> gamelogic::GameLogicResult<()> {
+    pub fn update_microwave_disable(&mut self) -> generals_sim::GameLogicResult<()> {
         self.update_microwave_disable_with_effects(
             &mut crate::game_logic::ScriptPresentationEffects::default(),
         )
@@ -333,7 +333,7 @@ impl GameLogic {
     pub(crate) fn update_microwave_disable_with_effects(
         &mut self,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         use crate::game_logic::host_microwave::{
             HOST_MICROWAVE_DELAY_FRAMES, HOST_MICROWAVE_DISABLE_RANGE,
             HOST_MICROWAVE_SUBDUAL_PULSE, MICROWAVE_DISABLE_AUDIO, in_microwave_range_2d,
@@ -578,7 +578,7 @@ impl GameLogic {
     /// PrimaryDamage 8, radius 100. TankArmor MICROWAVE is 0%; HumanArmor 100%.
     /// Not Unresistable — Crusaders/Battlemasters in the field take 0 HP.
     ///
-    pub fn update_microwave_emitter_field(&mut self) -> gamelogic::GameLogicResult<()> {
+    pub fn update_microwave_emitter_field(&mut self) -> generals_sim::GameLogicResult<()> {
         self.update_microwave_emitter_field_with_effects(
             &mut crate::game_logic::ScriptPresentationEffects::default(),
         )
@@ -587,7 +587,7 @@ impl GameLogic {
     pub(crate) fn update_microwave_emitter_field_with_effects(
         &mut self,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         use crate::game_logic::host_microwave::{
             HOST_MICROWAVE_EMITTER_DELAY_FRAMES, HOST_MICROWAVE_EMITTER_FX,
             HOST_MICROWAVE_EMITTER_RADIUS, MICROWAVE_DISABLE_AUDIO, in_microwave_range_2d,
@@ -744,7 +744,7 @@ impl GameLogic {
     /// Each tower dispatches scan removals, then its inside list in C++ order.
     /// Every changed condition synchronously restarts the receiving weapon clock;
     /// overlapping towers do not union their flags or erase each other's events.
-    pub fn update_propaganda_tower_pulse(&mut self, dt: f32) -> gamelogic::GameLogicResult<()> {
+    pub fn update_propaganda_tower_pulse(&mut self, dt: f32) -> generals_sim::GameLogicResult<()> {
         self.update_propaganda_tower_pulse_with_effects(
             dt,
             &mut crate::game_logic::ScriptPresentationEffects::default(),
@@ -755,7 +755,7 @@ impl GameLogic {
         &mut self,
         dt: f32,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         use crate::game_logic::host_overlord_addons::overlord_propaganda_heal_amount;
         use crate::game_logic::host_propaganda::{
             HOST_PROPAGANDA_DELAY_BETWEEN_UPDATES_FRAMES, HOST_PROPAGANDA_TOWER_RADIUS,
@@ -1051,7 +1051,7 @@ impl GameLogic {
     ///   ForbiddenKindOf=AIRCRAFT, SkipSelfForHealing=Yes.
     /// Pulse every HealingDelay (not continuous HP/s). ALLOW_ALLIES (player relationship,
     /// leftover same-team fallback). Sole-benefactor lasts HealingDelay frames.
-    pub fn update_ambulance_auto_heal(&mut self, dt: f32) -> gamelogic::GameLogicResult<()> {
+    pub fn update_ambulance_auto_heal(&mut self, dt: f32) -> generals_sim::GameLogicResult<()> {
         self.update_ambulance_auto_heal_with_effects(
             dt,
             &mut crate::game_logic::ScriptPresentationEffects::default(),
@@ -1062,7 +1062,7 @@ impl GameLogic {
         &mut self,
         dt: f32,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         use crate::game_logic::host_heal::{
             AMBULANCE_HEAL_DELAY_FRAMES, AMBULANCE_INFANTRY_HEAL_AMOUNT,
             AMBULANCE_VEHICLE_HEAL_AMOUNT, HOST_AMBULANCE_HEAL_RADIUS, ambulance_heal_is_ally,
@@ -1206,7 +1206,7 @@ impl GameLogic {
 
     /// Host leftover DefaultAutoHealBehavior: trainable units self-heal after StartHealingDelay.
     /// HELD / garrisoned units still pulse (C++ DISABLED_HELD).
-    pub fn update_default_auto_heal(&mut self) -> gamelogic::GameLogicResult<()> {
+    pub fn update_default_auto_heal(&mut self) -> generals_sim::GameLogicResult<()> {
         self.update_default_auto_heal_with_effects(
             &mut crate::game_logic::ScriptPresentationEffects::default(),
         )
@@ -1215,7 +1215,7 @@ impl GameLogic {
     pub(crate) fn update_default_auto_heal_with_effects(
         &mut self,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         let frame = self.frame as u32;
         let ids: Vec<ObjectId> = self
             .objects

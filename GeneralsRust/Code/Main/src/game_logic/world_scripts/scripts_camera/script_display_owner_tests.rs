@@ -125,11 +125,11 @@ impl ScriptExecutionDriver for DisplayObserver<'_> {
     fn display(
         &mut self,
         request: ScriptDisplayRequest<'_>,
-    ) -> Option<gamelogic::GameLogicResult<()>> {
+    ) -> Option<generals_sim::GameLogicResult<()>> {
         HostScriptExecutionDriver::new(self.world).display(request)
     }
 
-    fn after_action(&mut self) -> gamelogic::GameLogicResult<()> {
+    fn after_action(&mut self) -> generals_sim::GameLogicResult<()> {
         HostScriptExecutionDriver::new(self.world).after_action()?;
         self.flushed.push(self.world.new_script_messages.clone());
         Ok(())

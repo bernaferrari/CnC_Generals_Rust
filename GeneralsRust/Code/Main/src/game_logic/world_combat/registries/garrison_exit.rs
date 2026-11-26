@@ -37,7 +37,7 @@ impl GameLogic {
         &mut self,
         unit_id: ObjectId,
         container_id: ObjectId,
-    ) -> gamelogic::GameLogicResult<bool> {
+    ) -> generals_sim::GameLogicResult<bool> {
         self.garrison_exit_occupant_via_door_with_effects(
             unit_id,
             container_id,
@@ -50,7 +50,7 @@ impl GameLogic {
         unit_id: ObjectId,
         container_id: ObjectId,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<bool> {
+    ) -> generals_sim::GameLogicResult<bool> {
         let Some(container_id_birth) = self
             .objects
             .get(&container_id)

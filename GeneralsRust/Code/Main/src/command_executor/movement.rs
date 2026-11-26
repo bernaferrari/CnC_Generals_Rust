@@ -215,7 +215,7 @@ impl<'a> CommandExecutor<'a> {
         &mut self,
         units: &[ObjectId],
         destination: Vec3,
-    ) -> gamelogic::GameLogicResult<CommandResult> {
+    ) -> generals_sim::GameLogicResult<CommandResult> {
         let _bind = self.bind_services();
         self.execute_group_move_to_position(units, destination, true)
     }
@@ -227,7 +227,7 @@ impl<'a> CommandExecutor<'a> {
         &mut self,
         units: &[ObjectId],
         destination: Vec3,
-    ) -> gamelogic::GameLogicResult<CommandResult> {
+    ) -> generals_sim::GameLogicResult<CommandResult> {
         let _bind = self.bind_services();
         self.execute_group_move_to_position(units, destination, false)
     }
@@ -237,7 +237,7 @@ impl<'a> CommandExecutor<'a> {
         units: &[ObjectId],
         destination: Vec3,
         from_player: bool,
-    ) -> gamelogic::GameLogicResult<CommandResult> {
+    ) -> generals_sim::GameLogicResult<CommandResult> {
         // Wave 232: move last-writes via GameLogic unit_command_move_free.
         // C++ AIGroup::groupMoveToPosition (AIGroup.cpp:1559-1615): click-to-gather
         // only when !isFormation. A stamped formation always takes
@@ -906,7 +906,7 @@ impl<'a> CommandExecutor<'a> {
         waypoints: &[Vec3],
         exact: bool,
         as_team: bool,
-    ) -> gamelogic::GameLogicResult<CommandResult> {
+    ) -> generals_sim::GameLogicResult<CommandResult> {
         let _bind = self.bind_services();
         // `exact` → assign_unit_path_exact (C++ AIFollowWaypointPathExactState).
         if waypoints.is_empty() {
@@ -1329,7 +1329,7 @@ impl<'a> CommandExecutor<'a> {
         units: &[ObjectId],
         destination: Vec3,
         max_shots: i32,
-    ) -> gamelogic::GameLogicResult<CommandResult> {
+    ) -> generals_sim::GameLogicResult<CommandResult> {
         let _bind = self.bind_services();
         // Wave 232: attack-move last-writes via GameLogic unit_command_attack_move_to_ex.
         // C++ AIGroup::groupAttackMoveToPosition (`AIGroup.cpp:2260-2273`):
@@ -1482,7 +1482,7 @@ impl<'a> CommandExecutor<'a> {
         &mut self,
         units: &[ObjectId],
         destination: Vec3,
-    ) -> gamelogic::GameLogicResult<CommandResult> {
+    ) -> generals_sim::GameLogicResult<CommandResult> {
         let _bind = self.bind_services();
         // Wave 232: formation move via unit_command_force_move_to.
         if !destination.x.is_finite() || !destination.z.is_finite() {
@@ -1567,7 +1567,7 @@ impl<'a> CommandExecutor<'a> {
         &mut self,
         units: &[ObjectId],
         path: &[Vec3],
-    ) -> gamelogic::GameLogicResult<CommandResult> {
+    ) -> generals_sim::GameLogicResult<CommandResult> {
         let _bind = self.bind_services();
         self.execute_follow_waypoint_path(units, path, false, false)
     }

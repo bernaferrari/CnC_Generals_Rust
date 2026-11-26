@@ -16,7 +16,7 @@ impl GameLogic {
         is_alive: bool,
         tree_move_frame: u32,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         let Some(container_id) = target_id else {
             if let Some(obj) = self.objects.get_mut(&object_id) {
                 obj.clear_target(&mut crate::game_logic::ObjectAudio::queue(
@@ -213,12 +213,12 @@ impl GameLogic {
                 let clear_to_enter = self.railed_dock_accepts_rider(container_id, object_id);
                 if clear_to_enter {
                     let config = self.railed_dock_config(container_id).ok_or_else(|| {
-                        gamelogic::GameLogicError::Configuration(
+                        generals_sim::GameLogicError::Configuration(
                             "railed dock requires receiving RailedTransportDockUpdate module data".into(),
                         )
                     })?;
                     self.railed_dock_approach(container_id, object_id, config, effects)
-                        .map_err(gamelogic::GameLogicError::Configuration)?;
+                        .map_err(generals_sim::GameLogicError::Configuration)?;
                 }
             }
             return Ok(());
@@ -581,7 +581,7 @@ impl GameLogic {
             let birth = self.objects.get(&object_id).map(|object| object.visual_object_generation);
             let entered = if container_has_unit { true } else {
                 self.railed_add_contained_with_effects(container_id, object_id, effects)
-                    .map_err(gamelogic::GameLogicError::Configuration)?
+                    .map_err(generals_sim::GameLogicError::Configuration)?
             };
             if entered {
                 if let Some(object) = self.objects.get_mut(&object_id)

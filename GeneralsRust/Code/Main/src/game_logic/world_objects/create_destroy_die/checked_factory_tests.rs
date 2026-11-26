@@ -39,7 +39,7 @@ End
     world.admit_receiving_module_content(content).unwrap();
     world
 }
-fn failure(error: &gamelogic::GameLogicError) {
+fn failure(error: &generals_sim::GameLogicError) {
     let error = error.to_string();
     assert!(
         error.contains("CheckedBad"),

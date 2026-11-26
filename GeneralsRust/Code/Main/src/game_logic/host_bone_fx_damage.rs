@@ -1023,7 +1023,7 @@ impl crate::game_logic::GameLogic {
         &mut self,
         id: crate::game_logic::ObjectId,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         let now = self.frame as i32;
         let saved = {
             let Some(object) = self.objects.get_mut(&id) else {
@@ -1082,7 +1082,7 @@ impl crate::game_logic::GameLogic {
         id: crate::game_logic::ObjectId,
         event: &HostBoneFxEvent,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         if let Some(system) = play_bone_fx_event_with_effects(self, event, id.0, effects)? {
             if let Some(bfx) = self
                 .objects
@@ -1100,7 +1100,7 @@ fn pristine_bone_local(
     source: &crate::game_logic::NativeSlaveSource,
     bone: &str,
     effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-) -> gamelogic::GameLogicResult<[f32; 3]> {
+) -> generals_sim::GameLogicResult<[f32; 3]> {
     if bone.is_empty() {
         return Ok([0.; 3]);
     }
@@ -1120,7 +1120,7 @@ fn pristine_bone_local(
             Err("BoneFX requires receiving pristine model assets".to_owned())
         }
     }
-    .map_err(gamelogic::GameLogicError::Configuration)?;
+    .map_err(generals_sim::GameLogicError::Configuration)?;
     Ok(bones
         .first()
         .map(|matrix| matrix.w_axis.truncate().to_array())
@@ -1132,17 +1132,17 @@ fn resolve_pristine_state(
     owner: u32,
     state: usize,
     effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-) -> gamelogic::GameLogicResult<()> {
+) -> generals_sim::GameLogicResult<()> {
     if state >= BODY_DAMAGE_TYPE_COUNT {
-        return Err(gamelogic::GameLogicError::Configuration(
+        return Err(generals_sim::GameLogicError::Configuration(
             "invalid BoneFX cache state".into(),
         ));
     }
     let object = world
         .host_object(crate::game_logic::ObjectId(owner))
-        .ok_or(gamelogic::GameLogicError::InvalidObject(owner))?;
+        .ok_or(generals_sim::GameLogicError::InvalidObject(owner))?;
     let bfx = object.bone_fx_damage.as_ref().ok_or_else(|| {
-        gamelogic::GameLogicError::Configuration("BoneFX current owner data absent".into())
+        generals_sim::GameLogicError::Configuration("BoneFX current owner data absent".into())
     })?;
     if bfx.pristine.resolved[state] {
         return Ok(());
@@ -1154,7 +1154,7 @@ fn resolve_pristine_state(
             world.local_player_id().unwrap_or(0),
         )
         .map_err(|error| {
-            gamelogic::GameLogicError::Configuration(format!("BoneFX source {owner}: {error}"))
+            generals_sim::GameLogicError::Configuration(format!("BoneFX source {owner}: {error}"))
         })?;
     let mut fx = [[0.; 3]; BONE_FX_MAX_BONES];
     let mut ocl = fx;
@@ -1172,9 +1172,9 @@ fn resolve_pristine_state(
     }
     let object = world
         .host_object_mut(crate::game_logic::ObjectId(owner))
-        .ok_or(gamelogic::GameLogicError::InvalidObject(owner))?;
+        .ok_or(generals_sim::GameLogicError::InvalidObject(owner))?;
     let bfx = object.bone_fx_damage.as_mut().ok_or_else(|| {
-        gamelogic::GameLogicError::Configuration("BoneFX current owner data absent".into())
+        generals_sim::GameLogicError::Configuration("BoneFX current owner data absent".into())
     })?;
     bfx.pristine.fx[state] = fx;
     bfx.pristine.ocl[state] = ocl;
@@ -1192,7 +1192,7 @@ pub(crate) fn play_bone_fx_event_with_effects(
     ev: &HostBoneFxEvent,
     owner: u32,
     effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-) -> gamelogic::GameLogicResult<Option<u32>> {
+) -> generals_sim::GameLogicResult<Option<u32>> {
     let state = ev.new_state.ordinal() as usize;
     let kind = if ev.ocl.is_some() {
         FireKind::Ocl
@@ -1210,10 +1210,10 @@ pub(crate) fn play_bone_fx_event_with_effects(
             .host_object(crate::game_logic::ObjectId(owner))
             .and_then(|object| object.bone_fx_damage.as_ref())
             .ok_or_else(|| {
-                gamelogic::GameLogicError::Configuration("BoneFX saved event owner absent".into())
+                generals_sim::GameLogicError::Configuration("BoneFX saved event owner absent".into())
             })?;
         if state >= BODY_DAMAGE_TYPE_COUNT {
-            return Err(gamelogic::GameLogicError::Configuration(
+            return Err(generals_sim::GameLogicError::Configuration(
                 "invalid saved BoneFX state".into(),
             ));
         }
@@ -1225,20 +1225,20 @@ pub(crate) fn play_bone_fx_event_with_effects(
         row.iter()
             .position(|slot| slot.as_ref().is_some_and(|slot| slot.bone == ev.bone))
             .ok_or_else(|| {
-                gamelogic::GameLogicError::Configuration("saved BoneFX row absent".into())
+                generals_sim::GameLogicError::Configuration("saved BoneFX row absent".into())
             })?
     };
     if slot_index >= BONE_FX_MAX_BONES {
-        return Err(gamelogic::GameLogicError::Configuration(
+        return Err(generals_sim::GameLogicError::Configuration(
             "invalid BoneFX slot index".into(),
         ));
     }
     resolve_pristine_state(world, owner, state, effects)?;
     let object = world
         .host_object(crate::game_logic::ObjectId(owner))
-        .ok_or(gamelogic::GameLogicError::InvalidObject(owner))?;
+        .ok_or(generals_sim::GameLogicError::InvalidObject(owner))?;
     let bfx = object.bone_fx_damage.as_ref().ok_or_else(|| {
-        gamelogic::GameLogicError::Configuration("BoneFX current owner data absent".into())
+        generals_sim::GameLogicError::Configuration("BoneFX current owner data absent".into())
     })?;
     let (position, allowed) = match kind {
         FireKind::Fx => (
@@ -1258,7 +1258,7 @@ pub(crate) fn play_bone_fx_event_with_effects(
         return Ok(None);
     }
     if !position.iter().all(|value| value.is_finite()) {
-        return Err(gamelogic::GameLogicError::Configuration(
+        return Err(generals_sim::GameLogicError::Configuration(
             "nonfinite saved BoneFX cache".into(),
         ));
     }
@@ -1309,21 +1309,21 @@ pub(crate) fn play_bone_fx_event_with_effects(
         let manager = effects
             .particle_systems_mut()
             .ok_or_else(|| {
-                gamelogic::GameLogicError::Configuration(
+                generals_sim::GameLogicError::Configuration(
                     "BoneFX requires receiving particle manager".into(),
                 )
             })?;
         manager
             .admit_effective_definitions()
-            .map_err(|error| gamelogic::GameLogicError::Configuration(error.to_string()))?;
+            .map_err(|error| generals_sim::GameLogicError::Configuration(error.to_string()))?;
         let Some(template) = manager.find_template(ps) else {
             return Ok(None);
         };
         let id = manager
             .create_particle_system(&template, true)
-            .map_err(|error| gamelogic::GameLogicError::Configuration(error.to_string()))?;
+            .map_err(|error| generals_sim::GameLogicError::Configuration(error.to_string()))?;
         let system = manager.find_particle_system_mut(id).ok_or_else(|| {
-            gamelogic::GameLogicError::Configuration("created BoneFX particle system absent".into())
+            generals_sim::GameLogicError::Configuration("created BoneFX particle system absent".into())
         })?;
         system.set_position(local);
         system.attach_to_object(owner);

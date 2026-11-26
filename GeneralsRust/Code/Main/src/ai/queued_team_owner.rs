@@ -17,7 +17,7 @@ impl GameLogic {
     pub(crate) fn new_map_owned_ai_with_effects(
         &mut self,
         ui: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         let data = AiDataView::from_world(self);
         let mut ids: Vec<u32> = self.ai_manager.ai_players.keys().copied().collect();
         ids.sort_unstable();
@@ -242,7 +242,7 @@ impl GameLogic {
         now: f32,
         data: &AiDataView,
         ui: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         use super::teams::OwnedTeamSelection;
         let Some(mut ai) = self.ai_manager.ai_players.remove(&player) else {
             return Ok(());
@@ -338,7 +338,7 @@ impl GameLogic {
         player: u32,
         now: f32,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         let Some(mut ai) = self.ai_manager.ai_players.remove(&player) else {
             return Ok(());
         };
@@ -358,7 +358,7 @@ impl GameLogic {
         now: f32,
         data: &AiDataView,
         ui: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         use super::teams::OwnedTeamSelection;
 
         if !self.get_player(player).is_some_and(|p| p.can_build_units) {
@@ -686,7 +686,7 @@ impl GameLogic {
         name: &str,
         team: Option<u32>,
         ui: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         if let Some(action) = engine
             .find_script_clone_by_name(name)
             .and_then(|script| script.get_action().cloned())

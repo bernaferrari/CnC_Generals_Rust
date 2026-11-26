@@ -20,7 +20,7 @@ use log::{debug, warn};
 use std::collections::{HashMap, HashSet};
 
 impl<'a> CommandExecutor<'a> {
-    pub(super) fn execute_sell(&mut self, object_id: ObjectId, player_id: u32) -> gamelogic::GameLogicResult<CommandResult> {
+    pub(super) fn execute_sell(&mut self, object_id: ObjectId, player_id: u32) -> generals_sim::GameLogicResult<CommandResult> {
         let _bind = self.bind_services();
         if let Some(obj) = self.game_logic.host_object(object_id) {
             if obj.owner_player_id != Some(player_id)
@@ -56,7 +56,7 @@ impl<'a> CommandExecutor<'a> {
         &mut self,
         units: &[ObjectId],
         player_id: u32,
-    ) -> gamelogic::GameLogicResult<CommandResult> {
+    ) -> generals_sim::GameLogicResult<CommandResult> {
         let _bind = self.bind_services();
         let mut any = false;
         for &id in units {

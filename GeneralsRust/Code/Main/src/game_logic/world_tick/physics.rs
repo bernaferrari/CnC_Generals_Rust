@@ -142,7 +142,7 @@ impl GameLogic {
     /// When water rises, every object currently underwater takes `damage_amount`
     /// as DAMAGE_WATER (DEATH_NORMAL). C++ has no aircraft/boat skip.
     /// Returns number of objects damaged.
-    pub fn apply_water_rise_damage(&mut self, damage_amount: f32) -> gamelogic::GameLogicResult<u32> {
+    pub fn apply_water_rise_damage(&mut self, damage_amount: f32) -> generals_sim::GameLogicResult<u32> {
         self.apply_water_rise_damage_with_effects(
             damage_amount,
             &mut crate::game_logic::ScriptPresentationEffects::default(),
@@ -153,7 +153,7 @@ impl GameLogic {
         &mut self,
         damage_amount: f32,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<u32> {
+    ) -> generals_sim::GameLogicResult<u32> {
         if damage_amount <= 0.0 {
             return Ok(0);
         }
@@ -212,7 +212,7 @@ impl GameLogic {
         a_id: ObjectId,
         b_id: ObjectId,
         us_radius: f32,
-    ) -> gamelogic::GameLogicResult<bool> {
+    ) -> generals_sim::GameLogicResult<bool> {
         self.try_physics_collide_with_effects(
             a_id,
             b_id,
@@ -227,7 +227,7 @@ impl GameLogic {
         b_id: ObjectId,
         us_radius: f32,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<bool> {
+    ) -> generals_sim::GameLogicResult<bool> {
         // Snapshot flags without holding borrows across mutates.
         let (
             a_ignore_b,
@@ -629,7 +629,7 @@ impl GameLogic {
         &mut self,
         crusher_id: ObjectId,
         prop_id: ObjectId,
-    ) -> gamelogic::GameLogicResult<bool> {
+    ) -> generals_sim::GameLogicResult<bool> {
         self.try_topple_on_collide_with_effects(
             crusher_id,
             prop_id,
@@ -658,7 +658,7 @@ impl GameLogic {
         crusher_id: ObjectId,
         prop_id: ObjectId,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<bool> {
+    ) -> generals_sim::GameLogicResult<bool> {
         let (level, cpos, speed) = {
             let Some(c) = self.objects.get(&crusher_id) else {
                 return Ok(false);
@@ -820,7 +820,7 @@ impl GameLogic {
         crusher_id: ObjectId,
         crushee_id: ObjectId,
         is_ally: bool,
-    ) -> gamelogic::GameLogicResult<bool> {
+    ) -> generals_sim::GameLogicResult<bool> {
         self.apply_overlap_crush_check_with_effects(
             crusher_id,
             crushee_id,
@@ -835,7 +835,7 @@ impl GameLogic {
         crushee_id: ObjectId,
         is_ally: bool,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<bool> {
+    ) -> generals_sim::GameLogicResult<bool> {
         if crusher_id == crushee_id {
             return Ok(false);
         }
@@ -886,7 +886,7 @@ impl GameLogic {
         mover_id: ObjectId,
         immobile_id: ObjectId,
         us_radius: f32,
-    ) -> gamelogic::GameLogicResult<bool> {
+    ) -> generals_sim::GameLogicResult<bool> {
         self.apply_immobile_collide_bounce_with_effects(
             mover_id,
             immobile_id,
@@ -901,7 +901,7 @@ impl GameLogic {
         immobile_id: ObjectId,
         us_radius: f32,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<bool> {
+    ) -> generals_sim::GameLogicResult<bool> {
         let (mover_para, imm_center, imm_ok) = {
             let Some(m) = self.objects.get(&mover_id) else {
                 return Ok(false);
@@ -1031,7 +1031,7 @@ impl GameLogic {
         &mut self,
         vehicle_id: ObjectId,
         other_id: ObjectId,
-    ) -> gamelogic::GameLogicResult<Option<&'static str>> {
+    ) -> generals_sim::GameLogicResult<Option<&'static str>> {
         self.apply_vehicle_crash_into_immobile_with_effects(
             vehicle_id,
             other_id,
@@ -1044,7 +1044,7 @@ impl GameLogic {
         vehicle_id: ObjectId,
         other_id: ObjectId,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<Option<&'static str>> {
+    ) -> generals_sim::GameLogicResult<Option<&'static str>> {
         use crate::game_logic::host_partition_collision_physics_residual::{
             VehicleCrashImmobileOutcome, vehicle_crash_destroys_vehicle, vehicle_crash_weapon_name,
         };
@@ -1419,13 +1419,13 @@ impl GameLogic {
         goal_y: Option<f32>,
         frame: u32,
         effects: &mut ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<bool> {
+    ) -> generals_sim::GameLogicResult<bool> {
         let Some(object) = self.objects.get(&id) else {
             return Ok(false);
         };
         if object.selected_locomotor_definition.is_none() {
             if object.cur_locomotor_name.is_some() {
-                return Err(gamelogic::GameLogicError::Configuration(
+                return Err(generals_sim::GameLogicError::Configuration(
                     "Z controller has a named locomotor without its admitted definition".into(),
                 ));
             }
@@ -1610,7 +1610,7 @@ impl GameLogic {
         &mut self,
         id: ObjectId,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         if let Some(object) = self.objects.get_mut(&id) {
             object.pending_ground_collide = false;
             object.last_collidee = None;

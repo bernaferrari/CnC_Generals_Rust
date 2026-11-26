@@ -29,7 +29,7 @@ struct CombatAttackInput {
 /// The marker is set at the original acceptance point, before hit effects.
 enum CombatShotResult {
     NoShot,
-    Failed(gamelogic::GameLogicError),
+    Failed(generals_sim::GameLogicError),
     Fired(
         u8,
         Option<super::super::world_combat::AcceptedWeaponDischarge>,
@@ -43,7 +43,7 @@ impl GameLogic {
         &mut self,
         object_ids: &[ObjectId],
         _dt: f32,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         self.update_combat_with_effects(object_ids, _dt, &mut Default::default())
     }
 
@@ -52,7 +52,7 @@ impl GameLogic {
         object_ids: &[ObjectId],
         _dt: f32,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         for &attacker_id in object_ids {
             let Some(input) = self.prepare_combat_attack_with_effects(attacker_id, effects)? else {
                 continue;

@@ -8,7 +8,7 @@ impl GameLogic {
         &mut self,
         constructor: ObjectId,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<Option<std::sync::Arc<()>>> {
+    ) -> generals_sim::GameLogicResult<Option<std::sync::Arc<()>>> {
         let Some(birth) = self
             .host_object(constructor)
             .map(|object| std::sync::Arc::clone(&object.visual_draw_identity_token))
@@ -20,7 +20,7 @@ impl GameLogic {
         if !self.host_object(constructor).is_some_and(|object| {
             std::sync::Arc::ptr_eq(&birth, &object.visual_draw_identity_token)
         }) {
-            return Err(gamelogic::GameLogicError::Configuration(
+            return Err(generals_sim::GameLogicError::Configuration(
                 "Dozer construct lost its constructor birth during Idle".into(),
             ));
         }
@@ -38,7 +38,7 @@ impl GameLogic {
             .control
             .initialized
         {
-            return Err(gamelogic::GameLogicError::Configuration(
+            return Err(generals_sim::GameLogicError::Configuration(
                 "Admitted Dozer constructor has no initialized primary owner".into(),
             ));
         }
@@ -54,13 +54,13 @@ impl GameLogic {
         id: ObjectId,
         birth: &std::sync::Arc<()>,
         is_rebuild: bool,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         let actor = self
             .objects
             .get_mut(&id)
             .filter(|actor| std::sync::Arc::ptr_eq(birth, &actor.visual_draw_identity_token))
             .ok_or_else(|| {
-                gamelogic::GameLogicError::Configuration(
+                generals_sim::GameLogicError::Configuration(
                     "Dozer construct kind received foreign/retired birth".into(),
                 )
             })?;
@@ -76,7 +76,7 @@ impl GameLogic {
         constructor: ObjectId,
         constructor_birth: &std::sync::Arc<()>,
         scaffold: ObjectId,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         let same_constructor = self.host_object(constructor).is_some_and(|object| {
             std::sync::Arc::ptr_eq(constructor_birth, &object.visual_draw_identity_token)
         });
@@ -90,7 +90,7 @@ impl GameLogic {
             // An actual callback failed the synchronous source continuation.
             // Earlier factory/payment effects remain committed, as on other
             // checked receiving boundaries; do not fabricate a refund or target.
-            return Err(gamelogic::GameLogicError::Configuration(
+            return Err(generals_sim::GameLogicError::Configuration(
                 "Dozer construct lost its constructor birth or supplied scaffold".into(),
             ));
         }
@@ -101,7 +101,7 @@ impl GameLogic {
                 && object.dozer_tasks.requests[0].target == Some(scaffold)
                 && object.dozer_tasks.requests[0].order_frame == self.frame
         }) {
-            return Err(gamelogic::GameLogicError::Configuration(
+            return Err(generals_sim::GameLogicError::Configuration(
                 "Dozer construct did not admit the supplied fresh scaffold request".into(),
             ));
         }

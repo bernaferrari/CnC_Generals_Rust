@@ -40,7 +40,7 @@ impl Drop for HostLogicStep<'_> {
 }
 
 pub(in super::super) type SimulationStepOutcome =
-    FixedStepOutcome<CommandPhaseYield, gamelogic::GameLogicError>;
+    FixedStepOutcome<CommandPhaseYield, generals_sim::GameLogicError>;
 
 #[derive(Clone, Copy)]
 enum CommandPhaseMode {
@@ -79,7 +79,7 @@ pub(in super::super) struct CommandPhaseYield {
 pub(crate) enum NativeTickProgress {
     Complete(SimTimingSnapshot),
     CommandBoundary(NativeTickContinuation),
-    Failed(gamelogic::GameLogicError),
+    Failed(generals_sim::GameLogicError),
 }
 
 /// An in-flight fixed step; constructors and fields stay inside this kernel.
@@ -100,7 +100,7 @@ impl NativeTickContinuation {
 }
 
 impl FixedStepWorld for GameLogic {
-    type Error = gamelogic::GameLogicError;
+    type Error = generals_sim::GameLogicError;
 
     fn simulation_time(&mut self) -> (&mut SimulationClock, &mut u32) {
         (&mut self.simulation_clock, &mut self.frame)
@@ -286,7 +286,7 @@ impl GameLogic {
     pub(crate) fn update_with_script_effects(
         &mut self,
         mut effects: crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         self.refresh_owned_bridge_pathfinder_states();
         let pending = self.step_simulation_with_callbacks(
             FixedStepBatch::new(LOGIC_FRAME_TIMESTEP, None),
@@ -294,7 +294,7 @@ impl GameLogic {
             |_| {},
         )?;
         if pending.is_some() {
-            return Err(gamelogic::GameLogicError::Configuration(
+            return Err(generals_sim::GameLogicError::Configuration(
                 "standalone update reached a native command boundary".into(),
             ));
         }
@@ -342,7 +342,7 @@ impl GameLogic {
         batch: FixedStepBatch,
         run_step: impl FnMut(&mut Self, f32) -> SimulationStepOutcome,
         after_step: impl FnMut(&mut Self),
-    ) -> gamelogic::GameLogicResult<Option<NativeTickContinuation>> {
+    ) -> generals_sim::GameLogicResult<Option<NativeTickContinuation>> {
         if let Some(error) = self.object_retirement_error() {
             return Err(error);
         }
@@ -604,14 +604,14 @@ mod failed_step_owner_tests {
                 let result = world.step_simulation_with_callbacks(
                     FixedStepBatch::new(LOGIC_FRAME_TIMESTEP, Some(3)),
                     |_, _| {
-                        SimulationStepOutcome::Failed(gamelogic::GameLogicError::Configuration(
+                        SimulationStepOutcome::Failed(generals_sim::GameLogicError::Configuration(
                             "birth rejected".into(),
                         ))
                     },
                     |_| after_calls += 1,
                 );
                 assert!(
-                    matches!(result, Err(gamelogic::GameLogicError::Configuration(message)) if message == "birth rejected")
+                    matches!(result, Err(generals_sim::GameLogicError::Configuration(message)) if message == "birth rejected")
                 );
                 assert_eq!(world.frame, 19);
                 assert_eq!(world.get_total_play_time(), old_time);

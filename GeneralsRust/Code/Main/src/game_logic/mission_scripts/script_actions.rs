@@ -801,7 +801,7 @@ impl ScriptActionHandler for MissionScriptActionHandler {
 
     fn set_campaign_victorious(&self, victorious: bool) -> GameLogicResult<()> {
         let _ = victorious;
-        Err(gamelogic::GameLogicError::Configuration(
+        Err(generals_sim::GameLogicError::Configuration(
             "setCampaignVictorious requires the receiving script execution driver".into(),
         ))
     }
@@ -823,7 +823,7 @@ impl ScriptActionHandler for MissionScriptActionHandler {
     }
 
     fn close_game_windows(&self) -> GameLogicResult<()> {
-        Err(gamelogic::GameLogicError::Configuration(
+        Err(generals_sim::GameLogicError::Configuration(
             "closeWindows must execute through its receiving ScriptExecutionDriver".into(),
         ))
     }

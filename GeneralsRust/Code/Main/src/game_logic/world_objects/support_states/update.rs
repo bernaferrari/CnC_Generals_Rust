@@ -38,7 +38,7 @@ impl GameLogic {
         &mut self,
         object_ids: &[ObjectId],
         dt: f32,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         self.update_support_states_with_effects(object_ids, dt, &mut Default::default())
     }
 
@@ -47,7 +47,7 @@ impl GameLogic {
         object_ids: &[ObjectId],
         dt: f32,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         let tree_move_frame = self.frame;
         // Object::set_ai_state records DockUpdate's synchronous cancellation
         // callback as an epoch. Reconcile it at this regular mutable world

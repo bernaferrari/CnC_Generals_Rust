@@ -17,7 +17,7 @@ use generals_main::release_candidate::{format_rc_report, run_release_candidate_p
 use generals_main::shell_smoke::{format_shell_smoke_report, run_shell_smoke};
 use std::time::Duration;
 
-fn main() -> gamelogic::GameLogicResult<()> {
+fn main() -> generals_sim::GameLogicResult<()> {
     // Gate default: GameWorld damage last-writer for HP (opt out DAMAGE_AUTHORITY=0).
 
     let mut failed = Vec::new();

@@ -702,7 +702,7 @@ impl<'a> CommandExecutor<'a> {
     fn apply_dozer_ai_do_command(
         &mut self,
         command: &GameCommand,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         if Self::player_command_clears_dozer_constructing(&command.command_type) {
             for &unit_id in &command.selected_units {
                 self.game_logic

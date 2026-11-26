@@ -160,7 +160,7 @@ fn named_kill_topple_callback_reads_only_the_supplied_interpreter() {
         supplied: &'a gamelogic::scripting::engine::ScriptEngine,
     }
     impl gamelogic::scripting::engine::ScriptExecutionDriver for NestedKill<'_> {
-        fn after_action(&mut self) -> gamelogic::GameLogicResult<()> {
+        fn after_action(&mut self) -> generals_sim::GameLogicResult<()> {
             Ok(())
         }
 
@@ -170,7 +170,7 @@ fn named_kill_topple_callback_reads_only_the_supplied_interpreter() {
             _: Option<gamelogic::common::ObjectID>,
             _: Option<gamelogic::team::TeamID>,
             _: Option<gamelogic::team::TeamID>,
-        ) -> Option<gamelogic::GameLogicResult<()>> {
+        ) -> Option<generals_sim::GameLogicResult<()>> {
             // Public execution ingress installs the foreign interpreter while
             // the actual nested kill still receives the driving interpreter.
             execute(

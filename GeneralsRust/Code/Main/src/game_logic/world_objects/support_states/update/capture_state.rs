@@ -12,7 +12,7 @@ impl GameLogic {
         is_alive: bool,
         dt: f32,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         let Some(capture_target_id) = target_id else {
             self.abort_capture_channel(object_id)?;
             return Ok(());

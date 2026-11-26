@@ -810,7 +810,7 @@ mod tests {
         fn create_win_lose_window(
             &mut self,
             layout_filename: &str,
-        ) -> gamelogic::GameLogicResult<()> {
+        ) -> generals_sim::GameLogicResult<()> {
             game_client::gui::game_window::WindowEventEffects::with_standalone(|effects| {
                 self.owner.with_manager(|manager| {
                     manager.create_script_message_window(layout_filename, effects)
@@ -819,7 +819,7 @@ mod tests {
             Ok(())
         }
 
-        fn destroy_win_lose_window(&mut self) -> gamelogic::GameLogicResult<()> {
+        fn destroy_win_lose_window(&mut self) -> generals_sim::GameLogicResult<()> {
             game_client::gui::game_window::WindowEventEffects::with_standalone(|effects| {
                 self.owner.with_manager(|manager| {
                     manager.destroy_script_message_window_with_effects(effects)
@@ -1011,10 +1011,10 @@ mod tests {
         // iterates this game's window list; a headless receiver has none.
         struct QuickVictoryDriver;
         impl ScriptExecutionDriver for QuickVictoryDriver {
-            fn after_action(&mut self) -> gamelogic::GameLogicResult<()> {
+            fn after_action(&mut self) -> generals_sim::GameLogicResult<()> {
                 Ok(())
             }
-            fn close_game_windows(&mut self) -> Option<gamelogic::GameLogicResult<()>> {
+            fn close_game_windows(&mut self) -> Option<generals_sim::GameLogicResult<()>> {
                 Some(Ok(()))
             }
         }

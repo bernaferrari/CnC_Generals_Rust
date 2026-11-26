@@ -64,7 +64,7 @@ impl GameLogic {
         _producer: ObjectId,
         structure: ObjectId,
         owner: u32,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         self.complete_instant_line_build_player_with_effects(
             _producer,
             structure,
@@ -79,7 +79,7 @@ impl GameLogic {
         structure: ObjectId,
         owner: u32,
         ui: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         self.complete_owned_structure_player_with_effects(structure, owner, false, None, ui)
     }
 
@@ -88,7 +88,7 @@ impl GameLogic {
         structure: ObjectId,
         owner: u32,
         rebuilding: bool,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         self.complete_owned_structure_player_with_engine(structure, owner, rebuilding, None)
     }
 
@@ -98,7 +98,7 @@ impl GameLogic {
         owner: u32,
         rebuilding: bool,
         interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         self.complete_owned_structure_player_with_effects(
             structure,
             owner,
@@ -115,7 +115,7 @@ impl GameLogic {
         rebuilding: bool,
         interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
         ui: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         let Some(object) = self.host_object(structure) else {
             return Ok(());
         };
@@ -177,7 +177,7 @@ impl GameLogic {
         structure: ObjectId,
         interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         use crate::game_logic::pathfinding::PathfindingSystem;
         use generals_sim::pathfinding::PathfindLayerEnum;
 
@@ -221,7 +221,7 @@ impl GameLogic {
                     &mut effects,
                 )?;
                 if self.visual_world_epoch != epoch {
-                    return Err(gamelogic::GameLogicError::InvalidObject(structure.0));
+                    return Err(generals_sim::GameLogicError::InvalidObject(structure.0));
                 }
             }
         }

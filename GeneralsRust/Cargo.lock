@@ -3509,6 +3509,7 @@ dependencies = [
  "game_engine",
  "game_network",
  "gamelogic",
+ "generals-sim",
  "generals_particles",
  "generals_ui",
  "gilrs",
@@ -3684,7 +3685,6 @@ dependencies = [
  "game_engine",
  "game_network",
  "generals-sim",
- "generals_map",
  "glam",
  "lazy_static",
  "log",
@@ -3717,6 +3717,7 @@ name = "generals-sim"
 version = "0.1.0"
 dependencies = [
  "generals_game_domain",
+ "generals_map",
  "glam",
  "log",
  "serde",

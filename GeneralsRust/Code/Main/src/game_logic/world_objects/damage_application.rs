@@ -174,7 +174,7 @@ impl GameLogic {
         source_id: ObjectId,
         source_team: Team,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<Option<bool>> {
+    ) -> generals_sim::GameLogicResult<Option<bool>> {
         let Some(victim) = self.objects.get(&victim_id) else { return Ok(None) };
         if !victim.is_alive() {
             return Ok(None);
@@ -206,7 +206,7 @@ impl GameLogic {
         damage_type: crate::game_logic::combat::DamageType,
         death_type: crate::game_logic::host_usa_pilot::HostDeathType,
         fx_override: Option<crate::game_logic::combat::DamageType>,
-    ) -> gamelogic::GameLogicResult<bool> {
+    ) -> generals_sim::GameLogicResult<bool> {
         self.apply_residual_damage_owned_with_effects(
             victim_id,
             amount,
@@ -227,7 +227,7 @@ impl GameLogic {
         death_type: crate::game_logic::host_usa_pilot::HostDeathType,
         fx_override: Option<crate::game_logic::combat::DamageType>,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<bool> {
+    ) -> generals_sim::GameLogicResult<bool> {
         // Residual weapons and world effects use the same installed Body owner
         // as ordinary impacts. Finish reentrant bridge, score and onDie callbacks
         // before returning to the caller's original next-candidate boundary.
@@ -251,7 +251,7 @@ impl GameLogic {
         victim_id: ObjectId,
         damage_type: crate::game_logic::combat::DamageType,
         death_type: crate::game_logic::host_usa_pilot::HostDeathType,
-    ) -> gamelogic::GameLogicResult<Option<OwnedDamageResult>> {
+    ) -> generals_sim::GameLogicResult<Option<OwnedDamageResult>> {
         self.apply_owned_kill_with_effects(
             victim_id,
             damage_type,
@@ -266,7 +266,7 @@ impl GameLogic {
         damage_type: crate::game_logic::combat::DamageType,
         death_type: crate::game_logic::host_usa_pilot::HostDeathType,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<Option<OwnedDamageResult>> {
+    ) -> generals_sim::GameLogicResult<Option<OwnedDamageResult>> {
         let Some(victim) = self.objects.get(&victim_id) else { return Ok(None) };
         let amount = if victim.thing().template.body_kind.is_some() {
             // CPP Object::kill takes the actual receiving Body max health,
@@ -301,7 +301,7 @@ impl GameLogic {
         death_type: crate::game_logic::host_usa_pilot::HostDeathType,
         fx_override: Option<crate::game_logic::combat::DamageType>,
         context: &DamageHitContext,
-    ) -> gamelogic::GameLogicResult<Option<OwnedDamageResult>> {
+    ) -> generals_sim::GameLogicResult<Option<OwnedDamageResult>> {
         self.apply_owned_damage_with_effects(
             victim_id,
             damage,
@@ -324,7 +324,7 @@ impl GameLogic {
         fx_override: Option<crate::game_logic::combat::DamageType>,
         context: &DamageHitContext,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<Option<OwnedDamageResult>> {
+    ) -> generals_sim::GameLogicResult<Option<OwnedDamageResult>> {
         self.apply_owned_damage_with_killer_team_with_effects(
             victim_id,
             damage,
@@ -346,7 +346,7 @@ impl GameLogic {
         victim_id: ObjectId,
         amount: f32,
         source_id: Option<ObjectId>,
-    ) -> gamelogic::GameLogicResult<Option<OwnedDamageResult>> {
+    ) -> generals_sim::GameLogicResult<Option<OwnedDamageResult>> {
         self.apply_owned_healing_with_effects(victim_id, amount, source_id, &mut Default::default())
     }
 
@@ -356,7 +356,7 @@ impl GameLogic {
         amount: f32,
         source_id: Option<ObjectId>,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<Option<OwnedDamageResult>> {
+    ) -> generals_sim::GameLogicResult<Option<OwnedDamageResult>> {
         let context = DamageHitContext::new(
             source_id.and_then(|id| self.objects.get(&id)),
             None,
@@ -388,7 +388,7 @@ impl GameLogic {
         fx_override: Option<crate::game_logic::combat::DamageType>,
         context: &DamageHitContext,
         killer_team_override: Option<Team>,
-    ) -> gamelogic::GameLogicResult<Option<OwnedDamageResult>> {
+    ) -> generals_sim::GameLogicResult<Option<OwnedDamageResult>> {
         self.apply_owned_damage_with_killer_team_with_effects(
             victim_id,
             damage,
@@ -413,7 +413,7 @@ impl GameLogic {
         context: &DamageHitContext,
         killer_team_override: Option<Team>,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<Option<OwnedDamageResult>> {
+    ) -> generals_sim::GameLogicResult<Option<OwnedDamageResult>> {
         let result = self.apply_owned_damage_with_killer_team_and_after_fx_with_effects(
             victim_id,
             damage,
@@ -459,7 +459,7 @@ impl GameLogic {
         context: &DamageHitContext,
         killer_team_override: Option<Team>,
         after_damage_fx: impl FnOnce(&mut Self, ObjectId),
-    ) -> gamelogic::GameLogicResult<Option<OwnedDamageResult>> {
+    ) -> generals_sim::GameLogicResult<Option<OwnedDamageResult>> {
         self.apply_owned_damage_with_killer_team_and_after_fx_with_effects(
             victim_id,
             damage,
@@ -486,7 +486,7 @@ impl GameLogic {
         killer_team_override: Option<Team>,
         after_damage_fx: impl FnOnce(&mut Self, ObjectId),
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<Option<OwnedDamageResult>> {
+    ) -> generals_sim::GameLogicResult<Option<OwnedDamageResult>> {
         let mut receiving_effects = effects.reborrow();
         if let Some(interpreter) = context.topple_interpreter() {
             receiving_effects.script_events =
@@ -1439,7 +1439,7 @@ impl GameLogic {
         after_damage_fx: &mut Option<impl FnOnce(&mut Self, ObjectId)>,
         context: &DamageHitContext,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<Option<OwnedDamageResult>> {
+    ) -> generals_sim::GameLogicResult<Option<OwnedDamageResult>> {
         use crate::game_logic::host_base_defense::{
             HostHiveDamageClass, hive_damage_class_for_type,
         };
@@ -1698,7 +1698,7 @@ impl GameLogic {
         &mut self,
         pending: crate::game_logic::combat::PendingProjectile,
         stream_binding: Option<crate::game_logic::combat::ProjectileStreamBinding>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         self.materialize_owned_passive_shot_with_effects(
             pending,
             stream_binding,
@@ -1713,7 +1713,7 @@ impl GameLogic {
         stream_binding: Option<crate::game_logic::combat::ProjectileStreamBinding>,
         accepted_rule: Option<&generals_sim::weapon::WeaponDefinition>,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         let ready = self.materialize_owned_shot_with_effects(
             pending,
             stream_binding,
@@ -1804,7 +1804,7 @@ impl GameLogic {
     pub(in crate::game_logic) fn materialize_owned_queued_projectiles_with_effects(
         &mut self,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         let pending = self.combat_system.take_pending_projectiles();
         for shot in pending {
             if let Some(immediate) = self
@@ -1844,10 +1844,10 @@ impl GameLogic {
         position: Vec3,
         team_id: Option<u32>,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<(ObjectId, (u64, u64))> {
+    ) -> generals_sim::GameLogicResult<(ObjectId, (u64, u64))> {
         match self.create_projectile_with_birth_checked(name, team, owner, position, team_id, effects) {
             Ok(Some(birth)) => Ok(birth),
-            Ok(None) => Err(gamelogic::GameLogicError::Configuration(format!(
+            Ok(None) => Err(generals_sim::GameLogicError::Configuration(format!(
                 "Could not create projectile {name}"
             ))),
             Err(error) => {
@@ -1869,7 +1869,7 @@ impl GameLogic {
         payload_template: &str,
         inherited_velocity_per_frame: Option<Vec3>,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<Option<ObjectId>> {
+    ) -> generals_sim::GameLogicResult<Option<ObjectId>> {
         let Some(profile) = self.projectile_definitions.get(payload_template) else {
             return Ok(None);
         };
@@ -1900,7 +1900,7 @@ impl GameLogic {
         accepted_rule: Option<&generals_sim::weapon::WeaponDefinition>,
         inherited_velocity_per_frame: Option<Vec3>,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<MaterializedShot> {
+    ) -> generals_sim::GameLogicResult<MaterializedShot> {
         use crate::game_logic::combat::{
             MaterializedWeaponShot, MissileInitialVelocity, ProjectilePlacement,
         };
@@ -1915,7 +1915,7 @@ impl GameLogic {
             pending.projectile_lifecycle,
             Some(crate::game_logic::weapon_bootstrap::HostProjectileLifecycle::Missile { .. })
         ) {
-            return Err(gamelogic::GameLogicError::Configuration(format!(
+            return Err(generals_sim::GameLogicError::Configuration(format!(
                 "Missile {projectile_name} has no receiving flight profile"
             )));
         }
@@ -1951,7 +1951,7 @@ impl GameLogic {
         let shooter_id = pending.shooter_id;
         let birth = if (authored_flight || detonate_calls_kill) && has_aim {
             if missile && transform.is_none() {
-                return Err(gamelogic::GameLogicError::Configuration(format!(
+                return Err(generals_sim::GameLogicError::Configuration(format!(
                     "Missile {projectile_name} has no launch transform"
                 )));
             }
@@ -2080,7 +2080,7 @@ impl GameLogic {
                     self.destroy_object_with_effects(id, effects)?;
                 }
                 if had_projectile || !valid {
-                    return Err(gamelogic::GameLogicError::Configuration(format!(
+                    return Err(generals_sim::GameLogicError::Configuration(format!(
                         "Could not launch projectile {projectile_name}"
                     )));
                 }
@@ -2089,14 +2089,14 @@ impl GameLogic {
         Ok(MaterializedShot { damage: ready, projectile: None })
     }
 
-    pub(in crate::game_logic) fn apply_owned_projectileless_delayed_damage(&mut self) -> gamelogic::GameLogicResult<()> {
+    pub(in crate::game_logic) fn apply_owned_projectileless_delayed_damage(&mut self) -> generals_sim::GameLogicResult<()> {
         self.apply_owned_projectileless_delayed_damage_with_effects(&mut Default::default())
     }
 
     pub(in crate::game_logic) fn apply_owned_projectileless_delayed_damage_with_effects(
         &mut self,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         // Weapon.cpp:1589-1604 — the original walks m_weaponDDI by iterator,
         // erasing each due entry only after dealDamageInternal returns. A
         // Body callback (e.g. TransitionDamageFX firing a retaliation weapon)
@@ -2122,7 +2122,7 @@ impl GameLogic {
     pub(in crate::game_logic) fn update_owned_projectile_impacts(
         &mut self,
         dt: f32,
-    ) -> gamelogic::GameLogicResult<Vec<ObjectId>> {
+    ) -> generals_sim::GameLogicResult<Vec<ObjectId>> {
         self.update_owned_projectile_impacts_with_effects(dt, &mut Default::default())
     }
 
@@ -2130,7 +2130,7 @@ impl GameLogic {
         &mut self,
         dt: f32,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<Vec<ObjectId>> {
+    ) -> generals_sim::GameLogicResult<Vec<ObjectId>> {
         let ids = self.combat_system.projectile_update_ids();
         let limit = self.combat_system.historic_damage_limit();
         let mut retired = Vec::new();
@@ -2169,7 +2169,7 @@ impl GameLogic {
         birth: Option<(u64, u64)>,
         retirement: RetiredProjectileActor,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         let current = self.combat_system.get_projectiles().get(&id);
         if current.is_some_and(|shot| shot.projectile_actor_birth == birth) {
             self.combat_system.retire_projectile_impacts(&[id]);
@@ -2189,7 +2189,7 @@ impl GameLogic {
         projectile: ObjectId,
         other: ObjectId,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<bool> {
+    ) -> generals_sim::GameLogicResult<bool> {
         let Some(shot) = self.combat_system.get_projectiles().get(&projectile) else {
             return Ok(false);
         };
@@ -2242,7 +2242,7 @@ impl GameLogic {
         callback: crate::game_logic::combat::ProjectileCallback,
         historic_damage_limit: u32,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> (Option<RetiredProjectileActor>, gamelogic::GameLogicResult<()>) {
+    ) -> (Option<RetiredProjectileActor>, generals_sim::GameLogicResult<()>) {
         let projectile = self.combat_system.get_projectiles().get(&id);
         let birth = projectile.and_then(|projectile| projectile.projectile_actor_birth);
         let detonate_calls_kill = projectile.is_some_and(|projectile| projectile.detonate_calls_kill());
@@ -2461,7 +2461,7 @@ impl GameLogic {
         birth: (u64, u64),
         self_damage: bool,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         use crate::game_logic::combat::DamageType;
         use crate::game_logic::host_usa_pilot::HostDeathType;
 
@@ -2486,7 +2486,7 @@ impl GameLogic {
         &mut self,
         event: &crate::game_logic::combat::DamageEvent,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<AppliedCombatDamage> {
+    ) -> generals_sim::GameLogicResult<AppliedCombatDamage> {
         use crate::game_logic::combat::DamageEvent;
         if let DamageEvent::Direct {
             target_id,
@@ -2584,7 +2584,7 @@ impl GameLogic {
         &mut self,
         event: &crate::game_logic::combat::DamageEvent,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<AppliedCombatDamage> {
+    ) -> generals_sim::GameLogicResult<AppliedCombatDamage> {
         use crate::game_logic::combat::{AreaDamage, DamageEvent};
         let DamageEvent::Area {
             shooter_id,

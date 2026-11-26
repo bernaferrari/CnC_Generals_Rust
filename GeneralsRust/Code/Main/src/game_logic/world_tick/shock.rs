@@ -58,7 +58,7 @@ impl GameLogic {
     pub(crate) fn tick_physics_collisions_all_with_effects(
         &mut self,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<u32> {
+    ) -> generals_sim::GameLogicResult<u32> {
         self.integrate_owned_physics_motion_with_effects(effects)?;
         self.update_owned_partition_with_effects(effects)
     }
@@ -66,7 +66,7 @@ impl GameLogic {
     pub(crate) fn integrate_owned_physics_motion_with_effects(
         &mut self,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         self.sync_all_contained_items_mass();
         // Per-frame blocked bookkeeping residual (before new collide pairs).
         // Snapshot ground heights before mut pass (terrain borrow).
@@ -185,14 +185,14 @@ impl GameLogic {
     pub(crate) fn update_owned_partition_with_effects(
         &mut self,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<u32> {
+    ) -> generals_sim::GameLogicResult<u32> {
         self.with_own_services_mut(|this| this.update_owned_partition_with_effects_inner(effects))
     }
 
     fn update_owned_partition_with_effects_inner(
         &mut self,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<u32> {
+    ) -> generals_sim::GameLogicResult<u32> {
         let mut contacts = Vec::new();
         let mut seen = std::collections::HashSet::new();
         while let Some(dirty) = self.partition_manager.take_next_receiving_dirty() {
@@ -362,7 +362,7 @@ impl GameLogic {
     pub(crate) fn tick_shock_stun_all_with_effects(
         &mut self,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         // Include bounce_audio_pending so land audio drains even after stun ends.
         let ids: Vec<ObjectId> = self
             .objects
@@ -552,7 +552,7 @@ impl GameLogic {
         attacker_team: Team,
         intended_id: ObjectId,
         weapon_name: Option<&str>,
-    ) -> gamelogic::GameLogicResult<u32> {
+    ) -> generals_sim::GameLogicResult<u32> {
         self.with_own_services_mut(|this| {
             this.apply_instant_hit_splash_at_with_effects(
                 impact,
@@ -581,7 +581,7 @@ impl GameLogic {
         intended_id: ObjectId,
         weapon_name: Option<&str>,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<u32> {
+    ) -> generals_sim::GameLogicResult<u32> {
         // Content cannot be changed by an earlier victim's callbacks. Keep
         // this accepted rule alive while preserving original visitation order.
         let native_rule = weapon_name.and_then(|name| {
@@ -821,7 +821,7 @@ impl GameLogic {
         attacker_team: Team,
         skip_id: ObjectId,
         weapon_name: Option<&str>,
-    ) -> gamelogic::GameLogicResult<u32> {
+    ) -> generals_sim::GameLogicResult<u32> {
         self.with_own_services_mut(|this| {
             this.apply_scatter_miss_splash_at_with_effects(
                 impact,
@@ -846,7 +846,7 @@ impl GameLogic {
         skip_id: ObjectId,
         weapon_name: Option<&str>,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<u32> {
+    ) -> generals_sim::GameLogicResult<u32> {
         // Content cannot be changed by an earlier victim's callbacks. Keep
         // this accepted rule alive while preserving original visitation order.
         let native_rule = weapon_name.and_then(|name| {
@@ -1533,7 +1533,7 @@ impl GameLogic {
         amount: f32,
         interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         self.award_experience_with_scaling(recipient_id, amount, true, interpreter, effects)
     }
 
@@ -1542,7 +1542,7 @@ impl GameLogic {
         recipient_id: ObjectId,
         amount: f32,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         self.award_experience_with_scaling(recipient_id, amount, false, None, effects)
     }
 
@@ -1553,7 +1553,7 @@ impl GameLogic {
         scale_for_bonus: bool,
         interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         if amount <= 0.0 || !amount.is_finite() {
             return Ok(());
         }
@@ -1616,7 +1616,7 @@ impl GameLogic {
         victim_id: ObjectId,
         interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         let Some(victim) = self.objects.lookup(&victim_id) else {
             return Ok(());
         };
@@ -1649,7 +1649,7 @@ impl GameLogic {
         victim_id: ObjectId,
         interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         use crate::game_logic::kill_credit::KillScorePhase;
         let Some((victim_score_ready, victim_birth)) =
             self.objects.lookup(&victim_id).map(|victim| {

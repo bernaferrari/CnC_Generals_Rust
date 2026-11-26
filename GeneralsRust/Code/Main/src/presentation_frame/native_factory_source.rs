@@ -205,14 +205,14 @@ impl GameLogic {
         &mut self,
         id: ObjectId,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         #[cfg(feature = "game_client")]
         {
             if !self.requires_native_drawable_owner() && effects.view.is_none() {
                 return Ok(());
             }
             let view = effects.view.as_deref_mut().ok_or_else(|| {
-                gamelogic::GameLogicError::Configuration(format!(
+                generals_sim::GameLogicError::Configuration(format!(
                     "Object {} birth requires its native Drawable owner",
                     id.0
                 ))
@@ -223,10 +223,10 @@ impl GameLogic {
                     view.host_epoch(),
                     view.local_player_id(),
                 )
-                .map_err(gamelogic::GameLogicError::Configuration)?;
+                .map_err(generals_sim::GameLogicError::Configuration)?;
             let birth = self.native_drawable_birth_context();
             let content = self.receiving_module_content.as_mut().ok_or_else(|| {
-                gamelogic::GameLogicError::Configuration(format!(
+                generals_sim::GameLogicError::Configuration(format!(
                     "Object {} birth requires its receiving content owner",
                     id.0
                 ))
@@ -237,7 +237,7 @@ impl GameLogic {
                 content.module_factory_mut(),
                 effects.terrain.as_deref_mut().and_then(|terrain| terrain.track_terrain()),
             )
-                .map_err(gamelogic::GameLogicError::Configuration)
+                .map_err(generals_sim::GameLogicError::Configuration)
         }
         #[cfg(not(feature = "game_client"))]
         {

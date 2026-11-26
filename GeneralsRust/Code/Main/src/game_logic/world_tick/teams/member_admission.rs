@@ -38,7 +38,7 @@ impl GameLogic {
         interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
         activate: bool,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         let Some(object) = self.objects.get(&id) else {
             return Ok(());
         };
@@ -79,7 +79,7 @@ impl GameLogic {
         object: &Object,
         interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<Option<PreparedHostTeamAdmission>> {
+    ) -> generals_sim::GameLogicResult<Option<PreparedHostTeamAdmission>> {
         match self.prepare_host_team_admission(
             TeamAdmissionTarget::from_object(object),
             interpreter,
@@ -87,7 +87,7 @@ impl GameLogic {
         )? {
             HostTeamPreparation::NoTeam => Ok(None),
             HostTeamPreparation::Ready(team) => Ok(Some(team)),
-            HostTeamPreparation::Invalidated => Err(gamelogic::GameLogicError::Configuration(
+            HostTeamPreparation::Invalidated => Err(generals_sim::GameLogicError::Configuration(
                 "requested external Team was invalidated by its creation actions".into(),
             )),
         }
@@ -98,16 +98,16 @@ impl GameLogic {
         target: TeamAdmissionTarget,
         interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<HostTeamPreparation> {
+    ) -> generals_sim::GameLogicResult<HostTeamPreparation> {
         if let Some(error) = self.team_creation_error() {
             return Err(error);
         }
-        let invalid = |reason: &str| gamelogic::GameLogicError::Configuration(reason.into());
+        let invalid = |reason: &str| generals_sim::GameLogicError::Configuration(reason.into());
         if target
             .owner
             .is_some_and(|id| !self.players.contains_key(&id))
         {
-            return Err(gamelogic::GameLogicError::Configuration(
+            return Err(generals_sim::GameLogicError::Configuration(
                 "Object admission names a missing receiving Player".into(),
             ));
         }
@@ -124,7 +124,7 @@ impl GameLogic {
                     &mut factory,
                     &target.name,
                     default_team_owner_name(player).ok_or_else(|| {
-                        gamelogic::GameLogicError::Configuration(
+                        generals_sim::GameLogicError::Configuration(
                             "receiving Player has no admitted script identity".into(),
                         )
                     })?,
@@ -193,7 +193,7 @@ impl GameLogic {
         let identity = {
             let team = team.read().unwrap_or_else(|error| error.into_inner());
             if let Some(reason) = team.creation_failure() {
-                return Err(gamelogic::GameLogicError::TeamCreationFailed(reason.into()));
+                return Err(generals_sim::GameLogicError::TeamCreationFailed(reason.into()));
             }
             if team.get_controlling_player_id() != target.owner {
                 return Err(invalid(
@@ -242,12 +242,12 @@ impl GameLogic {
         &mut self,
         object: Object,
         prepared: Option<PreparedHostTeamAdmission>,
-    ) -> gamelogic::GameLogicResult<ObjectId> {
+    ) -> generals_sim::GameLogicResult<ObjectId> {
         let id = object.id;
         self.validate_host_object_admission(id)?;
         let Some(prepared) = prepared else {
             if !object.team_instance_name.trim().is_empty() {
-                return Err(gamelogic::GameLogicError::Configuration(
+                return Err(generals_sim::GameLogicError::Configuration(
                     "named external Object Team has no prepared admission".into(),
                 ));
             }
@@ -262,7 +262,7 @@ impl GameLogic {
             || object.owner_player_id != prepared.target.owner
             || object.team != prepared.target.faction
         {
-            return Err(gamelogic::GameLogicError::Configuration(
+            return Err(generals_sim::GameLogicError::Configuration(
                 "prepared external Object Team changed before admission".into(),
             ));
         }
@@ -316,14 +316,14 @@ impl GameLogic {
 
 impl GameLogic {
     /// Derived from canonical Team state; no competing session failure slot.
-    pub(crate) fn team_creation_error(&self) -> Option<gamelogic::GameLogicError> {
+    pub(crate) fn team_creation_error(&self) -> Option<generals_sim::GameLogicError> {
         let teams = match self
             .team_factory
             .with_read_without_flushing(|factory| factory.get_all_teams())
         {
             Ok(teams) => teams,
             Err(_) => {
-                return Some(gamelogic::GameLogicError::Configuration(
+                return Some(generals_sim::GameLogicError::Configuration(
                     "receiving Team owner is unavailable".into(),
                 ));
             }
@@ -332,7 +332,7 @@ impl GameLogic {
             team.read()
                 .unwrap_or_else(|error| error.into_inner())
                 .creation_failure()
-                .map(|reason| gamelogic::GameLogicError::TeamCreationFailed(reason.into()))
+                .map(|reason| generals_sim::GameLogicError::TeamCreationFailed(reason.into()))
         })
     }
 }
@@ -343,7 +343,7 @@ impl GameLogic {
         name: &str,
         creates_new: bool,
         interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         if let Some(error) = self.team_creation_error() {
             return Err(error);
         }
@@ -353,7 +353,7 @@ impl GameLogic {
         let factory = self
             .team_factory
             .lock()
-            .map_err(|error| gamelogic::GameLogicError::Threading(error.to_string()))?;
+            .map_err(|error| generals_sim::GameLogicError::Threading(error.to_string()))?;
         if !creates_new
             && factory.get_all_teams().iter().any(|team| {
                 team.read()
@@ -369,7 +369,7 @@ impl GameLogic {
             prototype.get_execute_actions_on_create()
                 && !prototype.get_production_condition().is_empty()
         }) {
-            return Err(gamelogic::GameLogicError::Configuration(
+            return Err(generals_sim::GameLogicError::Configuration(
                 "Team creation requires driving interpreter".into(),
             ));
         }
@@ -382,7 +382,7 @@ impl GameLogic {
         actions: Vec<String>,
         interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
         ui: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         self.with_own_services_mut(|this| {
             this.run_owned_team_creation_actions_bound(team, actions, interpreter, ui)
         })
@@ -394,13 +394,13 @@ impl GameLogic {
         actions: Vec<String>,
         interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
         ui: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         {
             let team = team
                 .read()
-                .map_err(|error| gamelogic::GameLogicError::Threading(error.to_string()))?;
+                .map_err(|error| generals_sim::GameLogicError::Threading(error.to_string()))?;
             if let Some(reason) = team.creation_failure() {
-                return Err(gamelogic::GameLogicError::TeamCreationFailed(reason.into()));
+                return Err(generals_sim::GameLogicError::TeamCreationFailed(reason.into()));
             }
         }
         if actions.is_empty() {
@@ -428,7 +428,7 @@ impl GameLogic {
                         .unwrap_or_else(|error| error.into_inner())
                         .creation_failure()
                     {
-                        return Err(gamelogic::GameLogicError::TeamCreationFailed(reason.into()));
+                        return Err(generals_sim::GameLogicError::TeamCreationFailed(reason.into()));
                     }
                 }
                 result

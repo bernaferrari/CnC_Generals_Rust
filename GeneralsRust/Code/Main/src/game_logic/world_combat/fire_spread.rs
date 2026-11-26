@@ -160,7 +160,7 @@ impl GameLogic {
     }
 
     #[cfg(test)]
-    pub(in super::super) fn update_fire_spread(&mut self) -> gamelogic::GameLogicResult<()> {
+    pub(in super::super) fn update_fire_spread(&mut self) -> generals_sim::GameLogicResult<()> {
         self.update_fire_spread_with_effects(
             &mut crate::game_logic::ScriptPresentationEffects::default(),
         )
@@ -169,7 +169,7 @@ impl GameLogic {
     pub(crate) fn update_fire_spread_with_effects(
         &mut self,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         let frame = self.frame as u32;
         // C++ GameLogic::update runs due Flammable/FireSpread updates without
         // an isEffectivelyDead check; only physically destroyed objects stop.

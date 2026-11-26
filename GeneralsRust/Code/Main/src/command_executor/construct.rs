@@ -36,7 +36,7 @@ impl<'a> CommandExecutor<'a> {
         template_name: &str,
         location: Vec3,
         orientation: f32,
-    ) -> gamelogic::GameLogicResult<CommandResult> {
+    ) -> generals_sim::GameLogicResult<CommandResult> {
         let _bind = self.bind_services();
         Ok(self.execute_build_with_placement(
             units,
@@ -54,7 +54,7 @@ impl<'a> CommandExecutor<'a> {
         location: Vec3,
         orientation: f32,
         collision_candidates: &HashSet<ObjectId>,
-    ) -> gamelogic::GameLogicResult<CommandResult> {
+    ) -> generals_sim::GameLogicResult<CommandResult> {
         let _bind = self.bind_services();
         Ok(self.execute_build_with_placement(
             &[builder],
@@ -72,7 +72,7 @@ impl<'a> CommandExecutor<'a> {
         location: Vec3,
         orientation: f32,
         placement: BuildPlacement<'_>,
-    ) -> gamelogic::GameLogicResult<CommandResult> {
+    ) -> generals_sim::GameLogicResult<CommandResult> {
         let (base_cost, is_structure) = match self.game_logic.get_templates().get(template_name) {
             Some(t) => (t.build_cost, t.is_kind_of(KindOf::Structure)),
             None => {
@@ -232,7 +232,7 @@ impl<'a> CommandExecutor<'a> {
         template_name: &str,
         location: Vec3,
         orientation: f32,
-    ) -> gamelogic::GameLogicResult<CommandResult> {
+    ) -> generals_sim::GameLogicResult<CommandResult> {
         let _bind = self.bind_services();
         Ok(self.execute_build(units, template_name, location, orientation)?)
     }
@@ -241,7 +241,7 @@ impl<'a> CommandExecutor<'a> {
         &mut self,
         object_id: ObjectId,
         player_id: u32,
-    ) -> gamelogic::GameLogicResult<CommandResult> {
+    ) -> generals_sim::GameLogicResult<CommandResult> {
         let _bind = self.bind_services();
         let (template_name, base_supplies, reconstructing) = {
             let Some(obj) = self.game_logic.host_object(object_id) else {
@@ -299,7 +299,7 @@ impl<'a> CommandExecutor<'a> {
         &mut self,
         units: &[ObjectId],
         target_id: ObjectId,
-    ) -> gamelogic::GameLogicResult<CommandResult> {
+    ) -> generals_sim::GameLogicResult<CommandResult> {
         let _bind = self.bind_services();
         // C++ MSG_RESUME_CONSTRUCTION / groupResumeConstruction residual.
         if self.game_logic.resume_construction(units, target_id)? {

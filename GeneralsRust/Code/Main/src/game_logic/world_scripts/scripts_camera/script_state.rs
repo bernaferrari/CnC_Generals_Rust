@@ -935,14 +935,14 @@ impl GameLogic {
     /// C++ NAMED_RECEIVE_UPGRADE / FLASH / EMOTICON / HELD / CUSTOM_COLOR /
     /// NAMED_SET_ATTITUDE / REPULSOR / STOPPING_DISTANCE / FORCE_SELECT /
     /// PLAYER_SELL_EVERYTHING / REPAIR_NAMED / EXCLUDE_FROM_SCORE / SELECT_SKILLSET.
-    pub(super) fn apply_host_script_visual_status_requests(&mut self) -> gamelogic::GameLogicResult<()> {
+    pub(super) fn apply_host_script_visual_status_requests(&mut self) -> generals_sim::GameLogicResult<()> {
         self.apply_host_script_visual_status_requests_with_effects(&mut Default::default())
     }
 
     pub(super) fn apply_host_script_visual_status_requests_with_effects(
         &mut self,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         use crate::game_logic::KindOf;
         use gamelogic::scripting::{
             HostScriptEmoticonRequest, HostScriptFlashRequest, HostScriptPlayerMiscRequest,
@@ -1339,7 +1339,7 @@ impl GameLogic {
         dest_player: u32,
         source_player: u32,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         // Player::transferAssetsFromThat does nothing at all when the
         // destination has no default Team, including leaving its money alone.
         let Some(destination_id) = self.host_default_team_id(dest_player) else {
@@ -1352,7 +1352,7 @@ impl GameLogic {
                 .and_then(|definitions| identity.resolve_in(definitions))
                 .is_none()
             {
-                return Err(gamelogic::GameLogicError::Configuration(
+                return Err(generals_sim::GameLogicError::Configuration(
                     "player asset transfer requires its source PlayerTemplate".into(),
                 ));
             }
@@ -1361,10 +1361,10 @@ impl GameLogic {
             .team_factory
             .with_read_without_flushing(|factory| factory.find_team_by_id(destination_id))
             .map_err(|_| {
-                gamelogic::GameLogicError::Threading("receiving TeamFactory lock poisoned".into())
+                generals_sim::GameLogicError::Threading("receiving TeamFactory lock poisoned".into())
             })?
             .ok_or_else(|| {
-                gamelogic::GameLogicError::Configuration(
+                generals_sim::GameLogicError::Configuration(
                     "selected player transfer Team is unavailable".into(),
                 )
             })?;
@@ -1379,14 +1379,14 @@ impl GameLogic {
                     factory.owned_team_instances_for_controller(source_player)
                 })
                 .map_err(|_| {
-                    gamelogic::GameLogicError::Threading(
+                    generals_sim::GameLogicError::Threading(
                         "receiving TeamFactory lock poisoned".into(),
                     )
                 })?;
             let mut members = Vec::new();
             for team in teams {
                 let roster = team.read().map_err(|_| {
-                    gamelogic::GameLogicError::Threading("receiving Team lock poisoned".into())
+                    generals_sim::GameLogicError::Threading("receiving Team lock poisoned".into())
                 })?;
                 for &raw_id in roster.get_members() {
                     let id = ObjectId(raw_id);
@@ -1423,7 +1423,7 @@ impl GameLogic {
                         })
                 })
                 .map_err(|_| {
-                    gamelogic::GameLogicError::Threading(
+                    generals_sim::GameLogicError::Threading(
                         "receiving TeamFactory lock poisoned".into(),
                     )
                 })?;
@@ -1435,7 +1435,7 @@ impl GameLogic {
                     effects,
                 )?
             {
-                return Err(gamelogic::GameLogicError::Configuration(
+                return Err(generals_sim::GameLogicError::Configuration(
                     "player asset transfer lost its selected Team or Object".into(),
                 ));
             }

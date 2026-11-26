@@ -146,7 +146,7 @@ impl GameLogic {
         object_id: ObjectId,
         _interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
         _ui: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         let is_supply_center = self.objects.get(&object_id)
             .is_some_and(|obj| obj.thing().template.has_supply_center_create);
         if is_supply_center {

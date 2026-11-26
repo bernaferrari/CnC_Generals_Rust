@@ -24,7 +24,7 @@ impl<'a> ScriptEventRecipient<'a> {
         team_id: u32,
         player_id: Option<u32>,
         effects: &mut ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         world.run_owned_team_script_with_effects_checked(self.0, name, team_id, player_id, effects)
     }
     fn notify(self, player: usize, power: &str, source: u32, triggered: bool, completed: bool) {

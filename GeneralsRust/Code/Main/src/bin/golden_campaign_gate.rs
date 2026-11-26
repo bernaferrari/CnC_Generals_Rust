@@ -20,7 +20,7 @@ use generals_main::golden_campaign::{
     run_golden_campaign_ex,
 };
 
-fn main() -> gamelogic::GameLogicResult<()> {
+fn main() -> generals_sim::GameLogicResult<()> {
     let args: Vec<String> = std::env::args().skip(1).collect();
     if args.iter().any(|a| a == "--help" || a == "-h") {
         println!("Usage: golden_campaign_gate [--map NAME_OR_PATH] [--frames N]");

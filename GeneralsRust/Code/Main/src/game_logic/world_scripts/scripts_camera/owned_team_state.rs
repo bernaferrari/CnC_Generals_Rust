@@ -11,7 +11,7 @@ impl GameLogic {
         player_id: u32,
         engine: &ScriptEngine,
         ui: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         let Some(player_name) = self
             .get_player(player_id)
             .map(|player| player.map_side.map_player_name.clone())
@@ -45,7 +45,7 @@ impl GameLogic {
         team_id: u32,
         player_id: Option<u32>,
         ui: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         let player_name = player_id.and_then(|id| {
             self.get_player(id)
                 .map(|player| player.map_side.map_player_name.clone())
@@ -122,7 +122,7 @@ impl GameLogic {
     pub(crate) fn update_owned_script_team_states(
         &mut self,
         engine: &ScriptEngine,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         self.update_owned_script_team_states_with_effects(engine, &mut Default::default())
     }
 
@@ -130,7 +130,7 @@ impl GameLogic {
         &mut self,
         engine: &ScriptEngine,
         ui: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         // CPP PlayerList executes numeric slots, each player's prototype list
         // retains admission order, and each prototype visits its live instances.
         let players: Vec<_> = self.get_players().keys().copied().collect();

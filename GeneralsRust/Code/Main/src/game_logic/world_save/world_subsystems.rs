@@ -1285,7 +1285,7 @@ if let Ok(mut list) = __arc_bind.write() {
     pub(in super::super) fn seed_pathfinding_from_terrain_with_effects_checked(
         &mut self,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         self.register_landmark_bridges_from_spawned_objects_with_effects_checked(effects)?;
         let owner = self.world_services.terrain().clone();
         let terrain = owner.read().unwrap_or_else(|e| e.into_inner());
@@ -1417,7 +1417,7 @@ if let Ok(mut list) = __arc_bind.write() {
     pub(crate) fn register_landmark_bridges_from_spawned_objects_with_effects_checked(
         &mut self,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         let jobs: Vec<(ObjectId, String)> = self
             .objects
             .registered_values()
@@ -1474,7 +1474,7 @@ if let Ok(mut list) = __arc_bind.write() {
         objects: &[super::script_loader::PlacedObject],
         spawned_object_ids: &[(ObjectId, usize)],
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         let jobs: Vec<(ObjectId, usize, String)> = spawned_object_ids
             .iter()
             .filter_map(|&(id, index)| {
@@ -1550,7 +1550,7 @@ if let Ok(mut list) = __arc_bind.write() {
         template_name: &str,
         source_map_object_index: Option<usize>,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         let owner = self.world_services.terrain().clone();
         let mut already_admitted = false;
         owner
@@ -1647,7 +1647,7 @@ if let Ok(mut list) = __arc_bind.write() {
         bridge_angle: f32,
         info: &gamelogic::terrain::BridgeInfo,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         let Some(bridge_tmpl) = self
             .objects
             .get(&bridge_id)

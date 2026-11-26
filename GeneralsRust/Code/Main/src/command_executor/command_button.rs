@@ -29,7 +29,7 @@ impl<'a> CommandExecutor<'a> {
         definition: &game_engine::common::ini::ini_command_button::CommandButton,
         location: Option<Vec3>,
         target: Option<ObjectId>,
-    ) -> gamelogic::GameLogicResult<CommandResult> {
+    ) -> generals_sim::GameLogicResult<CommandResult> {
         let _bind = self.bind_services();
         if definition.command.eq_ignore_ascii_case("STOP") {
             return self.execute_stop(units);
@@ -76,7 +76,7 @@ impl<'a> CommandExecutor<'a> {
         units: &[ObjectId],
         button: &str,
         waypoints: &[Vec3],
-    ) -> gamelogic::GameLogicResult<CommandResult> {
+    ) -> generals_sim::GameLogicResult<CommandResult> {
         let _bind = self.bind_services();
         use crate::command_system::{CommandType, command_type_from_button_name};
 
@@ -119,7 +119,7 @@ impl<'a> CommandExecutor<'a> {
         button: &str,
         location: Option<Vec3>,
         target: Option<ObjectId>,
-    ) -> gamelogic::GameLogicResult<CommandResult> {
+    ) -> generals_sim::GameLogicResult<CommandResult> {
         let _bind = self.bind_services();
         use crate::command_system::{
             CommandType, DropTarget, GuardTarget, ModifierKeys, PowerTarget,
@@ -233,7 +233,7 @@ impl<'a> CommandExecutor<'a> {
         };
         match self.execute_command(cmd) {
             Ok(r) => Ok(r),
-            Err(error) => Err(gamelogic::GameLogicError::Configuration(error)),
+            Err(error) => Err(generals_sim::GameLogicError::Configuration(error)),
         }
     }
 }

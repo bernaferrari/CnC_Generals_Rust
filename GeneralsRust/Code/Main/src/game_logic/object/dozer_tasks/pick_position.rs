@@ -7,9 +7,9 @@ impl GameLogic {
         &self,
         id: ObjectId,
         target: ObjectId,
-    ) -> gamelogic::GameLogicResult<Vec3> {
+    ) -> generals_sim::GameLogicResult<Vec3> {
         use generals_sim::pathfinding::PathfindCellType;
-        let fail = |s: &str| gamelogic::GameLogicError::Configuration(s.into());
+        let fail = |s: &str| generals_sim::GameLogicError::Configuration(s.into());
         let actor = self
             .objects
             .get(&id)

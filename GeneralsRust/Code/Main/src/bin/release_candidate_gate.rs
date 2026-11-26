@@ -1,6 +1,6 @@
 use generals_main::release_candidate::{format_rc_report, run_release_candidate_package};
 
-fn main() -> gamelogic::GameLogicResult<()> {
+fn main() -> generals_sim::GameLogicResult<()> {
     let report = run_release_candidate_package(2, 5)?;
     println!("{}", format_rc_report(&report));
     if report.soak_ok

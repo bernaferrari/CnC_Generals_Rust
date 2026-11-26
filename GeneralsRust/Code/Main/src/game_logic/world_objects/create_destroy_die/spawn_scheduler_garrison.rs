@@ -19,7 +19,7 @@ impl GameLogic {
 
     pub(super) fn exit_garrison_spawn(
         &mut self, owner: ObjectId, child: ObjectId, effects: &mut ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<bool> {
+    ) -> generals_sim::GameLogicResult<bool> {
         if owner == child { return Ok(false); }
         let Some(parent) = self.objects.get(&owner) else { return Ok(false); };
         if !parent.is_garrison_contain() { return Ok(false); }

@@ -186,7 +186,7 @@ fn command(
     }
 }
 
-fn run_frames(logic: &mut GameLogic, frames: usize) -> gamelogic::GameLogicResult<()> {
+fn run_frames(logic: &mut GameLogic, frames: usize) -> generals_sim::GameLogicResult<()> {
     for _ in 0..frames {
         logic.update();
         logic.headless_camera_view_offer(33)?;
@@ -199,7 +199,7 @@ fn run_until<F>(
     logic: &mut GameLogic,
     max_frames: usize,
     cond: F,
-) -> gamelogic::GameLogicResult<bool>
+) -> generals_sim::GameLogicResult<bool>
 where
     F: FnMut(&GameLogic) -> bool,
 {
@@ -211,7 +211,7 @@ fn run_until_budget<F>(
     logic: &mut GameLogic,
     max_frames: usize,
     cond: F,
-) -> gamelogic::GameLogicResult<usize>
+) -> generals_sim::GameLogicResult<usize>
 where
     F: FnMut(&GameLogic) -> bool,
 {
@@ -222,7 +222,7 @@ fn run_until_counted<F>(
     logic: &mut GameLogic,
     max_frames: usize,
     mut cond: F,
-) -> gamelogic::GameLogicResult<(usize, bool)>
+) -> generals_sim::GameLogicResult<(usize, bool)>
 where
     F: FnMut(&GameLogic) -> bool,
 {
@@ -551,7 +551,7 @@ fn existing_or_dozer_built(
     candidates: &[&str],
     command_id: u32,
     is_kind: impl Fn(&crate::game_logic::object::Object) -> bool,
-) -> gamelogic::GameLogicResult<Option<(String, ObjectId)>> {
+) -> generals_sim::GameLogicResult<Option<(String, ObjectId)>> {
     let finished_human = |g: &GameLogic| {
         g.host_objects()
             .registered_values()
@@ -831,7 +831,7 @@ fn march_unit_near(
     id: ObjectId,
     dest: Vec3,
     budget: usize,
-) -> gamelogic::GameLogicResult<bool> {
+) -> generals_sim::GameLogicResult<bool> {
     let _ = logic.assign_unit_path(id, dest, &[]);
     Ok(run_until(logic, budget, |g| {
         g.host_object(id)
@@ -1037,7 +1037,7 @@ fn golden_mopup_destroy_enabled() -> bool {
 
 fn clear_remaining_enemy_army_for_map_victory(
     logic: &mut GameLogic,
-) -> gamelogic::GameLogicResult<()> {
+) -> generals_sim::GameLogicResult<()> {
     // Wave 451 honesty residual:
     // - Default: no mop-up destroy (fail honestly if combat left survivors).
     // - Opt-in GOLDEN_ALLOW_MOPUP_DESTROY=1: destroy_object die path for leftovers
@@ -1110,7 +1110,7 @@ fn fight_enemies_with_rangers(
     primary_target: Option<ObjectId>,
     max_rounds: u32,
     tally: &mut CombatTally,
-) -> gamelogic::GameLogicResult<(bool, bool, bool, bool, bool)> {
+) -> generals_sim::GameLogicResult<(bool, bool, bool, bool, bool)> {
     if rangers.is_empty() {
         return Ok((false, false, false, false, false));
     }
@@ -1569,7 +1569,7 @@ fn run_map_world_skirmish(
     map_identity: &str,
     frames: u32,
     definitions: Option<&RetailWorldDefinitions>,
-) -> gamelogic::GameLogicResult<VerticalSliceOutcome> {
+) -> generals_sim::GameLogicResult<VerticalSliceOutcome> {
     // The report counts every logic frame this slice simulated, not only the
     // caller's trailing `frames` budget.
     let slice_start_frame = logic.get_frame();
@@ -2086,7 +2086,7 @@ pub(crate) fn boot_definitions_world(definitions: Option<&RetailWorldDefinitions
 pub fn run_golden_skirmish(
     map_override: Option<&str>,
     frames: u32,
-) -> gamelogic::GameLogicResult<GoldenSkirmishResult> {
+) -> generals_sim::GameLogicResult<GoldenSkirmishResult> {
     let definitions = RetailWorldDefinitions::load().ok();
     run_golden_skirmish_with_definitions(map_override, frames, definitions.as_ref())
 }
@@ -2095,7 +2095,7 @@ pub(crate) fn run_golden_skirmish_with_definitions(
     map_override: Option<&str>,
     frames: u32,
     definitions: Option<&RetailWorldDefinitions>,
-) -> gamelogic::GameLogicResult<GoldenSkirmishResult> {
+) -> generals_sim::GameLogicResult<GoldenSkirmishResult> {
     let (map_identity, map_exists) = resolve_map(map_override);
     let config = golden_skirmish_config(&map_identity);
     let slots_active = config.slots.iter().filter(|s| s.is_active).count();

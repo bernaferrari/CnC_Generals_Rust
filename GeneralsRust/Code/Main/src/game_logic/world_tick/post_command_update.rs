@@ -569,7 +569,7 @@ impl GameLogic {
         for &id in &object_ids {
             if let Some(config) = self.railed_dock_config(id) {
                 if let Err(error) = self.railed_dock_update(id, config, &mut ui) {
-                    return SimulationStepOutcome::Failed(gamelogic::GameLogicError::Configuration(error));
+                    return SimulationStepOutcome::Failed(generals_sim::GameLogicError::Configuration(error));
                 }
             }
         }

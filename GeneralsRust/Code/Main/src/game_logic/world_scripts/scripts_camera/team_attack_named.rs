@@ -10,7 +10,7 @@ impl GameLogic {
         calling: Option<u32>,
         condition: Option<u32>,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         let Some((_, members)) = self.resolve_owned_script_team(team, calling, condition)? else {
             return Ok(());
         };

@@ -150,7 +150,7 @@ impl GameLogic {
         request: &Request,
         calling: Option<u32>,
         condition: Option<u32>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         let (team, name) = match request {
             Request::TeamOnNearestEnemy { team, button }
             | Request::TeamOnNearestGarrisonedBuilding { team, button }
@@ -172,7 +172,7 @@ impl GameLogic {
         button: &CommandButton,
         calling: Option<u32>,
         condition: Option<u32>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         let team = match request {
             Request::TeamOnNearestEnemy { team, .. }
             | Request::TeamOnNearestGarrisonedBuilding { team, .. }
@@ -190,13 +190,13 @@ impl GameLogic {
             let factory = self
                 .team_factory
                 .lock()
-                .map_err(|e| gamelogic::GameLogicError::Threading(e.to_string()))?;
+                .map_err(|e| generals_sim::GameLogicError::Threading(e.to_string()))?;
             let Some(team) = factory.find_team_by_id(team_id) else {
                 return Ok(());
             };
             let team = team
                 .read()
-                .map_err(|e| gamelogic::GameLogicError::Threading(e.to_string()))?;
+                .map_err(|e| generals_sim::GameLogicError::Threading(e.to_string()))?;
             let Some(controller) = team.get_controlling_player_id() else {
                 return Ok(());
             };

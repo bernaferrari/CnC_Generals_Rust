@@ -246,7 +246,7 @@ impl crate::game_logic::GameLogic {
         frame: u32,
         player: Option<u32>,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         let environment = self.observe_object_fx_environment();
         let shroud = std::sync::Arc::clone(self.world_services.shroud());
         let terrain = std::sync::Arc::clone(self.world_services.terrain());
@@ -581,7 +581,7 @@ impl crate::game_logic::GameLogic {
         _frame: u32,
         _player: Option<u32>,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         let same_victim = |world: &Self| {
             world
                 .objects

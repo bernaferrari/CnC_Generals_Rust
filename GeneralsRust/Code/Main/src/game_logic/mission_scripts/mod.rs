@@ -10,7 +10,7 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
 use crate::localization;
-use gamelogic::GameLogicResult;
+use generals_sim::GameLogicResult;
 use gamelogic::scripting::engine::{ScriptActionHandler, ScriptCameraRequest};
 use glam::Vec3;
 

@@ -18,7 +18,7 @@ impl GameLogic {
         config: &NativeDieCreate,
         interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         let outcome = self.execute_receiving_object_ocl_with_births(
             &config.ocl_name,
             id,
@@ -65,7 +65,7 @@ impl GameLogic {
         killer: Option<Team>,
         input: OnDieInput,
         interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         self.run_authored_die_modules_with_effects(
             id,
             killer,
@@ -82,7 +82,7 @@ impl GameLogic {
         input: OnDieInput,
         interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         // Immutable receiving declarations, operation-local owned loan. There
         // is no per-object second order or active-world content discovery.
         let declarations = self
@@ -391,7 +391,7 @@ impl GameLogic {
         &mut self,
         id: ObjectId,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         let Some(object) = self.objects.get_mut(&id) else {
             return Ok(());
         };
@@ -406,12 +406,12 @@ impl GameLogic {
             .min()
             .and_then(|neutral| self.host_default_team_id(neutral))
             .ok_or_else(|| {
-                gamelogic::GameLogicError::Configuration(
+                generals_sim::GameLogicError::Configuration(
                     "TechBuildingBehavior requires the receiving Neutral default Team".into(),
                 )
             })?;
         if !self.set_host_object_team_with_effects(id, neutral_team, effects)? {
-            return Err(gamelogic::GameLogicError::Configuration(
+            return Err(generals_sim::GameLogicError::Configuration(
                 "TechBuildingBehavior could not enter the receiving Neutral default Team".into(),
             ));
         }

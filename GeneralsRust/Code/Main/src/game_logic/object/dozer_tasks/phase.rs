@@ -13,7 +13,7 @@ impl GameLogic {
     pub(crate) fn dozer_prepare_repair_or_resume_owned(
         &mut self,
         id: ObjectId,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         if self
             .objects
             .get(&id)
@@ -29,7 +29,7 @@ impl GameLogic {
     pub(crate) fn dozer_inherited_ai_idle_owned(
         &mut self,
         id: ObjectId,
-    ) -> gamelogic::GameLogicResult<bool> {
+    ) -> generals_sim::GameLogicResult<bool> {
         self.unit_command_standard_ai_idle_owned(id)
     }
 
@@ -71,14 +71,14 @@ impl GameLogic {
     pub(crate) fn dozer_update_primary_owned(
         &mut self,
         id: ObjectId,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         self.dozer_update_primary_owned_with_effects(id, &mut Default::default())
     }
     pub(in crate::game_logic) fn dozer_update_primary_owned_with_effects(
         &mut self,
         id: ObjectId,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         let Some((state, current, idle, dead, unmanned)) = self.objects.get(&id).and_then(|o| {
             (o.dozer_tasks.primary.control.initialized
                 || o.dozer_tasks.requests.iter().any(|r| r.target.is_some()))
@@ -364,7 +364,7 @@ impl GameLogic {
                     let rate = self.objects.get(&id)
                         .and_then(|o| o.thing().template.receiving_client_template.as_ref())
                         .and_then(|source| source.dozer_repair_health_per_second())
-                        .ok_or_else(|| gamelogic::GameLogicError::Configuration(
+                        .ok_or_else(|| generals_sim::GameLogicError::Configuration(
                             "Dozer repair action missing its receiving AI module data".into(),
                         ))?;
                     if let Some(actor) = self.objects.get_mut(&id) {

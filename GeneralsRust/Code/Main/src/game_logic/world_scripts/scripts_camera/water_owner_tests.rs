@@ -60,10 +60,10 @@ struct ObserveActions<'a> {
     observations: Vec<(PathfindCellType, f32)>,
 }
 impl ScriptExecutionDriver for ObserveActions<'_> {
-    fn water(&mut self, request: ScriptWaterRequest<'_>) -> Option<gamelogic::GameLogicResult<()>> {
+    fn water(&mut self, request: ScriptWaterRequest<'_>) -> Option<generals_sim::GameLogicResult<()>> {
         self.actual.water(request)
     }
-    fn after_action(&mut self) -> gamelogic::GameLogicResult<()> {
+    fn after_action(&mut self) -> generals_sim::GameLogicResult<()> {
         self.actual.after_action()?;
         let world = &self.actual.world;
         self.observations.push((

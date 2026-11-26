@@ -23,7 +23,7 @@ mod reveal_response;
 
 impl GameLogic {
     /// Manually detonate a residual demo trap / charge (command residual).
-    pub fn manual_detonate_mine(&mut self, mine_id: ObjectId) -> gamelogic::GameLogicResult<bool> {
+    pub fn manual_detonate_mine(&mut self, mine_id: ObjectId) -> generals_sim::GameLogicResult<bool> {
         self.manual_detonate_mine_with_effects(mine_id, &mut Default::default())
     }
 
@@ -31,7 +31,7 @@ impl GameLogic {
         &mut self,
         mine_id: ObjectId,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<bool> {
+    ) -> generals_sim::GameLogicResult<bool> {
         use crate::game_logic::host_mines::HostMineDetonateReason;
         self.detonate_mine_internal_with_effects(
             mine_id,
@@ -269,14 +269,14 @@ impl GameLogic {
     }
 
     /// C++ MinefieldBehavior::update producer-death drain + AutoHeal + onDamage virtual sync.
-    fn update_land_mine_regen_and_virtual(&mut self) -> gamelogic::GameLogicResult<()> {
+    fn update_land_mine_regen_and_virtual(&mut self) -> generals_sim::GameLogicResult<()> {
         self.update_land_mine_regen_and_virtual_with_effects(&mut Default::default())
     }
 
     fn update_land_mine_regen_and_virtual_with_effects(
         &mut self,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         use crate::game_logic::host_mines::{HostMineKind, MINE_CREATOR_DEATH_CHECK_FRAMES};
         let frame = self.frame;
         let ids: Vec<ObjectId> = self
@@ -374,14 +374,14 @@ impl GameLogic {
     }
 
     /// Advance mines and demo traps: disarm, proximity scans, and timed detonation.
-    pub fn update_mines_and_demo_traps(&mut self) -> gamelogic::GameLogicResult<()> {
+    pub fn update_mines_and_demo_traps(&mut self) -> generals_sim::GameLogicResult<()> {
         self.update_mines_and_demo_traps_with_effects(&mut Default::default())
     }
 
     pub(crate) fn update_mines_and_demo_traps_with_effects(
         &mut self,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         use crate::game_logic::host_mines::{
             can_clear_mine_kind, demo_trap_skips_dozer_disarm_while_attacking, is_mine_clearer,
             land_mine_geometry_contacts, mine_clear_allowed_for_order, minefield_skips_worker,
@@ -857,7 +857,7 @@ impl GameLogic {
     }
 
     /// C++ MinefieldBehavior::detonateOnce — one virtual mine, pad may persist.
-    fn trip_virtual_land_mine(&mut self, mine_id: ObjectId, victim_pos: Vec3) -> gamelogic::GameLogicResult<bool> {
+    fn trip_virtual_land_mine(&mut self, mine_id: ObjectId, victim_pos: Vec3) -> generals_sim::GameLogicResult<bool> {
         self.trip_virtual_land_mine_with_effects(mine_id, victim_pos, &mut Default::default())
     }
 
@@ -866,7 +866,7 @@ impl GameLogic {
         mine_id: ObjectId,
         victim_pos: Vec3,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<bool> {
+    ) -> generals_sim::GameLogicResult<bool> {
         use crate::game_logic::host_enum_table_residual::rubble_model_bit;
         use crate::game_logic::host_mines::{
             clip_point_to_mine_footprint, LAND_MINE_GEOMETRY_RADIUS, MINE_MIN_HEALTH,
@@ -973,7 +973,7 @@ impl GameLogic {
 
     /// CPP Minefield detonation/disarm ignoreDamage guards only its own
     /// virtual-count reaction; the admitted Body hit still reaches AutoHeal.
-    fn apply_guarded_mine_body_drain(&mut self, mine_id: ObjectId, amount: f32) -> gamelogic::GameLogicResult<()> {
+    fn apply_guarded_mine_body_drain(&mut self, mine_id: ObjectId, amount: f32) -> generals_sim::GameLogicResult<()> {
         self.apply_guarded_mine_body_drain_with_effects(mine_id, amount, &mut Default::default())
     }
 
@@ -982,7 +982,7 @@ impl GameLogic {
         mine_id: ObjectId,
         amount: f32,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         if amount <= 0.0 {
             return Ok(());
         }

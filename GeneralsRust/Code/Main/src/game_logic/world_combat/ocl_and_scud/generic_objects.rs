@@ -89,7 +89,7 @@ impl GameLogic {
         interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
         presentation_effects: &mut ScriptPresentationEffects<'_>,
         created: &mut Vec<(ObjectId, (u64, u64))>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         let OclObjectSource {
             actor,
             owner: source_owner_player_id,

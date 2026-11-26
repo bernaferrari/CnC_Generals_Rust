@@ -12,7 +12,7 @@ use generals_main::map_frame_scenario::{
     DEFAULT_MAP_FRAME_ADVANCE, MapFrameStatus, format_map_frame_report, run_map_frame_scenario,
 };
 
-fn main() -> gamelogic::GameLogicResult<()> {
+fn main() -> generals_sim::GameLogicResult<()> {
     let args: Vec<String> = std::env::args().skip(1).collect();
     if args.iter().any(|a| a == "--help" || a == "-h") {
         println!("Usage: map_frame_gate [--map NAME_OR_PATH] [--frames N]");

@@ -1,6 +1,6 @@
 use generals_main::golden_skirmish::{format_golden_report, run_golden_skirmish};
 
-fn main() -> gamelogic::GameLogicResult<()> {
+fn main() -> generals_sim::GameLogicResult<()> {
     // Gate default: GameWorld damage last-writer for HP (opt out DAMAGE_AUTHORITY=0).
 
     let args: Vec<String> = std::env::args().skip(1).collect();

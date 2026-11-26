@@ -13,7 +13,7 @@ mod shell;
 pub use report::format_shell_smoke_report;
 pub use result::ShellSmokeResult;
 
-pub fn run_shell_smoke(frames: u32) -> gamelogic::GameLogicResult<ShellSmokeResult> {
+pub fn run_shell_smoke(frames: u32) -> generals_sim::GameLogicResult<ShellSmokeResult> {
     let mut logic = crate::game_logic::GameLogic::new();
     // Standalone archive mounting and menu localization still use the application's service scope.
     logic.with_own_services_mut(|logic| run_shell_session(logic, frames))
@@ -22,7 +22,7 @@ pub fn run_shell_smoke(frames: u32) -> gamelogic::GameLogicResult<ShellSmokeResu
 fn run_shell_session(
     logic: &mut crate::game_logic::GameLogic,
     frames: u32,
-) -> gamelogic::GameLogicResult<ShellSmokeResult> {
+) -> generals_sim::GameLogicResult<ShellSmokeResult> {
     let host = host::run_host_session(logic, frames)?;
     let presentation =
         presentation::evaluate_presentation_residuals(&host.pres, host.presentation_ok)?;

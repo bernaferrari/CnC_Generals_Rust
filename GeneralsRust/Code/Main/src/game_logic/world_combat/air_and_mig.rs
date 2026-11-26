@@ -13,7 +13,7 @@ impl GameLogic {
         impact: Vec3,
         source: Option<ObjectId>,
         intended_target: Option<ObjectId>,
-    ) -> gamelogic::GameLogicResult<(u32, bool)> {
+    ) -> generals_sim::GameLogicResult<(u32, bool)> {
         self.apply_stealth_fighter_residual_at_with_effects(
             impact,
             source,
@@ -28,7 +28,7 @@ impl GameLogic {
         source: Option<ObjectId>,
         intended_target: Option<ObjectId>,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<(u32, bool)> {
+    ) -> generals_sim::GameLogicResult<(u32, bool)> {
         use crate::game_logic::host_bunker_buster::{
             UPGRADE_AMERICA_BUNKER_BUSTERS, should_apply_bunker_buster,
         };
@@ -246,7 +246,7 @@ impl GameLogic {
         impact: Vec3,
         source: Option<ObjectId>,
         intended_target: Option<ObjectId>,
-    ) -> gamelogic::GameLogicResult<(u32, bool)> {
+    ) -> generals_sim::GameLogicResult<(u32, bool)> {
         self.apply_overlord_gun_residual_at_with_effects(
             impact,
             source,
@@ -261,7 +261,7 @@ impl GameLogic {
         source: Option<ObjectId>,
         intended_target: Option<ObjectId>,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<(u32, bool)> {
+    ) -> generals_sim::GameLogicResult<(u32, bool)> {
         use crate::game_logic::host_overlord_gun::{
             OVERLORD_DAMAGE_TYPE, OVERLORD_DEATH_TYPE, OVERLORD_FIRE_AUDIO,
             OVERLORD_SECONDARY_RADIUS, has_uranium_shells_upgrade,
@@ -490,7 +490,7 @@ impl GameLogic {
         impact: Vec3,
         source: Option<ObjectId>,
         intended_target: Option<ObjectId>,
-    ) -> gamelogic::GameLogicResult<(u32, bool)> {
+    ) -> generals_sim::GameLogicResult<(u32, bool)> {
         self.apply_usa_tank_gun_residual_at_with_effects(
             impact,
             source,
@@ -505,7 +505,7 @@ impl GameLogic {
         source: Option<ObjectId>,
         intended_target: Option<ObjectId>,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<(u32, bool)> {
+    ) -> generals_sim::GameLogicResult<(u32, bool)> {
         use crate::game_logic::host_usa_tanks::{
             CRUSADER_FIRE_AUDIO, PALADIN_FIRE_AUDIO, USA_TANK_GUN_DAMAGE, USA_TANK_GUN_DAMAGE_TYPE,
             USA_TANK_GUN_DEATH_TYPE, USA_TANK_GUN_PRIMARY_RADIUS, is_crusader_template,

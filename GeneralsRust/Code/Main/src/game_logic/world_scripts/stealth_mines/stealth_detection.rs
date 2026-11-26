@@ -7,14 +7,14 @@ impl GameLogic {
     ///
     /// - Runs every awake authored StealthUpdate module, including detection expiry
     /// - Mines keep their innate cloak; detectors mark nearby enemy stealth as detected
-    pub fn update_stealth_and_detection(&mut self) -> gamelogic::GameLogicResult<()> {
+    pub fn update_stealth_and_detection(&mut self) -> generals_sim::GameLogicResult<()> {
         self.update_stealth_and_detection_with_effects(&mut Default::default())
     }
 
     pub(crate) fn update_stealth_and_detection_with_effects(
         &mut self,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         let frame = self.frame;
         // C++ StealthUpdate.cpp:725-780 cloak/destalth/detect SoundStealthOn/Off.
         let stealth_snap: Vec<(ObjectId, bool, bool)> = self

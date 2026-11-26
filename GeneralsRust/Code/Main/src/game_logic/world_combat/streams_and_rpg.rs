@@ -137,7 +137,7 @@ impl GameLogic {
         Some(pid)
     }
 
-    pub fn update_technical_cannon_shell_projectiles(&mut self) -> gamelogic::GameLogicResult<()> {
+    pub fn update_technical_cannon_shell_projectiles(&mut self) -> generals_sim::GameLogicResult<()> {
         self.update_technical_cannon_shell_projectiles_with_effects(
             &mut crate::game_logic::ScriptPresentationEffects::default(),
         )
@@ -146,7 +146,7 @@ impl GameLogic {
     pub(crate) fn update_technical_cannon_shell_projectiles_with_effects(
         &mut self,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         use crate::game_logic::host_technical::technical_cannon_shell_bezier_point;
         let frame = self.frame;
         let flying: Vec<ObjectId> = self
@@ -253,7 +253,7 @@ impl GameLogic {
         source: Option<ObjectId>,
         intended_target: Option<ObjectId>,
         air: bool,
-    ) -> gamelogic::GameLogicResult<(u32, bool)> {
+    ) -> generals_sim::GameLogicResult<(u32, bool)> {
         self.apply_humvee_tow_residual_at_with_effects(
             impact,
             source,
@@ -270,7 +270,7 @@ impl GameLogic {
         intended_target: Option<ObjectId>,
         air: bool,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<(u32, bool)> {
+    ) -> generals_sim::GameLogicResult<(u32, bool)> {
         use crate::game_logic::host_humvee::{
             HUMVEE_AIR_TOW_RADIUS, HUMVEE_GROUND_TOW_RADIUS, HUMVEE_TOW_DAMAGE_TYPE,
             HUMVEE_TOW_DEATH_TYPE, HUMVEE_TOW_FIRE_AUDIO, humvee_air_tow_damage_at,
@@ -362,7 +362,7 @@ impl GameLogic {
         source: Option<ObjectId>,
         intended_target: Option<ObjectId>,
         flashbang_slot: bool,
-    ) -> gamelogic::GameLogicResult<(u32, bool)> {
+    ) -> generals_sim::GameLogicResult<(u32, bool)> {
         self.apply_ranger_residual_at_with_effects(
             impact,
             source,
@@ -379,7 +379,7 @@ impl GameLogic {
         intended_target: Option<ObjectId>,
         flashbang_slot: bool,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<(u32, bool)> {
+    ) -> generals_sim::GameLogicResult<(u32, bool)> {
         use crate::game_logic::host_ranger::{
             FLASHBANG_DAMAGE_TYPE, FLASHBANG_DEATH_TYPE, FLASHBANG_SECONDARY_RADIUS,
             RANGER_FLASHBANG_FIRE_AUDIO, RANGER_RIFLE_DAMAGE, RANGER_RIFLE_DAMAGE_TYPE,
@@ -592,7 +592,7 @@ impl GameLogic {
         source: Option<ObjectId>,
         intended_target: Option<ObjectId>,
         slot: u8,
-    ) -> gamelogic::GameLogicResult<(u32, bool)> {
+    ) -> generals_sim::GameLogicResult<(u32, bool)> {
         self.apply_minigunner_residual_at_with_effects(
             impact,
             source,
@@ -609,7 +609,7 @@ impl GameLogic {
         intended_target: Option<ObjectId>,
         slot: u8,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<(u32, bool)> {
+    ) -> generals_sim::GameLogicResult<(u32, bool)> {
         use crate::game_logic::host_minigunner::{
             MINIGUNNER_AA_FIRE_AUDIO, MINIGUNNER_AIR_DAMAGE, MINIGUNNER_AIR_DAMAGE_TYPE,
             MINIGUNNER_AIR_DEATH_TYPE, MINIGUNNER_FIRE_AUDIO, MINIGUNNER_GROUND_DAMAGE,
@@ -855,7 +855,7 @@ impl GameLogic {
         impact: Vec3,
         source: Option<ObjectId>,
         intended_target: Option<ObjectId>,
-    ) -> gamelogic::GameLogicResult<(u32, bool)> {
+    ) -> generals_sim::GameLogicResult<(u32, bool)> {
         self.apply_rpg_trooper_residual_at_with_effects(
             impact,
             source,
@@ -870,7 +870,7 @@ impl GameLogic {
         source: Option<ObjectId>,
         intended_target: Option<ObjectId>,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<(u32, bool)> {
+    ) -> generals_sim::GameLogicResult<(u32, bool)> {
         use crate::game_logic::host_rpg_trooper::{
             RPG_TROOPER_DAMAGE, RPG_TROOPER_DAMAGE_TYPE, RPG_TROOPER_DEATH_TYPE,
             RPG_TROOPER_FIRE_AUDIO, RPG_TROOPER_SPLASH_RADIUS, is_legal_rpg_trooper_splash_target,
@@ -1031,7 +1031,7 @@ impl GameLogic {
         source: Option<ObjectId>,
         intended_target: Option<ObjectId>,
         laser_slot: bool,
-    ) -> gamelogic::GameLogicResult<(u32, bool)> {
+    ) -> generals_sim::GameLogicResult<(u32, bool)> {
         self.apply_missile_defender_residual_at_with_effects(
             impact,
             source,
@@ -1048,7 +1048,7 @@ impl GameLogic {
         intended_target: Option<ObjectId>,
         laser_slot: bool,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<(u32, bool)> {
+    ) -> generals_sim::GameLogicResult<(u32, bool)> {
         use crate::game_logic::host_missile_defender::{
             MISSILE_DEFENDER_DAMAGE, MISSILE_DEFENDER_DEATH_TYPE, MISSILE_DEFENDER_FIRE_AUDIO,
             MISSILE_DEFENDER_LASER_DAMAGE_TYPE, MISSILE_DEFENDER_PRIMARY_DAMAGE_TYPE,

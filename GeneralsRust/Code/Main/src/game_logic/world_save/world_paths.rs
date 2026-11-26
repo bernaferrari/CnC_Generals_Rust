@@ -1622,7 +1622,7 @@ impl GameLogic {
     /// even though `can_move` is false: only `assign_unit_path` starts the
     /// pack and clears that bit. A queued path clears the order before A*
     /// runs, so a later wall refusal does not retry every frame.
-    pub(crate) fn reissue_pending_moves(&mut self) -> gamelogic::GameLogicResult<()> {
+    pub(crate) fn reissue_pending_moves(&mut self) -> generals_sim::GameLogicResult<()> {
         let ready: Vec<(ObjectId, Vec3, AIState, Option<ObjectId>, bool)> = self
             .objects
             .registered()
@@ -1743,7 +1743,7 @@ impl GameLogic {
     }
 
     /// C++ Pathfinder::processPathfindQueue residual (AI.cpp:332-339).
-    pub(crate) fn process_pathfind_queue(&mut self) -> gamelogic::GameLogicResult<()> {
+    pub(crate) fn process_pathfind_queue(&mut self) -> generals_sim::GameLogicResult<()> {
         // C++ AIPathfind.cpp:5881-5884: a due zone recalculation consumes
         // this frame's queue.
         if self.pathfinding_system.calculate_zones_if_due() {
@@ -1955,7 +1955,7 @@ impl GameLogic {
     pub(crate) fn on_waited_path_failed(
         &mut self,
         unit_id: ObjectId,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         let Some(unit) = self.objects.get_mut(&unit_id) else {
             return Ok(());
         };

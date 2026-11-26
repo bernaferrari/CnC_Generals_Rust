@@ -86,10 +86,10 @@ impl ScriptExecutionDriver for Callback<'_> {
         name: &str,
         calling: Option<u32>,
         condition: Option<u32>,
-    ) -> Option<gamelogic::GameLogicResult<()>> {
+    ) -> Option<generals_sim::GameLogicResult<()>> {
         HostScriptExecutionDriver::new(self.world).team_guard(name, calling, condition)
     }
-    fn after_action(&mut self) -> gamelogic::GameLogicResult<()> {
+    fn after_action(&mut self) -> generals_sim::GameLogicResult<()> {
         HostScriptExecutionDriver::new(self.world).after_action()?;
         if !self.changed {
             self.changed = true;

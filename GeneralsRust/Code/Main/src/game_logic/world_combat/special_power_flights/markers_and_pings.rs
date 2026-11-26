@@ -49,7 +49,7 @@ impl GameLogic {
     pub(super) fn destroy_gps_scrambler_marker(
         &mut self,
         id: ObjectId,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         self.destroy_gps_scrambler_marker_with_effects(
             id,
             &mut crate::game_logic::ScriptPresentationEffects::default(),
@@ -60,7 +60,7 @@ impl GameLogic {
         &mut self,
         id: ObjectId,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         if !self
             .objects
             .get(&id)
@@ -74,7 +74,7 @@ impl GameLogic {
     }
 
     /// C++ GrantStealthBehavior radius grow pulse residual (Start 20 → Final 100).
-    pub fn update_gps_scrambler_grow(&mut self) -> gamelogic::GameLogicResult<()> {
+    pub fn update_gps_scrambler_grow(&mut self) -> generals_sim::GameLogicResult<()> {
         self.update_gps_scrambler_grow_with_effects(
             &mut crate::game_logic::ScriptPresentationEffects::default(),
         )
@@ -83,7 +83,7 @@ impl GameLogic {
     pub(crate) fn update_gps_scrambler_grow_with_effects(
         &mut self,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         use crate::game_logic::host_gps_scrambler::{
             GPS_SCRAMBLER_GROW_UPDATES_TO_FINAL, gps_scrambler_grow_is_final,
             gps_scrambler_scan_radius_after_updates, in_gps_scrambler_radius_2d,
@@ -425,7 +425,7 @@ impl GameLogic {
         spawned
     }
 
-    pub fn update_firewall_segment_objects(&mut self) -> gamelogic::GameLogicResult<()> {
+    pub fn update_firewall_segment_objects(&mut self) -> generals_sim::GameLogicResult<()> {
         self.update_firewall_segment_objects_with_effects(
             &mut crate::game_logic::ScriptPresentationEffects::default(),
         )
@@ -434,7 +434,7 @@ impl GameLogic {
     pub(crate) fn update_firewall_segment_objects_with_effects(
         &mut self,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         use crate::game_logic::host_firewall::FIREWALL_INCH_PER_FRAME;
 
         let frame = self.frame;
@@ -600,7 +600,7 @@ impl GameLogic {
         Some(pid)
     }
 
-    pub fn update_radar_van_pings(&mut self) -> gamelogic::GameLogicResult<()> {
+    pub fn update_radar_van_pings(&mut self) -> generals_sim::GameLogicResult<()> {
         self.update_radar_van_pings_with_effects(
             &mut crate::game_logic::ScriptPresentationEffects::default(),
         )
@@ -609,7 +609,7 @@ impl GameLogic {
     pub(crate) fn update_radar_van_pings_with_effects(
         &mut self,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         let frame = self.frame;
         let due: Vec<ObjectId> = self
             .objects
@@ -746,7 +746,7 @@ impl GameLogic {
         Some(pid)
     }
 
-    pub fn update_spy_satellite_pings(&mut self) -> gamelogic::GameLogicResult<()> {
+    pub fn update_spy_satellite_pings(&mut self) -> generals_sim::GameLogicResult<()> {
         self.update_spy_satellite_pings_with_effects(
             &mut crate::game_logic::ScriptPresentationEffects::default(),
         )
@@ -755,7 +755,7 @@ impl GameLogic {
     pub(crate) fn update_spy_satellite_pings_with_effects(
         &mut self,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         let frame = self.frame;
         let due: Vec<ObjectId> = self
             .objects

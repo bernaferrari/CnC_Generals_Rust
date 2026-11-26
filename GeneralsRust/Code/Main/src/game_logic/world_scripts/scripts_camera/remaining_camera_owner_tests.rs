@@ -589,8 +589,8 @@ fn standalone_motion_blur_jump_error_keeps_same_handler_move_fallback() {
             _y: f32,
             _z: f32,
             _saturate: bool,
-        ) -> gamelogic::GameLogicResult<()> {
-            Err(gamelogic::GameLogicError::Configuration(
+        ) -> generals_sim::GameLogicResult<()> {
+            Err(generals_sim::GameLogicError::Configuration(
                 "probe camera backend error".into(),
             ))
         }
@@ -604,7 +604,7 @@ fn standalone_motion_blur_jump_error_keeps_same_handler_move_fallback() {
             _stutter: f32,
             _ease_in: f32,
             _ease_out: f32,
-        ) -> gamelogic::GameLogicResult<()> {
+        ) -> generals_sim::GameLogicResult<()> {
             self.0.fetch_add(1, Ordering::Relaxed);
             Ok(())
         }
@@ -1022,9 +1022,9 @@ fn borrowed_blur_error_never_retries_a_foreign_handler() {
             _y: f32,
             _z: f32,
             _saturate: bool,
-        ) -> gamelogic::GameLogicResult<()> {
+        ) -> generals_sim::GameLogicResult<()> {
             self.0.fetch_add(1, Ordering::Relaxed);
-            Err(gamelogic::GameLogicError::Configuration(
+            Err(generals_sim::GameLogicError::Configuration(
                 "foreign filter failed".into(),
             ))
         }
@@ -1037,7 +1037,7 @@ fn borrowed_blur_error_never_retries_a_foreign_handler() {
             _stutter: f32,
             _ease_in: f32,
             _ease_out: f32,
-        ) -> gamelogic::GameLogicResult<()> {
+        ) -> generals_sim::GameLogicResult<()> {
             self.0.fetch_add(1, Ordering::Relaxed);
             Ok(())
         }
@@ -1051,17 +1051,17 @@ fn borrowed_blur_error_never_retries_a_foreign_handler() {
         fn camera(
             &mut self,
             request: ScriptCameraRequest<'_>,
-        ) -> Option<gamelogic::GameLogicResult<()>> {
+        ) -> Option<generals_sim::GameLogicResult<()>> {
             assert_eq!(
                 format!("{request:?}"),
                 "MotionBlurJump { x: 410.0, y: 430.0, z: 10.0, saturate: true }"
             );
             self.calls += 1;
-            Some(Err(gamelogic::GameLogicError::Configuration(
+            Some(Err(generals_sim::GameLogicError::Configuration(
                 "driving filter failed".into(),
             )))
         }
-        fn after_action(&mut self) -> gamelogic::GameLogicResult<()> {
+        fn after_action(&mut self) -> generals_sim::GameLogicResult<()> {
             self.flushes += 1;
             Ok(())
         }

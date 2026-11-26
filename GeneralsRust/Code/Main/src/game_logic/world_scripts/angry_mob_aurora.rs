@@ -678,14 +678,14 @@ impl GameLogic {
     }
 
     /// Advance FireWall residual: apply periodic flame damage along active segments.
-    pub(in super::super) fn update_firewalls(&mut self) -> gamelogic::GameLogicResult<()> {
+    pub(in super::super) fn update_firewalls(&mut self) -> generals_sim::GameLogicResult<()> {
         self.update_firewalls_with_effects(&mut Default::default())
     }
 
     pub(in super::super) fn update_firewalls_with_effects(
         &mut self,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         let object_positions: Vec<(ObjectId, Vec3, Team, bool)> = self
             .objects
             .registered()
@@ -793,7 +793,7 @@ impl GameLogic {
         impact: Vec3,
         source: Option<ObjectId>,
         intended_target: Option<ObjectId>,
-    ) -> gamelogic::GameLogicResult<(u32, bool)> {
+    ) -> generals_sim::GameLogicResult<(u32, bool)> {
         self.apply_inferno_shell_residual_at_with_effects(
             impact,
             source,
@@ -808,7 +808,7 @@ impl GameLogic {
         source: Option<ObjectId>,
         intended_target: Option<ObjectId>,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<(u32, bool)> {
+    ) -> generals_sim::GameLogicResult<(u32, bool)> {
         use crate::game_logic::host_inferno_cannon::{
             INFERNO_CANNON_DAMAGE_TYPE, INFERNO_CANNON_DEATH_TYPE, INFERNO_CANNON_SHELL_DAMAGE,
             INFERNO_CANNON_SHELL_RADIUS, inferno_shell_damage_at, is_inferno_cannon_template,
@@ -1048,14 +1048,14 @@ impl GameLogic {
     }
 
     /// Advance Inferno fire zones: apply periodic flame damage in residual radius.
-    pub(in super::super) fn update_inferno_fire_zones(&mut self) -> gamelogic::GameLogicResult<()> {
+    pub(in super::super) fn update_inferno_fire_zones(&mut self) -> generals_sim::GameLogicResult<()> {
         self.update_inferno_fire_zones_with_effects(&mut Default::default())
     }
 
     pub(in super::super) fn update_inferno_fire_zones_with_effects(
         &mut self,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         let object_positions: Vec<(ObjectId, Vec3, Team, bool)> = self
             .objects
             .registered()
@@ -1387,14 +1387,14 @@ impl GameLogic {
         }
     }
 
-    pub fn update_angry_mobs(&mut self) -> gamelogic::GameLogicResult<()> {
+    pub fn update_angry_mobs(&mut self) -> generals_sim::GameLogicResult<()> {
         self.update_angry_mobs_with_effects(&mut Default::default())
     }
 
     pub(crate) fn update_angry_mobs_with_effects(
         &mut self,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         use crate::game_logic::host_angry_mob::{ANGRY_MOB_FIRE_AUDIO, UPGRADE_GLA_ARM_THE_MOB};
 
         let frame = self.frame;
@@ -2042,14 +2042,14 @@ impl GameLogic {
         self.aurora_fuel_air_gas_spawned > 0
     }
 
-    pub(in super::super) fn update_aurora_bombs(&mut self) -> gamelogic::GameLogicResult<()> {
+    pub(in super::super) fn update_aurora_bombs(&mut self) -> generals_sim::GameLogicResult<()> {
         self.update_aurora_bombs_with_effects(&mut Default::default())
     }
 
     pub(in super::super) fn update_aurora_bombs_with_effects(
         &mut self,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         self.aurora_bombs.clear_frame_events();
 
         let object_positions: Vec<(ObjectId, Vec3, Team, bool)> = self

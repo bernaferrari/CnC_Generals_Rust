@@ -35,7 +35,7 @@ impl GameLogic {
     }
 
     /// C++ `ChinookAIUpdate::update` residual: auto-land / evac / HeadOffMap / combat-drop height.
-    pub fn tick_chinook_ai(&mut self, _dt: f32) -> gamelogic::GameLogicResult<()> {
+    pub fn tick_chinook_ai(&mut self, _dt: f32) -> generals_sim::GameLogicResult<()> {
         self.tick_chinook_ai_with_effects(
             _dt,
             &mut crate::game_logic::ScriptPresentationEffects::default(),
@@ -49,7 +49,7 @@ impl GameLogic {
         id: ObjectId,
         entry: HostChinookFlightEntry,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         if entry == HostChinookFlightEntry::None {
             return Ok(());
         }
@@ -134,7 +134,7 @@ impl GameLogic {
         &mut self,
         _dt: f32,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         // Flight states observe the owned locomotor's pose. Render/update dt
         // must not grant this callback a second movement integration.
         let ids: Vec<_> = self
@@ -589,7 +589,7 @@ impl GameLogic {
         position: Vec3,
         interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
         ui: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         use crate::game_logic::host_listening_outpost::{
             LISTENING_OUTPOST_INITIAL_PAYLOAD_COUNT, LISTENING_OUTPOST_PAYLOAD_TEMPLATE,
             LISTENING_OUTPOST_PAYLOAD_TEMPLATE_ALT, preferred_payload_template,
@@ -752,7 +752,7 @@ impl GameLogic {
         position: Vec3,
         interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
         ui: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         use crate::game_logic::host_troop_crawler::{
             TROOP_CRAWLER_INITIAL_PAYLOAD_COUNT, TROOP_CRAWLER_PAYLOAD_TEMPLATE,
             TROOP_CRAWLER_PAYLOAD_TEMPLATE_ALIAS, resolve_payload_template_name,

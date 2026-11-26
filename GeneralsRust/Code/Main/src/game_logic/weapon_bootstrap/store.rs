@@ -31,7 +31,7 @@ pub fn ensure_host_weapon_store() -> usize {
 /// Read readiness and the requested rules in the same catalog borrow.
 /// The first incomplete/absent-store path drops that borrow before admission.
 /// Existing ambient WeaponStore access remains a compatibility boundary.
-pub(in crate::game_logic) fn with_host_weapon_store<F, R>(query: F) -> gamelogic::GameLogicResult<R>
+pub(in crate::game_logic) fn with_host_weapon_store<F, R>(query: F) -> generals_sim::GameLogicResult<R>
 where
     F: FnOnce(&gamelogic::weapon::WeaponStore) -> R,
 {
@@ -44,7 +44,7 @@ where
         }
     }) {
         Ok(Some(result)) => return Ok(result),
-        Ok(None) | Err(gamelogic::GameLogicError::SystemNotInitialized(_)) => {}
+        Ok(None) | Err(generals_sim::GameLogicError::SystemNotInitialized(_)) => {}
         Err(error) => return Err(error),
     }
     ensure_host_weapon_store();

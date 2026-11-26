@@ -11,6 +11,7 @@ workspace = true
 
 [dependencies]
 generals_game_domain = { path = "../GameDomain" }
+generals_map = { path = "../Map" }
 log = { workspace = true }
 glam = { workspace = true }
 serde = { workspace = true, features = ["derive"] }

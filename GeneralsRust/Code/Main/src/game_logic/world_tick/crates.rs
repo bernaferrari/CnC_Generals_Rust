@@ -59,7 +59,7 @@ impl GameLogic {
         &mut self,
         unit_id: ObjectId,
         mode: crate::game_logic::host_command_button_hunt::HostCommandButtonHuntMode,
-    ) -> gamelogic::GameLogicResult<bool> {
+    ) -> generals_sim::GameLogicResult<bool> {
         self.start_command_button_hunt_with_effects(unit_id, mode, None, &mut Default::default())
     }
 
@@ -69,7 +69,7 @@ impl GameLogic {
         mode: crate::game_logic::host_command_button_hunt::HostCommandButtonHuntMode,
         button: Option<&str>,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<bool> {
+    ) -> generals_sim::GameLogicResult<bool> {
         let frame = self.frame;
         let Some(unit) = self.objects.get_mut(&unit_id) else {
             return Ok(false);
@@ -99,7 +99,7 @@ impl GameLogic {
         &mut self,
         unit_id: ObjectId,
         button: Option<&str>,
-    ) -> gamelogic::GameLogicResult<bool> {
+    ) -> generals_sim::GameLogicResult<bool> {
         self.start_command_button_hunt_named_with_effects(unit_id, button, &mut Default::default())
     }
 
@@ -108,7 +108,7 @@ impl GameLogic {
         unit_id: ObjectId,
         button: Option<&str>,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<bool> {
+    ) -> generals_sim::GameLogicResult<bool> {
         use crate::game_logic::host_command_button_hunt::{
             hunt_mode_from_button_name, hunt_mode_from_template,
         };
@@ -1004,13 +1004,13 @@ impl GameLogic {
     }
 
     /// C++ AssaultTransportAIUpdate wounded-retrieve + healthy re-exit residual.
-    pub fn tick_assault_transport_updates(&mut self) -> gamelogic::GameLogicResult<()> {
+    pub fn tick_assault_transport_updates(&mut self) -> generals_sim::GameLogicResult<()> {
         self.tick_assault_transport_updates_with_effects(&mut Default::default())
     }
     pub(crate) fn tick_assault_transport_updates_with_effects(
         &mut self,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         use crate::game_logic::host_troop_crawler::{
             is_assault_member_healthy, is_assault_member_wounded,
         };
@@ -1489,7 +1489,7 @@ impl GameLogic {
     pub(crate) fn tick_battle_bus_slow_deaths_with_effects(
         &mut self,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         use crate::game_logic::combat::DamageType;
         use crate::game_logic::host_battle_bus::battle_bus_undeath_passenger_damage;
 
@@ -1667,7 +1667,7 @@ impl GameLogic {
     pub(crate) fn tick_hijacker_updates_with_effects(
         &mut self,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         let riders: Vec<_> = self
             .objects
             .registered()
@@ -1944,7 +1944,7 @@ impl GameLogic {
         pilot_id: ObjectId,
         vehicle_id: ObjectId,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<bool> {
+    ) -> generals_sim::GameLogicResult<bool> {
         if !self.objects.get(&pilot_id).is_some_and(|pilot| {
             pilot.target == Some(vehicle_id)
                 && pilot.thing().template.veterancy_crate_collide.is_some()

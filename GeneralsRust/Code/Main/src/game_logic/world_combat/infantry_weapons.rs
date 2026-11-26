@@ -11,7 +11,7 @@ impl GameLogic {
         source: Option<ObjectId>,
         source_team: Team,
         toxin_warhead: bool,
-    ) -> gamelogic::GameLogicResult<(u32, bool)> {
+    ) -> generals_sim::GameLogicResult<(u32, bool)> {
         self.apply_scud_area_at_with_effects(
             impact,
             source,
@@ -29,7 +29,7 @@ impl GameLogic {
         source_team: Team,
         toxin_warhead: bool,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<(u32, bool)> {
+    ) -> generals_sim::GameLogicResult<(u32, bool)> {
         use crate::game_logic::host_scud_launcher::{
             SCUD_DAMAGE_TYPE, SCUD_DEATH_TYPE, SCUD_FIRE_AUDIO, SCUD_POISON_AUDIO,
             SCUD_POISON_DAMAGE_TYPE, SCUD_POISON_DEATH_TYPE, UPGRADE_GLA_ANTHRAX_BETA,
@@ -263,7 +263,7 @@ impl GameLogic {
     pub(in super::super) fn update_float_update_with_effects(
         &mut self,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         let frame = self.frame;
         let ids: Vec<_> = self
             .objects
@@ -330,7 +330,7 @@ impl GameLogic {
             let source = self
                 .current_native_slave_source(id, effects.view.as_ref().unwrap().local_player_id())
                 .map_err(|error| {
-                    gamelogic::GameLogicError::Configuration(format!(
+                    generals_sim::GameLogicError::Configuration(format!(
                         "FloatUpdate receiving source: {error}"
                     ))
                 })?;
@@ -339,7 +339,7 @@ impl GameLogic {
                 .as_deref_mut()
                 .unwrap()
                 .drawable_instance_transform(&source)
-                .map_err(gamelogic::GameLogicError::Configuration)?;
+                .map_err(generals_sim::GameLogicError::Configuration)?;
             if let Some(previous) = previous {
                 if !original(self) {
                     continue;
@@ -352,7 +352,7 @@ impl GameLogic {
                     .as_deref_mut()
                     .unwrap()
                     .set_drawable_instance_transform(&source, Some(matrix))
-                    .map_err(gamelogic::GameLogicError::Configuration)?;
+                    .map_err(generals_sim::GameLogicError::Configuration)?;
             }
         }
         Ok(())
@@ -1597,7 +1597,7 @@ impl GameLogic {
 
     /// C++ SmartBombTargetHomingUpdate::update residual.
     /// C++ SlowDeathBehavior on FuelAir gas: midpoint flame + final detonation.
-    pub fn update_fuel_air_gas_slow_death(&mut self) -> gamelogic::GameLogicResult<()> {
+    pub fn update_fuel_air_gas_slow_death(&mut self) -> generals_sim::GameLogicResult<()> {
         self.update_fuel_air_gas_slow_death_with_effects(
             &mut crate::game_logic::ScriptPresentationEffects::default(),
         )
@@ -1606,7 +1606,7 @@ impl GameLogic {
     pub(crate) fn update_fuel_air_gas_slow_death_with_effects(
         &mut self,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         use crate::game_logic::combat::DamageType;
         use crate::game_logic::host_fuel_air_gas_slow_death::FuelAirGasTickEvent;
 
@@ -1716,7 +1716,7 @@ impl GameLogic {
         damage: f32,
         radius: f32,
         damage_type: crate::game_logic::combat::DamageType,
-    ) -> gamelogic::GameLogicResult<(f32, u32, u32)> {
+    ) -> generals_sim::GameLogicResult<(f32, u32, u32)> {
         self.apply_fuel_air_radius_damage_with_effects(
             source_id,
             producer,
@@ -1739,7 +1739,7 @@ impl GameLogic {
         radius: f32,
         damage_type: crate::game_logic::combat::DamageType,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<(f32, u32, u32)> {
+    ) -> generals_sim::GameLogicResult<(f32, u32, u32)> {
         self.apply_radius_damage_from_source_with_effects(
             source_id,
             producer.or(Some(source_id)),
@@ -1763,7 +1763,7 @@ impl GameLogic {
         radius: f32,
         damage_type: crate::game_logic::combat::DamageType,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<(f32, u32, u32)> {
+    ) -> generals_sim::GameLogicResult<(f32, u32, u32)> {
         let r2 = radius * radius;
         let victims: Vec<ObjectId> = self
             .objects
@@ -2109,7 +2109,7 @@ impl GameLogic {
         }
     }
 
-    pub(in super::super) fn update_base_regenerate(&mut self) -> gamelogic::GameLogicResult<()> {
+    pub(in super::super) fn update_base_regenerate(&mut self) -> generals_sim::GameLogicResult<()> {
         self.update_base_regenerate_with_effects(
             &mut crate::game_logic::ScriptPresentationEffects::default(),
         )
@@ -2118,7 +2118,7 @@ impl GameLogic {
     pub(in super::super) fn update_base_regenerate_with_effects(
         &mut self,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         let frame = self.frame as u32;
         let ids: Vec<ObjectId> = self
             .objects
@@ -2368,7 +2368,7 @@ impl GameLogic {
     }
 
     #[cfg(test)]
-    pub(in super::super) fn update_scud_poison_zones(&mut self) -> gamelogic::GameLogicResult<()> {
+    pub(in super::super) fn update_scud_poison_zones(&mut self) -> generals_sim::GameLogicResult<()> {
         self.update_scud_poison_zones_with_effects(
             &mut crate::game_logic::ScriptPresentationEffects::default(),
         )
@@ -2378,7 +2378,7 @@ impl GameLogic {
     pub(in super::super) fn update_scud_poison_zones_with_effects(
         &mut self,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         let object_positions: Vec<(ObjectId, Vec3, Team, bool, bool)> = self
             .objects
             .registered()
@@ -2450,7 +2450,7 @@ impl GameLogic {
     }
 
     /// Advance Nuke Cannon MediumRadiationField residual zones.
-    pub(in super::super) fn update_nuke_cannon_radiation_zones(&mut self) -> gamelogic::GameLogicResult<()> {
+    pub(in super::super) fn update_nuke_cannon_radiation_zones(&mut self) -> generals_sim::GameLogicResult<()> {
         self.update_nuke_cannon_radiation_zones_with_effects(
             &mut crate::game_logic::ScriptPresentationEffects::default(),
         )
@@ -2459,7 +2459,7 @@ impl GameLogic {
     pub(in super::super) fn update_nuke_cannon_radiation_zones_with_effects(
         &mut self,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         let object_positions: Vec<(ObjectId, Vec3, Team, bool)> = self
             .objects
             .registered()

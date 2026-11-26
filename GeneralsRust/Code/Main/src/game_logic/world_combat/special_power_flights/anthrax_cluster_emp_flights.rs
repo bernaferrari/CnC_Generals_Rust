@@ -3,7 +3,7 @@
 use super::*;
 
 impl GameLogic {
-    pub fn update_anthrax_bomb_flights(&mut self) -> gamelogic::GameLogicResult<()> {
+    pub fn update_anthrax_bomb_flights(&mut self) -> generals_sim::GameLogicResult<()> {
         self.update_anthrax_bomb_flights_with_effects(
             &mut crate::game_logic::ScriptPresentationEffects::default(),
         )
@@ -12,7 +12,7 @@ impl GameLogic {
     pub(crate) fn update_anthrax_bomb_flights_with_effects(
         &mut self,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         use crate::game_logic::combat::DamageType;
         use crate::game_logic::host_anthrax_bomb_flight::anthrax_payload_drop_pos;
         use crate::game_logic::special_power_strikes::{
@@ -357,7 +357,7 @@ impl GameLogic {
         Some(tid)
     }
 
-    pub fn update_cluster_mines_flights(&mut self) -> gamelogic::GameLogicResult<()> {
+    pub fn update_cluster_mines_flights(&mut self) -> generals_sim::GameLogicResult<()> {
         self.update_cluster_mines_flights_with_effects(
             &mut crate::game_logic::ScriptPresentationEffects::default(),
         )
@@ -366,7 +366,7 @@ impl GameLogic {
     pub(crate) fn update_cluster_mines_flights_with_effects(
         &mut self,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         use crate::game_logic::host_cluster_mines_flight::{
             CLUSTER_MINES_BOMB_OBJECT, cluster_mines_payload_drop_pos,
         };
@@ -713,7 +713,7 @@ impl GameLogic {
         }
     }
 
-    pub fn update_emp_pulse_spheroids(&mut self) -> gamelogic::GameLogicResult<()> {
+    pub fn update_emp_pulse_spheroids(&mut self) -> generals_sim::GameLogicResult<()> {
         self.update_emp_pulse_spheroids_with_effects(
             &mut crate::game_logic::ScriptPresentationEffects::default(),
         )
@@ -722,7 +722,7 @@ impl GameLogic {
     pub(crate) fn update_emp_pulse_spheroids_with_effects(
         &mut self,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         let frame = self.frame;
         self.apply_due_emp_pulse_disables_with_effects(presentation_effects);
 
@@ -836,7 +836,7 @@ impl GameLogic {
         Some(tid)
     }
 
-    pub fn update_emp_pulse_flights(&mut self) -> gamelogic::GameLogicResult<()> {
+    pub fn update_emp_pulse_flights(&mut self) -> generals_sim::GameLogicResult<()> {
         self.update_emp_pulse_flights_with_effects(
             &mut crate::game_logic::ScriptPresentationEffects::default(),
         )
@@ -845,7 +845,7 @@ impl GameLogic {
     pub(crate) fn update_emp_pulse_flights_with_effects(
         &mut self,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         use crate::game_logic::host_emp_pulse::EMP_PULSE_BOMB_TEMPLATE;
 
         let tids: Vec<ObjectId> = self
@@ -1028,7 +1028,7 @@ impl GameLogic {
         Some(mid)
     }
 
-    pub fn update_frenzy_invisible_markers(&mut self) -> gamelogic::GameLogicResult<()> {
+    pub fn update_frenzy_invisible_markers(&mut self) -> generals_sim::GameLogicResult<()> {
         self.update_frenzy_invisible_markers_with_effects(
             &mut crate::game_logic::ScriptPresentationEffects::default(),
         )
@@ -1037,7 +1037,7 @@ impl GameLogic {
     pub(crate) fn update_frenzy_invisible_markers_with_effects(
         &mut self,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         // Retail DeletionUpdate Min/MaxLifetime = 1ms → 1 frame residual.
         let due = self.frenzies.take_due_marker_deletes();
         for id in due {

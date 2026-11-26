@@ -10,7 +10,6 @@ authors = ["C&C Generals Zero Hour Rust Project"]
 workspace = true
 
 [dependencies]
-generals_map = { path = "../Map" }
 ww3d-core = { workspace = true }
 bincode_legacy = { workspace = true }
 # Core dependencies

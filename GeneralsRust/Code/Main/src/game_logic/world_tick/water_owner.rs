@@ -7,7 +7,7 @@ impl GameLogic {
     pub(in crate::game_logic) fn apply_owned_script_water(
         &mut self,
         request: ScriptWaterRequest<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         self.apply_owned_script_water_with_effects(request, &mut Default::default())
     }
 
@@ -15,11 +15,11 @@ impl GameLogic {
         &mut self,
         request: ScriptWaterRequest<'_>,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         let handle = self.world_services.terrain().clone();
         let change = {
             let mut terrain = handle.write().map_err(|_| {
-                gamelogic::GameLogicError::Threading("owned terrain lock poisoned".into())
+                generals_sim::GameLogicError::Threading("owned terrain lock poisoned".into())
             })?;
             match request {
                 ScriptWaterRequest::SetHeight { name, height } => {
@@ -42,14 +42,14 @@ impl GameLogic {
         Ok(())
     }
 
-    pub(in crate::game_logic) fn update_owned_water(&mut self) -> gamelogic::GameLogicResult<()> {
+    pub(in crate::game_logic) fn update_owned_water(&mut self) -> generals_sim::GameLogicResult<()> {
         self.update_owned_water_with_effects(&mut Default::default())
     }
 
     pub(in crate::game_logic) fn update_owned_water_with_effects(
         &mut self,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         let handle = self.world_services.terrain().clone();
         // CPP TerrainLogic.cpp:1007: scripts observe last frame's bridge
         // transitions before this terrain phase clears the aggregate gate.
@@ -81,7 +81,7 @@ impl GameLogic {
         &mut self,
         change: WaterHeightChange,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         let handle = self.world_services.terrain().clone();
         let ids = {
             let terrain = handle.read().expect("owned terrain read");
@@ -132,7 +132,7 @@ impl GameLogic {
         &mut self,
         ids: Vec<ObjectId>,
         damage: f32,
-    ) -> gamelogic::GameLogicResult<u32> {
+    ) -> generals_sim::GameLogicResult<u32> {
         self.damage_owned_water_candidates_with_effects(ids, damage, &mut Default::default())
     }
 
@@ -141,7 +141,7 @@ impl GameLogic {
         ids: Vec<ObjectId>,
         damage: f32,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<u32> {
+    ) -> generals_sim::GameLogicResult<u32> {
         let mut hit = 0;
         let terrain = self.world_services.terrain().clone();
         for id in ids {

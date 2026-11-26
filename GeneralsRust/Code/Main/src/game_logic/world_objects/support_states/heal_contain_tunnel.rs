@@ -2,14 +2,14 @@
 use super::super::super::*;
 
 impl GameLogic {
-    pub(super) fn tick_heal_contain_and_tunnel(&mut self) -> gamelogic::GameLogicResult<()> {
+    pub(super) fn tick_heal_contain_and_tunnel(&mut self) -> generals_sim::GameLogicResult<()> {
         self.tick_heal_contain_and_tunnel_with_effects(&mut Default::default())
     }
 
     pub(super) fn tick_heal_contain_and_tunnel_with_effects(
         &mut self,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         use crate::game_logic::host_tunnel_network::{
             TUNNEL_FULL_HEAL_FRAMES, heal_contain_done, tunnel_tracker_heal_amount,
         };
@@ -635,7 +635,7 @@ impl GameLogic {
         owner_player_id: Option<u32>,
         position: Vec3,
         can_move: bool,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         use crate::game_logic::host_supply_gather::{WantingDockTarget, wanting_dock_target};
         let number_boxes = self.objects.get(&object_id).map_or(0, |object| {
             if object.thing().template.supply_truck_metadata.is_some() {
@@ -708,7 +708,7 @@ impl GameLogic {
         owner_player_id: Option<u32>,
         position: Vec3,
         can_move: bool,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         let Some(obj) = self.objects.get(&object_id) else {
             return Ok(());
         };
@@ -763,7 +763,7 @@ impl GameLogic {
         team: Team,
         owner_player_id: Option<u32>,
         from: Vec3,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         use crate::game_logic::host_repair::{DozerFindPositionQuery, find_position_around_dozer};
         use crate::game_logic::host_supply_gather::REGROUP_SUCCESS_DISTANCE_SQUARED;
         use generals_sim::pathfinding::PathfindCellType;

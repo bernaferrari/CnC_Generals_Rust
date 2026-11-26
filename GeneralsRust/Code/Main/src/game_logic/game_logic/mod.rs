@@ -128,14 +128,14 @@ impl GameLogic {
         names.into_iter().collect()
     }
 
-    pub fn evaluate_victory_condition(&mut self) -> gamelogic::GameLogicResult<Option<VictoryCondition>> {
+    pub fn evaluate_victory_condition(&mut self) -> generals_sim::GameLogicResult<Option<VictoryCondition>> {
         self.evaluate_victory_condition_with_effects(&mut Default::default())
     }
 
     pub(crate) fn evaluate_victory_condition_with_effects(
         &mut self,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<Option<VictoryCondition>> {
+    ) -> generals_sim::GameLogicResult<Option<VictoryCondition>> {
         // Player life is derived from this session's canonical objects at the
         // original victory phase, regardless of any comparison context.
         self.update_player_alive_state();

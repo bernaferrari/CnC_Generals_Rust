@@ -95,7 +95,7 @@ impl<'a> CommandExecutor<'a> {
         &mut self,
         units: &[ObjectId],
         target_id: ObjectId,
-    ) -> gamelogic::GameLogicResult<CommandResult> {
+    ) -> generals_sim::GameLogicResult<CommandResult> {
         let _bind = self.bind_services();
         // C++ JetAIUpdate::privateEnter → doLandingCommand.
         let jet_landed = units.iter().copied().any(|unit_id| {
@@ -234,7 +234,7 @@ impl<'a> CommandExecutor<'a> {
             || obj.contained_by.is_some()
     }
 
-    pub(super) fn execute_exit(&mut self, units: &[ObjectId]) -> gamelogic::GameLogicResult<CommandResult> {
+    pub(super) fn execute_exit(&mut self, units: &[ObjectId]) -> generals_sim::GameLogicResult<CommandResult> {
         let _bind = self.bind_services();
         let mut to_unload: Vec<(ObjectId, Option<ObjectId>, Vec3)> = Vec::new();
         let mut seen_units: HashSet<ObjectId> = HashSet::new();
@@ -753,7 +753,7 @@ impl<'a> CommandExecutor<'a> {
     pub(crate) fn execute_evacuate(
         &mut self,
         units: &[ObjectId],
-    ) -> gamelogic::GameLogicResult<CommandResult> {
+    ) -> generals_sim::GameLogicResult<CommandResult> {
         let _bind = self.bind_services();
         // C++ AIGroup::groupEvacuate (AIGroup.cpp:2408-2440):
         //  - airborne aircraft: dest Z = terrain height, then aiMoveToAndEvacuate
@@ -845,7 +845,7 @@ impl<'a> CommandExecutor<'a> {
         units: &[ObjectId],
         destination: Vec3,
         and_exit: bool,
-    ) -> gamelogic::GameLogicResult<CommandResult> {
+    ) -> generals_sim::GameLogicResult<CommandResult> {
         let _bind = self.bind_services();
         self.execute_move_to_and_evacuate_with_source(
             units,
@@ -863,7 +863,7 @@ impl<'a> CommandExecutor<'a> {
         destination: Vec3,
         and_exit: bool,
         source: u32,
-    ) -> gamelogic::GameLogicResult<CommandResult> {
+    ) -> generals_sim::GameLogicResult<CommandResult> {
         let _bind = self.bind_services();
         if !destination.x.is_finite() || !destination.y.is_finite() || !destination.z.is_finite() {
             return Ok(CommandResult::InvalidLocation);
@@ -963,7 +963,7 @@ impl<'a> CommandExecutor<'a> {
         &mut self,
         units: &[ObjectId],
         target_id: ObjectId,
-    ) -> gamelogic::GameLogicResult<CommandResult> {
+    ) -> generals_sim::GameLogicResult<CommandResult> {
         let _bind = self.bind_services();
         let target_pos = match self.game_logic.host_object(target_id) {
             Some(target)
@@ -1037,7 +1037,7 @@ impl<'a> CommandExecutor<'a> {
         &mut self,
         units: &[ObjectId],
         target: &DropTarget,
-    ) -> gamelogic::GameLogicResult<CommandResult> {
+    ) -> generals_sim::GameLogicResult<CommandResult> {
         let _bind = self.bind_services();
         // C++ ChinookAIUpdate::privateCombatDrop → MOVE_TO_COMBAT_DROP then
         // DO_COMBAT_DROP hover-rappel. Not MOVE_TO_AND_EVAC (land + dump).

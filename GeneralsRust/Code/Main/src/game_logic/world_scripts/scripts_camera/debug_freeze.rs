@@ -7,11 +7,11 @@ impl GameLogic {
     pub(crate) fn script_debug_frozen(
         &self,
         interpreter: Option<&ScriptEngine>,
-    ) -> gamelogic::GameLogicResult<bool> {
+    ) -> generals_sim::GameLogicResult<bool> {
         let engine = interpreter
             .or(self.owned_script_engine.as_ref())
             .ok_or_else(|| {
-                gamelogic::GameLogicError::Configuration(
+                generals_sim::GameLogicError::Configuration(
                     "debug freeze requires the receiving ScriptEngine or its explicit loan".into(),
                 )
             })?;
@@ -20,11 +20,11 @@ impl GameLogic {
     pub(crate) fn force_script_debug_continue(
         &self,
         interpreter: Option<&ScriptEngine>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         let engine = interpreter
             .or(self.owned_script_engine.as_ref())
             .ok_or_else(|| {
-                gamelogic::GameLogicError::Configuration(
+                generals_sim::GameLogicError::Configuration(
                     "debug continue requires the receiving ScriptEngine or its explicit loan"
                         .into(),
                 )
@@ -42,7 +42,7 @@ impl GameLogic {
         disable_camera_movement: bool,
         frame_ms: i32,
         interpreter: Option<&ScriptEngine>,
-    ) -> gamelogic::GameLogicResult<bool> {
+    ) -> generals_sim::GameLogicResult<bool> {
         self.advance_receiving_camera_view_with_center_refresh(
             update_views,
             fast_camera_only,
@@ -64,7 +64,7 @@ impl GameLogic {
         disable_camera_movement: bool,
         frame_ms: i32,
         interpreter: Option<&ScriptEngine>,
-    ) -> gamelogic::GameLogicResult<(bool, bool)> {
+    ) -> generals_sim::GameLogicResult<(bool, bool)> {
         if !update_views && !fast_camera_only {
             return Ok((false, false));
         }
@@ -90,7 +90,7 @@ impl GameLogic {
         facts: Option<crate::presentation_frame::follow::FollowTargetFacts>,
         paused: bool,
         interpreter: Option<&ScriptEngine>,
-    ) -> gamelogic::GameLogicResult<crate::presentation_frame::follow::FollowAdmission> {
+    ) -> generals_sim::GameLogicResult<crate::presentation_frame::follow::FollowAdmission> {
         let cell = self.camera_follow_partition_cell_size();
         self.admit_receiving_camera_follow(observed_id, facts, cell, paused, interpreter)
     }
@@ -101,7 +101,7 @@ impl GameLogic {
         partition_cell_size: f32,
         paused: bool,
         interpreter: Option<&ScriptEngine>,
-    ) -> gamelogic::GameLogicResult<crate::presentation_frame::follow::FollowAdmission> {
+    ) -> generals_sim::GameLogicResult<crate::presentation_frame::follow::FollowAdmission> {
         let resolved = self
             .session_view
             .scripted
@@ -114,14 +114,14 @@ impl GameLogic {
         };
         self.session_view
             .admit_camera_follow(observed_id, facts, partition_cell_size, record_previous)
-            .map_err(|error| gamelogic::GameLogicError::Configuration(error.into()))
+            .map_err(|error| generals_sim::GameLogicError::Configuration(error.into()))
     }
     /// GameLogic.cpp3603 observes camera, debug, script in that exact order.
     /// Do not require a debug capability on a short-circuited camera branch.
     pub(crate) fn simulation_frozen_with_script_engine(
         &self,
         interpreter: Option<&ScriptEngine>,
-    ) -> gamelogic::GameLogicResult<bool> {
+    ) -> generals_sim::GameLogicResult<bool> {
         Ok(self.is_script_camera_time_frozen()
             || self.script_debug_frozen(interpreter)?
             || self.is_script_time_frozen())

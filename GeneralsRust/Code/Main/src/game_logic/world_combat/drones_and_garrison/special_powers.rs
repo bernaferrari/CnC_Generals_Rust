@@ -723,7 +723,7 @@ impl GameLogic {
     pub(in crate::game_logic) fn tick_strategy_center_turret_mood_target(
         &mut self,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         use crate::game_logic::host_strategy_center::{
             HostBattlePlan, HostBattlePlanTransition, is_strategy_center_template,
             strategy_center_gun_in_range, strategy_center_mood_target_enemy_legal_with_vision,

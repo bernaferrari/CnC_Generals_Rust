@@ -25,14 +25,14 @@ impl GameLogic {
         &mut self,
         id: ObjectId,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         if let Some(neutral) = self.players.values()
             .filter(|player| player.is_reserved_neutral())
             .map(|player| player.id)
             .min()
         {
             let team = self.host_default_team_id(neutral).ok_or_else(|| {
-                gamelogic::GameLogicError::Configuration("Neutral player has no default Team".into())
+                generals_sim::GameLogicError::Configuration("Neutral player has no default Team".into())
             })?;
             self.set_host_object_team_with_effects(id, team, effects)?;
         } else if let Some(object) = self.objects.get_mut(&id) {
@@ -52,7 +52,7 @@ impl GameLogic {
         &self,
         container_id: ObjectId,
         arriving_id: ObjectId,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         let Some(container) = self.objects.get(&container_id) else {
             return Ok(());
         };
@@ -73,7 +73,7 @@ impl GameLogic {
             // controlling Player or default Team.
             return Ok(());
         };
-        let invalid = |reason: &str| gamelogic::GameLogicError::Configuration(reason.into());
+        let invalid = |reason: &str| generals_sim::GameLogicError::Configuration(reason.into());
         // GarrisonContain::recalcApparentControllingPlayer only changes the
         // source Team when the controlling Player exposes a default Team.
         // A missing default is an authored/runtime no-switch case; a present
@@ -97,13 +97,13 @@ impl GameLogic {
         let factory = self
             .team_factory
             .lock()
-            .map_err(|error| gamelogic::GameLogicError::Threading(error.to_string()))?;
+            .map_err(|error| generals_sim::GameLogicError::Threading(error.to_string()))?;
         let team = factory
             .find_team_by_id(destination)
             .ok_or_else(|| invalid("Garrison destination Team is absent from receiving factory"))?;
         let selected = team
             .read()
-            .map_err(|error| gamelogic::GameLogicError::Threading(error.to_string()))?;
+            .map_err(|error| generals_sim::GameLogicError::Threading(error.to_string()))?;
         let name = selected.get_name().as_str();
         if selected.get_controlling_player_id().is_none()
             || factory.find_team_prototype(name).is_none()
@@ -121,8 +121,8 @@ impl GameLogic {
     pub(super) fn inactive_controller_neutral_team(
         &self,
         owner: u32,
-    ) -> gamelogic::GameLogicResult<Option<HostNeutralTeam>> {
-        let invalid = |reason: &str| gamelogic::GameLogicError::Configuration(reason.into());
+    ) -> generals_sim::GameLogicResult<Option<HostNeutralTeam>> {
+        let invalid = |reason: &str| generals_sim::GameLogicError::Configuration(reason.into());
         let player = self
             .players
             .get(&owner)
@@ -147,7 +147,7 @@ impl GameLogic {
         let factory = self
             .team_factory
             .lock()
-            .map_err(|error| gamelogic::GameLogicError::Threading(error.to_string()))?;
+            .map_err(|error| generals_sim::GameLogicError::Threading(error.to_string()))?;
         let instance = factory
             .find_team_instances(&name)
             .into_iter()
@@ -157,7 +157,7 @@ impl GameLogic {
             })?;
         let instance = instance
             .read()
-            .map_err(|error| gamelogic::GameLogicError::Threading(error.to_string()))?;
+            .map_err(|error| generals_sim::GameLogicError::Threading(error.to_string()))?;
         if instance.get_name().as_str() != name
             || instance.get_controlling_player_id() != Some(neutral.id)
         {
@@ -239,7 +239,7 @@ impl GameLogic {
         &mut self,
         id: ObjectId,
         requested: u32,
-    ) -> gamelogic::GameLogicResult<bool> {
+    ) -> generals_sim::GameLogicResult<bool> {
         self.set_host_object_team_with_effects(id, requested, &mut Default::default())
     }
 
@@ -248,7 +248,7 @@ impl GameLogic {
         id: ObjectId,
         requested: u32,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<bool> {
+    ) -> generals_sim::GameLogicResult<bool> {
         let Some(old) = self.objects.get(&id) else {
             return Ok(false);
         };
@@ -416,7 +416,7 @@ impl GameLogic {
         destination: u32,
         frames: u32,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<bool> {
+    ) -> generals_sim::GameLogicResult<bool> {
         let Some(object) = self.objects.get(&id) else {
             return Ok(false);
         };

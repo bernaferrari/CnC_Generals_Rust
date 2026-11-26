@@ -208,7 +208,7 @@ impl GameLogic {
         &mut self,
         id: ObjectId,
         target_id: ObjectId,
-    ) -> gamelogic::GameLogicResult<bool> {
+    ) -> generals_sim::GameLogicResult<bool> {
         if self.unit_refuses_ai_orders(id) {
             return Ok(false);
         }
@@ -221,7 +221,7 @@ impl GameLogic {
         &mut self,
         id: ObjectId,
         target_id: ObjectId,
-    ) -> gamelogic::GameLogicResult<bool> {
+    ) -> generals_sim::GameLogicResult<bool> {
         if self.unit_refuses_ai_orders(id) {
             return Ok(false);
         }
@@ -237,7 +237,7 @@ impl GameLogic {
         id: ObjectId,
         target_id: ObjectId,
         effects: &mut ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<bool> {
+    ) -> generals_sim::GameLogicResult<bool> {
         self.unit_command_attack_with_shots_and_effects(id, target_id, -1, effects)
     }
 
@@ -249,7 +249,7 @@ impl GameLogic {
         target_id: ObjectId,
         max_shots: i32,
         effects: &mut ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<bool> {
+    ) -> generals_sim::GameLogicResult<bool> {
         if self.unit_refuses_ai_orders(id) {
             return Ok(false);
         }
@@ -261,7 +261,7 @@ impl GameLogic {
         id: ObjectId,
         target_id: ObjectId,
         effects: &mut ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<bool> {
+    ) -> generals_sim::GameLogicResult<bool> {
         if self.unit_refuses_ai_orders(id) {
             return Ok(false);
         }
@@ -280,7 +280,7 @@ impl GameLogic {
         prevalidated: bool,
         max_shots: i32,
         effects: &mut ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<bool> {
+    ) -> generals_sim::GameLogicResult<bool> {
         if self.note_hacker_ai_command(
             id,
             crate::game_logic::host_hacker_income::PendingHackerCommand::Attack(target_id),
@@ -391,7 +391,7 @@ impl GameLogic {
         max_shots: i32,
         source: u32,
         effects: &mut ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<u32> {
+    ) -> generals_sim::GameLogicResult<u32> {
         let Some(owner) = self
             .host_object(owner_id)
             .filter(|owner| Self::spawn_behavior_orders_slaves(owner))
@@ -438,7 +438,7 @@ impl GameLogic {
         &mut self,
         id: ObjectId,
         target_id: ObjectId,
-    ) -> gamelogic::GameLogicResult<bool> {
+    ) -> generals_sim::GameLogicResult<bool> {
         self.unit_command_force_attack_with_effects(id, target_id, &mut Default::default())
     }
     /// AIGroup's SpawnBehavior dispatch calls the child's AI directly, without
@@ -450,7 +450,7 @@ impl GameLogic {
         max_shots: i32,
         source: u32,
         effects: &mut ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<bool> {
+    ) -> generals_sim::GameLogicResult<bool> {
         if self.unit_refuses_ai_orders(id) {
             return Ok(false);
         }
@@ -507,7 +507,7 @@ impl GameLogic {
         id: ObjectId,
         target_id: ObjectId,
         effects: &mut ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<bool> {
+    ) -> generals_sim::GameLogicResult<bool> {
         if self.unit_refuses_ai_orders(id) {
             return Ok(false);
         }
@@ -576,7 +576,7 @@ impl GameLogic {
     /// C++ `AIUpdateInterface::privateIdle` then `aiIdle` every contained
     /// rider (`AIUpdate.cpp:3067-3090`) so Humvee/Chinook Stop parks
     /// PassengersAllowedToFire infantry.
-    pub fn unit_command_stop(&mut self, id: ObjectId) -> gamelogic::GameLogicResult<bool> {
+    pub fn unit_command_stop(&mut self, id: ObjectId) -> generals_sim::GameLogicResult<bool> {
         self.unit_command_stop_with_effects(id, &mut Default::default())
     }
 
@@ -584,7 +584,7 @@ impl GameLogic {
         &mut self,
         id: ObjectId,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<bool> {
+    ) -> generals_sim::GameLogicResult<bool> {
         self.unit_command_stop_with_source_with_effects(
             id,
             crate::game_logic::host_command_button_hunt::HUNT_CMD_FROM_PLAYER,
@@ -596,7 +596,7 @@ impl GameLogic {
         &mut self,
         id: ObjectId,
         source: u32,
-    ) -> gamelogic::GameLogicResult<bool> {
+    ) -> generals_sim::GameLogicResult<bool> {
         self.unit_command_stop_with_source_with_effects(id, source, &mut Default::default())
     }
 
@@ -605,7 +605,7 @@ impl GameLogic {
         id: ObjectId,
         source: u32,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<bool> {
+    ) -> generals_sim::GameLogicResult<bool> {
         if self.unit_refuses_ai_orders(id) {
             return Ok(false);
         }
@@ -704,7 +704,7 @@ impl GameLogic {
         source: u32,
         stealth_mood_skew: Option<u32>,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         let Some(member) = self.host_object(id) else {
             return Ok(());
         };
@@ -766,7 +766,7 @@ impl GameLogic {
         &mut self,
         id: ObjectId,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<bool> {
+    ) -> generals_sim::GameLogicResult<bool> {
         // C++ AssaultTransportAIUpdate AICMD_IDLE: retrieveMembers then reset.
         self.assault_transport_on_player_idle(id);
         self.drop_jet_targeters_on_attack_exit(id);
@@ -1076,7 +1076,7 @@ impl GameLogic {
         &mut self,
         id: ObjectId,
         destination: glam::Vec3,
-    ) -> gamelogic::GameLogicResult<bool> {
+    ) -> generals_sim::GameLogicResult<bool> {
         self.unit_command_attack_move_to_with_effects(id, destination, &mut Default::default())
     }
 
@@ -1085,7 +1085,7 @@ impl GameLogic {
         id: ObjectId,
         destination: glam::Vec3,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<bool> {
+    ) -> generals_sim::GameLogicResult<bool> {
         self.unit_command_attack_move_to_ex_with_effects(id, destination, -1, effects)
     }
 
@@ -1095,7 +1095,7 @@ impl GameLogic {
         id: ObjectId,
         destination: glam::Vec3,
         max_shots: i32,
-    ) -> gamelogic::GameLogicResult<bool> {
+    ) -> generals_sim::GameLogicResult<bool> {
         self.unit_command_attack_move_to_ex_with_effects(
             id,
             destination,
@@ -1110,7 +1110,7 @@ impl GameLogic {
         destination: glam::Vec3,
         max_shots: i32,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<bool> {
+    ) -> generals_sim::GameLogicResult<bool> {
         if self.unit_refuses_ai_orders(id) {
             return Ok(false);
         }
@@ -1123,7 +1123,7 @@ impl GameLogic {
         &mut self,
         id: ObjectId,
         destination: glam::Vec3,
-    ) -> gamelogic::GameLogicResult<bool> {
+    ) -> generals_sim::GameLogicResult<bool> {
         self.unit_command_script_attack_move_to_with_effects(
             id,
             destination,
@@ -1136,7 +1136,7 @@ impl GameLogic {
         id: ObjectId,
         destination: glam::Vec3,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<bool> {
+    ) -> generals_sim::GameLogicResult<bool> {
         if self.unit_refuses_ai_orders(id) {
             return Ok(false);
         }
@@ -1153,7 +1153,7 @@ impl GameLogic {
         id: ObjectId,
         destination: glam::Vec3,
         max_shots: i32,
-    ) -> gamelogic::GameLogicResult<bool> {
+    ) -> generals_sim::GameLogicResult<bool> {
         self.unit_command_attack_move_owned_with_effects(
             id,
             destination,
@@ -1168,7 +1168,7 @@ impl GameLogic {
         destination: glam::Vec3,
         max_shots: i32,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<bool> {
+    ) -> generals_sim::GameLogicResult<bool> {
         if self.unit_sleep_mood_blocks_ai_command(id) {
             return Ok(false);
         }
@@ -1274,7 +1274,7 @@ impl GameLogic {
             }
             drop(unit);
             if entered_idle && !self.enter_base_ai_idle_owned(id, effects)? {
-                return Err(gamelogic::GameLogicError::Configuration(
+                return Err(generals_sim::GameLogicError::Configuration(
                     "AttackMove failure lost its receiving actor during Idle entry".into(),
                 ));
             }
@@ -1283,7 +1283,7 @@ impl GameLogic {
                     && unit.unit_ai_runtime.parent_state().is_none()
             }) && !self.enter_attack_move_idle_child_owned(id)
             {
-                return Err(gamelogic::GameLogicError::Configuration(
+                return Err(generals_sim::GameLogicError::Configuration(
                     "AttackMove could not enter its child Idle body".into(),
                 ));
             }

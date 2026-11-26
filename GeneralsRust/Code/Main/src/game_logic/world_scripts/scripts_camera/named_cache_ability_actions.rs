@@ -19,7 +19,7 @@ impl<'a> HostScriptExecutionDriver<'a> {
         this_object: Option<u32>,
         calling: Option<u32>,
         condition: Option<u32>,
-    ) -> Option<gamelogic::GameLogicResult<()>> {
+    ) -> Option<generals_sim::GameLogicResult<()>> {
         use gamelogic::scripting::HostScriptGarrisonEnterExitRequest as Request;
         let request = match request {
             Request::PlayerGarrisonAll { player } => {
@@ -49,7 +49,7 @@ impl<'a> HostScriptExecutionDriver<'a> {
         &mut self,
         request: gamelogic::scripting::HostScriptNamedFireSpecialPowerRequest,
         this_object: Option<u32>,
-    ) -> Option<gamelogic::GameLogicResult<()>> {
+    ) -> Option<generals_sim::GameLogicResult<()>> {
         use gamelogic::scripting::HostScriptNamedFireSpecialPowerRequest as Request;
         let (unit, power, target, waypoint) = match request {
             Request::AtNamed {
@@ -112,7 +112,7 @@ impl<'a> HostScriptExecutionDriver<'a> {
         this_object: Option<u32>,
         calling: Option<u32>,
         condition: Option<u32>,
-    ) -> Option<gamelogic::GameLogicResult<()>> {
+    ) -> Option<generals_sim::GameLogicResult<()>> {
         let interpreter = self
             .interpreter
             .expect("named command-button action retains interpreter");
@@ -134,8 +134,8 @@ impl<'a> HostScriptExecutionDriver<'a> {
         this_object: Option<u32>,
         calling: Option<u32>,
         condition: Option<u32>,
-    ) -> Option<gamelogic::GameLogicResult<()>> {
-        let result = (|| -> gamelogic::GameLogicResult<()> {
+    ) -> Option<generals_sim::GameLogicResult<()>> {
+        let result = (|| -> generals_sim::GameLogicResult<()> {
             let Some(target) = self
                 .world
                 .owned_named_script_object(target, this_object.map(ObjectId))
@@ -174,7 +174,7 @@ impl<'a> HostScriptExecutionDriver<'a> {
         action: gamelogic::scripting::core::ScriptActionType,
         seconds: i32,
         this_object: Option<u32>,
-    ) -> Option<gamelogic::GameLogicResult<()>> {
+    ) -> Option<generals_sim::GameLogicResult<()>> {
         let Some(id) = self
             .world
             .owned_named_script_object(name, this_object.map(ObjectId))

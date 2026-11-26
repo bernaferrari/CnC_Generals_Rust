@@ -66,7 +66,7 @@ impl GameLogic {
         &mut self,
         airfield_id: ObjectId,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<u32> {
+    ) -> generals_sim::GameLogicResult<u32> {
         let Some(capacity) = self
             .objects
             .get(&airfield_id)

@@ -17,9 +17,9 @@ impl MapObjectBirth {
     pub(in crate::game_logic) fn require_current(
         &self,
         world: &GameLogic,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         if !world.object_birth_matches(self.id, &self.actor) {
-            return Err(gamelogic::GameLogicError::InvalidObject(self.id.0));
+            return Err(generals_sim::GameLogicError::InvalidObject(self.id.0));
         }
         Ok(())
     }
@@ -28,7 +28,7 @@ impl MapObjectBirth {
         self,
         world: &mut GameLogic,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         self.require_current(world)?;
         if let Some(position) = self.ordinary_position {
             let layer = world.path_layer_for_point(position);
@@ -50,25 +50,25 @@ impl MapObjectBirth {
 
     /// Original map loop activates the selected Team pointer even if the
     /// ThingFactory redirected the actor to neutral during construction.
-    fn activate_selected_team(&self, world: &GameLogic) -> gamelogic::GameLogicResult<()> {
+    fn activate_selected_team(&self, world: &GameLogic) -> generals_sim::GameLogicResult<()> {
         let id = self
             .team
             .read()
-            .map_err(|error| gamelogic::GameLogicError::Threading(error.to_string()))?
+            .map_err(|error| generals_sim::GameLogicError::Threading(error.to_string()))?
             .get_id();
         let current = world
             .team_factory
             .lock()
-            .map_err(|error| gamelogic::GameLogicError::Threading(error.to_string()))?
+            .map_err(|error| generals_sim::GameLogicError::Threading(error.to_string()))?
             .find_team_by_id(id);
         if current.is_none_or(|current| !Arc::ptr_eq(&current, &self.team)) {
-            return Err(gamelogic::GameLogicError::Configuration(
+            return Err(generals_sim::GameLogicError::Configuration(
                 "map Team was retired before activation".into(),
             ));
         }
         self.team
             .write()
-            .map_err(|error| gamelogic::GameLogicError::Threading(error.to_string()))?
+            .map_err(|error| generals_sim::GameLogicError::Threading(error.to_string()))?
             .set_active();
         Ok(())
     }
@@ -80,7 +80,7 @@ impl GameLogic {
         placed: &crate::game_logic::script_loader::PlacedObject,
         position: Vec3,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<Option<MapObjectBirth>> {
+    ) -> generals_sim::GameLogicResult<Option<MapObjectBirth>> {
         let template = placed.template.as_str();
         // Original prop/decorative/template misses do not run validateTeam.
         // Keep the existing map skip policy before any owned Team effects.
@@ -98,7 +98,7 @@ impl GameLogic {
         if let Some(error) = self.team_creation_error() {
             return Err(error);
         }
-        let invalid = |reason: &str| gamelogic::GameLogicError::Configuration(reason.into());
+        let invalid = |reason: &str| generals_sim::GameLogicError::Configuration(reason.into());
         let key =
             game_engine::common::name_key_generator::NameKeyGenerator::name_to_key("originalOwner");
         if placed
@@ -117,7 +117,7 @@ impl GameLogic {
         let selected = self
             .team_factory
             .lock()
-            .map_err(|error| gamelogic::GameLogicError::Threading(error.to_string()))?
+            .map_err(|error| generals_sim::GameLogicError::Threading(error.to_string()))?
             .find_team_with_owned_effects(&raw);
         let (team, actions) = match selected {
             Some(selected) => selected,
@@ -142,7 +142,7 @@ impl GameLogic {
                 let team = self
                     .team_factory
                     .lock()
-                    .map_err(|error| gamelogic::GameLogicError::Threading(error.to_string()))?
+                    .map_err(|error| generals_sim::GameLogicError::Threading(error.to_string()))?
                     .find_team_by_id(identity)
                     .ok_or_else(|| {
                         invalid("receiving neutral default Team identity disappeared")
@@ -152,7 +152,7 @@ impl GameLogic {
         };
         let identity = team
             .read()
-            .map_err(|error| gamelogic::GameLogicError::Threading(error.to_string()))?
+            .map_err(|error| generals_sim::GameLogicError::Threading(error.to_string()))?
             .get_id();
         // Implicit non-singleton creation runs its owned actions BEFORE the
         // incoming Object exists, just as validateTeam -> findTeam in C++.
@@ -160,7 +160,7 @@ impl GameLogic {
         let current = self
             .team_factory
             .lock()
-            .map_err(|error| gamelogic::GameLogicError::Threading(error.to_string()))?
+            .map_err(|error| generals_sim::GameLogicError::Threading(error.to_string()))?
             .find_team_by_id(identity);
         if current.is_none_or(|current| !Arc::ptr_eq(&current, &team)) {
             return Err(invalid(
@@ -170,7 +170,7 @@ impl GameLogic {
         let (name, owner) = {
             let team = team
                 .read()
-                .map_err(|error| gamelogic::GameLogicError::Threading(error.to_string()))?;
+                .map_err(|error| generals_sim::GameLogicError::Threading(error.to_string()))?;
             (
                 team.get_name().as_str().to_owned(),
                 team.get_controlling_player_id(),
@@ -200,7 +200,7 @@ impl GameLogic {
         };
         let actor = self
             .host_object(id)
-            .ok_or(gamelogic::GameLogicError::InvalidObject(id.0))?;
+            .ok_or(generals_sim::GameLogicError::InvalidObject(id.0))?;
         Ok(Some(MapObjectBirth {
             id,
             actor: Arc::downgrade(&actor.visual_draw_identity_token),
@@ -368,7 +368,7 @@ mod tests {
 
         assert!(matches!(
             birth.finish(&mut peer, &mut effects),
-            Err(gamelogic::GameLogicError::InvalidObject(raw_id)) if raw_id == id.0
+            Err(generals_sim::GameLogicError::InvalidObject(raw_id)) if raw_id == id.0
         ));
         assert_eq!(world.supply_create_center_registers, 0);
         assert_eq!(peer.supply_create_center_registers, 0);

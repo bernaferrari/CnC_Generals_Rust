@@ -4,10 +4,10 @@
 #![allow(unused_imports, non_snake_case)]
 use super::super::*;
 
-fn validate_object_turrets(object: &Object) -> gamelogic::GameLogicResult<()> {
+fn validate_object_turrets(object: &Object) -> generals_sim::GameLogicResult<()> {
     if let Some(source) = &object.thing().template.receiving_client_template {
         source.validate_turret_slots().map_err(|error| {
-            gamelogic::GameLogicError::Configuration(format!(
+            generals_sim::GameLogicError::Configuration(format!(
                 "Object '{}' turret definition: {error}",
                 object.template_name
             ))
@@ -20,7 +20,7 @@ impl GameLogic {
     /// An externally supplied authored Object must carry this session's
     /// admitted definition. Detached and foreign definitions require a real
     /// reconstruction through the receiving session, not a name-only rebind.
-    fn validate_external_object_template(&self, object: &Object) -> gamelogic::GameLogicResult<()> {
+    fn validate_external_object_template(&self, object: &Object) -> generals_sim::GameLogicResult<()> {
         let template = &object.thing().template;
         let carried = template.receiving_client_template.as_ref();
         let receiver = self
@@ -33,7 +33,7 @@ impl GameLogic {
             .and_then(|template| template.receiving_client_template.as_ref());
         if carried.is_some() || receiver.is_some() || named_receiver.is_some() {
             if object.template_name != template.name || carried.is_none() || carried != receiver {
-                return Err(gamelogic::GameLogicError::Configuration(format!(
+                return Err(generals_sim::GameLogicError::Configuration(format!(
                     "Object '{}' does not carry the receiving session's authored template",
                     object.template_name
                 )));
@@ -44,13 +44,13 @@ impl GameLogic {
 
     /// Validate the actual Object and any authored definition owned by this
     /// receiving world before team or object admission can have side effects.
-    fn validate_receiving_object_turrets(&self, object: &Object) -> gamelogic::GameLogicResult<()> {
+    fn validate_receiving_object_turrets(&self, object: &Object) -> generals_sim::GameLogicResult<()> {
         validate_object_turrets(object)?;
         if let Some(template) = self.templates.get(&object.template_name)
             && let Some(source) = &template.receiving_client_template
         {
             source.validate_turret_slots().map_err(|error| {
-                gamelogic::GameLogicError::Configuration(format!(
+                generals_sim::GameLogicError::Configuration(format!(
                     "Object '{}' receiving turret definition: {error}",
                     object.template_name
                 ))
@@ -74,7 +74,7 @@ impl GameLogic {
     }
 
     /// Checked public ingress for external tools that may supply an occupied ID.
-    pub fn try_add_object(&mut self, object: Object) -> gamelogic::GameLogicResult<ObjectId> {
+    pub fn try_add_object(&mut self, object: Object) -> generals_sim::GameLogicResult<ObjectId> {
         self.try_add_object_with_effects(object, &mut Default::default())
     }
 
@@ -82,7 +82,7 @@ impl GameLogic {
         &mut self,
         object: Object,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<ObjectId> {
+    ) -> generals_sim::GameLogicResult<ObjectId> {
         self.try_add_object_with_team_interpreter(object, None, effects)
     }
 
@@ -91,7 +91,7 @@ impl GameLogic {
         mut object: Object,
         interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<ObjectId> {
+    ) -> generals_sim::GameLogicResult<ObjectId> {
         self.validate_external_object_template(&object)?;
         self.validate_receiving_object_turrets(&object)?;
         if object.team_instance_name.trim().is_empty() && object.owner_player_id.is_some() {
@@ -147,7 +147,7 @@ impl GameLogic {
     pub(crate) fn validate_host_object_admission(
         &self,
         id: ObjectId,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         if let Some(error) = self.object_retirement_error() {
             return Err(error);
         }
@@ -155,7 +155,7 @@ impl GameLogic {
             || self.objects.contains_key(&id)
             || self.objects_to_destroy.iter().any(|event| event.id == id)
         {
-            return Err(gamelogic::GameLogicError::Configuration(format!(
+            return Err(generals_sim::GameLogicError::Configuration(format!(
                 "Object admission ID {} is invalid, occupied, or awaiting physical retirement",
                 id.0
             )));
@@ -169,7 +169,7 @@ impl GameLogic {
     pub(crate) fn try_admit_host_object(
         &mut self,
         object: Object,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         self.admit_host_object_storage(object)
     }
 
@@ -178,7 +178,7 @@ impl GameLogic {
     pub(crate) fn try_admit_restored_host_object(
         &mut self,
         object: Object,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         let id = object.id;
         self.admit_host_object_storage(object)?;
         self.partition_manager.attach_receiving_object(
@@ -192,7 +192,7 @@ impl GameLogic {
     pub(in crate::game_logic) fn admit_host_object_storage(
         &mut self,
         mut object: Object,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         // Validate before touching old reservations, identities or callback state.
         self.validate_receiving_object_turrets(&object)?;
         self.validate_host_object_admission(object.id)?;

@@ -287,7 +287,7 @@ impl GameLogic {
     pub(crate) fn headless_camera_view_offer(
         &mut self,
         frame_ms: i32,
-    ) -> gamelogic::GameLogicResult<bool> {
+    ) -> generals_sim::GameLogicResult<bool> {
         self.headless_camera_view_offer_with_script_engine(frame_ms, None)
     }
 
@@ -295,7 +295,7 @@ impl GameLogic {
         &mut self,
         frame_ms: i32,
         interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
-    ) -> gamelogic::GameLogicResult<bool> {
+    ) -> generals_sim::GameLogicResult<bool> {
         self.advance_receiving_camera_view(
             true,
             false,

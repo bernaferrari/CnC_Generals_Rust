@@ -668,7 +668,7 @@ impl GameLogic {
     pub(crate) fn flush_subdual_passenger_orders_with_effects(
         &mut self,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         use crate::game_logic::host_hacker_income::is_legal_hacker_income_source;
         let mut idle_containers: Vec<ObjectId> = Vec::new();
         let mut hack_containers: Vec<ObjectId> = Vec::new();
@@ -751,7 +751,7 @@ impl GameLogic {
     pub(crate) fn update_hacker_income_with_effects(
         &mut self,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         use crate::game_logic::host_hacker_income::is_legal_hacker_income_source;
         self.flush_subdual_passenger_orders_with_effects(effects)?;
         self.tick_hacker_pack_phases(effects)?;
@@ -1063,7 +1063,7 @@ impl GameLogic {
     pub fn start_hacker_internet_hack(
         &mut self,
         hacker_id: ObjectId,
-    ) -> gamelogic::GameLogicResult<bool> {
+    ) -> generals_sim::GameLogicResult<bool> {
         self.start_hacker_internet_hack_with_effects(
             hacker_id,
             &mut crate::game_logic::ScriptPresentationEffects::default(),
@@ -1074,7 +1074,7 @@ impl GameLogic {
         &mut self,
         hacker_id: ObjectId,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<bool> {
+    ) -> generals_sim::GameLogicResult<bool> {
         use crate::game_logic::host_hacker_income::is_legal_hacker_income_source;
         if self.hacker_income.is_hacking(hacker_id) {
             return Ok(false);
@@ -1131,7 +1131,7 @@ impl GameLogic {
     fn tick_hacker_pack_phases(
         &mut self,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         use crate::game_logic::host_hacker_income::PendingHackerCommand;
         let frame = self.frame;
         let ids = self.hacker_income.tracked_pack_ids();
@@ -1305,7 +1305,7 @@ impl GameLogic {
 mod nullable_controller_owner_tests;
 
 impl GameLogic {
-    pub(crate) fn update_hacker_income(&mut self) -> gamelogic::GameLogicResult<()> {
+    pub(crate) fn update_hacker_income(&mut self) -> generals_sim::GameLogicResult<()> {
         self.update_hacker_income_with_effects(&mut Default::default())
     }
 }

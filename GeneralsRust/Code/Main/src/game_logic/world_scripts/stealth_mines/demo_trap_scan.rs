@@ -17,7 +17,7 @@ impl GameLogic {
     pub(super) fn update_authored_demo_traps(
         &mut self,
         effects: &mut ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         let epoch = self.visual_world_epoch;
         let traps: Vec<(ObjectId, u64)> = self
             .objects

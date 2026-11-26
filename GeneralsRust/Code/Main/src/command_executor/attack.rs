@@ -54,7 +54,7 @@ impl<'a> CommandExecutor<'a> {
         waypoints: &[Vec3],
         exact: bool,
         as_team: bool,
-    ) -> gamelogic::GameLogicResult<CommandResult> {
+    ) -> generals_sim::GameLogicResult<CommandResult> {
         let _bind = self.bind_services();
         // Wave 232: promote attack-path via GameLogic unit_command_promote_attack_path.
         let path_res = self.execute_follow_waypoint_path(units, waypoints, exact, as_team)?;
@@ -149,7 +149,7 @@ impl<'a> CommandExecutor<'a> {
         &mut self,
         units: &[ObjectId],
         target_id: ObjectId,
-    ) -> gamelogic::GameLogicResult<CommandResult> {
+    ) -> generals_sim::GameLogicResult<CommandResult> {
         let _bind = self.bind_services();
         // Wave 232: attack last-writes via GameLogic unit_command_attack.
         self.execute_group_attack_object(units, target_id, false)
@@ -159,7 +159,7 @@ impl<'a> CommandExecutor<'a> {
         &mut self,
         units: &[ObjectId],
         target_id: ObjectId,
-    ) -> gamelogic::GameLogicResult<CommandResult> {
+    ) -> generals_sim::GameLogicResult<CommandResult> {
         let _bind = self.bind_services();
         self.execute_attack(units, target_id)
     }
@@ -168,7 +168,7 @@ impl<'a> CommandExecutor<'a> {
         &mut self,
         units: &[ObjectId],
         target_id: ObjectId,
-    ) -> gamelogic::GameLogicResult<CommandResult> {
+    ) -> generals_sim::GameLogicResult<CommandResult> {
         let _bind = self.bind_services();
         // Wave 232: force-attack last-writes via GameLogic unit_command_force_attack.
         self.execute_group_attack_object(units, target_id, true)
@@ -180,7 +180,7 @@ impl<'a> CommandExecutor<'a> {
         units: &[ObjectId],
         target_id: ObjectId,
         forced: bool,
-    ) -> gamelogic::GameLogicResult<CommandResult> {
+    ) -> generals_sim::GameLogicResult<CommandResult> {
         if self.game_logic.host_object(target_id).is_none() {
             return Ok(CommandResult::InvalidTarget);
         }
@@ -219,7 +219,7 @@ impl<'a> CommandExecutor<'a> {
         forced: bool,
         max_shots: i32,
         specialty: bool,
-    ) -> gamelogic::GameLogicResult<bool> {
+    ) -> generals_sim::GameLogicResult<bool> {
         let target_pos = self
             .game_logic
             .host_object(target_id)
@@ -430,7 +430,7 @@ impl<'a> CommandExecutor<'a> {
         units: &[ObjectId],
         location: Option<Vec3>,
         max_shots: i32,
-    ) -> gamelogic::GameLogicResult<CommandResult> {
+    ) -> generals_sim::GameLogicResult<CommandResult> {
         let _bind = self.bind_services();
         let any = self.order_group_attack_position(units, location, max_shots, false)?;
 
@@ -471,7 +471,7 @@ impl<'a> CommandExecutor<'a> {
         location: Option<Vec3>,
         max_shots: i32,
         specialty: bool,
-    ) -> gamelogic::GameLogicResult<bool> {
+    ) -> generals_sim::GameLogicResult<bool> {
         let mut any = false;
         for &unit_id in units {
             let attack_pos = match location {
@@ -628,7 +628,7 @@ impl<'a> CommandExecutor<'a> {
     pub(crate) fn execute_stop(
         &mut self,
         units: &[ObjectId],
-    ) -> gamelogic::GameLogicResult<CommandResult> {
+    ) -> generals_sim::GameLogicResult<CommandResult> {
         let _bind = self.bind_services();
         for (index, &id) in units.iter().enumerate() {
             // C++ GameLogicRandomValue(0, LOGICFRAMES_PER_SECOND)
@@ -760,7 +760,7 @@ impl<'a> CommandExecutor<'a> {
         units: &[ObjectId],
         slot: u8,
         lock_type_code: u8,
-    ) -> gamelogic::GameLogicResult<CommandResult> {
+    ) -> generals_sim::GameLogicResult<CommandResult> {
         let _bind = self.bind_services();
         // Wave 233: weapon lock via GameLogic unit_command_set_weapon_lock.
         use crate::game_logic::WeaponLockType;
@@ -824,7 +824,7 @@ impl<'a> CommandExecutor<'a> {
         center: Vec3,
         radius: f32,
         polygon_name: Option<&str>,
-    ) -> gamelogic::GameLogicResult<CommandResult> {
+    ) -> generals_sim::GameLogicResult<CommandResult> {
         let _bind = self.bind_services();
         let (center, radius, tag) =
             resolve_attack_area(self.game_logic, center, radius, polygon_name);

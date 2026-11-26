@@ -118,7 +118,7 @@ impl GameLogic {
         &mut self,
         id: ObjectId,
         location: glam::Vec3,
-    ) -> gamelogic::GameLogicResult<bool> {
+    ) -> generals_sim::GameLogicResult<bool> {
         if self.objects.get(&id).is_none() {
             return Ok(false);
         }
@@ -527,7 +527,7 @@ impl GameLogic {
         id: ObjectId,
         location: glam::Vec3,
         max_shots: i32,
-    ) -> gamelogic::GameLogicResult<bool> {
+    ) -> generals_sim::GameLogicResult<bool> {
         if self.unit_refuses_ai_orders(id) {
             return Ok(false);
         }
@@ -795,7 +795,7 @@ impl GameLogic {
         &mut self,
         id: ObjectId,
         deployed: bool,
-    ) -> gamelogic::GameLogicResult<bool> {
+    ) -> generals_sim::GameLogicResult<bool> {
         self.unit_command_set_deployed_with_effects(
             id,
             deployed,
@@ -808,7 +808,7 @@ impl GameLogic {
         id: ObjectId,
         deployed: bool,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<bool> {
+    ) -> generals_sim::GameLogicResult<bool> {
         let Some(unit) = self.objects.get(&id) else {
             return Ok(false);
         };
@@ -840,7 +840,7 @@ impl GameLogic {
     pub fn unit_command_toggle_deploy_style(
         &mut self,
         id: ObjectId,
-    ) -> gamelogic::GameLogicResult<bool> {
+    ) -> generals_sim::GameLogicResult<bool> {
         self.unit_command_toggle_deploy_style_with_effects(
             id,
             &mut crate::game_logic::ScriptPresentationEffects::default(),
@@ -851,7 +851,7 @@ impl GameLogic {
         &mut self,
         id: ObjectId,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<bool> {
+    ) -> generals_sim::GameLogicResult<bool> {
         let frame = self.frame;
         let mut deployed_direction = false;
         let mut aligning = false;

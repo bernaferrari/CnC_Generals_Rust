@@ -214,14 +214,14 @@ impl GameLogic {
     pub(crate) fn unit_command_standard_ai_idle_owned(
         &mut self,
         id: ObjectId,
-    ) -> gamelogic::GameLogicResult<bool> {
+    ) -> generals_sim::GameLogicResult<bool> {
         self.unit_command_standard_ai_idle_tail_owned(id, &mut Default::default())
     }
     pub(super) fn unit_command_standard_ai_idle_tail_owned(
         &mut self,
         id: ObjectId,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<bool> {
+    ) -> generals_sim::GameLogicResult<bool> {
         self.enter_base_ai_idle_owned(id, effects)
     }
 }

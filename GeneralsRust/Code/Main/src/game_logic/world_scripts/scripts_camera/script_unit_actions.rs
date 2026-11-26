@@ -14,7 +14,7 @@ impl GameLogic {
     pub(super) fn apply_host_move_attack_script_requests_with_effects(
         &mut self,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         self.with_owned_script_engine(|interpreter, world| {
             world.apply_host_move_attack_script_requests_with_interpreter_and_effects(
                 interpreter,
@@ -29,7 +29,7 @@ impl GameLogic {
         &mut self,
         interpreter: &gamelogic::scripting::engine::ScriptEngine,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         use gamelogic::scripting::HostScriptMoveAttackRequest;
         for req in gamelogic::scripting::take_host_script_move_attack_requests() {
             match req {
@@ -135,7 +135,7 @@ impl GameLogic {
     pub(super) fn apply_host_hunt_guard_script_requests(
         &mut self,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         use crate::game_logic::KindOf;
         use gamelogic::scripting::HostScriptHuntGuardRequest;
         for req in gamelogic::scripting::take_host_script_hunt_guard_requests() {
@@ -831,7 +831,7 @@ impl GameLogic {
         percentage: f32,
         calling: Option<u32>,
         condition: Option<u32>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         // Definitions are immutable during a match; the catalog guard does not
         // cross production callbacks or command execution.
         let Some(button) = self.world_ini_control_bar()
@@ -850,7 +850,7 @@ impl GameLogic {
         percentage: f32,
         calling: Option<u32>,
         condition: Option<u32>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         let Some((_, members)) = self.resolve_owned_script_team(team, calling, condition)? else {
             return Ok(());
         };
@@ -868,14 +868,14 @@ impl GameLogic {
     /// C++ ScriptActions NAMED/TEAM DELETE / KILL / DAMAGE.
     /// Leftover `OBJECT_REGISTRY` is empty on the host path; leftover actions
     /// queue [`gamelogic::scripting::HostScriptKillDeleteDamageRequest`].
-    pub(super) fn apply_host_kill_delete_damage_script_requests(&mut self) -> gamelogic::GameLogicResult<()> {
+    pub(super) fn apply_host_kill_delete_damage_script_requests(&mut self) -> generals_sim::GameLogicResult<()> {
         self.apply_host_kill_delete_damage_script_requests_with_effects(&mut Default::default())
     }
 
     pub(super) fn apply_host_kill_delete_damage_script_requests_with_effects(
         &mut self,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         use crate::game_logic::KindOf;
         use gamelogic::scripting::HostScriptKillDeleteDamageRequest;
         for req in gamelogic::scripting::take_host_script_kill_delete_damage_requests() {
@@ -981,7 +981,7 @@ impl GameLogic {
     }
 
     /// CPP Object::kill uses a max-health input and m_kill, with invalid source.
-    pub(super) fn host_script_kill_object(&mut self, id: ObjectId) -> gamelogic::GameLogicResult<()> {
+    pub(super) fn host_script_kill_object(&mut self, id: ObjectId) -> generals_sim::GameLogicResult<()> {
         self.host_script_kill_object_with_effects(id, &mut Default::default())
     }
 
@@ -989,7 +989,7 @@ impl GameLogic {
         &mut self,
         id: ObjectId,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         self.apply_owned_kill_with_effects(
             id,
             crate::game_logic::combat::DamageType::Unresistable,
@@ -1005,7 +1005,7 @@ impl GameLogic {
         amount: f32,
         kill: bool,
         interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         self.host_script_damage_with_interpreter_with_effects(
             id,
             amount,
@@ -1022,7 +1022,7 @@ impl GameLogic {
         kill: bool,
         interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         let context = if kill {
             crate::game_logic::object::DamageHitContext::for_kill()
         } else {
@@ -1056,7 +1056,7 @@ impl GameLogic {
     }
 
     /// CPP attemptDamage UNRESISTABLE with the original signed amount.
-    pub(super) fn host_script_apply_unresistable(&mut self, id: ObjectId, amount: f32) -> gamelogic::GameLogicResult<()> {
+    pub(super) fn host_script_apply_unresistable(&mut self, id: ObjectId, amount: f32) -> generals_sim::GameLogicResult<()> {
         self.host_script_apply_unresistable_with_effects(id, amount, &mut Default::default())
     }
 
@@ -1065,7 +1065,7 @@ impl GameLogic {
         id: ObjectId,
         amount: f32,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         let context = crate::game_logic::object::DamageHitContext::default();
         self.apply_owned_damage_with_effects(
             id,
@@ -1150,7 +1150,7 @@ impl GameLogic {
         follow: bool,
         calling: Option<u32>,
         condition: Option<u32>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         let Some((_, members)) = self.resolve_owned_script_team(team, calling, condition)? else {
             return Ok(());
         };
@@ -1244,7 +1244,7 @@ impl GameLogic {
     pub(super) fn apply_host_face_script_requests_with_effects(
         &mut self,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         use gamelogic::scripting::HostScriptFaceRequest;
         for req in gamelogic::scripting::take_host_script_face_requests() {
             match req {

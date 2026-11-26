@@ -30,7 +30,7 @@ pub(super) struct PresentationResiduals {
 pub(super) fn evaluate_presentation_residuals(
     pres: &PresentationFrame,
     presentation_ok: bool,
-) -> gamelogic::GameLogicResult<PresentationResiduals> {
+) -> generals_sim::GameLogicResult<PresentationResiduals> {
     // Minimap FOW from presentation residual (grid snapshot, not live shroud re-lock).
     let minimap_fow_presentation_ok = presentation_ok && pres.minimap_fow_presentation_ok();
 
@@ -60,7 +60,7 @@ pub(super) fn evaluate_presentation_residuals(
         50.0,
     );
     let proj_pres = PresentationFrame::try_build_from_logic(&mut proj_logic, 0)
-        .map_err(gamelogic::GameLogicError::SystemNotInitialized)?;
+        .map_err(generals_sim::GameLogicError::SystemNotInitialized)?;
     let proj_pack =
         crate::graphics::projectile_segment_upload::ProjectileSegmentUpload::pack_from_presentation(
             &proj_pres,
@@ -88,7 +88,7 @@ pub(super) fn evaluate_presentation_residuals(
         }
     }
     let move_pres = PresentationFrame::try_build_from_logic(&mut move_logic, 0)
-        .map_err(gamelogic::GameLogicError::SystemNotInitialized)?;
+        .map_err(generals_sim::GameLogicError::SystemNotInitialized)?;
     let move_pack =
         crate::graphics::move_line_upload::MoveLineUpload::pack_from_presentation(&move_pres, &|_, p: glam::Vec3| p);
     let move_line_upload_ok = move_empty.honesty.cpu_pack_ok
@@ -121,7 +121,7 @@ pub(super) fn evaluate_presentation_residuals(
         }
     }
     let atk_pres = PresentationFrame::try_build_from_logic(&mut atk_logic, 0)
-        .map_err(gamelogic::GameLogicError::SystemNotInitialized)?;
+        .map_err(generals_sim::GameLogicError::SystemNotInitialized)?;
     let atk_pack =
         crate::graphics::attack_line_upload::AttackLineUpload::pack_from_presentation(&atk_pres, &|_, p: glam::Vec3| p);
     let attack_line_upload_ok = atk_empty.honesty.cpu_pack_ok

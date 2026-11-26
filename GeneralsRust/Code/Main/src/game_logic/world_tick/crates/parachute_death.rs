@@ -6,7 +6,7 @@ impl GameLogic {
         &mut self,
         id: ObjectId,
         effects: &mut ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         let Some(object) = self.objects.get(&id) else {
             return Ok(());
         };
@@ -38,7 +38,7 @@ impl GameLogic {
                     ))
                 })
             }) {
-                return Err(gamelogic::GameLogicError::Configuration(
+                return Err(generals_sim::GameLogicError::Configuration(
                     "ParachuteContain removeAllContained did not consume its receiving first rider"
                         .into(),
                 ));
@@ -51,12 +51,12 @@ impl GameLogic {
         id: ObjectId,
         input: Option<crate::game_logic::object::OnDieInput>,
         effects: &mut ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         let Some(object) = self.objects.get(&id) else {
             return Ok(());
         };
         let input = input.ok_or_else(|| {
-            gamelogic::GameLogicError::Configuration(
+            generals_sim::GameLogicError::Configuration(
                 "ParachuteContain onDie requires the accepted incoming hit".into(),
             )
         })?;
@@ -76,7 +76,7 @@ impl GameLogic {
             return Ok(());
         };
         let Some(passenger) = self.objects.get(&rider) else {
-            return Err(gamelogic::GameLogicError::InvalidObject(rider.0));
+            return Err(generals_sim::GameLogicError::InvalidObject(rider.0));
         };
         let birth = std::sync::Arc::downgrade(&object.visual_draw_identity_token);
         let rider_birth = std::sync::Arc::downgrade(&passenger.visual_draw_identity_token);
@@ -105,7 +105,7 @@ impl GameLogic {
             .parachute
             .as_ref()
             .ok_or_else(|| {
-                gamelogic::GameLogicError::Configuration(
+                generals_sim::GameLogicError::Configuration(
                     "ParachuteContain onDie data missing".into(),
                 )
             })?
@@ -150,7 +150,7 @@ impl GameLogic {
         &mut self,
         id: ObjectId,
         effects: &mut ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         let Some(object) = self.objects.get(&id) else {
             return Ok(());
         };

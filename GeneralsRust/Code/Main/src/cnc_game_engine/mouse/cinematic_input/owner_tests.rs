@@ -82,7 +82,7 @@ impl NativeFields {
 }
 struct HostileHandler;
 impl ScriptActionHandler for HostileHandler {
-    fn input_enabled(&self, _: bool) -> gamelogic::GameLogicResult<()> {
+    fn input_enabled(&self, _: bool) -> generals_sim::GameLogicResult<()> {
         panic!("receiving native Input must never call retained foreign handler")
     }
 }
@@ -99,7 +99,7 @@ impl ScriptUiEffects for ObserveNext<'_> {
         enabled: bool,
         was: bool,
         deselect: &mut dyn FnMut(u32),
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         self.native.cinematic_input(enabled, was, deselect)
     }
     fn weather_visible(&mut self, visible: bool) {

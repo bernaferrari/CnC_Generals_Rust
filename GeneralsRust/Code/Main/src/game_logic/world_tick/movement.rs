@@ -7,7 +7,7 @@ impl GameLogic {
         &mut self,
         object_ids: &[ObjectId],
         dt: f32,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         self.update_movement_with_effects(object_ids, dt, &mut Default::default())
     }
 
@@ -16,7 +16,7 @@ impl GameLogic {
         object_ids: &[ObjectId],
         dt: f32,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         // Receiving projectile actors are advanced by the projectile phase.
         let projectiles = self.combat_system.get_projectiles();
         let is_owned_projectile = |id: &ObjectId| {

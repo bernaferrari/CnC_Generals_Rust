@@ -16,7 +16,7 @@ impl GameLogic {
         &mut self,
         id: ObjectId,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<bool> {
+    ) -> generals_sim::GameLogicResult<bool> {
         // NeutronBlastBehavior calls Object::kill() without an attacker.
         Ok(self
             .apply_owned_kill_with_effects(
@@ -32,7 +32,7 @@ impl GameLogic {
         &mut self,
         target: ObjectId,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<u32> {
+    ) -> generals_sim::GameLogicResult<u32> {
         let Some(object) = self.objects.get(&target) else {
             return Ok(0);
         };
@@ -87,7 +87,7 @@ impl GameLogic {
                 match kind {
                     ContainModuleKind::RailedTransport => self
                         .railed_kill_contained_with_effects(container_id, rider, effects)
-                        .map_err(gamelogic::GameLogicError::Configuration)?,
+                        .map_err(generals_sim::GameLogicError::Configuration)?,
                     ContainModuleKind::RiderChange => {
                         self.unlink_owned_cycle_rider_for_kill(container_id, rider, effects)
                     }
@@ -125,7 +125,7 @@ impl GameLogic {
         caster_team: Team,
         caster_id: Option<ObjectId>,
         affect_allies: bool,
-    ) -> gamelogic::GameLogicResult<(u32, u32, u32)> {
+    ) -> generals_sim::GameLogicResult<(u32, u32, u32)> {
         let center = (impact.x, impact.z);
         let off_map = caster_id
             .and_then(|id| self.objects.get(&id))
@@ -188,7 +188,7 @@ impl GameLogic {
         emitter: ObjectId,
         definition: NeutronBlastDefinition,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         let Some(source) = self.objects.get(&emitter) else {
             return Ok(());
         };
@@ -231,7 +231,7 @@ impl GameLogic {
         definition: NeutronBlastDefinition,
         candidates: Vec<(ObjectId, std::sync::Weak<()>)>,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<(u32, u32, u32)> {
+    ) -> generals_sim::GameLogicResult<(u32, u32, u32)> {
         let source_birth = caster_id
             .and_then(|id| self.objects.get(&id))
             .map(|source| std::sync::Arc::downgrade(&source.visual_draw_identity_token));

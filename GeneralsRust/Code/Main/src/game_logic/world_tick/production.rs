@@ -24,7 +24,7 @@ impl GameLogic {
         &mut self,
         object_ids: &[ObjectId],
         dt: f32,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         self.update_construction_with_effects(object_ids, dt, &mut Default::default())?;
 
         Ok(())
@@ -35,7 +35,7 @@ impl GameLogic {
         object_ids: &[ObjectId],
         dt: f32,
         ui: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         let mut ready_superweapons: Vec<ObjectId> = Vec::new();
         let mut radar_extend_done: Vec<ObjectId> = Vec::new();
         for &id in object_ids {
@@ -93,7 +93,7 @@ impl GameLogic {
         object_ids: &[ObjectId],
         dt: f32,
         ui: &mut Option<&mut dyn crate::game_logic::ScriptUiEffects>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         let mut effects = crate::game_logic::ScriptPresentationEffects {
             pristine_bones: None,
             script_events: None,
@@ -236,7 +236,7 @@ impl GameLogic {
         &mut self,
         dt: f32,
         ui: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         // Wave 613: production complete collect + apply via host helpers.
         // Under PRODUCTION_AUTHORITY sole-tick, GameWorld advances queue progress
         // and writeback finishes heads; host try_complete + spawn runs after
@@ -259,7 +259,7 @@ impl GameLogic {
         &mut self,
         dt: f32,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<Vec<(Team, String, Vec3, Option<Vec3>, ObjectId)>> {
+    ) -> generals_sim::GameLogicResult<Vec<(Team, String, Vec3, Option<Vec3>, ObjectId)>> {
         // Research is completed synchronously on each producer before advancing the next.
 
         // Ownership and Energy are sampled at each producer's boundary below,
@@ -762,7 +762,7 @@ impl GameLogic {
     pub(in super::super) fn apply_unit_production_completions(
         &mut self,
         unit_completions: Vec<(Team, String, Vec3, Option<Vec3>, ObjectId)>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         self.apply_unit_production_completions_with_effects(
             unit_completions,
             &mut Default::default(),
@@ -773,7 +773,7 @@ impl GameLogic {
         &mut self,
         unit_completions: Vec<(Team, String, Vec3, Option<Vec3>, ObjectId)>,
         ui: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         self.host_apply_unit_production_completions_with_effects(unit_completions, ui)
     }
 
@@ -904,7 +904,7 @@ impl GameLogic {
     pub(in super::super) fn host_apply_unit_production_completions(
         &mut self,
         unit_completions: Vec<(Team, String, Vec3, Option<Vec3>, ObjectId)>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         self.host_apply_unit_production_completions_with_effects(
             unit_completions,
             &mut Default::default(),
@@ -915,7 +915,7 @@ impl GameLogic {
         &mut self,
         unit_completions: Vec<(Team, String, Vec3, Option<Vec3>, ObjectId)>,
         ui: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         // Wave 608: host production complete/spawn apply residual.
         // Wave 595: host unit production completion residual.
         for (team, template, spawn_pos, rally, producer_id) in unit_completions {
@@ -1293,14 +1293,14 @@ impl GameLogic {
 
     pub fn host_apply_production_spawn_ready_completions(
         &mut self,
-    ) -> gamelogic::GameLogicResult<usize> {
+    ) -> generals_sim::GameLogicResult<usize> {
         self.host_apply_production_spawn_ready_completions_with_effects(&mut Default::default())
     }
 
     pub(crate) fn host_apply_production_spawn_ready_completions_with_effects(
         &mut self,
         ui: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<usize> {
+    ) -> generals_sim::GameLogicResult<usize> {
         let events = std::mem::take(&mut self.production_spawn_completions);
         self.apply_spawn_ready_events(
             events,
@@ -1312,7 +1312,7 @@ impl GameLogic {
     pub(crate) fn host_apply_production_spawn_ready_completions_with_build_complete(
         &mut self,
         mut on_build_complete: impl FnMut(&mut Self, ObjectId),
-    ) -> gamelogic::GameLogicResult<usize> {
+    ) -> generals_sim::GameLogicResult<usize> {
         // Wave 679: paid ProductionUpdate deliveries retain the drain boundary.
         let events = std::mem::take(&mut self.production_spawn_completions);
         self.apply_spawn_ready_events(
@@ -1332,7 +1332,7 @@ impl GameLogic {
             &mut crate::game_logic::ScriptPresentationEffects<'_>,
         ),
         ui: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<usize> {
+    ) -> generals_sim::GameLogicResult<usize> {
         let pose_frame = self.frame;
         let mut n = 0usize;
         let mut voice_create_played: std::collections::HashSet<ObjectId> =
@@ -1579,7 +1579,7 @@ impl GameLogic {
     pub(crate) fn spawn_skirmish_starting_units_with_effects_checked(
         &mut self,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         use crate::game_logic::host_faction_skirmish_residual::{
             find_player_template_by_side, find_player_template_residual,
         };
@@ -1921,7 +1921,7 @@ impl GameLogic {
         owner_player_id: Option<u32>,
         spawn_pos: Vec3,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<Option<ObjectId>> {
+    ) -> generals_sim::GameLogicResult<Option<ObjectId>> {
         self.create_object_for_owner_or_team_with_effects_checked(
             template,
             team,

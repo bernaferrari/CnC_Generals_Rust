@@ -33,7 +33,7 @@ impl GameLogic {
     pub(crate) fn process_destroy_list_if_needed_with_effects_checked(
         &mut self,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         if self.has_pending_destroy_work() {
             self.process_destroy_list_with_effects_checked(presentation_effects)?;
         }
@@ -58,7 +58,7 @@ impl GameLogic {
     pub(crate) fn process_destroy_list_with_effects_checked(
         &mut self,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         // Destroy log / localization / player_list free-fns need World+Main.
         // Nest-safe when already inside with_own_services (e.g. simulation step).
         self.with_own_services_mut(|this| {
@@ -73,7 +73,7 @@ impl GameLogic {
     fn process_destroy_list_body_with_effects_checked(
         &mut self,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         if let Some(error) = self.object_retirement_error() {
             return Err(error);
         }
@@ -156,7 +156,7 @@ impl GameLogic {
             {
                 if let Err(error) = self.railed_remove_contained_with_effects(cid, event.id, presentation_effects) {
                     self.objects_to_destroy.push_front(event);
-                    return Err(gamelogic::GameLogicError::Configuration(error));
+                    return Err(generals_sim::GameLogicError::Configuration(error));
                 }
             }
             // CaveContain::removeFromContain runs while the dying rider is

@@ -119,7 +119,7 @@ struct Visit<F: FnMut()> {
     visit: F,
 }
 impl<F: FnMut()> ScriptExecutionDriver for Visit<F> {
-    fn after_action(&mut self) -> gamelogic::GameLogicResult<()> {
+    fn after_action(&mut self) -> generals_sim::GameLogicResult<()> {
         Ok(())
     }
     fn delete_or_kill(
@@ -128,7 +128,7 @@ impl<F: FnMut()> ScriptExecutionDriver for Visit<F> {
         _: Option<gamelogic::common::ObjectID>,
         _: Option<gamelogic::team::TeamID>,
         _: Option<gamelogic::team::TeamID>,
-    ) -> Option<gamelogic::GameLogicResult<()>> {
+    ) -> Option<generals_sim::GameLogicResult<()>> {
         (self.visit)();
         Some(Ok(()))
     }

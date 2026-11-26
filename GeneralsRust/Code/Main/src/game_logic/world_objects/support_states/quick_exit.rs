@@ -8,7 +8,7 @@ impl GameLogic {
         object_id: ObjectId,
         guard_target: Option<ObjectId>,
         effects: &mut ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<bool> {
+    ) -> generals_sim::GameLogicResult<bool> {
         let quick_until = self
             .unit_ai_runtime(object_id)
             .and_then(|runtime| runtime.quick_exit_deadline());

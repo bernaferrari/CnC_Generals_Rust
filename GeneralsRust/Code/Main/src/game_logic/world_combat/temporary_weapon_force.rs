@@ -28,7 +28,7 @@ impl GameLogic {
         &mut self,
         source: ObjectId,
         key: TemporaryWeaponRuntimeKey,
-    ) -> gamelogic::GameLogicResult<u32> {
+    ) -> generals_sim::GameLogicResult<u32> {
         self.force_fire_temporary_runtime_with_effects(source, key, &mut Default::default())
     }
 
@@ -37,7 +37,7 @@ impl GameLogic {
         source: ObjectId,
         key: TemporaryWeaponRuntimeKey,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<u32> {
+    ) -> generals_sim::GameLogicResult<u32> {
         let (template_name, fire_state, identity) = {
             let object = match self.objects.get_mut(&source) {
                 Some(object) => object,
@@ -130,7 +130,7 @@ impl GameLogic {
         &mut self,
         source: ObjectId,
         spec: &crate::game_logic::host_temporary_weapon_behavior::FireWeaponWhenDeadEphemeralWeaponSpec,
-    ) -> gamelogic::GameLogicResult<Option<u32>> {
+    ) -> generals_sim::GameLogicResult<Option<u32>> {
         self.create_and_fire_temp_weapon_with_effects(source, spec, &mut Default::default())
     }
 
@@ -139,7 +139,7 @@ impl GameLogic {
         source: ObjectId,
         spec: &crate::game_logic::host_temporary_weapon_behavior::FireWeaponWhenDeadEphemeralWeaponSpec,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<Option<u32>> {
+    ) -> generals_sim::GameLogicResult<Option<u32>> {
         self.fire_named_temporary_with_owned_state(source, spec, None, None, effects)
     }
 
@@ -150,7 +150,7 @@ impl GameLogic {
         state: Option<(i32, u32, u32)>,
         target: Option<ObjectId>,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<Option<u32>> {
+    ) -> generals_sim::GameLogicResult<Option<u32>> {
         self.fire_named_temporary_at_with_owned_state(source, spec, state, target, None, effects)
     }
 
@@ -162,7 +162,7 @@ impl GameLogic {
         weapon_name: &str,
         position: Vec3,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         if !self.weapon_definitions.as_ref().is_some_and(|definitions| {
             definitions.contains_key(&weapon_name.trim().to_ascii_lowercase())
         }) {
@@ -259,7 +259,7 @@ impl GameLogic {
         target: Option<ObjectId>,
         target_position: Option<Vec3>,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<Option<u32>> {
+    ) -> generals_sim::GameLogicResult<Option<u32>> {
         if let Some(rule) = self.weapon_definitions.as_ref()
             .and_then(|definitions| definitions.get(&spec.weapon_template_name.to_ascii_lowercase()))
             .cloned()
@@ -327,7 +327,7 @@ impl GameLogic {
         current_barrel: i32,
         persist: Option<TemporaryWeaponRuntimeKey>,
         fields: super::temporary_weapon_status::TemporaryWeaponStoreFields,
-    ) -> gamelogic::GameLogicResult<u32> {
+    ) -> generals_sim::GameLogicResult<u32> {
         self.force_fire_named_temporary_with_effects(
             source,
             template_name,
@@ -346,7 +346,7 @@ impl GameLogic {
         persist: Option<TemporaryWeaponRuntimeKey>,
         fields: super::temporary_weapon_status::TemporaryWeaponStoreFields,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<u32> {
+    ) -> generals_sim::GameLogicResult<u32> {
         let Some((pos, team, suspend_fx_frame, ammo, identity)) =
             self.objects.get(&source).map(|object| {
                 let persisted = persist.and_then(|key| {

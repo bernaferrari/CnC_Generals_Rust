@@ -50,7 +50,7 @@ impl GameLogic {
         &mut self,
         effects: Vec<String>,
         interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         self.run_team_creation_effects_with_effects(effects, interpreter, &mut Default::default())
     }
 
@@ -59,7 +59,7 @@ impl GameLogic {
         effects: Vec<String>,
         interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
         ui: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         if effects.is_empty() {
             return Ok(());
         }
@@ -77,7 +77,7 @@ impl GameLogic {
                 Ok(())
             })
             .ok_or_else(|| {
-                gamelogic::GameLogicError::Configuration(
+                generals_sim::GameLogicError::Configuration(
                     "team creation requires the driving interpreter".into(),
                 )
             })?
@@ -92,7 +92,7 @@ impl GameLogic {
         id: ObjectId,
         interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         let Some(team_id) = self
             .objects
             .get(&id)
@@ -127,7 +127,7 @@ impl GameLogic {
             )
         })
         .ok_or_else(|| {
-            gamelogic::GameLogicError::Configuration(
+            generals_sim::GameLogicError::Configuration(
                 "team death callback requires the receiving interpreter".into(),
             )
         })?
@@ -160,7 +160,7 @@ impl GameLogic {
         calling: Option<u32>,
         condition: Option<u32>,
         interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         self.merge_owned_script_team_with_effects(
             source,
             destination,
@@ -179,7 +179,7 @@ impl GameLogic {
         condition: Option<u32>,
         interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
         ui: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         if interpreter.is_none() && self.owned_script_engine.is_some() {
             return self
                 .with_owned_script_engine(|engine, world| {
@@ -314,7 +314,7 @@ impl GameLogic {
                 continue;
             }
             if !self.set_host_object_team_with_effects(id, destination_id, ui)? {
-                return Err(gamelogic::GameLogicError::Configuration(
+                return Err(generals_sim::GameLogicError::Configuration(
                     "team merge could not transfer its receiving member".into(),
                 ));
             }

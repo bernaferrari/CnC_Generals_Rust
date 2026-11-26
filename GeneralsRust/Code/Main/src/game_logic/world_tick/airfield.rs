@@ -91,7 +91,7 @@ impl GameLogic {
     /// a source-authored ParkingPlaceBehavior airfield.  Fail-closed versus
     /// unsupported parking/taxi matrices.
     /// C++ JetOrHeliCirclingDeadAirfieldState residual for all empty RTB jets.
-    pub(crate) fn tick_out_of_ammo_jet_damage(&mut self) -> gamelogic::GameLogicResult<()> {
+    pub(crate) fn tick_out_of_ammo_jet_damage(&mut self) -> generals_sim::GameLogicResult<()> {
         self.tick_out_of_ammo_jet_damage_with_effects(
             &mut crate::game_logic::ScriptPresentationEffects::default(),
         )
@@ -100,7 +100,7 @@ impl GameLogic {
     pub(crate) fn tick_out_of_ammo_jet_damage_with_effects(
         &mut self,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         self.tick_jet_ai_update_all_with_effects(presentation_effects)?;
         let ids: Vec<ObjectId> = self
             .objects
@@ -144,13 +144,13 @@ impl GameLogic {
     }
 
     /// C++ `JetAIUpdate::update` live-host residual.
-    pub(crate) fn tick_jet_ai_update_all(&mut self) -> gamelogic::GameLogicResult<()> {
+    pub(crate) fn tick_jet_ai_update_all(&mut self) -> generals_sim::GameLogicResult<()> {
         self.tick_jet_ai_update_all_with_effects(&mut Default::default())
     }
     pub(crate) fn tick_jet_ai_update_all_with_effects(
         &mut self,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         use crate::game_logic::object::JetAiTickAction;
 
         let now = self.frame;
@@ -538,7 +538,7 @@ impl GameLogic {
 
     /// C++ RETURN_TO_DEAD_AIRFIELD then CIRCLING_DEAD_AIRFIELD.
     /// Damage only after arriving at the remembered wreck and entering circle.
-    fn tick_return_or_circle_dead_airfield(&mut self, jet_id: ObjectId) -> gamelogic::GameLogicResult<()> {
+    fn tick_return_or_circle_dead_airfield(&mut self, jet_id: ObjectId) -> generals_sim::GameLogicResult<()> {
         self.tick_return_or_circle_dead_airfield_with_effects(
             jet_id,
             &mut crate::game_logic::ScriptPresentationEffects::default(),
@@ -549,7 +549,7 @@ impl GameLogic {
         &mut self,
         jet_id: ObjectId,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         {
             let Some(jet) = self.objects.get_mut(&jet_id) else {
                 return Ok(());
@@ -743,7 +743,7 @@ impl GameLogic {
     fn tick_heli_takeoff_or_landing_with_effects(
         &mut self,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         let ids: Vec<ObjectId> = self.heli_takeoff_or_landing.keys().copied().collect();
         for id in ids {
             self.step_heli_takeoff_or_landing(id, effects)?;
@@ -755,7 +755,7 @@ impl GameLogic {
         &mut self,
         jet_id: ObjectId,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         let Some(state) = self.heli_takeoff_or_landing.get(&jet_id).copied() else {
             return Ok(());
         };
@@ -1237,7 +1237,7 @@ impl GameLogic {
     pub(in super::super) fn defect_all_parked_units(
         &mut self,
         airfield_id: ObjectId,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         self.defect_all_parked_units_with_effects(
             airfield_id,
             &mut crate::game_logic::ScriptPresentationEffects::default(),
@@ -1248,7 +1248,7 @@ impl GameLogic {
         &mut self,
         airfield_id: ObjectId,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         let Some(owner) = self
             .objects
             .get(&airfield_id)
@@ -1275,7 +1275,7 @@ impl GameLogic {
         airfield_id: ObjectId,
         destination: u32,
         frames: u32,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         self.defect_parked_units_owned_with_effects(
             airfield_id,
             destination,
@@ -1290,7 +1290,7 @@ impl GameLogic {
         destination: u32,
         frames: u32,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         let Some(spaces) = self.airfield_parking_spaces.get(&airfield_id).cloned() else {
             return Ok(());
         };
@@ -3286,7 +3286,7 @@ impl GameLogic {
     }
 
     /// C++ ParkingPlaceBehavior heal residual for docked aircraft at airfields.
-    pub(crate) fn tick_airfield_parking_heal(&mut self) -> gamelogic::GameLogicResult<()> {
+    pub(crate) fn tick_airfield_parking_heal(&mut self) -> generals_sim::GameLogicResult<()> {
         self.tick_airfield_parking_heal_with_effects(
             &mut crate::game_logic::ScriptPresentationEffects::default(),
         )
@@ -3295,7 +3295,7 @@ impl GameLogic {
     pub(crate) fn tick_airfield_parking_heal_with_effects(
         &mut self,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         self.apply_pending_helipad_exits(presentation_effects);
         self.tick_heli_takeoff_or_landing_with_effects(presentation_effects)?;
         self.tick_flight_decks_with_effects(presentation_effects)?;
@@ -3352,7 +3352,7 @@ impl GameLogic {
     }
 
     /// C++ `ParkingPlaceBehavior::update` 5 Hz `attemptHealing` pulse.
-    fn pulse_airfield_healees(&mut self) -> gamelogic::GameLogicResult<()> {
+    fn pulse_airfield_healees(&mut self) -> generals_sim::GameLogicResult<()> {
         self.pulse_airfield_healees_with_effects(
             &mut crate::game_logic::ScriptPresentationEffects::default(),
         )
@@ -3361,7 +3361,7 @@ impl GameLogic {
     fn pulse_airfield_healees_with_effects(
         &mut self,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         let now = self.frame;
         let airfields: Vec<ObjectId> = self.airfield_healing.keys().copied().collect();
         for airfield_id in airfields {

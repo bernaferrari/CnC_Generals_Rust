@@ -9,7 +9,7 @@ impl GameLogic {
         action: gamelogic::scripting::engine::ScriptPlayerTeamRelationship<'_>,
         calling_team: Option<u32>,
         condition_team: Option<u32>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         use gamelogic::scripting::engine::ScriptPlayerTeamRelationship as Action;
         let (player_name, team_name) = match action {
             Action::Set { player, team, .. } | Action::Remove { player, team } => (player, team),
@@ -48,7 +48,7 @@ impl GameLogic {
         raw_team: &str,
         calling_team: Option<u32>,
         condition_team: Option<u32>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         let Some((_, members)) =
             self.resolve_owned_script_team(raw_team, calling_team, condition_team)?
         else {
@@ -71,7 +71,7 @@ impl GameLogic {
         raw_team: &str,
         calling_team: Option<u32>,
         condition_team: Option<u32>,
-    ) -> gamelogic::GameLogicResult<Option<(u32, Vec<u32>)>> {
+    ) -> generals_sim::GameLogicResult<Option<(u32, Vec<u32>)>> {
         if let Some(error) = self.team_creation_error() {
             return Err(error);
         }
@@ -94,7 +94,7 @@ impl GameLogic {
                             continue;
                         };
                         let team = team.read().map_err(|error| {
-                            gamelogic::GameLogicError::Threading(error.to_string())
+                            generals_sim::GameLogicError::Threading(error.to_string())
                         })?;
                         if team.get_name().as_str() == raw_team {
                             selected = Some(id);
@@ -119,7 +119,7 @@ impl GameLogic {
                         && !team
                             .read()
                             .map_err(|error| {
-                                gamelogic::GameLogicError::Threading(error.to_string())
+                                generals_sim::GameLogicError::Threading(error.to_string())
                             })?
                             .is_active()
                     {
@@ -130,13 +130,13 @@ impl GameLogic {
                 let Some(team) = team else { return Ok(None) };
                 let team = team
                     .read()
-                    .map_err(|error| gamelogic::GameLogicError::Threading(error.to_string()))?;
+                    .map_err(|error| generals_sim::GameLogicError::Threading(error.to_string()))?;
                 if let Some(reason) = team.creation_failure() {
-                    return Err(gamelogic::GameLogicError::TeamCreationFailed(reason.into()));
+                    return Err(generals_sim::GameLogicError::TeamCreationFailed(reason.into()));
                 }
                 Ok(Some((team.get_id(), team.get_members().to_vec())))
             })
-            .map_err(|error| gamelogic::GameLogicError::Threading(error.to_string()))?
+            .map_err(|error| generals_sim::GameLogicError::Threading(error.to_string()))?
     }
 
     /// C++ ScriptActions.cpp:4573-4652 writes the named Team immediately.
@@ -145,7 +145,7 @@ impl GameLogic {
         action: gamelogic::scripting::engine::ScriptTeamRelationship<'_>,
         calling_team: Option<u32>,
         condition_team: Option<u32>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         use gamelogic::scripting::engine::ScriptTeamRelationship as Action;
 
         let source = match action {
@@ -191,13 +191,13 @@ impl GameLogic {
         let source_team = self
             .team_factory
             .with_read_without_flushing(|factory| factory.find_team_by_id(source_id))
-            .map_err(|error| gamelogic::GameLogicError::Threading(error.to_string()))?;
+            .map_err(|error| generals_sim::GameLogicError::Threading(error.to_string()))?;
         let Some(source_team) = source_team else {
             return Ok(());
         };
         let mut source_team = source_team
             .write()
-            .map_err(|error| gamelogic::GameLogicError::Threading(error.to_string()))?;
+            .map_err(|error| generals_sim::GameLogicError::Threading(error.to_string()))?;
         match (action, target_team, target_player) {
             (Action::SetTeam { relationship, .. }, Some(target), _) => {
                 source_team.set_override_team_relationship(target, relationship);
@@ -225,7 +225,7 @@ impl GameLogic {
         raw_team: &str,
         calling_team: Option<u32>,
         condition_team: Option<u32>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         // CPP5933 contextual pointers precede prototype head selection.
         // Copy the exact roster and release its guards before member effects.
         let Some((_, members)) =
@@ -249,14 +249,14 @@ impl GameLogic {
         calling_team: Option<u32>,
         condition_team: Option<u32>,
         mood: i32,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         let Some((_, members)) =
             self.resolve_owned_script_team(raw_team, calling_team, condition_team)?
         else {
             return Ok(());
         };
         let attitude = i8::try_from(mood).map_err(|_| {
-            gamelogic::GameLogicError::Configuration(format!(
+            generals_sim::GameLogicError::Configuration(format!(
                 "Script attitude {mood} exceeds the host attitude representation"
             ))
         })?;
@@ -280,7 +280,7 @@ impl GameLogic {
         team: &str,
         calling: Option<u32>,
         condition: Option<u32>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         let Some((_id, members)) = self.resolve_owned_script_team(team, calling, condition)? else {
             return Ok(());
         };
@@ -297,7 +297,7 @@ impl GameLogic {
         condition_team: Option<u32>,
         script: Option<(gamelogic::scripting::core::Script, i32)>,
         engine: &gamelogic::scripting::engine::ScriptEngine,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         let Some((id, members)) =
             self.resolve_owned_script_team(raw_team, calling_team, condition_team)?
         else {
@@ -355,7 +355,7 @@ impl GameLogic {
         action: &gamelogic::scripting::core::ScriptAction,
         team_id: Option<u32>,
         ui: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         engine.friend_execute_action_with_driver_checked(
             action,
             team_id,
@@ -398,7 +398,7 @@ impl GameLogic {
         &mut self,
         engine: &gamelogic::scripting::engine::ScriptEngine,
         action: &gamelogic::scripting::core::ScriptAction,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         engine.friend_execute_action_with_driver_checked(
             action,
             None,

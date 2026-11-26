@@ -10,7 +10,7 @@ impl CommandExecutor<'_> {
         start: Vec3,
         end: Vec3,
         orientation: f32,
-    ) -> gamelogic::GameLogicResult<CommandResult> {
+    ) -> generals_sim::GameLogicResult<CommandResult> {
         let _bind = self.bind_services();
         let Some(&builder) = units.first() else {
             return Ok(CommandResult::InvalidCommand);

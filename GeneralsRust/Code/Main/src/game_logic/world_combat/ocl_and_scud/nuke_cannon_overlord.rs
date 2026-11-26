@@ -8,7 +8,7 @@ impl GameLogic {
         impact: Vec3,
         source: Option<ObjectId>,
         source_team: Team,
-    ) -> gamelogic::GameLogicResult<(u32, bool)> {
+    ) -> generals_sim::GameLogicResult<(u32, bool)> {
         self.apply_nuke_cannon_primary_at_with_effects(
             impact,
             source,
@@ -23,7 +23,7 @@ impl GameLogic {
         source: Option<ObjectId>,
         source_team: Team,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<(u32, bool)> {
+    ) -> generals_sim::GameLogicResult<(u32, bool)> {
         use crate::game_logic::host_nuke_cannon::{
             MEDIUM_RADIATION_AUDIO, NUKE_CANNON_DAMAGE_TYPE, NUKE_CANNON_DEATH_TYPE,
             NUKE_CANNON_FIRE_AUDIO, is_legal_nuke_cannon_splash_target,

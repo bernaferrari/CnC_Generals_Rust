@@ -252,7 +252,7 @@ impl GameLogic {
     /// Detonate all residual remote demo charges planted by any of `producers`.
     /// Matches C++ SPECIAL_REMOTE_CHARGES no-target path (StickyBombUpdate::detonate).
     /// Returns the number of charges detonated.
-    pub fn detonate_remote_demo_charges(&mut self, producers: &[ObjectId]) -> gamelogic::GameLogicResult<u32> {
+    pub fn detonate_remote_demo_charges(&mut self, producers: &[ObjectId]) -> generals_sim::GameLogicResult<u32> {
         self.detonate_remote_demo_charges_with_effects(producers, &mut Default::default())
     }
 
@@ -260,7 +260,7 @@ impl GameLogic {
         &mut self,
         producers: &[ObjectId],
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<u32> {
+    ) -> generals_sim::GameLogicResult<u32> {
         use crate::game_logic::host_mines::HostMineDetonateReason;
 
         if producers.is_empty() {

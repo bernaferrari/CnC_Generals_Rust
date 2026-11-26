@@ -197,7 +197,7 @@ impl GameLogic {
         slot: u8,
         shot: crate::game_logic::combat::PendingProjectile,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         let capture = self
             .objects
             .get_mut(&attacker_id)

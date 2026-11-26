@@ -81,7 +81,7 @@ impl GameLogic {
         mut position: Vec3,
         angle: f32,
         effects: &mut ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<Option<Vec3>> {
+    ) -> generals_sim::GameLogicResult<Option<Vec3>> {
         let Some(owner) = self.get_player(player) else {
             return Ok(None);
         };
@@ -156,7 +156,7 @@ impl GameLogic {
         position: Vec3,
         angle: f32,
         effects: &mut ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         let epoch = self.visual_world_epoch;
         let geometry = self.templates[template].geometry_info;
         for raw_id in self.campaign_build_collisions(position, &geometry, angle) {
@@ -172,7 +172,7 @@ impl GameLogic {
                 return Err(error);
             }
             if self.visual_world_epoch != epoch {
-                return Err(gamelogic::GameLogicError::Configuration(
+                return Err(generals_sim::GameLogicError::Configuration(
                     "campaign BuildAssistant clearing replaced the receiving world".into(),
                 ));
             }

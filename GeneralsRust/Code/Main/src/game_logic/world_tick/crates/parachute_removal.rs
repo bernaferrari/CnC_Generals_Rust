@@ -7,7 +7,7 @@ impl GameLogic {
         container_id: ObjectId,
         rider_id: ObjectId,
         effects: &mut ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         let Some(container) = self.objects.get(&container_id) else {
             return Ok(());
         };
@@ -21,7 +21,7 @@ impl GameLogic {
             .parachute
             .clone()
             .ok_or_else(|| {
-                gamelogic::GameLogicError::Configuration(
+                generals_sim::GameLogicError::Configuration(
                     "ParachuteContain removal data missing".into(),
                 )
             })?;
@@ -87,7 +87,7 @@ impl GameLogic {
             .parachute_attachments
             .as_mut()
             .ok_or_else(|| {
-                gamelogic::GameLogicError::Configuration(
+                generals_sim::GameLogicError::Configuration(
                     "ParachuteContain removal cache missing".into(),
                 )
             })?

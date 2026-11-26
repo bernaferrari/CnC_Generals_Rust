@@ -18,7 +18,7 @@ impl GameLogic {
         damage_type: crate::game_logic::combat::DamageType,
         healing: bool,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<Option<bool>> {
+    ) -> generals_sim::GameLogicResult<Option<bool>> {
         let Some(object) = self.objects.get(&victim_id) else {
             return Ok(None);
         };

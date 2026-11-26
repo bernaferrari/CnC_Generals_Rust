@@ -474,7 +474,7 @@ impl GameLogic {
     pub fn apply_production_authority_op(
         &mut self,
         op: ProductionAuthorityOp,
-    ) -> gamelogic::GameLogicResult<ProductionAuthorityResult> {
+    ) -> generals_sim::GameLogicResult<ProductionAuthorityResult> {
         self.apply_production_authority_op_with_effects(op, &mut Default::default())
     }
 
@@ -482,7 +482,7 @@ impl GameLogic {
         &mut self,
         op: ProductionAuthorityOp,
         ui: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<ProductionAuthorityResult> {
+    ) -> generals_sim::GameLogicResult<ProductionAuthorityResult> {
         match op {
             ProductionAuthorityOp::SpawnUnit {
                 template,

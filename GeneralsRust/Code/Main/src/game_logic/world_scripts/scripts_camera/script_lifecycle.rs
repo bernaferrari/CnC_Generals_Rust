@@ -10,7 +10,7 @@ impl GameLogic {
         calling: Option<u32>,
         condition: Option<u32>,
         interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         self.apply_owned_script_lifecycle_with_effects(
             request,
             this_object,
@@ -29,7 +29,7 @@ impl GameLogic {
         condition: Option<u32>,
         interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         match request {
             Request::NamedDelete { unit } => {
                 if let Some(id) = self.owned_named_script_object(unit, this_object) {
@@ -117,7 +117,7 @@ impl GameLogic {
         condition: Option<u32>,
         delete: Option<bool>,
         interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         self.apply_owned_team_lifecycle_with_effects(
             raw,
             calling,
@@ -136,7 +136,7 @@ impl GameLogic {
         delete: Option<bool>,
         interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         let Some((team_id, initial)) = self.resolve_owned_script_team(raw, calling, condition)?
         else {
             return Ok(());

@@ -277,7 +277,7 @@ pub fn prefer_retail_campaign_load() -> bool {
 pub fn run_golden_campaign(
     map_name: Option<&str>,
     frames: u32,
-) -> gamelogic::GameLogicResult<GoldenCampaignResult> {
+) -> generals_sim::GameLogicResult<GoldenCampaignResult> {
     let prefer_retail = prefer_retail_campaign_load();
     Ok(run_golden_campaign_ex(map_name, frames, prefer_retail)?)
 }
@@ -288,12 +288,12 @@ pub fn run_golden_campaign_ex(
     map_name: Option<&str>,
     frames: u32,
     force_full_campaign: bool,
-) -> gamelogic::GameLogicResult<GoldenCampaignResult> {
+) -> generals_sim::GameLogicResult<GoldenCampaignResult> {
     let frames = frames.max(1);
     let mut logic = GameLogic::new();
     #[cfg(not(target_arch = "wasm32"))]
     let profile = tempfile::tempdir().map_err(|error| {
-        gamelogic::GameLogicError::Configuration(format!("campaign gate profile: {error}"))
+        generals_sim::GameLogicError::Configuration(format!("campaign gate profile: {error}"))
     })?;
     #[cfg(not(target_arch = "wasm32"))]
     let campaign_dir = profile.path().join("Campaign");
@@ -313,7 +313,7 @@ pub fn run_golden_campaign_ex(
     // --- Campaign progression manager (local production API) ---
     let mut progression = CampaignManager::with_campaign_directory(campaign_dir);
     progression.init().map_err(|error| {
-        gamelogic::GameLogicError::Configuration(format!("campaign gate progress: {error}"))
+        generals_sim::GameLogicError::Configuration(format!("campaign gate progress: {error}"))
     })?;
 
     let campaign_resolved = logic.with_own_services(|| match map_name {
@@ -360,7 +360,7 @@ pub fn run_golden_campaign_ex(
                 Ok::<_, anyhow::Error>(std::sync::Arc::new(std::sync::Mutex::new(assets)))
             })
             .map_err(|error| {
-                gamelogic::GameLogicError::Configuration(format!(
+                generals_sim::GameLogicError::Configuration(format!(
                     "campaign gate CPU asset/content initialization failed: {error}"
                 ))
             })?;
@@ -440,7 +440,7 @@ pub fn run_golden_campaign_ex(
 
     // --- SinglePlayer world ---
     crate::cnc_game_engine::start_standalone_game(&mut logic, GameMode::SinglePlayer)
-        .map_err(gamelogic::GameLogicError::Configuration)?;
+        .map_err(generals_sim::GameLogicError::Configuration)?;
     let single_player = matches!(logic.game_mode(), GameMode::SinglePlayer);
 
     let (host_map_identity, host_map_loaded) = match &host_resolved {
@@ -518,7 +518,7 @@ pub fn run_golden_campaign_ex(
         logic
             .with_own_services(|| particles.admit_effective_definitions())
             .map_err(|error| {
-                gamelogic::GameLogicError::Configuration(format!(
+                generals_sim::GameLogicError::Configuration(format!(
                     "campaign gate particle content initialization failed: {error}"
                 ))
             })?;
@@ -613,11 +613,11 @@ pub fn run_golden_campaign_ex(
     let script_engine_residual_ok = honesty_script_engine_table_capacity_residual_ok();
 
     #[cfg(feature = "game_client")]
-    let playthrough = logic.with_own_services(|| -> gamelogic::GameLogicResult<_> {
+    let playthrough = logic.with_own_services(|| -> generals_sim::GameLogicResult<_> {
         use crate::subsystem_manager::{FileSystemSubsystem, SubsystemInterface};
         let mut filesystem = FileSystemSubsystem::new();
         filesystem.init().map_err(|error| {
-            gamelogic::GameLogicError::Configuration(format!("campaign gate assets: {error}"))
+            generals_sim::GameLogicError::Configuration(format!("campaign gate assets: {error}"))
         })?;
         Ok(game_client::gui::run_retail_campaign_and_challenge_playthrough())
     })?;

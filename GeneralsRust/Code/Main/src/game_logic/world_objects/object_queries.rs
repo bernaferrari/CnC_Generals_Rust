@@ -455,7 +455,7 @@ impl GameLogic {
     /// Transfer an object to the player's default Team. As in Object::setTeam,
     /// an inactive controller redirects the object to this session's neutral
     /// player. Command authority follows the resulting `owner_player_id`.
-    pub fn transfer_object_to_player(&mut self, object_id: ObjectId, player_id: u32) -> gamelogic::GameLogicResult<bool> {
+    pub fn transfer_object_to_player(&mut self, object_id: ObjectId, player_id: u32) -> generals_sim::GameLogicResult<bool> {
         self.transfer_object_to_player_with_effects(
             object_id,
             player_id,
@@ -468,7 +468,7 @@ impl GameLogic {
         object_id: ObjectId,
         player_id: u32,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<bool> {
+    ) -> generals_sim::GameLogicResult<bool> {
         let Some(destination) = self.host_default_team_id(player_id) else {
             return Ok(false);
         };
@@ -489,7 +489,7 @@ impl GameLogic {
         player_id: u32,
         destination: u32,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<bool> {
+    ) -> generals_sim::GameLogicResult<bool> {
         let requested_owner = self
             .team_factory
             .with_read_without_flushing(|factory| {

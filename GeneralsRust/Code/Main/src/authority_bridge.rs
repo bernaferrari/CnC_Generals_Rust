@@ -50,7 +50,7 @@ fn admit_host_content(logic: &mut GameLogic) {
 }
 
 /// No take_damage fallbacks, no HP caps after spawn, no re-teaming.
-pub fn run_host_only_combat_victory() -> gamelogic::GameLogicResult<(bool, String)> {
+pub fn run_host_only_combat_victory() -> generals_sim::GameLogicResult<(bool, String)> {
     // Ensure dual-tick env is not required (we do not set it).
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("HostOnlyBridge");
@@ -139,7 +139,7 @@ pub fn run_host_only_combat_victory() -> gamelogic::GameLogicResult<(bool, Strin
 }
 
 /// Host stores presentation after update and HUD consumer applies it.
-pub fn run_presentation_consumer_path() -> gamelogic::GameLogicResult<(bool, String)> {
+pub fn run_presentation_consumer_path() -> generals_sim::GameLogicResult<(bool, String)> {
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("PresConsumer");
     admit_host_content(&mut logic);
@@ -165,7 +165,7 @@ pub fn run_presentation_consumer_path() -> gamelogic::GameLogicResult<(bool, Str
     logic.update();
     logic.headless_camera_view_offer(33)?;
     let frame = PresentationFrame::try_build_from_logic(&mut logic, 0)
-        .map_err(gamelogic::GameLogicError::SystemNotInitialized)?;
+        .map_err(generals_sim::GameLogicError::SystemNotInitialized)?;
     let mut ui = GameUIState::default();
     frame.apply_to_ui_state(&mut ui);
     let mut hud = GameHUD::new();

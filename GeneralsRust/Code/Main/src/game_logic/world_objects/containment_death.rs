@@ -171,7 +171,7 @@ impl GameLogic {
         killer: Option<Team>,
         input: Option<crate::game_logic::object::OnDieInput>,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         let Some(container) = self.objects.get(&id) else {
             return Ok(());
         };
@@ -408,7 +408,7 @@ impl GameLogic {
         container_id: ObjectId,
         _killer: Option<Team>,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         let Some(container) = self.objects.get(&container_id) else {
             return Ok(());
         };

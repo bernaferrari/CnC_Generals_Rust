@@ -176,7 +176,7 @@ impl GameLogic {
         rider: ObjectId,
         cave_capture: Option<(i32, crate::game_logic::host_cave_system::CaveCaptureEvent)>,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<bool> {
+    ) -> generals_sim::GameLogicResult<bool> {
         let Some((entrance_birth, rider_birth)) = self
             .objects
             .get(&entrance)
@@ -217,7 +217,7 @@ impl GameLogic {
         event: crate::game_logic::host_cave_system::CaveCaptureEvent,
         entrance: ObjectId,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         use crate::game_logic::host_cave_system::CaveCaptureEvent;
         match event {
             CaveCaptureEvent::None => {}
@@ -232,7 +232,7 @@ impl GameLogic {
                     return Ok(());
                 };
                 let player = self.players.get(&owner).ok_or_else(|| {
-                    gamelogic::GameLogicError::Configuration(
+                    generals_sim::GameLogicError::Configuration(
                         "Cave rider controller is missing from the receiving world".into(),
                     )
                 })?;
@@ -240,7 +240,7 @@ impl GameLogic {
                     return Ok(());
                 }
                 let destination = self.host_default_team_id(owner).ok_or_else(|| {
-                    gamelogic::GameLogicError::Configuration(
+                    generals_sim::GameLogicError::Configuration(
                         "Cave rider controller has no receiving default Team".into(),
                     )
                 })?;
@@ -326,7 +326,7 @@ impl GameLogic {
         unit_id: ObjectId,
         exit_cave: ObjectId,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<bool> {
+    ) -> generals_sim::GameLogicResult<bool> {
         let Some(index) = self.cave_system.index_holding_unit(unit_id) else {
             return Ok(false);
         };
@@ -584,7 +584,7 @@ impl GameLogic {
         &mut self,
         span_id: ObjectId,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         let pos = self
             .bridge_random_surface_position(span_id)
             .or_else(|| self.objects.get(&span_id).map(|o| o.get_position()))
@@ -606,7 +606,7 @@ impl GameLogic {
         span_id: ObjectId,
         position: Vec3,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         let Some((team, veterancy, orientation, velocity)) =
             self.objects.get(&span_id).map(|bridge| {
                 (
@@ -641,7 +641,7 @@ impl GameLogic {
         span_id: ObjectId,
         old_state: u8,
         new_state: u8,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         self.play_bridge_body_transition_with_effects(
             span_id,
             old_state,
@@ -656,7 +656,7 @@ impl GameLogic {
         old_state: u8,
         new_state: u8,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         let cue = self
             .bridge_behavior
             .body_transition_cues(old_state, new_state);
@@ -690,7 +690,7 @@ impl GameLogic {
 
     pub(in super::super::super) fn sync_host_bridge_rubble_and_scaffolds(
         &mut self,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         self.sync_host_bridge_rubble_and_scaffolds_with_effects(
             &mut crate::game_logic::ScriptPresentationEffects::default(),
         )
@@ -699,7 +699,7 @@ impl GameLogic {
     pub(in super::super::super) fn sync_host_bridge_rubble_and_scaffolds_with_effects(
         &mut self,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         // Each move belongs to the scaffold birth observed before any of the
         // destruction or pose callbacks below can reuse another scaffold ID.
         let moved: Vec<_> = self

@@ -4,7 +4,7 @@ use super::*;
 
 impl GameLogic {
     /// C++ NeutronMissileUpdate::update residual.
-    pub fn update_neutron_missile_flights(&mut self) -> gamelogic::GameLogicResult<()> {
+    pub fn update_neutron_missile_flights(&mut self) -> generals_sim::GameLogicResult<()> {
         self.update_neutron_missile_flights_with_effects(
             &mut crate::game_logic::ScriptPresentationEffects::default(),
         )
@@ -13,7 +13,7 @@ impl GameLogic {
     pub(crate) fn update_neutron_missile_flights_with_effects(
         &mut self,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         #[cfg(feature = "game_client")]
         let fx_operation_environment = self.observe_object_fx_environment();
 
@@ -241,7 +241,7 @@ impl GameLogic {
     }
 
     /// C++ ScudStormMissile MissileAIUpdate ballistic residual tick.
-    pub fn update_scud_storm_missile_flights(&mut self) -> gamelogic::GameLogicResult<()> {
+    pub fn update_scud_storm_missile_flights(&mut self) -> generals_sim::GameLogicResult<()> {
         self.update_scud_storm_missile_flights_with_effects(
             &mut crate::game_logic::ScriptPresentationEffects::default(),
         )
@@ -250,7 +250,7 @@ impl GameLogic {
     pub(crate) fn update_scud_storm_missile_flights_with_effects(
         &mut self,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         use crate::game_logic::combat::DamageType;
         use crate::game_logic::special_power_strikes::{
             SCUD_STORM_PRIMARY_RADIUS, SCUD_STORM_SECONDARY_RADIUS,
@@ -508,7 +508,7 @@ impl GameLogic {
         Some(tid)
     }
 
-    pub fn update_carpet_bomb_flights(&mut self) -> gamelogic::GameLogicResult<()> {
+    pub fn update_carpet_bomb_flights(&mut self) -> generals_sim::GameLogicResult<()> {
         self.update_carpet_bomb_flights_with_effects(
             &mut crate::game_logic::ScriptPresentationEffects::default(),
         )
@@ -517,7 +517,7 @@ impl GameLogic {
     pub(crate) fn update_carpet_bomb_flights_with_effects(
         &mut self,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         use crate::game_logic::combat::DamageType;
         use crate::game_logic::special_power_strikes::{
             CARPET_BOMB_DAMAGE, CARPET_BOMB_PAYLOAD_OBJECT, CARPET_BOMB_RADIUS,
@@ -957,7 +957,7 @@ impl GameLogic {
         }
     }
 
-    pub fn update_a10_strike_flights(&mut self) -> gamelogic::GameLogicResult<()> {
+    pub fn update_a10_strike_flights(&mut self) -> generals_sim::GameLogicResult<()> {
         self.update_a10_strike_flights_with_effects(
             &mut crate::game_logic::ScriptPresentationEffects::default(),
         )

@@ -24,25 +24,25 @@ pub(super) struct HostSession {
 pub(super) fn run_host_session(
     logic: &mut GameLogic,
     frames: u32,
-) -> gamelogic::GameLogicResult<HostSession> {
+) -> generals_sim::GameLogicResult<HostSession> {
     // GameEngine::init brings up TheFileSystem, then loads GameData, Locomotor,
     // PlayerTemplate, Multiplayer and Object INI before any NewGame
     // (GameEngine.cpp:281-329, 428-458); NewGame requires that admitted content.
     {
         let common = logic.world_services.common();
         let mut file_system = common.application.file_system.lock().map_err(|error| {
-            gamelogic::GameLogicError::Configuration(format!(
+            generals_sim::GameLogicError::Configuration(format!(
                 "cannot lock the shell filesystem: {error}"
             ))
         })?;
         crate::subsystem_manager::FileSystemSubsystem::mount_common_files(&mut file_system)
-            .map_err(|error| gamelogic::GameLogicError::Configuration(error.to_string()))?;
+            .map_err(|error| generals_sim::GameLogicError::Configuration(error.to_string()))?;
     }
     let definitions = crate::parallel_harness::RetailWorldDefinitions::load()
-        .map_err(|error| gamelogic::GameLogicError::Configuration(error.to_string()))?;
+        .map_err(|error| generals_sim::GameLogicError::Configuration(error.to_string()))?;
     definitions
         .admit(logic)
-        .map_err(gamelogic::GameLogicError::Configuration)?;
+        .map_err(generals_sim::GameLogicError::Configuration)?;
 
     let resolved = super::maps::resolve_host_map();
     let map_resolved = resolved.is_some();
@@ -54,10 +54,10 @@ pub(super) fn run_host_session(
 
     // Production UI path only — no golden_skirmish_config fallback.
     let settings = logic.multiplayer_definitions.clone().ok_or_else(|| {
-        gamelogic::GameLogicError::Configuration("missing shell multiplayer definitions".into())
+        generals_sim::GameLogicError::Configuration("missing shell multiplayer definitions".into())
     })?;
     if settings.color_definitions.is_empty() {
-        return Err(gamelogic::GameLogicError::Configuration(
+        return Err(generals_sim::GameLogicError::Configuration(
             "authored MultiplayerColorDefinition palette is unavailable at startup".into(),
         ));
     }
@@ -73,13 +73,13 @@ pub(super) fn run_host_session(
     // This headless scenario has no saved preferences; C++ uses the authored
     // default cash when StartingCash is absent and applies the shroud setting.
     if !settings.got_default_starting_money {
-        return Err(gamelogic::GameLogicError::Configuration(
+        return Err(generals_sim::GameLogicError::Configuration(
             "authored default starting money is unavailable".into(),
         ));
     }
     cfg.rules.starting_cash = i32::try_from(settings.default_starting_money.count_money())
         .map_err(|_| {
-            gamelogic::GameLogicError::Configuration(
+            generals_sim::GameLogicError::Configuration(
                 "authored default starting money exceeds headless menu range".into(),
             )
         })?;
@@ -115,9 +115,9 @@ pub(super) fn run_host_session(
         let frame = PresentationFrame::try_publish(
             logic, 0, None, with_victory,
         )
-        .map_err(gamelogic::GameLogicError::Configuration)?;
+        .map_err(generals_sim::GameLogicError::Configuration)?;
         frame.apply_to_shell_ui_consumers(&mut hud, &mut ui_state, &mut rts, &mut command_panel);
-        Ok::<_, gamelogic::GameLogicError>(frame)
+        Ok::<_, generals_sim::GameLogicError>(frame)
     };
     let seed_pres = publish(logic, false)?;
     let seed_ok = seed_pres.frame.0 == logic.get_frame()

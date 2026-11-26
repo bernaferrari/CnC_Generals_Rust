@@ -47,7 +47,7 @@ impl<'a> CommandExecutor<'a> {
         unit_id: ObjectId,
         goal: Vec3,
         state: AIState,
-    ) -> gamelogic::GameLogicResult<bool> {
+    ) -> generals_sim::GameLogicResult<bool> {
         self.path_to_goal_with_state_ignoring(unit_id, goal, state, None)
     }
 
@@ -58,7 +58,7 @@ impl<'a> CommandExecutor<'a> {
         goal: Vec3,
         state: AIState,
         ignore_obstacle: Option<ObjectId>,
-    ) -> gamelogic::GameLogicResult<bool> {
+    ) -> generals_sim::GameLogicResult<bool> {
         // Wave 233: path+state last-writes via GameLogic
         // unit_command_path_with_state_ignoring.
         self.game_logic
@@ -81,7 +81,7 @@ impl<'a> CommandExecutor<'a> {
         target_id: ObjectId,
         target_pos: Vec3,
         state: AIState,
-    ) -> gamelogic::GameLogicResult<bool> {
+    ) -> generals_sim::GameLogicResult<bool> {
         let Some((source_pos, target_selection_radius)) = self
             .game_logic
             .host_object(unit_id)
@@ -150,7 +150,7 @@ impl<'a> CommandExecutor<'a> {
     pub(super) fn execute_deploy(
         &mut self,
         units: &[ObjectId],
-    ) -> gamelogic::GameLogicResult<CommandResult> {
+    ) -> generals_sim::GameLogicResult<CommandResult> {
         let _bind = self.bind_services();
         let mut any = false;
         for &unit_id in units {
@@ -231,7 +231,7 @@ impl<'a> CommandExecutor<'a> {
         &mut self,
         units: &[ObjectId],
         target_id: ObjectId,
-    ) -> gamelogic::GameLogicResult<CommandResult> {
+    ) -> generals_sim::GameLogicResult<CommandResult> {
         let _bind = self.bind_services();
         let (target_pos, target_alive, target_is_resource) =
             match self.game_logic.host_object(target_id) {
@@ -341,7 +341,7 @@ impl<'a> CommandExecutor<'a> {
     pub(super) fn execute_return_supplies(
         &mut self,
         units: &[ObjectId],
-    ) -> gamelogic::GameLogicResult<CommandResult> {
+    ) -> generals_sim::GameLogicResult<CommandResult> {
         let _bind = self.bind_services();
         let mut any = false;
         for &unit_id in units {
@@ -504,7 +504,7 @@ impl<'a> CommandExecutor<'a> {
     pub(super) fn execute_clear_mines(
         &mut self,
         units: &[ObjectId],
-    ) -> gamelogic::GameLogicResult<CommandResult> {
+    ) -> generals_sim::GameLogicResult<CommandResult> {
         let _bind = self.bind_services();
         use crate::game_logic::host_mines::{DOZER_MINE_CLEAR_SCAN_RANGE, is_mine_clearer};
         let mut any = false;
@@ -597,7 +597,7 @@ impl<'a> CommandExecutor<'a> {
         &mut self,
         units: &[ObjectId],
         target_id: ObjectId,
-    ) -> gamelogic::GameLogicResult<CommandResult> {
+    ) -> generals_sim::GameLogicResult<CommandResult> {
         let _bind = self.bind_services();
         // C++ ActionManager::canRepairObject + DozerAIUpdate::privateRepair.
         let (
@@ -711,7 +711,7 @@ impl<'a> CommandExecutor<'a> {
         &mut self,
         units: &[ObjectId],
         target_id: ObjectId,
-    ) -> gamelogic::GameLogicResult<CommandResult> {
+    ) -> generals_sim::GameLogicResult<CommandResult> {
         let _bind = self.bind_services();
         // C++ ActionManager::canGetRepairedAt: vehicle → authored
         // KINDOF_REPAIR_PAD, aircraft → authored KINDOF_FS_AIRFIELD.  The
@@ -822,7 +822,7 @@ impl<'a> CommandExecutor<'a> {
         &mut self,
         units: &[ObjectId],
         target_id: ObjectId,
-    ) -> gamelogic::GameLogicResult<CommandResult> {
+    ) -> generals_sim::GameLogicResult<CommandResult> {
         let _bind = self.bind_services();
         let (
             target_pos,
@@ -1136,7 +1136,7 @@ impl<'a> CommandExecutor<'a> {
         &mut self,
         player_id: u32,
         transfer_to_ally: bool,
-    ) -> gamelogic::GameLogicResult<CommandResult> {
+    ) -> generals_sim::GameLogicResult<CommandResult> {
         let _bind = self.bind_services();
         // C++ GameLogicDispatch.cpp:1762-1797 MSG_SELF_DESTRUCT.
         if self.game_logic.get_player(player_id).is_none() {
@@ -1280,7 +1280,7 @@ fn host_transfer_assets_from(
     logic: &mut GameLogic,
     dest_player: u32,
     source_player: u32,
-) -> gamelogic::GameLogicResult<()> {
+) -> generals_sim::GameLogicResult<()> {
     // C++ Player::transferAssetsFromThat — skip beacon templates, then cash.
     let ids: Vec<ObjectId> = logic
         .host_objects()
@@ -1320,7 +1320,7 @@ fn host_kill_player(
     logic: &mut GameLogic,
     player_id: u32,
     effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-) -> gamelogic::GameLogicResult<()> {
+) -> generals_sim::GameLogicResult<()> {
     // C++ Player::killPlayer — same army/beacon/tech/SP-AI path as victory.
     let ids: Vec<ObjectId> = logic
         .host_objects()
@@ -1559,7 +1559,7 @@ impl GameLogic {
         &mut self,
         dozer_id: ObjectId,
         build_target: ObjectId,
-    ) -> gamelogic::GameLogicResult<bool> {
+    ) -> generals_sim::GameLogicResult<bool> {
         self.dozer_request_task_owned(
             dozer_id,
             build_target,
@@ -1573,7 +1573,7 @@ impl GameLogic {
         &mut self,
         dozer_id: ObjectId,
         repair_target: ObjectId,
-    ) -> gamelogic::GameLogicResult<bool> {
+    ) -> generals_sim::GameLogicResult<bool> {
         self.dozer_request_task_owned(
             dozer_id,
             repair_target,
@@ -1639,7 +1639,7 @@ impl GameLogic {
     pub fn dozer_cancel_current_task_from_player(
         &mut self,
         dozer_id: ObjectId,
-    ) -> gamelogic::GameLogicResult<bool> {
+    ) -> generals_sim::GameLogicResult<bool> {
         self.dozer_cancel_entered_task_owned(dozer_id)
     }
 
@@ -1991,7 +1991,7 @@ impl GameLogic {
         id: ObjectId,
         target: ObjectId,
         task: gamelogic::object::update::ai_update::dozer_ai_update::DozerTask,
-    ) -> gamelogic::GameLogicResult<bool> {
+    ) -> generals_sim::GameLogicResult<bool> {
         use gamelogic::object::update::ai_update::dozer_ai_update::DozerTask;
         if task == DozerTask::Invalid
             || self.objects.get(&id).is_none()
@@ -2079,7 +2079,7 @@ impl GameLogic {
     pub(crate) fn dozer_cancel_entered_task_owned(
         &mut self,
         dozer_id: ObjectId,
-    ) -> gamelogic::GameLogicResult<bool> {
+    ) -> generals_sim::GameLogicResult<bool> {
         use gamelogic::object::update::ai_update::dozer_ai_update::DozerTask;
         let Some((task, ai)) = self
             .objects
@@ -2104,7 +2104,7 @@ impl GameLogic {
         &mut self,
         id: ObjectId,
         task: gamelogic::object::update::ai_update::dozer_ai_update::DozerTask,
-    ) -> gamelogic::GameLogicResult<bool> {
+    ) -> generals_sim::GameLogicResult<bool> {
         use gamelogic::object::update::ai_update::dozer_ai_update::DozerTask;
         match task {
             DozerTask::Build => {

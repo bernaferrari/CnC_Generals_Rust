@@ -9,7 +9,7 @@ impl GameLogic {
         targeter: ObjectId,
         add: bool,
         effects: &mut ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         let now = self.frame;
         let born = if let Some(object) = self.objects.get_mut(&jet) {
             // C++ invokes build on accepted first admission even if unsigned
@@ -39,7 +39,7 @@ impl GameLogic {
         jet: ObjectId,
         targeter: ObjectId,
         effects: &mut ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<bool> {
+    ) -> generals_sim::GameLogicResult<bool> {
         let Some((jet_birth, targeter_birth)) = self
             .objects
             .get(&jet)
@@ -102,7 +102,7 @@ impl GameLogic {
         effects: &mut ScriptPresentationEffects<'_>,
         tick_sound: bool,
         build_if_absent: bool,
-    ) -> gamelogic::GameLogicResult<bool> {
+    ) -> generals_sim::GameLogicResult<bool> {
         #[cfg(not(feature = "game_client"))]
         {
             let _ = (jet_id, effects, tick_sound, build_if_absent);
@@ -110,7 +110,7 @@ impl GameLogic {
         }
         #[cfg(feature = "game_client")]
         {
-            use gamelogic::GameLogicError::Configuration;
+            use generals_sim::GameLogicError::Configuration;
             let Some(jet) = self.objects.get(&jet_id) else {
                 return Ok(false);
             };
@@ -290,10 +290,10 @@ impl GameLogic {
     pub(crate) fn restore_jet_lockon_drawables_with_effects(
         &mut self,
         effects: &mut ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         #[cfg(feature = "game_client")]
         {
-            use gamelogic::GameLogicError::Configuration;
+            use generals_sim::GameLogicError::Configuration;
             let ids: Vec<_> = self
                 .objects
                 .registered()

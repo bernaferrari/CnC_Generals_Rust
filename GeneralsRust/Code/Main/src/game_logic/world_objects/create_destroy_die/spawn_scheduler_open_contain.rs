@@ -56,7 +56,7 @@ impl GameLogic {
     pub(in crate::game_logic) fn canonical_open_contain_spawn_exit(
         &mut self, parent_id: ObjectId, child_id: ObjectId,
         effects: &mut ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<bool> {
+    ) -> generals_sim::GameLogicResult<bool> {
         if parent_id == child_id { return Ok(false); }
         let Some(parent) = self.objects.get(&parent_id) else { return Ok(false); };
         let Some(path) = self.canonical_open_contain_path(parent, effects) else { return Ok(false); };

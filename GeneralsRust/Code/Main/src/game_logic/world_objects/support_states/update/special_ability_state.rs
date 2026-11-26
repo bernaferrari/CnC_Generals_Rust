@@ -14,7 +14,7 @@ impl GameLogic {
         is_alive: bool,
         dt: f32,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         let Some(ability) = self.pending_special_abilities.get(&object_id).copied() else {
             // A live leftover channel is an active C++
             // SpecialAbilityUpdate module (GameLogic.cpp:3677-3718

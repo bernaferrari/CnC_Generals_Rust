@@ -579,7 +579,7 @@ impl GameLogic {
         Some(tid)
     }
 
-    pub fn update_daisy_cutter_flights(&mut self) -> gamelogic::GameLogicResult<()> {
+    pub fn update_daisy_cutter_flights(&mut self) -> generals_sim::GameLogicResult<()> {
         self.update_daisy_cutter_flights_with_effects(
             &mut crate::game_logic::ScriptPresentationEffects::default(),
         )
@@ -588,7 +588,7 @@ impl GameLogic {
     pub(crate) fn update_daisy_cutter_flights_with_effects(
         &mut self,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         use crate::game_logic::combat::DamageType;
         use crate::game_logic::host_daisy_cutter_flight::DaisyFlightPayloadTier;
 

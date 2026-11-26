@@ -1,7 +1,7 @@
 //! Receiving AIUpdate virtual aiIdle(CMD_FROM_AI), distinct from AIGroup::groupIdle.
 use super::*;
 use crate::game_logic::{GameLogic, KindOf, ObjectId};
-use gamelogic::{GameLogicError, GameLogicResult};
+use generals_sim::{GameLogicError, GameLogicResult};
 
 impl GameLogic {
     pub(crate) fn unit_command_ai_idle_owned(&mut self, id: ObjectId) -> GameLogicResult<bool> {

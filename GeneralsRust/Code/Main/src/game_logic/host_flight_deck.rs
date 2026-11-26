@@ -106,14 +106,14 @@ impl Default for HostFlightDeckState {
 
 impl GameLogic {
     /// C++ `FlightDeckBehavior::update` — first-build, replacements, taxi, launch.
-    pub(crate) fn tick_flight_decks(&mut self) -> gamelogic::GameLogicResult<()> {
+    pub(crate) fn tick_flight_decks(&mut self) -> generals_sim::GameLogicResult<()> {
         self.tick_flight_decks_with_effects(&mut Default::default())
     }
 
     pub(crate) fn tick_flight_decks_with_effects(
         &mut self,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         let mut carriers: Vec<ObjectId> = self.flight_decks.keys().copied().collect();
         for (&id, object) in self.objects.registered() {
             if object.thing().template.flight_deck.is_some() {
@@ -128,7 +128,7 @@ impl GameLogic {
         Ok(())
     }
 
-    fn tick_one_flight_deck(&mut self, carrier_id: ObjectId) -> gamelogic::GameLogicResult<()> {
+    fn tick_one_flight_deck(&mut self, carrier_id: ObjectId) -> generals_sim::GameLogicResult<()> {
         self.tick_one_flight_deck_with_effects(carrier_id, &mut Default::default())
     }
 
@@ -136,7 +136,7 @@ impl GameLogic {
         &mut self,
         carrier_id: ObjectId,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         let Some(carrier) = self.objects.get(&carrier_id) else {
             self.flight_decks.remove(&carrier_id);
             return Ok(());
@@ -446,7 +446,7 @@ impl GameLogic {
         state.next_heal_frame = if state.healing.is_empty() { FOREVER } else { self.frame.saturating_add(6) };
     }
 
-    fn flight_deck_tick_healing(&mut self, carrier_id: ObjectId, effects: &mut crate::game_logic::ScriptPresentationEffects<'_>) -> gamelogic::GameLogicResult<()> {
+    fn flight_deck_tick_healing(&mut self, carrier_id: ObjectId, effects: &mut crate::game_logic::ScriptPresentationEffects<'_>) -> generals_sim::GameLogicResult<()> {
         let Some(amount) = self.objects.get(&carrier_id).and_then(|c| c.thing().template.flight_deck.as_ref())
             .map(|data| data.heal_amount_per_second * (6.0 / 30.0)) else { return Ok(()) };
         let Some(state) = self.flight_decks.get_mut(&carrier_id) else { return Ok(()) };

@@ -22,7 +22,7 @@ impl ScaffoldAttempt {
     pub(super) fn execute(
         &self,
         world: &mut GameLogic,
-    ) -> gamelogic::GameLogicResult<Option<ObjectId>> {
+    ) -> generals_sim::GameLogicResult<Option<ObjectId>> {
         self.execute_with_effects(world, &mut Default::default())
     }
 
@@ -30,7 +30,7 @@ impl ScaffoldAttempt {
         &self,
         world: &mut GameLogic,
         ui: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<Option<ObjectId>> {
+    ) -> generals_sim::GameLogicResult<Option<ObjectId>> {
         let Some(birth) = world.dozer_prepare_construct_owned_with_effects(self.dozer, ui)? else {
             return Ok(None);
         };
@@ -55,7 +55,7 @@ impl ScaffoldAttempt {
         &self,
         world: &mut GameLogic,
         observe: impl FnMut(&GameLogic, ObjectId),
-    ) -> gamelogic::GameLogicResult<Option<ObjectId>> {
+    ) -> generals_sim::GameLogicResult<Option<ObjectId>> {
         let Some(birth) = world
             .dozer_prepare_construct_owned_with_effects(self.dozer, &mut Default::default())?
         else {
@@ -102,7 +102,7 @@ impl GameLogic {
         player: u32,
         now: f32,
         data: &AiDataView,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         self.update_owned_ai_economy_with_effects(player, now, data, &mut Default::default())
     }
 
@@ -112,7 +112,7 @@ impl GameLogic {
         now: f32,
         data: &AiDataView,
         ui: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         let Some(ai) = self.ai_manager.ai_players.get(&player) else {
             return Ok(());
         };
@@ -160,7 +160,7 @@ impl GameLogic {
         repair: Option<ObjectId>,
         sites: Vec<ObjectId>,
         mut queue_dozer: impl FnMut(&mut Self),
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         for id in sites {
             let Some(site) = self.host_object(id).filter(|site| {
                 self.object_owned_by_player(site, player)

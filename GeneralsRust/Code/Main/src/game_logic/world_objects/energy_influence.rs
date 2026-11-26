@@ -89,7 +89,7 @@ impl GameLogic {
         &mut self,
         id: ObjectId,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         self.apply_owned_disable_until(
             id,
             DisableUntil {
@@ -190,7 +190,7 @@ impl GameLogic {
         id: ObjectId,
         request: DisableUntil,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<bool> {
+    ) -> generals_sim::GameLogicResult<bool> {
         let epoch = self.visual_world_epoch;
         let (birth, disable_callback, deadline_changed, fold_adjustment) = {
             let Some(object) = self.objects.get_mut(&id) else {
@@ -284,7 +284,7 @@ impl GameLogic {
         epoch: u64,
         request: DisableUntil,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         // C++ ContainModuleInterface::friend_getRider precedes SpawnBehavior.
         if let Some(rider) = self.containment_disable_rider(id) {
             self.apply_owned_disable_until(rider, request, effects)?;
@@ -308,7 +308,7 @@ impl GameLogic {
         &mut self,
         id: ObjectId,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         let Some(object) = self.objects.get_mut(&id).filter(|object| !object.is_kind_of(KindOf::Drone))
         else {
             return Ok(());
@@ -371,7 +371,7 @@ impl GameLogic {
         children: Vec<(ObjectId, u64)>,
         request: DisableUntil,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         for (child_id, child_birth) in children {
             if !self.spawn_identity_matches(parent_id, parent_birth, epoch) {
                 return Ok(());

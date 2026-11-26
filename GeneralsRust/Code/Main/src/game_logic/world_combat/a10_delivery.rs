@@ -14,7 +14,7 @@ impl GameLogic {
     pub(crate) fn update_a10_strike_flights_with_effects(
         &mut self,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         use crate::game_logic::combat::DamageType;
         use crate::game_logic::host_a10_strike_flight::{
             A10_START_DIVE_SOUND, A10_VULCAN_DELAY_FRAMES, tick_a10_dive,

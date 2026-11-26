@@ -7,7 +7,7 @@ impl GameLogic {
         &mut self,
         object_ids: &[ObjectId],
         effects: &mut ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         for &object_id in object_ids {
             let Some(object) = self.objects.get_mut(&object_id) else {
                 continue;
@@ -79,7 +79,7 @@ impl GameLogic {
         &mut self,
         object_ids: &[ObjectId],
         dt: f32,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         self.with_own_services_mut(|this| {
             this.update_ai_with_effects(
                 object_ids,
@@ -94,7 +94,7 @@ impl GameLogic {
         object_ids: &[ObjectId],
         dt: f32,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         use crate::ai_decisions::*;
         self.flush_countermeasure_flare_spawns_with_effects(presentation_effects);
         // Wave 806: under coupled shadow, lifetime owned by GW expire + logs.
@@ -705,7 +705,7 @@ impl GameLogic {
             self.sync_helicopter_attach_particle(object_id);
             if !topple_kill {
                 self.update_owned_structure_topple_with_effects(object_id, presentation_effects)
-                    .map_err(gamelogic::GameLogicError::Configuration)?;
+                    .map_err(generals_sim::GameLogicError::Configuration)?;
             } else {
             }
             // Reactions completed at the released Body onDamage point. Only
@@ -1229,7 +1229,7 @@ impl GameLogic {
     pub(in super::super) fn update_slaved_drone_follow(
         &mut self,
         object_ids: &[ObjectId],
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         self.update_slaved_drone_follow_with_effects(
             object_ids,
             &mut crate::game_logic::ScriptPresentationEffects::default(),
@@ -1240,7 +1240,7 @@ impl GameLogic {
         &mut self,
         object_ids: &[ObjectId],
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         for &object in object_ids {
             self.update_owned_slaved_object_with_effects(object, presentation_effects)?;
         }
@@ -1248,7 +1248,7 @@ impl GameLogic {
     }
 
     /// C++ DemoTrapUpdate.cpp:124-130 isEffectivelyDead + DetonateWhenKilled.
-    pub(in super::super) fn update_demo_trap_detonate_when_killed(&mut self) -> gamelogic::GameLogicResult<()> {
+    pub(in super::super) fn update_demo_trap_detonate_when_killed(&mut self) -> generals_sim::GameLogicResult<()> {
         self.update_demo_trap_detonate_when_killed_with_effects(
             &mut crate::game_logic::ScriptPresentationEffects::default(),
         )
@@ -1257,7 +1257,7 @@ impl GameLogic {
     pub(in super::super) fn update_demo_trap_detonate_when_killed_with_effects(
         &mut self,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         use crate::game_logic::host_mines::{
             HostMineDetonateReason, demo_trap_detonates_when_killed, should_detonate_when_killed,
         };

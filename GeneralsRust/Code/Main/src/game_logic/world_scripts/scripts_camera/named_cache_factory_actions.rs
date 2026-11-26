@@ -6,7 +6,7 @@ impl<'a> HostScriptExecutionDriver<'a> {
         &mut self,
         name: Option<&str>,
         request: gamelogic::scripting::engine::ScriptObjectCreation<'_>,
-    ) -> Option<gamelogic::GameLogicResult<()>> {
+    ) -> Option<generals_sim::GameLogicResult<()>> {
         self.world.host_script_create_object_with_effects(
             name,
             request.template,
@@ -27,13 +27,13 @@ impl<'a> HostScriptExecutionDriver<'a> {
         template: &str,
         team: &str,
         waypoint: &str,
-    ) -> Option<gamelogic::GameLogicResult<()>> {
+    ) -> Option<generals_sim::GameLogicResult<()>> {
         let position = match self.world.world_services.terrain().read() {
             Ok(terrain) => terrain
                 .get_waypoint_by_name(&waypoint.into())
                 .map(|waypoint| *waypoint.get_location()),
             Err(_) => {
-                return Some(Err(gamelogic::GameLogicError::Threading(
+                return Some(Err(generals_sim::GameLogicError::Threading(
                     "receiving named-create terrain poisoned".into(),
                 )));
             }

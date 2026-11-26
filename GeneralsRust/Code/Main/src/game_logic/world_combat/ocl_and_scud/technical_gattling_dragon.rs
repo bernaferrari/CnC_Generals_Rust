@@ -113,7 +113,7 @@ impl GameLogic {
         impact: Vec3,
         source: Option<ObjectId>,
         intended_target: Option<ObjectId>,
-    ) -> gamelogic::GameLogicResult<(u32, bool)> {
+    ) -> generals_sim::GameLogicResult<(u32, bool)> {
         self.apply_technical_residual_at_with_effects(
             impact,
             source,
@@ -128,7 +128,7 @@ impl GameLogic {
         source: Option<ObjectId>,
         intended_target: Option<ObjectId>,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<(u32, bool)> {
+    ) -> generals_sim::GameLogicResult<(u32, bool)> {
         use crate::game_logic::host_technical::{
             TECH_CANNON_DAMAGE_TYPE, TECH_CANNON_DEATH_TYPE, TECH_FIRE_AUDIO, TECH_MG_DAMAGE_TYPE,
             TECH_MG_DEATH_TYPE, TECH_RPG_DAMAGE_TYPE, TECH_RPG_DEATH_TYPE, TechnicalWeaponTier,
@@ -632,7 +632,7 @@ impl GameLogic {
         impact: Vec3,
         source: Option<ObjectId>,
         intended_target: Option<ObjectId>,
-    ) -> gamelogic::GameLogicResult<(u32, bool)> {
+    ) -> generals_sim::GameLogicResult<(u32, bool)> {
         self.apply_dragon_flame_residual_at_with_effects(
             impact,
             source,
@@ -647,7 +647,7 @@ impl GameLogic {
         source: Option<ObjectId>,
         intended_target: Option<ObjectId>,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<(u32, bool)> {
+    ) -> generals_sim::GameLogicResult<(u32, bool)> {
         use crate::game_logic::host_dragon_tank::{
             DRAGON_DAMAGE_TYPE, DRAGON_DEATH_TYPE, DRAGON_FIRE_AUDIO, DRAGON_SECONDARY_RADIUS,
             dragon_flame_damage_at, has_black_napalm_upgrade, is_legal_dragon_flame_target,

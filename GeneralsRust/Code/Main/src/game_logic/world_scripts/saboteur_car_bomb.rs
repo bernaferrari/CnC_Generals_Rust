@@ -343,7 +343,7 @@ impl GameLogic {
     /// + kill chute (C++ ParachuteContain::onCollide). Empty `containCount==0`
     /// kills the chute mid-air (C++ ParachuteContain::update).
     /// Fail-closed: not full bone PARA_COG / DeliverPayload matrix.
-    pub(crate) fn tick_eject_parachute_residual(&mut self, pilot_id: ObjectId) -> gamelogic::GameLogicResult<()> {
+    pub(crate) fn tick_eject_parachute_residual(&mut self, pilot_id: ObjectId) -> generals_sim::GameLogicResult<()> {
         self.tick_eject_parachute_residual_with_effects(pilot_id, &mut Default::default())
     }
 
@@ -351,7 +351,7 @@ impl GameLogic {
         &mut self,
         pilot_id: ObjectId,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         use crate::game_logic::host_car_bomb::HIJACKER_PARACHUTE_NAME;
         use crate::game_logic::host_usa_pilot::{
             PILOT_PARACHUTE_LAND_AUDIO, PILOT_PARACHUTE_OPEN_AUDIO, is_pilot_template,
@@ -701,7 +701,7 @@ impl GameLogic {
     /// C++ ParachuteContain::onRemoving landing-legality kills.
     /// Water (within KillWhenLandingInWaterSlop) → DAMAGE_WATER / DEATH_FLOODED.
     /// Off-map / CELL_CLIFF / CELL_WATER / CELL_IMPASSABLE → kill().
-    fn apply_parachute_landing_legality_kill(&mut self, rider_id: ObjectId, land_pos: Vec3) -> gamelogic::GameLogicResult<()> {
+    fn apply_parachute_landing_legality_kill(&mut self, rider_id: ObjectId, land_pos: Vec3) -> generals_sim::GameLogicResult<()> {
         self.apply_parachute_landing_legality_kill_with_effects(
             rider_id,
             land_pos,
@@ -714,7 +714,7 @@ impl GameLogic {
         rider_id: ObjectId,
         land_pos: Vec3,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         use crate::game_logic::host_partition_collision_physics_residual::PHYSICS_HUGE_DAMAGE_AMOUNT_RESIDUAL;
         use crate::game_logic::host_usa_pilot::HostDeathType;
         use generals_sim::pathfinding::PathfindCellType;
@@ -824,7 +824,7 @@ impl GameLogic {
         &mut self,
         rider_id: ObjectId,
         effects: &mut ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         let Some(rider) = self
             .objects
             .get(&rider_id)
@@ -1089,7 +1089,7 @@ impl GameLogic {
     ///
     /// Default residual class is HitStructure (non-hive path). Use
     /// [`Self::apply_host_hive_damage`] for Stinger HiveStructureBody matrix.
-    pub fn apply_host_damage(&mut self, id: ObjectId, damage: f32) -> gamelogic::GameLogicResult<(bool, bool)> {
+    pub fn apply_host_damage(&mut self, id: ObjectId, damage: f32) -> generals_sim::GameLogicResult<(bool, bool)> {
         self.apply_host_damage_with_effects(id, damage, &mut Default::default())
     }
 
@@ -1098,7 +1098,7 @@ impl GameLogic {
         id: ObjectId,
         damage: f32,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<(bool, bool)> {
+    ) -> generals_sim::GameLogicResult<(bool, bool)> {
         self.apply_host_hive_damage_with_effects(
             id,
             damage,
@@ -1118,7 +1118,7 @@ impl GameLogic {
         id: ObjectId,
         damage: f32,
         class: crate::game_logic::host_base_defense::HostHiveDamageClass,
-    ) -> gamelogic::GameLogicResult<(bool, bool)> {
+    ) -> generals_sim::GameLogicResult<(bool, bool)> {
         self.apply_host_hive_damage_with_effects(id, damage, class, &mut Default::default())
     }
 
@@ -1128,7 +1128,7 @@ impl GameLogic {
         damage: f32,
         class: crate::game_logic::host_base_defense::HostHiveDamageClass,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<(bool, bool)> {
+    ) -> generals_sim::GameLogicResult<(bool, bool)> {
         self.apply_host_hive_damage_from_with_effects(id, damage, class, None, None, effects)
     }
 
@@ -1147,7 +1147,7 @@ impl GameLogic {
         class: crate::game_logic::host_base_defense::HostHiveDamageClass,
         shooter_xz: Option<(f32, f32)>,
         source_id: Option<ObjectId>,
-    ) -> gamelogic::GameLogicResult<(bool, bool)> {
+    ) -> generals_sim::GameLogicResult<(bool, bool)> {
         self.apply_host_hive_damage_from_with_effects(
             id,
             damage,
@@ -1166,7 +1166,7 @@ impl GameLogic {
         shooter_xz: Option<(f32, f32)>,
         source_id: Option<ObjectId>,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<(bool, bool)> {
+    ) -> generals_sim::GameLogicResult<(bool, bool)> {
         use crate::game_logic::combat::DamageType;
         use crate::game_logic::host_base_defense::HostHiveDamageClass;
 

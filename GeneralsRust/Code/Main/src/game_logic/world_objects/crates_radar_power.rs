@@ -1042,7 +1042,7 @@ impl GameLogic {
 
     /// C++ GarrisonContain::onBodyDamageStateChange: BODY_REALLYDAMAGED edge
     /// ejects occupants unless KINDOF_GARRISONABLE_UNTIL_DESTROYED.
-    pub(in super::super) fn check_building_damage_states(&mut self, object_ids: &[ObjectId]) -> gamelogic::GameLogicResult<()> {
+    pub(in super::super) fn check_building_damage_states(&mut self, object_ids: &[ObjectId]) -> generals_sim::GameLogicResult<()> {
         self.check_building_damage_states_with_effects(
             object_ids,
             &mut crate::game_logic::ScriptPresentationEffects::default(),
@@ -1053,7 +1053,7 @@ impl GameLogic {
         &mut self,
         object_ids: &[ObjectId],
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         // Collect garrison buildings that need evacuation (borrow-safe).
         let mut evacuate_ids: Vec<(ObjectId, Vec<ObjectId>)> = Vec::new();
 

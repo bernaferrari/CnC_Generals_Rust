@@ -28,7 +28,7 @@ impl GameLogic {
         transfer_dmg: f32,
         source: Option<ObjectId>,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         let Some(receiving_damage_id) = self.objects.get(id).map(|object| object.id) else {
             return Ok(());
         };
@@ -62,7 +62,7 @@ impl GameLogic {
     }
 
     /// Legacy fallback for templates without receiving die declarations.
-    pub(in super::super::super) fn apply_fire_weapon_when_dead(&mut self, dying_id: ObjectId) -> gamelogic::GameLogicResult<()> {
+    pub(in super::super::super) fn apply_fire_weapon_when_dead(&mut self, dying_id: ObjectId) -> generals_sim::GameLogicResult<()> {
         self.apply_fire_weapon_when_dead_with_effects(
             dying_id,
             &mut crate::game_logic::ScriptPresentationEffects::default(),
@@ -73,7 +73,7 @@ impl GameLogic {
         &mut self,
         dying_id: ObjectId,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         use crate::game_logic::host_fire_weapon_when_dead::{
             death_weapon_for_dying_object, splash_damage_at_distance,
         };
@@ -186,7 +186,7 @@ impl GameLogic {
         &mut self,
         id: ObjectId,
         killer: Option<Team>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         self.mark_object_for_destruction_with_effects(
             id,
             killer,
@@ -199,7 +199,7 @@ impl GameLogic {
         id: ObjectId,
         killer: Option<Team>,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         // This existing adapter has no accepted Body input. Do not fabricate
         // one from preferred history; migrating its callers remains explicit.
         self.begin_object_death_with_effects(id, killer, None, None, presentation_effects)
@@ -211,7 +211,7 @@ impl GameLogic {
         killer: Option<Team>,
         input: crate::game_logic::object::OnDieInput,
         topple_interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         self.mark_object_for_destruction_with_topple_with_effects(
             id,
             killer,
@@ -228,7 +228,7 @@ impl GameLogic {
         input: crate::game_logic::object::OnDieInput,
         topple_interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         self.begin_object_death_with_effects(
             id,
             killer,
@@ -241,7 +241,7 @@ impl GameLogic {
     /// C++ GameLogic::destroyObject requests deletion independently of body
     /// death. Already-started death retains its pending completion effects;
     /// a live direct request never manufactures an onDie operation.
-    pub fn destroy_object(&mut self, id: ObjectId) -> gamelogic::GameLogicResult<()> {
+    pub fn destroy_object(&mut self, id: ObjectId) -> generals_sim::GameLogicResult<()> {
         self.destroy_object_with_effects(
             id,
             &mut crate::game_logic::ScriptPresentationEffects::default(),
@@ -252,7 +252,7 @@ impl GameLogic {
         &mut self,
         id: ObjectId,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         self.request_object_destruction_with_effects(id, None, presentation_effects)
     }
 
@@ -262,7 +262,7 @@ impl GameLogic {
         &mut self,
         id: ObjectId,
         death_credit: Option<Team>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         self.request_object_destruction_with_effects(
             id,
             death_credit,
@@ -275,7 +275,7 @@ impl GameLogic {
         id: ObjectId,
         death_credit: Option<Team>,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         let Some(object) = self.objects.get(&id) else {
             return Ok(());
         };
@@ -346,7 +346,7 @@ impl GameLogic {
         id: ObjectId,
         killer: Option<Team>,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         // Timed kernels may already stamp destroyed before reporting final
         // completion. Queue identity, not that bit, proves admission here.
         if !self.objects.contains_key(&id)
@@ -368,7 +368,7 @@ impl GameLogic {
         killer: Option<Team>,
         input: Option<crate::game_logic::object::OnDieInput>,
         topple_interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         self.begin_object_death_with_effects(
             id,
             killer,
@@ -385,7 +385,7 @@ impl GameLogic {
         input: Option<crate::game_logic::object::OnDieInput>,
         topple_interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         let mut receiving_effects = presentation_effects.reborrow();
         if let Some(interpreter) = topple_interpreter {
             receiving_effects.script_events =
@@ -476,7 +476,7 @@ impl GameLogic {
         input: Option<crate::game_logic::object::OnDieInput>,
         topple_interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         if self
             .objects_to_destroy
             .iter()
@@ -705,7 +705,7 @@ impl GameLogic {
         &mut self,
         id: ObjectId,
         death_type: crate::game_logic::host_usa_pilot::HostDeathType,
-    ) -> gamelogic::GameLogicResult<bool> {
+    ) -> generals_sim::GameLogicResult<bool> {
         self.try_apply_instant_death_with_effects(
             id,
             death_type,
@@ -718,7 +718,7 @@ impl GameLogic {
         id: ObjectId,
         death_type: crate::game_logic::host_usa_pilot::HostDeathType,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<bool> {
+    ) -> generals_sim::GameLogicResult<bool> {
         let extra_owned = {
             let Some(obj) = self.objects.get(&id) else {
                 return Ok(false);
@@ -779,7 +779,7 @@ impl GameLogic {
     pub(in super::super::super) fn try_begin_keep_object_die_instead_of_destroy(
         &mut self,
         id: ObjectId,
-    ) -> gamelogic::GameLogicResult<bool> {
+    ) -> generals_sim::GameLogicResult<bool> {
         self.try_begin_keep_object_die_instead_of_destroy_with_effects(
             id,
             &mut crate::game_logic::ScriptPresentationEffects::default(),
@@ -790,7 +790,7 @@ impl GameLogic {
         &mut self,
         id: ObjectId,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<bool> {
+    ) -> generals_sim::GameLogicResult<bool> {
         let frame = self.frame;
         let Some(obj) = self.objects.get_mut(&id) else {
             return Ok(false);
@@ -928,7 +928,7 @@ impl GameLogic {
         id: ObjectId,
         input: Option<crate::game_logic::object::OnDieInput>,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<bool> {
+    ) -> generals_sim::GameLogicResult<bool> {
         let frame = self.frame;
         // Jet crash residual. Ground/deck explode must not fall through to heli/slow.
         let is_jet = self.objects.get(&id).is_some_and(|obj| {
@@ -1034,7 +1034,7 @@ impl GameLogic {
         id: ObjectId,
         start: crate::game_logic::object::SlowDeathStart,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         if !start.enter_idle {
             return Ok(());
         }
@@ -1283,7 +1283,7 @@ impl GameLogic {
     }
 
     /// C++ CreateObjectDie::onDie residual — spawn OCL templates at dying object.
-    pub fn apply_pending_create_object_die(&mut self, dying_id: ObjectId) -> gamelogic::GameLogicResult<()> {
+    pub fn apply_pending_create_object_die(&mut self, dying_id: ObjectId) -> generals_sim::GameLogicResult<()> {
         self.apply_pending_create_object_die_with_effects(
             dying_id,
             &mut crate::game_logic::ScriptPresentationEffects::default(),
@@ -1294,7 +1294,7 @@ impl GameLogic {
         &mut self,
         dying_id: ObjectId,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         self.apply_pending_create_object_die_with_interpreter_and_effects(
             dying_id,
             None,
@@ -1307,7 +1307,7 @@ impl GameLogic {
         dying_id: ObjectId,
         interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         let receiving_pending = self.objects.get(&dying_id).is_some_and(|object| {
             object.native_die_runtime.pending_create.is_some()
                 && object
@@ -1396,7 +1396,7 @@ impl GameLogic {
         owner_player_id: Option<u32>,
         pos: Vec3,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         if spawns.is_empty() {
             return Ok(());
         }
@@ -1509,7 +1509,7 @@ impl GameLogic {
         source_id: ObjectId,
         weapon_name: &str,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<u32> {
+    ) -> generals_sim::GameLogicResult<u32> {
         let (pos, team) = match self.objects.get(&source_id) {
             Some(o) => (o.get_position(), o.team),
             None => return Ok(0),

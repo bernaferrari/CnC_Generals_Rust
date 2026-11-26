@@ -187,46 +187,7 @@ pub use helpers::{
 // Re-export ModuleFactory from game_engine for convenient access
 pub use game_engine::common::thing::module_factory::get_module_factory;
 
-pub type GameLogicResult<T> = Result<T, GameLogicError>;
-
-/// Main error type for game logic operations
-#[derive(Debug, thiserror::Error)]
-pub enum GameLogicError {
-    /// AI system errors
-    #[error("AI error: {0}")]
-    Ai(#[from] ai::AiError),
-    /// Weapon system errors
-    #[error("Weapon error: {0}")]
-    Weapon(#[from] weapon::WeaponError),
-
-    /// Invalid object reference
-    #[error("Invalid object ID: {0}")]
-    InvalidObject(u32),
-
-    /// System not initialized
-    #[error("System not initialized: {0}")]
-    SystemNotInitialized(String),
-
-    /// Exact synchronous Team creation failed; retry reports the retained cause.
-    #[error("{0}")]
-    TeamCreationFailed(String),
-
-    /// Configuration error
-    #[error("Configuration error: {0}")]
-    Configuration(String),
-
-    /// Threading error
-    #[error("Threading error: {0}")]
-    Threading(String),
-
-    /// Module failure
-    #[error("Module error: {0}")]
-    ModuleError(String),
-
-    /// I/O operation failure
-    #[error("I/O error: {0}")]
-    IO(String),
-}
+pub use generals_sim::{GameLogicError, GameLogicResult};
 
 /// Initialize the game logic systems
 ///
@@ -368,12 +329,6 @@ fn update_with_optional_load_screen_hooks(
     }
 
     Ok(())
-}
-
-impl From<generals_map::DecodeError> for GameLogicError {
-    fn from(error: generals_map::DecodeError) -> Self {
-        Self::Configuration(error.to_string())
-    }
 }
 
 /// Get the current version of the game logic system

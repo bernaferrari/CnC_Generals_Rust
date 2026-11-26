@@ -6,7 +6,7 @@ impl GameLogic {
         builder: ObjectId,
         site: ObjectId,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<bool> {
+    ) -> generals_sim::GameLogicResult<bool> {
         self.dozer_build_action_frame_observed(builder, site, effects, |_, _, _| {})
     }
     fn dozer_build_action_frame_observed(
@@ -15,7 +15,7 @@ impl GameLogic {
         site: ObjectId,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
         mut after_completion: impl FnMut(&GameLogic, ObjectId, ObjectId),
-    ) -> gamelogic::GameLogicResult<bool> {
+    ) -> generals_sim::GameLogicResult<bool> {
         let Some(actor) = self.objects.get(&builder) else {
             return Ok(false);
         };
@@ -78,7 +78,7 @@ impl GameLogic {
                 .is_some_and(|o| std::sync::Arc::ptr_eq(&site_birth, &o.visual_draw_identity_token))
         };
         if !stable(self) {
-            return Err(gamelogic::GameLogicError::Configuration(
+            return Err(generals_sim::GameLogicError::Configuration(
                 "Dozer BUILD lifetime changed during completion".into(),
             ));
         }
@@ -92,7 +92,7 @@ impl GameLogic {
         self.dozer_clear_actively_constructing_on_command(builder);
         let _ = self.unit_command_ai_move_to(builder, end); // original void command may refuse
         if !stable(self) {
-            return Err(gamelogic::GameLogicError::Configuration(
+            return Err(generals_sim::GameLogicError::Configuration(
                 "Dozer BUILD lifetime changed during end move".into(),
             ));
         }
@@ -110,7 +110,7 @@ impl GameLogic {
         site: ObjectId,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
         observer: impl FnMut(&GameLogic, ObjectId, ObjectId),
-    ) -> gamelogic::GameLogicResult<bool> {
+    ) -> generals_sim::GameLogicResult<bool> {
         self.dozer_build_action_frame_observed(builder, site, effects, observer)
     }
     /// Direct contribution fixture adapter, using the same per-frame algorithm.
@@ -121,7 +121,7 @@ impl GameLogic {
         site_ids: &[ObjectId],
         dt: f32,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         self.update_construction_with_effects(site_ids, dt, effects)?;
         for _ in 0..(dt.max(0.) * 30.).round() as u32 {
             for &site in site_ids {
@@ -142,7 +142,7 @@ impl GameLogic {
         &mut self,
         site_ids: &[ObjectId],
         dt: f32,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         self.fixture_build_action_frames_with_effects(site_ids, dt, &mut Default::default())
     }
     #[cfg(test)]
@@ -151,7 +151,7 @@ impl GameLogic {
         sites: &[ObjectId],
         dt: f32,
         ui: &mut Option<&mut dyn crate::game_logic::ScriptUiEffects>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         let mut effects = crate::game_logic::ScriptPresentationEffects {
             script_events: None,
             partition: None,

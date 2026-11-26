@@ -6,7 +6,7 @@ impl GameLogic {
     pub(crate) fn flush_pending_garrison_really_damaged_ejects_with_effects(
         &mut self,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         let ids: Vec<ObjectId> = self
             .objects
             .registered()
@@ -24,7 +24,7 @@ impl GameLogic {
 
     /// C++ move-to-and-evacuate arrival residual: dump all occupants near container.
     /// When `and_exit`, mark the transport sold/destroyed after unload (script exit residual).
-    pub fn evacuate_container_now(&mut self, container_id: ObjectId, and_exit: bool) -> gamelogic::GameLogicResult<bool> {
+    pub fn evacuate_container_now(&mut self, container_id: ObjectId, and_exit: bool) -> generals_sim::GameLogicResult<bool> {
         self.with_own_services_mut(|this| {
             this.evacuate_container_now_with_effects(
                 container_id,
@@ -39,7 +39,7 @@ impl GameLogic {
         container_id: ObjectId,
         and_exit: bool,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<bool> {
+    ) -> generals_sim::GameLogicResult<bool> {
         if and_exit
             && !self.host_object(container_id).is_some_and(|object| {
                 object.chinook_ai.is_some() || object.transport_return_state.is_some()
@@ -84,7 +84,7 @@ impl GameLogic {
     pub(in super::super::super) fn evacuate_chinook_flight(
         &mut self,
         container_id: ObjectId,
-    ) -> gamelogic::GameLogicResult<bool> {
+    ) -> generals_sim::GameLogicResult<bool> {
         self.evacuate_chinook_flight_with_effects(
             container_id,
             &mut crate::game_logic::ScriptPresentationEffects::default(),
@@ -95,7 +95,7 @@ impl GameLogic {
         &mut self,
         container_id: ObjectId,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<bool> {
+    ) -> generals_sim::GameLogicResult<bool> {
         let Some(container_id_birth) = self
             .objects
             .get(&container_id)
@@ -148,7 +148,7 @@ impl GameLogic {
         container_id: ObjectId,
         and_exit: bool,
         mode: TransportEvacuationMode,
-    ) -> gamelogic::GameLogicResult<bool> {
+    ) -> generals_sim::GameLogicResult<bool> {
         self.evacuate_transport_with_effects(
             container_id,
             and_exit,
@@ -163,7 +163,7 @@ impl GameLogic {
         and_exit: bool,
         mode: TransportEvacuationMode,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<bool> {
+    ) -> generals_sim::GameLogicResult<bool> {
         let Some(container_id_birth) = self
             .objects
             .get(&container_id)
@@ -207,7 +207,7 @@ impl GameLogic {
             for rider in riders {
                 if self.objects.get(&rider).is_some_and(|object| object.has_ai_update_interface()) {
                     self.railed_dock_unload(container_id, config, false, presentation_effects)
-                        .map_err(gamelogic::GameLogicError::Configuration)?;
+                        .map_err(generals_sim::GameLogicError::Configuration)?;
                     any = true;
                 }
             }
@@ -720,7 +720,7 @@ impl GameLogic {
         container_id: ObjectId,
         and_exit: bool,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<bool> {
+    ) -> generals_sim::GameLogicResult<bool> {
         let now = self.frame;
         let hover = match self.objects.get(&container_id) {
             Some(c) if c.is_alive() => c.get_position(),
@@ -865,7 +865,7 @@ impl GameLogic {
     }
 
     /// C++ `AIRappelState::update`: descend at rappel rate, then kill-2 / addToContain.
-    pub(crate) fn tick_rappel_into(&mut self, pid: ObjectId) -> gamelogic::GameLogicResult<()> {
+    pub(crate) fn tick_rappel_into(&mut self, pid: ObjectId) -> generals_sim::GameLogicResult<()> {
         self.with_own_services_mut(|this| {
             this.tick_rappel_into_with_effects(
                 pid,
@@ -878,7 +878,7 @@ impl GameLogic {
         &mut self,
         pid: ObjectId,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         let Some(obj) = self.objects.get(&pid) else {
             return Ok(());
         };
@@ -939,7 +939,7 @@ impl GameLogic {
     }
 
     /// C++ `AIRappelState::update` arrival: kill up to 2, else addToContain / scatter.
-    pub(super) fn rappel_arrive_at_building(&mut self, pid: ObjectId, bldg_id: ObjectId) -> gamelogic::GameLogicResult<()> {
+    pub(super) fn rappel_arrive_at_building(&mut self, pid: ObjectId, bldg_id: ObjectId) -> generals_sim::GameLogicResult<()> {
         self.rappel_arrive_at_building_with_effects(
             pid,
             bldg_id,
@@ -952,7 +952,7 @@ impl GameLogic {
         pid: ObjectId,
         bldg_id: ObjectId,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         let Some(bldg) = self.objects.get(&bldg_id) else {
             return Ok(());
         };
@@ -1011,7 +1011,7 @@ impl GameLogic {
         killer_id: ObjectId,
         bldg_id: ObjectId,
         max_to_kill: i32,
-    ) -> gamelogic::GameLogicResult<i32> {
+    ) -> generals_sim::GameLogicResult<i32> {
         self.kill_enemies_in_container_with_effects(
             killer_id,
             bldg_id,
@@ -1026,7 +1026,7 @@ impl GameLogic {
         bldg_id: ObjectId,
         max_to_kill: i32,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<i32> {
+    ) -> generals_sim::GameLogicResult<i32> {
         let mut num_killed = 0;
         while num_killed < max_to_kill {
             let occupants = self
@@ -1050,7 +1050,7 @@ impl GameLogic {
                 container.thing().template.contain_module.kind == crate::game_logic::ContainModuleKind::RailedTransport
             }) {
                 if !self.railed_remove_contained_with_effects(bldg_id, enemy_id, presentation_effects)
-                    .map_err(gamelogic::GameLogicError::Configuration)?
+                    .map_err(generals_sim::GameLogicError::Configuration)?
                 {
                     break;
                 }
@@ -1091,7 +1091,7 @@ impl GameLogic {
     }
 
     /// C++ `bldg->getContain()->addToContain(obj)` + garrison onContaining.
-    pub(super) fn rappel_add_to_contain(&mut self, pid: ObjectId, bldg_id: ObjectId) -> gamelogic::GameLogicResult<()> {
+    pub(super) fn rappel_add_to_contain(&mut self, pid: ObjectId, bldg_id: ObjectId) -> generals_sim::GameLogicResult<()> {
         self.rappel_add_to_contain_with_effects(
             pid,
             bldg_id,
@@ -1104,7 +1104,7 @@ impl GameLogic {
         pid: ObjectId,
         bldg_id: ObjectId,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         // C++ OpenContain::addToContain checkAndDetonateBoobyTrap(rider).
         if self.should_cancel_containment_after_booby_trap_with_effects(
             bldg_id,

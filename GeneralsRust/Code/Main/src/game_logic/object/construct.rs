@@ -62,7 +62,7 @@ impl Object {
         template: ThingTemplate,
         id: ObjectId,
         team: Team,
-    ) -> gamelogic::GameLogicResult<Self> {
+    ) -> generals_sim::GameLogicResult<Self> {
         Self::try_new_with_logic_frame(template, id, team, 0)
     }
 
@@ -86,10 +86,10 @@ impl Object {
         id: ObjectId,
         team: Team,
         logic_frame: u32,
-    ) -> gamelogic::GameLogicResult<Self> {
+    ) -> generals_sim::GameLogicResult<Self> {
         if let Some(source) = &template.receiving_client_template {
             source.validate_turret_slots().map_err(|error| {
-                gamelogic::GameLogicError::Configuration(format!(
+                generals_sim::GameLogicError::Configuration(format!(
                     "Object '{}' turret definition: {error}",
                     template.name
                 ))

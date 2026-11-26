@@ -103,7 +103,7 @@ impl GameLogic {
     pub(in crate::game_logic) fn update_owned_slaved_object(
         &mut self,
         id: ObjectId,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         self.update_owned_slaved_object_with_effects(
             id,
             &mut crate::game_logic::ScriptPresentationEffects::default(),
@@ -125,7 +125,7 @@ impl GameLogic {
         &mut self,
         id: ObjectId,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         let Some((data, mut state)) =
             self.objects
                 .get(&id)
@@ -297,7 +297,7 @@ impl GameLogic {
         goal.z += state.guard_offset.z;
         state.guard_offset.y = self.terrain_height_at(*goal).unwrap_or(0.0);
     }
-    fn slave_repair(&mut self, id: ObjectId, master: ObjectId, data: &Data, state: &mut State) -> gamelogic::GameLogicResult<()> {
+    fn slave_repair(&mut self, id: ObjectId, master: ObjectId, data: &Data, state: &mut State) -> generals_sim::GameLogicResult<()> {
         self.slave_repair_with_effects(
             id,
             master,
@@ -314,7 +314,7 @@ impl GameLogic {
         data: &Data,
         state: &mut State,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         let mpos = self.objects.get(&master).unwrap().get_position();
         // CPP Partition object/object distance subtracts both bounding spheres.
         let source = self.objects.get(&id).unwrap();

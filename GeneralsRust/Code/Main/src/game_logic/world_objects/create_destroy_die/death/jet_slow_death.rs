@@ -30,7 +30,7 @@ impl GameLogic {
         jet: &NativeJetSlowDeath,
         interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         let birth = (
             self.objects[&id].visual_object_generation,
             self.visual_world_epoch,
@@ -56,7 +56,7 @@ impl GameLogic {
         jet: &NativeJetSlowDeath,
         interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) -> generals_sim::GameLogicResult<()> {
         self.objects.get_mut(&id).unwrap().jet_slow_death = Some(HostJetSlowDeathData {
             active: true,
             death_frame: self.frame,
@@ -93,7 +93,7 @@ impl GameLogic {
         &mut self,
         id: ObjectId,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<bool> {
+    ) -> generals_sim::GameLogicResult<bool> {
         let object = &self.objects[&id];
         let birth = (object.visual_object_generation, self.visual_world_epoch);
         let state = object.jet_slow_death.as_ref().unwrap();
@@ -110,7 +110,7 @@ impl GameLogic {
                 _ => None,
             })
             .ok_or_else(|| {
-                gamelogic::GameLogicError::Configuration(
+                generals_sim::GameLogicError::Configuration(
                     "authored JetSlowDeath slot is missing".into(),
                 )
             })?;

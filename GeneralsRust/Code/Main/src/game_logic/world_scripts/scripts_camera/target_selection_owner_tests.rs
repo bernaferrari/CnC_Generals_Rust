@@ -209,7 +209,7 @@ impl ScriptExecutionDriver for ObserveActions<'_> {
         object: Option<u32>,
         calling: Option<u32>,
         condition: Option<u32>,
-    ) -> Option<gamelogic::GameLogicResult<()>> {
+    ) -> Option<generals_sim::GameLogicResult<()>> {
         self.actual
             .named_attack_team(unit, team, object, calling, condition)
     }
@@ -219,11 +219,11 @@ impl ScriptExecutionDriver for ObserveActions<'_> {
         target: &str,
         calling: Option<u32>,
         condition: Option<u32>,
-    ) -> Option<gamelogic::GameLogicResult<()>> {
+    ) -> Option<generals_sim::GameLogicResult<()>> {
         self.actual
             .team_attack_team(source, target, calling, condition)
     }
-    fn after_action(&mut self) -> gamelogic::GameLogicResult<()> {
+    fn after_action(&mut self) -> generals_sim::GameLogicResult<()> {
         self.actual.after_action()?;
         self.targets
             .push(self.actual.world.host_object(self.unit).unwrap().target);

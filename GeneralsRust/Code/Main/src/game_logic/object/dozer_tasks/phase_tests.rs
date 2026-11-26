@@ -639,7 +639,7 @@ fn fresh_scaffold_admission_rejects_foreign_birth_without_refunding_committed_fa
     let result = world.dozer_admit_constructed_scaffold_owned(id, &foreign_birth, site);
     assert!(matches!(
         result,
-        Err(gamelogic::GameLogicError::Configuration(_))
+        Err(generals_sim::GameLogicError::Configuration(_))
     ));
     assert_eq!(world.get_player(0).unwrap().effective_supplies(), 700);
     assert!(world.host_object(site).unwrap().status.under_construction);
@@ -694,7 +694,7 @@ fn actual_command_system_kindof_dozer_with_base_ai_cannot_admit_a_dozer_task() {
         .expect("factory").expect("ObjectId");
     assert!(matches!(
         world.dozer_admit_constructed_scaffold_owned(id, &birth, site),
-        Err(gamelogic::GameLogicError::Configuration(_))
+        Err(generals_sim::GameLogicError::Configuration(_))
     ));
     assert_eq!(
         world.host_object(id).unwrap().dozer_tasks.requests[0].target,

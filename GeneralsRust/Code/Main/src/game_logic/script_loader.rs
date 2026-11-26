@@ -26,7 +26,7 @@ use game_engine::common::name_key_generator::{NameKeyGenerator, NameKeyNamespace
 use game_engine::common::system::{
     DataChunkInfo, DataChunkInput, file::FileAccess, file_system::get_file_system,
 };
-use gamelogic::GameLogicError;
+use generals_sim::GameLogicError;
 use gamelogic::common::MAP_XY_FACTOR;
 use gamelogic::common::{AsciiString, ICoord3D};
 use gamelogic::polygon_trigger::PolygonTrigger;

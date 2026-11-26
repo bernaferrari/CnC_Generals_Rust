@@ -1071,7 +1071,7 @@ impl GameLogic {
         &mut self,
         trap_id: ObjectId,
         mode: crate::game_logic::host_mines::DemoTrapMode,
-    ) -> gamelogic::GameLogicResult<bool> {
+    ) -> generals_sim::GameLogicResult<bool> {
         self.set_demo_trap_mode_with_effects(
             trap_id,
             mode,
@@ -1084,7 +1084,7 @@ impl GameLogic {
         trap_id: ObjectId,
         mode: crate::game_logic::host_mines::DemoTrapMode,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<bool> {
+    ) -> generals_sim::GameLogicResult<bool> {
         use crate::game_logic::host_mines::HostMineKind;
         let is_detonate = mode.is_detonate_command();
         {
@@ -1139,7 +1139,7 @@ impl GameLogic {
         impact: Vec3,
         source: Option<ObjectId>,
         intended_target: Option<ObjectId>,
-    ) -> gamelogic::GameLogicResult<(u32, bool)> {
+    ) -> generals_sim::GameLogicResult<(u32, bool)> {
         self.apply_rocket_buggy_residual_at_with_effects(
             impact,
             source,
@@ -1154,7 +1154,7 @@ impl GameLogic {
         source: Option<ObjectId>,
         intended_target: Option<ObjectId>,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<(u32, bool)> {
+    ) -> generals_sim::GameLogicResult<(u32, bool)> {
         use crate::game_logic::host_rocket_buggy::{
             BUGGY_DAMAGE_TYPE, BUGGY_DEATH_TYPE, BUGGY_FIRE_AUDIO, BUGGY_SECONDARY_RADIUS,
             is_legal_rocket_buggy_splash_target, rocket_buggy_damage_at, rocket_buggy_scatter_aim,
