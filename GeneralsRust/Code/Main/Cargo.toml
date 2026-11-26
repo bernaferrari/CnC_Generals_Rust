@@ -81,7 +81,6 @@ wgpu = {workspace = true, features = ["webgpu", "webgl"]}
 raw-window-handle = {workspace = true}
 
 # Audio
-rodio = {workspace = true}
 
 # Error handling and logging
 anyhow = {workspace = true}
@@ -134,7 +133,6 @@ zstd = {workspace = true}
 generals_compression = { path = "../Libraries/Source/Compression" }
 
 # Configuration system
-toml = {workspace = true}
 
 # UI framework dependencies
 bitflags = {workspace = true}

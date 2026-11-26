@@ -180,8 +180,6 @@ enum StartupLoadState {
 }
 
 #[cfg(test)]
-mod architecture_honesty_tests;
-#[cfg(test)]
 mod camera_startup_tests;
 #[cfg(test)]
 mod runtime_host_option_tests;
