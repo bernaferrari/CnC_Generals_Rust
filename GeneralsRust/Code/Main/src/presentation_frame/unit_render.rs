@@ -950,7 +950,15 @@ impl UnitRenderInput {
 }
 
 impl PresentationFrame {
-    pub(crate) fn freeze_drawable_status_tints_from_logic(
+    pub(super) fn freeze_drawable_status_tints_from_logic(&mut self, logic: &mut GameLogic) {
+        let objects = &logic.objects;
+        let owner = &mut logic.drawable_tint_envelopes;
+        owner.retain(|id| id & 0x8000_0000 == 0 && objects.lookup(&ObjectId(id)).is_some());
+        self.freeze_drawable_status_tints(owner);
+    }
+
+    #[cfg(test)]
+    pub(super) fn freeze_drawable_status_tints_from_logic_with_shadow(
         &mut self,
         logic: &mut GameLogic,
         shadow: Option<&crate::gameworld_shadow::GameWorldShadow>,
@@ -979,6 +987,7 @@ impl PresentationFrame {
         self.freeze_drawable_status_tints(owner);
     }
 
+    #[cfg(test)]
     pub(super) fn freeze_drawable_status_tints_from_shadow(
         &mut self,
         shadow: &crate::gameworld_shadow::GameWorldShadow,

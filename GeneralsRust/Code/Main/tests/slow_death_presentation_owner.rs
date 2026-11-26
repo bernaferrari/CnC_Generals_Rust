@@ -2,10 +2,10 @@ use generals_main::game_logic::host_slow_death::HostSlowDeathIni;
 use generals_main::game_logic::{
     GameLogic, KindOf, ObjectAudio, ObjectId, SessionAudio, Team, ThingTemplate,
 };
-use generals_main::gameworld_shadow::GameWorldShadow;
+use generals_main::presentation_frame::PresentationFrame;
 use glam::Vec3;
 
-fn world(start_timer: bool) -> (GameLogic, ObjectId, GameWorldShadow) {
+fn world(start_timer: bool) -> (GameLogic, ObjectId) {
     let mut world = GameLogic::new();
     let mut template = ThingTemplate::new("OwnedSlowDeath");
     template.set_health(100.0);
@@ -30,28 +30,24 @@ fn world(start_timer: bool) -> (GameLogic, ObjectId, GameWorldShadow) {
                 .begin_slow_death_from_ini(frame, &ini, &mut ObjectAudio::queue(&mut audio))
         );
     }
-    let mut observer = GameWorldShadow::new(64);
-    observer.sync_from_host(&world);
-    (world, id, observer)
+    (world, id)
 }
 
 #[test]
-fn slow_death_stays_with_receiving_world_when_observer_is_reused() {
-    let (mut owner, id, mut observer) = world(true);
-    let (mut peer, peer_id, mut peer_observer) = world(false);
+fn slow_death_stays_with_receiving_world_during_peer_publication() {
+    let (mut owner, id) = world(true);
+    let (mut peer, peer_id) = world(false);
     assert_eq!(id, peer_id);
 
+    let owner_frame = PresentationFrame::build_from_logic(&mut owner, 0);
+    assert!(owner_frame.objects.iter().any(|object| object.id == id));
     for _ in 0..3 {
         peer.update();
-        peer_observer.sync_from_host(&peer);
+        let peer_frame = PresentationFrame::build_from_logic(&mut peer, 0);
+        assert!(peer_frame.objects.iter().any(|object| object.id == peer_id));
     }
     assert_eq!(owner.getFrame(), 0);
 
-    // Reset and reuse one projection for the peer before continuing the
-    // original timer. The projection must never deliver a death to either
-    // owner; Main advances the timer and retires only its own object.
-    observer.reset_for_world_boundary();
-    observer.sync_from_host(&peer);
     assert!(peer.host_object(peer_id).is_some());
     let due = owner
         .host_object(id)
@@ -80,7 +76,10 @@ fn slow_death_stays_with_receiving_world_when_observer_is_reused() {
         "a same-ID peer stays alive"
     );
     peer.update();
-    observer.sync_from_host(&peer);
+    let retired = PresentationFrame::build_from_logic(&mut owner, 0);
+    let peer_frame = PresentationFrame::build_from_logic(&mut peer, 0);
+    assert!(retired.objects.iter().all(|object| object.id != id));
     assert!(peer.host_object(peer_id).is_some());
-    assert!(observer.entity_for_host(peer_id).is_some());
+    assert!(peer_frame.objects.iter().any(|object| object.id == peer_id));
+    assert!(owner_frame.objects.iter().any(|object| object.id == id));
 }

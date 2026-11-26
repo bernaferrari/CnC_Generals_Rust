@@ -136,7 +136,8 @@ pub mod breadth_scenarios;
 pub mod executable_smoke;
 
 pub mod gameplay_layout;
-pub mod gameworld_shadow;
+#[cfg(test)]
+pub(crate) mod gameworld_shadow;
 pub mod golden_campaign;
 pub mod golden_skirmish;
 pub mod map_frame_scenario;

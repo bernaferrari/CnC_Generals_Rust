@@ -2,6 +2,7 @@
 
 use crate::game_logic::object::{decode_lifecycle_snapshot_block, encode_lifecycle_snapshot_block};
 use crate::game_logic::{GameLogic, ObjectId};
+#[cfg(test)]
 use crate::gameworld_shadow::GameWorldShadow;
 use crate::save_load::{SaveLoadError, SaveLoadResult};
 use gamelogic::world::entities::EntityId;

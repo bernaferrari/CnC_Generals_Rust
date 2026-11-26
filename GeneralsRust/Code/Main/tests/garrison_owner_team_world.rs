@@ -11,7 +11,7 @@ use generals_main::command_executor::CommandExecutor;
 use generals_main::command_system::{CommandResult, CommandType, GameCommand, ModifierKeys};
 use generals_main::game_logic::{AIState, GameLogic, GameMode, ObjectId, Player, Team};
 use generals_main::save_load::{
-    ObjectGarrisonOriginalTeamSnapshot, Snapshot, SnapshotBuilder,
+    ObjectGarrisonOriginalTeamSnapshot, SaveLoadError, Snapshot, SnapshotBuilder,
     WORLD_SNAPSHOT_DIRECT_XFER_VERSION, WorldSnapshot, XferLoad, XferSave,
 };
 use glam::Vec3;
@@ -1807,24 +1807,13 @@ fn replace_gots_rows(snapshot: &mut WorldSnapshot, rows: &[ObjectGarrisonOrigina
     tail[new_magic - 4..new_magic].copy_from_slice(&(payload.len() as u32).to_le_bytes());
 }
 
-fn strip_gots_capsule(snapshot: &mut WorldSnapshot) {
-    let tail = &mut snapshot.lifecycle_tail;
-    let magic = tail
-        .windows(4)
-        .rposition(|window| window == b"GOTS")
-        .expect("GOTS capsule marker");
-    let payload_len = u32::from_le_bytes(tail[magic - 4..magic].try_into().unwrap()) as usize;
-    let payload_start = magic - 8 - payload_len;
-    tail.drain(payload_start..magic + 4);
-}
-
 fn clone_bincode_snapshot(snapshot: &WorldSnapshot) -> WorldSnapshot {
     let encoded = bincode_legacy::serialize(snapshot).expect("encode snapshot clone");
     bincode_legacy::deserialize(&encoded).expect("decode snapshot clone")
 }
 
 #[test]
-fn version_35_bincode_and_append_only_direct_xfer_still_decode() {
+fn legacy_garrison_versions_follow_direct_xfer_envelope_validation() {
     let mut version_35 = WorldSnapshot::default();
     version_35.version = 35;
     let bincode_bytes = bincode_legacy::serialize(&version_35).unwrap();
@@ -1832,26 +1821,29 @@ fn version_35_bincode_and_append_only_direct_xfer_still_decode() {
     assert_eq!(bincode_decoded.version, 35);
     assert!(bincode_decoded.garrison_original_team_instances.is_empty());
 
-    // Version35 predates the append-only direct-Xfer Team vector. Emit the
-    // current body, then remove only that final zero-length-vector count
-    // and restore the historical envelope version to model its exact bytes.
-    let mut current_xfer = std::io::Cursor::new(Vec::new());
-    {
-        let mut writer = XferSave::new(&mut current_xfer);
-        version_35.xfer(&mut writer).unwrap();
+    for legacy_version in [34u32, 35] {
+        let mut source = WorldSnapshot::default();
+        source.version = legacy_version;
+        let mut bytes = std::io::Cursor::new(Vec::new());
+        assert!(matches!(
+            source.xfer(&mut XferSave::new(&mut bytes)),
+            Err(SaveLoadError::VersionMismatch {
+                expected: WORLD_SNAPSHOT_DIRECT_XFER_VERSION,
+                actual,
+            }) if actual == legacy_version
+        ));
+        assert!(bytes.into_inner().is_empty());
+
+        let mut receiver = WorldSnapshot::default();
+        let mut reader = XferLoad::new(std::io::Cursor::new(legacy_version.to_le_bytes()));
+        assert!(matches!(
+            receiver.xfer(&mut reader),
+            Err(SaveLoadError::VersionMismatch {
+                expected: WORLD_SNAPSHOT_DIRECT_XFER_VERSION,
+                actual,
+            }) if actual == legacy_version
+        ));
     }
-    let mut version_35_xfer = current_xfer.into_inner();
-    assert_eq!(
-        u32::from_le_bytes(version_35_xfer[..4].try_into().unwrap()),
-        WORLD_SNAPSHOT_DIRECT_XFER_VERSION
-    );
-    version_35_xfer.truncate(version_35_xfer.len() - 4);
-    version_35_xfer[..4].copy_from_slice(&35u32.to_le_bytes());
-    let mut direct_decoded = WorldSnapshot::default();
-    let mut reader = XferLoad::new(std::io::Cursor::new(version_35_xfer));
-    direct_decoded.xfer(&mut reader).unwrap();
-    assert_eq!(direct_decoded.version, 35);
-    assert!(direct_decoded.garrison_original_team_instances.is_empty());
 }
 
 #[test]
@@ -1890,33 +1882,6 @@ fn current_default_snapshot_roundtrips_and_restores() {
     SnapshotBuilder::new()
         .restore_from_snapshot(&direct_decoded, &mut direct_receiver)
         .expect("current default direct-Xfer snapshot restores");
-
-    for legacy_version in [34, 35] {
-        let mut bytes = std::io::Cursor::new(Vec::new());
-        {
-            let mut writer = XferSave::new(&mut bytes);
-            let mut source = WorldSnapshot::default();
-            strip_gots_capsule(&mut source);
-            // Re-encoding a current-format default without its known empty
-            // GOTS frame is not a valid writer input; model accepted legacy
-            // predecessors and require the writer to insert the new frame.
-            source.version = legacy_version;
-            source.xfer(&mut writer).unwrap();
-        }
-        bytes.set_position(0);
-        let mut direct_decoded = WorldSnapshot::default();
-        {
-            let mut reader = XferLoad::new(bytes);
-            direct_decoded.xfer(&mut reader).unwrap();
-        }
-        assert_eq!(direct_decoded.version, WORLD_SNAPSHOT_DIRECT_XFER_VERSION);
-        let mut direct_receiver = GameLogic::new();
-        SnapshotBuilder::new()
-            .restore_from_snapshot(&direct_decoded, &mut direct_receiver)
-            .unwrap_or_else(|error| {
-                panic!("upgraded v{legacy_version} direct-Xfer default restores: {error}")
-            });
-    }
 }
 
 #[test]
@@ -2691,7 +2656,6 @@ fn full_shared_cave_rejects_docking_before_touching_local_roster() {
 
 #[test]
 fn presentation_uses_receiving_shared_cave_and_tunnel_inventories() {
-    use generals_main::gameworld_shadow::GameWorldShadow;
     use generals_main::presentation_frame::PresentationFrame;
     let root = tempfile::tempdir().unwrap();
     let map = map_file(root.path());
@@ -2769,18 +2733,9 @@ fn presentation_uses_receiving_shared_cave_and_tunnel_inventories() {
     };
     let direct = PresentationFrame::build_from_logic(&mut first, 2);
     check(&direct, vec![cave_rider], vec![tunnel_rider], 2);
-    let mut shadow = GameWorldShadow::new(256);
-    shadow.sync_from_host(&first);
-    let frame = PresentationFrame::build_from_gameworld(&shadow, 2, Some(&mut first));
-    check(&frame, vec![cave_rider], vec![tunnel_rider], 2);
-    let engine_frame = PresentationFrame::build_for_engine(&mut first, 2, Some(&shadow));
-    check(&engine_frame, vec![cave_rider], vec![tunnel_rider], 2);
-    let victory_frame =
-        PresentationFrame::build_with_victory_for_engine(&mut first, 2, Some(&shadow));
+    let victory_frame = PresentationFrame::build_with_victory(&mut first, 2);
     check(&victory_frame, vec![cave_rider], vec![tunnel_rider], 2);
-    let mut peer_shadow = GameWorldShadow::new(256);
-    peer_shadow.sync_from_host(&peer);
-    let peer_frame = PresentationFrame::build_from_gameworld(&peer_shadow, 2, Some(&mut peer));
+    let peer_frame = PresentationFrame::build_from_logic(&mut peer, 2);
     for id in [ca, cb, ta, tb] {
         let object = peer_frame
             .objects
@@ -2798,8 +2753,7 @@ fn presentation_uses_receiving_shared_cave_and_tunnel_inventories() {
         }
     }
 
-    // A shadow-backed frame must respect the same hidden-garrison decision
-    // as the direct frame when the local player is not the apparent owner.
+    // Publish from the perspective of a player outside the garrison.
     first.add_player(Player::new(3, Team::GLA, "Observer", true));
     let ordinary_rider = first
         .create_object_for_player("OwnedGarrisonRider", 2, Vec3::new(50., 0., 50.))
@@ -2823,19 +2777,8 @@ fn presentation_uses_receiving_shared_cave_and_tunnel_inventories() {
         first.host_object_mut(id).unwrap().status.detected = false;
     }
     let direct_hidden = PresentationFrame::build_from_logic(&mut first, 3);
-    let mut hidden_shadow = GameWorldShadow::new(256);
-    hidden_shadow.sync_from_host(&first);
-    let shadow_hidden =
-        PresentationFrame::build_from_gameworld(&hidden_shadow, 3, Some(&mut first));
-    let engine_hidden = PresentationFrame::build_for_engine(&mut first, 3, Some(&hidden_shadow));
-    let victory_hidden =
-        PresentationFrame::build_with_victory_for_engine(&mut first, 3, Some(&hidden_shadow));
-    for (name, frame) in [
-        ("direct", &direct_hidden),
-        ("shadow", &shadow_hidden),
-        ("engine", &engine_hidden),
-        ("victory", &victory_hidden),
-    ] {
+    let victory_hidden = PresentationFrame::build_with_victory(&mut first, 3);
+    for (name, frame) in [("direct", &direct_hidden), ("victory", &victory_hidden)] {
         for id in [cb, tb, ordinary_garrison] {
             let object = frame.objects.iter().find(|object| object.id == id).unwrap();
             assert!(
@@ -2857,10 +2800,8 @@ fn presentation_uses_receiving_shared_cave_and_tunnel_inventories() {
         first.host_object_mut(id).unwrap().status.detected = true;
     }
     let direct_revealed = PresentationFrame::build_from_logic(&mut first, 3);
-    hidden_shadow.sync_from_host(&first);
-    let shadow_revealed =
-        PresentationFrame::build_from_gameworld(&hidden_shadow, 3, Some(&mut first));
-    for frame in [&direct_revealed, &shadow_revealed] {
+    let victory_revealed = PresentationFrame::build_with_victory(&mut first, 3);
+    for frame in [&direct_revealed, &victory_revealed] {
         for (id, expected) in [
             (cb, cave_rider),
             (tb, tunnel_rider),
@@ -2894,9 +2835,8 @@ fn presentation_uses_receiving_shared_cave_and_tunnel_inventories() {
         Some(ta)
     );
     let full_direct = PresentationFrame::build_from_logic(&mut first, 2);
-    shadow.sync_from_host(&first);
-    let full_shadow = PresentationFrame::build_from_gameworld(&shadow, 2, Some(&mut first));
-    for frame in [&full_direct, &full_shadow] {
+    let full_victory = PresentationFrame::build_with_victory(&mut first, 2);
+    for frame in [&full_direct, &full_victory] {
         for id in [ta, tb] {
             let object = frame.objects.iter().find(|object| object.id == id).unwrap();
             assert_eq!(
@@ -2911,7 +2851,6 @@ fn presentation_uses_receiving_shared_cave_and_tunnel_inventories() {
 
 #[test]
 fn presentation_keeps_shared_inventory_above_thirty_two_items() {
-    use generals_main::gameworld_shadow::GameWorldShadow;
     use generals_main::presentation_frame::PresentationFrame;
     let root = tempfile::tempdir().unwrap();
     let map = map_file(root.path());
@@ -2935,10 +2874,8 @@ fn presentation_keeps_shared_inventory_above_thirty_two_items() {
         riders.push(id);
     }
     let direct = PresentationFrame::build_from_logic(&mut game, 2);
-    let mut shadow = GameWorldShadow::new(256);
-    shadow.sync_from_host(&game);
-    let shadow_frame = PresentationFrame::build_from_gameworld(&shadow, 2, Some(&mut game));
-    for frame in [&direct, &shadow_frame] {
+    let victory_frame = PresentationFrame::build_with_victory(&mut game, 2);
+    for frame in [&direct, &victory_frame] {
         let object = frame
             .objects
             .iter()
@@ -3024,7 +2961,6 @@ fn full_shared_pools_do_not_readmit_a_contained_passenger_at_another_entrance() 
 
 #[test]
 fn cave_and_tunnel_entry_eligibility_matches_shared_tracker() {
-    use generals_main::gameworld_shadow::GameWorldShadow;
     use generals_main::presentation_frame::PresentationFrame;
     let root = tempfile::tempdir().unwrap();
     let map = map_file(root.path());
@@ -3060,11 +2996,9 @@ fn cave_and_tunnel_entry_eligibility_matches_shared_tracker() {
     let enemy = game
         .create_object_for_player("OwnedGarrisonRider", 3, Vec3::new(50., 0., 50.))
         .unwrap();
-    let mut shadow = GameWorldShadow::new(256);
-    shadow.sync_from_host(&game);
     let direct = PresentationFrame::build_from_logic(&mut game, 1);
-    let shadow_frame = PresentationFrame::build_from_gameworld(&shadow, 1, Some(&mut game));
-    for frame in [&direct, &shadow_frame] {
+    let victory_frame = PresentationFrame::build_with_victory(&mut game, 1);
+    for frame in [&direct, &victory_frame] {
         for id in [cave, tunnel] {
             let target = frame.objects.iter().find(|o| o.id == id).unwrap();
             assert_eq!(
@@ -3084,8 +3018,8 @@ fn cave_and_tunnel_entry_eligibility_matches_shared_tracker() {
         }
     }
     let owner_direct = PresentationFrame::build_from_logic(&mut game, 2);
-    let owner_shadow = PresentationFrame::build_from_gameworld(&shadow, 2, Some(&mut game));
-    for frame in [&owner_direct, &owner_shadow] {
+    let owner_victory = PresentationFrame::build_with_victory(&mut game, 2);
+    for frame in [&owner_direct, &owner_victory] {
         for id in [cave, tunnel, faction_cave, faction_tunnel] {
             let target = frame.objects.iter().find(|o| o.id == id).unwrap();
             assert_eq!(
@@ -3096,8 +3030,8 @@ fn cave_and_tunnel_entry_eligibility_matches_shared_tracker() {
         }
     }
     let enemy_direct = PresentationFrame::build_from_logic(&mut game, 3);
-    let enemy_shadow = PresentationFrame::build_from_gameworld(&shadow, 3, Some(&mut game));
-    for frame in [&enemy_direct, &enemy_shadow] {
+    let enemy_victory = PresentationFrame::build_with_victory(&mut game, 3);
+    for frame in [&enemy_direct, &enemy_victory] {
         for id in [cave, tunnel] {
             let target = frame.objects.iter().find(|o| o.id == id).unwrap();
             assert_eq!(
@@ -3180,7 +3114,6 @@ fn cave_and_tunnel_entry_eligibility_matches_shared_tracker() {
 
 #[test]
 fn hidden_garrison_entry_uses_true_stealth_and_nonstealth_counts() {
-    use generals_main::gameworld_shadow::GameWorldShadow;
     use generals_main::presentation_frame::PresentationFrame;
     let root = tempfile::tempdir().unwrap();
     let map = map_file(root.path());
@@ -3203,10 +3136,8 @@ fn hidden_garrison_entry_uses_true_stealth_and_nonstealth_counts() {
     assert!(game.can_unit_enter_normal_target(enemy, host));
     let check = |game: &mut GameLogic, expected: Option<usize>| {
         let direct = PresentationFrame::build_from_logic(game, 3);
-        let mut shadow = GameWorldShadow::new(256);
-        shadow.sync_from_host(game);
-        let shadow_frame = PresentationFrame::build_from_gameworld(&shadow, 3, Some(game));
-        for frame in [&direct, &shadow_frame] {
+        let victory_frame = PresentationFrame::build_with_victory(game, 3);
+        for frame in [&direct, &victory_frame] {
             let target = frame.objects.iter().find(|o| o.id == host).unwrap();
             assert!(target.garrisoned_units.is_empty());
             assert_eq!(target.occupant_count, 0);

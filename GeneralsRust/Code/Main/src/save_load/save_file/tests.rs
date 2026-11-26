@@ -8,6 +8,7 @@ mod control_group_ownership;
 mod mission_checkpoint;
 mod particle_candidate;
 mod particle_capture_failure;
+mod saved_power_first_frame;
 mod script_candidate;
 mod stealth_continuation;
 mod terrain_candidate;

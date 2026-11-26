@@ -6,8 +6,6 @@
 //! Ownership: borrow-first on the authority during `build_*`; then the snapshot
 //! is owned values with no live borrows into the world.
 //!
-//! Wave 956: host_object/host_objects when building presentation from host.
-//! Wave 958: host_object dual-read seal (tests + residual).
 
 use crate::fow_rendering::{FOWRenderingBridge, ObjectVisibility, PresentationFowGrid};
 use crate::game_logic::host_base_defense::{
@@ -50,7 +48,6 @@ mod live_draw_source_tests;
 #[cfg(test)]
 mod money_audio_owner_tests;
 mod native_factory_source;
-mod overlay;
 mod particles;
 mod projectile;
 mod queries;
@@ -60,6 +57,8 @@ mod restrict_a;
 mod science_purchase;
 #[cfg(feature = "game_client")]
 mod shortcuts;
+#[cfg(test)]
+mod shadow_presentation;
 mod spectre;
 mod terrain_motion;
 mod types;

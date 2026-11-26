@@ -379,21 +379,16 @@ pub struct PresentationFrame {
     /// World/environment identity for lighting/shell/bounds/heightmap residual.
     /// Prefer this over live `GameLogic` during GPU collect/execute.
     pub world_env: PresentationWorldEnv,
-    /// Objects stamped by the last `overlay_gameworld_shadow` call (0 if none).
-    /// Architecture residual: GameWorld last-writer presentation identity count.
+    // Reserved slots in the serialized frame. Only the old unit-test observer
+    // writes these values.
     #[serde(default)]
-    pub gameworld_overlay_stamped: usize,
-    /// Count of RenderableObjects created from GameWorld entities missing on host frame
-    /// (Wave 192 append_missing_from_gameworld). Fail-closed: not full build_from_gameworld cutover.
+    pub(crate) gameworld_overlay_stamped: usize,
     #[serde(default)]
-    pub gameworld_appended: usize,
-    /// Count of objects after `rebuild_objects_from_gameworld` (Wave 193).
-    /// Fail-closed: opt-in path; not full host cutover / playable_claim.
+    pub(crate) gameworld_appended: usize,
     #[serde(default)]
-    pub gameworld_rebuilt: usize,
-    /// True when objects were rebuilt from GameWorld (Wave 196 engine primary path).
+    pub(crate) gameworld_rebuilt: usize,
     #[serde(default)]
-    pub gameworld_primary_objects: bool,
+    pub(crate) gameworld_primary_objects: bool,
     /// Authored FX-list sounds frozen from the producing session with the frame.
     #[serde(default)]
     pub(crate) fx_sound_names: std::collections::BTreeMap<String, Vec<String>>,
@@ -434,6 +429,7 @@ impl PresentationFrame {
 /// `GENERALS_PRESENTATION_FROM_GAMEWORLD=0` (or false/no/off).
 /// Fail-closed: does not flip shell `playable_claim`; host still supplies
 /// non-object residual (scripts/FX/camera) via `build_from_logic` when used.
+#[cfg(test)]
 pub fn presentation_from_gameworld_enabled() -> bool {
     match std::env::var("GENERALS_PRESENTATION_FROM_GAMEWORLD") {
         Ok(v) => {

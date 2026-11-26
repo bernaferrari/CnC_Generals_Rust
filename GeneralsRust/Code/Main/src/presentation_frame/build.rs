@@ -384,8 +384,7 @@ impl PresentationFrame {
         )
     }
 
-    /// The shadow rebuild reuses direct hidden Object rows and freezes visible
-    /// host drawables for the renderer.
+    /// Freeze the receiving simulation's objects and drawables into one frame.
     pub(super) fn build_from_logic_with_host_roster(
         logic: &mut GameLogic,
         local_player_id: u32,
@@ -2303,10 +2302,10 @@ impl PresentationFrame {
         frame.stamp_restrict_a(logic);
         // Wave 500: named damage/death/bone FX residual → particle observe list.
         if keep_host_roster {
-            let _ = frame.append_object_residual_fx_particles();
+            let _ = frame.append_object_fx_particles();
         }
         if freeze_tints {
-            frame.freeze_drawable_status_tints_from_logic(logic, None);
+            frame.freeze_drawable_status_tints_from_logic(logic);
         }
         frame
     }
@@ -2374,7 +2373,7 @@ impl PresentationFrame {
         frame.defeated_player_ids = logic.peek_defeat_events().to_vec();
         frame.alliance_events = logic.peek_alliance_events().to_vec();
         if freeze_tints {
-            frame.freeze_drawable_status_tints_from_logic(logic, None);
+            frame.freeze_drawable_status_tints_from_logic(logic);
         }
         frame
     }
@@ -3014,5 +3013,6 @@ mod sw_hud_tests {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum HostRoster {
     Keep,
+    #[cfg(test)]
     DrawablesAndHiddenObjects,
 }

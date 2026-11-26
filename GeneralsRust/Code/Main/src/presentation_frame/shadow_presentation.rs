@@ -1,3 +1,5 @@
+//! Frame builders used by the remaining shadow observation tests.
+
 use super::*;
 use super::build::{HostRoster, RiderChangeRosters};
 use crate::game_logic::KindOfSet;
@@ -1941,71 +1943,6 @@ impl PresentationFrame {
         appended
     }
 
-    /// Wave 500: merge per-object damage/death/bone FX residual names into the
-    /// presentation particle list so client/upload observe named FXLists without
-    /// a live GameLogic dual-read during render.
-    ///
-    /// Host drain currently queues `FX:{name}` audio tags; this peels the same
-    /// names into `PresentationParticleSystem` with `fx_list_name` set.
-    /// Fail-closed: not full FXList.ini particle graph / bone-local offsets.
-    pub fn append_object_residual_fx_particles(&mut self) -> usize {
-        use crate::game_logic::CombatParticleKind;
-        let frame = self.frame.0;
-        let mut next_id = self
-            .particle_systems
-            .iter()
-            .map(|p| p.id)
-            .max()
-            .unwrap_or(0)
-            .saturating_add(1)
-            .max(1);
-        let mut appended = 0usize;
-        for o in &self.objects {
-            let candidates: [(Option<&str>, CombatParticleKind); 3] = [
-                (
-                    o.damage_fx_name.as_deref(),
-                    CombatParticleKind::WeaponImpact,
-                ),
-                (
-                    o.death_fx_name.as_deref(),
-                    CombatParticleKind::DeathExplosion,
-                ),
-                (o.bone_fx_name.as_deref(), CombatParticleKind::WeaponImpact),
-            ];
-            for (name, kind) in candidates {
-                let Some(name) = name else {
-                    continue;
-                };
-                if name.is_empty() {
-                    continue;
-                }
-                let already = self.particle_systems.iter().any(|p| {
-                    (!p.fx_list_name.is_empty() && p.fx_list_name == name)
-                        || (p.template_name == name && p.source_object == Some(o.id))
-                });
-                if already {
-                    continue;
-                }
-                self.particle_systems.push(PresentationParticleSystem {
-                    id: next_id,
-                    kind,
-                    template_name: name.to_string(),
-                    position: o.position,
-                    source_object: Some(o.id),
-                    target_object: None,
-                    spawned_frame: frame,
-                    active: true,
-                    client_system_id: None,
-                    fx_list_name: name.to_string(),
-                    ocl_list_name: String::new(),
-                });
-                next_id = next_id.saturating_add(1).max(1);
-                appended += 1;
-            }
-        }
-        appended
-    }
-
     /// Wave 498: re-stamp host-only FX presentation residual after GameWorld object rebuild.
     ///
     /// GW entities do not yet own TransitionDamageFX / BoneFX / poison tint / defector /
@@ -2597,9 +2534,9 @@ impl PresentationFrame {
             let _ = frame.overlay_host_fx_residual_with_rider_rosters(logic, &mut rider_change_rosters);
         }
         // Wave 500: object FX residual names → particle list after host FX stamp.
-        let _ = frame.append_object_residual_fx_particles();
+        let _ = frame.append_object_fx_particles();
         match host {
-            Some(logic) => frame.freeze_drawable_status_tints_from_logic(logic, Some(shadow)),
+            Some(logic) => frame.freeze_drawable_status_tints_from_logic_with_shadow(logic, Some(shadow)),
             None => {
                 frame.populate_shadow_only_local_player(shadow);
                 frame.freeze_drawable_status_tints_from_shadow(shadow);
@@ -2688,7 +2625,7 @@ impl PresentationFrame {
                 // Shadow overlay is non-authoritative for containment and can
                 // replace hidden/shared data with an entrance-local roster.
                 let _ = frame.overlay_host_fx_residual_with_rider_rosters(logic, &mut rider_change_rosters);
-                frame.freeze_drawable_status_tints_from_logic(logic, Some(shadow));
+                frame.freeze_drawable_status_tints_from_logic_with_shadow(logic, Some(shadow));
                 frame
             }
             None => Self::build_from_logic_with_tint_update(
@@ -2763,7 +2700,7 @@ impl PresentationFrame {
                 // Wave 498: host FX residual after GW object rebuild.
                 let _ = frame.overlay_host_fx_residual_with_rider_rosters(logic, &mut rider_change_rosters);
                 // Wave 500: object FX residual names → particle list.
-                let _ = frame.append_object_residual_fx_particles();
+                let _ = frame.append_object_fx_particles();
             }
             Some(shadow) => {
                 let _ = frame.overlay_observed_objects(shadow, Some(logic));
@@ -2774,7 +2711,7 @@ impl PresentationFrame {
             }
             None => {}
         }
-        frame.freeze_drawable_status_tints_from_logic(logic, shadow);
+        frame.freeze_drawable_status_tints_from_logic_with_shadow(logic, shadow);
         frame
     }
 }

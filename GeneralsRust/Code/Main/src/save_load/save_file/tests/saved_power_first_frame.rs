@@ -2,19 +2,16 @@
 //! Fresh processes share only authored inputs and save bytes. The deficit
 //! witness is a scheduled PlayerHasPower script that latches a flag before the
 //! late economy phase can repair stale restored player totals.
-use game_client::effects::particle_manager::{
-    ParticleSystemManager, get_particle_system_manager, get_particle_system_manager_mut,
+use game_engine::common::{
+    dict::Dict,
+    ini::{INILoadType, ini_locomotor::LocomotorStore},
+    name_key_generator::NameKeyGenerator,
+    rts::player_template::PlayerTemplateStore,
+    system::DataChunkOutput,
 };
-use game_engine::common::ini::ini_locomotor::LocomotorStore;
-use gamelogic::object::armor::{TheArmorStore, load_armor_templates_from_str};
-use gamelogic::scripting::core::{
-    Condition, ConditionType, OrCondition, Parameter, ParameterType, Script, ScriptAction,
-    ScriptActionType, ScriptList,
-};
-use gamelogic::scripting::engine::{ScriptEngine, get_script_engine, with_script_engine_ref};
-use gamelogic::weapon::{with_weapon_store, with_weapon_store_mut};
-use generals_main::game_logic::{GameLogic, KindOf, ObjectId, Player, Team, ThingTemplate};
-use generals_main::save_load::{GameDifficulty, SaveFileManager, SaveFileType, SaveGameInfo};
+use gamelogic::scripting::core::{ConditionType, Parameter, ParameterType, ScriptActionType};
+use crate::game_logic::{GameLogic, GameMode, ObjectId, Player, Team};
+use crate::save_load::{GameDifficulty, SaveFileManager, SaveFileType, SaveGameInfo};
 use glam::Vec3;
 use serde_json::{Value, json};
 use std::fs;
@@ -23,33 +20,19 @@ use std::path::Path;
 use std::process::Command;
 use std::time::{Duration, UNIX_EPOCH};
 
-const CHILD_TEST: &str = "saved_power_process";
+const CHILD_TEST: &str = concat!(module_path!(), "::saved_power_process");
 const OWNER: &str = "SavedGridOwner";
+const OWNER_ID: u32 = 1;
+const MAP: &str = "SavedPowerFixture.map";
 const PRODUCER: &str = "SavedGridProducer";
 const CONSUMER: &str = "SavedGridConsumer";
 const POWER_FLAG: &str = "saved_grid_had_power";
 const SEEN_FLAG: &str = "saved_grid_first_frame_seen";
 const SCRIPTS: [&str; 2] = ["SavedGridPowerProbe", "SavedGridFrameProbe"];
-const ARMOR_INI: &str = "Armor PowerSaveUnusedArmor\nArmor = DEFAULT 100%\nEnd\n";
 const LOCOMOTOR_PATH: &str = "windows_game/extracted_big_files/INIZH/Data/INI/Locomotor.ini";
 // Reviewed Strategy fixture admission: exact parser input at the first candidate,
 // followed by the production bootstrap's fixed in-memory seed completion.
 const LOCOMOTOR_INI: &str = "Locomotor BasicHumanLocomotor\nSurfaces = GROUND\nSpeed = 20\nAcceleration = 100\nTurnRate = 500\nAppearance = TWO_LEGS\nWanderWidthFactor = 1.0\nWanderLengthFactor = 1.0\nSpeedDamaged = 10\nAccelerationDamaged = 50\nEnd\nLocomotor TechnicalLocomotor\nSurfaces = GROUND\nSpeed = 90\nAcceleration = 100\nTurnRate = 180\nEnd\n";
-const GLA_SUPPORT: [&str; 12] = [
-    "GLA_CommandCenter",
-    "GLACommandCenter",
-    "GLA_SupplyStash",
-    "GLASupplyStash",
-    "GLA_ArmsDealer",
-    "GLAArmsDealer",
-    "GLA_Barracks",
-    "GLABarracks",
-    "GLA_Soldier",
-    "GLAInfantryRebel",
-    "GLA_Technical",
-    "GLAInfantryWorker",
-];
-
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Control {
     Normal,
@@ -71,17 +54,30 @@ struct Case {
 }
 
 impl Case {
-    fn expected_produced(self) -> i32 {
-        if matches!(
-            self.control,
-            Control::DisabledProducer | Control::IncompleteProducer | Control::Sabotaged
-        ) {
+    fn expected_produced(self, restored: bool) -> i32 {
+        // Object::xfer installs the Team before transferring m_disabledMask.
+        // That load credits an authored producer even while its saved mask
+        // disables it. Ordinary construction still gates the Team credit.
+        if self.control == Control::IncompleteProducer
+            || (self.control == Control::DisabledProducer && !restored)
+        {
             0
         } else {
             self.produced
         }
     }
-    fn foreign_shadow(self) -> bool {
+
+    fn expected_available(self, restored: bool) -> i32 {
+        // Energy::getProduction returns zero during sabotage.
+        let effective = if self.control == Control::Sabotaged {
+            0
+        } else {
+            self.expected_produced(restored)
+        };
+        effective - self.consumed
+    }
+
+    fn foreign_world(self) -> bool {
         matches!(
             self.control,
             Control::ForeignDeadProducer | Control::ForeignIncompleteProducer
@@ -152,95 +148,146 @@ const CASES: [Case; 10] = [
     },
 ];
 
+fn write_params(map: &mut DataChunkOutput, params: &[Parameter]) {
+    map.write_int(params.len() as i32);
+    for parameter in params {
+        map.write_int(parameter.param_type as i32);
+        map.write_int(parameter.int_value);
+        map.write_real(parameter.real_value);
+        map.write_ascii_string(&parameter.string_value);
+    }
+}
+
+fn write_fixture_map(path: &Path) {
+    let mut map = DataChunkOutput::new();
+    map.open_data_chunk("HeightMapData", 3);
+    for value in [21, 21, 1, 441] {
+        map.write_int(value);
+    }
+    for _ in 0..441 {
+        map.write_byte(8);
+    }
+    map.close_data_chunk();
+    map.open_data_chunk("ObjectsList", 3);
+    map.close_data_chunk();
+    map.open_data_chunk("SidesList", 2);
+    map.write_int(1);
+    let mut side = Dict::new();
+    for (name, value) in [("playerName", OWNER), ("playerFaction", "FactionGLA")] {
+        side.set_ascii_string(NameKeyGenerator::name_to_key(name), value);
+    }
+    side.set_unicode_string(NameKeyGenerator::name_to_key("playerDisplayName"), OWNER);
+    side.set_bool(NameKeyGenerator::name_to_key("playerIsHuman"), true);
+    map.write_dict(&side);
+    map.write_int(0);
+    map.write_int(0);
+    map.open_data_chunk("PlayerScriptsList", 1);
+    map.open_data_chunk("ScriptList", 1);
+    for (index, script) in SCRIPTS.into_iter().enumerate() {
+        map.open_data_chunk("Script", 2);
+        for value in [script, "", "", ""] {
+            map.write_ascii_string(value);
+        }
+        for value in [1, 1, 1, 1, 1, 0] {
+            map.write_byte(value);
+        }
+        map.write_int(0);
+        map.open_data_chunk("OrCondition", 1);
+        map.open_data_chunk("Condition", 4);
+        let (condition, key, params) = if index == 0 {
+            (
+                ConditionType::PlayerHasPower,
+                "PLAYER_HAS_POWER",
+                vec![Parameter::with_string(ParameterType::Side, OWNER.into())],
+            )
+        } else {
+            (ConditionType::ConditionTrue, "CONDITION_TRUE", Vec::new())
+        };
+        map.write_int(condition as i32);
+        map.write_name_key(NameKeyGenerator::name_to_key(key));
+        write_params(&mut map, &params);
+        map.close_data_chunk();
+        map.close_data_chunk();
+        map.open_data_chunk("ScriptAction", 2);
+        map.write_int(ScriptActionType::SetFlag as i32);
+        map.write_name_key(NameKeyGenerator::name_to_key("SET_FLAG"));
+        let flag = if index == 0 { POWER_FLAG } else { SEEN_FLAG };
+        write_params(
+            &mut map,
+            &[
+                Parameter::with_string(ParameterType::Flag, flag.into()),
+                Parameter::with_int(ParameterType::Boolean, 1),
+            ],
+        );
+        map.close_data_chunk();
+        map.close_data_chunk();
+    }
+    for _ in 0..3 {
+        map.close_data_chunk();
+    }
+    std::fs::write(path, map.into_ckmp_bytes()).unwrap();
+}
+
 fn catalog_world(case: Case) -> GameLogic {
-    assert!(generals_main::assets::get_asset_manager().is_none());
-    gamelogic::initialize_weapon_store().unwrap();
-    with_weapon_store_mut(|store| {
-        assert_eq!(store.get_template_count(), 0);
-        store.mark_host_bootstrap_complete();
-    })
-    .unwrap();
-    assert_eq!(load_armor_templates_from_str(ARMOR_INI, None).unwrap(), 1);
     assert_eq!(fs::read_to_string(LOCOMOTOR_PATH).unwrap(), LOCOMOTOR_INI);
     let mut locomotors = LocomotorStore::new_owned();
     assert_eq!(locomotors.apply_source(LOCOMOTOR_INI).unwrap(), 2);
     assert_eq!(locomotors.get_template_names().len(), 2);
-    {
-        let mut guard = get_particle_system_manager_mut().unwrap();
-        assert!(guard.is_none());
-        let manager = guard.get_or_insert_with(ParticleSystemManager::new);
-        for name in ["MuzzleFlash", "BulletImpact"] {
-            assert!(manager.ensure_preset_template(name).is_some());
-        }
-        assert_eq!(manager.active_system_count(), 0);
-    }
     let mut logic = GameLogic::new();
     logic.admit_locomotor_definitions(locomotors).unwrap();
-    assert!(logic.templates.is_empty());
-    logic.ensure_ai_faction_templates(Team::GLA);
+    admit_fixture_objects(&mut logic, case);
+    let mut players = PlayerTemplateStore::new_owned();
+    players
+        .apply_source(
+            "PlayerTemplate FactionCivilian\n Side = Civilian\nEnd\n\
+             PlayerTemplate FactionGLA\n Side = GLA\nEnd\n",
+            INILoadType::Overwrite,
+        )
+        .unwrap();
+    logic.admit_player_template_definitions(players).unwrap();
+    logic.start_new_game(GameMode::SinglePlayer).unwrap();
+    assert!(logic.load_map(MAP));
+    assert_eq!(logic.local_player_id(), Some(OWNER_ID));
     assert_eq!(logic.host_ai_player_count(), 0);
-    for (name, energy) in [(PRODUCER, case.produced), (CONSUMER, -case.consumed)] {
-        let mut template = ThingTemplate::new(name);
-        template
-            .add_kind_of(KindOf::Structure)
-            .add_kind_of(KindOf::Selectable)
-            .add_kind_of(KindOf::Attackable)
-            .add_kind_of(KindOf::Immobile)
-            .set_health(1000.0)
-            .set_primary_weapon_none();
-        template.energy_production = Some(energy);
-        logic.templates.insert(name.into(), template);
-    }
     catalog(&logic, case);
     logic
 }
 
+fn admit_fixture_objects(logic: &mut GameLogic, case: Case) {
+    let mut object_ini = String::new();
+    for (name, energy) in [(PRODUCER, case.produced), (CONSUMER, -case.consumed)] {
+        object_ini.push_str(&format!(
+            "Object {name}\nKindOf = STRUCTURE SELECTABLE IMMOBILE\nEnergyProduction = {energy}\n\
+             Body = ActiveBody Body\nMaxHealth = 1000\nInitialHealth = 1000\nEnd\nEnd\n"
+        ));
+    }
+    logic
+        .admit_object_ini_sources([("SavedPowerObjects.ini".into(), object_ini)])
+        .unwrap();
+}
+
 fn catalog(logic: &GameLogic, case: Case) -> Value {
-    assert!(generals_main::assets::get_asset_manager().is_none());
-    assert!(
-        game_engine::common::thing::thing_factory::try_get_thing_factory()
-            .unwrap()
-            .is_none()
-    );
-    with_weapon_store(|store| {
-        assert!(store.host_bootstrap_is_complete());
-        assert_eq!(store.get_template_count(), 0);
-    })
-    .unwrap();
-    assert_eq!(TheArmorStore::template_count(), 1);
-    let mut expected: Vec<_> = GLA_SUPPORT
-        .into_iter()
-        .chain([PRODUCER, CONSUMER])
-        .collect();
-    expected.sort_unstable();
-    let mut names: Vec<_> = logic.templates.keys().map(String::as_str).collect();
-    names.sort_unstable();
-    assert_eq!(names, expected);
+    let content = logic.receiving_module_content.as_ref().unwrap();
+    let names: Vec<_> = content.admitted_templates().map(|(name, _)| name).collect();
+    assert_eq!(names, [CONSUMER, PRODUCER]);
     let templates: Vec<_> = names
         .into_iter()
         .map(|name| {
             let template = &logic.templates[name];
-            if [PRODUCER, CONSUMER].contains(&name) {
-                assert!(template.primary_weapon_name.is_none());
-                assert!(
-                    template.secondary_weapon_name.is_none()
-                        && template.tertiary_weapon_name.is_none()
-                );
-                assert!(
-                    template.locomotor_name.is_none() && template.locomotor_set_names.is_empty()
-                );
-                assert!(
-                    template.authored_locomotor_sets.is_none() && template.armor_sets.is_empty()
-                );
-                assert_eq!(
-                    template.energy_production,
-                    Some(if name == PRODUCER {
-                        case.produced
-                    } else {
-                        -case.consumed
-                    })
-                );
-            }
+            assert!(template.primary_weapon_name.is_none());
+            assert!(
+                template.secondary_weapon_name.is_none()
+                    && template.tertiary_weapon_name.is_none()
+            );
+            assert!(template.locomotor_name.is_none() && template.locomotor_set_names.is_empty());
+            assert!(
+                template.authored_locomotor_sets.as_ref().is_some_and(|sets| sets.is_empty())
+                    && template.armor_sets.is_empty()
+            );
+            assert_eq!(
+                template.energy_production,
+                Some(if name == PRODUCER { case.produced } else { -case.consumed })
+            );
             let mut value = serde_json::to_value(template).unwrap();
             value["kind_of"]
                 .as_array_mut()
@@ -259,25 +306,18 @@ fn catalog(logic: &GameLogic, case: Case) -> Value {
         names.sort_unstable();
         names.into_iter().map(|name| json!({"name":name,"definition":format!("{:?}",store.find_template(name).unwrap())})).collect::<Vec<_>>()
     };
-    let particles = {
-        let guard = get_particle_system_manager().unwrap();
-        let manager = guard.as_ref().unwrap();
-        ["MuzzleFlash", "BulletImpact"].into_iter().map(|name| {
-            json!({"name":name,"definition":format!("{:?}",manager.find_template(name).unwrap())})
-        }).collect::<Vec<_>>()
-    };
     assert_eq!(fs::read_to_string(LOCOMOTOR_PATH).unwrap(), LOCOMOTOR_INI);
-    json!({"templates":templates,"weapon_catalog":[],"armor_ini":ARMOR_INI,
+    json!({"templates":templates,
         "locomotor_input":{"relative_path":LOCOMOTOR_PATH,"ini":LOCOMOTOR_INI,"parser_count":2},
-        "locomotors":locomotors,"particles":particles,"asset_manager":false})
+        "locomotors":locomotors})
 }
 
 fn admit_source(logic: &mut GameLogic, case: Case) {
-    assert!(!logic.scripts_loaded);
-    logic.add_player(Player::new(0, Team::GLA, OWNER, true));
+    assert!(logic.scripts_loaded);
+    logic.scripts_loaded = false;
     for (index, name) in [PRODUCER, CONSUMER].into_iter().enumerate() {
         let id = logic
-            .create_object_for_player(name, 0, Vec3::new(index as f32 * 100.0, 0.0, 0.0))
+            .create_object_for_player(name, OWNER_ID, Vec3::new(index as f32 * 100.0, 0.0, 0.0))
             .unwrap();
         assert_eq!(id, ObjectId(index as u32 + 1));
     }
@@ -306,13 +346,14 @@ fn admit_source(logic: &mut GameLogic, case: Case) {
         Control::DamagedProducer => {
             logic.host_object_mut(ObjectId(1)).unwrap().health.current = 500.0
         }
-        Control::Sabotaged => logic.get_player_mut(0).unwrap().power_sabotaged_till_frame = 100,
+        Control::Sabotaged => logic.get_player_mut(OWNER_ID).unwrap().power_sabotaged_till_frame = 100,
         _ => {}
     }
     // An ordinary source frame establishes derived totals, without scripts.
     logic.update();
+    logic.scripts_loaded = true;
     assert_eq!(logic.get_frame(), 1);
-    let player = logic.get_player(0).unwrap();
+    let player = logic.get_player(OWNER_ID).unwrap();
     assert_eq!(
         (
             player.power_produced,
@@ -320,30 +361,27 @@ fn admit_source(logic: &mut GameLogic, case: Case) {
             player.power_available
         ),
         (
-            case.expected_produced(),
+            case.expected_produced(false),
             case.consumed,
-            case.expected_produced() - case.consumed
+            case.expected_available(false)
         )
     );
     assert_eq!(logic.host_ai_player_count(), 0);
 }
 
-// A distinct owner with the same numeric IDs supplies a conflicting immutable
-// projection. Loading the receiving save must neither read nor mutate that peer.
-fn foreign_shadow(
-    logic: &GameLogic,
-    case: Case,
-) -> generals_main::gameworld_shadow::GameWorldShadow {
+// The receiving save is loaded while a peer with conflicting state and the
+// same numeric Object IDs is alive.
+fn foreign_world(logic: &GameLogic, case: Case) -> GameLogic {
     let mut foreign = GameLogic::new();
     foreign
         .admit_locomotor_definitions(logic.locomotor_catalog().clone())
         .unwrap();
-    foreign.templates = logic.templates.clone();
-    foreign.add_player(Player::new(0, Team::GLA, "ForeignGridOwner", true));
+    admit_fixture_objects(&mut foreign, case);
+    foreign.add_player(Player::new(OWNER_ID, Team::GLA, "ForeignGridOwner", true));
     for (index, name) in [PRODUCER, CONSUMER].into_iter().enumerate() {
         assert_eq!(
             foreign
-                .create_object_for_player(name, 0, Vec3::new(index as f32 * 100.0, 0.0, 0.0))
+                .create_object_for_player(name, OWNER_ID, Vec3::new(index as f32 * 100.0, 0.0, 0.0))
                 .unwrap(),
             ObjectId(index as u32 + 1)
         );
@@ -357,43 +395,41 @@ fn foreign_shadow(
         }
         _ => unreachable!(),
     }
-    let mut shadow = generals_main::gameworld_shadow::GameWorldShadow::new(16);
-    shadow.sync_from_host(&foreign);
-    shadow
+    foreign
 }
 
-fn shadow_state(shadow: &generals_main::gameworld_shadow::GameWorldShadow) -> Value {
+fn foreign_state(foreign: &GameLogic) -> Value {
     let objects: Vec<_> = [ObjectId(1), ObjectId(2)].into_iter().map(|id| {
-        let entity = shadow.entity_for_host(id).unwrap();
-        let object = shadow.world().entity(entity).unwrap();
-        json!({"host_id":id.0,"entity":entity.get(),"health":object.health,
-            "under_construction":object.under_construction,"construction_percent":object.construction_percent})
+        let object = foreign.host_object(id).unwrap();
+        json!({
+            "id": id.0,
+            "health": object.health.current,
+            "under_construction": object.status.under_construction,
+            "construction_percent": object.construction_percent,
+        })
     }).collect();
-    json!({"objects":objects,"mapped_count":shadow.mapped_count()})
+    json!({"objects":objects,"frame":foreign.get_frame()})
 }
 
-fn load_with_foreign_shadow(
+fn load_with_foreign_world(
     manager: &mut SaveFileManager,
     logic: &mut GameLogic,
     case: Case,
     dir: &Path,
 ) {
-    let mut shadow = foreign_shadow(logic, case);
-    let before = shadow_state(&shadow);
-    let projected = shadow
-        .world()
-        .entity(shadow.entity_for_host(ObjectId(1)).unwrap())
-        .unwrap();
+    let foreign = foreign_world(logic, case);
+    let before = foreign_state(&foreign);
+    let producer = foreign.host_object(ObjectId(1)).unwrap();
     match case.control {
-        Control::ForeignDeadProducer => assert_eq!(projected.health, 0.0),
+        Control::ForeignDeadProducer => assert_eq!(producer.health.current, 0.0),
         Control::ForeignIncompleteProducer => {
-            assert!(projected.under_construction);
-            assert_eq!(projected.construction_percent, 0.25);
+            assert!(producer.status.under_construction);
+            assert_eq!(producer.construction_percent, 0.25);
         }
         _ => unreachable!(),
     }
     let (result, receiving) = {
-        let result = manager.load_game("power", logic);
+        let result = manager.load_game("power", logic).expect("restore with a same-ID peer");
         let producer = logic.host_object(ObjectId(1)).unwrap();
         write_json(
             &dir.join("reader-foreign-boundary.json"),
@@ -405,19 +441,19 @@ fn load_with_foreign_shadow(
             "local_construction_percent":producer.construction_percent}),
         );
         // Ordinary predicates use only the receiving saved object. The positive
-        // control above proves the same-ID foreign projection really disagrees.
+        // control above proves the same-ID peer really disagrees.
         assert!(
             producer.is_alive(),
-            "receiving body remains alive despite a foreign same-ID projection"
+            "receiving body remains alive despite a same-ID peer"
         );
         assert!(
             producer.is_constructed(),
-            "receiving construction state cannot be replaced by a foreign projection"
+            "receiving construction state cannot be replaced by a peer"
         );
         assert_eq!(producer.health.current, 1000.0);
         assert!(!producer.status.under_construction);
         assert_eq!(producer.construction_percent, 1.0);
-        let player = logic.get_player(0).unwrap();
+        let player = logic.get_player(OWNER_ID).unwrap();
         (
             result,
             json!({"generic_alive":producer.is_alive(),"generic_constructed":producer.is_constructed(),
@@ -426,83 +462,46 @@ fn load_with_foreign_shadow(
             "produced":player.power_produced,"consumed":player.power_consumed,"available":player.power_available}),
         )
     };
-    let after = shadow_state(&shadow);
+    let after = foreign_state(&foreign);
     write_json(
-        &dir.join("reader-foreign-shadow.json"),
+        &dir.join("reader-foreign-world.json"),
         &json!({"before":before,"after":after,"receiving":receiving,"result":format!("{result:?}")}),
     );
     assert_eq!(
         before, after,
-        "restore must not modify the foreign shadow's eligibility state"
+        "restore must not modify the peer world's eligibility state"
     );
-    result.unwrap();
 }
 
-fn admit_scripts(logic: &mut GameLogic) -> Value {
-    assert!(!logic.scripts_loaded);
-    let mut list = ScriptList::new();
-    for (index, kind) in [ConditionType::PlayerHasPower, ConditionType::ConditionTrue]
-        .into_iter()
-        .enumerate()
-    {
-        let mut condition = Condition::new(kind);
-        if index == 0 {
-            condition
-                .add_parameter(Parameter::with_string(ParameterType::Side, OWNER.into()))
-                .unwrap();
-        }
-        let mut or_condition = OrCondition::new();
-        or_condition.set_first_and_condition(Some(Box::new(condition)));
-        let mut action = ScriptAction::new(ScriptActionType::SetFlag);
-        action
-            .add_parameter(Parameter::with_string(
-                ParameterType::Flag,
-                if index == 0 { POWER_FLAG } else { SEEN_FLAG }.into(),
-            ))
-            .unwrap();
-        action
-            .add_parameter(Parameter::with_int(ParameterType::Boolean, 1))
-            .unwrap();
-        let mut script = Script::new();
-        script.script_name = SCRIPTS[index].into();
-        script.is_one_shot = true;
-        script.delay_evaluation_seconds = 0;
-        script.condition = Some(Box::new(or_condition));
-        script.action = Some(Box::new(action));
-        list.append_script(Box::new(script));
-    }
-    let authored = serde_json::to_value(&list).unwrap();
-    let engine = ScriptEngine::new_in_published_world().unwrap();
-    assert!(engine.action_handler().is_none());
-    engine
-        .set_script_list_for_player(0, Some(Box::new(list)))
-        .unwrap();
+fn observe_authored_scripts(logic: &GameLogic) -> Value {
+    assert!(logic.scripts_loaded);
+    let engine = logic.owned_script_engine.as_ref().unwrap();
     for flag in [POWER_FLAG, SEEN_FLAG] {
         engine.set_flag(flag, false).unwrap();
     }
-    // This is identical definition admission before save/load, never a load
-    // repair. Zero-delay list admission consumes no scheduling randomness.
-    *get_script_engine().write().unwrap() = Some(engine);
-    logic.scripts_loaded = true;
-    authored
+    let scripts = SCRIPTS.map(|name| {
+        let script = engine.find_script_clone_by_name(name).unwrap();
+        assert!(script.is_active && script.is_one_shot);
+        script
+    });
+    serde_json::to_value(scripts).unwrap()
 }
 
-fn script_state() -> Value {
-    with_script_engine_ref(|engine| {
-        let scripts: Vec<_> = SCRIPTS.into_iter().map(|name| {
-            let script = engine.find_script_clone_by_name(name).unwrap();
-            json!({"name":name,"active":script.is_active,"one_shot":script.is_one_shot,
-                "due_frame":script.frame_to_evaluate_at,"delay_seconds":script.delay_evaluation_seconds})
-        }).collect();
-        let (counters, flags) = engine.snapshot_named_trackers();
-        json!({"power_flag":engine.get_flag(POWER_FLAG).unwrap().value,
-            "first_frame_seen":engine.get_flag(SEEN_FLAG).unwrap().value,
-            "scripts":scripts,"flags":flags,"counters":counters})
-    }).unwrap()
+fn script_state(logic: &GameLogic) -> Value {
+    let engine = logic.owned_script_engine.as_ref().unwrap();
+    let scripts: Vec<_> = SCRIPTS.into_iter().map(|name| {
+        let script = engine.find_script_clone_by_name(name).unwrap();
+        json!({"name":name,"active":script.is_active,"one_shot":script.is_one_shot,
+            "due_frame":script.frame_to_evaluate_at,"delay_seconds":script.delay_evaluation_seconds})
+    }).collect();
+    let (counters, flags) = engine.snapshot_named_trackers();
+    json!({"power_flag":engine.get_flag(POWER_FLAG).unwrap().value,
+        "first_frame_seen":engine.get_flag(SEEN_FLAG).unwrap().value,
+        "scripts":scripts,"flags":flags,"counters":counters})
 }
 
 fn observe(logic: &GameLogic) -> Value {
-    let player = logic.get_player(0).unwrap();
+    let player = logic.get_player(OWNER_ID).unwrap();
     let mut objects: Vec<_> = logic.host_objects().registered_values().collect();
     objects.sort_by_key(|object| object.id.0);
     let objects: Vec<_> = objects.into_iter().map(|object| json!({
@@ -522,12 +521,12 @@ fn observe(logic: &GameLogic) -> Value {
         "available":player.power_available,"resources_power":player.resources.power,
         "sabotaged_till_frame":player.power_sabotaged_till_frame},
         "objects":objects,"ai_count":logic.host_ai_player_count(),"scripts_loaded":logic.scripts_loaded,
-        "script_state":script_state()})
+        "script_state":script_state(logic)})
 }
 
 // Collect errors and continue both frames so a stale scalar cannot hide the
 // actual scheduled script observation, or its persistence after convergence.
-fn violations(logic: &GameLogic, case: Case, updates: u32) -> Vec<String> {
+fn violations(logic: &GameLogic, case: Case, updates: u32, restored: bool) -> Vec<String> {
     let value = observe(logic);
     let mut errors = Vec::new();
     let mut require = |ok: bool, message: &str| {
@@ -540,7 +539,7 @@ fn violations(logic: &GameLogic, case: Case, updates: u32) -> Vec<String> {
         "ordinary frame progression",
     );
     require(
-        logic.get_players().len() == 1 && logic.host_objects().registered_len() == 2,
+        logic.get_players().len() == 2 && logic.host_objects().registered_len() == 2,
         "exact player/object population",
     );
     require(
@@ -551,7 +550,7 @@ fn violations(logic: &GameLogic, case: Case, updates: u32) -> Vec<String> {
     );
     require(value["ai_count"] == 0, "empty AI roster");
     require(
-        value["player"]["produced"] == case.expected_produced(),
+        value["player"]["produced"] == case.expected_produced(restored),
         "derived production",
     );
     require(
@@ -559,7 +558,7 @@ fn violations(logic: &GameLogic, case: Case, updates: u32) -> Vec<String> {
         "derived consumption",
     );
     require(
-        value["player"]["available"] == case.expected_produced() - case.consumed,
+        value["player"]["available"] == case.expected_available(restored),
         "derived available power",
     );
     require(
@@ -574,7 +573,7 @@ fn violations(logic: &GameLogic, case: Case, updates: u32) -> Vec<String> {
     for (index, name) in [PRODUCER, CONSUMER].into_iter().enumerate() {
         let object = logic.host_object(ObjectId(index as u32 + 1)).unwrap();
         require(
-            object.owner_player_id == Some(0)
+            object.owner_player_id == Some(OWNER_ID)
                 && object.team == Team::GLA
                 && object.get_template().name == name,
             "exact object identity/ownership",
@@ -621,7 +620,7 @@ fn violations(logic: &GameLogic, case: Case, updates: u32) -> Vec<String> {
         );
     }
     let scripts = &value["script_state"];
-    let has_power = case.control != Control::Sabotaged && case.expected_produced() >= case.consumed;
+    let has_power = case.control != Control::Sabotaged && case.expected_produced(restored) >= case.consumed;
     require(
         scripts["first_frame_seen"] == (updates > 0),
         "unconditional first-frame script observer",
@@ -647,7 +646,7 @@ fn info() -> SaveGameInfo {
         filename: "power".into(),
         display_name: "Saved power first frame".into(),
         description: String::new(),
-        map_name: "SavedPowerFixture".into(),
+        map_name: MAP.into(),
         campaign_side: None,
         mission_number: None,
         save_date: UNIX_EPOCH + Duration::from_secs(1),
@@ -679,17 +678,17 @@ fn saved_power_process() {
     if role == "writer" {
         admit_source(&mut logic, case);
     } else {
-        assert!(logic.get_players().is_empty() && logic.host_objects().registered_is_empty());
+        assert!(logic.get_players().len() == 2 && logic.host_objects().registered_is_empty());
     }
-    let authored_scripts = admit_scripts(&mut logic);
+    let authored_scripts = observe_authored_scripts(&logic);
     let inputs = json!({"catalog":catalog(&logic, case),"scripts":authored_scripts,
-        "initial_script_state":script_state(),"owner":{"id":0,"name":OWNER,"faction":"GLA"},
+        "initial_script_state":script_state(&logic),"owner":{"id":OWNER_ID,"name":OWNER,"faction":"GLA"},
         "control":format!("{:?}",case.control),"source_warmup_frames":1,"post_load_mutations":"ordinary GameLogic::update only"});
     write_json(&dir.join(format!("{role}-inputs.json")), &inputs);
     let mut manager = SaveFileManager::with_save_directory(dir.join("saves"));
     manager.init().unwrap();
     if role == "writer" {
-        let admission_errors = violations(&logic, case, 0);
+        let admission_errors = violations(&logic, case, 0, false);
         write_json(
             &dir.join("writer-admission.json"),
             &json!({"observation":observe(&logic),"violations":admission_errors}),
@@ -708,7 +707,7 @@ fn saved_power_process() {
     } else {
         // Decode evidence only; load_game below repeats the public decode and
         // clears/re-stages its compatibility companions normally.
-        let generals_main::save_load::DecodedGameSave {
+        let crate::save_load::DecodedGameSave {
             snapshot: decoded, ..
         } = manager.load_game_snapshot("power").unwrap();
         let producer = &decoded.objects[&ObjectId(1)];
@@ -719,29 +718,29 @@ fn saved_power_process() {
             "producer_type":producer.object_type}),
         );
         let economy_before =
-            generals_main::presentation_frame::PresentationFrame::build_from_logic(&mut logic, 0)
+            crate::presentation_frame::PresentationFrame::build_from_logic(&mut logic, OWNER_ID)
                 .events
                 .iter()
                 .filter(|event| {
                     matches!(
                         event,
-                        generals_main::presentation_frame::PresentationEvent::EconomyChanged { .. }
+                        crate::presentation_frame::PresentationEvent::EconomyChanged { .. }
                     )
                 })
                 .count();
-        if case.foreign_shadow() {
-            load_with_foreign_shadow(&mut manager, &mut logic, case, &dir);
+        if case.foreign_world() {
+            load_with_foreign_world(&mut manager, &mut logic, case, &dir);
         } else {
             manager.load_game("power", &mut logic).unwrap();
         }
         let economy_after =
-            generals_main::presentation_frame::PresentationFrame::build_from_logic(&mut logic, 0)
+            crate::presentation_frame::PresentationFrame::build_from_logic(&mut logic, OWNER_ID)
                 .events
                 .iter()
                 .filter(|event| {
                     matches!(
                         event,
-                        generals_main::presentation_frame::PresentationEvent::EconomyChanged { .. }
+                        crate::presentation_frame::PresentationEvent::EconomyChanged { .. }
                     )
                 })
                 .count();
@@ -762,7 +761,7 @@ fn saved_power_process() {
             logic.update();
         }
         let observation = observe(&logic);
-        let current_errors = violations(&logic, case, updates);
+        let current_errors = violations(&logic, case, updates, role == "reader");
         let entry =
             json!({"updates":updates,"observation":observation,"violations":current_errors});
         serde_json::to_writer(&mut journal, &entry).unwrap();
@@ -795,7 +794,7 @@ fn child(dir: &Path, case: Case, role: &str) -> bool {
     let output = Command::new(std::env::current_exe().unwrap())
         .args([
             "--exact",
-            CHILD_TEST,
+            CHILD_TEST.split_once("::").unwrap().1,
             "--ignored",
             "--nocapture",
             "--test-threads=1",
@@ -811,7 +810,31 @@ fn child(dir: &Path, case: Case, role: &str) -> bool {
         &dir.join(format!("{role}-status.json")),
         &json!({"success":output.status.success(),"exit_code":output.status.code()}),
     );
-    output.status.success()
+    output.status.success() && dir.join(format!("{role}.json")).is_file()
+}
+
+fn expected_loaded_observations(case: Case, writer: &Value) -> Value {
+    let mut expected = writer.clone();
+    if case.control != Control::DisabledProducer {
+        return expected;
+    }
+    for (index, observation) in expected.as_array_mut().unwrap().iter_mut().enumerate() {
+        observation["player"]["produced"] = json!(case.expected_produced(true));
+        observation["player"]["available"] = json!(case.expected_available(true));
+        if index > 0 {
+            let scripts = &mut observation["script_state"];
+            scripts["power_flag"] = json!(true);
+            scripts["scripts"][0]["active"] = json!(false);
+            let power_flag = scripts["flags"]
+                .as_array_mut()
+                .unwrap()
+                .iter_mut()
+                .find(|row| row[0] == POWER_FLAG)
+                .unwrap();
+            power_flag[1] = json!(true);
+        }
+    }
+    expected
 }
 
 #[test]
@@ -829,6 +852,7 @@ fn saved_power_survives_first_frame_scripts() {
         let locomotor = dir.join(LOCOMOTOR_PATH);
         fs::create_dir_all(locomotor.parent().unwrap()).unwrap();
         fs::write(locomotor, LOCOMOTOR_INI).unwrap();
+        write_fixture_map(&dir.join(MAP));
         let writer_ok = child(&dir, case, "writer");
         let reader_ok = writer_ok && child(&dir, case, "reader");
         println!(
@@ -851,10 +875,14 @@ fn saved_power_survives_first_frame_scripts() {
         let writer = read("writer");
         let reader = read("reader");
         assert_ne!(writer["pid"], reader["pid"]);
+        let expected = expected_loaded_observations(case, &writer["observations"]);
         let mut differences = Vec::new();
+        if expected != reader["observations"] {
+            differences.push("observations");
+            failures.push(format!("{} loaded observations differ", case.name));
+        }
         for field in [
             "inputs",
-            "observations",
             "save_bytes",
             "save_crc32",
             "source_crc32",
@@ -867,15 +895,15 @@ fn saved_power_survives_first_frame_scripts() {
         write_json(
             &dir.join("comparison.json"),
             &json!({"differences":differences,
-            "checkpoint_equal":writer["observations"][0] == reader["observations"][0],
-            "first_frame_equal":writer["observations"][1] == reader["observations"][1],
-            "second_frame_equal":writer["observations"][2] == reader["observations"][2]}),
+            "checkpoint_equal":expected[0] == reader["observations"][0],
+            "first_frame_equal":expected[1] == reader["observations"][1],
+            "second_frame_equal":expected[2] == reader["observations"][2]}),
         );
     }
     write_json(
         &root.join("summary.json"),
         &json!({"cases":CASES.len(),"failures":failures,
-        "scope":"real-file derived power and scheduled first-frame continuation; eligibility preservation and conflicting same-ID shadow controls; no C++ runtime or whole-world isolation claim"}),
+        "scope":"real-file derived power and scheduled first-frame continuation; eligibility preservation and conflicting same-ID peer controls; no C++ runtime or whole-world isolation claim"}),
     );
     assert!(failures.is_empty(), "{failures:?}");
 }
