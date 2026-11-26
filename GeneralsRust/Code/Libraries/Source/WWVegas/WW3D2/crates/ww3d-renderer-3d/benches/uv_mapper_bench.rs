@@ -3,8 +3,9 @@
 //! Measures the performance characteristics of animated texture coordinate transformations.
 //! Validates that UV mapper operations maintain 60+ FPS performance.
 
-use bytemuck::Pod;
-use criterion::{BenchmarkId, Criterion, black_box, criterion_group, criterion_main};
+use bytemuck::{Pod, Zeroable};
+use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
+use std::hint::black_box;
 use glam::Vec2;
 
 /// Benchmark LinearOffset mapper performance
@@ -433,7 +434,7 @@ fn bench_uniform_buffer_update(c: &mut Criterion) {
     // Simulating buffer update (bytemuck cast)
     group.bench_function("cast_uniform_to_bytes", |b| {
         #[repr(C)]
-        #[derive(Debug, Clone, Copy, Pod)]
+        #[derive(Debug, Clone, Copy, Zeroable, Pod)]
         struct UVTransformUniform {
             mapper_type: u32,
             mapper_args: [i32; 4],
@@ -441,14 +442,6 @@ fn bench_uniform_buffer_update(c: &mut Criterion) {
             animation_time: f32,
             _pad: [f32; 3],
         }
-
-        // Safety: UVTransformUniform is a POD type with #[repr(C)]
-        // which guarantees proper alignment and no invalid bit patterns
-        // SAFETY: UVTransformUniform is #[repr(C)] over plain integers and
-        // floats (u32, [i32; 4], [f32; 4], f32, [f32; 3]) with alignment 4 and
-        // no implicit padding, references, or invalid bit patterns, so the
-        // all-bits-zero value is a valid instance of the type.
-        unsafe impl bytemuck::Zeroable for UVTransformUniform {}
 
         let uniform = UVTransformUniform {
             mapper_type: 4,

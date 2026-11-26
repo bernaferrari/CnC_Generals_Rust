@@ -84,10 +84,6 @@
       "constructs": 10,
       "undocumented": 0
     },
-    "Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-renderer-3d/benches/uv_mapper_bench.rs": {
-      "constructs": 1,
-      "undocumented": 0
-    },
     "Code/Main/src/assets/manager.rs": {
       "constructs": 1,
       "undocumented": 0
