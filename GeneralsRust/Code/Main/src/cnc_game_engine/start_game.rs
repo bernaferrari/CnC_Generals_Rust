@@ -2569,7 +2569,7 @@ mod tests {
                     else { ((0x78, 0x9a, 0xbc), (0x44, 0x55, 0x66)) };
                 let player = world.get_player(0).unwrap();
                 assert_eq!((player.start_position, player.color_rgb, player.color_night_rgb), (expected_start, day, night));
-                let frame = crate::presentation_frame::PresentationFrame::build_from_logic(&mut world, 0);
+                let frame = crate::presentation_frame::PresentationFrame::try_build_from_logic(&mut world, 0).unwrap();
                 assert_eq!(frame.players.iter().find(|player| player.id == 0).unwrap().color_rgb, day);
             },
         );

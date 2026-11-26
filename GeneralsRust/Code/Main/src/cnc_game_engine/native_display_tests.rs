@@ -41,7 +41,7 @@ fn guardband_is_owned_persistent_after_request_drain_and_reset_does_not_reset_di
     let mut peer = GameLogic::new();
     world.queue_pending_view_guardband(4., 9.);
     assert!(world.take_view_guardband_request().is_some());
-    let frame = crate::presentation_frame::PresentationFrame::build_from_logic(&mut world, 0);
+    let frame = crate::presentation_frame::PresentationFrame::try_build_from_logic(&mut world, 0).unwrap();
     assert_eq!(
         frame.view_guardband,
         Some((4., 9.)),

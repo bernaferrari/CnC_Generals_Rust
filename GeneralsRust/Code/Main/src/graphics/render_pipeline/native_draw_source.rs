@@ -29,7 +29,7 @@ mod tests {
              Draw = W3DModelDraw MainDraw\nDefaultConditionState\nModel = ObserverMesh\nEnd\nEnd\nEnd\n".into(),
         )]).unwrap()).unwrap();
         let id = world.create_object_for_player("DisplayObserver", 0, glam::Vec3::ZERO).unwrap();
-        let mut frame = crate::presentation_frame::PresentationFrame::build_from_logic(&mut world, 0);
+        let mut frame = crate::presentation_frame::PresentationFrame::try_build_from_logic(&mut world, 0).unwrap();
         let index = frame.direct_host_drawables.iter().position(|entry| entry.object.id == id).unwrap();
         let models = frame.direct_host_drawables[index].object.receiving_draw_models.clone().unwrap();
 

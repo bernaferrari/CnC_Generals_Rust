@@ -112,7 +112,7 @@ pub(super) fn run_host_session(
     let mut rts = RTSInterface::new();
     let mut command_panel = UnitCommandPanel::new();
     let mut publish = |logic: &mut GameLogic, with_victory| {
-        let frame = PresentationFrame::try_publish_for_engine_with_runtime_heightmap(
+        let frame = PresentationFrame::try_publish(
             logic, 0, None, with_victory,
         )
         .map_err(gamelogic::GameLogicError::Configuration)?;

@@ -17,7 +17,7 @@ fn unlocked_powers_without_registered_structures_do_not_create_public_timers() {
     peer.add_player(peer_player);
 
     for game in [&mut world, &mut peer] {
-        let frame = PresentationFrame::build_from_logic(game, 0);
+        let frame = PresentationFrame::try_build_from_logic(game, 0).unwrap();
         assert!(
             frame.superweapon_timers.is_empty(),
             "public timers require a registered structure: {:?}",
@@ -34,6 +34,7 @@ fn registered_public_timer_remains_visible_only_in_its_world() {
     peer.add_player(Player::new(0, Team::USA, "Peer", true));
     let mut template = ThingTemplate::new("TimerStructure");
     template.add_kind_of(KindOf::Structure).set_health(100.0);
+    template.has_special_power_create = true;
     template
         .special_power_modules
         .push(SpecialPowerModuleMetadata {
@@ -55,13 +56,16 @@ fn registered_public_timer_remains_visible_only_in_its_world() {
         });
     owner.templates.insert(template.name.clone(), template);
     let id = owner
-        .create_object_for_player("TimerStructure", 0, glam::Vec3::ZERO)
+        .create_object_under_construction_for_player("TimerStructure", 0, glam::Vec3::ZERO, 0.0)
+        .unwrap()
         .unwrap();
-    owner.host_object_mut(id).unwrap().status.under_construction = false;
-    let owner_frame = PresentationFrame::build_from_logic(&mut owner, 0);
+    let scaffold_frame = PresentationFrame::try_build_from_logic(&mut owner, 0).unwrap();
+    assert!(scaffold_frame.superweapon_timers.is_empty());
+
+    owner.notify_structure_construction_complete(id).unwrap();
+    let owner_frame = PresentationFrame::try_build_from_logic(&mut owner, 0).unwrap();
     assert_eq!(owner_frame.superweapon_timers.len(), 1);
     assert!(owner_frame.superweapon_timers[0].name.contains("Particle"));
-    assert!(PresentationFrame::build_from_logic(&mut peer, 0)
-        .superweapon_timers
-        .is_empty());
+    let peer_frame = PresentationFrame::try_build_from_logic(&mut peer, 0).unwrap();
+    assert!(peer_frame.superweapon_timers.is_empty());
 }

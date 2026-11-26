@@ -270,7 +270,7 @@ fn actual_map_solo_non40_grid_drives_loaded_objects_frozen_fow_and_peer_reset() 
                     .get_host_object_shroud_status(peer_local, peer_id.0),
                 Some(gamelogic::common::ObjectShroudStatus::Clear)
             );
-            let frozen = PresentationFrame::build_from_logic(&mut owner, local)
+            let frozen = PresentationFrame::try_build_from_logic(&mut owner, local).unwrap()
                 .fow_grid()
                 .clone();
             assert_eq!((frozen.width, frozen.height, frozen.cell_size), (7, 7, 64.));
@@ -279,7 +279,7 @@ fn actual_map_solo_non40_grid_drives_loaded_objects_frozen_fow_and_peer_reset() 
                 frozen.state_at_world_xy(110., 110.),
                 crate::fow_rendering::PresentationFowGrid::CELL_HIDDEN
             );
-            let peer_frozen = PresentationFrame::build_from_logic(&mut peer, peer_local)
+            let peer_frozen = PresentationFrame::try_build_from_logic(&mut peer, peer_local).unwrap()
                 .fow_grid()
                 .clone();
             assert_eq!(

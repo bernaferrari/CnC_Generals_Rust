@@ -5,7 +5,7 @@ fn startup_camera_terrain_frame(
     samples: &[(usize, usize, u8)],
 ) -> crate::presentation_frame::PresentationFrame {
     let mut logic = crate::game_logic::GameLogic::new();
-    let mut frame = crate::presentation_frame::PresentationFrame::build_from_logic(&mut logic, 0);
+    let mut frame = crate::presentation_frame::PresentationFrame::try_build_from_logic(&mut logic, 0).unwrap();
     let mut map = crate::presentation_frame::PresentationRuntimeHeightmap {
         width: 12,
         height: 12,

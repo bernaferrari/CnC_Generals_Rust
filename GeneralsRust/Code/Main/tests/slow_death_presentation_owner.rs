@@ -39,11 +39,11 @@ fn slow_death_stays_with_receiving_world_during_peer_publication() {
     let (mut peer, peer_id) = world(false);
     assert_eq!(id, peer_id);
 
-    let owner_frame = PresentationFrame::build_from_logic(&mut owner, 0);
+    let owner_frame = PresentationFrame::try_build_from_logic(&mut owner, 0).unwrap();
     assert!(owner_frame.objects.iter().any(|object| object.id == id));
     for _ in 0..3 {
         peer.update();
-        let peer_frame = PresentationFrame::build_from_logic(&mut peer, 0);
+        let peer_frame = PresentationFrame::try_build_from_logic(&mut peer, 0).unwrap();
         assert!(peer_frame.objects.iter().any(|object| object.id == peer_id));
     }
     assert_eq!(owner.getFrame(), 0);
@@ -76,8 +76,8 @@ fn slow_death_stays_with_receiving_world_during_peer_publication() {
         "a same-ID peer stays alive"
     );
     peer.update();
-    let retired = PresentationFrame::build_from_logic(&mut owner, 0);
-    let peer_frame = PresentationFrame::build_from_logic(&mut peer, 0);
+    let retired = PresentationFrame::try_build_from_logic(&mut owner, 0).unwrap();
+    let peer_frame = PresentationFrame::try_build_from_logic(&mut peer, 0).unwrap();
     assert!(retired.objects.iter().all(|object| object.id != id));
     assert!(peer.host_object(peer_id).is_some());
     assert!(peer_frame.objects.iter().any(|object| object.id == peer_id));

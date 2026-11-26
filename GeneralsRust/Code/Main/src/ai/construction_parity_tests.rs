@@ -227,7 +227,7 @@ fn actual_factory_energy_is_visible_to_hud_ai_and_radar_before_any_periodic_tick
         ai.select_priority_or_power_build(&world, 0., !player.has_sufficient_energy_at(frame)),
         Some(0)
     );
-    let hud = crate::presentation_frame::PresentationFrame::build_from_logic(&mut world, 1);
+    let hud = crate::presentation_frame::PresentationFrame::try_build_from_logic(&mut world, 1).unwrap();
     assert_eq!(
         (
             hud.local_power,

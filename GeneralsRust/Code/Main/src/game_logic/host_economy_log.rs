@@ -126,7 +126,7 @@ mod owned_receipt_tests {
         owner.economy_events.complete_boundary();
         assert!(withdraw(&mut peer, 200));
         peer.economy_events.complete_boundary();
-        let peer_frame = PresentationFrame::build_from_logic(&mut peer, 0);
+        let peer_frame = PresentationFrame::try_build_from_logic(&mut peer, 0).unwrap();
         assert_eq!(
             peer_frame.money_audio_receipts,
             vec![HostMoneyAudioEvent {
@@ -149,7 +149,7 @@ mod owned_receipt_tests {
         assert!(peer.economy_events.take_completed().is_empty());
         assert!(peer.economy_events.take_money_audio().is_empty());
         assert_eq!(peer.get_player(0).unwrap().resources.supplies, 925);
-        let frame = PresentationFrame::build_from_logic(&mut owner, 0);
+        let frame = PresentationFrame::try_build_from_logic(&mut owner, 0).unwrap();
         let cash = frame
             .events
             .iter()
@@ -180,7 +180,7 @@ mod owned_receipt_tests {
         credit(&mut peer, 7);
         let _ = frame.collect_audio_events();
         assert_eq!(peer.economy_events.take_money_audio().len(), 1);
-        let again = PresentationFrame::build_from_logic(&mut owner, 0);
+        let again = PresentationFrame::try_build_from_logic(&mut owner, 0).unwrap();
         assert!(again.money_audio_receipts.is_empty());
         assert!(
             !again

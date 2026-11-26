@@ -171,7 +171,7 @@ fn sabotage_snapshot_restores_raw_grid_and_future_deadline_without_replaying_adm
 #[test]
 fn actual_presentation_masks_and_recovers_at_deadline_without_an_economy_tick() {
     let (mut world, _, _) = authored_world();
-    let frozen = crate::presentation_frame::PresentationFrame::build_from_logic(&mut world, 1);
+    let frozen = crate::presentation_frame::PresentationFrame::try_build_from_logic(&mut world, 1).unwrap();
     assert_eq!(
         (
             frozen.local_power_produced,
@@ -193,7 +193,7 @@ fn actual_presentation_masks_and_recovers_at_deadline_without_an_economy_tick() 
     // Cached power_available still reflects frame37. Energy observers must
     // derive their current result from the single raw owner and current frame.
     assert_eq!(world.players[&1].power_available, -10);
-    let recovered = crate::presentation_frame::PresentationFrame::build_from_logic(&mut world, 1);
+    let recovered = crate::presentation_frame::PresentationFrame::try_build_from_logic(&mut world, 1).unwrap();
     assert_eq!(
         (
             recovered.local_power_produced,
@@ -319,7 +319,7 @@ fn actual_presentation_preserves_disabled_producer_zero_and_exact_missing_owner(
         world.objects[&id].power_provided, 20,
         "template output remains positive while disabled"
     );
-    let zero = crate::presentation_frame::PresentationFrame::build_from_logic(&mut world, 1);
+    let zero = crate::presentation_frame::PresentationFrame::try_build_from_logic(&mut world, 1).unwrap();
     assert_eq!(
         (
             zero.local_power,
@@ -330,13 +330,13 @@ fn actual_presentation_preserves_disabled_producer_zero_and_exact_missing_owner(
     );
     assert!(zero.eva_context.local_player.unwrap().sufficient_power);
     peer.restore_player_power();
-    let other = crate::presentation_frame::PresentationFrame::build_from_logic(&mut peer, 1);
+    let other = crate::presentation_frame::PresentationFrame::try_build_from_logic(&mut peer, 1).unwrap();
     assert_eq!(other.local_power_produced, 20);
     // Two local players of the same faction never authorize ID99's view.
     let mut other_local = Player::new(2, Team::USA, "OtherLocal", true);
     other_local.power_produced = 35;
     world.add_player(other_local);
-    let missing = crate::presentation_frame::PresentationFrame::build_from_logic(&mut world, 99);
+    let missing = crate::presentation_frame::PresentationFrame::try_build_from_logic(&mut world, 99).unwrap();
     assert_eq!(
         (
             missing.local_power,

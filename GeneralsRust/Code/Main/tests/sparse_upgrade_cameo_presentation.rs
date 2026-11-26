@@ -30,7 +30,7 @@ fn selected_world_preserves_sparse_upgrade_cameo_positions() {
         .unwrap();
     world.host_object_mut(id).unwrap().selected = true;
     world.get_player_mut(0).unwrap().selected_objects = vec![id];
-    let frame = PresentationFrame::build_from_logic(&mut world, 0);
+    let frame = PresentationFrame::try_build_from_logic(&mut world, 0).unwrap();
     let mut catalog = gamelogic::upgrade::center::UpgradeCenter::new();
     catalog.new_upgrade("Upgrade_Second".into());
     catalog.new_upgrade("Upgrade_Fifth".into());

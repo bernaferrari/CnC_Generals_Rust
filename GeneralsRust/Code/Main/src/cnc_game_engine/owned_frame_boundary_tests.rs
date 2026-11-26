@@ -439,13 +439,13 @@ fn ordinary_boundary_preserves_actual_move_commands_for_presentation_case() {
     assert!(completed.iter().any(|event| event.logic_frame == 0));
     assert!(completed.iter().any(|event| event.logic_frame == 1));
 
-    let foreign_frame = PresentationFrame::build_from_logic(&mut other, 0);
+    let foreign_frame = PresentationFrame::try_build_from_logic(&mut other, 0).unwrap();
     assert!(foreign_frame.events.iter().any(|event| matches!(event,
         PresentationEvent::MoveOrdered { session, destination, .. }
             if *session == other_session && *destination == foreign.to_array()
     )));
     assert_eq!(logic.movement_events.snapshot_completed(), completed);
-    let frame = PresentationFrame::build_from_logic(&mut logic, 0);
+    let frame = PresentationFrame::try_build_from_logic(&mut logic, 0).unwrap();
     let frozen: Vec<_> = frame
         .events
         .iter()
@@ -484,7 +484,7 @@ fn ordinary_boundary_preserves_actual_move_commands_for_presentation_case() {
         frozen, expected,
         "publication must preserve producing frame and FIFO receipts"
     );
-    let next = PresentationFrame::build_from_logic(&mut logic, 0);
+    let next = PresentationFrame::try_build_from_logic(&mut logic, 0).unwrap();
     assert!(
         !next
             .events
@@ -571,7 +571,7 @@ fn ordinary_boundary_keeps_actual_construction_completion_pending_for_presentati
     assert!(!logic.host_object(id).unwrap().status.under_construction);
     assert!(logic.construction_events.has_pending(id));
 
-    let frame = crate::presentation_frame::PresentationFrame::build_from_logic(&mut logic, 0);
+    let frame = crate::presentation_frame::PresentationFrame::try_build_from_logic(&mut logic, 0).unwrap();
     assert!(frame.events.iter().any(|event| matches!(
         event,
         crate::presentation_frame::PresentationEvent::ConstructionComplete {

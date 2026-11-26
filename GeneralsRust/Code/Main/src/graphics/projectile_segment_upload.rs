@@ -135,7 +135,7 @@ mod tests {
     #[test]
     fn empty_pack_is_honest() {
         let mut logic = GameLogic::new();
-        let frame = PresentationFrame::build_from_logic(&mut logic, 0);
+        let frame = PresentationFrame::try_build_from_logic(&mut logic, 0).unwrap();
         let pack = ProjectileSegmentUpload::pack_from_presentation(&frame);
         assert!(pack.honesty.cpu_pack_ok);
         assert!(!pack.honesty.has_geometry);
@@ -155,7 +155,7 @@ mod tests {
             Some(ObjectId(2)),
             100.0,
         );
-        let frame = PresentationFrame::build_from_logic(&mut logic, 0);
+        let frame = PresentationFrame::try_build_from_logic(&mut logic, 0).unwrap();
         assert!(!frame.projectiles.is_empty());
         let pack = ProjectileSegmentUpload::pack_from_presentation(&frame);
         assert!(pack.honesty.has_geometry);

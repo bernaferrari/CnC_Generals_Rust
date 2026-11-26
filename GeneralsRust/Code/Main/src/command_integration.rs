@@ -1229,7 +1229,7 @@ mod tests {
         humvee.set_position(Vec3::new(40.0, 0.0, 0.0));
         game_logic.add_object(humvee);
 
-        let frame = PresentationFrame::build_from_logic(&mut game_logic, 0);
+        let frame = PresentationFrame::try_build_from_logic(&mut game_logic, 0).unwrap();
         let processor = InputCommandProcessor::new();
         let target = processor
             .presentation_target_hint(&frame, humvee_id)
@@ -1434,7 +1434,7 @@ End
             game_logic.can_unit_enter_normal_target(slow_rider_id, bike_id),
             "SET_SLUGGISH Terrorist row must be physically enterable"
         );
-        let frame = PresentationFrame::build_from_logic(&mut game_logic, 0);
+        let frame = PresentationFrame::try_build_from_logic(&mut game_logic, 0).unwrap();
         let processor = InputCommandProcessor::new();
         let target = processor
             .presentation_target_hint(&frame, bike_id)
@@ -1476,7 +1476,7 @@ End
         rows.insert(0, rejected);
         let blocked_bike_id = ObjectId(810);
         game_logic.add_object(Object::new(disabled_first, blocked_bike_id, Team::GLA));
-        let roster_frame = PresentationFrame::build_from_logic(&mut game_logic, 0);
+        let roster_frame = PresentationFrame::try_build_from_logic(&mut game_logic, 0).unwrap();
         let peer_target = processor.presentation_target_hint(&roster_frame, peer_bike_id).unwrap();
         assert_eq!(
             peer_target.rider_change_allowed_templates,
@@ -1611,7 +1611,7 @@ End
 
         // C++ RiderChangeContain::onContaining chooseLocomotorSet(SET_SLUGGISH).
         assert!(game_logic.set_registered_object_position(slow_rider_id, bike_position));
-        let frame = PresentationFrame::build_from_logic(&mut game_logic, 0);
+        let frame = PresentationFrame::try_build_from_logic(&mut game_logic, 0).unwrap();
         let target = processor
             .presentation_target_hint(&frame, bike_id)
             .expect("bike still a RiderChange target");
@@ -1698,7 +1698,7 @@ End
         garrison.set_position(Vec3::new(40.0, 0.0, 0.0));
         game_logic.add_object(garrison);
 
-        let frame = PresentationFrame::build_from_logic(&mut game_logic, 0);
+        let frame = PresentationFrame::try_build_from_logic(&mut game_logic, 0).unwrap();
         let processor = InputCommandProcessor::new();
         let target = processor
             .presentation_target_hint(&frame, garrison_id)
@@ -1800,7 +1800,7 @@ End
             "two same-faction player slots must not share an ordinary transport"
         );
 
-        let frame = PresentationFrame::build_from_logic(&mut game_logic, 0);
+        let frame = PresentationFrame::try_build_from_logic(&mut game_logic, 0).unwrap();
         let processor = InputCommandProcessor::new();
         let target = processor
             .presentation_target_hint(&frame, transport_id)
@@ -1889,7 +1889,7 @@ End
             "two used slots plus a two-slot rider must not fit in Slots=3"
         );
 
-        let frame = PresentationFrame::build_from_logic(&mut game_logic, 0);
+        let frame = PresentationFrame::try_build_from_logic(&mut game_logic, 0).unwrap();
         let processor = InputCommandProcessor::new();
         let target = processor
             .presentation_target_hint(&frame, transport_id)

@@ -29,7 +29,7 @@ fn camera_continuation_actual_archives_keep_pending_requests_with_each_candidate
     let mut restored = GameLogic::new();
     saves.restore_game_snapshot(&a_save, &mut restored).unwrap();
     assert_eq!(restored.capture_camera_continuation().unwrap(), a_camera);
-    let frozen = crate::presentation_frame::PresentationFrame::build_from_logic(&mut restored, 0);
+    let frozen = crate::presentation_frame::PresentationFrame::try_build_from_logic(&mut restored, 0).unwrap();
     let admitted = restored.acknowledge_frozen_camera_requests(&frozen);
     assert!(admitted.zoom && admitted.pitch);
     assert_eq!(admitted.screen_shakes, 1);

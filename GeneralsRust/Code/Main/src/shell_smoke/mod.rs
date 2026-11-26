@@ -25,7 +25,7 @@ fn run_shell_session(
 ) -> gamelogic::GameLogicResult<ShellSmokeResult> {
     let host = host::run_host_session(logic, frames)?;
     let presentation =
-        presentation::evaluate_presentation_residuals(&host.pres, host.presentation_ok);
+        presentation::evaluate_presentation_residuals(&host.pres, host.presentation_ok)?;
     let (hud_selection_ok, selection_consumers_ok) = hud::evaluate_selection(&host, logic);
     let shell_ui = shell::evaluate_shell_ui();
     let host_path_ok = host.host_constructed

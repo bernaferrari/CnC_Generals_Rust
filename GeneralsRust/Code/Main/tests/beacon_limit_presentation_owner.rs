@@ -39,8 +39,8 @@ fn native_beacon_button_uses_each_worlds_owned_template_and_team_members() {
         .create_object_for_player("OtherObject", 0, glam::Vec3::ZERO)
         .unwrap();
     assert_eq!(beacon, other, "worlds deliberately reuse object identities");
-    let first_frame = PresentationFrame::build_from_logic(&mut first, 0);
-    let peer_frame = PresentationFrame::build_from_logic(&mut peer, 0);
+    let first_frame = PresentationFrame::try_build_from_logic(&mut first, 0).unwrap();
+    let peer_frame = PresentationFrame::try_build_from_logic(&mut peer, 0).unwrap();
     assert_eq!(first_frame.local_beacon_button_enabled, Some(false));
     assert_eq!(peer_frame.local_beacon_button_enabled, Some(true));
 
@@ -51,7 +51,7 @@ fn native_beacon_button_uses_each_worlds_owned_template_and_team_members() {
         .status
         .effectively_dead = true;
     assert_eq!(
-        PresentationFrame::build_from_logic(&mut first, 0).local_beacon_button_enabled,
+        PresentationFrame::try_build_from_logic(&mut first, 0).unwrap().local_beacon_button_enabled,
         Some(false)
     );
     first
@@ -59,7 +59,7 @@ fn native_beacon_button_uses_each_worlds_owned_template_and_team_members() {
         .unwrap()
         .status
         .under_construction = true;
-    let next = PresentationFrame::build_from_logic(&mut first, 0);
+    let next = PresentationFrame::try_build_from_logic(&mut first, 0).unwrap();
     assert_eq!(next.local_beacon_button_enabled, Some(true));
     assert_eq!(peer_frame.local_beacon_button_enabled, Some(true));
 

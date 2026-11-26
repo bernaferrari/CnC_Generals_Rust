@@ -196,18 +196,18 @@ fn presentation_freezes_live_and_recent_beacons_with_original_visibility_order()
         owner.note_beacon_placed(position);
     }
 
-    let hidden_living = PresentationFrame::build_from_logic(&mut owner, 0);
+    let hidden_living = PresentationFrame::try_build_from_logic(&mut owner, 0).unwrap();
     assert!(hidden_living.beacons.is_empty());
     assert_eq!(hidden_living.new_beacons, vec![outside, fallback]);
 
     owner.host_object_mut(enemy).unwrap().health.current = 0.0;
-    let hidden_dead = PresentationFrame::build_from_logic(&mut owner, 0);
+    let hidden_dead = PresentationFrame::try_build_from_logic(&mut owner, 0).unwrap();
     assert_eq!(hidden_dead.beacons, vec![outside, fallback]);
     assert_eq!(hidden_dead.new_beacons, vec![outside, fallback]);
 
     assert_eq!(place_result(&mut owner, 0, 25., "first"), CommandResult::Success);
     assert_eq!(place_result(&mut owner, 0, 41., "second"), CommandResult::Success);
-    let active = PresentationFrame::build_from_logic(&mut owner, 0);
+    let active = PresentationFrame::try_build_from_logic(&mut owner, 0).unwrap();
     let first = Vec3::new(25., 0., 12.);
     let second = Vec3::new(41., 0., 12.);
     assert_eq!(active.beacons, vec![second, first]);

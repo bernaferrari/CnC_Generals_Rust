@@ -1281,7 +1281,7 @@ mod presentation_selection_tests {
             p.selected_objects = vec![id];
         }
 
-        let snap = PresentationFrame::build_from_logic(&mut logic, 0);
+        let snap = PresentationFrame::try_build_from_logic(&mut logic, 0).unwrap();
         // Mutate live world after snapshot — consumer must keep snapshot identity.
         logic.set_fixture_object_position(id, Vec3::new(999.0, 0.0, 999.0));
         if let Some(o) = logic.host_object_mut(id) {
@@ -1348,7 +1348,7 @@ mod presentation_selection_tests {
             o.status.selected = true;
             o.selection_radius = 9.0;
         }
-        let snap = PresentationFrame::build_from_logic(&mut logic, 0);
+        let snap = PresentationFrame::try_build_from_logic(&mut logic, 0).unwrap();
         let base = collect_blob_shadows_from_presentation(&snap);
         let shift = Vec3::new(5.0, 0.0, 2.0);
         let blobs =
@@ -1383,7 +1383,7 @@ mod presentation_selection_tests {
             o.status.airborne_target = true;
         }
 
-        let mut snap = PresentationFrame::build_from_logic(&mut logic, 0);
+        let mut snap = PresentationFrame::try_build_from_logic(&mut logic, 0).unwrap();
         for o in &mut snap.objects {
             if o.id == id {
                 o.position.y = 80.0;
@@ -1426,7 +1426,7 @@ mod presentation_selection_tests {
             .create_object("FogBlobUnit", Team::USA, Vec3::new(8.0, 0.0, 8.0))
             .expect("unit");
 
-        let mut snap = PresentationFrame::build_from_logic(&mut logic, 0);
+        let mut snap = PresentationFrame::try_build_from_logic(&mut logic, 0).unwrap();
         assert!(
             !collect_blob_shadows_from_presentation(&snap).is_empty(),
             "clear unit casts a blob"
@@ -1512,7 +1512,7 @@ mod presentation_selection_tests {
         let model = logic
             .create_object("ModelDecalTree", Team::USA, Vec3::new(50.0, 0.0, 10.0))
             .expect("model draw");
-        let frame = PresentationFrame::build_from_logic(&mut logic, 0);
+        let frame = PresentationFrame::try_build_from_logic(&mut logic, 0).unwrap();
         let inputs = frame.unit_render_inputs();
         for id in [default, enabled, model] {
             let input = inputs.iter().find(|input| input.id == id).expect("render input");
@@ -1548,7 +1548,7 @@ mod presentation_selection_tests {
         let _id = logic
             .create_object("DecalOffUnit", Team::USA, glam::Vec3::new(4.0, 0.0, 4.0))
             .expect("unit");
-        let snap = PresentationFrame::build_from_logic(&mut logic, 0);
+        let snap = PresentationFrame::try_build_from_logic(&mut logic, 0).unwrap();
 
         let prev = game_engine::common::global_data::read_safe()
             .map(|g| g.writable.use_shadow_decals)
@@ -1611,7 +1611,7 @@ mod presentation_selection_tests {
             .create_object("NoShadowInfantry", Team::USA, Vec3::new(24.0, 0.0, 26.0))
             .unwrap();
 
-        let snap = PresentationFrame::build_from_logic(&mut logic, 0);
+        let snap = PresentationFrame::try_build_from_logic(&mut logic, 0).unwrap();
         let none = snap
             .unit_render_inputs()
             .into_iter()
@@ -1751,7 +1751,7 @@ mod presentation_selection_tests {
             o.health.current = 45.0;
             o.health.maximum = 90.0;
         }
-        let snap = PresentationFrame::build_from_logic(&mut logic, 0);
+        let snap = PresentationFrame::try_build_from_logic(&mut logic, 0).unwrap();
 
         let view = Mat4::look_at_rh(
             Vec3::new(12.0, 30.0, 40.0),

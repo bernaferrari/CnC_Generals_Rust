@@ -2083,7 +2083,7 @@ mod tests {
         );
         assert!(logic.host_ai_player_count() >= 1);
 
-        let snap = PresentationFrame::build_from_logic(&mut logic, 0);
+        let snap = PresentationFrame::try_build_from_logic(&mut logic, 0).unwrap();
         let (a, b) = logic.world_bounds();
         assert_eq!(snap.world_env.world_min, [a.x, a.y, a.z]);
         assert_eq!(snap.world_env.world_max, [b.x, b.y, b.z]);

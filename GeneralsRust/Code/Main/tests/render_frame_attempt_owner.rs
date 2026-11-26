@@ -8,10 +8,12 @@ use game_client::display::view_filter::ViewFilterState;
 use game_client::render_bridge::RenderBridge;
 use game_client::snow::{SnowManager, SnowRenderState, WeatherSetting};
 use game_client::terrain::terrain_visual::{TerrainVisualImpl, TerrainVisualMotion};
+use generals_main::game_logic::GameLogic;
 use generals_main::graphics::GraphicsSystem;
 use generals_main::graphics::render_pipeline::{
     FilterCameraMatrices, FrozenDirectDrawableSceneCandidate, FrozenDirectDrawableSceneDecision,
-    NativeFrameRenderReceiver, NativeInstalledPoseLoan, RenderPipeline,
+    NativeDrawableMeshObservation, NativeFrameRenderReceiver, NativeInstalledPoseLoan,
+    RenderPipeline,
 };
 use generals_main::presentation_frame::{PresentationFrame, UnitRenderInput};
 use glam::{Mat4, Vec2, Vec3};
@@ -47,12 +49,20 @@ impl NativeFrameRenderReceiver for Receiver {
     ) -> Result<Option<NativeAuxiliaryDrawObservation>, String> {
         Ok(None)
     }
-    fn complete_physics_visual(
-        &mut self,
+    fn observe_drawable_mesh(
+        &self,
         _: &mut UnitRenderInput,
-        _: &PresentationFrame,
-    ) -> Result<Option<Mat4>, String> {
-        Ok(None)
+    ) -> Result<NativeDrawableMeshObservation, String> {
+        Ok(NativeDrawableMeshObservation::default())
+    }
+    fn receive_installed_state_particles(
+        &mut self,
+        _: &UnitRenderInput,
+        _: &str,
+        _: u32,
+        _: Option<&[gamelogic::object::draw::draw_module::InstalledStateParticleRow]>,
+    ) -> Result<bool, String> {
+        Ok(false)
     }
     fn direct_scene_decisions(
         &mut self,
@@ -87,9 +97,16 @@ impl NativeFrameRenderReceiver for Receiver {
     ) -> Result<Option<game_client::terrain::TreeCpuDrawReceipt>, String> {
         Ok(None)
     }
+    fn flush_water_tracks(
+        &self,
+        _: &mut TerrainVisualImpl,
+    ) -> game_client::terrain::TerrainResult<()> {
+        Ok(())
+    }
 }
 
 fn execute(
+    world: &GameLogic,
     pipeline: &mut RenderPipeline,
     graphics: &mut GraphicsSystem,
     receiver: &mut Receiver,
@@ -99,24 +116,26 @@ fn execute(
         manager: SnowManager::new(),
         definition: WeatherSetting::default(),
     };
-    pipeline.execute(
-        graphics,
-        &mut bridge,
-        &Mat4::IDENTITY,
-        &Mat4::IDENTITY,
-        Vec3::ZERO,
-        0.0,
-        false,
-        0,
-        false,
-        receiver,
-        Vec::new(),
-        None,
-        &snow,
-        Vec2::ZERO,
-        0,
-        None,
-    )
+    world.with_own_services(|| {
+        pipeline.execute(
+            graphics,
+            &mut bridge,
+            &Mat4::IDENTITY,
+            &Mat4::IDENTITY,
+            Vec3::ZERO,
+            0.0,
+            false,
+            0,
+            false,
+            receiver,
+            Vec::new(),
+            None,
+            &snow,
+            Vec2::ZERO,
+            0,
+            None,
+        )
+    })
 }
 
 #[test]
@@ -139,44 +158,66 @@ fn failed_collection_discards_only_its_frame_work_before_retry() {
             engine.depth_format(),
         )
     };
-    let mut graphics = GraphicsSystem::new(device, queue, color_format, depth_format)
-        .unwrap();
+    let mut graphics = GraphicsSystem::new(device, queue, color_format, depth_format).unwrap();
     let mut owner = RenderPipeline::initialize(engine.clone(), &graphics).unwrap();
     let mut peer = RenderPipeline::initialize(engine.clone(), &graphics).unwrap();
-    let mut world = generals_main::game_logic::GameLogic::new();
-    let frame = std::rc::Rc::new(PresentationFrame::build_from_logic(&mut world, 0));
-    owner.set_presentation_frame(Some(frame.clone()));
-    peer.set_presentation_frame(Some(frame));
+    let mut owner_world = GameLogic::new();
+    let mut peer_world = GameLogic::new();
+    let owner_frame = PresentationFrame::try_build_from_logic(&mut owner_world, 0).unwrap();
+    let peer_frame = PresentationFrame::try_build_from_logic(&mut peer_world, 0).unwrap();
+    owner.set_presentation_frame(Some(std::rc::Rc::new(owner_frame)));
+    peer.set_presentation_frame(Some(std::rc::Rc::new(peer_frame)));
     let stale = Arc::new(AtomicUsize::new(0));
     let peer_calls = Arc::new(AtomicUsize::new(0));
     let stale_capture = stale.clone();
-    owner.enqueue_frame_work(ww3d_renderer_3d::rendering::wgpu_main_renderer::FramePhase::Overlay2D, move |_| {
-        stale_capture.fetch_add(1, Ordering::SeqCst);
-        Ok(())
-    });
+    owner.enqueue_frame_work(
+        ww3d_renderer_3d::rendering::wgpu_main_renderer::FramePhase::Overlay2D,
+        move |_| {
+            stale_capture.fetch_add(1, Ordering::SeqCst);
+            Ok(())
+        },
+    );
     let peer_capture = peer_calls.clone();
-    peer.enqueue_frame_work(ww3d_renderer_3d::rendering::wgpu_main_renderer::FramePhase::Overlay2D, move |_| {
-        peer_capture.fetch_add(1, Ordering::SeqCst);
-        Ok(())
-    });
+    peer.enqueue_frame_work(
+        ww3d_renderer_3d::rendering::wgpu_main_renderer::FramePhase::Overlay2D,
+        move |_| {
+            peer_capture.fetch_add(1, Ordering::SeqCst);
+            Ok(())
+        },
+    );
     let mut failing = Receiver {
         fail_collect: true,
         ..Default::default()
     };
     assert!(
-        execute(&mut owner, &mut graphics, &mut failing)
+        execute(&owner_world, &mut owner, &mut graphics, &mut failing)
             .unwrap_err()
             .to_string()
             .contains("injected native collection failure")
     );
-    execute(&mut peer, &mut graphics, &mut Receiver::default()).unwrap();
+    execute(
+        &peer_world,
+        &mut peer,
+        &mut graphics,
+        &mut Receiver::default(),
+    )
+    .unwrap();
     let fresh = Arc::new(AtomicUsize::new(0));
     let fresh_capture = fresh.clone();
-    owner.enqueue_frame_work(ww3d_renderer_3d::rendering::wgpu_main_renderer::FramePhase::Overlay2D, move |_| {
-        fresh_capture.fetch_add(1, Ordering::SeqCst);
-        Ok(())
-    });
-    execute(&mut owner, &mut graphics, &mut Receiver::default()).unwrap();
+    owner.enqueue_frame_work(
+        ww3d_renderer_3d::rendering::wgpu_main_renderer::FramePhase::Overlay2D,
+        move |_| {
+            fresh_capture.fetch_add(1, Ordering::SeqCst);
+            Ok(())
+        },
+    );
+    execute(
+        &owner_world,
+        &mut owner,
+        &mut graphics,
+        &mut Receiver::default(),
+    )
+    .unwrap();
     assert_eq!(
         stale.load(Ordering::SeqCst),
         0,

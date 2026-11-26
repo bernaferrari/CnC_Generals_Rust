@@ -102,7 +102,7 @@ impl World {
         }
     }
     fn frame(&mut self) -> PresentationFrame {
-        let frame = PresentationFrame::build_from_logic(&mut self.logic, 0);
+        let frame = PresentationFrame::try_build_from_logic(&mut self.logic, 0).unwrap();
         // Match the real engine sequence: synchronize each current visual
         // identity before entering the shared material admission operation.
         self.client

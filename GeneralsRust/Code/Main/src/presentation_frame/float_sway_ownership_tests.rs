@@ -41,12 +41,12 @@ fn sway_instance(input: &UnitRenderInput) -> glam::Mat4 {
 #[test]
 fn frozen_sway_survives_same_id_other_world_freeze_and_reset() {
     let mut first = boat_world(0.3, -0.1);
-    let frame = PresentationFrame::build_from_logic(&mut first, 1);
+    let frame = PresentationFrame::try_build_from_logic(&mut first, 1).unwrap();
     let input = boat_input(&frame);
     assert_eq!((input.float_yaw, input.float_pitch), (0.3, -0.1));
     let expected = input.world_matrix_with_drawable_instance(Some(sway_instance(&input)));
     let mut second = boat_world(-0.8, 0.2);
-    let other_frame = PresentationFrame::build_from_logic(&mut second, 1);
+    let other_frame = PresentationFrame::try_build_from_logic(&mut second, 1).unwrap();
     let other_input = boat_input(&other_frame);
     assert_eq!((other_input.float_yaw, other_input.float_pitch), (-0.8, 0.2));
     assert_ne!(
@@ -69,7 +69,7 @@ fn frozen_sway_survives_same_id_other_world_freeze_and_reset() {
 #[test]
 fn frozen_sway_uses_cpp_heading_yaw_pitch_order() {
     let mut world = boat_world(0.3, -0.1);
-    let frame = PresentationFrame::build_from_logic(&mut world, 1);
+    let frame = PresentationFrame::try_build_from_logic(&mut world, 1).unwrap();
     let input = boat_input(&frame);
     let instance = sway_instance(&input);
     // In C++ Z-up space the instance is Ry(yaw) * Rx(pitch) after the kept
@@ -92,7 +92,7 @@ fn frozen_sway_uses_cpp_heading_yaw_pitch_order() {
 #[test]
 fn zero_sway_and_serialized_frozen_pose_keep_defaults() {
     let mut world = boat_world(0.0, 0.0);
-    let frame = PresentationFrame::build_from_logic(&mut world, 1);
+    let frame = PresentationFrame::try_build_from_logic(&mut world, 1).unwrap();
     let input = boat_input(&frame);
     let expected = glam::Mat4::from_translation(input.position)
         * glam::Mat4::from_rotation_y(input.orientation);
@@ -104,7 +104,7 @@ fn zero_sway_and_serialized_frozen_pose_keep_defaults() {
     );
     assert_eq!((default_data.yaw, default_data.pitch), (0.0, 0.0));
     let mut nonzero = boat_world(0.25, -0.15);
-    let frame = PresentationFrame::build_from_logic(&mut nonzero, 1);
+    let frame = PresentationFrame::try_build_from_logic(&mut nonzero, 1).unwrap();
     let input = boat_input(&frame);
     let object = frame
         .objects

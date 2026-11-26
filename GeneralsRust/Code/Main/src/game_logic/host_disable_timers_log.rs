@@ -91,10 +91,10 @@ mod owned_audio_tests {
         }
         // A health boundary must not consume audio produced by those bodies.
         owner.health_events.drain_for_host_boundary();
-        let peer_frame = PresentationFrame::build_from_logic(&mut peer, 0);
+        let peer_frame = PresentationFrame::try_build_from_logic(&mut peer, 0).unwrap();
         assert!(peer_frame.disable_audio_receipts.is_empty());
         peer.reset();
-        let frame = PresentationFrame::build_from_logic(&mut owner, 0);
+        let frame = PresentationFrame::try_build_from_logic(&mut owner, 0).unwrap();
         assert_eq!(
             frame.disable_audio_receipts,
             vec![
@@ -135,14 +135,14 @@ mod owned_audio_tests {
             outputs,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
-        let _ = PresentationFrame::build_from_logic(&mut peer, 0);
+        let _ = PresentationFrame::try_build_from_logic(&mut peer, 0).unwrap();
         assert_eq!(
             audio_values(&frame),
             expected,
             "a frozen frame never drains foreign sounds"
         );
         assert!(
-            PresentationFrame::build_from_logic(&mut owner, 0)
+            PresentationFrame::try_build_from_logic(&mut owner, 0).unwrap()
                 .disable_audio_receipts
                 .is_empty()
         );
@@ -177,7 +177,7 @@ mod owned_audio_tests {
             );
             assert!(object.is_unmanned());
         }
-        let frame = PresentationFrame::build_from_logic(&mut owner, 0);
+        let frame = PresentationFrame::try_build_from_logic(&mut owner, 0).unwrap();
         assert_eq!(
             frame
                 .disable_audio_receipts
@@ -198,7 +198,7 @@ mod owned_audio_tests {
         );
         assert!(object.is_unmanned());
         assert!(
-            PresentationFrame::build_from_logic(&mut drone, 0)
+            PresentationFrame::try_build_from_logic(&mut drone, 0).unwrap()
                 .disable_audio_receipts
                 .is_empty()
         );
@@ -224,7 +224,7 @@ mod owned_audio_tests {
         );
         builder.restore_from_snapshot(&snapshot, &mut peer).unwrap();
         assert!(
-            PresentationFrame::build_from_logic(&mut peer, 0)
+            PresentationFrame::try_build_from_logic(&mut peer, 0).unwrap()
                 .disable_audio_receipts
                 .is_empty()
         );
@@ -237,7 +237,7 @@ mod owned_audio_tests {
         );
         let (object, outputs) = peer.host_object_and_health_events_mut(id).unwrap();
         object.tick_disabled_emp(30, outputs);
-        let restored_frame = PresentationFrame::build_from_logic(&mut peer, 0);
+        let restored_frame = PresentationFrame::try_build_from_logic(&mut peer, 0).unwrap();
         assert_eq!(restored_frame.disable_audio_receipts.len(), 1);
         assert_eq!(
             restored_frame.disable_audio_receipts[0].event_name,
@@ -245,7 +245,7 @@ mod owned_audio_tests {
         );
         assert!(owner.host_object(id).unwrap().status.disabled_emp);
         assert_eq!(
-            PresentationFrame::build_from_logic(&mut owner, 0)
+            PresentationFrame::try_build_from_logic(&mut owner, 0).unwrap()
                 .disable_audio_receipts
                 .len(),
             1

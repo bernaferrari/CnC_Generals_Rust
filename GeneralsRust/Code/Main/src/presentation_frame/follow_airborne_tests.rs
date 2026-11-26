@@ -101,7 +101,7 @@ fn actual_follow_freeze_uses_selected_air_surface_and_exact_colocated_identity()
     assert_eq!(facts.id, air);
     assert_eq!(facts.position, Vec3::new(40., 37., 40.));
     assert_eq!(facts.airborne_orientation, Some(heading));
-    let frame = PresentationFrame::build_from_logic(&mut a, 0);
+    let frame = PresentationFrame::try_build_from_logic(&mut a, 0).unwrap();
     assert_eq!(
         frame.camera_follow_facts,
         Some(facts),

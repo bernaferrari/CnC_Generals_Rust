@@ -148,7 +148,7 @@ impl CnCGameEngine {
         let runtime_heightmap = self.presentation_runtime_heightmap_for_frame();
         let local_id = self.current_player_id;
         let started = timed.then(Instant::now);
-        let mut frame = crate::presentation_frame::PresentationFrame::try_publish_for_engine_with_runtime_heightmap(
+        let mut frame = crate::presentation_frame::PresentationFrame::try_publish(
             &mut self.game_logic,
             local_id,
             runtime_heightmap,
@@ -220,7 +220,7 @@ impl CnCGameEngine {
 
         let runtime_heightmap = self.presentation_runtime_heightmap_for_frame();
         let mut pres =
-            crate::presentation_frame::PresentationFrame::try_publish_for_engine_with_runtime_heightmap(
+            crate::presentation_frame::PresentationFrame::try_publish(
                 &mut self.game_logic,
                 self.current_player_id,
                 runtime_heightmap,

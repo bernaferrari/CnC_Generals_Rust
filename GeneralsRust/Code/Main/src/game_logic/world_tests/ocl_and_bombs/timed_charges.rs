@@ -240,7 +240,7 @@ fn authored_timed_charge_expires_once_through_its_death_weapon() {
     // detonation frame — here the native LifetimeUpdate deadline — rounded up
     // to whole seconds.
     let presentation =
-        crate::presentation_frame::PresentationFrame::build_from_logic(&mut world, 0);
+        crate::presentation_frame::PresentationFrame::try_build_from_logic(&mut world, 0).unwrap();
     let icon = presentation
         .objects
         .iter()
@@ -262,7 +262,7 @@ fn authored_timed_charge_expires_once_through_its_death_weapon() {
         let before_expiry = frame < deadline;
         if frame == deadline - 1 {
             let late =
-                crate::presentation_frame::PresentationFrame::build_from_logic(&mut world, 0);
+                crate::presentation_frame::PresentationFrame::try_build_from_logic(&mut world, 0).unwrap();
             let icon = late
                 .objects
                 .iter()

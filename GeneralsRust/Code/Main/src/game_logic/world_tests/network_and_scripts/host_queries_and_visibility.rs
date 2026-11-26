@@ -3103,7 +3103,7 @@ fn physical_rmb_dock_uses_exact_controller_not_same_faction_friendliness() {
         .expect("collector")
         .set_carried_supply_boxes(1);
 
-    let frame = PresentationFrame::build_from_logic(&mut game_logic, 0);
+    let frame = PresentationFrame::try_build_from_logic(&mut game_logic, 0).unwrap();
     let other_center = frame
         .objects
         .iter()

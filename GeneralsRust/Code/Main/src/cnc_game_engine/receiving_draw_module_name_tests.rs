@@ -67,8 +67,8 @@ fn frozen_draw_classes_use_receiving_definition_without_application_lookup() {
                 .create_object("ReceivingDrawNames", Team::USA, glam::Vec3::ZERO)
                 .unwrap();
             assert_eq!(first_id, peer_id);
-            let first_frame = PresentationFrame::build_from_logic(&mut first, 0);
-            let peer_frame = PresentationFrame::build_from_logic(&mut peer, 0);
+            let first_frame = PresentationFrame::try_build_from_logic(&mut first, 0).unwrap();
+            let peer_frame = PresentationFrame::try_build_from_logic(&mut peer, 0).unwrap();
             let cache = RefCell::new(HashMap::from([(
                 "ReceivingDrawNames".into(),
                 Arc::new(vec!["ForeignApplicationClass".into()]),
@@ -113,7 +113,7 @@ fn authored_empty_draw_classes_suppress_a_populated_application_cache() {
             world
                 .create_object("ReceivingDrawNames", Team::USA, glam::Vec3::ZERO)
                 .unwrap();
-            let frame = PresentationFrame::build_from_logic(&mut world, 0);
+            let frame = PresentationFrame::try_build_from_logic(&mut world, 0).unwrap();
             let cache = RefCell::new(HashMap::from([(
                 "ReceivingDrawNames".into(),
                 Arc::new(vec!["W3DTruckDraw".into()]),

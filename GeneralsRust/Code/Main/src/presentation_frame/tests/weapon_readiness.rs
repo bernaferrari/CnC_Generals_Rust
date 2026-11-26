@@ -33,7 +33,7 @@ fn readiness(frame: &PresentationFrame) -> u32 {
 fn frozen_weapon_readiness_uses_owning_world_frame() {
     let mut first = reloading_world(45);
 
-    let first_frame = PresentationFrame::build_from_logic(&mut first, 0);
+    let first_frame = PresentationFrame::try_build_from_logic(&mut first, 0).unwrap();
     assert_eq!(
         readiness(&first_frame),
         50,
@@ -42,14 +42,14 @@ fn frozen_weapon_readiness_uses_owning_world_frame() {
 
     let mut second = reloading_world(90);
 
-    let second_frame = PresentationFrame::build_from_logic(&mut second, 0);
+    let second_frame = PresentationFrame::try_build_from_logic(&mut second, 0).unwrap();
     assert_eq!(readiness(&second_frame), 100);
     assert_eq!(
         readiness(&first_frame),
         50,
         "the completed frame stays immutable"
     );
-    let rebuilt_first = PresentationFrame::build_from_logic(&mut first, 0);
+    let rebuilt_first = PresentationFrame::try_build_from_logic(&mut first, 0).unwrap();
     assert_eq!(
         readiness(&rebuilt_first),
         50,
@@ -58,7 +58,7 @@ fn frozen_weapon_readiness_uses_owning_world_frame() {
 
     first.frame = 60;
 
-    let advanced = PresentationFrame::build_from_logic(&mut first, 0);
+    let advanced = PresentationFrame::try_build_from_logic(&mut first, 0).unwrap();
     assert_eq!(
         readiness(&advanced),
         100,

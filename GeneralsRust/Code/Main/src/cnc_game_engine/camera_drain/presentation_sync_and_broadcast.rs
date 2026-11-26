@@ -162,7 +162,7 @@ impl CnCGameEngine {
         }
         let runtime_heightmap = self.presentation_runtime_heightmap_for_frame();
         let mut env_frame =
-            crate::presentation_frame::PresentationFrame::try_publish_for_engine_with_runtime_heightmap(
+            crate::presentation_frame::PresentationFrame::try_publish(
                 &mut self.game_logic,
                 self.current_player_id,
                 runtime_heightmap,

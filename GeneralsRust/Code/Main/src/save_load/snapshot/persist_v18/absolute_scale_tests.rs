@@ -14,7 +14,7 @@ fn world() -> (GameLogic, ObjectId) {
 fn nonunit_drawable_constructor_and_presentation_use_one_absolute_scale() {
     let (mut world, id) = world();
     assert_eq!(world.host_object(id).unwrap().drawable_instance_scale, 2.0);
-    let initial = crate::presentation_frame::PresentationFrame::build_from_logic(&mut world, 0);
+    let initial = crate::presentation_frame::PresentationFrame::try_build_from_logic(&mut world, 0).unwrap();
     assert_eq!(
         initial
             .objects
@@ -27,7 +27,7 @@ fn nonunit_drawable_constructor_and_presentation_use_one_absolute_scale() {
     assert_eq!(initial.native_ghost_scale_sources[&id].asset_scale, 2.0);
     assert_eq!(initial.native_ghost_scale_sources[&id].instance_scale, 2.0);
     world.host_object_mut(id).unwrap().drawable_instance_scale = 0.2;
-    let changed = crate::presentation_frame::PresentationFrame::build_from_logic(&mut world, 0);
+    let changed = crate::presentation_frame::PresentationFrame::try_build_from_logic(&mut world, 0).unwrap();
     assert_eq!(
         changed
             .objects
@@ -40,7 +40,7 @@ fn nonunit_drawable_constructor_and_presentation_use_one_absolute_scale() {
     assert_eq!(changed.native_ghost_scale_sources[&id].asset_scale, 0.2);
     assert_eq!(changed.native_ghost_scale_sources[&id].instance_scale, 0.2);
     world.host_object_mut(id).unwrap().drawable_instance_scale = 0.0;
-    let zero = crate::presentation_frame::PresentationFrame::build_from_logic(&mut world, 0);
+    let zero = crate::presentation_frame::PresentationFrame::try_build_from_logic(&mut world, 0).unwrap();
     let input = zero
         .unit_render_inputs()
         .into_iter()
@@ -148,7 +148,7 @@ fn parsed_zero_and_negative_scale_reach_factory_frame_and_ghost_source_without_g
         assert_eq!(geometry.major_radius, 9.0);
         assert_eq!(geometry.minor_radius, 6.0);
         assert_eq!(geometry.height, 12.0);
-        let frame = crate::presentation_frame::PresentationFrame::build_from_logic(&mut world, 0);
+        let frame = crate::presentation_frame::PresentationFrame::try_build_from_logic(&mut world, 0).unwrap();
         let input = frame
             .unit_render_inputs()
             .into_iter()

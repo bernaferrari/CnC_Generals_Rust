@@ -215,7 +215,7 @@ End
                 assert_eq!(team.read().unwrap().has_member(member.0), expected);
             }
         }
-        let frame = PresentationFrame::build_from_logic(&mut receiver, 2);
+        let frame = PresentationFrame::try_build_from_logic(&mut receiver, 2).unwrap();
         let drawable = frame
             .objects
             .iter()

@@ -15,7 +15,7 @@ fn world_with_unit(position: Vec3) -> (GameLogic, ObjectId) {
 }
 
 fn frozen_radar(logic: &mut GameLogic) -> Vec<(String, Vec3, u8)> {
-    PresentationFrame::build_from_logic(logic, 0)
+    PresentationFrame::try_build_from_logic(logic, 0).unwrap()
         .events
         .into_iter()
         .filter_map(|event| match event {

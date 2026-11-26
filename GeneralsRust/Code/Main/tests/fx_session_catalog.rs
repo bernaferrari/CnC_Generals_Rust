@@ -92,8 +92,8 @@ fn presentation_freezes_each_sessions_fx_sounds() {
             &mut (),
         );
     }
-    let first_frame = PresentationFrame::build_from_logic(&mut first, 0);
-    let second_frame = PresentationFrame::build_from_logic(&mut second, 0);
+    let first_frame = PresentationFrame::try_build_from_logic(&mut first, 0).unwrap();
+    let second_frame = PresentationFrame::try_build_from_logic(&mut second, 0).unwrap();
     first.admit_fx_source(&source("ReplacementSound")).unwrap();
     let names = |frame: &PresentationFrame| {
         frame

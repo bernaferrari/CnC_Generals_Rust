@@ -318,7 +318,7 @@ fn terrain_shroud_draw_uses_frozen_border_levels_and_tint() {
     let baseline = paint(&mut render, None);
 
     let mut logic = crate::game_logic::GameLogic::new();
-    let mut frame = PresentationFrame::build_from_logic(&mut logic, 0);
+    let mut frame = PresentationFrame::try_build_from_logic(&mut logic, 0).unwrap();
     frame.fow_shell_bypass = false;
     frame.fow_grid = PresentationFowGrid {
         width: 2,
@@ -693,7 +693,7 @@ End
     world.add_object(Object::new(template, ID, Team::USA));
     world.set_fixture_object_position(ID, Vec3::new(32.0, 0.0, 32.0));
 
-    let mut frame = PresentationFrame::build_from_logic(&mut world, 0);
+    let mut frame = PresentationFrame::try_build_from_logic(&mut world, 0).unwrap();
     for object in frame.objects.iter_mut().chain(
         frame
             .direct_host_drawables

@@ -30,7 +30,7 @@ fn borrowed_filter_finishes_on_current_renderer_frame_and_peak_is_not_replayed()
     let mut pipeline = RenderPipeline::initialize(engine.clone(), &graphics).unwrap();
     let mut logic = crate::game_logic::GameLogic::new();
     let presentation =
-        Rc::new(crate::presentation_frame::PresentationFrame::build_from_logic(&mut logic, 0));
+        Rc::new(crate::presentation_frame::PresentationFrame::try_build_from_logic(&mut logic, 0).unwrap());
     let mut filter = ViewFilterState::new();
     filter.set_filter(FilterType::MotionBlur);
     filter.set_mode(FilterMode::MBInAndOutAlpha);

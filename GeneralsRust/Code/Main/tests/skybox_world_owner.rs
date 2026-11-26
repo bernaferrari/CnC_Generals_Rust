@@ -41,7 +41,7 @@ fn admitted_world(map: &std::path::Path) -> GameLogic {
 }
 
 fn skybox_enabled(world: &mut GameLogic) -> bool {
-    PresentationFrame::build_from_logic(world, 0)
+    PresentationFrame::try_build_from_logic(world, 0).unwrap()
         .world_env
         .skybox_enabled
 }

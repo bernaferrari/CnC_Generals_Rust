@@ -1,6 +1,6 @@
 use super::*;
 use crate::fow_rendering::{ObjectShroudFrame, ProjectedShroudMetadata};
-use crate::game_logic::{Object, RiderChangeRiderMetadata};
+use crate::game_logic::{Object, RiderChangeRiderMetadata, VictoryObservation};
 use gamelogic::common::ObjectShroudStatus;
 
 /// Reuse authored enter rules while building one receiving world's presentation.
@@ -302,27 +302,39 @@ pub(crate) fn split_superweapon_power_key(power_key: &str, local_player_id: u32)
 }
 
 impl PresentationFrame {
-    /// Standalone compatibility snapshot facade. Native Engine publication uses
-    /// the checked receiving entrypoints in `camera_fade` instead.
-    /// Build a snapshot by borrowing the authoritative world for this call only.
-    ///
-    /// FOW for `local_player_id` is frozen here via the FOW bridge so the unit mesh
-    /// pass can apply alpha / never-explored skip without mid-render shroud locks.
-    /// Cell-grid FOW is also frozen into `fow_grid` for terrain overlay / minimap.
-    /// Fail-closed claim: unit FOW + compact local grid; not full SAGE shroud parity.
-    /// Build presentation and consume this world's completed health receipts.
-    /// Pending accepted-shot cues stay with the world until publication.
-    pub fn build_from_logic(logic: &mut GameLogic, local_player_id: u32) -> Self {
-        logic.with_own_services_mut(|logic| {
-            Self::build_from_logic_with_tint_update(
-                logic,
-                local_player_id,
-                None,
-                true,
-                Vec::new(),
-                super::camera_fade::FrameFade::Compatibility,
-            )
-        })
+    /// Freeze a query frame from this world, leaving accepted weapon discharges pending.
+    /// Completed health and construction receipts are captured in the frame.
+    pub fn try_build_from_logic(logic: &mut GameLogic, local_player_id: u32) -> Result<Self, String> {
+        let camera_fade = super::camera_fade::freeze_camera_fade(logic)?;
+        let mut frame = Self::freeze_world(logic, local_player_id, None, Vec::new(), camera_fade);
+        frame.freeze_drawable_status_tints_from_logic(logic);
+        Ok(frame)
+    }
+
+    /// Publish a completed frame with pending weapon discharges and optional victory state.
+    /// The receiving interpreter must be available before any presentation receipts are taken.
+    pub fn try_publish(
+        logic: &mut GameLogic,
+        local_player_id: u32,
+        runtime_heightmap: Option<std::sync::Arc<PresentationRuntimeHeightmap>>,
+        with_victory: bool,
+    ) -> Result<Self, String> {
+        let camera_fade = super::camera_fade::freeze_camera_fade(logic)?;
+        // GameLogic.cpp owns victory and killPlayer in the logic step.
+        let victory = with_victory.then(|| logic.current_victory_observation());
+        let discharges = logic.take_weapon_discharges_for_presentation();
+        let mut frame = Self::freeze_world(
+            logic,
+            local_player_id,
+            runtime_heightmap,
+            discharges,
+            camera_fade,
+        );
+        if let Some(victory) = victory {
+            frame.freeze_victory(logic, victory);
+        }
+        frame.freeze_drawable_status_tints_from_logic(logic);
+        Ok(frame)
     }
 
     #[cfg(feature = "game_client")]
@@ -365,13 +377,12 @@ impl PresentationFrame {
     }
 
     /// Freeze the receiving simulation's objects and drawables into one frame.
-    pub(super) fn build_from_logic_with_tint_update(
+    fn freeze_world(
         logic: &mut GameLogic,
         local_player_id: u32,
         runtime_heightmap: Option<std::sync::Arc<PresentationRuntimeHeightmap>>,
-        freeze_tints: bool,
         discharges: Vec<crate::game_logic::host_weapon_discharge_log::HostWeaponDischargeEvent>,
-        camera_fade: super::camera_fade::FrameFade,
+        camera_fade: PresentationCameraFade,
     ) -> Self {
         let mut rider_change_rosters = RiderChangeRosters::default();
         let application_assets = logic.application_assets();
@@ -1689,7 +1700,6 @@ impl PresentationFrame {
         // appends its receiving client's completed renderer lines explicitly.
         let scene_lines: Vec<PresentationSceneLine> = Vec::new();
 
-        let camera_fade = camera_fade.sample();
 
         // Waypoint drawing belongs to the receiving terrain/render operation.
         // A logic-only freeze must not publish an empty global device frame.
@@ -2269,72 +2279,24 @@ impl PresentationFrame {
         frame.stamp_restrict_a(logic);
         // Wave 500: named damage/death/bone FX residual → particle observe list.
         let _ = frame.append_object_fx_particles();
-        if freeze_tints {
-            frame.freeze_drawable_status_tints_from_logic(logic);
-        }
         frame
     }
 
-    /// Build from completed victory state; consumes pending presentation discharges.
-    pub fn build_with_victory(logic: &mut GameLogic, local_player_id: u32) -> Self {
-        Self::build_with_victory_with_runtime_heightmap(logic, local_player_id, None)
-    }
-
-    /// Engine-only victory build which retains the cached full terrain payload.
-    pub(crate) fn build_with_victory_with_runtime_heightmap(
-        logic: &mut GameLogic,
-        local_player_id: u32,
-        runtime_heightmap: Option<std::sync::Arc<PresentationRuntimeHeightmap>>,
-    ) -> Self {
-        Self::build_with_victory_with_tint_update(
-            logic,
-            local_player_id,
-            runtime_heightmap,
-            true,
-            super::camera_fade::FrameFade::Compatibility,
-        )
-    }
-
-    pub(super) fn build_with_victory_with_tint_update(
-        logic: &mut GameLogic,
-        local_player_id: u32,
-        runtime_heightmap: Option<std::sync::Arc<PresentationRuntimeHeightmap>>,
-        freeze_tints: bool,
-        camera_fade: super::camera_fade::FrameFade,
-    ) -> Self {
-        // C++ GameLogic.cpp:3769 owns victory and killPlayer in the logic step.
-        // Read its completed result and accepted discharges together; building
-        // a frame must not run defeat callbacks or change their timing.
-        let victory = logic.current_victory_observation();
-        let discharges = logic.take_weapon_discharges_for_presentation();
-        let mut frame = Self::build_from_logic_with_tint_update(
-            logic,
-            local_player_id,
-            runtime_heightmap,
-            false,
-            discharges,
-            camera_fade,
-        );
-        frame.match_over = victory.match_over;
-        if let Some(v) = victory.outcome {
-            frame.victory_label = Some(format!("{v:?}"));
-            let winner = match v {
+    fn freeze_victory(&mut self, logic: &GameLogic, victory: VictoryObservation) {
+        self.match_over = victory.match_over;
+        if let Some(outcome) = victory.outcome {
+            self.victory_label = Some(format!("{outcome:?}"));
+            let winner = match outcome {
                 crate::game_logic::VictoryCondition::Winner(id) => Some(id),
                 _ => None,
             };
-            frame.events.push(PresentationEvent::Victory {
+            self.events.push(PresentationEvent::Victory {
                 winner_player: winner,
             });
-            // Freeze summary residual once (show_victory_screen prefers this).
-            frame.victory_summary = Some(logic.build_victory_summary(winner));
+            self.victory_summary = Some(logic.build_victory_summary(winner));
         }
-        // Freeze defeat notification residual produced by evaluate (engine drains take).
-        frame.defeated_player_ids = logic.peek_defeat_events().to_vec();
-        frame.alliance_events = logic.peek_alliance_events().to_vec();
-        if freeze_tints {
-            frame.freeze_drawable_status_tints_from_logic(logic);
-        }
-        frame
+        self.defeated_player_ids = logic.peek_defeat_events().to_vec();
+        self.alliance_events = logic.peek_alliance_events().to_vec();
     }
 
     /// Lightweight fingerprint for dual-run presentation determinism.
@@ -2601,10 +2563,10 @@ mod sw_hud_tests {
         let (mut first, id) = world();
         let (mut second, peer_id) = world();
         assert_eq!(id, peer_id);
-        assert!(PresentationFrame::build_from_logic(&mut first, 0).superweapon_timers().is_empty());
+        assert!(PresentationFrame::try_build_from_logic(&mut first, 0).unwrap().superweapon_timers().is_empty());
         assert!(first.unlock_team_science(Team::USA, "SCIENCE_TestTimer"));
         assert_eq!(first.host_object(id).unwrap().authored_special_power_timers[&0].1, 2);
-        let frame = PresentationFrame::build_from_logic(&mut first, 0);
+        let frame = PresentationFrame::try_build_from_logic(&mut first, 0).unwrap();
         assert!(frame.superweapon_timers().iter().any(|row| row.template_name == "ScienceTimer" && row.ready));
         first.script_pause_special_power_countdown(id, &SpecialPowerType::ScudStorm, false);
         first.script_pause_special_power_countdown(id, &SpecialPowerType::ScudStorm, false);
@@ -2614,9 +2576,9 @@ mod sw_hud_tests {
         assert!(first.script_add_special_power_countdown(id, &SpecialPowerType::ScudStorm, 10));
         assert_eq!(first.host_object(id).unwrap().special_power_countdown_seconds(&SpecialPowerType::ScudStorm), 310.0);
         assert_eq!(first.host_object(id).unwrap().authored_special_power_timers[&0].1, 1);
-        let frame = PresentationFrame::build_from_logic(&mut first, 0);
+        let frame = PresentationFrame::try_build_from_logic(&mut first, 0).unwrap();
         assert_eq!(frame.superweapon_timers().iter().find(|row| row.template_name == "ScienceTimer").unwrap().remaining, 300.0);
-        assert!(PresentationFrame::build_from_logic(&mut second, 0).superweapon_timers().is_empty());
+        assert!(PresentationFrame::try_build_from_logic(&mut second, 0).unwrap().superweapon_timers().is_empty());
     }
 
     fn spawn_sw(
@@ -2691,7 +2653,7 @@ mod sw_hud_tests {
             90.0,
         );
 
-        let frame = PresentationFrame::build_from_logic(&mut logic, 0);
+        let frame = PresentationFrame::try_build_from_logic(&mut logic, 0).unwrap();
         let local_row = frame
             .superweapon_timers
             .iter()
@@ -2744,7 +2706,7 @@ mod sw_hud_tests {
         spawn_sw(&mut logic, "LocalPuc", 0, SpecialPowerType::ParticleCannon, true, 1.0);
         spawn_sw(&mut logic, "EnemyPuc", 1, SpecialPowerType::ParticleCannon, true, 1.0);
 
-        let frame = PresentationFrame::build_from_logic(&mut logic, 0);
+        let frame = PresentationFrame::try_build_from_logic(&mut logic, 0).unwrap();
         let remaining = |key: &str| {
             frame
                 .superweapon_timers
@@ -2773,13 +2735,13 @@ mod sw_hud_tests {
             &mut logic, "OwnedTimer", 1, SpecialPowerType::ParticleCannon, false, 29.0,
         );
 
-        let frame = PresentationFrame::build_from_logic(&mut logic, 0);
+        let frame = PresentationFrame::try_build_from_logic(&mut logic, 0).unwrap();
         assert_eq!(frame.superweapon_timers.len(), 1);
         assert_eq!(frame.superweapon_timers[0].template_name, "SuperweaponOwnedTimer");
         assert_eq!(frame.superweapon_timers[0].remaining, 29.0);
 
         logic.get_player_mut(1).unwrap().is_alive = false;
-        let frame = PresentationFrame::build_from_logic(&mut logic, 0);
+        let frame = PresentationFrame::try_build_from_logic(&mut logic, 0).unwrap();
         assert_eq!(frame.superweapon_timers.len(), 2);
         let legacy = frame.superweapon_timers.iter()
             .find(|timer| timer.template_name == "SuperweaponLegacyTimer").unwrap();
@@ -2815,7 +2777,7 @@ mod sw_hud_tests {
             90.0,
         );
 
-        let frame = PresentationFrame::build_from_logic(&mut logic, 0);
+        let frame = PresentationFrame::try_build_from_logic(&mut logic, 0).unwrap();
         let rows: Vec<_> = frame
             .superweapon_timers
             .iter()
@@ -2857,7 +2819,7 @@ mod sw_hud_tests {
             false,
             90.0,
         );
-        let frame = PresentationFrame::build_from_logic(&mut logic, 0);
+        let frame = PresentationFrame::try_build_from_logic(&mut logic, 0).unwrap();
         let mut rem: Vec<f32> = frame
             .superweapon_timers
             .iter()
@@ -2911,7 +2873,7 @@ mod sw_hud_tests {
         }
         logic.hide_script_superweapon_object_for_test(hidden);
 
-        let frame = PresentationFrame::build_from_logic(&mut logic, 0);
+        let frame = PresentationFrame::try_build_from_logic(&mut logic, 0).unwrap();
         let rows: Vec<_> = frame
             .superweapon_timers
             .iter()
@@ -2933,7 +2895,7 @@ mod sw_hud_tests {
         );
 
         logic.set_script_superweapon_display_enabled_for_test(false);
-        let hidden_frame = PresentationFrame::build_from_logic(&mut logic, 0);
+        let hidden_frame = PresentationFrame::try_build_from_logic(&mut logic, 0).unwrap();
         assert!(
             hidden_frame.superweapon_timers.is_empty(),
             "HideSuperweaponDisplay emits no strip"
@@ -2957,7 +2919,7 @@ mod sw_hud_tests {
         if let Some(o) = logic.host_object_mut(id) {
             o.status.disabled_underpowered = true;
         }
-        let frame = PresentationFrame::build_from_logic(&mut logic, 0);
+        let frame = PresentationFrame::try_build_from_logic(&mut logic, 0).unwrap();
         let row = frame
             .superweapon_timers
             .iter()

@@ -21,15 +21,18 @@ Match -> completed presentation facts -> UI / world renderer / audio
 Match -> subsystem save continuations
 ```
 
-The native `CnCGameEngine` builds `PresentationFrame` from its receiving
-`GameLogic`. Registered objects supply the roster for match start, hint
-initialization, and frames published after simulation steps. The engine and
-renderer share the completed frame. The headless shell smoke gate uses the
-same publisher and checks each frame number and the selection shown by the
-UI consumers. The production library, integration fixtures, and command
-regressions build frames directly. Unit tests exercise creation, retirement,
-containment, production, and combat through the receiving simulation and its
-published frames.
+The native `CnCGameEngine` and headless shell smoke gate publish
+`PresentationFrame` from the receiving `GameLogic` with `try_publish`.
+Registered objects supply the roster for match start, hint initialization,
+and frames published after simulation steps. The engine and renderer share
+the completed frame. The smoke gate checks each frame number and the
+selection shown by the UI consumers.
+
+`try_build_from_logic` uses the same frame builder for queries and leaves
+accepted weapon discharges pending for publication. Both entry points sample
+camera fade from the receiving interpreter before consuming frame receipts.
+Unit tests exercise creation, retirement, containment, production, and combat
+through the receiving simulation and its completed frames.
 
 Move WGPU, model, texture, and widget handles into their consumers as the
 presentation interface is narrowed. A pixel renderer or a different UI

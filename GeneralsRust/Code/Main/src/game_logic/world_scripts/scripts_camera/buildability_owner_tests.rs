@@ -92,7 +92,7 @@ fn action(
         .unwrap();
 }
 fn frame(world: &mut GameLogic) -> crate::presentation_frame::PresentationFrame {
-    crate::presentation_frame::PresentationFrame::build_from_logic(world, 1)
+    crate::presentation_frame::PresentationFrame::try_build_from_logic(world, 1).unwrap()
 }
 #[test]
 fn same_template_overrides_follow_actions_eligibility_frame_reset_and_encoded_restore() {

@@ -371,7 +371,7 @@ fn sinking_decal_world(kinds: &str, definition: &str) -> (GameLogic, ObjectId) {
 fn observe_sinking_visuals(world: &mut GameLogic, id: ObjectId) -> String {
     use crate::presentation_frame::{PresentationFrame, live_terrain_decal_specs};
 
-    let frame = PresentationFrame::build_from_logic(world, 0);
+    let frame = PresentationFrame::try_build_from_logic(world, 0).unwrap();
     let object = frame.objects.iter().find(|object| object.id == id).unwrap();
     let rendered = live_terrain_decal_specs(&frame.objects, frame.local_team)
         .into_iter()

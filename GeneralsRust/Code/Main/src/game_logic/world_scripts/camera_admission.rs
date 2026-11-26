@@ -195,7 +195,7 @@ mod camera_request_admission_tests {
         world.queue_pending_camera_zoom(0.8, 2.0);
         world.queue_pending_camera_pitch(1.0, 3.0);
         world.queue_pending_screen_shake(3);
-        let frame = PresentationFrame::build_from_logic(&mut world, 0);
+        let frame = PresentationFrame::try_build_from_logic(&mut world, 0).unwrap();
         let first = world.acknowledge_frozen_camera_requests(&frame);
         assert!(first.zoom && first.pitch);
         assert_eq!(first.screen_shakes, 1);
@@ -212,7 +212,7 @@ mod camera_request_admission_tests {
         let mut peer = GameLogic::new();
         world.queue_pending_screen_shake(1);
         peer.queue_pending_screen_shake(1);
-        let frame = PresentationFrame::build_from_logic(&mut world, 0);
+        let frame = PresentationFrame::try_build_from_logic(&mut world, 0).unwrap();
         world.queue_pending_screen_shake(2);
         assert_eq!(
             world
@@ -236,7 +236,7 @@ mod camera_request_admission_tests {
             .push(CameraMotionBlurRequest::Follow { amount: 17 });
         peer.pending_camera_motion_blur
             .push(CameraMotionBlurRequest::EndFollow);
-        let frame = PresentationFrame::build_from_logic(&mut world, 0);
+        let frame = PresentationFrame::try_build_from_logic(&mut world, 0).unwrap();
         world.queue_pending_camera_bw_mode(false, 4);
         world
             .pending_camera_motion_blur
@@ -262,7 +262,7 @@ mod camera_request_admission_tests {
             world.acknowledge_frozen_camera_requests(&frame).motion_blur,
             0
         );
-        let fresh = PresentationFrame::build_from_logic(&mut world, 0);
+        let fresh = PresentationFrame::try_build_from_logic(&mut world, 0).unwrap();
         let admitted = world.acknowledge_frozen_camera_requests(&fresh);
         assert!(admitted.bw);
         assert_eq!(admitted.motion_blur, 1);
@@ -293,17 +293,17 @@ mod camera_request_admission_tests {
         world.session_view.target = Vec3::new(2., 0., 3.);
         let destination = Vec3::new(1000., 0., 1000.);
         world.request_path_camera_focus(destination);
-        let frame = PresentationFrame::build_from_logic(&mut world, 0);
+        let frame = PresentationFrame::try_build_from_logic(&mut world, 0).unwrap();
         assert_eq!(frame.camera_focus_previous_target, Some([2., 0., 3.]));
         // A direct LookAt at the same position must not replay an old path delta.
         world.request_camera_focus(destination);
         assert!(!world.acknowledge_frozen_camera_requests(&frame).focus);
         assert_eq!(world.peek_pending_camera_focus(), Some(destination));
-        let direct = PresentationFrame::build_from_logic(&mut world, 0);
+        let direct = PresentationFrame::try_build_from_logic(&mut world, 0).unwrap();
         assert!(direct.camera_focus_previous_target.is_none());
         assert!(world.acknowledge_frozen_camera_requests(&direct).focus);
         world.request_path_camera_focus(destination);
-        let path = PresentationFrame::build_from_logic(&mut world, 0);
+        let path = PresentationFrame::try_build_from_logic(&mut world, 0).unwrap();
         assert!(world.acknowledge_frozen_camera_requests(&path).focus);
         assert!(world.session_view.pending_focus_previous_target.is_none());
     }

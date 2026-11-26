@@ -567,7 +567,7 @@ fn native_frozen_scene_materializes_actual_asset_and_remains_immutable_after_rev
     reveal(&mut world);
     world.admit_host_ghost_draws(vec![native_draw(&world, "NativeMesh", 9)]);
     fog(&mut world);
-    let frozen = crate::presentation_frame::PresentationFrame::build_from_logic(&mut world, 1);
+    let frozen = crate::presentation_frame::PresentationFrame::try_build_from_logic(&mut world, 1).unwrap();
     let scene = frozen.w3d_ghost_scene.as_ref().unwrap();
     assert_eq!(scene.hidden_parent_object_ids, vec![42]);
     let mut asset = W3DModel::new("NativeMesh".into());
@@ -584,7 +584,7 @@ fn native_frozen_scene_materializes_actual_asset_and_remains_immutable_after_rev
     assert_eq!(materialized.items[0].state.geometry_scale, 1.75);
     assert!(materialized.parent_suppression.suppresses(PARENT));
     reveal(&mut world);
-    let next = crate::presentation_frame::PresentationFrame::build_from_logic(&mut world, 1);
+    let next = crate::presentation_frame::PresentationFrame::try_build_from_logic(&mut world, 1).unwrap();
     assert!(next.w3d_ghost_scene.as_ref().unwrap().snapshots.is_empty());
     assert_eq!(
         scene.snapshots.len(),
@@ -648,13 +648,13 @@ fn actual_host_local_player_selection_switches_only_its_owned_ghost_scene() {
     peer.admit_host_ghost_draws(vec![native_draw(&peer, "PeerMemory", 1)]);
     fog(&mut world);
     fog(&mut peer);
-    let frozen_one = crate::presentation_frame::PresentationFrame::build_from_logic(&mut world, 1);
+    let frozen_one = crate::presentation_frame::PresentationFrame::try_build_from_logic(&mut world, 1).unwrap();
     let peer_before = peer.fog_ghost_scene().clone();
     assert!(world.select_local_player(Some(2)));
     world.update_main_crate_vision();
     assert_eq!(world.local_player_id(), Some(2));
     assert_eq!(world.fog_ghost_scene().local_player_index(), 2);
-    let frozen_two = crate::presentation_frame::PresentationFrame::build_from_logic(&mut world, 2);
+    let frozen_two = crate::presentation_frame::PresentationFrame::try_build_from_logic(&mut world, 2).unwrap();
     assert!(
         frozen_two
             .w3d_ghost_scene
@@ -687,7 +687,7 @@ fn actual_host_local_player_selection_switches_only_its_owned_ghost_scene() {
     );
     assert!(world.select_local_player(Some(1)));
     world.update_main_crate_vision();
-    let returned = crate::presentation_frame::PresentationFrame::build_from_logic(&mut world, 1);
+    let returned = crate::presentation_frame::PresentationFrame::try_build_from_logic(&mut world, 1).unwrap();
     assert_eq!(
         returned.w3d_ghost_scene.as_ref().unwrap().snapshots[0]
             .render_object
@@ -789,7 +789,7 @@ fn frozen_native_capture_sources_include_only_original_eligible_actors() {
     default_draw.add_kind_of(KindOf::Immobile);
     default_draw.default_draw_without_fog_memory = true;
     world.add_object(Object::new(default_draw, ObjectId(100), Team::USA));
-    let frame = crate::presentation_frame::PresentationFrame::build_from_logic(&mut world, 1);
+    let frame = crate::presentation_frame::PresentationFrame::try_build_from_logic(&mut world, 1).unwrap();
     assert_eq!(frame.native_ghost_scale_sources.len(), 1);
     assert_eq!(
         frame.native_ghost_scale_sources[&PARENT].identity,

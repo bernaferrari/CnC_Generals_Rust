@@ -10,7 +10,7 @@ fn shared_hud_contract_borrows_frozen_values_and_updates_live_ui() {
     let config = golden_skirmish_config("PresentationContract");
     logic.admit_object_ini_sources(std::iter::empty()).expect("fixture Object content admitted before NewGame");
     crate::skirmish_config::lobby_definition_tests::start_slot_skirmish(&mut logic, &config).expect("skirmish config");
-    let frame = PresentationFrame::build_from_logic(&mut logic, 0);
+    let frame = PresentationFrame::try_build_from_logic(&mut logic, 0).unwrap();
 
     let hud = frame.hud_read_model();
     assert!(std::ptr::eq(hud.players.as_ptr(), frame.players.as_ptr()));

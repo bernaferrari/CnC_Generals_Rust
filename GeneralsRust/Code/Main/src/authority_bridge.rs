@@ -164,7 +164,8 @@ pub fn run_presentation_consumer_path() -> gamelogic::GameLogicResult<(bool, Str
     }
     logic.update();
     logic.headless_camera_view_offer(33)?;
-    let frame = PresentationFrame::build_from_logic(&mut logic, 0);
+    let frame = PresentationFrame::try_build_from_logic(&mut logic, 0)
+        .map_err(gamelogic::GameLogicError::SystemNotInitialized)?;
     let mut ui = GameUIState::default();
     frame.apply_to_ui_state(&mut ui);
     let mut hud = GameHUD::new();

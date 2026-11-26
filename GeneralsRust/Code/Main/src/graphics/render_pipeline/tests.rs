@@ -775,7 +775,7 @@ fn unit_render_collection_uses_presentation_frame_without_logic() {
         o.selection_radius = 14.0;
     }
 
-    let snap = PresentationFrame::build_from_logic(&mut logic, 0);
+    let snap = PresentationFrame::try_build_from_logic(&mut logic, 0).unwrap();
     // Poison live world — unit collect must ignore it.
     logic.set_fixture_object_position(id, Vec3::new(777.0, 0.0, 777.0));
     if let Some(o) = logic.host_object_mut(id) {
@@ -821,7 +821,7 @@ fn presentation_fow_never_explored_skip_is_snapshot_owned() {
         .create_object("FowSkipUnit", Team::China, Vec3::new(1.0, 0.0, 1.0))
         .expect("unit");
 
-    let mut snap = PresentationFrame::build_from_logic(&mut logic, 0);
+    let mut snap = PresentationFrame::try_build_from_logic(&mut logic, 0).unwrap();
     // Force never-explored FOW on the owned snapshot (simulates post-build shroud).
     if let Some(ro) = snap.objects.iter_mut().find(|o| o.id == id) {
         ro.fow_visibility = ObjectVisibility::HIDDEN;

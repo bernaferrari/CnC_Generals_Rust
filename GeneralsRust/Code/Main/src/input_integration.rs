@@ -768,7 +768,7 @@ mod tests {
         let id = logic
             .create_object("IipUnit", Team::USA, glam::Vec3::new(12.0, 0.0, 18.0))
             .expect("id");
-        let frame = PresentationFrame::build_from_logic(&mut logic, 0);
+        let frame = PresentationFrame::try_build_from_logic(&mut logic, 0).unwrap();
         logic.set_fixture_object_position(id, glam::Vec3::new(8888.0, 0.0, 8888.0));
         let input = RtsInputSystem::new();
         let mut proc = InputProcessor::new(input, 0, (1024.0, 768.0));

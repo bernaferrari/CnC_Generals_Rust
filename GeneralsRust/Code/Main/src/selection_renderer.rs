@@ -874,7 +874,7 @@ mod presentation_identity_tests {
             p.selected_objects = vec![id];
         }
 
-        let snap = PresentationFrame::build_from_logic(&mut logic, 0);
+        let snap = PresentationFrame::try_build_from_logic(&mut logic, 0).unwrap();
         assert!(
             snap.objects.iter().any(|o| o.id == id && !o.destroyed),
             "snapshot must contain unit"
@@ -937,7 +937,7 @@ mod presentation_identity_tests {
         let id = logic
             .create_object("CtrlGrpUnit", Team::USA, Vec3::new(10.0, 0.0, 20.0))
             .expect("u");
-        let snap = PresentationFrame::build_from_logic(&mut logic, 0);
+        let snap = PresentationFrame::try_build_from_logic(&mut logic, 0).unwrap();
         logic.set_fixture_object_position(id, Vec3::new(999.0, 0.0, 999.0));
         let mut uc = UnitControlSystem::new((800.0, 600.0), Team::USA, 0);
         uc.selected_objects = vec![id];

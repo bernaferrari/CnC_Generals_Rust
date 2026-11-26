@@ -41,7 +41,7 @@ fn world_with_world_info_weather(map: &std::path::Path, intensity: f32) -> GameL
 }
 
 fn published_snow(logic: &mut GameLogic) -> bool {
-    PresentationFrame::build_from_logic(logic, 0)
+    PresentationFrame::try_build_from_logic(logic, 0).unwrap()
         .world_env
         .is_snow
 }

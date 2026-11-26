@@ -221,7 +221,7 @@ fn pilot_enter_promotes_a_manned_vehicle_without_recapturing_it() {
         .set_experience_scalar(3.0);
     world.host_object_mut(pilot).unwrap().name = "AuthoredPilotName".into();
     world.initialize_receiving_named_cache_for_fixture();
-    let frame = crate::presentation_frame::PresentationFrame::build_from_logic(&mut world, 1);
+    let frame = crate::presentation_frame::PresentationFrame::try_build_from_logic(&mut world, 1).unwrap();
     let pilot_view = frame
         .objects
         .iter()

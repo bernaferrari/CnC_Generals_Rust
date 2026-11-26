@@ -144,8 +144,8 @@ fn shroud_presentation_uses_driving_world_with_reused_object_ids() {
         shroud.mark_host_object_seen(0, right_id.0);
         shroud.set_host_object_shroud_status(0, right_id.0, ObjectShroudStatus::Clear);
     }
-    let left_frame = PresentationFrame::build_from_logic(&mut left, 0);
-    let right_frame = PresentationFrame::build_from_logic(&mut right, 0);
+    let left_frame = PresentationFrame::try_build_from_logic(&mut left, 0).unwrap();
+    let right_frame = PresentationFrame::try_build_from_logic(&mut right, 0).unwrap();
     assert_eq!(
         left_frame.fow_for_object(left_id),
         Some(crate::fow_rendering::ObjectVisibility::from_shroud_flags(
@@ -159,7 +159,7 @@ fn shroud_presentation_uses_driving_world_with_reused_object_ids() {
         ))
     );
     right.reset();
-    let after = PresentationFrame::build_from_logic(&mut left, 0);
+    let after = PresentationFrame::try_build_from_logic(&mut left, 0).unwrap();
     assert_eq!(
         after.fow_for_object(left_id),
         left_frame.fow_for_object(left_id)
@@ -267,7 +267,7 @@ fn same_tick_presentations_share_fog_until_receiving_cells_or_levels_change() {
     }
 
     let publish = |world: &mut GameLogic| {
-        let frame = PresentationFrame::build_from_logic(world, 0);
+        let frame = PresentationFrame::try_build_from_logic(world, 0).unwrap();
         let shroud = world.world_services.shroud().lock().unwrap();
         let expected = FOWRenderingBridge::snapshot_terrain_grid(Some(&shroud), 0, false);
         assert_eq!(frame.fow_grid, expected);

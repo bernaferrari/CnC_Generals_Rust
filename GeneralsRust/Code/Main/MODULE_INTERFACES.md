@@ -40,8 +40,9 @@ For HUD and rendering changes, edit the Main frame builder or its consumers. Pre
 contains only immutable contracts and pure dispatch decisions. Builders retain frame timing,
 event order, asset associations and serialization layout. `hud_read_model()` returns borrowed
 slices; callers must not introduce a second deep copy of the completed frame.
-Frame builders and renderer tests read the receiving simulation directly.
-Object publication tests use the checked `PresentationFrame` builder.
+`PresentationFrame::try_publish` and `try_build_from_logic` freeze the receiving
+world through one builder. Use the publication entry point to deliver accepted
+weapon discharges and include completed victory state when requested.
 
 For asset precedence, edit the owned resolver/file opening path. C++ `FileSystem::openFile`
 tries local files before archives. Resident model caching precedes a fresh load. Once a local

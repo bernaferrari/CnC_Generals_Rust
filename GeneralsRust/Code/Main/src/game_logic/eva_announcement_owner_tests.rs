@@ -90,7 +90,7 @@ fn eva_announcement_owner_tests_frozen_context_preserves_defeated_local_player()
     local.power_consumed = 1;
     local.power_available = -1;
     world.set_current_frame(17);
-    let frame = crate::presentation_frame::PresentationFrame::build_from_logic(&mut world, 7);
+    let frame = crate::presentation_frame::PresentationFrame::try_build_from_logic(&mut world, 7).unwrap();
     let context = frame.eva_context;
     assert_eq!(context.frame, 17);
     let local = context
@@ -99,6 +99,6 @@ fn eva_announcement_owner_tests_frozen_context_preserves_defeated_local_player()
     assert_eq!(local.index, 7);
     assert_eq!(local.side, "China");
     assert!(!local.sufficient_power);
-    let absent = crate::presentation_frame::PresentationFrame::build_from_logic(&mut world, 8);
+    let absent = crate::presentation_frame::PresentationFrame::try_build_from_logic(&mut world, 8).unwrap();
     assert!(absent.eva_context.local_player.is_none());
 }

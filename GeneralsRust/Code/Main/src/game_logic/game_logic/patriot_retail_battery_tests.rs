@@ -314,7 +314,7 @@ fn detonated_retail_missile_hides_only_its_model_and_stays_hidden_after_save() {
     let shot = &original.combat_system.projectiles_snapshot()[0];
     assert!(!shot.die_on_detonate);
     let id = shot.id;
-    let initial = PresentationFrame::build_from_logic(&mut original, 0);
+    let initial = PresentationFrame::try_build_from_logic(&mut original, 0).unwrap();
     assert!(initial.projectile_render_inputs().iter().any(|row| row.id == id));
     for _ in 0..300 {
         let _ = original.update_with_dt(1.0 / 30.0);
@@ -329,7 +329,7 @@ fn detonated_retail_missile_hides_only_its_model_and_stays_hidden_after_save() {
     assert_eq!(original.objects[&id].template_name, "PatriotMissile");
     assert!(original.objects[&id].drawable_hidden);
     assert!(projectile.is_missile_kill_self_holding());
-    let frame = PresentationFrame::build_from_logic(&mut original, 0);
+    let frame = PresentationFrame::try_build_from_logic(&mut original, 0).unwrap();
     assert!(frame.projectiles.iter().any(|row| row.id == id && row.model_hidden));
     assert!(!frame.projectile_render_inputs().iter().any(|row| row.id == id));
     let health_after_impact = original.objects[&target].health.current;
@@ -343,7 +343,7 @@ fn detonated_retail_missile_hides_only_its_model_and_stays_hidden_after_save() {
     builder.restore_from_snapshot(&decoded, &mut restored).unwrap();
     assert_eq!(restored.objects[&id].template_name, "PatriotMissile");
     assert!(restored.objects[&id].drawable_hidden);
-    let restored_frame = PresentationFrame::build_from_logic(&mut restored, 0);
+    let restored_frame = PresentationFrame::try_build_from_logic(&mut restored, 0).unwrap();
     assert!(restored_frame.projectiles.iter().any(|row| row.id == id && row.model_hidden));
     assert!(!restored_frame.projectile_render_inputs().iter().any(|row| row.id == id));
     assert_eq!(restored.objects[&target].health.current, health_after_impact);
@@ -380,7 +380,7 @@ fn detonated_retail_emp_missile_retires_flight_with_its_instant_death_object() {
     assert!(!world.objects.contains_key(&id), "InstantDeathBehavior removed the missile");
     assert!(!world.combat_system.get_projectiles().contains_key(&id),
         "flight must retire within the same frame as its Object");
-    let frame = PresentationFrame::build_from_logic(&mut world, 0);
+    let frame = PresentationFrame::try_build_from_logic(&mut world, 0).unwrap();
     assert!(!frame.projectiles.iter().any(|row| row.id == id));
     crate::save_load::SnapshotBuilder::new().create_world_snapshot(&world)
         .expect("impact frame can be saved without a missing projectile Object");
@@ -417,7 +417,7 @@ fn lost_target_kill_self_retains_the_visible_retail_missile() {
     assert_eq!(world.objects[&id].template_name, "PatriotMissileEMP");
     assert_eq!(world.objects[&id].get_position(), projectile.position);
     assert!(!projectile.missile_drawable_hidden());
-    let frame = PresentationFrame::build_from_logic(&mut world, 0);
+    let frame = PresentationFrame::try_build_from_logic(&mut world, 0).unwrap();
     assert!(frame.projectiles.iter().any(|row| row.id == id && !row.model_hidden));
     assert!(frame.projectile_render_inputs().iter().any(|row| row.id == id));
 

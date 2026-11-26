@@ -1970,7 +1970,7 @@ fn presentation_structure_sw_timer_uses_object_cooldown() {
         p.authored_special_power_timers
             .insert("specialpowerparticleuplinkcannon".into(), 1.0);
     }
-    let frame = PresentationFrame::build_from_logic(&mut logic, 0);
+    let frame = PresentationFrame::try_build_from_logic(&mut logic, 0).unwrap();
     let row = frame
         .superweapon_timers()
         .iter()
@@ -1988,7 +1988,7 @@ fn presentation_structure_sw_timer_uses_object_cooldown() {
     // InstantDeath immediate-removal path (no death-animation deferral).
     logic.destroy_object(id).unwrap();
     logic.process_destroy_list();
-    let frame2 = PresentationFrame::build_from_logic(&mut logic, 1);
+    let frame2 = PresentationFrame::try_build_from_logic(&mut logic, 1).unwrap();
     assert!(
         frame2
             .superweapon_timers()

@@ -470,7 +470,7 @@ End
     particle_object.set_special_power_ready_seconds(&P::ParticleCannon, 0.0);
     assert!(logic.is_special_power_ready_for(particle_id, &P::ParticleCannon));
     assert!(!logic.is_special_power_ready_for(spoof_id, &P::ParticleCannon));
-    let frame = crate::presentation_frame::PresentationFrame::build_from_logic(&mut logic, 1);
+    let frame = crate::presentation_frame::PresentationFrame::try_build_from_logic(&mut logic, 1).unwrap();
     let particle_presentation = frame
         .objects
         .iter()
@@ -494,13 +494,13 @@ End
 
     logic.select_objects(1, vec![particle_id]);
     let particle_frame =
-        crate::presentation_frame::PresentationFrame::build_from_logic(&mut logic, 1);
+        crate::presentation_frame::PresentationFrame::try_build_from_logic(&mut logic, 1).unwrap();
     assert!(particle_frame.unit_command_buttons().iter().any(|button| {
         let n = button.command_name.to_ascii_lowercase();
         n.contains("particle") && button.enabled
     }));
     logic.select_objects(1, vec![spoof_id]);
-    let spoof_frame = crate::presentation_frame::PresentationFrame::build_from_logic(&mut logic, 1);
+    let spoof_frame = crate::presentation_frame::PresentationFrame::try_build_from_logic(&mut logic, 1).unwrap();
     assert!(!spoof_frame.unit_command_buttons().iter().any(|button| {
         button
             .command_name

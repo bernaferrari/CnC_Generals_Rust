@@ -243,7 +243,7 @@ fn native_fade_rejects_actual_interpreter_loan_before_frame_publication() {
         assert!(world.owned_script_engine.is_none());
         let query = PresentationFrame::try_build_from_logic(world, 0);
         assert!(matches!(query, Err(ref error) if error.contains("receiving interpreter is unavailable or lent")), "a loaned native query must reject before constructing a frame");
-        let publication = PresentationFrame::try_publish_for_engine_with_runtime_heightmap(world, 0, None, true);
+        let publication = PresentationFrame::try_publish(world, 0, None, true);
         assert!(matches!(publication, Err(ref error) if error.contains("receiving interpreter is unavailable or lent")),
             "a loaned native interpreter must be a checked error, never a no-fade frame");
         assert_eq!(engine.snapshot_xfer_tail(), before);

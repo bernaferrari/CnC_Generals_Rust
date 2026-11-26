@@ -49,7 +49,7 @@ fn model(name: &str, camera_x: f32) -> W3DModel {
     model
 }
 fn frame_source(world: &mut GameLogic) -> crate::presentation_frame::UnitRenderInput {
-    PresentationFrame::build_from_logic(world, 0)
+    PresentationFrame::try_build_from_logic(world, 0).unwrap()
         .native_resident_drawable_inputs()
         .into_iter()
         .find(|source| source.id == ID)
@@ -1667,7 +1667,7 @@ fn actual_tree_prop_render_collection_preserves_constructor_retirement_and_peer(
                 ));
             },
         );
-        let mut frame = PresentationFrame::build_from_logic(&mut world, 0);
+        let mut frame = PresentationFrame::try_build_from_logic(&mut world, 0).unwrap();
         frame.fow_shell_bypass = true;
         pipeline.set_presentation_frame(Some(std::rc::Rc::new(frame)));
         let (installed, items) =
@@ -2140,7 +2140,7 @@ End
         } else {
             object.clear_under_construction_model_conditions();
         }
-        let frame = std::rc::Rc::new(PresentationFrame::build_from_logic(&mut world, 0));
+        let frame = std::rc::Rc::new(PresentationFrame::try_build_from_logic(&mut world, 0).unwrap());
         let source = frame.native_resident_drawable_inputs().into_iter()
             .find(|source| source.id == ID).unwrap();
         let expected_destination = if bits == active { "ScaffoldModel" } else { "" };

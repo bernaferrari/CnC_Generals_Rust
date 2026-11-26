@@ -1267,7 +1267,7 @@ fn emp_pulse_spawns_effect_spheroid_residual() {
         selection.to_bits(),
         "visual growth must not change gameplay selection radius"
     );
-    let frame = crate::presentation_frame::PresentationFrame::build_from_logic(&mut logic, 0);
+    let frame = crate::presentation_frame::PresentationFrame::try_build_from_logic(&mut logic, 0).unwrap();
     let presented = frame
         .objects
         .iter()

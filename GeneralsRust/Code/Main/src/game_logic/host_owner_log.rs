@@ -105,7 +105,7 @@ mod owned_receipt_tests {
             })
             .collect::<Vec<_>>();
         assert_eq!(changes, vec![(object, Team::USA), (object, Team::GLA)]);
-        let next = PresentationFrame::build_from_logic(&mut owner, 0);
+        let next = PresentationFrame::try_build_from_logic(&mut owner, 0).unwrap();
         assert!(
             !next
                 .events

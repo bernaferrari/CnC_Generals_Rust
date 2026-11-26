@@ -650,7 +650,7 @@ fn repeated_real_presentation_freezes_preserve_zero_birth_identity_and_audio_onc
     owner.award_experience(id, 60.0);
     assert_eq!(owner.queued_audio_events.len(), 1);
     assert_eq!(owner.queued_audio_events[0].event_type, "UnitPromoted");
-    let first = PresentationFrame::build_from_logic(&mut owner, 0);
+    let first = PresentationFrame::try_build_from_logic(&mut owner, 0).unwrap();
     assert_eq!(first.world_anims.len(), 1);
     let identity = first.world_anims[0].identity;
     let initial_frame = first.world_anims[0].initial_frame;
@@ -663,7 +663,7 @@ fn repeated_real_presentation_freezes_preserve_zero_birth_identity_and_audio_onc
     // Deliberately do not invoke the separate UI expiration phase here.
     owner.frame = 10;
     for _ in 0..3 {
-        let repeated = PresentationFrame::build_from_logic(&mut owner, 0);
+        let repeated = PresentationFrame::try_build_from_logic(&mut owner, 0).unwrap();
         assert_eq!(repeated.world_anims.len(), 1);
         assert_eq!(repeated.world_anims[0].spawn_frame, 0);
         assert_eq!(repeated.world_anims[0].identity, identity);
@@ -694,7 +694,7 @@ fn repeated_real_presentation_freezes_preserve_zero_birth_identity_and_audio_onc
     );
     peer.award_experience(id, 300.0);
     peer.reset();
-    let after_peer = PresentationFrame::build_from_logic(&mut owner, 0);
+    let after_peer = PresentationFrame::try_build_from_logic(&mut owner, 0).unwrap();
     assert_eq!(after_peer.world_anims.len(), 1);
     assert_eq!(after_peer.world_anims[0].spawn_frame, 0);
     assert_eq!(after_peer.world_anims[0].identity, identity);

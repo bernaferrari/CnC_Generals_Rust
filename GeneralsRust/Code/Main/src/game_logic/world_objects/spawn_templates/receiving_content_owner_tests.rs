@@ -54,7 +54,7 @@ fn receiving(rate: Option<f32>) -> GameLogic {
     world
 }
 fn frame(world: &mut GameLogic, id: ObjectId) -> PresentationFrame {
-    let frame = PresentationFrame::build_from_logic(world, 0);
+    let frame = PresentationFrame::try_build_from_logic(world, 0).unwrap();
     let direct = frame
         .direct_host_drawables
         .iter()
@@ -145,7 +145,7 @@ fn captured_missing_admission_rejects_while_uncaptured_programmatic_template_is_
     let id = programmatic
         .create_object("UncapturedProgrammatic", Team::USA, Vec3::ZERO)
         .unwrap();
-    let frame = PresentationFrame::build_from_logic(&mut programmatic, 0);
+    let frame = PresentationFrame::try_build_from_logic(&mut programmatic, 0).unwrap();
     let direct = frame
         .direct_host_drawables
         .iter()
@@ -590,9 +590,9 @@ fn native_science_frame_uses_uncapped_receiving_membership_and_current_local_vie
     let mut first = world(true, false);
     let mut peer = world(false, false);
     let mut observer = world(false, true);
-    let a = PresentationFrame::build_from_logic(&mut first, 0);
-    let b = PresentationFrame::build_from_logic(&mut peer, 0);
-    let o = PresentationFrame::build_from_logic(&mut observer, 0);
+    let a = PresentationFrame::try_build_from_logic(&mut first, 0).unwrap();
+    let b = PresentationFrame::try_build_from_logic(&mut peer, 0).unwrap();
+    let o = PresentationFrame::try_build_from_logic(&mut observer, 0).unwrap();
     assert_eq!(
         a.local_unlocked_sciences.len(),
         32,
@@ -614,7 +614,7 @@ fn native_science_frame_uses_uncapped_receiving_membership_and_current_local_vie
             .should_hide(game_engine::common::rts::SCIENCE_INVALID)
     );
     first.add_player(Player::new(1, Team::China, "SelectedViewer", true));
-    let selected_viewer = PresentationFrame::build_from_logic(&mut first, 1);
+    let selected_viewer = PresentationFrame::try_build_from_logic(&mut first, 1).unwrap();
     assert!(
         selected_viewer
             .receiving_science_player
@@ -624,7 +624,7 @@ fn native_science_frame_uses_uncapped_receiving_membership_and_current_local_vie
         "changing the local viewer freezes that player's membership"
     );
     assert!(
-        !PresentationFrame::build_from_logic(&mut first, 0)
+        !PresentationFrame::try_build_from_logic(&mut first, 0).unwrap()
             .receiving_science_player
             .as_ref()
             .unwrap()
@@ -637,7 +637,7 @@ fn native_science_frame_uses_uncapped_receiving_membership_and_current_local_vie
         .unwrap()
         .unlocked_sciences
         .remove("SCIENCE_Receiving40");
-    let next = PresentationFrame::build_from_logic(&mut first, 0);
+    let next = PresentationFrame::try_build_from_logic(&mut first, 0).unwrap();
     assert_ne!(
         before,
         next.presentation_hash(),
@@ -648,7 +648,7 @@ fn native_science_frame_uses_uncapped_receiving_membership_and_current_local_vie
         "prior frame remains immutable"
     );
     assert!(
-        PresentationFrame::build_from_logic(&mut peer, 0)
+        PresentationFrame::try_build_from_logic(&mut peer, 0).unwrap()
             .receiving_science_player
             .as_ref()
             .unwrap()

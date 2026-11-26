@@ -57,7 +57,7 @@ fn model_less_template_admits_real_client_only_and_behavior_only_objects_without
                 .model_name_for_conditions(0)
                 .is_empty()
         );
-        let frame = PresentationFrame::build_from_logic(&mut world, 0);
+        let frame = PresentationFrame::try_build_from_logic(&mut world, 0).unwrap();
         let record = frame.objects.iter().find(|object| object.id == id).unwrap();
         assert!(record.model_key.is_none());
         assert!(record.draw_models.is_empty());
@@ -94,7 +94,7 @@ fn model_less_template_same_id_peer_and_restore_use_their_receiving_data() {
         .restore_from_snapshot(&decoded, &mut restored)
         .unwrap();
     for owner in [&mut world, &mut restored] {
-        let record = PresentationFrame::build_from_logic(owner, 0);
+        let record = PresentationFrame::try_build_from_logic(owner, 0).unwrap();
         assert!(
             record
                 .objects
@@ -112,7 +112,7 @@ fn model_less_template_same_id_peer_and_restore_use_their_receiving_data() {
                 .has_authored_no_model()
         );
     }
-    let peer_frame = PresentationFrame::build_from_logic(&mut peer, 0);
+    let peer_frame = PresentationFrame::try_build_from_logic(&mut peer, 0).unwrap();
     assert_eq!(
         peer_frame
             .objects

@@ -309,8 +309,8 @@ fn presentation_freezes_the_driving_ghost_owner_and_retains_its_snapshot() {
     let mut b = GameLogic::new();
     *a.fixture_fog_ghost_scene_mut() = ghost_owner("FrameA", Some(42), 0);
     *b.fixture_fog_ghost_scene_mut() = ghost_owner("FrameB", Some(42), 0);
-    let frame_a = crate::presentation_frame::PresentationFrame::build_from_logic(&mut a, 0);
-    let frame_b = crate::presentation_frame::PresentationFrame::build_from_logic(&mut b, 0);
+    let frame_a = crate::presentation_frame::PresentationFrame::try_build_from_logic(&mut a, 0).unwrap();
+    let frame_b = crate::presentation_frame::PresentationFrame::try_build_from_logic(&mut b, 0).unwrap();
     let scene_a = frame_a.w3d_ghost_scene.as_ref().unwrap();
     let scene_b = frame_b.w3d_ghost_scene.as_ref().unwrap();
     assert_eq!(scene_a.snapshots.len(), 1);
@@ -329,7 +329,7 @@ fn presentation_freezes_the_driving_ghost_owner_and_retains_its_snapshot() {
     // Drawable's separate FullyObscured flag. freeSnapShot restores them.
     assert!(!a.fog_ghost_scene().used()[0].parent_fully_obscured());
     a.fixture_fog_ghost_scene_mut().used_mut()[0].free_snapshot(0, 0);
-    let freed = crate::presentation_frame::PresentationFrame::build_from_logic(&mut a, 0);
+    let freed = crate::presentation_frame::PresentationFrame::try_build_from_logic(&mut a, 0).unwrap();
     assert!(freed.w3d_ghost_scene.as_ref().unwrap().snapshots.is_empty());
     assert!(
         freed
@@ -340,7 +340,7 @@ fn presentation_freezes_the_driving_ghost_owner_and_retains_its_snapshot() {
             .is_empty()
     );
     *a.fixture_fog_ghost_scene_mut() = Default::default();
-    let cleared = crate::presentation_frame::PresentationFrame::build_from_logic(&mut a, 0);
+    let cleared = crate::presentation_frame::PresentationFrame::try_build_from_logic(&mut a, 0).unwrap();
     assert!(
         cleared
             .w3d_ghost_scene

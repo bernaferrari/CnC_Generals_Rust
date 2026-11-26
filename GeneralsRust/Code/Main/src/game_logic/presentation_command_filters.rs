@@ -98,7 +98,7 @@ mod tests {
             "no presentation freeze → sell identity fail-closed"
         );
 
-        let frame = PresentationFrame::build_from_logic(&mut logic, 0);
+        let frame = PresentationFrame::try_build_from_logic(&mut logic, 0).unwrap();
         let sold =
             presentation_selected_sellable_structure_ids(Some(&frame), &[bid, cid, rid], Team::USA);
         assert_eq!(sold, vec![bid], "only non-CC structure is sellable");

@@ -518,7 +518,7 @@ mod tests {
             .create_object("InterpU", Team::USA, Vec3::new(4.0, 0.0, 8.0))
             .unwrap();
         logic.frame = 5;
-        let frame5 = PresentationFrame::build_from_logic(&mut logic, 0);
+        let frame5 = PresentationFrame::try_build_from_logic(&mut logic, 0).unwrap();
         let expected_root = frame5
             .unit_render_inputs()
             .into_iter()
@@ -543,7 +543,7 @@ mod tests {
         // the object joins `moving`.
         logic.set_fixture_object_position(id, Vec3::new(14.0, 0.0, 8.0));
         logic.frame = 6;
-        let frame6 = PresentationFrame::build_from_logic(&mut logic, 0);
+        let frame6 = PresentationFrame::try_build_from_logic(&mut logic, 0).unwrap();
         interp.prepare(Some(&frame6));
         assert_eq!(
             interp.prev_roots.get(&InterpKey::Object(id)),

@@ -69,7 +69,7 @@ End
         let mut receiving_order: Vec<_> = world.host_objects().registered_keys().copied().collect();
         receiving_order.sort_unstable();
         let frame =
-            PresentationFrame::try_publish_for_engine_with_runtime_heightmap(world, 1, None, true)
+            PresentationFrame::try_publish(world, 1, None, true)
                 .unwrap();
         assert_eq!(
             frame.objects.iter().map(|row| row.id).collect::<Vec<_>>(),
@@ -521,7 +521,7 @@ fn viewer_relative_stealth_matches_cxx_allies_and_inactive_local_rules() {
         object.apply_stealth_update_pulse(&crate::game_logic::object::StealthUpdateData::default());
     }
 
-    let active = PresentationFrame::build_from_logic(&mut logic, 0);
+    let active = PresentationFrame::try_build_from_logic(&mut logic, 0).unwrap();
     let active_allied = active
         .objects
         .iter()
@@ -563,7 +563,7 @@ fn viewer_relative_stealth_matches_cxx_allies_and_inactive_local_rules() {
         .expect("allied object")
         .status
         .detected = true;
-    let detected_frame = PresentationFrame::build_from_logic(&mut logic, 0);
+    let detected_frame = PresentationFrame::try_build_from_logic(&mut logic, 0).unwrap();
     let detected_input = detected_frame
         .unit_render_inputs()
         .into_iter()
@@ -587,7 +587,7 @@ fn viewer_relative_stealth_matches_cxx_allies_and_inactive_local_rules() {
     );
 
     logic.get_player_mut(1).expect("allied player").is_alive = false;
-    let dead_allied_owner = PresentationFrame::build_from_logic(&mut logic, 0);
+    let dead_allied_owner = PresentationFrame::try_build_from_logic(&mut logic, 0).unwrap();
     let allied_object = dead_allied_owner
         .objects
         .iter()
@@ -601,7 +601,7 @@ fn viewer_relative_stealth_matches_cxx_allies_and_inactive_local_rules() {
     // C++ forces an inactive observer/dead local player to ALLIES for this
     // visual relationship. Do not reuse generic selection/ownership logic.
     logic.get_player_mut(0).expect("local player").is_alive = false;
-    let inactive = PresentationFrame::build_from_logic(&mut logic, 0);
+    let inactive = PresentationFrame::try_build_from_logic(&mut logic, 0).unwrap();
     assert!(!inactive.local_is_alive);
     for id in [allied_id, enemy_id] {
         let object = inactive
@@ -655,13 +655,13 @@ fn friendly_stealth_opacity_pulses_across_logic_frames() {
     logic.update_stealth_and_detection().unwrap();
     let opacity_a = logic.host_object(id).unwrap().camo_friendly_opacity;
     let phase_a = logic.host_object(id).unwrap().camo_opacity_pulse_phase;
-    let a = PresentationFrame::build_from_logic(&mut logic, 0)
+    let a = PresentationFrame::try_build_from_logic(&mut logic, 0).unwrap()
         .unit_render_inputs()
         .into_iter()
         .find(|u| u.id == id)
         .expect("frame 0");
     assert!((a.presentation_opacity - opacity_a).abs() < 1e-5);
-    let repeated = PresentationFrame::build_from_logic(&mut logic, 0)
+    let repeated = PresentationFrame::try_build_from_logic(&mut logic, 0).unwrap()
         .unit_render_inputs()
         .into_iter()
         .find(|u| u.id == id)
@@ -677,7 +677,7 @@ fn friendly_stealth_opacity_pulses_across_logic_frames() {
     }
     let opacity_b = logic.host_object(id).unwrap().camo_friendly_opacity;
     assert!(logic.host_object(id).unwrap().camo_opacity_pulse_phase > phase_a);
-    let b = PresentationFrame::build_from_logic(&mut logic, 0)
+    let b = PresentationFrame::try_build_from_logic(&mut logic, 0).unwrap()
         .unit_render_inputs()
         .into_iter()
         .find(|u| u.id == id)
@@ -708,7 +708,7 @@ fn ocl_fade_in_multiplies_presentation_opacity() {
         .host_object_mut(id)
         .expect("obj")
         .start_drawable_fade_in(10, 10);
-    let input = PresentationFrame::build_from_logic(&mut logic, 0)
+    let input = PresentationFrame::try_build_from_logic(&mut logic, 0).unwrap()
         .unit_render_inputs()
         .into_iter()
         .find(|u| u.id == id)
@@ -1012,7 +1012,7 @@ fn direct_host_shroud_facts_use_raw_membership_not_visibility_alpha() {
         shroud.mark_host_object_seen(0, id.0);
     }
     assert_eq!(
-        PresentationFrame::build_from_logic(&mut logic, 0)
+        PresentationFrame::try_build_from_logic(&mut logic, 0).unwrap()
             .objects
             .iter()
             .find(|object| object.id == id)
@@ -1034,7 +1034,7 @@ fn direct_host_shroud_facts_use_raw_membership_not_visibility_alpha() {
         shroud.clear_host_object_visibility(0);
     }
     assert_eq!(
-        PresentationFrame::build_from_logic(&mut logic, 0)
+        PresentationFrame::try_build_from_logic(&mut logic, 0).unwrap()
             .objects
             .iter()
             .find(|object| object.id == id)
@@ -1055,7 +1055,7 @@ fn direct_host_shroud_facts_use_raw_membership_not_visibility_alpha() {
         shroud.mark_host_object_seen(0, 0x00ff_0001);
     }
     assert_eq!(
-        PresentationFrame::build_from_logic(&mut logic, 0)
+        PresentationFrame::try_build_from_logic(&mut logic, 0).unwrap()
             .objects
             .iter()
             .find(|object| object.id == id)
@@ -1281,7 +1281,7 @@ fn native_frames_keep_receiving_player_facts() {
     world.get_player_mut(3).unwrap().color_rgb = (25, 50, 75);
 
     for with_victory in [false, true] {
-        let frame = PresentationFrame::try_publish_for_engine_with_runtime_heightmap(
+        let frame = PresentationFrame::try_publish(
             &mut world,
             0,
             None,
@@ -1302,7 +1302,7 @@ fn native_frames_keep_receiving_player_facts() {
             [(0, false, (9, 8, 7)), (3, true, (25, 50, 75))]
         );
 
-        let peer_frame = PresentationFrame::try_publish_for_engine_with_runtime_heightmap(
+        let peer_frame = PresentationFrame::try_publish(
             &mut peer,
             0,
             None,
@@ -1337,11 +1337,11 @@ fn hidden_actor_stays_in_the_receiving_roster_without_a_drawable() {
 
     let mut peer = GameLogic::new();
     peer.add_object(Object::new(template, id, Team::USA));
-    let visible = PresentationFrame::build_from_logic(&mut peer, 0);
+    let visible = PresentationFrame::try_build_from_logic(&mut peer, 0).unwrap();
     assert!(visible.unit_render_inputs().iter().any(|input| input.id == id));
 
     for with_victory in [false, true] {
-        let frame = PresentationFrame::try_publish_for_engine_with_runtime_heightmap(
+        let frame = PresentationFrame::try_publish(
             &mut world,
             0,
             None,
@@ -1410,7 +1410,7 @@ fn native_frames_read_body_and_pose_from_receiving_objects() {
     object.body_damage_state = HostBodyDamageType::ReallyDamaged;
 
     for with_victory in [false, true] {
-        let frame = PresentationFrame::try_publish_for_engine_with_runtime_heightmap(
+        let frame = PresentationFrame::try_publish(
             &mut world,
             0,
             None,
@@ -1429,7 +1429,7 @@ fn native_frames_read_body_and_pose_from_receiving_objects() {
     }
 
     let frame =
-        PresentationFrame::try_publish_for_engine_with_runtime_heightmap(&mut peer, 0, None, false)
+        PresentationFrame::try_publish(&mut peer, 0, None, false)
             .unwrap();
     let row = frame.objects.iter().find(|row| row.id == id).unwrap();
     assert_eq!(row.health_current, 100.0);
@@ -1455,7 +1455,7 @@ fn native_publication_tracks_registered_visible_objects_at_the_frame_boundary() 
     world.add_object(Object::new(template.clone(), survivor, Team::USA));
 
     let first =
-        PresentationFrame::try_publish_for_engine_with_runtime_heightmap(&mut world, 0, None, false)
+        PresentationFrame::try_publish(&mut world, 0, None, false)
             .unwrap();
     assert_eq!(first.renderable_object_ids(), [survivor, removed]);
 
@@ -1463,7 +1463,7 @@ fn native_publication_tracks_registered_visible_objects_at_the_frame_boundary() 
     world.process_destroy_list();
     world.add_object(Object::new(template, admitted, Team::USA));
     let next =
-        PresentationFrame::try_publish_for_engine_with_runtime_heightmap(&mut world, 0, None, true)
+        PresentationFrame::try_publish(&mut world, 0, None, true)
             .unwrap();
     assert_eq!(next.renderable_object_ids(), [survivor, admitted]);
     assert_eq!(
@@ -1513,12 +1513,12 @@ fn ordinary_and_victory_publication_share_receiving_player_facts() {
     player
         .shared_special_power_cooldowns
         .insert(crate::command_system::SpecialPowerType::ScudStorm, 0.0);
-    let ordinary = PresentationFrame::try_publish_for_engine_with_runtime_heightmap(
+    let ordinary = PresentationFrame::try_publish(
         &mut logic, 0, None, false,
     )
     .unwrap();
     let frame =
-        PresentationFrame::try_publish_for_engine_with_runtime_heightmap(&mut logic, 0, None, true)
+        PresentationFrame::try_publish(&mut logic, 0, None, true)
             .unwrap();
     for frame in [&ordinary, &frame] {
         assert_eq!(frame.local_supplies, host_cash.saturating_add(1234));
@@ -1577,7 +1577,7 @@ fn unit_display_info_carries_command_set_override_residual() {
         obj.status.under_construction = false;
         obj.command_set_override = Some("CommandSetAmericaBarracks".into());
     }
-    let frame = PresentationFrame::build_from_logic(&mut logic, 0);
+    let frame = PresentationFrame::try_build_from_logic(&mut logic, 0).unwrap();
     let infos = frame.selected_unit_display_infos();
     let info = infos.iter().find(|i| i.object_id == id).expect("info");
     assert!(info.can_produce);
@@ -1610,7 +1610,7 @@ fn presentation_freezes_detector_stealth_timing_residual() {
         obj.continuous_fire_coast_until_frame = 40;
         obj.battle_plan_sight_scalar_applied = 1.25;
     }
-    let frame = PresentationFrame::build_from_logic(&mut logic, 0);
+    let frame = PresentationFrame::try_build_from_logic(&mut logic, 0).unwrap();
     assert_eq!(frame.innate_stealth_object_count(), 1);
     assert_eq!(frame.timed_detector_object_count(), 1);
     let ro = frame.objects.iter().find(|o| o.id == id).expect("ro");
@@ -1662,7 +1662,7 @@ fn presentation_freezes_transport_kind_damage_residual() {
         obj.turret_ai.turret_holding = true;
         obj.last_damage_source = Some(src_id);
     }
-    let frame = PresentationFrame::build_from_logic(&mut logic, 0);
+    let frame = PresentationFrame::try_build_from_logic(&mut logic, 0).unwrap();
     assert_eq!(frame.humvee_transport_object_count(), 1);
     let ro = frame.objects.iter().find(|o| o.id == id).expect("ro");
     assert!(ro.is_humvee_transport && ro.is_helix_transport);
@@ -1697,7 +1697,7 @@ fn presentation_freezes_hive_continuous_camo_residual() {
         obj.vision_spied_mask = 0b110;
         obj.cheer_timer = 1.25;
     }
-    let frame = PresentationFrame::build_from_logic(&mut logic, 0);
+    let frame = PresentationFrame::try_build_from_logic(&mut logic, 0).unwrap();
     assert_eq!(frame.hive_object_count(), 1);
     assert_eq!(frame.continuous_fire_object_count(), 1);
     let ro = frame.objects.iter().find(|o| o.id == id).expect("ro");
@@ -1732,7 +1732,7 @@ fn presentation_freezes_battle_plan_weapon_bonus_residual() {
         obj.weapon_bonus_battle_plan_hold_the_line = true;
         obj.weapon_bonus_battle_plan_search_and_destroy = true;
     }
-    let frame = PresentationFrame::build_from_logic(&mut logic, 0);
+    let frame = PresentationFrame::try_build_from_logic(&mut logic, 0).unwrap();
     assert_eq!(frame.battle_plan_bonus_object_count(), 1);
     let ro = frame.objects.iter().find(|o| o.id == id).expect("ro");
     assert!(ro.weapon_bonus_battle_plan_bombardment);
@@ -1764,7 +1764,7 @@ fn apply_to_control_bar_syncs_command_set_from_presentation() {
         obj.selected = true;
         obj.command_set_override = Some("CommandSetAmericaDozer".into());
     }
-    let frame = PresentationFrame::build_from_logic(&mut logic, 0);
+    let frame = PresentationFrame::try_build_from_logic(&mut logic, 0).unwrap();
     assert_eq!(
         frame.selected_command_set_name(),
         Some("CommandSetAmericaDozer")
@@ -1795,7 +1795,7 @@ fn presentation_freezes_command_set_detector_residual() {
         obj.show_health_bar = false;
         obj.guard_radius = 175.0;
     }
-    let frame = PresentationFrame::build_from_logic(&mut logic, 0);
+    let frame = PresentationFrame::try_build_from_logic(&mut logic, 0).unwrap();
     assert_eq!(frame.detector_object_count(), 1);
     assert_eq!(frame.command_set_override_object_count(), 1);
     let ro = frame.objects.iter().find(|o| o.id == id).expect("ro");
@@ -1834,7 +1834,7 @@ fn presentation_freezes_turret_and_weapon_bonus_residual() {
         obj.weapon_bonus_nationalism = true;
         obj.weapon_bonus_subliminal = true;
     }
-    let frame = PresentationFrame::build_from_logic(&mut logic, 0);
+    let frame = PresentationFrame::try_build_from_logic(&mut logic, 0).unwrap();
     assert_eq!(frame.turret_idle_scan_count(), 1);
     assert_eq!(frame.horde_bonus_object_count(), 1);
     let ro = frame.objects.iter().find(|o| o.id == id).expect("ro");
@@ -1856,7 +1856,7 @@ fn upgrade_complete_freezes_into_presentation_events() {
     let _ = logic
         .host_upgrades_mut()
         .record_complete("CaptureBuilding", 0, 1, 3);
-    let frame = PresentationFrame::build_from_logic(&mut logic, 0);
+    let frame = PresentationFrame::try_build_from_logic(&mut logic, 0).unwrap();
     assert!(
         frame.events.iter().any(|e| {
             matches!(
@@ -1877,7 +1877,7 @@ fn upgrade_complete_freezes_into_presentation_events() {
 #[test]
 fn radar_delivery_is_once_per_hud_world_and_logic_frame() {
     let mut logic = crate::game_logic::GameLogic::new();
-    let mut frame = PresentationFrame::build_from_logic(&mut logic, 0);
+    let mut frame = PresentationFrame::try_build_from_logic(&mut logic, 0).unwrap();
     frame.events = vec![PresentationEvent::RadarMessage {
         team: crate::game_logic::Team::Neutral,
         text: "test radar".into(),
@@ -1918,7 +1918,7 @@ fn apply_events_routes_upgrade_and_owner_to_hud() {
         None,
     );
     logic.ownership_events.complete_boundary();
-    let mut frame = PresentationFrame::build_from_logic(&mut logic, 0);
+    let mut frame = PresentationFrame::try_build_from_logic(&mut logic, 0).unwrap();
     let mut hud = crate::ui::GameHUD::new();
     let before = hud.message_count_for_test();
     frame.apply_events_to_game_hud(&mut hud);
@@ -1960,7 +1960,7 @@ fn apply_events_queues_authored_fire_audio_without_inventing_attack_or_death_sou
     let source = logic
         .create_object("PresentationAudioSource", Team::USA, frozen_position)
         .expect("owned audio source");
-    let mut frame = PresentationFrame::build_from_logic(&mut logic, 0);
+    let mut frame = PresentationFrame::try_build_from_logic(&mut logic, 0).unwrap();
 
     // These pre-existing residual drains are outside this fixture's frozen
     // events. Clear their per-thread test leftovers before asserting exact
@@ -2015,7 +2015,7 @@ fn heal_applied_freezes_from_last_drain() {
     object.heal(48.0, events, body_frame);
     assert_eq!(object.health.current, 88.0);
     let _ = logic.health_events.drain_heal();
-    let frame = PresentationFrame::build_from_logic(&mut logic, 0);
+    let frame = PresentationFrame::try_build_from_logic(&mut logic, 0).unwrap();
     assert!(
         frame.events.iter().any(|e| {
             matches!(
@@ -2034,7 +2034,7 @@ fn economy_changed_freezes_from_last_drain() {
     let mut logic = crate::game_logic::GameLogic::new();
     logic.economy_events.record(0, 12345, 7);
     logic.economy_events.complete_boundary();
-    let frame = PresentationFrame::build_from_logic(&mut logic, 0);
+    let frame = PresentationFrame::try_build_from_logic(&mut logic, 0).unwrap();
     assert!(
         frame.events.iter().any(|e| {
             matches!(
@@ -2084,7 +2084,7 @@ fn supply_and_model_keys_freeze_from_host() {
             power: 0,
         };
     }
-    let frame = PresentationFrame::build_from_logic(&mut logic, 0);
+    let frame = PresentationFrame::try_build_from_logic(&mut logic, 0).unwrap();
     let s = frame.objects.iter().find(|o| o.id == sc).unwrap();
     assert_eq!(s.stored_supplies, 1500);
     assert_eq!(s.model_key.as_deref(), Some("SCModel"));
@@ -2129,7 +2129,7 @@ fn building_type_freeze_from_host() {
         o.construction_percent = 1.0;
         o.building_data = Some(BuildingData::new(BuildingType::CommandCenter));
     }
-    let frame = PresentationFrame::build_from_logic(&mut logic, 0);
+    let frame = PresentationFrame::try_build_from_logic(&mut logic, 0).unwrap();
     let w = frame.objects.iter().find(|o| o.id == wf).unwrap();
     assert_eq!(w.building_type, Some(PresentationBuildingType::WarFactory));
     assert!(w.can_produce);
@@ -2187,7 +2187,7 @@ fn mobile_and_producer_freeze_from_host() {
         o.construction_percent = 1.0;
         o.building_data = None;
     }
-    let frame = PresentationFrame::build_from_logic(&mut logic, 0);
+    let frame = PresentationFrame::try_build_from_logic(&mut logic, 0).unwrap();
     let hu = frame.objects.iter().find(|o| o.id == u).unwrap();
     assert!(hu.is_mobile);
     assert!(!hu.can_produce);
@@ -2259,7 +2259,7 @@ fn presentation_freezes_can_make_cameos_residual() {
         CANMAKE_OK,
         "direct can_make Burton"
     );
-    let frame = PresentationFrame::build_from_logic(&mut logic, 0);
+    let frame = PresentationFrame::try_build_from_logic(&mut logic, 0).unwrap();
     assert_eq!(
         frame.can_make_producer_id,
         Some(bid.0),
@@ -2305,7 +2305,7 @@ fn presentation_freezes_can_make_cameos_residual() {
     if let Some(pl) = logic.get_player_mut(0) {
         pl.selected_objects = vec![bid];
     }
-    let frame2 = PresentationFrame::build_from_logic(&mut logic, 0); // same local id residual
+    let frame2 = PresentationFrame::try_build_from_logic(&mut logic, 0).unwrap(); // same local id residual
     assert_eq!(
         frame2.can_make_producer_id,
         Some(bid.0),
@@ -2390,7 +2390,7 @@ fn presentation_freezes_dozer_construct_can_make_cameos() {
         CANMAKE_OK,
         "dozer can_make PowerPlant with cash"
     );
-    let frame = PresentationFrame::build_from_logic(&mut logic, 0);
+    let frame = PresentationFrame::try_build_from_logic(&mut logic, 0).unwrap();
     assert_eq!(frame.can_make_producer_id, Some(did.0));
     let plant_c = frame
         .can_make_cameos
@@ -2408,7 +2408,7 @@ fn presentation_freezes_dozer_construct_can_make_cameos() {
         logic.can_make_unit(did, "AmericaPowerPlant"),
         CANMAKE_NO_MONEY
     );
-    let frame2 = PresentationFrame::build_from_logic(&mut logic, 0);
+    let frame2 = PresentationFrame::try_build_from_logic(&mut logic, 0).unwrap();
     let plant2 = frame2
         .can_make_cameos
         .iter()
@@ -2445,7 +2445,7 @@ fn presentation_freezes_public_timer_superweapons() {
         .insert(SpecialPowerType::ParticleCannon, 999.0);
     logic.add_player(p);
     // Without SW structure: no PublicTimer PUC row residual.
-    let frame0 = PresentationFrame::build_from_logic(&mut logic, 0);
+    let frame0 = PresentationFrame::try_build_from_logic(&mut logic, 0).unwrap();
     assert!(
         frame0
             .superweapon_timers
@@ -2478,7 +2478,7 @@ fn presentation_freezes_public_timer_superweapons() {
         o.special_power_cooldown_remaining = 120.0;
         o.special_power_ready = false;
     }
-    let frame = PresentationFrame::build_from_logic(&mut logic, 0);
+    let frame = PresentationFrame::try_build_from_logic(&mut logic, 0).unwrap();
     let puc_t = frame
         .superweapon_timers
         .iter()
@@ -2512,7 +2512,7 @@ fn presentation_freezes_local_rank_skill_residual() {
     p.rank_level = 2;
     p.science_purchase_points = 3;
     logic.add_player(p);
-    let frame = PresentationFrame::build_from_logic(&mut logic, 0);
+    let frame = PresentationFrame::try_build_from_logic(&mut logic, 0).unwrap();
     assert_eq!(frame.local_rank_level, 2);
     assert_eq!(frame.local_skill_points, 850);
     assert_eq!(frame.local_science_purchase_points, 3);
@@ -2530,7 +2530,7 @@ fn presentation_freezes_local_rank_skill_residual() {
 fn presentation_applies_superweapon_timers_to_game_hud_residual() {
     use crate::game_logic::GameLogic;
     let mut logic = GameLogic::new();
-    let mut frame = PresentationFrame::build_from_logic(&mut logic, 0);
+    let mut frame = PresentationFrame::try_build_from_logic(&mut logic, 0).unwrap();
     frame.superweapon_timers.clear();
     frame.superweapon_timers.push(PresentationSuperweaponTimer {
         name: "Particle Uplink Cannon".into(),

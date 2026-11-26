@@ -630,7 +630,7 @@ mod tests {
         let id = logic
             .create_object("SipUnit", Team::USA, glam::Vec3::new(10.0, 0.0, 20.0))
             .expect("id");
-        let frame = PresentationFrame::build_from_logic(&mut logic, 0);
+        let frame = PresentationFrame::try_build_from_logic(&mut logic, 0).unwrap();
         // Poison live pose — presentation must win.
         logic.set_fixture_object_position(id, glam::Vec3::new(9999.0, 0.0, 9999.0));
         let mut proc = SimpleInputProcessor::new(0, (1024.0, 768.0));

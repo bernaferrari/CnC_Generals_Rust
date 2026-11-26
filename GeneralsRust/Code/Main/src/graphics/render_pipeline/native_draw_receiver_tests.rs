@@ -29,7 +29,7 @@ fn admit(world: &mut GameLogic, draw: &str, x: f32) {
     world.add_object(object);
 }
 fn source(world: &mut GameLogic) -> UnitRenderInput {
-    let frame = PresentationFrame::build_from_logic(world, 0);
+    let frame = PresentationFrame::try_build_from_logic(world, 0).unwrap();
     frame
         .native_resident_drawable_inputs()
         .into_iter()
@@ -439,7 +439,7 @@ fn real_receiver_owns_constructor_dirty_setters_and_peer_reset_lifetimes_before_
     // its real Drawable still owns the saved HAnim and must serve a camera.
     a.add_object(Object::new(template(DRAW), ObjectId(99), Team::USA));
     a.objects.get_mut(&ID).unwrap().contained_by = Some(ObjectId(99));
-    let frame = Rc::new(PresentationFrame::build_from_logic(&mut a, 0));
+    let frame = Rc::new(PresentationFrame::try_build_from_logic(&mut a, 0).unwrap());
     assert!(!frame.unit_render_inputs().iter().any(|unit| unit.id == ID));
     let reset = frame
         .native_resident_drawable_inputs()

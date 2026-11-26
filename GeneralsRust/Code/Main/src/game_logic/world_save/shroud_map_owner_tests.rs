@@ -132,7 +132,7 @@ fn offset_map_vision_and_frozen_grid_use_driving_map_cells() {
                 Some(ObjectShroudStatus::Shrouded)
             );
             drop(foreign);
-            let a_frame = PresentationFrame::build_from_logic(&mut a, 1);
+            let a_frame = PresentationFrame::try_build_from_logic(&mut a, 1).unwrap();
             let frozen = a_frame.fow_grid();
             assert_eq!(frozen.world_origin_xy, [0.0, 0.0]);
             // 410 / 40 = 10.25 cells.

@@ -106,7 +106,7 @@ fn cues(frame: &PresentationFrame) -> Vec<(ObjectId, u64, u8, u8, u32)> {
 }
 
 fn publish(logic: &mut GameLogic) -> PresentationFrame {
-    PresentationFrame::try_publish_for_engine_with_runtime_heightmap(logic, 0, None, false).unwrap()
+    PresentationFrame::try_publish(logic, 0, None, false).unwrap()
 }
 
 fn publish_with_terrain(
@@ -123,7 +123,7 @@ fn publish_with_terrain(
             ..Default::default()
         })
     });
-    let frame = PresentationFrame::try_publish_for_engine_with_runtime_heightmap(
+    let frame = PresentationFrame::try_publish(
         logic,
         0,
         terrain.clone(),
@@ -143,7 +143,7 @@ fn publish_with_terrain(
 #[test]
 fn accepted_discharge_publication_fifo_duplicates_and_same_id_worlds() {
     let publish = |logic: &mut GameLogic, with_victory| {
-        PresentationFrame::try_publish_for_engine_with_runtime_heightmap(
+        PresentationFrame::try_publish(
             logic,
             0,
             None,
@@ -187,7 +187,7 @@ fn accepted_discharge_borrowed_queries_leave_pending_cues_for_publication() {
     let source_query_clone = logic.host_object(SOURCE).unwrap().clone();
     assert_eq!(source_query_clone.weapon_discharge_marker(), marker);
     let frames = [
-        PresentationFrame::build_from_logic(&mut logic, 0),
+        PresentationFrame::try_build_from_logic(&mut logic, 0).unwrap(),
         PresentationFrame::try_build_from_logic(&mut logic, 0).unwrap(),
     ];
     for frame in frames {

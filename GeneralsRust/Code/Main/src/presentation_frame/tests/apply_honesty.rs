@@ -24,7 +24,7 @@ fn apply_to_ui_state_overwrites_live_identity_after_mutation() {
         o.status.selected = true;
     }
 
-    let snap = PresentationFrame::build_from_logic(&mut logic, 0);
+    let snap = PresentationFrame::try_build_from_logic(&mut logic, 0).unwrap();
     // Live world mutates after snapshot (would poison a re-read).
     if let Some((o, fixture_partition)) = logic.host_object_and_partition_mut(id) {
         o.set_position_with_partition_owner(
@@ -87,7 +87,7 @@ fn apply_to_ui_state_overwrites_live_identity_after_mutation() {
 #[test]
 fn apply_to_ui_state_copies_scripted_camera_fade() {
     let mut logic = GameLogic::new();
-    let mut snap = PresentationFrame::build_from_logic(&mut logic, 0);
+    let mut snap = PresentationFrame::try_build_from_logic(&mut logic, 0).unwrap();
     snap.camera_fade = crate::presentation_frame::PresentationCameraFade {
         fade: 4,
         intensity: 0.5,
@@ -127,7 +127,7 @@ fn path_and_beacon_presentation_residual() {
     assert_eq!(active.len(), 1);
 
     logic.note_beacon_placed(glam::Vec3::new(12.0, 0.0, 34.0));
-    let frame = PresentationFrame::build_from_logic(&mut logic, 0);
+    let frame = PresentationFrame::try_build_from_logic(&mut logic, 0).unwrap();
     assert_eq!(frame.new_beacons.len(), 1);
     assert!((frame.new_beacons[0].x - 12.0).abs() < 0.01);
 
@@ -175,7 +175,7 @@ fn unit_command_cancel_upgrade_when_researching_residual() {
     });
     logic.process_commands();
 
-    let frame = PresentationFrame::build_from_logic(&mut logic, 0);
+    let frame = PresentationFrame::try_build_from_logic(&mut logic, 0).unwrap();
     let cmds = frame.unit_command_buttons();
     let names: Vec<_> = cmds.iter().map(|c| c.command_name.as_str()).collect();
     assert!(
@@ -230,7 +230,7 @@ fn structure_exposes_command_sell_residual() {
     if let Some(p) = logic.get_player_mut(0) {
         p.selected_objects = vec![id];
     }
-    let frame = PresentationFrame::build_from_logic(&mut logic, 0);
+    let frame = PresentationFrame::try_build_from_logic(&mut logic, 0).unwrap();
     let cmds = frame.unit_command_buttons();
     assert!(
         cmds.iter()
@@ -243,7 +243,7 @@ fn structure_exposes_command_sell_residual() {
         o.status.under_construction = true;
         o.construction_percent = 0.4;
     }
-    let frame2 = PresentationFrame::build_from_logic(&mut logic, 0);
+    let frame2 = PresentationFrame::try_build_from_logic(&mut logic, 0).unwrap();
     let cmds2 = frame2.unit_command_buttons();
     assert!(
         cmds2.iter().any(|c| c
@@ -287,7 +287,7 @@ fn disabled_structure_keeps_sell_stop_rally() {
     if let Some(p) = logic.get_player_mut(0) {
         p.selected_objects = vec![id];
     }
-    let frame = PresentationFrame::build_from_logic(&mut logic, 0);
+    let frame = PresentationFrame::try_build_from_logic(&mut logic, 0).unwrap();
     let cmds = frame.unit_command_buttons();
     assert!(
         cmds.iter()
@@ -348,7 +348,7 @@ fn emp_plus_underpowered_does_not_reenable_specials() {
     if let Some(p) = logic.get_player_mut(0) {
         p.selected_objects = vec![id];
     }
-    let frame = PresentationFrame::build_from_logic(&mut logic, 0);
+    let frame = PresentationFrame::try_build_from_logic(&mut logic, 0).unwrap();
     let cmds = frame.unit_command_buttons();
     assert!(
         cmds.iter()
@@ -396,7 +396,7 @@ fn empty_chinook_combat_drop_restricted() {
     if let Some(o) = logic.host_object_mut(id) {
         o.selected = true;
     }
-    let frame = PresentationFrame::build_from_logic(&mut logic, 0);
+    let frame = PresentationFrame::try_build_from_logic(&mut logic, 0).unwrap();
     let cmds = frame.unit_command_buttons();
     let drop = cmds
         .iter()
@@ -431,7 +431,7 @@ fn generals_power_hidden_without_required_science() {
         p.selected_objects = vec![id];
         p.unlocked_sciences.clear();
     }
-    let frame = PresentationFrame::build_from_logic(&mut logic, 0);
+    let frame = PresentationFrame::try_build_from_logic(&mut logic, 0).unwrap();
     let cmds = frame.unit_command_buttons();
     assert!(
         !cmds
@@ -476,7 +476,7 @@ fn human_hides_ai_only_construct_cameo() {
     if let Some(p) = logic.get_player_mut(0) {
         p.selected_objects = vec![id];
     }
-    let frame = PresentationFrame::build_from_logic(&mut logic, 0);
+    let frame = PresentationFrame::try_build_from_logic(&mut logic, 0).unwrap();
     assert!(
         !frame
             .unit_command_buttons()
@@ -529,7 +529,7 @@ fn presentation_feeds_unit_command_panel_buttons() {
     if let Some(p) = logic.get_player_mut(0) {
         p.selected_objects = vec![ranger];
     }
-    let frame = PresentationFrame::build_from_logic(&mut logic, 0);
+    let frame = PresentationFrame::try_build_from_logic(&mut logic, 0).unwrap();
     let mut panel = crate::ui::UnitCommandPanel::new();
     frame.apply_to_unit_command_panel(&mut panel);
     let names: Vec<_> = panel
@@ -562,7 +562,7 @@ fn presentation_feeds_unit_command_panel_buttons() {
     if let Some(p) = logic.get_player_mut(0) {
         p.selected_objects = vec![barracks];
     }
-    let frame = PresentationFrame::build_from_logic(&mut logic, 0);
+    let frame = PresentationFrame::try_build_from_logic(&mut logic, 0).unwrap();
     let mut panel = crate::ui::UnitCommandPanel::new();
     frame.apply_to_unit_command_panel(&mut panel);
     let names: Vec<_> = panel
@@ -596,7 +596,7 @@ fn unit_command_exposes_deploy_for_sentry_residual() {
         .create_object("AmericaVehicleSentryDrone", Team::USA, glam::Vec3::ZERO)
         .expect("sentry");
     logic.select_objects(0, vec![id]);
-    let frame = PresentationFrame::build_from_logic(&mut logic, 0);
+    let frame = PresentationFrame::try_build_from_logic(&mut logic, 0).unwrap();
     let names: Vec<_> = frame
         .unit_command_buttons()
         .into_iter()
@@ -631,7 +631,7 @@ fn presentation_applies_unit_commands_to_game_hud_residual() {
         .create_object("AmericaInfantryRanger", Team::USA, glam::Vec3::ZERO)
         .expect("ranger");
     logic.select_objects(0, vec![id]);
-    let frame = PresentationFrame::build_from_logic(&mut logic, 0);
+    let frame = PresentationFrame::try_build_from_logic(&mut logic, 0).unwrap();
     let mut hud = crate::ui::GameHUD::new();
     frame.apply_to_game_hud(&mut hud);
     assert!(
@@ -697,8 +697,8 @@ fn presentation_feeds_victory_and_construction() {
         p.power_produced = 80;
         p.power_consumed = 30;
     }
-    // Mark match over via victory event residual (build_with_victory path).
-    let mut frame = PresentationFrame::build_from_logic(&mut logic, 0);
+    // Apply the published victory event to the UI.
+    let mut frame = PresentationFrame::try_build_from_logic(&mut logic, 0).unwrap();
     frame.match_over = true;
     frame.victory_label = Some("Winner(0)".into());
     frame.events.push(PresentationEvent::Victory {
@@ -758,7 +758,7 @@ fn presentation_feeds_control_bar_radar_and_queues() {
         o.special_power_ready = true;
         o.special_power_cooldown_remaining = 0.0;
     }
-    let frame = PresentationFrame::build_from_logic(&mut logic, 0);
+    let frame = PresentationFrame::try_build_from_logic(&mut logic, 0).unwrap();
     assert_eq!(frame.local_radar_count, 3);
     assert!(
         frame
@@ -812,7 +812,7 @@ fn presentation_feeds_control_bar_sciences() {
     if let Some(o) = logic.host_object_mut(id) {
         o.selected = true;
     }
-    let frame = PresentationFrame::build_from_logic(&mut logic, 0);
+    let frame = PresentationFrame::try_build_from_logic(&mut logic, 0).unwrap();
     assert!(
         frame
             .local_unlocked_sciences
@@ -881,7 +881,7 @@ fn presentation_feeds_control_bar_upgrade_cameos() {
     if let Some(p) = logic.get_player_mut(0) {
         p.selected_objects = vec![id];
     }
-    let frame = PresentationFrame::build_from_logic(&mut logic, 0);
+    let frame = PresentationFrame::try_build_from_logic(&mut logic, 0).unwrap();
     let panel = frame.control_bar_selection_panel();
     assert!(
         panel
@@ -1059,7 +1059,7 @@ fn presentation_feeds_control_bar_veterancy_and_production() {
     if let Some(p) = logic.get_player_mut(0) {
         p.selected_objects = vec![id];
     }
-    let frame = PresentationFrame::build_from_logic(&mut logic, 0);
+    let frame = PresentationFrame::try_build_from_logic(&mut logic, 0).unwrap();
     let panel = frame.control_bar_selection_panel();
     assert!(panel.visible);
     assert_eq!(panel.veterancy_overlay.as_deref(), Some("SSChevron2L"));
@@ -1113,7 +1113,7 @@ fn presentation_feeds_control_bar_selection_panel_health() {
         p.selected_objects = vec![id];
     }
 
-    let snap = PresentationFrame::build_from_logic(&mut logic, 0);
+    let snap = PresentationFrame::try_build_from_logic(&mut logic, 0).unwrap();
     let panel = snap.control_bar_selection_panel();
     assert!(panel.visible, "selection panel visible with selection");
     assert_eq!(panel.primary_name, "CbPanelUnit");
@@ -1274,7 +1274,7 @@ fn presentation_frame_observes_combat_kill_particle_systems() {
         "host particle registry must hold systems after kill"
     );
 
-    let snap = PresentationFrame::build_from_logic(&mut logic, 0);
+    let snap = PresentationFrame::try_build_from_logic(&mut logic, 0).unwrap();
     assert!(
         snap.has_active_particles(),
         "PresentationFrame must expose active particle systems after combat kill"
@@ -1337,7 +1337,7 @@ fn presentation_frame_freezes_floating_text_and_world_anim() {
     crate::skirmish_config::lobby_definition_tests::start_slot_skirmish(&mut logic, &cfg).expect("config");
 
     // Empty residual when host has no cash events.
-    let empty = PresentationFrame::build_from_logic(&mut logic, 0);
+    let empty = PresentationFrame::try_build_from_logic(&mut logic, 0).unwrap();
     assert!(!empty.has_floating_texts());
     assert!(!empty.has_world_anims());
     assert!(empty.floating_text_presentation_ok());
@@ -1369,7 +1369,7 @@ fn presentation_frame_freezes_floating_text_and_world_anim() {
     );
     logic.push_residual_money_pickup_presentation(anim, money_ft);
 
-    let snap = PresentationFrame::build_from_logic(&mut logic, 0);
+    let snap = PresentationFrame::try_build_from_logic(&mut logic, 0).unwrap();
     assert!(
         snap.has_floating_texts(),
         "presentation must freeze host floating texts"
@@ -1414,7 +1414,7 @@ fn presentation_frame_freezes_floating_text_and_world_anim() {
     logic.clear_residual_floating_text_for_presentation();
     assert_eq!(snap.floating_texts.len(), frozen_count);
     assert_eq!(snap.world_anims.len(), frozen_anims);
-    let after = PresentationFrame::build_from_logic(&mut logic, 0);
+    let after = PresentationFrame::try_build_from_logic(&mut logic, 0).unwrap();
     assert!(!after.has_floating_texts());
     assert!(!after.has_world_anims());
 
@@ -1457,7 +1457,7 @@ fn presentation_frame_freezes_laser_line3d_segments() {
     crate::skirmish_config::lobby_definition_tests::start_slot_skirmish(&mut logic, &cfg).expect("config");
 
     // Empty lasers when host has none.
-    let empty = PresentationFrame::build_from_logic(&mut logic, 0);
+    let empty = PresentationFrame::try_build_from_logic(&mut logic, 0).unwrap();
     assert!(!empty.has_active_lasers());
     assert_eq!(empty.laser_segment_count(), 0);
     assert!(empty.minimap_fow_presentation_ok());
@@ -1475,7 +1475,7 @@ fn presentation_frame_freezes_laser_line3d_segments() {
     );
     logic.push_residual_patriot_assist_lasers_for_presentation(beams);
 
-    let snap = PresentationFrame::build_from_logic(&mut logic, 0);
+    let snap = PresentationFrame::try_build_from_logic(&mut logic, 0).unwrap();
     assert!(
         snap.has_active_lasers(),
         "presentation must freeze active assist lasers"
@@ -1497,7 +1497,7 @@ fn presentation_frame_freezes_laser_line3d_segments() {
     let frozen_count = snap.laser_segment_count();
     logic.clear_residual_patriot_assist_lasers_for_presentation();
     assert_eq!(snap.laser_segment_count(), frozen_count);
-    let after = PresentationFrame::build_from_logic(&mut logic, 0);
+    let after = PresentationFrame::try_build_from_logic(&mut logic, 0).unwrap();
     assert!(!after.has_active_lasers());
 
     // Synthetic assist pair residual for host-testable pack without combat.
@@ -1550,7 +1550,7 @@ fn spectre_orbit_decal_presentation_residual_wave73() {
     let cfg = golden_skirmish_config("SpectreDecalPres");
     logic.admit_object_ini_sources(std::iter::empty()).expect("fixture Object content admitted before NewGame");
     crate::skirmish_config::lobby_definition_tests::start_slot_skirmish(&mut logic, &cfg).expect("config");
-    let snap = PresentationFrame::build_from_logic(&mut logic, 0);
+    let snap = PresentationFrame::try_build_from_logic(&mut logic, 0).unwrap();
     assert!(snap.spectre_orbit_decal_presentation_residual_ok());
 }
 
@@ -1666,7 +1666,7 @@ fn burton_detonate_button_gray_without_remote_charges() {
         .unwrap();
     logic.host_object_mut(impostor).unwrap().producer_id = Some(burton_id);
 
-    let frame = PresentationFrame::build_from_logic(&mut logic, 0);
+    let frame = PresentationFrame::try_build_from_logic(&mut logic, 0).unwrap();
     let cmds = frame.unit_command_buttons();
     // Retail authored slot 6 (CommandSet.ini AmericaInfantryColonelBurtonCommandSet):
     // Command_ColonelBurtonDetonateCharges. C++ grays it via
@@ -1696,9 +1696,8 @@ fn burton_detonate_button_gray_without_remote_charges() {
         )
         .expect("charge");
     logic.host_object_mut(charge).unwrap().producer_id = None;
-    // Snapshot rebuild keeps local player 0 (build_from_logic's second argument
-    // is the local player id, not a frame index).
-    let frame = PresentationFrame::build_from_logic(&mut logic, 0);
+    // Rebuild the frame for local player 0.
+    let frame = PresentationFrame::try_build_from_logic(&mut logic, 0).unwrap();
     let cmds = frame.unit_command_buttons();
     let detonate = cmds.iter().find(|c| {
         c.command_name
@@ -1715,7 +1714,7 @@ fn burton_detonate_button_gray_without_remote_charges() {
             .unwrap(),
         1
     );
-    let frame = PresentationFrame::build_from_logic(&mut logic, 0);
+    let frame = PresentationFrame::try_build_from_logic(&mut logic, 0).unwrap();
     let cmds = frame.unit_command_buttons();
     let detonate = cmds.iter().find(|c| {
         c.command_name
@@ -1739,7 +1738,7 @@ fn burton_detonate_button_gray_without_remote_charges() {
     if let Some(p) = logic.get_player_mut(0) {
         p.selected_objects = vec![burton_id, burton2_id];
     }
-    let frame = PresentationFrame::build_from_logic(&mut logic, 0);
+    let frame = PresentationFrame::try_build_from_logic(&mut logic, 0).unwrap();
     let cmds = frame.unit_command_buttons();
     let detonate = cmds.iter().find(|c| {
         c.command_name
@@ -1759,7 +1758,7 @@ fn burton_detonate_button_gray_without_remote_charges() {
         )
         .expect("second charge");
     logic.host_object_mut(charge2).unwrap().producer_id = None;
-    let frame = PresentationFrame::build_from_logic(&mut logic, 0);
+    let frame = PresentationFrame::try_build_from_logic(&mut logic, 0).unwrap();
     let cmds = frame.unit_command_buttons();
     let detonate = cmds.iter().find(|c| {
         c.command_name
@@ -1773,7 +1772,7 @@ fn burton_detonate_button_gray_without_remote_charges() {
 
 #[test]
 fn complete_events_do_not_invent_unit_ready_upgrade_building_sfx() {
-    let mut snap = PresentationFrame::build_from_logic(&mut GameLogic::new(), 0);
+    let mut snap = PresentationFrame::try_build_from_logic(&mut GameLogic::new(), 0).unwrap();
     snap.events.push(PresentationEvent::ConstructionComplete {
         id: ObjectId(1),
         template: "AmericaBarracks".into(),
@@ -1810,7 +1809,7 @@ fn heal_and_attack_writes_never_invent_heal_or_fire_sfx() {
     // FireSound via FiringTracker::shotFired (FiringTracker.cpp:144-155).
     // Per-frame "UnitHeal" mapping used to queue x26k dead ERR(no-info)
     // tokens in the windowed drive.
-    let mut snap = PresentationFrame::build_from_logic(&mut GameLogic::new(), 0);
+    let mut snap = PresentationFrame::try_build_from_logic(&mut GameLogic::new(), 0).unwrap();
     snap.events.push(PresentationEvent::HealApplied {
         target: ObjectId(1),
         health: 50.0,
@@ -1865,7 +1864,7 @@ fn capture_building_button_uses_ready_and_in_use() {
         p.selected_objects = vec![id];
     }
 
-    let frame = crate::presentation_frame::PresentationFrame::build_from_logic(&mut logic, 0);
+    let frame = crate::presentation_frame::PresentationFrame::try_build_from_logic(&mut logic, 0).unwrap();
     let cmds = frame.unit_command_buttons();
     let capture = cmds
         .iter()
@@ -1885,7 +1884,7 @@ fn capture_building_button_uses_ready_and_in_use() {
     if let Some(o) = logic.host_object_mut(id) {
         o.set_status_using_ability(true);
     }
-    let busy = crate::presentation_frame::PresentationFrame::build_from_logic(&mut logic, 0);
+    let busy = crate::presentation_frame::PresentationFrame::try_build_from_logic(&mut logic, 0).unwrap();
     let busy_btn = busy
         .unit_command_buttons()
         .into_iter()
@@ -1915,7 +1914,7 @@ fn ranger_command_set_does_not_invent_buttons() {
     if let Some(o) = logic.host_object_mut(id) {
         o.selected = true;
     }
-    let cmds = PresentationFrame::build_from_logic(&mut logic, 0).unit_command_buttons();
+    let cmds = PresentationFrame::try_build_from_logic(&mut logic, 0).unwrap().unit_command_buttons();
     let names: Vec<_> = cmds
         .iter()
         .map(|c| c.command_name.to_ascii_lowercase())
@@ -1964,7 +1963,7 @@ fn script_disabled_and_unmanned_hide_command_strip() {
     if let Some(p) = logic.get_player_mut(0) {
         p.selected_objects = vec![id];
     }
-    let cmds = PresentationFrame::build_from_logic(&mut logic, 0).unit_command_buttons();
+    let cmds = PresentationFrame::try_build_from_logic(&mut logic, 0).unwrap().unit_command_buttons();
     assert!(
         cmds.is_empty(),
         "SCRIPT_DISABLED must hide entire strip: {:?}",
@@ -1975,7 +1974,7 @@ fn script_disabled_and_unmanned_hide_command_strip() {
         o.set_script_disabled_with_partition_owner(false, fixture_partition);
         o.set_status_disabled_unmanned(true);
     }
-    let unmanned = PresentationFrame::build_from_logic(&mut logic, 0).unit_command_buttons();
+    let unmanned = PresentationFrame::try_build_from_logic(&mut logic, 0).unwrap().unit_command_buttons();
     assert!(
         unmanned.is_empty(),
         "UNMANNED must hide entire strip: {:?}",
@@ -2026,7 +2025,7 @@ fn transport_exit_slots_bind_occupant_portraits() {
     if let Some(p) = logic.get_player_mut(0) {
         p.selected_objects = vec![hid];
     }
-    let cmds = PresentationFrame::build_from_logic(&mut logic, 0).unit_command_buttons();
+    let cmds = PresentationFrame::try_build_from_logic(&mut logic, 0).unwrap().unit_command_buttons();
     let exit = cmds.iter().find(|c| {
         let n = c.command_name.to_ascii_lowercase();
         n.contains("exit") || n.contains("transport")
@@ -2064,7 +2063,7 @@ fn special_power_buttons_disabled_on_cooldown_or_in_use() {
     if let Some(p) = logic.get_player_mut(0) {
         p.selected_objects = vec![id];
     }
-    let cold = PresentationFrame::build_from_logic(&mut logic, 0).unit_command_buttons();
+    let cold = PresentationFrame::try_build_from_logic(&mut logic, 0).unwrap().unit_command_buttons();
     let fire = cold
         .iter()
         .find(|c| {
@@ -2080,7 +2079,7 @@ fn special_power_buttons_disabled_on_cooldown_or_in_use() {
         o.special_power_cooldown_remaining = 0.0;
         o.set_status_using_ability(true);
     }
-    let busy = PresentationFrame::build_from_logic(&mut logic, 0).unit_command_buttons();
+    let busy = PresentationFrame::try_build_from_logic(&mut logic, 0).unwrap().unit_command_buttons();
     let busy_fire = busy
         .iter()
         .find(|c| {
@@ -2094,7 +2093,7 @@ fn special_power_buttons_disabled_on_cooldown_or_in_use() {
     if let Some(o) = logic.host_object_mut(id) {
         o.set_status_using_ability(false);
     }
-    let ready = PresentationFrame::build_from_logic(&mut logic, 0).unit_command_buttons();
+    let ready = PresentationFrame::try_build_from_logic(&mut logic, 0).unwrap().unit_command_buttons();
     let ready_fire = ready
         .iter()
         .find(|c| {
@@ -2145,7 +2144,7 @@ fn evacuate_disabled_with_zero_occupants() {
     if let Some(p) = logic.get_player_mut(0) {
         p.selected_objects = vec![hid];
     }
-    let empty = PresentationFrame::build_from_logic(&mut logic, 0).unit_command_buttons();
+    let empty = PresentationFrame::try_build_from_logic(&mut logic, 0).unwrap().unit_command_buttons();
     let evac = empty
         .iter()
         .find(|c| c.command_name.to_ascii_lowercase().contains("evacuate"))
@@ -2158,7 +2157,7 @@ fn evacuate_disabled_with_zero_occupants() {
     if let Some((o, fixture_partition)) = logic.host_object_and_partition_mut(rid) {
         o.set_contained_by_with_partition_owner(Some(hid), true, fixture_partition);
     }
-    let loaded = PresentationFrame::build_from_logic(&mut logic, 0).unit_command_buttons();
+    let loaded = PresentationFrame::try_build_from_logic(&mut logic, 0).unwrap().unit_command_buttons();
     let evac_loaded = loaded
         .iter()
         .find(|c| c.command_name.to_ascii_lowercase().contains("evacuate"))
@@ -2190,7 +2189,7 @@ fn command_set_strip_keeps_authored_holes() {
     if let Some(p) = logic.get_player_mut(0) {
         p.selected_objects = vec![id];
     }
-    let cmds = PresentationFrame::build_from_logic(&mut logic, 0).unit_command_buttons();
+    let cmds = PresentationFrame::try_build_from_logic(&mut logic, 0).unwrap().unit_command_buttons();
     assert!(
         cmds.len() >= 14,
         "CommandSet strip must keep 14 WND slots: {:?}",
@@ -2253,7 +2252,7 @@ fn leftover_control_bar_override_hides_and_replaces_strip_slots() {
         p.selected_objects = vec![id];
     }
 
-    let baseline_frame = PresentationFrame::build_from_logic(&mut logic, 0);
+    let baseline_frame = PresentationFrame::try_build_from_logic(&mut logic, 0).unwrap();
     assert_eq!(baseline_frame.objects.len(), 1);
     assert_eq!(baseline_frame.objects[0].command_set_name, FIXTURE_SET);
     let baseline = baseline_frame.unit_command_buttons();
@@ -2270,7 +2269,7 @@ fn leftover_control_bar_override_hides_and_replaces_strip_slots() {
 
     logic.set_control_bar_override(FIXTURE_SET, 0, None);
     logic.set_control_bar_override(FIXTURE_SET, 2, Some("Command_Guard"));
-    let cmds = PresentationFrame::build_from_logic(&mut logic, 0).unit_command_buttons();
+    let cmds = PresentationFrame::try_build_from_logic(&mut logic, 0).unwrap().unit_command_buttons();
     assert!(
         cmds.len() >= 14,
         "override strip must keep 14 WND slots: {:?}",
@@ -2339,7 +2338,7 @@ fn multi_select_intersects_ok_for_multi_select_slots() {
     if let Some(p) = logic.get_player_mut(0) {
         p.selected_objects = vec![rid, hid];
     }
-    let cmds = PresentationFrame::build_from_logic(&mut logic, 0).unit_command_buttons();
+    let cmds = PresentationFrame::try_build_from_logic(&mut logic, 0).unwrap().unit_command_buttons();
     let names: Vec<_> = cmds
         .iter()
         .map(|c| c.command_name.to_ascii_lowercase())
@@ -2378,7 +2377,7 @@ fn leftover_get_command_availability_hides_script_unsellable() {
     if let Some(p) = logic.get_player_mut(0) {
         p.selected_objects = vec![id];
     }
-    let cmds = PresentationFrame::build_from_logic(&mut logic, 0).unit_command_buttons();
+    let cmds = PresentationFrame::try_build_from_logic(&mut logic, 0).unwrap().unit_command_buttons();
     assert!(
         !cmds
             .iter()
@@ -2415,7 +2414,7 @@ fn leftover_wnd_stamps_single_use_subdued_and_unsellable() {
     if let Some(p) = logic.get_player_mut(0) {
         p.selected_objects = vec![id];
     }
-    let frame = PresentationFrame::build_from_logic(&mut logic, 0);
+    let frame = PresentationFrame::try_build_from_logic(&mut logic, 0).unwrap();
     let ro = frame.objects.iter().find(|o| o.id == id).expect("ro");
     assert!(ro.single_use_command_used);
     assert!(ro.disabled_subdued);
@@ -2462,7 +2461,7 @@ fn leftover_strip_single_use_restricts_whole_strip() {
     if let Some(p) = logic.get_player_mut(0) {
         p.selected_objects = vec![id];
     }
-    let cmds = PresentationFrame::build_from_logic(&mut logic, 0).unit_command_buttons();
+    let cmds = PresentationFrame::try_build_from_logic(&mut logic, 0).unwrap().unit_command_buttons();
     let named: Vec<_> = cmds.iter().filter(|c| !c.command_name.is_empty()).collect();
     assert!(
         !named.is_empty(),
@@ -2503,7 +2502,7 @@ fn leftover_strip_subdued_restricts_sell_and_evacuate() {
     if let Some(p) = logic.get_player_mut(0) {
         p.selected_objects = vec![id];
     }
-    let cmds = PresentationFrame::build_from_logic(&mut logic, 0).unit_command_buttons();
+    let cmds = PresentationFrame::try_build_from_logic(&mut logic, 0).unwrap().unit_command_buttons();
     let sell = cmds
         .iter()
         .find(|c| c.command_name.eq_ignore_ascii_case("Command_Sell"));
@@ -2545,7 +2544,7 @@ fn leftover_strip_subdued_restricts_sell_and_evacuate() {
     if let Some(p) = logic.get_player_mut(0) {
         p.selected_objects = vec![tid];
     }
-    let evac_cmds = PresentationFrame::build_from_logic(&mut logic, 0).unit_command_buttons();
+    let evac_cmds = PresentationFrame::try_build_from_logic(&mut logic, 0).unwrap().unit_command_buttons();
     let evac = evac_cmds
         .iter()
         .find(|c| c.command_name.to_ascii_lowercase().contains("evacuate"));
@@ -2578,7 +2577,7 @@ fn ocl_timer_selection_hides_command_set_strip() {
     if let Some(p) = logic.get_player_mut(0) {
         p.selected_objects = vec![id];
     }
-    let mut frame = PresentationFrame::build_from_logic(&mut logic, 0);
+    let mut frame = PresentationFrame::try_build_from_logic(&mut logic, 0).unwrap();
     if let Some(ro) = frame.objects.iter_mut().find(|o| o.id == id) {
         ro.ocl_timer_seconds = 45;
     }
@@ -2631,7 +2630,7 @@ fn under_construction_keeps_cancel_when_script_disabled() {
     if let Some(p) = logic.get_player_mut(0) {
         p.selected_objects = vec![id];
     }
-    let cmds = PresentationFrame::build_from_logic(&mut logic, 0).unit_command_buttons();
+    let cmds = PresentationFrame::try_build_from_logic(&mut logic, 0).unwrap().unit_command_buttons();
     assert!(
         cmds.iter().any(|c| {
             c.command_name
@@ -2667,7 +2666,7 @@ fn empty_transport_exit_slot_starts_disabled() {
     if let Some(p) = logic.get_player_mut(0) {
         p.selected_objects = vec![hid];
     }
-    let cmds = PresentationFrame::build_from_logic(&mut logic, 0).unit_command_buttons();
+    let cmds = PresentationFrame::try_build_from_logic(&mut logic, 0).unwrap().unit_command_buttons();
     let exits: Vec<_> = cmds
         .iter()
         .filter(|c| {
@@ -2727,7 +2726,7 @@ fn empty_command_set_garrison_builds_structure_inventory() {
     if let Some(p) = logic.get_player_mut(0) {
         p.selected_objects = vec![bunker];
     }
-    let cmds = PresentationFrame::build_from_logic(&mut logic, 0).unit_command_buttons();
+    let cmds = PresentationFrame::try_build_from_logic(&mut logic, 0).unwrap().unit_command_buttons();
     let names: Vec<_> = cmds.iter().map(|c| c.command_name.as_str()).collect();
     assert_eq!(
         cmds.len(),

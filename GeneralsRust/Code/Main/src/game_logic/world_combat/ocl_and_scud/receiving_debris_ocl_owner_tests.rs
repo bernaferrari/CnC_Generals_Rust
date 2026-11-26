@@ -632,8 +632,8 @@ fn parsed_bridge_debris_is_owned_per_world_and_uses_receiving_lod_mask() {
 
     // Exercise the production presentation projection consumed by
     // RenderPipeline, not only ObjectVisualInfo or the shell preloader.
-    let left_frame = crate::presentation_frame::PresentationFrame::build_from_logic(&mut left, 0);
-    let right_frame = crate::presentation_frame::PresentationFrame::build_from_logic(&mut right, 0);
+    let left_frame = crate::presentation_frame::PresentationFrame::try_build_from_logic(&mut left, 0).unwrap();
+    let right_frame = crate::presentation_frame::PresentationFrame::try_build_from_logic(&mut right, 0).unwrap();
     let left_mesh = left_frame
         .unit_render_inputs()
         .into_iter()
@@ -712,7 +712,7 @@ fn debris_model_override_does_not_invent_missing_receiving_draw_geometry() {
         "AuthoredChunk"
     );
 
-    let frame = crate::presentation_frame::PresentationFrame::build_from_logic(&mut world, 0);
+    let frame = crate::presentation_frame::PresentationFrame::try_build_from_logic(&mut world, 0).unwrap();
     let input = frame
         .unit_render_inputs()
         .into_iter()
@@ -799,8 +799,8 @@ fn authored_debris_model_choices_mass_and_lifetime_ranges_stay_with_each_owner()
     }
     assert_eq!(left_choices, right_choices);
 
-    let left_frame = crate::presentation_frame::PresentationFrame::build_from_logic(&mut left, 0);
-    let right_frame = crate::presentation_frame::PresentationFrame::build_from_logic(&mut right, 0);
+    let left_frame = crate::presentation_frame::PresentationFrame::try_build_from_logic(&mut left, 0).unwrap();
+    let right_frame = crate::presentation_frame::PresentationFrame::try_build_from_logic(&mut right, 0).unwrap();
     for (id, model) in left_ids.iter().zip(left_choices.iter()) {
         let expected = if *model { "LeftB" } else { "LeftA" };
         let submitted = left_frame

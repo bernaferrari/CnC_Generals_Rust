@@ -31,7 +31,7 @@ fn authored_defaults_reach_hag_before_the_next_completed_presentation() {
         "authored_defaults_reach_hag_before_the_next_completed_presentation",
         || {
             let mut owner = GameLogic::new();
-            let stale = PresentationFrame::build_from_logic(&mut owner, 0);
+            let stale = PresentationFrame::try_build_from_logic(&mut owner, 0).unwrap();
             assert_eq!(stale.script_default_camera_max_height, 1.0);
             assert_eq!(stale.script_default_camera_pitch, 0.0);
             set_defaults(&mut owner, 0.375, 1.5);
@@ -119,7 +119,7 @@ fn receiving_world_save_admits_defaults_and_failed_decode_is_inert() {
                 bincode_legacy::deserialize(&bytes).unwrap();
             let mut receiving = GameLogic::new();
             set_defaults(&mut receiving, -0.5, 0.25);
-            let stale = PresentationFrame::build_from_logic(&mut receiving, 0);
+            let stale = PresentationFrame::try_build_from_logic(&mut receiving, 0).unwrap();
             let mut peer = GameLogic::new();
             set_defaults(&mut peer, -0.25, 3.0);
             let peer_before = peer.capture_camera_continuation().unwrap();

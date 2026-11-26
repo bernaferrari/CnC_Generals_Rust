@@ -1678,30 +1678,4 @@ impl PresentationFrame {
         self.apply_to_unit_command_panel(command_panel);
     }
 
-    /// Freeze the current simulation frame and update the HUD.
-    #[cfg(test)]
-    pub fn build_and_apply_for_hud(
-        logic: &mut GameLogic,
-        local_player_id: u32,
-        hud: &mut crate::ui::GameHUD,
-    ) -> Self {
-        let frame = Self::build_from_logic(logic, local_player_id);
-        frame.apply_to_game_hud(hud);
-        frame
-    }
-
-    /// Freeze the current simulation frame and update the headless shell UI.
-    #[cfg(test)]
-    pub fn build_and_apply_for_shell_consumers(
-        logic: &mut GameLogic,
-        local_player_id: u32,
-        hud: &mut crate::ui::GameHUD,
-        ui: &mut crate::ui::GameUIState,
-        rts: &mut crate::ui::RTSInterface,
-        command_panel: &mut crate::ui::UnitCommandPanel,
-    ) -> Self {
-        let frame = Self::build_from_logic(logic, local_player_id);
-        frame.apply_to_shell_ui_consumers(hud, ui, rts, command_panel);
-        frame
-    }
 }

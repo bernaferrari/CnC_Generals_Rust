@@ -636,7 +636,7 @@ fn replace_with_retail_disguise(
     object.status.disguised = true;
     object.disguise_as_template = Some(DISGUISE.into());
 
-    let frame = crate::presentation_frame::PresentationFrame::build_from_logic(world, 0);
+    let frame = crate::presentation_frame::PresentationFrame::try_build_from_logic(world, 0).unwrap();
     let replacement = frame
         .direct_host_drawables
         .iter()

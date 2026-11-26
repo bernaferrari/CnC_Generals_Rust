@@ -21,8 +21,8 @@ fn victory_frame_actors_preserve_their_owning_world_identity() {
     let (mut owner, id) = world();
     let (mut peer, peer_id) = world();
     assert_eq!(id, peer_id);
-    let first = PresentationFrame::build_with_victory(&mut owner, 0);
-    let second = PresentationFrame::build_with_victory(&mut peer, 0);
+    let first = PresentationFrame::try_publish(&mut owner, 0, None, true).unwrap();
+    let second = PresentationFrame::try_publish(&mut peer, 0, None, true).unwrap();
     let actor = first.objects.iter().find(|object| object.id == id).unwrap();
     let peer_actor = second
         .objects

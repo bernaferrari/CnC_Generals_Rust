@@ -152,7 +152,7 @@ mod tests {
     #[test]
     fn packs_active_particle_system_from_frame() {
         let mut logic = GameLogic::new();
-        let mut frame = PresentationFrame::build_from_logic(&mut logic, 0);
+        let mut frame = PresentationFrame::try_build_from_logic(&mut logic, 0).unwrap();
         frame.particle_systems.push(PresentationParticleSystem {
             id: 7,
             kind: CombatParticleKind::WeaponImpact,
@@ -183,7 +183,7 @@ mod tests {
     #[test]
     fn empty_frame_is_honest_success() {
         let mut logic = GameLogic::new();
-        let frame = PresentationFrame::build_from_logic(&mut logic, 0);
+        let frame = PresentationFrame::try_build_from_logic(&mut logic, 0).unwrap();
         let pack = pack_from_presentation(&frame);
         assert!(pack.honesty.cpu_pack_ok);
         assert_eq!(

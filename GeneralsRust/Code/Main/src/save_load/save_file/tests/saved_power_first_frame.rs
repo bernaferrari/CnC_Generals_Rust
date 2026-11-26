@@ -718,7 +718,7 @@ fn saved_power_process() {
             "producer_type":producer.object_type}),
         );
         let economy_before =
-            crate::presentation_frame::PresentationFrame::build_from_logic(&mut logic, OWNER_ID)
+            crate::presentation_frame::PresentationFrame::try_build_from_logic(&mut logic, OWNER_ID).unwrap()
                 .events
                 .iter()
                 .filter(|event| {
@@ -734,7 +734,7 @@ fn saved_power_process() {
             manager.load_game("power", &mut logic).unwrap();
         }
         let economy_after =
-            crate::presentation_frame::PresentationFrame::build_from_logic(&mut logic, OWNER_ID)
+            crate::presentation_frame::PresentationFrame::try_build_from_logic(&mut logic, OWNER_ID).unwrap()
                 .events
                 .iter()
                 .filter(|event| {

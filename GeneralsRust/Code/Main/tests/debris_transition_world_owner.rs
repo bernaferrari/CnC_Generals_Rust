@@ -55,9 +55,9 @@ fn transition_debris_uses_each_worlds_catalog_and_lod_counter() {
     assert_eq!(debris(&first), vec![("FirstChunk".to_owned(), 5.0)]);
 
     let first_frame =
-        generals_main::presentation_frame::PresentationFrame::build_from_logic(&mut first, 7);
+        generals_main::presentation_frame::PresentationFrame::try_build_from_logic(&mut first, 7).unwrap();
     let peer_frame =
-        generals_main::presentation_frame::PresentationFrame::build_from_logic(&mut peer, 7);
+        generals_main::presentation_frame::PresentationFrame::try_build_from_logic(&mut peer, 7).unwrap();
     assert!(
         first_frame.unit_render_inputs().iter().any(|draw| {
             draw.template_name == "GenericDebris" && draw.model_key == "FirstChunk"

@@ -47,7 +47,7 @@ fn presentation_frame_is_built_from_authority_without_arc() {
         .create_object("PresUnit", Team::USA, glam::Vec3::new(1.0, 0.0, 2.0))
         .expect("unit");
 
-    let snap = PresentationFrame::build_from_logic(&mut logic, 0);
+    let snap = PresentationFrame::try_build_from_logic(&mut logic, 0).unwrap();
     assert_eq!(snap.frame.0, logic.get_frame());
     assert!(snap.objects.iter().any(|o| o.id == id));
     assert_eq!(snap.local_supplies, 10_000);
@@ -55,7 +55,7 @@ fn presentation_frame_is_built_from_authority_without_arc() {
     logic.update();
     assert_eq!(snap.objects.len(), 1);
     let h1 = snap.presentation_hash();
-    let snap2 = PresentationFrame::build_from_logic(&mut logic, 0);
+    let snap2 = PresentationFrame::try_build_from_logic(&mut logic, 0).unwrap();
     // Frame advanced; hash may change.
     assert!(snap2.frame.0 >= snap.frame.0);
     let _ = h1;
@@ -74,7 +74,7 @@ fn dual_presentation_hashes_match_for_identical_worlds() {
         t.add_kind_of(KindOf::Vehicle);
         logic.templates.insert("HashUnit".into(), t);
         let _ = logic.create_object("HashUnit", Team::USA, glam::Vec3::ZERO);
-        PresentationFrame::build_from_logic(&mut logic, 0).presentation_hash()
+        PresentationFrame::try_build_from_logic(&mut logic, 0).unwrap().presentation_hash()
     };
     assert_eq!(mk(), mk());
 }
@@ -93,7 +93,7 @@ fn client_reads_snapshot_not_live_world() {
     let id = logic
         .create_object("SnapUnit", Team::USA, glam::Vec3::ZERO)
         .expect("unit");
-    let client_view = PresentationFrame::build_from_logic(&mut logic, 0);
+    let client_view = PresentationFrame::try_build_from_logic(&mut logic, 0).unwrap();
     assert_eq!(client_view.alive_object_count(), 1);
     // Authority continues without client re-borrowing world during "render".
     if let Some(o) = logic.host_object_mut(id) {
@@ -104,7 +104,7 @@ fn client_reads_snapshot_not_live_world() {
     assert_eq!(client_view.objects.len(), 1);
     assert!(!client_view.objects[0].destroyed);
     // Fresh presentation reflects authority.
-    let next = PresentationFrame::build_from_logic(&mut logic, 0);
+    let next = PresentationFrame::try_build_from_logic(&mut logic, 0).unwrap();
     assert!(
         next.objects.iter().all(|o| o.destroyed || o.id != id)
             || next.alive_object_count() == 0
@@ -138,7 +138,7 @@ fn shipped_hud_consumer_uses_snapshot_owned_fields() {
         p.selected_objects = vec![id];
     }
     logic.update();
-    let snap = PresentationFrame::build_from_logic(&mut logic, 0);
+    let snap = PresentationFrame::try_build_from_logic(&mut logic, 0).unwrap();
     let obj = snap
         .objects
         .iter()
@@ -209,7 +209,8 @@ fn dual_tick_build_and_apply_after_logic_step_seeds_hud() {
     }
     logic.update(); // authority tick
     let mut hud = crate::ui::GameHUD::new();
-    let snap = PresentationFrame::build_and_apply_for_hud(&mut logic, 0, &mut hud);
+    let snap = PresentationFrame::try_build_from_logic(&mut logic, 0).unwrap();
+    snap.apply_to_game_hud(&mut hud);
     assert_eq!(snap.frame.0, logic.get_frame());
     assert!(
         !snap.hud_minimap_units().is_empty(),
@@ -258,9 +259,8 @@ fn dual_tick_applies_selection_panel_to_shell_ui_consumers() {
     let mut ui = crate::ui::GameUIState::default();
     let mut rts = crate::ui::RTSInterface::new();
     let mut cmd = crate::ui::UnitCommandPanel::new();
-    let snap = PresentationFrame::build_and_apply_for_shell_consumers(
-        &mut logic, 0, &mut hud, &mut ui, &mut rts, &mut cmd,
-    );
+    let snap = PresentationFrame::try_build_from_logic(&mut logic, 0).unwrap();
+    snap.apply_to_shell_ui_consumers(&mut hud, &mut ui, &mut rts, &mut cmd);
     assert_eq!(snap.frame.0, logic.get_frame());
     assert!(hud.selection_panel().has_positive_health());
     assert!((hud.selection_panel().health_current - 64.0).abs() < 0.01);
@@ -295,7 +295,7 @@ fn presentation_snapshot_includes_selection_radius_for_cull() {
     if let Some(o) = logic.host_object_mut(id) {
         o.selection_radius = 12.5;
     }
-    let snap = PresentationFrame::build_from_logic(&mut logic, 0);
+    let snap = PresentationFrame::try_build_from_logic(&mut logic, 0).unwrap();
     let ro = snap.objects.iter().find(|o| o.id == id).expect("in snap");
     assert!(
         (ro.selection_radius - 12.5).abs() < 0.01,
@@ -320,7 +320,7 @@ fn usa_ranger_presentation_model_key_non_empty_for_mesh_resolve() {
     let id = logic
         .create_object("USA_Ranger", Team::USA, glam::Vec3::new(1.0, 0.0, 2.0))
         .expect("ranger");
-    let snap = PresentationFrame::build_from_logic(&mut logic, 0);
+    let snap = PresentationFrame::try_build_from_logic(&mut logic, 0).unwrap();
     let ro = snap.objects.iter().find(|o| o.id == id).expect("in snap");
     let key = ro.model_key.as_deref().unwrap_or("");
     assert!(
@@ -362,7 +362,7 @@ fn mesh_scale_presentation_residual_wave75() {
     let id = logic
         .create_object("USA_Humvee", Team::USA, glam::Vec3::new(5.0, 0.0, 5.0))
         .expect("humvee");
-    let snap = PresentationFrame::build_from_logic(&mut logic, 0);
+    let snap = PresentationFrame::try_build_from_logic(&mut logic, 0).unwrap();
     assert!(snap.mesh_scale_presentation_residual_ok());
     let ro = snap.objects.iter().find(|o| o.id == id).expect("in snap");
     assert!((ro.mesh_scale - 1.0).abs() < 0.001);
@@ -395,7 +395,7 @@ fn ground_height_presentation_residual_wave77() {
     let id = logic
         .create_object("USA_Ranger", Team::USA, glam::Vec3::new(7.0, 0.0, 9.0))
         .expect("ranger");
-    let snap = PresentationFrame::build_from_logic(&mut logic, 0);
+    let snap = PresentationFrame::try_build_from_logic(&mut logic, 0).unwrap();
     assert!(snap.ground_height_presentation_residual_ok());
     let ro = snap.objects.iter().find(|o| o.id == id).expect("in snap");
     assert!(
@@ -437,7 +437,7 @@ fn presentation_build_includes_unit_render_fields_and_positions() {
         p.selected_objects = vec![id];
     }
 
-    let snap = PresentationFrame::build_from_logic(&mut logic, 0);
+    let snap = PresentationFrame::try_build_from_logic(&mut logic, 0).unwrap();
     let ro = snap.objects.iter().find(|o| o.id == id).expect("in snap");
     assert!((ro.position.x - 3.0).abs() < 0.01);
     assert!((ro.position.z + 8.0).abs() < 0.01);
@@ -517,7 +517,7 @@ fn presentation_fow_matches_bridge_at_build_and_stays_frozen() {
         0,
         id,
     );
-    let snap = PresentationFrame::build_from_logic(&mut logic, 0);
+    let snap = PresentationFrame::try_build_from_logic(&mut logic, 0).unwrap();
     let ro = snap.objects.iter().find(|o| o.id == id).expect("in snap");
     assert_eq!(
         ro.fow_visibility, bridge_at_build,
@@ -572,7 +572,7 @@ fn presentation_fow_matches_bridge_at_build_and_stays_frozen() {
     assert!(ObjectVisibility::HIDDEN.never_explored());
 
     // Dual-build with identical world + FOW state yields matching FOW on hash.
-    let snap2 = PresentationFrame::build_from_logic(&mut logic, 0);
+    let snap2 = PresentationFrame::try_build_from_logic(&mut logic, 0).unwrap();
     assert_eq!(snap.fow_for_object(id), snap2.fow_for_object(id));
     assert_eq!(
         snap.objects
@@ -608,7 +608,7 @@ fn presentation_fow_shell_bypass_forces_fully_visible() {
         .create_object("ShellFowUnit", Team::USA, glam::Vec3::ZERO)
         .expect("unit");
 
-    let snap = PresentationFrame::build_from_logic(&mut logic, 0);
+    let snap = PresentationFrame::try_build_from_logic(&mut logic, 0).unwrap();
     assert!(snap.fow_shell_bypass);
     let ro = snap.objects.iter().find(|o| o.id == id).expect("in snap");
     assert_eq!(ro.fow_visibility, ObjectVisibility::FULLY_VISIBLE);
@@ -624,7 +624,7 @@ fn presentation_world_env_freezes_bounds_and_map_name() {
     let cfg = golden_skirmish_config("WorldEnvMap");
     logic.admit_object_ini_sources(std::iter::empty()).expect("fixture Object content admitted before NewGame");
     crate::skirmish_config::lobby_definition_tests::start_slot_skirmish(&mut logic, &cfg).expect("cfg");
-    let snap = PresentationFrame::build_from_logic(&mut logic, 0);
+    let snap = PresentationFrame::try_build_from_logic(&mut logic, 0).unwrap();
     assert_eq!(snap.world_env.map_name, logic.get_current_map_name().trim());
     let (a, b) = logic.world_bounds();
     assert_eq!(snap.world_env.world_min, [a.x, a.y, a.z]);
@@ -644,7 +644,7 @@ fn world_env_height_grid_is_self_consistent() {
     let cfg = golden_skirmish_config("HeightGridMap");
     logic.admit_object_ini_sources(std::iter::empty()).expect("fixture Object content admitted before NewGame");
     crate::skirmish_config::lobby_definition_tests::start_slot_skirmish(&mut logic, &cfg).expect("cfg");
-    let snap = PresentationFrame::build_from_logic(&mut logic, 0);
+    let snap = PresentationFrame::try_build_from_logic(&mut logic, 0).unwrap();
     assert_eq!(snap.world_env.height_grid_w, 64);
     assert_eq!(snap.world_env.height_grid_h, 64);
     assert_eq!(snap.world_env.height_samples.len(), (64 * 64) as usize);
@@ -692,7 +692,7 @@ fn presentation_fow_grid_matches_shroud_snapshot_and_stays_frozen() {
         0,
         false,
     );
-    let snap = PresentationFrame::build_from_logic(&mut logic, 0);
+    let snap = PresentationFrame::try_build_from_logic(&mut logic, 0).unwrap();
 
     assert!(
         !snap
@@ -736,7 +736,7 @@ fn presentation_fow_grid_matches_shroud_snapshot_and_stays_frozen() {
     assert_eq!(r8, snap.fow_grid.to_r8_texture());
 
     // Dual-build consistency.
-    let snap2 = PresentationFrame::build_from_logic(&mut logic, 0);
+    let snap2 = PresentationFrame::try_build_from_logic(&mut logic, 0).unwrap();
     assert_eq!(
         snap.fow_grid.content_fingerprint(),
         snap2.fow_grid.content_fingerprint()
@@ -766,7 +766,7 @@ fn presentation_fow_grid_matches_shroud_snapshot_and_stays_frozen() {
     );
 
     // New build sees the reveal.
-    let snap_after = PresentationFrame::build_from_logic(&mut logic, 0);
+    let snap_after = PresentationFrame::try_build_from_logic(&mut logic, 0).unwrap();
     assert!(
         snap_after
             .fow_grid
@@ -792,7 +792,7 @@ fn presentation_fow_grid_matches_shroud_snapshot_and_stays_frozen() {
         let mut shell_logic = GameLogic::new();
         shell_logic.admit_object_ini_sources(std::iter::empty()).unwrap();
         shell_logic.start_new_game(GameMode::Shell).unwrap();
-        let shell_snap = PresentationFrame::build_from_logic(&mut shell_logic, 0);
+        let shell_snap = PresentationFrame::try_build_from_logic(&mut shell_logic, 0).unwrap();
         assert!(shell_snap.fow_shell_bypass);
         if shell_snap.fow_grid.active {
             assert!(
@@ -841,7 +841,7 @@ fn unit_render_inputs_keep_resident_direct_destroyed_drawable_without_duplicate(
         o.health.current = 0.0;
     }
 
-    let mut snap = PresentationFrame::build_from_logic(&mut logic, 0);
+    let mut snap = PresentationFrame::try_build_from_logic(&mut logic, 0).unwrap();
     let inputs = snap.unit_render_inputs();
     assert_eq!(
         inputs.len(),
@@ -998,6 +998,6 @@ fn retained_drawable_uses_the_receiving_visual_identity_until_physical_removal()
 fn presentation_feeds_skybox() {
     let mut logic = crate::game_logic::GameLogic::new();
     logic.set_script_skybox_enabled_for_test(true);
-    let frame = PresentationFrame::build_from_logic(&mut logic, 0);
+    let frame = PresentationFrame::try_build_from_logic(&mut logic, 0).unwrap();
     assert!(frame.world_env.skybox_enabled);
 }

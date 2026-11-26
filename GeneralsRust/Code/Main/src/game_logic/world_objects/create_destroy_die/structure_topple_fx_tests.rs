@@ -380,7 +380,7 @@ fn structure_topple_saved_future_preserves_actual_phase_fx_and_incremental_matri
                 receiving.host_object(id).unwrap().get_transform_matrix()
             );
             let frozen =
-                crate::presentation_frame::PresentationFrame::build_from_logic(&mut receiving, 0);
+                crate::presentation_frame::PresentationFrame::try_build_from_logic(&mut receiving, 0).unwrap();
             assert_eq!(
                 frozen.structure_topple_transforms.get(&id),
                 Some(&receiving.host_object(id).unwrap().get_transform_matrix()),

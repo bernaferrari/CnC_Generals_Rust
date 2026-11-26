@@ -79,7 +79,7 @@ fn world() -> (
     let id = logic
         .create_object("NativeMaterialTank", Team::USA, Vec3::ZERO)
         .unwrap();
-    let mut frame = PresentationFrame::build_from_logic(&mut logic, 0);
+    let mut frame = PresentationFrame::try_build_from_logic(&mut logic, 0).unwrap();
     frame.fow_shell_bypass = true;
     let frame = Rc::new(frame);
     assert!(

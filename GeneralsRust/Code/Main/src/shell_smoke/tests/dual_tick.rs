@@ -42,7 +42,8 @@ fn dual_tick_after_map_load_seeds_hud_selection_health() {
 
     // Seed like start_game_from_ui before first logic frame.
     let mut hud = GameHUD::new();
-    let seed = PresentationFrame::build_and_apply_for_hud(&mut logic, 0, &mut hud);
+    let seed = PresentationFrame::try_build_from_logic(&mut logic, 0).unwrap();
+    seed.apply_to_game_hud(&mut hud);
     assert!(
         seed.alive_object_count() >= 1,
         "seed presentation must see map/host units"
@@ -53,7 +54,8 @@ fn dual_tick_after_map_load_seeds_hud_selection_health() {
     );
 
     logic.update();
-    let post = PresentationFrame::build_and_apply_for_hud(&mut logic, 0, &mut hud);
+    let post = PresentationFrame::try_build_from_logic(&mut logic, 0).unwrap();
+    post.apply_to_game_hud(&mut hud);
     let info = hud
         .selected_unit_infos()
         .iter()

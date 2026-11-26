@@ -161,7 +161,7 @@ fn actual_same_walk_screen_shake_precedes_native_death_fx_and_never_replays_froz
             assert_eq!(peer.capture_camera_continuation().unwrap(), peer_before);
             let source_before = source.session_view.capture();
             let frozen =
-                crate::presentation_frame::PresentationFrame::build_from_logic(&mut source, 0);
+                crate::presentation_frame::PresentationFrame::try_build_from_logic(&mut source, 0).unwrap();
             assert!(
                 frozen.screen_shakes.is_empty(),
                 "current script execution produces no delayed shake intent"

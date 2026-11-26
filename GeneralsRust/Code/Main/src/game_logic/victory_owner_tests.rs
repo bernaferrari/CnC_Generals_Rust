@@ -201,7 +201,7 @@ fn assert_observers(
         assert_eq!(probe.match_over, expected.is_some());
         assert_eq!(probe.victory_label, expected.map(|v| format!("{v:?}")));
         let frame =
-            PresentationFrame::try_publish_for_engine_with_runtime_heightmap(world, 0, None, true)
+            PresentationFrame::try_publish(world, 0, None, true)
                 .unwrap();
         assert_eq!(frame.match_over, expected.is_some());
         assert_eq!(frame.victory_label, expected.map(|v| format!("{v:?}")));
@@ -310,7 +310,7 @@ fn completed_observation_tracks_each_evaluation_and_game_mode() {
     );
     let before = gameplay_observation(&world);
     let frame =
-        PresentationFrame::try_publish_for_engine_with_runtime_heightmap(&mut world, 0, None, true)
+        PresentationFrame::try_publish(&mut world, 0, None, true)
             .unwrap();
     assert!(frame.match_over);
     assert!(
@@ -400,7 +400,7 @@ fn foreign_observer_cannot_exempt_the_owners_dead_player_from_defeat() {
     destroy_armies(&mut owner, ids);
     assert!(owner.evaluate_victory_condition().unwrap().is_some());
     let frame =
-        PresentationFrame::try_publish_for_engine_with_runtime_heightmap(&mut owner, 0, None, true)
+        PresentationFrame::try_publish(&mut owner, 0, None, true)
             .unwrap();
     assert!(frame.match_over);
     assert_eq!(
@@ -431,7 +431,7 @@ fn foreign_civilian_cannot_exempt_the_owners_dead_player_from_defeat() {
     destroy_armies(&mut owner, ids);
     assert!(owner.evaluate_victory_condition().unwrap().is_some());
     let frame =
-        PresentationFrame::try_publish_for_engine_with_runtime_heightmap(&mut owner, 0, None, true)
+        PresentationFrame::try_publish(&mut owner, 0, None, true)
             .unwrap();
     assert!(frame.match_over);
     assert_eq!(owner.get_player(0).unwrap().resources.supplies, 0);
@@ -457,7 +457,7 @@ fn owned_observer_remains_exempt_with_an_ordinary_foreign_slot() {
     destroy_armies(&mut owner, ids);
     assert!(owner.evaluate_victory_condition().unwrap().is_some());
     let frame =
-        PresentationFrame::try_publish_for_engine_with_runtime_heightmap(&mut owner, 0, None, true)
+        PresentationFrame::try_publish(&mut owner, 0, None, true)
             .unwrap();
     assert!(frame.match_over);
     assert_eq!(owner.get_player(0).unwrap().resources.supplies, 1234);

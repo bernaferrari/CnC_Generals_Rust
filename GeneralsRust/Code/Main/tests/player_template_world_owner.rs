@@ -174,10 +174,10 @@ fn player_templates_follow_the_receiving_world_through_map_reset_and_save() {
     object.selected = true;
     object.status.selected = true;
     let first_frame =
-        generals_main::presentation_frame::PresentationFrame::build_from_logic(&mut first, 1);
+        generals_main::presentation_frame::PresentationFrame::try_build_from_logic(&mut first, 1).unwrap();
     assert_eq!(first_frame.selected_command_set_name(), Some("SharedSet"));
     let peer_frame =
-        generals_main::presentation_frame::PresentationFrame::build_from_logic(&mut peer, 1);
+        generals_main::presentation_frame::PresentationFrame::try_build_from_logic(&mut peer, 1).unwrap();
     // A foreign Core object under the same numeric registry key must not
     // decide this host object's selection or command set.
     let foreign_object = gamelogic::object::Object::new(
@@ -274,7 +274,7 @@ fn player_templates_follow_the_receiving_world_through_map_reset_and_save() {
             .has_unlocked_science("SCIENCE_Shared")
     );
     let purchased_frame =
-        generals_main::presentation_frame::PresentationFrame::build_from_logic(&mut first, 1);
+        generals_main::presentation_frame::PresentationFrame::try_build_from_logic(&mut first, 1).unwrap();
     first_client.with_window_event_effects(None, |effects| {
         effects.with_manager(|manager, effects| {
             purchased_frame.apply_to_control_bar(&mut first_bar, manager, effects)
@@ -297,7 +297,7 @@ fn player_templates_follow_the_receiving_world_through_map_reset_and_save() {
     first.set_control_bar_override("SharedSet", 1, None);
     first.set_control_bar_override("Rank1", 0, None);
     let overridden_frame =
-        generals_main::presentation_frame::PresentationFrame::build_from_logic(&mut first, 1);
+        generals_main::presentation_frame::PresentationFrame::try_build_from_logic(&mut first, 1).unwrap();
     first_client.with_window_event_effects(None, |effects| {
         effects.with_manager(|manager, effects| {
             overridden_frame.apply_to_control_bar(&mut first_bar, manager, effects)
@@ -387,7 +387,7 @@ fn player_templates_follow_the_receiving_world_through_map_reset_and_save() {
         .status
         .disabled_paralyzed = true;
     let multi_frame =
-        generals_main::presentation_frame::PresentationFrame::build_from_logic(&mut first, 1);
+        generals_main::presentation_frame::PresentationFrame::try_build_from_logic(&mut first, 1).unwrap();
     first_client.with_window_event_effects(None, |effects| {
         effects.with_manager(|manager, effects| {
             multi_frame.apply_to_control_bar(&mut first_bar, manager, effects)
@@ -407,7 +407,7 @@ fn player_templates_follow_the_receiving_world_through_map_reset_and_save() {
     );
     first.host_object_mut(second).unwrap().command_set_override = Some("MissingSet".into());
     let missing_frame =
-        generals_main::presentation_frame::PresentationFrame::build_from_logic(&mut first, 1);
+        generals_main::presentation_frame::PresentationFrame::try_build_from_logic(&mut first, 1).unwrap();
     first_client.with_window_event_effects(None, |effects| {
         effects.with_manager(|manager, effects| {
             missing_frame.apply_to_control_bar(&mut first_bar, manager, effects)
@@ -710,12 +710,12 @@ fn player_templates_follow_the_receiving_world_through_map_reset_and_save() {
         visual_peer.host_object_mut(peer_carrier).unwrap(),
         &peer_locomotor,
     );
-    let visual_frame = generals_main::presentation_frame::PresentationFrame::build_from_logic(
+    let visual_frame = generals_main::presentation_frame::PresentationFrame::try_build_from_logic(
         &mut visual_owner,
         1,
-    );
+    ).unwrap();
     let peer_visual_frame =
-        generals_main::presentation_frame::PresentationFrame::build_from_logic(&mut visual_peer, 1);
+        generals_main::presentation_frame::PresentationFrame::try_build_from_logic(&mut visual_peer, 1).unwrap();
     let owner_physics = visual_frame.physics_visual_facts(carrier).unwrap();
     let peer_physics = peer_visual_frame
         .physics_visual_facts(peer_carrier)
@@ -765,10 +765,10 @@ fn player_templates_follow_the_receiving_world_through_map_reset_and_save() {
         visual_owner.host_object_mut(carrier).unwrap(),
         &owner_locomotor,
     );
-    let switched_frame = generals_main::presentation_frame::PresentationFrame::build_from_logic(
+    let switched_frame = generals_main::presentation_frame::PresentationFrame::try_build_from_logic(
         &mut visual_owner,
         1,
-    );
+    ).unwrap();
     assert_eq!(
         switched_frame
             .physics_visual_facts(carrier)
@@ -794,10 +794,10 @@ fn player_templates_follow_the_receiving_world_through_map_reset_and_save() {
         9.5
     );
     visual_peer.reset();
-    let after_peer_reset = generals_main::presentation_frame::PresentationFrame::build_from_logic(
+    let after_peer_reset = generals_main::presentation_frame::PresentationFrame::try_build_from_logic(
         &mut visual_owner,
         1,
-    );
+    ).unwrap();
     assert!(
         after_peer_reset
             .unit_render_inputs()

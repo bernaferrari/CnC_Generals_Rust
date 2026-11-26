@@ -92,7 +92,7 @@ fn stealth_opacity_continues_from_real_archive_in_interleaved_worlds() {
         let loaded = restored.host_object(id).unwrap();
         assert_eq!(loaded.camo_opacity_pulse_phase, original.camo_opacity_pulse_phase);
         assert_eq!(loaded.camo_friendly_opacity, original.camo_friendly_opacity);
-        let rendered = crate::presentation_frame::PresentationFrame::build_from_logic(&mut restored, 0)
+        let rendered = crate::presentation_frame::PresentationFrame::try_build_from_logic(&mut restored, 0).unwrap()
             .unit_render_inputs()
             .into_iter()
             .find(|input| input.id == id)
@@ -100,7 +100,7 @@ fn stealth_opacity_continues_from_real_archive_in_interleaved_worlds() {
         assert!((rendered.presentation_opacity - original.camo_friendly_opacity).abs() < 1e-5);
         let phase = restored.host_object(id).unwrap().camo_opacity_pulse_phase;
         let random = restored.session_view.client_random.seed_words();
-        let _ = crate::presentation_frame::PresentationFrame::build_from_logic(&mut restored, 0);
+        let _ = crate::presentation_frame::PresentationFrame::try_build_from_logic(&mut restored, 0).unwrap();
         assert_eq!(restored.host_object(id).unwrap().camo_opacity_pulse_phase, phase);
         assert_eq!(restored.session_view.client_random.seed_words(), random);
     }

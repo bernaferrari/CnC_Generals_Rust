@@ -115,7 +115,7 @@ fn superweapon_object_produces_counting_down_strip_entry_that_hits_ready() {
         [(2.0, 3.0, false), (2.0, 1.0, false), (4.0 / 3.0, 0.0, true)]
     {
         logic.tick_shared_special_power_timers(elapsed);
-        let frame = PresentationFrame::build_from_logic(&mut logic, 0);
+        let frame = PresentationFrame::try_build_from_logic(&mut logic, 0).unwrap();
         let row = frame
             .superweapon_timers()
             .iter()

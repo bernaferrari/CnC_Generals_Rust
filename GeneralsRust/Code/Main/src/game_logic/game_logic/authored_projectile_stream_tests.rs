@@ -189,7 +189,7 @@ fn mounted_projectile_draw_preserves_the_shell_model_and_invisible_flame() {
         combat.projectile_mut(id).unwrap().projectile_object_name = name.into();
     }
 
-    let frame = PresentationFrame::build_from_logic(&mut world, 0);
+    let frame = PresentationFrame::try_build_from_logic(&mut world, 0).unwrap();
     let draws = frame.projectile_render_inputs();
     assert_eq!(draws.len(), 2);
     for name in ["BattleMasterTankShell", "OverlordTankShell"] {
@@ -924,7 +924,7 @@ fn authored_shell_calls_neutron_die_once_after_impact_damage() {
         let (mut world, source, target, nearby) = authored_neutron_shell_world(calls_die);
         let shell = launch_authored_neutron_shell(&mut world, source, target);
         assert!(world.host_object(shell).is_some(), "both shell variants own their collision Object");
-        let frame = crate::presentation_frame::PresentationFrame::build_from_logic(&mut world, 0);
+        let frame = crate::presentation_frame::PresentationFrame::try_build_from_logic(&mut world, 0).unwrap();
         assert_eq!(frame.projectile_render_inputs().iter().filter(|item| item.id == shell).count(), 1);
         assert!(frame.direct_host_drawables.iter().all(|item| item.object.id != shell));
         assert_eq!(world.objects[&nearby].health.current, 100.0);

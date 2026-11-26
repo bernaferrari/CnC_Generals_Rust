@@ -24,8 +24,8 @@ fn actual_follow_producer_preserves_receiving_debug_history_and_equal_id_peer() 
     let peer_prior = Vec3::new(-41., 0., -43.);
     owner.session_view.camera.native_filter_previous_target = owner_prior;
     peer.session_view.camera.native_filter_previous_target = peer_prior;
-    let owner_frame = PresentationFrame::build_from_logic(&mut owner, 0);
-    let peer_frame = PresentationFrame::build_from_logic(&mut peer, 0);
+    let owner_frame = PresentationFrame::try_build_from_logic(&mut owner, 0).unwrap();
+    let peer_frame = PresentationFrame::try_build_from_logic(&mut peer, 0).unwrap();
     assert_eq!(owner_frame.camera_follow_object_id, Some(id));
     assert_eq!(peer_frame.camera_follow_object_id, Some(peer_id));
     assert_eq!(

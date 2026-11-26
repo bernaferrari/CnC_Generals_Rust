@@ -139,7 +139,7 @@ mod tests {
             .expect("terrain payload");
 
         let frame =
-            crate::presentation_frame::PresentationFrame::try_publish_for_engine_with_runtime_heightmap(
+            crate::presentation_frame::PresentationFrame::try_publish(
                 &mut logic,
                 0,
                 Some(shared),

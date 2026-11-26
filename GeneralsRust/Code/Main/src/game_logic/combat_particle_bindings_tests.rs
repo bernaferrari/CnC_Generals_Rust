@@ -92,8 +92,8 @@ fn receiving_particle_actual_frames_are_observations_after_canonical_admission()
     let host = source(world.combat_particles_mut(), "FrameOwnedParticle", &mut particles);
     let client = world.combat_particles().get(host).unwrap().client_system_id;
     assert!(client.is_some());
-    let first = crate::presentation_frame::PresentationFrame::build_from_logic(&mut world, 0);
-    let second = crate::presentation_frame::PresentationFrame::build_from_logic(&mut world, 0);
+    let first = crate::presentation_frame::PresentationFrame::try_build_from_logic(&mut world, 0).unwrap();
+    let second = crate::presentation_frame::PresentationFrame::try_build_from_logic(&mut world, 0).unwrap();
     assert_eq!(first.particle_systems[0].client_system_id, client);
     assert_eq!(second.particle_systems[0].client_system_id, client);
     assert_eq!(

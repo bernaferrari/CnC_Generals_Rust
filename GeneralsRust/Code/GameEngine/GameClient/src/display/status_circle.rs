@@ -1,6 +1,6 @@
 //! C++ `W3DStatusCircle::Render` camera-fade overlay.
 
-use gamelogic::scripting::{TFade, get_script_engine};
+use gamelogic::scripting::TFade;
 
 /// Fullscreen camera-fade overlay produced by `W3DStatusCircle::Render`.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -25,16 +25,6 @@ pub fn camera_fade_from_observation(fade: TFade, value: f32) -> Option<CameraFad
         intensity,
         diffuse: (0xff << 24) | (channel << 16) | (channel << 8) | channel,
     })
-}
-
-/// Explicit standalone Device compatibility adapter. Native Main frames lend
-/// their receiving interpreter observation to `camera_fade_from_observation`.
-pub fn render_camera_fade() -> Option<CameraFadeOverlay> {
-    let scripts = get_script_engine();
-    let guard = scripts.read().ok()?;
-    let engine = guard.as_ref()?;
-    let (fade, value) = engine.fade_observation();
-    camera_fade_from_observation(fade, value)
 }
 
 fn overlay_from_packed(fade: u8, intensity: f32, diffuse: u32) -> Option<CameraFadeOverlay> {
@@ -322,10 +312,8 @@ mod tests {
     use super::*;
 
     #[test]
-    fn no_engine_or_none_fade_clears_overlay() {
-        crate::test_support::ensure_ambient_host();
+    fn none_fade_clears_overlay() {
         assert!(camera_fade_from_observation(TFade::None, 0.75).is_none());
-        let _standalone = render_camera_fade();
     }
 
     #[test]

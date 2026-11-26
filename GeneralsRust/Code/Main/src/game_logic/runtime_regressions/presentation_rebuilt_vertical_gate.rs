@@ -24,7 +24,7 @@ fn newly_admitted_actor_reaches_native_presentation_at_its_world_pose() {
         .create_object("RebuiltVert196", Team::USA, position)
         .unwrap();
     let published =
-        PresentationFrame::try_publish_for_engine_with_runtime_heightmap(&mut logic, 0, None, true)
+        PresentationFrame::try_publish(&mut logic, 0, None, true)
             .unwrap();
     assert!(before.objects.iter().all(|row| row.id != id));
     let row = published.objects.iter().find(|row| row.id == id).unwrap();

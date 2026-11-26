@@ -18,7 +18,7 @@ fn receiving_model_frame_selects_its_own_condition_table() {
     use crate::game_logic::host_enum_table_residual::MC_BIT_DAMAGED;
     let mut world = receiving_world("None", "ReceivingDamaged");
     let mut peer = receiving_world("PeerPristine", "None");
-    let peer_frame = PresentationFrame::build_from_logic(&mut peer, 0);
+    let peer_frame = PresentationFrame::try_build_from_logic(&mut peer, 0).unwrap();
     assert_eq!(
         peer_frame.objects[0].model_key.as_deref(),
         Some("PeerPristine")
@@ -63,7 +63,7 @@ fn receiving_model_frame_selects_its_own_condition_table() {
 #[test]
 fn receiving_model_render_input_keeps_its_table_through_environment_and_disguise() {
     let mut world = receiving_world("None", "ReceivingDamaged");
-    let frame = PresentationFrame::build_from_logic(&mut world, 0);
+    let frame = PresentationFrame::try_build_from_logic(&mut world, 0).unwrap();
     let mut input =
         UnitRenderInput::from_renderable_with_environment(None, &frame.objects[0], false, false, 0);
     assert!(input.draw_models.is_empty());
@@ -92,7 +92,7 @@ fn receiving_model_render_input_keeps_its_table_through_environment_and_disguise
     let object = world.host_object_mut(ObjectId(42)).unwrap();
     object.status.disguised = true;
     object.disguise_as_template = Some("ReceivingDisguise".into());
-    let disguised = PresentationFrame::build_from_logic(&mut world, 0);
+    let disguised = PresentationFrame::try_build_from_logic(&mut world, 0).unwrap();
     let inputs = disguised.unit_render_inputs();
     let visual = inputs
         .iter()

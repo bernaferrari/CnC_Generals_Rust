@@ -29,7 +29,7 @@ fn frame_with_model_visibility(
             Team::USA,
         ));
     }
-    crate::presentation_frame::PresentationFrame::build_from_logic(&mut world, 0)
+    crate::presentation_frame::PresentationFrame::try_build_from_logic(&mut world, 0).unwrap()
 }
 
 fn saved_receiver(

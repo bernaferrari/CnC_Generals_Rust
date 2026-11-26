@@ -83,7 +83,7 @@ fn live_camera_conditions_match_actual_frozen_draw_route_without_consuming_audio
             .record_money_audio(0, HostMoneyAudio::Withdraw);
         let live = world.current_native_slave_source(ObjectId(42), 0).unwrap();
         let peer_live = peer.current_native_slave_source(ObjectId(42), 0).unwrap();
-        let frame = PresentationFrame::build_from_logic(&mut world, 0);
+        let frame = PresentationFrame::try_build_from_logic(&mut world, 0).unwrap();
         let frozen = frame
             .native_resident_drawable_inputs()
             .into_iter()
@@ -136,7 +136,7 @@ fn live_and_frozen_draw_preserve_overlapping_weapon_conditions() {
         object.set_weapon_condition_at_frame(bit, true, 0);
     }
     let live = world.current_native_slave_source(ObjectId(42), 0).unwrap();
-    let frame = PresentationFrame::build_from_logic(&mut world, 0);
+    let frame = PresentationFrame::try_build_from_logic(&mut world, 0).unwrap();
     let frozen = frame.native_resident_drawable_inputs().into_iter()
         .find(|input| input.id == ObjectId(42)).unwrap();
     for bit in [
@@ -178,7 +178,7 @@ fn live_camera_conditions_use_explicit_receiving_viewer_for_hidden_garrison() {
     assert_eq!(hidden.condition_bits & garrisoned, 0);
     assert_ne!(apparent.condition_bits & garrisoned, 0);
     for (viewer, live) in [(0, hidden), (1, apparent)] {
-        let frame = PresentationFrame::build_from_logic(&mut world, viewer);
+        let frame = PresentationFrame::try_build_from_logic(&mut world, viewer).unwrap();
         let input = frame
             .native_resident_drawable_inputs()
             .into_iter()

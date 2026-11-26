@@ -11,7 +11,7 @@ fn frozen_money_audio_preserves_cpp_player_identity_for_native_locality() {
     world.add_player(Player::new(7, Team::GLA, "other", false));
     let (player, output) = world.player_and_economy_events_mut(7).unwrap();
     player.credit_supplies(25, output);
-    let frame = PresentationFrame::build_from_logic(&mut world, 0);
+    let frame = PresentationFrame::try_build_from_logic(&mut world, 0).unwrap();
     let name = resolve_misc_audio_event(
         &world.world_services.common().ini.misc_audio.read(),
         money_audio_token(HostMoneyAudio::Deposit),
@@ -26,7 +26,7 @@ fn frozen_money_audio_preserves_cpp_player_identity_for_native_locality() {
     assert!(deposits[0].position.is_none());
     assert!(!deposits[0].is_looping);
     assert!(
-        PresentationFrame::build_from_logic(&mut world, 0)
+        PresentationFrame::try_build_from_logic(&mut world, 0).unwrap()
             .money_audio_receipts
             .is_empty()
     );

@@ -862,7 +862,7 @@ End
     // Frozen presentation shows the command only for the source-authored
     // behavior; the executor separately revalidates the same live template.
     logic.select_objects(0, vec![plant_id]);
-    let frame = PresentationFrame::build_from_logic(&mut logic, 0);
+    let frame = PresentationFrame::try_build_from_logic(&mut logic, 0).unwrap();
     assert!(
         frame
             .objects
@@ -879,7 +879,7 @@ End
             && button.enabled
     }));
     logic.select_objects(0, vec![name_only_id]);
-    let name_only_frame = PresentationFrame::build_from_logic(&mut logic, 0);
+    let name_only_frame = PresentationFrame::try_build_from_logic(&mut logic, 0).unwrap();
     assert!(
         !name_only_frame.unit_command_buttons().iter().any(|button| {
             button
@@ -889,7 +889,7 @@ End
         })
     );
     logic.select_objects(0, vec![zero_bonus_id]);
-    let zero_bonus_frame = PresentationFrame::build_from_logic(&mut logic, 0);
+    let zero_bonus_frame = PresentationFrame::try_build_from_logic(&mut logic, 0).unwrap();
     let zero_has_overcharge = zero_bonus_frame
         .unit_command_buttons()
         .iter()

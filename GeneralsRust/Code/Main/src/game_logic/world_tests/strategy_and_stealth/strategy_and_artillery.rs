@@ -882,7 +882,7 @@ fn reset_camera_clears_stale_rotate() {
         "RESET_CAMERA must drop the stale ROTATE_CAMERA"
     );
     assert!(game_logic.peek_pending_camera_zoom_reset());
-    let frame = crate::presentation_frame::PresentationFrame::build_from_logic(&mut game_logic, 0);
+    let frame = crate::presentation_frame::PresentationFrame::try_build_from_logic(&mut game_logic, 0).unwrap();
     assert!(
         frame.camera_rotate.is_none(),
         "RESET_CAMERA must not leave ROTATE_CAMERA on the presentation frame"
@@ -1013,7 +1013,7 @@ fn script_zoom_pitch_rotate_preserve_ease_on_presentation_frame() {
         });
     game_logic.evaluate_and_execute_scripts(0.0);
 
-    let frame = crate::presentation_frame::PresentationFrame::build_from_logic(&mut game_logic, 0);
+    let frame = crate::presentation_frame::PresentationFrame::try_build_from_logic(&mut game_logic, 0).unwrap();
     assert_eq!(frame.camera_zoom, Some((1.2, 2.0)));
     assert_eq!(frame.camera_zoom_ease, (0.3, 0.5));
     assert_eq!(frame.camera_pitch, Some((0.8, 1.5)));
@@ -1976,7 +1976,7 @@ End
     }
 
     let presentation =
-        crate::presentation_frame::PresentationFrame::build_from_logic(&mut game_logic, 0);
+        crate::presentation_frame::PresentationFrame::try_build_from_logic(&mut game_logic, 0).unwrap();
     for entry in game_logic.combat_particles().active_systems() {
         let snapshot = presentation
             .particle_systems
@@ -2546,7 +2546,7 @@ fn weapon_discharge_world_tick_combat_preserves_preadvance_barrel_and_freezes_on
     );
 
     let frozen =
-        crate::presentation_frame::PresentationFrame::try_publish_for_engine_with_runtime_heightmap(&mut game_logic, 0, None, false).unwrap();
+        crate::presentation_frame::PresentationFrame::try_publish(&mut game_logic, 0, None, false).unwrap();
     assert!(frozen.events.iter().any(|event| matches!(
         event,
         crate::presentation_frame::PresentationEvent::WeaponDischarged {
@@ -2559,7 +2559,7 @@ fn weapon_discharge_world_tick_combat_preserves_preadvance_barrel_and_freezes_on
         } if *source == attacker_id
     )));
     assert!(
-        crate::presentation_frame::PresentationFrame::try_publish_for_engine_with_runtime_heightmap(&mut game_logic, 0, None, false).unwrap()
+        crate::presentation_frame::PresentationFrame::try_publish(&mut game_logic, 0, None, false).unwrap()
             .events
             .iter()
             .all(|event| !matches!(

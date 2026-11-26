@@ -2731,11 +2731,11 @@ fn presentation_uses_receiving_shared_cave_and_tunnel_inventories() {
             }
         }
     };
-    let direct = PresentationFrame::build_from_logic(&mut first, 2);
+    let direct = PresentationFrame::try_build_from_logic(&mut first, 2).unwrap();
     check(&direct, vec![cave_rider], vec![tunnel_rider], 2);
-    let victory_frame = PresentationFrame::build_with_victory(&mut first, 2);
+    let victory_frame = PresentationFrame::try_publish(&mut first, 2, None, true).unwrap();
     check(&victory_frame, vec![cave_rider], vec![tunnel_rider], 2);
-    let peer_frame = PresentationFrame::build_from_logic(&mut peer, 2);
+    let peer_frame = PresentationFrame::try_build_from_logic(&mut peer, 2).unwrap();
     for id in [ca, cb, ta, tb] {
         let object = peer_frame
             .objects
@@ -2776,8 +2776,8 @@ fn presentation_uses_receiving_shared_cave_and_tunnel_inventories() {
     for id in [cave_rider, tunnel_rider, ordinary_rider] {
         first.host_object_mut(id).unwrap().status.detected = false;
     }
-    let direct_hidden = PresentationFrame::build_from_logic(&mut first, 3);
-    let victory_hidden = PresentationFrame::build_with_victory(&mut first, 3);
+    let direct_hidden = PresentationFrame::try_build_from_logic(&mut first, 3).unwrap();
+    let victory_hidden = PresentationFrame::try_publish(&mut first, 3, None, true).unwrap();
     for (name, frame) in [("direct", &direct_hidden), ("victory", &victory_hidden)] {
         for id in [cb, tb, ordinary_garrison] {
             let object = frame.objects.iter().find(|object| object.id == id).unwrap();
@@ -2799,8 +2799,8 @@ fn presentation_uses_receiving_shared_cave_and_tunnel_inventories() {
     for id in [cave_rider, tunnel_rider, ordinary_rider] {
         first.host_object_mut(id).unwrap().status.detected = true;
     }
-    let direct_revealed = PresentationFrame::build_from_logic(&mut first, 3);
-    let victory_revealed = PresentationFrame::build_with_victory(&mut first, 3);
+    let direct_revealed = PresentationFrame::try_build_from_logic(&mut first, 3).unwrap();
+    let victory_revealed = PresentationFrame::try_publish(&mut first, 3, None, true).unwrap();
     for frame in [&direct_revealed, &victory_revealed] {
         for (id, expected) in [
             (cb, cave_rider),
@@ -2834,8 +2834,8 @@ fn presentation_uses_receiving_shared_cave_and_tunnel_inventories() {
         first.host_object(second_rider).unwrap().contained_by,
         Some(ta)
     );
-    let full_direct = PresentationFrame::build_from_logic(&mut first, 2);
-    let full_victory = PresentationFrame::build_with_victory(&mut first, 2);
+    let full_direct = PresentationFrame::try_build_from_logic(&mut first, 2).unwrap();
+    let full_victory = PresentationFrame::try_publish(&mut first, 2, None, true).unwrap();
     for frame in [&full_direct, &full_victory] {
         for id in [ta, tb] {
             let object = frame.objects.iter().find(|object| object.id == id).unwrap();
@@ -2873,8 +2873,8 @@ fn presentation_keeps_shared_inventory_above_thirty_two_items() {
         );
         riders.push(id);
     }
-    let direct = PresentationFrame::build_from_logic(&mut game, 2);
-    let victory_frame = PresentationFrame::build_with_victory(&mut game, 2);
+    let direct = PresentationFrame::try_build_from_logic(&mut game, 2).unwrap();
+    let victory_frame = PresentationFrame::try_publish(&mut game, 2, None, true).unwrap();
     for frame in [&direct, &victory_frame] {
         let object = frame
             .objects
@@ -2996,8 +2996,8 @@ fn cave_and_tunnel_entry_eligibility_matches_shared_tracker() {
     let enemy = game
         .create_object_for_player("OwnedGarrisonRider", 3, Vec3::new(50., 0., 50.))
         .unwrap();
-    let direct = PresentationFrame::build_from_logic(&mut game, 1);
-    let victory_frame = PresentationFrame::build_with_victory(&mut game, 1);
+    let direct = PresentationFrame::try_build_from_logic(&mut game, 1).unwrap();
+    let victory_frame = PresentationFrame::try_publish(&mut game, 1, None, true).unwrap();
     for frame in [&direct, &victory_frame] {
         for id in [cave, tunnel] {
             let target = frame.objects.iter().find(|o| o.id == id).unwrap();
@@ -3017,8 +3017,8 @@ fn cave_and_tunnel_entry_eligibility_matches_shared_tracker() {
             );
         }
     }
-    let owner_direct = PresentationFrame::build_from_logic(&mut game, 2);
-    let owner_victory = PresentationFrame::build_with_victory(&mut game, 2);
+    let owner_direct = PresentationFrame::try_build_from_logic(&mut game, 2).unwrap();
+    let owner_victory = PresentationFrame::try_publish(&mut game, 2, None, true).unwrap();
     for frame in [&owner_direct, &owner_victory] {
         for id in [cave, tunnel, faction_cave, faction_tunnel] {
             let target = frame.objects.iter().find(|o| o.id == id).unwrap();
@@ -3029,8 +3029,8 @@ fn cave_and_tunnel_entry_eligibility_matches_shared_tracker() {
             );
         }
     }
-    let enemy_direct = PresentationFrame::build_from_logic(&mut game, 3);
-    let enemy_victory = PresentationFrame::build_with_victory(&mut game, 3);
+    let enemy_direct = PresentationFrame::try_build_from_logic(&mut game, 3).unwrap();
+    let enemy_victory = PresentationFrame::try_publish(&mut game, 3, None, true).unwrap();
     for frame in [&enemy_direct, &enemy_victory] {
         for id in [cave, tunnel] {
             let target = frame.objects.iter().find(|o| o.id == id).unwrap();
@@ -3097,14 +3097,14 @@ fn cave_and_tunnel_entry_eligibility_matches_shared_tracker() {
         .create_object_for_player("OwnedGarrisonRider", 1, Vec3::new(50., 0., 50.))
         .unwrap();
     assert!(!game.can_unit_enter_normal_target(extra, tunnel));
-    let frame = PresentationFrame::build_from_logic(&mut game, 1);
+    let frame = PresentationFrame::try_build_from_logic(&mut game, 1).unwrap();
     let target = frame.objects.iter().find(|o| o.id == tunnel).unwrap();
     assert_eq!(
         frame.normal_enter_available_capacity_for_local(target),
         None
     );
     assert!(game.can_unit_enter_normal_target(owner_rider, tunnel));
-    let owner_frame = PresentationFrame::build_from_logic(&mut game, 2);
+    let owner_frame = PresentationFrame::try_build_from_logic(&mut game, 2).unwrap();
     let owner_target = owner_frame.objects.iter().find(|o| o.id == tunnel).unwrap();
     assert_eq!(
         owner_frame.normal_enter_available_capacity_for_local(owner_target),
@@ -3135,8 +3135,8 @@ fn hidden_garrison_entry_uses_true_stealth_and_nonstealth_counts() {
     assert!(game.host_object_mut(host).unwrap().add_occupant(stealth));
     assert!(game.can_unit_enter_normal_target(enemy, host));
     let check = |game: &mut GameLogic, expected: Option<usize>| {
-        let direct = PresentationFrame::build_from_logic(game, 3);
-        let victory_frame = PresentationFrame::build_with_victory(game, 3);
+        let direct = PresentationFrame::try_build_from_logic(game, 3).unwrap();
+        let victory_frame = PresentationFrame::try_publish(game, 3, None, true).unwrap();
         for frame in [&direct, &victory_frame] {
             let target = frame.objects.iter().find(|o| o.id == host).unwrap();
             assert!(target.garrisoned_units.is_empty());

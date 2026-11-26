@@ -615,7 +615,7 @@ mod tests {
         a.script_set_special_power_countdown(id, &SpecialPowerType::ParticleCannon, 0);
         apply_from_lifecycle_tail(&bytes, &mut a).unwrap();
         assert!(a.host_object(id).unwrap().is_special_power_countdown_paused(&SpecialPowerType::ParticleCannon));
-        let frame = PresentationFrame::build_from_logic(&mut a, 1);
+        let frame = PresentationFrame::try_build_from_logic(&mut a, 1).unwrap();
         let local = frame.superweapon_timers().iter().find(|row| row.template_name == "LocalTimer").unwrap();
         assert_eq!(local.remaining, 8.0);
         assert!(!local.ready);
@@ -623,15 +623,15 @@ mod tests {
         assert_eq!(shared.remaining, 7.0);
         a.destroy_object(id).unwrap();
         a.process_destroy_list();
-        assert!(PresentationFrame::build_from_logic(&mut a, 1).superweapon_timers().is_empty());
+        assert!(PresentationFrame::try_build_from_logic(&mut a, 1).unwrap().superweapon_timers().is_empty());
         assert_eq!(a.get_player(1).unwrap().authored_special_power_timers["sharedtimer"], 7.0);
         let rebuilt = a.create_object_for_player("TimerStructure", 1, glam::Vec3::ZERO).unwrap();
         assert!(a.host_object(rebuilt).is_some());
-        let frame = PresentationFrame::build_from_logic(&mut a, 1);
+        let frame = PresentationFrame::try_build_from_logic(&mut a, 1).unwrap();
         // SpecialPowerCreate::onBuildComplete calls onSpecialPowerCreation,
         // which expressly resets the shared player timer to ready now.
         assert_eq!(frame.superweapon_timers().iter().find(|row| row.template_name == "SharedTimer").unwrap().remaining, 0.0);
-        assert!(PresentationFrame::build_from_logic(&mut b, 1).superweapon_timers().iter().any(|row| row.template_name == "LocalTimer" && row.ready));
+        assert!(PresentationFrame::try_build_from_logic(&mut b, 1).unwrap().superweapon_timers().iter().any(|row| row.template_name == "LocalTimer" && row.ready));
     }
     #[test]
     fn authored_timers_and_pause_counts_round_trip() {

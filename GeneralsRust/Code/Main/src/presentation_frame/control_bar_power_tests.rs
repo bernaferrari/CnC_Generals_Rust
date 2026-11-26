@@ -27,7 +27,7 @@ fn frozen_frames_apply_power_only_to_their_control_bar() {
             bar_a.apply_presentation_money(100);
             bar_a.apply_presentation_power(80, 20);
             let mut logic = GameLogic::new();
-            let base = PresentationFrame::build_from_logic(&mut logic, 0);
+            let base = PresentationFrame::try_build_from_logic(&mut logic, 0).unwrap();
             check(&mut bar_a, manager, 80, 20);
 
             let mut frame_a = base.clone();

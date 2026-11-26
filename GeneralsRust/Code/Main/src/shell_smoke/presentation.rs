@@ -30,7 +30,7 @@ pub(super) struct PresentationResiduals {
 pub(super) fn evaluate_presentation_residuals(
     pres: &PresentationFrame,
     presentation_ok: bool,
-) -> PresentationResiduals {
+) -> gamelogic::GameLogicResult<PresentationResiduals> {
     // Minimap FOW from presentation residual (grid snapshot, not live shroud re-lock).
     let minimap_fow_presentation_ok = presentation_ok && pres.minimap_fow_presentation_ok();
 
@@ -59,8 +59,8 @@ pub(super) fn evaluate_presentation_residuals(
         None,
         50.0,
     );
-    let proj_pres =
-        crate::presentation_frame::PresentationFrame::build_from_logic(&mut proj_logic, 0);
+    let proj_pres = PresentationFrame::try_build_from_logic(&mut proj_logic, 0)
+        .map_err(gamelogic::GameLogicError::SystemNotInitialized)?;
     let proj_pack =
         crate::graphics::projectile_segment_upload::ProjectileSegmentUpload::pack_from_presentation(
             &proj_pres,
@@ -87,8 +87,8 @@ pub(super) fn evaluate_presentation_residuals(
             }
         }
     }
-    let move_pres =
-        crate::presentation_frame::PresentationFrame::build_from_logic(&mut move_logic, 0);
+    let move_pres = PresentationFrame::try_build_from_logic(&mut move_logic, 0)
+        .map_err(gamelogic::GameLogicError::SystemNotInitialized)?;
     let move_pack =
         crate::graphics::move_line_upload::MoveLineUpload::pack_from_presentation(&move_pres, &|_, p: glam::Vec3| p);
     let move_line_upload_ok = move_empty.honesty.cpu_pack_ok
@@ -120,8 +120,8 @@ pub(super) fn evaluate_presentation_residuals(
             }
         }
     }
-    let atk_pres =
-        crate::presentation_frame::PresentationFrame::build_from_logic(&mut atk_logic, 0);
+    let atk_pres = PresentationFrame::try_build_from_logic(&mut atk_logic, 0)
+        .map_err(gamelogic::GameLogicError::SystemNotInitialized)?;
     let atk_pack =
         crate::graphics::attack_line_upload::AttackLineUpload::pack_from_presentation(&atk_pres, &|_, p: glam::Vec3| p);
     let attack_line_upload_ok = atk_empty.honesty.cpu_pack_ok
@@ -216,7 +216,7 @@ pub(super) fn evaluate_presentation_residuals(
     // GameLogic / GameClient RandomValue ADC stream residual.
     let rng_stream_residual_ok = exercise_host_rng_residual(0x5A6E_2710).honesty_ok();
 
-    PresentationResiduals {
+    Ok(PresentationResiduals {
         minimap_fow_presentation_ok,
         laser_segment_upload_ok,
         projectile_segment_upload_ok,
@@ -236,5 +236,5 @@ pub(super) fn evaluate_presentation_residuals(
         anim2d_frame_ok,
         anim2d_collection_residual_ok,
         rng_stream_residual_ok,
-    }
+    })
 }

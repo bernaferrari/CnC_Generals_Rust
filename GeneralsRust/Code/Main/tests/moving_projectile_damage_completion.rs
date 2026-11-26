@@ -980,7 +980,7 @@ fn projectile_suicide_applies_to_the_shell_inside_its_blast() {
         assert_eq!(shell_object.get_position(), flight_position);
         assert_eq!(shell_object.producer_id, Some(f.shooters[0]));
         let frame =
-            generals_main::presentation_frame::PresentationFrame::build_from_logic(&mut f.world, 0);
+            generals_main::presentation_frame::PresentationFrame::try_build_from_logic(&mut f.world, 0).unwrap();
         assert_eq!(
             frame
                 .projectiles

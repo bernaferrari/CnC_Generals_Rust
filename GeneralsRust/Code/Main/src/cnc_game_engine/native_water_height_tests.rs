@@ -226,7 +226,7 @@ fn motion_blur_retained_scene_does_not_advance_the_receiving_wake() {
                      frame: u32| {
         world.with_own_services_mut(|world| {
             world.set_current_frame(u64::from(frame));
-            let presentation = Rc::new(PresentationFrame::build_from_logic(world, 0));
+            let presentation = Rc::new(PresentationFrame::try_build_from_logic(world, 0).unwrap());
             pipeline.set_presentation_frame(Some(presentation));
             let mut modes = crate::cnc_game_engine::mouse::LookAtHostModes::default();
             let mut receiver = super::NativeFrameReceiver {
