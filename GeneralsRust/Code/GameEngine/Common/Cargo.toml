@@ -16,22 +16,18 @@ libc = {workspace = true}
 bitflags = {workspace = true}
 bit-vec = {workspace = true}
 once_cell = {workspace = true}
-ahash = {workspace = true}
 rustc-hash = {workspace = true}
 lazy_static = {workspace = true}
 thiserror = { workspace = true }
 anyhow = { workspace = true }
 serde = { workspace = true }
-uuid = {workspace = true}
 chrono = {workspace = true, features = ["serde"]}
 regex = {workspace = true}
 log = {workspace = true}
-crossbeam = {workspace = true}
 parking_lot = { workspace = true }
 tracing = {workspace = true, optional = true}
 tracing-subscriber = {workspace = true, features = ["registry"], optional = true}
 flate2 = {workspace = true}
-tempfile = {workspace = true}
 directories = {workspace = true}
 serde_json = {workspace = true}
 
@@ -60,23 +56,13 @@ lewton = {workspace = true}
 indexmap = {workspace = true}
 smallvec = {workspace = true}
 dashmap = {workspace = true}
-rayon = {workspace = true}
-
-# Memory management
-bumpalo = {workspace = true}
-
 
 # System information
 num_cpus = {workspace = true}
 
-# String processing
-encoding_rs = {workspace = true}
-unicode-normalization = {workspace = true}
-
 # Compression
 lz4 = {workspace = true, optional = true}
 zstd = {workspace = true, optional = true}
-crc32fast = {workspace = true}
 generals_compression = { workspace = true }
 eac_compression = { path = "../../Libraries/Source/Compression/EAC" }
 
@@ -127,6 +113,7 @@ path = "src/lib.rs"
 test = true
 
 [dev-dependencies]
+tempfile = {workspace = true}
 # Self dev-dep enables the per-thread owned CommonServices fallback for this
 # crate's own unit tests only (same trick gamelogic uses for its dev-deps).
 game_engine = { path = ".", features = ["test-ambient-services"] }
@@ -143,7 +130,6 @@ minimp3 = { workspace = true }
 tokio = { version = "1.53.1", default-features = false, features = ["rt", "sync", "time", "macros", "io-util"], optional = true }
 getrandom_03 = { package = "getrandom", version = "0.3.4", features = ["wasm_js"] }
 getrandom_04 = { package = "getrandom", version = "0.4.2", features = ["wasm_js"] }
-uuid = { workspace = true, features = ["js"] }
 
 [target.'cfg(all(target_arch = "wasm32", target_os = "unknown"))'.dependencies]
 rodio = { workspace = true, optional = true }
