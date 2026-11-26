@@ -1,6 +1,7 @@
 //! Per-world script trigger history and the geometry contract it uses.
 
 pub mod program;
+pub mod side_scripts;
 
 pub use generals_game_domain::polygons::TriggerArea;
 use std::collections::HashMap;

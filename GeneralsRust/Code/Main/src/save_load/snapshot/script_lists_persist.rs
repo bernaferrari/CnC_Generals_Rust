@@ -1,7 +1,7 @@
 //! Native save frame for the receiving ScriptEngine's live side lists.
 use crate::game_logic::GameLogic;
 use crate::save_load::{SaveLoadError, SaveLoadResult};
-use gamelogic::scripting::engine::SideScriptContinuation;
+use generals_sim::scripting::side_scripts::SideScriptContinuation;
 
 const MAGIC: &[u8; 4] = b"SLSR";
 const VERSION: u32 = 1;

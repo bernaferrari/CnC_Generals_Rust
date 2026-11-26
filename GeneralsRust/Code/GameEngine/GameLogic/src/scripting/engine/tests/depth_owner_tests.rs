@@ -1,5 +1,7 @@
 use super::*;
 
+const EXPECTED_SUBROUTINE_DEPTH_LIMIT: u32 = 32;
+
 fn append_depth_chain(list: &mut ScriptList, prefix: &str, count: u32, flag: &str) {
     for depth in 0..count {
         let action = if depth + 1 == count {
@@ -43,7 +45,7 @@ fn subroutine_depth_is_isolated_between_engines() {
     append_depth_chain(
         &mut outer_list,
         "Outer",
-        MAX_SUBROUTINE_CALL_DEPTH,
+        EXPECTED_SUBROUTINE_DEPTH_LIMIT,
         "outer_reached",
     );
     let outer = engine_with_list(outer_list);
@@ -80,13 +82,13 @@ fn subroutine_depth_limit_is_retained_and_released_on_return() {
     append_depth_chain(
         &mut list,
         "TooDeep",
-        MAX_SUBROUTINE_CALL_DEPTH + 1,
+        EXPECTED_SUBROUTINE_DEPTH_LIMIT + 1,
         "must_not_run",
     );
     append_depth_chain(
         &mut list,
         "AfterLimit",
-        MAX_SUBROUTINE_CALL_DEPTH,
+        EXPECTED_SUBROUTINE_DEPTH_LIMIT,
         "after_limit",
     );
     let engine = engine_with_list(list);
@@ -120,13 +122,13 @@ fn subroutine_depth_is_released_after_error_and_unwind() {
         append_depth_chain(
             &mut list,
             "Interrupted",
-            MAX_SUBROUTINE_CALL_DEPTH,
+            EXPECTED_SUBROUTINE_DEPTH_LIMIT,
             "interrupted_reached",
         );
         append_depth_chain(
             &mut list,
             "Recovered",
-            MAX_SUBROUTINE_CALL_DEPTH,
+            EXPECTED_SUBROUTINE_DEPTH_LIMIT,
             "recovered_reached",
         );
         let engine = engine_with_list(list);

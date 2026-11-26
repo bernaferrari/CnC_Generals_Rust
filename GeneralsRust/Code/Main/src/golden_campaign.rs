@@ -316,22 +316,20 @@ pub fn run_golden_campaign_ex(
         generals_sim::GameLogicError::Configuration(format!("campaign gate progress: {error}"))
     })?;
 
-    let campaign_resolved = logic.with_own_services(|| match map_name {
-        Some(name) => resolve_path_candidate(name).map(|p| (name.to_string(), p)),
-        None => resolve_first_existing(CAMPAIGN_MAP_CANDIDATES),
-    });
-
-    let (
-        campaign_map_identity,
-        campaign_map_path,
-        campaign_scripts_resolved,
-        campaign_script_count,
-    ) = match &campaign_resolved {
-        Some((id, path)) => {
-            let (ok, count) = count_scripts_in_map(path);
-            (id.clone(), Some(path.clone()), ok, count)
-        }
-        None => ("<none>".into(), None, false, 0),
+    let (campaign_resolved, (campaign_scripts_resolved, campaign_script_count)) =
+        logic.with_own_services(|| {
+            let resolved = match map_name {
+                Some(name) => resolve_path_candidate(name).map(|p| (name.to_string(), p)),
+                None => resolve_first_existing(CAMPAIGN_MAP_CANDIDATES),
+            };
+            let scripts = resolved
+                .as_ref()
+                .map_or((false, 0), |(_, path)| count_scripts_in_map(path));
+            (resolved, scripts)
+        });
+    let (campaign_map_identity, campaign_map_path) = match &campaign_resolved {
+        Some((id, path)) => (id.clone(), Some(path.clone())),
+        None => ("<none>".into(), None),
     };
 
     // Default: retail campaign map load when available. Host-safe only when

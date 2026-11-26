@@ -20,7 +20,7 @@ use game_engine::common::ini::ini_ai_data::{self, AIDataStore};
 use game_engine::common::system::upgrade as common_upgrade;
 use std::cell::RefCell;
 use std::collections::VecDeque;
-use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU32, AtomicU64, AtomicUsize};
+use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU32, AtomicUsize};
 use std::sync::{Arc, LazyLock, Mutex, RwLock, OnceLock};
 
 /// Per-world session flags formerly process atomics on `TheGameLogic` bridge.
@@ -48,7 +48,6 @@ pub struct SessionLogicFlags {
     pub world_epoch: AtomicU32,
     pub next_formation_id: AtomicU32,
     pub next_command_id: AtomicU32,
-    pub next_script_engine_instance_id: AtomicU64,
     pub object_manager_reset_count: AtomicUsize,
     pub next_drawable_id: AtomicU32,
 }
@@ -77,7 +76,6 @@ impl Default for SessionLogicFlags {
             world_epoch: AtomicU32::new(0),
             next_formation_id: AtomicU32::new(1),
             next_command_id: AtomicU32::new(1),
-            next_script_engine_instance_id: AtomicU64::new(1),
             object_manager_reset_count: AtomicUsize::new(0),
             next_drawable_id: AtomicU32::new(1),
         }

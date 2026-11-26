@@ -396,13 +396,9 @@ fn set_script_list_initializes_delay_evaluation_frame_offset() {
         .unwrap();
 
     let frame = engine
-        .with_inner(|i| {
-            i.side_script_lists[0]
-                .as_ref()
-                .and_then(|list| list.first_script.as_ref())
-                .map(|s| s.frame_to_evaluate_at)
-        })
-        .expect("script should be present");
+        .find_script_clone_by_name("")
+        .expect("script should be present")
+        .frame_to_evaluate_at;
     assert!(frame <= (2 * LOGICFRAMES_PER_SECOND as u32));
 }
 
@@ -437,13 +433,9 @@ fn set_script_list_infers_condition_team_name_for_singleton_team() {
         .unwrap();
 
     let condition_team = engine
-        .with_inner(|i| {
-            i.side_script_lists[0]
-                .as_ref()
-                .and_then(|list| list.first_script.as_ref())
-                .map(|s| s.condition_team_name.clone())
-        })
-        .expect("script should be present");
+        .find_script_clone_by_name("")
+        .expect("script should be present")
+        .condition_team_name;
     assert_eq!(condition_team, team_name);
 }
 
@@ -474,13 +466,9 @@ fn call_subroutine_executes_in_place_and_persists_one_shot_state() {
     );
 
     let is_active = engine
-        .with_inner(|i| {
-            i.side_script_lists[0]
-                .as_ref()
-                .and_then(|list| list.first_script.as_ref())
-                .map(|s| s.is_active)
-        })
-        .expect("subroutine should still exist");
+        .find_script_clone_by_name("SubroutinePersist")
+        .expect("subroutine should still exist")
+        .is_active;
     assert!(!is_active);
 }
 
@@ -517,14 +505,9 @@ fn call_subroutine_resolves_subroutine_group_name_first() {
     );
 
     let grouped_active = engine
-        .with_inner(|i| {
-            i.side_script_lists[0]
-                .as_ref()
-                .and_then(|list| list.first_group.as_ref())
-                .and_then(|grp| grp.first_script.as_ref())
-                .map(|s| s.is_active)
-        })
-        .expect("grouped subroutine should exist");
+        .find_script_clone_by_name("InnerGroupedSubroutine")
+        .expect("grouped subroutine should exist")
+        .is_active;
     assert!(!grouped_active);
 }
 
@@ -995,48 +978,98 @@ fn detached_script_is_reinserted_in_original_order_after_unwind() {
         .unwrap();
 
     let unwind = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        engine.with_active(|| {
-            engine.with_active_script_lists(|| {
-                engine
-                    .with_detached_script(
-                        ScriptLocation {
-                            side_index: 0,
-                            container: ScriptContainer::Root,
-                            script_index: 0,
-                        },
-                        |_script| -> GameLogicResult<()> {
-                            panic!("force Script execution stack unwind")
-                        },
-                    )
-                    .unwrap();
-            })
-        });
+        engine.side_scripts.execute_side(0, |_script| {
+            panic!("force Script execution stack unwind")
+        }).unwrap();
     }));
 
     assert!(unwind.is_err());
-    assert!(
-        !ACTIVE_SCRIPT_LISTS.is_set(),
-        "the active list scope must be cleared after unwinding"
+    engine
+        .capture_side_script_continuation()
+        .expect("save boundary restored after unwinding");
+    let first = engine
+        .find_script_clone_by_name("UnwindFirst")
+        .expect("first Script restored");
+    let second = first
+        .get_next()
+        .expect("second Script remains after the restored first Script");
+    let restored_names = (
+        first.script_name.clone(),
+        second.script_name.clone(),
+        second.get_next().is_none(),
     );
-    let restored_names = engine.with_inner(|inner| {
-        let first = inner.side_script_lists[0]
-            .as_deref()
-            .and_then(|list| list.first_script.as_deref())
-            .expect("first Script must be restored");
-        let second = first
-            .next_script
-            .as_deref()
-            .expect("second Script must remain after restored first Script");
-        (
-            first.script_name.clone(),
-            second.script_name.clone(),
-            second.next_script.is_none(),
-        )
-    });
     assert_eq!(
         restored_names,
         ("UnwindFirst".to_string(), "UnwindSecond".to_string(), true)
     );
+}
+
+#[test]
+fn nested_subroutine_uses_its_receiving_worlds_side_lists() {
+    use crate::system::engine_stores::new_world_services;
+
+    struct PeerAction<'a> {
+        engine: &'a ScriptEngine,
+        ran: bool,
+    }
+    impl ScriptExecutionDriver for PeerAction<'_> {
+        fn after_action(&mut self) -> GameLogicResult<()> {
+            assert!(self.engine.capture_side_script_continuation().is_err());
+            self.ran = true;
+            Ok(())
+        }
+    }
+
+    struct CallPeer<'a> {
+        engine: &'a ScriptEngine,
+        peer: PeerAction<'a>,
+    }
+    impl ScriptExecutionDriver for CallPeer<'_> {
+        fn after_action(&mut self) -> GameLogicResult<()> {
+            assert!(self.engine.capture_side_script_continuation().is_err());
+            assert!(self.peer.engine.capture_side_script_continuation().is_ok());
+            assert!(self.peer.engine.execute_subroutine_by_name_with_driver(
+                "PeerOnly",
+                ScriptContext::at_frame(7),
+                &mut self.peer,
+            )?);
+            assert!(self.engine.capture_side_script_continuation().is_err());
+            assert!(self.peer.engine.capture_side_script_continuation().is_ok());
+            Ok(())
+        }
+    }
+
+    let outer_world = new_world_services();
+    let peer_world = new_world_services();
+    let outer = ScriptEngine::new_with_services(&outer_world).unwrap();
+    let peer = ScriptEngine::new_with_services(&peer_world).unwrap();
+    for (engine, name) in [(&outer, "OuterOnly"), (&peer, "PeerOnly")] {
+        let mut condition = OrCondition::new();
+        condition.first_and = Some(Box::new(Condition::new(ConditionType::ConditionTrue)));
+        let mut script = Script::new();
+        script.script_name = name.into();
+        script.is_subroutine = true;
+        script.condition = Some(Box::new(condition));
+        script.action = Some(Box::new(ScriptAction::new(ScriptActionType::NoOp)));
+        let mut list = ScriptList::new();
+        list.append_script(Box::new(script));
+        engine.set_script_list_for_player(0, Some(Box::new(list))).unwrap();
+    }
+
+    let mut driver = CallPeer {
+        engine: &outer,
+        peer: PeerAction { engine: &peer, ran: false },
+    };
+    assert!(outer.execute_subroutine_by_name_with_driver(
+        "OuterOnly",
+        ScriptContext::at_frame(7),
+        &mut driver,
+    ).unwrap());
+    assert!(driver.peer.ran);
+    assert!(!outer.find_script_clone_by_name("OuterOnly").unwrap().is_active);
+    assert!(!peer.find_script_clone_by_name("PeerOnly").unwrap().is_active);
+    assert!(outer.capture_side_script_continuation().is_ok());
+    assert!(peer.capture_side_script_continuation().is_ok());
 }
 
 #[test]

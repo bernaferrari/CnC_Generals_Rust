@@ -1,5 +1,5 @@
 //! Continuation of the executing side lists, in ScriptList::xfer order.
-use super::{GameLogicError, GameLogicResult, Script, ScriptEngine, ScriptGroup, ScriptList};
+use super::{GameLogicError, GameLogicResult, Script, ScriptGroup, ScriptList, SideScripts};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -100,10 +100,9 @@ impl List {
     }
 }
 
-impl ScriptEngine {
-    fn check_side_script_save_boundary(slot_count: usize) -> GameLogicResult<()> {
-        // The synchronous script walk temporarily takes this fixed-size list.
-        if slot_count != Self::MAX_PLAYER_COUNT {
+impl SideScripts {
+    fn check_save_boundary(&self) -> GameLogicResult<()> {
+        if self.executing.get() {
             return Err(GameLogicError::Configuration(
                 "side scripts are executing during save or restore".into(),
             ));
@@ -111,54 +110,44 @@ impl ScriptEngine {
         Ok(())
     }
 
-    pub fn capture_side_script_continuation(&self) -> GameLogicResult<SideScriptContinuation> {
-        self.with_inner(|inner| {
-            let lists = &inner.side_script_lists;
-            Self::check_side_script_save_boundary(lists.len())?;
-            Ok(SideScriptContinuation(
-                lists
-                    .iter()
-                    .map(|list| list.as_deref().map(List::capture))
-                    .collect(),
-            ))
-        })
+    pub fn capture(&self) -> GameLogicResult<SideScriptContinuation> {
+        self.check_save_boundary()?;
+        Ok(SideScriptContinuation(
+            self.state
+                .borrow()
+                .lists
+                .iter()
+                .map(|list| list.as_deref().map(List::capture))
+                .collect(),
+        ))
     }
 
-    pub fn validate_side_script_continuation(
-        &self,
-        saved: &SideScriptContinuation,
-    ) -> GameLogicResult<()> {
-        self.with_inner(|inner| {
-            let lists = &inner.side_script_lists;
-            Self::check_side_script_save_boundary(lists.len())?;
-            if lists.len() != saved.0.len() {
-                return Err(GameLogicError::Configuration(
-                    "saved script slot count differs".into(),
-                ));
+    pub fn validate(&self, saved: &SideScriptContinuation) -> GameLogicResult<()> {
+        self.check_save_boundary()?;
+        let state = self.state.borrow();
+        if state.lists.len() != saved.0.len() {
+            return Err(GameLogicError::Configuration(
+                "saved script slot count differs".into(),
+            ));
+        }
+        for (slot, (saved, live)) in saved.0.iter().zip(&state.lists).enumerate() {
+            let valid = match (saved, live) {
+                (Some(saved), Some(live)) => saved.matches(live),
+                (None, None) => true,
+                _ => false,
+            };
+            if !valid {
+                return Err(GameLogicError::Configuration(format!(
+                    "saved script layout differs in side slot {slot}"
+                )));
             }
-            for (slot, (saved, live)) in saved.0.iter().zip(lists).enumerate() {
-                let valid = match (saved, live) {
-                    (Some(saved), Some(live)) => saved.matches(live),
-                    (None, None) => true,
-                    _ => false,
-                };
-                if !valid {
-                    return Err(GameLogicError::Configuration(format!(
-                        "saved script layout differs in side slot {slot}"
-                    )));
-                }
-            }
-            Ok(())
-        })
+        }
+        Ok(())
     }
 
-    pub fn restore_side_script_continuation(
-        &self,
-        saved: &SideScriptContinuation,
-    ) -> GameLogicResult<()> {
-        self.validate_side_script_continuation(saved)?;
-        let mut inner = self.lock_inner_mut();
-        for (saved, list) in saved.0.iter().zip(&mut inner.side_script_lists) {
+    pub fn restore(&self, saved: &SideScriptContinuation) -> GameLogicResult<()> {
+        self.validate(saved)?;
+        for (saved, list) in saved.0.iter().zip(&mut self.state.borrow_mut().lists) {
             if let (Some(saved), Some(list)) = (saved, list) {
                 saved.restore(list);
             }

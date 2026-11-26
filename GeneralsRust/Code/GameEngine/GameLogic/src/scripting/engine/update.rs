@@ -231,10 +231,10 @@ impl ScriptEngine {
     }
 
     fn execute_side_scripts(&self, execution: &mut ScriptExecution<'_>) -> GameLogicResult<()> {
-        self.with_active_script_lists(|| self.execute_side_scripts_from_active_lists(execution))
+        self.side_scripts.with_execution(|| self.execute_side_scripts_from_owned_lists(execution))
     }
 
-    fn execute_side_scripts_from_active_lists(
+    fn execute_side_scripts_from_owned_lists(
         &self,
         execution: &mut ScriptExecution<'_>,
     ) -> GameLogicResult<()> {
@@ -287,33 +287,14 @@ impl ScriptEngine {
             };
             self.lock_inner_mut().current_player = current_player;
 
-            // Every side list remains searchable through the lexical active
-            // store while an individual script is detached for dispatch.
-            self.execute_non_subroutine_scripts_in_container(
-                i,
-                ScriptContainer::Root,
-                &mut condition_evaluator,
-                &mut action_dispatcher,
-                execution,
-            )?;
-
-            // Execute active non-subroutine groups.
-            let mut group_index = 0;
-            while let Some((is_active, is_subroutine)) = self.group_state_at(GroupLocation {
-                side_index: i,
-                group_index,
-            }) {
-                if is_active && !is_subroutine {
-                    self.execute_non_subroutine_scripts_in_container(
-                        i,
-                        ScriptContainer::Group(group_index),
-                        &mut condition_evaluator,
-                        &mut action_dispatcher,
-                        execution,
-                    )?;
-                }
-                group_index += 1;
-            }
+            self.side_scripts.execute_side(i, |script| {
+                self.execute_script(
+                    script,
+                    &mut condition_evaluator,
+                    &mut action_dispatcher,
+                    execution,
+                )
+            })?;
         }
 
         self.lock_inner_mut().current_player = None;

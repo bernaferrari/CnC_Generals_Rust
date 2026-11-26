@@ -24,7 +24,7 @@ use game_engine::common::script_templates::ScriptTemplateCatalog;
 use game_engine::common::system::{Xfer, XferMode, XferStatus, XferVersion};
 use game_engine::common::thing::thing_factory::get_thing_factory;
 use game_engine::common::thing::thing_template::ThingTemplate as EngineThingTemplate;
-use std::cell::Cell;
+use generals_sim::scripting::side_scripts::SideScripts;
 use std::collections::HashMap;
 use std::ops::{Deref, DerefMut}; // InnerMutGuard only; ScriptEngine has no Deref.
 use std::sync::{Arc, Mutex, RwLock};
@@ -47,8 +47,7 @@ include!("update.rs");
 include!("named_trackers.rs");
 include!("leftover.rs");
 
-mod list_continuation;
-pub use list_continuation::SideScriptContinuation;
+pub use generals_sim::scripting::side_scripts::SideScriptContinuation;
 
 #[cfg(test)]
 mod sequence_control_tests;
