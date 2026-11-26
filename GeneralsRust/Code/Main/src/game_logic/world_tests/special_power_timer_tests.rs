@@ -67,6 +67,8 @@ fn shared_special_power_timer_belongs_to_its_player() {
     let pid = 0u32;
     let p = logic.get_player_mut(pid).unwrap();
     p.reset_shared_special_power_timer(&SpecialPowerType::Airstrike, 5.0);
+    p.reset_shared_special_power_timer(&SpecialPowerType::ParticleCannon, 55.0);
+    p.reset_shared_special_power_timer(&SpecialPowerType::ScudStorm, 10.0);
 
     let mut peer = GameLogic::new();
     peer.add_player(crate::game_logic::Player::new(pid, Team::USA, "Peer", true));
@@ -86,6 +88,25 @@ fn shared_special_power_timer_belongs_to_its_player() {
     );
 
     let _frame = PresentationFrame::try_build_from_logic(&mut logic, pid).unwrap();
+    let timers = &logic
+        .get_player(pid)
+        .unwrap()
+        .shared_special_power_cooldowns;
+    assert_eq!(timers[&SpecialPowerType::ParticleCannon], 53.0);
+    assert_eq!(timers[&SpecialPowerType::ScudStorm], 8.0);
+    assert_eq!(
+        peer.get_player(pid)
+            .unwrap()
+            .shared_special_power_cooldowns
+            .len(),
+        1
+    );
+    let player = logic.get_player_mut(pid).unwrap();
+    player.reset_shared_special_power_timer(&SpecialPowerType::ParticleCannon, 3.0);
+    assert_eq!(
+        player.shared_special_power_cooldowns[&SpecialPowerType::ParticleCannon],
+        3.0
+    );
     assert_eq!(
         logic
             .get_player(pid)

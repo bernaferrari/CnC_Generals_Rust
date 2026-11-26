@@ -3,7 +3,7 @@
 use super::*;
 use crate::game_logic::{GameLogic, ObjectId, Team};
 use gamelogic::world::entities::{EntityId, EntityProductionItem, TemplateRef, Transform};
-use gamelogic::world::{GameWorld, PlayerId};
+use gamelogic::world::GameWorld;
 use std::collections::{HashMap, HashSet};
 
 fn observe_production_item(
@@ -735,7 +735,6 @@ impl GameWorldShadow {
     ) {
         let pos = obj.get_position();
         let transform = Transform::new([pos.x, pos.y, pos.z], obj.get_orientation());
-        let owner = self.owner_for_host_object(logic, obj);
         let health = obj.health.current.max(0.0);
         let Some(e) = self.world.world_mut().entity_mut(eid) else {
             return;
@@ -753,7 +752,6 @@ impl GameWorldShadow {
 
         e.health = health;
         e.transform = transform;
-        e.owner = owner;
         {
             e.attack_target = obj
                 .target

@@ -215,7 +215,6 @@ impl GameLogic {
     pub(in super::super) fn update_player_resources(&mut self, _dt: f32) {
         self.rebuild_player_power();
         for player in self.players.values() {
-            // Shadow economy channel: effective supplies + power after host tick residual.
             self.economy_events.record(
                 player.id,
                 player.resources.supplies,

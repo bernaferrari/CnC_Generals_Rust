@@ -65,6 +65,10 @@ mod owned_receipt_tests {
         let (mut owner, object) = world();
         let (mut peer, peer_object) = world();
         assert_eq!(object, peer_object);
+        let initial = PresentationFrame::try_build_from_logic(&mut owner, 0).unwrap();
+        let starting_actor = initial.objects.iter().find(|row| row.id == object).unwrap();
+        assert_eq!(starting_actor.owner_player_id, Some(0));
+        assert!(initial.is_owned_by_local(starting_actor));
         assert!(owner.transfer_object_to_player(object, 1).unwrap());
         assert_eq!(owner.host_object(object).unwrap().team, Team::USA);
         assert_eq!(owner.host_object(object).unwrap().owner_player_id, Some(1));
@@ -87,7 +91,11 @@ mod owned_receipt_tests {
         assert!(peer.ownership_events.take_completed().is_empty());
         assert_eq!(peer.host_object(object).unwrap().owner_player_id, Some(2));
         assert_eq!(peer.host_object(object).unwrap().team, Team::GLA);
-        let frame = PresentationFrame::build_from_logic(&mut owner, 0);
+        let frame = PresentationFrame::try_build_from_logic(&mut owner, 0).unwrap();
+        let adopted = frame.objects.iter().find(|row| row.id == object).unwrap();
+        assert_eq!(adopted.owner_player_id, Some(2));
+        assert!(!frame.is_owned_by_local(adopted));
+        assert_eq!(starting_actor.owner_player_id, Some(0));
         let changes = frame
             .events
             .iter()
@@ -108,6 +116,29 @@ mod owned_receipt_tests {
         assert_eq!(peer.host_object(object).unwrap().owner_player_id, Some(0));
         assert_eq!(owner.host_object(object).unwrap().owner_player_id, Some(2));
     }
+    #[test]
+    fn team_only_transfer_publishes_faction_and_clears_controller() {
+        let (mut world, id) = world();
+        let before = PresentationFrame::try_build_from_logic(&mut world, 0).unwrap();
+        let (actor, events, partition) = world.host_object_ownership_partition_mut(id).unwrap();
+        actor.set_team_with_partition_owner(Team::GLA, events, partition);
+        assert_eq!(actor.owner_player_id, None);
+        assert_eq!(actor.team, Team::GLA);
+
+        world.complete_presentation_observations();
+        let after = PresentationFrame::try_build_from_logic(&mut world, 0).unwrap();
+        let published = after.objects.iter().find(|row| row.id == id).unwrap();
+        assert_eq!(published.owner_player_id, None);
+        assert_eq!(published.team, Team::GLA);
+        assert_eq!(before.objects[0].owner_player_id, Some(0));
+        assert!(after.events.iter().any(|event| matches!(
+            event, PresentationEvent::OwnerChanged { id: changed, team: Team::GLA }
+                if *changed == id
+        )));
+        let repeated = PresentationFrame::try_build_from_logic(&mut world, 0).unwrap();
+        assert!(repeated.events.iter().all(|event| !matches!(event, PresentationEvent::OwnerChanged { .. })));
+    }
+
     #[test]
     fn kill_pilot_body_neutralization_admits_only_the_receiving_owner() {
         use crate::game_logic::combat::DamageType;

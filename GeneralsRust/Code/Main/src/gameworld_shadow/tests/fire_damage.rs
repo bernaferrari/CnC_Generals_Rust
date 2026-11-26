@@ -412,37 +412,6 @@ fn special_power_timer_belongs_to_owner_not_projection() {
 }
 
 #[test]
-fn host_owner_log_feeds_transfer_owner_mutation() {
-    let mut logic = GameLogic::new();
-    let cfg = golden_skirmish_config("OwnerLog");
-    logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object OwnT\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
-    apply_skirmish_config(&mut logic, &cfg).expect("cfg");
-    insert_fixture_template(&mut logic, "OwnT", 100.0);
-    let id = logic
-        .create_object("OwnT", Team::GLA, glam::Vec3::ZERO)
-        .expect("id");
-    let mut shadow = GameWorldShadow::new();
-    shadow.sync_from_host(&logic);
-    {
-        let (o, ownership_events, fixture_partition) =
-            logic.host_object_ownership_partition_mut(id).unwrap();
-        o.set_team_with_partition_owner(Team::USA, ownership_events, fixture_partition);
-    }
-    logic.ownership_events.complete_boundary();
-    let events = logic.ownership_events.take_completed();
-    assert_eq!(events.len(), 1);
-    assert_eq!(events[0].object, id);
-    shadow.sync_from_host(&logic);
-    let eid = shadow.entity_for_host(id).expect("map");
-    let owner = shadow.world().entity(eid).unwrap().owner;
-    let expected = shadow.owner_for_host_object(&logic, logic.host_object(id).unwrap());
-    assert_eq!(
-        owner, expected,
-        "TransferOwner should map host team to shadow player"
-    );
-}
-
-#[test]
 fn owned_construction_events_map_completed_structure_without_consuming_output() {
     let mut logic = GameLogic::new();
     let mut t = ThingTemplate::new("USA_Barracks");

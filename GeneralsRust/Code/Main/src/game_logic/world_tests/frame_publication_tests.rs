@@ -203,17 +203,26 @@ fn player_frame_freezes_liveness_bounty_and_color_for_the_receiving_slot() {
 fn disabled_radar_keeps_its_published_provider_count() {
     let (mut world, local) = player_world();
     let player = world.get_player_mut(local).unwrap();
-    player.radar_count = 2;
-    player.radar_disabled = false;
+    assert_eq!(player.radar_count, 0);
+    player.add_radar(false);
+    player.add_radar(false);
     let enabled = PresentationFrame::try_build_from_logic(&mut world, local).unwrap();
     assert_eq!(enabled.local_radar_count, 2);
     assert!(enabled.local_radar_active());
 
-    world.get_player_mut(local).unwrap().radar_disabled = true;
+    world.get_player_mut(local).unwrap().disable_radar();
     let disabled = PresentationFrame::try_build_from_logic(&mut world, local).unwrap();
     assert_eq!(disabled.local_radar_count, 2);
     assert!(disabled.local_radar_disabled);
     assert!(!disabled.local_radar_active());
+
+    let player = world.get_player_mut(local).unwrap();
+    player.remove_radar(false);
+    player.remove_radar(false);
+    let removed = PresentationFrame::try_build_from_logic(&mut world, local).unwrap();
+    assert_eq!(removed.local_radar_count, 0);
+    assert!(removed.local_radar_disabled);
+    assert_eq!(disabled.local_radar_count, 2);
     assert!(enabled.local_radar_active());
 }
 
@@ -242,13 +251,17 @@ fn player_frame_publishes_receiving_science_names() {
     assert!(!baseline.local_has_science("SCIENCE_PaladinTank"));
     assert!(!baseline.local_has_science("SCIENCE_Pathfinder"));
     let player = world.get_player_mut(local).unwrap();
-    player
-        .unlocked_sciences
-        .insert("SCIENCE_PaladinTank".into());
-    player.unlocked_sciences.insert("SCIENCE_Pathfinder".into());
+    assert!(player.unlock_science("SCIENCE_PaladinTank"));
+    assert!(player.unlock_science("SCIENCE_Pathfinder"));
     let frame = PresentationFrame::try_build_from_logic(&mut world, local).unwrap();
     assert!(frame.local_has_science("SCIENCE_PaladinTank"));
     assert!(frame.local_has_science("SCIENCE_Pathfinder"));
     assert!(!frame.local_has_science("SCIENCE_UnknownFixture"));
     assert!(!baseline.local_has_science("SCIENCE_PaladinTank"));
+
+    world.get_player_mut(local).unwrap().is_alive = false;
+    let defeated = PresentationFrame::try_build_from_logic(&mut world, local).unwrap();
+    assert!(defeated.local_has_science("SCIENCE_PaladinTank"));
+    assert!(!defeated.local_is_alive);
+    assert!(frame.local_is_alive);
 }

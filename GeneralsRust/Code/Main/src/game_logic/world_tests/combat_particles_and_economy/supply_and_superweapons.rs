@@ -1840,7 +1840,7 @@ fn steal_cash_from_broke_victim_is_zero() {
     if let Some(p) = logic.players.get_mut(&1) {
         p.resources.supplies = 500;
     }
-    let stolen = logic.steal_cash_from_team(Team::USA, Team::China, 1000);
+    let stolen = logic.steal_cash_between_players(0, 1, 1000);
     assert_eq!(stolen, 0);
     assert_eq!(
         logic.get_player(1).expect("china").resources.supplies,

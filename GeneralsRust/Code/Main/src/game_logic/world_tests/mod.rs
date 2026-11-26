@@ -28,6 +28,7 @@ mod ocl_and_bombs;
 mod parachute_and_rebuild;
 mod phase3_produce;
 mod pilots_and_movement;
+mod player_economy_tests;
 mod production_and_mobs;
 mod projectile_publication_tests;
 mod projectiles_air;

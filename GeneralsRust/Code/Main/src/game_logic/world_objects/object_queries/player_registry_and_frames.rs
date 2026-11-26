@@ -657,20 +657,6 @@ impl GameLogic {
             .map(|player| (player, &mut self.economy_events))
     }
 
-    pub(crate) fn player_for_team_and_economy_events_mut(
-        &mut self,
-        team: Team,
-    ) -> Option<(
-        &mut Player,
-        &mut crate::game_logic::host_economy_log::EconomyEvents,
-    )> {
-        let key = self
-            .players
-            .iter()
-            .find_map(|(id, player)| (player.team == team).then_some(*id))?;
-        self.player_and_economy_events_mut(key)
-    }
-
     pub fn get_player_mut_by_team(&mut self, team: Team) -> Option<&mut Player> {
         let key = self
             .players

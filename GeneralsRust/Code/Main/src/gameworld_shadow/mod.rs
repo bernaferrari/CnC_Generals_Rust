@@ -3,7 +3,7 @@
 use crate::game_logic::{GameLogic, ObjectId, Team};
 
 use gamelogic::world::entities::{EntityId, EntityProductionItem, TemplateRef, Transform};
-use gamelogic::world::{GameWorld, PlayerId};
+use gamelogic::world::GameWorld;
 use std::collections::{HashMap, HashSet};
 
 mod construct;
@@ -15,8 +15,6 @@ pub struct GameWorldShadow {
     // Id-keyed lookup tables: iteration order never feeds sim decisions
     // (stale removal is order-independent), so use the Fx hasher.
     host_to_entity: game_engine::common::fast_hash::FxHashMap<u32, EntityId>,
-    /// Host player id → dense GameWorld PlayerId
-    host_player_to_gw: HashMap<u32, PlayerId>,
 }
 
 #[cfg(test)]

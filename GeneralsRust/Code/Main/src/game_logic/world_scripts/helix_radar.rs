@@ -1695,40 +1695,7 @@ impl GameLogic {
     }
 
 
-    /// Transfer residual cash from `from_team` to `to_team` (Black Lotus cash hack).
-    /// Returns amount actually stolen (capped by victim supplies).
-    /// Fail-closed: not full science upgrade money matrix / EVA / floating text.
-    pub fn steal_cash_from_team(&mut self, from_team: Team, to_team: Team, amount: u32) -> u32 {
-        if amount == 0 || from_team == to_team || from_team == Team::Neutral {
-            return 0;
-        }
-        let available = self
-            .players
-            .values()
-            .find(|p| p.team == from_team)
-            .map(|p| p.resources.supplies)
-            .unwrap_or(0);
-        let stolen = crate::game_logic::host_supply_gather::steal_cash_clamped(available, amount);
-        if stolen == 0 {
-            // C++ SabotageSupplyCenterCrateCollide: min(desired, victimMoney);
-            // a broke victim yields 0 — never mint attacker cash.
-            return 0;
-        }
-        if let Some((src, economy_events)) = self.player_for_team_and_economy_events_mut(from_team)
-        {
-            src.apply_supply_spend_unchecked(stolen, economy_events);
-            economy_events.record(src.id, src.resources.supplies, src.power_available);
-        }
-        if let Some((dest, economy_events)) = self.player_for_team_and_economy_events_mut(to_team) {
-            dest.credit_supplies(stolen, economy_events);
-        }
-        stolen
-    }
-
-    /// Exact-player variant used by live ability activations.  The older
-    /// team-shaped API above remains for legacy/map callers that genuinely do
-    /// not carry a PlayerId; a concrete caster must never debit or credit the
-    /// first same-faction player instead.
+    /// Transfer cash from the victim's controller to the caster's controller.
     pub(in super::super) fn steal_cash_between_players(
         &mut self,
         from_player_id: u32,
@@ -1757,7 +1724,6 @@ impl GameLogic {
         }
         if let Some((source, economy_events)) = self.player_and_economy_events_mut(from_player_id) {
             source.apply_supply_spend_unchecked(stolen, economy_events);
-            economy_events.record(source.id, source.resources.supplies, source.power_available);
         }
         if let Some((destination, economy_events)) =
             self.player_and_economy_events_mut(to_player_id)

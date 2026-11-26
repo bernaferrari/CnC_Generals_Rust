@@ -77,9 +77,22 @@ fn skill_awards_read_each_worlds_authored_rank_catalog() {
     let second_spp = second.get_player(0).unwrap().science_purchase_points;
     assert_eq!(second_spp - first_spp, 1);
 
+    use crate::presentation_frame::PresentationFrame;
+    first.get_player_mut(0).unwrap().force_set_cash_bounty(0.35);
+    second.get_player_mut(0).unwrap().force_set_cash_bounty(0.2);
+    let a = PresentationFrame::try_build_from_logic(&mut first, 0).unwrap();
+    let b = PresentationFrame::try_build_from_logic(&mut second, 0).unwrap();
+    assert_eq!((a.local_rank_level(), a.local_skill_points(), a.local_science_purchase_points()), (3, 200, first_spp));
+    assert_eq!((b.local_rank_level(), b.local_skill_points(), b.local_science_purchase_points()), (4, 9000, second_spp));
+    assert_eq!(a.local_cash_bounty_percent, 0.35);
+    assert_eq!(b.local_cash_bounty_percent, 0.2);
+
     // Explicit set clamps to the receiving world's rank count.
     assert!(first.set_player_rank_level(0, 1));
     assert!(!first.set_player_rank_level(0, 1));
+    let lowered = PresentationFrame::try_build_from_logic(&mut first, 0).unwrap();
+    assert_eq!(lowered.local_rank_level(), 1);
+    assert_eq!(a.local_rank_level(), 3);
     assert_eq!(second.get_player(0).unwrap().rank_level, 4);
     assert!(first.set_player_rank_level(0, 9));
     assert_eq!(first.get_player(0).unwrap().rank_level, 3);
@@ -611,7 +624,7 @@ fn black_lotus_cash_steal_records_score_and_floating_text() {
             glam::Vec3::new(5.0, 0.0, 5.0),
         )
         .expect("lotus");
-    let stolen = logic.steal_cash_from_team(Team::USA, Team::China, 1000);
+    let stolen = logic.steal_cash_between_players(0, 1, 1000);
     assert_eq!(stolen, 1000);
     if let Some(p) = logic.get_player_mut_by_team(Team::China) {
         p.add_money_earned(stolen);

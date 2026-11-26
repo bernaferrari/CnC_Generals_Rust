@@ -994,11 +994,6 @@ impl Player {
         self.radar_disabled = false;
     }
 
-    pub fn set_radar_state(&mut self, radar_count: i32, radar_disabled: bool) {
-        self.radar_count = radar_count;
-        self.radar_disabled = radar_disabled;
-    }
-
     /// C++ Player::getCashBounty().
     pub fn get_cash_bounty(&self) -> f32 {
         self.cash_bounty_percent

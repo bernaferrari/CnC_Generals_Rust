@@ -1,5 +1,13 @@
 use super::*;
 use crate::game_logic::presentation_definitions::PresentationDefinitions;
+use crate::presentation_frame::PresentationFrame;
+
+fn published_radar(world: &mut GameLogic) -> [(i32, bool); 2] {
+    [1, 2].map(|id| {
+        let frame = PresentationFrame::try_build_from_logic(world, id).unwrap();
+        (frame.local_radar_count, frame.local_radar_disabled)
+    })
+}
 
 fn set_radar_fixture_owner(
     world: &mut GameLogic,
@@ -78,14 +86,15 @@ fn same_id_sessions_keep_provider_capture_deletion_and_snapshots_local() {
     let (mut peer, peer_id) = radar_world();
     assert_eq!(id, peer_id);
     assert_eq!(first.players[&1].radar_count, 1);
-    let peer_before = peer.host_radar_snapshot();
+    let peer_before = published_radar(&mut peer);
     set_radar_fixture_owner(&mut first, id, Team::GLA, Some(2), &mut _ownership_output);
     first
         .on_capture_object_residual(id, Team::GLA, Team::GLA)
         .expect("valid capture test fixture");
     assert_eq!(first.players[&1].radar_count, 0);
     assert_eq!(first.players[&2].radar_count, 1);
-    assert_eq!(peer.host_radar_snapshot(), peer_before);
+    assert_eq!(published_radar(&mut first), [(0, false), (1, false)]);
+    assert_eq!(published_radar(&mut peer), peer_before);
     peer.set_radar_client_quiet(true);
     peer.update_player_radar();
     first.destroy_live_object(id);
@@ -100,11 +109,11 @@ fn same_id_sessions_keep_provider_capture_deletion_and_snapshots_local() {
 #[test]
 fn restoring_admission_does_not_regrant_saved_counts() {
     let (mut world, _) = radar_world();
-    let before = world.host_radar_snapshot();
+    let before = published_radar(&mut world);
     world.host_radar.providers.clear();
     world.rebuild_host_radar_provider_admission();
     world.update_player_radar();
-    assert_eq!(world.host_radar_snapshot(), before);
+    assert_eq!(published_radar(&mut world), before);
 }
 
 #[test]

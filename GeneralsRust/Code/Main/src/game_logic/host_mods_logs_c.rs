@@ -22,6 +22,3 @@ pub mod host_production_progress_log;
 
 #[path = "host_production_spawn_ready_log.rs"]
 pub mod host_production_spawn_ready_log;
-
-#[path = "host_radar_log.rs"]
-pub mod host_radar_log;

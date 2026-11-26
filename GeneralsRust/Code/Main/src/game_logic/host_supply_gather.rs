@@ -862,11 +862,6 @@ pub fn killer_matches_kindof_mask(killer_kindof_names: &[&str], mask: u64) -> bo
     true
 }
 
-/// C++ `SabotageSupplyCenterCrateCollide`: `min(desired, victimMoney)`; 0 if broke.
-pub fn steal_cash_clamped(available: u32, desired: u32) -> u32 {
-    desired.min(available)
-}
-
 /// C++ `W3DModelDraw::updateDrawModuleSupplyStatus` (`W3DModelDraw.cpp:3907-3917`):
 /// CARRYING when `currentSupply > 0`. Presentation stamps the mesh bit.
 pub fn collector_carrying_from_boxes(current_boxes: i32) -> bool {
@@ -1330,13 +1325,6 @@ impl crate::game_logic::GameLogic {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn steal_from_broke_victim_is_zero() {
-        assert_eq!(steal_cash_clamped(0, 1000), 0);
-        assert_eq!(steal_cash_clamped(250, 1000), 250);
-        assert_eq!(steal_cash_clamped(5000, 1000), 1000);
-    }
 
     #[test]
     fn warehouse_action_does_not_debit_when_collector_already_at_max_boxes() {
