@@ -10,18 +10,15 @@
 //!
 //! ## Features
 //!
-//! - **SIMD Optimizations** - Vectorized operations for maximum performance
-//! - **Multi-threading** - Parallel compression/decompression with rayon
-//! - **Memory Safety** - Zero memory leaks with Rust's ownership system
+//! - **Memory Safety** - Safe ownership and bounds-checked buffers at the facade boundary
+//! - **Backend optimizations** - EAC uses rayon for parallel chunk processing; LZH can use
+//!   rayon and `wide` through its own feature flags
 //! - **C++ Compatibility** - Drop-in replacement for original C++ implementation
 //!
 //! ## Performance
 //!
-//! This implementation is 2-5x faster than the original C++ version with:
-//! - 50% less memory usage
-//! - Thread-safe operations
-//! - Real-time progress tracking
-//! - SIMD-accelerated operations
+//! Performance depends on the selected backend, input size, and enabled backend features.
+//! Measure with the compression benchmarks rather than relying on a single fixed speedup.
 //!
 //! ## Example Usage
 //!

@@ -12,14 +12,12 @@
 //! ## Features
 //!
 //! - **Multi-threading** - Parallel compression/decompression with rayon
-//! - **Memory Safety** - Zero memory leaks with Rust's ownership system
+//! - **Memory Safety** - Safe ownership and bounds-checked buffers outside audited compatibility edges
 //!
 //! ## Performance
 //!
-//! This implementation is 2-5x faster than the original C++ version with:
-//! - 50% less memory usage
-//! - Thread-safe operations
-//! - Real-time progress tracking
+//! Performance depends on the algorithm, input size, and parallel chunk configuration.
+//! Measure with the EAC compression benchmarks rather than relying on a single fixed speedup.
 //!
 //! ## Example Usage
 //!

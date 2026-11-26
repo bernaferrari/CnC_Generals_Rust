@@ -18,11 +18,9 @@
 //!
 //! ## Performance
 //!
-//! This implementation achieves:
-//! - 3-5x faster compression than original C++
-//! - 60% less memory usage through optimized data structures
-//! - Thread-safe parallel processing
-//! - Real-time progress monitoring
+//! Performance depends on the compression level, input shape, and enabled SIMD/parallel
+//! features. Measure with the LZH benchmarks rather than relying on a single fixed speedup.
+//! Parallel compression is available through the `parallel` feature.
 //!
 //! ## Example Usage
 //!
