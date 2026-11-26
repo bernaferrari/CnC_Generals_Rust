@@ -22,7 +22,7 @@ fn mounted_dragon_flame_collides_with_an_enemy_and_passes_an_ally() {
     use crate::assets::ini_template_loader::{
         WeaponDefinitionLoadType, parse_weapon_definitions_ini_into,
     };
-    use gamelogic::weapon::WeaponCollideMask;
+    use generals_sim::weapon::WeaponCollideMask;
 
     let weapon = definition(&base_ini("Weapon.ini"), "Weapon DragonTankFlameWeapon");
     let projectile = definition(
@@ -779,7 +779,7 @@ fn uranium_shell_upgrade_is_owner_scoped_at_launch_in_flight_and_after_load() {
 
 #[test]
 fn pending_shell_bonus_after_load_waits_for_receiving_materialization_phase() {
-    use gamelogic::weapon::WeaponBonusConditionType;
+    use generals_sim::weapon::WeaponBonusConditionType;
 
     let (mut source_world, source, target) = uranium_projectile_world();
     source_world.add_completed_player_upgrade(0, "Upgrade_ChinaUraniumShells");

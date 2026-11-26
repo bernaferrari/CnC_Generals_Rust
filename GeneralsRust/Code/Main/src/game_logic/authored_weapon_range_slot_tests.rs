@@ -20,10 +20,10 @@ fn slot_range_world(
                 .extra_bonus
                 .as_ref()
                 .unwrap()
-                .get_bonus(gamelogic::weapon::WeaponBonusConditionType::PlayerUpgrade)
+                .get_bonus(generals_sim::weapon::WeaponBonusConditionType::PlayerUpgrade)
                 .unwrap();
             assert_eq!(
-                extra.get_field(gamelogic::weapon::WeaponBonusField::Range),
+                extra.get_field(generals_sim::weapon::WeaponBonusField::Range),
                 multiplier
             );
             assert_eq!(rules.get_attack_range(extra), native_range);

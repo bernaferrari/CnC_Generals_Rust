@@ -127,8 +127,8 @@ fn garrison_world(
 fn garrison_named_range_admits_exact_native_bonus_boundary() {
     let expected = {
         let store = &AuthoredRules::parse();
-        let mut bonus = gamelogic::weapon::WeaponBonus::new();
-        bonus.set_field(gamelogic::weapon::WeaponBonusField::Range, 1.33);
+        let mut bonus = generals_sim::weapon::WeaponBonus::new();
+        bonus.set_field(generals_sim::weapon::WeaponBonusField::Range, 1.33);
         store
             .find_weapon_template("AuthoredRangeBonus")
             .unwrap()

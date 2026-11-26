@@ -457,7 +457,7 @@ impl GameLogic {
         &mut self,
         completed_player: Option<u32>,
     ) {
-        use gamelogic::weapon::WeaponBonusConditionType;
+        use generals_sim::weapon::WeaponBonusConditionType;
         let players = &self.players;
         let definitions = &self.projectile_definitions;
         let apply = |projectile: &mut crate::game_logic::combat::Projectile| {

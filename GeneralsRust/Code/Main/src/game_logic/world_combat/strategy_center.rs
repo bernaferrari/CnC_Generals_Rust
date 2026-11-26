@@ -1818,7 +1818,7 @@ impl GameLogic {
         config: &crate::game_logic::host_point_defense::PointDefenseConfig,
         weapon: &gamelogic::weapon::WeaponTemplate,
     ) -> (Option<ObjectId>, bool) {
-        use gamelogic::weapon::WeaponAntiMask;
+        use generals_sim::weapon::WeaponAntiMask;
         let mut best: Option<(u8, f32, ObjectId)> = None;
         for (&id, target) in self.objects.registered() {
             if id == carrier_id

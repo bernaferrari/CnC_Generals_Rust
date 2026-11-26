@@ -363,7 +363,7 @@ impl Object {
         audio: &mut crate::game_logic::ObjectAudio<'_>,
         operation_frame: u32,
         operation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-        solo_set: &gamelogic::weapon::WeaponBonusSet,
+        solo_set: &generals_sim::weapon::WeaponBonusSet,
         damage_bonus: f32,
         pre_attack_bonus: f32,
         owned_rof: [f32; 3],
@@ -416,7 +416,7 @@ impl Object {
         audio: &mut crate::game_logic::ObjectAudio<'_>,
         operation_frame: u32,
         operation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-        solo_set: &gamelogic::weapon::WeaponBonusSet,
+        solo_set: &generals_sim::weapon::WeaponBonusSet,
         damage_bonus: f32,
         pre_attack_bonus: f32,
         owned_rof: [f32; 3],
@@ -530,7 +530,7 @@ impl Object {
         audio: &mut crate::game_logic::ObjectAudio<'_>,
         operation_frame: u32,
         operation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-        solo_set: &gamelogic::weapon::WeaponBonusSet,
+        solo_set: &generals_sim::weapon::WeaponBonusSet,
         owned_rof: [f32; 3],
         owned_bonuses: [(f32, f32, f32, f32, f32); 3],
         random: &game_engine::common::random_value::SessionRandom,
@@ -632,7 +632,7 @@ impl Object {
         audio: &mut crate::game_logic::ObjectAudio<'_>,
         operation_frame: u32,
         operation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-        solo_set: Option<&gamelogic::weapon::WeaponBonusSet>,
+        solo_set: Option<&generals_sim::weapon::WeaponBonusSet>,
         random: Option<&game_engine::common::random_value::SessionRandom>,
         projectile_team_id: Option<u32>,
         defer_post_fire_commit: bool,
@@ -785,7 +785,7 @@ impl Object {
             self.selected_native_weapon_rule(slot)
                 .map(|rule| {
                     use crate::game_logic::weapon_bootstrap::HostPrefireType as Host;
-                    use gamelogic::weapon::WeaponPrefireType as Native;
+                    use generals_sim::weapon::WeaponPrefireType as Native;
                     match rule.prefire_type {
                         Native::PrefirePerShot => Host::PerShot,
                         Native::PrefirePerAttack => Host::PerAttack,
@@ -1283,7 +1283,7 @@ impl Object {
     pub(crate) fn commit_deferred_weapon_fire_after_effects(
         &mut self,
         sound_events: &mut crate::game_logic::host_fire_sound_loop_log::FireSoundLoopEvents,
-        solo_set: Option<&gamelogic::weapon::WeaponBonusSet>,
+        solo_set: Option<&generals_sim::weapon::WeaponBonusSet>,
         random: Option<&game_engine::common::random_value::SessionRandom>,
         reload_rates: Option<&[f32; 3]>,
     ) -> Option<(u8, Option<ObjectId>, Option<String>)> {
@@ -1389,8 +1389,8 @@ impl Object {
         // C++ divides directly then REAL_TO_INT_FLOOR. Nonpositive/nonfinite
         // ROF has no supported portable conversion; do not invent a .01 floor.
         assert!(rof.is_finite() && rof > 0.0, "unsupported authored weapon RATE_OF_FIRE");
-        let mut bonus = gamelogic::weapon::WeaponBonus::new();
-        bonus.set_field(gamelogic::weapon::WeaponBonusField::RateOfFire, rof);
+        let mut bonus = generals_sim::weapon::WeaponBonus::new();
+        bonus.set_field(generals_sim::weapon::WeaponBonusField::RateOfFire, rof);
         let frames = if reloading {
             rule.get_clip_reload_time(&bonus)
         } else {
@@ -1410,7 +1410,7 @@ impl Object {
         target_id: Option<ObjectId>,
         fire_weapon_name: Option<&str>,
         owned_rof: Option<&[f32; 3]>,
-        solo_set: Option<&gamelogic::weapon::WeaponBonusSet>,
+        solo_set: Option<&generals_sim::weapon::WeaponBonusSet>,
         _random: Option<&game_engine::common::random_value::SessionRandom>,
         native_rule: Option<&gamelogic::weapon::WeaponTemplate>,
         auto_reloaded_clip: bool,

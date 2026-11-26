@@ -6,8 +6,8 @@ enum ExtraWeaponBonus<'a> {
     /// The Object's own selected Weapon rule (C++ Weapon holds its WeaponTemplate):
     /// the extra set comes from that rule, never the process-wide store. Flag
     /// handling matches `Ambient`.
-    Native(Option<&'a gamelogic::weapon::WeaponBonusSet>),
-    Owned(Option<&'a gamelogic::weapon::WeaponBonusSet>),
+    Native(Option<&'a generals_sim::weapon::WeaponBonusSet>),
+    Owned(Option<&'a generals_sim::weapon::WeaponBonusSet>),
 }
 
 impl Object {
@@ -15,7 +15,7 @@ impl Object {
     /// launch (DumbProjectileBehavior.cpp:319). Container flags are not part
     /// of this snapshot; Weapon::computeBonus handles them separately.
     pub(crate) fn projectile_launch_bonus_mask(&self) -> u64 {
-        use gamelogic::weapon::WeaponBonusConditionType as C;
+        use generals_sim::weapon::WeaponBonusConditionType as C;
         let mut bits = 0u64;
         let mut set = |condition: C, enabled: bool| {
             if enabled { bits |= 1u64 << condition as u8; }
@@ -174,7 +174,7 @@ impl Object {
     /// Active-slot Object bonuses using the receiving session's admitted SOLO set.
     pub(crate) fn weapon_bonus_fields_with_optional_solo_set(
         &self,
-        solo_set: Option<&gamelogic::weapon::WeaponBonusSet>,
+        solo_set: Option<&generals_sim::weapon::WeaponBonusSet>,
     ) -> (f32, f32, f32, f32, f32) {
         if let Some(set) = solo_set {
             self.weapon_bonus_fields_with_solo_set(set)
@@ -185,7 +185,7 @@ impl Object {
 
     pub(crate) fn weapon_bonus_fields_with_solo_set(
         &self,
-        solo_set: &gamelogic::weapon::WeaponBonusSet,
+        solo_set: &generals_sim::weapon::WeaponBonusSet,
     ) -> (f32, f32, f32, f32, f32) {
         let name = self
             .weapon_name_for_slot(self.active_weapon_slot)
@@ -197,7 +197,7 @@ impl Object {
     pub(crate) fn weapon_bonus_fields_for_slot_with_solo_set(
         &self,
         slot: u8,
-        solo_set: &gamelogic::weapon::WeaponBonusSet,
+        solo_set: &generals_sim::weapon::WeaponBonusSet,
     ) -> (f32, f32, f32, f32, f32) {
         self.weapon_bonus_fields_for_slot_named(
             None,
@@ -222,7 +222,7 @@ impl Object {
     pub(crate) fn weapon_bonus_fields_for_named_weapon_with_solo_set(
         &self,
         name: &str,
-        solo_set: &gamelogic::weapon::WeaponBonusSet,
+        solo_set: &generals_sim::weapon::WeaponBonusSet,
     ) -> (f32, f32, f32, f32, f32) {
         self.weapon_bonus_fields_with_name(None, Some(name), Some(solo_set))
     }
@@ -234,7 +234,7 @@ impl Object {
         container: Option<&Object>,
         slot: u8,
         weapon_name: Option<&str>,
-        session_solo_set: Option<&gamelogic::weapon::WeaponBonusSet>,
+        session_solo_set: Option<&generals_sim::weapon::WeaponBonusSet>,
     ) -> (f32, f32, f32, f32, f32) {
         let native = self.selected_native_weapon_rule(slot);
         let extra = match native.as_deref() {
@@ -248,7 +248,7 @@ impl Object {
         &self,
         container: Option<&Object>,
         weapon_name: Option<&str>,
-        session_solo_set: Option<&gamelogic::weapon::WeaponBonusSet>,
+        session_solo_set: Option<&generals_sim::weapon::WeaponBonusSet>,
     ) -> (f32, f32, f32, f32, f32) {
         self.weapon_bonus_fields_with_extra(
             container,
@@ -262,8 +262,8 @@ impl Object {
     pub(crate) fn weapon_bonus_fields_with_owned_extra(
         &self,
         container: Option<&Object>,
-        solo_set: &gamelogic::weapon::WeaponBonusSet,
-        extra: Option<&gamelogic::weapon::WeaponBonusSet>,
+        solo_set: &generals_sim::weapon::WeaponBonusSet,
+        extra: Option<&generals_sim::weapon::WeaponBonusSet>,
     ) -> (f32, f32, f32, f32, f32) {
         self.weapon_bonus_fields_with_extra(
             container,
@@ -275,7 +275,7 @@ impl Object {
     fn weapon_bonus_fields_with_extra(
         &self,
         container: Option<&Object>,
-        session_solo_set: Option<&gamelogic::weapon::WeaponBonusSet>,
+        session_solo_set: Option<&generals_sim::weapon::WeaponBonusSet>,
         extra: ExtraWeaponBonus<'_>,
     ) -> (f32, f32, f32, f32, f32) {
         use crate::game_logic::VeterancyLevel;
@@ -333,7 +333,7 @@ impl Object {
         // 3463-3468): start at 1.0 and add (other - 1) per active condition.
         // Leftover WeaponBonus::append_bonuses already matches; do not multiply.
         use gamelogic::WeaponBonus;
-        use gamelogic::weapon::WeaponBonusField::{self, Damage, Range, RateOfFire};
+        use generals_sim::weapon::WeaponBonusField::{self, Damage, Range, RateOfFire};
 
         fn append_field(bonus: &mut WeaponBonus, field: WeaponBonusField, value: f32) {
             let mut other = WeaponBonus::new();
@@ -467,7 +467,7 @@ impl Object {
 
         // C++ Weapon::computeBonus (Weapon.cpp:1814-1816): template m_extraBonus.
         {
-            use gamelogic::weapon::{WeaponBonusConditionFlags, WeaponBonusConditionType};
+            use generals_sim::weapon::{WeaponBonusConditionFlags, WeaponBonusConditionType};
             let mut flags = WeaponBonusConditionFlags::new();
             let set = |flags: &mut WeaponBonusConditionFlags, cond, on: bool| {
                 if on {
@@ -640,7 +640,7 @@ impl Object {
     pub(crate) fn effective_weapon_range_with_solo_set(
         &self,
         base_range: f32,
-        solo_set: &gamelogic::weapon::WeaponBonusSet,
+        solo_set: &generals_sim::weapon::WeaponBonusSet,
     ) -> f32 {
         base_range * self.weapon_bonus_fields_with_solo_set(solo_set).1
     }
@@ -655,7 +655,7 @@ impl Object {
         &self,
         slot: u8,
         base_range: f32,
-        solo_set: &gamelogic::weapon::WeaponBonusSet,
+        solo_set: &generals_sim::weapon::WeaponBonusSet,
     ) -> f32 {
         base_range
             * self
@@ -672,7 +672,7 @@ impl Object {
         &self,
         slot: u8,
         base_damage: f32,
-        solo_set: &gamelogic::weapon::WeaponBonusSet,
+        solo_set: &generals_sim::weapon::WeaponBonusSet,
     ) -> f32 {
         base_damage
             * self
@@ -683,7 +683,7 @@ impl Object {
     pub(crate) fn effective_weapon_damage_with_solo_set(
         &self,
         base_damage: f32,
-        solo_set: &gamelogic::weapon::WeaponBonusSet,
+        solo_set: &generals_sim::weapon::WeaponBonusSet,
     ) -> f32 {
         base_damage * self.weapon_bonus_fields_with_solo_set(solo_set).0
     }
@@ -830,7 +830,7 @@ impl Object {
         weapon: &Weapon,
         current_time: f32,
         target_has_faerie_fire: bool,
-        solo_set: &gamelogic::weapon::WeaponBonusSet,
+        solo_set: &generals_sim::weapon::WeaponBonusSet,
     ) -> bool {
         if weapon.frame_clock_active {
             return (current_time * 30.0).round() as u32 >= weapon.next_fire_frame;
@@ -1366,10 +1366,10 @@ impl Object {
 /// A missing condition leaves WeaponBonus's neutral 1.0 values untouched.
 fn append_solo_bonus_from_set(
     bonus: &mut gamelogic::WeaponBonus,
-    set: &gamelogic::weapon::WeaponBonusSet,
+    set: &generals_sim::weapon::WeaponBonusSet,
     disc: u8,
 ) {
-    use gamelogic::weapon::WeaponBonusConditionType as C;
+    use generals_sim::weapon::WeaponBonusConditionType as C;
     let condition = match disc {
         16 => C::SoloHumanEasy,
         17 => C::SoloHumanNormal,
@@ -1388,7 +1388,7 @@ fn append_solo_bonus_from_set(
 /// Falls back to parsed GameData.ini `WeaponBonus` lines when leftover
 /// GameLogic is not initialized (live host). Missing entries stay 1.0.
 fn leftover_append_solo_weapon_bonus(bonus: &mut gamelogic::WeaponBonus, disc: u8) {
-    use gamelogic::weapon::{WeaponBonusConditionType, WeaponBonusField};
+    use generals_sim::weapon::{WeaponBonusConditionType, WeaponBonusField};
     if disc == 0 {
         return;
     }

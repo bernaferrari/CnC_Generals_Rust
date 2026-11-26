@@ -29,7 +29,7 @@ impl Weapon {
                 guard.get_contained_by(),
             )
         }) {
-            flags.0 |= source_flags.0;
+            flags.union(source_flags);
             if let Some(container_id) = container_id {
                 if let Some(container_flags) =
                     OBJECT_REGISTRY.with_object(container_id, |container| {
@@ -48,7 +48,7 @@ impl Weapon {
                     })
                 {
                     if let Some(container_flags) = container_flags {
-                        flags.0 |= container_flags.0;
+                        flags.union(container_flags);
                     }
                 }
             }

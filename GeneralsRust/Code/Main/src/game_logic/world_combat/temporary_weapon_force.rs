@@ -68,10 +68,10 @@ impl GameLogic {
             .cloned()
         {
             let frame = self.frame;
-            let mut bonus = gamelogic::weapon::WeaponBonus::new();
+            let mut bonus = generals_sim::weapon::WeaponBonus::new();
             if let Some(object) = self.objects.get(&source) {
                 bonus.set_field(
-                    gamelogic::weapon::WeaponBonusField::RateOfFire,
+                    generals_sim::weapon::WeaponBonusField::RateOfFire,
                     self.receiving_weapon_bonus_fields(object, Some(&rule)).2,
                 );
             }
@@ -101,7 +101,7 @@ impl GameLogic {
             } else if fields.auto_reloads_clip {
                 // reloadAmmo recomputes bonuses after template callbacks.
                 bonus.set_field(
-                    gamelogic::weapon::WeaponBonusField::RateOfFire,
+                    generals_sim::weapon::WeaponBonusField::RateOfFire,
                     self.receiving_weapon_bonus_fields(object, Some(&rule)).2,
                 );
                 fields.defaults.clip_reload_frames = rule.get_clip_reload_time(&bonus).max(0) as u32;

@@ -9,7 +9,7 @@ is part of this architecture.
 | Owner | Responsibility | Dependencies and consumers |
 | --- | --- | --- |
 | `generals_game_domain` | Canonical host object ID, faction value, combat particle kind, AI difficulty | Depends on serde. Main and Presentation use the same types through reexports. |
-| `generals-sim` | Fixed-step clock, grid coordinates, A* search, movement costs, search-local layer and occupancy data | Depends on glam. Main and GameLogic import search types directly. Each Main world owns a `SimulationClock`. |
+| `generals-sim` | Fixed-step clock, grid search, weapon rules and damage estimates | Depends on glam. Main and GameLogic share search types, weapon masks and bonus calculations. Each Main world owns a `SimulationClock`. |
 | `generals_presentation` | Frozen events, HUD records, objectives, command buttons, weapon visual dispatch records | Depends on GameDomain, serde and glam. Does not depend on simulation, assets, UI widgets or GPU types. |
 | Main `presentation_frame` | Builds the completed frame from simulation and adapts it to existing UI/render consumers | Owns `PresentationFrame`, renderable objects and live-host conversions. Its HUD view borrows existing frame fields. |
 | Main `assets` | Finds and loads live assets | Each `AssetManager` owns an `ArchiveFileSystem`, which owns the local resolver and BIG mounts. Existing worker synchronization remains at actual I/O boundaries. |
@@ -30,6 +30,10 @@ is supplied by the caller; a leaf search must never discover an active terrain s
 `generals_sim::time` admits fixed steps and accounts for offered time. Main executes the
 simulation phases, advances object and frame identity, and reports completed steps to its
 clients. The save decoder validates the elapsed seconds and carried time before restoring them.
+
+`generals_sim::weapon` applies the weapon masks, attack range, delay and damage rules.
+Main supplies the target facts, the firing session's random draw, and its bonus entries.
+The legacy template and save adapters use those same rule types.
 
 For HUD and rendering changes, edit the Main frame builder or its consumers. Presentation
 contains only immutable contracts and pure dispatch decisions. Builders retain frame timing,

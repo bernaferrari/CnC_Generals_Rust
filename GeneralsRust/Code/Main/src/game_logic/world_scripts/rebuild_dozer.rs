@@ -1390,7 +1390,7 @@ impl GameLogic {
         let anti_mine = worker
             .selected_weapon_slot()
             .and_then(|slot| worker.selected_native_weapon_rule(slot))
-            .is_some_and(|rule| rule.get_anti_mask() & gamelogic::weapon::WeaponAntiMask::MINE != 0);
+            .is_some_and(|rule| rule.get_anti_mask() & generals_sim::weapon::WeaponAntiMask::MINE != 0);
         if anti_mine {
             worker.set_carried_supply_boxes(0);
             self.update_receiving_drawable_supply_status(id, metadata.max_boxes, 0, effects);

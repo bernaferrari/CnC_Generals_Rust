@@ -337,7 +337,7 @@ impl GameLogic {
         &self,
         unit_id: ObjectId,
         victim_id: ObjectId,
-        solo_set: &gamelogic::weapon::WeaponBonusSet,
+        solo_set: &generals_sim::weapon::WeaponBonusSet,
     ) -> bool {
         self.out_of_weapon_range_object_with_optional_solo_set(unit_id, victim_id, Some(solo_set))
     }
@@ -346,7 +346,7 @@ impl GameLogic {
         &self,
         unit_id: ObjectId,
         victim_id: ObjectId,
-        solo_set: Option<&gamelogic::weapon::WeaponBonusSet>,
+        solo_set: Option<&generals_sim::weapon::WeaponBonusSet>,
     ) -> bool {
         let contained = self.objects.get(&unit_id).and_then(|obj| obj.contained_by);
         let container_ground = contained.is_some_and(|id| {

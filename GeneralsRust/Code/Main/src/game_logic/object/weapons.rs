@@ -41,7 +41,7 @@ impl Object {
     /// missiles are also projectiles, but C++ chooses their more specific
     /// target mask first.
     pub fn weapon_target_anti_mask(&self) -> u32 {
-        use gamelogic::weapon::WeaponAntiMask;
+        use generals_sim::weapon::WeaponAntiMask;
 
         if self.is_kind_of(KindOf::SmallMissile) {
             WeaponAntiMask::SMALL_MISSILE
@@ -123,7 +123,7 @@ impl Object {
         target_anti_mask: u32,
         lookup_named_mask: impl FnOnce(&str) -> Option<u32>,
     ) -> bool {
-        use gamelogic::weapon::WeaponAntiMask;
+        use generals_sim::weapon::WeaponAntiMask;
 
         if target_anti_mask == 0 {
             return false;
@@ -568,7 +568,7 @@ impl Object {
     fn complete_elapsed_auto_reload_clips_with_optional_solo_set(
         &mut self,
         current_time: f32,
-        solo_set: Option<&gamelogic::weapon::WeaponBonusSet>,
+        solo_set: Option<&generals_sim::weapon::WeaponBonusSet>,
         owned_rof: Option<&[f32; 3]>,
     ) -> bool {
         use crate::game_logic::weapon_bootstrap::{
@@ -587,8 +587,8 @@ impl Object {
             let reload_type = self
                 .selected_native_weapon_rule(slot)
                 .map(|rule| match rule.reload_type {
-                    gamelogic::weapon::WeaponReloadType::AutoReload => HostReloadType::Auto,
-                    gamelogic::weapon::WeaponReloadType::ReturnToBaseToReload => {
+                    generals_sim::weapon::WeaponReloadType::AutoReload => HostReloadType::Auto,
+                    generals_sim::weapon::WeaponReloadType::ReturnToBaseToReload => {
                         HostReloadType::ReturnToBase
                     }
                     _ => HostReloadType::Manual,
@@ -659,7 +659,7 @@ impl Object {
     pub(crate) fn refresh_weapon_fire_status_with_solo_set(
         &mut self,
         current_time: f32,
-        solo_set: &gamelogic::weapon::WeaponBonusSet,
+        solo_set: &generals_sim::weapon::WeaponBonusSet,
     ) {
         self.refresh_weapon_fire_status_with_optional_solo_set(current_time, Some(solo_set), None);
     }
@@ -675,7 +675,7 @@ impl Object {
     fn refresh_weapon_fire_status_with_optional_solo_set(
         &mut self,
         current_time: f32,
-        solo_set: Option<&gamelogic::weapon::WeaponBonusSet>,
+        solo_set: Option<&generals_sim::weapon::WeaponBonusSet>,
         owned_rof: Option<&[f32; 3]>,
     ) {
         if self.weapon_slot(self.active_weapon_slot).is_some_and(|weapon| weapon.frame_clock_active) {
@@ -768,7 +768,7 @@ impl Object {
     pub(crate) fn can_fire_with_solo_set(
         &self,
         current_time: f32,
-        solo_set: &gamelogic::weapon::WeaponBonusSet,
+        solo_set: &generals_sim::weapon::WeaponBonusSet,
     ) -> bool {
         self.can_fire_with_optional_solo_set(current_time, Some(solo_set))
     }
@@ -776,7 +776,7 @@ impl Object {
     fn can_fire_with_optional_solo_set(
         &self,
         current_time: f32,
-        solo_set: Option<&gamelogic::weapon::WeaponBonusSet>,
+        solo_set: Option<&generals_sim::weapon::WeaponBonusSet>,
     ) -> bool {
         // C++ Object::canFireWeapon: DISABLED_SUBDUED / weapons_jammed residual.
         // Shock stun residual blocks weapon fire while flailing/stunned.
@@ -828,7 +828,7 @@ impl Object {
         &self,
         slot: u8,
         current_time: f32,
-        solo_set: &gamelogic::weapon::WeaponBonusSet,
+        solo_set: &generals_sim::weapon::WeaponBonusSet,
     ) -> bool {
         self.can_fire_slot_with_optional_solo_set(slot, current_time, Some(solo_set))
     }
@@ -837,7 +837,7 @@ impl Object {
         &self,
         slot: u8,
         current_time: f32,
-        solo_set: Option<&gamelogic::weapon::WeaponBonusSet>,
+        solo_set: Option<&generals_sim::weapon::WeaponBonusSet>,
     ) -> bool {
         self.can_fire_slot_with_rate(slot, current_time, || {
             solo_set.map_or_else(
@@ -934,7 +934,7 @@ impl Object {
             |rule| {
                 self.weapon_bonus_fields_with_owned_extra(
                     None,
-                    &gamelogic::weapon::WeaponBonusSet::new(),
+                    &generals_sim::weapon::WeaponBonusSet::new(),
                     rule.extra_bonus.as_ref(),
                 )
                 .0
@@ -946,7 +946,7 @@ impl Object {
         &self,
         target: &Object,
         current_time: f32,
-        solo_set: Option<&gamelogic::weapon::WeaponBonusSet>,
+        solo_set: Option<&generals_sim::weapon::WeaponBonusSet>,
         command_source: u32,
         damage_multiplier: impl Fn(&gamelogic::weapon::WeaponTemplate) -> f32,
     ) -> Option<u8> {
@@ -972,7 +972,7 @@ impl Object {
         &self,
         target: &Object,
         current_time: f32,
-        solo_set: Option<&gamelogic::weapon::WeaponBonusSet>,
+        solo_set: Option<&generals_sim::weapon::WeaponBonusSet>,
     ) -> Option<u8> {
         let target_faerie = target.is_faerie_fire();
         let primary_valid = self.leftover_choose_best_slot_valid(0, target);
@@ -1267,7 +1267,7 @@ impl Object {
         target: &Object,
         current_time: f32,
         target_faerie: bool,
-        solo_set: Option<&gamelogic::weapon::WeaponBonusSet>,
+        solo_set: Option<&generals_sim::weapon::WeaponBonusSet>,
     ) -> bool {
         if !self.leftover_choose_best_slot_valid(slot, target) {
             return false;
@@ -1521,7 +1521,7 @@ impl Object {
             target.garrison_count() as u32,
             crate::game_logic::host_armor_residual::apply_residual_armor(target, dt, 1.0),
         );
-        crate::game_logic::weapon_bootstrap::estimate_weapon_template_damage(&est, Some(&victim))
+        generals_sim::weapon::estimate_weapon_template_damage(&est, Some(&victim))
     }
 
     fn estimate_native_weapon_damage(
@@ -1529,7 +1529,7 @@ impl Object {
         target: &Object,
         primary_damage: f32,
     ) -> f32 {
-        let est = crate::game_logic::weapon_bootstrap::HostEstimateWeapon::from_rule(
+        let est = crate::game_logic::weapon_bootstrap::damage_estimate_from_rule(
             rule, primary_damage,
         );
         let victim = crate::game_logic::weapon_bootstrap::host_estimate_victim_from_object(
@@ -1541,7 +1541,7 @@ impl Object {
                 1.0,
             ),
         );
-        crate::game_logic::weapon_bootstrap::estimate_weapon_template_damage(
+        generals_sim::weapon::estimate_weapon_template_damage(
             &est,
             Some(&victim),
         )
@@ -1555,14 +1555,14 @@ impl Object {
 
     pub(crate) fn sync_shared_weapon_reload_with_solo_set(
         &mut self,
-        solo_set: &gamelogic::weapon::WeaponBonusSet,
+        solo_set: &generals_sim::weapon::WeaponBonusSet,
     ) {
         self.sync_shared_weapon_reload_with_optional_solo_set(Some(solo_set), None);
     }
 
     fn sync_shared_weapon_reload_with_optional_solo_set(
         &mut self,
-        solo_set: Option<&gamelogic::weapon::WeaponBonusSet>,
+        solo_set: Option<&generals_sim::weapon::WeaponBonusSet>,
         owned_rof: Option<&[f32; 3]>,
     ) {
         if !self.thing.template.share_weapon_reload_time {
@@ -1732,7 +1732,7 @@ impl Object {
     pub(crate) fn apply_weapon_bonus_rof_restart_with_solo_set(
         &mut self,
         current_time: f32,
-        solo_set: &gamelogic::weapon::WeaponBonusSet,
+        solo_set: &generals_sim::weapon::WeaponBonusSet,
     ) {
         self.apply_weapon_bonus_rof_restart_with_optional_solo_set(current_time, Some(solo_set));
     }
@@ -1740,7 +1740,7 @@ impl Object {
     pub(crate) fn apply_weapon_bonus_rof_restart_with_optional_solo_set(
         &mut self,
         current_time: f32,
-        solo_set: Option<&gamelogic::weapon::WeaponBonusSet>,
+        solo_set: Option<&generals_sim::weapon::WeaponBonusSet>,
     ) {
         let rof = solo_set.map_or_else(
             || self.weapon_bonus_fields().2,
@@ -2063,7 +2063,7 @@ impl Object {
         slot: u8,
         frame: u32,
         target_has_faerie_fire: bool,
-        solo_set: &gamelogic::weapon::WeaponBonusSet,
+        solo_set: &generals_sim::weapon::WeaponBonusSet,
     ) -> u32 {
         self.possible_next_shot_frame_for_slot_with_optional_solo_set(
             slot,
@@ -2095,7 +2095,7 @@ impl Object {
         slot: u8,
         frame: u32,
         target_has_faerie_fire: bool,
-        solo_set: Option<&gamelogic::weapon::WeaponBonusSet>,
+        solo_set: Option<&generals_sim::weapon::WeaponBonusSet>,
         owned_rof: Option<&[f32; 3]>,
     ) -> u32 {
         if let Some(weapon) = self.weapon_slot(slot).filter(|weapon| weapon.frame_clock_active) {
@@ -2151,7 +2151,7 @@ impl Object {
         target_id: Option<ObjectId>,
         logic_frame: u32,
         possible_next_shot_frame: u32,
-        solo_set: Option<&gamelogic::weapon::WeaponBonusSet>,
+        solo_set: Option<&generals_sim::weapon::WeaponBonusSet>,
         owned_rof: Option<&[f32; 3]>,
         rule: Option<&gamelogic::weapon::WeaponTemplate>,
     ) {
@@ -2186,7 +2186,7 @@ impl Object {
 
     pub(crate) fn finish_shot_after_specialized_tracker_with_solo_set(
         &mut self,
-        solo_set: &gamelogic::weapon::WeaponBonusSet,
+        solo_set: &generals_sim::weapon::WeaponBonusSet,
     ) {
         self.finish_shot_engagement_with_optional_solo_set(Some(solo_set), None);
     }
@@ -2204,7 +2204,7 @@ impl Object {
 
     fn finish_shot_engagement_with_optional_solo_set(
         &mut self,
-        solo_set: Option<&gamelogic::weapon::WeaponBonusSet>,
+        solo_set: Option<&generals_sim::weapon::WeaponBonusSet>,
         owned_rof: Option<&[f32; 3]>,
     ) {
         self.pre_attack_ready_at = 0.0;
@@ -2216,7 +2216,7 @@ impl Object {
         target_id: Option<ObjectId>,
         now: u32,
         pre_shot_coast_until_frame: u32,
-        solo_set: Option<&gamelogic::weapon::WeaponBonusSet>,
+        solo_set: Option<&generals_sim::weapon::WeaponBonusSet>,
         owned_rof: Option<&[f32; 3]>,
     ) {
         // C++ FiringTracker.cpp:83-99: same victim, or a target switch inside

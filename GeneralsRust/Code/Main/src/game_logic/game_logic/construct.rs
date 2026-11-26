@@ -80,7 +80,7 @@ impl GameLogic {
             weapon_definitions: None,
             locomotor_definition_base: None,
             locomotor_definitions: Default::default(),
-            solo_weapon_bonus_set: gamelogic::weapon::WeaponBonusSet::new(),
+            solo_weapon_bonus_set: generals_sim::weapon::WeaponBonusSet::new(),
             combat_bonus_base: Default::default(),
             tunnel_capacity_base: 10,
             solo_player_health_bonus_for_difficulty: [[1.0;

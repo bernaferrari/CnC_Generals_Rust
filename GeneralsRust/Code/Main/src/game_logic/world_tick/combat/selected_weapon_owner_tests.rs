@@ -1153,7 +1153,7 @@ End
          mine-sounding template name alone must not"
     );
 
-    use gamelogic::weapon::WeaponAntiMask;
+    use generals_sim::weapon::WeaponAntiMask;
     assert_eq!(
         world.host_object(flagged[1]).unwrap().weapon_target_anti_mask(),
         WeaponAntiMask::GROUND

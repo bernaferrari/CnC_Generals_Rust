@@ -49,7 +49,7 @@ End
     weapon.attack_range = 100.0;
     weapon.clip_size = 4;
     weapon.anti_mask =
-        gamelogic::weapon::WeaponAntiMask::new(gamelogic::weapon::WeaponAntiMask::GROUND);
+        generals_sim::weapon::WeaponAntiMask::new(generals_sim::weapon::WeaponAntiMask::GROUND);
     logic
         .admit_receiving_weapon_snapshot(vec![(weapon.name.clone(), weapon)])
         .unwrap();
@@ -154,7 +154,8 @@ fn authored_pitch_world(
     secondary_pitch: Option<f32>,
     legacy_pitch: f32,
 ) -> (GameLogic, ObjectId, ObjectId) {
-    use gamelogic::weapon::{WeaponAntiMask, WeaponTemplate};
+    use gamelogic::weapon::WeaponTemplate;
+    use generals_sim::weapon::WeaponAntiMask;
 
     fn rule(name: &str, damage: f32, max_pitch: f32) -> WeaponTemplate {
         let mut rule = WeaponTemplate::new(name.into());

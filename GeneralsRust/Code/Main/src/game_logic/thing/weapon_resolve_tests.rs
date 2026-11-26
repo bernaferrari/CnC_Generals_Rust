@@ -196,7 +196,7 @@ fn weapon_from_store_uses_leftover_delay_not_max_flatten() {
         let mut yardstick = gamelogic::weapon::WeaponTemplate::new(NAME.to_string());
         yardstick.min_delay_between_shots = 6;
         yardstick.max_delay_between_shots = 6;
-        yardstick.get_delay_between_shots(&gamelogic::weapon::WeaponBonus::new())
+        yardstick.get_delay_between_shots(&generals_sim::weapon::WeaponBonus::new())
     };
     assert_eq!(leftover, 6);
     assert!(
@@ -233,7 +233,7 @@ fn weapon_from_store_uses_leftover_rationalize_attack_range() {
         yardstick.attack_range = 100.0;
         yardstick.minimum_attack_range = 10.0;
         (
-            yardstick.get_attack_range(&gamelogic::weapon::WeaponBonus::new()),
+            yardstick.get_attack_range(&generals_sim::weapon::WeaponBonus::new()),
             yardstick.get_minimum_attack_range(),
             yardstick.is_contact_weapon(),
         )

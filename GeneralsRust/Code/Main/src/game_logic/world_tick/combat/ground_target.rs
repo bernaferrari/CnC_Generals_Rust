@@ -84,7 +84,7 @@ impl GameLogic {
                                 &self.world_services,
                                 weapon,
                                 Some(slot),
-                                gamelogic::weapon::WeaponAntiMask::GROUND,
+                                generals_sim::weapon::WeaponAntiMask::GROUND,
                             )
                             && attacker.is_within_attack_range_pos_for_slot_with_solo_set(
                                 slot,
@@ -213,7 +213,7 @@ impl GameLogic {
                         let first_in_clip = attacker.weapon_slot(ground_slot).is_some_and(|weapon| {
                             weapon.clip_size == 0 || weapon.ammo.unwrap_or(weapon.clip_size) >= weapon.clip_size
                         });
-                        let applies = rule.prefire_type != gamelogic::weapon::WeaponPrefireType::PrefirePerClip
+                        let applies = rule.prefire_type != generals_sim::weapon::WeaponPrefireType::PrefirePerClip
                             || first_in_clip;
                         let delay = ((rule.pre_attack_delay.max(0) as f32 * pre_bonus) as u32) as f32 / 30.0;
                         if applies && delay > 0.0 {

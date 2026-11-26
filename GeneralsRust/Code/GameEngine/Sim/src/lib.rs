@@ -2,3 +2,4 @@
 
 pub mod pathfinding;
 pub mod time;
+pub mod weapon;

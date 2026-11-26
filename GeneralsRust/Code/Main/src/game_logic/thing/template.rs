@@ -2118,7 +2118,7 @@ impl ThingTemplate {
     }
 
     fn weapon_from_template(wt: &gamelogic::weapon::WeaponTemplate) -> Option<Weapon> {
-        use gamelogic::weapon::{WeaponAntiMask, WeaponBonus};
+        use generals_sim::weapon::{WeaponAntiMask, WeaponBonus};
         const FPS: f32 = 30.0;
         // CPP WeaponStore::allocateNewWeapon installs a supplied definition
         // even with zero damage/range (WeaponTemplate constructor defaults).

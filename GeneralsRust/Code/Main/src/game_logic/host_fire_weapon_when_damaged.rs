@@ -524,9 +524,9 @@ mod tests {
                     t.clip_size = 2;
                     t.clip_reload_time = 90;
                     if !auto {
-                        t.reload_type = gamelogic::weapon::WeaponReloadType::NoReload;
+                        t.reload_type = generals_sim::weapon::WeaponReloadType::NoReload;
                     } else {
-                        t.reload_type = gamelogic::weapon::WeaponReloadType::AutoReload;
+                        t.reload_type = generals_sim::weapon::WeaponReloadType::AutoReload;
                     }
                     store.add_weapon_template(t);
                 }
@@ -563,7 +563,7 @@ mod tests {
                 t.primary_damage = 10.0;
                 t.clip_size = 2;
                 t.clip_reload_time = 60;
-                t.reload_type = gamelogic::weapon::WeaponReloadType::AutoReload;
+                t.reload_type = generals_sim::weapon::WeaponReloadType::AutoReload;
                 store.add_weapon_template(t);
             });
             let mut d = HostFireWeaponWhenDamagedData {
@@ -605,9 +605,9 @@ mod tests {
                     t.min_delay_between_shots = 10;
                     t.max_delay_between_shots = 10;
                     t.reload_type = if auto {
-                        gamelogic::weapon::WeaponReloadType::AutoReload
+                        generals_sim::weapon::WeaponReloadType::AutoReload
                     } else {
-                        gamelogic::weapon::WeaponReloadType::NoReload
+                        generals_sim::weapon::WeaponReloadType::NoReload
                     };
                     store.add_weapon_template(t);
                 }

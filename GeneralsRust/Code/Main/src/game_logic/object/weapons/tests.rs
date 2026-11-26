@@ -541,7 +541,7 @@ fn leftover_choose_best_skips_empty_no_auto_reload_slot() {
         let mut template = gamelogic::weapon::WeaponTemplate::new(EMPTY.to_string());
         template.primary_damage = 100.0;
         template.attack_range = 200.0;
-        template.reload_type = gamelogic::weapon::WeaponReloadType::NoReload;
+        template.reload_type = generals_sim::weapon::WeaponReloadType::NoReload;
         store.add_weapon_template(template);
     });
     let mut t = ThingTemplate::new("EmptyNoReloadChooser");

@@ -382,7 +382,7 @@ fn deferred_ammo_commit_matches_cpp_private_fire_order() {
     use crate::game_logic::host_attack_log::AttackEvents;
     use crate::game_logic::host_fire_sound_loop_log::FireSoundLoopEvents;
     use game_engine::common::random_value::SessionRandom;
-    use gamelogic::weapon::WeaponBonusSet;
+    use generals_sim::weapon::WeaponBonusSet;
 
     let mut game = world(AIState::Idle, 0.0, 1);
     let source = game.host_object_mut(SOURCE).unwrap();

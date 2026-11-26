@@ -507,7 +507,7 @@ impl Object {
         target: &Object,
         weapon: &Weapon,
         slot: Option<u8>,
-        solo_set: Option<&gamelogic::weapon::WeaponBonusSet>,
+        solo_set: Option<&generals_sim::weapon::WeaponBonusSet>,
     ) -> bool {
         // This helper is used by live acquisition and combat state paths, not
         // merely a range query.  Keep C++ WeaponSet's unconditional target

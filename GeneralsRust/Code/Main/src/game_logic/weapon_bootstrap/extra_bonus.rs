@@ -6,10 +6,7 @@
 
 use super::with_host_weapon_store as with_weapon_store;
 use super::*;
-use gamelogic::weapon::{
-    WeaponBonus, WeaponBonusConditionFlags, WeaponBonusConditionType, WeaponBonusField,
-    WeaponBonusSet,
-};
+use generals_sim::weapon::{WeaponBonus, WeaponBonusConditionFlags, WeaponBonusConditionType, WeaponBonusField, WeaponBonusSet};
 
 /// C++ `Weapon::computeBonus` extra-set append for the named leftover template.
 pub fn append_extra_weapon_bonus(

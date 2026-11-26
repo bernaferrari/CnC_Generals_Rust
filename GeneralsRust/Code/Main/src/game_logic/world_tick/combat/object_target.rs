@@ -430,7 +430,7 @@ impl GameLogic {
                         .unwrap_or(0.0);
                     let prefire = {
                         attacker.selected_native_weapon_rule(slot).map(|rule| {
-                            use gamelogic::weapon::WeaponPrefireType;
+                            use generals_sim::weapon::WeaponPrefireType;
                             use crate::game_logic::weapon_bootstrap::HostPrefireType;
                             match rule.prefire_type {
                                 WeaponPrefireType::PrefirePerAttack => HostPrefireType::PerAttack,

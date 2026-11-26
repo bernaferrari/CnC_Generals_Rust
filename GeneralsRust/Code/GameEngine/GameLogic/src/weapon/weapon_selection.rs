@@ -136,7 +136,7 @@ impl WeaponSet {
             let victim_anti_mask = objects
                 .map(|(_, target)| get_victim_anti_mask_for_object(target))
                 .unwrap_or_else(|| get_victim_anti_mask(target_obj));
-            if weapon.get_template().anti_mask.0 & victim_anti_mask == 0 {
+            if weapon.get_template().anti_mask.bits() & victim_anti_mask == 0 {
                 continue;
             }
             let within_pitch = objects.map_or_else(

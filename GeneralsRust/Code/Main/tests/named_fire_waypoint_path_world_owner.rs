@@ -187,7 +187,7 @@ fn admitted_world_with_projectile_ai(
     weapon.projectile_name = projectile_name.to_owned();
     if manual_reload {
         weapon.clip_size = 2;
-        weapon.reload_type = gamelogic::weapon::WeaponReloadType::NoReload;
+        weapon.reload_type = generals_sim::weapon::WeaponReloadType::NoReload;
     }
     let mut weapons = vec![(WEAPON.into(), weapon)];
     if let Some((name, projectile, capable)) = secondary_weapon {
@@ -196,7 +196,7 @@ fn admitted_world_with_projectile_ai(
         secondary.projectile_name = projectile.to_owned();
         if manual_reload {
             secondary.clip_size = 2;
-            secondary.reload_type = gamelogic::weapon::WeaponReloadType::NoReload;
+            secondary.reload_type = generals_sim::weapon::WeaponReloadType::NoReload;
         }
         weapons.push((name.to_owned(), secondary));
     }

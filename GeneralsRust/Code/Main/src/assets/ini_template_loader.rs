@@ -862,8 +862,8 @@ fn parse_percent_to_real(token: &str) -> Option<f32> {
 
 fn parse_weapon_bonus_condition(
     token: &str,
-) -> Option<gamelogic::weapon::WeaponBonusConditionType> {
-    use gamelogic::weapon::WeaponBonusConditionType::*;
+) -> Option<generals_sim::weapon::WeaponBonusConditionType> {
+    use generals_sim::weapon::WeaponBonusConditionType::*;
     match token.trim().to_ascii_uppercase().as_str() {
         "GARRISONED" => Some(Garrisoned),
         "HORDE" => Some(Horde),
@@ -896,8 +896,8 @@ fn parse_weapon_bonus_condition(
     }
 }
 
-fn parse_weapon_bonus_field(token: &str) -> Option<gamelogic::weapon::WeaponBonusField> {
-    use gamelogic::weapon::WeaponBonusField::*;
+fn parse_weapon_bonus_field(token: &str) -> Option<generals_sim::weapon::WeaponBonusField> {
+    use generals_sim::weapon::WeaponBonusField::*;
     match token.trim().to_ascii_uppercase().as_str() {
         "DAMAGE" => Some(Damage),
         "RADIUS" => Some(Radius),
@@ -1219,29 +1219,29 @@ pub(crate) fn build_weapon_template_ordered(
     };
     parse_anti_mask(
         "AntiAirborneVehicle",
-        gamelogic::weapon::WeaponAntiMask::AIRBORNE_VEHICLE,
+        generals_sim::weapon::WeaponAntiMask::AIRBORNE_VEHICLE,
     );
-    parse_anti_mask("AntiGround", gamelogic::weapon::WeaponAntiMask::GROUND);
+    parse_anti_mask("AntiGround", generals_sim::weapon::WeaponAntiMask::GROUND);
     parse_anti_mask(
         "AntiProjectile",
-        gamelogic::weapon::WeaponAntiMask::PROJECTILE,
+        generals_sim::weapon::WeaponAntiMask::PROJECTILE,
     );
     parse_anti_mask(
         "AntiSmallMissile",
-        gamelogic::weapon::WeaponAntiMask::SMALL_MISSILE,
+        generals_sim::weapon::WeaponAntiMask::SMALL_MISSILE,
     );
-    parse_anti_mask("AntiMine", gamelogic::weapon::WeaponAntiMask::MINE);
+    parse_anti_mask("AntiMine", generals_sim::weapon::WeaponAntiMask::MINE);
     parse_anti_mask(
         "AntiParachute",
-        gamelogic::weapon::WeaponAntiMask::PARACHUTE,
+        generals_sim::weapon::WeaponAntiMask::PARACHUTE,
     );
     parse_anti_mask(
         "AntiAirborneInfantry",
-        gamelogic::weapon::WeaponAntiMask::AIRBORNE_INFANTRY,
+        generals_sim::weapon::WeaponAntiMask::AIRBORNE_INFANTRY,
     );
     parse_anti_mask(
         "AntiBallisticMissile",
-        gamelogic::weapon::WeaponAntiMask::BALLISTIC_MISSILE,
+        generals_sim::weapon::WeaponAntiMask::BALLISTIC_MISSILE,
     );
     // Release the closure's exclusive template borrow before parsing the
     // remainder of the Weapon.ini fields.
@@ -1861,7 +1861,7 @@ End
         with_weapons_from_ini_text(ini_content, |n| {
             assert_eq!(n, 1);
             gamelogic::with_weapon_store(|store| {
-            use gamelogic::weapon::WeaponAntiMask;
+            use generals_sim::weapon::WeaponAntiMask;
 
             let weapon = store
                 .find_weapon_template("__RustExactWeaponAntiMask")

@@ -102,8 +102,8 @@ impl Object {
     ) -> crate::game_logic::weapon_bootstrap::HostReloadType {
         use crate::game_logic::weapon_bootstrap::HostReloadType;
         rule.map(|rule| match rule.reload_type {
-            gamelogic::weapon::WeaponReloadType::AutoReload => HostReloadType::Auto,
-            gamelogic::weapon::WeaponReloadType::ReturnToBaseToReload => {
+            generals_sim::weapon::WeaponReloadType::AutoReload => HostReloadType::Auto,
+            generals_sim::weapon::WeaponReloadType::ReturnToBaseToReload => {
                 HostReloadType::ReturnToBase
             }
             _ => HostReloadType::Manual,
@@ -551,7 +551,7 @@ impl Object {
         &self,
         slot: u8,
         dist: f32,
-        solo_set: &gamelogic::weapon::WeaponBonusSet,
+        solo_set: &generals_sim::weapon::WeaponBonusSet,
     ) -> bool {
         self.is_within_attack_range_at_distance_with_optional_solo_set(slot, dist, Some(solo_set))
     }
@@ -560,7 +560,7 @@ impl Object {
         &self,
         slot: u8,
         dist: f32,
-        solo_set: Option<&gamelogic::weapon::WeaponBonusSet>,
+        solo_set: Option<&generals_sim::weapon::WeaponBonusSet>,
     ) -> bool {
         let Some(weapon) = self.weapon_slot(slot) else {
             return false;
@@ -590,7 +590,7 @@ impl Object {
         &self,
         slot: u8,
         pos: glam::Vec3,
-        solo_set: &gamelogic::weapon::WeaponBonusSet,
+        solo_set: &generals_sim::weapon::WeaponBonusSet,
     ) -> bool {
         self.is_within_attack_range_at_distance_with_solo_set(
             slot,
@@ -617,7 +617,7 @@ impl Object {
         &self,
         slot: u8,
         other: &Object,
-        solo_set: &gamelogic::weapon::WeaponBonusSet,
+        solo_set: &generals_sim::weapon::WeaponBonusSet,
     ) -> bool {
         self.is_within_attack_range_for_slot_with_optional_solo_set(slot, other, Some(solo_set))
     }
@@ -626,7 +626,7 @@ impl Object {
         &self,
         slot: u8,
         other: &Object,
-        solo_set: Option<&gamelogic::weapon::WeaponBonusSet>,
+        solo_set: Option<&generals_sim::weapon::WeaponBonusSet>,
     ) -> bool {
         if other.is_kind_of(KindOf::Bridge) {
             return self.is_within_attack_range_for_slot_bridge_with_optional_solo_set(
@@ -665,7 +665,7 @@ impl Object {
         slot: u8,
         goal: glam::Vec3,
         other: &Object,
-        solo_set: &gamelogic::weapon::WeaponBonusSet,
+        solo_set: &generals_sim::weapon::WeaponBonusSet,
     ) -> bool {
         self.is_within_attack_range_for_slot_from_goal_with_optional_solo_set(
             slot,
@@ -680,7 +680,7 @@ impl Object {
         slot: u8,
         goal: glam::Vec3,
         other: &Object,
-        solo_set: Option<&gamelogic::weapon::WeaponBonusSet>,
+        solo_set: Option<&generals_sim::weapon::WeaponBonusSet>,
     ) -> bool {
         let ra = (*self.geometry_info()).bounding_circle_radius();
         let rb = (*other.geometry_info()).bounding_circle_radius();
@@ -708,7 +708,7 @@ impl Object {
         slot: u8,
         goal: glam::Vec3,
         pos: glam::Vec3,
-        solo_set: &gamelogic::weapon::WeaponBonusSet,
+        solo_set: &generals_sim::weapon::WeaponBonusSet,
     ) -> bool {
         self.is_within_attack_range_pos_for_slot_from_goal_with_optional_solo_set(
             slot,
@@ -723,7 +723,7 @@ impl Object {
         slot: u8,
         goal: glam::Vec3,
         pos: glam::Vec3,
-        solo_set: Option<&gamelogic::weapon::WeaponBonusSet>,
+        solo_set: Option<&generals_sim::weapon::WeaponBonusSet>,
     ) -> bool {
         let ra = (*self.geometry_info()).bounding_circle_radius();
         let dx = goal.x - pos.x;
@@ -753,7 +753,7 @@ impl Object {
         &self,
         slot: u8,
         other: &Object,
-        solo_set: Option<&gamelogic::weapon::WeaponBonusSet>,
+        solo_set: Option<&generals_sim::weapon::WeaponBonusSet>,
     ) -> bool {
         let Some(weapon) = self.weapon_slot(slot) else {
             return false;
@@ -903,7 +903,7 @@ impl Object {
     pub(crate) fn is_within_attack_range_with_solo_set(
         &self,
         other: &Object,
-        solo_set: &gamelogic::weapon::WeaponBonusSet,
+        solo_set: &generals_sim::weapon::WeaponBonusSet,
     ) -> bool {
         [0u8, 1u8, 2u8]
             .into_iter()

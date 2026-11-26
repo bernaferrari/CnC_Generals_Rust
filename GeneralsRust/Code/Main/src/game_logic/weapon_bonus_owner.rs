@@ -4,51 +4,7 @@
 //! fire. Main admits the immutable GameData rows with its weapon content and
 //! passes this set explicitly to migrated owner-aware readers.
 
-use gamelogic::weapon::{WeaponBonus, WeaponBonusConditionType, WeaponBonusField, WeaponBonusSet};
-
-fn bonus_condition(value: &str) -> Option<WeaponBonusConditionType> {
-    match value.trim().to_ascii_uppercase().as_str() {
-        "GARRISONED" => Some(WeaponBonusConditionType::Garrisoned),
-        "HORDE" => Some(WeaponBonusConditionType::Horde),
-        "CONTINUOUS_FIRE_MEAN" => Some(WeaponBonusConditionType::ContinuousFireMean),
-        "CONTINUOUS_FIRE_FAST" => Some(WeaponBonusConditionType::ContinuousFireFast),
-        "NATIONALISM" => Some(WeaponBonusConditionType::Nationalism),
-        "PLAYER_UPGRADE" => Some(WeaponBonusConditionType::PlayerUpgrade),
-        "DRONE_SPOTTING" => Some(WeaponBonusConditionType::DroneSpotting),
-        "DEMORALIZED" | "DEMORALIZED_OBSOLETE" => Some(WeaponBonusConditionType::Demoralized),
-        "ENTHUSIASTIC" => Some(WeaponBonusConditionType::Enthusiastic),
-        "VETERAN" => Some(WeaponBonusConditionType::Veteran),
-        "ELITE" => Some(WeaponBonusConditionType::Elite),
-        "HERO" => Some(WeaponBonusConditionType::Hero),
-        "BATTLEPLAN_BOMBARDMENT" => Some(WeaponBonusConditionType::BattleplanBombardment),
-        "BATTLEPLAN_HOLDTHELINE" => Some(WeaponBonusConditionType::BattleplanHoldtheLine),
-        "BATTLEPLAN_SEARCHANDDESTROY" => Some(WeaponBonusConditionType::BattleplanSearchAndDestroy),
-        "SUBLIMINAL" => Some(WeaponBonusConditionType::Subliminal),
-        "SOLO_HUMAN_EASY" => Some(WeaponBonusConditionType::SoloHumanEasy),
-        "SOLO_HUMAN_NORMAL" => Some(WeaponBonusConditionType::SoloHumanNormal),
-        "SOLO_HUMAN_HARD" => Some(WeaponBonusConditionType::SoloHumanHard),
-        "SOLO_AI_EASY" => Some(WeaponBonusConditionType::SoloAiEasy),
-        "SOLO_AI_NORMAL" => Some(WeaponBonusConditionType::SoloAiNormal),
-        "SOLO_AI_HARD" => Some(WeaponBonusConditionType::SoloAiHard),
-        "TARGET_FAERIE_FIRE" => Some(WeaponBonusConditionType::TargetFaerieFire),
-        "FANATICISM" => Some(WeaponBonusConditionType::Fanaticism),
-        "FRENZY_ONE" => Some(WeaponBonusConditionType::FrenzyOne),
-        "FRENZY_TWO" => Some(WeaponBonusConditionType::FrenzyTwo),
-        "FRENZY_THREE" => Some(WeaponBonusConditionType::FrenzyThree),
-        _ => None,
-    }
-}
-
-fn bonus_field(value: &str) -> Option<WeaponBonusField> {
-    match value.trim().to_ascii_uppercase().as_str() {
-        "DAMAGE" => Some(WeaponBonusField::Damage),
-        "RADIUS" => Some(WeaponBonusField::Radius),
-        "RANGE" => Some(WeaponBonusField::Range),
-        "RATE_OF_FIRE" => Some(WeaponBonusField::RateOfFire),
-        "PRE_ATTACK" | "PREATTACK" => Some(WeaponBonusField::PreAttack),
-        _ => None,
-    }
-}
+use generals_sim::weapon::{WeaponBonus, WeaponBonusConditionType, WeaponBonusField, WeaponBonusSet};
 
 pub(crate) fn from_entries(
     entries: &[game_engine::common::ini::ini_game_data::WeaponBonusEntry],
@@ -56,7 +12,7 @@ pub(crate) fn from_entries(
     let mut set = WeaponBonusSet::new();
     for entry in entries {
         let (Some(condition), Some(field)) =
-            (bonus_condition(&entry.condition), bonus_field(&entry.field))
+            (WeaponBonusConditionType::from_ini(&entry.condition), WeaponBonusField::from_ini(&entry.field))
         else {
             continue;
         };

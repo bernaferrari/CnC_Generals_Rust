@@ -30,9 +30,8 @@
 
 // Restricted re-exports so impl submodules can `use super::*;`
 // without dumping the parent crate surface through `pub use`.
-pub(in crate::game_logic::weapon_bootstrap) use gamelogic::weapon::{
-    WeaponAntiMask, WeaponTemplate, with_weapon_store, with_weapon_store_mut,
-};
+pub(in crate::game_logic::weapon_bootstrap) use gamelogic::weapon::{WeaponTemplate, with_weapon_store, with_weapon_store_mut};
+pub(in crate::game_logic::weapon_bootstrap) use generals_sim::weapon::WeaponAntiMask;
 use glam::Vec3;
 
 mod names;

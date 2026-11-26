@@ -122,7 +122,7 @@ fn authored_short_range_survives_one_runtime_deduction() {
         store
             .find_weapon_template("AuthoredRangeShort")
             .unwrap()
-            .get_attack_range(&gamelogic::weapon::WeaponBonus::new())
+            .get_attack_range(&generals_sim::weapon::WeaponBonus::new())
     };
     assert_eq!(expected, 2.5, "unchanged native C++ yardstick");
     let (logic, id) = admit("AuthoredRangeShort");
@@ -153,7 +153,7 @@ fn authored_minimum_range_is_rationalized_once_at_runtime() {
         let store = &AuthoredRules::parse();
         let rules = store.find_weapon_template("AuthoredRangeMinimum").unwrap();
         (
-            rules.get_attack_range(&gamelogic::weapon::WeaponBonus::new()),
+            rules.get_attack_range(&generals_sim::weapon::WeaponBonus::new()),
             rules.get_minimum_attack_range(),
         )
     };
@@ -203,10 +203,10 @@ fn authored_range_bonus_precedes_one_runtime_deduction() {
             .extra_bonus
             .as_ref()
             .unwrap()
-            .get_bonus(gamelogic::weapon::WeaponBonusConditionType::PlayerUpgrade)
+            .get_bonus(generals_sim::weapon::WeaponBonusConditionType::PlayerUpgrade)
             .unwrap();
         assert_eq!(
-            authored_bonus.get_field(gamelogic::weapon::WeaponBonusField::Range),
+            authored_bonus.get_field(generals_sim::weapon::WeaponBonusField::Range),
             2.0
         );
         rules.get_attack_range(authored_bonus)

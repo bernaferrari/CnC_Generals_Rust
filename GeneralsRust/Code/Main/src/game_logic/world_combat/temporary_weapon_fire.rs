@@ -263,10 +263,10 @@ impl GameLogic {
         let rule = self.weapon_definitions.as_ref()
             .and_then(|catalog| catalog.get(&spec.weapon_template_name.to_ascii_lowercase()))
             .cloned();
-        let mut bonus = gamelogic::weapon::WeaponBonus::new();
+        let mut bonus = generals_sim::weapon::WeaponBonus::new();
         if let (Some(object), Some(rule)) = (self.objects.get(&source), rule.as_ref()) {
             let rate = self.receiving_weapon_bonus_fields(object, Some(rule)).2;
-            bonus.set_field(gamelogic::weapon::WeaponBonusField::RateOfFire, rate);
+            bonus.set_field(generals_sim::weapon::WeaponBonusField::RateOfFire, rate);
         }
         if self.fire_named_temporary_with_owned_state(source, &spec, Some(fire_state), None, effects)?.is_none() {
             return Ok(());

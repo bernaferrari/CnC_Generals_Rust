@@ -23,7 +23,7 @@ fn explicit_solo_set_is_authoritative_and_neutral_when_missing_condition() {
     );
     assert_eq!(first_fields.0, 1.5);
     assert_eq!(second_fields.0, 2.0);
-    let empty = gamelogic::weapon::WeaponBonusSet::new();
+    let empty = generals_sim::weapon::WeaponBonusSet::new();
     assert_eq!(
         object
             .weapon_bonus_fields_for_named_weapon_with_solo_set("AbsentExtraWeapon", &empty,)

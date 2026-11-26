@@ -9,7 +9,7 @@ pub enum HostReloadType {
 
 pub fn host_reload_type_for_weapon_name(name: &str) -> HostReloadType {
     use super::with_host_weapon_store as with_weapon_store;
-    use gamelogic::weapon::WeaponReloadType as GlReload;
+    use generals_sim::weapon::WeaponReloadType as GlReload;
     let from_store = with_weapon_store(|store| {
         store
             .find_weapon_template(name)
@@ -68,7 +68,7 @@ impl HostPrefireType {
 /// Resolve PreAttackType for a weapon name.
 pub fn host_prefire_type_for_weapon_name(name: &str) -> HostPrefireType {
     use super::with_host_weapon_store as with_weapon_store;
-    use gamelogic::weapon::WeaponPrefireType;
+    use generals_sim::weapon::WeaponPrefireType;
     let from_store = with_weapon_store(|store| {
         store
             .find_weapon_template(name)
@@ -123,11 +123,11 @@ pub fn host_delay_between_shots_secs_nominal_with_rof(name: &str, rof: f32) -> O
 /// C++ WeaponTemplate::getDelayBetweenShots frame draw before RATE_OF_FIRE.
 /// Inclusive GameLogicRandomValue when Min != Max.
 pub fn delay_between_shots_frames(min_frames: i32, max_frames: i32) -> i32 {
-    if min_frames == max_frames {
-        min_frames
-    } else {
-        gamelogic::helpers::get_game_logic_random_value(min_frames, max_frames)
-    }
+    generals_sim::weapon::draw_shot_delay(
+        min_frames,
+        max_frames,
+        gamelogic::helpers::get_game_logic_random_value,
+    )
 }
 
 /// Per-shot DelayBetweenShots in host seconds (frames / 30), rolled when Min != Max.
@@ -146,7 +146,7 @@ fn leftover_delay_between_shots_secs_using(
     random: Option<&game_engine::common::random_value::SessionRandom>,
 ) -> Option<f32> {
     use super::with_host_weapon_store as with_weapon_store;
-    use gamelogic::weapon::{WeaponBonus, WeaponBonusField};
+    use generals_sim::weapon::{WeaponBonus, WeaponBonusField};
     with_weapon_store(|store| {
         store.find_weapon_template(name).and_then(|wt| {
             let mut bonus = WeaponBonus::new();
@@ -157,10 +157,7 @@ fn leftover_delay_between_shots_secs_using(
                     None => wt.get_delay_between_shots(&bonus),
                 }
             } else {
-                let mut yardstick = WeaponTemplate::new(wt.name.clone());
-                yardstick.min_delay_between_shots = wt.min_delay_between_shots;
-                yardstick.max_delay_between_shots = wt.min_delay_between_shots;
-                yardstick.get_delay_between_shots(&bonus)
+                bonus.reload_frames(wt.min_delay_between_shots)
             };
             (frames > 0).then_some(frames as f32 / 30.0)
         })

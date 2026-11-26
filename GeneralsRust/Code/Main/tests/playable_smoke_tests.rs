@@ -87,9 +87,9 @@ fn install_smoke_templates(game_logic: &mut GameLogic) -> TempDir {
     let mut ranger_gun = gamelogic::weapon::WeaponTemplate::new("SmokeRangerGun".into());
     ranger_gun.primary_damage = 60.0;
     ranger_gun.attack_range = 200.0;
-    ranger_gun.anti_mask = gamelogic::weapon::WeaponAntiMask::new(
-        gamelogic::weapon::WeaponAntiMask::GROUND
-            | gamelogic::weapon::WeaponAntiMask::AIRBORNE_VEHICLE,
+    ranger_gun.anti_mask = generals_sim::weapon::WeaponAntiMask::new(
+        generals_sim::weapon::WeaponAntiMask::GROUND
+            | generals_sim::weapon::WeaponAntiMask::AIRBORNE_VEHICLE,
     );
     game_logic
         .admit_receiving_weapon_snapshot(vec![("SmokeRangerGun".into(), ranger_gun)])

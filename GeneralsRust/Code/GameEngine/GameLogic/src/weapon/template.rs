@@ -445,12 +445,7 @@ impl WeaponTemplate {
 
     /// Get attack range with bonus applied
     pub fn get_attack_range(&self, bonus: &WeaponBonus) -> f32 {
-        // Note: undersize by 1/4 of a pathfind cell to avoid edge cases
-        const PATHFIND_CELL_SIZE: f32 = 10.0; // Assumed value
-        const UNDERSIZE: f32 = PATHFIND_CELL_SIZE * 0.25;
-
-        let range = self.attack_range * bonus.get_field(WeaponBonusField::Range) - UNDERSIZE;
-        range.max(0.0)
+        bonus.attack_range(self.attack_range)
     }
 
     /// Get unmodified attack range
@@ -508,11 +503,7 @@ impl WeaponTemplate {
 
     /// Get minimum attack range
     pub fn get_minimum_attack_range(&self) -> f32 {
-        const PATHFIND_CELL_SIZE: f32 = 10.0; // Assumed value
-        const UNDERSIZE: f32 = PATHFIND_CELL_SIZE * 0.25;
-
-        let range = self.minimum_attack_range - UNDERSIZE;
-        range.max(0.0)
+        generals_sim::weapon::minimum_attack_range(self.minimum_attack_range)
     }
 
     /// Get delay between shots with bonus applied
@@ -542,47 +533,37 @@ impl WeaponTemplate {
         bonus: &WeaponBonus,
         random: impl FnOnce(i32, i32) -> i32,
     ) -> i32 {
-        // C++ Weapon.cpp line 480-483: Random number thing doesn't like min==max case
-        let delay = if self.min_delay_between_shots == self.max_delay_between_shots {
-            self.min_delay_between_shots
-        } else {
-            random(self.min_delay_between_shots, self.max_delay_between_shots)
-        };
-
-        let bonus_rof = bonus.get_field(WeaponBonusField::RateOfFire);
-        // C++ Weapon.cpp line 489: REAL_TO_INT_FLOOR(delayToUse / bonusROF)
-        ((delay as f32) / bonus_rof).floor() as i32
+        bonus.delay_between_shots(self.min_delay_between_shots, self.max_delay_between_shots, random)
     }
 
     /// Get clip reload time with bonus applied
     pub fn get_clip_reload_time(&self, bonus: &WeaponBonus) -> i32 {
-        let bonus_rof = bonus.get_field(WeaponBonusField::RateOfFire);
-        ((self.clip_reload_time as f32) / bonus_rof).floor() as i32
+        bonus.reload_frames(self.clip_reload_time)
     }
 
     /// Get pre-attack delay with bonus applied
     pub fn get_pre_attack_delay(&self, bonus: &WeaponBonus) -> i32 {
-        ((self.pre_attack_delay as f32) * bonus.get_field(WeaponBonusField::PreAttack)) as i32
+        bonus.pre_attack_frames(self.pre_attack_delay)
     }
 
     /// Get primary damage with bonus applied
     pub fn get_primary_damage(&self, bonus: &WeaponBonus) -> f32 {
-        self.primary_damage * bonus.get_field(WeaponBonusField::Damage)
+        bonus.damage(self.primary_damage)
     }
 
     /// Get primary damage radius with bonus applied
     pub fn get_primary_damage_radius(&self, bonus: &WeaponBonus) -> f32 {
-        self.primary_damage_radius * bonus.get_field(WeaponBonusField::Radius)
+        bonus.damage_radius(self.primary_damage_radius)
     }
 
     /// Get secondary damage with bonus applied
     pub fn get_secondary_damage(&self, bonus: &WeaponBonus) -> f32 {
-        self.secondary_damage * bonus.get_field(WeaponBonusField::Damage)
+        bonus.damage(self.secondary_damage)
     }
 
     /// Get secondary damage radius with bonus applied
     pub fn get_secondary_damage_radius(&self, bonus: &WeaponBonus) -> f32 {
-        self.secondary_damage_radius * bonus.get_field(WeaponBonusField::Radius)
+        bonus.damage_radius(self.secondary_damage_radius)
     }
 
     /// Check if this is a contact weapon (requires collision with target)
@@ -592,13 +573,7 @@ impl WeaponTemplate {
     /// one pathfind cell size. This ensures weapons that require close proximity
     /// (melee, collision-based) are correctly identified.
     pub fn is_contact_weapon(&self) -> bool {
-        // Note: undersize by 1/4 of a pathfind cell to avoid edge cases with
-        // goal positions teetering on the edge of firing range
-        const PATHFIND_CELL_SIZE: f32 = 10.0;
-        const UNDERSIZE: f32 = PATHFIND_CELL_SIZE * 0.25;
-
-        // Contact weapon if attack range after undersize is less than one cell
-        (self.attack_range - UNDERSIZE) < PATHFIND_CELL_SIZE
+        generals_sim::weapon::is_contact_weapon(self.attack_range)
     }
 
     /// Check if this weapon automatically reloads

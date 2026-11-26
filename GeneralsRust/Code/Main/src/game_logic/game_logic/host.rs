@@ -37,7 +37,7 @@ pub struct GameLogic {
     pub(crate) weapon_definition_base:
         Option<HashMap<String, Arc<gamelogic::weapon::WeaponTemplate>>>,
     /// Immutable SOLO WeaponBonus rows admitted with this session's weapon content.
-    pub(crate) solo_weapon_bonus_set: gamelogic::weapon::WeaponBonusSet,
+    pub(crate) solo_weapon_bonus_set: generals_sim::weapon::WeaponBonusSet,
     /// Original application GameData values; map overrides are derived from this owner.
     pub(crate) combat_bonus_base: game_engine::common::ini::ini_game_data::CombatBonusRules,
     pub(crate) tunnel_capacity_base: i32,

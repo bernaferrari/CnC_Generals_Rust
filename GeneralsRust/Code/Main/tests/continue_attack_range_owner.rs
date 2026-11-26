@@ -6,7 +6,7 @@ use glam::Vec3;
 use std::time::UNIX_EPOCH;
 
 fn world(range: f32, weapon_name: &str) -> (GameLogic, ObjectId, ObjectId, ObjectId) {
-    world_with_scatter(range, weapon_name, 0.0)
+    world_with_weapon_bonus(range, weapon_name, 0.0, None, None, false)
 }
 
 #[test]
@@ -25,14 +25,6 @@ fn selected_attack_order_does_not_teleport_either_session() {
     assert_eq!(peer.host_object(attacker).unwrap().get_position(), start);
 }
 
-fn world_with_scatter(
-    range: f32,
-    weapon_name: &str,
-    scatter: f32,
-) -> (GameLogic, ObjectId, ObjectId, ObjectId) {
-    world_with_weapon_bonus(range, weapon_name, scatter, None, None, false)
-}
-
 fn world_with_weapon_bonus(
     range: f32,
     weapon_name: &str,
@@ -49,6 +41,7 @@ fn world_with_weapon_bonus(
         extra_damage,
         secondary_splash,
         None,
+        None,
     )
 }
 
@@ -60,6 +53,7 @@ fn world_with_upgrade_damage(
     extra_damage: Option<f32>,
     secondary_splash: bool,
     upgrade_damage: Option<u32>,
+    laser_name: Option<&str>,
 ) -> (GameLogic, ObjectId, ObjectId, ObjectId) {
     let mut game = GameLogic::new();
     if let Some(percent) = upgrade_damage {
@@ -79,10 +73,11 @@ fn world_with_upgrade_damage(
     weapon.attack_range = 200.0;
     weapon.continue_attack_range = range;
     weapon.scatter_radius = scatter;
+    if let Some(laser_name) = laser_name {
+        weapon.laser_name = laser_name.into();
+    }
     if extra_radius.is_some() || extra_damage.is_some() {
-        use gamelogic::weapon::{
-            WeaponBonus, WeaponBonusConditionType, WeaponBonusField, WeaponBonusSet,
-        };
+        use generals_sim::weapon::{WeaponBonus, WeaponBonusConditionType, WeaponBonusField, WeaponBonusSet};
         let mut bonus = WeaponBonus::new();
         if let Some(radius) = extra_radius {
             weapon.primary_damage_radius = 5.0;
@@ -145,6 +140,7 @@ fn actual_damage_uses_each_sessions_authored_upgrade_bonus() {
         Some(1.0),
         false,
         Some(50),
+        None,
     );
     let (mut full, peer_attacker, peer_target, _) = world_with_upgrade_damage(
         0.0,
@@ -154,6 +150,7 @@ fn actual_damage_uses_each_sessions_authored_upgrade_bonus() {
         Some(1.0),
         false,
         Some(200),
+        None,
     );
     assert_eq!((attacker, target), (peer_attacker, peer_target));
     assert!(weak.unit_command_attack(attacker, target).unwrap());
@@ -399,11 +396,22 @@ fn zero_radius_ground_shot_consumes_its_shot_without_a_direct_victim() {
 }
 
 #[test]
-fn instant_shot_scatter_uses_the_receiving_weapon_definition() {
-    let (mut scattered, attacker, target, _) =
-        world_with_scatter(0.0, "SharedScatterWeapon", 10_000.0);
-    let (mut accurate, peer_attacker, peer_target, _) =
-        world_with_scatter(0.0, "SharedScatterWeapon", 0.0);
+fn instant_laser_scatter_uses_the_receiving_weapon_definition() {
+    // Weapon.cpp:1008–1032 drops the direct victim only for a laser miss.
+    let laser_world = |scatter| {
+        world_with_upgrade_damage(
+            0.0,
+            "SharedScatterWeapon",
+            scatter,
+            None,
+            None,
+            false,
+            None,
+            Some("ScatterCheckBeam"),
+        )
+    };
+    let (mut scattered, attacker, target, _) = laser_world(10_000.0);
+    let (mut accurate, peer_attacker, peer_target, _) = laser_world(0.0);
     assert_eq!((attacker, target), (peer_attacker, peer_target));
     assert!(scattered.unit_command_attack(attacker, target).unwrap());
     assert!(accurate.unit_command_attack(attacker, target).unwrap());

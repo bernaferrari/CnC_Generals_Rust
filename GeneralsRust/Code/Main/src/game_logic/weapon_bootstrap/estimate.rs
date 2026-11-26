@@ -1,96 +1,11 @@
-//! C++ `WeaponTemplate::estimateWeaponTemplateDamage` + `ActiveBody::estimateDamage`.
+//! Collect receiving world facts for weapon damage estimation.
 
 use super::*;
-
-/// Victim snapshot for the C++ estimate gate (no leftover dual-world).
-#[derive(Debug, Clone, Copy)]
-pub struct HostEstimateVictim {
-    pub kind_structure: bool,
-    pub kind_shrubbery: bool,
-    pub kind_mine: bool,
-    pub kind_booby_trap: bool,
-    pub kind_demo_trap: bool,
-    pub under_construction: bool,
-    /// None means there is no ContainModuleInterface, not an empty container.
-    pub contain_count: Option<u32>,
-    pub garrisonable: bool,
-    pub immune_to_clear_building: bool,
-    pub airborne_target: bool,
-    /// C++ `ArmorTemplate::adjustDamage` coefficient for this weapon type.
-    /// 1.0 = no mitigation (specials-only tests). Tank/Structure SNIPER = 0.
-    pub armor_coeff: f32,
-}
-
-/// Weapon snapshot for the C++ estimate gate.
-#[derive(Debug, Clone, Copy, Default)]
-pub struct HostEstimateWeapon {
-    pub damage_type_sniper: bool,
-    pub damage_type_surrender: bool,
-    pub damage_type_disarm: bool,
-    pub damage_type_deploy: bool,
-    pub damage_type_kill_garrisoned: bool,
-    pub death_type_burned: bool,
-    pub allow_attack_garrisoned_bldgs: bool,
-    pub primary_damage: f32,
-}
-
-/// C++ `WeaponTemplate::estimateWeaponTemplateDamage` (Weapon.cpp:546-638)
-/// plus `ActiveBody::estimateDamage` specials (ActiveBody.cpp:264-292).
-///
-/// Returns 0 when C++ `canFireWeaponAtObject` / WeaponSet must refuse the shot.
-pub fn estimate_weapon_template_damage(
-    weapon: &HostEstimateWeapon,
-    victim: Option<&HostEstimateVictim>,
-) -> f32 {
-    let Some(victim) = victim else {
-        return weapon.primary_damage.max(0.0);
-    };
-
-    if victim.kind_shrubbery {
-        return if weapon.death_type_burned { 1.0 } else { 0.0 };
-    }
-
-    if victim.kind_structure && weapon.damage_type_sniper && victim.contain_count == Some(0) {
-        return 0.0;
-    }
-
-    if weapon.damage_type_surrender || weapon.allow_attack_garrisoned_bldgs {
-        if victim.contain_count.is_some_and(|count| count > 0)
-            && victim.garrisonable
-            && !victim.immune_to_clear_building
-        {
-            return 1.0;
-        }
-    }
-
-    if weapon.damage_type_disarm {
-        if victim.kind_mine || victim.kind_booby_trap || victim.kind_demo_trap {
-            return 1.0;
-        }
-        return 0.0;
-    }
-
-    if weapon.damage_type_deploy && !victim.airborne_target {
-        return 1.0;
-    }
-
-    if weapon.damage_type_kill_garrisoned {
-        if victim.contain_count.is_some_and(|count| count > 0)
-            && victim.garrisonable
-            && !victim.immune_to_clear_building
-        {
-            return 1.0;
-        }
-        return 0.0;
-    }
-
-    if weapon.damage_type_sniper && victim.kind_structure && victim.under_construction {
-        return 0.0;
-    }
-
-    // C++ `ActiveBody::estimateDamage` ends with `m_curArmor.adjustDamage`.
-    (weapon.primary_damage.max(0.0) * victim.armor_coeff.max(0.0)).max(0.0)
-}
+pub use generals_sim::weapon::{
+    DamageEstimateTarget as HostEstimateVictim,
+    WeaponDamageEstimate as HostEstimateWeapon,
+    estimate_weapon_template_damage,
+};
 
 /// C++ `WeaponTemplate::getDamageType` for an admitted weapon definition.
 pub fn host_weapon_is_sniper_damage(name: &str) -> bool {
@@ -106,23 +21,21 @@ pub fn host_weapon_allows_attack_garrisoned_bldgs(name: &str) -> bool {
     host_allow_attack_garrisoned_for_weapon_name(name)
 }
 
-impl HostEstimateWeapon {
-    pub(in crate::game_logic) fn from_rule(
-        rule: &gamelogic::weapon::WeaponTemplate,
-        primary_damage: f32,
-    ) -> Self {
-        use gamelogic::damage::{DamageType, DeathType};
+pub(in crate::game_logic) fn damage_estimate_from_rule(
+    rule: &gamelogic::weapon::WeaponTemplate,
+    primary_damage: f32,
+) -> HostEstimateWeapon {
+    use gamelogic::damage::{DamageType, DeathType};
 
-        Self {
-            damage_type_sniper: rule.damage_type == DamageType::Sniper,
-            damage_type_surrender: rule.damage_type == DamageType::Surrender,
-            damage_type_disarm: rule.damage_type == DamageType::Disarm,
-            damage_type_deploy: rule.damage_type == DamageType::Deploy,
-            damage_type_kill_garrisoned: rule.damage_type == DamageType::KillGarrisoned,
-            death_type_burned: rule.death_type == DeathType::Burned,
-            allow_attack_garrisoned_bldgs: rule.allow_attack_garrisoned_bldgs,
-            primary_damage,
-        }
+    HostEstimateWeapon {
+        damage_type_sniper: rule.damage_type == DamageType::Sniper,
+        damage_type_surrender: rule.damage_type == DamageType::Surrender,
+        damage_type_disarm: rule.damage_type == DamageType::Disarm,
+        damage_type_deploy: rule.damage_type == DamageType::Deploy,
+        damage_type_kill_garrisoned: rule.damage_type == DamageType::KillGarrisoned,
+        death_type_burned: rule.death_type == DeathType::Burned,
+        allow_attack_garrisoned_bldgs: rule.allow_attack_garrisoned_bldgs,
+        primary_damage,
     }
 }
 
@@ -134,7 +47,7 @@ pub(in crate::game_logic) fn host_estimate_named_weapon(
         let rule = store.find_weapon_template(name)?;
         Some((
             rule.damage_type,
-            HostEstimateWeapon::from_rule(rule, rule.primary_damage),
+            damage_estimate_from_rule(rule, rule.primary_damage),
         ))
     })
     .ok()

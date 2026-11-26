@@ -33,9 +33,7 @@ fn world_with_upgrade_bonus(
     secondary.scatter_target_scalar = 4.0;
     secondary.continue_attack_range = 90.0;
     if let Some(radius) = extra_radius {
-        use gamelogic::weapon::{
-            WeaponBonus, WeaponBonusConditionType, WeaponBonusField, WeaponBonusSet,
-        };
+        use generals_sim::weapon::{WeaponBonus, WeaponBonusConditionType, WeaponBonusField, WeaponBonusSet};
         let mut bonus = WeaponBonus::new();
         bonus.set_field(WeaponBonusField::Radius, radius);
         let mut set = WeaponBonusSet::new();
@@ -79,10 +77,7 @@ fn cursor_uses_each_sessions_authored_upgrade_bonus() {
 
 #[test]
 fn bonus_conditions_are_appended_in_cpp_order() {
-    use gamelogic::weapon::{
-        WeaponBonus, WeaponBonusConditionFlags, WeaponBonusConditionType as Condition,
-        WeaponBonusField, WeaponBonusSet,
-    };
+    use generals_sim::weapon::{WeaponBonus, WeaponBonusConditionFlags, WeaponBonusConditionType as Condition, WeaponBonusField, WeaponBonusSet};
     let mut set = WeaponBonusSet::new();
     let mut flags = WeaponBonusConditionFlags::new();
     for (condition, value) in [
@@ -241,9 +236,7 @@ fn contained_weapon_world_with_extra_rof(
     weapon.min_delay_between_shots = shot_delay_frames;
     weapon.max_delay_between_shots = shot_delay_frames;
     if let Some(rof) = extra_rof {
-        use gamelogic::weapon::{
-            WeaponBonus, WeaponBonusConditionType, WeaponBonusField, WeaponBonusSet,
-        };
+        use generals_sim::weapon::{WeaponBonus, WeaponBonusConditionType, WeaponBonusField, WeaponBonusSet};
         let mut bonus = WeaponBonus::new();
         bonus.set_field(WeaponBonusField::RateOfFire, rof);
         let mut set = WeaponBonusSet::new();
@@ -603,7 +596,7 @@ fn obsolete_oxob_versions_leave_the_receiving_world_untouched() {
         assert!(matches!(
             error,
             SaveLoadError::Corrupted(message)
-                if message == format!("unsupported OXOB projection version {version}")
+                if message == format!("unknown OXOB suffix version {version}")
         ));
         assert!(
             !receiving
@@ -645,7 +638,8 @@ fn rejected_oxob_trailing_bytes_leave_the_receiving_world_untouched() {
     receiving.host_object_mut(receiver).unwrap().target_location = Some(target);
     let result = builder.restore_from_snapshot(&snapshot, &mut receiving);
     assert!(
-        matches!(&result, Err(SaveLoadError::Corrupted(message)) if message == "OXOB trailing payload"),
+        matches!(&result, Err(SaveLoadError::Corrupted(message))
+            if message == "OXOB lifecycle record: Slice had bytes remaining after deserialization"),
         "unexpected restore result: {result:?}"
     );
     assert_eq!(
@@ -1007,7 +1001,7 @@ fn helix_passenger_receives_authored_garrisoned_bonus() {
         .unwrap();
     let carrier = world.host_object_mut(helix).unwrap();
     assert!(carrier.is_helix_transport);
-    carrier.weapon_bonus_solo = gamelogic::weapon::WeaponBonusConditionType::SoloAiEasy as u8;
+    carrier.weapon_bonus_solo = generals_sim::weapon::WeaponBonusConditionType::SoloAiEasy as u8;
     assert_eq!(
         world
             .weapon_cursor_radii(passenger, Primary)

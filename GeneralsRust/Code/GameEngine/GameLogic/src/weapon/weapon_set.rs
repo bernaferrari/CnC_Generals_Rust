@@ -785,7 +785,7 @@ impl WeaponSet {
                 let template = weapon.get_template();
 
                 // Combine anti-masks
-                self.total_anti_mask |= template.anti_mask.0;
+                self.total_anti_mask |= template.anti_mask.bits();
 
                 // Combine damage types
                 self.total_damage_type_mask |= crate::damage::DamageTypeFlags::from_bits_truncate(

@@ -1235,7 +1235,7 @@ impl GameLogic {
         pos: Option<glam::Vec3>,
         attack_type: AbleToAttackType,
     ) -> CanAttackResult {
-        use crate::game_logic::weapon_bootstrap::{HostEstimateWeapon, host_estimate_named_weapon};
+        use crate::game_logic::weapon_bootstrap::{damage_estimate_from_rule, host_estimate_named_weapon};
 
         let Some(source) = self.objects.get(&unit_id) else {
             return CanAttackResult::NotPossible;
@@ -1326,7 +1326,7 @@ impl GameLogic {
                     let estimate = if let Some(rule) = source.borrow_selected_native_weapon_rule(slot) {
                         Some((
                             rule.damage_type,
-                            HostEstimateWeapon::from_rule(rule, rule.primary_damage),
+                            damage_estimate_from_rule(rule, rule.primary_damage),
                         ))
                     } else {
                         let name = source.weapon_name_for_slot(slot).unwrap_or("");
@@ -1348,7 +1348,7 @@ impl GameLogic {
                                 v, dt, 1.0,
                             ),
                         );
-                    crate::game_logic::weapon_bootstrap::estimate_weapon_template_damage(
+                    generals_sim::weapon::estimate_weapon_template_damage(
                         &est,
                         Some(&victim_est),
                     ) > 0.0
@@ -1383,7 +1383,7 @@ impl GameLogic {
                         &self.world_services,
                         weapon,
                         Some(slot),
-                        gamelogic::weapon::WeaponAntiMask::GROUND,
+                        generals_sim::weapon::WeaponAntiMask::GROUND,
                     )
                 })
             });
