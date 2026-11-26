@@ -2796,18 +2796,11 @@ checksum = "d0881ea181b1df73ff77ffaaf9c7544ecc11e82fba9b5f27b262a3c73a332555"
 name = "eac_compression"
 version = "2.0.0"
 dependencies = [
- "anyhow",
- "byteorder",
- "crc32fast",
  "criterion",
- "env_logger",
  "log",
  "proptest",
  "rayon",
- "tempfile",
  "thiserror 2.0.20",
- "tokio-test",
- "wide 1.7.0",
 ]
 
 [[package]]
@@ -3917,21 +3910,15 @@ dependencies = [
 name = "generals_compression"
 version = "2.0.0"
 dependencies = [
- "anyhow",
  "brotli",
- "byteorder",
  "criterion",
  "eac_compression",
- "env_logger",
  "flate2",
  "log",
  "lz4_flex",
  "lzh_compression",
- "proptest",
  "rand 0.10.2",
- "rayon",
  "serde",
- "tempfile",
  "thiserror 2.0.20",
  "zstd 0.14.0",
 ]
@@ -6011,16 +5998,11 @@ dependencies = [
 name = "lzh_compression"
 version = "2.0.0"
 dependencies = [
- "anyhow",
- "byteorder",
  "crc32fast",
  "criterion",
- "env_logger",
  "log",
- "lz4_flex",
  "proptest",
  "rayon",
- "tempfile",
  "thiserror 2.0.20",
  "wide 1.7.0",
 ]

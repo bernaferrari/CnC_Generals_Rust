@@ -5,7 +5,7 @@ edition.workspace = true
 rust-version.workspace = true
 
 authors = ["GeneralsRust Team"]
-description = "Modern Rust implementation of EA Compression (EAC) algorithms with SIMD optimizations"
+description = "Modern Rust implementation of EA Compression (EAC) algorithms"
 license = "GPL-3.0"
 repository = "https://github.com/GeneralsRust/EAC"
 
@@ -14,35 +14,24 @@ workspace = true
 
 [features]
 default = ["simd"]
-simd = ["wide"]
+simd = []
 benchmarks = ["criterion"]
 internal = []
 
 [dependencies]
 # Core dependencies
 thiserror = {workspace = true}
-anyhow = {workspace = true}
-byteorder = {workspace = true}
-crc32fast = {workspace = true}
 rayon = {workspace = true}
-
-# SIMD optimizations
-wide = {workspace = true, optional = true}
-
-
 
 # Benchmarking
 criterion = {workspace = true, optional = true}
 
 # Utilities
 log = {workspace = true}
-env_logger = {workspace = true}
 
 [dev-dependencies]
 criterion = {workspace = true, features = ["html_reports"]}
 proptest = {workspace = true}
-tempfile = {workspace = true}
-tokio-test = {workspace = true}
 
 [[bench]]
 name = "compression_benchmarks"

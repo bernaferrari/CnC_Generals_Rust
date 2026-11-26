@@ -14,7 +14,7 @@ workspace = true
 
 [features]
 default = ["parallel"]
-parallel = ["rayon"]
+parallel = []
 benchmarks = ["criterion"]
 
 [dependencies]
@@ -22,11 +22,7 @@ benchmarks = ["criterion"]
 
 # Core dependencies
 thiserror = {workspace = true}
-anyhow = {workspace = true}
-byteorder = {workspace = true}
-rayon = {workspace = true, optional = true}
 log = {workspace = true}
-env_logger = {workspace = true}
 serde = {workspace = true, features = ["derive"]}
 
 # Battle-tested compression libraries
@@ -42,8 +38,6 @@ criterion = {workspace = true, optional = true}
 
 [dev-dependencies]
 criterion = {workspace = true, features = ["html_reports"]}
-proptest = {workspace = true}
-tempfile = {workspace = true}
 rand = {workspace = true}
 
 [[bench]]

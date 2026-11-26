@@ -11,7 +11,6 @@
 //!
 //! ## Features
 //!
-//! - **SIMD Optimizations** - Vectorized operations for maximum performance
 //! - **Multi-threading** - Parallel compression/decompression with rayon
 //! - **Memory Safety** - Zero memory leaks with Rust's ownership system
 //!

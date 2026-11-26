@@ -17,14 +17,12 @@ default = ["simd", "parallel"]
 simd = ["wide"]
 parallel = ["rayon"]
 benchmarks = ["criterion"]
-dictionary_compression = ["lz4_flex"]
+dictionary_compression = []
 internal = []
 
 [dependencies]
 # Core dependencies
 thiserror = {workspace = true}
-anyhow = {workspace = true}
-byteorder = {workspace = true}
 crc32fast = {workspace = true}
 
 # SIMD optimizations
@@ -33,21 +31,15 @@ wide = {workspace = true, optional = true}
 # Parallel processing
 rayon = {workspace = true, optional = true}
 
-# Advanced compression
-lz4_flex = {workspace = true, optional = true}
-
-
 # Benchmarking
 criterion = {workspace = true, optional = true}
 
 # Utilities
 log = {workspace = true}
-env_logger = {workspace = true}
 
 [dev-dependencies]
 criterion = {workspace = true, features = ["html_reports"]}
 proptest = {workspace = true}
-tempfile = {workspace = true}
 
 [[bench]]
 name = "lzh_benchmarks"
