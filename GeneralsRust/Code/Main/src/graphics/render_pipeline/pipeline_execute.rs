@@ -8,6 +8,7 @@
     clippy::all
 )]
 use super::*;
+use crate::graphics::laser_segment_upload::LaserSegmentUpload;
 
 impl RenderPipeline {
     pub fn execute(
@@ -180,57 +181,28 @@ impl RenderPipeline {
         }
         graphics_system.begin_frame();
 
-        // Presentation-only FX: pack lasers/projectiles/order lines/particles from the
-        // frozen frame (no live GameLogic dual-read). Laser SegLine then uploads via
-        // `Queue::write_buffer` when the ForwardPass buffer exists (same path as particles).
-        {
-            let mut laser = self.pack_presentation_laser_segments();
-            self.debug_last_laser_segments_packed = laser.honesty.segments_packed;
-            self.debug_last_laser_pack_ok = laser.honesty.cpu_pack_ok;
-            self.debug_last_laser_gpu_write_ok =
-                self.forward_pass.upload_laser_segments(&mut laser);
-            if self.debug_last_laser_gpu_write_ok {
-                let _ = self
-                    .forward_pass
-                    .enqueue_laser_additive_draw(view_matrix, projection_matrix);
-            }
-            let proj = self.pack_presentation_projectiles();
-            self.debug_last_projectile_segments_packed = proj.honesty.projectiles_packed;
-            self.debug_last_projectile_pack_ok = proj.honesty.cpu_pack_ok;
-            let moves = self.pack_presentation_move_lines();
-            self.debug_last_move_lines_packed = moves.honesty.lines_packed;
-            let attacks = self.pack_presentation_attack_lines();
-            self.debug_last_attack_lines_packed = attacks.honesty.lines_packed;
-            let floats = self.pack_presentation_floating_texts();
-            self.debug_last_floating_texts_packed = floats.honesty.texts_packed;
-            self.debug_last_floating_text_pack_ok = floats.honesty.cpu_pack_ok;
-            let anims = self.pack_presentation_world_anims();
-            self.debug_last_world_anims_packed = anims.honesty.anims_packed;
-            self.debug_last_world_anim_pack_ok = anims.honesty.cpu_pack_ok;
-            let particles = self.pack_presentation_particle_systems();
-            self.debug_last_particle_systems_packed = particles.honesty.systems_packed;
-            self.debug_last_particle_pack_ok = particles.honesty.cpu_pack_ok;
-            #[cfg(feature = "game_client")]
-            {
-                // The packed frame remains an immutable presentation diagnostic,
-                // while the live WGPU draw consumes the GameClient systems that
-                // `host_tick_game_client_presentation_shell` already advanced.
-                // This queues onto Main's sole frame; it never calls Display::draw.
-                let _ = self.forward_pass.enqueue_client_effect_draw(
-                    view_matrix,
-                    projection_matrix,
-                    camera_position,
-                    time,
-                    self.presentation_frame
-                        .as_ref()
-                        .and_then(|frame| frame.world_env.runtime_heightmap.as_ref())
-                        .map_or(0., |heightmap| heightmap.min_height),
-                    native_radius_items,
-                    prepared_particles,
-                );
-            }
-            let _ = (laser, proj, moves, attacks, floats, anims, particles);
+        let mut laser = self.presentation_frame.as_ref().map_or_else(
+            LaserSegmentUpload::empty,
+            |frame| LaserSegmentUpload::pack_from_presentation(frame),
+        );
+        if self.forward_pass.upload_laser_segments(&mut laser) {
+            let _ = self
+                .forward_pass
+                .enqueue_laser_additive_draw(view_matrix, projection_matrix);
         }
+        #[cfg(feature = "game_client")]
+        let _ = self.forward_pass.enqueue_client_effect_draw(
+            view_matrix,
+            projection_matrix,
+            camera_position,
+            time,
+            self.presentation_frame
+                .as_ref()
+                .and_then(|frame| frame.world_env.runtime_heightmap.as_ref())
+                .map_or(0., |heightmap| heightmap.min_height),
+            native_radius_items,
+            prepared_particles,
+        );
 
         let delta_time = time - self.last_frame_time;
         self.last_frame_time = time;

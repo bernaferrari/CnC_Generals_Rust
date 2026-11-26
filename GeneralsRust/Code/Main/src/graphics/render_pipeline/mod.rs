@@ -801,25 +801,6 @@ pub struct RenderPipeline {
     /// installed for this presentation handoff.  The ObjectID map is merely a
     /// short-lived lookup index; each value retains its complete binding key.
     presentation_direct_shroud_host_epoch: Option<u64>,
-    /// Last presentation laser SegLine CPU pack residual (execute path).
-    debug_last_laser_segments_packed: u32,
-    debug_last_laser_pack_ok: bool,
-    /// True when execute submitted laser vertices via `Queue::write_buffer`.
-    debug_last_laser_gpu_write_ok: bool,
-    /// Last presentation projectile trail CPU pack residual (execute path).
-    debug_last_projectile_segments_packed: u32,
-    debug_last_projectile_pack_ok: bool,
-    /// Last presentation move/attack order line packs (execute path).
-    debug_last_move_lines_packed: u32,
-    debug_last_attack_lines_packed: u32,
-    /// Last presentation floating-text CPU layout residual (execute path).
-    debug_last_floating_texts_packed: u32,
-    debug_last_floating_text_pack_ok: bool,
-    /// Last presentation world-anim CPU layout residual (execute path).
-    debug_last_world_anims_packed: u32,
-    debug_last_world_anim_pack_ok: bool,
-    debug_last_particle_systems_packed: u32,
-    debug_last_particle_pack_ok: bool,
     /// C++ W3DView viewport height / display height (Default bar = 0.80).
     tactical_viewport: crate::presentation_frame::camera::viewport::TacticalViewport,
 }

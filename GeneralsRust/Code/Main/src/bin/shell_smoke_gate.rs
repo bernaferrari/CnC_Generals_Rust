@@ -13,9 +13,6 @@ fn main() -> generals_sim::GameLogicResult<()> {
         && r.presentation_ok
         && r.minimap_fow_presentation_ok
         && r.laser_segment_upload_ok
-        && r.projectile_segment_upload_ok
-        && r.move_line_upload_ok
-        && r.attack_line_upload_ok
         && r.multi_beam_soft_edge_ok
         && r.floating_text_layout_ok
         && r.floating_text_vanish_ok

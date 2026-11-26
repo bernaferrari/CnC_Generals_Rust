@@ -72,21 +72,6 @@ fn assert_presentation(r: &ShellSmokeResult) {
         r.detail
     );
     assert!(
-        r.projectile_segment_upload_ok,
-        "projectile segment CPU upload residual: {}",
-        r.detail
-    );
-    assert!(
-        r.move_line_upload_ok,
-        "move line CPU upload residual: {}",
-        r.detail
-    );
-    assert!(
-        r.attack_line_upload_ok,
-        "attack line CPU upload residual: {}",
-        r.detail
-    );
-    assert!(
         r.multi_beam_soft_edge_ok,
         "multi-beam soft-edge residual: {}",
         r.detail

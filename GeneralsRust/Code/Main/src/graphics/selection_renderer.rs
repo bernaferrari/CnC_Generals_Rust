@@ -749,7 +749,7 @@ pub fn collect_blob_shadows_from_presentation(
 fn collect_remaining_blob_shadows(
     frame: &crate::presentation_frame::PresentationFrame,
     projected_shadow_ids: &std::collections::HashSet<u32>,
-    interp: &crate::graphics::move_line_upload::InterpPoint<'_>,
+    interp: &super::order_lines::InterpPoint<'_>,
 ) -> Vec<GroundCircle> {
     // C++ addShadow NULL + renderShadows skip when !m_useShadowDecals.
     if !game_engine::common::game_lod::use_shadow_decals() {
@@ -883,7 +883,7 @@ fn pack_health_bar_quads(
     display_size: (f32, f32),
     camera_zoom: f32,
     hovered_id: Option<u32>,
-    interp: &crate::graphics::move_line_upload::InterpPoint<'_>,
+    interp: &super::order_lines::InterpPoint<'_>,
 ) -> (Vec<f32>, usize) {
     use crate::game_logic::host_enum_table_residual::{
         MC_BIT_DAMAGED, MC_BIT_REALLYDAMAGED, host_model_condition_has,
@@ -1097,24 +1097,14 @@ pub fn enqueue_selection_render(
         })
         .unwrap_or_default();
 
-    // Move/attack order line residual from presentation snapshot.
-    let mut order_line_vertices: Vec<f32> = Vec::new();
+    let mut order_line_vertices = Vec::new();
     if let Some(frame) = presentation {
-        if show_move_lines {
-            let move_pack =
-                crate::graphics::move_line_upload::MoveLineUpload::pack_from_presentation(
-                    frame, &interp,
-                );
-            order_line_vertices.extend_from_slice(&move_pack.vertices);
-        }
-        if show_attack_lines {
-            let atk_pack =
-                crate::graphics::attack_line_upload::AttackLineUpload::pack_from_presentation(
-                    frame, &interp,
-                );
-            order_line_vertices.extend_from_slice(&atk_pack.vertices);
-        }
-        // Structure rally-point line residual (selected producers → rally).
+        order_line_vertices = super::order_lines::pack_order_lines(
+            &frame.objects,
+            show_move_lines,
+            show_attack_lines,
+            &interp,
+        );
         order_line_vertices.extend(pack_rally_point_lines(frame));
     }
     pipeline.debug_last_selection_indicators = selected_bars;

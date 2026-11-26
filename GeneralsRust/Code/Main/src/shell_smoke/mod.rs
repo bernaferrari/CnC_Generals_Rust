@@ -25,7 +25,7 @@ fn run_shell_session(
 ) -> generals_sim::GameLogicResult<ShellSmokeResult> {
     let host = host::run_host_session(logic, frames)?;
     let presentation =
-        presentation::evaluate_presentation_residuals(&host.pres, host.presentation_ok)?;
+        presentation::evaluate_presentation_residuals(&host.pres, host.presentation_ok);
     let (hud_selection_ok, selection_consumers_ok) = hud::evaluate_selection(&host, logic);
     let shell_ui = shell::evaluate_shell_ui();
     let host_path_ok = host.host_constructed
@@ -63,9 +63,6 @@ fn run_shell_session(
     out.presentation_ok = host.presentation_ok;
     out.minimap_fow_presentation_ok = presentation.minimap_fow_presentation_ok;
     out.laser_segment_upload_ok = presentation.laser_segment_upload_ok;
-    out.projectile_segment_upload_ok = presentation.projectile_segment_upload_ok;
-    out.move_line_upload_ok = presentation.move_line_upload_ok;
-    out.attack_line_upload_ok = presentation.attack_line_upload_ok;
     out.multi_beam_soft_edge_ok = presentation.multi_beam_soft_edge_ok;
     out.laser_presentation_residual_ok = presentation.laser_presentation_residual_ok;
     out.floating_text_layout_ok = presentation.floating_text_layout_ok;

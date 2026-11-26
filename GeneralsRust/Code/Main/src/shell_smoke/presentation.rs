@@ -8,9 +8,6 @@ use crate::presentation_frame::PresentationFrame;
 pub(super) struct PresentationResiduals {
     pub minimap_fow_presentation_ok: bool,
     pub laser_segment_upload_ok: bool,
-    pub projectile_segment_upload_ok: bool,
-    pub move_line_upload_ok: bool,
-    pub attack_line_upload_ok: bool,
     pub multi_beam_soft_edge_ok: bool,
     pub laser_presentation_residual_ok: bool,
     pub floating_text_layout_ok: bool,
@@ -30,7 +27,7 @@ pub(super) struct PresentationResiduals {
 pub(super) fn evaluate_presentation_residuals(
     pres: &PresentationFrame,
     presentation_ok: bool,
-) -> generals_sim::GameLogicResult<PresentationResiduals> {
+) -> PresentationResiduals {
     // Minimap FOW from presentation residual (grid snapshot, not live shroud re-lock).
     let minimap_fow_presentation_ok = presentation_ok && pres.minimap_fow_presentation_ok();
 
@@ -48,87 +45,6 @@ pub(super) fn evaluate_presentation_residuals(
         && synth_pack.honesty.beams_packed == 2
         && synthetic[0].honesty_ground_height_ok()
         && synthetic[0].honesty_soft_edge_presentation_ok();
-    // Projectile trail CPU pack residual from presentation freeze.
-    let proj_empty = crate::graphics::projectile_segment_upload::ProjectileSegmentUpload::empty();
-    let mut proj_logic = crate::game_logic::GameLogic::new();
-    let _ = proj_logic.combat_system_mut().fire_projectile(
-        glam::Vec3::ZERO,
-        glam::Vec3::new(10.0, 0.0, 0.0),
-        &crate::game_logic::Weapon::default(),
-        crate::game_logic::ObjectId(1),
-        None,
-        50.0,
-    );
-    let proj_pres = PresentationFrame::try_build_from_logic(&mut proj_logic, 0)
-        .map_err(generals_sim::GameLogicError::SystemNotInitialized)?;
-    let proj_pack =
-        crate::graphics::projectile_segment_upload::ProjectileSegmentUpload::pack_from_presentation(
-            &proj_pres,
-        );
-    let projectile_segment_upload_ok = proj_empty.honesty.cpu_pack_ok
-        && proj_empty.is_upload_ready()
-        && proj_pack.honesty.has_geometry
-        && proj_pack.honesty.projectiles_packed >= 1
-        && proj_pack.is_upload_ready();
-    let move_empty = crate::graphics::move_line_upload::MoveLineUpload::empty();
-    let mut move_logic = crate::game_logic::GameLogic::new();
-    {
-        let mut t = crate::game_logic::ThingTemplate::new("ShellMoveLineU");
-        t.set_health(20.0);
-        t.add_kind_of(crate::game_logic::KindOf::Infantry);
-        move_logic.templates.insert("ShellMoveLineU".into(), t);
-        if let Some(id) = move_logic.create_object(
-            "ShellMoveLineU",
-            crate::game_logic::Team::USA,
-            glam::Vec3::ZERO,
-        ) {
-            if let Some(obj) = move_logic.host_object_mut(id) {
-                obj.movement.target_position = Some(glam::Vec3::new(5.0, 0.0, 5.0));
-            }
-        }
-    }
-    let move_pres = PresentationFrame::try_build_from_logic(&mut move_logic, 0)
-        .map_err(generals_sim::GameLogicError::SystemNotInitialized)?;
-    let move_pack =
-        crate::graphics::move_line_upload::MoveLineUpload::pack_from_presentation(&move_pres, &|_, p: glam::Vec3| p);
-    let move_line_upload_ok = move_empty.honesty.cpu_pack_ok
-        && move_empty.is_upload_ready()
-        && move_pack.honesty.has_geometry
-        && move_pack.honesty.lines_packed >= 1
-        && move_pack.is_upload_ready();
-    let atk_empty = crate::graphics::attack_line_upload::AttackLineUpload::empty();
-    let mut atk_logic = crate::game_logic::GameLogic::new();
-    {
-        for (name, pos) in [
-            ("ShellAtkA", glam::Vec3::ZERO),
-            ("ShellAtkB", glam::Vec3::new(8.0, 0.0, 0.0)),
-        ] {
-            let mut t = crate::game_logic::ThingTemplate::new(name);
-            t.set_health(20.0);
-            t.add_kind_of(crate::game_logic::KindOf::Infantry);
-            atk_logic.templates.insert(name.into(), t);
-            let _ = atk_logic.create_object(name, crate::game_logic::Team::USA, pos);
-        }
-        let ids: Vec<_> = atk_logic
-            .host_objects()
-            .registered_keys()
-            .copied()
-            .collect();
-        if ids.len() >= 2 {
-            if let Some(obj) = atk_logic.host_object_mut(ids[0]) {
-                obj.target = Some(ids[1]);
-            }
-        }
-    }
-    let atk_pres = PresentationFrame::try_build_from_logic(&mut atk_logic, 0)
-        .map_err(generals_sim::GameLogicError::SystemNotInitialized)?;
-    let atk_pack =
-        crate::graphics::attack_line_upload::AttackLineUpload::pack_from_presentation(&atk_pres, &|_, p: glam::Vec3| p);
-    let attack_line_upload_ok = atk_empty.honesty.cpu_pack_ok
-        && atk_empty.is_upload_ready()
-        && atk_pack.honesty.has_geometry
-        && atk_pack.honesty.lines_packed >= 1
-        && atk_pack.is_upload_ready();
     // OrbitalLaser multi-beam soft-edge: presentation residual fields → CPU pack.
     let orbital = PresentationLaserBeam::synthetic_orbital_soft_edge(pres.frame.0);
     let se = orbital.soft_edge.unwrap_or(PRESENTATION_ORBITAL_SOFT_EDGE);
@@ -216,12 +132,9 @@ pub(super) fn evaluate_presentation_residuals(
     // GameLogic / GameClient RandomValue ADC stream residual.
     let rng_stream_residual_ok = exercise_host_rng_residual(0x5A6E_2710).honesty_ok();
 
-    Ok(PresentationResiduals {
+    PresentationResiduals {
         minimap_fow_presentation_ok,
         laser_segment_upload_ok,
-        projectile_segment_upload_ok,
-        move_line_upload_ok,
-        attack_line_upload_ok,
         multi_beam_soft_edge_ok,
         laser_presentation_residual_ok,
         floating_text_layout_ok,
@@ -236,5 +149,5 @@ pub(super) fn evaluate_presentation_residuals(
         anim2d_frame_ok,
         anim2d_collection_residual_ok,
         rng_stream_residual_ok,
-    })
+    }
 }

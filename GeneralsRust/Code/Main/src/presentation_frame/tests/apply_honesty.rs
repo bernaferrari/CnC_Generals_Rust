@@ -1280,8 +1280,7 @@ fn presentation_frame_observes_combat_kill_particle_systems() {
         "PresentationFrame must expose active particle systems after combat kill"
     );
     assert!(
-        snap.particle_systems
-            .iter()
+        snap.active_particle_systems()
             .any(|p| p.kind == CombatParticleKind::DeathExplosion
                 && p.template_name == "MediumExplosion"),
         "death explosion particle must be on presentation frame: {:?}",
@@ -1556,7 +1555,7 @@ fn spectre_orbit_decal_presentation_residual_wave73() {
 
 #[test]
 fn projectile_render_input_from_tank_shell() {
-    let p = PresentationProjectile {
+    let mut p = PresentationProjectile {
         id: ObjectId(7),
         position: Vec3::new(1.0, 2.0, 3.0),
         velocity: Vec3::new(10.0, 0.0, 0.0),
@@ -1578,6 +1577,9 @@ fn projectile_render_input_from_tank_shell() {
     let m = input.world_matrix();
     let t = m.w_axis.truncate();
     assert!((t - p.position).length() < 1e-3);
+
+    p.model_hidden = true;
+    assert!(ProjectileRenderInput::from_presentation(&p).is_none());
 }
 
 #[test]
