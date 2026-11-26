@@ -22,7 +22,6 @@ generals_ui = { path = "../UI" }
 bincode_legacy = { workspace = true }
 # Error handling
 thiserror = { workspace = true }
-anyhow = { workspace = true }
 
 ww3d-core = { path = "../../Libraries/Source/WWVegas/WW3D2/crates/ww3d-core" }
 ww3d-gpu = { path = "../../Libraries/Source/WWVegas/WW3D2/crates/ww3d-gpu" }
@@ -52,7 +51,6 @@ reqwest = { workspace = true }
 # Serialization
 serde = { workspace = true }
 serde_json = {workspace = true}
-bincode = {workspace = true}
 chrono = { workspace = true }
 
 # 3D Math and linear algebra  
@@ -62,7 +60,6 @@ mint = {workspace = true}
 
 # Graphics and rendering (wgpu is the device backend; do not add Direct3D crates)
 wgpu = {workspace = true, features = ["wgsl", "spirv"]}
-wgpu-hal = {workspace = true}
 winit = {workspace = true}
 pollster = {workspace = true}
 bytemuck = {workspace = true, features = ["derive"]}
