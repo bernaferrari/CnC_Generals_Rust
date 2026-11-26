@@ -18936,7 +18936,17 @@
             {
               "cargo_reachable": true,
               "classification": "implementation",
+              "path": "GeneralsRust/Code/GameEngine/Common/src/common/thing/deliver_payload_ai_data.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "implementation",
               "path": "GeneralsRust/Code/GameEngine/Common/src/common/thing/draw_module.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "implementation",
+              "path": "GeneralsRust/Code/GameEngine/Common/src/common/thing/jet_ai_data.rs"
             },
             {
               "cargo_reachable": true,
@@ -18982,6 +18992,11 @@
               "cargo_reachable": true,
               "classification": "implementation",
               "path": "GeneralsRust/Code/GameEngine/Common/src/common/thing/object_ini_fields.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "implementation",
+              "path": "GeneralsRust/Code/GameEngine/Common/src/common/thing/radius_decal_data.rs"
             },
             {
               "cargo_reachable": true,
@@ -187738,7 +187753,7 @@
       ]
     }
   ],
-  "provenance_input_digest": "ce6547fa2c7865068635f0968b5a32e1e4423c97b07a566dca91a2d7f00c09d9",
+  "provenance_input_digest": "e8e04de87d0cc2ca9f8c62440fcded3f5311bcc003a07d0c358bf65309128bd1",
   "schema_version": 1,
   "summary": {
     "maximum_packet_size": 15,

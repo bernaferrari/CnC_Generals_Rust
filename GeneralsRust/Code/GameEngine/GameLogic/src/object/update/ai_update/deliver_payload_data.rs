@@ -6,12 +6,14 @@ use std::sync::Arc;
 
 use crate::common::RadiusDecalTemplate;
 use crate::common::{
-    AsciiString, Bool, Coord3D, Int, Real, SHADOW_NAMES, UnsignedInt, WeaponSlotType,
+    AsciiString, Bool, Coord3D, Int, Real, UnsignedInt, WeaponSlotType,
 };
 use crate::effects::FXList;
 use crate::helpers::TheFXListStore;
 use crate::weapon::WeaponTemplate;
 use game_engine::common::ini::{FieldParse, INI, INIError};
+use game_engine::common::thing::deliver_payload_ai_data::parse_delivery_coordinate;
+use game_engine::common::thing::radius_decal_data::RADIUS_DECAL_TEMPLATE_FIELDS;
 
 /// Delivery data passed to DeliverPayloadAIUpdate.
 #[derive(Debug, Clone)]
@@ -127,45 +129,6 @@ fn parse_ascii(tokens: &[&str]) -> Result<AsciiString, INIError> {
     Ok(AsciiString::from(required_value(tokens)?))
 }
 
-pub(super) fn parse_coord3d(tokens: &[&str]) -> Result<Coord3D, INIError> {
-    let values: Vec<&str> = tokens
-        .iter()
-        .copied()
-        .filter(|token| *token != "=")
-        .collect();
-    // INI.cpp:1079-1087 and getNextSubToken:1648-1654 consume X, Y, Z
-    // in order, case-insensitively, then scan each real. Keep the existing
-    // unlabeled Rust fixture adapter separate from that original grammar.
-    if values.iter().any(|token| token.contains([':', '=']))
-        || values
-            .first()
-            .is_some_and(|token| token.eq_ignore_ascii_case("X"))
-    {
-        let (x, y, z) = INI::parse_coord_3d_ordered(&values)?;
-        return Ok(Coord3D::new(x, y, z));
-    }
-    if values.len() >= 3 {
-        let x = INI::parse_real(values[0])?;
-        let y = INI::parse_real(values[1])?;
-        let z = INI::parse_real(values[2])?;
-        return Ok(Coord3D::new(x, y, z));
-    }
-
-    let token = required_value(tokens)?;
-    let parts: Vec<&str> = token
-        .split(|c: char| c == ',' || c.is_whitespace())
-        .filter(|part| !part.is_empty())
-        .collect();
-    if parts.len() != 3 {
-        return Err(INIError::InvalidData);
-    }
-
-    let x = INI::parse_real(parts[0])?;
-    let y = INI::parse_real(parts[1])?;
-    let z = INI::parse_real(parts[2])?;
-    Ok(Coord3D::new(x, y, z))
-}
-
 fn parse_weapon_slot(tokens: &[&str]) -> Result<Option<WeaponSlotType>, INIError> {
     let token = required_value(tokens)?;
     let value = token.trim();
@@ -199,122 +162,6 @@ fn parse_weapon_template(tokens: &[&str]) -> Result<Option<Arc<WeaponTemplate>>,
         .map_err(|_| INIError::InvalidData)?;
     Ok(template)
 }
-
-fn parse_radius_decal_texture(
-    _ini: &mut INI,
-    data: &mut RadiusDecalTemplate,
-    tokens: &[&str],
-) -> Result<(), INIError> {
-    data.texture_name = AsciiString::from(required_value(tokens)?);
-    Ok(())
-}
-
-fn parse_radius_decal_style(
-    _ini: &mut INI,
-    data: &mut RadiusDecalTemplate,
-    tokens: &[&str],
-) -> Result<(), INIError> {
-    let values: Vec<&str> = tokens
-        .iter()
-        .copied()
-        .filter(|token| *token != "=")
-        .collect();
-    data.shadow_type = INI::parse_bit_string_32(&values, &SHADOW_NAMES)?;
-    Ok(())
-}
-
-fn parse_radius_decal_opacity_min(
-    _ini: &mut INI,
-    data: &mut RadiusDecalTemplate,
-    tokens: &[&str],
-) -> Result<(), INIError> {
-    let token = required_value(tokens)?;
-    data.min_opacity = INI::parse_percent_to_real(token)?;
-    data.opacity = data.min_opacity;
-    Ok(())
-}
-
-fn parse_radius_decal_opacity_max(
-    _ini: &mut INI,
-    data: &mut RadiusDecalTemplate,
-    tokens: &[&str],
-) -> Result<(), INIError> {
-    let token = required_value(tokens)?;
-    data.max_opacity = INI::parse_percent_to_real(token)?;
-    data.opacity = data.max_opacity;
-    Ok(())
-}
-
-fn parse_radius_decal_opacity_throb_time(
-    _ini: &mut INI,
-    data: &mut RadiusDecalTemplate,
-    tokens: &[&str],
-) -> Result<(), INIError> {
-    let token = required_value(tokens)?;
-    data.opacity_throb_time = INI::parse_duration_unsigned_int(token)?;
-    Ok(())
-}
-
-fn parse_radius_decal_color(
-    _ini: &mut INI,
-    data: &mut RadiusDecalTemplate,
-    tokens: &[&str],
-) -> Result<(), INIError> {
-    // Retain the existing single packed-u32 Rust fixture adapter separately
-    // from C++ RadiusDecal.cpp:94-109's ordered INI::parseColorInt grammar.
-    let mut values = tokens.iter().copied().filter(|value| *value != "=");
-    if let Some(value) = values.next() {
-        if values.next().is_none() {
-            if let Ok(packed) = value.parse::<u32>() {
-                data.color = packed;
-                return Ok(());
-            }
-        }
-    }
-    data.color = INI::parse_color_int_ordered(tokens)?;
-    Ok(())
-}
-
-fn parse_radius_decal_only_visible(
-    _ini: &mut INI,
-    data: &mut RadiusDecalTemplate,
-    tokens: &[&str],
-) -> Result<(), INIError> {
-    let token = required_value(tokens)?;
-    data.only_visible_to_owning_player = INI::parse_bool(token)?;
-    Ok(())
-}
-
-pub const RADIUS_DECAL_TEMPLATE_FIELDS: &[FieldParse<RadiusDecalTemplate>] = &[
-    FieldParse {
-        token: "Texture",
-        parse: parse_radius_decal_texture,
-    },
-    FieldParse {
-        token: "Style",
-        parse: parse_radius_decal_style,
-    },
-    FieldParse {
-        token: "OpacityMin",
-        parse: parse_radius_decal_opacity_min,
-    },
-    FieldParse {
-        token: "OpacityMax",
-        parse: parse_radius_decal_opacity_max,
-    },
-    FieldParse {
-        token: "OpacityThrobTime",
-        parse: parse_radius_decal_opacity_throb_time,
-    },
-    FieldParse {
-        token: "Color",
-        parse: parse_radius_decal_color,
-    },
-    FieldParse {
-        token: "OnlyVisibleToOwningPlayer",
-        parse: parse_radius_decal_only_visible,
-    },
-];
 
 fn parse_delivery_decal(
     ini: &mut INI,
@@ -359,14 +206,14 @@ pub const DELIVER_PAYLOAD_DATA_FIELDS: &[FieldParse<DeliverPayloadData>] = &[
     FieldParse {
         token: "DropOffset",
         parse: |_, data, tokens| {
-            data.drop_offset = parse_coord3d(tokens)?;
+            data.drop_offset = parse_delivery_coordinate(tokens)?;
             Ok(())
         },
     },
     FieldParse {
         token: "DropVariance",
         parse: |_, data, tokens| {
-            data.drop_variance = parse_coord3d(tokens)?;
+            data.drop_variance = parse_delivery_coordinate(tokens)?;
             Ok(())
         },
     },
@@ -518,7 +365,7 @@ mod tests {
         parse_ascii(&["=", "ChinaArtilleryBarrageShell"])
             .map(|value| data.visible_payload_template_name = value)
             .unwrap();
-        parse_coord3d(&["=", "1.0", "2.0", "3.0"])
+        parse_delivery_coordinate(&["=", "1.0", "2.0", "3.0"])
             .map(|value| data.drop_offset = value)
             .unwrap();
 
@@ -545,33 +392,6 @@ mod tests {
         assert!((dropped.x - 12.5).abs() < 1e-4);
         assert!((dropped.y - 22.0).abs() < 1e-4);
         assert!((dropped.z - 31.0).abs() < 1e-4);
-    }
-
-    #[test]
-    fn delivery_decal_fields_accept_ini_equals_token() {
-        let mut ini = INI::new();
-        let mut decal = RadiusDecalTemplate::default();
-
-        parse_radius_decal_texture(&mut ini, &mut decal, &["=", "SCCArtilleryBarrage_China"])
-            .unwrap();
-        parse_radius_decal_opacity_min(&mut ini, &mut decal, &["=", "25%"]).unwrap();
-        parse_radius_decal_opacity_max(&mut ini, &mut decal, &["=", "50%"]).unwrap();
-        parse_radius_decal_opacity_throb_time(&mut ini, &mut decal, &["=", "500"]).unwrap();
-        parse_radius_decal_color(
-            &mut ini,
-            &mut decal,
-            &["=", "R:255", "G:156", "B:0", "A:255"],
-        )
-        .unwrap();
-        parse_radius_decal_only_visible(&mut ini, &mut decal, &["=", "Yes"]).unwrap();
-
-        assert_eq!(decal.texture_name.as_str(), "SCCArtilleryBarrage_China");
-        assert!((decal.min_opacity - 0.25).abs() < f32::EPSILON);
-        assert!((decal.max_opacity - 0.5).abs() < f32::EPSILON);
-        assert_eq!(decal.opacity_throb_time, 15);
-        // C++ Color.h:37-40 GameMakeColor(255, 156, 0, 255).
-        assert_eq!(decal.color, 0xffff9c00);
-        assert!(decal.only_visible_to_owning_player);
     }
 }
 

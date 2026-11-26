@@ -405,6 +405,42 @@ impl RadiusDecal {
         }
     }
 
+    fn instantiate(template: &RadiusDecalTemplate, position: Coord3D, radius: f32) -> Self {
+        let mut decal = Self {
+            position,
+            radius,
+            opacity: template.max_opacity,
+            color: template.color,
+            min_opacity: template.min_opacity,
+            max_opacity: template.max_opacity,
+            opacity_throb_time: template.opacity_throb_time,
+            template: None,
+            texture_name: template.texture_name.clone(),
+            shadow_type: template.shadow_type,
+            projected_id: None,
+        };
+        decal.ensure_projected();
+        decal
+    }
+
+    /// Create a radius decal from this template
+    pub fn from_template(template: &RadiusDecalTemplate, position: Coord3D) -> Self {
+        if template.texture_name.is_empty() {
+            return Self::new(Coord3D::origin(), 0.0);
+        }
+        // Leftover DeliverPayload assigns radius after create. Keep position/texture
+        // so the later `update()` can `addDecal` (C++ create takes the radius up front).
+        Self::instantiate(template, position, template.radius)
+    }
+
+    /// Create a radius decal using an explicit radius (matches C++ createRadiusDecal parameter).
+    pub fn from_template_with_radius(template: &RadiusDecalTemplate, position: Coord3D, radius: f32) -> Self {
+        if template.texture_name.is_empty() || radius <= 0.0 {
+            return Self::new(Coord3D::origin(), 0.0);
+        }
+        Self::instantiate(template, position, radius)
+    }
+
     fn release_projected(&mut self) {
         if let Some(id) = self.projected_id.take() {
             if let Some(hooks) = projected_radius_decal_hooks() {
@@ -545,7 +581,7 @@ mod radius_decal_tests {
             y: 22.0,
             z: 33.0,
         };
-        let mut decal = template.create_radius_decal(pos);
+        let mut decal = RadiusDecal::from_template(&template, pos);
         assert_eq!(decal.position.x, 11.0);
         assert_eq!(decal.texture_name.as_str(), "SCCArtilleryBarrage_China");
         decal.radius = 200.0;
@@ -556,101 +592,11 @@ mod radius_decal_tests {
 /// ID type for radius decal templates
 pub type RadiusDecalTemplateId = u32;
 
-// Shadow type bit flags (matches GameClient/Shadow.h TheShadowNames order)
-pub const SHADOW_DECAL: u32 = 0x0000_0001;
-pub const SHADOW_VOLUME: u32 = 0x0000_0002;
-pub const SHADOW_PROJECTION: u32 = 0x0000_0004;
-pub const SHADOW_DYNAMIC_PROJECTION: u32 = 0x0000_0008;
-pub const SHADOW_DIRECTIONAL_PROJECTION: u32 = 0x0000_0010;
-pub const SHADOW_ALPHA_DECAL: u32 = 0x0000_0020;
-pub const SHADOW_ADDITIVE_DECAL: u32 = 0x0000_0040;
-
-pub const SHADOW_NAMES: [&str; 7] = [
-    "SHADOW_DECAL",
-    "SHADOW_VOLUME",
-    "SHADOW_PROJECTION",
-    "SHADOW_DYNAMIC_PROJECTION",
-    "SHADOW_DIRECTIONAL_PROJECTION",
-    "SHADOW_ALPHA_DECAL",
-    "SHADOW_ADDITIVE_DECAL",
-];
-
-/// Template for radius decals
-#[derive(Debug, Clone)]
-pub struct RadiusDecalTemplate {
-    /// Default radius
-    pub radius: f32,
-    /// Default opacity
-    pub opacity: f32,
-    /// Default color
-    pub color: u32,
-    /// Texture name (if applicable)
-    pub texture_name: AsciiString,
-    /// Shadow/decal style flags (bitset, matches ShadowType)
-    pub shadow_type: u32,
-    /// Minimum opacity for throb effects
-    pub min_opacity: f32,
-    /// Maximum opacity for throb effects
-    pub max_opacity: f32,
-    /// Opacity throb time (frames)
-    pub opacity_throb_time: u32,
-    /// Visibility restricted to owning player
-    pub only_visible_to_owning_player: bool,
-}
-
-impl Default for RadiusDecalTemplate {
-    fn default() -> Self {
-        Self {
-            radius: 0.0,
-            opacity: 1.0,
-            color: 0,
-            texture_name: AsciiString::new(),
-            shadow_type: SHADOW_ALPHA_DECAL,
-            min_opacity: 1.0,
-            max_opacity: 1.0,
-            opacity_throb_time: LOGICFRAMES_PER_SECOND,
-            only_visible_to_owning_player: true,
-        }
-    }
-}
-
-impl RadiusDecalTemplate {
-    fn instantiate(&self, position: Coord3D, radius: f32) -> RadiusDecal {
-        let mut decal = RadiusDecal {
-            position,
-            radius,
-            opacity: self.max_opacity,
-            color: self.color,
-            min_opacity: self.min_opacity,
-            max_opacity: self.max_opacity,
-            opacity_throb_time: self.opacity_throb_time,
-            template: None,
-            texture_name: self.texture_name.clone(),
-            shadow_type: self.shadow_type,
-            projected_id: None,
-        };
-        decal.ensure_projected();
-        decal
-    }
-
-    /// Create a radius decal from this template
-    pub fn create_radius_decal(&self, position: Coord3D) -> RadiusDecal {
-        if self.texture_name.is_empty() {
-            return RadiusDecal::new(Coord3D::origin(), 0.0);
-        }
-        // Leftover DeliverPayload assigns radius after create. Keep position/texture
-        // so the later `update()` can `addDecal` (C++ create takes the radius up front).
-        self.instantiate(position, self.radius)
-    }
-
-    /// Create a radius decal using an explicit radius (matches C++ createRadiusDecal parameter).
-    pub fn create_radius_decal_with_radius(&self, position: Coord3D, radius: f32) -> RadiusDecal {
-        if self.texture_name.is_empty() || radius <= 0.0 {
-            return RadiusDecal::new(Coord3D::origin(), 0.0);
-        }
-        self.instantiate(position, radius)
-    }
-}
+pub use game_engine::common::thing::radius_decal_data::{
+    RadiusDecalTemplate, SHADOW_ADDITIVE_DECAL, SHADOW_ALPHA_DECAL, SHADOW_DECAL,
+    SHADOW_DIRECTIONAL_PROJECTION, SHADOW_DYNAMIC_PROJECTION, SHADOW_NAMES, SHADOW_PROJECTION,
+    SHADOW_VOLUME,
+};
 
 /// Particle emission volume type (mirrors C++ EmissionVolumeType, subset used by gameplay).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

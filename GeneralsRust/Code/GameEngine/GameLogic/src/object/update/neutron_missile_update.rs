@@ -471,7 +471,8 @@ impl NeutronMissileUpdate {
             true
         };
         if allow_decal {
-            let mut decal = decal_template.create_radius_decal_with_radius(self.target_pos, decal_radius);
+            let mut decal =
+                RadiusDecal::from_template_with_radius(&decal_template, self.target_pos, decal_radius);
             if !decal.is_empty() {
                 if decal_template.color == 0 {
                     if let (Some(owner), Ok(list)) = (owner_index, ThePlayerList().read()) {

@@ -546,7 +546,7 @@ impl DynamicShroudClearingRangeUpdate {
         }
         for decal in &mut self.grid_decals {
             decal.clear();
-            let mut created = template.create_radius_decal_with_radius(*pos, radius);
+            let mut created = RadiusDecal::from_template_with_radius(template, *pos, radius);
             if !created.is_empty() {
                 created.set_position(*pos);
                 if template.color == 0 {

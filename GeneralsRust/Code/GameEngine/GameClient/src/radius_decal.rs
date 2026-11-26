@@ -1011,7 +1011,7 @@ mod tests {
         let blob_info = ShadowTypeInfo {
             allow_updates: false,
             allow_world_align: true,
-            shadow_type: gamelogic::common::SHADOW_DECAL,
+            shadow_type: game_engine::common::thing::radius_decal_data::SHADOW_DECAL,
             shadow_name: AsciiString::from("shadow"),
             size_x: 20.0,
             size_y: 20.0,

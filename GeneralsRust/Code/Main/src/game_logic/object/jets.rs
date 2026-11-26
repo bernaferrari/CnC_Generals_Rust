@@ -693,7 +693,7 @@ impl Object {
 
     fn jet_lockon_data(
         &self,
-    ) -> Option<parking_lot::MappedRwLockReadGuard<'_, gamelogic::object::update::ai_update::jet_ai_update::JetAIUpdateModuleData>> {
+    ) -> Option<parking_lot::MappedRwLockReadGuard<'_, game_engine::common::thing::jet_ai_data::JetAIUpdateModuleData>> {
         self.thing()
             .template
             .receiving_client_template

@@ -367,7 +367,7 @@ pub fn should_apply_locomotor_set_upgrade(template_name: &str, upgrade: &str) ->
 }
 
 /// The canonical C++ set ordinal, shared with GameLogic.
-pub use gamelogic::common::types::LocomotorSetType as HostLocomotorSetKind;
+pub use game_engine::common::thing::ai_update_data::LocomotorSetType as HostLocomotorSetKind;
 
 /// Object-owned, declaration-ordered members of one authored Locomotor row.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]

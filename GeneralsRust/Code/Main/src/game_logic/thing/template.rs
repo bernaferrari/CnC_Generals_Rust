@@ -470,9 +470,9 @@ impl ReceivingClientTemplate {
 
     pub(crate) fn receiving_jet_lockon_data(
         &self,
-    ) -> Option<parking_lot::MappedRwLockReadGuard<'_, gamelogic::object::update::ai_update::jet_ai_update::JetAIUpdateModuleData>> {
+    ) -> Option<parking_lot::MappedRwLockReadGuard<'_, game_engine::common::thing::jet_ai_data::JetAIUpdateModuleData>> {
         let entry = self.definition.behavior_modules().iter().nth(self.receiving_ai_source_index()?)?;
-        entry.data.read().into_downcast::<gamelogic::object::update::ai_update::jet_ai_update::JetAIUpdateModuleData>()
+        entry.data.read().into_downcast::<game_engine::common::thing::jet_ai_data::JetAIUpdateModuleData>()
     }
 
     fn receiving_ai_source_index(&self) -> Option<usize> {
@@ -632,7 +632,7 @@ impl ReceivingClientTemplate {
             let data = entry.data.read();
             (builtin == Some(true) || data.is_ai_module_data()).then(|| ReceivingAiSource {
                 ordinal,
-                is_jet: data.as_any().is::<gamelogic::object::update::ai_update::JetAIUpdateModuleData>(),
+                is_jet: data.as_any().is::<game_engine::common::thing::jet_ai_data::JetAIUpdateModuleData>(),
             })
         });
         Self {

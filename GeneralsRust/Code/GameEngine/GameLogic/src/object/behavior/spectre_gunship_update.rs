@@ -748,7 +748,7 @@ impl SpectreGunshipUpdate {
         if !Self::can_render_decal(template, owner_index) {
             return RadiusDecal::new(Coord3D::origin(), 0.0);
         }
-        let mut decal = template.create_radius_decal_with_radius(position, radius);
+        let mut decal = RadiusDecal::from_template_with_radius(template, position, radius);
         if !decal.is_empty() {
             if template.color == 0 {
                 if let (Some(owner), Ok(list)) = (owner_index, ThePlayerList().read()) {

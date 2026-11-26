@@ -6333,7 +6333,21 @@
             "classification": "implementation",
             "owned_source_ranges": [],
             "owned_symbols": [],
+            "path": "GeneralsRust/Code/GameEngine/Common/src/common/thing/deliver_payload_ai_data.rs"
+          },
+          {
+            "cargo_reachable": true,
+            "classification": "implementation",
+            "owned_source_ranges": [],
+            "owned_symbols": [],
             "path": "GeneralsRust/Code/GameEngine/Common/src/common/thing/draw_module.rs"
+          },
+          {
+            "cargo_reachable": true,
+            "classification": "implementation",
+            "owned_source_ranges": [],
+            "owned_symbols": [],
+            "path": "GeneralsRust/Code/GameEngine/Common/src/common/thing/jet_ai_data.rs"
           },
           {
             "cargo_reachable": true,
@@ -6397,6 +6411,13 @@
             "owned_source_ranges": [],
             "owned_symbols": [],
             "path": "GeneralsRust/Code/GameEngine/Common/src/common/thing/object_ini_fields.rs"
+          },
+          {
+            "cargo_reachable": true,
+            "classification": "implementation",
+            "owned_source_ranges": [],
+            "owned_symbols": [],
+            "path": "GeneralsRust/Code/GameEngine/Common/src/common/thing/radius_decal_data.rs"
           },
           {
             "cargo_reachable": true,
@@ -43526,7 +43547,21 @@
             "classification": "implementation",
             "owned_source_ranges": [],
             "owned_symbols": [],
+            "path": "GeneralsRust/Code/GameEngine/Common/src/common/thing/deliver_payload_ai_data.rs"
+          },
+          {
+            "cargo_reachable": true,
+            "classification": "implementation",
+            "owned_source_ranges": [],
+            "owned_symbols": [],
             "path": "GeneralsRust/Code/GameEngine/Common/src/common/thing/draw_module.rs"
+          },
+          {
+            "cargo_reachable": true,
+            "classification": "implementation",
+            "owned_source_ranges": [],
+            "owned_symbols": [],
+            "path": "GeneralsRust/Code/GameEngine/Common/src/common/thing/jet_ai_data.rs"
           },
           {
             "cargo_reachable": true,
@@ -43590,6 +43625,13 @@
             "owned_source_ranges": [],
             "owned_symbols": [],
             "path": "GeneralsRust/Code/GameEngine/Common/src/common/thing/object_ini_fields.rs"
+          },
+          {
+            "cargo_reachable": true,
+            "classification": "implementation",
+            "owned_source_ranges": [],
+            "owned_symbols": [],
+            "path": "GeneralsRust/Code/GameEngine/Common/src/common/thing/radius_decal_data.rs"
           },
           {
             "cargo_reachable": true,
@@ -153707,7 +153749,7 @@
     }
   ],
   "generator": "GeneralsRust/Code/Main/scripts/generate_port_provenance.py",
-  "input_digest": "ce6547fa2c7865068635f0968b5a32e1e4423c97b07a566dca91a2d7f00c09d9",
+  "input_digest": "e8e04de87d0cc2ca9f8c62440fcded3f5311bcc003a07d0c358bf65309128bd1",
   "metric_contract": {
     "behavior_requires_explicit_evidence": true,
     "candidate_mapping_is_reviewed": false,
@@ -160097,6 +160139,18 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
+        "end_line": 384,
+        "start_line": 1
+      },
+      "path": "GeneralsRust/Code/GameEngine/Common/src/common/thing/deliver_payload_ai_data.rs",
+      "sha256": "80bb0a4c0a5df71dc7cedce2ccbbcf52e27a87c9b86dd5da4bf189eac3e8aa3d",
+      "symbol_index_status": "awaiting_mapping_review",
+      "symbols": []
+    },
+    {
+      "cargo_reachable": true,
+      "classification": "implementation",
+      "file_range": {
         "end_line": 438,
         "start_line": 1
       },
@@ -160109,11 +160163,23 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 279,
+        "end_line": 442,
+        "start_line": 1
+      },
+      "path": "GeneralsRust/Code/GameEngine/Common/src/common/thing/jet_ai_data.rs",
+      "sha256": "77079dd1177895163b1c85e18a0ee9aeff5820c93757e230359cd7bbb7867e8e",
+      "symbol_index_status": "awaiting_mapping_review",
+      "symbols": []
+    },
+    {
+      "cargo_reachable": true,
+      "classification": "implementation",
+      "file_range": {
+        "end_line": 282,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/Common/src/common/thing/mod.rs",
-      "sha256": "d4441db9862feb8169f1275dff231f324e9406404e35d8f07284fdd77caac080",
+      "sha256": "790d572afe20f198088067b1928e825d1101eb4a0a14dc1b7ceb04a3d9958e2d",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -160210,6 +160276,18 @@
       },
       "path": "GeneralsRust/Code/GameEngine/Common/src/common/thing/object_ini_fields.rs",
       "sha256": "9232b9a37b6a2215b4384f7683ecd1b5a39811e656fe2e5e8957df5ee35bb84e",
+      "symbol_index_status": "awaiting_mapping_review",
+      "symbols": []
+    },
+    {
+      "cargo_reachable": true,
+      "classification": "implementation",
+      "file_range": {
+        "end_line": 220,
+        "start_line": 1
+      },
+      "path": "GeneralsRust/Code/GameEngine/Common/src/common/thing/radius_decal_data.rs",
+      "sha256": "05435bb2deb78487c9160568e2fd23468f455f10dc3476c14a00898b975e90ec",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -169863,7 +169941,7 @@
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/radius_decal.rs",
-      "sha256": "15ed7121aa99dd246663839055d8b52dbfe28f5577f582dfeea245e7c487f9ab",
+      "sha256": "32f68d30d6118913f491015b3039bfea4785d96558852a49dd126cb0224aa87b",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -198720,7 +198798,7 @@
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/behavior/dynamic_shroud_clearing_range_update.rs",
-      "sha256": "718bb21f2069d139dd4a3246234e76ea18320707998e885ee78eb6aa47c922b4",
+      "sha256": "96ac6307c79913c889d0411a8db057bdf54e6c12f464d9259b14d17ac4035dfa",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -199831,7 +199909,7 @@
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/behavior/radius_decal_update.rs",
-      "sha256": "478e7ac3a5d925768139078ae307f2c6fa7d3858565f0baf2707ef69efcdb447",
+      "sha256": "d4b9577bdbb24009e26fb518c4b11e785396168dafe2fd6bb2cd8cc5fa46bebf",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -199963,7 +200041,7 @@
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/behavior/spectre_gunship_update.rs",
-      "sha256": "6f58eef5b58eb0b407b9e927190feccb256d194df4b46099c4459eb1e8302a89",
+      "sha256": "83ba0fba574a6ebf22012e8fdb703a49c85ca5c49deacbf06841f0526149bf34",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -204639,11 +204717,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 1590,
+        "end_line": 1251,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/deliver_payload_ai_update.rs",
-      "sha256": "db5f22a633cd2d01f7940ac28b27ec64c1c5f6c4aaca4e54eedaf49059f33e65",
+      "sha256": "ccef42dd335d63e7de46e69010b40821ece17487d157a4a941c5c5643380a832",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -204651,11 +204729,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 604,
+        "end_line": 424,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/deliver_payload_data.rs",
-      "sha256": "054bc4d65759fdb0b5e155c34b21bd54c05edbb74466eed108335211b8db261c",
+      "sha256": "68a115fd20fb2f3e96a124f65ca1ff0ae828960a21d5441fa7f069f5942fd31b",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -204807,11 +204885,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 3433,
+        "end_line": 3002,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/jet_ai_update.rs",
-      "sha256": "452b833d1f05f7236fd0efe89bb46589fea6a79e9cb04297d227149e3af4f32c",
+      "sha256": "e530fff900b9da0613c6c3b31249cbbcbcdf53bda77fdf90c756b0d9bd1ac985",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -205491,11 +205569,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 1189,
+        "end_line": 1190,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/update/neutron_missile_update.rs",
-      "sha256": "811cbc65d2d701871f16357347ace5f0a98c54eb09fbb638b768173aa04d64fb",
+      "sha256": "450a39f5300c48103bbc2da0395c088e50273bf9750991f0823675d2036c313f",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },

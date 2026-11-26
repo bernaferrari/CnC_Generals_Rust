@@ -16,7 +16,7 @@ use crate::game_logic::special_power_strikes::{
     ArtilleryBarrageScienceTier,
 };
 use game_engine::common::game_common::SECONDS_PER_LOGICFRAME_REAL;
-use gamelogic::object::update::ai_update::DeliverPayloadAIUpdateModuleData;
+use game_engine::common::thing::deliver_payload_ai_data::DeliverPayloadAIUpdateModuleData;
 use gamelogic::object_creation_list::DeliverPayloadNugget;
 
 use crate::game_logic::host_enum_table_residual::{

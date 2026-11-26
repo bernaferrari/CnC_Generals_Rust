@@ -129,7 +129,7 @@ impl RadiusDecalUpdate {
             true
         };
         if allow_decal {
-            let mut decal = template.create_radius_decal_with_radius(*pos, radius);
+            let mut decal = RadiusDecal::from_template_with_radius(template, *pos, radius);
             if !decal.is_empty() {
                 if template.color == 0 {
                     if let (Some(owner), Ok(list)) = (owner_index, ThePlayerList().read()) {

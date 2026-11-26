@@ -112,7 +112,7 @@ impl TerrainDecalClient for ProjectedDecalClient {
         let info = ShadowTypeInfo {
             allow_updates: false,
             allow_world_align: true,
-            shadow_type: gamelogic::common::SHADOW_ALPHA_DECAL,
+            shadow_type: game_engine::common::thing::radius_decal_data::SHADOW_ALPHA_DECAL,
             shadow_name: gamelogic::common::AsciiString::from(desc.texture_name.as_str()),
             size_x: desc.size_x,
             size_y: desc.size_y,
@@ -523,7 +523,7 @@ pub fn ensure_logic_draw_hooks() {
 mod tests {
     use super::*;
     use crate::radius_decal::ProjectedShadowManager;
-    use gamelogic::common::SHADOW_ALPHA_DECAL;
+    use game_engine::common::thing::radius_decal_data::SHADOW_ALPHA_DECAL;
 
     fn decal(manager: &mut ProjectedShadowManager, name: &str) -> ShadowHandle {
         manager

@@ -328,7 +328,7 @@ fn mounted_spy_satellite_emits_the_original_30_grid_marks_and_retires_them() {
             assert_eq!(items.len(), 30, "grow {elapsed}");
             assert!(items.iter().all(|item| {
                 item.texture_name.eq_ignore_ascii_case("EXGrid")
-                    && item.shadow_type == gamelogic::common::SHADOW_ADDITIVE_DECAL
+                    && item.shadow_type == game_engine::common::thing::radius_decal_data::SHADOW_ADDITIVE_DECAL
                     && item.size_x == 200.0
                     && item.size_y == 200.0
                     && [item.color[0], item.color[1], item.color[3]] == [0.; 3]

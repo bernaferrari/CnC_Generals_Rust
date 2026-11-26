@@ -2,14 +2,12 @@
 //!
 //! Ported from GameLogic/Object/Update/AIUpdate/DeliverPayloadAIUpdate.cpp.
 
-use std::any::Any;
 use std::sync::Arc;
 
 use crate::ai::{AiCommandParams, AiCommandType, CommandSourceType};
-use crate::common::xfer::XferExt;
 use crate::common::{
     AsciiString, Bool, Coord3D, FROM_CENTER_2D, FROM_CENTER_3D, Int, MODELCONDITION_DOOR_1_CLOSING,
-    MODELCONDITION_DOOR_1_OPENING, ModelConditionFlags, ObjectID, RadiusDecal, RadiusDecalTemplate,
+    MODELCONDITION_DOOR_1_OPENING, ModelConditionFlags, ObjectID, RadiusDecal,
     Real, TheWeaponStore, ThingTemplate, UnsignedInt, Vec3D,
 };
 use crate::helpers::{
@@ -21,14 +19,13 @@ use crate::modules::{
     DeliverPayloadAIUpdateInterface,
 };
 use crate::object::drawable::DrawableArcExt;
-use crate::object::update::ai_update_interface::AIUpdateModuleData;
 use crate::state_machine::StateReturnType;
 use crate::weapon::WeaponLockType;
-use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::system::{Snapshotable, Xfer};
-use game_engine::common::thing::module::{Module, ModuleData, ModuleDataHandle, ModuleDataRead, NameKeyType};
+use game_engine::common::thing::module::{Module, ModuleDataHandle, ModuleDataRead, NameKeyType};
 
-use super::deliver_payload_data::{DeliverPayloadData, RADIUS_DECAL_TEMPLATE_FIELDS};
+use super::deliver_payload_data::DeliverPayloadData;
+pub use game_engine::common::thing::deliver_payload_ai_data::DeliverPayloadAIUpdateModuleData;
 
 /// Wave 352 leftover close-out: C++ DeliverPayloadAIUpdate never consults a
 /// dual-world OBJECT_REGISTRY. Skip only on a host-only presentation path that
@@ -57,264 +54,6 @@ enum DiveState {
     Diving = 1,
     PostDive = 2,
 }
-
-/// DeliverPayloadAIUpdate module data (INI-driven).
-#[derive(Debug, Clone)]
-pub struct DeliverPayloadAIUpdateModuleData {
-    module_tag_name_key: NameKeyType,
-    pub base: AIUpdateModuleData,
-    pub door_delay: UnsignedInt,
-    pub max_distance_to_target: Real,
-    pub max_number_attempts: Int,
-    pub drop_delay: UnsignedInt,
-    pub drop_offset: Coord3D,
-    pub drop_variance: Coord3D,
-    pub put_in_container_name: AsciiString,
-    pub delivery_decal_template: RadiusDecalTemplate,
-    pub delivery_decal_radius: Real,
-}
-
-impl Default for DeliverPayloadAIUpdateModuleData {
-    fn default() -> Self {
-        Self {
-            module_tag_name_key: 0,
-            base: AIUpdateModuleData::default(),
-            door_delay: 0,
-            max_distance_to_target: 0.0,
-            max_number_attempts: 0,
-            drop_delay: 0,
-            drop_offset: Coord3D::ZERO,
-            drop_variance: Coord3D::ZERO,
-            put_in_container_name: AsciiString::new(),
-            delivery_decal_template: RadiusDecalTemplate::default(),
-            delivery_decal_radius: 0.0,
-        }
-    }
-}
-
-impl DeliverPayloadAIUpdateModuleData {
-    pub fn parse_from_ini(&mut self, ini: &mut INI) -> Result<(), INIError> {
-        ini.init_from_ini_with_inherited_fields(
-            self,
-            |data| &mut data.base,
-            crate::object::update::ai_update_interface::AI_UPDATE_FIELDS,
-            DELIVER_PAYLOAD_AI_UPDATE_FIELDS,
-        )
-    }
-}
-
-impl ModuleData for DeliverPayloadAIUpdateModuleData {
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-
-    fn set_module_tag_name_key(&mut self, key: NameKeyType) {
-        self.module_tag_name_key = key;
-    }
-
-    fn get_module_tag_name_key(&self) -> NameKeyType {
-        self.module_tag_name_key
-    }
-
-    fn is_ai_module_data(&self) -> bool {
-        true
-    }
-
-    fn ai_update_data(&self) -> Option<&game_engine::common::thing::ai_update_data::AIUpdateModuleData> {
-        Some(&self.base)
-    }
-
-    fn ai_update_data_mut(&mut self) -> Option<&mut game_engine::common::thing::ai_update_data::AIUpdateModuleData> {
-        Some(&mut self.base)
-    }
-}
-
-impl Snapshotable for DeliverPayloadAIUpdateModuleData {
-    fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        let mut version: u8 = 0;
-        xfer.xfer_version(&mut version, 1)
-            .map_err(|e| e.to_string())?;
-        Ok(())
-    }
-
-    fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        let xfer_io = |r: std::io::Result<()>| r.map_err(|e| e.to_string());
-        self.base.xfer(xfer)?;
-        xfer_io(xfer.xfer_unsigned_int(&mut self.door_delay))?;
-        xfer_io(xfer.xfer_real(&mut self.max_distance_to_target))?;
-        xfer_io(xfer.xfer_int(&mut self.max_number_attempts))?;
-        xfer_io(xfer.xfer_unsigned_int(&mut self.drop_delay))?;
-        xfer.xfer_coord3d(&mut self.drop_offset);
-        xfer.xfer_coord3d(&mut self.drop_variance);
-        xfer_io(xfer.xfer_ascii_string(self.put_in_container_name.as_mut_string_buffer()))?;
-        xfer_io(xfer.xfer_real(&mut self.delivery_decal_radius))?;
-        Ok(())
-    }
-
-    fn load_post_process(&mut self) -> Result<(), String> {
-        Ok(())
-    }
-}
-
-fn required_value<'a>(tokens: &'a [&'a str]) -> Result<&'a str, INIError> {
-    tokens
-        .iter()
-        .copied()
-        .find(|token| *token != "=")
-        .ok_or(INIError::InvalidData)
-}
-
-fn value_tokens<'a>(tokens: &'a [&'a str]) -> Vec<&'a str> {
-    tokens
-        .iter()
-        .copied()
-        .filter(|token| *token != "=")
-        .collect()
-}
-
-fn parse_duration_field(
-    setter: &mut dyn FnMut(UnsignedInt),
-    tokens: &[&str],
-) -> Result<(), INIError> {
-    let token = required_value(tokens)?;
-    setter(INI::parse_duration_unsigned_int(token)?);
-    Ok(())
-}
-
-fn parse_bool_field(setter: &mut dyn FnMut(Bool), tokens: &[&str]) -> Result<(), INIError> {
-    let token = required_value(tokens)?;
-    setter(INI::parse_bool(token)?);
-    Ok(())
-}
-
-fn parse_real_field(setter: &mut dyn FnMut(Real), tokens: &[&str]) -> Result<(), INIError> {
-    let token = required_value(tokens)?;
-    setter(INI::parse_real(token)?);
-    Ok(())
-}
-
-fn parse_int_field(setter: &mut dyn FnMut(Int), tokens: &[&str]) -> Result<(), INIError> {
-    let token = required_value(tokens)?;
-    setter(INI::parse_int(token)?);
-    Ok(())
-}
-
-fn parse_coord3d_field(setter: &mut dyn FnMut(Coord3D), tokens: &[&str]) -> Result<(), INIError> {
-    let coord = super::deliver_payload_data::parse_coord3d(tokens)?;
-    setter(coord);
-    Ok(())
-}
-
-fn parse_ascii_field(setter: &mut dyn FnMut(AsciiString), tokens: &[&str]) -> Result<(), INIError> {
-    let token = required_value(tokens)?;
-    setter(AsciiString::from(token));
-    Ok(())
-}
-
-fn parse_auto_acquire_field(
-    _ini: &mut INI,
-    data: &mut DeliverPayloadAIUpdateModuleData,
-    tokens: &[&str],
-) -> Result<(), INIError> {
-    const AUTO_ACQUIRE_ENEMIES_NAMES: &[&str] = &[
-        "YES",
-        "STEALTHED",
-        "NO",
-        "NOTWHILEATTACKING",
-        "ATTACK_BUILDINGS",
-    ];
-    let values = value_tokens(tokens);
-    let value = INI::parse_bit_string_32(&values, AUTO_ACQUIRE_ENEMIES_NAMES)?;
-    data.base.set_auto_acquire_enemies_when_idle(value);
-    Ok(())
-}
-
-fn parse_delivery_decal(
-    ini: &mut INI,
-    data: &mut DeliverPayloadAIUpdateModuleData,
-    _tokens: &[&str],
-) -> Result<(), INIError> {
-    ini.init_from_ini_with_fields(
-        &mut data.delivery_decal_template,
-        RADIUS_DECAL_TEMPLATE_FIELDS,
-    )
-}
-
-const DELIVER_PAYLOAD_AI_UPDATE_FIELDS: &[FieldParse<DeliverPayloadAIUpdateModuleData>] = &[
-    FieldParse {
-        token: "AutoAcquireEnemiesWhenIdle",
-        parse: parse_auto_acquire_field,
-    },
-    FieldParse {
-        token: "MoodAttackCheckRate",
-        parse: |_, data, tokens| {
-            parse_duration_field(
-                &mut |value| data.base.set_mood_attack_check_rate(value),
-                tokens,
-            )
-        },
-    },
-    FieldParse {
-        token: "SurrenderDuration",
-        parse: |_, data, tokens| {
-            parse_duration_field(
-                &mut |value| data.base.set_surrender_duration_frames(value),
-                tokens,
-            )
-        },
-    },
-    FieldParse {
-        token: "ForbidPlayerCommands",
-        parse: |_, data, tokens| {
-            parse_bool_field(
-                &mut |value| data.base.set_forbid_player_commands(value),
-                tokens,
-            )
-        },
-    },
-    FieldParse {
-        token: "TurretsLinked",
-        parse: |_, data, tokens| {
-            parse_bool_field(&mut |value| data.base.set_turrets_linked(value), tokens)
-        },
-    },
-    FieldParse {
-        token: "DoorDelay",
-        parse: |_, data, tokens| parse_duration_field(&mut |v| data.door_delay = v, tokens),
-    },
-    FieldParse {
-        token: "PutInContainer",
-        parse: |_, data, tokens| parse_ascii_field(&mut |v| data.put_in_container_name = v, tokens),
-    },
-    FieldParse {
-        token: "DeliveryDistance",
-        parse: |_, data, tokens| parse_real_field(&mut |v| data.max_distance_to_target = v, tokens),
-    },
-    FieldParse {
-        token: "MaxAttempts",
-        parse: |_, data, tokens| parse_int_field(&mut |v| data.max_number_attempts = v, tokens),
-    },
-    FieldParse {
-        token: "DropDelay",
-        parse: |_, data, tokens| parse_duration_field(&mut |v| data.drop_delay = v, tokens),
-    },
-    FieldParse {
-        token: "DropOffset",
-        parse: |_, data, tokens| parse_coord3d_field(&mut |v| data.drop_offset = v, tokens),
-    },
-    FieldParse {
-        token: "DropVariance",
-        parse: |_, data, tokens| parse_coord3d_field(&mut |v| data.drop_variance = v, tokens),
-    },
-    FieldParse {
-        token: "DeliveryDecal",
-        parse: parse_delivery_decal,
-    },
-    FieldParse {
-        token: "DeliveryDecalRadius",
-        parse: |_, data, tokens| parse_real_field(&mut |v| data.delivery_decal_radius = v, tokens),
-    },
-];
 
 /// Module wrapper for DeliverPayloadAIUpdate to align with module system expectations.
 #[derive(Debug)]
@@ -1402,10 +1141,8 @@ impl DeliverPayloadAIUpdate {
 
         self.delivery_decal.clear();
         if self.data.delivery_decal_radius > 0.0 {
-            let mut decal = self
-                .data
-                .delivery_decal_template
-                .create_radius_decal(*target_pos);
+            let mut decal =
+                RadiusDecal::from_template(&self.data.delivery_decal_template, *target_pos);
             decal.radius = self.data.delivery_decal_radius;
             self.delivery_decal = decal;
         }
@@ -1511,79 +1248,3 @@ impl DeliverPayloadAIUpdateInterface for DeliverPayloadAIUpdate {
 #[cfg(test)]
 #[path = "deliver_payload_physics_tests.rs"]
 mod physics_tests;
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn deliver_payload_ai_fields_accept_ini_equals_token() {
-        let mut data = DeliverPayloadAIUpdateModuleData::default();
-
-        parse_duration_field(&mut |value| data.door_delay = value, &["=", "1000"]).unwrap();
-        parse_ascii_field(
-            &mut |value| data.put_in_container_name = value,
-            &["=", "AmericaVehicleChinook"],
-        )
-        .unwrap();
-        parse_real_field(
-            &mut |value| data.max_distance_to_target = value,
-            &["=", "250.5"],
-        )
-        .unwrap();
-        parse_int_field(&mut |value| data.max_number_attempts = value, &["=", "3"]).unwrap();
-        parse_duration_field(&mut |value| data.drop_delay = value, &["=", "3000"]).unwrap();
-        parse_coord3d_field(
-            &mut |value| data.drop_offset = value,
-            &["=", "1.0", "2.0", "3.0"],
-        )
-        .unwrap();
-        parse_coord3d_field(
-            &mut |value| data.drop_variance = value,
-            &["=", "4.0,5.0,6.0"],
-        )
-        .unwrap();
-        parse_real_field(
-            &mut |value| data.delivery_decal_radius = value,
-            &["=", "80.0"],
-        )
-        .unwrap();
-
-        assert_eq!(data.door_delay, 30);
-        assert_eq!(data.put_in_container_name.as_str(), "AmericaVehicleChinook");
-        assert!((data.max_distance_to_target - 250.5).abs() < f32::EPSILON);
-        assert_eq!(data.max_number_attempts, 3);
-        assert_eq!(data.drop_delay, 90);
-        assert_eq!(data.drop_offset, Coord3D::new(1.0, 2.0, 3.0));
-        assert_eq!(data.drop_variance, Coord3D::new(4.0, 5.0, 6.0));
-        assert!((data.delivery_decal_radius - 80.0).abs() < f32::EPSILON);
-    }
-
-    #[test]
-    fn deliver_payload_ai_base_fields_accept_ini_equals_token() {
-        let mut ini = INI::new();
-        let mut data = DeliverPayloadAIUpdateModuleData::default();
-
-        parse_auto_acquire_field(&mut ini, &mut data, &["=", "YES", "ATTACK_BUILDINGS"]).unwrap();
-        parse_duration_field(
-            &mut |value| data.base.set_mood_attack_check_rate(value),
-            &["=", "2000"],
-        )
-        .unwrap();
-        parse_bool_field(
-            &mut |value| data.base.set_forbid_player_commands(value),
-            &["=", "Yes"],
-        )
-        .unwrap();
-        parse_bool_field(
-            &mut |value| data.base.set_turrets_linked(value),
-            &["=", "Yes"],
-        )
-        .unwrap();
-
-        assert_eq!(data.base.auto_acquire_enemies_when_idle(), 0b10001);
-        assert_eq!(data.base.mood_attack_check_rate(), 60);
-        assert!(data.base.forbid_player_commands());
-        assert!(data.base.turrets_linked());
-    }
-}
