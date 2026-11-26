@@ -11342,7 +11342,6 @@ name = "ui_framework"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "bytemuck",
  "eframe",
  "egui",
  "glam",
@@ -11355,11 +11354,9 @@ dependencies = [
  "serde",
  "serde_json",
  "thiserror 2.0.20",
- "three-d",
  "tokio",
  "uuid",
  "wgpu",
- "winit 0.30.13",
 ]
 
 [[package]]
