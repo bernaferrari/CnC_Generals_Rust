@@ -565,9 +565,6 @@ impl GameLogic {
             return Ok(false);
         };
         self.remove_host_dock_approach_queue(id, object.dock_active_docker);
-        #[cfg(test)]
-        crate::game_logic::host_destroy_log::record(id);
-
         self.clear_removed_object_references(id);
         Ok(object.is_kind_of(KindOf::Structure))
     }

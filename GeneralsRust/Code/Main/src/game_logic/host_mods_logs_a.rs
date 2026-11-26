@@ -27,9 +27,6 @@ pub mod host_attack_log;
 #[path = "host_construction_log.rs"]
 pub mod host_construction_log;
 
-#[path = "host_destroy_log.rs"]
-pub mod host_destroy_log;
-
 #[path = "host_disable_timers_log.rs"]
 pub mod host_disable_timers_log;
 

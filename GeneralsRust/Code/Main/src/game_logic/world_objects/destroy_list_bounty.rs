@@ -218,11 +218,6 @@ impl GameLogic {
                         .tunnel_network
                         .record_exit(player_id, event.id, exit_at);
                 }
-                #[cfg(test)]
-                crate::game_logic::host_destroy_log::record(event.id);
-                // Wave 681: mid-frame GameWorld Destroy while coupled shadow tick is live.
-                // End-of-tick host_destroy_log drain remains idempotent for unmapped IDs.
-
                 // Combat particle residual: death → registry entry (explosion + smoke).
                 // PresentationFrame / client can observe systems after the kill.
                 let death_pos = obj.get_position();

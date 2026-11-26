@@ -27,9 +27,9 @@ initialization, and frames published after simulation steps. The engine and
 renderer share the completed frame. The headless shell smoke gate uses the
 same publisher and checks each frame number and the selection shown by the
 UI consumers. The production library, integration fixtures, and command
-regressions build frames directly. The remaining `GameWorldShadow` consumers
-are confined to its own unit tests. The historical `GENERALS_GAMEWORLD_SHADOW`
-switch has been removed.
+regressions build frames directly. Unit tests exercise creation, retirement,
+containment, production, and combat through the receiving simulation and its
+published frames.
 
 Move WGPU, model, texture, and widget handles into their consumers as the
 presentation interface is narrowed. A pixel renderer or a different UI
@@ -872,14 +872,10 @@ OS input → normalized commands → Main GameLogic (30 Hz host simulation)
   → completed PresentationFrame → GameClient / audio / renderer
 ```
 
-The renderer consumes completed presentation data. The scoped shadow callback
-is a temporary synchronous bridge: it exclusively borrows the owner, restores
-the previous scope on return/unwind, and rejects reentrant ambient borrows.
-There is no safe API for returning an installation guard or publishing a raw
-shadow pointer after the owner's borrow ends. Run
-`python3 Code/Main/scripts/verify_shadow_coupling_miri.py` for the extracted
-production mechanism's lifetime/aliasing audit. Its small owner adapter does
-not prove whole-game isolation or C++ behavioral parity.
+At that point the renderer consumed completed presentation data. The scoped
+shadow callback borrowed the owner exclusively, restored the previous scope on
+return or unwind, and rejected reentrant ambient borrows. A Miri harness
+exercised the lifetime and aliasing rules of that callback.
 
 Player special-power timers and base/crate collision bookkeeping are owned
 runtime values, with explicit mutable access. Shared module interface wrappers

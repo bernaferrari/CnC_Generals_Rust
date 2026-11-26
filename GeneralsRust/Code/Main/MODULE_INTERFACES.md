@@ -41,7 +41,7 @@ contains only immutable contracts and pure dispatch decisions. Builders retain f
 event order, asset associations and serialization layout. `hud_read_model()` returns borrowed
 slices; callers must not introduce a second deep copy of the completed frame.
 Frame builders and renderer tests read the receiving simulation directly.
-`GameWorldShadow` remains available to Main unit tests that inspect the mirror.
+Object publication tests use the checked `PresentationFrame` builder.
 
 For asset precedence, edit the owned resolver/file opening path. C++ `FileSystem::openFile`
 tries local files before archives. Resident model caching precedes a fresh load. Once a local

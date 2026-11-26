@@ -13,12 +13,9 @@
 #
 # Run: `cargo nextest run` (workspace) or `cargo nextest run -p generals_main`.
 #
-# NOTE: heavyweight golden-skirmish / gameworld_shadow e2e tests each take
-# minutes in debug builds and run concurrently under their own processes; use
-# `cargo nextest run -p generals_main -E 'not test(golden_skirmish) and not
-# test(host_construct_after_load_map) and not test(golden_campaign) and not
-# package(generals_main) and test(gameworld_shadow)'`-style filters when a
-# quick signal is needed (the filters select the lightweight set).
+# Golden skirmish and campaign tests can take minutes in debug builds. To
+# leave them out of a focused Main run, add
+# `-E 'not test(golden_skirmish) and not test(golden_campaign)'`.
 
 [profile.default]
 # A hung test (lost lock, blocked world tick) fails instead of stalling the

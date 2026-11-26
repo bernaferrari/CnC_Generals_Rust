@@ -59,14 +59,10 @@ impl super::GameLogic {
     pub(crate) fn complete_presentation_observations(&mut self) {
         let _ = self.health_events.drain_for_host_boundary();
         self.attack_events.complete_boundary();
-        #[cfg(test)]
-        let _ = crate::game_logic::host_destroy_log::drain();
         self.combat_system.fire_sound_loop_events.complete_boundary();
         let _ = self.movement_events.drain_for_host_boundary();
         self.ownership_events.complete_boundary();
         self.production_events.complete_boundary();
-        #[cfg(test)]
-        let _ = crate::game_logic::host_production_progress_log::drain();
         self.economy_events.complete_boundary();
     }
 }

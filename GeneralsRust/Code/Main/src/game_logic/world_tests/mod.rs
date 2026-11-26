@@ -11,6 +11,7 @@ mod factory_exit_owner_tests;
 mod frame_publication_tests;
 mod health_receipt_tests;
 mod object_frame_tests;
+mod object_publication_tests;
 mod helpers;
 use helpers::*;
 

@@ -330,8 +330,6 @@ impl GameLogic {
                 }
                 _ => (true, u32::MAX),
             };
-            #[cfg(test)]
-            let exit_state = obj.production_exit_state;
             if let Some(building) = obj.building_data.as_mut() {
                 let pf = power_factor;
                 // C++ ProductionUpdate checks an exit door only for completed
@@ -428,38 +426,6 @@ impl GameLogic {
                         )
                     }
                 };
-                // Tests may inspect the committed queue. Production readers
-                // observe BuildingData directly; this is not event transport.
-                #[cfg(test)]
-                let completed_this_tick = completed_prod.is_some();
-                #[cfg(test)]
-                if !building.production_queue.is_empty() || completed_this_tick {
-                    let items: Vec<crate::game_logic::host_production_progress_log::HostProductionQueueItem> =
-                        building
-                            .production_queue
-                            .iter()
-                            .take(16)
-                            .map(|it| {
-                                crate::game_logic::host_production_progress_log::HostProductionQueueItem {
-                                    template_name: it.template_name.clone(),
-                                    progress: it.progress,
-                                    total_time: it.total_time,
-                                    construction_frames: it.construction_frames,
-                                    cost_supplies: it.cost.supplies,
-                                    is_upgrade: it.is_upgrade(),
-                                    quantity_total: it.quantity_total.max(1),
-                                    quantity_produced: it.quantity_produced,
-                                }
-                            })
-                            .collect();
-                    crate::game_logic::host_production_progress_log::record_with_exit_state(
-                        id,
-                        items,
-                        exit_state.delay_frames as f32 / 30.0,
-                        exit_state,
-                        pf,
-                    );
-                }
                 // End the `BuildingData` field read before using producer
                 // geometry below; the object owns both fields.
                 let completion_rally = building.rally_point;
