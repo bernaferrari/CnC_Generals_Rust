@@ -252,7 +252,7 @@ fn authored_shake_then_home_observes_active_impulse_and_rule_changes_only_next_a
     let (mut owner, _) = world();
     let (peer, _) = world();
     let peer_before = peer.capture_camera_continuation().unwrap();
-    let mut map = gamelogic::system::map_loader::MapData::new();
+    let mut map = game_engine::map_data::MapData::new();
     map.width = 64;
     map.height = 64;
     map.boundaries = vec![glam::IVec2::new(64, 64)];

@@ -39,7 +39,7 @@ fn two_actual_pipeline_terrain_owners_accept_canonical_bytes_without_global_sele
     assert_eq!(a.native_terrain().unwrap().get_raw_map_height(1, 1), 40);
     b.native_terrain = Some(visual(80));
     let mut logical = gamelogic::terrain::TerrainLogic::new();
-    let mut map = gamelogic::system::map_loader::MapData::new();
+    let mut map = game_engine::map_data::MapData::new();
     map.width = 8;
     map.height = 8;
     map.heightmap = vec![40; 64];

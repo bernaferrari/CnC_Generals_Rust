@@ -2,7 +2,7 @@
 use super::*;
 fn owner() -> GameLogic {
     let mut world = GameLogic::new();
-    let mut map = gamelogic::system::map_loader::MapData::new();
+    let mut map = game_engine::map_data::MapData::new();
     map.width = 64;
     map.height = 64;
     map.heightmap = vec![0; 4096];

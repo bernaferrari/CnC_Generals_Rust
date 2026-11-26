@@ -363,7 +363,7 @@ fn owned_water_damage_completes_linked_bridge_callbacks_before_returning() {
         "owned_water_damage_completes_linked_bridge_callbacks_before_returning",
         || {
             let mut world = GameLogic::new();
-            let mut map = gamelogic::system::map_loader::MapData::new();
+            let mut map = game_engine::map_data::MapData::new();
             map.width = 20;
             map.height = 20;
             map.heightmap = vec![0; 400];

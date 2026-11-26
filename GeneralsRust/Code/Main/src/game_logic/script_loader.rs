@@ -35,7 +35,8 @@ use gamelogic::scripting::core::{
 };
 use gamelogic::scripting::{ScriptListReadInfo, parse_player_scripts_list_chunk};
 use gamelogic::system::Coord3D as SystemCoord3D;
-use gamelogic::system::map_loader::{BridgeEndpoints, BridgeMarkers};
+use game_engine::map_data::{BridgeEndpoints, BridgeMarkers};
+pub use generals_map::HeightMapData;
 use generals_sim::GameLogicError;
 use log::{debug, info, trace, warn};
 

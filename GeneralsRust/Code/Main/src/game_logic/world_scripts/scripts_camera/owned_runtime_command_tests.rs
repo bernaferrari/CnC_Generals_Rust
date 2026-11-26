@@ -68,13 +68,13 @@ fn team_attack_team_keeps_group_and_locomotor_and_uses_owned_victim_roster() {
 fn named_waypoint_orders_read_owned_map_preserve_formation_and_use_script_source() {
     let (mut owner, unit, _) = world();
     let (peer, peer_unit, _) = world();
-    let mut map = gamelogic::system::map_loader::MapData::new();
+    let mut map = game_engine::map_data::MapData::new();
     map.width = 64;
     map.height = 64;
     map.heightmap = vec![0; 64 * 64];
     map.boundaries = vec![glam::IVec2::new(64, 64)];
     map.waypoints
-        .push(gamelogic::system::map_loader::MapWaypoint {
+        .push(game_engine::map_data::MapWaypoint {
             id: 9101,
             name: "OwnedWaypoint".into(),
             location: glam::Vec3::new(80.0, 90.0, 0.0),
@@ -148,13 +148,13 @@ fn team_move_uses_the_receiving_world_for_colliding_object_ids() {
     roster(&owner, "MoveTeam", unit, 1);
     roster(&peer, "MoveTeam", peer_unit, 1);
 
-    let mut map = gamelogic::system::map_loader::MapData::new();
+    let mut map = game_engine::map_data::MapData::new();
     map.width = 64;
     map.height = 64;
     map.heightmap = vec![0; 64 * 64];
     map.boundaries = vec![glam::IVec2::new(64, 64)];
     map.waypoints
-        .push(gamelogic::system::map_loader::MapWaypoint {
+        .push(game_engine::map_data::MapWaypoint {
             id: 9201,
             name: "MoveOwnerWaypoint".into(),
             location: glam::Vec3::new(180.0, 210.0, 0.0),
@@ -216,9 +216,9 @@ fn team_move_this_team_uses_calling_team_identity() {
         },
     );
 
-    let mut map = gamelogic::system::map_loader::MapData::new();
+    let mut map = game_engine::map_data::MapData::new();
     map.waypoints
-        .push(gamelogic::system::map_loader::MapWaypoint {
+        .push(game_engine::map_data::MapWaypoint {
             id: 9202,
             name: "ContextMoveWaypoint".into(),
             location: glam::Vec3::new(210.0, 230.0, 0.0),
@@ -300,9 +300,9 @@ fn team_move_this_team_prefers_calling_team_identity_over_condition_team() {
         },
     );
 
-    let mut map = gamelogic::system::map_loader::MapData::new();
+    let mut map = game_engine::map_data::MapData::new();
     map.waypoints
-        .push(gamelogic::system::map_loader::MapWaypoint {
+        .push(game_engine::map_data::MapWaypoint {
             id: 9202,
             name: "ContextMoveWaypoint".into(),
             location: glam::Vec3::new(210.0, 230.0, 0.0),
@@ -922,13 +922,13 @@ fn team_move_admits_roster_order_before_waypoint_and_keeps_membership_when_missi
     assert_eq!(owner.host_object(first).unwrap().requested_destination, None);
     assert_eq!(owner.host_object(second).unwrap().requested_destination, None);
 
-    let mut map = gamelogic::system::map_loader::MapData::new();
+    let mut map = game_engine::map_data::MapData::new();
     map.width = 64;
     map.height = 64;
     map.heightmap = vec![0; 64 * 64];
     map.boundaries = vec![glam::IVec2::new(64, 64)];
     map.waypoints
-        .push(gamelogic::system::map_loader::MapWaypoint {
+        .push(game_engine::map_data::MapWaypoint {
             id: 9301,
             name: "RosterWaypoint".into(),
             location: glam::Vec3::new(300.0, 300.0, 0.0),

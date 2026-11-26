@@ -9,8 +9,9 @@ fn map(
     boundary: i32,
     first: (f32, f32),
     last: (f32, f32),
-) -> gamelogic::system::map_loader::MapData {
-    use gamelogic::system::map_loader::{Coord3D, MapData, MapWaypoint};
+) -> game_engine::map_data::MapData {
+    use glam::Vec3 as Coord3D;
+    use game_engine::map_data::{MapData, MapWaypoint};
     let mut map = MapData::new();
     map.width = 128;
     map.height = 128;

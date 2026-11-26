@@ -7,7 +7,7 @@ use crate::game_logic::{NativeViewEffects, Object, ObjectId, Team, ThingTemplate
 use glam::Mat4;
 fn owner() -> GameLogic {
     let mut world = GameLogic::new();
-    let mut map = gamelogic::system::map_loader::MapData::new();
+    let mut map = game_engine::map_data::MapData::new();
     map.width = 64;
     map.height = 64;
     map.boundaries = vec![glam::IVec2::new(64, 64)];
@@ -311,7 +311,7 @@ fn reset_and_mmb_default_share_minimum_hag_floor_without_mutating_peer() {
 #[test]
 fn current_terrain_boundary_drives_recalculation_not_cached_host_world_bounds() {
     let mut world = owner();
-    let mut map = gamelogic::system::map_loader::MapData::new();
+    let mut map = game_engine::map_data::MapData::new();
     map.width = 64;
     map.height = 64;
     map.heightmap = vec![0; 4096];

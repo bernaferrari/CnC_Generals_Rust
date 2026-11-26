@@ -1695,7 +1695,7 @@ mod instant_scatter_ground_tests {
     fn instant_scatter_impact_lands_on_terrain_not_victim_altitude() {
         let mut logic = GameLogic::new();
         logic.override_world_size(30., 30.);
-        let mut map = gamelogic::system::map_loader::MapData::new();
+        let mut map = game_engine::map_data::MapData::new();
         map.width = 4;
         map.height = 4;
         map.heightmap = vec![8; 16];

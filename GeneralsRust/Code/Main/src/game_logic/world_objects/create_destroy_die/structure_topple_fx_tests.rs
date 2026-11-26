@@ -773,12 +773,12 @@ fn crushing_uses_actual_ground_below_a_receiving_world_bridge_deck() {
             let (effects, catalog) = install_fx();
             let weapon = crushing_weapon(WEAPON, 10.0);
             let (mut owner, source) = world_fx(0, 10.0, Some(&weapon), "", Some(&catalog));
-            let mut map = gamelogic::system::map_loader::MapData::new();
+            let mut map = game_engine::map_data::MapData::new();
             map.width = 30;
             map.height = 30;
             map.heightmap = vec![0; 900];
             map.bridges
-                .push(gamelogic::system::map_loader::BridgeData::new(
+                .push(game_engine::map_data::BridgeData::new(
                     Coord3D::new(0.0, 12.0, 20.0),
                     Coord3D::new(40.0, 12.0, 20.0),
                     20.0,

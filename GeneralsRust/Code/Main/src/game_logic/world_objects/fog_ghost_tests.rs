@@ -379,7 +379,7 @@ fn boundary_rebuilds_destroyed_fogged_object_coverage_in_each_world_and_save() {
         world.update_owned_partition_with_effects(&mut Default::default()).unwrap();
     }
     fn admit_boundary_map(world: &mut GameLogic) {
-        let mut map = gamelogic::system::map_loader::MapData::new();
+        let mut map = game_engine::map_data::MapData::new();
         map.width = 40;
         map.height = 40;
         map.heightmap = vec![0; 1600];

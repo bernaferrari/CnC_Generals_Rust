@@ -153693,7 +153693,7 @@
     }
   ],
   "generator": "GeneralsRust/Code/Main/scripts/generate_port_provenance.py",
-  "input_digest": "053b308fbe9af0e88e74bd936574f60d43ca6220cb28a759dfbd8eb7557c1baa",
+  "input_digest": "99bf415431477bc2b905f2b3fc8e2ae5ab4d9a32f78171f903503f375f4aa174",
   "metric_contract": {
     "behavior_requires_explicit_evidence": true,
     "candidate_mapping_is_reviewed": false,
@@ -174225,7 +174225,7 @@
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/terrain/terrain_visual_xfer_owner_tests.rs",
-      "sha256": "46e8ed793ef7e0f3f40f89a4c6ce5e846f711e6ff1ff5cea58a0d937c0ed95d4",
+      "sha256": "0acec622dc40ed8ca62a6c821ddf229194e74df74a4f6e3ba3cd2978a7b56060",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },

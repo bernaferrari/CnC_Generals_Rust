@@ -66,7 +66,7 @@ End
     (world, ground, air)
 }
 fn terrain(world: &GameLogic, raw_ground: u8, water: Option<i32>) {
-    let mut map = gamelogic::system::map_loader::MapData::new();
+    let mut map = game_engine::map_data::MapData::new();
     map.width = 16;
     map.height = 16;
     map.heightmap = vec![raw_ground; 256];

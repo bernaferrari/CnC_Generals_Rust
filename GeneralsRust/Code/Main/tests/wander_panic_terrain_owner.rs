@@ -161,7 +161,7 @@ fn live_team_wander_and_panic_ignore_foreign_same_label_terrain() {
     let foreign_services = gamelogic::system::engine_stores::new_world_services();
     {
         let mut terrain = foreign_services.terrain().write().unwrap();
-        let mut map = gamelogic::system::map_loader::MapData::new();
+        let mut map = game_engine::map_data::MapData::new();
         map.width = 101;
         map.height = 101;
         map.heightmap = vec![0; 10201];
@@ -170,7 +170,7 @@ fn live_team_wander_and_panic_ignore_foreign_same_label_terrain() {
             (902, (900.0, 700.0), "ForeignTerminal"),
         ] {
             map.waypoints
-                .push(gamelogic::system::map_loader::MapWaypoint {
+                .push(game_engine::map_data::MapWaypoint {
                     id,
                     name: format!("Foreign{id}"),
                     location: glam::Vec3::new(x, y, 0.0),

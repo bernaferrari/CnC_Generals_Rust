@@ -137,7 +137,7 @@ fn swath_position_matches_executed_original_full_vector_frame_and_acos_cases() {
 }
 
 fn terrain() -> gamelogic::terrain::TerrainLogic {
-    let mut map = gamelogic::system::map_loader::MapData::new();
+    let mut map = game_engine::map_data::MapData::new();
     map.width = 32;
     map.height = 32;
     map.heightmap = (0..32)

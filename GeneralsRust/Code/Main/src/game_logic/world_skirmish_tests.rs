@@ -273,16 +273,16 @@ fn spawn_skirmish_starting_units_uses_player_rally() {
 
     // Terrain and parsed metadata are admitted to this receiving world after
     // new-game reset. Constructing a second world never publishes this map.
-    let mut map_data = gamelogic::system::map_loader::MapData::new();
+    let mut map_data = game_engine::map_data::MapData::new();
     map_data.width = 128;
     map_data.height = 128;
     map_data.heightmap = vec![0; 128 * 128];
     map_data
         .waypoints
-        .push(gamelogic::system::map_loader::MapWaypoint {
+        .push(game_engine::map_data::MapWaypoint {
             id: 1,
             name: "Player_1_Rally".to_string(),
-            location: gamelogic::system::map_loader::Coord3D::new(-120.0, 140.0, 12.0),
+            location: glam::Vec3::new(-120.0, 140.0, 12.0),
             path_label1: String::new(),
             path_label2: String::new(),
             path_label3: String::new(),
@@ -313,16 +313,16 @@ fn spawn_skirmish_starting_units_uses_player_rally() {
 
     // Identical waypoint name on a peer is independent of the driving owner.
     let peer = GameLogic::new();
-    let mut peer_map = gamelogic::system::map_loader::MapData::new();
+    let mut peer_map = game_engine::map_data::MapData::new();
     peer_map.width = 128;
     peer_map.height = 128;
     peer_map.heightmap = vec![0; 128 * 128];
     peer_map
         .waypoints
-        .push(gamelogic::system::map_loader::MapWaypoint {
+        .push(game_engine::map_data::MapWaypoint {
             id: 1,
             name: "Player_1_Rally".to_string(),
-            location: gamelogic::system::map_loader::Coord3D::new(777.0, 888.0, 12.0),
+            location: glam::Vec3::new(777.0, 888.0, 12.0),
             path_label1: String::new(),
             path_label2: String::new(),
             path_label3: String::new(),

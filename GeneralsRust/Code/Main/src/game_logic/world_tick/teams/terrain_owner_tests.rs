@@ -1,6 +1,7 @@
 //! Terrain ownership checks for TEAM_WANDER and TEAM_PANIC waypoint lookup.
 use super::GameLogic;
-use gamelogic::system::map_loader::{Coord3D, MapData, MapWaypoint};
+use glam::Vec3 as Coord3D;
+use game_engine::map_data::{MapData, MapWaypoint};
 use glam::Vec3;
 use std::sync::Arc;
 

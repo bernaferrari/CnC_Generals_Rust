@@ -195,7 +195,7 @@ fn motion_blur_retained_scene_does_not_advance_the_receiving_wake() {
     let mut first = GameLogic::new();
     let mut peer = GameLogic::new();
     for world in [&mut first, &mut peer] {
-        let mut map = gamelogic::system::map_loader::MapData::new();
+        let mut map = game_engine::map_data::MapData::new();
         map.width = 8;
         map.height = 8;
         map.heightmap = vec![0; 64];

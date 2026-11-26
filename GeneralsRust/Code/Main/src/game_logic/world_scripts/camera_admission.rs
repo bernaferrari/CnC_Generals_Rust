@@ -276,7 +276,7 @@ mod camera_request_admission_tests {
         // LookAt is a real source terrain/bounds operation, not a raw queue
         // setter. Use a receiving map and an interior destination so the
         // same-position overwrite witness does not accidentally test clipping.
-        let mut map = gamelogic::system::map_loader::MapData::new();
+        let mut map = game_engine::map_data::MapData::new();
         map.width = 256;
         map.height = 256;
         map.heightmap = vec![0; 256 * 256];

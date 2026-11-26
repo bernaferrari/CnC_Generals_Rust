@@ -17,16 +17,16 @@ fn terrain(raw: u8, enabled: bool) -> gamelogic::terrain::TerrainLogic {
     let mut owner = gamelogic::terrain::TerrainLogic::new();
     owner
         .try_load_map_geometry({
-            let mut map = gamelogic::system::map_loader::MapData::new();
+            let mut map = game_engine::map_data::MapData::new();
             map.width = 2;
             map.height = 2;
             map.heightmap = vec![raw; 4];
             if enabled {
                 map.waypoints
-                    .push(gamelogic::system::map_loader::MapWaypoint {
+                    .push(game_engine::map_data::MapWaypoint {
                         id: 1,
                         name: "WaveGuide1".into(),
-                        location: gamelogic::system::map_loader::Coord3D::new(0., 0., 0.),
+                        location: glam::Vec3::new(0., 0., 0.),
                         path_label1: String::new(),
                         path_label2: String::new(),
                         path_label3: String::new(),

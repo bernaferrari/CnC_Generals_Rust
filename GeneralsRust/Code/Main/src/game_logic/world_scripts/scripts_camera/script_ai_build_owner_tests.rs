@@ -746,15 +746,15 @@ fn approach_move_uses_owned_team_and_owned_enemy_numbered_waypoint() {
     for (logic, x) in [(&mut owner, 200.0), (&mut peer, 800.0)] {
         admit(logic, "ActualApproach", 77, Some(unit));
         logic.get_player_mut(2).unwrap().start_position = 1;
-        let mut map = gamelogic::system::map_loader::MapData::new();
+        let mut map = game_engine::map_data::MapData::new();
         map.width = 100;
         map.height = 100;
         map.heightmap = vec![0; 10000];
         map.waypoints
-            .push(gamelogic::system::map_loader::MapWaypoint {
+            .push(game_engine::map_data::MapWaypoint {
                 id: 71,
                 name: "OwnedApproachPoint".into(),
-                location: gamelogic::system::map_loader::Coord3D::new(x, 60.0, 0.0),
+                location: glam::Vec3::new(x, 60.0, 0.0),
                 path_label1: "ActualPath2".into(),
                 path_label2: String::new(),
                 path_label3: String::new(),
@@ -842,16 +842,16 @@ fn panic_action_uses_actual_team_member_and_own_closest_waypoint() {
     let (mut peer, peer_unit, _) = super::named_command_test_support::world();
     for logic in [&mut owner, &mut peer] {
         admit(logic, "OwnedPanic", 88, Some(unit));
-        let mut map = gamelogic::system::map_loader::MapData::new();
+        let mut map = game_engine::map_data::MapData::new();
         map.width = 100;
         map.height = 100;
         map.heightmap = vec![0; 10000];
         for (id, x) in [(81, 60.0), (82, 500.0)] {
             map.waypoints
-                .push(gamelogic::system::map_loader::MapWaypoint {
+                .push(game_engine::map_data::MapWaypoint {
                     id,
                     name: format!("Panic{id}"),
-                    location: gamelogic::system::map_loader::Coord3D::new(x, 50.0, 0.0),
+                    location: glam::Vec3::new(x, 50.0, 0.0),
                     path_label1: "ActualPanicPath".into(),
                     path_label2: String::new(),
                     path_label3: String::new(),

@@ -104,7 +104,7 @@ fn world_for_target(target_kind: RetailTarget, superweapon: bool) -> (GameLogic,
     let mut world = GameLogic::new();
     world.bind_application_assets(std::sync::Arc::new(std::sync::Mutex::new(assets)));
     world.admit_locomotor_definitions(locomotors).unwrap();
-    let mut map = gamelogic::system::map_loader::MapData::new();
+    let mut map = game_engine::map_data::MapData::new();
     let size = if superweapon { 64 } else { 32 };
     map.width = size;
     map.height = size;

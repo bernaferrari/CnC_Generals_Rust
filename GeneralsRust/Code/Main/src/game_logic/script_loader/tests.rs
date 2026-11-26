@@ -677,10 +677,10 @@ End\n";
                 .is_empty()
         );
 
-        let mut map_data = gamelogic::system::map_loader::MapData::new();
+        let mut map_data = game_engine::map_data::MapData::new();
         map_data.water_height = Some(water_height);
         map_data.polygon_triggers = triggers;
-        let mut models = gamelogic::system::map_loader::BridgeModels::default();
+        let mut models = game_engine::map_data::BridgeModels::default();
         map_data.bridges = bridges
             .into_iter()
             .map(|span| models.deck(span, crate::fixture_content::bridge_art::MODEL, 1.0, |_| {

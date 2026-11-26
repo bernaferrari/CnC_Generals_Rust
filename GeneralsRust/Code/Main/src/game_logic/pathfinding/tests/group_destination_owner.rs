@@ -307,7 +307,7 @@ fn logical_extent_queue_admission_uses_driving_active_boundary_and_constructor_i
             );
             game_engine::common::common_services::with_common_services(&common, || {
             fn admit_boundary(world: &mut GameLogic, cells: i32) {
-                let mut data = gamelogic::system::map_loader::MapData::new();
+                let mut data = game_engine::map_data::MapData::new();
                 data.width = 32;
                 data.height = 32;
                 data.heightmap = vec![0; 32 * 32];

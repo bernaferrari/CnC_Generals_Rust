@@ -372,7 +372,7 @@ mod tree_center_tests {
 
     fn camera_owner() -> GameLogic {
         let mut world = GameLogic::new();
-        let mut map = gamelogic::system::map_loader::MapData::new();
+        let mut map = game_engine::map_data::MapData::new();
         map.width = 64;
         map.height = 64;
         map.boundaries = vec![glam::IVec2::new(64, 64)];

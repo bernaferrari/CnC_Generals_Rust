@@ -321,13 +321,13 @@ mod landmark_bridge_and_new_map_tests {
 
     #[test]
     fn leftover_new_map_enables_water_grid_for_waveguide1() {
-        let mut map_data = gamelogic::system::map_loader::MapData::new();
+        let mut map_data = game_engine::map_data::MapData::new();
         map_data
             .waypoints
-            .push(gamelogic::system::map_loader::MapWaypoint {
+            .push(game_engine::map_data::MapWaypoint {
                 id: 1,
                 name: "WaveGuide1".to_string(),
-                location: gamelogic::system::map_loader::Coord3D::new(20.0, 20.0, 5.0),
+                location: glam::Vec3::new(20.0, 20.0, 5.0),
                 path_label1: String::new(),
                 path_label2: String::new(),
                 path_label3: String::new(),

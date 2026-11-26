@@ -2,7 +2,7 @@
 use super::{TerrainLogic, Vec3, terrain_hit};
 
 fn terrain(width: u32, height: u32, bytes: Vec<u8>) -> TerrainLogic {
-    let mut data = gamelogic::system::map_loader::MapData::new();
+    let mut data = game_engine::map_data::MapData::new();
     data.width = width;
     data.height = height;
     data.heightmap = bytes;

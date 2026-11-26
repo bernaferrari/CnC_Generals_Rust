@@ -247,7 +247,7 @@ mod tests {
             "detached_map_candidate_lends_only_its_native_effect_receiver",
             || {
                 let world = crate::game_logic::GameLogic::new();
-                let mut map = gamelogic::system::map_loader::MapData::new();
+                let mut map = game_engine::map_data::MapData::new();
                 map.width = 8;
                 map.height = 8;
                 map.heightmap = vec![40; 64];

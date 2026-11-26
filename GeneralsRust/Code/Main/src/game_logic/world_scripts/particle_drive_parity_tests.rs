@@ -11,7 +11,8 @@ fn world(delta: Vec3, raw: u8) -> GameLogic {
 }
 
 fn world_mode(delta: Vec3, raw: u8, scripted: bool) -> GameLogic {
-    use gamelogic::system::map_loader::{Coord3D, MapData, MapWaypoint};
+    use glam::Vec3 as Coord3D;
+    use game_engine::map_data::{MapData, MapWaypoint};
     let mut world = GameLogic::new();
     let mut map = MapData::new();
     map.width = 32;
@@ -330,7 +331,7 @@ fn encoded_particle_swath_continues_with_captured_settings() {
 
 fn swath_world(raw: u8) -> GameLogic {
     let mut owner = GameLogic::new();
-    let mut map = gamelogic::system::map_loader::MapData::new();
+    let mut map = game_engine::map_data::MapData::new();
     map.width = 32;
     map.height = 32;
     map.heightmap = vec![raw; 32 * 32];
@@ -501,7 +502,7 @@ fn encoded_nonmanual_particle_target_continues_canonical_frame_and_ground() {
 
 fn authored_swath_world(distance: u32, amplitude: u32) -> (GameLogic, ObjectId) {
     let mut world = GameLogic::new();
-    let mut map = gamelogic::system::map_loader::MapData::new();
+    let mut map = game_engine::map_data::MapData::new();
     map.width = 32;
     map.height = 32;
     map.heightmap = vec![10; 32 * 32];
@@ -662,7 +663,7 @@ fn retail_particle_swath_production_matches_original() {
         let content = crate::assets::ReceivingObjectContent::from_sources(sources).unwrap();
 
         let mut retail = GameLogic::new();
-        let mut map = gamelogic::system::map_loader::MapData::new();
+        let mut map = game_engine::map_data::MapData::new();
         map.width = 32;
         map.height = 32;
         map.heightmap = vec![10; 32 * 32];

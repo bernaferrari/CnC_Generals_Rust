@@ -11,7 +11,7 @@ fn world(x: f32) -> (GameLogic, ObjectId, Vec3) {
     // LookAt constrains against the receiving terrain, not cached host bounds.
     // Supply a real extent for these action-order fixtures; exact padded-edge
     // behavior is independently checked by receiving_look_at_tests.
-    let mut map = gamelogic::system::map_loader::MapData::new();
+    let mut map = game_engine::map_data::MapData::new();
     map.width = 64;
     map.height = 64;
     map.boundaries = vec![glam::IVec2::new(64, 64)];

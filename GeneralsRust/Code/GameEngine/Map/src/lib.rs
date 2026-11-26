@@ -3,10 +3,14 @@
 #![forbid(unsafe_code)]
 
 mod chunks;
+mod heightmap;
 mod reader;
 pub use chunks::{
     CHUNK_HEADER_SIZE, CHUNK_MAGIC, ChunkHeader, find_chunk_by_label, parse_chunk_sequence,
     parse_chunk_toc, read_chunk_header,
+};
+pub use heightmap::{
+    HeightMapData, decode_heightmap, downsample_version_one, read_heightmap_dimensions,
 };
 pub use reader::BinaryReader;
 use std::{collections::HashMap, path::PathBuf};

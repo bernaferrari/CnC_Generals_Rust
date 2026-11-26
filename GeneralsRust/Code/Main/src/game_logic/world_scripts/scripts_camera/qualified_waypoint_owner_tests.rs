@@ -79,13 +79,13 @@ fn team_waypoint_orders_choose_owned_path_and_preserve_or_clear_formation() {
         let (mut owner, unit, _) = world();
         let (peer, peer_unit, _) = world();
         let team = roster(&owner, unit);
-        let mut map = gamelogic::system::map_loader::MapData::new();
+        let mut map = game_engine::map_data::MapData::new();
         map.width = 64;
         map.height = 64;
         map.heightmap = vec![0; 4096];
         map.boundaries = vec![glam::IVec2::new(64, 64)];
         map.waypoints
-            .push(gamelogic::system::map_loader::MapWaypoint {
+            .push(game_engine::map_data::MapWaypoint {
                 id: 9401,
                 name: "TeamPoint".into(),
                 location: glam::Vec3::new(80.0, 90.0, 0.0),

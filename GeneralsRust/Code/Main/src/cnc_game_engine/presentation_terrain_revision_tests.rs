@@ -3,7 +3,7 @@ use super::*;
 
 fn loaded(value: u8) -> GameLogic {
     let logic = GameLogic::new();
-    let mut map = gamelogic::system::map_loader::MapData::new();
+    let mut map = game_engine::map_data::MapData::new();
     map.width = 4;
     map.height = 4;
     map.heightmap = vec![value; 16];
@@ -93,7 +93,7 @@ fn dropped_owner_weak_identity_does_not_keep_mutable_world_alive() {
 #[test]
 fn actual_core_frame_picking_uses_source_triangles_and_byte_rounding() {
     let logic = loaded(8);
-    let mut map = gamelogic::system::map_loader::MapData::new();
+    let mut map = game_engine::map_data::MapData::new();
     map.width = 6;
     map.height = 6;
     map.border_size = 1;
@@ -130,7 +130,7 @@ fn actual_core_frame_picking_uses_source_triangles_and_byte_rounding() {
 #[test]
 fn actual_core_and_frozen_negative_integer_cell_use_source_fast_floor() {
     let logic = loaded(8);
-    let mut map = gamelogic::system::map_loader::MapData::new();
+    let mut map = game_engine::map_data::MapData::new();
     map.width = 4;
     map.height = 4;
     map.border_size = 2;

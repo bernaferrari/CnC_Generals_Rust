@@ -9,7 +9,7 @@ use gamelogic::scripting::core::{
     ScriptActionType, ScriptList,
 };
 use gamelogic::scripting::engine::{ScriptEngine, get_script_engine};
-use gamelogic::system::map_loader::{MapData, MapWaypoint};
+use game_engine::map_data::{MapData, MapWaypoint};
 use gamelogic::terrain::TerrainLogic;
 
 struct TerrainRestore(Option<TerrainLogic>);

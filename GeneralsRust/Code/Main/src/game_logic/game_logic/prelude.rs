@@ -53,7 +53,6 @@ pub(super) use gamelogic::scripting::engine::ScriptActionHandler;
 pub(super) use gamelogic::sides_list::get_sides_list;
 pub(super) use gamelogic::special_power_module::update as update_special_powers;
 pub(super) use gamelogic::system::game_logic::RadarEventType;
-pub(super) use gamelogic::system::map_loader::MapLoader as LogicMapLoader;
 pub(super) use gamelogic::system::radar_notifier;
 pub(super) use gamelogic::system::shroud_manager::get_shroud_manager;
 pub(super) use gamelogic::team::get_team_factory;

@@ -107,7 +107,7 @@ fn radar_sampling_empty_cache_has_no_ambient_terrain_dependency() {
 #[test]
 fn radar_sampling_fallback_uses_driving_terrain_heightmap() {
     let mut logic = GameLogic::new();
-    let mut map = gamelogic::system::map_loader::MapData::new();
+    let mut map = game_engine::map_data::MapData::new();
     map.width = 8;
     map.height = 8;
     map.heightmap = (0..64).collect();

@@ -29,7 +29,7 @@ fn terrain(height: f32) -> gamelogic::terrain::TerrainLogic {
         "input is representable in original byte heights"
     );
     assert!((0.0..=255.0).contains(&raw));
-    let mut map = gamelogic::system::map_loader::MapData::new();
+    let mut map = game_engine::map_data::MapData::new();
     map.width = 16;
     map.height = 16;
     map.border_size = 0;

@@ -561,7 +561,7 @@ fn flight_and_evacuation_ground_follow_receiving_raw_bytes_after_lowering() {
     let mut world = GameLogic::new();
     let peer = GameLogic::new();
     assert!(world.restore_terrain_heights_from_grid(4, 4, &[99.; 16]));
-    let mut map = gamelogic::system::map_loader::MapData::new();
+    let mut map = game_engine::map_data::MapData::new();
     map.width = 4;
     map.height = 4;
     map.heightmap = vec![30; 16];

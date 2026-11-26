@@ -704,7 +704,7 @@ Behavior = JetSlowDeathBehavior DeathTag
  FallHowFast = 110%
 End";
     let mut world = force_world_with_kinds("VEHICLE AIRCRAFT", 50, true, death);
-    let mut map = gamelogic::system::map_loader::MapData::new();
+    let mut map = game_engine::map_data::MapData::new();
     map.width = 8;
     map.height = 8;
     map.heightmap = vec![0; 64];

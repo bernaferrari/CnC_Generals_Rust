@@ -182,17 +182,6 @@ pub struct RuntimeSidesData {
     pub side_builds: Vec<SideBuildEntry>,
 }
 
-/// Decoded heightmap data extracted from the `HeightMapData` chunk.
-#[derive(Debug, Clone)]
-pub struct HeightMapData {
-    pub width: i32,
-    pub height: i32,
-    pub border_size: i32,
-    pub boundaries: Vec<(i32, i32)>,
-    /// Raw 8-bit height samples in row-major order (size = width * height).
-    pub data: Vec<u8>,
-}
-
 /// Decoded `BlendTileData` fields needed by C++ terrain tile/color queries.
 #[derive(Debug, Clone)]
 pub struct BlendTileData {

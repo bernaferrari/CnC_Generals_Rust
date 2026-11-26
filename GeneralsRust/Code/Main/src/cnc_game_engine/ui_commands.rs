@@ -3032,7 +3032,7 @@ mod tests {
 
         fn world(position: Vec3) -> GameLogic {
             let mut world = GameLogic::new();
-            let mut map = gamelogic::system::map_loader::MapData::new();
+            let mut map = game_engine::map_data::MapData::new();
             map.width = 128;
             map.height = 128;
             map.heightmap = vec![0; 128 * 128];

@@ -113,7 +113,7 @@ fn invalid_cache_preserves_raw_look_at_until_new_provisional_geometry_is_install
     view.camera.camera_zoom = 0.2;
     view.camera.invalidate_constraints();
     assert_eq!(view.camera.constrain_target_if_cached(requested), requested);
-    let mut data = gamelogic::system::map_loader::MapData::new();
+    let mut data = game_engine::map_data::MapData::new();
     data.width = 32;
     data.height = 32;
     data.heightmap = vec![0; 32 * 32];

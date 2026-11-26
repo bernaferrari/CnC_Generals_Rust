@@ -499,7 +499,7 @@ fn native_authored_reinforcement_keeps_condition_team_and_runs_callback_before_f
         Condition, ConditionType, OrCondition, Parameter, ParameterType, Script, ScriptAction,
         ScriptActionType, ScriptList, THIS_TEAM,
     };
-    use gamelogic::system::map_loader::{MapData, MapWaypoint};
+    use game_engine::map_data::{MapData, MapWaypoint};
     let mut world = owner();
     let peer = owner();
     let source = world

@@ -1,7 +1,8 @@
 //! Actual MapData admission -> owned script command -> movement -> condition -> save.
 use super::*;
 use gamelogic::scripting::core::{Condition, ConditionType, Parameter, ParameterType};
-use gamelogic::system::map_loader::{Coord3D, MapData, MapWaypoint};
+use glam::Vec3 as Coord3D;
+use game_engine::map_data::{MapData, MapWaypoint};
 
 fn world(terminal_labels: [&str; 3]) -> GameLogic {
     world_with_terminal(terminal_labels, 2)

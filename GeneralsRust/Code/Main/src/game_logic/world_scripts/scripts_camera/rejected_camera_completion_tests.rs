@@ -116,7 +116,7 @@ fn rejected_poisoned_receiving_terrain_repairs_hook_without_touching_peer() {
 
 #[test]
 fn rejected_nonfinite_named_path_preserves_idle_active_save_and_peer_completion() {
-    use gamelogic::system::map_loader::{MapData, MapWaypoint};
+    use game_engine::map_data::{MapData, MapWaypoint};
     use gamelogic::terrain::TerrainLogic;
     for active in [false, true] {
         let mut world = owner(active);

@@ -9,7 +9,7 @@ fn world(raw: u8) -> GameLogic {
             ..Default::default()
         },
     );
-    let mut map = gamelogic::system::map_loader::MapData::new();
+    let mut map = game_engine::map_data::MapData::new();
     map.width = 32;
     map.height = 32;
     map.heightmap = vec![raw; 1024];
@@ -145,7 +145,7 @@ fn actual_receiving_projectile_initialization_and_retarget_ignore_locked_foreign
             let mut b = world(80);
             let foreign = gamelogic::system::engine_stores::new_for_world();
             let mut foreign_terrain = foreign.services().terrain().write().unwrap();
-            let mut map = gamelogic::system::map_loader::MapData::new();
+            let mut map = game_engine::map_data::MapData::new();
             map.width = 32;
             map.height = 32;
             map.heightmap = vec![240; 1024];

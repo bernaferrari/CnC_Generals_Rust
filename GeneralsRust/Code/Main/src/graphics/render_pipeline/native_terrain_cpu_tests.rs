@@ -29,7 +29,7 @@ fn detached_native_cpu_map_admission_uses_receiving_bytes_and_authored_scorches_
         "detached_native_cpu_map_admission_uses_receiving_bytes_and_authored_scorches_once",
         || {
             let source = crate::game_logic::GameLogic::new();
-            let mut map = gamelogic::system::map_loader::MapData::new();
+            let mut map = game_engine::map_data::MapData::new();
             map.width = 8;
             map.height = 8;
             map.heightmap = vec![40; 64];

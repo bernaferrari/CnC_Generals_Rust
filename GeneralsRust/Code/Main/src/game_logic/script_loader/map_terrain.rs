@@ -12,86 +12,15 @@ pub fn parse_heightmap_data(map_name: &str) -> LoaderResult<Option<HeightMapData
 }
 
 
-/// Read HeightMapData width/height/border without copying the sample buffer.
-/// Used by world-bounds fallback so settings parse does not re-materialize
-/// the full heightmap (Lone Eagle ~13s duplicate parse under load).
+/// Read the map's authored width, height and border without copying samples.
 pub fn parse_heightmap_dimensions_from_chunky(
     chunky: &ChunkyMap,
 ) -> LoaderResult<Option<(i32, i32, i32)>> {
-    let body = &chunky.bytes[chunky.body_offset..];
-    let Some((version, payload)) = find_chunk_by_label(body, &chunky.toc, "HeightMapData")? else {
-        return Ok(None);
-    };
-    let mut reader = BinaryReader::new(payload);
-    let width = reader.read_i32()?;
-    let height = reader.read_i32()?;
-    let border_size = if version >= 3 { reader.read_i32()? } else { 0 };
-    Ok(Some((width, height, border_size)))
+    Ok(generals_map::read_heightmap_dimensions(chunky)?)
 }
 
 pub fn parse_heightmap_data_from_chunky(chunky: &ChunkyMap) -> LoaderResult<Option<HeightMapData>> {
-    let body = &chunky.bytes[chunky.body_offset..];
-    let Some((version, payload)) = find_chunk_by_label(body, &chunky.toc, "HeightMapData")? else {
-        return Ok(None);
-    };
-
-    let mut reader = BinaryReader::new(payload);
-    let width = reader.read_i32()?;
-    let height = reader.read_i32()?;
-    let border_size = if version >= 3 { reader.read_i32()? } else { 0 };
-
-    let boundaries = if version >= 4 {
-        let count = reader.read_i32()?.max(0) as usize;
-        let mut boundaries = Vec::with_capacity(count.max(1));
-        for _ in 0..count {
-            boundaries.push((reader.read_i32()?, reader.read_i32()?));
-        }
-        boundaries
-    } else {
-        vec![(width - 2 * border_size, height - 2 * border_size)]
-    };
-
-    let data_size = reader.read_i32()?;
-    let expected = width.saturating_mul(height);
-    if data_size <= 0 || data_size != expected {
-        return Err(configuration_error(format!(
-            "HeightMapData has invalid dataSize={}, expected {}",
-            data_size, expected
-        )));
-    }
-
-    let mut data = reader.read_bytes(data_size as usize)?.to_vec();
-
-    if version == 1 {
-        let new_width = (width + 1) / 2;
-        let new_height = (height + 1) / 2;
-        let mut resized = vec![0u8; (new_width * new_height).max(0) as usize];
-        for i in 0..new_height.max(0) {
-            for j in 0..new_width.max(0) {
-                let src = (2 * i * width + 2 * j).max(0) as usize;
-                let dst = (i * new_width + j).max(0) as usize;
-                if src < data.len() && dst < resized.len() {
-                    resized[dst] = data[src];
-                }
-            }
-        }
-        data = resized;
-        return Ok(Some(HeightMapData {
-            width: new_width,
-            height: new_height,
-            border_size,
-            boundaries,
-            data,
-        }));
-    }
-
-    Ok(Some(HeightMapData {
-        width,
-        height,
-        border_size,
-        boundaries,
-        data,
-    }))
+    Ok(generals_map::decode_heightmap(chunky)?)
 }
 
 pub fn parse_blend_tile_data_from_chunky(

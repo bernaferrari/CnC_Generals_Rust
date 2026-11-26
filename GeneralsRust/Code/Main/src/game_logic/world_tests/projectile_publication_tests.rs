@@ -92,7 +92,7 @@ fn armed_world(damage: f32) -> (GameLogic, ObjectId, ObjectId) {
     const GUN: &str = "PublicationGun";
     let mut world = GameLogic::new();
     // DumbProjectileBehavior builds its arc above the highest terrain sample.
-    let mut map = gamelogic::system::map_loader::MapData::new();
+    let mut map = game_engine::map_data::MapData::new();
     map.width = 32;
     map.height = 32;
     map.heightmap = vec![0; 32 * 32];

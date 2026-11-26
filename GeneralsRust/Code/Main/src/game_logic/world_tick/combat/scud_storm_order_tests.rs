@@ -450,7 +450,7 @@ fn storm_death_world(shooter_completes: bool) -> GameLogic {
 }
 
 fn prepare_storm_terrain_and_players(world: &mut GameLogic) {
-    let mut map = gamelogic::system::map_loader::MapData::new();
+    let mut map = game_engine::map_data::MapData::new();
     map.width = 32;
     map.height = 32;
     map.heightmap = vec![0; 1024];

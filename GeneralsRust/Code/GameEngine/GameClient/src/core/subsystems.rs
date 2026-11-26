@@ -2586,7 +2586,7 @@ mod tests {
         // into the already-admitted WorldHeightMap buffer (min(len,xferLen)).
         if let Ok(mut terrain) = gamelogic::terrain::get_terrain_logic().write() {
             terrain.reset();
-            let mut map = gamelogic::system::map_loader::MapData::new();
+            let mut map = game_engine::map_data::MapData::new();
             map.width = 2;
             map.height = 2;
             map.heightmap = vec![0u8; 4];

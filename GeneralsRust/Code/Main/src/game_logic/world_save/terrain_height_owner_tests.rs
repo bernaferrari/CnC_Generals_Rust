@@ -2,7 +2,7 @@
 use super::*;
 
 fn install(logic: &GameLogic, raw: &[u8], width: u32, height: u32) {
-    let mut map = gamelogic::system::map_loader::MapData::new();
+    let mut map = game_engine::map_data::MapData::new();
     map.width = width;
     map.height = height;
     map.heightmap = raw.to_vec();
@@ -40,7 +40,7 @@ fn loaded_core_ground_and_raw_ground_ignore_detached_height_copies() {
 fn provided_terrain_loan_never_reenters_driving_owner_lock() {
     let logic = GameLogic::new();
     let mut other = gamelogic::terrain::TerrainLogic::new();
-    let mut map = gamelogic::system::map_loader::MapData::new();
+    let mut map = game_engine::map_data::MapData::new();
     map.width = 4;
     map.height = 4;
     map.heightmap = vec![24; 16];
@@ -134,7 +134,7 @@ fn malformed_map_admission_keeps_the_receiving_snapshot_valid_and_unchanged() {
     let logic = GameLogic::new();
     install(&logic, &[8; 16], 4, 4);
     let before = logic.terrain_heightmap_snapshot().unwrap();
-    let mut bad = gamelogic::system::map_loader::MapData::new();
+    let mut bad = game_engine::map_data::MapData::new();
     bad.width = 4;
     bad.height = 4;
     bad.heightmap = vec![99; 3];

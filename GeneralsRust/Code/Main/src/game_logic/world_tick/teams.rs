@@ -3108,7 +3108,8 @@ mod tests {
     fn named_fire_weapon_follows_live_waypoint_path() {
         use crate::game_logic::Weapon;
         use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
-        use gamelogic::system::map_loader::{Coord3D, MapData, MapWaypoint};
+        use glam::Vec3 as Coord3D;
+        use game_engine::map_data::{MapData, MapWaypoint};
         use gamelogic::weapon::WeaponTemplate;
 
         ensure_host_weapon_store();

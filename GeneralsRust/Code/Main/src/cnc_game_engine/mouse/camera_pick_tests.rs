@@ -630,7 +630,7 @@ fn click_and_wheel_stamp_activity_without_pixel_change() {
 
 #[test]
 fn airborne_look_at_ray_hits_ground_plane() {
-    let mut map = gamelogic::system::map_loader::MapData::new();
+    let mut map = game_engine::map_data::MapData::new();
     map.width = 32;
     map.height = 32;
     map.heightmap = vec![0; 32 * 32];

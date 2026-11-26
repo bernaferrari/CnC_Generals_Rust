@@ -201,7 +201,7 @@ fn exercise_retail_track(unit: RetailTrackUnit, exercise: TrackExercise) {
             .unwrap();
         world.add_player(Player::new(0, unit.team, "Track Owner", true));
         world.require_native_drawable_owner();
-        let mut logical_map = gamelogic::system::map_loader::MapData::new();
+        let mut logical_map = game_engine::map_data::MapData::new();
         logical_map.width = 16;
         logical_map.height = 16;
         logical_map.heightmap = vec![0; 16 * 16];

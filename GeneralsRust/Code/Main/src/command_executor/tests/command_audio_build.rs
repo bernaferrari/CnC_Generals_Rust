@@ -889,7 +889,7 @@ fn repair_heal_resume_snipe_and_special_play_authored_voices() {
         let mut logic = GameLogic::new();
         // C++ ActionManager.cpp:1523-1534 informational powers require an
         // admitted map extent. A freshly constructed owner has no loaded map.
-        let mut map = gamelogic::system::map_loader::MapData::new();
+        let mut map = game_engine::map_data::MapData::new();
         map.width = 32;
         map.height = 32;
         map.border_size = 1;

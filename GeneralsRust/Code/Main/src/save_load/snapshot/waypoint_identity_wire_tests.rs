@@ -13,15 +13,15 @@ fn world() -> (GameLogic, ObjectId) {
     let id = world
         .create_object_for_player("WaypointWire", 1, Vec3::ZERO)
         .unwrap();
-    let mut map = gamelogic::system::map_loader::MapData::new();
+    let mut map = game_engine::map_data::MapData::new();
     map.width = 4;
     map.height = 4;
     map.heightmap = vec![0; 16];
     map.waypoints
-        .push(gamelogic::system::map_loader::MapWaypoint {
+        .push(game_engine::map_data::MapWaypoint {
             id: 0,
             name: String::new(),
-            location: gamelogic::system::map_loader::Coord3D::new(0., 0., 0.),
+            location: glam::Vec3::new(0., 0., 0.),
             path_label1: String::new(),
             path_label2: String::new(),
             path_label3: String::new(),

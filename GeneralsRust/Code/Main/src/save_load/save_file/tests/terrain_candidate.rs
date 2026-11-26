@@ -6,7 +6,7 @@ fn world(raw: u8, enabled: bool) -> GameLogic {
         let mut terrain = owner.world_services.terrain().write().unwrap();
         terrain
             .try_load_map_geometry({
-                let mut map = gamelogic::system::map_loader::MapData::new();
+                let mut map = game_engine::map_data::MapData::new();
                 map.width = 2;
                 map.height = 2;
                 map.heightmap = vec![raw; 4];

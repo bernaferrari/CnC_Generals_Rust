@@ -6,7 +6,7 @@ use crate::game_logic::{
 };
 fn owner(position: Vec3, boundary: (i32, i32), raw_height: u8) -> (GameLogic, ObjectId) {
     let mut world = GameLogic::new();
-    let mut map = gamelogic::system::map_loader::MapData::new();
+    let mut map = game_engine::map_data::MapData::new();
     map.width = 256;
     map.height = 256;
     map.heightmap = vec![raw_height; 256 * 256];

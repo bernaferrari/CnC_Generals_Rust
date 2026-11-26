@@ -4,7 +4,7 @@ use crate::game_logic::GameLogic;
 
 fn loaded(raw: u8) -> GameLogic {
     let world = GameLogic::new();
-    let mut map = gamelogic::system::map_loader::MapData::new();
+    let mut map = game_engine::map_data::MapData::new();
     map.width = 8;
     map.height = 8;
     map.heightmap = vec![raw; 64];
@@ -29,7 +29,7 @@ fn actual_host_strafe_impact_uses_receiving_ground_with_foreign_owner_locked() {
             let foreign = gamelogic::system::engine_stores::new_for_world();
             let owner = foreign.services().terrain();
             let mut guard = owner.write().unwrap();
-            let mut map = gamelogic::system::map_loader::MapData::new();
+            let mut map = game_engine::map_data::MapData::new();
             map.width = 8;
             map.height = 8;
             map.heightmap = vec![240; 64];

@@ -960,14 +960,14 @@ fn admitted_bridge_retirement_world() -> (GameLogic, ObjectId) {
         Vec3::ZERO,
         Vec3::new(200.0, 0.0, 200.0),
     ));
-    let mut map = gamelogic::system::map_loader::MapData::new();
+    let mut map = game_engine::map_data::MapData::new();
     map.width = 20;
     map.height = 20;
     map.heightmap = vec![0; 400];
-    map.bridges.push(gamelogic::system::map_loader::BridgeData {
+    map.bridges.push(game_engine::map_data::BridgeData {
         polygon: [(10.0, 30.0), (10.0, 10.0), (30.0, 10.0), (30.0, 30.0)]
             .into_iter()
-            .map(|(x, y)| gamelogic::system::map_loader::Coord2D::new(x, y))
+            .map(|(x, y)| game_engine::common::system::geometry::Coord2D::new(x, y))
             .collect(),
         height: 35.0,
         from: glam::Vec3::new(10.0, 20.0, 35.0),

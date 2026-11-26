@@ -1,7 +1,8 @@
 //! Authored TEAM_PANIC state, collision, and save continuation gates.
 use super::*;
 use crate::game_logic::{AIState, KindOf, Object, ObjectId, Team, ThingTemplate};
-use gamelogic::system::map_loader::{ICoord2D, MapData, MapWaypoint};
+use glam::IVec2 as ICoord2D;
+use game_engine::map_data::{MapData, MapWaypoint};
 use glam::Vec3;
 
 #[path = "panic_instance_tests.rs"]
@@ -40,7 +41,7 @@ fn install_panic_waypoint_path_with_terminal_x(logic: &GameLogic, terminal_x: f3
     data.waypoints.push(MapWaypoint {
         id: WAYPOINT_START,
         name: "PanicStart".into(),
-        location: gamelogic::system::map_loader::Coord3D::new(50.0, 100.0, 0.0),
+        location: glam::Vec3::new(50.0, 100.0, 0.0),
         path_label1: "PanicPath".into(),
         path_label2: String::new(),
         path_label3: String::new(),
@@ -49,7 +50,7 @@ fn install_panic_waypoint_path_with_terminal_x(logic: &GameLogic, terminal_x: f3
     data.waypoints.push(MapWaypoint {
         id: WAYPOINT_NEXT,
         name: "PanicNext".into(),
-        location: gamelogic::system::map_loader::Coord3D::new(terminal_x, 100.0, 0.0),
+        location: glam::Vec3::new(terminal_x, 100.0, 0.0),
         path_label1: "PanicTerminal".into(),
         path_label2: String::new(),
         path_label3: String::new(),
@@ -73,7 +74,7 @@ fn install_panic_fork_path(logic: &GameLogic) {
         data.waypoints.push(MapWaypoint {
             id,
             name: name.into(),
-            location: gamelogic::system::map_loader::Coord3D::new(x, 100.0, 0.0),
+            location: glam::Vec3::new(x, 100.0, 0.0),
             path_label1: label.into(),
             path_label2: String::new(),
             path_label3: String::new(),

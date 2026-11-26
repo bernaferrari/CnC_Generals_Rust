@@ -115,7 +115,7 @@ fn timed_c4_kill_sinks_xp_to_planter() {
 #[test]
 fn authored_timed_charge_expires_once_through_its_death_weapon() {
     let mut world = GameLogic::new();
-    let mut map = gamelogic::system::map_loader::MapData::new();
+    let mut map = game_engine::map_data::MapData::new();
     map.width = 32;
     map.height = 32;
     map.heightmap = vec![0; 1024];

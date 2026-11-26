@@ -15,7 +15,7 @@ fn owner_world() -> (GameLogic, ObjectId) {
         glam::Vec3::ZERO,
         glam::Vec3::new(200.0, 0.0, 200.0),
     ));
-    let mut map = gamelogic::system::map_loader::MapData::new();
+    let mut map = game_engine::map_data::MapData::new();
     map.width = 20;
     map.height = 20;
     map.heightmap = vec![0; 400];
@@ -503,12 +503,12 @@ fn owned_terrain_queries_ignore_foreign_waypoints_heights_and_bridge_snapshots()
                 (&mut first, 16, 20.0, 35.0, "FirstBridge"),
                 (&mut second, 48, 40.0, 55.0, "SecondBridge"),
             ] {
-                let mut map = gamelogic::system::map_loader::MapData::new();
+                let mut map = game_engine::map_data::MapData::new();
                 map.width = 20;
                 map.height = 20;
                 map.heightmap = vec![raw; 400];
                 map.waypoints
-                    .push(gamelogic::system::map_loader::MapWaypoint {
+                    .push(game_engine::map_data::MapWaypoint {
                         id: 1,
                         name: "Player_1_Rally".into(),
                         location: glam::Vec3::new(x, 20.0, 0.0),
@@ -517,12 +517,12 @@ fn owned_terrain_queries_ignore_foreign_waypoints_heights_and_bridge_snapshots()
                         path_label3: String::new(),
                         bi_directional: false,
                     });
-                map.bridges.push(gamelogic::system::map_loader::BridgeData {
+                map.bridges.push(game_engine::map_data::BridgeData {
                     // Map bridge admission needs the original four deck corners
                     // in from-left/from-right/to-right/to-left order.
                     polygon: [(10.0, 30.0), (10.0, 10.0), (30.0, 10.0), (30.0, 30.0)]
                         .into_iter()
-                        .map(|(x, y)| gamelogic::system::map_loader::Coord2D::new(x, y))
+                        .map(|(x, y)| game_engine::common::system::geometry::Coord2D::new(x, y))
                         .collect(),
                     height: deck,
                     from: glam::Vec3::new(10.0, 20.0, deck),

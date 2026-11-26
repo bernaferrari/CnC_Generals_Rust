@@ -26,19 +26,19 @@ use game_engine::common::name_key_generator::NameKeyNamespace;
 use game_engine::common::system::DataChunkInfo;
 use game_engine::common::system::DataChunkInput;
 use game_engine::common::system::compression::{decompress_data, is_data_compressed};
-use game_engine::map_object::{FLAG_BRIDGE_POINT1, FLAG_BRIDGE_POINT2, MAP_HEIGHT_SCALE};
 
-mod bridge_models;
-pub use bridge_models::{BridgeModels, read_mounted_bridge_model};
+pub use game_engine::common::system::geometry::Coord2D;
+pub use game_engine::map_data::{
+    BridgeData, BridgeEndpoints, BridgeMarkers, BridgeModels, HeightMap, MAX_AUTHORED_BRIDGES,
+    MapData, MapWaypoint, read_mounted_bridge_model,
+};
+pub use game_engine::map_object::MAP_XY_FACTOR;
 
 /// Waypoint identifier type
 pub type WaypointID = u32;
 
 /// Invalid waypoint constant
 pub const INVALID_WAYPOINT_ID: WaypointID = 0xFFFFFFFF;
-
-/// Map XY scale factor (from C++ MAP_XY_FACTOR constant)
-pub const MAP_XY_FACTOR: f32 = 10.0;
 
 /// Maximum player slots (from C++ MAX_SLOTS)
 pub const MAX_SLOTS: usize = 8;
@@ -51,9 +51,6 @@ pub const K_HEIGHT_MAP_VERSION_4: u32 = 4;
 
 /// Objects chunk version (from C++ MapUtil.cpp)
 pub const K_OBJECTS_VERSION_2: u32 = 2;
-
-// W3DBridgeBuffer.h, maximum number of admitted bridges.
-pub const MAX_AUTHORED_BRIDGES: usize = 200;
 
 pub use crate::common::{Coord3D, ICoord2D, Region3D};
 
@@ -100,136 +97,6 @@ impl Default for MapMetaData {
             timestamp_low: 0,
         }
     }
-}
-
-/// Height map data structure
-/// Matches C++ heightmap from MapUtil.cpp
-#[derive(Debug)]
-pub struct HeightMap {
-    pub width: i32,
-    pub height: i32,
-    pub border_size: i32,
-    pub boundaries: Vec<ICoord2D>,
-    pub data: Vec<u8>,
-}
-
-impl HeightMap {
-    pub fn new() -> Self {
-        Self {
-            width: 0,
-            height: 0,
-            border_size: 0,
-            boundaries: Vec::new(),
-            data: Vec::new(),
-        }
-    }
-
-    /// Get playable map dimensions (excluding border)
-    pub fn get_playable_dimensions(&self) -> (i32, i32) {
-        let dx = self.width - 2 * self.border_size;
-        let dy = self.height - 2 * self.border_size;
-        (dx, dy)
-    }
-
-    /// Calculate map extent in world coordinates
-    /// Matches C++ getExtent() from MapUtil.cpp
-    pub fn get_extent(&self) -> Region3D {
-        let (dx, dy) = self.get_playable_dimensions();
-
-        Region3D::new(
-            Coord3D::new(0.0, 0.0, 0.0),
-            Coord3D::new(dx as f32 * MAP_XY_FACTOR, dy as f32 * MAP_XY_FACTOR, 0.0),
-        )
-    }
-}
-
-/// Bridge data extracted from map files
-/// Corresponds to BridgeInfo from C++ TerrainLogic.h
-#[derive(Debug, Clone)]
-pub struct BridgeData {
-    /// The 4 corners of the rectangle that the bridge covers
-    pub polygon: Vec<Coord2D>,
-    /// Bridge deck height (interpolated between from.z and to.z)
-    pub height: f32,
-    /// Bridge endpoints
-    pub from: Coord3D,
-    pub to: Coord3D,
-    /// Bridge width
-    pub width: f32,
-    /// Bridge template name
-    pub template_name: String,
-    /// Object properties from the first marker in W3DBridgeBuffer::loadBridges.
-    pub properties: Dict,
-}
-
-/// 2D coordinate structure
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct Coord2D {
-    pub x: f32,
-    pub y: f32,
-}
-
-impl Coord2D {
-    pub fn new(x: f32, y: f32) -> Self {
-        Self { x, y }
-    }
-}
-
-/// Complete map data loaded from .map files
-/// Matches data needed by TerrainLogic
-#[derive(Debug, Clone)]
-pub struct MapData {
-    /// Map width in cells
-    pub width: u32,
-    /// Map height in cells
-    pub height: u32,
-    /// Raw height values (8-bit heightmap)
-    pub heightmap: Vec<u8>,
-    /// Global water table height (if any)
-    pub water_height: Option<f32>,
-    /// Bridge structures extracted from map objects
-    pub bridges: Vec<BridgeData>,
-    /// Surface type per tile (for terrain texture mapping)
-    pub texture_tiles: Vec<u8>,
-    /// Map boundaries
-    pub boundaries: Vec<ICoord2D>,
-    /// Border size
-    pub border_size: i32,
-    /// Polygon trigger areas for scripts and water
-    pub polygon_triggers: Vec<PolygonTrigger>,
-    /// Waypoints extracted from map objects
-    pub waypoints: Vec<MapWaypoint>,
-    /// Waypoint link pairs (id1, id2)
-    pub waypoint_links: Vec<(u32, u32)>,
-}
-
-impl MapData {
-    pub fn new() -> Self {
-        Self {
-            width: 0,
-            height: 0,
-            heightmap: Vec::new(),
-            water_height: None,
-            bridges: Vec::new(),
-            texture_tiles: Vec::new(),
-            boundaries: Vec::new(),
-            border_size: 0,
-            polygon_triggers: Vec::new(),
-            waypoints: Vec::new(),
-            waypoint_links: Vec::new(),
-        }
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct MapWaypoint {
-    pub id: u32,
-    pub name: String,
-    pub location: Coord3D,
-    pub path_label1: String,
-    pub path_label2: String,
-    pub path_label3: String,
-    pub bi_directional: bool,
 }
 
 /// Error type for map loading
@@ -683,23 +550,7 @@ fn parse_heightmap_size_chunk(
     ctx.heightmap.data = data;
 
     if info.version == K_HEIGHT_MAP_VERSION_1 as u16 {
-        let new_width = (ctx.heightmap.width + 1) / 2;
-        let new_height = (ctx.heightmap.height + 1) / 2;
-        let mut new_data = vec![0u8; (new_width * new_height).max(0) as usize];
-        for i in 0..new_height {
-            for j in 0..new_width {
-                let src_idx = (2 * i * ctx.heightmap.width + 2 * j) as usize;
-                let dst_idx = (i * new_width + j) as usize;
-                if let Some(sample) = ctx.heightmap.data.get(src_idx) {
-                    if let Some(slot) = new_data.get_mut(dst_idx) {
-                        *slot = *sample;
-                    }
-                }
-            }
-        }
-        ctx.heightmap.width = new_width;
-        ctx.heightmap.height = new_height;
-        ctx.heightmap.data = new_data;
+        ctx.heightmap.downsample_version_one();
     }
 
     true
@@ -898,153 +749,6 @@ fn dict_get_string(dict: &Dict, key: u32) -> String {
         Some(DictType::AsciiString) => dict.get_ascii_string(key),
         Some(DictType::UnicodeString) => dict.get_unicode_string(key),
         _ => String::new(),
-    }
-}
-
-/// The two adjacent authored map markers for one bridge.
-#[derive(Debug)]
-pub struct BridgeEndpoints {
-    pub template_name: String,
-    pub from: Coord3D,
-    pub to: Coord3D,
-    pub properties: Dict,
-}
-
-/// W3DBridgeBuffer::loadBridges walks consecutive WorldHeightMap objects.
-#[derive(Default)]
-pub struct BridgeMarkers {
-    start: Option<(String, Coord3D, Dict)>,
-}
-
-impl BridgeMarkers {
-    pub fn observe(
-        &mut self,
-        flags: u32,
-        name: &str,
-        position: Coord3D,
-        properties: &Dict,
-    ) -> Option<BridgeEndpoints> {
-        // WorldHeightMap::ParseObjectData skips these objects before linking.
-        const MIN_OBJECT_Z: f32 = -100.0 * MAP_XY_FACTOR;
-        const MAX_OBJECT_Z: f32 = 2550.0 * MAP_HEIGHT_SCALE;
-        if position.z < MIN_OBJECT_Z || position.z > MAX_OBJECT_Z {
-            return None;
-        }
-
-        if let Some((template_name, from, properties)) = self.start.take()
-            && flags & FLAG_BRIDGE_POINT2 != 0
-        {
-            return Some(BridgeEndpoints {
-                template_name,
-                from,
-                to: position,
-                properties,
-            });
-        }
-        if flags & FLAG_BRIDGE_POINT1 != 0 {
-            self.start = Some((name.to_owned(), position, properties.clone()));
-        }
-        None
-    }
-}
-
-impl BridgeData {
-    /// Create bridge data from endpoints and width
-    /// Reference: C++ TerrainLogic.cpp:196-304 Bridge::Bridge() constructor
-    ///
-    /// # Arguments
-    /// * `from` - Starting point of bridge
-    /// * `to` - Ending point of bridge
-    /// * `width` - Width of the bridge
-    /// * `template_name` - Bridge template name
-    ///
-    /// # Returns
-    /// BridgeData structure with calculated polygon
-    pub fn new(from: Coord3D, to: Coord3D, width: f32, template_name: String) -> Self {
-        let half_width = width / 2.0;
-        Self::from_edges(
-            BridgeEndpoints {
-                from,
-                to,
-                template_name,
-                properties: Dict::new(),
-            },
-            -half_width,
-            half_width,
-            1.0,
-            width,
-        )
-    }
-
-    // W3DBridgeBuffer.cpp, W3DBridge::getBridgeInfo.
-    fn from_model_bounds(span: BridgeEndpoints, min: f32, max: f32, scale: f32) -> Self {
-        Self::from_edges(span, min, max, scale, (max - min) * scale)
-    }
-
-    fn from_edges(
-        BridgeEndpoints {
-            from,
-            to,
-            template_name,
-            properties,
-        }: BridgeEndpoints,
-        min: f32,
-        max: f32,
-        scale: f32,
-        width: f32,
-    ) -> Self {
-        let dx = to.x - from.x;
-        let dy = to.y - from.y;
-        let length_squared = dx * dx + dy * dy;
-        // Vector3::Normalize in C++ leaves the zero vector alone.
-        let inverse_length = if length_squared != 0.0 {
-            1.0 / length_squared.sqrt()
-        } else {
-            1.0
-        };
-        let (perp_x, perp_y) = (-dy * inverse_length, dx * inverse_length);
-        let edge = |point: Coord3D, offset: f32| {
-            Coord2D::new(
-                point.x + perp_x * offset * scale,
-                point.y + perp_y * offset * scale,
-            )
-        };
-
-        Self {
-            polygon: vec![
-                edge(from, max),
-                edge(from, min),
-                edge(to, min),
-                edge(to, max),
-            ],
-            height: (from.z + to.z) / 2.0,
-            from,
-            to,
-            width,
-            template_name,
-            properties,
-        }
-    }
-
-    /// Get interpolated height at position along bridge
-    /// Reference: C++ TerrainLogic.cpp Bridge::getBridgeHeight()
-    pub fn get_height_at(&self, x: f32, y: f32) -> f32 {
-        // Calculate position along bridge (0.0 to 1.0)
-        let bridge_dx = self.to.x - self.from.x;
-        let bridge_dy = self.to.y - self.from.y;
-        let bridge_length_sq = bridge_dx * bridge_dx + bridge_dy * bridge_dy;
-
-        if bridge_length_sq == 0.0 {
-            return self.from.z;
-        }
-
-        let pos_dx = x - self.from.x;
-        let pos_dy = y - self.from.y;
-        let dot = pos_dx * bridge_dx + pos_dy * bridge_dy;
-        let t = (dot / bridge_length_sq).clamp(0.0, 1.0);
-
-        // Linear interpolation between from.z and to.z
-        self.from.z + (self.to.z - self.from.z) * t
     }
 }
 

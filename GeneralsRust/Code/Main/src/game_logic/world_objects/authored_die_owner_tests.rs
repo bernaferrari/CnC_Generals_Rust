@@ -758,7 +758,7 @@ fn authored_neutron_die_dispatches_radius_and_air_filters_after_destroy_die() {
     use crate::game_logic::game_logic::PlayerSideRole;
 
     let mut world = GameLogic::new();
-    let mut map = gamelogic::system::map_loader::MapData::new();
+    let mut map = game_engine::map_data::MapData::new();
     map.width = 32;
     map.height = 32;
     map.heightmap = vec![0; 1024];

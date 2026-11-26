@@ -3,10 +3,7 @@ use super::*;
 use crate::game_logic::host_bridge_behavior::{MapBridgeSource, bridge_deck_corners};
 
 use gamelogic::common::AsciiString;
-use gamelogic::system::map_loader::{
-    BridgeData, BridgeEndpoints, BridgeModels, MAX_AUTHORED_BRIDGES, MapData,
-    read_mounted_bridge_model,
-};
+use game_engine::map_data::{BridgeData, BridgeEndpoints, BridgeModels, MAX_AUTHORED_BRIDGES, MapData, read_mounted_bridge_model};
 use gamelogic::terrain::{BridgeInfo, TerrainLogic};
 
 impl GameLogic {

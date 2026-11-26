@@ -403,16 +403,16 @@ impl GameLogic {
             || !polygon_triggers.is_empty()
             || !waypoints.is_empty();
         if has_terrain_payload {
-            let mut map_data = gamelogic::system::map_loader::MapData::new();
+            let mut map_data = game_engine::map_data::MapData::new();
             map_data.water_height = water_height;
             map_data.bridges = bridges;
             map_data.polygon_triggers = polygon_triggers;
             map_data.waypoints = waypoints
                 .iter()
-                .map(|waypoint| gamelogic::system::map_loader::MapWaypoint {
+                .map(|waypoint| game_engine::map_data::MapWaypoint {
                     id: waypoint.id,
                     name: waypoint.name.clone(),
-                    location: gamelogic::system::map_loader::Coord3D::new(
+                    location: glam::Vec3::new(
                         waypoint.location.x,
                         waypoint.location.y,
                         waypoint.location.z,

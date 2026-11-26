@@ -5,7 +5,7 @@
 use super::*;
 use gamelogic::scripting::core::{Parameter, ParameterType, Script, ScriptAction, ScriptActionType};
 use gamelogic::scripting::engine::{ScriptEngine, SequentialScript, get_script_engine};
-use gamelogic::system::map_loader::{MapData, MapWaypoint};
+use game_engine::map_data::{MapData, MapWaypoint};
 fn set_flag(name: &str) -> Box<ScriptAction> {
     let mut action = ScriptAction::new(ScriptActionType::SetFlag);
     action

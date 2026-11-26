@@ -3740,7 +3740,7 @@ fn production_upgrade_researches_on_building_queue_residual() {
 /// Install that geometry on the driving fixture world before issuing commands.
 fn install_sensor_power_test_map(game_logic: &mut GameLogic) {
     use glam::IVec2 as ICoord2D;
-    use gamelogic::system::map_loader::MapData;
+    use game_engine::map_data::MapData;
 
     let mut map = MapData::new();
     map.width = 128;

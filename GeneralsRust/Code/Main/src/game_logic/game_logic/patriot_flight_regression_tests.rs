@@ -63,7 +63,7 @@ fn world_for_with(
         },
     );
     world.admit_locomotor_definitions(locomotors).unwrap();
-    let mut map = gamelogic::system::map_loader::MapData::new();
+    let mut map = game_engine::map_data::MapData::new();
     map.width = 32;
     map.height = 32;
     map.heightmap = vec![0; 1024];

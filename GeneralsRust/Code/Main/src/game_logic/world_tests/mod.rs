@@ -114,15 +114,15 @@ fn global_terrain_load_map_data_does_not_deadlock_on_bridge() {
     // bridges while loadMap already owns TheTerrainLogic. Rust
     // classify_bridge_cells used to RwLock::read the same singleton and hang
     // Lone Eagle load_map inside Fast legacy terrain write.
-    let mut map_data = gamelogic::system::map_loader::MapData::new();
+    let mut map_data = game_engine::map_data::MapData::new();
     map_data.width = 4;
     map_data.height = 4;
     map_data.heightmap = vec![10; 16];
     map_data
         .bridges
-        .push(gamelogic::system::map_loader::BridgeData::new(
-            gamelogic::system::map_loader::Coord3D::new(0.0, 0.0, 20.0),
-            gamelogic::system::map_loader::Coord3D::new(40.0, 0.0, 20.0),
+        .push(game_engine::map_data::BridgeData::new(
+            glam::Vec3::new(0.0, 0.0, 20.0),
+            glam::Vec3::new(40.0, 0.0, 20.0),
             10.0,
             "TestBridge".to_string(),
         ));

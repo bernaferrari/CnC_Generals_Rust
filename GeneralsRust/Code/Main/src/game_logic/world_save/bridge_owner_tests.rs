@@ -277,7 +277,8 @@ fn native_map_and_save_use_owned_model_bounds_and_sampled_bridge_heights() {
         "native_map_and_save_use_owned_model_bounds_and_sampled_bridge_heights",
         || {
             use generals_sim::pathfinding::PathfindCellType;
-            use gamelogic::system::map_loader::{BridgeEndpoints, Coord3D};
+            use game_engine::map_data::BridgeEndpoints;
+            use glam::Vec3 as Coord3D;
 
             let temp = tempfile::tempdir().unwrap();
             let path = temp.path().join("AuthoredDeck.map");

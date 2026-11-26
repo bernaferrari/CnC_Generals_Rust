@@ -1047,7 +1047,7 @@ fn tick_shock_stun_all_samples_terrain_surface() {
 
         // C++ TerrainLogic.cpp:2119-2155 samples logical water, independently
         // of the presentation plane. Admit the wet cell to this world's owner.
-        let mut map = gamelogic::system::map_loader::MapData::new();
+        let mut map = game_engine::map_data::MapData::new();
         map.width = 8;
         map.height = 8;
         map.heightmap = vec![0; 64];

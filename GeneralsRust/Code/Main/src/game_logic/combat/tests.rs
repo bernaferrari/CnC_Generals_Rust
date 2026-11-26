@@ -24,7 +24,7 @@ pub(in crate::game_logic) mod tests {
         definitions: &crate::game_logic::projectile_definitions::ProjectileDefinitions,
     ) {
         let mut world = crate::game_logic::GameLogic::new();
-        let mut map = gamelogic::system::map_loader::MapData::new();
+        let mut map = game_engine::map_data::MapData::new();
         map.width = 32;
         map.height = 32;
         map.heightmap = vec![0; 1024];

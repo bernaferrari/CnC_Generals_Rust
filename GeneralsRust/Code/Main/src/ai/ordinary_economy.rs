@@ -352,7 +352,7 @@ End
             player.can_build_units = false;
             world.add_player(player);
         }
-        let mut terrain = gamelogic::system::map_loader::MapData::new();
+        let mut terrain = game_engine::map_data::MapData::new();
         terrain.width = 26;
         terrain.height = 26;
         terrain.heightmap = vec![32; 26 * 26];

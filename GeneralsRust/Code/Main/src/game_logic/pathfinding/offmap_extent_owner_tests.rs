@@ -1,7 +1,7 @@
 //! Original off-map admission observes each receiving map's maximum boundary.
 use super::*;
 fn logical(maximum: i32) -> gamelogic::terrain::TerrainLogic {
-    let mut map = gamelogic::system::map_loader::MapData::new();
+    let mut map = game_engine::map_data::MapData::new();
     map.width = 64;
     map.height = 64;
     map.heightmap = vec![0; 64 * 64];

@@ -673,7 +673,7 @@ fn authored_demo_trap_world(
     // Authored proximity scans query the partition manager (C++
     // iterateObjectsInRange position overload); a flat map + grid + one
     // partition phase publishes created objects before the first update.
-    let mut map = gamelogic::system::map_loader::MapData::new();
+    let mut map = game_engine::map_data::MapData::new();
     map.width = 32;
     map.height = 32;
     map.heightmap = vec![0; 1024];
@@ -3426,7 +3426,7 @@ fn authored_virtual_mine_places_neutron_emitter_before_charge_is_consumed() {
     use crate::fixture_content::{FixtureObject, FixtureWeapon, admit_fixture_content};
 
     let mut world = GameLogic::new();
-    let mut map = gamelogic::system::map_loader::MapData::new();
+    let mut map = game_engine::map_data::MapData::new();
     map.width = 32;
     map.height = 32;
     map.heightmap = vec![0; 1024];
@@ -3510,7 +3510,7 @@ fn authored_minefield_pad_fires_detonation_weapon_and_spends_one_charge() {
     use crate::fixture_content::{FixtureObject, FixtureWeapon, admit_fixture_content};
 
     let mut world = GameLogic::new();
-    let mut map = gamelogic::system::map_loader::MapData::new();
+    let mut map = game_engine::map_data::MapData::new();
     map.width = 32;
     map.height = 32;
     map.heightmap = vec![0; 1024];
@@ -3592,7 +3592,7 @@ fn authored_minefield_without_detonation_weapon_spends_charge_silently() {
     use crate::fixture_content::{FixtureObject, FixtureWeapon, admit_fixture_content};
 
     let mut world = GameLogic::new();
-    let mut map = gamelogic::system::map_loader::MapData::new();
+    let mut map = game_engine::map_data::MapData::new();
     map.width = 32;
     map.height = 32;
     map.heightmap = vec![0; 1024];

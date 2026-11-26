@@ -589,7 +589,7 @@ mod tests {
         use gamelogic::common::AsciiString;
         use glam::IVec3 as ICoord3D;
         use game_engine::polygon_trigger::PolygonTrigger;
-        use gamelogic::system::map_loader::MapData;
+        use game_engine::map_data::MapData;
         use gamelogic::terrain::TerrainLogic;
 
         let mut trigger = PolygonTrigger::new(3, AsciiString::from("Lake"), Vec::new());

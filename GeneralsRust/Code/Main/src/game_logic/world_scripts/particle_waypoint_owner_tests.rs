@@ -5,8 +5,9 @@ fn isolated(name: &str, run: impl FnOnce()) {
     crate::game_logic::game_logic::pose_owner_tests::isolated_at(module_path!(), name, run);
 }
 
-fn map(axis_z: bool, end: (f32, f32)) -> gamelogic::system::map_loader::MapData {
-    use gamelogic::system::map_loader::{Coord3D, MapData, MapWaypoint};
+fn map(axis_z: bool, end: (f32, f32)) -> game_engine::map_data::MapData {
+    use glam::Vec3 as Coord3D;
+    use game_engine::map_data::{MapData, MapWaypoint};
     let mut map = MapData::new();
     map.width = 32;
     map.height = 32;
