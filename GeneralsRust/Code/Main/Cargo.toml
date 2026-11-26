@@ -52,7 +52,6 @@ multiplayer = ["network"]
 single-player = []
 map-editor = ["dev-tools"]
 mod-support = []
-copy-protection = []
 
 # Performance options
 simd = []

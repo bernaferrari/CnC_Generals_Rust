@@ -190,58 +190,6 @@ pub fn initialize_version_system() {
     log::info!("Platform: {} {}", version.platform, version.architecture);
 }
 
-/// Initialize version system with copy protection integration
-/// This matches the C++ TheVersion initialization in WinMain
-pub fn initialize_version_system_with_copy_protection() {
-    use crate::copy_protection;
-
-    let version = get_version_info();
-    log::info!("Initializing version system with copy protection integration");
-    log::info!("Game Version: {}", version);
-    log::info!("Build Info: {}", version.get_build_info());
-    log::info!("Platform: {} {}", version.platform, version.architecture);
-
-    // Notify copy protection system of version information
-    if copy_protection::is_copy_protection_enabled() {
-        let _version_message = copy_protection::LauncherMessage::VersionCheck {
-            game_version: version.get_version_string(),
-        };
-
-        if let Some(handle) = copy_protection::get_copy_protection() {
-            if let Err(e) = handle.lock().check_for_message() {
-                log::warn!("Failed to send version info to copy protection: {}", e);
-            }
-        }
-
-        log::debug!("Version information integrated with copy protection system");
-    }
-}
-
-/// Get version for copy protection validation
-pub fn get_version_for_copy_protection() -> String {
-    get_version_info().get_version_string()
-}
-
-/// Validate version against copy protection requirements
-pub fn validate_version_for_copy_protection() -> bool {
-    let version = get_version_info();
-
-    // Basic version validation - in a real implementation this would be more sophisticated
-    if version.major == 0 || version.build == 0 {
-        log::error!("Invalid version information detected");
-        return false;
-    }
-
-    // Check for development builds in production mode
-    if !crate::copy_protection::is_development_mode() && version.is_debug() {
-        log::warn!("Debug build detected in production mode");
-        // In a real implementation, this might be blocked
-    }
-
-    log::debug!("Version validation passed for copy protection");
-    true
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

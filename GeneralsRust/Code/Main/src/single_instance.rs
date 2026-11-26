@@ -195,16 +195,6 @@ pub fn initialize_single_instance_protection() -> Result<SingleInstanceGuard> {
     }
 }
 
-/// Initialize single instance protection with copy protection integration
-/// This version integrates with the copy protection system
-pub fn initialize_single_instance_protection_with_copy_protection() -> Result<SingleInstanceGuard> {
-    let guard = initialize_single_instance_protection()?;
-    if crate::copy_protection::is_copy_protection_enabled() {
-        crate::copy_protection::notify_launcher()?;
-    }
-    Ok(guard)
-}
-
 /// Acquire the original unconditional single-instance exclusion. The entry
 /// point owns the returned guard through game execution and cleanup.
 pub fn create_generals_mutex() -> Result<SingleInstanceGuard> {

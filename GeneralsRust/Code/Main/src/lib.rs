@@ -156,7 +156,6 @@ pub mod skirmish_config;
 
 // New factory pattern modules
 pub mod command_line;
-pub mod copy_protection;
 pub mod debug_system;
 pub mod deterministic_trace;
 pub mod engine_factory;
@@ -191,7 +190,6 @@ pub use win32_game_engine::*;
 
 // Re-export new modules
 pub use command_line::*;
-pub use copy_protection::*;
 pub use debug_system::*;
 pub use deterministic_trace::*;
 pub use engine_factory::*;

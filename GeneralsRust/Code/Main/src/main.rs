@@ -22,13 +22,11 @@
 //   5. Graphics context setup (wgpu)
 //   6. Audio system initialization
 //   7. Debug system initialization
-//   8. Memory manager setup
-//   9. Copy protection integration
-//  10. Version info initialization
-//  11. Single instance check (mutex)
-//  12. Subsystem initialization
-//  13. Game loop execution
-//  14. Proper shutdown sequence
+//   8. Version info initialization
+//   9. Single instance check (mutex)
+//  10. Subsystem initialization
+//  11. Game loop execution
+//  12. Proper shutdown sequence
 //
 // Author: Colin Day, April 2001 (Converted to Rust)
 //
@@ -170,14 +168,12 @@ fn parse_level(level: &str) -> LevelFilter {
 /// Initialization sequence (matches C++ WinMain.cpp lines 850-1043):
 /// 1. Parse command line arguments
 /// 2. Initialize logging system (DEBUG_INIT)
-/// 3. Initialize memory manager
-/// 4. Setup version information
-/// 5. Check copy protection and launcher status
-/// 6. Create single instance mutex
-/// 7. Create window and event loop
-/// 8. Initialize subsystems in correct order
-/// 9. Run game loop (GameMain)
-/// 10. Clean shutdown
+/// 3. Setup version information
+/// 4. Create single instance mutex
+/// 5. Create window and event loop
+/// 6. Initialize subsystems in correct order
+/// 7. Run game loop (GameMain)
+/// 8. Clean shutdown
 #[cfg_attr(target_arch = "wasm32", tokio::main(flavor = "current_thread"))]
 #[cfg_attr(not(target_arch = "wasm32"), tokio::main)]
 async fn main() {
@@ -258,35 +254,8 @@ async fn main() {
     // =========================================================================
     // PHASE 6: VERSION SYSTEM INITIALIZATION (matches WinMain.cpp:982-986)
     // =========================================================================
-    generals_main::version::initialize_version_system_with_copy_protection();
+    generals_main::version::initialize_version_system();
     debug!("Version system initialized");
-
-    // =========================================================================
-    // PHASE 6: COPY PROTECTION CHECK (matches WinMain.cpp:988-998)
-    // =========================================================================
-    #[cfg(feature = "copy-protection")]
-    {
-        let is_dev_mode = cfg!(debug_assertions) || cmd_args.developer_mode;
-        let is_enabled = !startup_args
-            .iter()
-            .any(|arg| arg == "--disable-copy-protection");
-
-        generals_main::copy_protection::configure_copy_protection(is_dev_mode, is_enabled);
-
-        if let Err(e) = generals_main::copy_protection::initialize_copy_protection() {
-            error!("Copy protection initialization failed: {}", e);
-            cleanup_and_exit();
-            std::process::exit(1);
-        }
-
-        if !generals_main::copy_protection::is_launcher_running() {
-            error!("Launcher is not running - exiting");
-            cleanup_and_exit();
-            std::process::exit(1);
-        }
-
-        debug!("Copy protection initialized successfully");
-    }
 
     // =========================================================================
     // PHASE 7: SINGLE INSTANCE CHECK (matches WinMain.cpp:1001-1026)
@@ -302,19 +271,6 @@ async fn main() {
         }
     };
     debug!("Single instance mutex created");
-
-    // =========================================================================
-    // PHASE 8: LAUNCHER NOTIFICATION (matches WinMain.cpp:1028-1038)
-    // =========================================================================
-    #[cfg(feature = "copy-protection")]
-    {
-        if let Err(e) = generals_main::copy_protection::notify_launcher() {
-            error!("Could not communicate with launcher: {}", e);
-            cleanup_and_exit();
-            std::process::exit(0);
-        }
-        debug!("Launcher notified successfully");
-    }
 
     // =========================================================================
     // PHASE 9: EVENT LOOP AND WINDOW CREATION (matches initializeAppWindows)
@@ -413,28 +369,14 @@ async fn game_main(
 
 /// Cleanup and exit - equivalent to C++ cleanup in WinMain
 ///
-/// Performs orderly shutdown of all systems (matches WinMain.cpp cleanup):
-/// 1. Shutdown copy protection system
-/// 2. Close single instance mutex
-/// 3. Shutdown subsystems
-/// 4. Shutdown memory manager
-/// 5. Close debug log
+/// Performs orderly shutdown of all systems:
+/// 1. Close single instance mutex
+/// 2. Shutdown subsystems
+/// 3. Close debug log
 ///
 /// This function ensures all resources are properly released before exit.
 fn cleanup_and_exit() {
     debug!("Starting cleanup sequence...");
-
-    // =========================================================================
-    // STEP 1: Copy Protection Shutdown (matches WinMain.cpp:1045-1048)
-    // =========================================================================
-    #[cfg(feature = "copy-protection")]
-    {
-        if let Err(e) = generals_main::copy_protection::shutdown() {
-            error!("Failed to shutdown copy protection: {}", e);
-        } else {
-            debug!("Copy protection shutdown complete");
-        }
-    }
 
     // =========================================================================
     // STEP 2: Close Single Instance Mutex

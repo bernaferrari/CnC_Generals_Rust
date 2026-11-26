@@ -6,7 +6,6 @@ pub mod big_file_system;
 pub mod build_assistant;
 pub mod cd_manager;
 pub mod compression;
-pub mod copy_protection;
 pub mod critical_section;
 pub mod data_chunk;
 pub mod data_chunk_io;

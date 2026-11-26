@@ -7,7 +7,6 @@ use crate::assets::archive::{ArchiveFileSystem, BigArchiveFileReader};
 use crate::assets::manager::AssetManager;
 use crate::command_line::CommandLineArgs;
 use crate::command_system::CommandSystem;
-use crate::copy_protection::CopyProtection;
 use crate::debug_system::DebugSystem;
 use crate::game_logic::host_destroy_log::HostDestroyEvent;
 use crate::game_logic::host_production_progress_log::HostProductionProgressEvent;
@@ -54,9 +53,6 @@ pub struct MainServices {
     pub drive_frame_count: AtomicU32,
     pub command_line_args: Mutex<Option<CommandLineArgs>>,
     pub bridges_installed: AtomicBool,
-    pub development_mode: AtomicBool,
-    pub copy_protection_enabled: AtomicBool,
-    pub copy_protection: Mutex<Option<Arc<Mutex<CopyProtection>>>>,
     pub debug_system: Mutex<Option<Arc<DebugSystem>>>,
     pub fow_test_lock: Arc<parking_lot::Mutex<()>>,
     pub resource_asset_manager: Mutex<Option<Arc<ResourceAssetManager>>>,
@@ -102,9 +98,6 @@ impl MainServices {
             drive_frame_count: AtomicU32::new(0),
             command_line_args: Mutex::new(None),
             bridges_installed: AtomicBool::new(false),
-            development_mode: AtomicBool::new(true),
-            copy_protection_enabled: AtomicBool::new(false),
-            copy_protection: Mutex::new(None),
             debug_system: Mutex::new(None),
             fow_test_lock: Arc::new(parking_lot::Mutex::new(())),
             resource_asset_manager: Mutex::new(None),  // Option<Arc<ResourceAssetManager>>
