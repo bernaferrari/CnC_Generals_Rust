@@ -12489,7 +12489,6 @@ dependencies = [
  "eframe",
  "env_logger",
  "game_engine",
- "gamelogic",
  "glam",
  "log",
  "serde",

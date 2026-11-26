@@ -702,12 +702,14 @@ impl ScriptEngine {
         self.with_inner(|inner| {
             crate::scripting::chunk_codec::ScriptTemplateLookup::from_keys(
                 inner
-                    .condition_templates
+                    .templates
+                    .conditions()
                     .iter()
                     .map(|t| t.base.internal_name_key)
                     .collect(),
                 inner
-                    .action_templates
+                    .templates
+                    .actions()
                     .iter()
                     .map(|t| t.base.internal_name_key)
                     .collect(),
@@ -715,20 +717,21 @@ impl ScriptEngine {
         })
     }
 
-    /// Get action template (owned snapshot — never a borrow into `UnsafeCell`).
+    /// Clone an action template from this interpreter's catalog.
     pub fn get_action_template(&self, index: usize) -> Option<ActionTemplate> {
-        self.with_inner(|inner| inner.action_templates.get(index).cloned())
+        self.with_inner(|inner| inner.templates.actions().get(index).cloned())
     }
 
-    /// Get condition template (owned snapshot — never a borrow into `UnsafeCell`).
+    /// Clone a condition template from this interpreter's catalog.
     pub fn get_condition_template(&self, index: usize) -> Option<ConditionTemplate> {
-        self.with_inner(|inner| inner.condition_templates.get(index).cloned())
+        self.with_inner(|inner| inner.templates.conditions().get(index).cloned())
     }
 
     pub fn find_condition_type_by_name_key(&self, name_key: u32) -> Option<ConditionType> {
         self.with_inner(|inner| {
             inner
-                .condition_templates
+                .templates
+                .conditions()
                 .iter()
                 .enumerate()
                 .find_map(|(idx, template)| {
@@ -744,7 +747,8 @@ impl ScriptEngine {
     pub fn find_action_type_by_name_key(&self, name_key: u32) -> Option<ScriptActionType> {
         self.with_inner(|inner| {
             inner
-                .action_templates
+                .templates
+                .actions()
                 .iter()
                 .enumerate()
                 .find_map(|(idx, template)| {

@@ -24,27 +24,6 @@ impl ScriptEngine {
         self.with_inner(|inner| inner.calling_object.or(inner.condition_object))
     }
 
-    /// C++ assigns authored names, then interns conditions before actions.
-    fn seed_template_internal_names(&mut self, names: &mut game_engine::common::name_key_generator::NameKeyNamespace) {
-        let inner = self.inner.get_mut();
-        for (template, name) in inner
-            .condition_templates
-            .iter_mut()
-            .zip(template_names::CONDITION_INTERNAL_NAMES)
-        {
-            template.base.internal_name = name.to_owned();
-            template.base.internal_name_key = names.name_to_key(name);
-        }
-        for (template, name) in inner
-            .action_templates
-            .iter_mut()
-            .zip(template_names::ACTION_INTERNAL_NAMES)
-        {
-            template.base.internal_name = name.to_owned();
-            template.base.internal_name_key = names.name_to_key(name);
-        }
-    }
-
     const MAX_PLAYER_COUNT: usize = crate::common::MAX_PLAYER_COUNT;
     /// Roster associated with this interpreter at construction.
     pub fn players(&self) -> &Arc<RwLock<crate::player::PlayerList>> {
@@ -151,8 +130,7 @@ impl ScriptEngine {
             control_bar_ui_hooks: Arc::clone(services.control_bar_ui_hooks()),
             subroutine_call_depth: Cell::new(0),
             inner: std::cell::RefCell::new(ScriptEngineInner {
-                action_templates: Vec::with_capacity(ScriptActionType::NumItems as usize),
-                condition_templates: Vec::with_capacity(ConditionType::NumItems as usize),
+                templates: ScriptTemplateCatalog::new(names),
 
                 counters: vec![None; MAX_COUNTERS],
                 num_counters: 1,
@@ -235,7 +213,6 @@ impl ScriptEngine {
             inner.attack_priorities.ensure_default();
         }
 
-        engine.initialize_templates(names)?;
         Ok(engine)
     }
 
@@ -1418,24 +1395,6 @@ impl ScriptEngine {
             info.default_priority = priority;
         })
         .is_some()
-    }
-
-    /// Initialize action and condition templates
-    fn initialize_templates(&mut self, names: &mut game_engine::common::name_key_generator::NameKeyNamespace) -> GameLogicResult<()> {
-        let inner = self.inner.get_mut();
-        // C++ builds immutable definitions before applying optional editor INI labels.
-        inner
-            .action_templates
-            .resize(ScriptActionType::NumItems as usize, ActionTemplate::new());
-        inner
-            .condition_templates
-            .resize(ConditionType::NumItems as usize, ConditionTemplate::new());
-
-        // Full authored defaults, followed by C++ condition-first name/key allocation.
-        template_metadata::initialize(&mut inner.action_templates, &mut inner.condition_templates);
-        self.seed_template_internal_names(names);
-
-        Ok(())
     }
 
     /// Reset the script engine

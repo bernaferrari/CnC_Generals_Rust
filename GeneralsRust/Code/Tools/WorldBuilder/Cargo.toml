@@ -19,7 +19,6 @@ anyhow = { workspace = true }
 uuid = { workspace = true, features = ["v4", "serde"] }
 chrono = { workspace = true, features = ["serde"] }
 game_engine = { path = "../../GameEngine/Common" }
-gamelogic = { path = "../../GameEngine/GameLogic" }
 
 [lib]
 name = "world_builder"

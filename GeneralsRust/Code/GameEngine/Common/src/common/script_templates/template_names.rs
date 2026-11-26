@@ -1,6 +1,6 @@
 //! C++ ScriptEngine.cpp:564-5242 template names, indexed by Scripts.h enum order.
 //! Empty strings are deliberately unassigned C++ slots, not generated enum names.
-use crate::scripting::core::{ConditionType, ScriptActionType};
+use super::{ConditionType, ScriptActionType};
 
 pub(super) const CONDITION_INTERNAL_NAMES: [&str; ConditionType::NumItems as usize] = [
     "CONDITION_FALSE",                                 // ConditionFalse

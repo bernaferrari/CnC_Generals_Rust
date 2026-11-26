@@ -18,11 +18,11 @@ fn decode(engine: &mut ScriptEngine, condition: bool) -> ScriptList {
     });
     engine.with_inner_mut(|inner| {
         if condition {
-            inner.condition_templates[ConditionType::ConditionTrue as usize]
+            inner.templates.condition_mut(ConditionType::ConditionTrue).unwrap()
                 .base
                 .internal_name_key = key;
         } else {
-            inner.action_templates[ScriptActionType::Victory as usize]
+            inner.templates.action_mut(ScriptActionType::Victory).unwrap()
                 .base
                 .internal_name_key = key;
         }

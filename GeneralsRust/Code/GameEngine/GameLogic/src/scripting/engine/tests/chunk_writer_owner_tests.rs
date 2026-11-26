@@ -9,14 +9,14 @@ use game_engine::common::system::{DataChunkInfo, DataChunkInput, DataChunkOutput
 fn private_engine() -> ScriptEngine {
     let mut engine = ScriptEngine::new_in_published_world().unwrap();
     engine.with_inner_mut(|inner| {
-        inner.condition_templates[ConditionType::ConditionTrue as usize]
+        inner.templates.condition_mut(ConditionType::ConditionTrue).unwrap()
             .base
             .internal_name_key = NameKeyGenerator::name_to_key("OWNER41_PRIVATE_TRUE");
         for (kind, name) in [
             (ScriptActionType::Victory, "OWNER41_PRIVATE_VICTORY"),
             (ScriptActionType::Defeat, "OWNER41_PRIVATE_DEFEAT"),
         ] {
-            inner.action_templates[kind as usize].base.internal_name_key =
+            inner.templates.action_mut(kind).unwrap().base.internal_name_key =
                 NameKeyGenerator::name_to_key(name);
         }
     });

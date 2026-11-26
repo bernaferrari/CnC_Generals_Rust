@@ -2,6 +2,8 @@
 
 use crate::map::{Map, Trigger};
 use anyhow::Result;
+use game_engine::common::name_key_generator::NameKeyNamespace;
+use game_engine::common::script_templates::ScriptTemplateCatalog;
 use std::collections::HashMap;
 
 /// Script editor for map logic and triggers
@@ -11,7 +13,7 @@ pub struct ScriptEditor {
     syntax_highlighter: SyntaxHighlighter,
     script_validator: ScriptValidator,
     dirty: bool,
-    script_engine: Option<gamelogic::scripting::engine::ScriptEngine>,
+    templates: Option<ScriptTemplateCatalog>,
 }
 
 impl ScriptEditor {
@@ -22,7 +24,7 @@ impl ScriptEditor {
             syntax_highlighter: SyntaxHighlighter::new(),
             script_validator: ScriptValidator::new(),
             dirty: false,
-            script_engine: None,
+            templates: None,
         }
     }
 
@@ -31,13 +33,11 @@ impl ScriptEditor {
     }
 
     fn initialize_with_script_templates(&mut self, filename: &std::path::Path) -> Result<()> {
-        if self.script_engine.is_none() {
-            // WorldBuilder.cpp:375-380 initializes authored templates, disables
-            // breeze, then reads the editor-only labels through the engine INI authority.
-            let mut engine = gamelogic::scripting::engine::ScriptEngine::new()?;
-            engine.turn_breeze_off();
-            engine.load_template_labels(filename)?;
-            self.script_engine = Some(engine);
+        if self.templates.is_none() {
+            // WorldBuilder.cpp:375-380 applies Scripts.ini after building the authored templates.
+            let mut templates = ScriptTemplateCatalog::new(&mut NameKeyNamespace::new());
+            templates.load_labels(filename)?;
+            self.templates = Some(templates);
         }
         self.syntax_highlighter.load_syntax_definitions()?;
         Ok(())
@@ -456,10 +456,10 @@ pub enum ErrorType {
 #[cfg(test)]
 mod template_startup_tests {
     use super::*;
-    use gamelogic::scripting::core::ScriptActionType;
+    use game_engine::common::script_templates::ScriptActionType;
 
     #[test]
-    fn constructor_is_inert_and_startup_applies_labels_to_the_editor_engine() {
+    fn constructor_is_inert_and_startup_applies_labels_to_the_editor_catalog() {
         let file = tempfile::Builder::new().suffix(".ini").tempfile().unwrap();
         std::fs::write(
             file.path(),
@@ -467,16 +467,42 @@ mod template_startup_tests {
         )
         .unwrap();
         let mut editor = ScriptEditor::new();
-        assert!(editor.script_engine.is_none());
+        assert!(editor.templates.is_none());
         editor
             .initialize_with_script_templates(file.path())
             .unwrap();
-        let engine = editor.script_engine.as_ref().unwrap();
-        let template = engine
-            .get_action_template(ScriptActionType::SetFlag as usize)
+        let catalog = editor.templates.as_ref().unwrap();
+        let template = catalog
+            .actions()
+            .get(ScriptActionType::SetFlag as usize)
             .unwrap();
         assert_eq!(template.base.ui_name, "EditorFlag");
         assert_eq!(template.base.internal_name, "SET_FLAG");
+
+        std::fs::write(
+            file.path(),
+            "ScriptAction\nInternalName = SET_FLAG\nUIName = PeerFlag\nEnd\n",
+        )
+        .unwrap();
+        let mut peer = ScriptEditor::new();
+        peer.initialize_with_script_templates(file.path()).unwrap();
+        editor
+            .initialize_with_script_templates(file.path())
+            .unwrap();
+
+        let flag = ScriptActionType::SetFlag as usize;
+        assert_eq!(
+            editor.templates.as_ref().unwrap().actions()[flag]
+                .base
+                .ui_name,
+            "EditorFlag"
+        );
+        assert_eq!(
+            peer.templates.as_ref().unwrap().actions()[flag]
+                .base
+                .ui_name,
+            "PeerFlag"
+        );
     }
 
     #[test]
@@ -488,6 +514,6 @@ mod template_startup_tests {
                 .initialize_with_script_templates(&directory.path().join("missing.ini"))
                 .is_err()
         );
-        assert!(editor.script_engine.is_none());
+        assert!(editor.templates.is_none());
     }
 }

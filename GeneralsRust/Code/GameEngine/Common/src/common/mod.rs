@@ -33,6 +33,7 @@ pub mod message_stream;
 pub mod mini_log;
 pub mod multiplayer_settings;
 pub mod name_key_generator;
+pub mod script_templates;
 pub mod os_display;
 pub mod partition_solver;
 pub mod perf_timer;

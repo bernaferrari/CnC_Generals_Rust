@@ -20,6 +20,7 @@ use crate::{GameLogicError, GameLogicResult};
 use futures::executor::block_on;
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::rts::ScienceType;
+use game_engine::common::script_templates::ScriptTemplateCatalog;
 use game_engine::common::system::{Xfer, XferMode, XferStatus, XferVersion};
 use game_engine::common::thing::thing_factory::get_thing_factory;
 use game_engine::common::thing::thing_template::ThingTemplate as EngineThingTemplate;
@@ -38,8 +39,6 @@ fn dual_world_registry_unavailable() -> bool {
 mod attack_priorities;
 mod condition_queries;
 mod template_labels;
-mod template_metadata;
-mod template_names;
 use attack_priorities::AttackPriorityTable;
 
 include!("types.rs");

@@ -2752,8 +2752,7 @@ pub struct ScriptEngine {
 /// - `lock_inner_mut` when only `&ScriptEngine` is live (TLS nested path)
 pub struct ScriptEngineInner {
     // Template registrations
-    action_templates: Vec<ActionTemplate>,
-    condition_templates: Vec<ConditionTemplate>,
+    templates: ScriptTemplateCatalog,
 
     // Runtime state
     pub(crate) counters: Vec<Option<TCounter>>,

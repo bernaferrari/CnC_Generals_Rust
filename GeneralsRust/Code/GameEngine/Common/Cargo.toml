@@ -82,6 +82,7 @@ winit = {workspace = true, optional = true}
 
 
 [features]
+count_script_usage = []
 # Test-only: per-thread owned CommonServices for tests that never publish a world.
 test-ambient-services = []
 default = ["async", "graphics", "audio"]

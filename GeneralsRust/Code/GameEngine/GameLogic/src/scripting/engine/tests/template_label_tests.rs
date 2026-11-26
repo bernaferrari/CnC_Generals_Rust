@@ -1,6 +1,6 @@
 //! Actual registered INI -> owned engine boundary, from ScriptEngine.cpp:340-416.
 use super::*;
-use crate::scripting::core::{ConditionType, ScriptActionType};
+use crate::scripting::core::{ConditionType, ScriptActionType, Template};
 use game_engine::common::ini::INIError;
 
 fn action(engine: &ScriptEngine) -> Template {
