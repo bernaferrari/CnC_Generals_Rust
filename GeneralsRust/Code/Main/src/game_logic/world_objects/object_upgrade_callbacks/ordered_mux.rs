@@ -1,12 +1,11 @@
 //! Object::updateUpgradeModules / removeUpgrade and the typed UpgradeMux pass.
 use super::*;
 use game_engine::common::system::upgrade::{
-    ArmorUpgradeModuleData, CommandSetUpgradeModuleData, SubObjectsUpgradeModuleData, UpgradeMask,
-    UpgradeMuxDefinition,
+    ArmorUpgradeModuleData, CommandSetUpgradeModuleData, MaxHealthUpgradeModuleData,
+    PassengersFireUpgradeModuleData, PowerPlantUpgradeModuleData, RadarUpgradeModuleData,
+    ReplaceObjectUpgradeModuleData, SubObjectsUpgradeModuleData, UpgradeMask, UpgradeMuxDefinition,
 };
-use gamelogic::object::upgrade::{
-    ModelConditionUpgradeModuleData, ReplaceObjectUpgradeModuleData, StealthUpgradeModuleData,
-};
+use gamelogic::object::upgrade::{ModelConditionUpgradeModuleData, StealthUpgradeModuleData};
 use generals_sim::upgrade::UpgradeConditions;
 
 struct AuthoredObjectCreationUpgrade {
@@ -25,9 +24,7 @@ struct AuthoredStatusBitsUpgrade {
 
 struct AuthoredPassengersFireUpgrade {
     source_index: usize,
-    data: ModuleDataView<
-        gamelogic::object::upgrade::passengers_fire_upgrade::PassengersFireUpgradeModuleData,
-    >,
+    data: ModuleDataView<PassengersFireUpgradeModuleData>,
 }
 
 impl AuthoredPassengersFireUpgrade {
@@ -38,8 +35,7 @@ impl AuthoredPassengersFireUpgrade {
 
 struct AuthoredMaxHealthUpgrade {
     source_index: usize,
-    data:
-        ModuleDataView<gamelogic::object::upgrade::max_health_upgrade::MaxHealthUpgradeModuleData>,
+    data: ModuleDataView<MaxHealthUpgradeModuleData>,
 }
 
 impl AuthoredMaxHealthUpgrade {
@@ -116,12 +112,12 @@ impl AuthoredCommandSetUpgrade {
 
 struct AuthoredPowerPlantUpgrade {
     executed_key: String,
-    data: ModuleDataView<gamelogic::object::upgrade::PowerPlantUpgradeModuleData>,
+    data: ModuleDataView<PowerPlantUpgradeModuleData>,
 }
 
 struct AuthoredRadarUpgrade {
     state_index: usize,
-    data: ModuleDataView<gamelogic::object::upgrade::RadarUpgradeModuleData>,
+    data: ModuleDataView<RadarUpgradeModuleData>,
 }
 
 enum VisualUpgradeEffect {
@@ -289,9 +285,7 @@ impl GameLogic {
                     return Some(AuthoredOrderedUpgrade::CostModifier(cost));
                 }
                 if module.name.as_str().eq_ignore_ascii_case("PowerPlantUpgrade") {
-                    let data = upgrade_data_view::<gamelogic::object::upgrade::PowerPlantUpgradeModuleData>(
-                        &module.data,
-                    )?;
+                    let data = upgrade_data_view::<PowerPlantUpgradeModuleData>(&module.data)?;
                     let tag = module.module_tag.as_str();
                     let executed_key = super::super::authored_upgrade_modules::control_rods_upgrade_key(
                         power_plant_index,
@@ -304,9 +298,7 @@ impl GameLogic {
                     }));
                 }
                 if module.name.as_str().eq_ignore_ascii_case("RadarUpgrade") {
-                    let data = upgrade_data_view::<gamelogic::object::upgrade::RadarUpgradeModuleData>(
-                        &module.data,
-                    )?;
+                    let data = upgrade_data_view::<RadarUpgradeModuleData>(&module.data)?;
                     let state_index = radar_index;
                     radar_index += 1;
                     return Some(AuthoredOrderedUpgrade::Radar(AuthoredRadarUpgrade {
@@ -315,17 +307,13 @@ impl GameLogic {
                     }));
                 }
                 if module.name.as_str().eq_ignore_ascii_case("PassengersFireUpgrade") {
-                    let data = upgrade_data_view::<
-                        gamelogic::object::upgrade::passengers_fire_upgrade::PassengersFireUpgradeModuleData,
-                    >(&module.data)?;
+                    let data = upgrade_data_view::<PassengersFireUpgradeModuleData>(&module.data)?;
                     return Some(AuthoredOrderedUpgrade::PassengersFire(
                         AuthoredPassengersFireUpgrade { source_index, data }
                     ));
                 }
                 if module.name.as_str().eq_ignore_ascii_case("MaxHealthUpgrade") {
-                    let data = upgrade_data_view::<
-                        gamelogic::object::upgrade::max_health_upgrade::MaxHealthUpgradeModuleData,
-                    >(&module.data)?;
+                    let data = upgrade_data_view::<MaxHealthUpgradeModuleData>(&module.data)?;
                     return Some(AuthoredOrderedUpgrade::MaxHealth(
                         AuthoredMaxHealthUpgrade { source_index, data }
                     ));

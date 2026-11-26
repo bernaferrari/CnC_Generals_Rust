@@ -834,7 +834,11 @@ impl Object {
                     PreparedUpgrade::Radar(data) => radar_grant(self, data.read().is_disable_proof()),
                     PreparedUpgrade::StatusBits(data) => data.read().apply_to_object(self),
                     PreparedUpgrade::Armor(data) => crate::object::upgrade::armor_upgrade::apply_to_object(&data.read(), self),
-                    PreparedUpgrade::MaxHealth(data) => data.read().apply_to_object(self, loading_map),
+                    PreparedUpgrade::MaxHealth(data) => {
+                        crate::object::upgrade::max_health_upgrade::apply_to_object(
+                            &data.read(), self, loading_map,
+                        )
+                    }
                     PreparedUpgrade::ExperienceScalar(data) => data.read().apply_to_object(self),
                     PreparedUpgrade::WeaponBonus(data) => data.read().apply_to_object(self),
                     PreparedUpgrade::CostModifier(data) => data.read().apply_to_object(self),

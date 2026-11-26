@@ -7,6 +7,7 @@
 //! a `MaxHealthUpgrade` whose `TriggeredBy` names the completed upgrade. No
 //! unit or template name selects a recipient.
 use super::super::*;
+use game_engine::common::system::upgrade::{MaxHealthChangeType, MaxHealthUpgradeModuleData};
 
 enum PlantPowerBonus {
     ControlRods(String),
@@ -208,9 +209,8 @@ impl Object {
     /// operation, shared by object grants, player research and object birth.
     pub(crate) fn apply_authored_max_health_upgrade(
         &mut self,
-        data: &gamelogic::object::upgrade::max_health_upgrade::MaxHealthUpgradeModuleData,
+        data: &MaxHealthUpgradeModuleData,
     ) {
-        use gamelogic::object::body::body_module::MaxHealthChangeType;
         use crate::game_logic::object::MaxHealthChange;
         let change = match data.change_type() {
             MaxHealthChangeType::SameCurrentHealth => MaxHealthChange::KeepCurrent,

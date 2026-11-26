@@ -17883,6 +17883,11 @@
             {
               "cargo_reachable": true,
               "classification": "implementation",
+              "path": "GeneralsRust/Code/GameEngine/Common/src/common/system/upgrade/module_data/max_health.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "implementation",
               "path": "GeneralsRust/Code/GameEngine/Common/src/common/system/upgrade/mux.rs"
             },
             {
@@ -187697,7 +187702,7 @@
       ]
     }
   ],
-  "provenance_input_digest": "a7886e5d1d9774a3a31e192d2e2c40a770e19587d2fd41a176377bf9d80ca4a3",
+  "provenance_input_digest": "473428acc3e93b56ce9044531ff6c741af995d27381e77861d296c99392a48fa",
   "schema_version": 1,
   "summary": {
     "maximum_packet_size": 15,

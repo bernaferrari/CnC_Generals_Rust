@@ -1,59 +1,12 @@
 #[cfg(test)]
 use std::sync::Arc;
 
-use crate::common::{LegacyModuleData, ObjectID, UpgradeMaskType};
+use crate::common::{ObjectID, UpgradeMaskType};
 use crate::object::Object;
-use crate::object::upgrade::upgrade_module::{UpgradeMuxData, mux_can_upgrade, mux_reset_upgrade};
-use game_engine::common::ini::{FieldParse, INI, INIError};
+use crate::object::upgrade::upgrade_module::{mux_can_upgrade, mux_reset_upgrade};
+pub use game_engine::common::system::upgrade::PassengersFireUpgradeModuleData;
 use game_engine::common::system::{Snapshotable, Xfer};
-use game_engine::common::thing::module::{Module, ModuleData, ModuleDataHandle, ModuleDataView, NameKeyType};
-
-/// Module data for PassengersFireUpgrade (no custom fields in C++).
-#[derive(Debug, Clone)]
-pub struct PassengersFireUpgradeModuleData {
-    module_tag_name_key: NameKeyType,
-    pub upgrade_mux_data: UpgradeMuxData,
-}
-
-impl Default for PassengersFireUpgradeModuleData {
-    fn default() -> Self {
-        Self {
-            module_tag_name_key: 0,
-            upgrade_mux_data: UpgradeMuxData::default(),
-        }
-    }
-}
-
-impl PassengersFireUpgradeModuleData {
-    pub fn parse_from_ini(&mut self, ini: &mut INI) -> Result<(), INIError> {
-        ini.init_from_ini_with_fields(self, PASSENGERS_FIRE_UPGRADE_FIELDS)
-    }
-}
-
-crate::impl_legacy_module_data_with_key_field!(
-    PassengersFireUpgradeModuleData,
-    module_tag_name_key
-);
-
-impl Snapshotable for PassengersFireUpgradeModuleData {
-    fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        let mut version: u8 = 0;
-        xfer.xfer_version(&mut version, 1)
-            .map_err(|e| e.to_string())?;
-        Ok(())
-    }
-
-    fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        let mut version: u8 = 0;
-        xfer.xfer_version(&mut version, 1)
-            .map_err(|e| e.to_string())?;
-        Ok(())
-    }
-
-    fn load_post_process(&mut self) -> Result<(), String> {
-        Ok(())
-    }
-}
+use game_engine::common::thing::module::{Module, ModuleDataHandle, ModuleDataView, NameKeyType};
 
 /// Installed upgrade state. Definitions are immutable; execution belongs to this module.
 pub struct PassengersFireUpgrade {
@@ -142,11 +95,6 @@ impl Snapshotable for PassengersFireUpgrade {
         Ok(())
     }
 }
-
-crate::impl_upgrade_mux_field_parsers!(PassengersFireUpgradeModuleData);
-
-const PASSENGERS_FIRE_UPGRADE_FIELDS: &[FieldParse<PassengersFireUpgradeModuleData>] =
-    crate::upgrade_mux_field_table!();
 
 #[cfg(test)]
 #[path = "passengers_fire_upgrade/tests.rs"]

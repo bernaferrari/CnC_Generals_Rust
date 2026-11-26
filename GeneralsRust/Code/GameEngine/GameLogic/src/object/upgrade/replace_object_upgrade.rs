@@ -1,69 +1,19 @@
 use crate::ai::the_ai;
-use crate::common::{AsciiString, ObjectID, UpgradeMaskType};
+use crate::common::{ObjectID, UpgradeMaskType};
 use crate::modules::UpgradeModuleInterface;
 use crate::object::OBJECT_REGISTRY;
 use crate::object::upgrade::upgrade_module::{
-    UpgradeMuxData, mux_can_upgrade, mux_give_self_upgrade_for_object,
+    mux_can_upgrade, mux_give_self_upgrade_for_object,
 };
 use crate::{helpers::TheThingFactory, object_manager::get_object_manager};
-use game_engine::common::ini::{FieldParse, INI, INIError};
+pub use game_engine::common::system::upgrade::ReplaceObjectUpgradeModuleData;
 use game_engine::common::system::{Snapshotable, Xfer};
-use game_engine::common::thing::module::{Module, ModuleData, NameKeyType};
+use game_engine::common::thing::module::{Module, NameKeyType};
 
 /// Wave 446: host-only path has no dual-world factory objects.
 #[inline]
 fn dual_world_registry_unavailable() -> bool {
     crate::object::registry::OBJECT_REGISTRY.is_empty()
-}
-
-/// Module data describing the replace object upgrade.
-#[derive(Debug, Clone)]
-pub struct ReplaceObjectUpgradeModuleData {
-    module_tag_name_key: NameKeyType,
-    pub upgrade_mux_data: UpgradeMuxData,
-    replace_object_name: AsciiString,
-}
-
-impl Default for ReplaceObjectUpgradeModuleData {
-    fn default() -> Self {
-        Self {
-            module_tag_name_key: 0,
-            upgrade_mux_data: UpgradeMuxData::default(),
-            replace_object_name: AsciiString::new(),
-        }
-    }
-}
-
-impl ReplaceObjectUpgradeModuleData {
-    pub fn replace_object_name(&self) -> &AsciiString {
-        &self.replace_object_name
-    }
-
-    pub fn parse_from_ini(&mut self, ini: &mut INI) -> Result<(), INIError> {
-        ini.init_from_ini_with_fields(self, REPLACE_OBJECT_UPGRADE_FIELDS)
-    }
-}
-
-crate::impl_legacy_module_data_with_key_field!(ReplaceObjectUpgradeModuleData, module_tag_name_key);
-
-impl Snapshotable for ReplaceObjectUpgradeModuleData {
-    fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        let mut version: u8 = 0;
-        xfer.xfer_version(&mut version, 1)
-            .map_err(|e| e.to_string())?;
-        Ok(())
-    }
-
-    fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        let mut version: u8 = 0;
-        xfer.xfer_version(&mut version, 1)
-            .map_err(|e| e.to_string())?;
-        Ok(())
-    }
-
-    fn load_post_process(&mut self) -> Result<(), String> {
-        Ok(())
-    }
 }
 
 /// Upgrade module that replaces the object with a different type (transformation).
@@ -305,23 +255,3 @@ impl UpgradeModuleInterface for ReplaceObjectUpgrade {
         );
     }
 }
-
-fn parse_replace_object_field(
-    _ini: &mut INI,
-    data: &mut ReplaceObjectUpgradeModuleData,
-    tokens: &[&str],
-) -> Result<(), INIError> {
-    if tokens.is_empty() {
-        return Err(INIError::InvalidData);
-    }
-    data.replace_object_name = AsciiString::from(tokens[0]);
-    Ok(())
-}
-
-crate::impl_upgrade_mux_field_parsers!(ReplaceObjectUpgradeModuleData);
-
-const REPLACE_OBJECT_UPGRADE_FIELDS: &[FieldParse<ReplaceObjectUpgradeModuleData>] =
-    crate::upgrade_mux_field_table!(FieldParse {
-        token: "ReplaceObject",
-        parse: parse_replace_object_field,
-    },);

@@ -8,29 +8,11 @@ pub use crate::common::{BodyDamageType, VeterancyLevel};
 pub use crate::damage::{DamageInfo, DamageInfoInput, DamageInfoOutput, DamageType, DeathType};
 use crate::object::behavior::behavior_module::BehaviorModuleData;
 use game_engine::common::bit_flags::{ArmorSetBitFlags, create_armor_set_flags};
+pub use game_engine::common::system::upgrade::MaxHealthChangeType;
 use game_engine::common::system::{Snapshotable, Xfer, XferVersion};
 
 /// Legacy alias retained for compatibility with existing modules/tests.
 pub type ObjectId = ObjectID;
-
-/// How to handle max health changes
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum MaxHealthChangeType {
-    /// Keep current health the same
-    SameCurrentHealth,
-    /// Preserve the health ratio
-    PreserveRatio,
-    /// Add the health difference to current health too
-    AddCurrentHealthToo,
-    /// Fully heal to new max
-    FullyHeal,
-}
-
-impl Default for MaxHealthChangeType {
-    fn default() -> Self {
-        MaxHealthChangeType::SameCurrentHealth
-    }
-}
 
 /// Armor set types (mirrors C++ ArmorSetType values)
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

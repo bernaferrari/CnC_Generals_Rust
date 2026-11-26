@@ -4,60 +4,16 @@ use crate::common::{ObjectID, UpgradeMaskType};
 use crate::modules::UpgradeModuleInterface;
 use crate::object::registry::OBJECT_REGISTRY;
 use crate::object::upgrade::upgrade_module::{
-    UpgradeMuxData, mux_can_upgrade, mux_give_self_upgrade_for_object,
+    mux_can_upgrade, mux_give_self_upgrade_for_object,
 };
-use game_engine::common::ini::{INI, INIError};
+pub use game_engine::common::system::upgrade::PowerPlantUpgradeModuleData;
 use game_engine::common::system::{Snapshotable, Xfer};
-use game_engine::common::thing::module::{Module, ModuleData, NameKeyType};
+use game_engine::common::thing::module::{Module, NameKeyType};
 
 /// Wave 437: host-only path has no dual-world factory objects.
 #[inline]
 fn dual_world_registry_unavailable() -> bool {
     crate::object::registry::OBJECT_REGISTRY.is_empty()
-}
-
-/// Module data describing the power plant upgrade.
-#[derive(Debug, Clone)]
-pub struct PowerPlantUpgradeModuleData {
-    module_tag_name_key: NameKeyType,
-    pub upgrade_mux_data: UpgradeMuxData,
-}
-
-impl Default for PowerPlantUpgradeModuleData {
-    fn default() -> Self {
-        Self {
-            module_tag_name_key: 0,
-            upgrade_mux_data: UpgradeMuxData::default(),
-        }
-    }
-}
-
-impl PowerPlantUpgradeModuleData {
-    pub fn parse_from_ini(&mut self, ini: &mut INI) -> Result<(), INIError> {
-        self.upgrade_mux_data.parse_from_ini(ini)
-    }
-}
-
-crate::impl_legacy_module_data_with_key_field!(PowerPlantUpgradeModuleData, module_tag_name_key);
-
-impl Snapshotable for PowerPlantUpgradeModuleData {
-    fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        let mut version: u8 = 0;
-        xfer.xfer_version(&mut version, 1)
-            .map_err(|e| e.to_string())?;
-        Ok(())
-    }
-
-    fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        let mut version: u8 = 0;
-        xfer.xfer_version(&mut version, 1)
-            .map_err(|e| e.to_string())?;
-        Ok(())
-    }
-
-    fn load_post_process(&mut self) -> Result<(), String> {
-        Ok(())
-    }
 }
 
 /// Upgrade module that increases power output on power plant buildings.
