@@ -17898,6 +17898,11 @@
             {
               "cargo_reachable": true,
               "classification": "implementation",
+              "path": "GeneralsRust/Code/GameEngine/Common/src/common/system/upgrade/module_data/object_creation.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "implementation",
               "path": "GeneralsRust/Code/GameEngine/Common/src/common/system/upgrade/module_data/status_bits.rs"
             },
             {
@@ -187722,7 +187727,7 @@
       ]
     }
   ],
-  "provenance_input_digest": "b7aa6f80ac3a9ed462d283bf796f763a17fb0b25720d88a8a9e846566001180c",
+  "provenance_input_digest": "595c53d79c8b8264f4e13901db4aa63f35add6fcacea0513a69bb4ae3cdcafa3",
   "schema_version": 1,
   "summary": {
     "maximum_packet_size": 15,

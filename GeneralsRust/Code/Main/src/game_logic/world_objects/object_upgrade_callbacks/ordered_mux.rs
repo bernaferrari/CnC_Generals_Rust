@@ -2,7 +2,8 @@
 use super::*;
 use game_engine::common::system::upgrade::{
     ArmorUpgradeModuleData, CommandSetUpgradeModuleData, MaxHealthUpgradeModuleData,
-    ModelConditionUpgradeModuleData, PassengersFireUpgradeModuleData, PowerPlantUpgradeModuleData,
+    ModelConditionUpgradeModuleData, ObjectCreationUpgradeDefinition, PassengersFireUpgradeModuleData,
+    PowerPlantUpgradeModuleData,
     RadarUpgradeModuleData, ReplaceObjectUpgradeModuleData, StatusBitsUpgradeModuleData,
     StealthUpgradeModuleData, SubObjectsUpgradeModuleData, UpgradeMask, UpgradeMuxDefinition,
     WeaponBonusUpgradeModuleData, WeaponSetUpgradeModuleData,
@@ -11,9 +12,7 @@ use generals_sim::upgrade::UpgradeConditions;
 
 struct AuthoredObjectCreationUpgrade {
     state_index: usize,
-    data: ModuleDataView<
-        gamelogic::upgrade::modules::object_creation::ObjectCreationUpgradeModuleData,
-    >,
+    data: ModuleDataView<ObjectCreationUpgradeDefinition>,
 }
 
 struct AuthoredStatusBitsUpgrade {
@@ -219,9 +218,11 @@ impl GameLogic {
             .filter_map(|(source_index, module)| {
                 use game_engine::common::thing::module::ModuleData;
                 if module.name.as_str().eq_ignore_ascii_case("ObjectCreationUpgrade") {
-                    let data = upgrade_data_view::<
-                        gamelogic::upgrade::modules::object_creation::ObjectCreationUpgradeModuleData,
-                    >(&module.data)?;
+                    module.data.read().get_object_creation_upgrade_definition()?;
+                    let data = ModuleDataView::new(module.data.clone(), |data| {
+                        data.get_object_creation_upgrade_definition()
+                            .expect("object creation upgrade definition")
+                    });
                     let state_index = object_creation_index;
                     object_creation_index += 1;
                     return Some(AuthoredOrderedUpgrade::ObjectCreation(
@@ -709,9 +710,8 @@ impl GameLogic {
                     let (ocl_name, module_drone_kind) = {
                         let data = module.data.read();
                         let ocl_name = data
-                            .ocl_name
-                            .as_ref()
-                            .map(|name| name.as_str().trim())
+                            .ocl_name()
+                            .map(str::trim)
                             .filter(|name| !name.is_empty() && !name.eq_ignore_ascii_case("None"))
                             .map(str::to_owned);
                         let kind = pending_upgrade

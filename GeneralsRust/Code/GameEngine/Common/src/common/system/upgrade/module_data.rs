@@ -71,12 +71,14 @@ macro_rules! upgrade_fields {
 mod cost_modifier;
 mod max_health;
 mod model_condition;
+mod object_creation;
 mod status_bits;
 mod stealth;
 
 pub use cost_modifier::CostModifierUpgradeModuleData;
 pub use max_health::{MaxHealthChangeType, MaxHealthUpgradeModuleData};
 pub use model_condition::ModelConditionUpgradeModuleData;
+pub use object_creation::ObjectCreationUpgradeDefinition;
 pub use status_bits::StatusBitsUpgradeModuleData;
 pub use stealth::StealthUpgradeModuleData;
 

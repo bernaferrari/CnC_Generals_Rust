@@ -1333,9 +1333,12 @@ fn validate_payload_before_apply(
                 .as_str()
                 .eq_ignore_ascii_case("ObjectCreationUpgrade")
         }) {
-            if !module.data.read().as_any().is::<
-                gamelogic::upgrade::modules::object_creation::ObjectCreationUpgradeModuleData,
-            >() {
+            if module
+                .data
+                .read()
+                .get_object_creation_upgrade_definition()
+                .is_none()
+            {
                 return Err(corrupted(
                     "ObjectCreationUpgrade receiving module has an incompatible data type",
                 ));

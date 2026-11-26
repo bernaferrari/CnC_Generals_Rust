@@ -12,7 +12,7 @@ pub use crate::common::rts::NameKeyType;
 use crate::common::{
     ascii_string::AsciiString,
     ini::ini_fx_list::{fx_list_obj_runtime, get_fx_list_store},
-    system::upgrade::{UpgradeCenter, UpgradeTemplate, get_upgrade_center},
+    system::upgrade::{ObjectCreationUpgradeDefinition, UpgradeCenter, UpgradeTemplate, get_upgrade_center},
     system::{Snapshotable, Xfer, build_assistant::ObjectID},
 };
 use std::{
@@ -122,6 +122,9 @@ pub trait ModuleData: Snapshotable + ModuleDataClone + Send + Sync + std::fmt::D
         None
     }
     fn get_as_w3d_tree_draw_module_data(&self) -> Option<&dyn std::any::Any> {
+        None
+    }
+    fn get_object_creation_upgrade_definition(&self) -> Option<&ObjectCreationUpgradeDefinition> {
         None
     }
     fn get_special_power_completion_template(&self) -> Option<&str> {
