@@ -28,6 +28,7 @@ use crate::common::*;
 use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::system::{Snapshotable, Xfer};
 use game_engine::common::thing::module::ModuleDataView;
+use generals_sim::upgrade::UpgradeConditions;
 
 /// Interface for upgrade modules
 /// Matches C++ UpgradeModuleInterface from UpgradeModule.h
@@ -92,6 +93,15 @@ impl UpgradeMuxData {
             conflicting |= resolve_named_upgrade_mask(name.as_str());
         }
         (activation, conflicting)
+    }
+
+    fn conditions(&self) -> UpgradeConditions {
+        let (activation, conflicting) = self.activation_masks();
+        UpgradeConditions {
+            activation: activation.bits(),
+            conflicts: conflicting.bits(),
+            requires_all_triggers: self.requires_all_triggers,
+        }
     }
 
     /// Get activation and conflicting masks (lazy compute)
@@ -323,27 +333,8 @@ impl UpgradeMux {
     /// Check if would upgrade
     /// Matches C++ UpgradeMux::wouldUpgrade
     pub fn would_upgrade(&self, key_mask: UpgradeMask) -> bool {
-        let data = self.current_data();
-        let (activation, conflicting) = data.activation_masks();
-
-        // Must have activation conditions and not be executed yet
-        if !activation.any() || !key_mask.any() || self.upgrade_executed {
-            return false;
-        }
-
-        // Check for conflicts
-        if key_mask.test_for_any(conflicting) {
-            return false;
-        }
-
-        // Check activation conditions
-        if data.requires_all_triggers {
-            // ALL triggers must be met
-            key_mask.test_for_all(activation)
-        } else {
-            // ANY trigger is sufficient
-            key_mask.test_for_any(activation)
-        }
+        let conditions = self.current_data().conditions();
+        !self.upgrade_executed && conditions.can_trigger(key_mask.bits())
     }
 
     /// Give self upgrade
@@ -359,25 +350,7 @@ impl UpgradeMux {
     /// Test upgrade conditions
     /// Matches C++ UpgradeMux::testUpgradeConditions
     pub fn test_upgrade_conditions(&self, key_mask: UpgradeMask) -> bool {
-        let data = self.current_data();
-        let (activation, conflicting) = data.activation_masks();
-
-        // Check for conflicts
-        if key_mask.any() && key_mask.test_for_any(conflicting) {
-            return false;
-        }
-
-        // If no activation requirements, only check conflicts
-        if !activation.any() {
-            return true;
-        }
-
-        // Check activation conditions
-        if data.requires_all_triggers {
-            key_mask.test_for_all(activation)
-        } else {
-            key_mask.test_for_any(activation)
-        }
+        self.current_data().conditions().is_satisfied(key_mask.bits())
     }
 
     /// Reset upgrade

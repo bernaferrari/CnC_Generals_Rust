@@ -5,6 +5,7 @@ use gamelogic::object::upgrade::{
     ArmorUpgradeModuleData, CommandSetUpgradeModuleData, ModelConditionUpgradeModuleData,
     ReplaceObjectUpgradeModuleData, StealthUpgradeModuleData, SubObjectsUpgradeModuleData,
 };
+use generals_sim::upgrade::UpgradeConditions;
 
 struct AuthoredObjectCreationUpgrade {
     state_index: usize,
@@ -1089,23 +1090,12 @@ impl GameLogic {
         data: &gamelogic::upgrade::modules::upgrade_mux::UpgradeMuxData,
         key_mask: UpgradeMask,
     ) -> bool {
-        let activation = data
-            .activation_upgrade_names
-            .iter()
-            .chain(&data.trigger_upgrade_names)
-            .filter_map(|name| self.upgrade_template(name.as_str()))
-            .fold(UpgradeMask::none(), |mask, template| {
-                mask | template.get_mask()
-            });
-        let conflicts = self.upgrade_conflict_mask(data);
-        activation.any()
-            && key_mask.any()
-            && !key_mask.test_for_any(conflicts)
-            && if data.requires_all_triggers {
-                key_mask.test_for_all(activation)
-            } else {
-                key_mask.test_for_any(activation)
-            }
+        UpgradeConditions {
+            activation: self.upgrade_activation_mask(data),
+            conflicts: self.upgrade_conflict_mask(data).bits(),
+            requires_all_triggers: data.requires_all_triggers,
+        }
+        .can_trigger(key_mask.bits())
     }
 }
 

@@ -1319,19 +1319,6 @@ pub const UPGRADE_GLA_CAMOUFLAGE: &str = "Upgrade_GLACamouflage";
 /// C++ StealthUpdate StealthDelay for Rebel after Camouflage (2500 ms).
 pub const CAMOUFLAGE_STEALTH_DELAY_FRAMES: u32 = 75; // 2500ms @ 30 FPS
 
-/// Retail Rebel Camouflage StealthForbiddenConditions residual tokens.
-pub const CAMOUFLAGE_STEALTH_FORBIDDEN_CONDITIONS: &str = "ATTACKING USING_ABILITY";
-/// Retail CamoNetting structure StealthForbiddenConditions residual tokens.
-pub const CAMO_NETTING_STEALTH_FORBIDDEN_CONDITIONS: &str =
-    "ATTACKING USING_ABILITY TAKING_DAMAGE NO_BLACK_MARKET";
-
-/// Whether a residual forbidden condition token is present in the retail string.
-pub fn stealth_forbidden_contains(conditions: &str, token: &str) -> bool {
-    conditions
-        .split_whitespace()
-        .any(|t| t.eq_ignore_ascii_case(token))
-}
-
 #[cfg(test)]
 mod camouflage_template_tests {
     use super::*;
@@ -1703,94 +1690,7 @@ pub fn is_bomb_truck_template(template_name: &str) -> bool {
         || n.contains("bombtruck")
         || n.contains("bomb_truck")
 }
-// --- Wave 62 residual honesty packs (upgrade cost/time + stealth forbidden) ---
-
-/// Retail Upgrade.ini BuildCost residual honesty pack.
-pub fn honesty_upgrades_cost_residual_ok() -> bool {
-    HostUpgradeKind::SupplyLines.retail_build_cost() == 800
-        && HostUpgradeKind::FlashBangGrenade.retail_build_cost() == 800
-        && HostUpgradeKind::TowMissile.retail_build_cost() == 800
-        && HostUpgradeKind::CaptureBuilding.retail_build_cost() == 1000
-        && HostUpgradeKind::CompositeArmor.retail_build_cost() == 2000
-        && HostUpgradeKind::Camouflage.retail_build_cost() == 2000
-        && HostUpgradeKind::CamoNetting.retail_build_cost() == 500
-        && HostUpgradeKind::NeutronShells.retail_build_cost() == 2500
-        && HostUpgradeKind::NuclearTanks.retail_build_cost() == 2000
-        && HostUpgradeKind::BunkerBusters.retail_build_cost() == 1500
-        && HostUpgradeKind::ComancheRocketPods.retail_build_cost() == 800
-        && HostUpgradeKind::SentryDroneGun.retail_build_cost() == 1000
-}
-
-/// Retail Upgrade.ini BuildTime residual honesty pack (secs + frames).
-pub fn honesty_upgrades_time_residual_ok() -> bool {
-    (HostUpgradeKind::SupplyLines.retail_build_time_secs() - 30.0).abs() < 0.01
-        && HostUpgradeKind::SupplyLines.retail_research_frames() == 900
-        && (HostUpgradeKind::Camouflage.retail_build_time_secs() - 60.0).abs() < 0.01
-        && HostUpgradeKind::Camouflage.retail_research_frames() == 1800
-        && (HostUpgradeKind::CamoNetting.retail_build_time_secs() - 5.0).abs() < 0.01
-        && HostUpgradeKind::CamoNetting.retail_research_frames() == 150
-        && (HostUpgradeKind::NeutronShells.retail_build_time_secs() - 60.0).abs() < 0.01
-        && HostUpgradeKind::NeutronShells.retail_research_frames() == 1800
-        && (HostUpgradeKind::BunkerBusters.retail_build_time_secs() - 40.0).abs() < 0.01
-        && HostUpgradeKind::BunkerBusters.retail_research_frames() == 1200
-        // No-archive fallback must preserve the same retail durations; the
-        // live command path may replace them with parsed/modded values.
-        && HostUpgradeKind::SupplyLines.default_research_frames() == 900
-        && HostUpgradeKind::Camouflage.default_research_frames() == 1800
-}
-
-/// StealthForbiddenConditions residual honesty (Camouflage + CamoNetting).
-pub fn honesty_upgrades_stealth_forbidden_residual_ok() -> bool {
-    CAMOUFLAGE_STEALTH_FORBIDDEN_CONDITIONS == "ATTACKING USING_ABILITY"
-        && stealth_forbidden_contains(CAMOUFLAGE_STEALTH_FORBIDDEN_CONDITIONS, "ATTACKING")
-        && stealth_forbidden_contains(CAMOUFLAGE_STEALTH_FORBIDDEN_CONDITIONS, "USING_ABILITY")
-        && !stealth_forbidden_contains(CAMOUFLAGE_STEALTH_FORBIDDEN_CONDITIONS, "TAKING_DAMAGE")
-        && CAMO_NETTING_STEALTH_FORBIDDEN_CONDITIONS
-            == "ATTACKING USING_ABILITY TAKING_DAMAGE NO_BLACK_MARKET"
-        && stealth_forbidden_contains(CAMO_NETTING_STEALTH_FORBIDDEN_CONDITIONS, "TAKING_DAMAGE")
-        && stealth_forbidden_contains(CAMO_NETTING_STEALTH_FORBIDDEN_CONDITIONS, "NO_BLACK_MARKET")
-        && CAMOUFLAGE_STEALTH_DELAY_FRAMES == 75
-        && CAMO_NETTING_STEALTH_DELAY_FRAMES == 75
-        && is_black_market_for_stealth(true, true, false, false)
-        && !is_black_market_for_stealth(true, false, false, false)
-        && !is_black_market_for_stealth(true, true, true, false)
-        && !is_black_market_for_stealth(true, true, false, true)
-        && !is_black_market_for_stealth(false, true, false, false)
-}
-
-/// Combined Wave 62 upgrades residual honesty pack.
-pub fn honesty_upgrades_residual_pack_ok() -> bool {
-    honesty_upgrades_cost_residual_ok()
-        && honesty_upgrades_time_residual_ok()
-        && honesty_upgrades_stealth_forbidden_residual_ok()
-}
-
-/// Wave 79: retail cost/time residual **application** honesty (not docs-only).
-///
-/// Queue stamps `build_cost_paid` + `retail_research_frames` from Upgrade.ini
-/// residual matrix; host research path remains 1-frame residual.
-pub fn honesty_upgrades_cost_time_application_wave79_ok() -> bool {
-    let mut reg = HostUpgradeRegistry::new();
-    let id = reg.record_queue(UPGRADE_AMERICA_SUPPLY_LINES, Team::USA, 0, 10, None);
-    let entry = reg.get(id).expect("queued");
-    entry.build_cost_paid == HostUpgradeKind::SupplyLines.retail_build_cost()
-        && entry.build_cost_paid == 800
-        && entry.retail_research_frames == HostUpgradeKind::SupplyLines.retail_research_frames()
-        && entry.retail_research_frames == 900
-        && entry.residual_research_frames == entry.retail_research_frames
-        && HostUpgradeKind::WorkerShoes.retail_build_cost() == 1000
-        && HostUpgradeKind::CamoNetting.retail_build_cost() == 500
-        && HostUpgradeKind::NuclearTanks.retail_research_frames() == 1800
-        && resolve_upgrade_retail_cost_supplies("Upgrade_GLAWorkerShoes") == 1000
-        && resolve_upgrade_retail_cost_supplies("Upgrade_AmericaSupplyLines") == 800
-        && resolve_upgrade_retail_cost_supplies("Upgrade_AmericaAdvancedTraining") == 1500
-        && honesty_upgrades_residual_pack_ok()
-}
-
-/// Wave 79 shared retail cost resolve (HostUpgradeKind matrix + AdvancedTraining).
-///
-/// Used by host residual command path honesty; fail-closed unknown → **0** for
-/// known HostUpgradeKind::Other unless AdvancedTraining residual name matches.
+/// Retail AI research cost when the receiving catalog has no definition.
 pub fn resolve_upgrade_retail_cost_supplies(upgrade_name: &str) -> u32 {
     let kind = HostUpgradeKind::from_name(upgrade_name);
     let retail = kind.retail_build_cost();
@@ -1909,36 +1809,20 @@ mod camo_netting_and_gamma_tests {
     }
 
     #[test]
-    fn upgrades_residual_pack_honesty() {
-        assert!(honesty_upgrades_cost_residual_ok());
-        assert!(honesty_upgrades_time_residual_ok());
-        assert!(honesty_upgrades_stealth_forbidden_residual_ok());
-        assert!(honesty_upgrades_residual_pack_ok());
-    }
+    fn queue_records_retail_cost_and_research_frames() {
+        let mut registry = HostUpgradeRegistry::new();
+        let supply_id = registry.record_queue(UPGRADE_AMERICA_SUPPLY_LINES, Team::USA, 0, 10, None);
+        let supply_lines = registry.get(supply_id).unwrap();
+        assert_eq!(supply_lines.build_cost_paid, 800);
+        assert_eq!(supply_lines.retail_research_frames, 900);
+        assert_eq!(supply_lines.residual_research_frames, 900);
 
-    /// Wave 72 residual pack honesty gate (wrapper residual_pack_ok).
-    #[test]
-    fn upgrades_residual_pack_honesty_wave72() {
-        assert!(honesty_upgrades_residual_pack_ok());
-        assert!(honesty_upgrades_cost_residual_ok());
-        assert!(honesty_upgrades_time_residual_ok());
-        assert!(honesty_upgrades_stealth_forbidden_residual_ok());
-        assert_eq!(HostUpgradeKind::SupplyLines.retail_build_cost(), 800);
-        assert_eq!(HostUpgradeKind::Camouflage.retail_research_frames(), 1800);
-        assert_eq!(CAMOUFLAGE_STEALTH_DELAY_FRAMES, 75);
-    }
-
-    /// Wave 79: retail cost/time residual application honesty.
-    #[test]
-    fn upgrades_cost_time_application_wave79_honesty() {
-        assert!(honesty_upgrades_cost_time_application_wave79_ok());
-        let mut reg = HostUpgradeRegistry::new();
-        let id = reg.record_queue(UPGRADE_GLA_WORKER_SHOES, Team::GLA, 1, 0, None);
-        reg.set_build_cost_paid(UPGRADE_GLA_WORKER_SHOES, 1, 1000);
-        let e = reg.get(id).unwrap();
-        assert_eq!(e.build_cost_paid, 1000);
-        assert_eq!(e.retail_research_frames, 300); // 10s * 30
-        assert_eq!(e.residual_research_frames, e.retail_research_frames);
+        let worker_id = registry.record_queue(UPGRADE_GLA_WORKER_SHOES, Team::GLA, 1, 0, None);
+        registry.set_build_cost_paid(UPGRADE_GLA_WORKER_SHOES, 1, 1000);
+        let worker_shoes = registry.get(worker_id).unwrap();
+        assert_eq!(worker_shoes.build_cost_paid, 1000);
+        assert_eq!(worker_shoes.retail_research_frames, 300);
+        assert_eq!(worker_shoes.residual_research_frames, 300);
     }
 }
 

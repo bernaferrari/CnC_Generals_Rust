@@ -12,4 +12,5 @@ pub mod special_power;
 pub mod step;
 pub mod terrain;
 pub mod time;
+pub mod upgrade;
 pub mod weapon;
