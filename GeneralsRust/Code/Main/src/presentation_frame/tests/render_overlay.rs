@@ -1317,7 +1317,69 @@ fn gameworld_primary_presentation_retains_unattackable_weaponset_override() {
 }
 
 #[test]
-fn overlay_gameworld_shadow_applies_local_economy_power() {
+fn live_publication_keeps_receiving_player_facts_with_stale_shadow() {
+    use crate::game_logic::Player;
+    use crate::gameworld_shadow::GameWorldShadow;
+
+    let mut world = GameLogic::new();
+    world.add_player(Player::new(0, Team::USA, "PlayerLocal", true));
+    world.add_player(Player::new(3, Team::GLA, "PlayerOpponent", false));
+    let mut shadow = GameWorldShadow::new(64);
+    shadow.sync_from_host(&world);
+
+    let mut peer = GameLogic::new();
+    peer.add_player(Player::new(0, Team::USA, "PlayerLocal", true));
+    peer.add_player(Player::new(3, Team::GLA, "PlayerOpponent", false));
+    peer.get_player_mut(0).unwrap().color_rgb = (5, 6, 7);
+    let mut peer_shadow = GameWorldShadow::new(64);
+    peer_shadow.sync_from_host(&peer);
+
+    let local = world.get_player_mut(0).unwrap();
+    local.is_alive = false;
+    local.radar_count = 3;
+    local.radar_disabled = true;
+    local.cash_bounty_percent = 0.25;
+    local.color_rgb = (9, 8, 7);
+    world.get_player_mut(3).unwrap().color_rgb = (25, 50, 75);
+
+    for with_victory in [false, true] {
+        let frame = PresentationFrame::try_publish_for_engine_with_runtime_heightmap(
+            &mut world,
+            0,
+            Some(&shadow),
+            None,
+            with_victory,
+        )
+        .unwrap();
+        assert!(!frame.local_is_alive);
+        assert_eq!(frame.local_radar_count, 3);
+        assert!(frame.local_radar_disabled);
+        assert_eq!(frame.local_cash_bounty_percent, 0.25);
+        assert_eq!(frame.local_color_rgb, (9, 8, 7));
+        assert_eq!(
+            frame
+                .players
+                .iter()
+                .map(|p| (p.id, p.is_alive, p.color_rgb))
+                .collect::<Vec<_>>(),
+            [(0, false, (9, 8, 7)), (3, true, (25, 50, 75))]
+        );
+
+        let peer_frame = PresentationFrame::try_publish_for_engine_with_runtime_heightmap(
+            &mut peer,
+            0,
+            Some(&peer_shadow),
+            None,
+            with_victory,
+        )
+        .unwrap();
+        assert!(peer_frame.local_is_alive);
+        assert_eq!(peer_frame.local_color_rgb, (5, 6, 7));
+    }
+}
+
+#[test]
+fn host_player_facts_survive_shadow_object_overlay() {
     use crate::game_logic::GameLogic;
     use crate::gameworld_shadow::GameWorldShadow;
     use crate::skirmish_config::golden_skirmish_config;
@@ -1367,7 +1429,7 @@ fn overlay_gameworld_shadow_applies_local_economy_power() {
         assert_eq!(frame.local_power_produced, 88);
         assert_eq!(frame.local_power_consumed, 11);
     }
-    // Player residual always overlays from shadow when mapped.
+    // Radar and roster values share the same player owner as cash and power.
     assert!(!frame.local_is_alive);
     assert_eq!(frame.local_radar_count, 3);
     assert!(frame.local_radar_disabled);

@@ -30,11 +30,7 @@ impl PresentationFrame {
         [primary, None, None]
     }
 
-    /// Overlay health/position/destroyed from a GameWorld shadow session.
-    ///
-    /// Host still builds the frame (templates, FOW, selection); shadow is last
-    /// writer for HP and world position when authority paths are active.
-    /// Unmapped objects are left unchanged.
+    /// Overlay mapped object observations from a GameWorld shadow session.
     pub fn overlay_gameworld_shadow(
         &mut self,
         shadow: &crate::gameworld_shadow::GameWorldShadow,
@@ -50,7 +46,8 @@ impl PresentationFrame {
                 entity,
             ));
         }
-        self.overlay_gameworld_players(shadow, updated)
+        self.gameworld_overlay_stamped = updated;
+        updated
     }
 
     fn overlay_gameworld_object_by_id(
@@ -1219,39 +1216,18 @@ impl PresentationFrame {
         dirty
     }
 
-    fn overlay_gameworld_players(
+    fn populate_shadow_only_local_player(
         &mut self,
         shadow: &crate::gameworld_shadow::GameWorldShadow,
-        mut updated: usize,
-    ) -> usize {
-        // Local player residual from shadow (presentation last-writer).
-        // Prefer local_player_id slot (same dense index as host player id residual).
+    ) {
         let local_pid = gamelogic::world::PlayerId::from_index(self.local_player_id as u8);
         if let Some(p) = shadow.world().player(local_pid) {
-            {}
-            // Presentation-only player residual (always from shadow when mapped).
             self.local_is_alive = p.is_alive;
             self.local_radar_count = p.radar_count;
             self.local_radar_disabled = p.radar_disabled;
             self.local_cash_bounty_percent = p.cash_bounty_percent;
             self.local_color_rgb = p.color_rgb;
         }
-        // Roster is_alive / color from shadow slots (dense host id ↔ PlayerId residual).
-        for pi in &mut self.players {
-            let pid = gamelogic::world::PlayerId::from_index(pi.id as u8);
-            if let Some(p) = shadow.world().player(pid) {
-                if pi.is_alive != p.is_alive {
-                    pi.is_alive = p.is_alive;
-                    updated += 1;
-                }
-                if pi.color_rgb != p.color_rgb {
-                    pi.color_rgb = p.color_rgb;
-                    updated += 1;
-                }
-            }
-        }
-        self.gameworld_overlay_stamped = updated;
-        updated
     }
     /// Sparse RenderableObject from a GameWorld entity (Wave 192).
     ///
@@ -2456,7 +2432,7 @@ impl PresentationFrame {
         let n = self.objects.len();
         self.gameworld_rebuilt = n;
         self.gameworld_primary_objects = n > 0 || self.gameworld_primary_objects;
-        self.overlay_gameworld_players(shadow, updated);
+        self.gameworld_overlay_stamped = updated;
         n
     }
 
@@ -2551,7 +2527,10 @@ impl PresentationFrame {
         let _ = frame.append_object_residual_fx_particles();
         match host {
             Some(logic) => frame.freeze_drawable_status_tints_from_logic(logic, Some(shadow)),
-            None => frame.freeze_drawable_status_tints_from_shadow(shadow),
+            None => {
+                frame.populate_shadow_only_local_player(shadow);
+                frame.freeze_drawable_status_tints_from_shadow(shadow);
+            }
         }
         frame
     }
