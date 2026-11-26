@@ -128,10 +128,7 @@ rand = { version = "0.10.2", features = ["std", "std_rng"] }
 glam = { version = "0.33.7", features = ["serde", "bytemuck"] }
 ultraviolet = { version = "0.10.0", features = ["serde", "bytemuck"] }
 mint = "0.5.9"
-num-traits = "0.2.19"
 wide = "1.7.0"
-noise = "0.9.0"
-bracket-noise = "0.8.7"
 
 # UI & graphics
 egui = "0.36.2"
@@ -144,10 +141,6 @@ bytemuck = { version = "1.25.2", features = ["derive"] }
 three-d = "0.19.0"
 image = { version = "0.25.10", features = ["png", "tga", "jpeg", "bmp", "dds"] }
 raw-window-handle = "0.6.2"
-gltf = "1.4.1"
-meshopt = "0.6.2"
-tiff = "0.11.3"
-half = { version = "2.7.1", features = ["bytemuck", "serde"] }
 fontdue = "0.9.4"
 cosmic-text = "0.19.0"
 fontdb = "0.24.0"
@@ -210,24 +203,12 @@ sysinfo = "0.39.6"
 num_cpus = "1.17.0"
 bitflags = { version = "2.13.2", features = ["serde"] }
 bit-vec = "0.10.1"
-ahash = "0.8.12"
 rustc-hash = "2.1.2"
 nix = "0.31.3"
 winapi = "0.3.9"
 windows-sys = "0.61.2"
 objc = "0.2.7"
 cocoa = "0.27.0"
-# gpui 0.2.2 pins `=0.10.0`. 0.10.1 is newer but unresolvable next to that exact req.
-core-foundation = "0.10.0"
-metal = "0.33.0"
-IOKit-sys = "0.1.5"
-x11 = "2.21.0"
-xcursor = "0.3.11"
-wayland-client = "0.31.15"
-wayland-protocols = "0.32.13"
-evdev = "0.13.2"
-udev = "0.9.3"
-dbus = "0.9.12"
 # cpal 0.18 uses alsa 0.11 / alsa-sys 0.4. alsa 0.12 pulls alsa-sys 0.6
 # and breaks the native `links = "alsa"` unify.
 
@@ -236,11 +217,7 @@ indexmap = "2.14.2"
 smallvec = { version = "1.16.1", features = ["serde"] }
 slotmap = "1.1.1"
 regex = "1.13.1"
-encoding_rs = "0.8.41"
-unicode-normalization = "0.1.25"
-bumpalo = "3.20.3"
 num_enum = "0.7.6"
-pathfinding = "4.16.0"
 rhai = { version = "1.26.1", features = ["sync"] }
 
 # CLI / tools / extra UI
@@ -270,20 +247,8 @@ gpui = "0.2.2"
 png = "0.18.1"
 
 # Internal workspace crates
-game_engine = { path = "Code/GameEngine/Common" }
-game_network = { path = "Code/GameEngine/GameNetwork" }
-gamelogic = { path = "Code/GameEngine/GameLogic" }
-game_client = { path = "Code/GameEngine/GameClient", package = "game-client-rust" }
 wwmath = { path = "Code/Libraries/Source/WWVegas/WWMath", package = "math_utilities" }
 ww3d-core = { path = "Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-core" }
-ww3d-engine = { path = "Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-engine" }
-ww3d-assets = { path = "Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-assets" }
-ww3d-geometry = { path = "Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-geometry" }
-ww3d-renderer-3d = { path = "Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-renderer-3d" }
-ww3d-particles = { path = "Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-particles" }
-ww3d-animation = { path = "Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-animation" }
-ww3d-collision = { path = "Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-collision" }
-ww3d-gpu = { path = "Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-gpu" }
 generals_compression = { path = "Code/Libraries/Source/Compression" }
 bincode_legacy = { path = "Code/Libraries/Source/bincode_legacy" }
 rodio_compat = { path = "Code/Libraries/Source/rodio_compat" }
