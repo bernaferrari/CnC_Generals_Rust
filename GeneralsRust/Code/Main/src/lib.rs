@@ -20,9 +20,6 @@
 #![allow(unreachable_patterns)]
 #![allow(rust_2018_idioms)]
 #![allow(ambiguous_glob_reexports)]
-#![allow(dead_code)]
-#![allow(missing_docs)]
-#![allow(unused_imports)]
 #![allow(unused_doc_comments)]
 
 //! Command & Conquer Generals Main Application Module

@@ -19,7 +19,6 @@
 //! all the features that were in the original C++ DirectX8 renderer.
 #![allow(hidden_glob_reexports)]
 #![allow(ambiguous_glob_reexports)]
-#![allow(dead_code)]
 
 pub mod animation_evaluator;
 pub mod animation_synchronization;
