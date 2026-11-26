@@ -20,36 +20,21 @@ gpui = {workspace = true, optional = true}
 
 # Image processing and texture packing
 image = { workspace = true }
-texture_packer = { workspace = true }
+texture_packer = { workspace = true, optional = true }
 walkdir = { workspace = true }
 
 # File handling
 serde = { workspace = true, features = ["derive"] }
-serde_json = { workspace = true }
-toml = { workspace = true }
-rfd = { workspace = true }
-
-# Compression
-zip = { workspace = true }
-flate2 = { workspace = true }
-lz4 = { workspace = true }
+serde_json = { workspace = true, optional = true }
+rfd = { workspace = true, optional = true }
 
 # Utilities
-log = { workspace = true }
-env_logger = { workspace = true }
+log = { workspace = true, optional = true }
+env_logger = { workspace = true, optional = true }
 anyhow = { workspace = true }
-thiserror = { workspace = true }
 bitflags = { workspace = true }
-uuid = { workspace = true, features = ["v4"] }
-chrono = { workspace = true, features = ["serde"] }
-
-# Game engine integration
-# wwlib-rust = { workspace = true }
-# game_engine = { workspace = true }
-
-# Threading
-rayon = { workspace = true }
-tokio = { workspace = true, features = ["rt-multi-thread"] }
+uuid = { workspace = true, features = ["v4"], optional = true }
+chrono = { workspace = true, features = ["serde"], optional = true }
 
 [[bin]]
 name = "image_packer"
@@ -57,8 +42,5 @@ path = "src/main.rs"
 required-features = ["ui"]
 
 [features]
-default = ["atlas_generation", "texture_compression", "metadata_export"]
-atlas_generation = []
-texture_compression = []
-metadata_export = []
-ui = ["gpui"]
+default = []
+ui = ["dep:gpui", "dep:rfd", "dep:texture_packer", "dep:serde_json", "dep:log", "dep:env_logger", "dep:uuid", "dep:chrono"]
