@@ -13,8 +13,9 @@ repository = "https://github.com/GeneralsRust/Compression"
 workspace = true
 
 [features]
-default = ["parallel"]
-parallel = []
+default = ["parallel", "simd"]
+parallel = ["lzh_compression/parallel"]
+simd = ["lzh_compression/simd"]
 benchmarks = ["criterion"]
 
 [dependencies]
@@ -31,7 +32,7 @@ flate2 = {workspace = true}        # DEFLATE/INFLATE (replaces custom ZLib)
 zstd = {workspace = true}         # Zstandard (replaces BTree)
 brotli = {workspace = true}        # Brotli (replaces Huffman)
 eac_compression = { path = "EAC" }
-lzh_compression = { path = "LZHCompress" }
+lzh_compression = { path = "LZHCompress", default-features = false }
 
 # Benchmarking
 criterion = {workspace = true, optional = true}
