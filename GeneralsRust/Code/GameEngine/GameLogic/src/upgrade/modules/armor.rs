@@ -6,6 +6,7 @@
 //!
 //! Original C++ Author: Chris Brue, July 2002
 
+use crate::upgrade::modules::upgrade_mux::UpgradeMuxRuntime;
 use super::upgrade_mux::{UpgradeModuleInterface, UpgradeMux, UpgradeMuxData};
 use crate::common::*;
 use crate::object::body::ArmorSetType;

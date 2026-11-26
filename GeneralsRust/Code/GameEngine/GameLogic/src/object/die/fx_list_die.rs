@@ -4,6 +4,7 @@
 //! Original C++ Author: Steven Johnson, January 2002
 //! Rust conversion: 2025
 
+use crate::upgrade::modules::upgrade_mux::UpgradeMuxRuntime;
 use super::{DieModule, DieModuleData, DieModuleInterface};
 use crate::common::{AsciiString, Bool, ModuleData, UpgradeMaskType};
 use crate::damage::DamageInfo;

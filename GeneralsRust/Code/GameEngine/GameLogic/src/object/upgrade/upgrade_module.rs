@@ -1,3 +1,4 @@
+use crate::upgrade::modules::upgrade_mux::UpgradeMuxRuntime;
 use game_engine::common::system::Xfer;
 
 pub use crate::upgrade::modules::upgrade_mux::{

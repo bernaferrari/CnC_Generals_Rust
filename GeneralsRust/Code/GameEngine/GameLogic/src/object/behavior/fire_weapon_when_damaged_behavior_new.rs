@@ -6,6 +6,7 @@
 //!
 //! FILE: FireWeaponWhenDamagedBehavior.cpp lines 1-342
 
+use crate::upgrade::modules::upgrade_mux::UpgradeMuxRuntime;
 use crate::common::{AsciiString, Bool, ModuleData, ObjectID, Real, UnsignedInt, XferVersion};
 use crate::damage::{
     BodyDamageType, DamageInfo, DamageType, DamageTypeFlags, get_damage_type_flag,

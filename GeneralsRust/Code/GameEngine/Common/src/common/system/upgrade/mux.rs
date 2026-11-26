@@ -1,5 +1,6 @@
 //! Authored conditions and effects of C++ UpgradeMuxData (UpgradeModule.h).
 
+use super::UpgradeMask;
 use crate::common::ascii_string::AsciiString;
 use crate::common::ini::{FieldParse, INI, INIError};
 
@@ -155,3 +156,69 @@ const UPGRADE_MUX_DATA_FIELDS: &[FieldParse<UpgradeMuxDefinition>] = &[
         parse: parse_fx_list_upgrade,
     },
 ];
+
+/// Parsed UpgradeMux data and the optional masks materialized by legacy users.
+#[derive(Debug, Clone, Default)]
+pub struct UpgradeMuxData {
+    pub definition: UpgradeMuxDefinition,
+    activation_mask: Option<UpgradeMask>,
+    conflicting_mask: Option<UpgradeMask>,
+}
+
+impl UpgradeMuxData {
+    pub fn from_definition(definition: UpgradeMuxDefinition) -> Self {
+        Self {
+            definition,
+            ..Self::default()
+        }
+    }
+
+    pub fn activation_masks_with(
+        &self,
+        resolve: impl Fn(&str) -> UpgradeMask,
+    ) -> (UpgradeMask, UpgradeMask) {
+        if self.definition.activation_upgrade_names.is_empty()
+            && self.definition.conflicting_upgrade_names.is_empty()
+        {
+            return (
+                self.activation_mask.unwrap_or_else(UpgradeMask::none),
+                self.conflicting_mask.unwrap_or_else(UpgradeMask::none),
+            );
+        }
+
+        let mut activation = UpgradeMask::none();
+        for name in &self.definition.activation_upgrade_names {
+            activation |= resolve(name.as_str());
+        }
+        let mut conflicting = UpgradeMask::none();
+        for name in &self.definition.conflicting_upgrade_names {
+            conflicting |= resolve(name.as_str());
+        }
+        (activation, conflicting)
+    }
+
+    /// Get activation and conflicting masks (lazy compute)
+    /// Matches C++ UpgradeMuxData::getUpgradeActivationMasks (Module.cpp:264-310).
+    pub fn cache_activation_masks_with(
+        &mut self,
+        resolve: impl Fn(&str) -> UpgradeMask,
+    ) -> (UpgradeMask, UpgradeMask) {
+        let (activation, conflicting) = self.activation_masks_with(resolve);
+        if self.definition.activation_upgrade_names.is_empty()
+            && self.definition.conflicting_upgrade_names.is_empty()
+        {
+            return (activation, conflicting);
+        }
+        // C++ copies activation names into trigger list, then clears both vectors.
+        self.definition.trigger_upgrade_names = self.definition.activation_upgrade_names.clone();
+        self.definition.activation_upgrade_names.clear();
+        self.definition.conflicting_upgrade_names.clear();
+        self.activation_mask = Some(activation);
+        self.conflicting_mask = Some(conflicting);
+        (activation, conflicting)
+    }
+
+    pub fn parse_from_ini(&mut self, ini: &mut INI) -> Result<(), INIError> {
+        self.definition.parse_from_ini(ini)
+    }
+}

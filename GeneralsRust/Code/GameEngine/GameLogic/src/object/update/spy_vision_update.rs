@@ -4,6 +4,7 @@
 //!
 //! Handles the logic for revealing enemy vision to the player.
 
+use crate::upgrade::modules::upgrade_mux::UpgradeMuxRuntime;
 use crate::common::*;
 use crate::modules::{BehaviorModuleInterface, UpdateModuleInterface, UpdateSleepTime};
 use crate::object::Object;

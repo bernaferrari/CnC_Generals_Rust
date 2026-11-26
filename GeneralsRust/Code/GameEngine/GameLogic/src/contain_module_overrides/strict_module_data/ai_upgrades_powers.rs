@@ -1,5 +1,8 @@
 //! Strict leftover module-data registrations.
 use super::*;
+use game_engine::common::system::upgrade::{
+    ArmorUpgradeModuleData, CommandSetUpgradeModuleData, SubObjectsUpgradeModuleData,
+};
 
 pub(super) fn register(factory: &mut impl DataParserRegistrar) {
     register_parsed!(

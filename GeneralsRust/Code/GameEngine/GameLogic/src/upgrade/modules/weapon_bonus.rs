@@ -3,6 +3,7 @@
 //! Increases weapon damage when upgrade is researched.
 //! Matches C++ WeaponBonusUpgrade from WeaponBonusUpgrade.h/.cpp
 
+use crate::upgrade::modules::upgrade_mux::UpgradeMuxRuntime;
 use super::super::UpgradeMask;
 use super::upgrade_mux::{UpgradeModuleInterface, UpgradeMux, UpgradeMuxData};
 use crate::common::*;

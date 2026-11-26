@@ -1,4 +1,5 @@
 // ModelConditionUpgrade - Sets model condition flags for visual changes
+use crate::upgrade::modules::upgrade_mux::UpgradeMuxRuntime;
 use super::super::UpgradeMask;
 use super::upgrade_mux::{UpgradeModuleInterface, UpgradeMux, UpgradeMuxData};
 use crate::common::*;

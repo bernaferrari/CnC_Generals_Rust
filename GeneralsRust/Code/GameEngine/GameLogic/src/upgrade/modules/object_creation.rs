@@ -5,6 +5,7 @@
 //!
 //! Original C++ Author: Matthew D. Campbell, April 2002
 
+use crate::upgrade::modules::upgrade_mux::UpgradeMuxRuntime;
 use super::super::UpgradeMask;
 use super::upgrade_mux::{UpgradeModuleInterface, UpgradeMux, UpgradeMuxData};
 use crate::common::UpgradeMaskType;

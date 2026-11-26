@@ -6,6 +6,7 @@
 //!
 //! FILE: FireWeaponWhenDeadBehavior.cpp lines 1-145
 
+use crate::upgrade::modules::upgrade_mux::UpgradeMuxRuntime;
 use crate::common::xfer::XferExt;
 use crate::common::{
     AsciiString, Bool, ModuleData, ObjectID, ObjectStatusTypes, UpgradeMaskType, XferVersion,

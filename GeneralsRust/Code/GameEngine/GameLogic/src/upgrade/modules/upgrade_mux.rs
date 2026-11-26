@@ -25,7 +25,10 @@ fn resolve_named_upgrade_mask(name: &str) -> UpgradeMask {
 }
 
 use crate::common::*;
-use game_engine::common::ini::{INI, INIError};
+#[cfg(test)]
+use game_engine::common::ini::INI;
+pub use game_engine::common::system::upgrade::UpgradeMuxData;
+#[cfg(test)]
 use game_engine::common::system::upgrade::UpgradeMuxDefinition;
 use game_engine::common::system::{Snapshotable, Xfer};
 use game_engine::common::thing::module::ModuleDataView;
@@ -54,67 +57,21 @@ pub trait UpgradeModuleInterface {
     fn force_refresh_upgrade(&mut self, object: &mut Object);
 }
 
-/// Configuration data for upgrade triggers
-/// Matches C++ UpgradeMuxData from UpgradeModule.h
-#[derive(Debug, Clone, Default)]
-pub struct UpgradeMuxData {
-    pub definition: UpgradeMuxDefinition,
-    activation_mask: Option<UpgradeMask>,
-    conflicting_mask: Option<UpgradeMask>,
+/// Resolve upgrade masks and dispatch effects through the legacy runtime.
+pub trait UpgradeMuxRuntime {
+    fn get_upgrade_activation_masks(&mut self) -> (UpgradeMask, UpgradeMask);
+    fn perform_upgrade_fx(&self, object: &mut Object);
+    fn process_upgrade_removal(&self, object: &mut Object);
 }
 
-impl UpgradeMuxData {
-    fn activation_masks(&self) -> (UpgradeMask, UpgradeMask) {
-        if self.definition.activation_upgrade_names.is_empty()
-            && self.definition.conflicting_upgrade_names.is_empty()
-        {
-            return (
-                self.activation_mask.unwrap_or_else(UpgradeMask::none),
-                self.conflicting_mask.unwrap_or_else(UpgradeMask::none),
-            );
-        }
-
-        let mut activation = UpgradeMask::none();
-        for name in &self.definition.activation_upgrade_names {
-            activation |= resolve_named_upgrade_mask(name.as_str());
-        }
-        let mut conflicting = UpgradeMask::none();
-        for name in &self.definition.conflicting_upgrade_names {
-            conflicting |= resolve_named_upgrade_mask(name.as_str());
-        }
-        (activation, conflicting)
-    }
-
-    fn conditions(&self) -> UpgradeConditions {
-        let (activation, conflicting) = self.activation_masks();
-        UpgradeConditions {
-            activation: activation.bits(),
-            conflicts: conflicting.bits(),
-            requires_all_triggers: self.definition.requires_all_triggers,
-        }
-    }
-
-    /// Get activation and conflicting masks (lazy compute)
-    /// Matches C++ UpgradeMuxData::getUpgradeActivationMasks (Module.cpp:264-310).
-    pub fn get_upgrade_activation_masks(&mut self) -> (UpgradeMask, UpgradeMask) {
-        let (activation, conflicting) = self.activation_masks();
-        if self.definition.activation_upgrade_names.is_empty()
-            && self.definition.conflicting_upgrade_names.is_empty()
-        {
-            return (activation, conflicting);
-        }
-        // C++ copies activation names into trigger list, then clears both vectors.
-        self.definition.trigger_upgrade_names = self.definition.activation_upgrade_names.clone();
-        self.definition.activation_upgrade_names.clear();
-        self.definition.conflicting_upgrade_names.clear();
-        self.activation_mask = Some(activation);
-        self.conflicting_mask = Some(conflicting);
-        (activation, conflicting)
+impl UpgradeMuxRuntime for UpgradeMuxData {
+    fn get_upgrade_activation_masks(&mut self) -> (UpgradeMask, UpgradeMask) {
+        self.cache_activation_masks_with(resolve_named_upgrade_mask)
     }
 
     /// Perform upgrade FX
     /// Matches C++ UpgradeMuxData::performUpgradeFX
-    pub fn perform_upgrade_fx(&self, object: &mut Object) {
+    fn perform_upgrade_fx(&self, object: &mut Object) {
         if let Some(fx_name) = &self.definition.fx_list_name {
             if let Some(fx_mgr) = crate::helpers::get_fx_list_manager() {
                 fx_mgr.do_fx_for_object(
@@ -132,7 +89,7 @@ impl UpgradeMuxData {
 
     /// Process upgrade removals
     /// Matches C++ UpgradeMuxData::muxDataProcessUpgradeRemoval
-    pub fn process_upgrade_removal(&self, object: &mut Object) {
+    fn process_upgrade_removal(&self, object: &mut Object) {
         for name in &self.definition.removal_upgrade_names {
             let mask = upgrade_mask_for_name(name.as_str());
 
@@ -151,11 +108,6 @@ impl UpgradeMuxData {
                 object.get_id()
             );
         }
-    }
-
-    /// Parse the authored fields, including inherited module fields.
-    pub fn parse_from_ini(&mut self, ini: &mut INI) -> Result<(), INIError> {
-        self.definition.parse_from_ini(ini)
     }
 }
 
@@ -227,7 +179,8 @@ impl UpgradeMux {
     }
 
     pub(crate) fn activation_masks(&self) -> (UpgradeMask, UpgradeMask) {
-        self.current_data().activation_masks()
+        self.current_data()
+            .activation_masks_with(resolve_named_upgrade_mask)
     }
 
     /// Check if already upgraded
@@ -255,7 +208,7 @@ impl UpgradeMux {
     /// Check if would upgrade
     /// Matches C++ UpgradeMux::wouldUpgrade
     pub fn would_upgrade(&self, key_mask: UpgradeMask) -> bool {
-        let conditions = self.current_data().conditions();
+        let conditions = self.current_conditions();
         !self.upgrade_executed && conditions.can_trigger(key_mask.bits())
     }
 
@@ -272,15 +225,25 @@ impl UpgradeMux {
     /// Test upgrade conditions
     /// Matches C++ UpgradeMux::testUpgradeConditions
     pub fn test_upgrade_conditions(&self, key_mask: UpgradeMask) -> bool {
-        self.current_data()
-            .conditions()
-            .is_satisfied(key_mask.bits())
+        self.current_conditions().is_satisfied(key_mask.bits())
+    }
+
+    fn current_conditions(&self) -> UpgradeConditions {
+        let data = self.current_data();
+        let (activation, conflicts) = data.activation_masks_with(resolve_named_upgrade_mask);
+        UpgradeConditions {
+            activation: activation.bits(),
+            conflicts: conflicts.bits(),
+            requires_all_triggers: data.definition.requires_all_triggers,
+        }
     }
 
     /// Reset upgrade
     /// Matches C++ UpgradeMux::resetUpgrade
     pub fn reset_upgrade(&mut self, key_mask: UpgradeMask) -> bool {
-        let (activation, _) = self.current_data().activation_masks();
+        let (activation, _) = self
+            .current_data()
+            .activation_masks_with(resolve_named_upgrade_mask);
 
         if key_mask.test_for_any(activation) && self.upgrade_executed {
             self.upgrade_executed = false;
@@ -380,13 +343,10 @@ mod tests {
 
     #[test]
     fn test_upgrade_mux_basic() {
-        let data = UpgradeMuxData {
-            definition: UpgradeMuxDefinition {
-                activation_upgrade_names: vec![AsciiString::from("TestUpgrade")],
-                ..Default::default()
-            },
+        let data = UpgradeMuxData::from_definition(UpgradeMuxDefinition {
+            activation_upgrade_names: vec![AsciiString::from("TestUpgrade")],
             ..Default::default()
-        };
+        });
 
         let mux = UpgradeMux::new(data);
         assert!(!mux.is_already_upgraded());
@@ -395,14 +355,11 @@ mod tests {
     #[test]
     fn test_would_upgrade() {
         crate::upgrade::test_upgrade_mask("TestUpgrade");
-        let mut data = UpgradeMuxData {
-            definition: UpgradeMuxDefinition {
-                activation_upgrade_names: vec![AsciiString::from("TestUpgrade")],
-                requires_all_triggers: false,
-                ..Default::default()
-            },
+        let mut data = UpgradeMuxData::from_definition(UpgradeMuxDefinition {
+            activation_upgrade_names: vec![AsciiString::from("TestUpgrade")],
+            requires_all_triggers: false,
             ..Default::default()
-        };
+        });
 
         // Get masks
         let (activation, _) = data.get_upgrade_activation_masks();
@@ -419,15 +376,12 @@ mod tests {
         let _guard = crate::test_sync::lock();
         // C++ resolves declared UpgradeCenter templates, not invented masks.
         declare_activation_and_conflict();
-        let mut data = UpgradeMuxData {
-            definition: UpgradeMuxDefinition {
-                activation_upgrade_names: vec![AsciiString::from("UpgradeA")],
-                conflicting_upgrade_names: vec![AsciiString::from("UpgradeB")],
-                requires_all_triggers: false,
-                ..Default::default()
-            },
+        let mut data = UpgradeMuxData::from_definition(UpgradeMuxDefinition {
+            activation_upgrade_names: vec![AsciiString::from("UpgradeA")],
+            conflicting_upgrade_names: vec![AsciiString::from("UpgradeB")],
+            requires_all_triggers: false,
             ..Default::default()
-        };
+        });
 
         let (activation, conflicting) = data.get_upgrade_activation_masks();
 
@@ -449,17 +403,14 @@ mod tests {
         let _guard = crate::test_sync::lock();
         // C++ resolves declared UpgradeCenter templates, not invented masks.
         declare_activation_and_conflict();
-        let mut data = UpgradeMuxData {
-            definition: UpgradeMuxDefinition {
-                activation_upgrade_names: vec![
-                    AsciiString::from("UpgradeA"),
-                    AsciiString::from("UpgradeB"),
-                ],
-                requires_all_triggers: true,
-                ..Default::default()
-            },
+        let mut data = UpgradeMuxData::from_definition(UpgradeMuxDefinition {
+            activation_upgrade_names: vec![
+                AsciiString::from("UpgradeA"),
+                AsciiString::from("UpgradeB"),
+            ],
+            requires_all_triggers: true,
             ..Default::default()
-        };
+        });
 
         let (activation, _) = data.get_upgrade_activation_masks();
 
@@ -502,13 +453,10 @@ mod tests {
             let stores = Arc::new(crate::system::engine_stores::EngineStores::new_for_world());
             crate::system::engine_stores::with_active_stores(&stores, || {
                 crate::upgrade::test_upgrade_mask("Upgrade_HE");
-                let data = UpgradeMuxData {
-                    definition: UpgradeMuxDefinition {
-                        conflicting_upgrade_names: vec![AsciiString::from("Upgrade_HE")],
-                        ..Default::default()
-                    },
+                let data = UpgradeMuxData::from_definition(UpgradeMuxDefinition {
+                    conflicting_upgrade_names: vec![AsciiString::from("Upgrade_HE")],
                     ..Default::default()
-                };
+                });
                 let mux = UpgradeMux::new(data);
                 assert!(
                     mux.test_upgrade_conditions(UpgradeMask::none()),
@@ -539,16 +487,13 @@ mod tests {
 
     #[test]
     fn upgrade_mux_repeated_vector_fields_replace_instead_of_append() {
-        let mut data = UpgradeMuxData {
-            definition: UpgradeMuxDefinition {
-                trigger_upgrade_names: vec![AsciiString::from("LegacyTrigger")],
-                activation_upgrade_names: vec![AsciiString::from("StaleActivation")],
-                conflicting_upgrade_names: vec![AsciiString::from("StaleConflict")],
-                removal_upgrade_names: vec![AsciiString::from("StaleRemoval")],
-                ..Default::default()
-            },
+        let mut data = UpgradeMuxData::from_definition(UpgradeMuxDefinition {
+            trigger_upgrade_names: vec![AsciiString::from("LegacyTrigger")],
+            activation_upgrade_names: vec![AsciiString::from("StaleActivation")],
+            conflicting_upgrade_names: vec![AsciiString::from("StaleConflict")],
+            removal_upgrade_names: vec![AsciiString::from("StaleRemoval")],
             ..Default::default()
-        };
+        });
         // The actual canonical field table invokes parseAsciiStringVector's
         // replacement operation for every occurrence, in source order.
         INI::new()
@@ -593,13 +538,10 @@ mod tests {
 
     #[test]
     fn upgrade_mux_empty_vector_fields_clear_only_the_selected_lists() {
-        let mut data = UpgradeMuxData {
-            definition: UpgradeMuxDefinition {
-                trigger_upgrade_names: vec![AsciiString::from("LegacyTrigger")],
-                ..Default::default()
-            },
+        let mut data = UpgradeMuxData::from_definition(UpgradeMuxDefinition {
+            trigger_upgrade_names: vec![AsciiString::from("LegacyTrigger")],
             ..Default::default()
-        };
+        });
         data.definition
             .parse_triggered_by_tokens(&["=", "BeforeA"])
             .unwrap();

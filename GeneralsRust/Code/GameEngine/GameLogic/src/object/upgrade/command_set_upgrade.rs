@@ -1,73 +1,10 @@
-use crate::common::{AsciiString, ObjectID, UpgradeMaskType};
+use crate::common::{ObjectID, UpgradeMaskType};
 use crate::modules::UpgradeModuleInterface;
-use crate::object::upgrade::upgrade_module::{
-    UpgradeMuxData, mux_can_upgrade, mux_give_self_upgrade_for_object,
-};
-use game_engine::common::ini::{FieldParse, INI, INIError};
+use crate::object::upgrade::upgrade_module::{mux_can_upgrade, mux_give_self_upgrade_for_object};
 use game_engine::common::system::{Snapshotable, Xfer};
-use game_engine::common::thing::module::{Module, ModuleData, NameKeyType};
+use game_engine::common::thing::module::{Module, NameKeyType};
 
-/// Module data describing the command set upgrade.
-#[derive(Debug, Clone)]
-pub struct CommandSetUpgradeModuleData {
-    module_tag_name_key: NameKeyType,
-    pub upgrade_mux_data: UpgradeMuxData,
-    command_set_name: AsciiString,
-    command_set_alt: AsciiString,
-    trigger_alt: AsciiString,
-}
-
-impl Default for CommandSetUpgradeModuleData {
-    fn default() -> Self {
-        Self {
-            module_tag_name_key: 0,
-            upgrade_mux_data: UpgradeMuxData::default(),
-            command_set_name: AsciiString::new(),
-            command_set_alt: AsciiString::new(),
-            trigger_alt: AsciiString::new(),
-        }
-    }
-}
-
-impl CommandSetUpgradeModuleData {
-    pub fn command_set_name(&self) -> &AsciiString {
-        &self.command_set_name
-    }
-
-    pub fn command_set_alt(&self) -> &AsciiString {
-        &self.command_set_alt
-    }
-
-    pub fn trigger_alt(&self) -> &AsciiString {
-        &self.trigger_alt
-    }
-
-    pub fn parse_from_ini(&mut self, ini: &mut INI) -> Result<(), INIError> {
-        ini.init_from_ini_with_fields(self, COMMAND_SET_UPGRADE_FIELDS)
-    }
-}
-
-crate::impl_legacy_module_data_with_key_field!(CommandSetUpgradeModuleData, module_tag_name_key);
-
-impl Snapshotable for CommandSetUpgradeModuleData {
-    fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        let mut version: u8 = 0;
-        xfer.xfer_version(&mut version, 1)
-            .map_err(|e| e.to_string())?;
-        Ok(())
-    }
-
-    fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        let mut version: u8 = 0;
-        xfer.xfer_version(&mut version, 1)
-            .map_err(|e| e.to_string())?;
-        Ok(())
-    }
-
-    fn load_post_process(&mut self) -> Result<(), String> {
-        Ok(())
-    }
-}
+pub use game_engine::common::system::upgrade::CommandSetUpgradeModuleData;
 
 /// Upgrade module that changes available commands on the owning object.
 pub struct CommandSetUpgrade {
@@ -214,56 +151,3 @@ impl UpgradeModuleInterface for CommandSetUpgrade {
         );
     }
 }
-
-fn parse_command_set_field(
-    _ini: &mut INI,
-    data: &mut CommandSetUpgradeModuleData,
-    tokens: &[&str],
-) -> Result<(), INIError> {
-    if tokens.is_empty() {
-        return Err(INIError::InvalidData);
-    }
-    data.command_set_name = AsciiString::from(tokens[0]);
-    Ok(())
-}
-
-fn parse_command_set_alt_field(
-    _ini: &mut INI,
-    data: &mut CommandSetUpgradeModuleData,
-    tokens: &[&str],
-) -> Result<(), INIError> {
-    if tokens.is_empty() {
-        return Err(INIError::InvalidData);
-    }
-    data.command_set_alt = AsciiString::from(tokens[0]);
-    Ok(())
-}
-
-fn parse_trigger_alt_field(
-    _ini: &mut INI,
-    data: &mut CommandSetUpgradeModuleData,
-    tokens: &[&str],
-) -> Result<(), INIError> {
-    if tokens.is_empty() {
-        return Err(INIError::InvalidData);
-    }
-    data.trigger_alt = AsciiString::from(tokens[0]);
-    Ok(())
-}
-
-crate::impl_upgrade_mux_field_parsers!(CommandSetUpgradeModuleData);
-
-const COMMAND_SET_UPGRADE_FIELDS: &[FieldParse<CommandSetUpgradeModuleData>] = crate::upgrade_mux_field_table!(
-    FieldParse {
-        token: "CommandSet",
-        parse: parse_command_set_field,
-    },
-    FieldParse {
-        token: "CommandSetAlt",
-        parse: parse_command_set_alt_field,
-    },
-    FieldParse {
-        token: "TriggerAlt",
-        parse: parse_trigger_alt_field,
-    },
-);

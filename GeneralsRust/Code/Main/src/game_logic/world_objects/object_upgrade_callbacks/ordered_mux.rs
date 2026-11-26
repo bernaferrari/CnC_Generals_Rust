@@ -1,9 +1,11 @@
 //! Object::updateUpgradeModules / removeUpgrade and the typed UpgradeMux pass.
 use super::*;
-use game_engine::common::system::upgrade::{UpgradeMask, UpgradeMuxDefinition};
+use game_engine::common::system::upgrade::{
+    ArmorUpgradeModuleData, CommandSetUpgradeModuleData, SubObjectsUpgradeModuleData, UpgradeMask,
+    UpgradeMuxDefinition,
+};
 use gamelogic::object::upgrade::{
-    ArmorUpgradeModuleData, CommandSetUpgradeModuleData, ModelConditionUpgradeModuleData,
-    ReplaceObjectUpgradeModuleData, StealthUpgradeModuleData, SubObjectsUpgradeModuleData,
+    ModelConditionUpgradeModuleData, ReplaceObjectUpgradeModuleData, StealthUpgradeModuleData,
 };
 use generals_sim::upgrade::UpgradeConditions;
 

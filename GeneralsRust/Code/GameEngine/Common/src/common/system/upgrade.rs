@@ -9,6 +9,7 @@ use std::collections::HashMap;
 
 pub mod center;
 pub mod mask;
+mod module_data;
 mod mux;
 pub mod template;
 
@@ -18,7 +19,8 @@ pub use center::{
     with_upgrade_center,
 };
 pub use mask::{UPGRADE_MAX_COUNT, UpgradeMask};
-pub use mux::UpgradeMuxDefinition;
+pub use module_data::{ArmorUpgradeModuleData, CommandSetUpgradeModuleData, SubObjectsUpgradeModuleData};
+pub use mux::{UpgradeMuxData, UpgradeMuxDefinition};
 pub use template::{UpgradeTemplate, UpgradeType};
 
 #[cfg(test)]

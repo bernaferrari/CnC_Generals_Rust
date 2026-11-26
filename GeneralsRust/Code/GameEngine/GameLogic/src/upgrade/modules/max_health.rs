@@ -1,4 +1,5 @@
 // MaxHealthUpgrade - Increases unit max health
+use crate::upgrade::modules::upgrade_mux::UpgradeMuxRuntime;
 use super::super::UpgradeMask;
 use super::upgrade_mux::{UpgradeModuleInterface, UpgradeMux, UpgradeMuxData};
 use crate::common::*;

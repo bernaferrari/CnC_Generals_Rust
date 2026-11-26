@@ -1,59 +1,18 @@
 #[cfg(test)]
 use std::sync::Arc;
 
-use crate::common::{AsciiString, LegacyModuleData, ObjectID, UpgradeMaskType};
+#[cfg(test)]
+use crate::common::AsciiString;
+use crate::common::{ObjectID, UpgradeMaskType};
 use crate::object::Object;
 use crate::object::body::body_module::ArmorSetType;
 use crate::object::draw::draw_module::TerrainDecalType;
 use crate::object::drawable::DrawableArcExt;
-use crate::object::upgrade::upgrade_module::{UpgradeMuxData, mux_can_upgrade, mux_reset_upgrade};
-use game_engine::common::ini::{INI, INIError};
+use crate::object::upgrade::upgrade_module::{mux_can_upgrade, mux_reset_upgrade};
 use game_engine::common::system::{Snapshotable, Xfer};
-use game_engine::common::thing::module::{Module, ModuleData, ModuleDataHandle, ModuleDataView, NameKeyType};
+use game_engine::common::thing::module::{Module, ModuleDataHandle, ModuleDataView, NameKeyType};
 
-/// Module data describing the armor upgrade to apply.
-#[derive(Debug, Clone)]
-pub struct ArmorUpgradeModuleData {
-    module_tag_name_key: NameKeyType,
-    pub upgrade_mux_data: UpgradeMuxData,
-}
-
-impl Default for ArmorUpgradeModuleData {
-    fn default() -> Self {
-        Self {
-            module_tag_name_key: 0,
-            upgrade_mux_data: UpgradeMuxData::default(),
-        }
-    }
-}
-
-impl ArmorUpgradeModuleData {
-    pub fn parse_from_ini(&mut self, ini: &mut INI) -> Result<(), INIError> {
-        self.upgrade_mux_data.parse_from_ini(ini)
-    }
-}
-
-crate::impl_legacy_module_data_with_key_field!(ArmorUpgradeModuleData, module_tag_name_key);
-
-impl Snapshotable for ArmorUpgradeModuleData {
-    fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        let mut version: u8 = 0;
-        xfer.xfer_version(&mut version, 1)
-            .map_err(|e| e.to_string())?;
-        Ok(())
-    }
-
-    fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        let mut version: u8 = 0;
-        xfer.xfer_version(&mut version, 1)
-            .map_err(|e| e.to_string())?;
-        Ok(())
-    }
-
-    fn load_post_process(&mut self) -> Result<(), String> {
-        Ok(())
-    }
-}
+pub use game_engine::common::system::upgrade::ArmorUpgradeModuleData;
 
 /// Installed execution state; authored rules are shared and immutable.
 pub struct ArmorUpgrade {
@@ -96,22 +55,20 @@ impl ArmorUpgrade {
     }
 }
 
-impl ArmorUpgradeModuleData {
-    /// C++ ArmorUpgrade::upgradeImplementation, after FX and removals.
-    /// Called with the actual owner and no installed upgrade module guard.
-    pub(crate) fn apply_to_object(&self, owner: &mut Object) {
-        if let Some(body) = owner.get_body_module() {
-            let mut body = body.lock().expect("ArmorUpgrade body poisoned");
-            body.set_armor_set_flag(ArmorSetType::PlayerUpgrade)
-                .expect("ArmorUpgrade body armor setter failed");
-        }
-        if self
-            .upgrade_mux_data.definition
-            .is_triggered_by("Upgrade_AmericaChemicalSuits")
-        {
-            if let Some(drawable) = owner.get_drawable() {
-                drawable.set_terrain_decal_for_object(TerrainDecalType::ChemSuit, owner);
-            }
+/// C++ ArmorUpgrade::upgradeImplementation, after FX and removals.
+/// Called with the actual owner and no installed upgrade module guard.
+pub(crate) fn apply_to_object(data: &ArmorUpgradeModuleData, owner: &mut Object) {
+    if let Some(body) = owner.get_body_module() {
+        let mut body = body.lock().expect("ArmorUpgrade body poisoned");
+        body.set_armor_set_flag(ArmorSetType::PlayerUpgrade)
+            .expect("ArmorUpgrade body armor setter failed");
+    }
+    if data
+        .upgrade_mux_data.definition
+        .is_triggered_by("Upgrade_AmericaChemicalSuits")
+    {
+        if let Some(drawable) = owner.get_drawable() {
+            drawable.set_terrain_decal_for_object(TerrainDecalType::ChemSuit, owner);
         }
     }
 }
