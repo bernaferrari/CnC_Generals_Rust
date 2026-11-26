@@ -128,15 +128,11 @@ impl ScriptEngine {
             inner: std::cell::RefCell::new(ScriptEngineInner {
                 templates: ScriptTemplateCatalog::new(names),
 
-                counters: vec![None; MAX_COUNTERS],
-                num_counters: 1,
-                flags: vec![None; MAX_FLAGS],
-                num_flags: 1,
+                variables: ScriptVariables::default(),
                 attack_priorities: AttackPriorityTable::new(),
                 receiving_transport_statuses: HashMap::new(),
 
-                end_game_timer: -1,
-                close_window_timer: -1,
+                mission_timers: MissionTimers::default(),
                 calling_team: None,
                 calling_object: None,
                 condition_team: None,
@@ -199,12 +195,7 @@ impl ScriptEngine {
 
         {
             let inner = engine.inner.get_mut();
-            if inner.counters[0].is_none() {
-                inner.counters[0] = Some(TCounter::new(String::new()));
-            }
-            if inner.flags[0].is_none() {
-                inner.flags[0] = Some(TFlag::new(String::new()));
-            }
+            inner.variables.reserve_empty_slots();
             inner.attack_priorities.ensure_default();
         }
 
@@ -655,15 +646,11 @@ impl ScriptEngine {
         {
             let inner = self.inner.get_mut();
             // Clear runtime state
-            inner.counters.iter_mut().for_each(|c| *c = None);
-            inner.num_counters = 1;
-            inner.flags.iter_mut().for_each(|f| *f = None);
-            inner.num_flags = 1;
+            inner.variables.reset();
             inner.attack_priorities.clear();
             inner.receiving_transport_statuses.clear();
 
-            inner.end_game_timer = -1;
-            inner.close_window_timer = -1;
+            inner.mission_timers = MissionTimers::default();
             inner.calling_team = None;
             inner.calling_object = None;
             inner.condition_team = None;
@@ -726,12 +713,7 @@ impl ScriptEngine {
             inner.stats = ScriptStats::default();
         }
 
-        if inner.counters[0].is_none() {
-            inner.counters[0] = Some(TCounter::new(String::new()));
-        }
-        if inner.flags[0].is_none() {
-            inner.flags[0] = Some(TFlag::new(String::new()));
-        }
+        inner.variables.reserve_empty_slots();
         inner.attack_priorities.ensure_default();
     }
 
@@ -741,12 +723,8 @@ impl ScriptEngine {
     pub fn new_map(&mut self) {
         {
             let inner = self.inner.get_mut();
-            inner.counters.iter_mut().for_each(|c| *c = None);
-            inner.num_counters = 1;
-            inner.flags.iter_mut().for_each(|f| *f = None);
-            inner.num_flags = 1;
-            inner.end_game_timer = -1;
-            inner.close_window_timer = -1;
+            inner.variables.reset();
+            inner.mission_timers = MissionTimers::default();
             inner.first_update = true;
             inner.completed_video.clear();
             inner.testing_speech.clear();
@@ -779,12 +757,7 @@ impl ScriptEngine {
             inner.cur_fade_value = 0.0;
         }
         let inner = self.inner.get_mut();
-        if inner.counters[0].is_none() {
-            inner.counters[0] = Some(TCounter::new(String::new()));
-        }
-        if inner.flags[0].is_none() {
-            inner.flags[0] = Some(TFlag::new(String::new()));
-        }
+        inner.variables.reserve_empty_slots();
     }
 }
 

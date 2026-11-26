@@ -3,8 +3,6 @@
 // Included into `engine/mod.rs` so private fields and the current
 // RefCell / TLS re-entrancy pattern stay in the parent module.
 
-pub const MAX_COUNTERS: usize = 256;
-pub const MAX_FLAGS: usize = 256;
 pub const MAX_ATTACK_PRIORITIES: usize = 256;
 const FRAMES_TO_FADE_IN_AT_START: i32 = 33;
 const MAX_SEQUENTIAL_SPIN_COUNT: i32 = 20;
@@ -2468,37 +2466,6 @@ pub struct NamedReveal {
     pub player_name: String,
 }
 
-/// Counter structure matching C++ TCounter
-#[derive(Debug, Clone)]
-pub struct TCounter {
-    pub value: i32,
-    pub name: String,
-    pub is_countdown_timer: bool,
-}
-
-impl TCounter {
-    pub fn new(name: String) -> Self {
-        Self {
-            value: 0,
-            name,
-            is_countdown_timer: false,
-        }
-    }
-}
-
-/// Flag structure matching C++ TFlag
-#[derive(Debug, Clone)]
-pub struct TFlag {
-    pub value: bool,
-    pub name: String,
-}
-
-impl TFlag {
-    pub fn new(name: String) -> Self {
-        Self { value: false, name }
-    }
-}
-
 /// Attack Priority Info matching C++ AttackPriorityInfo
 #[derive(Debug, Clone)]
 pub struct AttackPriorityInfo {
@@ -2749,17 +2716,13 @@ pub struct ScriptEngineInner {
     templates: ScriptTemplateCatalog,
 
     // Runtime state
-    pub(crate) counters: Vec<Option<TCounter>>,
-    pub(crate) num_counters: usize,
-    flags: Vec<Option<TFlag>>,
-    num_flags: usize,
+    variables: ScriptVariables,
     attack_priorities: AttackPriorityTable,
     // ScriptConditions::s_transportStatuses: reset/load-scoped, not original Xfer.
     receiving_transport_statuses: HashMap<ObjectID, (u32, usize)>,
 
     // Game state
-    end_game_timer: i32,
-    close_window_timer: i32,
+    mission_timers: MissionTimers,
     calling_team: Option<TeamID>,   // Exact callback instance
     calling_object: Option<u32>,    // Object ID instead of pointer
     condition_team: Option<TeamID>, // Exact condition instance

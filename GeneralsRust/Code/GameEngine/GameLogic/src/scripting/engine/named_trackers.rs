@@ -5,133 +5,32 @@
 
 impl ScriptEngine {
     pub fn allocate_counter(&self, name: &str) -> GameLogicResult<usize> {
-        let mut inner = self.lock_inner_mut();
-        // Check if counter already exists
-        for (i, counter) in inner.counters.iter().enumerate() {
-            if let Some(counter) = counter {
-                if counter.name == name {
-                    return Ok(i);
-                }
-            }
-        }
-
-        // Find empty slot
-        for i in 0..MAX_COUNTERS {
-            if inner.counters[i].is_none() {
-                inner.counters[i] = Some(TCounter::new(name.to_string()));
-                if i >= inner.num_counters {
-                    inner.num_counters = i + 1;
-                }
-                return Ok(i);
-            }
-        }
-
-        Err(GameLogicError::Configuration(
-            "Maximum counters exceeded".to_string(),
-        ))
+        self.lock_inner_mut().variables.allocate_counter(name)
     }
 
-    /// Allocate a flag
     pub fn allocate_flag(&self, name: &str) -> GameLogicResult<usize> {
-        let mut inner = self.lock_inner_mut();
-        // Check if flag already exists
-        for (i, flag) in inner.flags.iter().enumerate() {
-            if let Some(flag) = flag {
-                if flag.name == name {
-                    return Ok(i);
-                }
-            }
-        }
-
-        // Find empty slot
-        for i in 0..MAX_FLAGS {
-            if inner.flags[i].is_none() {
-                inner.flags[i] = Some(TFlag::new(name.to_string()));
-                if i >= inner.num_flags {
-                    inner.num_flags = i + 1;
-                }
-                return Ok(i);
-            }
-        }
-
-        Err(GameLogicError::Configuration(
-            "Maximum flags exceeded".to_string(),
-        ))
+        self.lock_inner_mut().variables.allocate_flag(name)
     }
 
-    /// Get counter by name (owned snapshot — never a borrow into `UnsafeCell`).
     pub fn get_counter(&self, name: &str) -> Option<TCounter> {
-        self.with_inner(|inner| {
-            for counter in &inner.counters {
-                if let Some(counter) = counter {
-                    if counter.name == name {
-                        return Some(counter.clone());
-                    }
-                }
-            }
-            None
-        })
+        self.with_inner(|inner| inner.variables.counter(name).cloned())
     }
 
-    /// Get flag by name (owned snapshot — never a borrow into `UnsafeCell`).
     pub fn get_flag(&self, name: &str) -> Option<TFlag> {
-        self.with_inner(|inner| {
-            for flag in &inner.flags {
-                if let Some(flag) = flag {
-                    if flag.name == name {
-                        return Some(flag.clone());
-                    }
-                }
-            }
-            None
-        })
+        self.with_inner(|inner| inner.variables.flag(name).cloned())
     }
 
-    /// Set counter value
     pub fn set_counter(&self, name: &str, value: i32) -> GameLogicResult<()> {
-        let index = self.allocate_counter(name)?;
-        let mut inner = self.lock_inner_mut();
-        if let Some(counter) = &mut inner.counters[index] {
-            counter.value = value;
-        }
-        Ok(())
+        self.lock_inner_mut().variables.set_counter(name, value)
     }
 
-    /// Set flag value
     pub fn set_flag(&self, name: &str, value: bool) -> GameLogicResult<()> {
-        let index = self.allocate_flag(name)?;
-        let mut inner = self.lock_inner_mut();
-        if let Some(flag) = &mut inner.flags[index] {
-            flag.value = value;
-        }
-        Ok(())
+        self.lock_inner_mut().variables.set_flag(name, value)
     }
 
     /// C++ `ScriptEngine::xfer` counter/flag tables.
-    pub fn snapshot_named_trackers(&self) -> (Vec<(String, i32, bool)>, Vec<(String, bool)>) {
-        self.with_inner(|inner| {
-            let counters = inner
-                .counters
-                .iter()
-                .flatten()
-                .filter(|counter| !counter.name.is_empty())
-                .map(|counter| {
-                    (
-                        counter.name.clone(),
-                        counter.value,
-                        counter.is_countdown_timer,
-                    )
-                })
-                .collect();
-            let flags = inner
-                .flags
-                .iter()
-                .flatten()
-                .filter(|flag| !flag.name.is_empty())
-                .map(|flag| (flag.name.clone(), flag.value))
-                .collect();
-            (counters, flags)
-        })
+    pub fn snapshot_named_trackers(&self) -> NamedTrackersSnapshot {
+        self.with_inner(|inner| inner.variables.snapshot())
     }
 
     pub fn restore_named_trackers(
@@ -139,18 +38,7 @@ impl ScriptEngine {
         counters: &[(String, i32, bool)],
         flags: &[(String, bool)],
     ) -> GameLogicResult<()> {
-        for (name, value, is_countdown) in counters {
-            let index = self.allocate_counter(name)?;
-            let mut inner = self.lock_inner_mut();
-            if let Some(counter) = &mut inner.counters[index] {
-                counter.value = *value;
-                counter.is_countdown_timer = *is_countdown;
-            }
-        }
-        for (name, value) in flags {
-            self.set_flag(name, *value)?;
-        }
-        Ok(())
+        self.lock_inner_mut().variables.restore(counters, flags)
     }
 
     /// C++ `ScriptEngine::xfer` sequential-script heads (ScriptEngine.cpp:8821-8869).
@@ -209,111 +97,64 @@ impl ScriptEngine {
         }
     }
 
-    /// Increment a named counter by `amount`.
-    /// C++ `ScriptEngine::addCounter`: param0 is the INT amount.
     pub fn increment_counter(&self, name: &str, amount: i32) -> GameLogicResult<()> {
-        let index = self.allocate_counter(name)?;
-        let mut inner = self.lock_inner_mut();
-        if let Some(counter) = &mut inner.counters[index] {
-            counter.value = counter.value.saturating_add(amount);
-        }
-        Ok(())
+        self.lock_inner_mut()
+            .variables
+            .increment_counter(name, amount)
     }
 
-    /// Decrement a named counter by `amount`.
-    /// C++ `ScriptEngine::subCounter`: param0 is the INT amount.
     pub fn decrement_counter(&self, name: &str, amount: i32) -> GameLogicResult<()> {
-        let index = self.allocate_counter(name)?;
-        let mut inner = self.lock_inner_mut();
-        if let Some(counter) = &mut inner.counters[index] {
-            counter.value = counter.value.saturating_sub(amount);
-        }
-        Ok(())
+        self.lock_inner_mut()
+            .variables
+            .decrement_counter(name, amount)
     }
 
-    /// Set timer (countdown counter) in frames (1 second = 30 frames at standard logic rate)
-    /// C++ Reference: ScriptActions::doSetTimer() - timers count down each frame
     pub fn set_timer(&self, name: &str, frames: i32) -> GameLogicResult<()> {
-        let index = self.allocate_counter(name)?;
-        let mut inner = self.lock_inner_mut();
-        if let Some(counter) = &mut inner.counters[index] {
-            counter.value = frames;
-            counter.is_countdown_timer = true;
-        }
-        Ok(())
+        self.lock_inner_mut().variables.set_timer(name, frames)
     }
 
-    /// Set timer in seconds (converts to frames at logic frame rate)
     pub fn set_timer_seconds(&self, name: &str, seconds: f32) -> GameLogicResult<()> {
-        let frames = (seconds * LOGICFRAMES_PER_SECOND as f32) as i32;
-        self.set_timer(name, frames)
+        self.lock_inner_mut()
+            .variables
+            .set_timer_seconds(name, seconds)
     }
 
-    /// C++ `SET_MILLISECOND_TIMER` script actions actually pass a real-valued second duration
-    /// through the mission/script layer and then ceil the converted frame count.
-    fn frames_from_millisecond_script_seconds(seconds: f32) -> i32 {
-        (seconds.max(0.0) * LOGICFRAMES_PER_SECOND as f32).ceil() as i32
-    }
-
-    /// Set timer using the legacy script "msec" path semantics from C++.
     pub fn set_timer_millisecond_script_seconds(
         &self,
         name: &str,
         seconds: f32,
     ) -> GameLogicResult<()> {
-        let frames = Self::frames_from_millisecond_script_seconds(seconds);
-        self.set_timer(name, frames)
+        self.lock_inner_mut()
+            .variables
+            .set_timer_millisecond_script_seconds(name, seconds)
     }
 
-    /// Stop/pause a timer without clearing its remaining value.
     pub fn stop_timer(&self, name: &str) -> GameLogicResult<()> {
-        let index = self.allocate_counter(name)?;
-        let mut inner = self.lock_inner_mut();
-        if let Some(counter) = &mut inner.counters[index] {
-            counter.is_countdown_timer = false;
-        }
-        Ok(())
+        self.lock_inner_mut().variables.stop_timer(name)
     }
 
-    /// Restart a timer (reset to its original value - keeps is_countdown_timer=true)
-    /// Note: Without storing original value, this just re-enables countdown at current value
     pub fn restart_timer(&self, name: &str) -> GameLogicResult<()> {
-        let index = self.allocate_counter(name)?;
-        let mut inner = self.lock_inner_mut();
-        if let Some(counter) = &mut inner.counters[index] {
-            counter.is_countdown_timer = true;
-        }
-        Ok(())
+        self.lock_inner_mut().variables.restart_timer(name)
     }
 
-    /// Add legacy script "msec" seconds to timer.
     pub fn add_to_timer_millisecond_script_seconds(
         &self,
         name: &str,
         seconds: f32,
     ) -> GameLogicResult<()> {
-        let frames = Self::frames_from_millisecond_script_seconds(seconds);
-        let index = self.allocate_counter(name)?;
-        let mut inner = self.lock_inner_mut();
-        if let Some(counter) = &mut inner.counters[index] {
-            counter.value += frames;
-        }
-        Ok(())
+        self.lock_inner_mut()
+            .variables
+            .add_to_timer_millisecond_script_seconds(name, seconds)
     }
 
-    /// Subtract legacy script "msec" seconds from timer.
     pub fn subtract_from_timer_millisecond_script_seconds(
         &self,
         name: &str,
         seconds: f32,
     ) -> GameLogicResult<()> {
-        let frames = Self::frames_from_millisecond_script_seconds(seconds);
-        let index = self.allocate_counter(name)?;
-        let mut inner = self.lock_inner_mut();
-        if let Some(counter) = &mut inner.counters[index] {
-            counter.value -= frames;
-        }
-        Ok(())
+        self.lock_inner_mut()
+            .variables
+            .subtract_from_timer_millisecond_script_seconds(name, seconds)
     }
 
     /// Start the normal win/lose timer.
@@ -323,22 +164,19 @@ impl ScriptEngine {
     /// engine is lexically scoped, without trying to lock the global engine
     /// again.
     pub fn start_end_game_timer(&self) {
-        let mut inner = self.lock_inner_mut();
-        inner.end_game_timer = 120;
+        self.lock_inner_mut().mission_timers.start_end_game();
         log::info!("End game timer started");
     }
 
     /// Start the one-frame quick-victory timer.
     pub fn start_quick_end_game_timer(&self) {
-        let mut inner = self.lock_inner_mut();
-        inner.end_game_timer = 1;
+        self.lock_inner_mut().mission_timers.start_quick_end_game();
         log::info!("Quick end game timer started");
     }
 
     /// Start the local-defeat close-window timer.
     pub fn start_close_window_timer(&self) {
-        let mut inner = self.lock_inner_mut();
-        inner.close_window_timer = 120;
+        self.lock_inner_mut().mission_timers.start_close_window();
         log::info!("Close window timer started");
     }
 
@@ -520,7 +358,7 @@ impl ScriptEngine {
 
     /// Check if game is ending
     pub fn is_game_ending(&self) -> bool {
-        self.with_inner(|inner| inner.end_game_timer >= 0)
+        self.with_inner(|inner| inner.mission_timers.end_game_active())
     }
 
     /// Freeze time
@@ -1559,17 +1397,9 @@ impl ScriptEngine {
 
     // PARITY_NOTE: C++ ScriptEngine::clearFlag
     pub fn clear_flag(&self, name: &str) {
-        let mut inner = self.lock_inner_mut();
-        for j in 0..Self::MAX_PLAYER_COUNT {
-            let mod_name = format!("{}{}", name, j);
-            for i in 1..inner.num_flags {
-                if let Some(flag) = &mut inner.flags[i] {
-                    if flag.name == mod_name {
-                        flag.value = false;
-                    }
-                }
-            }
-        }
+        self.lock_inner_mut()
+            .variables
+            .clear_flag(name, Self::MAX_PLAYER_COUNT);
     }
 
     // PARITY_NOTE: C++ ScriptEngine::clearTeamFlags
@@ -1756,20 +1586,10 @@ impl ScriptEngine {
         millisecond_timer: bool,
         add: bool,
     ) -> GameLogicResult<()> {
-        let index = self.allocate_counter(counter_name)?;
-        let inner = self.inner.get_mut();
-        let Some(counter) = &mut inner.counters[index] else {
-            return Ok(());
-        };
-        if millisecond_timer {
-            let msec_frames = Self::frames_from_millisecond_script_seconds(value as f32);
-            let delta = if add { msec_frames } else { -msec_frames };
-            counter.value += delta;
-        } else {
-            let delta = if add { value } else { -value };
-            counter.value += delta;
-        }
-        Ok(())
+        self.inner
+            .get_mut()
+            .variables
+            .adjust_timer(counter_name, value, millisecond_timer, add)
     }
 
     // PARITY_NOTE: C++ ScriptEngine::getStats
@@ -1823,14 +1643,10 @@ impl ScriptEngine {
 
     // PARITY_NOTE: C++ ScriptEngine::restartTimer (only restarts if value > 0)
     pub fn restart_timer_if_positive(&mut self, name: &str) -> GameLogicResult<()> {
-        let index = self.allocate_counter(name)?;
-        let inner = self.inner.get_mut();
-        if let Some(counter) = &mut inner.counters[index] {
-            if counter.value > 0 {
-                counter.is_countdown_timer = true;
-            }
-        }
-        Ok(())
+        self.inner
+            .get_mut()
+            .variables
+            .restart_timer_if_positive(name)
     }
 
     // PARITY_NOTE: C++ ScriptEngine::setTimer with random/msec params
@@ -1842,26 +1658,17 @@ impl ScriptEngine {
         random: bool,
         random_max: Option<f32>,
     ) -> GameLogicResult<()> {
-        let index = self.allocate_counter(name)?;
-        let inner = self.inner.get_mut();
-        let Some(counter) = &mut inner.counters[index] else {
-            return Ok(());
-        };
-
-        let effective_value = if random {
-            let max = random_max.unwrap_or(value);
-            crate::helpers::get_game_logic_random_value_real(value.min(max), value.max(max))
-        } else {
-            value
-        };
-
-        if millisecond_timer {
-            counter.value = Self::frames_from_millisecond_script_seconds(effective_value);
-        } else {
-            counter.value = effective_value as i32;
-        }
-        counter.is_countdown_timer = true;
-        Ok(())
+        self.inner
+            .get_mut()
+            .variables
+            .set_timer_from(name, millisecond_timer, || {
+                if random {
+                    let max = random_max.unwrap_or(value);
+                    crate::helpers::get_game_logic_random_value_real(value.min(max), value.max(max))
+                } else {
+                    value
+                }
+            })
     }
 
     // PARITY_NOTE: C++ always returns FALSE (no case in switch)
@@ -1946,8 +1753,8 @@ impl ScriptEngine {
             ScriptEngineXferTail {
                 attack_priorities,
                 object_attack_priority_sets,
-                end_game_timer: inner.end_game_timer,
-                close_window_timer: inner.close_window_timer,
+                end_game_timer: inner.mission_timers.end_game,
+                close_window_timer: inner.mission_timers.close_window,
                 named_objects,
                 first_update: inner.first_update,
                 fade: inner.fade as i32,
@@ -2041,8 +1848,8 @@ impl ScriptEngine {
                 .filter(|(id, name)| *id != crate::common::INVALID_ID && !name.is_empty())
                 .cloned()
                 .collect();
-            inner.end_game_timer = tail.end_game_timer;
-            inner.close_window_timer = tail.close_window_timer;
+            inner.mission_timers.end_game = tail.end_game_timer;
+            inner.mission_timers.close_window = tail.close_window_timer;
             inner.first_update = tail.first_update;
             inner.fade = match tail.fade {
                 1 => TFade::Subtract,

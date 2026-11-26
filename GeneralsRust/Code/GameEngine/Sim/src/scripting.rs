@@ -2,6 +2,7 @@
 
 pub mod program;
 pub mod side_scripts;
+pub mod variables;
 
 pub use generals_game_domain::polygons::TriggerArea;
 use std::collections::HashMap;

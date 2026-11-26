@@ -78,8 +78,10 @@ impl Drop for RegisteredSequentialObjectCleanup {
 fn test_script_engine_creation() {
     let engine = ScriptEngine::new_in_published_world().unwrap();
     // Slot 0 is reserved, matching runtime reset semantics.
-    assert_eq!(engine.with_inner(|i| i.num_counters), 1);
-    assert_eq!(engine.with_inner(|i| i.num_flags), 1);
+    assert_eq!(engine.allocate_counter("").unwrap(), 0);
+    assert!(engine.snapshot_named_trackers().0.is_empty());
+    assert_eq!(engine.allocate_flag("").unwrap(), 0);
+    assert!(engine.snapshot_named_trackers().1.is_empty());
     assert_eq!(engine.with_inner(|i| i.fade), TFade::None);
     assert!(!engine.is_game_ending());
 }
@@ -134,7 +136,7 @@ fn test_counter_operations() {
 
     // Set a counter
     engine.set_counter("test_counter", 42).unwrap();
-    assert_eq!(engine.with_inner(|i| i.num_counters), 2);
+    assert_eq!(engine.allocate_counter("test_counter").unwrap(), 1);
 
     // Get the counter
     let counter = engine.get_counter("test_counter").unwrap();
@@ -148,7 +150,7 @@ fn test_flag_operations() {
 
     // Set a flag
     engine.set_flag("test_flag", true).unwrap();
-    assert_eq!(engine.with_inner(|i| i.num_flags), 2);
+    assert_eq!(engine.allocate_flag("test_flag").unwrap(), 1);
 
     // Get the flag
     let flag = engine.get_flag("test_flag").unwrap();
@@ -163,13 +165,13 @@ fn test_end_game_timer() {
 
     engine.start_end_game_timer();
     assert!(engine.is_game_ending());
-    assert_eq!(engine.with_inner(|i| i.end_game_timer), 120);
+    assert_eq!(engine.with_inner(|i| i.mission_timers.end_game), 120);
 
     engine.start_quick_end_game_timer();
-    assert_eq!(engine.with_inner(|i| i.end_game_timer), 1);
+    assert_eq!(engine.with_inner(|i| i.mission_timers.end_game), 1);
 
     engine.start_close_window_timer();
-    assert_eq!(engine.with_inner(|i| i.close_window_timer), 120);
+    assert_eq!(engine.with_inner(|i| i.mission_timers.close_window), 120);
 }
 
 #[test]
@@ -275,6 +277,83 @@ fn countdown_timer_rests_at_minus_one_after_expire() {
         engine.get_counter("expire_to_minus_one").unwrap().value,
         -1,
         "countdown must stop at -1"
+    );
+}
+
+#[test]
+fn named_trackers_resume_in_the_receiving_interpreter_with_both_codecs() {
+    use crate::system::engine_stores::{new_world_services, with_world_services};
+    use game_engine::common::system::{xfer_load::XferLoad, xfer_save::XferSave};
+    use std::io::Cursor;
+
+    struct Headless;
+
+    impl ScriptExecutionDriver for Headless {
+        fn after_action(&mut self) -> GameLogicResult<()> {
+            Ok(())
+        }
+
+        fn initialize_named_cache(&mut self) -> Option<()> {
+            Some(())
+        }
+    }
+
+    let donor_world = new_world_services();
+    let mut donor = ScriptEngine::new_with_services(&donor_world).unwrap();
+    donor.new_map();
+    donor.set_timer("Deadline", 2).unwrap();
+    donor.set_counter("Score", -3).unwrap();
+    donor.set_flag("Ready0", true).unwrap();
+    donor.start_close_window_timer();
+    donor
+        .update_with_driver(ScriptContext::at_frame(1), &mut Headless)
+        .unwrap();
+    let saved = donor.snapshot_named_trackers();
+    let tail = with_world_services(&donor_world, || donor.snapshot_xfer_tail());
+
+    let mut wire = Cursor::new(Vec::new());
+    with_world_services(&donor_world, || {
+        donor.xfer(&mut XferSave::new(&mut wire, 1)).unwrap();
+    });
+    let wire = wire.into_inner();
+
+    let legacy_world = new_world_services();
+    let mut legacy = ScriptEngine::new_with_services(&legacy_world).unwrap();
+    with_world_services(&legacy_world, || {
+        legacy
+            .xfer(&mut XferLoad::new(Cursor::new(&wire), 1))
+            .unwrap();
+        let mut resaved = Cursor::new(Vec::new());
+        legacy.xfer(&mut XferSave::new(&mut resaved, 1)).unwrap();
+        assert_eq!(resaved.into_inner(), wire);
+    });
+
+    let receiving_world = new_world_services();
+    let receiving = ScriptEngine::new_with_services(&receiving_world).unwrap();
+    receiving.restore_named_trackers(&saved.0, &saved.1).unwrap();
+    receiving.restore_receiving_xfer_tail(&tail);
+    assert_eq!(receiving.snapshot_named_trackers(), saved);
+    assert_eq!(legacy.snapshot_named_trackers(), saved);
+
+    donor.clear_flag("Ready");
+    for (frame, remaining) in [(2, 0), (3, -1), (4, -1)] {
+        for (world, engine) in [(&legacy_world, &legacy), (&receiving_world, &receiving)] {
+            engine
+                .update_with_driver(ScriptContext::at_frame(frame), &mut Headless)
+                .unwrap();
+            assert_eq!(engine.get_counter("Deadline").unwrap().value, remaining);
+            assert_eq!(engine.get_counter("Score").unwrap().value, -3);
+            assert!(engine.get_flag("Ready0").unwrap().value);
+            let close_window = with_world_services(world, || engine.snapshot_xfer_tail())
+                .close_window_timer;
+            assert_eq!(close_window, 120 - frame as i32);
+        }
+    }
+    assert_eq!(donor.get_counter("Deadline").unwrap().value, 1);
+    assert!(!donor.get_flag("Ready0").unwrap().value);
+    assert_eq!(
+        with_world_services(&donor_world, || donor.snapshot_xfer_tail()).close_window_timer,
+        119
     );
 }
 
@@ -556,9 +635,8 @@ fn millisecond_script_seconds_use_ceil_frame_conversion() {
         .set_timer_millisecond_script_seconds("shell_camera", 0.12)
         .unwrap();
 
-    let index = engine.allocate_counter("shell_camera").unwrap();
     let counter = engine
-        .with_inner(|i| i.counters[index].clone())
+        .get_counter("shell_camera")
         .expect("timer counter");
     assert_eq!(counter.value, 4);
     assert!(counter.is_countdown_timer);
@@ -570,9 +648,8 @@ fn stop_timer_preserves_remaining_value() {
     engine.set_timer("pause_test", 17).unwrap();
     engine.stop_timer("pause_test").unwrap();
 
-    let index = engine.allocate_counter("pause_test").unwrap();
     let counter = engine
-        .with_inner(|i| i.counters[index].clone())
+        .get_counter("pause_test")
         .expect("pause counter");
     assert_eq!(counter.value, 17);
     assert!(!counter.is_countdown_timer);
@@ -586,9 +663,8 @@ fn subtract_millisecond_script_seconds_can_drive_timer_negative() {
         .subtract_from_timer_millisecond_script_seconds("negative_test", 0.12)
         .unwrap();
 
-    let index = engine.allocate_counter("negative_test").unwrap();
     let counter = engine
-        .with_inner(|i| i.counters[index].clone())
+        .get_counter("negative_test")
         .expect("negative counter");
     assert_eq!(counter.value, -2);
 }
@@ -1123,14 +1199,14 @@ fn with_active_script_engine_ref_skips_while_inner_mut_live() {
         {
             let _guard = engine.lock_inner_mut();
             assert!(
-                with_active_script_engine_ref(|e| e.with_inner(|i| i.num_counters)).is_none(),
+                with_active_script_engine_ref(|e| e.get_counter("").is_some()).is_none(),
                 "shared TLS ref must skip while exclusive inner borrow is live"
             );
         }
 
         assert_eq!(
-            with_active_script_engine_ref(|e| e.with_inner(|i| i.num_counters)),
-            Some(1)
+            with_active_script_engine_ref(|e| e.get_counter("").is_some()),
+            Some(true)
         );
     });
 }

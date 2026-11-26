@@ -25,6 +25,10 @@ use game_engine::common::system::{Xfer, XferMode, XferStatus, XferVersion};
 use game_engine::common::thing::thing_factory::get_thing_factory;
 use game_engine::common::thing::thing_template::ThingTemplate as EngineThingTemplate;
 use generals_sim::scripting::side_scripts::SideScripts;
+use generals_sim::scripting::variables::{MissionTimers, NamedTrackersSnapshot, ScriptVariables};
+pub use generals_sim::scripting::variables::{
+    Counter as TCounter, Flag as TFlag, MAX_COUNTERS, MAX_FLAGS,
+};
 use std::collections::HashMap;
 use std::ops::{Deref, DerefMut}; // InnerMutGuard only; ScriptEngine has no Deref.
 use std::sync::{Arc, Mutex, RwLock};

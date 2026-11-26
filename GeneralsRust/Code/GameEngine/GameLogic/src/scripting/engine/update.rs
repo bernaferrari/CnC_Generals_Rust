@@ -76,15 +76,7 @@ impl ScriptEngine {
 
         self.initialize_named_cache_on_first_update(execution.driver);
 
-        let close_expired = {
-            let mut inner = self.lock_inner_mut();
-            if inner.close_window_timer > 0 {
-                inner.close_window_timer -= 1;
-                inner.close_window_timer < 1
-            } else {
-                false
-            }
-        };
+        let close_expired = self.lock_inner_mut().mission_timers.tick_close_window();
         if close_expired {
             // C++ ScriptEngine.cpp:5508-5512 TheScriptActions->closeWindows(FALSE).
             self.close_windows_with_driver(false, execution.driver)?;
@@ -94,15 +86,7 @@ impl ScriptEngine {
             execution.driver.after_action()?;
         }
 
-        let end_expired = {
-            let mut inner = self.lock_inner_mut();
-            if inner.end_game_timer > 0 {
-                inner.end_game_timer -= 1;
-                inner.end_game_timer < 1
-            } else {
-                false
-            }
-        };
+        let end_expired = self.lock_inner_mut().mission_timers.tick_end_game();
         if end_expired {
             // C++ ScriptEngine.cpp:5514-5518 appends MSG_CLEAR_GAME_DATA.
             // It does not call TheGameLogic::clearGameData() directly.
@@ -123,17 +107,8 @@ impl ScriptEngine {
 
         let end_game_active = {
             let mut inner = self.lock_inner_mut();
-            // Update counters that are countdown timers
-            for counter in &mut inner.counters {
-                if let Some(counter) = counter {
-                    // C++ ScriptEngine.cpp:5547-5550: decrement while value >= 0;
-                    // "Counters go to -1 and stop."
-                    if counter.is_countdown_timer && counter.value >= 0 {
-                        counter.value -= 1;
-                    }
-                }
-            }
-            inner.end_game_timer >= 0
+            inner.variables.tick();
+            inner.mission_timers.end_game_active()
         };
 
         // Update fade effects

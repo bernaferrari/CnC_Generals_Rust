@@ -250,9 +250,10 @@ impl XferSnapshot for ScriptEngine {
             XferMode::Invalid => return Err(XferStatus::ModeUnknown),
         }
 
+        let (counters, counter_count) = inner.variables.legacy_counters();
         let mut counters_size: u16 =
             if matches!(xfer.get_xfer_mode(), XferMode::Save | XferMode::Crc) {
-                inner.num_counters as u16
+                *counter_count as u16
             } else {
                 0
             };
@@ -261,10 +262,10 @@ impl XferSnapshot for ScriptEngine {
             return Err(XferStatus::InvalidParameters);
         }
         for i in 0..counters_size as usize {
-            if xfer.get_xfer_mode() == XferMode::Load && inner.counters[i].is_none() {
-                inner.counters[i] = Some(TCounter::new(String::new()));
+            if xfer.get_xfer_mode() == XferMode::Load && counters[i].is_none() {
+                counters[i] = Some(TCounter::new(String::new()));
             }
-            let Some(counter) = inner.counters[i].as_mut() else {
+            let Some(counter) = counters[i].as_mut() else {
                 return Err(XferStatus::InvalidParameters);
             };
             xfer.xfer_int(&mut counter.value)?;
@@ -272,15 +273,16 @@ impl XferSnapshot for ScriptEngine {
             xfer.xfer_bool(&mut counter.is_countdown_timer)?;
         }
 
-        let mut num_counters = inner.num_counters as i32;
+        let mut num_counters = *counter_count as i32;
         xfer.xfer_int(&mut num_counters)?;
         if xfer.get_xfer_mode() == XferMode::Load {
-            inner.num_counters = num_counters as usize;
+            *counter_count = num_counters as usize;
         }
 
+        let (flags, flag_count) = inner.variables.legacy_flags();
         let mut flags_size: u16 = if matches!(xfer.get_xfer_mode(), XferMode::Save | XferMode::Crc)
         {
-            inner.num_flags as u16
+            *flag_count as u16
         } else {
             0
         };
@@ -289,20 +291,20 @@ impl XferSnapshot for ScriptEngine {
             return Err(XferStatus::InvalidParameters);
         }
         for i in 0..flags_size as usize {
-            if xfer.get_xfer_mode() == XferMode::Load && inner.flags[i].is_none() {
-                inner.flags[i] = Some(TFlag::new(String::new()));
+            if xfer.get_xfer_mode() == XferMode::Load && flags[i].is_none() {
+                flags[i] = Some(TFlag::new(String::new()));
             }
-            let Some(flag) = inner.flags[i].as_mut() else {
+            let Some(flag) = flags[i].as_mut() else {
                 return Err(XferStatus::InvalidParameters);
             };
             xfer.xfer_bool(&mut flag.value)?;
             xfer.xfer_ascii_string(&mut flag.name)?;
         }
 
-        let mut num_flags = inner.num_flags as i32;
+        let mut num_flags = *flag_count as i32;
         xfer.xfer_int(&mut num_flags)?;
         if xfer.get_xfer_mode() == XferMode::Load {
-            inner.num_flags = num_flags as usize;
+            *flag_count = num_flags as usize;
         }
 
         inner.attack_priorities.xfer(xfer)?;
@@ -354,8 +356,8 @@ impl XferSnapshot for ScriptEngine {
             inner.object_attack_priority_sets.clear();
         }
 
-        xfer.xfer_int(&mut inner.end_game_timer)?;
-        xfer.xfer_int(&mut inner.close_window_timer)?;
+        xfer.xfer_int(&mut inner.mission_timers.end_game)?;
+        xfer.xfer_int(&mut inner.mission_timers.close_window)?;
 
         let named_object_tracker = get_named_object_tracker();
         let named_objects: Vec<(String, ObjectID)> =
