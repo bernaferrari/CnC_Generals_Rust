@@ -17,17 +17,13 @@ pub use types::*;
 mod construct;
 mod construction_observation;
 mod counts;
-mod host_observation_boundary;
 mod observation_metrics;
-mod presentation;
 mod projectile_observation;
 mod weapon_observation;
-pub use presentation::*;
 
 /// Session holding GameWorld + stable host↔entity ID maps.
 #[derive(Debug)]
 pub struct GameWorldShadow {
-    /// Tint owner for hostless presentation through the shared shadow API.
     world: GameWorld,
     // Id-keyed lookup tables: iteration order never feeds sim decisions
     // (stale removal / metrics are order-independent), so use the Fx hasher.

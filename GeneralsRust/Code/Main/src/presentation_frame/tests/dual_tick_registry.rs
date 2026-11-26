@@ -894,13 +894,17 @@ fn unit_render_inputs_keep_resident_direct_destroyed_drawable_without_duplicate(
 }
 
 #[test]
-fn direct_host_drawable_roster_survives_gameworld_rebuild_and_uses_visual_identity() {
-    use crate::gameworld_shadow::GameWorldShadow;
-
+fn retained_drawable_uses_the_receiving_visual_identity_until_physical_removal() {
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("DirectHostVisualRoster");
-    logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object DirectHostVisualActual\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
-    crate::skirmish_config::lobby_definition_tests::start_slot_skirmish(&mut logic, &cfg).expect("config");
+    logic
+        .admit_object_ini_sources([(
+            "fixture-objects.ini".into(),
+            "Object DirectHostVisualActual\nEnd\n".into(),
+        )])
+        .expect("fixture Object content admitted before NewGame");
+    crate::skirmish_config::lobby_definition_tests::start_slot_skirmish(&mut logic, &cfg)
+        .expect("config");
     let mut template = ThingTemplate::new("DirectHostVisualActual");
     template.set_health(40.0);
     template.add_kind_of(KindOf::Infantry);
@@ -920,15 +924,13 @@ fn direct_host_drawable_roster_survives_gameworld_rebuild_and_uses_visual_identi
         object.template_name = "MutableRuntimeTemplate".into();
         object.status.disguised = true;
         object.disguise_as_template = Some("DirectHostVisualDisguise".into());
-        // Match the GameWorld rebuild omission gate while retaining host
-        // Object presence for the direct drawable lifetime.
-        object.status.destroyed = true;
+        // The registered Object still owns its Drawable after gameplay death.
         object.health.current = 0.0;
     }
+    logic.destroy_object(id).unwrap();
+    assert!(logic.has_pending_object_removals());
 
-    let mut shadow = GameWorldShadow::new(64);
-    shadow.sync_from_host(&logic);
-    let mut frame = PresentationFrame::build_from_logic(&mut logic, 0);
+    let frame = PresentationFrame::try_build_from_logic(&mut logic, 0).unwrap();
     let direct = frame
         .direct_host_drawables
         .iter()
@@ -942,7 +944,7 @@ fn direct_host_drawable_roster_survives_gameworld_rebuild_and_uses_visual_identi
         .host_object_mut(id)
         .expect("host object")
         .disguise_as_template = None;
-    let fallback_frame = PresentationFrame::build_from_logic(&mut logic, 0);
+    let fallback_frame = PresentationFrame::try_build_from_logic(&mut logic, 0).unwrap();
     assert_eq!(
         fallback_frame
             .direct_host_drawables
@@ -954,25 +956,41 @@ fn direct_host_drawable_roster_survives_gameworld_rebuild_and_uses_visual_identi
         "a committed disguise without a replacement template falls back to ThingTemplate, not mutable Object bookkeeping"
     );
 
-    assert_eq!(frame.rebuild_objects_from_gameworld(&shadow), 0);
+    assert_eq!(frame.direct_host_drawables.len(), 1);
     assert!(
-        frame.objects.is_empty(),
-        "GameWorld has omitted the destroyed entity"
-    );
-    assert_eq!(
-        frame.direct_host_drawables.len(),
-        1,
-        "primary roster replacement must not erase the independent direct source"
+        frame
+            .objects
+            .iter()
+            .find(|row| row.id == id)
+            .unwrap()
+            .destroyed
     );
     let inputs = frame.unit_render_inputs();
     let input = inputs
         .iter()
         .find(|input| input.id == id)
-        .expect("resident direct drawable fills missing GameWorld row");
+        .expect("resident drawable retains its captured visual identity");
     assert_eq!(input.template_name, "DirectHostVisualDisguise");
     assert!(
         input.destroyed,
         "visual residency does not rewrite gameplay destruction"
+    );
+    logic
+        .process_destroy_list_with_effects_checked(&mut Default::default())
+        .unwrap();
+    assert!(logic.host_object(id).is_none());
+    let retired = PresentationFrame::try_build_from_logic(&mut logic, 0).unwrap();
+    assert!(
+        retired
+            .direct_host_drawables
+            .iter()
+            .all(|draw| draw.object.id != id)
+    );
+    assert!(
+        frame
+            .direct_host_drawables
+            .iter()
+            .any(|draw| draw.object.id == id)
     );
 }
 

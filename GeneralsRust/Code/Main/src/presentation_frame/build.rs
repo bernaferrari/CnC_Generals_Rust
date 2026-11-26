@@ -3,10 +3,10 @@ use crate::fow_rendering::{ObjectShroudFrame, ProjectedShroudMetadata};
 use crate::game_logic::{Object, RiderChangeRiderMetadata};
 use gamelogic::common::ObjectShroudStatus;
 
-/// Reuse authored enter rules while building and overlaying one receiving
-/// world's presentation. Scuttle state still belongs to each individual bike.
+/// Reuse authored enter rules while building one receiving world's presentation.
+/// Scuttle state still belongs to each individual bike.
 #[derive(Default)]
-pub(super) struct RiderChangeRosters {
+struct RiderChangeRosters {
     entries: Vec<RiderChangeRoster>,
 }
 
@@ -16,7 +16,7 @@ struct RiderChangeRoster {
 }
 
 impl RiderChangeRosters {
-    pub(super) fn allowed_templates(&mut self, logic: &GameLogic, container: &Object) -> Vec<String> {
+    fn allowed_templates(&mut self, logic: &GameLogic, container: &Object) -> Vec<String> {
         if !container.supports_authored_rider_change_normal_enter() {
             return Vec::new();
         }
@@ -574,10 +574,8 @@ impl PresentationFrame {
             // Wave 75: freeze mesh scale residual (common combat = 1.0; CINE/weapon peels).
             let mesh_scale = obj.drawable_instance_scale;
 
-            // Same controlling-player resolution as gameworld_shadow/construct.rs:
-            // the sparse host registry often leaves owner_player_id unset, so
-            // fall back to team (update_main_crate_vision look-pass parity;
-            // C++ Object::getControllingPlayer).
+            // C++ Object::getControllingPlayer resolves through the Team.
+            // Use the receiving team's player when the roster lacks an explicit owner.
             let resolved_owner = obj
                 .owner_player_id
                 .or_else(|| logic.player_id_for_team(obj.team));

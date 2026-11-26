@@ -1,8 +1,8 @@
 //! Executable command and lifecycle regressions.
 
-fn presentation_overlay_deepen() -> bool {
-    use crate::game_logic::Team;
-    use crate::gameworld_shadow::GameWorldShadow;
+#[test]
+fn receiving_frame_freezes_movement_color_selection_and_body_state() {
+    use crate::game_logic::{Team, host_enum_table_residual::HostBodyDamageType};
     use crate::presentation_frame::PresentationFrame;
     use crate::skirmish_config::{apply_skirmish_config, golden_skirmish_config};
     use glam::Vec3;
@@ -17,68 +17,35 @@ fn presentation_overlay_deepen() -> bool {
         &logic,
         &golden_skirmish_config("PresOverlayDeep189"),
     );
-    if apply_skirmish_config(&mut logic, &cfg).is_err() {
-        return false;
-    }
-    let Some(oid) = logic.create_object("OverlayDeep189", Team::USA, Vec3::new(11.0, 0.0, 12.0))
-    else {
-        return false;
-    };
+    apply_skirmish_config(&mut logic, &cfg).unwrap();
+    let position = Vec3::new(11.0, 0.0, 12.0);
+    let id = logic
+        .create_object("OverlayDeep189", Team::USA, position)
+        .unwrap();
 
-    let mut shadow = GameWorldShadow::new(64);
-    shadow.sync_from_host(&logic);
-    let Some(eid) = shadow.entity_for_host(oid) else {
-        return false;
-    };
-
-    let Some(object) = logic.host_object_mut(oid) else {
-        return false;
-    };
+    let owner = logic.host_object(id).unwrap().owner_player_id.unwrap();
+    let player = logic.get_player_mut(owner).unwrap();
+    player.color_rgb = (25, 51, 76);
+    player.color_night_rgb = player.color_rgb;
+    let object = logic.host_object_mut(id).unwrap();
     object.movement.velocity = Vec3::new(3.5, 0.0, -2.25);
     object.movement.max_speed = 18.5;
     object.selected = true;
-    object.team_color = [0.1, 0.2, 0.3, 1.0];
-    object.body_damage_state =
-        crate::game_logic::host_enum_table_residual::HostBodyDamageType::ReallyDamaged;
+    object.body_damage_state = HostBodyDamageType::ReallyDamaged;
     object.health.current = 88.0;
-    shadow.sync_from_host(&logic);
 
-    let mut pres = PresentationFrame::build_from_logic(&mut logic, 0);
-    if pres.objects.iter().all(|o| o.id != oid) {
-        return false;
-    }
-
-    let n = pres.overlay_gameworld_shadow(&shadow);
-    if n < 1 {
-        return false;
-    }
-    let Some(obj) = pres.objects.iter().find(|o| o.id == oid) else {
-        return false;
-    };
-
-    if (obj.velocity.x - 3.5).abs() > 1e-3 || (obj.velocity.z + 2.25).abs() > 1e-3 {
-        return false;
-    }
-    if (obj.move_max_speed - 18.5).abs() > 1e-3 {
-        return false;
-    }
-    if !obj.selected {
-        return false;
-    }
-    if obj.team_color != [0.1, 0.2, 0.3, 1.0] {
-        return false;
-    }
-    if obj.body_damage_state != 2 {
-        return false;
-    }
-    if (obj.health_current - 88.0).abs() > 1e-3 {
-        return false;
-    }
-
-    true
-}
-
-#[test]
-fn presentation_overlay_deepen_runs() {
-    assert!(presentation_overlay_deepen());
+    let frame = PresentationFrame::try_build_from_logic(&mut logic, 0).unwrap();
+    let row = frame.objects.iter().find(|row| row.id == id).unwrap();
+    assert_eq!(row.velocity, Vec3::new(3.5, 0.0, -2.25));
+    assert_eq!(row.move_max_speed, 18.5);
+    assert!(row.selected);
+    assert_eq!(
+        row.team_color,
+        [25.0 / 255.0, 51.0 / 255.0, 76.0 / 255.0, 1.0]
+    );
+    assert_eq!(
+        row.body_damage_state,
+        HostBodyDamageType::ReallyDamaged.ordinal()
+    );
+    assert_eq!(row.health_current, 88.0);
 }

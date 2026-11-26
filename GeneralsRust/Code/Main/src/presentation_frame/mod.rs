@@ -57,8 +57,6 @@ mod restrict_a;
 mod science_purchase;
 #[cfg(feature = "game_client")]
 mod shortcuts;
-#[cfg(test)]
-mod shadow_presentation;
 mod spectre;
 mod terrain_motion;
 mod types;

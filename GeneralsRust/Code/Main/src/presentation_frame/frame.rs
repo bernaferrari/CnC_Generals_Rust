@@ -379,8 +379,7 @@ pub struct PresentationFrame {
     /// World/environment identity for lighting/shell/bounds/heightmap residual.
     /// Prefer this over live `GameLogic` during GPU collect/execute.
     pub world_env: PresentationWorldEnv,
-    // Reserved slots in the serialized frame. Only the old unit-test observer
-    // writes these values.
+    // Reserved positions and field names in the serialized frame.
     #[serde(default)]
     pub(crate) gameworld_overlay_stamped: usize,
     #[serde(default)]

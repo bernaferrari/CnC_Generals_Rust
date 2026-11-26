@@ -32,53 +32,50 @@ fn shadow_stable_ids_across_sync() {
 }
 
 #[test]
-fn coalesced_presentation_keeps_per_step_entity_ids_for_short_lived_objects() {
+fn saved_frames_keep_short_lived_object_ids_after_physical_removal() {
+    use crate::presentation_frame::PresentationFrame;
+
     let mut logic = GameLogic::new();
     ensure_template(&mut logic, "ObservationUnit", 100.0);
     let first = logic
         .create_object("ObservationUnit", Team::USA, Vec3::ZERO)
         .unwrap();
-    let mut eager = GameWorldShadow::new(4);
-    let mut deferred = GameWorldShadow::new(4);
-    eager.sync_from_host(&logic);
-    deferred.sync_from_host(&logic);
+    let initial = PresentationFrame::try_build_from_logic(&mut logic, 0).unwrap();
 
     let transient = logic
         .create_object("ObservationUnit", Team::USA, Vec3::X)
         .unwrap();
     logic.frame = 1;
-    eager.sync_from_host(&logic);
     logic.complete_presentation_observations();
-    assert_eq!(deferred.observe_completed_host_step(&logic), 2);
-    assert_eq!(
-        deferred.entity_for_host(transient),
-        eager.entity_for_host(transient)
-    );
+    let middle = PresentationFrame::try_build_from_logic(&mut logic, 0).unwrap();
 
     logic.destroy_object(transient).unwrap();
-    logic.process_destroy_list();
+    logic
+        .process_destroy_list_with_effects_checked(&mut Default::default())
+        .unwrap();
     let survivor = logic
         .create_object("ObservationUnit", Team::USA, Vec3::Y)
         .unwrap();
     logic.frame = 2;
-    eager.sync_from_host(&logic);
     logic.complete_presentation_observations();
-    deferred.observe_completed_host_step(&logic);
-    deferred.sync_from_host(&logic);
+    let final_frame = PresentationFrame::try_build_from_logic(&mut logic, 0).unwrap();
 
-    assert_eq!(deferred.world().frame(), 2);
-    assert_eq!(deferred.mapped_count(), eager.mapped_count());
-    assert_eq!(deferred.entity_for_host(first), eager.entity_for_host(first));
+    assert_eq!(initial.frame.0, 0);
+    assert_eq!(initial.renderable_object_ids(), [first]);
+    assert_eq!(middle.frame.0, 1);
+    assert_eq!(middle.renderable_object_ids(), [first, transient]);
+    assert_eq!(final_frame.frame.0, 2);
+    assert_ne!(transient, survivor);
+    assert_eq!(final_frame.renderable_object_ids(), [first, survivor]);
     assert_eq!(
-        deferred.entity_for_host(survivor),
-        eager.entity_for_host(survivor)
+        final_frame
+            .objects
+            .iter()
+            .find(|row| row.id == survivor)
+            .unwrap()
+            .position,
+        Vec3::Y
     );
-    assert_eq!(deferred.entity_for_host(transient), None);
-    let entity = deferred
-        .world()
-        .entity(deferred.entity_for_host(survivor).unwrap())
-        .unwrap();
-    assert_eq!(entity.transform.position.y, 1.0);
 }
 
 #[test]
@@ -326,61 +323,63 @@ fn shadow_damage_mutation_matches_host() {
 fn shadow_counts_and_economy_match_after_skirmish_config() {
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("GameWorldShadowMap");
-    logic.admit_object_ini_sources(std::iter::empty()).expect("fixture Object content admitted before NewGame");
+    logic
+        .admit_object_ini_sources(std::iter::empty())
+        .expect("fixture Object content admitted before NewGame");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
-    let (shadow, probe) = probe_host_vs_gameworld(&mut logic);
+    let (_, probe) = probe_host_vs_gameworld(&mut logic);
     assert!(
         probe.full_match() || probe.host_objects > 4096,
         "{}",
         probe.format_report()
     );
-    let view = presentation_view_from_shadow(&shadow, 0);
-    assert_eq!(view.frame, logic.get_frame() as u64);
+    let frame =
+        crate::presentation_frame::PresentationFrame::try_build_from_logic(&mut logic, 0).unwrap();
+    assert_eq!(frame.frame.0, logic.get_frame());
+    assert_eq!(frame.objects.len(), logic.host_objects().registered_len());
     assert_eq!(
-        view.entities.len(),
-        logic.host_objects().registered_len().min(4096)
+        frame.local_supplies,
+        logic.get_player(0).unwrap().resources.supplies
     );
 }
 
 #[test]
-fn presentation_overlay_uses_shadow_health() {
+fn frame_health_is_frozen_across_a_receiving_body_write() {
     use crate::presentation_frame::PresentationFrame;
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("PresOverlay");
-    logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object OverlayUnit\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
+    logic
+        .admit_object_ini_sources([(
+            "fixture-objects.ini".into(),
+            "Object OverlayUnit\nEnd\n".into(),
+        )])
+        .expect("fixture Object content admitted before NewGame");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
     insert_fixture_template(&mut logic, "OverlayUnit", 100.0);
     let id = logic
         .create_object("OverlayUnit", Team::USA, glam::Vec3::new(4.0, 0.0, 0.0))
         .expect("u");
-    let mut shadow = GameWorldShadow::new(64);
-    shadow.sync_from_host(&logic);
-    let entity = shadow.entity_for_host(id).unwrap();
-    assert_eq!(shadow.host_for_entity(entity), Some(id));
-    shadow
-        .world_mut()
-        .world_mut()
-        .entity_mut(entity)
-        .unwrap()
-        .health = 60.0;
-    let mut pres = PresentationFrame::build_from_logic(&mut logic, 0);
-    let before = pres
-        .objects
-        .iter()
-        .find(|o| o.id == id)
-        .map(|o| o.health_current)
-        .unwrap();
-    let n = pres.overlay_gameworld_shadow(&shadow);
-    assert!(n >= 1);
-    let after = pres
-        .objects
-        .iter()
-        .find(|o| o.id == id)
-        .map(|o| o.health_current)
-        .unwrap();
-    assert!(
-        after < before,
-        "overlay should pull lower shadow HP {after} vs {before}"
+    let before = PresentationFrame::try_build_from_logic(&mut logic, 0).unwrap();
+    let (object, events) = logic.host_object_and_health_events_mut(id).unwrap();
+    assert!(!object.take_damage_from(40.0, None, before.frame.0, events));
+    let after = PresentationFrame::try_build_from_logic(&mut logic, 0).unwrap();
+    assert_eq!(
+        before
+            .objects
+            .iter()
+            .find(|row| row.id == id)
+            .unwrap()
+            .health_current,
+        100.0
+    );
+    assert_eq!(
+        after
+            .objects
+            .iter()
+            .find(|row| row.id == id)
+            .unwrap()
+            .health_current,
+        60.0
     );
 }
 

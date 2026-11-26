@@ -1681,11 +1681,7 @@ mod presentation_selection_tests {
             object.status.disabled_freefall = freefall;
             object.status.disabled_emp = emp;
             object.status.under_construction = construction;
-            let mut frame = PresentationFrame::build_from_logic(&mut logic, 0);
-            assert_eq!(frame.objects[0].disabled_held, held);
-            // The late host overlay must retain the same raw held fact.
-            frame.objects[0].disabled_held = !held;
-            frame.overlay_host_fx_residual(&logic);
+            let frame = PresentationFrame::try_build_from_logic(&mut logic, 0).unwrap();
             assert_eq!(frame.objects[0].disabled_held, held);
             let mut encoded = serde_json::to_value(&frame.objects[0]).expect("encode frame object");
             let restored: crate::presentation_frame::RenderableObject =

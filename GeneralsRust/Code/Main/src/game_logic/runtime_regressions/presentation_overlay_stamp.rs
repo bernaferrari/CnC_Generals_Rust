@@ -1,8 +1,8 @@
 //! Executable command and lifecycle regressions.
 
-fn presentation_overlay_stamp() -> bool {
+#[test]
+fn receiving_frame_refreshes_on_capture_and_keeps_the_previous_selection() {
     use crate::game_logic::Team;
-    use crate::gameworld_shadow::GameWorldShadow;
     use crate::presentation_frame::PresentationFrame;
     use crate::skirmish_config::{apply_skirmish_config, golden_skirmish_config};
     use glam::Vec3;
@@ -17,44 +17,21 @@ fn presentation_overlay_stamp() -> bool {
         &logic,
         &golden_skirmish_config("PresOverlayStamp190"),
     );
-    if apply_skirmish_config(&mut logic, &cfg).is_err() {
-        return false;
-    }
-    let Some(oid) = logic.create_object("StampU190", Team::USA, Vec3::new(9.0, 0.0, 9.0)) else {
-        return false;
-    };
+    apply_skirmish_config(&mut logic, &cfg).unwrap();
+    let position = Vec3::new(9.0, 0.0, 9.0);
+    let id = logic
+        .create_object("StampU190", Team::USA, position)
+        .unwrap();
 
-    let mut shadow = GameWorldShadow::new(64);
-    shadow.sync_from_host(&logic);
-    let Some(eid) = shadow.entity_for_host(oid) else {
-        return false;
-    };
-    let Some(object) = logic.host_object_mut(oid) else {
-        return false;
-    };
+    let before = PresentationFrame::try_build_from_logic(&mut logic, 0).unwrap();
+    let object = logic.host_object_mut(id).unwrap();
     object.health.current = 55.0;
     object.selected = true;
-    shadow.sync_from_host(&logic);
 
-    let mut pres = PresentationFrame::build_from_logic(&mut logic, 0);
-    if pres.gameworld_overlay_stamped != 0 {
-        return false;
-    }
-    let n = pres.overlay_gameworld_shadow(&shadow);
-    if n < 1 {
-        return false;
-    }
-    if pres.gameworld_overlay_stamped == 0 {
-        return false;
-    }
-    if pres.gameworld_overlay_stamped != n {
-        return false;
-    }
-
-    true
-}
-
-#[test]
-fn presentation_overlay_stamp_runs() {
-    assert!(presentation_overlay_stamp());
+    let after = PresentationFrame::try_build_from_logic(&mut logic, 0).unwrap();
+    let a = before.objects.iter().find(|row| row.id == id).unwrap();
+    let b = after.objects.iter().find(|row| row.id == id).unwrap();
+    assert_eq!(before.frame, after.frame);
+    assert_eq!((a.health_current, a.selected), (150.0, false));
+    assert_eq!((b.health_current, b.selected), (55.0, true));
 }

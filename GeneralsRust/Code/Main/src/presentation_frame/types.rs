@@ -50,28 +50,6 @@ impl PresentationProductionItem {
             progress_ratio: Self::progress_ratio(item.progress, item.total_time),
         }
     }
-
-    /// Wave 489: GameWorld entity production queue → presentation strip.
-    #[inline]
-    pub fn from_entity_item(item: &gamelogic::world::entities::EntityProductionItem) -> Self {
-        Self {
-            template_name: item.template_name.clone(),
-            progress: item.progress,
-            total_time: item.total_time,
-            cost_supplies: item.cost_supplies,
-            is_upgrade: item.is_upgrade,
-            progress_ratio: Self::progress_ratio(item.progress, item.total_time),
-        }
-    }
-
-    pub(super) fn matches_entity_item(&self, item: &gamelogic::world::entities::EntityProductionItem) -> bool {
-        self.template_name == item.template_name
-            && self.progress == item.progress
-            && self.total_time == item.total_time
-            && self.cost_supplies == item.cost_supplies
-            && self.is_upgrade == item.is_upgrade
-            && self.progress_ratio == Self::progress_ratio(item.progress, item.total_time)
-    }
 }
 
 /// Snapshot-owned veterancy rank (host Experience residual).

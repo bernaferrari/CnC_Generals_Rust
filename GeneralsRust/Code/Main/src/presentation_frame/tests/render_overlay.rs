@@ -1073,30 +1073,43 @@ fn direct_host_shroud_facts_use_raw_membership_not_visibility_alpha() {
 }
 
 #[test]
-fn overlay_gameworld_shadow_copies_entity_residual() {
-    use crate::game_logic::{GameLogic, KindOf, Team, ThingTemplate};
-    use crate::gameworld_shadow::GameWorldShadow;
+fn receiving_frame_freezes_object_orders_body_and_containment() {
+    use crate::fixture_content::FixtureObject;
+    use crate::game_logic::{KindOf, Team};
+    use crate::game_logic::{
+        Resources,
+        buildings::{BuildingData, BuildingType, ProductionItem, ProductionKind},
+        pathfinding::PathRoute,
+    };
     use crate::skirmish_config::golden_skirmish_config;
-    let mut logic = GameLogic::new();
-    let cfg = golden_skirmish_config("OverlayShadowRes");
-    logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object OvlU\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
-    crate::skirmish_config::lobby_definition_tests::start_slot_skirmish(&mut logic, &cfg).expect("cfg");
-    {
-        let mut t = ThingTemplate::new("OvlU");
-        t.set_health(100.0);
-        t.add_kind_of(KindOf::Selectable);
-        logic.templates.insert("OvlU".into(), t);
-    }
+    let mut logic = crate::skirmish_config::lobby_definition_tests::slot_world_with_objects(&[
+        FixtureObject::new("OvlU")
+            .kind_of("STRUCTURE SELECTABLE HARVESTER")
+            .health(100.0),
+        FixtureObject::new("FrameRider")
+            .kind_of("INFANTRY")
+            .health(40.0),
+    ]);
+    let cfg = golden_skirmish_config("FrameOrders");
+    crate::skirmish_config::lobby_definition_tests::start_slot_skirmish(&mut logic, &cfg)
+        .expect("cfg");
     let id = logic
         .create_object("OvlU", Team::USA, glam::Vec3::new(2.0, 0.0, 2.0))
         .expect("id");
+    let first_rider = logic
+        .create_object("FrameRider", Team::USA, glam::Vec3::ZERO)
+        .unwrap();
+    let second_rider = logic
+        .create_object("FrameRider", Team::USA, glam::Vec3::ZERO)
+        .unwrap();
+    let path = [glam::Vec3::new(2., 0., 4.), glam::Vec3::new(8., 1., 2.)];
     {
         use crate::game_logic::Weapon;
-        let obj = logic./* Wave 948 */ /* Wave 950 */ host_object_mut(id).expect("obj");
+        let obj = logic.host_object_mut(id).expect("obj");
         obj.selected = true;
         obj.status.stealthed = true;
         obj.status.detected = false;
-        obj.command_set_override = Some("Command_ShadowOvl".into());
+        obj.command_set_override = Some("Command_FrameOrder".into());
         obj.is_detector = true;
         crate::fixture_content::arm_slot_with_stats(
             obj,
@@ -1127,116 +1140,94 @@ fn overlay_gameworld_shadow_copies_entity_residual() {
         );
         obj.force_attack = true;
         obj.show_health_bar = false;
+        obj.movement.path = PathRoute::from_coords(path.to_vec());
+        let mut building = BuildingData::new(BuildingType::Bunker);
+        building
+            .garrisoned_units
+            .extend([second_rider, first_rider]);
+        building.production_queue.push(ProductionItem {
+            runtime_entry_identity: 1,
+            template_name: "Upgrade_FrameOrder".into(),
+            progress: 0.5,
+            total_time: 2.0,
+            construction_frames: 15,
+            cost: Resources {
+                supplies: 80,
+                ..Default::default()
+            },
+            quantity_total: 1,
+            quantity_produced: 0,
+            kind: ProductionKind::Upgrade,
+        });
+        obj.building_data = Some(building);
     }
-    let mut shadow = GameWorldShadow::new(64);
-    shadow.sync_from_host(&logic);
-    let entity_id = shadow.entity_for_host(id).expect("shadow entity");
-    let entity = shadow.world_mut().world_mut().entity_mut(entity_id).unwrap();
-    entity.kind_of_bits = (1_u32 << 31) | (1_u32 << 6) | 1;
-    entity.path_waypoints = vec![[2., 0., 4.], [8., 1., 2.]];
-    entity.garrisoned_host_ids = vec![7, 5];
-    entity.production_queue_items = vec![gamelogic::world::entities::EntityProductionItem {
-        template_name: "Upgrade_OverlayParity".into(),
-        progress: 0.5,
-        total_time: 2.,
-        construction_frames: 15,
-        cost_supplies: 80,
-        is_upgrade: true,
-        quantity_total: 1,
-        quantity_produced: 0,
-    }];
-    // Poison host after sync — overlay must use shadow residual.
-    if let Some((obj, fixture_partition)) = logic.host_object_and_partition_mut(id) {
-        obj.set_position_with_partition_owner(
-            glam::Vec3::new(999.0, 0.0, 999.0),
-            0,
-            &mut Default::default(),
-            fixture_partition,
-        );
-        obj.selected = false;
-        obj.command_set_override = None;
-        obj.status.stealthed = false;
-    }
-    let mut frame = PresentationFrame::build_from_logic(&mut logic, 0);
-    // Host freeze has poisoned values; overlay restores shadow.
-    let n = frame.overlay_gameworld_shadow(&shadow);
-    assert!(n >= 1, "overlay must update at least one object");
+    let frame = PresentationFrame::try_build_from_logic(&mut logic, 0).unwrap();
     let ro = frame.objects.iter().find(|o| o.id == id).expect("ro");
-    assert!(
-        (ro.position.x - 2.0).abs() < 0.1,
-        "shadow pose wins, got {:?}",
-        ro.position
-    );
-    assert!(ro.selected, "shadow selected residual");
+    assert_eq!(ro.position, glam::Vec3::new(2.0, 0.0, 2.0));
+    assert!(ro.selected);
     assert!(ro.stealthed && !ro.detected && ro.effectively_stealthed);
-    assert_eq!(ro.command_set_override, "Command_ShadowOvl");
+    assert_eq!(ro.command_set_override, "Command_FrameOrder");
     assert!(ro.is_detector && ro.force_attack);
     assert!(!ro.show_health_bar);
     assert!((ro.weapon_range - 120.0).abs() < 0.01);
-    assert_eq!(ro.kind_of, [KindOf::Structure, KindOf::Selectable, KindOf::Harvester]);
-    assert_eq!(ro.path_waypoints, [glam::Vec3::new(2., 0., 4.), glam::Vec3::new(8., 1., 2.)]);
-    assert_eq!(ro.garrisoned_units, [ObjectId(7), ObjectId(5)]);
+    assert_eq!(
+        ro.kind_of,
+        [KindOf::Structure, KindOf::Selectable, KindOf::Attackable, KindOf::Harvester]
+    );
+    assert_eq!(ro.path_waypoints, path);
+    assert_eq!(ro.garrisoned_units, [second_rider, first_rider]);
     assert_eq!(ro.production_queue.len(), 1);
-    assert_eq!(ro.production_queue[0].template_name, "Upgrade_OverlayParity");
+    assert_eq!(ro.production_queue[0].template_name, "Upgrade_FrameOrder");
     assert_eq!(ro.production_queue[0].progress_ratio, 0.25);
     assert!(ro.production_queue[0].is_upgrade);
 
-    let expected = frame.objects.clone();
-    frame.overlay_gameworld_shadow(&shadow);
-    assert_eq!(frame.objects, expected);
+    let next = PresentationFrame::try_build_from_logic(&mut logic, 0).unwrap();
+    assert_eq!(frame.objects, next.objects);
 }
 
 #[test]
-fn gameworld_rebuild_matches_sparse_roster_then_overlay() {
+fn receiving_roster_preserves_real_actor_ids_model_and_command_order() {
     use crate::game_logic::Object;
-    use gamelogic::world::entities::{TemplateRef, Transform};
+    use glam::Vec3;
 
     let mut logic = GameLogic::new();
     let mut template = ThingTemplate::new("PublicationSource");
-    template.set_health(100.0);
-    let id = ObjectId(42);
-    logic.add_object(Object::new(template, id, Team::USA));
-    let mut shadow = crate::gameworld_shadow::GameWorldShadow::new(64);
-    shadow.sync_from_host(&logic);
-    let mapped = shadow.entity_for_host(id).expect("mapped host object");
-    let world = shadow.world_mut().world_mut();
-    let entity = world.entity_mut(mapped).expect("mapped entity");
-    entity.model_key = "publication_override".into();
-    entity.command_set_override = "Command_Publication".into();
-    let unmapped = world.spawn_entity(
-        TemplateRef::new("PublicationUnmapped"),
-        None,
-        Transform::new([10.0, 2.0, 3.0], 0.25),
-        20.0,
-    );
-    world.entity_mut(unmapped).unwrap().model_key = "unmapped_override".into();
+    template.set_health(100.0).set_model("publication_model");
+    let first_id = ObjectId(42);
+    logic.add_object(Object::new(template, first_id, Team::USA));
+    logic
+        .host_object_mut(first_id)
+        .unwrap()
+        .command_set_override = Some("Command_Publication".into());
+    let first = PresentationFrame::try_build_from_logic(&mut logic, 0).unwrap();
 
-    let mut expected = PresentationFrame::build_from_logic(&mut logic, 0);
-    expected.objects = shadow
-        .world()
-        .world()
-        .entities()
-        .map(|entity| {
-            let host_id = shadow
-                .host_for_entity(entity.id)
-                .unwrap_or_else(|| ObjectId(0x8000_0000 | entity.id.get()));
-            PresentationFrame::renderable_from_gameworld_entity(None, host_id, entity)
-        })
-        .collect();
-    let expected_stamps = expected.overlay_gameworld_shadow(&shadow);
-    let mut actual = PresentationFrame::build_from_logic(&mut logic, 0);
-    assert_eq!(actual.rebuild_objects_from_gameworld(&shadow), 2);
-    assert_eq!(actual.objects, expected.objects);
-    assert_eq!(actual.gameworld_overlay_stamped, expected_stamps);
-    let object = actual.objects.iter().find(|object| object.id == id).unwrap();
-    assert_eq!(object.model_key.as_deref(), Some("publication_override"));
-    assert_eq!(object.command_set_override, "Command_Publication");
-    let object = actual
-        .objects
-        .iter()
-        .find(|object| object.id == ObjectId(0x8000_0000 | unmapped.get()))
-        .unwrap();
-    assert_eq!(object.model_key.as_deref(), Some("PublicationUnmapped"));
+    let mut template = ThingTemplate::new("PublicationSecond");
+    template.set_health(20.0).set_model("second_model");
+    let second_id = ObjectId(17);
+    logic.add_object(Object::new(template, second_id, Team::USA));
+    let (object, partition) = logic.host_object_and_partition_mut(second_id).unwrap();
+    let position = Vec3::new(10.0, 2.0, 3.0);
+    object.set_position_with_partition_owner(position, 0, &mut Default::default(), partition);
+    object.set_orientation_with_partition_owner(0.25, partition);
+
+    let next = PresentationFrame::try_build_from_logic(&mut logic, 0).unwrap();
+    assert_eq!(first.renderable_object_ids(), [first_id]);
+    assert_eq!(next.renderable_object_ids(), [second_id, first_id]);
+    let second = &next.objects[0];
+    assert_eq!(second.model_key.as_deref(), Some("second_model"));
+    assert_eq!(second.position, position);
+    assert_eq!(second.orientation, 0.25);
+    assert_eq!(second.health_current, 20.0);
+    let source = &next.objects[1];
+    assert_eq!(source.model_key.as_deref(), Some("publication_model"));
+    assert_eq!(source.command_set_override, "Command_Publication");
+    assert_eq!(
+        next.direct_host_drawables
+            .iter()
+            .map(|draw| draw.object.id)
+            .collect::<Vec<_>>(),
+        [second_id, first_id]
+    );
 }
 
 #[test]
@@ -1483,24 +1474,23 @@ fn native_publication_tracks_registered_visible_objects_at_the_frame_boundary() 
 }
 
 #[test]
-fn host_player_facts_survive_shadow_object_overlay() {
+fn ordinary_and_victory_publication_share_receiving_player_facts() {
     use crate::game_logic::GameLogic;
-    use crate::gameworld_shadow::GameWorldShadow;
     use crate::skirmish_config::golden_skirmish_config;
-    // Ensure economy authority path is on for this process (gate default).
 
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("OverlayEconPower");
-    logic.admit_object_ini_sources(std::iter::empty()).expect("fixture Object content admitted before NewGame");
-    crate::skirmish_config::lobby_definition_tests::start_slot_skirmish(&mut logic, &cfg).expect("cfg");
+    logic
+        .admit_object_ini_sources(std::iter::empty())
+        .expect("fixture Object content admitted before NewGame");
+    crate::skirmish_config::lobby_definition_tests::start_slot_skirmish(&mut logic, &cfg)
+        .expect("cfg");
     // Host starting cash from golden config.
     let host_cash = logic
         .get_player(0)
         .map(|p| p.resources.supplies)
         .unwrap_or(0);
     assert!(host_cash > 0, "host must have cash");
-    let mut shadow = GameWorldShadow::new(64);
-    shadow.sync_from_host(&logic);
     // Author the receiving Main player; the projection copies completed fields.
     let player = logic.get_player_mut(0).unwrap();
     player.resources.supplies = host_cash.saturating_add(1234);
@@ -1523,11 +1513,14 @@ fn host_player_facts_survive_shadow_object_overlay() {
     player
         .shared_special_power_cooldowns
         .insert(crate::command_system::SpecialPowerType::ScudStorm, 0.0);
-    shadow.sync_from_host(&logic);
-    let mut frame = PresentationFrame::build_from_logic(&mut logic, 0);
-    assert_eq!(frame.local_supplies, host_cash.saturating_add(1234));
-    let _ = frame.overlay_gameworld_shadow(&shadow);
-    {
+    let ordinary = PresentationFrame::try_publish_for_engine_with_runtime_heightmap(
+        &mut logic, 0, None, false,
+    )
+    .unwrap();
+    let frame =
+        PresentationFrame::try_publish_for_engine_with_runtime_heightmap(&mut logic, 0, None, true)
+            .unwrap();
+    for frame in [&ordinary, &frame] {
         assert_eq!(frame.local_supplies, host_cash.saturating_add(1234));
         assert_eq!(frame.local_power, 77);
         assert_eq!(frame.local_power_produced, 88);
@@ -1548,16 +1541,14 @@ fn host_player_facts_survive_shadow_object_overlay() {
             .iter()
             .any(|s| s == "SCIENCE_TestRank")
     );
-    // Superweapon PublicTimer rows are built from the owning world's
-    // SpecialPowerModule ready frame (SpecialPowerModule.cpp:756-765), not
-    // rewritten from the shadow: the overlay leaves them as built.
-    let built_timers = frame.superweapon_timers.clone();
-    let _ = frame.overlay_gameworld_shadow(&shadow);
-    assert_eq!(frame.superweapon_timers, built_timers);
-    if let Some(pi) = frame.players.iter().find(|p| p.id == frame.local_player_id) {
-        assert!(!pi.is_alive);
-        assert_eq!(pi.color_rgb, (9, 8, 7));
-    }
+    assert_eq!(frame.superweapon_timers, ordinary.superweapon_timers);
+    let player = frame
+        .players
+        .iter()
+        .find(|p| p.id == frame.local_player_id)
+        .unwrap();
+    assert!(!player.is_alive);
+    assert_eq!(player.color_rgb, (9, 8, 7));
 }
 
 fn unit_display_info_carries_command_set_override_residual() {

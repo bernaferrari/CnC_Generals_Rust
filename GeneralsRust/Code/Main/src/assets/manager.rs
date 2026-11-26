@@ -2939,9 +2939,8 @@ pub fn toggle_cnc_music() {
 #[cfg(test)]
 mod tests {
     #[test]
-    fn gameworld_projection_shares_only_the_receiving_catalogues_equal_draw_selections() {
+    fn receiving_templates_share_equal_draw_selections_within_their_catalogue() {
         use crate::game_logic::{GameLogic, Object, ObjectId, Team, ThingTemplate};
-        use crate::gameworld_shadow::GameWorldShadow;
         use crate::presentation_frame::PresentationFrame;
 
         fn frame(pristine: &str, damaged: &str) -> PresentationFrame {
@@ -2954,36 +2953,64 @@ mod tests {
             )
             .unwrap();
             let mut assets = super::AssetManager::new().unwrap();
-            assets.archive_system.set_local_search_roots([root.path().to_owned()]);
+            assets
+                .archive_system
+                .set_local_search_roots([root.path().to_owned()]);
             futures::executor::block_on(assets.ww3d_manager.initialize(&mut assets.archive_system))
                 .unwrap();
-            let mut logic = GameLogic::new();
-            logic.bind_application_assets(std::sync::Arc::new(std::sync::Mutex::new(assets)));
+            let definition = assets.get_object_definition("SharedDraw").unwrap();
             let mut template = ThingTemplate::new("SharedDraw");
             template.set_health(100.0);
+            template
+                .set_authored_draw_models(definition.model_name.as_deref(), &definition.draw_modules);
+            let mut logic = GameLogic::new();
+            logic.bind_application_assets(std::sync::Arc::new(std::sync::Mutex::new(assets)));
             for index in 1..=3 {
                 logic.add_object(Object::new(template.clone(), ObjectId(index), Team::USA));
             }
-            let mut shadow = GameWorldShadow::new(32);
-            shadow.sync_from_host(&logic);
-            let entity = shadow.entity_for_host(ObjectId(3)).unwrap();
-            shadow.world_mut().world_mut().entity_mut(entity).unwrap().model_condition_bits =
-                1 << crate::game_logic::host_enum_table_residual::MC_BIT_DAMAGED;
-            let mut frame = PresentationFrame::build_from_logic(&mut logic, 0);
-            assert_eq!(frame.rebuild_objects_from_gameworld(&shadow), 3);
+            logic
+                .host_object_mut(ObjectId(3))
+                .unwrap()
+                .body_damage_state =
+                crate::game_logic::host_enum_table_residual::HostBodyDamageType::Damaged;
+            let frame = PresentationFrame::try_build_from_logic(&mut logic, 0).unwrap();
+            assert_eq!(frame.objects.len(), 3);
             frame
         }
 
         let left = frame("LeftPristine", "None");
         let right = frame("RightPristine", "RightDamaged");
         for (frame, name) in [(&left, "LeftPristine"), (&right, "RightPristine")] {
-            let base = frame.objects.iter().find(|row| row.id == ObjectId(1)).unwrap();
-            let equal = frame.objects.iter().find(|row| row.id == ObjectId(2)).unwrap();
+            let base = frame
+                .objects
+                .iter()
+                .find(|row| row.id == ObjectId(1))
+                .unwrap();
+            let equal = frame
+                .objects
+                .iter()
+                .find(|row| row.id == ObjectId(2))
+                .unwrap();
             assert_eq!(base.model_key.as_deref(), Some(name));
-            assert!(std::sync::Arc::ptr_eq(&base.draw_models, &equal.draw_models));
+            assert!(std::sync::Arc::ptr_eq(
+                &base.draw_models,
+                &equal.draw_models
+            ));
         }
-        let left_damaged = left.objects.iter().find(|row| row.id == ObjectId(3)).unwrap();
-        let right_damaged = right.objects.iter().find(|row| row.id == ObjectId(3)).unwrap();
+        assert!(!std::sync::Arc::ptr_eq(
+            &left.objects[0].draw_models,
+            &right.objects[0].draw_models
+        ));
+        let left_damaged = left
+            .objects
+            .iter()
+            .find(|row| row.id == ObjectId(3))
+            .unwrap();
+        let right_damaged = right
+            .objects
+            .iter()
+            .find(|row| row.id == ObjectId(3))
+            .unwrap();
         assert!(left_damaged.draw_models.is_empty());
         assert!(left_damaged.model_key.is_none());
         assert_eq!(right_damaged.model_key.as_deref(), Some("RightDamaged"));

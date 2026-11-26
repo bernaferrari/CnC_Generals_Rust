@@ -14,7 +14,7 @@ fn receiving_world(pristine: &str, damaged: &str) -> GameLogic {
 }
 
 #[test]
-fn receiving_model_frame_rejects_shadow_alias_and_selects_its_own_condition_table() {
+fn receiving_model_frame_selects_its_own_condition_table() {
     use crate::game_logic::host_enum_table_residual::MC_BIT_DAMAGED;
     let mut world = receiving_world("None", "ReceivingDamaged");
     let mut peer = receiving_world("PeerPristine", "None");
@@ -37,27 +37,15 @@ fn receiving_model_frame_rejects_shadow_alias_and_selects_its_own_condition_tabl
         bincode::serde::decode_from_slice(&legacy, wire).unwrap();
     assert_eq!(consumed, legacy.len());
     assert_eq!(restored, *models);
-    let mut frame = PresentationFrame::build_from_logic(&mut world, 0);
-    assert!(frame.objects[0].model_key.is_none());
-    assert!(frame.objects[0].draw_models.is_empty());
-    let mut shadow = crate::gameworld_shadow::GameWorldShadow::new(16);
-    shadow.sync_from_host(&world);
-    let eid = shadow.entity_for_host(ObjectId(42)).unwrap();
-    {
-        let entity = shadow.world_mut().world_mut().entity_mut(eid).unwrap();
-        entity.model_key = "PoisonedShadowMesh".into();
-        entity.model_condition_bits = 0;
-    }
-    frame.overlay_gameworld_shadow(&shadow);
-    assert!(frame.objects[0].model_key.is_none());
-    assert!(frame.objects[0].draw_models.is_empty());
-    shadow
-        .world_mut()
-        .world_mut()
-        .entity_mut(eid)
-        .unwrap()
-        .model_condition_bits = 1u128 << MC_BIT_DAMAGED;
-    frame.overlay_gameworld_shadow(&shadow);
+    let pristine = PresentationFrame::try_build_from_logic(&mut world, 0).unwrap();
+    assert!(pristine.objects[0].model_key.is_none());
+    assert!(pristine.objects[0].draw_models.is_empty());
+    let actor = world.host_object_mut(ObjectId(42)).unwrap();
+    actor.body_damage_state =
+        crate::game_logic::host_enum_table_residual::HostBodyDamageType::Damaged;
+    actor.model_condition_bits = 1u128 << MC_BIT_DAMAGED;
+    let frame = PresentationFrame::try_build_from_logic(&mut world, 0).unwrap();
+    assert!(pristine.objects[0].draw_models.is_empty());
     assert_eq!(
         frame.objects[0].model_key.as_deref(),
         Some("ReceivingDamaged")
@@ -116,8 +104,7 @@ fn receiving_model_render_input_keeps_its_table_through_environment_and_disguise
 }
 
 #[test]
-fn shadow_renderable_uses_receiving_asset_catalogue_for_same_object_name() {
-    use gamelogic::world::entities::{EntityStore, TemplateRef, Transform};
+fn rendering_uses_receiving_asset_catalogue_for_same_object_name() {
     use std::sync::{Arc, Mutex};
 
     fn manager(model: &str) -> Arc<Mutex<crate::assets::AssetManager>> {
@@ -132,16 +119,6 @@ fn shadow_renderable_uses_receiving_asset_catalogue_for_same_object_name() {
 
     let first = manager("FirstTreeMesh");
     let second = manager("SecondTreeMesh");
-    let mut entities = EntityStore::new();
-    let id = entities.spawn(TemplateRef::new("SharedTree"), None, Transform::default(), 100.0);
-    let entity = entities.get(id).unwrap();
-    let resolve = |owner: &Arc<Mutex<crate::assets::AssetManager>>| PresentationFrame::renderable_from_gameworld_entity(
-        Some(owner.as_ref()), ObjectId(42), entity,
-    ).model_key;
-    assert_eq!(resolve(&first).as_deref(), Some("FirstTreeMesh"));
-    assert_eq!(resolve(&second).as_deref(), Some("SecondTreeMesh"));
-    assert_eq!(resolve(&first).as_deref(), Some("FirstTreeMesh"));
-
     let mut left = GameLogic::new();
     let mut right = GameLogic::new();
     left.bind_application_assets(Arc::clone(&first));
@@ -155,21 +132,17 @@ fn shadow_renderable_uses_receiving_asset_catalogue_for_same_object_name() {
     template.set_health(100.0);
     left.add_object(Object::new(template.clone(), ObjectId(42), Team::USA));
     right.add_object(Object::new(template, ObjectId(42), Team::USA));
-    let left_frame = PresentationFrame::build_from_logic(&mut left, 0);
-    let right_frame = PresentationFrame::build_from_logic(&mut right, 0);
-    let model = |frame: &PresentationFrame| frame.unit_render_inputs()
-        .into_iter().find(|input| input.id == ObjectId(42)).unwrap().model_key;
+    let left_frame = PresentationFrame::try_build_from_logic(&mut left, 0).unwrap();
+    let right_frame = PresentationFrame::try_build_from_logic(&mut right, 0).unwrap();
+    let model = |frame: &PresentationFrame| {
+        frame
+            .unit_render_inputs()
+            .into_iter()
+            .find(|input| input.id == ObjectId(42))
+            .unwrap()
+            .model_key
+    };
     assert_eq!(model(&left_frame), "FirstTreeMesh");
     assert_eq!(model(&right_frame), "SecondTreeMesh");
     assert_eq!(model(&left_frame), "FirstTreeMesh");
-
-    let mut observed = crate::gameworld_shadow::GameWorldShadow::new(16);
-    let observe = |shadow: &mut crate::gameworld_shadow::GameWorldShadow, world: &GameLogic| {
-        shadow.sync_from_host(world);
-        let id = shadow.entity_for_host(ObjectId(42)).unwrap();
-        shadow.world().entity(id).unwrap().model_key.clone()
-    };
-    assert_eq!(observe(&mut observed, &left), "FirstTreeMesh");
-    assert_eq!(observe(&mut observed, &right), "SecondTreeMesh");
-    assert_eq!(observe(&mut observed, &left), "FirstTreeMesh");
 }
