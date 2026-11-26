@@ -1,80 +1,14 @@
 #[cfg(test)]
 use std::sync::Arc;
 
-use crate::common::{
-    AsciiString, LegacyModuleData, ObjectID, ObjectStatusMaskType, UpgradeMaskType,
-};
+#[cfg(test)]
+use crate::common::AsciiString;
+use crate::common::{ObjectID, ObjectStatusMaskType, UpgradeMaskType};
 use crate::object::Object;
-use crate::object::upgrade::upgrade_module::{UpgradeMuxData, mux_can_upgrade, mux_reset_upgrade};
-use game_engine::common::ini::{FieldParse, INI, INIError};
+use crate::object::upgrade::upgrade_module::{mux_can_upgrade, mux_reset_upgrade};
+pub use game_engine::common::system::upgrade::StatusBitsUpgradeModuleData;
 use game_engine::common::system::{Snapshotable, Xfer};
-use game_engine::common::thing::module::{Module, ModuleData, ModuleDataHandle, ModuleDataView, NameKeyType};
-
-/// Module data describing the status bits to set/clear when an upgrade is applied.
-#[derive(Debug, Clone)]
-pub struct StatusBitsUpgradeModuleData {
-    module_tag_name_key: NameKeyType,
-    pub upgrade_mux_data: UpgradeMuxData,
-    status_to_set: ObjectStatusMaskType,
-    status_to_clear: ObjectStatusMaskType,
-}
-
-impl Default for StatusBitsUpgradeModuleData {
-    fn default() -> Self {
-        Self {
-            module_tag_name_key: 0,
-            upgrade_mux_data: UpgradeMuxData::default(),
-            status_to_set: ObjectStatusMaskType::none(),
-            status_to_clear: ObjectStatusMaskType::none(),
-        }
-    }
-}
-
-impl StatusBitsUpgradeModuleData {
-    pub fn status_to_set(&self) -> ObjectStatusMaskType {
-        self.status_to_set
-    }
-
-    pub fn status_to_clear(&self) -> ObjectStatusMaskType {
-        self.status_to_clear
-    }
-
-    pub fn parse_from_ini(&mut self, ini: &mut INI) -> Result<(), INIError> {
-        ini.init_from_ini_with_fields(self, STATUS_BITS_UPGRADE_FIELDS)
-    }
-
-    pub fn set_status_to_set_from_tokens(&mut self, tokens: &[&str]) -> Result<(), String> {
-        self.status_to_set = parse_status_tokens(tokens)?;
-        Ok(())
-    }
-
-    pub fn set_status_to_clear_from_tokens(&mut self, tokens: &[&str]) -> Result<(), String> {
-        self.status_to_clear = parse_status_tokens(tokens)?;
-        Ok(())
-    }
-}
-
-crate::impl_legacy_module_data_with_key_field!(StatusBitsUpgradeModuleData, module_tag_name_key);
-
-impl Snapshotable for StatusBitsUpgradeModuleData {
-    fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        let mut version: u8 = 0;
-        xfer.xfer_version(&mut version, 1)
-            .map_err(|e| e.to_string())?;
-        Ok(())
-    }
-
-    fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        let mut version: u8 = 0;
-        xfer.xfer_version(&mut version, 1)
-            .map_err(|e| e.to_string())?;
-        Ok(())
-    }
-
-    fn load_post_process(&mut self) -> Result<(), String> {
-        Ok(())
-    }
-}
+use game_engine::common::thing::module::{Module, ModuleDataHandle, ModuleDataView, NameKeyType};
 
 /// Installed upgrade state. Definitions are immutable; execution belongs to this module.
 pub struct StatusBitsUpgrade {
@@ -118,13 +52,14 @@ impl StatusBitsUpgrade {
     }
 }
 
-impl StatusBitsUpgradeModuleData {
-    pub(crate) fn apply_to_object(&self, owner: &mut Object) {
-        // C++ writes each module's set then clear masks in authored order.
-        // Status writes can invoke object callbacks: hold no upgrade module guard.
-        owner.set_status(self.status_to_set, true);
-        owner.clear_status(self.status_to_clear);
-    }
+pub(crate) fn apply_to_object(data: &StatusBitsUpgradeModuleData, owner: &mut Object) {
+    // C++ writes each module's set then clear masks in authored order.
+    // Status writes can invoke object callbacks: hold no upgrade module guard.
+    owner.set_status(
+        ObjectStatusMaskType::from_bits_retain(data.status_to_set().bits()),
+        true,
+    );
+    owner.clear_status(ObjectStatusMaskType::from_bits_retain(data.status_to_clear().bits()));
 }
 
 impl Module for StatusBitsUpgrade {
@@ -166,53 +101,11 @@ impl Snapshotable for StatusBitsUpgrade {
     }
 }
 
-fn parse_status_tokens(tokens: &[&str]) -> Result<ObjectStatusMaskType, String> {
-    if tokens.is_empty() {
-        return Ok(ObjectStatusMaskType::none());
-    }
-
-    let normalized: Vec<&str> = tokens
-        .iter()
-        .copied()
-        .filter(|token| *token != "=")
-        .collect();
-    ObjectStatusMaskType::parse_tokens(normalized)
-}
-
-fn parse_status_to_set_field(
-    _ini: &mut INI,
-    data: &mut StatusBitsUpgradeModuleData,
-    tokens: &[&str],
-) -> Result<(), INIError> {
-    data.set_status_to_set_from_tokens(tokens)
-        .map_err(|_| INIError::InvalidData)
-}
-
-fn parse_status_to_clear_field(
-    _ini: &mut INI,
-    data: &mut StatusBitsUpgradeModuleData,
-    tokens: &[&str],
-) -> Result<(), INIError> {
-    data.set_status_to_clear_from_tokens(tokens)
-        .map_err(|_| INIError::InvalidData)
-}
-
-crate::impl_upgrade_mux_field_parsers!(StatusBitsUpgradeModuleData);
-
-const STATUS_BITS_UPGRADE_FIELDS: &[FieldParse<StatusBitsUpgradeModuleData>] = crate::upgrade_mux_field_table!(
-    FieldParse {
-        token: "StatusToSet",
-        parse: parse_status_to_set_field,
-    },
-    FieldParse {
-        token: "StatusToClear",
-        parse: parse_status_to_clear_field,
-    },
-);
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use game_engine::common::system::object_status_types::ObjectStatusMaskType;
+
     #[test]
     fn status_bits_upgrade_data_parses_tokens() {
         let mut data = StatusBitsUpgradeModuleData::default();

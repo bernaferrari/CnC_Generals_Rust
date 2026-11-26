@@ -832,7 +832,9 @@ impl Object {
                 });
                 match &prepared {
                     PreparedUpgrade::Radar(data) => radar_grant(self, data.read().is_disable_proof()),
-                    PreparedUpgrade::StatusBits(data) => data.read().apply_to_object(self),
+                    PreparedUpgrade::StatusBits(data) => {
+                        crate::object::upgrade::status_bits_upgrade::apply_to_object(&data.read(), self);
+                    }
                     PreparedUpgrade::Armor(data) => crate::object::upgrade::armor_upgrade::apply_to_object(&data.read(), self),
                     PreparedUpgrade::MaxHealth(data) => {
                         crate::object::upgrade::max_health_upgrade::apply_to_object(
@@ -840,8 +842,12 @@ impl Object {
                         )
                     }
                     PreparedUpgrade::ExperienceScalar(data) => data.read().apply_to_object(self),
-                    PreparedUpgrade::WeaponBonus(data) => data.read().apply_to_object(self),
-                    PreparedUpgrade::CostModifier(data) => data.read().apply_to_object(self),
+                    PreparedUpgrade::WeaponBonus(_) => {
+                        crate::object::upgrade::weapon_bonus_upgrade::apply_to_object(self);
+                    }
+                    PreparedUpgrade::CostModifier(data) => {
+                        crate::object::upgrade::cost_modifier_upgrade::apply_to_object(&data.read(), self);
+                    }
                     PreparedUpgrade::SubObjects(_) | PreparedUpgrade::PassengersFire(_) => {}
                 }
                 // Commit to the same entry that supplied this plan. Matching

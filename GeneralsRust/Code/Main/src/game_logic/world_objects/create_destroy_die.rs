@@ -2188,7 +2188,7 @@ impl GameLogic {
                 object.slaved_update = Some(Default::default());
                 if repairs {
                     object.model_condition_bits |=
-                        gamelogic::common::ModelConditionFlags::PACKING.bits() as u128;
+                        game_engine::common::model_condition::ModelConditionFlags::PACKING.bits();
                 }
             }
             object.install_tensile_formation_if_needed();

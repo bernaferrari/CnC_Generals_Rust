@@ -6921,7 +6921,35 @@
             "classification": "implementation",
             "owned_source_ranges": [],
             "owned_symbols": [],
+            "path": "GeneralsRust/Code/GameEngine/Common/src/common/system/upgrade/module_data/cost_modifier.rs"
+          },
+          {
+            "cargo_reachable": true,
+            "classification": "implementation",
+            "owned_source_ranges": [],
+            "owned_symbols": [],
             "path": "GeneralsRust/Code/GameEngine/Common/src/common/system/upgrade/module_data/max_health.rs"
+          },
+          {
+            "cargo_reachable": true,
+            "classification": "implementation",
+            "owned_source_ranges": [],
+            "owned_symbols": [],
+            "path": "GeneralsRust/Code/GameEngine/Common/src/common/system/upgrade/module_data/model_condition.rs"
+          },
+          {
+            "cargo_reachable": true,
+            "classification": "implementation",
+            "owned_source_ranges": [],
+            "owned_symbols": [],
+            "path": "GeneralsRust/Code/GameEngine/Common/src/common/system/upgrade/module_data/status_bits.rs"
+          },
+          {
+            "cargo_reachable": true,
+            "classification": "implementation",
+            "owned_source_ranges": [],
+            "owned_symbols": [],
+            "path": "GeneralsRust/Code/GameEngine/Common/src/common/system/upgrade/module_data/stealth.rs"
           },
           {
             "cargo_reachable": true,
@@ -42789,7 +42817,35 @@
             "classification": "implementation",
             "owned_source_ranges": [],
             "owned_symbols": [],
+            "path": "GeneralsRust/Code/GameEngine/Common/src/common/system/upgrade/module_data/cost_modifier.rs"
+          },
+          {
+            "cargo_reachable": true,
+            "classification": "implementation",
+            "owned_source_ranges": [],
+            "owned_symbols": [],
             "path": "GeneralsRust/Code/GameEngine/Common/src/common/system/upgrade/module_data/max_health.rs"
+          },
+          {
+            "cargo_reachable": true,
+            "classification": "implementation",
+            "owned_source_ranges": [],
+            "owned_symbols": [],
+            "path": "GeneralsRust/Code/GameEngine/Common/src/common/system/upgrade/module_data/model_condition.rs"
+          },
+          {
+            "cargo_reachable": true,
+            "classification": "implementation",
+            "owned_source_ranges": [],
+            "owned_symbols": [],
+            "path": "GeneralsRust/Code/GameEngine/Common/src/common/system/upgrade/module_data/status_bits.rs"
+          },
+          {
+            "cargo_reachable": true,
+            "classification": "implementation",
+            "owned_source_ranges": [],
+            "owned_symbols": [],
+            "path": "GeneralsRust/Code/GameEngine/Common/src/common/system/upgrade/module_data/stealth.rs"
           },
           {
             "cargo_reachable": true,
@@ -153608,7 +153664,7 @@
     }
   ],
   "generator": "GeneralsRust/Code/Main/scripts/generate_port_provenance.py",
-  "input_digest": "473428acc3e93b56ce9044531ff6c741af995d27381e77861d296c99392a48fa",
+  "input_digest": "b7aa6f80ac3a9ed462d283bf796f763a17fb0b25720d88a8a9e846566001180c",
   "metric_contract": {
     "behavior_requires_explicit_evidence": true,
     "candidate_mapping_is_reviewed": false,
@@ -159758,6 +159814,18 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
+        "end_line": 80,
+        "start_line": 1
+      },
+      "path": "GeneralsRust/Code/GameEngine/Common/src/common/system/upgrade/module_data/cost_modifier.rs",
+      "sha256": "1e7313e77c1570df523c32b384944ef6a676af6fdb0e9ac0d0597f36c28b67db",
+      "symbol_index_status": "awaiting_mapping_review",
+      "symbols": []
+    },
+    {
+      "cargo_reachable": true,
+      "classification": "implementation",
+      "file_range": {
         "end_line": 115,
         "start_line": 1
       },
@@ -159770,11 +159838,47 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 420,
+        "end_line": 109,
+        "start_line": 1
+      },
+      "path": "GeneralsRust/Code/GameEngine/Common/src/common/system/upgrade/module_data/model_condition.rs",
+      "sha256": "09065eccd9ab76adf8b01474f37fb9dad847388ff9ccf3012bb121bae5dc7ebd",
+      "symbol_index_status": "awaiting_mapping_review",
+      "symbols": []
+    },
+    {
+      "cargo_reachable": true,
+      "classification": "implementation",
+      "file_range": {
+        "end_line": 100,
+        "start_line": 1
+      },
+      "path": "GeneralsRust/Code/GameEngine/Common/src/common/system/upgrade/module_data/status_bits.rs",
+      "sha256": "770be3a793bdbdfb980f52b0c4483be55b27beb1ce4e82bd19b0e3a2129c8cb5",
+      "symbol_index_status": "awaiting_mapping_review",
+      "symbols": []
+    },
+    {
+      "cargo_reachable": true,
+      "classification": "implementation",
+      "file_range": {
+        "end_line": 114,
+        "start_line": 1
+      },
+      "path": "GeneralsRust/Code/GameEngine/Common/src/common/system/upgrade/module_data/stealth.rs",
+      "sha256": "841590ebcd3d89964ba06638969b316a9baad53a9c05cab2840ffae639f22bcf",
+      "symbol_index_status": "awaiting_mapping_review",
+      "symbols": []
+    },
+    {
+      "cargo_reachable": true,
+      "classification": "implementation",
+      "file_range": {
+        "end_line": 477,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/Common/src/common/system/upgrade/module_data.rs",
-      "sha256": "7053af3cccea6e4b273a05fb48fb2655d08ee62a397da6aa28d1f41de8c664a5",
+      "sha256": "14fae15c7973848ff894c7e6d747882e7d0a322a9cc7fc7e0abbc35ab89a740e",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -159818,11 +159922,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 195,
+        "end_line": 197,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/Common/src/common/system/upgrade.rs",
-      "sha256": "62645ff8907bef86299ae70603c1ba67673a543c49783ef20e1980596ac0055a",
+      "sha256": "842d86409a05bbcff951a8d8d214acde55303d5c147a7f8206f7bcd2feaf597d",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -163150,7 +163254,7 @@
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/drawable/drawable/basic_visual.rs",
-      "sha256": "b78e13cff2fdd061aeabcf695aab43cd9f368363c2fe3abccf3f8a998017a4f0",
+      "sha256": "d8f815a5419209d0e21ae3458625acfbe378ad5d30ab95ae8ccc436e92885b1e",
       "symbol_index_status": "indexed",
       "symbols": [
         {
@@ -164580,7 +164684,7 @@
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/drawable/drawable/native_state_particles.rs",
-      "sha256": "a5ac913413acd2cbd1c0d496ba1838901089d7687f67d0caafd2b7127070f55d",
+      "sha256": "d60a387ec663fb1e9e67ad4b6fcec25f28929c7a2c8d466f9dd9a9bbfbaee04d",
       "symbol_index_status": "indexed",
       "symbols": [
         {
@@ -164910,7 +165014,7 @@
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/drawable/drawable/tests.rs",
-      "sha256": "f5c1360c3bffa8e8ab09e580c4f9fa0b559e239e95ddcf08c58092c1ab826441",
+      "sha256": "2945e8918b732773b12f09ab8449d869fabe452bf23dc98999881192c4a21a82",
       "symbol_index_status": "indexed",
       "symbols": [
         {
@@ -202834,11 +202938,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 1420,
+        "end_line": 1426,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/object_upgrade.rs",
-      "sha256": "6474c85584936f610ece6b0b049c6748e4e0707d8f903a1f35fa56b3a18bec06",
+      "sha256": "91e86460e0334a1e8cf014e0fe73e14497fcc808e47abfe199a0a2f331d37a79",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -205798,11 +205902,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 329,
+        "end_line": 233,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/upgrade/cost_modifier_upgrade.rs",
-      "sha256": "196482727cc639083e2dcf0a9e9a6e8f040c0e37b689d827fb8dcf5786c7d969",
+      "sha256": "294e126d74a86ffa75966c61399d46930a0375bba4a66f353f0917823cd84244",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -205930,11 +206034,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 288,
+        "end_line": 174,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/upgrade/model_condition_upgrade.rs",
-      "sha256": "b5f12e23e91e4bc22e5bcb2516508a998c7b6495138fcffc5476c454b3fab0d0",
+      "sha256": "54fa7c8df52b0950513aaeec87511229e2568aaa57ba0e8e561d68721fc19130",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -206026,11 +206130,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 238,
+        "end_line": 131,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/upgrade/status_bits_upgrade.rs",
-      "sha256": "4595eeddf981691e1d95c8ee20260d0ee7c370c9cd6fbf28f63a7f4f5f5de82c",
+      "sha256": "86531372694395ff1a5fc414f2a718cf0381ecbfff7fd7a51c496fc9f3040754",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -206038,11 +206142,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 334,
+        "end_line": 182,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/upgrade/stealth_upgrade.rs",
-      "sha256": "20353ba268aa401cd5796906c157ac3ce22d270dc23b906a799be9f18a42554c",
+      "sha256": "b5b58bf700c750e133c32a64fa521cff437355b97f375aa8980b730d82ad8459",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -206134,11 +206238,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 150,
+        "end_line": 104,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/upgrade/weapon_bonus_upgrade.rs",
-      "sha256": "dc37e9811c87c6f7cdd210639e6135c0c709a0c37bec17eff7aa31148a6f240e",
+      "sha256": "f102872b166739cba8563931cbc87ed5dfbf49036f09715e6235f685f2857bdb",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -206146,11 +206250,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 168,
+        "end_line": 122,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/upgrade/weapon_set_upgrade.rs",
-      "sha256": "1779338b5d0907f8541d5bfb527af37709d4d72f82d506bfdf3890132fab13f0",
+      "sha256": "3341cd36f95d1ad602b832859757a78b5bc5eecbed83c254989185a9fc556556",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },

@@ -2,10 +2,11 @@
 use super::*;
 use game_engine::common::system::upgrade::{
     ArmorUpgradeModuleData, CommandSetUpgradeModuleData, MaxHealthUpgradeModuleData,
-    PassengersFireUpgradeModuleData, PowerPlantUpgradeModuleData, RadarUpgradeModuleData,
-    ReplaceObjectUpgradeModuleData, SubObjectsUpgradeModuleData, UpgradeMask, UpgradeMuxDefinition,
+    ModelConditionUpgradeModuleData, PassengersFireUpgradeModuleData, PowerPlantUpgradeModuleData,
+    RadarUpgradeModuleData, ReplaceObjectUpgradeModuleData, StatusBitsUpgradeModuleData,
+    StealthUpgradeModuleData, SubObjectsUpgradeModuleData, UpgradeMask, UpgradeMuxDefinition,
+    WeaponBonusUpgradeModuleData, WeaponSetUpgradeModuleData,
 };
-use gamelogic::object::upgrade::{ModelConditionUpgradeModuleData, StealthUpgradeModuleData};
 use generals_sim::upgrade::UpgradeConditions;
 
 struct AuthoredObjectCreationUpgrade {
@@ -17,9 +18,7 @@ struct AuthoredObjectCreationUpgrade {
 
 struct AuthoredStatusBitsUpgrade {
     state_index: usize,
-    data: ModuleDataView<
-        gamelogic::object::upgrade::status_bits_upgrade::StatusBitsUpgradeModuleData,
-    >,
+    data: ModuleDataView<StatusBitsUpgradeModuleData>,
 }
 
 struct AuthoredPassengersFireUpgrade {
@@ -269,9 +268,7 @@ impl GameLogic {
                     ));
                 }
                 if module.name.as_str().eq_ignore_ascii_case("StatusBitsUpgrade") {
-                    let data = upgrade_data_view::<
-                        gamelogic::object::upgrade::status_bits_upgrade::StatusBitsUpgradeModuleData,
-                    >(&module.data)?;
+                    let data = upgrade_data_view::<StatusBitsUpgradeModuleData>(&module.data)?;
                     let state_index = status_bits_index;
                     status_bits_index += 1;
                     return Some(AuthoredOrderedUpgrade::StatusBits(
@@ -319,19 +316,35 @@ impl GameLogic {
                     ));
                 }
                 if module.name.as_str().eq_ignore_ascii_case("WeaponSetUpgrade") {
-                    if !module.data.is::<gamelogic::object::upgrade::weapon_set_upgrade::WeaponSetUpgradeModuleData>() { return None; }
+                    if !module.data.is::<WeaponSetUpgradeModuleData>() {
+                        return None;
+                    }
                     return Some(AuthoredOrderedUpgrade::Weapon(AuthoredWeaponUpgrade {
                         source_index,
                         kind: AuthoredWeaponUpgradeKind::Set,
-                        mux: ModuleDataView::new(module.data.clone(), |data| &data.as_any().downcast_ref::<gamelogic::object::upgrade::weapon_set_upgrade::WeaponSetUpgradeModuleData>().expect("weapon set data").upgrade_mux_data.definition),
+                        mux: ModuleDataView::new(module.data.clone(), |data| {
+                            &data.as_any()
+                                .downcast_ref::<WeaponSetUpgradeModuleData>()
+                                .expect("weapon set data")
+                                .upgrade_mux_data
+                                .definition
+                        }),
                     }));
                 }
                 if module.name.as_str().eq_ignore_ascii_case("WeaponBonusUpgrade") {
-                    if !module.data.is::<gamelogic::object::upgrade::weapon_bonus_upgrade::WeaponBonusUpgradeModuleData>() { return None; }
+                    if !module.data.is::<WeaponBonusUpgradeModuleData>() {
+                        return None;
+                    }
                     return Some(AuthoredOrderedUpgrade::Weapon(AuthoredWeaponUpgrade {
                         source_index,
                         kind: AuthoredWeaponUpgradeKind::Bonus,
-                        mux: ModuleDataView::new(module.data.clone(), |data| &data.as_any().downcast_ref::<gamelogic::object::upgrade::weapon_bonus_upgrade::WeaponBonusUpgradeModuleData>().expect("weapon bonus data").upgrade_mux_data.definition),
+                        mux: ModuleDataView::new(module.data.clone(), |data| {
+                            &data.as_any()
+                                .downcast_ref::<WeaponBonusUpgradeModuleData>()
+                                .expect("weapon bonus data")
+                                .upgrade_mux_data
+                                .definition
+                        }),
                     }));
                 }
                 None

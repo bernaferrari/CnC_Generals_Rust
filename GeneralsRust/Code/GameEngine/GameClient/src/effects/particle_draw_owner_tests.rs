@@ -436,7 +436,7 @@ fn particle_owner_controls(
     original_object_id: u32,
     drawable_a: &LogicDrawableHandle,
 ) {
-    use gamelogic::common::ModelConditionFlags;
+    use game_engine::common::model_condition::ModelConditionFlags;
     use gamelogic::object::object_factory::{ObjectCreationFlags, ObjectFactory};
     // The authored damaged/rubble condition has the same two particle rows.
     const DAMAGED_STATE: ModelConditionFlags =

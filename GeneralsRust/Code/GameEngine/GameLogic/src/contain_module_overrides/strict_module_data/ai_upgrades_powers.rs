@@ -1,9 +1,11 @@
 //! Strict leftover module-data registrations.
 use super::*;
 use game_engine::common::system::upgrade::{
-    ArmorUpgradeModuleData, CommandSetUpgradeModuleData,
-    MaxHealthUpgradeModuleData, PassengersFireUpgradeModuleData, PowerPlantUpgradeModuleData,
-    RadarUpgradeModuleData, ReplaceObjectUpgradeModuleData, SubObjectsUpgradeModuleData,
+    ArmorUpgradeModuleData, CommandSetUpgradeModuleData, CostModifierUpgradeModuleData,
+    MaxHealthUpgradeModuleData, ModelConditionUpgradeModuleData, PassengersFireUpgradeModuleData,
+    PowerPlantUpgradeModuleData, RadarUpgradeModuleData, ReplaceObjectUpgradeModuleData,
+    StatusBitsUpgradeModuleData, StealthUpgradeModuleData, SubObjectsUpgradeModuleData,
+    WeaponBonusUpgradeModuleData, WeaponSetUpgradeModuleData,
 };
 
 pub(super) fn register(factory: &mut impl DataParserRegistrar) {

@@ -138,7 +138,7 @@ impl BasicDrawable {
         particles: &mut ParticleSystemManager,
     ) -> Result<bool, String> {
         let context = NativeStateParticleContext {
-            conditions: gamelogic::common::ModelConditionFlags::empty(),
+            conditions: game_engine::common::model_condition::ModelConditionFlags::empty(),
             instance_scale: self.instance_scale,
             state_particles: !self.status.has(DrawableStatus::NO_STATE_PARTICLES),
             drawable_id: self.id.0,
@@ -260,7 +260,7 @@ impl BasicDrawable {
         self.flush_dirty_model_condition();
         let mut outcomes = Vec::new();
         let context = NativeStateParticleContext {
-            conditions: gamelogic::common::ModelConditionFlags::from_bits_retain(
+            conditions: game_engine::common::model_condition::ModelConditionFlags::from_bits_retain(
                 self.model_condition_flags.low_bits(),
             ),
             instance_scale: self.instance_scale,

@@ -319,7 +319,7 @@ impl BasicDrawable {
         condition_bits: u128,
     ) -> crate::render_bridge::RenderConditionFlags {
         use crate::render_bridge::RenderConditionFlags as Render;
-        use gamelogic::common::ModelConditionFlags as Model;
+        use game_engine::common::model_condition::ModelConditionFlags as Model;
 
         // ModelDrawState transports the original ModelConditionType bitset.
         // RenderConditionFlags is a compact renderer vocabulary, not its wire layout.
@@ -452,7 +452,7 @@ impl BasicDrawable {
 mod model_draw_condition_mapping_tests {
     use super::BasicDrawable;
     use crate::render_bridge::RenderConditionFlags as Render;
-    use gamelogic::common::ModelConditionFlags as Model;
+    use game_engine::common::model_condition::ModelConditionFlags as Model;
 
     #[test]
     fn original_model_bits_map_by_meaning_not_integer_layout() {

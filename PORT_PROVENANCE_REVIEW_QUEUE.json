@@ -17883,7 +17883,27 @@
             {
               "cargo_reachable": true,
               "classification": "implementation",
+              "path": "GeneralsRust/Code/GameEngine/Common/src/common/system/upgrade/module_data/cost_modifier.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "implementation",
               "path": "GeneralsRust/Code/GameEngine/Common/src/common/system/upgrade/module_data/max_health.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "implementation",
+              "path": "GeneralsRust/Code/GameEngine/Common/src/common/system/upgrade/module_data/model_condition.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "implementation",
+              "path": "GeneralsRust/Code/GameEngine/Common/src/common/system/upgrade/module_data/status_bits.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "implementation",
+              "path": "GeneralsRust/Code/GameEngine/Common/src/common/system/upgrade/module_data/stealth.rs"
             },
             {
               "cargo_reachable": true,
@@ -187702,7 +187722,7 @@
       ]
     }
   ],
-  "provenance_input_digest": "473428acc3e93b56ce9044531ff6c741af995d27381e77861d296c99392a48fa",
+  "provenance_input_digest": "b7aa6f80ac3a9ed462d283bf796f763a17fb0b25720d88a8a9e846566001180c",
   "schema_version": 1,
   "summary": {
     "maximum_packet_size": 15,

@@ -1,70 +1,11 @@
 use std::sync::Arc;
 
-use crate::common::{KindOfMaskType, ObjectID, Real, UpgradeMaskType};
+use crate::common::{ObjectID, UpgradeMaskType};
 use crate::modules::UpgradeModuleInterface;
-use crate::object::upgrade::upgrade_module::{
-    UpgradeMuxData, mux_can_upgrade,
-};
-use game_engine::common::ini::{FieldParse, INI, INIError};
-use game_engine::common::system::kind_of::KindOfMask;
+use crate::object::upgrade::upgrade_module::mux_can_upgrade;
+pub use game_engine::common::system::upgrade::CostModifierUpgradeModuleData;
 use game_engine::common::system::{Snapshotable, Xfer};
-use game_engine::common::thing::module::{Module, ModuleData, ModuleDataView, NameKeyType};
-
-/// Module data describing the cost modifier upgrade.
-#[derive(Debug, Clone)]
-pub struct CostModifierUpgradeModuleData {
-    module_tag_name_key: NameKeyType,
-    pub upgrade_mux_data: UpgradeMuxData,
-    kind_of: KindOfMaskType,
-    percentage: Real,
-}
-
-impl Default for CostModifierUpgradeModuleData {
-    fn default() -> Self {
-        Self {
-            module_tag_name_key: 0,
-            upgrade_mux_data: UpgradeMuxData::default(),
-            kind_of: crate::common::KIND_OF_MASK_NONE,
-            percentage: 0.0,
-        }
-    }
-}
-
-impl CostModifierUpgradeModuleData {
-    pub fn kind_of(&self) -> KindOfMaskType {
-        self.kind_of
-    }
-
-    pub fn percentage(&self) -> Real {
-        self.percentage
-    }
-
-    pub fn parse_from_ini(&mut self, ini: &mut INI) -> Result<(), INIError> {
-        ini.init_from_ini_with_fields(self, COST_MODIFIER_UPGRADE_FIELDS)
-    }
-}
-
-crate::impl_legacy_module_data_with_key_field!(CostModifierUpgradeModuleData, module_tag_name_key);
-
-impl Snapshotable for CostModifierUpgradeModuleData {
-    fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        let mut version: u8 = 0;
-        xfer.xfer_version(&mut version, 1)
-            .map_err(|e| e.to_string())?;
-        Ok(())
-    }
-
-    fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        let mut version: u8 = 0;
-        xfer.xfer_version(&mut version, 1)
-            .map_err(|e| e.to_string())?;
-        Ok(())
-    }
-
-    fn load_post_process(&mut self) -> Result<(), String> {
-        Ok(())
-    }
-}
+use game_engine::common::thing::module::{Module, ModuleDataView, NameKeyType};
 
 /// Upgrade module that modifies production costs for buildings/factories.
 pub struct CostModifierUpgrade {
@@ -112,14 +53,12 @@ impl CostModifierUpgrade {
     }
 }
 
-impl CostModifierUpgradeModuleData {
-    /// C++ CostModifierUpgrade::upgradeImplementation uses the Thing that
-    /// owns this module; the live Object caller passes that owner explicitly.
-    pub(crate) fn apply_to_object(&self, owner: &mut crate::object::Object) {
-        owner.with_controlling_player_mut(|player| {
-            player.add_kind_of_production_cost_change(self.kind_of, self.percentage);
-        });
-    }
+/// C++ CostModifierUpgrade::upgradeImplementation uses the Thing that
+/// owns this module; the live Object caller passes that owner explicitly.
+pub(crate) fn apply_to_object(data: &CostModifierUpgradeModuleData, owner: &mut crate::object::Object) {
+    owner.with_controlling_player_mut(|player| {
+        player.add_kind_of_production_cost_change(data.kind_of(), data.percentage());
+    });
 }
 
 impl Module for CostModifierUpgrade {
@@ -236,46 +175,11 @@ impl UpgradeModuleInterface for CostModifierUpgrade {
     }
 }
 
-fn parse_effect_kind_of_field(
-    _ini: &mut INI,
-    data: &mut CostModifierUpgradeModuleData,
-    tokens: &[&str],
-) -> Result<(), INIError> {
-    let previous = KindOfMask::from_bits_retain(data.kind_of);
-    data.kind_of = KindOfMask::parse_ini(previous, &tokens.join(" "))
-        .map_err(|_| INIError::InvalidNameList)?
-        .bits();
-    Ok(())
-}
-
-fn parse_percentage_field(
-    _ini: &mut INI,
-    data: &mut CostModifierUpgradeModuleData,
-    tokens: &[&str],
-) -> Result<(), INIError> {
-    if tokens.is_empty() {
-        return Err(INIError::InvalidData);
-    }
-    data.percentage = INI::parse_percent_to_real(tokens[0])?;
-    Ok(())
-}
-
-crate::impl_upgrade_mux_field_parsers!(CostModifierUpgradeModuleData);
-
-const COST_MODIFIER_UPGRADE_FIELDS: &[FieldParse<CostModifierUpgradeModuleData>] = crate::upgrade_mux_field_table!(
-    FieldParse {
-        token: "EffectKindOf",
-        parse: parse_effect_kind_of_field,
-    },
-    FieldParse {
-        token: "Percentage",
-        parse: parse_percentage_field,
-    },
-);
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use game_engine::common::ini::{INI, INIError};
+    use game_engine::common::system::kind_of::KindOfMask;
 
     #[test]
     fn cost_modifier_effect_kind_of_uses_the_full_ini_bit_list() {

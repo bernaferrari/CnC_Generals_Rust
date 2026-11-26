@@ -20,9 +20,11 @@ pub use center::{
 };
 pub use mask::{UPGRADE_MAX_COUNT, UpgradeMask};
 pub use module_data::{
-    ArmorUpgradeModuleData, CommandSetUpgradeModuleData, MaxHealthChangeType,
-    MaxHealthUpgradeModuleData, PassengersFireUpgradeModuleData, PowerPlantUpgradeModuleData,
-    RadarUpgradeModuleData, ReplaceObjectUpgradeModuleData, SubObjectsUpgradeModuleData,
+    ArmorUpgradeModuleData, CommandSetUpgradeModuleData, CostModifierUpgradeModuleData,
+    MaxHealthChangeType, MaxHealthUpgradeModuleData, ModelConditionUpgradeModuleData,
+    PassengersFireUpgradeModuleData, PowerPlantUpgradeModuleData, RadarUpgradeModuleData,
+    ReplaceObjectUpgradeModuleData, StatusBitsUpgradeModuleData, StealthUpgradeModuleData,
+    SubObjectsUpgradeModuleData, WeaponBonusUpgradeModuleData, WeaponSetUpgradeModuleData,
 };
 pub use mux::{UpgradeMuxData, UpgradeMuxDefinition};
 pub use template::{UpgradeTemplate, UpgradeType};

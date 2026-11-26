@@ -68,8 +68,17 @@ macro_rules! upgrade_fields {
     };
 }
 
+mod cost_modifier;
 mod max_health;
+mod model_condition;
+mod status_bits;
+mod stealth;
+
+pub use cost_modifier::CostModifierUpgradeModuleData;
 pub use max_health::{MaxHealthChangeType, MaxHealthUpgradeModuleData};
+pub use model_condition::ModelConditionUpgradeModuleData;
+pub use status_bits::StatusBitsUpgradeModuleData;
+pub use stealth::StealthUpgradeModuleData;
 
 /// Module data describing the armor upgrade to apply.
 #[derive(Debug, Clone)]
@@ -417,3 +426,51 @@ const REPLACE_OBJECT_UPGRADE_FIELDS: &[FieldParse<ReplaceObjectUpgradeModuleData
         parse: parse_replace_object_field,
     },
 );
+
+/// Module data describing the weapon set upgrade.
+#[derive(Debug, Clone)]
+pub struct WeaponSetUpgradeModuleData {
+    module_tag_name_key: NameKeyType,
+    pub upgrade_mux_data: UpgradeMuxData,
+}
+
+impl Default for WeaponSetUpgradeModuleData {
+    fn default() -> Self {
+        Self {
+            module_tag_name_key: 0,
+            upgrade_mux_data: UpgradeMuxData::default(),
+        }
+    }
+}
+
+impl WeaponSetUpgradeModuleData {
+    pub fn parse_from_ini(&mut self, ini: &mut INI) -> Result<(), INIError> {
+        self.upgrade_mux_data.parse_from_ini(ini)
+    }
+}
+
+impl_definition!(WeaponSetUpgradeModuleData);
+
+/// Module data describing the weapon bonus upgrade.
+#[derive(Debug, Clone)]
+pub struct WeaponBonusUpgradeModuleData {
+    module_tag_name_key: NameKeyType,
+    pub upgrade_mux_data: UpgradeMuxData,
+}
+
+impl Default for WeaponBonusUpgradeModuleData {
+    fn default() -> Self {
+        Self {
+            module_tag_name_key: 0,
+            upgrade_mux_data: UpgradeMuxData::default(),
+        }
+    }
+}
+
+impl WeaponBonusUpgradeModuleData {
+    pub fn parse_from_ini(&mut self, ini: &mut INI) -> Result<(), INIError> {
+        self.upgrade_mux_data.parse_from_ini(ini)
+    }
+}
+
+impl_definition!(WeaponBonusUpgradeModuleData);

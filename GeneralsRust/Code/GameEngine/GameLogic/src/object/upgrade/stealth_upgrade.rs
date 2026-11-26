@@ -1,93 +1,17 @@
-//! StealthUpgrade Module - Complete Port from C++
-//!
-//! Matches C++ StealthUpgrade.cpp and StealthUpgrade.h exactly
-//! Location: GeneralsMD/Code/GameEngine/Source/GameLogic/Object/Upgrade/StealthUpgrade.cpp
-//!
-//! Simple upgrade that grants OBJECT_STATUS_CAN_STEALTH status to enable stealth capability.
-//! Used for upgrades like "Black Market" that grant stealth to units.
+//! Installed StealthUpgrade behavior from StealthUpgrade.cpp.
 
-use crate::common::{
-    AsciiString, KindOf, LegacyModuleData, ObjectID, ObjectStatusMaskType, UpgradeMaskType,
-};
+use crate::common::{KindOf, ObjectID, ObjectStatusMaskType, UpgradeMaskType};
 use crate::modules::UpgradeModuleInterface;
 use crate::object::registry::OBJECT_REGISTRY;
-use crate::upgrade::modules::upgrade_mux::UpgradeMuxData;
-use game_engine::common::ini::{FieldParse, INI, INIError};
+pub use game_engine::common::system::upgrade::StealthUpgradeModuleData;
 use game_engine::common::system::{Snapshotable, Xfer};
-use game_engine::common::thing::module::{Module, ModuleData, NameKeyType};
+use game_engine::common::thing::module::{Module, NameKeyType};
 use log::debug;
 
 /// Wave 448: host-only path has no dual-world factory objects.
 #[inline]
 fn dual_world_registry_unavailable() -> bool {
     crate::object::registry::OBJECT_REGISTRY.is_empty()
-}
-
-/// Stealth upgrade module data
-/// Matches C++ StealthUpgrade (UpgradeModuleData parses TriggeredBy/ConflictsWith).
-#[derive(Debug, Clone)]
-pub struct StealthUpgradeModuleData {
-    module_tag_name_key: NameKeyType,
-    pub upgrade_mux_data: UpgradeMuxData,
-}
-
-impl Default for StealthUpgradeModuleData {
-    fn default() -> Self {
-        Self {
-            module_tag_name_key: 0,
-            upgrade_mux_data: UpgradeMuxData::default(),
-        }
-    }
-}
-
-impl StealthUpgradeModuleData {
-    pub fn parse_from_ini(&mut self, ini: &mut INI) -> Result<(), INIError> {
-        ini.init_from_ini_with_fields(self, STEALTH_UPGRADE_FIELDS)
-    }
-}
-
-impl ModuleData for StealthUpgradeModuleData {
-    fn set_module_tag_name_key(&mut self, key: NameKeyType) {
-        self.module_tag_name_key = key;
-    }
-
-    fn get_module_tag_name_key(&self) -> NameKeyType {
-        self.module_tag_name_key
-    }
-
-    fn as_any(&self) -> &dyn std::any::Any {
-        self
-    }
-}
-
-impl LegacyModuleData for StealthUpgradeModuleData {
-    fn set_module_tag_name_key(&mut self, key: NameKeyType) {
-        self.module_tag_name_key = key;
-    }
-
-    fn get_module_tag_name_key(&self) -> NameKeyType {
-        self.module_tag_name_key
-    }
-}
-
-impl Snapshotable for StealthUpgradeModuleData {
-    fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        let mut version: u8 = 0;
-        xfer.xfer_version(&mut version, 1)
-            .map_err(|e| e.to_string())?;
-        Ok(())
-    }
-
-    fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        let mut version: u8 = 0;
-        xfer.xfer_version(&mut version, 1)
-            .map_err(|e| e.to_string())?;
-        Ok(())
-    }
-
-    fn load_post_process(&mut self) -> Result<(), String> {
-        Ok(())
-    }
 }
 
 /// Stealth upgrade module
@@ -220,87 +144,11 @@ impl Snapshotable for StealthUpgrade {
     }
 }
 
-fn parse_triggered_by(
-    _ini: &mut INI,
-    data: &mut StealthUpgradeModuleData,
-    tokens: &[&str],
-) -> Result<(), INIError> {
-    for token in tokens.iter().skip_while(|t| **t == "=") {
-        if !token.is_empty() {
-            data.upgrade_mux_data.definition
-                .activation_upgrade_names
-                .push(AsciiString::from(*token));
-        }
-    }
-    Ok(())
-}
-
-fn parse_conflicts_with(
-    _ini: &mut INI,
-    data: &mut StealthUpgradeModuleData,
-    tokens: &[&str],
-) -> Result<(), INIError> {
-    for token in tokens.iter().skip_while(|t| **t == "=") {
-        if !token.is_empty() {
-            data.upgrade_mux_data.definition
-                .conflicting_upgrade_names
-                .push(AsciiString::from(*token));
-        }
-    }
-    Ok(())
-}
-
-fn parse_removes_upgrades(
-    _ini: &mut INI,
-    data: &mut StealthUpgradeModuleData,
-    tokens: &[&str],
-) -> Result<(), INIError> {
-    for token in tokens.iter().skip_while(|t| **t == "=") {
-        if !token.is_empty() {
-            data.upgrade_mux_data.definition
-                .removal_upgrade_names
-                .push(AsciiString::from(*token));
-        }
-    }
-    Ok(())
-}
-
-fn parse_requires_all_triggers(
-    _ini: &mut INI,
-    data: &mut StealthUpgradeModuleData,
-    tokens: &[&str],
-) -> Result<(), INIError> {
-    let value = tokens
-        .iter()
-        .skip_while(|t| **t == "=")
-        .next()
-        .ok_or(INIError::InvalidData)?;
-    data.upgrade_mux_data.definition.requires_all_triggers = INI::parse_bool(value)?;
-    Ok(())
-}
-
-const STEALTH_UPGRADE_FIELDS: &[FieldParse<StealthUpgradeModuleData>] = &[
-    FieldParse {
-        token: "TriggeredBy",
-        parse: parse_triggered_by,
-    },
-    FieldParse {
-        token: "ConflictsWith",
-        parse: parse_conflicts_with,
-    },
-    FieldParse {
-        token: "RemovesUpgrades",
-        parse: parse_removes_upgrades,
-    },
-    FieldParse {
-        token: "RequiresAllTriggers",
-        parse: parse_requires_all_triggers,
-    },
-];
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::common::AsciiString;
+    use game_engine::common::thing::module::ModuleData;
 
     #[test]
     fn test_stealth_upgrade_creation() {
@@ -312,7 +160,7 @@ mod tests {
     #[test]
     fn test_stealth_upgrade_module_data() {
         let data = StealthUpgradeModuleData::default();
-        assert_eq!(data.module_tag_name_key, 0);
+        assert_eq!(data.get_module_tag_name_key(), 0);
     }
 
     #[test]

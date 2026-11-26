@@ -1549,7 +1549,7 @@ fn compute_health_region_falls_back_to_seeded_region_without_object() {
 fn test_model_draw_bits_flow_into_render_flags() {
     crate::test_support::ensure_ambient_host();
     use crate::render_bridge::RenderConditionFlags;
-    use gamelogic::common::ModelConditionFlags as LogicModelConditionFlags;
+    use game_engine::common::model_condition::ModelConditionFlags as LogicModelConditionFlags;
 
     let bits = (LogicModelConditionFlags::DAMAGED | LogicModelConditionFlags::SNOW).bits();
     let render_flags = BasicDrawable::render_condition_flags_from_bits(bits);

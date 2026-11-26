@@ -36,6 +36,7 @@ use crate::game_logic::host_jet_slow_death::HostJetSlowDeathData;
 use crate::game_logic::host_slow_death::HostSlowDeathData;
 use crate::game_logic::{GameLogic, ObjectId};
 use crate::save_load::{SaveLoadError, SaveLoadResult};
+use game_engine::common::system::upgrade::{CostModifierUpgradeModuleData, StatusBitsUpgradeModuleData};
 use serde::{Deserialize, Serialize};
 
 const OXFR_MAGIC: &[u8; 4] = b"OXFR";
@@ -1357,8 +1358,8 @@ fn validate_payload_before_apply(
                 .data
                 .read()
                 .as_any()
-                .is::<gamelogic::object::upgrade::status_bits_upgrade::StatusBitsUpgradeModuleData>(
-            ) {
+                .is::<StatusBitsUpgradeModuleData>()
+            {
                 return Err(corrupted(
                     "StatusBitsUpgrade receiving module has an incompatible data type",
                 ));
@@ -1378,9 +1379,7 @@ fn validate_payload_before_apply(
                 .as_str()
                 .eq_ignore_ascii_case("CostModifierUpgrade")
         }) {
-            if !module.data.read().as_any().is::<
-                gamelogic::object::upgrade::cost_modifier_upgrade::CostModifierUpgradeModuleData,
-            >() {
+            if !module.data.read().as_any().is::<CostModifierUpgradeModuleData>() {
                 return Err(corrupted("CostModifierUpgrade receiving module has an incompatible data type"));
             }
             cost_modifier_count += 1;

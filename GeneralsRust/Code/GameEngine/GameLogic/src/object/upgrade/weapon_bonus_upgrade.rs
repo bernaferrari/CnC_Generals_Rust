@@ -1,55 +1,11 @@
 #[cfg(test)]
 use std::sync::Arc;
 
-use crate::common::{LegacyModuleData, ObjectID, UpgradeMaskType, WeaponBonusConditionType};
-use crate::object::upgrade::upgrade_module::{UpgradeMuxData, mux_can_upgrade, mux_reset_upgrade};
-use game_engine::common::ini::{INI, INIError};
+use crate::common::{ObjectID, UpgradeMaskType, WeaponBonusConditionType};
+use crate::object::upgrade::upgrade_module::{mux_can_upgrade, mux_reset_upgrade};
+pub use game_engine::common::system::upgrade::WeaponBonusUpgradeModuleData;
 use game_engine::common::system::{Snapshotable, Xfer};
-use game_engine::common::thing::module::{Module, ModuleData, ModuleDataHandle, ModuleDataView, NameKeyType};
-
-/// Module data describing the weapon bonus upgrade.
-#[derive(Debug, Clone)]
-pub struct WeaponBonusUpgradeModuleData {
-    module_tag_name_key: NameKeyType,
-    pub upgrade_mux_data: UpgradeMuxData,
-}
-
-impl Default for WeaponBonusUpgradeModuleData {
-    fn default() -> Self {
-        Self {
-            module_tag_name_key: 0,
-            upgrade_mux_data: UpgradeMuxData::default(),
-        }
-    }
-}
-
-impl WeaponBonusUpgradeModuleData {
-    pub fn parse_from_ini(&mut self, ini: &mut INI) -> Result<(), INIError> {
-        self.upgrade_mux_data.parse_from_ini(ini)
-    }
-}
-
-crate::impl_legacy_module_data_with_key_field!(WeaponBonusUpgradeModuleData, module_tag_name_key);
-
-impl Snapshotable for WeaponBonusUpgradeModuleData {
-    fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        let mut version: u8 = 0;
-        xfer.xfer_version(&mut version, 1)
-            .map_err(|e| e.to_string())?;
-        Ok(())
-    }
-
-    fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        let mut version: u8 = 0;
-        xfer.xfer_version(&mut version, 1)
-            .map_err(|e| e.to_string())?;
-        Ok(())
-    }
-
-    fn load_post_process(&mut self) -> Result<(), String> {
-        Ok(())
-    }
-}
+use game_engine::common::thing::module::{Module, ModuleDataHandle, ModuleDataView, NameKeyType};
 
 /// Upgrade module that increases weapon damage on the owning object.
 pub struct WeaponBonusUpgrade {
@@ -136,12 +92,10 @@ impl WeaponBonusUpgrade {
     }
 }
 
-impl WeaponBonusUpgradeModuleData {
-    pub(crate) fn apply_to_object(&self, owner: &mut crate::object::Object) {
-        // WeaponBonusUpgrade.cpp:62–69 acts on its exact Object. The setter
-        // preserves Object.cpp:4650–4659's change-only weapon notifications.
-        owner.set_weapon_bonus_condition(WeaponBonusConditionType::PlayerUpgrade);
-    }
+pub(crate) fn apply_to_object(owner: &mut crate::object::Object) {
+    // WeaponBonusUpgrade.cpp:62–69 acts on its exact Object. The setter
+    // preserves Object.cpp:4650–4659's change-only weapon notifications.
+    owner.set_weapon_bonus_condition(WeaponBonusConditionType::PlayerUpgrade);
 }
 
 #[cfg(test)]

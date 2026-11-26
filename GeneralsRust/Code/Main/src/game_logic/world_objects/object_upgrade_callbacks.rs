@@ -1,5 +1,6 @@
 //! Object and Player upgrade entry points and per-source cost contributions.
 use super::super::*;
+use game_engine::common::system::upgrade::CostModifierUpgradeModuleData;
 use game_engine::common::thing::module::{ModuleData, ModuleDataHandle, ModuleDataView};
 
 fn upgrade_data_view<T: ModuleData + 'static>(
@@ -21,9 +22,7 @@ mod spawn_effects;
 
 pub(in crate::game_logic) struct AuthoredCostModifierUpgrade {
     state_index: usize,
-    data: ModuleDataView<
-        gamelogic::object::upgrade::cost_modifier_upgrade::CostModifierUpgradeModuleData,
-    >,
+    data: ModuleDataView<CostModifierUpgradeModuleData>,
 }
 
 impl AuthoredCostModifierUpgrade {

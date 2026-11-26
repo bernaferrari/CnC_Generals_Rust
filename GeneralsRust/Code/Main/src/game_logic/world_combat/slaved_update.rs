@@ -90,7 +90,7 @@ impl GameLogic {
         }
         state.end_repair();
         if let Some(object) = self.objects.get_mut(&id) {
-            Self::slave_set_model(object, gamelogic::common::ModelConditionFlags::PACKING);
+            Self::slave_set_model(object, game_engine::common::model_condition::ModelConditionFlags::PACKING);
             object.set_precise_z_and_ultra_accurate(false);
             crate::game_logic::host_upgrade_module_residuals::apply_locomotor_set_kind_for_surfaces_in(
                 object,
@@ -401,8 +401,8 @@ impl GameLogic {
         }
         Ok(())
     }
-    fn slave_set_model(object: &mut Object, flag: gamelogic::common::ModelConditionFlags) {
-        use gamelogic::common::ModelConditionFlags as M;
+    fn slave_set_model(object: &mut Object, flag: game_engine::common::model_condition::ModelConditionFlags) {
+        use game_engine::common::model_condition::ModelConditionFlags as M;
         let clear = M::PACKING
             | M::UNPACKING
             | M::FIRING_B
@@ -433,13 +433,13 @@ impl GameLogic {
                 Repair::None => {
                     state.repair_state = Repair::Unpacking;
                     state.frames_to_wait = 15;
-                    Some(gamelogic::common::ModelConditionFlags::UNPACKING)
+                    Some(game_engine::common::model_condition::ModelConditionFlags::UNPACKING)
                 }
                 Repair::Welding => {
                     state.repair_state = Repair::Retracting;
                     state.frames_to_wait = 5;
                     move_spot = true;
-                    Some(gamelogic::common::ModelConditionFlags::FIRING_C)
+                    Some(game_engine::common::model_condition::ModelConditionFlags::FIRING_C)
                 }
                 _ => {
                     state.repair_state = Repair::Ready;
@@ -451,7 +451,7 @@ impl GameLogic {
             Repair::Welding if state.repair_state == Repair::Ready => {
                 state.repair_state = Repair::Extending;
                 state.frames_to_wait = 5;
-                Some(gamelogic::common::ModelConditionFlags::FIRING_B)
+                Some(game_engine::common::model_condition::ModelConditionFlags::FIRING_B)
             }
             Repair::Welding => {
                 state.repair_state = Repair::Welding;

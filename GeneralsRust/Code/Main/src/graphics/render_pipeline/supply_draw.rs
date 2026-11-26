@@ -4,7 +4,7 @@ use crate::assets::{W3DModel, W3dRenderObjectPrototypeKind};
 use crate::game_logic::NativeSlaveSource;
 use game_client::core::PresentationDirectDrawableBindingKey;
 use game_engine::common::thing::thing_template::ModuleInfo;
-use gamelogic::common::ModelConditionFlags;
+use game_engine::common::model_condition::ModelConditionFlags;
 use gamelogic::object::draw::{W3DModelDrawModuleData, W3DSupplyDrawModuleData};
 use installed_draw_pose::InstalledDrawObject;
 use native_pose_loan::NativeInstalledPoseLoan;
