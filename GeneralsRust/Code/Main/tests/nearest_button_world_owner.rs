@@ -135,7 +135,7 @@ fn world_with_roster(
     game.add_player(Player::new(2, Team::China, "Opponent", false));
     game.get_player_mut(1)
         .unwrap()
-        .set_map_relationship(2, gamelogic::common::Relationship::Enemies);
+        .set_map_relationship(2, game_engine::common::game_common::Relationship::Enemies);
     let source = game
         .host_objects()
         .registered_values()
@@ -456,7 +456,7 @@ fn named_and_team_garrison_use_different_capacity_rules() {
 
 #[test]
 fn team_garrison_observes_controlling_player_relationships() {
-    use gamelogic::common::Relationship;
+    use game_engine::common::game_common::Relationship;
     let enemy_root = tempfile::tempdir().unwrap();
     let ally_root = tempfile::tempdir().unwrap();
     let neutral_root = tempfile::tempdir().unwrap();
@@ -502,7 +502,7 @@ fn team_garrison_observes_controlling_player_relationships() {
 
 #[test]
 fn team_garrison_neutral_target_must_be_empty() {
-    use gamelogic::common::Relationship;
+    use game_engine::common::game_common::Relationship;
     let own_root = tempfile::tempdir().unwrap();
     let neutral_root = tempfile::tempdir().unwrap();
     let (mut own, source, _) = world(own_root.path(), 20, true);

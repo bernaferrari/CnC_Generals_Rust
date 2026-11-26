@@ -10,7 +10,7 @@ fn owner() -> GameLogic {
     let mut map = gamelogic::system::map_loader::MapData::new();
     map.width = 64;
     map.height = 64;
-    map.boundaries = vec![gamelogic::common::ICoord2D::new(64, 64)];
+    map.boundaries = vec![glam::IVec2::new(64, 64)];
     map.heightmap = (0..4096).map(|i| ((i % 64) / 4) as u8).collect();
     world
         .world_services
@@ -315,7 +315,7 @@ fn current_terrain_boundary_drives_recalculation_not_cached_host_world_bounds() 
     map.width = 64;
     map.height = 64;
     map.heightmap = vec![0; 4096];
-    map.boundaries = vec![gamelogic::common::ICoord2D::new(51, 47)];
+    map.boundaries = vec![glam::IVec2::new(51, 47)];
     world
         .world_services
         .terrain()

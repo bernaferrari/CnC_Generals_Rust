@@ -1182,7 +1182,7 @@ impl GameLogic {
             FRENZY_ACTIVATE_AUDIO, HOST_FRENZY_RADIUS, HostFrenzy, in_frenzy_radius_2d,
             is_legal_frenzy_target,
         };
-        use gamelogic::common::Relationship;
+        use game_engine::common::game_common::Relationship;
         use std::collections::HashSet;
 
         let frame = self.frame;
@@ -2457,7 +2457,7 @@ impl GameLogic {
             emergency_repair_is_ally, in_emergency_repair_radius_2d,
             is_legal_emergency_repair_target,
         };
-        use gamelogic::common::Relationship;
+        use game_engine::common::game_common::Relationship;
 
         let frame = self.frame;
         let heal_amount = level.heal_amount();

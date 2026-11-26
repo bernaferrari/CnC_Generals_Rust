@@ -298,7 +298,7 @@ fn stock_refinery(world: &mut GameLogic) -> ObjectId {
         template: STOCK_REFINERY.to_owned(),
         flags: 0,
         name: None,
-        position: gamelogic::common::Coord3D::new(180.0, 220.0, 0.0),
+        position: glam::Vec3::new(180.0, 220.0, 0.0),
         rotation: None,
         team_name: None,
         player_id: None,

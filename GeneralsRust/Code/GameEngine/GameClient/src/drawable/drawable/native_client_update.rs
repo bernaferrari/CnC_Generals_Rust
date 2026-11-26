@@ -1,7 +1,8 @@
 //! Receiving Drawable client-module phase and original subsequent visual update.
 use super::*;
 use crate::effects::particle_manager::ParticleSystemManager;
-use gamelogic::common::{Coord3D, Matrix3D};
+use glam::Vec3 as Coord3D;
+use glam::Mat4 as Matrix3D;
 use gamelogic::object::draw::draw_module::ClientParticleBoneRuntime;
 use gamelogic::object::update::AnimatedParticleSysBoneClientUpdateModule;
 

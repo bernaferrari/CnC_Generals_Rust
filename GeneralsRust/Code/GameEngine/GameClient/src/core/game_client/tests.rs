@@ -298,7 +298,7 @@ use crate::message_stream::game_message::GameMessageType;
 
         {
             let mut shroud = shroud_manager.lock().expect("shroud manager lock");
-            let world = gamelogic::common::Coord3D {
+            let world = glam::Vec3 {
                 x: pos.x,
                 y: pos.y,
                 z: pos.z,
@@ -312,7 +312,7 @@ use crate::message_stream::game_message::GameMessageType;
 
         {
             let mut shroud = shroud_manager.lock().expect("shroud manager lock");
-            let world = gamelogic::common::Coord3D {
+            let world = glam::Vec3 {
                 x: pos.x,
                 y: pos.y,
                 z: pos.z,

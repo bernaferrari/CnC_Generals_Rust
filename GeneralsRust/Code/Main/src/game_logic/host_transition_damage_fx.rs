@@ -864,15 +864,15 @@ fn play_authored_transition_ocl_with_source(
 }
 
 /// Host Y-up `Vec3` → leftover Z-up `Coord3D`.
-fn host_pos_to_leftover_coord(pos: glam::Vec3) -> gamelogic::common::Coord3D {
-    gamelogic::common::Coord3D::new(pos.x, pos.z, pos.y)
+fn host_pos_to_leftover_coord(pos: glam::Vec3) -> glam::Vec3 {
+    glam::Vec3::new(pos.x, pos.z, pos.y)
 }
 
 /// Leftover `play_fx_for_state` secondary: damage-source world pos, else `pos`.
 pub fn leftover_transition_ocl_secondary(
     pos: glam::Vec3,
     source: Option<&HostDamageFxVictim>,
-) -> gamelogic::common::Coord3D {
+) -> glam::Vec3 {
     host_pos_to_leftover_coord(source.map_or(pos, |source| source.pos))
 }
 
@@ -947,8 +947,8 @@ pub fn parse_transition_particle_attr(raw: &str) -> Option<HostTransitionParticl
 fn leftover_local_effect_pos(
     particle: &HostTransitionParticle,
     drawable: Option<&gamelogic::object::drawable::Drawable>,
-) -> gamelogic::common::Coord3D {
-    let loc = gamelogic::common::Coord3D::new(particle.loc[0], particle.loc[1], particle.loc[2]);
+) -> glam::Vec3 {
+    let loc = glam::Vec3::new(particle.loc[0], particle.loc[1], particle.loc[2]);
     let Some(bone) = particle.bone.as_deref() else {
         return loc;
     };
@@ -971,7 +971,7 @@ fn leftover_local_effect_pos(
     positions.into_iter().nth(pick).unwrap_or(loc)
 }
 
-fn leftover_to_host_local(pos: gamelogic::common::Coord3D) -> glam::Vec3 {
+fn leftover_to_host_local(pos: glam::Vec3) -> glam::Vec3 {
     glam::Vec3::new(pos.x, pos.z, pos.y)
 }
 
@@ -988,11 +988,11 @@ fn leftover_local_effect_pos_live(
     drawable: Option<&gamelogic::object::drawable::Drawable>,
     model: &str,
     scale: f32,
-) -> gamelogic::common::Coord3D {
+) -> glam::Vec3 {
     if drawable.is_some() {
         return leftover_local_effect_pos(particle, drawable);
     }
-    let loc = gamelogic::common::Coord3D::new(particle.loc[0], particle.loc[1], particle.loc[2]);
+    let loc = glam::Vec3::new(particle.loc[0], particle.loc[1], particle.loc[2]);
     let Some(bone) = particle.bone.as_deref() else {
         return loc;
     };

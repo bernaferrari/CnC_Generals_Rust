@@ -200,7 +200,7 @@ fn smoke_ranger_weapon() -> Weapon {
 }
 
 fn assert_smoke_enemies(game_logic: &GameLogic, target: ObjectId) {
-    use gamelogic::common::Relationship;
+    use game_engine::common::game_common::Relationship;
     assert_eq!(
         game_logic.get_object(target).unwrap().owner_player_id,
         Some(1)

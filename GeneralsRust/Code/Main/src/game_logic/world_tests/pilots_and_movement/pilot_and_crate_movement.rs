@@ -1603,7 +1603,7 @@ fn slow_death_final_fx_precedes_final_weapon_fx_and_damage() {
         shroud.init_shroud_grid(400.0, 400.0);
         // FINAL uses doFXObj while Weapon::privateFireWeapon uses doFXPos;
         // the latter needs the terrain cell visible, not just an object override.
-        let center = gamelogic::common::Coord3D::new(80.0, 80.0, 0.0);
+        let center = glam::Vec3::new(80.0, 80.0, 0.0);
         shroud.do_shroud_reveal(&center, 100.0, 1);
         assert_eq!(shroud.get_shroud_state(0, &center), gamelogic::system::shroud_manager::ShroudState::Visible);
         shroud.set_host_object_shroud_status(0, source.0, gamelogic::common::ObjectShroudStatus::Clear);

@@ -432,7 +432,7 @@ impl GameLogic {
                     .boundaries
                     .iter()
                     .copied()
-                    .map(|(x, y)| gamelogic::common::ICoord2D::new(x, y))
+                    .map(|(x, y)| glam::IVec2::new(x, y))
                     .collect();
             }
 
@@ -999,15 +999,15 @@ impl GameLogic {
             let enemies = dict.get_ascii_string(key_player_enemies());
             let allies = dict.get_ascii_string(key_player_allies());
             if let Some(player) = self.players.get_mut(&pid) {
-                player.set_map_relationship(pid, gamelogic::common::Relationship::Allies);
+                player.set_map_relationship(pid, game_engine::common::game_common::Relationship::Allies);
                 for token in enemies.split_whitespace() {
                     if let Some(&eid) = by_name.get(token) {
-                        player.set_map_relationship(eid, gamelogic::common::Relationship::Enemies);
+                        player.set_map_relationship(eid, game_engine::common::game_common::Relationship::Enemies);
                     }
                 }
                 for token in allies.split_whitespace() {
                     if let Some(&aid) = by_name.get(token) {
-                        player.set_map_relationship(aid, gamelogic::common::Relationship::Allies);
+                        player.set_map_relationship(aid, game_engine::common::game_common::Relationship::Allies);
                     }
                 }
             }
@@ -1024,7 +1024,7 @@ impl GameLogic {
         if !self.is_single_player_scenario() {
             return;
         }
-        use gamelogic::common::Relationship;
+        use game_engine::common::game_common::Relationship;
         let Some(local_id) = self.local_player_id() else {
             return;
         };

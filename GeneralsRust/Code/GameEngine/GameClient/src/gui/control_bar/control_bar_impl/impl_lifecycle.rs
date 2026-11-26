@@ -870,7 +870,7 @@ impl ControlBar {
                     if let (Ok(local_guard), Ok(obj_guard)) = (local_arc.read(), obj_player.read())
                     {
                         return local_guard.get_relationship(&obj_guard)
-                            == gamelogic::common::Relationship::Neutral;
+                            == game_engine::common::game_common::Relationship::Neutral;
                     }
                 }
                 return false;

@@ -1111,8 +1111,8 @@ impl crate::core::subsystems::InGameUISubsystem {
         // C++ W3DInGameUI::drawMoveHints shows while elapsed <= 40.
         let hint = HintData {
             hint_type: HintType::Move,
-            start: gamelogic::common::Coord3D::new(start.x, start.y, start.z),
-            end: gamelogic::common::Coord3D::new(end.x, end.y, end.z),
+            start: glam::Vec3::new(start.x, start.y, start.z),
+            end: glam::Vec3::new(end.x, end.y, end.z),
             creation_frame: client_frame,
             source_id,
             lifetime_frames: 41,
@@ -1141,8 +1141,8 @@ impl crate::core::subsystems::InGameUISubsystem {
     ) {
         let hint = HintData {
             hint_type: HintType::Attack,
-            start: gamelogic::common::Coord3D::new(start.x, start.y, start.z),
-            end: gamelogic::common::Coord3D::new(end.x, end.y, end.z),
+            start: glam::Vec3::new(start.x, start.y, start.z),
+            end: glam::Vec3::new(end.x, end.y, end.z),
             // C++ InGameUI.cpp:2163 — hints stamp TheGameClient->getFrame();
             // frame 0 would expire before mid-match attacks ever render.
             creation_frame: client_frame,
@@ -1165,8 +1165,8 @@ impl crate::core::subsystems::InGameUISubsystem {
     pub fn begin_area_select_hint(&mut self) {
         let hint = HintData {
             hint_type: HintType::AreaSelect,
-            start: gamelogic::common::Coord3D::new(0.0, 0.0, 0.0),
-            end: gamelogic::common::Coord3D::new(0.0, 0.0, 0.0),
+            start: glam::Vec3::new(0.0, 0.0, 0.0),
+            end: glam::Vec3::new(0.0, 0.0, 0.0),
             creation_frame: 0,
             source_id: 0,
             lifetime_frames: 300,

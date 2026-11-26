@@ -736,18 +736,18 @@ impl GameLogic {
             let rel = self.host_script_relationship(pid, obj);
             let relationship_ok = if requires_object_target {
                 (options.contains(SpecialPowerCommandOption::NEED_TARGET_ENEMY_OBJECT)
-                    && rel == gamelogic::common::Relationship::Enemies)
+                    && rel == game_engine::common::game_common::Relationship::Enemies)
                     || (options.contains(SpecialPowerCommandOption::NEED_TARGET_NEUTRAL_OBJECT)
-                        && rel == gamelogic::common::Relationship::Neutral)
+                        && rel == game_engine::common::game_common::Relationship::Neutral)
                     || (options.contains(SpecialPowerCommandOption::NEED_TARGET_ALLY_OBJECT)
-                        && rel == gamelogic::common::Relationship::Allies)
+                        && rel == game_engine::common::game_common::Relationship::Allies)
                     || (!options.intersects(
                         SpecialPowerCommandOption::NEED_TARGET_ENEMY_OBJECT
                             | SpecialPowerCommandOption::NEED_TARGET_NEUTRAL_OBJECT
                             | SpecialPowerCommandOption::NEED_TARGET_ALLY_OBJECT,
-                    ) && rel == gamelogic::common::Relationship::Enemies)
+                    ) && rel == game_engine::common::game_common::Relationship::Enemies)
             } else {
-                rel == gamelogic::common::Relationship::Enemies
+                rel == game_engine::common::game_common::Relationship::Enemies
             };
             if !relationship_ok {
                 continue;
@@ -831,9 +831,9 @@ impl GameLogic {
         &self,
         viewer: u32,
         candidate: &crate::game_logic::Object,
-    ) -> gamelogic::common::Relationship {
+    ) -> game_engine::common::game_common::Relationship {
         use crate::game_logic::Team;
-        use gamelogic::common::Relationship;
+        use game_engine::common::game_common::Relationship;
         let Some(oid) = candidate.owner_player_id else {
             let vt = self
                 .players
@@ -875,7 +875,7 @@ impl GameLogic {
     /// C++ `getPlayersWithRelationship(ALLOW_ENEMIES)` — player map, not faction Team.
     pub(super) fn host_script_enemy_player_mask(&self, attacker_pid: u32) -> u32 {
         use crate::game_logic::Team;
-        use gamelogic::common::Relationship;
+        use game_engine::common::game_common::Relationship;
         let mut mask = 0u32;
         for &oid in self.players.keys() {
             if oid == attacker_pid {
@@ -950,7 +950,7 @@ impl GameLogic {
         value: i32,
     ) -> Option<glam::Vec3> {
         let enemy_mask = self.host_script_enemy_player_mask(attacker_pid);
-        let source = gamelogic::common::Coord3D::new(origin.x, origin.z, 0.0);
+        let source = glam::Vec3::new(origin.x, origin.z, 0.0);
         let location = self
             .world_services
             .shroud()
@@ -1711,7 +1711,7 @@ impl GameLogic {
         player_id: Option<u32>,
     ) -> bool {
         use crate::game_logic::KindOf;
-        use gamelogic::common::Relationship;
+        use game_engine::common::game_common::Relationship;
         if building.status.off_map != leader_off_map {
             return false;
         }
@@ -2192,7 +2192,7 @@ impl GameLogic {
                 terrain
                     .get_trigger_area_by_name(trigger_name)
                     .map(|trigger| {
-                        trigger.point_in_trigger_int(&gamelogic::common::ICoord3D::new(
+                        trigger.point_in_trigger_int(&glam::IVec3::new(
                             pos.x as i32,
                             pos.z as i32,
                             0,
@@ -2231,7 +2231,7 @@ impl GameLogic {
         path_label: &str,
         from: glam::Vec3,
     ) -> Option<u32> {
-        let leftover_pos = gamelogic::common::Coord3D::new(from.x, from.z, from.y);
+        let leftover_pos = glam::Vec3::new(from.x, from.z, from.y);
         let terrain_owner_handle = self.world_services.terrain();
         let terrain = terrain_owner_handle.read().ok()?;
         let start = terrain.get_closest_waypoint_on_path(&leftover_pos, path_label)?;

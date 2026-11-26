@@ -494,9 +494,9 @@ fn leftover_handle_weapon_fire_fx_at_fx_bone(
 /// Host Y-up `(x, height, z_ground)` → leftover/C++ Z-up `(x, y_ground, z_height)`.
 fn leftover_fire_fx_victim_coord(
     capture: &super::weapon_visual_capture::PendingWeaponVisualDispatchCapture,
-) -> gamelogic::common::Coord3D {
+) -> glam::Vec3 {
     let p = capture.target_pos.unwrap_or(capture.source_pos);
-    gamelogic::common::Coord3D::new(p[0], p[2], p[1])
+    glam::Vec3::new(p[0], p[2], p[1])
 }
 
 /// The receiving session supplies immediate FX while the particle registry is

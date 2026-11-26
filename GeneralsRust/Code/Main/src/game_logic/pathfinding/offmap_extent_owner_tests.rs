@@ -5,7 +5,7 @@ fn logical(maximum: i32) -> gamelogic::terrain::TerrainLogic {
     map.width = 64;
     map.height = 64;
     map.heightmap = vec![0; 64 * 64];
-    map.boundaries = vec![gamelogic::common::ICoord2D::new(maximum, maximum)];
+    map.boundaries = vec![glam::IVec2::new(maximum, maximum)];
     let mut terrain = gamelogic::terrain::TerrainLogic::new();
     assert!(terrain.load_map_geometry(map).is_empty());
     terrain

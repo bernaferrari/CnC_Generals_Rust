@@ -5,7 +5,7 @@ use game_engine::common::audio::{AudioEventRts, AudioSubmissionLocality};
 use game_engine::common::ini::ini_fx_list::{FXList, FXNugget};
 use std::sync::{Arc, Mutex};
 struct Audio {
-    trigger: Arc<Mutex<gamelogic::scripting::HostTriggerWorld>>,
+    trigger: Arc<Mutex<crate::game_logic::ScriptTriggerWorld>>,
     names: Vec<String>,
 }
 impl crate::game_logic::NativeAudioEffects for Audio {
@@ -156,7 +156,8 @@ fn installed_motion_topple_fx_precedes_trigger_update_and_is_consumed_once() {
 
 #[test]
 fn no_tree_motion_contact_marks_team_through_receiving_world_after_object_loan() {
-    use gamelogic::common::types::{AsciiString, ICoord3D};
+    use gamelogic::common::types::AsciiString;
+    use glam::IVec3 as ICoord3D;
     use gamelogic::polygon_trigger::PolygonTrigger;
 
     let mut world = world();

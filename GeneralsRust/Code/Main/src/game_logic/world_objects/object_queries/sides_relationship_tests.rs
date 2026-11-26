@@ -1,5 +1,5 @@
 use super::*;
-use gamelogic::common::Relationship;
+use game_engine::common::game_common::Relationship;
 
 #[test]
 fn distinct_players_default_neutral_not_enemies() {

@@ -186,8 +186,8 @@ impl GameLogic {
                 AudioLocalityRelationship::Allies
             } else {
                 match self.player_relationship(p.id, relationship_local) {
-                    gamelogic::common::Relationship::Allies => AudioLocalityRelationship::Allies,
-                    gamelogic::common::Relationship::Enemies => AudioLocalityRelationship::Enemies,
+                    game_engine::common::game_common::Relationship::Allies => AudioLocalityRelationship::Allies,
+                    game_engine::common::game_common::Relationship::Enemies => AudioLocalityRelationship::Enemies,
                     _ => AudioLocalityRelationship::Neutral,
                 }
             };
@@ -218,7 +218,7 @@ impl GameLogic {
         let shroud = owner
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
-        let position = gamelogic::common::Coord3D::new(position.x, position.z, position.y);
+        let position = glam::Vec3::new(position.x, position.z, position.y);
         matches!(
             shroud.get_shroud_state(player, &position),
             gamelogic::system::shroud_manager::ShroudState::Visible
@@ -1549,7 +1549,7 @@ mod pathfind_relationship_refresh_tests {
     /// not at the next logic step's mask refresh. Two worlds stay independent.
     #[test]
     fn script_relation_change_reaches_pathfinder_same_frame() {
-        use gamelogic::common::Relationship;
+        use game_engine::common::game_common::Relationship;
         let (mut a, _, _) = super::named_command_test_support::world();
         let (b, _, _) = super::named_command_test_support::world();
         a.refresh_pathfind_ally_masks();

@@ -1,7 +1,8 @@
 //! State-emitter portion of the installed native Draw phase; never submits a mesh.
 use super::*;
 use crate::effects::particle_manager::ParticleSystemManager;
-use gamelogic::common::{Coord3D, Matrix3D};
+use glam::Vec3 as Coord3D;
+use glam::Mat4 as Matrix3D;
 use gamelogic::object::draw::draw_module::{
     ClientParticleStateRuntime, InstalledStateParticleRow, NativeStateParticleContext,
     NativeStateParticlePreparation,

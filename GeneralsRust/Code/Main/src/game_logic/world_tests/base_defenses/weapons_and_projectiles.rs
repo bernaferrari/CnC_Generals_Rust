@@ -1145,7 +1145,7 @@ fn authored_point_defense_modules_use_world_owned_weapons_and_independent_clocks
         for (id, team, name) in [(1, Team::USA, "Owner"), (2, Team::GLA, "Enemy")] {
             let mut player = crate::game_logic::Player::new(id, team, name, id == 1);
             player.alliance_team = id as i32;
-            player.set_map_relationship(if id == 1 { 2 } else { 1 }, gamelogic::common::Relationship::Enemies);
+            player.set_map_relationship(if id == 1 { 2 } else { 1 }, game_engine::common::game_common::Relationship::Enemies);
             world.add_player(player);
         }
         let source = r#"
@@ -1334,7 +1334,7 @@ fn point_defense_save_restores_independent_module_clocks_without_touching_peer()
         for (id, team, name) in [(1, Team::USA, "DefenseOwner"), (2, Team::GLA, "DefenseEnemy")] {
             let mut player = crate::game_logic::Player::new(id, team, name, id == 1);
             player.alliance_team = id as i32;
-            player.set_map_relationship(if id == 1 { 2 } else { 1 }, gamelogic::common::Relationship::Enemies);
+            player.set_map_relationship(if id == 1 { 2 } else { 1 }, game_engine::common::game_common::Relationship::Enemies);
             world.add_player(player);
         }
         let objects = r#"

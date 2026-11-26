@@ -87,7 +87,7 @@ fn wander_and_panic_waypoint_lookup_use_the_driving_world_terrain() {
             .read()
             .expect("foreign terrain")
             .get_closest_waypoint_on_path(
-                &gamelogic::common::Coord3D::new(0.0, 0.0, 0.0),
+                &glam::Vec3::new(0.0, 0.0, 0.0),
                 "SharedPath",
             )
             .map(|waypoint| waypoint.get_id())

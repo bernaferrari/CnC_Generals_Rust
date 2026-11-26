@@ -1651,8 +1651,8 @@ fn body_auto_particle_specs(
     specs
 }
 
-fn host_local_to_cpp(local: Vec3) -> gamelogic::common::Coord3D {
-    gamelogic::common::Coord3D::new(local.x, local.z, local.y)
+fn host_local_to_cpp(local: Vec3) -> glam::Vec3 {
+    glam::Vec3::new(local.x, local.z, local.y)
 }
 
 fn rotate_yaw_host(origin: Vec3, yaw: f32, local: Vec3) -> Vec3 {

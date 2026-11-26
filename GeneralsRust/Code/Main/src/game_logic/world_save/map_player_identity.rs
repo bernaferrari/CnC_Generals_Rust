@@ -53,7 +53,7 @@ impl GameLogic {
         neutral
             .map_side
             .relations
-            .insert(0, gamelogic::common::Relationship::Allies);
+            .insert(0, game_engine::common::game_common::Relationship::Allies);
         candidates.push(neutral);
         for row in &rows {
             let name = row.get_ascii_string(key_player_name());
@@ -396,7 +396,7 @@ mod tests {
                 assert_eq!(neutral.map_side.map_player_name, "");
                 assert_eq!(
                     neutral.map_side.relations.get(&0),
-                    Some(&gamelogic::common::Relationship::Allies)
+                    Some(&game_engine::common::game_common::Relationship::Allies)
                 );
                 assert_eq!(neutral.resources.supplies, 0);
                 owner.ensure_host_default_team(1);

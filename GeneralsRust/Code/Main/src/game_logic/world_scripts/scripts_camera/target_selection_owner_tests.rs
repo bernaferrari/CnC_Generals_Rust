@@ -21,13 +21,13 @@ fn fixture(normal: bool) -> (GameLogic, ObjectId, ObjectId, ObjectId) {
         .unwrap()
         .map_side
         .relations
-        .insert(2, gamelogic::common::Relationship::Enemies);
+        .insert(2, game_engine::common::game_common::Relationship::Enemies);
     world
         .get_player_mut(2)
         .unwrap()
         .map_side
         .relations
-        .insert(1, gamelogic::common::Relationship::Enemies);
+        .insert(1, game_engine::common::game_common::Relationship::Enemies);
     for name in ["PolicyUnit", "PolicyFar", "PolicyNear"] {
         let mut template = ThingTemplate::new(name);
         template

@@ -200,7 +200,7 @@ End
 }
 
 fn assert_trace_attack_legal(game_logic: &GameLogic, source: ObjectId, target: ObjectId) {
-    use gamelogic::common::Relationship;
+    use game_engine::common::game_common::Relationship;
     assert_eq!(game_logic.player_relationship(0, 1), Relationship::Enemies);
     assert_eq!(game_logic.player_relationship(1, 0), Relationship::Enemies);
     assert_eq!(

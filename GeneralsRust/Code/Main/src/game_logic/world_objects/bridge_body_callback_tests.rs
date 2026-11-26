@@ -3,7 +3,8 @@ use super::super::*;
 use crate::game_logic::combat::DamageType;
 use crate::game_logic::host_usa_pilot::HostDeathType;
 use crate::game_logic::object::DamageHitContext;
-use gamelogic::common::{BodyDamageType, Coord3D};
+use gamelogic::common::BodyDamageType;
+use glam::Vec3 as Coord3D;
 use gamelogic::terrain::BridgeInfo;
 
 fn isolated(name: &str, run: impl FnOnce()) {
@@ -370,7 +371,7 @@ fn owned_water_damage_completes_linked_bridge_callbacks_before_returning() {
                 gamelogic::polygon_trigger::PolygonTrigger::new(7, "Lake".into(), Vec::new());
             water.set_water_area(true);
             for (x, y) in [(0, 0), (80, 0), (80, 80), (0, 80)] {
-                water.add_point(gamelogic::common::ICoord3D::new(x, y, 20));
+                water.add_point(glam::IVec3::new(x, y, 20));
             }
             map.polygon_triggers.push(water);
             world
@@ -974,7 +975,7 @@ fn repaired_bridge_begins_new_owned_score_episode_and_preserves_saved_future() {
                 world
                     .get_player_mut(from)
                     .unwrap()
-                    .set_map_relationship(to, gamelogic::common::Relationship::Enemies);
+                    .set_map_relationship(to, game_engine::common::game_common::Relationship::Enemies);
             }
             let (span, _, _, _) = bridge(&mut world, Vec3::new(50., 5., 50.));
             world

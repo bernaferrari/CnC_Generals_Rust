@@ -312,7 +312,7 @@ pub fn leftover_radar_bridge_at(
 ) -> Option<game_engine::common::system::radar::RadarBridgeSample> {
     let terrain_owner_handle = gamelogic::terrain::get_terrain_logic();
     let terrain = terrain_owner_handle.try_read().ok()?;
-    let loc = gamelogic::common::Coord3D::new(world.x, world.y, world.z);
+    let loc = glam::Vec3::new(world.x, world.y, world.z);
     let bridge = terrain.find_bridge_at(&loc)?;
     let info = bridge.get_bridge_info();
     if info.bridge_object_id == gamelogic::common::INVALID_ID {

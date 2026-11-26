@@ -9,15 +9,15 @@ use std::sync::mpsc::{Receiver, Sender, channel};
 /// ProjectileDetonationFX witness. Weapon::handleProjectileDetonation runs the
 /// FXList at the detonation position (doFXPos) before Body damage, so the
 /// end-phase impact queue is already drained when the update returns.
-struct DetonationWitness(Sender<gamelogic::common::Coord3D>);
+struct DetonationWitness(Sender<glam::Vec3>);
 
 impl game_client::fx_list::FXNugget for DetonationWitness {
     fn do_fx_pos(
         &self,
-        primary: Option<&gamelogic::common::Coord3D>,
-        _: Option<&gamelogic::common::Matrix3D>,
+        primary: Option<&glam::Vec3>,
+        _: Option<&glam::Mat4>,
         _: f32,
-        _: Option<&gamelogic::common::Coord3D>,
+        _: Option<&glam::Vec3>,
         _: f32,
     ) {
         self.0.send(*primary.expect("detonation position")).unwrap();
@@ -32,7 +32,7 @@ impl game_client::fx_list::FXNugget for DetonationWitness {
 }
 
 /// The local player sees the crossing, so its client FX gate admits it.
-fn witness(world: &mut GameLogic) -> Receiver<gamelogic::common::Coord3D> {
+fn witness(world: &mut GameLogic) -> Receiver<glam::Vec3> {
     world.add_player(crate::game_logic::Player::new(
         1,
         crate::game_logic::Team::USA,
@@ -43,7 +43,7 @@ fn witness(world: &mut GameLogic) -> Receiver<gamelogic::common::Coord3D> {
     {
         let mut shroud = world.world_services.shroud().lock().unwrap();
         shroud.init_shroud_grid_at_origin([-100.0, -100.0], 200.0, 200.0);
-        shroud.do_shroud_reveal(&gamelogic::common::Coord3D::new(20.0, 20.0, 0.0), 40.0, 1 << 1);
+        shroud.do_shroud_reveal(&glam::Vec3::new(20.0, 20.0, 0.0), 40.0, 1 << 1);
     }
     let (send, receive) = channel();
     let mut fx = game_client::fx_list::FXList::new();
@@ -54,7 +54,7 @@ fn witness(world: &mut GameLogic) -> Receiver<gamelogic::common::Coord3D> {
     receive
 }
 
-fn world(deck: f32) -> (GameLogic, ObjectId, Receiver<gamelogic::common::Coord3D>) {
+fn world(deck: f32) -> (GameLogic, ObjectId, Receiver<glam::Vec3>) {
     let mut world = GameLogic::new();
     world.override_world_size(200.0, 200.0);
     let detonations = witness(&mut world);
@@ -119,7 +119,7 @@ fn impact(
     world: &mut GameLogic,
     id: ObjectId,
     deck: f32,
-    detonations: &Receiver<gamelogic::common::Coord3D>,
+    detonations: &Receiver<glam::Vec3>,
 ) {
     // Match the real fixed-step owner scope retained for other Core services.
     // The projectile query itself must never consult its duplicate Core AI.

@@ -15,7 +15,7 @@ fn map(
     map.width = 128;
     map.height = 128;
     map.heightmap = vec![0; 128 * 128];
-    map.boundaries = vec![gamelogic::common::ICoord2D::new(boundary, boundary)];
+    map.boundaries = vec![glam::IVec2::new(boundary, boundary)];
     for (id, name, xy) in [(1, "WaveGuide1", first), (2, "WaveGuideEnd", last)] {
         map.waypoints.push(MapWaypoint {
             id,

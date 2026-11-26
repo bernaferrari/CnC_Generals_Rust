@@ -165,7 +165,7 @@ fn factory_admitted_microwave_draw_creates_real_attached_particle_rows() {
     let _preceding_object = object_factory
         .create_object(
             "AmericaTankMicrowave",
-            gamelogic::common::Coord3D::ZERO,
+            glam::Vec3::ZERO,
             None,
             gamelogic::object::object_factory::ObjectCreationFlags::NO_DRAWABLE,
         )
@@ -173,7 +173,7 @@ fn factory_admitted_microwave_draw_creates_real_attached_particle_rows() {
     let object_id = object_factory
         .create_object(
             "AmericaTankMicrowave",
-            gamelogic::common::Coord3D::ZERO,
+            glam::Vec3::ZERO,
             None,
             gamelogic::object::object_factory::ObjectCreationFlags::empty(),
         )
@@ -339,7 +339,7 @@ fn admit_microwave(
     let object_id = factory
         .create_object(
             "AmericaTankMicrowave",
-            gamelogic::common::Coord3D::ZERO,
+            glam::Vec3::ZERO,
             None,
             gamelogic::object::object_factory::ObjectCreationFlags::empty(),
         )
@@ -448,7 +448,7 @@ fn particle_owner_controls(
     factory_b
         .create_object(
             "AmericaTankMicrowave",
-            gamelogic::common::Coord3D::ZERO,
+            glam::Vec3::ZERO,
             None,
             ObjectCreationFlags::NO_DRAWABLE,
         )

@@ -73,7 +73,7 @@ impl GameLogic {
             {
                 let is_enemy = if self.has_object_ownership_provenance(attacker, target) {
                     self.object_relationship(attacker, target)
-                        == gamelogic::common::Relationship::Enemies
+                        == game_engine::common::game_common::Relationship::Enemies
                 } else {
                     attacker.team != target.team
                 };

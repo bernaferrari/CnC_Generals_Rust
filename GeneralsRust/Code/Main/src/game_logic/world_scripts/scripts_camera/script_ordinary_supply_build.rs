@@ -112,7 +112,7 @@ impl GameLogic {
                             warehouse.owner_player_id,
                             warehouse.team_instance_id,
                             &warehouse.team_instance_name,
-                        ) == gamelogic::common::Relationship::Enemies
+                        ) == game_engine::common::game_common::Relationship::Enemies
                     {
                         return None;
                     }

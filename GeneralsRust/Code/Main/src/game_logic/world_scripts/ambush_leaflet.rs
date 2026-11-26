@@ -623,7 +623,7 @@ impl GameLogic {
                             "",
                         )
                     };
-                    let is_enemy = relationship == gamelogic::common::Relationship::Enemies;
+                    let is_enemy = relationship == game_engine::common::game_common::Relationship::Enemies;
                     let under_construction =
                         obj.status.under_construction || obj.construction_percent + 0.001 < 1.0;
                     Some((*id, is_infantry, is_vehicle, is_enemy, under_construction))

@@ -37,7 +37,7 @@ impl GameLogic {
     ) -> Option<HostWaypointRoute> {
         let owner = self.world_services.terrain();
         let terrain = owner.read().expect("receiving waypoint graph");
-        let pos = gamelogic::common::Coord3D::new(from.x, from.z, from.y);
+        let pos = glam::Vec3::new(from.x, from.z, from.y);
         let first = terrain.get_closest_waypoint_on_path(&pos, path_label)?;
         let chain = terrain.walk_link0_chain(first, gamelogic::terrain::WAYPOINT_PATH_LIMIT);
         let first = identity(chain.first()?);

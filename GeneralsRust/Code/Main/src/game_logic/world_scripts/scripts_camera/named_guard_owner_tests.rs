@@ -151,7 +151,7 @@ fn guard_snapshot_continues_without_a_reissued_command() {
         .players
         .get_mut(&1)
         .unwrap()
-        .set_map_relationship(2, gamelogic::common::Relationship::Enemies);
+        .set_map_relationship(2, game_engine::common::game_common::Relationship::Enemies);
     guard(&mut source, "NamedUnit");
     let saved = projection(&source, id);
     let builder = crate::save_load::SnapshotBuilder::new();

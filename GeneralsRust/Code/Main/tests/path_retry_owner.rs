@@ -290,7 +290,7 @@ fn idle_victim_reserves_its_cell_before_queued_attack_fallback() {
 
 #[test]
 fn possible_destination_uses_restored_world_relationships_and_goal_reservations() {
-    use gamelogic::common::Relationship;
+    use game_engine::common::game_common::Relationship;
     use generals_main::game_logic::pathfinding::GridPos;
     use generals_main::save_load::{GameDifficulty, SaveFileManager, SaveFileType, SaveGameInfo};
     use game_engine::common::{

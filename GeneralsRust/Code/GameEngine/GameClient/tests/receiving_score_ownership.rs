@@ -109,7 +109,7 @@ fn scene(client: &mut GameClient, end_frame: Option<u32>) -> ScoreScene {
 
 #[test]
 fn native_score_rows_use_the_receiving_roster_and_relationships() {
-    use gamelogic::common::Relationship;
+    use game_engine::common::game_common::Relationship;
 
     fn player(
         id: i32,
@@ -442,7 +442,7 @@ fn score_row(
     local: bool,
     observer: bool,
     human: bool,
-    relationship: gamelogic::common::Relationship,
+    relationship: game_engine::common::game_common::Relationship,
     money: i32,
 ) -> ScoreScreenPlayerSnapshot {
     let mut score_keeper = game_engine::common::rts::score_keeper::ScoreKeeper::new();
@@ -498,7 +498,7 @@ fn score_text(scene: &ScoreScene, name: &str) -> String {
 
 #[test]
 fn multiplayer_score_map_replaces_adjusted_collision_and_hides_from_input_count() {
-    use gamelogic::common::Relationship;
+    use game_engine::common::game_common::Relationship;
     let mut client = client();
     let scene = scene(&mut client, None);
     install_roster(
@@ -568,7 +568,7 @@ fn multiplayer_score_map_replaces_adjusted_collision_and_hides_from_input_count(
 
 #[test]
 fn single_player_rows_order_all_faction_friends_before_enemies() {
-    use gamelogic::common::Relationship;
+    use game_engine::common::game_common::Relationship;
     let mut client = client();
     let scene = scene(&mut client, None);
     let mut roster = vec![score_row(
@@ -628,7 +628,7 @@ fn single_player_rows_order_all_faction_friends_before_enemies() {
 
 #[test]
 fn observer_single_player_score_uses_first_human_for_exclusion() {
-    use gamelogic::common::Relationship;
+    use game_engine::common::game_common::Relationship;
     let mut client = client();
     let scene = scene(&mut client, None);
     install_roster(

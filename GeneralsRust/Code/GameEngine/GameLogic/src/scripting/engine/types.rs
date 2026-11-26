@@ -2363,20 +2363,22 @@ pub trait ScriptActionHandler: Send + Sync {
 }
 
 /// C++ Scripts.h skirmish trigger names.
-pub(crate) const MY_INNER_PERIMETER: &str = "[Skirmish]MyInnerPerimeter";
-pub(crate) const MY_OUTER_PERIMETER: &str = "[Skirmish]MyOuterPerimeter";
-pub(crate) const ENEMY_INNER_PERIMETER: &str = "[Skirmish]EnemyInnerPerimeter";
-pub(crate) const ENEMY_OUTER_PERIMETER: &str = "[Skirmish]EnemyOuterPerimeter";
-pub(crate) const INNER_PERIMETER: &str = "InnerPerimeter";
-pub(crate) const OUTER_PERIMETER: &str = "OuterPerimeter";
+pub(crate) use generals_sim::scripting::{
+    ENEMY_INNER_PERIMETER, ENEMY_OUTER_PERIMETER, INNER_PERIMETER, MY_INNER_PERIMETER,
+    MY_OUTER_PERIMETER, OUTER_PERIMETER,
+};
 
 /// C++ ScriptEngine::getQualifiedTriggerAreaByName rewrite (ScriptEngine.cpp:5888-5916).
 pub(crate) fn qualify_trigger_area_name(
     area_name: &str,
     current_player_name: Option<&str>,
 ) -> Option<String> {
+    let Some(player_name) = current_player_name else {
+        return generals_sim::scripting::qualify_trigger_area_without_player(area_name)
+            .map(str::to_owned);
+    };
+
     if area_name == MY_INNER_PERIMETER || area_name == MY_OUTER_PERIMETER {
-        let player_name = current_player_name?;
         let __player_list_arc = crate::player::player_list();
             let ndx = __player_list_arc.read()
             .ok()
@@ -2395,16 +2397,14 @@ pub(crate) fn qualify_trigger_area_name(
 
     if area_name == ENEMY_INNER_PERIMETER || area_name == ENEMY_OUTER_PERIMETER {
         let mut mp_ndx = -1;
-        if let Some(player_name) = current_player_name {
-            let __player_list_arc = crate::player::player_list();
-        if let Ok(list) = __player_list_arc.read() {
-                if let Some(player) = list.find_player_by_name(player_name) {
-                    if let Ok(guard) = player.read() {
-                        if let Some(enemy_index) = guard.get_current_enemy_player_index() {
-                            if let Some(enemy) = list.get_player(enemy_index) {
-                                if let Ok(enemy_guard) = enemy.read() {
-                                    mp_ndx = enemy_guard.get_mp_start_index() + 1;
-                                }
+        let player_list = crate::player::player_list();
+        if let Ok(list) = player_list.read() {
+            if let Some(player) = list.find_player_by_name(player_name) {
+                if let Ok(guard) = player.read() {
+                    if let Some(enemy_index) = guard.get_current_enemy_player_index() {
+                        if let Some(enemy) = list.get_player(enemy_index) {
+                            if let Ok(enemy_guard) = enemy.read() {
+                                mp_ndx = enemy_guard.get_mp_start_index() + 1;
                             }
                         }
                     }

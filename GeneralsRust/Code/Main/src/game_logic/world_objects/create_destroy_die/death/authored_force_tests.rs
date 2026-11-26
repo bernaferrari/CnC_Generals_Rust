@@ -708,7 +708,7 @@ End";
     map.width = 8;
     map.height = 8;
     map.heightmap = vec![0; 64];
-    map.boundaries = vec![gamelogic::common::ICoord2D::new(8, 8)];
+    map.boundaries = vec![glam::IVec2::new(8, 8)];
     world
         .world_services
         .terrain()

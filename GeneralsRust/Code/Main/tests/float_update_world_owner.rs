@@ -131,10 +131,10 @@ fn float_phase_ignores_foreign_published_terrain() {
             99,
             "ForeignFloatWater".into(),
             vec![
-                gamelogic::common::ICoord3D::new(0, 0, 120),
-                gamelogic::common::ICoord3D::new(200, 0, 120),
-                gamelogic::common::ICoord3D::new(200, 200, 120),
-                gamelogic::common::ICoord3D::new(0, 200, 120),
+                glam::IVec3::new(0, 0, 120),
+                glam::IVec3::new(200, 0, 120),
+                glam::IVec3::new(200, 200, 120),
+                glam::IVec3::new(0, 200, 120),
             ],
         );
         water.set_water_area(true);

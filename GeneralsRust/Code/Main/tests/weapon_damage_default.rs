@@ -188,7 +188,7 @@ fn run_case(
     );
     assert_eq!(
         world.player_relationship(0, 1),
-        gamelogic::common::Relationship::Enemies
+        game_engine::common::game_common::Relationship::Enemies
     );
     assert_eq!(
         world.get_able_to_attack_specific_object(

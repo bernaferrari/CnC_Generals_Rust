@@ -2,7 +2,7 @@
 //! Child of `world_combat` (itself a child of `game_logic.rs`).
 #![allow(unused_imports, non_snake_case)]
 use super::super::*;
-use gamelogic::common::Relationship;
+use game_engine::common::game_common::Relationship;
 impl GameLogic {
     /// Activate GPS Scrambler residual: GrantStealth to ally vehicles/infantry in radius.
     ///
@@ -177,7 +177,7 @@ impl GameLogic {
         caster_team: Team,
         obj: &Object,
     ) -> bool {
-        use gamelogic::common::Relationship;
+        use game_engine::common::game_common::Relationship;
         let caster_owner = caster_id
             .and_then(|id| self.objects.get(&id))
             .and_then(|c| self.player_owner_for_host_object(c))
@@ -765,7 +765,7 @@ impl GameLogic {
             propaganda_applies_weapon_bonus, propaganda_heal_amount,
             propaganda_source_suppressed, should_play_propaganda_pulse_fx,
         };
-        use gamelogic::common::Relationship;
+        use game_engine::common::game_common::Relationship;
 
         if dt <= 0.0 {
             return Ok(());
@@ -1069,7 +1069,7 @@ impl GameLogic {
             ambulance_pulse_ready, in_heal_radius_2d, is_ambulance_healer,
             is_legal_ambulance_infantry_heal_target, is_legal_ambulance_vehicle_heal_target,
         };
-        use gamelogic::common::Relationship;
+        use game_engine::common::game_common::Relationship;
 
         if !ambulance_pulse_ready(&mut self.ambulance_auto_heal_pulse_accum, dt) {
             return Ok(());

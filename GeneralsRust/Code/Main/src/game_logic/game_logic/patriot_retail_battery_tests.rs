@@ -109,7 +109,7 @@ fn world_for_target(target_kind: RetailTarget, superweapon: bool) -> (GameLogic,
     map.width = size;
     map.height = size;
     map.heightmap = vec![0; (size * size) as usize];
-    map.boundaries = vec![gamelogic::common::ICoord2D::new(size as i32, size as i32)];
+    map.boundaries = vec![glam::IVec2::new(size as i32, size as i32)];
     world.world_services.terrain().write().unwrap().try_load_map_geometry(map).unwrap();
     world.initialize_receiving_partition_grid().unwrap();
     for (id, team) in [(0, Team::USA), (1, Team::China)] {

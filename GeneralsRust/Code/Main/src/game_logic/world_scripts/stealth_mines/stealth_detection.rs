@@ -206,7 +206,7 @@ impl GameLogic {
                         // C++ PartitionFilterRelationship ALLOW_ENEMIES|ALLOW_NEUTRAL.
                         let rel_ok = match (*det_owner, s_owner) {
                             (Some(a), Some(b)) => {
-                                use gamelogic::common::Relationship;
+                                use game_engine::common::game_common::Relationship;
                                 matches!(
                                     self.player_relationship(a, b),
                                     Relationship::Enemies | Relationship::Neutral
@@ -333,7 +333,7 @@ impl GameLogic {
                         };
                         let rel_ok = match (*det_owner, r_owner) {
                             (Some(a), Some(b)) => {
-                                use gamelogic::common::Relationship;
+                                use game_engine::common::game_common::Relationship;
                                 matches!(
                                     self.player_relationship(a, b),
                                     Relationship::Enemies | Relationship::Neutral
@@ -554,7 +554,7 @@ impl GameLogic {
                 || self.is_object_locally_controlled(id)
                 || match (obj.owner_player_id, local) {
                     (Some(a), Some(b)) => {
-                        self.player_relationship(a, b) == gamelogic::common::Relationship::Allies
+                        self.player_relationship(a, b) == game_engine::common::game_common::Relationship::Allies
                     }
                     _ => false,
                 };
@@ -654,7 +654,7 @@ impl GameLogic {
             };
             match (d.owner_player_id, t_owner) {
                 (Some(a), Some(b)) => {
-                    self.player_relationship(a, b) != gamelogic::common::Relationship::Allies
+                    self.player_relationship(a, b) != game_engine::common::game_common::Relationship::Allies
                 }
                 _ => d.team != t_team,
             }
@@ -666,7 +666,7 @@ impl GameLogic {
             };
             match (d.owner_player_id, t_owner) {
                 (Some(a), Some(b)) => {
-                    self.player_relationship(a, b) != gamelogic::common::Relationship::Allies
+                    self.player_relationship(a, b) != game_engine::common::game_common::Relationship::Allies
                 }
                 _ => d.team != t_team,
             }

@@ -1833,7 +1833,7 @@ fn try_to_recruit_ranks_leftover_xy_not_host_3d() {
         let mut tf = logic.team_factory.lock().expect("world team factory");
         let mut dest = gamelogic::team::TeamPrototype::new("HQ_1T0_Dest".into());
         dest.set_production_priority(50);
-        dest.set_home_location(gamelogic::common::Coord3D::new(0.0, 0.0, 80.0));
+        dest.set_home_location(glam::Vec3::new(0.0, 0.0, 80.0));
         tf.replace_team_prototype(dest);
     }
 

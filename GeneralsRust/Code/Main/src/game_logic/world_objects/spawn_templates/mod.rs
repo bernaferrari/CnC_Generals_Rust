@@ -220,7 +220,7 @@ fn restamp_host_partition_look(
     live: &mut std::collections::HashSet<ObjectId>,
     shroud_mgr: &mut gamelogic::system::shroud_manager::ShroudManager,
     id: ObjectId,
-    center: gamelogic::common::Coord3D,
+    center: glam::Vec3,
     range: f32,
     mask: u32,
     persist: u32,
@@ -237,7 +237,7 @@ fn restamp_host_partition_look(
         if same {
             return;
         }
-        let old = gamelogic::common::Coord3D::new(prev.0, prev.1, prev.2);
+        let old = glam::Vec3::new(prev.0, prev.1, prev.2);
         shroud_mgr.queue_undo_shroud_reveal(&old, prev.3, prev.4, persist, frame);
     }
     shroud_mgr.do_shroud_reveal(&center, range, mask);
@@ -258,7 +258,7 @@ fn unlook_stale_host_partition_looks(
         .collect();
     for id in stale {
         if let Some(prev) = last.remove(&id) {
-            let old = gamelogic::common::Coord3D::new(prev.0, prev.1, prev.2);
+            let old = glam::Vec3::new(prev.0, prev.1, prev.2);
             shroud_mgr.queue_undo_shroud_reveal(&old, prev.3, prev.4, persist, frame);
         }
     }
@@ -270,7 +270,7 @@ fn restamp_host_partition_shroud(
     live: &mut std::collections::HashSet<ObjectId>,
     shroud_mgr: &mut gamelogic::system::shroud_manager::ShroudManager,
     id: ObjectId,
-    center: gamelogic::common::Coord3D,
+    center: glam::Vec3,
     range: f32,
     mask: u32,
 ) {
@@ -285,7 +285,7 @@ fn restamp_host_partition_shroud(
         if same {
             return;
         }
-        let old = gamelogic::common::Coord3D::new(prev.0, prev.1, prev.2);
+        let old = glam::Vec3::new(prev.0, prev.1, prev.2);
         shroud_mgr.undo_shroud_cover(&old, prev.3, prev.4);
     }
     shroud_mgr.do_shroud_cover(&center, range, mask);
@@ -304,7 +304,7 @@ fn unshroud_stale_host_partition_covers(
         .collect();
     for id in stale {
         if let Some(prev) = last.remove(&id) {
-            let old = gamelogic::common::Coord3D::new(prev.0, prev.1, prev.2);
+            let old = glam::Vec3::new(prev.0, prev.1, prev.2);
             shroud_mgr.undo_shroud_cover(&old, prev.3, prev.4);
         }
     }

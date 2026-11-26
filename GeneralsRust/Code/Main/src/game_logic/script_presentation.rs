@@ -118,7 +118,7 @@ pub(crate) trait NativeAudioEffects {
     fn submit_fx_sound(
         &mut self,
         name: &str,
-        position: Option<&gamelogic::common::Coord3D>,
+        position: Option<&glam::Vec3>,
         player: Option<i32>,
         locality: &game_engine::common::audio::AudioSubmissionLocality,
         _selection: &mut dyn game_engine::common::audio::audio_event_rts::AudioEventSelection,
@@ -167,7 +167,7 @@ impl NativeAudioEffects for game_engine::common::audio::AudioManager {
     fn submit_fx_sound(
         &mut self,
         name: &str,
-        position: Option<&gamelogic::common::Coord3D>,
+        position: Option<&glam::Vec3>,
         player: Option<i32>,
         locality: &game_engine::common::audio::AudioSubmissionLocality,
         selection: &mut dyn game_engine::common::audio::audio_event_rts::AudioEventSelection,
@@ -810,7 +810,7 @@ pub(crate) struct ScriptPresentationEffects<'a> {
     /// The driving world's trigger-edge state, lent for the same operation as
     /// `partition` (Object pose changes report trigger edges here; Objects hold
     /// no handle to their world).
-    pub(crate) trigger_world: Option<&'a std::sync::Mutex<gamelogic::scripting::HostTriggerWorld>>,
+    pub(crate) trigger_world: Option<&'a std::sync::Mutex<crate::game_logic::ScriptTriggerWorld>>,
 }
 impl ScriptPresentationEffects<'_> {
     #[cfg(feature = "game_client")]
@@ -877,7 +877,7 @@ impl ScriptPresentationEffects<'_> {
     pub(crate) fn reborrow_for_world<'a>(
         &'a mut self,
         partition: &'a mut crate::game_logic::partition_manager::PartitionManager,
-        trigger_world: &'a std::sync::Mutex<gamelogic::scripting::HostTriggerWorld>,
+        trigger_world: &'a std::sync::Mutex<crate::game_logic::ScriptTriggerWorld>,
     ) -> ScriptPresentationEffects<'a> {
         let mut local = self.reborrow();
         local.partition = Some(partition);

@@ -44,7 +44,7 @@ fn foreign_core(
         .prepare_object(
             &mut world,
             std::sync::Arc::new(template),
-            gamelogic::common::Coord3D::ZERO,
+            glam::Vec3::ZERO,
             None,
             gamelogic::object::object_factory::ObjectCreationFlags::NO_AI,
         )

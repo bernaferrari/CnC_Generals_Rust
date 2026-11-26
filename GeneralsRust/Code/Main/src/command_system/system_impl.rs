@@ -1219,7 +1219,7 @@ impl CommandSystem {
             }
         };
         let warehouse_is_not_enemy = |unit_id: ObjectId| {
-            use gamelogic::common::Relationship;
+            use game_engine::common::game_common::Relationship;
 
             let Some(unit) = game_logic.host_object(unit_id) else {
                 return false;

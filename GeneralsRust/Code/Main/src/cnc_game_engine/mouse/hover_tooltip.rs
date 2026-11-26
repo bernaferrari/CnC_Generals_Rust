@@ -74,7 +74,7 @@ impl CnCGameEngine {
             let allied = player.is_some_and(|player| {
                 player.id == local_id
                     || self.game_logic.player_relationship(player.id, local_id)
-                        == gamelogic::common::Relationship::Allies
+                        == game_engine::common::game_common::Relationship::Allies
             });
             let friendly = allied || !local.is_alive || local.is_observer;
             let hidden_garrison = player.is_some()

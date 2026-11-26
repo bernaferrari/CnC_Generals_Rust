@@ -268,11 +268,11 @@ fn parse_kindof_token(token: &str) -> Option<KindOf> {
     }
 }
 
-fn host_to_cpp(pos: Vec3) -> gamelogic::common::Coord3D {
-    gamelogic::common::Coord3D::new(pos.x, pos.z, pos.y)
+fn host_to_cpp(pos: Vec3) -> glam::Vec3 {
+    glam::Vec3::new(pos.x, pos.z, pos.y)
 }
 
-fn cpp_to_host(pos: gamelogic::common::Coord3D) -> Vec3 {
+fn cpp_to_host(pos: glam::Vec3) -> Vec3 {
     Vec3::new(pos.x, pos.z, pos.y)
 }
 

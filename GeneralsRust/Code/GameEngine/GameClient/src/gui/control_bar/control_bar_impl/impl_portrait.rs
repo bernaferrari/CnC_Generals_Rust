@@ -224,7 +224,7 @@ impl ControlBar {
         if self.rally_point_drawable_id == 0 {
             return;
         }
-        let pos = gamelogic::common::Coord3D {
+        let pos = glam::Vec3 {
             x: loc[0],
             y: loc[1],
             z: loc[2],

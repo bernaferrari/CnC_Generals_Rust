@@ -1852,7 +1852,7 @@ fn spectre_gunship_host_path_queues_orbit_damage_over_time() {
     // strike target is visible to the caster, so establish the grid and
     // reveal the target for player 0 before queueing (mask bit 0).
     {
-        let center = gamelogic::common::Coord3D::new(target.x, target.z, target.y);
+        let center = glam::Vec3::new(target.x, target.z, target.y);
         let shroud = gamelogic::system::shroud_manager::get_shroud_manager();
         let mut mgr = shroud.lock().unwrap_or_else(|e| e.into_inner());
         if !mgr.has_shroud_grid() {
@@ -2099,7 +2099,7 @@ fn spectre_orbit_skips_gattling_when_gunship_overhead() {
     // test initializes the process-global ShroudManager grid, so make the
     // strike target visible to the caster (player 0) before queueing.
     {
-        let center = gamelogic::common::Coord3D::new(enemy_pos.x, enemy_pos.z, enemy_pos.y);
+        let center = glam::Vec3::new(enemy_pos.x, enemy_pos.z, enemy_pos.y);
         let shroud = gamelogic::system::shroud_manager::get_shroud_manager();
         let mut mgr = shroud.lock().unwrap_or_else(|e| e.into_inner());
         if !mgr.has_shroud_grid() {

@@ -134,10 +134,10 @@ fn actual_map_polygon_admission_preserves_duplicates_and_same_id_receiving_owner
                 99,
                 "Foreign".into(),
                 vec![
-                    gamelogic::common::ICoord3D::new(0, 0, 99),
-                    gamelogic::common::ICoord3D::new(40, 0, 99),
-                    gamelogic::common::ICoord3D::new(40, 40, 99),
-                    gamelogic::common::ICoord3D::new(0, 40, 99),
+                    glam::IVec3::new(0, 0, 99),
+                    glam::IVec3::new(40, 0, 99),
+                    glam::IVec3::new(40, 40, 99),
+                    glam::IVec3::new(0, 40, 99),
                 ],
             ));
             let foreign_before = observed(&foreign_terrain);

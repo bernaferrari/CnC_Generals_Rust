@@ -1394,7 +1394,7 @@ impl AIPlayer {
         player: &Player,
     ) -> bool {
         AiWorldView::new(game_logic).player_relationship_to_default_team(self.player_id, player.id)
-            == gamelogic::common::Relationship::Enemies
+            == game_engine::common::game_common::Relationship::Enemies
     }
 
     /// C++ `Player::hasAnyObjects` → `Team::hasAnyObjects` over the player's

@@ -11,7 +11,7 @@ fn terrain_chain(name: &str, x: f32) -> TerrainLogic {
         map.waypoints.push(MapWaypoint {
             id,
             name: name.into(),
-            location: gamelogic::common::Coord3D::new(x + dx, x + 20. + dx, -123.),
+            location: glam::Vec3::new(x + dx, x + 20. + dx, -123.),
             path_label1: String::new(),
             path_label2: String::new(),
             path_label3: String::new(),

@@ -230,10 +230,10 @@ fn float_update_uses_receiving_water_when_foreign_core_services_are_published() 
                     99,
                     "ForeignFloatWater".into(),
                     vec![
-                        gamelogic::common::ICoord3D::new(0, 0, 120),
-                        gamelogic::common::ICoord3D::new(200, 0, 120),
-                        gamelogic::common::ICoord3D::new(200, 200, 120),
-                        gamelogic::common::ICoord3D::new(0, 200, 120),
+                        glam::IVec3::new(0, 0, 120),
+                        glam::IVec3::new(200, 0, 120),
+                        glam::IVec3::new(200, 200, 120),
+                        glam::IVec3::new(0, 200, 120),
                     ],
                 );
                 water.set_water_area(true);

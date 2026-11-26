@@ -170,7 +170,7 @@ mod tests {
             installed.bind_native_prop_epoch(epoch);
             let request = TerrainTreeAddRequest {
                 drawable_id: 7,
-                position: gamelogic::common::Coord3D::new(5.0, 6.0, 4.0),
+                position: glam::Vec3::new(5.0, 6.0, 4.0),
                 angle: 0.75,
                 scale: 1.25,
                 module_data: W3DTreeDrawModuleData {

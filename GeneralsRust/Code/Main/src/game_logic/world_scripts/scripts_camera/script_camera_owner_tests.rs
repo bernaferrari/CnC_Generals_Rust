@@ -121,7 +121,7 @@ fn actual_main_camera_move_keeps_engine_axes_and_zero_duration_without_a_handler
                 action
                     .add_parameter(Parameter::with_coord(
                         ParameterType::Coord3D,
-                        gamelogic::common::Coord3D::new(120.0, 240.0, 35.0),
+                        glam::Vec3::new(120.0, 240.0, 35.0),
                     ))
                     .unwrap();
                 for value in [seconds, 0.5, 0.25, 0.75] {

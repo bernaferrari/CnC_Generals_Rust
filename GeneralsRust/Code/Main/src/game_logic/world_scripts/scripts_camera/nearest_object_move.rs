@@ -117,7 +117,7 @@ impl GameLogic {
                 continue;
             }
             let position = object.get_position();
-            if !trigger.point_in_trigger_int(&gamelogic::common::ICoord3D::new(
+            if !trigger.point_in_trigger_int(&glam::IVec3::new(
                 position.x as i32,
                 position.z as i32,
                 0,

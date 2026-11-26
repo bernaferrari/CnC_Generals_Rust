@@ -5,7 +5,8 @@ use game_engine::common::ini::ini_game_data::get_global_data;
 use gamelogic::commands::selection::{
     SelectionContextOptions, SelectionInfo, get_selection_manager,
 };
-use gamelogic::common::{Coord3D, ObjectID};
+use gamelogic::common::ObjectID;
+use glam::Vec3 as Coord3D;
 
 fn build_context_options(ui: &InGameUISubsystem) -> SelectionContextOptions {
     let use_alternate_mouse = get_global_data()

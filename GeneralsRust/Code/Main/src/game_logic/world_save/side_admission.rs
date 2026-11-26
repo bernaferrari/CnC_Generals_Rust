@@ -50,7 +50,7 @@ impl GameLogic {
         player
             .map_side
             .relations
-            .insert(id, gamelogic::common::Relationship::Allies);
+            .insert(id, game_engine::common::game_common::Relationship::Allies);
         self.add_player(player);
         id
     }

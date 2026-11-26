@@ -47,7 +47,7 @@ impl GameLogic {
         // relationship to the victim. Team-instance overrides and undetected
         // defection can differ from the two Players' default relationship.
         let enemy = self.object_relationship(killer, victim)
-            == gamelogic::common::Relationship::Enemies
+            == game_engine::common::game_common::Relationship::Enemies
             && !(killer_owner.is_some() && killer_owner == victim_owner);
         let cost = victim_owner
             .map(|owner| {

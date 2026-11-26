@@ -318,7 +318,7 @@ impl GameLogic {
         // GLA Rebel BoobyTrap: allied/neutral structures only
         // (C++ ActionManager.cpp:1610-1618).
         if matches!(ability, PendingSpecialAbility::PlantBoobyTrap { .. }) {
-            use gamelogic::common::Relationship;
+            use game_engine::common::game_common::Relationship;
             let (src_pid, tgt_pid) = match (
                 self.objects.get(&object_id),
                 self.objects.get(&special_target_id),

@@ -73,7 +73,7 @@ impl ScriptExecutionDriver for ObserveNextAction<'_> {
     fn camera_waypoint_position(
         &mut self,
         name: &str,
-    ) -> Option<generals_sim::GameLogicResult<Option<gamelogic::common::Coord3D>>> {
+    ) -> Option<generals_sim::GameLogicResult<Option<glam::Vec3>>> {
         assert_eq!(
             self.parent.borrow().is_hidden(),
             name == "Hidden",

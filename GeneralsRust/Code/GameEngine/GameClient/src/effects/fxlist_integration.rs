@@ -508,7 +508,7 @@ fn fx_pos_cell_is_clear(primary: Vec3, local_player_index: i32) -> bool {
     if local_player_index < 0 {
         return false;
     }
-    let position = gamelogic::common::Coord3D {
+    let position = glam::Vec3 {
         x: primary.x,
         y: primary.y,
         z: primary.z,
@@ -741,7 +741,7 @@ impl ParticleSystemFXNugget {
             &mut |lo, hi| client_random.next_real(lo, hi),
             &mut |position| {
                 gamelogic::helpers::TheTerrainLogic::get().map(|terrain| {
-                    let dest = gamelogic::common::Coord3D::new(position.x, position.y, position.z);
+                    let dest = glam::Vec3::new(position.x, position.y, position.z);
                     let layer = terrain.get_layer_for_destination(&dest);
                     terrain.get_layer_height(position.x, position.y, layer)
                 })
@@ -1174,7 +1174,7 @@ mod tests {
             *shroud = gamelogic::system::shroud_manager::ShroudManager::new();
             shroud.init_shroud_grid(500.0, 500.0);
             shroud.do_shroud_reveal(
-                &gamelogic::common::Coord3D {
+                &glam::Vec3 {
                     x: 4.0,
                     y: 5.0,
                     z: 6.0,
@@ -1242,7 +1242,7 @@ mod tests {
         {
             let mut shroud = shroud_manager.lock().expect("shroud");
             shroud.do_shroud_reveal(
-                &gamelogic::common::Coord3D {
+                &glam::Vec3 {
                     x: 100.0,
                     y: 100.0,
                     z: 0.0,

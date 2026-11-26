@@ -1442,12 +1442,12 @@ pub fn with_particle_system_slot<R>(
 struct ParticleSystemManagerBridge;
 
 impl ParticleSystemManagerBridge {
-    fn to_point3(pos: &gamelogic::common::Coord3D) -> Vec3 {
+    fn to_point3(pos: &glam::Vec3) -> Vec3 {
         Vec3::new(pos.x, pos.y, pos.z)
     }
 
-    fn to_coord3(pos: Vec3) -> gamelogic::common::Coord3D {
-        gamelogic::common::Coord3D::new(pos.x, pos.y, pos.z)
+    fn to_coord3(pos: Vec3) -> glam::Vec3 {
+        glam::Vec3::new(pos.x, pos.y, pos.z)
     }
 
     fn mat4_to_matrix3(matrix: &GlamMat4) -> Mat3 {
@@ -1529,7 +1529,7 @@ impl gamelogic::common::types::ParticleSystemManagerInterface for ParticleSystem
     fn set_particle_system_position(
         &self,
         system_id: gamelogic::common::ParticleSystemId,
-        position: &gamelogic::common::Coord3D,
+        position: &glam::Vec3,
     ) {
         if let Ok(mut manager_guard) = get_particle_system_manager_mut() {
             if let Some(manager) = manager_guard.as_mut() {
@@ -1543,7 +1543,7 @@ impl gamelogic::common::types::ParticleSystemManagerInterface for ParticleSystem
     fn get_particle_system_position(
         &self,
         system_id: gamelogic::common::ParticleSystemId,
-    ) -> Option<gamelogic::common::Coord3D> {
+    ) -> Option<glam::Vec3> {
         let manager_guard = get_particle_system_manager().ok()?;
         let manager = manager_guard.as_ref()?;
         manager
@@ -1582,7 +1582,7 @@ impl gamelogic::common::types::ParticleSystemManagerInterface for ParticleSystem
     fn set_particle_system_transform(
         &self,
         system_id: gamelogic::common::ParticleSystemId,
-        transform: &gamelogic::common::Matrix3D,
+        transform: &glam::Mat4,
     ) {
         if let Ok(mut manager_guard) = get_particle_system_manager_mut() {
             if let Some(manager) = manager_guard.as_mut() {
@@ -1724,7 +1724,7 @@ impl gamelogic::common::types::ParticleSystemManagerInterface for ParticleSystem
     fn set_particle_system_velocity_multiplier(
         &self,
         system_id: gamelogic::common::ParticleSystemId,
-        multiplier: &gamelogic::common::Coord3D,
+        multiplier: &glam::Vec3,
     ) {
         if let Ok(mut manager_guard) = get_particle_system_manager_mut() {
             if let Some(manager) = manager_guard.as_mut() {

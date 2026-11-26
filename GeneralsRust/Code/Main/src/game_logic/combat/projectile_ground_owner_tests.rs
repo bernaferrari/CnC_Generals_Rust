@@ -13,7 +13,7 @@ fn world(raw: u8) -> GameLogic {
     map.width = 32;
     map.height = 32;
     map.heightmap = vec![raw; 1024];
-    map.boundaries = vec![gamelogic::common::ICoord2D::new(32, 32)];
+    map.boundaries = vec![glam::IVec2::new(32, 32)];
     world
         .world_services
         .terrain()

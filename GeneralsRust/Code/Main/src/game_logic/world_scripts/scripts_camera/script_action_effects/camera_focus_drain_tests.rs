@@ -14,7 +14,7 @@ fn world(x: f32) -> (GameLogic, ObjectId, Vec3) {
     let mut map = gamelogic::system::map_loader::MapData::new();
     map.width = 64;
     map.height = 64;
-    map.boundaries = vec![gamelogic::common::ICoord2D::new(64, 64)];
+    map.boundaries = vec![glam::IVec2::new(64, 64)];
     map.heightmap = vec![0; 64 * 64];
     world
         .world_services
@@ -69,7 +69,7 @@ fn move_to(position: Vec3, seconds: f32) -> Box<ScriptAction> {
     action
         .add_parameter(Parameter::with_coord(
             ParameterType::Coord3D,
-            gamelogic::common::Coord3D::new(position.x, position.z, position.y),
+            glam::Vec3::new(position.x, position.z, position.y),
         ))
         .unwrap();
     for value in [seconds, 0.0, 0.0, 0.0] {

@@ -39,8 +39,8 @@ fn is_none_fx_list(name: &str) -> bool {
 /// Host world is Y-up `(x, height, z_ground)`. Leftover / C++ `Coord3D`
 /// is Z-up `(x, y_ground, z_height)` so shroud + particle nuggets land
 /// on the C++ XY ground plane.
-fn host_to_leftover_coord(pos: Vec3) -> gamelogic::common::Coord3D {
-    gamelogic::common::Coord3D::new(pos.x, pos.z, pos.y)
+fn host_to_leftover_coord(pos: Vec3) -> glam::Vec3 {
+    glam::Vec3::new(pos.x, pos.z, pos.y)
 }
 
 /// Host Y-up `Mat4` → leftover/C++ Z-up `Mat4` (`P * T * P`, P swaps Y/Z).
@@ -568,7 +568,7 @@ impl crate::game_logic::GameLogic {
             std::cell::RefCell::new(std::mem::take(&mut session_view.client_random));
         let mut client_real = |lo: f32, hi: f32| client_random.borrow_mut().next_real(lo, hi);
         let mut shake =
-            |position: &gamelogic::common::Coord3D,
+            |position: &glam::Vec3,
              kind: game_client::display::view::CameraShakeType| {
                 impulse.enqueue_with_rules(
                     Vec3::new(position.x, position.z, position.y),
@@ -583,7 +583,7 @@ impl crate::game_logic::GameLogic {
         let catalog = &session_view.fx.catalog;
         let mut find_list =
             |name: &str| catalog.as_ref().and_then(|catalog| catalog.find_fx_list(name));
-        let mut position_visible = |position: Option<&gamelogic::common::Coord3D>| {
+        let mut position_visible = |position: Option<&glam::Vec3>| {
             let (Some(player), Some(position)) = (player, position) else {
                 return false;
             };

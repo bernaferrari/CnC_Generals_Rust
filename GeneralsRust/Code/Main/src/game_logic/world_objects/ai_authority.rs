@@ -1588,9 +1588,9 @@ mod hq_m6gcj_tests {
             ..Default::default()
         });
         let mut attacker = Player::new(1, Team::USA, "AttackMoveAI", false);
-        attacker.set_map_relationship(2, gamelogic::common::Relationship::Enemies);
+        attacker.set_map_relationship(2, game_engine::common::game_common::Relationship::Enemies);
         let mut enemy = Player::new(2, Team::GLA, "AttackMoveEnemy", false);
-        enemy.set_map_relationship(1, gamelogic::common::Relationship::Enemies);
+        enemy.set_map_relationship(1, game_engine::common::game_common::Relationship::Enemies);
         logic.add_player(attacker);
         logic.add_player(enemy);
         logic

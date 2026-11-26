@@ -1398,7 +1398,7 @@ impl GameLogic {
         };
         Self::has_usable_airfield_parking_behavior(airfield)
             && self.normal_enter_relationship(jet, airfield)
-                == gamelogic::common::Relationship::Allies
+                == game_engine::common::game_common::Relationship::Allies
     }
 
     /// Authored C++ `ParkingPlaceBehavior` capacity for exactly one object.

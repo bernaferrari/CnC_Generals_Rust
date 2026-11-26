@@ -1285,7 +1285,7 @@ pub(super) fn author_test_point_defense(
         let mut player = Player::new(id, team, name, id == 1);
         player.alliance_team = id as i32;
         for other in 1..=3 { if other != id {
-            player.set_map_relationship(other, gamelogic::common::Relationship::Enemies);
+            player.set_map_relationship(other, game_engine::common::game_common::Relationship::Enemies);
         }}
         world.add_player(player);
     }

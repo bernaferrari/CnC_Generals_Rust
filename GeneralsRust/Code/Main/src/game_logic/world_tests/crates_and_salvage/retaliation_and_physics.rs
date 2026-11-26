@@ -3554,7 +3554,7 @@ fn stick_to_ground_snaps_when_not_falling() {
 #[test]
 fn repulsor_filter_rejects_inert_and_uses_relationship_not_team_like_cpp() {
     use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate, Weapon};
-    use gamelogic::common::Relationship;
+    use game_engine::common::game_common::Relationship;
     let mut logic = GameLogic::new();
     logic.set_enable_repulsors(true);
     logic.add_player(crate::game_logic::Player::new(0, Team::USA, "P0", true));

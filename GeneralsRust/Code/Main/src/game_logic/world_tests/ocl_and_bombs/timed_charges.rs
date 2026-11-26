@@ -50,11 +50,11 @@ fn timed_c4_kill_sinks_xp_to_planter() {
     game_logic
         .get_player_mut(0)
         .unwrap()
-        .set_map_relationship(2, gamelogic::common::Relationship::Enemies);
+        .set_map_relationship(2, game_engine::common::game_common::Relationship::Enemies);
     game_logic
         .get_player_mut(2)
         .unwrap()
-        .set_map_relationship(0, gamelogic::common::Relationship::Enemies);
+        .set_map_relationship(0, game_engine::common::game_common::Relationship::Enemies);
     let burton_id = game_logic
         .create_object("TestInfantry", Team::USA, Vec3::new(-40.0, 0.0, 0.0))
         .expect("burton");
@@ -119,7 +119,7 @@ fn authored_timed_charge_expires_once_through_its_death_weapon() {
     map.width = 32;
     map.height = 32;
     map.heightmap = vec![0; 1024];
-    map.boundaries = vec![gamelogic::common::ICoord2D::new(32, 32)];
+    map.boundaries = vec![glam::IVec2::new(32, 32)];
     world
         .world_services
         .terrain()
@@ -133,11 +133,11 @@ fn authored_timed_charge_expires_once_through_its_death_weapon() {
     world
         .get_player_mut(0)
         .unwrap()
-        .set_map_relationship(2, gamelogic::common::Relationship::Enemies);
+        .set_map_relationship(2, game_engine::common::game_common::Relationship::Enemies);
     world
         .get_player_mut(2)
         .unwrap()
-        .set_map_relationship(0, gamelogic::common::Relationship::Enemies);
+        .set_map_relationship(0, game_engine::common::game_common::Relationship::Enemies);
     world
         .admit_object_ini_sources([(
             "timed-witness.ini".to_owned(),

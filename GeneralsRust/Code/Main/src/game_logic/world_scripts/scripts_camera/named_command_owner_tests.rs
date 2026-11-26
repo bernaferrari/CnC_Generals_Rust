@@ -43,7 +43,7 @@ fn world() -> (GameLogic, ObjectId, ObjectId) {
         world
             .get_player_mut(player)
             .unwrap()
-            .set_map_relationship(other, gamelogic::common::Relationship::Enemies);
+            .set_map_relationship(other, game_engine::common::game_common::Relationship::Enemies);
     }
     let unit = world
         .create_object_for_player("OwnedNamedInfantry", 1, Vec3::new(50.0, 0.0, 50.0))

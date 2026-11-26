@@ -1019,7 +1019,7 @@ fn shock_wave_for_seeded_weapons_residual() {
 fn radius_damage_affects_for_seeded_weapons_residual() {
     use crate::game_logic::ObjectId;
     use generals_sim::weapon::WeaponAffectsMask;
-    use gamelogic::common::Relationship;
+    use game_engine::common::game_common::Relationship;
 
     ensure_host_weapon_store();
     // Omitted RadiusDamageAffects / unknown name: C++ constructor default.
@@ -1453,7 +1453,7 @@ fn shock_wave_force_tapers_from_firer_not_impact() {
 fn splash_skips_producer_when_self_unset() {
     use crate::game_logic::ObjectId;
     use generals_sim::weapon::WeaponAffectsMask;
-    use gamelogic::common::Relationship;
+    use game_engine::common::game_common::Relationship;
     let default_mask = WeaponAffectsMask::ALLIES | WeaponAffectsMask::ENEMIES | WeaponAffectsMask::NEUTRALS;
     let tank = ObjectId(10);
     let factory = ObjectId(1);

@@ -316,7 +316,7 @@ impl crate::game_logic::NativeAudioEffects for NativeAudioService<'_> {
     fn submit_fx_sound(
         &mut self,
         name: &str,
-        position: Option<&gamelogic::common::Coord3D>,
+        position: Option<&glam::Vec3>,
         player: Option<i32>,
         locality: &AudioSubmissionLocality,
         selection: &mut dyn game_engine::common::audio::audio_event_rts::AudioEventSelection,
@@ -516,7 +516,7 @@ impl crate::game_logic::NativeAudioEffects for PendingNativeAudio {
     fn submit_fx_sound(
         &mut self,
         name: &str,
-        position: Option<&gamelogic::common::Coord3D>,
+        position: Option<&glam::Vec3>,
         player: Option<i32>,
         locality: &AudioSubmissionLocality,
         selection: &mut dyn game_engine::common::audio::audio_event_rts::AudioEventSelection,

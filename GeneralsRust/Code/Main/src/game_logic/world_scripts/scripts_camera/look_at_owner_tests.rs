@@ -299,7 +299,7 @@ fn actual_look_at_encoded_camera_continuation_retains_axes_freeze_and_future_con
     );
 }
 
-fn receiving_jump_terrain(position: gamelogic::common::Coord3D, height: u8) -> TerrainLogic {
+fn receiving_jump_terrain(position: glam::Vec3, height: u8) -> TerrainLogic {
     let mut map = MapData::new();
     map.width = 64;
     map.height = 64;
@@ -335,9 +335,9 @@ fn actual_authored_blur_jump_uses_receiving_waypoint_height_and_missing_does_not
             assert_eq!(id, peer_id);
             assert_eq!(id, missing_id);
             *owner.world_services.terrain().write().unwrap() =
-                receiving_jump_terrain(gamelogic::common::Coord3D::new(111., 222., 37.), 60);
+                receiving_jump_terrain(glam::Vec3::new(111., 222., 37.), 60);
             *peer.world_services.terrain().write().unwrap() =
-                receiving_jump_terrain(gamelogic::common::Coord3D::new(511., 622., 87.), 140);
+                receiving_jump_terrain(glam::Vec3::new(511., 622., 87.), 140);
             *missing.world_services.terrain().write().unwrap() = TerrainLogic::new();
             let jump = || {
                 action(
@@ -514,7 +514,7 @@ fn actual_simple_move_completion_clears_stored_freeze_while_independent_axes_rem
                         vec![
                             Parameter::with_coord(
                                 ParameterType::Coord3D,
-                                gamelogic::common::Coord3D::new(400., 500., 20.),
+                                glam::Vec3::new(400., 500., 20.),
                             ),
                             Parameter::with_real(ParameterType::Real, 1.),
                             Parameter::with_real(ParameterType::Real, 0.),

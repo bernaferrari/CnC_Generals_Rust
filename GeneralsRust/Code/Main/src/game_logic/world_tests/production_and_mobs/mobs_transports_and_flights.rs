@@ -3698,7 +3698,8 @@ fn combat_chinook_residual_enter_sets_docked_and_upgrades_weapon_set() {
 #[test]
 fn a10_transport_pose_uses_the_receiving_world_after_id_collision() {
     use crate::game_logic::special_power_strikes::A10StrikeScienceTier;
-    use gamelogic::common::{AsciiString, ICoord3D};
+    use gamelogic::common::AsciiString;
+    use glam::IVec3 as ICoord3D;
     use gamelogic::polygon_trigger::PolygonTrigger;
 
     fn make_world(

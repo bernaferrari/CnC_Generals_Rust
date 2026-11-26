@@ -284,7 +284,7 @@ End
     assert_eq!(world.host_objects()[&victim].kill_experience_value(), 10.0);
     assert_eq!(
         world.player_relationship(0, 1),
-        gamelogic::common::Relationship::Enemies
+        game_engine::common::game_common::Relationship::Enemies
     );
     world.set_current_frame(99);
     world.queue_command(GameCommand {
@@ -673,14 +673,14 @@ fn splash_similarity_uses_receiving_definitions_and_source_to_victim_relationshi
                 &f.world.host_objects()[&f.shooters[0]],
                 &f.world.host_objects()[&f.victim]
             ),
-            gamelogic::common::Relationship::Allies
+            game_engine::common::game_common::Relationship::Allies
         );
         assert_eq!(
             f.world.object_relationship(
                 &f.world.host_objects()[&f.victim],
                 &f.world.host_objects()[&f.shooters[0]]
             ),
-            gamelogic::common::Relationship::Enemies
+            game_engine::common::game_common::Relationship::Enemies
         );
         f.accept();
         while f.world.get_current_frame() <= 110 {
@@ -916,13 +916,13 @@ fn ordinary_library_queued_area_mask_fallback_and_intended_bypass() {
     f.world
         .get_player_mut(1)
         .unwrap()
-        .set_map_relationship(0, gamelogic::common::Relationship::Neutral);
+        .set_map_relationship(0, game_engine::common::game_common::Relationship::Neutral);
     assert_eq!(
         f.world.object_relationship(
             &f.world.host_objects()[&f.victim],
             &f.world.host_objects()[&f.shooters[0]]
         ),
-        gamelogic::common::Relationship::Neutral
+        game_engine::common::game_common::Relationship::Neutral
     );
     f.world.host_object_mut(f.shooters[0]).unwrap().producer_id = Some(f.intended);
     f.accept();

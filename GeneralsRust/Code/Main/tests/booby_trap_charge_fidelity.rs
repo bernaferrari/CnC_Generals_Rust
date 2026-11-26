@@ -1,4 +1,4 @@
-use gamelogic::common::Relationship;
+use game_engine::common::game_common::Relationship;
 use generals_main::game_logic::host_booby_trap::HostBoobyTrapRegistry;
 use generals_main::game_logic::{GameLogic, GameMode, ObjectId, Player, Team};
 use generals_main::save_load::snapshot::{

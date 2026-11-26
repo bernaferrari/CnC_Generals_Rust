@@ -687,7 +687,7 @@ impl GameLogic {
     ) -> bool {
         use crate::game_logic::special_power_strikes::HostViewObjectReveal;
         use crate::game_logic::{KindOf, ThingTemplate};
-        use gamelogic::common::Coord3D;
+        use glam::Vec3 as Coord3D;
 
         const VIEW_OBJECT_TEMPLATE: &str = "SpecialPowerViewObject";
         if range <= 0.0 || duration == 0 {
@@ -1937,7 +1937,7 @@ impl GameLogic {
                 src_inst,
                 tgt_owner,
                 tgt_inst,
-            ) == gamelogic::common::Relationship::Enemies;
+            ) == game_engine::common::game_common::Relationship::Enemies;
         }
         target_team != source_team && target_team != Team::Neutral && source_team != Team::Neutral
     }
@@ -2530,7 +2530,7 @@ impl GameLogic {
         }
         if !scorch_events.is_empty() {
             use crate::game_logic::special_power_strikes::PARTICLE_REVEAL_RANGE;
-            use gamelogic::common::Coord3D;
+            use glam::Vec3 as Coord3D;
             if let Ok(mut shroud_mgr) = std::sync::Arc::clone(self.world_services.shroud()).lock() {
                 for event in &scorch_events {
                     let mut player_mask = 0u32;

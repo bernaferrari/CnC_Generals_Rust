@@ -12,10 +12,10 @@ fn polygon(owner: &GameLogic, min: i32, max: i32) {
             8470,
             "OwnedAttackArea".into(),
             vec![
-                gamelogic::common::ICoord3D::new(min, min, 0),
-                gamelogic::common::ICoord3D::new(max, min, 0),
-                gamelogic::common::ICoord3D::new(max, max, 0),
-                gamelogic::common::ICoord3D::new(min, max, 0),
+                glam::IVec3::new(min, min, 0),
+                glam::IVec3::new(max, min, 0),
+                glam::IVec3::new(max, max, 0),
+                glam::IVec3::new(min, max, 0),
             ],
         )]);
 }

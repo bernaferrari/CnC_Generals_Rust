@@ -14,7 +14,7 @@ fn spy_vision_target_is_enemy(
     spy_player_id: u32,
     obj: &Object,
 ) -> bool {
-    use gamelogic::common::Relationship;
+    use game_engine::common::game_common::Relationship;
     if !obj.is_alive() || obj.team == Team::Neutral {
         return false;
     }
@@ -105,7 +105,7 @@ impl GameLogic {
             CIA_INTELLIGENCE_ACTIVATE_AUDIO, CIA_INTELLIGENCE_DEFAULT_VISION_RADIUS,
             HostCiaIntelligence, HostCiaIntelligenceSpiedUnit, cia_intelligence_duration_frames,
         };
-        use gamelogic::common::Coord3D;
+        use glam::Vec3 as Coord3D;
 
         // C++ setUnitsVisionSpied byWhom is only playerToSetFor->getPlayerIndex().
         // Do not paint an extra shroud disk for every same-faction slot.
@@ -241,7 +241,7 @@ impl GameLogic {
         // expires. Re-reveal FOW at each still-spied unit's current pos.
         if !self.cia_intelligence.active_scans().is_empty() {
             use crate::game_logic::host_cia_intelligence::CIA_INTELLIGENCE_DEFAULT_VISION_RADIUS;
-            use gamelogic::common::Coord3D;
+            use glam::Vec3 as Coord3D;
             let remaining_by_id: Vec<(ObjectId, u32, u32)> = self
                 .cia_intelligence
                 .active_scans()
@@ -324,7 +324,7 @@ impl GameLogic {
         use crate::game_logic::host_upgrades::{
             UPGRADE_CHINA_SATELLITE_HACK_ONE, UPGRADE_CHINA_SATELLITE_HACK_TWO,
         };
-        use gamelogic::common::Coord3D;
+        use glam::Vec3 as Coord3D;
 
         let Some(center) = self.objects.lookup(&center_id) else {
             return false;
@@ -1377,7 +1377,7 @@ impl GameLogic {
                     &src.team_instance_name,
                     tgt.owner_player_id,
                     &tgt.team_instance_name,
-                ) == gamelogic::common::Relationship::Enemies
+                ) == game_engine::common::game_common::Relationship::Enemies
             }
             _ => is_angry_mob_hostile_team(
                 source_team == Team::Neutral,

@@ -11,10 +11,10 @@ fn receiving_shock_splash_relationships(
     source_is_defector: bool,
     victim: &crate::game_logic::object::Object,
 ) -> (
-    gamelogic::common::Relationship,
-    gamelogic::common::Relationship,
+    game_engine::common::game_common::Relationship,
+    game_engine::common::game_common::Relationship,
 ) {
-    use gamelogic::common::Relationship;
+    use game_engine::common::game_common::Relationship;
 
     // C++ Weapon.cpp uses source->getRelationship(victim) only for
     // DOESNT_AFFECT_SIMILAR, then reverses the query for the radius mask.
@@ -694,7 +694,7 @@ impl GameLogic {
                         generals_sim::weapon::WeaponAffectsMask::DOESNT_AFFECT_SIMILAR;
                     if (affects & doesnt_affect_similar) != 0
                         && same_tmpl
-                        && similar_relationship == gamelogic::common::Relationship::Allies
+                        && similar_relationship == game_engine::common::game_common::Relationship::Allies
                     {
                         return None;
                     }
@@ -982,33 +982,33 @@ impl GameLogic {
                     // C++ Team-only fallback when neither object has an owner.
                     if attacker_owner.is_none()
                         && obj.owner_player_id.is_none()
-                        && mask_relationship == gamelogic::common::Relationship::Neutral
+                        && mask_relationship == game_engine::common::game_common::Relationship::Neutral
                     {
                         mask_relationship = if obj.team == attacker_team {
-                            gamelogic::common::Relationship::Allies
+                            game_engine::common::game_common::Relationship::Allies
                         } else if obj.team != Team::Neutral {
-                            gamelogic::common::Relationship::Enemies
+                            game_engine::common::game_common::Relationship::Enemies
                         } else {
-                            gamelogic::common::Relationship::Neutral
+                            game_engine::common::game_common::Relationship::Neutral
                         };
                     }
                     if attacker_owner.is_none()
                         && obj.owner_player_id.is_none()
-                        && similar_relationship == gamelogic::common::Relationship::Neutral
+                        && similar_relationship == game_engine::common::game_common::Relationship::Neutral
                     {
                         similar_relationship = if attacker_team == obj.team {
-                            gamelogic::common::Relationship::Allies
+                            game_engine::common::game_common::Relationship::Allies
                         } else if attacker_team != Team::Neutral && obj.team != Team::Neutral {
-                            gamelogic::common::Relationship::Enemies
+                            game_engine::common::game_common::Relationship::Enemies
                         } else {
-                            gamelogic::common::Relationship::Neutral
+                            game_engine::common::game_common::Relationship::Neutral
                         };
                     }
                     let doesnt_affect_similar =
                         generals_sim::weapon::WeaponAffectsMask::DOESNT_AFFECT_SIMILAR;
                     if (affects & doesnt_affect_similar) != 0
                         && same_tmpl
-                        && similar_relationship == gamelogic::common::Relationship::Allies
+                        && similar_relationship == game_engine::common::game_common::Relationship::Allies
                     {
                         return None;
                     }
@@ -1711,7 +1711,7 @@ impl GameLogic {
     /// C++ Object::scoreTheKill + getExperienceValue: only ENEMIES, not own/allies.
     /// Also skips non-playable sides and KINDOF_IGNORED_IN_GUI (Object.cpp:2898-2905).
     fn kill_awards_unit_experience(&self, killer_id: ObjectId, victim_id: ObjectId) -> bool {
-        use gamelogic::common::Relationship;
+        use game_engine::common::game_common::Relationship;
         let Some(killer) = self.objects.lookup(&killer_id) else {
             return false;
         };

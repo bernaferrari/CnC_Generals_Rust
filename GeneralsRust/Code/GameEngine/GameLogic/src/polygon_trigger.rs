@@ -55,6 +55,20 @@ pub struct PolygonTrigger {
     selected: Bool,
 }
 
+impl generals_sim::scripting::TriggerArea for PolygonTrigger {
+    fn trigger_id(&self) -> i32 {
+        self.get_id()
+    }
+
+    fn trigger_name(&self) -> &str {
+        self.get_trigger_name().as_str()
+    }
+
+    fn contains_trigger_point(&self, point: ICoord3D) -> bool {
+        self.point_in_trigger_int(&point)
+    }
+}
+
 impl PolygonTrigger {
     pub fn new(id: PolygonTriggerId, name: AsciiString, points: Vec<ICoord3D>) -> Self {
         let mut trigger = Self {

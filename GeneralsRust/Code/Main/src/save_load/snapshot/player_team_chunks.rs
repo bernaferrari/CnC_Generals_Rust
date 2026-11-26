@@ -467,7 +467,7 @@ fn resolve_player_team_relations(
 ) -> SaveLoadResult<
     std::collections::BTreeMap<
         u32,
-        std::collections::BTreeMap<u32, gamelogic::common::Relationship>,
+        std::collections::BTreeMap<u32, game_engine::common::game_common::Relationship>,
     >,
 > {
     let mut players = std::collections::BTreeMap::new();

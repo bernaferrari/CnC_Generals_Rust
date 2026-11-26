@@ -24,10 +24,10 @@ fn trigger(world: &GameLogic) {
         9901,
         "NearestOwned".into(),
         vec![
-            gamelogic::common::ICoord3D::new(0, 0, 0),
-            gamelogic::common::ICoord3D::new(1000, 0, 0),
-            gamelogic::common::ICoord3D::new(1000, 1000, 0),
-            gamelogic::common::ICoord3D::new(0, 1000, 0),
+            glam::IVec3::new(0, 0, 0),
+            glam::IVec3::new(1000, 0, 0),
+            glam::IVec3::new(1000, 1000, 0),
+            glam::IVec3::new(0, 1000, 0),
         ],
     );
     world

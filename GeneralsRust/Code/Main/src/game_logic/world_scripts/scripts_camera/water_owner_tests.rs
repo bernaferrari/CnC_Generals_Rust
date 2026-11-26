@@ -2,7 +2,8 @@
 use super::*;
 use crate::game_logic::pathfinding::GridPos;
 use generals_sim::pathfinding::PathfindCellType;
-use gamelogic::common::{AsciiString, ICoord3D};
+use gamelogic::common::AsciiString;
+use glam::IVec3 as ICoord3D;
 use gamelogic::scripting::core::{Parameter, ParameterType, ScriptAction, ScriptActionType};
 use gamelogic::scripting::engine::{ScriptEngine, ScriptWaterRequest};
 use gamelogic::terrain::TerrainDynamicWaterSnapshotEntry;
@@ -510,7 +511,7 @@ fn owned_terrain_queries_ignore_foreign_waypoints_heights_and_bridge_snapshots()
                     .push(gamelogic::system::map_loader::MapWaypoint {
                         id: 1,
                         name: "Player_1_Rally".into(),
-                        location: gamelogic::common::Coord3D::new(x, 20.0, 0.0),
+                        location: glam::Vec3::new(x, 20.0, 0.0),
                         path_label1: String::new(),
                         path_label2: String::new(),
                         path_label3: String::new(),
@@ -524,8 +525,8 @@ fn owned_terrain_queries_ignore_foreign_waypoints_heights_and_bridge_snapshots()
                         .map(|(x, y)| gamelogic::system::map_loader::Coord2D::new(x, y))
                         .collect(),
                     height: deck,
-                    from: gamelogic::common::Coord3D::new(10.0, 20.0, deck),
-                    to: gamelogic::common::Coord3D::new(30.0, 20.0, deck),
+                    from: glam::Vec3::new(10.0, 20.0, deck),
+                    to: glam::Vec3::new(30.0, 20.0, deck),
                     width: 20.0,
                     template_name: name.into(),
                     properties: Default::default(),
@@ -535,7 +536,7 @@ fn owned_terrain_queries_ignore_foreign_waypoints_heights_and_bridge_snapshots()
                 world.admit_map_bridge_geometry(&mut terrain, map).unwrap();
                 assert!(
                     terrain
-                        .find_bridge_at(&gamelogic::common::Coord3D::new(20.0, 20.0, deck))
+                        .find_bridge_at(&glam::Vec3::new(20.0, 20.0, deck))
                         .is_some(),
                     "authored corners must admit an actual deck before querying ownership"
                 );

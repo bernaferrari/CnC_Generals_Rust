@@ -173,7 +173,7 @@ fn live_team_wander_and_panic_ignore_foreign_same_label_terrain() {
                 .push(gamelogic::system::map_loader::MapWaypoint {
                     id,
                     name: format!("Foreign{id}"),
-                    location: gamelogic::common::Coord3D::new(x, y, 0.0),
+                    location: glam::Vec3::new(x, y, 0.0),
                     path_label1: label.into(),
                     path_label2: String::new(),
                     path_label3: String::new(),

@@ -189,7 +189,7 @@ End
     world.set_current_frame(100);
     assert_eq!(
         world.player_relationship(0, 1),
-        gamelogic::common::Relationship::Enemies
+        game_engine::common::game_common::Relationship::Enemies
     );
     // AttackObject commands enter the separately scoped queued-damage runtime.
     // Public set_target drives the ordinary host-combat path being repaired.
@@ -317,8 +317,8 @@ fn shock_relationship_world(
     label: &str,
     weapon_name: &str,
     variant_is_reskin: bool,
-    source_to_victim: gamelogic::common::Relationship,
-    victim_to_source: gamelogic::common::Relationship,
+    source_to_victim: game_engine::common::game_common::Relationship,
+    victim_to_source: game_engine::common::game_common::Relationship,
 ) -> (
     GameLogic,
     generals_main::game_logic::ObjectId,
@@ -426,15 +426,15 @@ End
         "ShockAlly",
         "ShockRelationshipWeapon",
         true,
-        gamelogic::common::Relationship::Allies,
-        gamelogic::common::Relationship::Enemies,
+        game_engine::common::game_common::Relationship::Allies,
+        game_engine::common::game_common::Relationship::Enemies,
     );
     let (mut enemy_source, enemy_id, enemy_anchor, enemy_neighbor) = shock_relationship_world(
         "ShockEnemy",
         "ShockRelationshipWeapon",
         false,
-        gamelogic::common::Relationship::Enemies,
-        gamelogic::common::Relationship::Enemies,
+        game_engine::common::game_common::Relationship::Enemies,
+        game_engine::common::game_common::Relationship::Enemies,
     );
     assert_eq!(
         (ally_id, ally_anchor, ally_neighbor),
@@ -497,15 +497,15 @@ End
         "ScatterAlly",
         "ShockRelationshipScatterWeapon",
         true,
-        gamelogic::common::Relationship::Allies,
-        gamelogic::common::Relationship::Enemies,
+        game_engine::common::game_common::Relationship::Allies,
+        game_engine::common::game_common::Relationship::Enemies,
     );
     let (mut enemy_source, enemy_id, enemy_anchor, enemy_neighbor) = shock_relationship_world(
         "ScatterEnemy",
         "ShockRelationshipScatterWeapon",
         false,
-        gamelogic::common::Relationship::Enemies,
-        gamelogic::common::Relationship::Enemies,
+        game_engine::common::game_common::Relationship::Enemies,
+        game_engine::common::game_common::Relationship::Enemies,
     );
     assert_eq!(
         (ally_id, ally_anchor, ally_neighbor),

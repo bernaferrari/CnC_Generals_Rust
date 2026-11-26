@@ -496,7 +496,7 @@ fn actual_team_creation_panic_retains_exact_team_partial_native_life_and_peer() 
         Parameter::with_string(ParameterType::Team, "NativePanicTeam".into()),
         Parameter::with_coord(
             ParameterType::Coord3D,
-            gamelogic::common::Coord3D::new(3., 5., 7.),
+            glam::Vec3::new(3., 5., 7.),
         ),
         Parameter::with_real(ParameterType::Angle, 0.),
     ] {

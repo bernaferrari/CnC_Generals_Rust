@@ -3036,7 +3036,7 @@ mod tests {
             map.width = 128;
             map.height = 128;
             map.heightmap = vec![0; 128 * 128];
-            map.boundaries = vec![gamelogic::common::ICoord2D::new(128, 128)];
+            map.boundaries = vec![glam::IVec2::new(128, 128)];
             world.world_services.terrain().write().unwrap().load_map_data(map);
             world.get_players_mut().insert(0, Player::new(0, Team::USA, "local", true));
             world.get_players_mut().insert(1, Player::new(1, Team::USA, "other", false));

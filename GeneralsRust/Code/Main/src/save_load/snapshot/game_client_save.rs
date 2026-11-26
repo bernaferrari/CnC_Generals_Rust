@@ -65,7 +65,7 @@ pub fn restore_objectless_from_client_drawables(
             &gamelogic::helpers::DrawableState {
                 template_name: template.to_string(),
                 indicator_color: gamelogic::common::Color::default(),
-                position: gamelogic::common::Coord3D::ZERO,
+                position: glam::Vec3::ZERO,
                 orientation: 0.0,
                 shroud_status_object_id: gamelogic::common::types::INVALID_ID,
                 beam_start: None,

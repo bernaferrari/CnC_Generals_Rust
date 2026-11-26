@@ -328,7 +328,7 @@ impl CnCGameEngine {
         action
             .add_parameter(Parameter::with_coord(
                 ParameterType::Coord3D,
-                gamelogic::common::Coord3D::new(0., 0., 0.),
+                glam::Vec3::new(0., 0., 0.),
             ))
             .map_err(|error| format!("origin coordinate: {error:?}"))?;
         for value in [0., 0., 0., 0.] {

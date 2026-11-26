@@ -524,7 +524,7 @@ fn exact_script_propagates_nested_garrison_error_before_following_action() {
                     Parameter::with_string(ParameterType::Team, "CheckedTeam".into()),
                     Parameter::with_coord(
                         ParameterType::Coord3D,
-                        gamelogic::common::Coord3D::new(10., 20., 0.),
+                        glam::Vec3::new(10., 20., 0.),
                     ),
                     Parameter::with_real(ParameterType::Angle, 0.),
                 ] {

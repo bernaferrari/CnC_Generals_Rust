@@ -1,7 +1,7 @@
 //! C++ ScriptConditions.cpp:2233: live tech search and persistent result latch.
 use super::script_execution_driver::HostScriptExecutionDriver;
 use super::*;
-use gamelogic::common::Relationship;
+use game_engine::common::game_common::Relationship;
 use gamelogic::scripting::core::{
     Condition, ConditionType, OrCondition, Parameter, ParameterType, Script, ScriptAction,
     ScriptActionType, ScriptList,
@@ -79,8 +79,8 @@ fn world() -> (GameLogic, ObjectId) {
         1,
         "HomeBase".into(),
         vec![
-            gamelogic::common::ICoord3D::new(0, 0, 0),
-            gamelogic::common::ICoord3D::new(20, 20, 0),
+            glam::IVec3::new(0, 0, 0),
+            glam::IVec3::new(20, 20, 0),
         ],
     );
     world
@@ -135,8 +135,8 @@ fn admitted_world(mode: GameMode, relationship: Relationship) -> (GameLogic, Obj
         1,
         "HomeBase".into(),
         vec![
-            gamelogic::common::ICoord3D::new(0, 0, 0),
-            gamelogic::common::ICoord3D::new(20, 20, 0),
+            glam::IVec3::new(0, 0, 0),
+            glam::IVec3::new(20, 20, 0),
         ],
     );
     world
@@ -309,8 +309,8 @@ fn live_tech_condition_retries_missing_trigger_but_latches_empty_search() {
                 2,
                 "LaterArea".into(),
                 vec![
-                    gamelogic::common::ICoord3D::new(0, 0, 0),
-                    gamelogic::common::ICoord3D::new(20, 20, 0),
+                    glam::IVec3::new(0, 0, 0),
+                    glam::IVec3::new(20, 20, 0),
                 ],
             );
             world
@@ -454,8 +454,8 @@ fn owned_tech_aliases_use_explicit_current_player_and_enemy_perimeter() {
                     3,
                     name.into(),
                     vec![
-                        gamelogic::common::ICoord3D::new(0, 0, 0),
-                        gamelogic::common::ICoord3D::new(20, 20, 0),
+                        glam::IVec3::new(0, 0, 0),
+                        glam::IVec3::new(20, 20, 0),
                     ],
                 )
             });
@@ -601,7 +601,7 @@ fn warehouse_condition_values_receiving_signed_boxes_and_current_price() {
         world.add_player(Player::new(1, Team::USA, "Viewer", true).with_script_identity("Viewer"));
         let trigger = gamelogic::polygon_trigger::PolygonTrigger::new(
             1, "PriceTest".into(),
-            vec![gamelogic::common::ICoord3D::new(0, 0, 0), gamelogic::common::ICoord3D::new(20, 20, 0)],
+            vec![glam::IVec3::new(0, 0, 0), glam::IVec3::new(20, 20, 0)],
         );
         world.host_trigger_world.lock().unwrap().set_trigger_areas(&[trigger]);
         let warehouse = world.create_object("ConditionWarehouse", Team::Neutral, Vec3::new(10.0, 0.0, 10.0)).unwrap();

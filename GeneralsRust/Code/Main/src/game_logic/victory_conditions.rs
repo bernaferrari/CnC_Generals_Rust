@@ -68,8 +68,8 @@ fn live_player_relationship(
     source: &Player,
     target: &Player,
     team_factory: Option<&gamelogic::team::TeamFactoryHandle>,
-) -> gamelogic::common::Relationship {
-    use gamelogic::common::Relationship;
+) -> game_engine::common::game_common::Relationship {
+    use game_engine::common::game_common::Relationship;
     let target_team = target.default_team_id.or_else(|| {
         let factory = team_factory?;
         default_team_instance_names(target)
@@ -136,7 +136,7 @@ fn live_players_are_allies(
     b: &Player,
     team_factory: Option<&gamelogic::team::TeamFactoryHandle>,
 ) -> bool {
-    use gamelogic::common::Relationship;
+    use game_engine::common::game_common::Relationship;
     if a.id == b.id {
         return false;
     }
@@ -850,7 +850,7 @@ mod tests {
 
     #[test]
     fn scripted_get_relationship_overrides_slot_team() {
-        use gamelogic::common::Relationship;
+        use game_engine::common::game_common::Relationship;
         let mut vc = VictoryConditions::new();
         let mut allies = HashMap::new();
         let mut usa = player(0, Team::USA, 1);
@@ -894,7 +894,7 @@ mod tests {
 
     #[test]
     fn scripted_team_override_allies_counts_for_victory() {
-        use gamelogic::common::Relationship;
+        use game_engine::common::game_common::Relationship;
         let mut vc = VictoryConditions::new();
         let mut allies = HashMap::new();
         let mut usa = player(0, Team::USA, 1);

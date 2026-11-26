@@ -41,7 +41,7 @@ impl TerrainVisualImpl {
         // W3DWater::getWaterHeight rounds world coordinates and chooses the
         // highest admitted PolygonTrigger elevation at each corner.
         use game_engine::base_type::real_to_int_floor;
-        use gamelogic::common::ICoord3D;
+        use glam::IVec3 as ICoord3D;
         let areas = &self.overlay.shoreline_water_areas;
         let tiles = height_map.rebuild_shoreline_tiles(
             |x, z| {
@@ -280,7 +280,7 @@ impl TerrainVisualImpl {
 
     pub fn set_map_water_areas(&mut self, areas: Vec<TerrainWaterArea>) {
         if self.overlay.water_areas != areas {
-            use gamelogic::common::ICoord3D;
+            use glam::IVec3 as ICoord3D;
             use gamelogic::polygon_trigger::PolygonTrigger;
             // Both forms belong to this map. The integer query reuses the
             // original PolygonTrigger containment and precomputed bounds.

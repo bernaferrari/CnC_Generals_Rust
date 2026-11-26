@@ -10,7 +10,7 @@ fn owner(position: Vec3, boundary: (i32, i32), raw_height: u8) -> (GameLogic, Ob
     map.width = 256;
     map.height = 256;
     map.heightmap = vec![raw_height; 256 * 256];
-    map.boundaries = vec![gamelogic::common::ICoord2D::new(boundary.0, boundary.1)];
+    map.boundaries = vec![glam::IVec2::new(boundary.0, boundary.1)];
     world
         .world_services
         .terrain()

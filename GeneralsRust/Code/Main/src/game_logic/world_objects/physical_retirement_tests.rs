@@ -970,8 +970,8 @@ fn admitted_bridge_retirement_world() -> (GameLogic, ObjectId) {
             .map(|(x, y)| gamelogic::system::map_loader::Coord2D::new(x, y))
             .collect(),
         height: 35.0,
-        from: gamelogic::common::Coord3D::new(10.0, 20.0, 35.0),
-        to: gamelogic::common::Coord3D::new(30.0, 20.0, 35.0),
+        from: glam::Vec3::new(10.0, 20.0, 35.0),
+        to: glam::Vec3::new(30.0, 20.0, 35.0),
         width: 20.0,
         template_name: "RetirementDeck".into(),
         properties: Default::default(),

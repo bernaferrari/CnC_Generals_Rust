@@ -13,7 +13,7 @@ use crate::game_logic::{
 use crate::localization;
 use crate::ui::audio::translate_audio_event;
 use gamelogic::common::AsciiString;
-use gamelogic::common::types::Coord3D as LogicCoord3D;
+use glam::Vec3 as LogicCoord3D;
 use gamelogic::system::game_logic::current_frame;
 use glam::Vec3;
 use log::{debug, warn};
@@ -100,12 +100,12 @@ pub(super) fn leftover_can_do_special_power(power_type: &SpecialPowerType) -> bo
 /// relationship + KindOf.
 pub(super) fn leftover_can_do_special_power_at_object(
     power_type: &SpecialPowerType,
-    relationship: gamelogic::common::Relationship,
+    relationship: game_engine::common::game_common::Relationship,
     target_is_vehicle: bool,
     target_dead: bool,
     target_shrouded_for_action: bool,
 ) -> bool {
-    use gamelogic::common::Relationship;
+    use game_engine::common::game_common::Relationship;
     // C++ ActionManager.cpp:1569-1590 — after module/ready, before the type switch.
     if target_dead || target_shrouded_for_action {
         return false;
@@ -132,8 +132,8 @@ fn leftover_object_click_relationship(
     logic: &GameLogic,
     source: &crate::game_logic::Object,
     target: &crate::game_logic::Object,
-) -> gamelogic::common::Relationship {
-    use gamelogic::common::Relationship;
+) -> game_engine::common::game_common::Relationship {
+    use game_engine::common::game_common::Relationship;
     if source.owner_player_id.is_some() && target.owner_player_id.is_some() {
         return logic.object_relationship(source, target);
     }

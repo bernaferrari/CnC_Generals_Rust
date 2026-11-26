@@ -3393,7 +3393,8 @@ fn script_idle_and_guard_for_framecount_write_live() {
 
 #[test]
 fn script_move_towards_nearest_writes_live() {
-    use gamelogic::common::{AsciiString, ICoord3D};
+    use gamelogic::common::AsciiString;
+    use glam::IVec3 as ICoord3D;
     use gamelogic::polygon_trigger::PolygonTrigger;
 
     let trigger = PolygonTrigger::new(
@@ -3698,12 +3699,12 @@ fn script_team_nearest_and_partial_command_button_live() {
         .players
         .get_mut(&0)
         .unwrap()
-        .set_map_relationship(1, gamelogic::common::Relationship::Enemies);
+        .set_map_relationship(1, game_engine::common::game_common::Relationship::Enemies);
     logic
         .players
         .get_mut(&1)
         .unwrap()
-        .set_map_relationship(0, gamelogic::common::Relationship::Enemies);
+        .set_map_relationship(0, game_engine::common::game_common::Relationship::Enemies);
     ensure_test_infantry_template(&mut logic);
     let mut hijacker = ThingTemplate::new("GLAInfantryHijacker");
     hijacker
@@ -3792,7 +3793,7 @@ fn script_team_nearest_and_partial_command_button_live() {
             logic.host_object(near).unwrap(),
             logic.host_object(enemy_near).unwrap()
         ),
-        gamelogic::common::Relationship::Enemies
+        game_engine::common::game_common::Relationship::Enemies
     );
 
     execute_owned_fixture_action(

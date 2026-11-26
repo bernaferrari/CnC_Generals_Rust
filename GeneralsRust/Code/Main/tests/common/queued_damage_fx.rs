@@ -2,7 +2,8 @@
 //! read from the compiled nuggets; this does not claim device audio playback.
 use game_client::fx_list::{FXList, FXNugget, FxViewServices};
 use game_engine::common::ini::ini_fx_list;
-use gamelogic::common::{Coord3D, Matrix3D};
+use glam::Vec3 as Coord3D;
+use glam::Mat4 as Matrix3D;
 use gamelogic::helpers::HostFxObjectPose;
 use std::sync::{Arc, mpsc};
 

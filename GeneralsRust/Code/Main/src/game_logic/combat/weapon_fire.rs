@@ -257,8 +257,8 @@ pub(in crate::game_logic) fn is_projectileless_object_name(name: &str) -> bool {
     n.is_empty() || n.eq_ignore_ascii_case("NONE")
 }
 
-fn host_vec_to_leftover_coord(pos: Vec3) -> gamelogic::common::Coord3D {
-    gamelogic::common::Coord3D::new(pos.x, pos.z, pos.y)
+fn host_vec_to_leftover_coord(pos: Vec3) -> glam::Vec3 {
+    glam::Vec3::new(pos.x, pos.z, pos.y)
 }
 
 /// Live-host delayed damage for projectileless finite-speed weapons.

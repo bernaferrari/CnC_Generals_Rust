@@ -431,7 +431,8 @@ fn bridge_rubble_restamps_and_splat_kills() {
 
 #[test]
 fn bridge_scaffold_pose_uses_receiving_world_after_same_id_attachment_mismatch() {
-    use gamelogic::common::{AsciiString, ICoord3D};
+    use gamelogic::common::AsciiString;
+    use glam::IVec3 as ICoord3D;
     use gamelogic::polygon_trigger::PolygonTrigger;
 
     fn area(id: i32, name: &str, min_x: i32, max_x: i32) -> PolygonTrigger {

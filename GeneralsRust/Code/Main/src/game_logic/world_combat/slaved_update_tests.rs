@@ -805,7 +805,7 @@ fn same_player_hostile_team_slave_defects_to_exact_master_instance_before_repair
         .unwrap()
         .write()
         .unwrap()
-        .set_override_team_relationship(old, gamelogic::common::Relationship::Enemies);
+        .set_override_team_relationship(old, game_engine::common::game_common::Relationship::Enemies);
     game.host_object_mut(drone).unwrap().set_ai_attitude_i8(2);
     game.update_owned_slaved_object(drone)
         .expect("valid slaved fixture");
@@ -856,7 +856,7 @@ fn slave_defect_uses_original_contained_sold_and_construction_status_gates() {
             .unwrap()
             .write()
             .unwrap()
-            .set_override_team_relationship(old, gamelogic::common::Relationship::Enemies);
+            .set_override_team_relationship(old, game_engine::common::game_common::Relationship::Enemies);
         let (object, partition) = game.host_object_and_partition_mut(drone).unwrap();
         match gate {
             0 => object.set_contained_by_with_partition_owner(Some(master), true, partition),

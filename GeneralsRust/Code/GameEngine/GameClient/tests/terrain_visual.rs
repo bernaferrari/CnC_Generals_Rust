@@ -561,7 +561,7 @@ fn pending_prop_queue_is_world_owned_and_discards_old_epoch() {
     use gamelogic::object::draw::w3d_prop_draw::TerrainPropAddRequest;
     let request = |model: &str, x| TerrainPropAddRequest {
         drawable_id: 42,
-        location: gamelogic::common::Coord3D::new(x, 20.0, 7.0),
+        location: glam::Vec3::new(x, 20.0, 7.0),
         orientation: 0.5,
         scale: 1.5,
         model_name: model.into(),

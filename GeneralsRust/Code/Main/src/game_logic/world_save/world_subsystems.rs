@@ -1573,7 +1573,7 @@ if let Ok(mut list) = __arc_bind.write() {
         let (half_x, half_y) = (geometry.major_radius, geometry.minor_radius);
         let team = obj.team;
         let mut info = gamelogic::terrain::TerrainLogic::bridge_info_from_parts(
-            gamelogic::common::Coord3D::new(pos.x, pos.z, pos.y),
+            glam::Vec3::new(pos.x, pos.z, pos.y),
             angle,
             half_x,
             half_y,
@@ -1665,7 +1665,7 @@ if let Ok(mut list) = __arc_bind.write() {
             .get(&bridge_id)
             .is_some_and(|o| o.indestructible);
 
-        let mut width = gamelogic::common::Coord3D::new(
+        let mut width = glam::Vec3::new(
             info.to_left.x - info.to_right.x,
             info.to_left.y - info.to_right.y,
             0.0,
@@ -1691,7 +1691,7 @@ if let Ok(mut list) = __arc_bind.write() {
                 .map(|template| template.geometry_info.major_radius)
                 .unwrap_or(gamelogic::path::PATHFIND_CELL_SIZE_F * 0.5);
             let sign = if index == 0 || index == 2 { 1.0 } else { -1.0 };
-            let leftover_pos = gamelogic::common::Coord3D::new(
+            let leftover_pos = glam::Vec3::new(
                 corner.x + width.x * offset * sign,
                 corner.y + width.y * offset * sign,
                 corner.z,

@@ -183,7 +183,7 @@ fn active_return_snapshot_continues_route_deadline_and_phase_without_new_order()
             .players
             .get_mut(&1)
             .unwrap()
-            .set_map_relationship(2, gamelogic::common::Relationship::Enemies);
+            .set_map_relationship(2, game_engine::common::game_common::Relationship::Enemies);
         let position = owner.host_object(id).unwrap().get_position() + Vec3::new(20.0, 0.0, 0.0);
         owner.set_fixture_object_position(enemy, position);
         owner.frame = 250;
@@ -263,7 +263,7 @@ fn due_return_enemy_acquisition_precedes_simultaneous_arrival() {
         .players
         .get_mut(&1)
         .unwrap()
-        .set_map_relationship(2, gamelogic::common::Relationship::Enemies);
+        .set_map_relationship(2, game_engine::common::game_common::Relationship::Enemies);
     let last = *owner.host_object(id).unwrap().movement.path.last().unwrap();
     owner.set_fixture_object_position(id, last);
     assert!(GameLogic::host_internal_move_reached_goal(

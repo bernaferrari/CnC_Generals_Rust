@@ -28,7 +28,8 @@ use game_engine::common::system::{
 };
 use generals_sim::GameLogicError;
 use gamelogic::common::MAP_XY_FACTOR;
-use gamelogic::common::{AsciiString, ICoord3D};
+use gamelogic::common::AsciiString;
+use glam::IVec3 as ICoord3D;
 use gamelogic::polygon_trigger::PolygonTrigger;
 use gamelogic::scripting::chunk_codec::ScriptTemplateLookup;
 use gamelogic::scripting::core::{

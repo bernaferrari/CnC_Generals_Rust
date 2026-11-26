@@ -262,7 +262,7 @@ impl NativeFrameRenderReceiver for NativeFrameReceiver<'_> {
                         .shroud()
                         .lock()
                         .map_err(|_| "receiving tree shroud poisoned".to_owned())?;
-                    let position = gamelogic::common::Coord3D {
+                    let position = glam::Vec3 {
                         x: tree.location.x,
                         y: tree.location.y,
                         z: tree.location.z,
@@ -375,7 +375,7 @@ mod tree_center_tests {
         let mut map = gamelogic::system::map_loader::MapData::new();
         map.width = 64;
         map.height = 64;
-        map.boundaries = vec![gamelogic::common::ICoord2D::new(64, 64)];
+        map.boundaries = vec![glam::IVec2::new(64, 64)];
         map.heightmap = vec![0; 4096];
         world
             .world_services

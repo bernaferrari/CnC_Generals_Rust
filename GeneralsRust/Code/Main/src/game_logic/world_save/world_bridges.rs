@@ -300,7 +300,7 @@ impl GameLogic {
         let removed = owner
             .write()
             .unwrap_or_else(|e| e.into_inner())
-            .detach_bridge_at(&gamelogic::common::Coord3D::new(pos.x, pos.z, pos.y));
+            .detach_bridge_at(&glam::Vec3::new(pos.x, pos.z, pos.y));
         let Some(bridge) = removed else {
             return false;
         };

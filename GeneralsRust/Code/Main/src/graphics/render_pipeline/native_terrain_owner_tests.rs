@@ -92,7 +92,7 @@ fn two_actual_pipeline_terrain_owners_accept_canonical_bytes_without_global_sele
     let request =
         |name: &str, position| gamelogic::object::draw::w3d_prop_draw::TerrainPropAddRequest {
             drawable_id: 42,
-            location: gamelogic::common::Coord3D::new(position, 2.0, 3.0),
+            location: glam::Vec3::new(position, 2.0, 3.0),
             orientation: 0.5,
             scale: 1.5,
             model_name: name.into(),

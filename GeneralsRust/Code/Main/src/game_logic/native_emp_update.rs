@@ -4,7 +4,7 @@ use super::native_lifecycle::NativeLifecycleState;
 use super::native_lifecycle_definition::EmpUpdateDefinition;
 use super::partition_geometry::origin_in_bounding_geometry_range;
 use super::{GameLogic, KindOf, ObjectId, ScriptPresentationEffects};
-use gamelogic::common::Relationship;
+use game_engine::common::game_common::Relationship;
 use std::sync::Arc;
 
 enum EmpContact {

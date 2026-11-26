@@ -1,7 +1,8 @@
 //! Ordinary Main pose writes and owner notifications; no fake queue insertion.
 use super::*;
 use crate::game_logic::GameLogic;
-use gamelogic::common::{AsciiString, ICoord3D};
+use gamelogic::common::AsciiString;
+use glam::IVec3 as ICoord3D;
 use gamelogic::polygon_trigger::PolygonTrigger;
 
 fn trigger(id: i32, name: &str) -> PolygonTrigger {

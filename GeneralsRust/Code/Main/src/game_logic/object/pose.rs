@@ -128,7 +128,7 @@ impl Object {
         position: Vec3,
         frame: u32,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-        trigger_world: &std::sync::Mutex<gamelogic::scripting::HostTriggerWorld>,
+        trigger_world: &std::sync::Mutex<crate::game_logic::ScriptTriggerWorld>,
         team_factory: &gamelogic::team::TeamFactoryHandle,
     ) {
         let old_position = self.install_position_with_partition_context(position, effects, None);
@@ -250,7 +250,7 @@ impl Object {
         transform: Mat4,
         frame: u32,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-        trigger_world: &std::sync::Mutex<gamelogic::scripting::HostTriggerWorld>,
+        trigger_world: &std::sync::Mutex<crate::game_logic::ScriptTriggerWorld>,
         team_factory: &gamelogic::team::TeamFactoryHandle,
     ) {
         let old_position =
@@ -387,7 +387,7 @@ impl Object {
         &mut self,
         reaction: PositionReaction,
         team_factory: Option<&gamelogic::team::TeamFactoryHandle>,
-        trigger_world: Option<&std::sync::Mutex<gamelogic::scripting::HostTriggerWorld>>,
+        trigger_world: Option<&std::sync::Mutex<crate::game_logic::ScriptTriggerWorld>>,
     ) {
         if let Some(team_id) = self.finish_position_reaction_with_trigger_owner(reaction, trigger_world) {
             if let Some(team_factory) = team_factory {
@@ -401,7 +401,7 @@ impl Object {
     fn finish_position_reaction_with_trigger_world(
         &mut self,
         reaction: PositionReaction,
-        trigger_world: &std::sync::Mutex<gamelogic::scripting::HostTriggerWorld>,
+        trigger_world: &std::sync::Mutex<crate::game_logic::ScriptTriggerWorld>,
     ) -> Option<u32> {
         self.finish_position_reaction_with_trigger_owner(reaction, Some(trigger_world))
     }
@@ -410,7 +410,7 @@ impl Object {
         &mut self,
         reaction: PositionReaction,
         trigger_owner: Option<
-            &std::sync::Mutex<gamelogic::scripting::HostTriggerWorld>,
+            &std::sync::Mutex<crate::game_logic::ScriptTriggerWorld>,
         >,
     ) -> Option<u32> {
         assert!(

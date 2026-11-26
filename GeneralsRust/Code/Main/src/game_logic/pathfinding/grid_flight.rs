@@ -10,7 +10,7 @@ impl PathfindingGrid {
         mut visit: impl FnMut(u8, f32, bool),
     ) {
         if let Some(terrain) = terrain {
-            let point = gamelogic::common::Coord3D::new(pos.x, pos.z, pos.y);
+            let point = glam::Vec3::new(pos.x, pos.z, pos.y);
             terrain.for_each_bridge(|bridge| {
                 if bridge.is_point_on_bridge(&point) {
                     visit(

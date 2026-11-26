@@ -1,7 +1,7 @@
 //! Additional candidate recovery coverage, separate from the frozen15-test baseline.
 //! A public receiveGrant stealth effect invalidates a live turret goal; ordinary
 //! updates must clear stale host/mood ownership and subsequently acquire again.
-use gamelogic::common::Relationship;
+use game_engine::common::game_common::Relationship;
 use generals_main::game_logic::host_strategy_center::HostBattlePlan;
 use generals_main::game_logic::{AIState, GameLogic, KindOf, Player, Team, ThingTemplate};
 use glam::Vec3;

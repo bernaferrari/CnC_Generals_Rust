@@ -147,8 +147,8 @@ impl PresentationFrame {
     fn normal_enter_relationship_for_local(
         &self,
         target: &RenderableObject,
-    ) -> gamelogic::common::Relationship {
-        use gamelogic::common::Relationship;
+    ) -> game_engine::common::game_common::Relationship {
+        use game_engine::common::game_common::Relationship;
 
         match target.owner_player_id {
             Some(target_owner)

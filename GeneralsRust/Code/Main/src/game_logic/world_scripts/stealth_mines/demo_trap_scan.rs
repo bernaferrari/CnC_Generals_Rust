@@ -4,7 +4,7 @@ use crate::game_logic::host_mines::{
     AuthoredDemoTrap, HostMineDetonateReason, demo_trap_detonates_when_killed,
 };
 use crate::game_logic::{GameLogic, KindOf, ObjectId, ScriptPresentationEffects};
-use gamelogic::common::Relationship;
+use game_engine::common::game_common::Relationship;
 use glam::Vec3;
 
 enum AuthoredTrapAction {

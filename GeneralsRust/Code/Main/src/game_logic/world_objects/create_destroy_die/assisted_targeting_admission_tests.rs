@@ -25,7 +25,7 @@ fn world(source: &str) -> GameLogic {
         world
             .get_player_mut(player)
             .unwrap()
-            .set_map_relationship(other, gamelogic::common::Relationship::Enemies);
+            .set_map_relationship(other, game_engine::common::game_common::Relationship::Enemies);
     }
     world
 }

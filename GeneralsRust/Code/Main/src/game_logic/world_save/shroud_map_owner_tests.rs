@@ -5,7 +5,8 @@ use crate::presentation_frame::PresentationFrame;
 use crate::save_load::{
     GameDifficulty, SaveFileManager, SaveFileType, SaveGameInfo, SnapshotBuilder,
 };
-use gamelogic::common::{Coord3D, ObjectShroudStatus};
+use gamelogic::common::ObjectShroudStatus;
+use glam::Vec3 as Coord3D;
 use gamelogic::system::shroud_manager::ShroudState;
 
 /// C++ W3DTerrainLogic::getExtent: the map extent is zero-origin and spans

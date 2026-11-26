@@ -110,7 +110,7 @@ fn minimap_beacons_use_receiving_objects_with_same_ids_and_conflicting_global_ma
         {
             let manager = gamelogic::system::beacon_manager::get_beacon_manager();
             let mut global = manager.lock().unwrap();
-            global.place_beacon(0, gamelogic::common::Coord3D::new(1400.0, 0.0, 1400.0), 99);
+            global.place_beacon(0, glam::Vec3::new(1400.0, 0.0, 1400.0), 99);
         }
 
         let bounds = first.world_bounds();

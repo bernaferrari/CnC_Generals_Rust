@@ -1677,13 +1677,13 @@ struct LogicalTrackGround<'a> {
 
 impl TerrainTrackHeightProvider for LogicalTrackGround<'_> {
     fn ground_height_and_normal(&self, x: f32, y: f32) -> (f32, Vec3) {
-        let mut normal = gamelogic::common::Coord3D::new(0.0, 0.0, 1.0);
+        let mut normal = glam::Vec3::new(0.0, 0.0, 1.0);
         let height = self.logic.get_ground_height(x, y, Some(&mut normal));
         (height, Vec3::new(normal.x, normal.y, normal.z))
     }
 
     fn layer_height_and_normal(&self, x: f32, y: f32) -> (f32, Vec3) {
-        let mut normal = gamelogic::common::Coord3D::new(0.0, 0.0, 1.0);
+        let mut normal = glam::Vec3::new(0.0, 0.0, 1.0);
         let height = self.logic.get_layer_height(x, y, self.layer, Some(&mut normal), true);
         (height, Vec3::new(normal.x, normal.y, normal.z))
     }

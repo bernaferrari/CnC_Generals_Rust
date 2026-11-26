@@ -903,7 +903,7 @@ impl GameClient {
             return ShroudStatus::Shrouded;
         }
 
-        let position = gamelogic::common::Coord3D {
+        let position = glam::Vec3 {
             x: pos.x,
             y: pos.y,
             z: pos.z,
@@ -1498,7 +1498,7 @@ impl GameClient {
                 &gamelogic::helpers::DrawableState {
                     template_name: template_name.to_string(),
                     indicator_color: gamelogic::common::Color::default(),
-                    position: gamelogic::common::Coord3D::new(position.x, position.y, position.z),
+                    position: glam::Vec3::new(position.x, position.y, position.z),
                     orientation: 0.0,
                     shroud_status_object_id: INVALID_ID,
                     beam_start: None,

@@ -1,7 +1,7 @@
 //! Actual Main script walks: CPP ScriptConditions1029/1086, PartitionManager738.
 use super::script_execution_driver::HostScriptExecutionDriver;
 use super::*;
-use gamelogic::common::Relationship;
+use game_engine::common::game_common::Relationship;
 use gamelogic::scripting::core::{
     Condition, ConditionType, OrCondition, Parameter, ParameterType, Script, ScriptAction,
     ScriptActionType, ScriptList,

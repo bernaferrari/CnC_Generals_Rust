@@ -33,7 +33,7 @@ impl GameLogic {
         button: &CommandButton,
         power: &SpecialPowerType,
     ) -> bool {
-        use gamelogic::common::Relationship;
+        use game_engine::common::game_common::Relationship;
         use gamelogic::object::update::special_power_update::SpecialPowerCommandOption as Options;
         let Some(source) = self.host_object(source) else {
             return false;

@@ -295,7 +295,7 @@ fn retry_with_different_map_retires_previous_authored_owners() {
                 .players
                 .get_mut(&0)
                 .unwrap()
-                .set_map_relationship(previous, gamelogic::common::Relationship::Enemies);
+                .set_map_relationship(previous, game_engine::common::game_common::Relationship::Enemies);
             let lobby_team_id = world.players[&0].default_team_id.unwrap();
             let lobby_team = world
                 .team_factory
@@ -308,7 +308,7 @@ fn retry_with_different_map_retires_previous_authored_owners() {
                 .unwrap()
                 .set_override_player_relationship(
                     previous as i32,
-                    gamelogic::common::Relationship::Enemies,
+                    game_engine::common::game_common::Relationship::Enemies,
                 );
             prepare(&mut world, "SecondCivilian", true);
             assert_eq!(

@@ -427,7 +427,7 @@ impl GameLogic {
             return Some("own");
         }
         Some(match self.player_relationship(local_id, owner_id) {
-            gamelogic::common::Relationship::Enemies => "enemy",
+            game_engine::common::game_common::Relationship::Enemies => "enemy",
             _ => "ally",
         })
     }
@@ -478,7 +478,7 @@ impl GameLogic {
         // C++ GameLogicDispatch.cpp:1632 — getRelationship(placer default team) == ALLIES.
         // PlayerList seeds self-relationship as ALLIES, so own place also plays EVA.
         if self.player_relationship(local_id, placer_player_id)
-            != gamelogic::common::Relationship::Allies
+            != game_engine::common::game_common::Relationship::Allies
         {
             return;
         }
@@ -544,7 +544,7 @@ impl GameLogic {
         // when the detector/victim pair is not ALLIES. No ally hero EVA names.
         if !is_own
             && self.player_relationship(local_id, owner_id)
-                == gamelogic::common::Relationship::Allies
+                == game_engine::common::game_common::Relationship::Allies
         {
             return;
         }
@@ -1523,7 +1523,7 @@ mod tests {
         let mut logic = GameLogic::new();
         let mut local = Player::new(0, Team::USA, "Local", true);
         let china = Player::new(1, Team::China, "China", false);
-        local.set_map_relationship(1, gamelogic::common::Relationship::Allies);
+        local.set_map_relationship(1, game_engine::common::game_common::Relationship::Allies);
         logic.add_player(local);
         logic.add_player(china);
 
@@ -1612,7 +1612,7 @@ mod tests {
         let mut logic = GameLogic::new();
         let mut local = Player::new(0, Team::USA, "Local", true);
         let china = Player::new(1, Team::China, "China", false);
-        local.set_map_relationship(1, gamelogic::common::Relationship::Allies);
+        local.set_map_relationship(1, game_engine::common::game_common::Relationship::Allies);
         logic.add_player(local);
         logic.add_player(china);
         let mut lotus = ThingTemplate::new("ChinaInfantryBlackLotus");

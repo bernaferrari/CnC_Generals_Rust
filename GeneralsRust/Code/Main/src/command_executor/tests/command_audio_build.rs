@@ -894,7 +894,7 @@ fn repair_heal_resume_snipe_and_special_play_authored_voices() {
         map.height = 32;
         map.border_size = 1;
         map.heightmap = vec![0; 34 * 34];
-        map.boundaries = vec![gamelogic::common::ICoord2D::new(32, 32)];
+        map.boundaries = vec![glam::IVec2::new(32, 32)];
         {
             let terrain = logic.world_services.terrain();
             let mut terrain = terrain.write().unwrap();
@@ -1167,11 +1167,11 @@ fn specialty_attack_voices_replace_voice_attack() {
         logic
             .get_player_mut(0)
             .unwrap()
-            .set_map_relationship(1, gamelogic::common::Relationship::Enemies);
+            .set_map_relationship(1, game_engine::common::game_common::Relationship::Enemies);
         logic
             .get_player_mut(1)
             .unwrap()
-            .set_map_relationship(0, gamelogic::common::Relationship::Enemies);
+            .set_map_relationship(0, game_engine::common::game_common::Relationship::Enemies);
         let mut ranger = ThingTemplate::new("SA_RNG");
         ranger
             .add_kind_of(KindOf::Infantry)

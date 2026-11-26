@@ -479,7 +479,7 @@ fn actual_tunnel_sally_installs_and_suspends_owned_guard_overlay() {
         .players
         .get_mut(&1)
         .unwrap()
-        .set_map_relationship(2, gamelogic::common::Relationship::Enemies);
+        .set_map_relationship(2, game_engine::common::game_common::Relationship::Enemies);
     owner.host_object_mut(tunnel).unwrap().target = Some(enemy);
     // Admission uses actual TunnelContain/AITNGuard producer; acceptance below
     // drives the whole fixed-step boundary, not another support-only update.

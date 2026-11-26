@@ -369,7 +369,7 @@ impl GameLogic {
         object_id: ObjectId,
         target_id: ObjectId,
     ) -> bool {
-        use gamelogic::common::Relationship;
+        use game_engine::common::game_common::Relationship;
         let Some(source) = self.objects.get(&object_id) else {
             return false;
         };
@@ -3212,7 +3212,7 @@ impl GameLogic {
         source_id: ObjectId,
         target_id: ObjectId,
     ) -> bool {
-        use gamelogic::common::Relationship;
+        use game_engine::common::game_common::Relationship;
 
         let Some(source) = self.objects.get(&source_id) else {
             return false;

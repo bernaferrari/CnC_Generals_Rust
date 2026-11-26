@@ -115,7 +115,7 @@ impl GameLogic {
                 .read()
                 .unwrap_or_else(|error| error.into_inner());
             (authored && terrain.has_height_map()).then(|| {
-                let point = terrain.find_farthest_edge_point(&gamelogic::common::Coord3D::new(
+                let point = terrain.find_farthest_edge_point(&glam::Vec3::new(
                     target.x, target.z, target.y,
                 ));
                 Vec3::new(point.x, point.z, point.y)
@@ -684,7 +684,7 @@ impl GameLogic {
                     "artillery recovery requires the receiving terrain".into(),
                 ));
             }
-            let current = gamelogic::common::Coord3D::new(position.x, position.z, position.y);
+            let current = glam::Vec3::new(position.x, position.z, position.y);
             let mut point = terrain.find_closest_edge_point(&current);
             if current.z > terrain.get_ground_height(current.x, current.y, None) {
                 point.z = current.z;

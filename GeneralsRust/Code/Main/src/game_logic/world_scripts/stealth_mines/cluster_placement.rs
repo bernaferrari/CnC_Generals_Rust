@@ -184,7 +184,7 @@ mod tests {
     use super::*;
     use crate::game_logic::{NativeObjectRetirement, NativeSlaveSource, NativeViewEffects};
     use game_engine::common::ini::ini_fx_list::{FXList, FXNugget};
-    use gamelogic::common::Coord3D;
+    use glam::Vec3 as Coord3D;
     use std::sync::{Arc, Mutex};
 
     struct OrderedView {

@@ -5,7 +5,7 @@ use crate::game_logic::host_jet_slow_death::HostJetSlowDeathData;
 use crate::game_logic::native_die_definition::{
     NativeDieKind, NativeJetSlowDeath, NativeSlowFamily,
 };
-use gamelogic::common::Coord3D;
+use glam::Vec3 as Coord3D;
 use gamelogic::path::PathfindLayerEnum;
 
 impl GameLogic {

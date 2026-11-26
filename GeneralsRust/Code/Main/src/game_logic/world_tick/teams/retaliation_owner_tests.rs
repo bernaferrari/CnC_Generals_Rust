@@ -15,12 +15,12 @@ fn retaliation_reads_the_victims_controller_not_faction_or_local_view() {
         .players
         .get_mut(&4)
         .unwrap()
-        .set_map_relationship(6, gamelogic::common::Relationship::Enemies);
+        .set_map_relationship(6, game_engine::common::game_common::Relationship::Enemies);
     world
         .players
         .get_mut(&6)
         .unwrap()
-        .set_map_relationship(4, gamelogic::common::Relationship::Enemies);
+        .set_map_relationship(4, game_engine::common::game_common::Relationship::Enemies);
     let victim_id = ObjectId(0xCA01);
     let damager_id = ObjectId(0xCA02);
     let mut victim = Object::new(ThingTemplate::new("Victim"), victim_id, Team::USA);

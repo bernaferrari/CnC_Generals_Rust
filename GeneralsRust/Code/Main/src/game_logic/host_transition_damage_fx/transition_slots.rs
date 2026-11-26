@@ -151,7 +151,7 @@ fn host_local_receiving(
     effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
 ) -> glam::Vec3 {
     let position =
-        gamelogic::common::Coord3D::new(definition.loc[0], definition.loc[1], definition.loc[2]);
+        glam::Vec3::new(definition.loc[0], definition.loc[1], definition.loc[2]);
     let local = match definition.bone.as_deref() {
         None => position,
         Some(bone) if !definition.random_bone => {
@@ -214,7 +214,7 @@ fn receiving_pristine_bone_translation(
     bone: &str,
     start: i32,
     effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-) -> Result<gamelogic::common::Coord3D, String> {
+) -> Result<glam::Vec3, String> {
     let transform = receiving_pristine_bone_transforms(source, bone, start, 1, effects)?
         .into_iter()
         .next()
@@ -227,9 +227,9 @@ fn receiving_pristine_bone_translation(
 /// one required Y/Z swap at the host boundary.
 fn leftover_translation_from_pristine_transform(
     transform: glam::Mat4,
-) -> gamelogic::common::Coord3D {
+) -> glam::Vec3 {
     let translation = transform.w_axis.truncate();
-    gamelogic::common::Coord3D::new(translation.x, translation.y, translation.z)
+    glam::Vec3::new(translation.x, translation.y, translation.z)
 }
 
 #[cfg(feature = "game_client")]

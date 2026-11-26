@@ -1294,7 +1294,7 @@ impl GameLogic {
             return false;
         };
         if self.player_relationship(dozer_owner_player_id, structure_owner_player_id)
-            != gamelogic::common::Relationship::Allies
+            != game_engine::common::game_common::Relationship::Allies
         {
             return false;
         }
@@ -1502,7 +1502,7 @@ impl GameLogic {
                 ) {
                     (Some(dozer_owner), Some(mine_owner)) => {
                         self.player_relationship(dozer_owner, mine_owner)
-                            == gamelogic::common::Relationship::Allies
+                            == game_engine::common::game_common::Relationship::Allies
                     }
                     // Preserve team behavior for genuinely unowned legacy
                     // mines, which do not carry player relationship data.

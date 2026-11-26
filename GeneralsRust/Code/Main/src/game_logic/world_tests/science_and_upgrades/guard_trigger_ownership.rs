@@ -1,6 +1,7 @@
 //! Actual guard scan regression for per-world polygon occupancy and reset.
 use super::*;
-use gamelogic::common::{AsciiString, ICoord3D};
+use gamelogic::common::AsciiString;
+use glam::IVec3 as ICoord3D;
 use gamelogic::polygon_trigger::PolygonTrigger;
 
 fn polygon(name: &str) -> PolygonTrigger {

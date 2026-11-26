@@ -2,7 +2,7 @@
 use game_client::effects::particle_manager::{
     ParticleSystemManager, get_particle_system_manager_mut,
 };
-use gamelogic::common::Relationship;
+use game_engine::common::game_common::Relationship;
 use gamelogic::weapon::{with_weapon_store, with_weapon_store_mut};
 use generals_main::command_system::{CommandType, GameCommand, ModifierKeys};
 use generals_main::game_logic::{

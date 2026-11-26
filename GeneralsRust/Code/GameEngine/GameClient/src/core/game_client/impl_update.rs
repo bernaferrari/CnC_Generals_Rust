@@ -767,7 +767,7 @@ impl GameClient {
         // Presentation is Y-up. Terrain draw requests use the original X/Y
         // ground plane and Z height.
         let position =
-            gamelogic::common::Coord3D::new(source.position[0], source.position[2], source.position[1]);
+            glam::Vec3::new(source.position[0], source.position[2], source.position[1]);
         drawable
             .get_draw_modules_mut()
             .iter_mut()

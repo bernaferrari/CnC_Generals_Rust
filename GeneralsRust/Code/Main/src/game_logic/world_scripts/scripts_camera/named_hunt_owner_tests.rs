@@ -93,7 +93,7 @@ fn make_enemies(world: &mut GameLogic) {
         world
             .get_player_mut(a)
             .unwrap()
-            .set_map_relationship(b, gamelogic::common::Relationship::Enemies);
+            .set_map_relationship(b, game_engine::common::game_common::Relationship::Enemies);
     }
 }
 

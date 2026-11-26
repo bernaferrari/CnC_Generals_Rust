@@ -7,7 +7,7 @@ use game_client::effects::particle_manager::{
     ParticleSystemManager, get_particle_system_manager, get_particle_system_manager_mut,
 };
 use game_engine::common::ini::ini_locomotor::LocomotorStore;
-use gamelogic::common::Relationship;
+use game_engine::common::game_common::Relationship;
 use gamelogic::object::armor::{TheArmorStore, load_armor_templates_from_str};
 use gamelogic::weapon::{with_weapon_store, with_weapon_store_mut};
 use generals_main::command_system::{CommandType, GameCommand, ModifierKeys};

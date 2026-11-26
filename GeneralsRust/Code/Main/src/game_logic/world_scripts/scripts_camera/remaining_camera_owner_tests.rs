@@ -25,7 +25,7 @@ fn camera_terrain() -> TerrainLogic {
     let mut map = MapData::new();
     map.width = 64;
     map.height = 64;
-    map.boundaries = vec![gamelogic::common::ICoord2D::new(64, 64)];
+    map.boundaries = vec![glam::IVec2::new(64, 64)];
     map.heightmap = vec![16; 64 * 64];
     for (id, name, x, y, z) in [
         (1, "CameraPoint", 310.0, 330.0, 0.0),
@@ -34,7 +34,7 @@ fn camera_terrain() -> TerrainLogic {
         map.waypoints.push(MapWaypoint {
             id,
             name: name.into(),
-            location: gamelogic::common::Coord3D::new(x, y, z),
+            location: glam::Vec3::new(x, y, z),
             path_label1: String::new(),
             path_label2: String::new(),
             path_label3: String::new(),
@@ -53,7 +53,7 @@ fn world(x: f32) -> (GameLogic, ObjectId, Vec3) {
     let mut map = MapData::new();
     map.width = 64;
     map.height = 64;
-    map.boundaries = vec![gamelogic::common::ICoord2D::new(64, 64)];
+    map.boundaries = vec![glam::IVec2::new(64, 64)];
     map.heightmap = vec![0; 64 * 64];
     world
         .world_services
@@ -210,7 +210,7 @@ fn remaining_camera_actions(x: f32) -> Vec<Box<ScriptAction>> {
         vec![
             Parameter::with_coord(
                 ParameterType::Coord3D,
-                gamelogic::common::Coord3D::new(x + 5.0, x + 25.0, 90.0),
+                glam::Vec3::new(x + 5.0, x + 25.0, 90.0),
             ),
             Parameter::with_real(ParameterType::Real, 0.0),
             Parameter::with_real(ParameterType::Real, 0.0),
@@ -474,7 +474,7 @@ fn actual_main_camera_movement_finished_queries_the_driving_world() {
                         vec![
                             Parameter::with_coord(
                                 ParameterType::Coord3D,
-                                gamelogic::common::Coord3D::new(400.0, 0.0, 500.0),
+                                glam::Vec3::new(400.0, 0.0, 500.0),
                             ),
                             Parameter::with_real(ParameterType::Real, 3.0),
                             Parameter::with_real(ParameterType::Real, 0.0),
@@ -933,7 +933,7 @@ fn action_move_for_modifier() -> Box<ScriptAction> {
         vec![
             Parameter::with_coord(
                 ParameterType::Coord3D,
-                gamelogic::common::Coord3D::new(800.0, 600.0, 0.0),
+                glam::Vec3::new(800.0, 600.0, 0.0),
             ),
             Parameter::with_real(ParameterType::Real, 3.0),
         ],

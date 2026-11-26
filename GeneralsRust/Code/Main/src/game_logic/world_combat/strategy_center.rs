@@ -1822,7 +1822,7 @@ impl GameLogic {
         let mut best: Option<(u8, f32, ObjectId)> = None;
         for (&id, target) in self.objects.registered() {
             if id == carrier_id
-                || self.objects.get(&carrier_id).is_none_or(|carrier| self.object_relationship(carrier, target) != gamelogic::common::Relationship::Enemies)
+                || self.objects.get(&carrier_id).is_none_or(|carrier| self.object_relationship(carrier, target) != game_engine::common::game_common::Relationship::Enemies)
                 || (target.status.stealthed && !target.status.detected && !target.status.disguised)
                 || (!target.status.airborne_target && !weapon.anti_mask.contains(WeaponAntiMask::GROUND)) {
                 continue;

@@ -35,7 +35,7 @@ fn cash_value(world: &GameLogic, position: Vec3) -> u32 {
         .lock()
         .unwrap()
         .host_scalar_value_at(
-            &gamelogic::common::Coord3D::new(position.x, position.z, 0.0),
+            &glam::Vec3::new(position.x, position.z, 0.0),
             0,
             gamelogic::object::collide::partition_manager::ValueOrThreat::CashValue,
         )

@@ -5,7 +5,7 @@ pub(super) const MAX_GARRISON_FIRE_POINTS: usize = 40;
 /// Leftover `helix_contain.rs` already matches. Host Y-up maps C++ Z → Y.
 pub(super) const HELIX_OCCUPANT_FIRE_HEIGHT: f32 = 8.0;
 
-pub(super) fn cpp_bone_to_host_local(bone: gamelogic::common::Coord3D) -> glam::Vec3 {
+pub(super) fn cpp_bone_to_host_local(bone: glam::Vec3) -> glam::Vec3 {
     // C++ Z-up (x, y, z) -> host Y-up (x, z, y).
     glam::Vec3::new(bone.x, bone.z, bone.y)
 }

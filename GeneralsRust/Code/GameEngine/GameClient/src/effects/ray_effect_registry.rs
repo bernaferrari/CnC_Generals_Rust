@@ -3,7 +3,7 @@
 //! The registry never creates, fades or destroys a Drawable. LaserUpdate and
 //! the Drawable owner control the actual visual lifecycle.
 use crate::drawable::DrawableId;
-use gamelogic::common::Coord3D;
+use glam::Vec3 as Coord3D;
 
 pub const MAX_RAY_EFFECTS: usize = 128;
 

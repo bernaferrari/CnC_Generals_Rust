@@ -207,7 +207,7 @@ fn shroud_restore_replaces_only_the_driving_world_counters() {
     {
         let mut manager = left.world_services.shroud().lock().unwrap();
         manager.init_shroud_grid(400.0, 400.0);
-        manager.do_shroud_reveal(&gamelogic::common::Coord3D::new(80.0, 80.0, 0.0), 100.0, 1);
+        manager.do_shroud_reveal(&glam::Vec3::new(80.0, 80.0, 0.0), 100.0, 1);
     }
     right
         .world_services
@@ -251,7 +251,7 @@ fn shroud_restore_replaces_only_the_driving_world_counters() {
 #[test]
 fn same_tick_presentations_share_fog_until_receiving_cells_or_levels_change() {
     use crate::fow_rendering::{FOWRenderingBridge, ProjectedShroudSnapshot};
-    use gamelogic::common::Coord3D;
+    use glam::Vec3 as Coord3D;
     use std::sync::Arc;
 
     let (mut logic, id) = world_with_enemy();

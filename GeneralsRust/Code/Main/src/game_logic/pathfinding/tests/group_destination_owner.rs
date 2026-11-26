@@ -311,7 +311,7 @@ fn logical_extent_queue_admission_uses_driving_active_boundary_and_constructor_i
                 data.width = 32;
                 data.height = 32;
                 data.heightmap = vec![0; 32 * 32];
-                data.boundaries = vec![gamelogic::common::ICoord2D::new(cells, cells)];
+                data.boundaries = vec![glam::IVec2::new(cells, cells)];
                 world
                     .world_services
                     .terrain()

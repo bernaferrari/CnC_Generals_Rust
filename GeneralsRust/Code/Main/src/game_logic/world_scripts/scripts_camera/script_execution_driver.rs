@@ -1,7 +1,7 @@
 //! Live synchronous Main owner for one ScriptEngine action walk.
 use super::*;
 use game_engine::common::rts::science::ScienceType;
-use gamelogic::common::Relationship;
+use game_engine::common::game_common::Relationship;
 use gamelogic::scripting::ScriptSurfacesAllowed;
 use gamelogic::scripting::engine::{
     ScriptAiPlayerRequest, ScriptBridgeStatus, ScriptCameraRequest, ScriptDisplayRequest,
@@ -780,7 +780,7 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
     fn named_topple_direction(
         &mut self,
         name: &str,
-        direction: gamelogic::common::Coord3D,
+        direction: glam::Vec3,
     ) -> Option<generals_sim::GameLogicResult<()>> {
         if let Some(engine) = self.interpreter.or(self.world.owned_script_engine.as_ref()) {
             engine.set_topple_direction(name, Some(direction));
@@ -1535,7 +1535,7 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
         {
             changed |= geometry.did_enter_or_exit(object.id.0, self.world.frame);
             let position = object.get_position();
-            let point = gamelogic::common::ICoord3D::new(
+            let point = glam::IVec3::new(
                 position.x as i32,
                 position.z as i32,
                 position.y as i32,
@@ -1658,7 +1658,7 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
         };
         // CPP current float position truncates to integer; Main is Y-up/XZ.
         // Inside deliberately includes dead/inert objects, unlike Entered.
-        let point = gamelogic::common::ICoord3D::new(pos.x as i32, pos.z as i32, pos.y as i32);
+        let point = glam::IVec3::new(pos.x as i32, pos.z as i32, pos.y as i32);
         ScriptOwnerQuery::Present(trigger.point_in_trigger_int(&point))
     }
 
@@ -2409,7 +2409,7 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
                             object.owner_player_id,
                             object.team_instance_id,
                             &object.team_instance_name,
-                        ) == gamelogic::common::Relationship::Neutral)
+                        ) == game_engine::common::game_common::Relationship::Neutral)
             })
             .map(|object| price.wrapping_mul(object.warehouse_boxes() as u32))
             .max()
@@ -2424,7 +2424,7 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
         area: &str,
         current_player: Option<&str>,
     ) -> ScriptOwnerQuery<bool> {
-        use gamelogic::common::Relationship;
+        use game_engine::common::game_common::Relationship;
         let Some(player_id) = self
             .script_player_id(player, current_player)
             .filter(|id| self.world.players.contains_key(id))
@@ -2733,7 +2733,7 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
     fn camera_waypoint_position(
         &mut self,
         name: &str,
-    ) -> Option<generals_sim::GameLogicResult<Option<gamelogic::common::Coord3D>>> {
+    ) -> Option<generals_sim::GameLogicResult<Option<glam::Vec3>>> {
         Some(
             self.world
                 .world_services

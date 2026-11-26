@@ -2,7 +2,9 @@
 use super::*;
 use crate::game_logic::{DamageHitContext, GameLogic, ObjectId, Player, Team, ThingTemplate};
 use game_engine::common::ini::ini_fx_list::{CameraShakeType, FXList, FXNugget};
-use gamelogic::common::{Coord3D, Matrix3D, ObjectShroudStatus};
+use gamelogic::common::ObjectShroudStatus;
+use glam::Vec3 as Coord3D;
+use glam::Mat4 as Matrix3D;
 use gamelogic::helpers::HostFxObjectPose;
 use glam::Vec3;
 use std::sync::mpsc::{Sender, channel};

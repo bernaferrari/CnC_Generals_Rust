@@ -1,7 +1,7 @@
 //! Object.cpp985-1012: an actual UC edge completes its mine callbacks inline.
 //! Resident mines have passed the original PM phase; new dirty births have not.
 use super::*;
-use gamelogic::common::Relationship;
+use game_engine::common::game_common::Relationship;
 
 const SITE: &str = "UCStatusSite541";
 const MINE: &str = "UCStatusMine541";

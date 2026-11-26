@@ -249,7 +249,7 @@ mod tests {
             template: "ChinaMapPlant".into(),
             flags: 0,
             name: None,
-            position: gamelogic::common::Coord3D::new(0., 0., 0.),
+            position: glam::Vec3::new(0., 0., 0.),
             rotation: None,
             team_name: Some("teamMapOne".into()),
             player_id: Some(1),
@@ -506,7 +506,7 @@ mod tests {
         create
             .add_parameter(Parameter::with_coord(
                 ParameterType::Coord3D,
-                gamelogic::common::Coord3D::new(77., 0., 0.),
+                glam::Vec3::new(77., 0., 0.),
             ))
             .unwrap();
         create
@@ -674,7 +674,7 @@ mod tests {
                 Parameter::with_string(ParameterType::Team, "ExactMapTeam".into()),
                 Parameter::with_coord(
                     ParameterType::Coord3D,
-                    gamelogic::common::Coord3D::new(12., 0., 34.),
+                    glam::Vec3::new(12., 0., 34.),
                 ),
                 Parameter::with_real(ParameterType::Real, 0.),
             ] {

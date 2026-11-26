@@ -205,7 +205,7 @@ impl GameLogic {
             .and_then(|drone| drone.team_instance_id);
         if let (Some(master_team), Some(drone_team)) = (master_identity, drone_identity) {
             if self.host_team_relationship(master_team, drone_team)
-                != Some(gamelogic::common::Relationship::Allies)
+                != Some(game_engine::common::game_common::Relationship::Allies)
             {
                 self.defect_host_object_with_effects(id, master_team, 0, presentation_effects)?;
             }

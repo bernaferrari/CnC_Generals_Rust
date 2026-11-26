@@ -118,16 +118,16 @@ fn capture_nearest_is_synchronous_and_world_owned_with_same_ids() {
             .players
             .get_mut(&1)
             .unwrap()
-            .set_map_relationship(2, gamelogic::common::Relationship::Enemies);
+            .set_map_relationship(2, game_engine::common::game_common::Relationship::Enemies);
         let mut ally =
             Player::new(3, Team::USA, "CaptureAlly", false).with_script_identity("CaptureAlly");
-        ally.set_map_relationship(1, gamelogic::common::Relationship::Allies);
+        ally.set_map_relationship(1, game_engine::common::game_common::Relationship::Allies);
         world.add_player(ally);
         world
             .players
             .get_mut(&1)
             .unwrap()
-            .set_map_relationship(3, gamelogic::common::Relationship::Allies);
+            .set_map_relationship(3, game_engine::common::game_common::Relationship::Allies);
     }
     let first_ally = first
         .create_object_for_player("OwnedNamedInfantry", 3, Vec3::new(51.0, 0.0, 50.0))

@@ -277,7 +277,7 @@ fn usa_base_position(logic: &GameLogic) -> Vec3 {
 /// template-name or faction-team guesses.
 fn enemy_of_human(logic: &GameLogic, o: &crate::game_logic::object::Object) -> bool {
     o.owner_player_id.is_some_and(|owner| {
-        logic.player_relationship(0, owner) == gamelogic::common::Relationship::Enemies
+        logic.player_relationship(0, owner) == game_engine::common::game_common::Relationship::Enemies
     })
 }
 

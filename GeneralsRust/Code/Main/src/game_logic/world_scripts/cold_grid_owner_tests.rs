@@ -48,7 +48,7 @@ fn install_templates_and_players(
     world
         .get_player_mut(0)
         .unwrap()
-        .set_map_relationship(1, gamelogic::common::Relationship::Enemies);
+        .set_map_relationship(1, game_engine::common::game_common::Relationship::Enemies);
     let source = world
         .create_object_for_player("AmericaCommandCenter", 0, Vec3::new(32.0, 0.0, 32.0))
         .expect("live admitted USA command center");

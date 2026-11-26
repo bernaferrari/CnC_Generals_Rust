@@ -582,8 +582,8 @@ fn leftover_tick_helix_firestorm_fx(zone: &mut HostHelixFirestormZone, current_f
 }
 
 /// Host Y-up `(x, height, z_ground)` → leftover/C++ Z-up `(x, y_ground, z_height)`.
-fn leftover_helix_firestorm_coord(pos: Vec3) -> gamelogic::common::Coord3D {
-    gamelogic::common::Coord3D::new(pos.x, pos.z, pos.y)
+fn leftover_helix_firestorm_coord(pos: Vec3) -> glam::Vec3 {
+    glam::Vec3::new(pos.x, pos.z, pos.y)
 }
 
 /// Leftover FirestormSmall / BlackNapalmFirestormSmall module data (RIGHT).

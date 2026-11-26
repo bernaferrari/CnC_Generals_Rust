@@ -9,8 +9,8 @@ fn dozer_acquires_admitted_mine_not_retail_named_non_mine() {
     let mut world = GameLogic::new();
     ensure_test_player_for_team(&mut world, Team::USA);
     ensure_test_player_for_team(&mut world, Team::GLA);
-    world.get_player_mut(0).unwrap().set_map_relationship(2, gamelogic::common::Relationship::Enemies);
-    world.get_player_mut(2).unwrap().set_map_relationship(0, gamelogic::common::Relationship::Enemies);
+    world.get_player_mut(0).unwrap().set_map_relationship(2, game_engine::common::game_common::Relationship::Enemies);
+    world.get_player_mut(2).unwrap().set_map_relationship(0, game_engine::common::game_common::Relationship::Enemies);
     for name in ["TestDozer", "RenamedBuriedCharge", "ChinaStandardMine"] {
         let definition = parser.get_definition(name).unwrap();
         let template = GameLogic::build_template_from_object_definition(name, definition, None);
@@ -403,7 +403,7 @@ fn mine_same_faction_enemy_triggers_land_mine() {
 
     assert_eq!(
         game_logic.player_relationship(0, 1),
-        gamelogic::common::Relationship::Enemies
+        game_engine::common::game_common::Relationship::Enemies
     );
 
     game_logic.update_mines_and_demo_traps().unwrap();
@@ -677,7 +677,7 @@ fn authored_demo_trap_world(
     map.width = 32;
     map.height = 32;
     map.heightmap = vec![0; 1024];
-    map.boundaries = vec![gamelogic::common::ICoord2D::new(32, 32)];
+    map.boundaries = vec![glam::IVec2::new(32, 32)];
     world
         .world_services
         .terrain()
@@ -691,11 +691,11 @@ fn authored_demo_trap_world(
     world
         .get_player_mut(0)
         .unwrap()
-        .set_map_relationship(2, gamelogic::common::Relationship::Enemies);
+        .set_map_relationship(2, game_engine::common::game_common::Relationship::Enemies);
     world
         .get_player_mut(2)
         .unwrap()
-        .set_map_relationship(0, gamelogic::common::Relationship::Enemies);
+        .set_map_relationship(0, game_engine::common::game_common::Relationship::Enemies);
     if !ocl_ini.trim().is_empty() {
         world
             .admit_object_creation_list_sources([ocl_ini.to_owned()])
@@ -3430,7 +3430,7 @@ fn authored_virtual_mine_places_neutron_emitter_before_charge_is_consumed() {
     map.width = 32;
     map.height = 32;
     map.heightmap = vec![0; 1024];
-    map.boundaries = vec![gamelogic::common::ICoord2D::new(32, 32)];
+    map.boundaries = vec![glam::IVec2::new(32, 32)];
     world.world_services.terrain().write().unwrap().try_load_map_geometry(map).unwrap();
     world.initialize_receiving_partition_grid().unwrap();
     admit_fixture_content(
@@ -3514,7 +3514,7 @@ fn authored_minefield_pad_fires_detonation_weapon_and_spends_one_charge() {
     map.width = 32;
     map.height = 32;
     map.heightmap = vec![0; 1024];
-    map.boundaries = vec![gamelogic::common::ICoord2D::new(32, 32)];
+    map.boundaries = vec![glam::IVec2::new(32, 32)];
     world.world_services.terrain().write().unwrap().try_load_map_geometry(map).unwrap();
     world.initialize_receiving_partition_grid().unwrap();
     admit_fixture_content(
@@ -3596,7 +3596,7 @@ fn authored_minefield_without_detonation_weapon_spends_charge_silently() {
     map.width = 32;
     map.height = 32;
     map.heightmap = vec![0; 1024];
-    map.boundaries = vec![gamelogic::common::ICoord2D::new(32, 32)];
+    map.boundaries = vec![glam::IVec2::new(32, 32)];
     world.world_services.terrain().write().unwrap().try_load_map_geometry(map).unwrap();
     world.initialize_receiving_partition_grid().unwrap();
     admit_fixture_content(

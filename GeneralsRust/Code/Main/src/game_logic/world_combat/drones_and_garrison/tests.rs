@@ -1922,7 +1922,7 @@ fn defector_idles_and_kicks_cargo() {
     logic
         .get_player_mut(0)
         .unwrap()
-        .set_map_relationship(2, gamelogic::common::Relationship::Enemies);
+        .set_map_relationship(2, game_engine::common::game_common::Relationship::Enemies);
     let mut cc = ThingTemplate::new("AmericaCommandCenter");
     cc.add_kind_of(KindOf::Structure).set_health(1000.0);
     logic.templates.insert("AmericaCommandCenter".into(), cc);

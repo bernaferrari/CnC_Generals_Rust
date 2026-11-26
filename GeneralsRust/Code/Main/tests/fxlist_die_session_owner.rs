@@ -76,7 +76,8 @@ fn authored_object_fx_delivers_each_owned_sound_in_order() {
     };
     use game_engine::common::global_data::GlobalData;
     use game_engine::common::random_value::RandomState;
-    use gamelogic::common::{Coord3D, Matrix3D};
+    use glam::Vec3 as Coord3D;
+    use glam::Mat4 as Matrix3D;
     use gamelogic::helpers::HostFxObjectPose;
 
     struct Players;

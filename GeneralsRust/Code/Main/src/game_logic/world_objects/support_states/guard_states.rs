@@ -87,7 +87,7 @@ impl GameLogic {
         trigger: &gamelogic::polygon_trigger::PolygonTrigger,
         pos: glam::Vec3,
     ) -> bool {
-        trigger.point_in_trigger(&gamelogic::common::Coord2D::new(pos.x, pos.z))
+        trigger.point_in_trigger(&glam::Vec2::new(pos.x, pos.z))
     }
 
     /// C++ PartitionFilterRelationship borrows its owner and asks that exact
@@ -97,8 +97,8 @@ impl GameLogic {
         &self,
         owner: &Object,
         cand: &Object,
-    ) -> gamelogic::common::Relationship {
-        use gamelogic::common::Relationship;
+    ) -> game_engine::common::game_common::Relationship {
+        use game_engine::common::game_common::Relationship;
         if owner.owner_player_id.is_some() && cand.owner_player_id.is_some() {
             return self.object_relationship(owner, cand);
         }
@@ -170,7 +170,7 @@ impl GameLogic {
             if flying_only && !(cand.is_above_terrain() || cand.status.airborne_target) {
                 continue;
             }
-            use gamelogic::common::Relationship;
+            use game_engine::common::game_common::Relationship;
             let rel = self.host_guard_relationship(owner, cand);
             if enter_guard {
                 if hijack_guard {

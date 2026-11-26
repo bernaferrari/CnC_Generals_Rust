@@ -1,7 +1,9 @@
 //! Actual Main onDie/update, authored INI, and real GameClient FX nuggets.
 //! CPP StructureToppleUpdate.cpp194–296 / FXList.cpp794–805.
 use super::*;
-use gamelogic::common::{Coord3D, Matrix3D, ObjectShroudStatus};
+use gamelogic::common::ObjectShroudStatus;
+use glam::Vec3 as Coord3D;
+use glam::Mat4 as Matrix3D;
 use gamelogic::helpers::HostFxObjectPose;
 use std::sync::mpsc::{self, Receiver, Sender};
 

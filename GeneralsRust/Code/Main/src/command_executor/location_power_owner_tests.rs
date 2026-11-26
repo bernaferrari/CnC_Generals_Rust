@@ -5,7 +5,9 @@ use crate::game_logic::{
     GameLogic, KindOf, ObjectId, Player, SpecialPowerModuleKind, SpecialPowerModuleMetadata, Team,
     ThingTemplate,
 };
-use gamelogic::common::{AsciiString, ICoord2D, ICoord3D};
+use gamelogic::common::AsciiString;
+use glam::IVec2 as ICoord2D;
+use glam::IVec3 as ICoord3D;
 use gamelogic::polygon_trigger::PolygonTrigger;
 use gamelogic::system::map_loader::MapData;
 use gamelogic::system::shroud_manager::ShroudState;
@@ -186,8 +188,8 @@ fn location_command_distinguishes_owner_hidden_fogged_and_visible() {
                 .shroud()
                 .lock()
                 .unwrap()
-                .do_shroud_reveal(&gamelogic::common::Coord3D::new(80.0, 40.0, 0.0), 100.0, 1);
-            let position = gamelogic::common::Coord3D::new(80.0, 40.0, 0.0);
+                .do_shroud_reveal(&glam::Vec3::new(80.0, 40.0, 0.0), 100.0, 1);
+            let position = glam::Vec3::new(80.0, 40.0, 0.0);
             assert_eq!(
                 hidden
                     .world_services

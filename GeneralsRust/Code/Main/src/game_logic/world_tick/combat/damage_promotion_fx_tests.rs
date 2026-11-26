@@ -164,7 +164,7 @@ End
     assert!(world.player_is_playable_side(0) && world.player_is_playable_side(1));
     assert_eq!(
         world.player_relationship(0, 1),
-        gamelogic::common::Relationship::Enemies
+        game_engine::common::game_common::Relationship::Enemies
     );
     world
 }
@@ -574,7 +574,7 @@ fn normal_forced_allied_kill_does_not_promote_damage_fx() {
             world.players.get_mut(&1).unwrap().alliance_team = 0;
             assert_eq!(
                 world.player_relationship(0, 1),
-                gamelogic::common::Relationship::Allies
+                game_engine::common::game_common::Relationship::Allies
             );
             let source = authored(
                 &mut world,

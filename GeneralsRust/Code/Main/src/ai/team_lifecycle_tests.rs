@@ -154,7 +154,7 @@ fn deletion_notifies_scripts_and_owned_players_before_members_and_metadata() {
             world
                 .get_player_mut(1)
                 .unwrap()
-                .set_team_relationship_override(id, gamelogic::common::Relationship::Enemies);
+                .set_team_relationship_override(id, game_engine::common::game_common::Relationship::Enemies);
             let mut called = false;
             let mut notify = |current: &mut AIPlayer,
                               owner: &mut GameLogic,

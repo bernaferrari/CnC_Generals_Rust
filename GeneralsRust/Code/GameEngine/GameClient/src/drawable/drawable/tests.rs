@@ -8,7 +8,7 @@ use game_engine::common::bit_flags::ModelConditionFlags;
 use game_engine::common::system::game_common::WhichTurretType;
 use game_engine::common::system::{Snapshotable, Xfer};
 use game_engine::common::thing::module::Module;
-use gamelogic::common::Matrix3D;
+use glam::Mat4 as Matrix3D;
 use gamelogic::common::types::{INVALID_ID, ObjectShroudStatus, WeaponSlotType};
 use gamelogic::helpers::{
     BoneOverrideState, ModelDrawSourceIdentity, ModelDrawState, TheGameClient,

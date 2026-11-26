@@ -610,7 +610,7 @@ End
     assert_eq!(world.host_objects()[&victim].kill_experience_value(), 10.0);
     assert_eq!(
         world.player_relationship(0, 1),
-        gamelogic::common::Relationship::Enemies
+        game_engine::common::game_common::Relationship::Enemies
     );
     world.set_current_frame(99);
     Fixture {
@@ -1370,7 +1370,7 @@ fn moving_area_uses_projectile_default_team_identity_not_launcher_custom_team() 
         .team_instance_name = "CollateralTeam".into();
     assert_eq!(
         f.world.player_relationship(0, 1),
-        gamelogic::common::Relationship::Enemies
+        game_engine::common::game_common::Relationship::Enemies
     );
     f.accept();
     advance_to_impact(&mut f, 150.0);

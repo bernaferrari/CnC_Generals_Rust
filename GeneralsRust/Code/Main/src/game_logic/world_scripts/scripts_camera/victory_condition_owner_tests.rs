@@ -1,7 +1,7 @@
 //! Actual receiving victory evaluation, script consumers, and frozen defeat events.
 use super::script_execution_driver::HostScriptExecutionDriver;
 use super::*;
-use gamelogic::common::Relationship;
+use game_engine::common::game_common::Relationship;
 use gamelogic::scripting::core::{Condition, ConditionType, OrCondition, Script};
 
 fn fixture(allied: bool) -> (GameLogic, ObjectId, ObjectId) {

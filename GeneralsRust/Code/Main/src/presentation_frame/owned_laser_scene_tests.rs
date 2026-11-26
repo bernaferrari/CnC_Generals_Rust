@@ -1,7 +1,7 @@
 use super::*;
 use game_client::core::game_client::{ClientLaserServices, GameClient};
 use game_engine::common::thing::{ThingTemplate, module::{ModuleDataHandle, ModuleInterfaceType}};
-use gamelogic::common::Coord3D;
+use glam::Vec3 as Coord3D;
 use gamelogic::object::draw::w3d_laser_draw::W3DLaserDrawModuleData;
 use gamelogic::object::update::laser_update::LaserUpdateModuleData;
 

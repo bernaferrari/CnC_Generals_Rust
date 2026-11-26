@@ -2,7 +2,7 @@ use game_engine::common::dict::Dict;
 use game_engine::common::ini::INI;
 use game_engine::common::system::DataChunkOutput;
 use game_engine::common::well_known_keys::{key_player_faction, key_player_name};
-use gamelogic::common::Relationship;
+use game_engine::common::game_common::Relationship;
 use generals_main::game_logic::GameLogic;
 use generals_main::skirmish_config::{apply_skirmish_config, golden_skirmish_config};
 

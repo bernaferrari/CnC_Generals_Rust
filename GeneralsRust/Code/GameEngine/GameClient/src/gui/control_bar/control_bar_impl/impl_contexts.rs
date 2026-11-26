@@ -359,7 +359,7 @@ impl ControlBar {
             if let (Some(local_arc), Some(obj_arc)) = (local_arc, obj_arc) {
                 if let (Ok(local_guard), Ok(obj_guard)) = (local_arc.read(), obj_arc.read()) {
                     let rel = local_guard.get_relationship(&obj_guard);
-                    if rel != gamelogic::common::Relationship::Neutral {
+                    if rel != game_engine::common::game_common::Relationship::Neutral {
                         ui.deselect_all();
                         return Ok(());
                     }

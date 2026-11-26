@@ -531,7 +531,7 @@ fn group_special_power_fires_every_capable_caster() {
     map.height = 32;
     map.border_size = 1;
     map.heightmap = vec![0; 34 * 34];
-    map.boundaries = vec![gamelogic::common::ICoord2D::new(32, 32)];
+    map.boundaries = vec![glam::IVec2::new(32, 32)];
     {
         let terrain = logic.world_services.terrain();
         let mut terrain = terrain.write().unwrap();

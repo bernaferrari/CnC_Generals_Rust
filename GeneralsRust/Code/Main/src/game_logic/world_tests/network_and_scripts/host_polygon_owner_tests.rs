@@ -8,7 +8,8 @@ fn live_host_polygon_inside_and_enter_without_object_registry() {
         module_path!(),
         "live_host_polygon_inside_and_enter_without_object_registry",
         || {
-            use gamelogic::common::{AsciiString, ICoord3D};
+            use gamelogic::common::AsciiString;
+            use glam::IVec3 as ICoord3D;
             use gamelogic::object::registry::OBJECT_REGISTRY;
             use gamelogic::polygon_trigger::PolygonTrigger;
             use gamelogic::scripting::core::{Condition, ConditionType, Parameter, ParameterType};

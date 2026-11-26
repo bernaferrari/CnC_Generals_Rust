@@ -39,12 +39,12 @@ fn fixture() -> (GameLogic, ObjectId, ObjectId, CommandButton, u32) {
         .players
         .get_mut(&1)
         .unwrap()
-        .set_map_relationship(2, gamelogic::common::Relationship::Enemies);
+        .set_map_relationship(2, game_engine::common::game_common::Relationship::Enemies);
     world
         .players
         .get_mut(&2)
         .unwrap()
-        .set_map_relationship(1, gamelogic::common::Relationship::Enemies);
+        .set_map_relationship(1, game_engine::common::game_common::Relationship::Enemies);
     let source = world
         .create_object_for_player(
             "AmericaInfantryMissileDefender",

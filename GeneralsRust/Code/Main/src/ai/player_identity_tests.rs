@@ -282,7 +282,7 @@ fn relationship_match() -> crate::game_logic::GameLogic {
 #[test]
 fn acquire_enemy_follows_relationships_not_factions() {
     // C++ acquireEnemy: m_player->getRelationship(cur->getDefaultTeam()) == ENEMIES.
-    use gamelogic::common::Relationship;
+    use game_engine::common::game_common::Relationship;
     let mut logic = relationship_match();
     // Same faction, explicit ENEMIES; different faction, no relation (NEUTRAL).
     logic

@@ -267,7 +267,7 @@ impl GameLogic {
     /// Uses the live player-relation map (scripted diplomacy / campaign
     /// `playerAllies` / lobby `alliance_team`), not faction `Team` equality.
     fn host_owner_is_ally_of_local(&self, owner_id: Option<u32>) -> bool {
-        use gamelogic::common::Relationship;
+        use game_engine::common::game_common::Relationship;
         let Some(local) = self.host_local_player() else {
             return true;
         };
@@ -549,7 +549,7 @@ impl GameLogic {
                 max_z = max_z.max(height);
                 samples.push((height, water));
                 let bridge = terrain.as_ref().and_then(|terrain| {
-                    let loc = gamelogic::common::Coord3D::new(wx, wy, height);
+                    let loc = glam::Vec3::new(wx, wy, height);
                     let bridge = terrain.find_bridge_at(&loc)?;
                     let info = bridge.get_bridge_info();
                     let object = self.objects.get(&ObjectId(info.bridge_object_id))?;
@@ -912,7 +912,7 @@ mod tests {
     /// Campaign `PLAYER_SET_RELATIONSHIP` / map playerAllies.
     #[test]
     fn host_radar_campaign_ally_stealth_stays_visible() {
-        use gamelogic::common::Relationship;
+        use game_engine::common::game_common::Relationship;
         let mut logic = GameLogic::new();
         let mut local = Player::new(0, Team::USA, "PlyrAmerica", true);
         local.color_rgb = (0, 80, 200);

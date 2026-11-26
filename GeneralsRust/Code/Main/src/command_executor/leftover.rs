@@ -999,7 +999,7 @@ impl<'a> CommandExecutor<'a> {
         let allied_or_observer = match local_id {
             Some(local) => {
                 self.game_logic.player_relationship(player_id, local)
-                    == gamelogic::common::Relationship::Allies
+                    == game_engine::common::game_common::Relationship::Allies
                     || self
                         .game_logic
                         .get_player(local)
@@ -1255,7 +1255,7 @@ fn host_object_is_bridge_or_tower(obj: &crate::game_logic::Object) -> bool {
 }
 
 fn host_living_mutual_ally(logic: &GameLogic, player_id: u32) -> Option<u32> {
-    use gamelogic::common::Relationship;
+    use game_engine::common::game_common::Relationship;
     let ids: Vec<u32> = logic.get_players().keys().copied().collect();
     for other in ids {
         if other == player_id {

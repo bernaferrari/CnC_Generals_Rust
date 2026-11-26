@@ -73,10 +73,10 @@ fn host_bone_fx_uses_borrowed_receiving_client_after_move_and_peer_drop() {
     impl FXNugget for Observe {
         fn do_fx_pos(
             &self,
-            primary: Option<&gamelogic::common::Coord3D>,
-            _: Option<&gamelogic::common::Matrix3D>,
+            primary: Option<&glam::Vec3>,
+            _: Option<&glam::Mat4>,
             _: f32,
-            _: Option<&gamelogic::common::Coord3D>,
+            _: Option<&glam::Vec3>,
             _: f32,
         ) {
             self.0.send(format!("effect:{}", primary.unwrap().x)).unwrap();
@@ -98,8 +98,8 @@ fn host_bone_fx_uses_borrowed_receiving_client_after_move_and_peer_drop() {
         let outer = FXList::from_definition(&authored);
         let pose = gamelogic::helpers::HostFxObjectPose {
             id: 73,
-            position: gamelogic::common::Coord3D::ZERO,
-            transform: gamelogic::common::Matrix3D::IDENTITY,
+            position: glam::Vec3::ZERO,
+            transform: glam::Mat4::IDENTITY,
             player_index: 0,
             bounding_circle_radius: 1.0,
             is_shrouded: false,

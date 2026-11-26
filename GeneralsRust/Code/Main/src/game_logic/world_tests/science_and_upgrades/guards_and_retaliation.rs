@@ -427,12 +427,12 @@ fn friends_retaliate_against_nearby_aggressor() {
         .players
         .get_mut(&0)
         .unwrap()
-        .set_map_relationship(2, gamelogic::common::Relationship::Enemies);
+        .set_map_relationship(2, game_engine::common::game_common::Relationship::Enemies);
     logic
         .players
         .get_mut(&2)
         .unwrap()
-        .set_map_relationship(0, gamelogic::common::Relationship::Enemies);
+        .set_map_relationship(0, game_engine::common::game_common::Relationship::Enemies);
 
     // Victim
     let mut vt = ThingTemplate::new("Vic");
@@ -639,7 +639,8 @@ fn guarding_object_flying_only_skips_ground() {
 #[test]
 fn guard_area_polygon_rejects_outside_and_covers_far_corner() {
     use crate::game_logic::{AIState, KindOf, Object, ObjectId, Team, ThingTemplate};
-    use gamelogic::common::{AsciiString, ICoord3D};
+    use gamelogic::common::AsciiString;
+    use glam::IVec3 as ICoord3D;
     use gamelogic::polygon_trigger::PolygonTrigger;
 
     let trigger = PolygonTrigger::new(
@@ -1356,7 +1357,8 @@ fn enter_guard_inner_scan_requires_can_enter_object() {
 #[test]
 fn area_guard_outer_chase_uses_polygon_radius() {
     use crate::game_logic::{AIState, KindOf, Object, ObjectId, Team, ThingTemplate};
-    use gamelogic::common::{AsciiString, ICoord3D};
+    use gamelogic::common::AsciiString;
+    use glam::IVec3 as ICoord3D;
     use gamelogic::polygon_trigger::PolygonTrigger;
 
     let trigger = PolygonTrigger::new(
@@ -1908,7 +1910,8 @@ fn tn_guard_nemesis_rejects_unattackable_damager() {
 
 #[test]
 fn named_guard_outer_geometry_is_owner_local_with_same_ids_and_reset() {
-    use gamelogic::common::{AsciiString, ICoord3D};
+    use gamelogic::common::AsciiString;
+    use glam::IVec3 as ICoord3D;
     use gamelogic::polygon_trigger::PolygonTrigger;
     const NAME: &str = "OwnerGuardPolygon";
     const GUARD: ObjectId = ObjectId(6301);
@@ -2026,7 +2029,8 @@ fn named_guard_outer_geometry_is_owner_local_with_same_ids_and_reset() {
 
 #[test]
 fn named_guard_center_height_uses_driving_world_after_other_owner_reset_and_drop() {
-    use gamelogic::common::{AsciiString, ICoord3D};
+    use gamelogic::common::AsciiString;
+    use glam::IVec3 as ICoord3D;
     use gamelogic::polygon_trigger::PolygonTrigger;
     const NAME: &str = "OwnedGuardHeight";
     fn admit(world: &mut GameLogic, height: f32) {
@@ -2059,8 +2063,8 @@ fn named_guard_center_height_uses_driving_world_after_other_owner_reset_and_drop
         // Preserve the original integer-bounds midpoint, including half cells.
         assert_eq!(center, Vec3::new(20.5, height, 31.5));
         assert_eq!(radius, polygon.get_radius());
-        assert!(polygon.point_in_trigger(&gamelogic::common::Coord2D::new(20.5, 31.5)));
-        assert!(!polygon.point_in_trigger(&gamelogic::common::Coord2D::new(32.0, 31.5)));
+        assert!(polygon.point_in_trigger(&glam::Vec2::new(20.5, 31.5)));
+        assert!(!polygon.point_in_trigger(&glam::Vec2::new(32.0, 31.5)));
     }
     let mut a = guard_test_world();
     let mut b = guard_test_world();

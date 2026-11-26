@@ -8,7 +8,7 @@ fn owner() -> GameLogic {
     map.width = 128;
     map.height = 128;
     map.heightmap = vec![0; 128 * 128];
-    map.boundaries = vec![gamelogic::common::ICoord2D::new(128, 128)];
+    map.boundaries = vec![glam::IVec2::new(128, 128)];
     world
         .world_services
         .terrain()

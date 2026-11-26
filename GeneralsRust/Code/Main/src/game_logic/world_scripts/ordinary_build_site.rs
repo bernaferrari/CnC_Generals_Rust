@@ -219,7 +219,7 @@ impl GameLogic {
                         object.owner_player_id,
                         object.team_instance_id,
                         &object.team_instance_name,
-                    ) != gamelogic::common::Relationship::Enemies
+                    ) != game_engine::common::game_common::Relationship::Enemies
             }) {
                 continue;
             }

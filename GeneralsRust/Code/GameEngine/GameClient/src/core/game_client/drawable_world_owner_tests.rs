@@ -169,8 +169,8 @@ fn receiving_client_destroys_moved_drawable_and_its_owned_bookkeeping() {
     // not manufacture a LaserUpdate module or bypass its particle retirement.
     assert!(source.drawables.ray_effects.add(
         id,
-        gamelogic::common::Coord3D::new(1.0, 2.0, 3.0),
-        gamelogic::common::Coord3D::new(4.0, 5.0, 6.0)
+        glam::Vec3::new(1.0, 2.0, 3.0),
+        glam::Vec3::new(4.0, 5.0, 6.0)
     ));
     assert!(source.drawables.owned_laser_order.is_empty());
     std::mem::swap(&mut source.drawables, &mut receiver.drawables);

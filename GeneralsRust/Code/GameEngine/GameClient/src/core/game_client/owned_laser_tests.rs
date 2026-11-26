@@ -1,6 +1,6 @@
 use super::*;
 use game_engine::common::thing::module::ModuleInterfaceType;
-use gamelogic::common::Coord3D;
+use glam::Vec3 as Coord3D;
 
 fn template() -> ThingTemplate {
     let mut template = ThingTemplate::new();

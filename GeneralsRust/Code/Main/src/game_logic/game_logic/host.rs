@@ -122,7 +122,7 @@ pub struct GameLogic {
     /// handle so pose changes update this owner's slots without selecting an
     /// ambient game instance.
     pub(crate) host_trigger_world:
-        std::sync::Arc<std::sync::Mutex<gamelogic::scripting::HostTriggerWorld>>,
+        std::sync::Arc<std::sync::Mutex<crate::game_logic::ScriptTriggerWorld>>,
     /// Team prototypes, instances, ID counters, and deletion notifications for
     /// this match. C++ exposes this through `TheTeamFactory`; Rust keeps the
     /// mutable simulation data on the owning host world.

@@ -80,7 +80,7 @@ impl GameLogic {
         path_label: &str,
         from: glam::Vec3,
     ) -> Option<(u32, glam::Vec3, bool, f32)> {
-        let from_terrain = gamelogic::common::Coord3D::new(from.x, from.z, from.y);
+        let from_terrain = glam::Vec3::new(from.x, from.z, from.y);
         let terrain_owner_handle = self.world_services.terrain();
         let terrain = terrain_owner_handle
             .read()
@@ -210,7 +210,7 @@ impl GameLogic {
             .unwrap_or_else(|poisoned| poisoned.into_inner())
             .get_maximum_pathfind_extent();
         let to_terrain =
-            |point: glam::Vec3| gamelogic::common::Coord3D::new(point.x, point.z, point.y);
+            |point: glam::Vec3| glam::Vec3::new(point.x, point.z, point.y);
         if extent.is_in_region_no_z(&to_terrain(waypoint_goal))
             && !extent.is_in_region_no_z(&to_terrain(goal))
         {

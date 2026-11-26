@@ -268,7 +268,7 @@ fn hunting_infantry_pair() -> (GameLogic, ObjectId, ObjectId) {
         logic
             .get_player_mut(player)
             .expect("fixture player")
-            .set_map_relationship(other, gamelogic::common::Relationship::Enemies);
+            .set_map_relationship(other, game_engine::common::game_common::Relationship::Enemies);
     }
     let hunter_id = logic
         .create_object_for_player("HuntAttackSource", 1, glam::Vec3::ZERO)

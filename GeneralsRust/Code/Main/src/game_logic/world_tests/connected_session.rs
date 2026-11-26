@@ -128,7 +128,7 @@ End
         player.resources.supplies = cash;
         // CPP map-side relationships, rather than faction labels, admit
         // an ordinary attack between these two owned player slots.
-        player.set_map_relationship(1 - id, gamelogic::common::Relationship::Enemies);
+        player.set_map_relationship(1 - id, game_engine::common::game_common::Relationship::Enemies);
         world.add_player(player);
     }
     // Original Barracks requires its own CommandCenter, and the opposing

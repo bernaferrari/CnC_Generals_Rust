@@ -158,7 +158,7 @@ fn real_fx_nugget_uses_receiving_rule_owner_despite_foreign_global_and_reused_id
         "real_fx_nugget_uses_receiving_rule_owner_despite_foreign_global_and_reused_ids",
         || {
             use crate::game_logic::{Player, Team, ThingTemplate};
-            use gamelogic::common::Coord3D;
+            use glam::Vec3 as Coord3D;
             fn receiving(normal: f32) -> (GameLogic, crate::game_logic::ObjectId) {
                 let mut world = owner(rules(normal, 100., 100.));
                 world.add_player(Player::new(0, Team::USA, "Receiving", true));

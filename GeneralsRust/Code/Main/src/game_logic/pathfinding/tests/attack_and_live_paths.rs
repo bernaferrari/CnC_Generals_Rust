@@ -1605,7 +1605,7 @@ fn leftover_compute_quick_path_nodes_are_start_and_dest() {
 
 #[test]
 fn leftover_off_map_start_gate_matches_leftover_ai_path() {
-    use gamelogic::common::Coord3D;
+    use glam::Vec3 as Coord3D;
     use gamelogic::object::unit::leftover_should_force_direct_path_for_off_map_start;
     if let Ok(mut terrain) = gamelogic::terrain::get_terrain_logic().write() {
         terrain.reset();
@@ -1803,7 +1803,7 @@ fn team_relationship_override_reaches_occupancy_checks_per_world() {
     overriding
         .get_player_mut(0)
         .unwrap()
-        .set_team_relationship_override(77, gamelogic::common::Relationship::Allies);
+        .set_team_relationship_override(77, game_engine::common::game_common::Relationship::Allies);
     assert_eq!(
         cost(&mut overriding_grid, &overriding, seeker),
         3 * 14,

@@ -995,7 +995,7 @@ impl GameLogic {
         // Leftover FireWeaponPower when dual-world object is registered.
         if let Some(obj) = crate::game_logic::crate_object_bridge::crate_object(source_id.0) {
             if let Ok(guard) = obj.read() {
-                let loc = gamelogic::common::Coord3D::new(location.x, location.z, location.y);
+                let loc = glam::Vec3::new(location.x, location.z, location.y);
                 guard.do_special_power_at_location(
                     "SpecialPowerBattleshipBombardment",
                     &loc,

@@ -196,7 +196,7 @@ impl GameLogic {
     ) {
         let tree_move_frame = self.frame;
         use crate::game_logic::KindOf;
-        use gamelogic::common::Relationship;
+        use game_engine::common::game_common::Relationship;
 
         // C++ AITNGuardIdleState::lookForInnerTarget (goal victim first) then
         // TunnelContain::update last-damage write. Scan-rate is AIData

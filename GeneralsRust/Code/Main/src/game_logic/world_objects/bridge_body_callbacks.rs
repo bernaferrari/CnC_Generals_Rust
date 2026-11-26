@@ -5,7 +5,8 @@ use crate::game_logic::combat::DamageType;
 use crate::game_logic::host_enum_table_residual::HostBodyDamageType;
 use crate::game_logic::host_usa_pilot::HostDeathType;
 use crate::game_logic::object::{BridgeBodyCallbacks, DamageHitContext};
-use gamelogic::common::{BodyDamageType, Coord3D, Region2D};
+use gamelogic::common::{BodyDamageType, Region2D};
+use glam::Vec3 as Coord3D;
 use gamelogic::path::{LAYER_Z_CLOSE_ENOUGH_F, PATHFIND_CELL_SIZE_F};
 
 impl GameLogic {
@@ -295,8 +296,8 @@ impl GameLogic {
                 let location = Coord3D::new(position.x, position.z, position.y);
                 let radius = object.geometry_info().minor_radius + PATHFIND_CELL_SIZE_F * 0.5;
                 let bounds = Region2D {
-                    lo: gamelogic::common::Coord2D::new(location.x - radius, location.y - radius),
-                    hi: gamelogic::common::Coord2D::new(location.x + radius, location.y + radius),
+                    lo: glam::Vec2::new(location.x - radius, location.y - radius),
+                    hi: glam::Vec2::new(location.x + radius, location.y + radius),
                 };
                 let mut interacts = false;
                 self.world_services

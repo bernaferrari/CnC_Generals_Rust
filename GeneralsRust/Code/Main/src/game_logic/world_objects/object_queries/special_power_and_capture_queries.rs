@@ -426,7 +426,7 @@ impl GameLogic {
         target_id: ObjectId,
         require_power_ready: bool,
     ) -> bool {
-        use gamelogic::common::Relationship;
+        use game_engine::common::game_common::Relationship;
 
         if source_id == target_id {
             return false;
@@ -618,7 +618,7 @@ impl GameLogic {
         target_id: ObjectId,
         require_power_ready: bool,
     ) -> bool {
-        use gamelogic::common::Relationship;
+        use game_engine::common::game_common::Relationship;
 
         if source_id == target_id {
             return false;

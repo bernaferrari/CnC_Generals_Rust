@@ -5,7 +5,8 @@ use super::*;
 // Both worlds use real Main objects and the production roster projection.
 #[test]
 fn host_named_unit_found_with_empty_object_registry() {
-    use gamelogic::common::{AsciiString, ICoord3D};
+    use gamelogic::common::AsciiString;
+    use glam::IVec3 as ICoord3D;
     use gamelogic::polygon_trigger::PolygonTrigger;
     let mut logic = GameLogic::new();
     let mut template = ThingTemplate::new("NamedScout");
@@ -3327,20 +3328,20 @@ fn host_trigger_snapshot_capture_is_isolated_between_live_worlds() {
         19021,
         gamelogic::common::AsciiString::from("OwnerProbeAreaA"),
         vec![
-            gamelogic::common::ICoord3D::new(100, 100, 0),
-            gamelogic::common::ICoord3D::new(130, 100, 0),
-            gamelogic::common::ICoord3D::new(130, 130, 0),
-            gamelogic::common::ICoord3D::new(100, 130, 0),
+            glam::IVec3::new(100, 100, 0),
+            glam::IVec3::new(130, 100, 0),
+            glam::IVec3::new(130, 130, 0),
+            glam::IVec3::new(100, 130, 0),
         ],
     );
     let trigger_b = gamelogic::polygon_trigger::PolygonTrigger::new(
         19022,
         gamelogic::common::AsciiString::from("OwnerProbeAreaB"),
         vec![
-            gamelogic::common::ICoord3D::new(200, 200, 0),
-            gamelogic::common::ICoord3D::new(230, 200, 0),
-            gamelogic::common::ICoord3D::new(230, 230, 0),
-            gamelogic::common::ICoord3D::new(200, 230, 0),
+            glam::IVec3::new(200, 200, 0),
+            glam::IVec3::new(230, 200, 0),
+            glam::IVec3::new(230, 230, 0),
+            glam::IVec3::new(200, 230, 0),
         ],
     );
 
@@ -3464,7 +3465,7 @@ fn host_trigger_snapshot_capture_is_isolated_between_live_worlds() {
         .lock()
         .expect("host trigger owner")
         .capture();
-    let mut restored_trigger_world = gamelogic::scripting::HostTriggerWorld::default();
+    let mut restored_trigger_world = crate::game_logic::ScriptTriggerWorld::default();
     restored_trigger_world.set_trigger_areas(&[trigger_a.clone()]);
     restored_trigger_world.set_current_frame(world_a.frame);
     restored_trigger_world.restore(&saved_trigger_state);

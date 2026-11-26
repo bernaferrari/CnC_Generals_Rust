@@ -7,7 +7,7 @@ use glam::Vec3;
 #[test]
 fn same_faction_opponents_keep_command_and_presentation_ownership() {
     use crate::game_logic::Player;
-    use gamelogic::common::Relationship;
+    use game_engine::common::game_common::Relationship;
 
     let mut logic = GameLogic::new();
     logic.clear_all_players();

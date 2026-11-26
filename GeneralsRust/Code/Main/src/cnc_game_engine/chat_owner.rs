@@ -40,9 +40,9 @@ pub(super) fn chat_world_facts_from_world(
         }
         let is_local = player.id == local_id;
         let mutually_allied = world.player_relationship(local_id, player.id)
-            == gamelogic::common::Relationship::Allies
+            == game_engine::common::game_common::Relationship::Allies
             && world.player_relationship(player.id, local_id)
-                == gamelogic::common::Relationship::Allies;
+                == game_engine::common::game_common::Relationship::Allies;
         // A source GameInfo retains its exact slot mute. Direct non-network
         // admissions have no mutable lobby; GameSlot.cpp's constructor is unmuted.
         let muted = source_info.is_some_and(|info| info.slots[slot].is_muted);
@@ -80,13 +80,13 @@ mod tests {
             local.map_side.map_player_name = "player3".into();
             let mut other = Player::new(91, Team::China, "same display", false);
             other.map_side.map_player_name = "player0".into();
-            local.set_map_relationship(91, gamelogic::common::Relationship::Allies);
+            local.set_map_relationship(91, game_engine::common::game_common::Relationship::Allies);
             other.set_map_relationship(
                 17,
                 if active {
-                    gamelogic::common::Relationship::Allies
+                    game_engine::common::game_common::Relationship::Allies
                 } else {
-                    gamelogic::common::Relationship::Enemies
+                    game_engine::common::game_common::Relationship::Enemies
                 },
             );
             world.add_player(local);

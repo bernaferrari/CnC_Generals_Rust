@@ -24,9 +24,9 @@ fn named_entered_condition_observes_owned_geometry_edge_window_and_same_id_peer(
         1814,
         "OwnedEntryTriangle".into(),
         vec![
-            gamelogic::common::ICoord3D::new(0, 0, 0),
-            gamelogic::common::ICoord3D::new(20, 0, 0),
-            gamelogic::common::ICoord3D::new(0, 20, 0),
+            glam::IVec3::new(0, 0, 0),
+            glam::IVec3::new(20, 0, 0),
+            glam::IVec3::new(0, 20, 0),
         ],
     );
     for world in [&mut owner, &mut peer] {

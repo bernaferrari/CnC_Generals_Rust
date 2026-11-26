@@ -334,7 +334,7 @@ impl GameLogic {
             if d_sq > radius_sq {
                 continue;
             }
-            use gamelogic::common::Relationship;
+            use game_engine::common::game_common::Relationship;
             let rel = self.host_guard_relationship(me, cand);
             if enter_guard {
                 if hijack_guard {
@@ -350,7 +350,7 @@ impl GameLogic {
                 if !self.host_reject_buildings_allows(unit_id, cand) {
                     continue;
                 }
-                if rel != gamelogic::common::Relationship::Enemies {
+                if rel != game_engine::common::game_common::Relationship::Enemies {
                     continue;
                 }
                 if !matches!(
@@ -645,7 +645,7 @@ impl GameLogic {
         let enemies = match (damager.owner_player_id, victim.owner_player_id) {
             (Some(_), Some(_)) => {
                 self.object_relationship(damager, victim)
-                    == gamelogic::common::Relationship::Enemies
+                    == game_engine::common::game_common::Relationship::Enemies
             }
             _ => {
                 damager.team != victim.team
@@ -737,7 +737,7 @@ impl GameLogic {
                 }
                 // C++ PartitionFilterPlayerAffiliation ALLOW_ALLIES.
                 let allied = self.object_relationship(o, &self.objects[&victim_id])
-                    == gamelogic::common::Relationship::Allies
+                    == game_engine::common::game_common::Relationship::Allies
                     || (o.owner_player_id.is_none() && o.team == vteam && o.team != Team::Neutral);
                 if !allied {
                     return false;
@@ -954,7 +954,7 @@ impl GameLogic {
                         .zip(self.objects.get(&aid))
                         .is_some_and(|(owner, attacker)| {
                             self.host_guard_relationship(owner, attacker)
-                                == gamelogic::common::Relationship::Enemies
+                                == game_engine::common::game_common::Relationship::Enemies
                                 && attacker.is_alive()
                                 && !attacker.status.destroyed
                                 && owner.can_attack()
@@ -1199,7 +1199,7 @@ impl GameLogic {
         path_label: &str,
         from: glam::Vec3,
     ) -> Option<Vec<glam::Vec3>> {
-        let leftover_pos = gamelogic::common::Coord3D::new(from.x, from.z, from.y);
+        let leftover_pos = glam::Vec3::new(from.x, from.z, from.y);
         let terrain_owner_handle = self.world_services.terrain();
         let terrain = terrain_owner_handle
             .read()
@@ -1903,7 +1903,7 @@ impl GameLogic {
         source_owner: u32,
     ) -> Option<ObjectId> {
         use crate::game_logic::host_deliver_payload::is_off_map_residual;
-        use gamelogic::common::Relationship;
+        use game_engine::common::game_common::Relationship;
 
         // ScriptActions.cpp:29 REALLY_FAR = 100000 * MAP_XY_FACTOR.
         let max_distance = 100_000.0 * gamelogic::common::MAP_XY_FACTOR;
@@ -1996,7 +1996,7 @@ impl GameLogic {
                     true
                 } else if !alive {
                     false
-                } else if self.object_relationship(me, other) != gamelogic::common::Relationship::Enemies {
+                } else if self.object_relationship(me, other) != game_engine::common::game_common::Relationship::Enemies {
                     false
                 } else if other.is_kind_of(KindOf::Structure) {
                     other.can_attack()
@@ -2658,7 +2658,8 @@ mod tests {
 
     #[test]
     fn guard_area_scan_skips_when_trigger_stamp_expired() {
-        use gamelogic::common::{AsciiString, ICoord3D};
+        use gamelogic::common::AsciiString;
+        use glam::IVec3 as ICoord3D;
         use gamelogic::polygon_trigger::PolygonTrigger;
         let trigger = PolygonTrigger::new(
             25097,

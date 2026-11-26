@@ -17,7 +17,7 @@ impl GameClient {
         bone_name: &str,
         start: i32,
         max_bones: usize,
-    ) -> Vec<(gamelogic::common::Coord3D, gamelogic::common::Matrix3D)> {
+    ) -> Vec<(glam::Vec3, glam::Mat4)> {
         if max_bones == 0 || bone_name.is_empty() {
             return Vec::new();
         }
@@ -44,7 +44,7 @@ impl GameClient {
         (0..count as usize)
             .map(|i| {
                 (
-                    gamelogic::common::Coord3D::new(positions[i].x, positions[i].y, positions[i].z),
+                    glam::Vec3::new(positions[i].x, positions[i].y, positions[i].z),
                     transforms[i].to_glam(),
                 )
             })

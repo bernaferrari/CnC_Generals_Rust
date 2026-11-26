@@ -2,7 +2,9 @@
 //! score/onDie/Armor before collision processing resumes on installed objects.
 use crate::game_logic::{GameLogic, ObjectId, Player, Team, VeterancyLevel};
 use game_engine::common::ini::{ini_damage_fx as damage, ini_fx_list as fx};
-use gamelogic::common::{Coord3D, Matrix3D, ObjectShroudStatus};
+use gamelogic::common::ObjectShroudStatus;
+use glam::Vec3 as Coord3D;
+use glam::Mat4 as Matrix3D;
 use gamelogic::helpers::HostFxObjectPose;
 use glam::Vec3;
 use std::sync::mpsc::{Receiver, Sender, channel};

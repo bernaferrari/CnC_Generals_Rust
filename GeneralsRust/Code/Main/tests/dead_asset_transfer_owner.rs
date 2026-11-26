@@ -76,11 +76,11 @@ fn self_destruct_transfers_dead_and_live_assets_before_source_death() {
     world.start_new_game(GameMode::SinglePlayer).unwrap();
     assert!(world.load_map(map.to_str().unwrap()));
     assert_eq!(world.player_relationship(1, 2),
-        gamelogic::common::Relationship::Allies
+        game_engine::common::game_common::Relationship::Allies
     );
     assert_eq!(
         world.player_relationship(2, 1),
-        gamelogic::common::Relationship::Allies
+        game_engine::common::game_common::Relationship::Allies
     );
 
     let live = world

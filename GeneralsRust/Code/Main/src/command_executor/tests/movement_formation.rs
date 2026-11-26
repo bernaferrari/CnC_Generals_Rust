@@ -1268,7 +1268,7 @@ fn attack_position_continue_range_uses_owned_map_status_across_worlds_and_restor
         world.add_player(Player::new(1, Team::USA, "Owner", true));
         world.add_player(Player::new(2, Team::GLA, "Enemy", false));
         world.get_player_mut(1).unwrap().set_map_relationship(
-            2, gamelogic::common::Relationship::Enemies,
+            2, game_engine::common::game_common::Relationship::Enemies,
         );
         world.admit_object_ini_sources([("ContinuePosition.ini".into(), r#"
 Object ContinuePositionAttacker

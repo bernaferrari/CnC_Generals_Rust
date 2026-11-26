@@ -92,11 +92,11 @@ fn normal_runtime_sequential_actor_move_pauses_and_idle_resumes_same_tick() {
             map.width = 64;
             map.height = 64;
             map.heightmap = vec![0; 64 * 64];
-            map.boundaries = vec![gamelogic::common::ICoord2D::new(64, 64)];
+            map.boundaries = vec![glam::IVec2::new(64, 64)];
             map.waypoints.push(MapWaypoint {
                 id: 1,
                 name: "SeqGoal".into(),
-                location: gamelogic::common::Coord3D::new(60.0, 0.0, 0.0),
+                location: glam::Vec3::new(60.0, 0.0, 0.0),
                 path_label1: String::new(),
                 path_label2: String::new(),
                 path_label3: String::new(),

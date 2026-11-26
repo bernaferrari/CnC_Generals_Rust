@@ -149,11 +149,11 @@ fn named_kill_topple_callback_reads_only_the_supplied_interpreter() {
     let foreign = gamelogic::scripting::engine::ScriptEngine::new_in_published_world().unwrap();
     supplied.set_topple_direction(
         "ToppleTarget",
-        Some(gamelogic::common::Coord3D::new(0.0, 1.0, 0.0)),
+        Some(glam::Vec3::new(0.0, 1.0, 0.0)),
     );
     foreign.set_topple_direction(
         "ToppleTarget",
-        Some(gamelogic::common::Coord3D::new(1.0, 0.0, 0.0)),
+        Some(glam::Vec3::new(1.0, 0.0, 0.0)),
     );
     struct NestedKill<'a> {
         owner: &'a mut GameLogic,

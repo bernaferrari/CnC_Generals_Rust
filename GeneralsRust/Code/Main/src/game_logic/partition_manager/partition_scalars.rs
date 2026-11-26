@@ -75,7 +75,7 @@ impl PartitionManager {
         if !grid.has_shroud_grid() {
             return false;
         }
-        let center = gamelogic::common::Coord3D::new(stamp.x, stamp.z, 0.0);
+        let center = glam::Vec3::new(stamp.x, stamp.z, 0.0);
         if add {
             grid.do_value_affect(&center, stamp.range, stamp.value, stamp.mask);
             grid.do_threat_affect(&center, stamp.range, stamp.threat, stamp.mask);

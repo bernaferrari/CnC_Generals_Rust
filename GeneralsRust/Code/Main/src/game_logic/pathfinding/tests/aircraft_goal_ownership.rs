@@ -489,7 +489,7 @@ fn authored_same_id_matches_keep_aircraft_goals_and_foreign_core_independent() {
     if isolated("authored_same_id_matches_keep_aircraft_goals_and_foreign_core_independent") {
         return;
     }
-    use gamelogic::common::Coord3D;
+    use glam::Vec3 as Coord3D;
     let ai = gamelogic::ai::the_ai();
     let foreign = ai.read().unwrap().pathfinder().unwrap();
     let sentinel = Coord3D::new(45.0, 45.0, 0.0);

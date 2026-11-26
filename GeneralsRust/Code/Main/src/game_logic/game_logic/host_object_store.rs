@@ -437,7 +437,7 @@ impl<'a> HostObjectRead<'a> {
         self
     }
 
-    pub(crate) fn relationship(self, source: &Object, target: &Object) -> Option<gamelogic::common::Relationship> {
+    pub(crate) fn relationship(self, source: &Object, target: &Object) -> Option<game_engine::common::game_common::Relationship> {
         Some(crate::game_logic::GameLogic::object_relationship_with_world(
             self.team_factory?, self.players?, source, target,
         ))

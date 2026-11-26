@@ -1216,7 +1216,7 @@ Object ferry\nKindOf = VEHICLE TRANSPORT SELECTABLE\nBody = ActiveBody Body\nMax
 Object rider\nKindOf = INFANTRY SELECTABLE\nTransportSlotCount = 1\nBody = ActiveBody Body\nMaxHealth = 100\nInitialHealth = 100\nEnd\nEnd\n".into(),
         )]).unwrap()).unwrap();
         let mut planter_player = crate::game_logic::Player::new(0, Team::GLA, "Planter", true);
-        planter_player.set_map_relationship(1, gamelogic::common::Relationship::Enemies);
+        planter_player.set_map_relationship(1, game_engine::common::game_common::Relationship::Enemies);
         world.add_player(planter_player);
         world.add_player(crate::game_logic::Player::new(1, Team::USA, "Docker", true));
         let ferry = world.create_object_for_player("ferry", 1, Vec3::ZERO).unwrap();
@@ -1227,7 +1227,7 @@ Object rider\nKindOf = INFANTRY SELECTABLE\nTransportSlotCount = 1\nBody = Activ
         assert_eq!(world.objects[&charge].producer_id, Some(ferry));
         assert_eq!(world.objects[&charge].owner_player_id, Some(0));
         assert_eq!(world.objects[&rider].owner_player_id, Some(1));
-        assert_eq!(world.player_relationship(0, 1), gamelogic::common::Relationship::Enemies);
+        assert_eq!(world.player_relationship(0, 1), game_engine::common::game_common::Relationship::Enemies);
         assert!(world.objects[&ferry].status.booby_trapped);
         let mut plants = world.booby_trap_residual().clone();
         plants.install(ferry, planter, Team::GLA, world.frame, 8.0, None);

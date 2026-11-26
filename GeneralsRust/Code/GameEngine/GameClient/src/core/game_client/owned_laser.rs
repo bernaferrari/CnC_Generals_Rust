@@ -18,7 +18,7 @@ struct ClientLaserPhase<'a, 'b> {
     services: &'a mut ClientLaserServices<'b>,
     observations: HashMap<(u32, String), LaserDrawableObservation>,
     owner: u32,
-    final_position: Option<gamelogic::common::Coord3D>,
+    final_position: Option<glam::Vec3>,
     destroy: bool,
 }
 impl LaserExecution for ClientLaserPhase<'_, '_> {
@@ -45,7 +45,7 @@ impl LaserExecution for ClientLaserPhase<'_, '_> {
     fn position_particle(
         &mut self,
         id: u32,
-        pos: &gamelogic::common::Coord3D,
+        pos: &glam::Vec3,
     ) -> Result<(), String> {
         // The actual particle may already have expired independently.
         let Some(system) = self.services.particles.find_particle_system_mut(id) else {
@@ -58,7 +58,7 @@ impl LaserExecution for ClientLaserPhase<'_, '_> {
         self.services.particles.destroy_particle_system(id);
         Ok(())
     }
-    fn position_owner(&mut self, id: u32, pos: &gamelogic::common::Coord3D) -> Result<(), String> {
+    fn position_owner(&mut self, id: u32, pos: &glam::Vec3) -> Result<(), String> {
         if id != self.owner {
             return Err("LaserUpdate owner identity mismatch".into());
         }
@@ -79,8 +79,8 @@ impl GameClient {
     pub fn create_owned_ray(
         &mut self,
         template: &ThingTemplate,
-        start: gamelogic::common::Coord3D,
-        end: gamelogic::common::Coord3D,
+        start: glam::Vec3,
+        end: glam::Vec3,
     ) -> GameClientResult<DrawableId> {
         self.drawables.create_owned_ray(template, start, end)
     }
@@ -137,9 +137,9 @@ impl GameClient {
                 .contains_key(&client_id);
             let to_cpp = |x, y, z| {
                 if host_projection {
-                    gamelogic::common::Coord3D::new(x, z, y)
+                    glam::Vec3::new(x, z, y)
                 } else {
-                    gamelogic::common::Coord3D::new(x, y, z)
+                    glam::Vec3::new(x, y, z)
                 }
             };
             let bone_position = if bone.is_empty() {
@@ -202,8 +202,8 @@ impl GameClient {
         id: DrawableId,
         parent: Option<LaserObjectObservation>,
         target: Option<LaserObjectObservation>,
-        start: Option<gamelogic::common::Coord3D>,
-        end: Option<gamelogic::common::Coord3D>,
+        start: Option<glam::Vec3>,
+        end: Option<glam::Vec3>,
         bone: &str,
         size_delta: i32,
         services: &mut ClientLaserServices<'_>,
@@ -396,7 +396,7 @@ impl crate::fx_list::FxDrawableExecution for ClientFxDrawables<'_> {
         name: &str,
         start: i32,
         limit: usize,
-    ) -> Result<Vec<gamelogic::common::Matrix3D>, String> {
+    ) -> Result<Vec<glam::Mat4>, String> {
         Ok(self
             .client
             .query_current_client_bone_positions(object, name, start, limit)
@@ -425,8 +425,8 @@ impl drawable_world::DrawableState {
     pub fn create_owned_ray(
         &mut self,
         template: &ThingTemplate,
-        start: gamelogic::common::Coord3D,
-        end: gamelogic::common::Coord3D,
+        start: glam::Vec3,
+        end: glam::Vec3,
     ) -> GameClientResult<DrawableId> {
         let updates: Vec<_> = template
             .get_client_update_module_info()
@@ -504,8 +504,8 @@ impl NativeDrawableOwner<'_> {
     pub fn create_owned_ray(
         &mut self,
         template: &ThingTemplate,
-        start: gamelogic::common::Coord3D,
-        end: gamelogic::common::Coord3D,
+        start: glam::Vec3,
+        end: glam::Vec3,
     ) -> GameClientResult<DrawableId> {
         self.drawables.create_owned_ray(template, start, end)
     }

@@ -680,8 +680,8 @@ mod integration_tests {
         game_logic.clear_all_players();
         let mut usa = Player::new(0, Team::USA, "USA", true);
         let mut china = Player::new(1, Team::China, "China", false);
-        usa.set_map_relationship(1, gamelogic::common::Relationship::Enemies);
-        china.set_map_relationship(0, gamelogic::common::Relationship::Enemies);
+        usa.set_map_relationship(1, game_engine::common::game_common::Relationship::Enemies);
+        china.set_map_relationship(0, game_engine::common::game_common::Relationship::Enemies);
         game_logic.add_player(usa);
         game_logic.add_player(china);
     }

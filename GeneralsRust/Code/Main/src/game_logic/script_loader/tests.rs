@@ -690,7 +690,7 @@ End\n";
         let mut terrain = gamelogic::terrain::TerrainLogic::new();
         let mut owner = crate::game_logic::GameLogic::new();
         for (info, template) in terrain.try_load_authored_map_geometry(map_data).unwrap() {
-            let host = |p: gamelogic::common::Coord3D| glam::Vec3::new(p.x, p.z, p.y);
+            let host = |p: glam::Vec3| glam::Vec3::new(p.x, p.z, p.y);
             let layer = owner.pathfinding_system.grid.reserve_bridge_layer(
                 host(info.from_left),
                 host(info.from_right),

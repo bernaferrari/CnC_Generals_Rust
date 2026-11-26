@@ -457,7 +457,7 @@ impl GameLogic {
             && target.is_alive()
             && !target.is_kind_of(KindOf::Parachute)
             && !target_player.is_some_and(|player| player.is_reserved_neutral())
-            && self.object_relationship(source, target) == gamelogic::common::Relationship::Enemies;
+            && self.object_relationship(source, target) == game_engine::common::game_common::Relationship::Enemies;
         let rules = if eligible {
             &*template.power_plant_sabotage_rules
         } else {

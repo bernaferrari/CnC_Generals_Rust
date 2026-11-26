@@ -233,7 +233,7 @@ fn actual_named_spawn_checks_cached_live_pointer_then_reuses_original_tombstone(
             spawn
                 .add_parameter(Parameter::with_coord(
                     ParameterType::Coord3D,
-                    gamelogic::common::Coord3D::new(30.0, 40.0, 0.0),
+                    glam::Vec3::new(30.0, 40.0, 0.0),
                 ))
                 .unwrap();
             spawn
@@ -312,7 +312,7 @@ fn actual_named_spawn_preserves_calling_same_name_team_and_missing_this_is_not_c
         spawn
             .add_parameter(Parameter::with_coord(
                 ParameterType::Coord3D,
-                gamelogic::common::Coord3D::new(30.0, 40.0, 0.0),
+                glam::Vec3::new(30.0, 40.0, 0.0),
             ))
             .unwrap();
         spawn

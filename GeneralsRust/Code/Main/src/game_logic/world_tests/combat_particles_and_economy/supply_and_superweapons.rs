@@ -1311,7 +1311,7 @@ fn supply_center_deposits_credit_center_owner_and_reject_allies() {
 #[test]
 fn supply_wanting_skips_enemy_warehouse_even_when_players_share_faction() {
     use crate::game_logic::{DockKind, SupplyTruckMetadata};
-    use gamelogic::common::Relationship;
+    use game_engine::common::game_common::Relationship;
 
     let mut logic = GameLogic::new();
     let mut collector_player = Player::new(0, Team::USA, "Collector", true);
@@ -1569,7 +1569,7 @@ fn supply_wanting_falls_back_when_preferred_warehouse_approach_is_full() {
 #[test]
 fn admitted_supply_dock_still_transfers_if_relationship_changes_in_transit() {
     use crate::game_logic::{DockKind, SupplyTruckMetadata, SupplyTruckState};
-    use gamelogic::common::Relationship;
+    use game_engine::common::game_common::Relationship;
 
     let mut logic = GameLogic::new();
     let mut collector_player = Player::new(0, Team::USA, "Collector", true);
@@ -1730,7 +1730,7 @@ fn supply_warehouse_scan_uses_cpp_strict_radius_and_zero_semantics() {
 #[test]
 fn supply_center_deposit_reselects_preference_instead_of_reusing_enemy_source() {
     use crate::game_logic::SupplyTruckState;
-    use gamelogic::common::Relationship;
+    use game_engine::common::game_common::Relationship;
 
     let mut logic = GameLogic::new();
     let mut collector_player = Player::new(0, Team::USA, "Collector", true);
@@ -2215,7 +2215,7 @@ fn radar_scan_does_not_queue_superweapon_strike() {
 fn radar_scan_special_power_reveals_fow() {
     use crate::command_system::{CommandType, GameCommand, PowerTarget, SpecialPowerType};
     use crate::game_logic::host_radar_scan::{RADAR_SCAN_DURATION_FRAMES, RADAR_SCAN_RADIUS};
-    use gamelogic::common::Coord3D;
+    use glam::Vec3 as Coord3D;
 
     let mut game_logic = GameLogic::new();
     install_sensor_power_test_map(&mut game_logic);
@@ -2410,7 +2410,7 @@ fn spy_satellite_special_power_reveals_fow() {
     use crate::game_logic::host_spy_satellite::{
         SPY_SATELLITE_DURATION_FRAMES, SPY_SATELLITE_RADIUS,
     };
-    use gamelogic::common::Coord3D;
+    use glam::Vec3 as Coord3D;
 
     let mut game_logic = GameLogic::new();
     install_sensor_power_test_map(&mut game_logic);
@@ -2690,7 +2690,7 @@ fn cia_intelligence_bonus_duration_per_captured_residual() {
 fn cia_intelligence_special_power_reveals_enemy_units() {
     use crate::command_system::{CommandType, GameCommand, PowerTarget, SpecialPowerType};
     use crate::game_logic::host_cia_intelligence::CIA_INTELLIGENCE_DURATION_FRAMES;
-    use gamelogic::common::Coord3D;
+    use glam::Vec3 as Coord3D;
 
     let mut game_logic = GameLogic::new();
     // Initialize and inspect the shroud owned by this world.
@@ -2875,7 +2875,7 @@ fn cia_intelligence_special_power_reveals_enemy_units() {
 #[test]
 fn cia_intelligence_looker_follows_moving_enemy() {
     use crate::game_logic::host_cia_intelligence::CIA_INTELLIGENCE_DEFAULT_VISION_RADIUS;
-    use gamelogic::common::Coord3D;
+    use glam::Vec3 as Coord3D;
 
     let mut logic = GameLogic::new();
     // Initialize the owning world's map grid, like C++ newMap.
@@ -3739,7 +3739,7 @@ fn production_upgrade_researches_on_building_queue_residual() {
 /// only inside TerrainLogic's playable extent, even when the cell is shrouded.
 /// Install that geometry on the driving fixture world before issuing commands.
 fn install_sensor_power_test_map(game_logic: &mut GameLogic) {
-    use gamelogic::common::ICoord2D;
+    use glam::IVec2 as ICoord2D;
     use gamelogic::system::map_loader::MapData;
 
     let mut map = MapData::new();

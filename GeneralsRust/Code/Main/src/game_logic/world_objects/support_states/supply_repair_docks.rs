@@ -29,7 +29,7 @@ impl GameLogic {
                 && collector.is_alive()
                 && !collector.status.under_construction
                 && self.object_relationship(warehouse, collector)
-                    != gamelogic::common::Relationship::Enemies
+                    != game_engine::common::game_common::Relationship::Enemies
         };
         if !eligible {
             return false;

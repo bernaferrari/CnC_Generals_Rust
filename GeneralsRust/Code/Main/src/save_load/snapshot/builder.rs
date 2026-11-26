@@ -885,10 +885,10 @@ impl SnapshotBuilder {
     }
 
     fn restore_object_triggers(&self, snapshot: &WorldSnapshot, game_logic: &mut GameLogic) {
-        let entries: Vec<gamelogic::scripting::HostObjectTriggerPersist> = snapshot
+        let entries: Vec<generals_sim::scripting::HostObjectTriggerPersist> = snapshot
             .object_triggers
             .iter()
-            .map(|entry| gamelogic::scripting::HostObjectTriggerPersist {
+            .map(|entry| generals_sim::scripting::HostObjectTriggerPersist {
                 object_id: entry.object_id.0,
                 i_x: entry.i_x,
                 i_y: entry.i_y,
@@ -896,7 +896,7 @@ impl SnapshotBuilder {
                 slots: entry
                     .slots
                     .iter()
-                    .map(|slot| gamelogic::scripting::HostTriggerSlotPersist {
+                    .map(|slot| generals_sim::scripting::HostTriggerSlotPersist {
                         trigger_id: slot.trigger_id,
                         trigger_name: slot.trigger_name.clone(),
                         is_inside: slot.is_inside,

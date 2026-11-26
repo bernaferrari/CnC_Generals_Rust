@@ -1325,15 +1325,15 @@ impl RenderableObject {
     /// frozen player provenance before calling this method.
     pub fn normal_enter_allows_relationship(
         &self,
-        relationship: gamelogic::common::Relationship,
+        relationship: game_engine::common::game_common::Relationship,
     ) -> bool {
         if !self.contain_module_present {
             return true;
         }
         match relationship {
-            gamelogic::common::Relationship::Allies => self.contain_allow_allies_inside,
-            gamelogic::common::Relationship::Enemies => self.contain_allow_enemies_inside,
-            gamelogic::common::Relationship::Neutral => self.contain_allow_neutral_inside,
+            game_engine::common::game_common::Relationship::Allies => self.contain_allow_allies_inside,
+            game_engine::common::game_common::Relationship::Enemies => self.contain_allow_enemies_inside,
+            game_engine::common::game_common::Relationship::Neutral => self.contain_allow_neutral_inside,
         }
     }
 }

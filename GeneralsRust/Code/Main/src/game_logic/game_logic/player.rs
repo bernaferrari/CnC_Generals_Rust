@@ -38,7 +38,7 @@ pub struct PlayerMapSideState {
     /// Dict `playerName` used to resolve playerAllies / playerEnemies tokens.
     pub map_player_name: String,
     /// Explicit overrides. Missing entries default Neutral (C++ PlayerRelationMap).
-    pub relations: HashMap<u32, gamelogic::common::Relationship>,
+    pub relations: HashMap<u32, game_engine::common::game_common::Relationship>,
     /// C++ `Handicap::m_handicaps[BUILDCOST][GENERIC]`.
     pub handicap_build_cost_generic: f32,
     /// C++ `Handicap::m_handicaps[BUILDCOST][BUILDINGS]`.
@@ -203,7 +203,7 @@ pub struct Player {
     /// C++ initFromDict / PlayerList relationship leftovers from the map SidesList.
     pub map_side: PlayerMapSideState,
     /// C++ `Player::m_teamRelations`, keyed by the receiving world's Team ID.
-    pub team_relations: std::collections::BTreeMap<u32, gamelogic::common::Relationship>,
+    pub team_relations: std::collections::BTreeMap<u32, game_engine::common::game_common::Relationship>,
     /// C++ `Player::m_sciencesDisabled` (script `PLAYER_SCIENCE_AVAILABILITY`).
     pub sciences_disabled: HashSet<String>,
     /// C++ `Player::m_sciencesHidden`.
@@ -1648,7 +1648,7 @@ impl Player {
     pub fn set_map_relationship(
         &mut self,
         other_player_id: u32,
-        relationship: gamelogic::common::Relationship,
+        relationship: game_engine::common::game_common::Relationship,
     ) {
         self.map_side
             .relations
@@ -1659,7 +1659,7 @@ impl Player {
     pub fn map_relationship(
         &self,
         other_player_id: u32,
-    ) -> Option<gamelogic::common::Relationship> {
+    ) -> Option<game_engine::common::game_common::Relationship> {
         self.map_side.relations.get(&other_player_id).copied()
     }
 
@@ -1676,7 +1676,7 @@ impl Player {
     pub fn set_team_relationship_override(
         &mut self,
         team_id: u32,
-        relationship: gamelogic::common::Relationship,
+        relationship: game_engine::common::game_common::Relationship,
     ) {
         self.team_relations.insert(team_id, relationship);
     }
@@ -1690,7 +1690,7 @@ impl Player {
     pub fn team_relationship_override(
         &self,
         team_id: u32,
-    ) -> Option<gamelogic::common::Relationship> {
+    ) -> Option<game_engine::common::game_common::Relationship> {
         self.team_relations.get(&team_id).copied()
     }
 

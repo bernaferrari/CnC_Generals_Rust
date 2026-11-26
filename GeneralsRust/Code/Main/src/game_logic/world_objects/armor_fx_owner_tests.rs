@@ -7,7 +7,9 @@ use crate::game_logic::{
     GameLogic, HostArmorSet, Object, ObjectId, Player, Team, ThingTemplate, VeterancyLevel,
 };
 use game_engine::common::ini::{ini_damage_fx as rules, ini_fx_list as fx};
-use gamelogic::common::{Coord3D, Matrix3D, ObjectShroudStatus};
+use gamelogic::common::ObjectShroudStatus;
+use glam::Vec3 as Coord3D;
+use glam::Mat4 as Matrix3D;
 use gamelogic::helpers::HostFxObjectPose;
 use glam::Vec3;
 use std::sync::mpsc::{Receiver, Sender, channel};
@@ -375,7 +377,7 @@ fn native_armor_selection_observes_kill_credit_promotion_before_fx() {
             owner.players.get_mut(&2).unwrap().alliance_team = 2;
             assert_eq!(
                 owner.player_relationship(2, 1),
-                gamelogic::common::Relationship::Enemies
+                game_engine::common::game_common::Relationship::Enemies
             );
             let source = owner.objects.get_mut(&SOURCE).unwrap();
             source.template_mut().is_trainable = true;

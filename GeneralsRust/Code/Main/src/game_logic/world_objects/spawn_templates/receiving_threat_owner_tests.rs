@@ -207,7 +207,7 @@ fn threat_cell(world: &GameLogic, x: f32) -> u32 {
         .lock()
         .unwrap()
         .host_scalar_value_at(
-            &gamelogic::common::Coord3D::new(x, 0., 0.),
+            &glam::Vec3::new(x, 0., 0.),
             0,
             gamelogic::object::collide::partition_manager::ValueOrThreat::ThreatValue,
         )
@@ -255,7 +255,7 @@ fn actual_scalar_factory_dirty_phase_same_id_peer_and_drop_use_receiving_grid() 
             drop(peer);
             assert_eq!(
                 held.lock().unwrap().host_scalar_value_at(
-                    &gamelogic::common::Coord3D::new(0., 0., 0.),
+                    &glam::Vec3::new(0., 0., 0.),
                     0,
                     gamelogic::object::collide::partition_manager::ValueOrThreat::ThreatValue
                 ),
@@ -500,7 +500,7 @@ fn actual_direct_delete_retains_original_scalar_residual_but_lethal_body_clears_
             drop(loaded);
             assert_eq!(
                 held.lock().unwrap().host_scalar_value_at(
-                    &gamelogic::common::Coord3D::new(0., 0., 0.),
+                    &glam::Vec3::new(0., 0., 0.),
                     0,
                     gamelogic::object::collide::partition_manager::ValueOrThreat::ThreatValue
                 ),

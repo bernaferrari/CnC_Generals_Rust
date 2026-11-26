@@ -147,7 +147,7 @@ impl<'a> AreaDamage<'a> {
             && Projectile::warhead_kills_source(*radius_damage_affects);
         if *radius_source_present && !is_primary && !kills_self {
             let airborne = obj.is_significantly_above_terrain();
-            use gamelogic::common::Relationship;
+            use game_engine::common::game_common::Relationship;
             let relationship = if obj.is_undetected_defector() {
                 Relationship::Neutral
             } else if self.source_is_defector {

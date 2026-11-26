@@ -12,10 +12,10 @@ struct ExpiryWitness(std::sync::mpsc::Sender<gamelogic::helpers::HostFxObjectPos
 impl game_client::fx_list::FXNugget for ExpiryWitness {
     fn do_fx_pos(
         &self,
-        _: Option<&gamelogic::common::Coord3D>,
-        _: Option<&gamelogic::common::Matrix3D>,
+        _: Option<&glam::Vec3>,
+        _: Option<&glam::Mat4>,
         _: f32,
-        _: Option<&gamelogic::common::Coord3D>,
+        _: Option<&glam::Vec3>,
         _: f32,
     ) {
         panic!("InstantDeath expiry FX must observe the installed field object");
@@ -246,7 +246,7 @@ fn normal_lifetime_die(field: Field) {
             let delivered: Vec<_> = events.try_iter().collect();
             assert_eq!(delivered.len(), 1, "one actual authored field expiry FX");
             assert_eq!(delivered[0].id, id.0);
-            assert_eq!(delivered[0].position, gamelogic::common::Coord3D::ZERO);
+            assert_eq!(delivered[0].position, glam::Vec3::ZERO);
         }
         assert_eq!(canonical_lifetime(object).0, due);
         assert!(!canonical_lifetime(object).1);

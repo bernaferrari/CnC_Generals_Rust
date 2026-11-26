@@ -706,11 +706,11 @@ fn authored_prop_mutation_is_emitted_once_per_receiving_client() {
     assert_eq!(ar[0].drawable_id, br[0].drawable_id);
     assert_eq!(
         ar[0].location,
-        gamelogic::common::Coord3D::new(10.0, 7.0, 20.0)
+        glam::Vec3::new(10.0, 7.0, 20.0)
     );
     assert_eq!(
         br[0].location,
-        gamelogic::common::Coord3D::new(30.0, 9.0, 40.0)
+        glam::Vec3::new(30.0, 9.0, 40.0)
     );
     assert_eq!(ar[0].model_name.as_str(), "Oak");
     assert_eq!(br[0].model_name.as_str(), "Rock");
@@ -754,7 +754,7 @@ fn authored_prop_mutation_is_emitted_once_per_receiving_client() {
     assert_eq!(requests.len(), 1);
     assert_eq!(
         requests[0].location,
-        gamelogic::common::Coord3D::new(0.0, 4.0, 9.0)
+        glam::Vec3::new(0.0, 4.0, 9.0)
     );
 }
 

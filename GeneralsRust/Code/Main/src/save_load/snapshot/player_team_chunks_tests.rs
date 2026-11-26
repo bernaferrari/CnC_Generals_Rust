@@ -252,8 +252,8 @@ fn historical_named_relationship_resolves_before_destination_write_borrow() {
     let factory = world.team_factory.lock().unwrap();
     let team = factory.find_team_by_id(self_id).unwrap();
     let relations = team.read().unwrap().team_relation_override_pairs();
-    assert!(relations.contains(&(self_id, gamelogic::common::Relationship::Allies)));
-    assert!(relations.contains(&(other_id, gamelogic::common::Relationship::Enemies)));
+    assert!(relations.contains(&(self_id, game_engine::common::game_common::Relationship::Allies)));
+    assert!(relations.contains(&(other_id, game_engine::common::game_common::Relationship::Enemies)));
 }
 
 #[test]

@@ -158,7 +158,7 @@ impl<'a> AiWorldView<'a> {
     ) -> Option<game_engine::common::rts::player_template::PlayerTemplate> {
         self.world.resolved_player_template(id)
     }
-    pub(super) fn owned_waypoint_hops(&self, start: u32) -> Vec<gamelogic::common::Coord3D> {
+    pub(super) fn owned_waypoint_hops(&self, start: u32) -> Vec<glam::Vec3> {
         let terrain = self
             .world
             .world_services
@@ -201,14 +201,14 @@ impl<'a> AiWorldView<'a> {
         &self,
         source: u32,
         target: u32,
-    ) -> gamelogic::common::Relationship {
+    ) -> game_engine::common::game_common::Relationship {
         let Some(target_player) = self.get_player(target) else {
-            return gamelogic::common::Relationship::Neutral;
+            return game_engine::common::game_common::Relationship::Neutral;
         };
         let Some(target_team_id) = self.world.host_default_team_id(target) else {
             // Player::getRelationship(nullptr) returns NEUTRAL; selecting a
             // same-named sibling would observe a different Team's override.
-            return gamelogic::common::Relationship::Neutral;
+            return game_engine::common::game_common::Relationship::Neutral;
         };
         let target_team = self.default_host_team_instance_name(Some(target), target_player.team);
         GameLogic::object_relationship_from_owner_to_team_identity(
@@ -224,7 +224,7 @@ impl<'a> AiWorldView<'a> {
         &self,
         source: u32,
         target: u32,
-    ) -> gamelogic::common::Relationship {
+    ) -> game_engine::common::game_common::Relationship {
         self.world.player_relationship(source, target)
     }
     pub(super) fn can_make_unit(&self, producer: ObjectId, template: &str) -> u32 {

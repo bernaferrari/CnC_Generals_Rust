@@ -1,6 +1,6 @@
 //! Renderer-independent values for HeightMap's selected and revealed paths.
 use crate::game_logic::{GameLogic, KindOf, Object, ObjectId};
-use gamelogic::common::Relationship;
+use game_engine::common::game_common::Relationship;
 use glam::Vec3;
 
 /// W3dWaypointBuffer.cpp:61,177–184. Every goal receives a node.

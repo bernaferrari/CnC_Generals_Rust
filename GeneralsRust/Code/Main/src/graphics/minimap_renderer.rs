@@ -9,7 +9,7 @@
 use crate::fow_rendering::PresentationFowGrid;
 use crate::ui::UiTextureId;
 use anyhow::{Result, anyhow};
-use gamelogic::common::Coord3D as LogicCoord3D;
+use glam::Vec3 as LogicCoord3D;
 use glam::{Vec2, Vec3};
 use log::{debug, trace};
 use std::collections::HashMap;

@@ -14,7 +14,7 @@ use crate::game_logic::{
 use crate::localization;
 use crate::ui::audio::translate_audio_event;
 use gamelogic::common::AsciiString;
-use gamelogic::common::types::Coord3D as LogicCoord3D;
+use glam::Vec3 as LogicCoord3D;
 use gamelogic::system::game_logic::current_frame;
 use glam::Vec3;
 use log::{debug, warn};
@@ -1198,7 +1198,7 @@ impl crate::game_logic::GameLogic {
             }
             let pos = cand.get_position();
             let inside = if let Some(trigger) = &polygon {
-                trigger.point_in_trigger(&gamelogic::common::Coord2D::new(pos.x, pos.z))
+                trigger.point_in_trigger(&glam::Vec2::new(pos.x, pos.z))
             } else {
                 center.distance(pos) <= radius
             };

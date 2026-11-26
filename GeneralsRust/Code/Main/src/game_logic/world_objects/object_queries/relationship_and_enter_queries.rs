@@ -67,7 +67,7 @@ impl GameLogic {
         &self,
         source_player_id: u32,
         target_player_id: u32,
-    ) -> gamelogic::common::Relationship {
+    ) -> game_engine::common::game_common::Relationship {
         Self::player_relationship_from_map(&self.players, source_player_id, target_player_id)
     }
 
@@ -78,8 +78,8 @@ impl GameLogic {
         players: &std::collections::HashMap<u32, crate::game_logic::Player>,
         source_player_id: u32,
         target_player_id: u32,
-    ) -> gamelogic::common::Relationship {
-        use gamelogic::common::Relationship;
+    ) -> game_engine::common::game_common::Relationship {
+        use game_engine::common::game_common::Relationship;
 
         let Some(source) = players.get(&source_player_id) else {
             return Relationship::Neutral;
@@ -115,7 +115,7 @@ impl GameLogic {
         &self,
         source: &Object,
         target: &Object,
-    ) -> gamelogic::common::Relationship {
+    ) -> game_engine::common::game_common::Relationship {
         Self::object_relationship_with_world(&self.team_factory, &self.players, source, target)
     }
 
@@ -124,8 +124,8 @@ impl GameLogic {
         players: &std::collections::HashMap<u32, crate::game_logic::Player>,
         source: &Object,
         target: &Object,
-    ) -> gamelogic::common::Relationship {
-        use gamelogic::common::Relationship;
+    ) -> game_engine::common::game_common::Relationship {
+        use game_engine::common::game_common::Relationship;
         if source.is_undetected_defector() {
             return Relationship::Neutral;
         }
@@ -151,8 +151,8 @@ impl GameLogic {
         &self,
         source: &Object,
         target: &Object,
-    ) -> gamelogic::common::Relationship {
-        use gamelogic::common::Relationship;
+    ) -> game_engine::common::game_common::Relationship {
+        use game_engine::common::game_common::Relationship;
         if source.is_undetected_defector() {
             return Relationship::Neutral;
         }
@@ -213,7 +213,7 @@ impl GameLogic {
         source_team_instance: &str,
         target_owner: Option<u32>,
         target_team_instance: &str,
-    ) -> gamelogic::common::Relationship {
+    ) -> game_engine::common::game_common::Relationship {
         Self::object_relationship_from_identities(
             team_factory,
             players,
@@ -236,7 +236,7 @@ impl GameLogic {
         target_owner: Option<u32>,
         target_team_id: Option<u32>,
         target_team_instance: &str,
-    ) -> gamelogic::common::Relationship {
+    ) -> game_engine::common::game_common::Relationship {
         Self::object_relationship_from_identities(
             team_factory,
             players,
@@ -258,7 +258,7 @@ impl GameLogic {
         target_owner: Option<u32>,
         target_team_id: Option<u32>,
         target_team_instance: &str,
-    ) -> gamelogic::common::Relationship {
+    ) -> game_engine::common::game_common::Relationship {
         if source_team_id.is_some() || !source_team_instance.is_empty() {
             if let Some(rel) = owned_source_team_override(
                 team_factory,
@@ -272,7 +272,7 @@ impl GameLogic {
             }
         }
 
-        use gamelogic::common::Relationship;
+        use game_engine::common::game_common::Relationship;
 
         if let Some(rel) = source_owner
             .and_then(|id| players.get(&id))
@@ -295,7 +295,7 @@ impl GameLogic {
     /// Stamp pathfinder occupancy ALLIES bits from Player relationships.
     /// C++ checkForMovement uses getRelationship == ALLIES (AIPathfind.cpp:5037).
     pub fn refresh_pathfind_ally_masks(&mut self) {
-        use gamelogic::common::Relationship;
+        use game_engine::common::game_common::Relationship;
         let mut masks = [0u16; 16];
         for a in 0..16u32 {
             for b in 0..16u32 {
@@ -320,7 +320,7 @@ impl GameLogic {
     /// not upgraded into an alliance by its `Team` value.
     #[inline]
     pub fn service_relationship_is_allies(&self, source_id: ObjectId, target_id: ObjectId) -> bool {
-        use gamelogic::common::Relationship;
+        use game_engine::common::game_common::Relationship;
 
         if source_id == target_id {
             return false;
@@ -359,7 +359,7 @@ impl GameLogic {
         source_id: ObjectId,
         target_id: ObjectId,
     ) -> bool {
-        use gamelogic::common::Relationship;
+        use game_engine::common::game_common::Relationship;
 
         if source_id == target_id {
             return false;
@@ -636,8 +636,8 @@ impl GameLogic {
         &self,
         source: &Object,
         target: &Object,
-    ) -> gamelogic::common::Relationship {
-        use gamelogic::common::Relationship;
+    ) -> game_engine::common::game_common::Relationship {
+        use game_engine::common::game_common::Relationship;
 
         match (source.owner_player_id, target.owner_player_id) {
             (Some(source_player_id), Some(target_player_id))
@@ -1130,7 +1130,7 @@ impl GameLogic {
         b_owner: Option<u32>,
         b_team: Team,
     ) -> bool {
-        use gamelogic::common::Relationship;
+        use game_engine::common::game_common::Relationship;
         match (a_owner, b_owner) {
             (Some(a), Some(b)) => self.player_relationship(a, b) == Relationship::Allies,
             (None, None) if self.uses_legacy_team_ownership_fallback() => {

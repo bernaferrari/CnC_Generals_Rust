@@ -7,7 +7,8 @@ use crate::game_logic::host_usa_pilot::HostDeathType;
 use crate::game_logic::object::DamageHitContext;
 use crate::game_logic::{GameLogic, ObjectId, Team};
 use game_engine::common::ini::ini_fx_list as fx;
-use gamelogic::common::{Coord3D, Matrix3D};
+use glam::Vec3 as Coord3D;
+use glam::Mat4 as Matrix3D;
 use gamelogic::helpers::HostFxObjectPose;
 use glam::Vec3;
 use std::sync::mpsc::{Receiver, Sender, channel};
@@ -761,7 +762,7 @@ fn authored_neutron_die_dispatches_radius_and_air_filters_after_destroy_die() {
     map.width = 32;
     map.height = 32;
     map.heightmap = vec![0; 1024];
-    map.boundaries = vec![gamelogic::common::ICoord2D::new(32, 32)];
+    map.boundaries = vec![glam::IVec2::new(32, 32)];
     world.world_services.terrain().write().unwrap().try_load_map_geometry(map).unwrap();
     world.initialize_receiving_partition_grid().unwrap();
     admit_fixture_objects(

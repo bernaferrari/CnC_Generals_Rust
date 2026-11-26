@@ -37,7 +37,7 @@ mod sides_host_apply_tests {
         assert_eq!(usa.color_rgb, (0, 0, 0xff));
         assert_eq!(
             logic.player_relationship(0, 1),
-            gamelogic::common::Relationship::Enemies
+            game_engine::common::game_common::Relationship::Enemies
         );
     }
 
@@ -50,7 +50,7 @@ mod sides_host_apply_tests {
             "skirmish_sides_make_no_team_slots_enemies_and_teammates_allies",
             || {
                 // C++ GameLogic.cpp:1332-1368: team -1 or a different team => enemy.
-                use gamelogic::common::Relationship;
+                use game_engine::common::game_common::Relationship;
                 let mut logic = GameLogic::new();
                 logic.game_mode = GameMode::Skirmish;
                 for (id, team, alliance) in [

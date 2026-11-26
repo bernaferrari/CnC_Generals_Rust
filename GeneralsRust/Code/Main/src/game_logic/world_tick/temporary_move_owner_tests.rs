@@ -30,7 +30,7 @@ fn world() -> (GameLogic, ObjectId, ObjectId) {
         world
             .get_player_mut(player)
             .unwrap()
-            .set_map_relationship(other, gamelogic::common::Relationship::Enemies);
+            .set_map_relationship(other, game_engine::common::game_common::Relationship::Enemies);
     }
     let actor = world
         .create_object_for_player("TemporaryOwner", 1, Vec3::ZERO)

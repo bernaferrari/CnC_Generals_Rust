@@ -73,10 +73,10 @@ fn original_layer_selection_reads_receiving_ground_and_preserves_strict_tie() {
         let mut owner = terrain(number(&row, 2));
         let deck = number(&row, 4);
         let mut info = gamelogic::terrain::BridgeInfo::new();
-        info.from_left = gamelogic::common::Coord3D::new(20., 20., deck);
-        info.from_right = gamelogic::common::Coord3D::new(20., 80., deck);
-        info.to_left = gamelogic::common::Coord3D::new(90., 20., deck);
-        info.to_right = gamelogic::common::Coord3D::new(90., 80., deck);
+        info.from_left = glam::Vec3::new(20., 20., deck);
+        info.from_right = glam::Vec3::new(20., 80., deck);
+        info.to_left = glam::Vec3::new(90., 20., deck);
+        info.to_right = glam::Vec3::new(90., 80., deck);
         owner.prepend_bridge_on_layer(info, "GroundOracleBridge".into(), gamelogic::path::PathfindLayerEnum::from_u32(2));
         let ground = PathfindingGround::receiving(&owner);
         let mut grid = PathfindingGrid::new(160., 160., 10.);

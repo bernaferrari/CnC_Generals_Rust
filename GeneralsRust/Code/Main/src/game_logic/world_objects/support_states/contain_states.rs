@@ -80,10 +80,10 @@ impl GameLogic {
             relationship: local
                 .map(
                     |local| match self.player_relationship(source as u32, local) {
-                        gamelogic::common::Relationship::Allies => {
+                        game_engine::common::game_common::Relationship::Allies => {
                             AudioLocalityRelationship::Allies
                         }
-                        gamelogic::common::Relationship::Enemies => {
+                        game_engine::common::game_common::Relationship::Enemies => {
                             AudioLocalityRelationship::Enemies
                         }
                         _ => AudioLocalityRelationship::Neutral,

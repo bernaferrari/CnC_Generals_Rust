@@ -1,7 +1,7 @@
 //! Shroud, visibility, and victory-summary host projections.
 use super::*;
 use crate::game_logic::partition_coi::HostPartitionFootprint;
-use gamelogic::common::Relationship;
+use game_engine::common::game_common::Relationship;
 
 #[derive(Clone, Copy)]
 struct ObjectVisionObservation {
@@ -105,7 +105,8 @@ impl GameLogic {
         use crate::game_logic::partition_coi::{
             cells_touched_for_footprint_on_grid, mix_object_shroud_from_cells,
         };
-        use gamelogic::common::{Relationship, types::ObjectShroudStatus};
+        use gamelogic::common::{types::ObjectShroudStatus};
+        use game_engine::common::game_common::Relationship;
 
         let origin = shroud_mgr.grid_world_origin().unwrap_or([0.0, 0.0]);
         let Some((width, height, cell_size)) = shroud_mgr.grid_dimensions() else {
@@ -251,7 +252,7 @@ impl GameLogic {
         live: &mut ObjectVisionReceipts,
         shroud: &mut gamelogic::system::shroud_manager::ShroudManager,
     ) {
-        let center = gamelogic::common::Coord3D::new(
+        let center = glam::Vec3::new(
             object.position.x,
             object.position.z,
             object.position.y,
@@ -289,7 +290,7 @@ impl GameLogic {
         if object.blocked {
             return;
         }
-        let center = gamelogic::common::Coord3D::new(
+        let center = glam::Vec3::new(
             object.position.x,
             object.position.z,
             object.position.y,
@@ -608,7 +609,7 @@ impl GameLogic {
 #[cfg(test)]
 mod boundary_relook_tests {
     use super::*;
-    use gamelogic::common::Coord3D;
+    use glam::Vec3 as Coord3D;
     use gamelogic::system::shroud_manager::ShroudState;
 
     #[test]

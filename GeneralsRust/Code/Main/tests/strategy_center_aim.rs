@@ -2,7 +2,7 @@
 //! C++ TurretAI.cpp:855-876 assigns a mood target without changing its angles;
 //! :1055-1175 owns aiming. AIUpdate.cpp:998,1073-1077 advances each turret once.
 //! Synthetic templates deliberately isolate this host route from retail asset loading.
-use gamelogic::common::Relationship;
+use game_engine::common::game_common::Relationship;
 use generals_main::command_system::{CommandType, GameCommand, ModifierKeys};
 use generals_main::game_logic::host_strategy_center::{HostBattlePlan, HostBattlePlanTransition};
 use generals_main::game_logic::object::TurretSubState;

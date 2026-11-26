@@ -1469,7 +1469,7 @@ fn admit_camera_home_terrain(game_logic: &mut GameLogic) {
     let mut map = gamelogic::system::map_loader::MapData::new();
     map.width = 64;
     map.height = 64;
-    map.boundaries = vec![gamelogic::common::ICoord2D::new(64, 64)];
+    map.boundaries = vec![glam::IVec2::new(64, 64)];
     map.heightmap = vec![0; 64 * 64];
     game_logic
         .world_services

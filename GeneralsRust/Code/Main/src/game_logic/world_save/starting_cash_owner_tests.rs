@@ -344,7 +344,7 @@ fn same_name_map_initialization_does_not_reuse_spent_cash_or_overrides() {
                 .players
                 .get_mut(&id)
                 .unwrap()
-                .set_map_relationship(0, gamelogic::common::Relationship::Enemies);
+                .set_map_relationship(0, game_engine::common::game_common::Relationship::Enemies);
             assert_eq!(prepare(&mut world, &input), id, "identity stays stable");
             assert_eq!(
                 world.players[&id].resources.supplies, 13_200,

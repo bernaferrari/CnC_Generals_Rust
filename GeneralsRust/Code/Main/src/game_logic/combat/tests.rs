@@ -28,7 +28,7 @@ pub(in crate::game_logic) mod tests {
         map.width = 32;
         map.height = 32;
         map.heightmap = vec![0; 1024];
-        map.boundaries = vec![gamelogic::common::ICoord2D::new(32, 32)];
+        map.boundaries = vec![glam::IVec2::new(32, 32)];
         world.world_services.terrain().write().unwrap().try_load_map_geometry(map).unwrap();
         world.initialize_receiving_partition_grid().unwrap();
         let mut next = combat.next_projectile_id;
@@ -2779,7 +2779,7 @@ pub(in crate::game_logic) mod tests {
         // distance per logic frame. Construct the curve directly here instead
         // of calling the Rust path builder under test.
         let to_cpp =
-            |position: Vec3| gamelogic::common::Coord3D::new(position.x, position.z, position.y);
+            |position: Vec3| glam::Vec3::new(position.x, position.z, position.y);
         let highest = 0.0; // Flat logical terrain admitted by the fixture below.
         let curve = gamelogic::weapon::bezier::BezierSegment::create_projectile_arc(
             to_cpp(start),

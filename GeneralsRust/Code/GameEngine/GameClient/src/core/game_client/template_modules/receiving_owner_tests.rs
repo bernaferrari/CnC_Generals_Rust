@@ -601,7 +601,7 @@ fn authored_science_uses_received_player_and_definition_identity_with_foreign_fa
         // Call the actual typed native draw phase while the foreign factory is held.
         gamelogic::object::draw::draw_module::DrawModule::do_draw_module(
             science,
-            &gamelogic::common::Matrix3D::IDENTITY,
+            &glam::Mat4::IDENTITY,
             &gamelogic::helpers::DrawTimeObservation::new(None, false, false, true),
         );
         let required = science

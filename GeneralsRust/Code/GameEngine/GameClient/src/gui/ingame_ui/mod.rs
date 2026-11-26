@@ -45,10 +45,10 @@ use game_engine::common::message_stream::CommandType;
 use gamelogic::commands::selection::{SelectionType, get_selection_manager};
 use gamelogic::common::CommandSourceType;
 use gamelogic::common::audio::AudioEventRts;
-use gamelogic::common::{
-    Coord3D, ICoord2D, IRegion2D, KindOf, MAX_PLAYER_COUNT, ObjectID, ObjectShroudStatus,
-    Relationship,
-};
+use gamelogic::common::{IRegion2D, KindOf, MAX_PLAYER_COUNT, ObjectID, ObjectShroudStatus};
+use glam::Vec3 as Coord3D;
+use glam::IVec2 as ICoord2D;
+use game_engine::common::game_common::Relationship;
 use gamelogic::helpers::{TheAudio, TheGameLogic, TheScriptEngine, TheThingFactory};
 use gamelogic::object::Object;
 use gamelogic::object::production::construction::FoundationValidator;

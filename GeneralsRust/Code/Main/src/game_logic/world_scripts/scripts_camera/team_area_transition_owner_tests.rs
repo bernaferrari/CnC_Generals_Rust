@@ -46,10 +46,10 @@ fn team_event_marker_survives_roster_removal_until_script_state_phase() {
         1902,
         "RosterEdgeArea".into(),
         vec![
-            gamelogic::common::ICoord3D::new(0, 0, 0),
-            gamelogic::common::ICoord3D::new(20, 0, 0),
-            gamelogic::common::ICoord3D::new(20, 20, 0),
-            gamelogic::common::ICoord3D::new(0, 20, 0),
+            glam::IVec3::new(0, 0, 0),
+            glam::IVec3::new(20, 0, 0),
+            glam::IVec3::new(20, 20, 0),
+            glam::IVec3::new(0, 20, 0),
         ],
     );
     {

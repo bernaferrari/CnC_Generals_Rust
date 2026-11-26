@@ -13,7 +13,7 @@ use crate::game_logic::{
 use crate::localization;
 use crate::ui::audio::translate_audio_event;
 use gamelogic::common::AsciiString;
-use gamelogic::common::types::Coord3D as LogicCoord3D;
+use glam::Vec3 as LogicCoord3D;
 use gamelogic::system::game_logic::current_frame;
 use glam::Vec3;
 use log::{debug, warn};
@@ -484,7 +484,7 @@ impl<'a> CommandExecutor<'a> {
                 .game_logic
                 .host_object(unit_id)
                 .map(|unit| {
-                    use gamelogic::common::Relationship;
+                    use game_engine::common::game_common::Relationship;
                     // C++ ActionManager.cpp:1610-1618 — STRUCTURE && (NEUTRAL || ALLIES).
                     let rel = match (unit.owner_player_id, target_owner) {
                         (Some(src), Some(tgt)) => self.game_logic.player_relationship(src, tgt),

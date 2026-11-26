@@ -1438,12 +1438,12 @@ fn microwave_emitter_damages_nearby_enemy_infantry() {
         .players
         .get_mut(&0)
         .unwrap()
-        .set_map_relationship(1, gamelogic::common::Relationship::Enemies);
+        .set_map_relationship(1, game_engine::common::game_common::Relationship::Enemies);
     logic
         .players
         .get_mut(&1)
         .unwrap()
-        .set_map_relationship(0, gamelogic::common::Relationship::Enemies);
+        .set_map_relationship(0, game_engine::common::game_common::Relationship::Enemies);
     let mut mw_tpl = ThingTemplate::new("AmericaTankMicrowave");
     mw_tpl
         .add_kind_of(KindOf::Vehicle)

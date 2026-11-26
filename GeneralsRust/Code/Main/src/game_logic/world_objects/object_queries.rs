@@ -152,7 +152,7 @@ fn owned_source_team_override(
     target_team_id: Option<u32>,
     target_team_name: &str,
     target_owner: Option<u32>,
-) -> Option<gamelogic::common::Relationship> {
+) -> Option<game_engine::common::game_common::Relationship> {
     // Live objects carry their exact Team IDs. Only older callers without an
     // identity may resolve by name; a missing ID must not select a peer Team.
     let (source, target) = team_factory

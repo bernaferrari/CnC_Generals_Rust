@@ -9,6 +9,7 @@ pub mod object;
 pub mod pathfinding;
 pub mod recurring;
 pub mod science;
+pub mod scripting;
 pub mod special_power;
 pub mod step;
 pub mod terrain;

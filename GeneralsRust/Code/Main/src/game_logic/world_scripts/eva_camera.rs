@@ -320,7 +320,7 @@ impl GameLogic {
                                 .and_then(|id| player.team_relationship_override(id))
                             })
                             .unwrap_or_else(|| self.player_relationship(local_id, oid))
-                            == gamelogic::common::Relationship::Allies
+                            == game_engine::common::game_common::Relationship::Allies
                     })
                 });
 
@@ -1511,7 +1511,7 @@ mod tests {
         let mut logic = GameLogic::new();
         let mut local = Player::new(0, Team::USA, "Local", true);
         let mut china = Player::new(1, Team::China, "China", false);
-        local.set_map_relationship(1, gamelogic::common::Relationship::Allies);
+        local.set_map_relationship(1, game_engine::common::game_common::Relationship::Allies);
         logic.add_player(local);
         logic.add_player(china);
         let mut st = ThingTemplate::new("ChinaCommandCenter");

@@ -42,7 +42,7 @@ impl GameLogic {
                 // player-map NEUTRAL must not hard-reject the wake.
                 let mut enemy = match (o.owner_player_id, v_owner) {
                     (Some(a), Some(b)) => {
-                        self.player_relationship(a, b) == gamelogic::common::Relationship::Enemies
+                        self.player_relationship(a, b) == game_engine::common::game_common::Relationship::Enemies
                     }
                     _ => o.team != v_team && o.team != Team::Neutral && v_team != Team::Neutral,
                 };

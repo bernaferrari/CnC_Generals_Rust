@@ -135,7 +135,7 @@ End
     defender.is_alive = true;
     world.add_player(attacker);
     world.add_player(defender);
-    assert_eq!(world.player_relationship(0, 1), gamelogic::common::Relationship::Enemies);
+    assert_eq!(world.player_relationship(0, 1), game_engine::common::game_common::Relationship::Enemies);
     let source = world.create_object_for_player("ZeroRingShooter", 0, Vec3::ZERO).unwrap();
     let inner = world.create_object_for_player("ZeroRingVictim", 1, Vec3::new(30.0, 0.0, 0.0)).unwrap();
     let outer = world.create_object_for_player("ZeroRingVictim", 1, Vec3::new(45.0, 0.0, 0.0)).unwrap();

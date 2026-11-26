@@ -639,7 +639,7 @@ impl GameLogic {
         allow_neutral: bool,
     ) -> bool {
         use crate::game_logic::Team;
-        use gamelogic::common::Relationship;
+        use game_engine::common::game_common::Relationship;
         let Some(oid) = candidate.owner_player_id else {
             let vt = self
                 .players

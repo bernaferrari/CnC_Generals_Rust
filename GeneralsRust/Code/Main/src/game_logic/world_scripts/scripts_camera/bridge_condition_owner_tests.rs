@@ -2,7 +2,8 @@
 #![cfg(not(target_arch = "wasm32"))]
 use super::*;
 use crate::save_load::SnapshotBuilder;
-use gamelogic::common::{BodyDamageType, Coord3D};
+use gamelogic::common::BodyDamageType;
+use glam::Vec3 as Coord3D;
 use gamelogic::path::PathfindLayerEnum;
 use gamelogic::terrain::BridgeInfo;
 

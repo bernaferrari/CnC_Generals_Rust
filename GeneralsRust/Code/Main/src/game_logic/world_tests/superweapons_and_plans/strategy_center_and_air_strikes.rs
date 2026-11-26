@@ -1889,7 +1889,7 @@ fn gps_scrambler_does_not_queue_superweapon_strike() {
     // C++ LeafletDropBehavior::doDisableAttack gates on the PLAYER
     // relationship; author the USA→GLA enemy edge explicitly.
     if let Some(p) = game_logic.get_player_mut(0) {
-        p.set_map_relationship(2, gamelogic::common::Relationship::Enemies);
+        p.set_map_relationship(2, game_engine::common::game_common::Relationship::Enemies);
     }
     // Reset the global shroud grid so the cast location is not shrouded; a
     // parallel test may have initialized it (C++ ActionManager.cpp:1439-1523).
@@ -1968,10 +1968,10 @@ fn leaflet_drop_residual_disables_enemy_infantry_and_vehicles() {
     // C++ curVictim->getRelationship(source) reads the victim's map, so both
     // edges of the USA↔GLA war must carry Enemies.
     if let Some(p) = game_logic.get_player_mut(0) {
-        p.set_map_relationship(2, gamelogic::common::Relationship::Enemies);
+        p.set_map_relationship(2, game_engine::common::game_common::Relationship::Enemies);
     }
     if let Some(p) = game_logic.get_player_mut(2) {
-        p.set_map_relationship(0, gamelogic::common::Relationship::Enemies);
+        p.set_map_relationship(0, game_engine::common::game_common::Relationship::Enemies);
     }
 
     // player_id 0 → Team::USA residual ownership for command path.
@@ -2468,11 +2468,11 @@ fn radar_scan_and_spy_sat_looker_mask_uses_player_relationship() {
 
     assert_eq!(
         logic.player_relationship(0, 1),
-        gamelogic::common::Relationship::Enemies
+        game_engine::common::game_common::Relationship::Enemies
     );
     assert_eq!(
         logic.player_relationship(0, 2),
-        gamelogic::common::Relationship::Allies
+        game_engine::common::game_common::Relationship::Allies
     );
 
     assert!(logic.activate_radar_scan(0, Team::USA, Vec3::new(100.0, 0.0, 100.0), None));
@@ -2561,7 +2561,7 @@ fn emergency_repair_spawns_invisible_marker() {
 fn emergency_repair_heals_allies_not_same_faction() {
     use crate::game_logic::KindOf;
     use crate::game_logic::host_emergency_repair::HostEmergencyRepairLevel;
-    use gamelogic::common::Relationship;
+    use game_engine::common::game_common::Relationship;
 
     let mut logic = GameLogic::new();
     let mut usa = Player::new(0, Team::USA, "USA", true);

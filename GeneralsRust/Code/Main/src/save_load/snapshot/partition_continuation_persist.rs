@@ -271,7 +271,7 @@ mod tests {
                     ));
                     assert_eq!(owner.host_object(id).unwrap().health.current, 40.);
                     assert_eq!(owner.world_services.shroud().lock().unwrap().host_scalar_value_at(
-                    &gamelogic::common::Coord3D::new(0.,0.,0.),0,
+                    &glam::Vec3::new(0.,0.,0.),0,
                     gamelogic::object::collide::partition_manager::ValueOrThreat::ThreatValue),Some(17));
                 }
             },

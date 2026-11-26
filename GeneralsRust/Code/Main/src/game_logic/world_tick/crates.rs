@@ -389,7 +389,7 @@ impl GameLogic {
             COMMAND_BUTTON_HUNT_SCAN_RANGE, hunt_enter_action_ok, hunt_same_map_status,
             hunt_stealthed_undetected,
         };
-        use gamelogic::common::Relationship;
+        use game_engine::common::game_common::Relationship;
 
         let hunter_off = self.hunt_pos_off_map(hunter_pos);
         let mut candidates: Vec<(ObjectId, f32)> = self
@@ -450,7 +450,7 @@ impl GameLogic {
             hunt_place_explosive_mine_view_range, hunt_same_map_status, hunt_special_capture_skips,
             hunt_special_is_place_explosive, hunt_stealthed_undetected,
         };
-        use gamelogic::common::Relationship;
+        use game_engine::common::game_common::Relationship;
 
         let step = {
             let value = self.ai_definitions.data().attack_priority_distance_modifier;
@@ -560,8 +560,8 @@ impl GameLogic {
         &self,
         hunter_id: ObjectId,
         target_id: ObjectId,
-    ) -> gamelogic::common::Relationship {
-        use gamelogic::common::Relationship;
+    ) -> game_engine::common::game_common::Relationship {
+        use game_engine::common::game_common::Relationship;
         let Some(hunter) = self.objects.get(&hunter_id) else {
             return Relationship::Neutral;
         };
@@ -2154,7 +2154,7 @@ impl GameLogic {
             killer_id.and_then(|id| self.objects.get(&id)),
             self.objects.get(&victim_id),
         ) {
-            if self.object_relationship(killer, victim) == gamelogic::common::Relationship::Allies {
+            if self.object_relationship(killer, victim) == game_engine::common::game_common::Relationship::Allies {
                 return 0;
             }
         }

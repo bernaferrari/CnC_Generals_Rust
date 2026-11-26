@@ -716,11 +716,11 @@ impl PathfindingSystem {
     }
 
     /// Leftover XY + Z-up from host XZ + Y-up.
-    pub(super) fn leftover_coord_from_host(v: Vec3) -> gamelogic::common::Coord3D {
-        gamelogic::common::Coord3D::new(v.x, v.z, v.y)
+    pub(super) fn leftover_coord_from_host(v: Vec3) -> glam::Vec3 {
+        glam::Vec3::new(v.x, v.z, v.y)
     }
 
-    pub(super) fn leftover_host_from_coord(c: gamelogic::common::Coord3D) -> Vec3 {
+    pub(super) fn leftover_host_from_coord(c: glam::Vec3) -> Vec3 {
         Vec3::new(c.x, c.z, c.y)
     }
 
@@ -756,8 +756,8 @@ impl PathfindingSystem {
         let hi_z = lo_z + self.grid.world_extent_h;
         gamelogic::object::unit::leftover_is_in_region_no_z(
             &gamelogic::common::Region3D::new(
-                gamelogic::common::Coord3D::new(lo_x, lo_z, 0.0),
-                gamelogic::common::Coord3D::new(hi_x, hi_z, 0.0),
+                glam::Vec3::new(lo_x, lo_z, 0.0),
+                glam::Vec3::new(hi_x, hi_z, 0.0),
             ),
             &Self::leftover_coord_from_host(pos),
         )

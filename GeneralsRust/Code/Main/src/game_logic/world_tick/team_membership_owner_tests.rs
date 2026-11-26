@@ -315,7 +315,7 @@ fn native_nested_authored_create_keeps_current_interpreter_and_exact_team_identi
     create
         .add_parameter(Parameter::with_coord(
             ParameterType::Coord3D,
-            gamelogic::common::Coord3D::new(10.0, 20.0, 0.0),
+            glam::Vec3::new(10.0, 20.0, 0.0),
         ))
         .unwrap();
     create
@@ -564,7 +564,7 @@ fn native_authored_reinforcement_keeps_condition_team_and_runs_callback_before_f
     map.waypoints.push(MapWaypoint {
         id: 1,
         name: "Arrival".into(),
-        location: gamelogic::common::Coord3D::new(20.0, 30.0, 0.0),
+        location: glam::Vec3::new(20.0, 30.0, 0.0),
         path_label1: String::new(),
         path_label2: String::new(),
         path_label3: String::new(),

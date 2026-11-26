@@ -13,7 +13,7 @@ use crate::game_logic::{
 use crate::localization;
 use crate::ui::audio::translate_audio_event;
 use gamelogic::common::AsciiString;
-use gamelogic::common::types::Coord3D as LogicCoord3D;
+use glam::Vec3 as LogicCoord3D;
 use gamelogic::system::game_logic::current_frame;
 use glam::Vec3;
 use log::{debug, warn};
@@ -122,7 +122,7 @@ impl<'a> CommandExecutor<'a> {
         target_id: ObjectId,
     ) -> Option<crate::game_logic::DockKind> {
         use crate::game_logic::DockKind;
-        use gamelogic::common::Relationship;
+        use game_engine::common::game_common::Relationship;
 
         if unit_id == target_id {
             return None;

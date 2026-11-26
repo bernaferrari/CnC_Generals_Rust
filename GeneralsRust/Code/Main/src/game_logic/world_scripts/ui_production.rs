@@ -1220,9 +1220,9 @@ impl GameLogic {
             // reject immobile, disabled, and ENEMY. Mines are ignored.
             let rel = builder
                 .map(|b| self.object_relationship(b, obj))
-                .unwrap_or(gamelogic::common::Relationship::Neutral);
+                .unwrap_or(game_engine::common::game_common::Relationship::Neutral);
             // Patch 1.01: allied USING_ABILITY / isBusy cannot be scooted.
-            if rel == gamelogic::common::Relationship::Allies
+            if rel == game_engine::common::game_common::Relationship::Allies
                 && (obj.status.using_ability
                     || matches!(
                         obj.ai_state(),
@@ -1246,7 +1246,7 @@ impl GameLogic {
             }
             // IGNORE_STEALTHED: unseen stealthed non-allies do not redden preview.
             // FAIL_STEALTHED_WITHOUT_FEEDBACK: confirm fails without a bib.
-            if rel != gamelogic::common::Relationship::Allies && obj.is_effectively_stealthed() {
+            if rel != game_engine::common::game_common::Relationship::Allies && obj.is_effectively_stealthed() {
                 use crate::game_logic::host_production_buildable_command_residual::{
                     LOCAL_LEGAL_FAIL_STEALTHED_WITHOUT_FEEDBACK, LOCAL_LEGAL_IGNORE_STEALTHED,
                 };
@@ -1272,12 +1272,12 @@ impl GameLogic {
             // every pad with LBC_OBJECTS_IN_THE_WAY (construct_fail_no_building).
             let immobile = obj.is_kind_of(KindOf::Immobile);
             if only_check_enemies && immobile && builder.is_some()
-                && rel != gamelogic::common::Relationship::Enemies
+                && rel != game_engine::common::game_common::Relationship::Enemies
             {
                 continue;
             }
             let blocks = immobile || obj.is_disabled()
-                || rel == gamelogic::common::Relationship::Enemies;
+                || rel == game_engine::common::game_common::Relationship::Enemies;
             if blocks {
                 // C++ PartitionFilterWouldCollide::allow
                 // (PartitionManager.cpp:5149-5172): an object only blocks when
@@ -1345,9 +1345,9 @@ impl GameLogic {
                 }
                 let rel = builder
                     .map(|b| self.object_relationship(b, obj))
-                    .unwrap_or(gamelogic::common::Relationship::Neutral);
+                    .unwrap_or(game_engine::common::game_common::Relationship::Neutral);
                 if options & crate::game_logic::host_production_buildable_command_residual::LOCAL_LEGAL_IGNORE_STEALTHED != 0
-                    && rel != gamelogic::common::Relationship::Allies
+                    && rel != game_engine::common::game_common::Relationship::Allies
                     && obj.is_effectively_stealthed()
                 {
                     continue;
@@ -1797,10 +1797,10 @@ impl GameLogic {
             let dz = p.z - location.z;
             // Leftover `object_relationship_enemy` — C++ ENEMIES are unmovable.
             let enemy = if let Some(b) = &builder {
-                self.object_relationship(b, obj) == gamelogic::common::Relationship::Enemies
+                self.object_relationship(b, obj) == game_engine::common::game_common::Relationship::Enemies
             } else if let Some(pid) = player_id {
                 obj.owner_player_id.is_some_and(|oid| {
-                    self.player_relationship(pid, oid) == gamelogic::common::Relationship::Enemies
+                    self.player_relationship(pid, oid) == game_engine::common::game_common::Relationship::Enemies
                 })
             } else {
                 false
@@ -2034,7 +2034,7 @@ impl GameLogic {
     ///
     /// Fail-open when shroud grid is not initialized (synthetic/host tests).
     pub fn is_build_location_shroud_clear(&self, player_id: u32, position: glam::Vec3) -> bool {
-        use gamelogic::common::Coord3D;
+        use glam::Vec3 as Coord3D;
         use gamelogic::system::shroud_manager::{ShroudState, get_shroud_manager};
         let shroud_manager = self.world_services.shroud();
         let Ok(shroud) = shroud_manager.lock() else {

@@ -132,7 +132,7 @@ fn rejected_nonfinite_named_path_preserves_idle_active_save_and_peer_completion(
             map.waypoints.push(MapWaypoint {
                 id,
                 name: name.into(),
-                location: gamelogic::common::Coord3D::new(x, x + 20., 0.),
+                location: glam::Vec3::new(x, x + 20., 0.),
                 path_label1: String::new(),
                 path_label2: String::new(),
                 path_label3: String::new(),

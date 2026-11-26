@@ -54,7 +54,7 @@ fn looker_mask_for_controller(
     players: &std::collections::HashMap<u32, crate::game_logic::Player>,
     controller_id: u32,
 ) -> u32 {
-    use gamelogic::common::Relationship;
+    use game_engine::common::game_common::Relationship;
     let mut mask = 0u32;
     for &pid in players.keys() {
         if GameLogic::player_relationship_from_map(players, controller_id, pid)
@@ -1055,7 +1055,7 @@ impl GameLogic {
                 trigger.owner_player_id,
                 trigger.team_instance_id,
                 &trigger_team_name,
-            ) == gamelogic::common::Relationship::Allies
+            ) == game_engine::common::game_common::Relationship::Allies
             {
                 return Ok(0);
             }
@@ -1792,7 +1792,7 @@ impl GameLogic {
         use crate::game_logic::host_radar_scan::{
             HostRadarScan, RADAR_SCAN_ACTIVATE_AUDIO, RADAR_SCAN_DURATION_FRAMES, RADAR_SCAN_RADIUS,
         };
-        use gamelogic::common::Coord3D;
+        use glam::Vec3 as Coord3D;
 
         // C++ Object::look: Allies via Player relationship, not faction Team.
         let player_mask = looker_mask_for_controller(&self.players, player_id);
@@ -2703,7 +2703,7 @@ impl GameLogic {
 
     /// C++ DynamicShroudClearingRangeUpdate::update → setShroudClearingRange.
     fn apply_spy_satellite_dynamic_shroud(&mut self) {
-        use gamelogic::common::Coord3D;
+        use glam::Vec3 as Coord3D;
         let frame = self.frame;
         let work: Vec<(u32, Vec3, f32, f32, u32)> = self
             .spy_satellites
@@ -2774,7 +2774,7 @@ impl GameLogic {
     }
 
     fn undo_expired_spy_satellite_shroud(&mut self) {
-        use gamelogic::common::Coord3D;
+        use glam::Vec3 as Coord3D;
         let frame = self.frame;
         let expired: Vec<(Vec3, f32, u32)> = self
             .spy_satellites
@@ -2796,7 +2796,7 @@ impl GameLogic {
 
     /// C++ RadarVanPing DynamicShroudClearingRangeUpdate shrink curve.
     fn apply_radar_scan_dynamic_shroud(&mut self) {
-        use gamelogic::common::Coord3D;
+        use glam::Vec3 as Coord3D;
         let frame = self.frame;
         let work: Vec<(Vec3, f32, f32, u32, u32)> = self
             .radar_scans
@@ -2838,7 +2838,7 @@ impl GameLogic {
     }
 
     fn undo_expired_radar_scan_shroud(&mut self) {
-        use gamelogic::common::Coord3D;
+        use glam::Vec3 as Coord3D;
         let frame = self.frame;
         let expired: Vec<(Vec3, f32, u32)> = self
             .radar_scans

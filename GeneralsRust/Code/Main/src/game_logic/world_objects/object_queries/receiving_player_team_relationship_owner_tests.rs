@@ -1,5 +1,5 @@
 use super::*;
-use gamelogic::common::Relationship;
+use game_engine::common::game_common::Relationship;
 
 fn world(relationship: Relationship) -> GameLogic {
     let mut world = GameLogic::new();

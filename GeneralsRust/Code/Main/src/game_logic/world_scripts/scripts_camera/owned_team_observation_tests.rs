@@ -13,14 +13,14 @@ fn receiving_team_observation_keeps_live_idle_counts_without_unrequested_sightin
         world
             .get_player_mut(1)
             .unwrap()
-            .set_map_relationship(2, gamelogic::common::Relationship::Enemies);
+            .set_map_relationship(2, game_engine::common::game_common::Relationship::Enemies);
         world.host_object_mut(viewer).unwrap().vision_range = 100.0;
         assert_eq!(
             world.script_sighting_relationship(
                 world.host_object(viewer).unwrap(),
                 world.host_object(enemy).unwrap(),
             ),
-            gamelogic::common::Relationship::Enemies
+            game_engine::common::game_common::Relationship::Enemies
         );
     }
     peer.set_fixture_object_position(target, Vec3::new(900., 0., 900.));

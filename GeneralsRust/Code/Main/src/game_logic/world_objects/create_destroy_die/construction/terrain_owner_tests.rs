@@ -362,7 +362,7 @@ fn actual_construction_changes_receiving_group_ground_and_layer_without_peer_wri
             // deck is a real TerrainLogic bridge on its reserved layer
             // (TerrainLogic::addBridgeToLogic), not a pathfinder-only layer.
             let bridge = |world: &mut GameLogic| {
-                let coord = |p: Vec3| gamelogic::common::Coord3D::new(p.x, p.z, p.y);
+                let coord = |p: Vec3| glam::Vec3::new(p.x, p.z, p.y);
                 let mut info = gamelogic::terrain::BridgeInfo::new();
                 info.from_left = coord(Vec3::new(40., 55., 20.));
                 info.from_right = coord(Vec3::new(70., 55., 20.));

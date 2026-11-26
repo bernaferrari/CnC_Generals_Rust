@@ -378,7 +378,7 @@ impl Object {
         terrain_height: f32,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
         trigger_world: Option<
-            &std::sync::Arc<std::sync::Mutex<gamelogic::scripting::HostTriggerWorld>>,
+            &std::sync::Arc<std::sync::Mutex<crate::game_logic::ScriptTriggerWorld>>,
         >,
         team_factory: Option<&gamelogic::team::TeamFactoryHandle>,
     ) -> bool {

@@ -48,10 +48,10 @@ fn my_inner_perimeter_qualification_uses_owned_player_start_and_polygon() {
             9301,
             "InnerPerimeter1".into(),
             vec![
-                gamelogic::common::ICoord3D::new(60, 60, 0),
-                gamelogic::common::ICoord3D::new(90, 60, 0),
-                gamelogic::common::ICoord3D::new(90, 90, 0),
-                gamelogic::common::ICoord3D::new(60, 90, 0),
+                glam::IVec3::new(60, 60, 0),
+                glam::IVec3::new(90, 60, 0),
+                glam::IVec3::new(90, 90, 0),
+                glam::IVec3::new(60, 90, 0),
             ],
         )]);
     let order = action(
@@ -83,19 +83,19 @@ fn team_waypoint_orders_choose_owned_path_and_preserve_or_clear_formation() {
         map.width = 64;
         map.height = 64;
         map.heightmap = vec![0; 4096];
-        map.boundaries = vec![gamelogic::common::ICoord2D::new(64, 64)];
+        map.boundaries = vec![glam::IVec2::new(64, 64)];
         map.waypoints
             .push(gamelogic::system::map_loader::MapWaypoint {
                 id: 9401,
                 name: "TeamPoint".into(),
-                location: gamelogic::common::Coord3D::new(80.0, 90.0, 0.0),
+                location: glam::Vec3::new(80.0, 90.0, 0.0),
                 path_label1: "TeamPath".into(),
                 path_label2: String::new(),
                 path_label3: String::new(),
                 bi_directional: false,
             });
         let mut foreign_map = map.clone();
-        foreign_map.waypoints[0].location = gamelogic::common::Coord3D::new(400.0, 400.0, 0.0);
+        foreign_map.waypoints[0].location = glam::Vec3::new(400.0, 400.0, 0.0);
         peer.world_services
             .terrain()
             .write()

@@ -200,7 +200,7 @@ impl GameLogic {
         &self,
         source: u32,
         target: u32,
-    ) -> Option<gamelogic::common::Relationship> {
+    ) -> Option<game_engine::common::game_common::Relationship> {
         let factory = self.team_factory.lock().unwrap_or_else(|e| e.into_inner());
         let source_team = factory.find_team_by_id(source)?;
         let target_team = factory.find_team_by_id(target)?;

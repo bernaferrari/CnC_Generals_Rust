@@ -1058,7 +1058,7 @@ fn tick_shock_stun_all_samples_terrain_surface() {
         );
         water.set_water_area(true);
         for (x, y) in [(0, 0), (70, 0), (70, 70), (0, 70)] {
-            water.add_point(gamelogic::common::ICoord3D::new(x, y, 5));
+            water.add_point(glam::IVec3::new(x, y, 5));
         }
         map.polygon_triggers.push(water);
         {
@@ -1216,7 +1216,7 @@ fn enemy_players(logic: &mut GameLogic) {
     use crate::game_logic::Player;
     for (id, team, name, other) in [(0, Team::USA, "SplashUSA", 1), (1, Team::China, "SplashChina", 0)] {
         let mut player = Player::new(id, team, name, true);
-        player.set_map_relationship(other, gamelogic::common::Relationship::Enemies);
+        player.set_map_relationship(other, game_engine::common::game_common::Relationship::Enemies);
         logic.add_player(player);
     }
 }
@@ -1418,7 +1418,7 @@ End
     assert!(ah2 < 200.0 - 1.0, "default splash hits allies ah2={ah2}");
     assert!(radius_damage_affects_victim(
         omitted,
-        gamelogic::common::Relationship::Allies,
+        game_engine::common::game_common::Relationship::Allies,
         src,
         ally,
         None,

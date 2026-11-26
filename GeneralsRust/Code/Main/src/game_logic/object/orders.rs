@@ -1498,11 +1498,11 @@ impl Object {
     /// the specialized host containers use C++'s all-true OpenContain defaults.
     pub fn allows_normal_enter_from_team(&self, source_team: Team) -> bool {
         let relationship = if source_team == self.team {
-            gamelogic::common::Relationship::Allies
+            game_engine::common::game_common::Relationship::Allies
         } else if source_team == Team::Neutral || self.team == Team::Neutral {
-            gamelogic::common::Relationship::Neutral
+            game_engine::common::game_common::Relationship::Neutral
         } else {
-            gamelogic::common::Relationship::Enemies
+            game_engine::common::game_common::Relationship::Enemies
         };
         self.allows_normal_enter_for_relationship(relationship)
     }
@@ -1512,16 +1512,16 @@ impl Object {
     /// solely for genuinely legacy callers; normal Enter must call this form.
     pub fn allows_normal_enter_for_relationship(
         &self,
-        relationship: gamelogic::common::Relationship,
+        relationship: game_engine::common::game_common::Relationship,
     ) -> bool {
         let metadata = &self.thing.template.contain_module;
         if metadata.kind == crate::game_logic::ContainModuleKind::None {
             return true;
         }
         match relationship {
-            gamelogic::common::Relationship::Allies => metadata.allow_allies_inside,
-            gamelogic::common::Relationship::Enemies => metadata.allow_enemies_inside,
-            gamelogic::common::Relationship::Neutral => metadata.allow_neutral_inside,
+            game_engine::common::game_common::Relationship::Allies => metadata.allow_allies_inside,
+            game_engine::common::game_common::Relationship::Enemies => metadata.allow_enemies_inside,
+            game_engine::common::game_common::Relationship::Neutral => metadata.allow_neutral_inside,
         }
     }
 

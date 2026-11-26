@@ -113,7 +113,7 @@ fn world_with_science(cost: i32) -> (GameLogic, ScienceType) {
 }
 
 fn enemy_science_world(cost: i32) -> (GameLogic, ScienceType) {
-    use gamelogic::common::Relationship;
+    use game_engine::common::game_common::Relationship;
 
     let (mut world, science) = world_with_science(cost);
     world.game_mode = GameMode::Skirmish;

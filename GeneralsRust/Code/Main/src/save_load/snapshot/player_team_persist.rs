@@ -223,23 +223,23 @@ fn map_xfer<T>(result: std::io::Result<T>) -> SaveLoadResult<T> {
     result.map_err(|e| SaveLoadError::Serialization(e.to_string()))
 }
 
-pub(super) fn relationship_from_i32(raw: i32) -> gamelogic::common::Relationship {
+pub(super) fn relationship_from_i32(raw: i32) -> game_engine::common::game_common::Relationship {
     match raw {
-        0 => gamelogic::common::Relationship::Enemies,
-        2 => gamelogic::common::Relationship::Allies,
-        _ => gamelogic::common::Relationship::Neutral,
+        0 => game_engine::common::game_common::Relationship::Enemies,
+        2 => game_engine::common::game_common::Relationship::Allies,
+        _ => game_engine::common::game_common::Relationship::Neutral,
     }
 }
 
-fn relationship_to_i32(rel: gamelogic::common::Relationship) -> i32 {
+fn relationship_to_i32(rel: game_engine::common::game_common::Relationship) -> i32 {
     match rel {
-        gamelogic::common::Relationship::Enemies => 0,
-        gamelogic::common::Relationship::Neutral => 1,
-        gamelogic::common::Relationship::Allies => 2,
+        game_engine::common::game_common::Relationship::Enemies => 0,
+        game_engine::common::game_common::Relationship::Neutral => 1,
+        game_engine::common::game_common::Relationship::Allies => 2,
     }
 }
 
-fn leftover_relationship_from_i32(raw: i32) -> gamelogic::common::Relationship {
+fn leftover_relationship_from_i32(raw: i32) -> game_engine::common::game_common::Relationship {
     relationship_from_i32(raw)
 }
 
@@ -1785,7 +1785,7 @@ mod tests {
         let mut logic = GameLogic::new();
         let mut usa = Player::new(1, Team::USA, "USA", true);
         usa.set_science_availability("SCIENCE_PaladinTank", "Hidden");
-        usa.set_team_relationship_override(42, gamelogic::common::Relationship::Allies);
+        usa.set_team_relationship_override(42, game_engine::common::game_common::Relationship::Allies);
         usa.can_build_units = false;
         usa.radar_disabled = true;
         usa.set_attacked_by_at(3, 0);
@@ -1804,7 +1804,7 @@ mod tests {
         assert!(player.is_science_hidden("SCIENCE_PaladinTank"));
         assert_eq!(
             player.team_relationship_override(42),
-            Some(gamelogic::common::Relationship::Allies)
+            Some(game_engine::common::game_common::Relationship::Allies)
         );
         assert!(!player.can_build_units);
         assert!(player.radar_disabled);

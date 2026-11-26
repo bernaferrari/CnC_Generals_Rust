@@ -50,7 +50,7 @@ impl GameLogic {
         };
         // ActionManager.cpp:1696–1710 requires the actual team relationship.
         if self.host_team_relationship(destination, source)
-            != Some(gamelogic::common::Relationship::Enemies)
+            != Some(game_engine::common::game_common::Relationship::Enemies)
         {
             return Ok(false);
         }

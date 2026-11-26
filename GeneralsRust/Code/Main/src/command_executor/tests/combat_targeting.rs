@@ -717,7 +717,7 @@ fn do_weapon_locks_the_whole_selection_then_orders_one_group_attack() {
         logic
             .get_player_mut(0)
             .unwrap()
-            .set_map_relationship(1, gamelogic::common::Relationship::Enemies);
+            .set_map_relationship(1, game_engine::common::game_common::Relationship::Enemies);
         admit_fixture_content(
             &mut logic,
             &[
@@ -1783,7 +1783,7 @@ fn move_delays_mood_for_unstealthed_stealth_unit() {
 fn dock_uses_controlling_player_for_centers_and_relationship_for_warehouses() {
     use super::CommandExecutor;
     use crate::game_logic::{DockKind, GameLogic, KindOf, Player, Team, ThingTemplate};
-    use gamelogic::common::Relationship;
+    use game_engine::common::game_common::Relationship;
     use glam::Vec3;
 
     let mut logic = GameLogic::new();

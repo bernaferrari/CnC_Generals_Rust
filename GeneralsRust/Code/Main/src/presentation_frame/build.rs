@@ -259,16 +259,16 @@ fn freeze_host_player_power(logic: &GameLogic, local_player_id: u32) -> (i32, i3
 fn public_timer_row_name(
     display: &str,
     is_local: bool,
-    rel: gamelogic::common::Relationship,
+    rel: game_engine::common::game_common::Relationship,
     color: (u8, u8, u8),
 ) -> String {
     if is_local {
         return display.to_string();
     }
     let rel = match rel {
-        gamelogic::common::Relationship::Enemies => "Enemy",
-        gamelogic::common::Relationship::Allies => "Ally",
-        gamelogic::common::Relationship::Neutral => "Neutral",
+        game_engine::common::game_common::Relationship::Enemies => "Enemy",
+        game_engine::common::game_common::Relationship::Allies => "Ally",
+        game_engine::common::game_common::Relationship::Neutral => "Neutral",
     };
     let (r, g, b) = color;
     format!("{display} ({rel} #{r:02X}{g:02X}{b:02X})")

@@ -6,7 +6,7 @@ use crate::game_logic::script_presentation::{
 #[derive(Default)]
 struct Receiver<'a> {
     moves: Vec<(NativeTerrainUnitMove, u32)>,
-    trigger: Option<&'a std::sync::Arc<std::sync::Mutex<gamelogic::scripting::HostTriggerWorld>>>,
+    trigger: Option<&'a std::sync::Arc<std::sync::Mutex<crate::game_logic::ScriptTriggerWorld>>>,
 }
 impl NativeTerrainEffects for Receiver<'_> {
     fn unit_moved(&mut self, unit: NativeTerrainUnitMove, frame: u32) {

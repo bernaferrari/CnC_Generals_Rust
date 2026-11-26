@@ -353,7 +353,7 @@ impl crate::game_logic::GameLogic {
         let p = projectile.position;
         gamelogic::helpers::HostFxObjectPose {
             id: projectile.id.0,
-            position: gamelogic::common::Coord3D::new(p.x, p.z, p.y),
+            position: glam::Vec3::new(p.x, p.z, p.y),
             transform: glam::Mat4::from_translation(Vec3::new(p.x, p.z, p.y))
                 * glam::Mat4::from_rotation_z(projectile.velocity.z.atan2(projectile.velocity.x)),
             player_index: projectile.source_owner_player_id.map_or(-1, |id| id as i32),
@@ -539,7 +539,7 @@ impl GameClientFxRuntime for ObjectFxRuntime<'_, '_, '_, '_> {
             &mut |lo, hi| random.next_real(lo, hi),
             &mut |position| {
                 let terrain = terrain.read().unwrap_or_else(|error| error.into_inner());
-                let point = gamelogic::common::Coord3D::new(position.x, position.y, position.z);
+                let point = glam::Vec3::new(position.x, position.y, position.z);
                 let layer = terrain.get_layer_for_destination(&point);
                 Some(terrain.get_layer_height(point.x, point.y, layer, None, true))
             },
@@ -557,7 +557,7 @@ impl GameClientFxRuntime for ObjectFxRuntime<'_, '_, '_, '_> {
     }
     fn shake(
         &mut self,
-        position: gamelogic::common::Coord3D,
+        position: glam::Vec3,
         kind: game_client::display::view::CameraShakeType,
     ) {
         let session = &mut self.services.session;
@@ -570,7 +570,7 @@ impl GameClientFxRuntime for ObjectFxRuntime<'_, '_, '_, '_> {
             &mut |lo, hi| session.client_random.next_real(lo, hi),
         );
     }
-    fn scorch(&mut self, position: gamelogic::common::Coord3D, radius: f32, kind: i32) {
+    fn scorch(&mut self, position: glam::Vec3, radius: f32, kind: i32) {
         self.services
             .scorch([position.x, position.y, position.z], radius, kind);
     }

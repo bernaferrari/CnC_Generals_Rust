@@ -6,7 +6,9 @@
 
 use crate::radius_decal::{ShadowHandle, ShadowTypeInfo, with_projected_shadow_manager_mut};
 use crate::terrain::terrain_visual::get_terrain_visual;
-use gamelogic::common::{Coord3D, Matrix3D, ObjectID, Real};
+use gamelogic::common::{ObjectID, Real};
+use glam::Vec3 as Coord3D;
+use glam::Mat4 as Matrix3D;
 use gamelogic::helpers::TheGameLogic;
 use gamelogic::object::draw::{
     TerrainDecalClient, TerrainDecalDesc, TerrainTrackClient, register_model_bounds_hook,

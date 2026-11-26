@@ -89,7 +89,7 @@ fn factory_exit_callback_observes_completed_owned_order_before_authored_create()
     let team_id = {
         let mut teams = world.team_factory.lock().unwrap();
         let mut prototype = gamelogic::team::TeamPrototype::new("DeliveredTeam".into());
-        prototype.set_home_location(gamelogic::common::Coord3D {
+        prototype.set_home_location(glam::Vec3 {
             x: home.x,
             y: home.z,
             z: home.y,

@@ -1577,7 +1577,7 @@ mod tests {
 #[cfg(test)]
 mod host_fow_fail_open_tests {
     use super::*;
-    use gamelogic::common::Coord3D;
+    use glam::Vec3 as Coord3D;
 
     #[test]
     fn host_fow_fail_open_without_object_membership() {

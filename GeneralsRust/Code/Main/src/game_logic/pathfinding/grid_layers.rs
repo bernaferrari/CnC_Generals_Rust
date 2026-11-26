@@ -1518,7 +1518,7 @@ impl PathfindingGrid {
         let unit = objects.lookup(&ObjectId(id))?;
         // Order matters: whether the seeker considers the unit an ally.
         let allied = mover.is_some_and(|mover| match objects.relationship(mover, unit) {
-            Some(relationship) => relationship == gamelogic::common::Relationship::Allies,
+            Some(relationship) => relationship == game_engine::common::game_common::Relationship::Allies,
             None => Self::player_mask_allied(mover, unit, player_ally_masks),
         });
         Some(OccupantFacts {

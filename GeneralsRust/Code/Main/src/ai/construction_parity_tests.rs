@@ -496,7 +496,7 @@ fn prepare_scripted_external_energy_with_nested(
             ),
             Parameter::with_coord(
                 ParameterType::Coord3D,
-                gamelogic::common::Coord3D::new(10., 20., 0.),
+                glam::Vec3::new(10., 20., 0.),
             ),
             Parameter::with_real(ParameterType::Angle, 0.),
         ] {

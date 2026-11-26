@@ -189,7 +189,7 @@ fn capture_uses_ai_member_center_and_rejects_allied_unmanned_units() {
         world
             .get_player_mut(1)
             .unwrap()
-            .set_map_relationship(3, gamelogic::common::Relationship::Allies);
+            .set_map_relationship(3, game_engine::common::game_common::Relationship::Allies);
         // The conflicting override belongs to the actual Team, not its
         // controlling Player. Keep it distinct from Player's allied relation.
         let mut chunks =

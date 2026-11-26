@@ -1,6 +1,6 @@
 //! Actual receiving GameLogic/TerrainLogic admission, no global path fixture.
 use super::*;
-use gamelogic::common::Coord3D;
+use glam::Vec3 as Coord3D;
 use gamelogic::system::map_loader::{MapData, MapWaypoint};
 
 fn waypoint(id: u32, name: &str, x: f32) -> MapWaypoint {

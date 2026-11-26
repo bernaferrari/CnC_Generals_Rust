@@ -10,10 +10,10 @@ struct Observe(std::sync::mpsc::Sender<()>);
 impl game_client::fx_list::FXNugget for Observe {
     fn do_fx_pos(
         &self,
-        _: Option<&gamelogic::common::Coord3D>,
-        _: Option<&gamelogic::common::Matrix3D>,
+        _: Option<&glam::Vec3>,
+        _: Option<&glam::Mat4>,
         _: f32,
-        _: Option<&gamelogic::common::Coord3D>,
+        _: Option<&glam::Vec3>,
         _: f32,
     ) {
         panic!("authored Die keeps object primary dispatch");

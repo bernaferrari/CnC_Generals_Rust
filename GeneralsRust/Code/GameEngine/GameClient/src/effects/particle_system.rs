@@ -2596,8 +2596,8 @@ mod tests {
         system.attach_to_object(4242);
         gamelogic::helpers::set_host_fx_object_pose(gamelogic::helpers::HostFxObjectPose {
             id: 4242,
-            position: gamelogic::common::Coord3D::new(10.0, 20.0, 30.0),
-            transform: gamelogic::common::Matrix3D::from_cols_array(&[
+            position: glam::Vec3::new(10.0, 20.0, 30.0),
+            transform: glam::Mat4::from_cols_array(&[
                 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 10.0, 20.0, 30.0, 1.0,
             ]),
             player_index: 0,
@@ -2624,8 +2624,8 @@ mod tests {
         system.attach_to_object(4243);
         gamelogic::helpers::set_host_fx_object_pose(gamelogic::helpers::HostFxObjectPose {
             id: 4243,
-            position: gamelogic::common::Coord3D::new(1.0, 2.0, 3.0),
-            transform: gamelogic::common::Matrix3D::from_cols_array(&[
+            position: glam::Vec3::new(1.0, 2.0, 3.0),
+            transform: glam::Mat4::from_cols_array(&[
                 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 1.0, 2.0, 3.0, 1.0,
             ]),
             player_index: 0,

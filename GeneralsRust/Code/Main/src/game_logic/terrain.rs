@@ -586,7 +586,8 @@ mod tests {
     fn crate_water_polygons_copy_into_host_is_underwater() {
         // C++ TerrainLogic.cpp:2119-2160 isUnderwater via getWaterHandle polygons.
         // Pre-fix: TerrainData.water_plane_y stayed None, lakes always dry.
-        use gamelogic::common::{AsciiString, ICoord3D};
+        use gamelogic::common::AsciiString;
+        use glam::IVec3 as ICoord3D;
         use gamelogic::polygon_trigger::PolygonTrigger;
         use gamelogic::system::map_loader::MapData;
         use gamelogic::terrain::TerrainLogic;

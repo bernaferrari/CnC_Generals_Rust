@@ -156,7 +156,7 @@ impl GameLogic {
                 .terrain()
                 .read()
                 .unwrap_or_else(|error| error.into_inner());
-            let point = gamelogic::common::Coord3D::new(center.x, center.z, center.y);
+            let point = glam::Vec3::new(center.x, center.z, center.y);
             let extent = if terrain.has_height_map() {
                 terrain.get_maximum_pathfind_extent()
             } else {
@@ -165,8 +165,8 @@ impl GameLogic {
                         "Crate placement requires the receiving terrain".into(),
                     ));
                 }
-                let lo = gamelogic::common::Coord3D::new(self.world_min.x, self.world_min.z, self.world_min.y);
-                let hi = gamelogic::common::Coord3D::new(self.world_max.x, self.world_max.z, self.world_max.y);
+                let lo = glam::Vec3::new(self.world_min.x, self.world_min.z, self.world_min.y);
+                let hi = glam::Vec3::new(self.world_max.x, self.world_max.z, self.world_max.y);
                 gamelogic::common::Region3D::new(lo, hi)
             };
             // Region3D::isInRegionNoZ excludes the boundary itself.
@@ -245,7 +245,7 @@ impl GameLogic {
                 !ignore_friendly_units_of.is_some_and(|owner| {
                     (object.is_kind_of(KindOf::Infantry) || object.is_kind_of(KindOf::Vehicle))
                         && self.object_relationship(owner, object)
-                            != gamelogic::common::Relationship::Enemies
+                            != game_engine::common::game_common::Relationship::Enemies
                 })
             })
             .any(|object| {

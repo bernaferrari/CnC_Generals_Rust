@@ -1171,7 +1171,7 @@ fn actual_team_failure_stops_native_shell_and_fast_forward(engine: &mut CnCGameE
             Parameter::with_string(ParameterType::Team, "DriverFailureTeam".into()),
             Parameter::with_coord(
                 ParameterType::Coord3D,
-                gamelogic::common::Coord3D::new(1., 2., 3.),
+                glam::Vec3::new(1., 2., 3.),
             ),
             Parameter::with_real(ParameterType::Angle, 0.),
         ] {

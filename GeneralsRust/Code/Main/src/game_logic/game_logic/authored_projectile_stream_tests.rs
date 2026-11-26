@@ -145,9 +145,9 @@ End
         assert_eq!(
             world.object_relationship(&world.objects[&shot], &world.objects[&blocker]),
             if controller == 2 {
-                gamelogic::common::Relationship::Enemies
+                game_engine::common::game_common::Relationship::Enemies
             } else {
-                gamelogic::common::Relationship::Allies
+                game_engine::common::game_common::Relationship::Allies
             }
         );
         world.update_owned_projectile_impacts(dt).unwrap();
@@ -616,7 +616,7 @@ fn uranium_projectile_world() -> (GameLogic, ObjectId, ObjectId) {
     map.width = 32;
     map.height = 32;
     map.heightmap = vec![0; 1024];
-    map.boundaries = vec![gamelogic::common::ICoord2D::new(32, 32)];
+    map.boundaries = vec![glam::IVec2::new(32, 32)];
     world.world_services.terrain().write().unwrap().try_load_map_geometry(map).unwrap();
     world.initialize_receiving_partition_grid().unwrap();
     for (id, team) in [(0, Team::China), (1, Team::China), (2, Team::GLA)] {
@@ -843,7 +843,7 @@ fn authored_neutron_shell_world(calls_kill: bool) -> (GameLogic, ObjectId, Objec
     map.width = 32;
     map.height = 32;
     map.heightmap = vec![0; 1024];
-    map.boundaries = vec![gamelogic::common::ICoord2D::new(32, 32)];
+    map.boundaries = vec![glam::IVec2::new(32, 32)];
     world.world_services.terrain().write().unwrap().try_load_map_geometry(map).unwrap();
     world.initialize_receiving_partition_grid().unwrap();
 

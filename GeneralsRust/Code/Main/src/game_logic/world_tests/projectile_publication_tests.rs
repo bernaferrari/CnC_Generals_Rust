@@ -96,7 +96,7 @@ fn armed_world(damage: f32) -> (GameLogic, ObjectId, ObjectId) {
     map.width = 32;
     map.height = 32;
     map.heightmap = vec![0; 32 * 32];
-    map.boundaries = vec![gamelogic::common::ICoord2D::new(32, 32)];
+    map.boundaries = vec![glam::IVec2::new(32, 32)];
     world
         .world_services
         .terrain()

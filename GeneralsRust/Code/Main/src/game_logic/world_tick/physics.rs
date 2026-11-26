@@ -805,7 +805,7 @@ impl GameLogic {
     /// C++ `Object::getRelationship(other) == ALLIES` for crush gates
     /// (Object.cpp:1096 — crusher's view of the victim, not faction Team).
     fn crush_relationship_is_allies(&self, crusher_id: ObjectId, crushee_id: ObjectId) -> bool {
-        use gamelogic::common::Relationship;
+        use game_engine::common::game_common::Relationship;
         let Some(crusher) = self.objects.get(&crusher_id) else {
             return false;
         };

@@ -1297,8 +1297,8 @@ mod semantic_admission_tests {
         let fresh = &fresh[0];
         assert_eq!(retained.drawable_id, drawable_id.0);
         assert_eq!(retained.drawable_id, fresh.drawable_id);
-        assert_eq!(retained.position, gamelogic::common::Coord3D::new(0.0, 4.0, 12.0));
-        assert_eq!(fresh.position, gamelogic::common::Coord3D::new(21.0, 7.0, 13.0));
+        assert_eq!(retained.position, glam::Vec3::new(0.0, 4.0, 12.0));
+        assert_eq!(fresh.position, glam::Vec3::new(21.0, 7.0, 13.0));
         assert_eq!((retained.angle, retained.scale), (0.375, 1.5));
         assert_eq!((fresh.angle, fresh.scale), (-0.75, 1.0));
         assert_eq!(retained.module_data.model_name.as_str(), "PTDogwodHI1");

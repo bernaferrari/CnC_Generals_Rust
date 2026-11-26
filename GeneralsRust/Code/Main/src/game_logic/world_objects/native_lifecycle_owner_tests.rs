@@ -1288,7 +1288,7 @@ fn mounted_crusader_death_notifies_the_gla_salvager_of_its_authored_crate_once()
     use crate::game_logic::{
         combat::DamageType, host_usa_pilot::HostDeathType, object::DamageHitContext,
     };
-    use gamelogic::common::Relationship;
+    use game_engine::common::game_common::Relationship;
 
     crate::game_logic::game_logic::pose_owner_tests::isolated_at(
         module_path!(),

@@ -407,7 +407,7 @@ fn leftover_object_click_gates_match_action_manager() {
         leftover_can_do_special_power_at_object,
     };
     use crate::command_system::SpecialPowerType;
-    use gamelogic::common::Relationship;
+    use game_engine::common::game_common::Relationship;
 
     let click = |power: SpecialPowerType, rel: Relationship, vehicle: bool| {
         leftover_can_do_special_power_at_object(&power, rel, vehicle, false, false)
@@ -875,7 +875,8 @@ fn location_power_unit_click_leftover_gates_shroud() {
 fn location_power_unit_click_leftover_gates_underwater_paradrop() {
     use crate::command_system::PowerTarget;
     use crate::game_logic::KindOf;
-    use gamelogic::common::{AsciiString, ICoord3D};
+    use gamelogic::common::AsciiString;
+    use glam::IVec3 as ICoord3D;
     use gamelogic::polygon_trigger::PolygonTrigger;
     use gamelogic::system::map_loader::MapData;
 
@@ -998,7 +999,7 @@ fn laser_object_click_requires_enemy_vehicle() {
     use crate::game_logic::host_missile_defender::{
         missile_defender_laser_guided_weapon, missile_defender_primary_weapon,
     };
-    use gamelogic::common::Relationship;
+    use game_engine::common::game_common::Relationship;
 
     let mut logic = GameLogic::new();
     let mut usa = Player::new(0, Team::USA, "USA", true);

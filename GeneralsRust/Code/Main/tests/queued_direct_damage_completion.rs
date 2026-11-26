@@ -190,7 +190,7 @@ End
     assert_eq!(world.host_objects()[&victim].kill_experience_value(), 10.0);
     assert_eq!(
         world.player_relationship(0, 1),
-        gamelogic::common::Relationship::Enemies
+        game_engine::common::game_common::Relationship::Enemies
     );
     world.set_current_frame(99);
     world.queue_command(GameCommand {

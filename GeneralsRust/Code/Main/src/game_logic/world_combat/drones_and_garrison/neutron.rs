@@ -248,7 +248,7 @@ impl GameLogic {
                     .filter(|(id, birth)| self.object_birth_matches(*id, birth))
                     .map_or(object.team == caster_team, |(id, _)| {
                         self.object_relationship(&self.objects[&id], object)
-                            == gamelogic::common::Relationship::Allies
+                            == game_engine::common::game_common::Relationship::Allies
                     });
             let infantry = object.is_kind_of(KindOf::Infantry);
             let vehicle = object.is_kind_of(KindOf::Vehicle);

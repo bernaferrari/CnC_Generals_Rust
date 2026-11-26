@@ -1,4 +1,4 @@
-use gamelogic::common::Relationship;
+use game_engine::common::game_common::Relationship;
 use generals_main::game_logic::{GameLogic, GameMode, Player, Team};
 use glam::Vec3;
 

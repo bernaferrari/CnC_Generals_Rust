@@ -3,7 +3,8 @@
 use super::super::*;
 use super::fog_ghosts::CommittedHostGhostDraw;
 use crate::assets::{AuthoredDrawPrimaryTurret, W3DMesh, W3DModel};
-use gamelogic::common::{Coord3D, ObjectShroudStatus};
+use gamelogic::common::ObjectShroudStatus;
+use glam::Vec3 as Coord3D;
 use glam::{Mat4, Vec3};
 
 const PARENT: ObjectId = ObjectId(42);
@@ -208,7 +209,7 @@ fn geometry_registration_orphans_the_existing_fog_and_rejects_stale_contacts() {
 #[test]
 fn enclosing_a_fogged_actor_releases_its_live_partition_but_keeps_the_old_scene() {
     let mut world = world();
-    world.players.get_mut(&1).unwrap().set_map_relationship(2, gamelogic::common::Relationship::Enemies);
+    world.players.get_mut(&1).unwrap().set_map_relationship(2, game_engine::common::game_common::Relationship::Enemies);
     let carrier = ObjectId(43);
     world.add_object(Object::new(ThingTemplate::new("Carrier"), carrier, Team::China));
     reveal(&mut world);
@@ -383,8 +384,8 @@ fn boundary_rebuilds_destroyed_fogged_object_coverage_in_each_world_and_save() {
         map.height = 40;
         map.heightmap = vec![0; 1600];
         map.boundaries = vec![
-            gamelogic::common::ICoord2D::new(40, 40),
-            gamelogic::common::ICoord2D::new(32, 32),
+            glam::IVec2::new(40, 40),
+            glam::IVec2::new(32, 32),
         ];
         world.world_services.terrain().write().unwrap().load_map_data(map);
     }
@@ -444,11 +445,11 @@ fn retired_fog_memory_and_reused_id_have_distinct_visibility_across_worlds_and_r
     for world in [&mut a, &mut b] {
         world.players.get_mut(&1).unwrap().set_map_relationship(
             2,
-            gamelogic::common::Relationship::Enemies,
+            game_engine::common::game_common::Relationship::Enemies,
         );
         assert_eq!(
             world.player_relationship(1, 2),
-            gamelogic::common::Relationship::Enemies
+            game_engine::common::game_common::Relationship::Enemies
         );
     }
     reveal(&mut a);
@@ -491,7 +492,7 @@ fn retired_fog_memory_and_reused_id_have_distinct_visibility_across_worlds_and_r
     builder.restore_from_snapshot(&snapshot, &mut restored).unwrap();
     assert_eq!(
         restored.player_relationship(1, 2),
-        gamelogic::common::Relationship::Enemies
+        game_engine::common::game_common::Relationship::Enemies
     );
     assert!(b
         .take_object_for_physical_retirement(PARENT, &mut Default::default())

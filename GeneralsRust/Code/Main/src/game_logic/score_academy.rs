@@ -9,7 +9,7 @@ impl GameLogic {
     ) -> Vec<game_client::gui::callbacks::score_screen::ScoreScreenPlayerSnapshot> {
         use crate::game_logic::game_logic::PlayerSideRole;
         use game_client::gui::callbacks::score_screen::ScoreScreenPlayerSnapshot;
-        use gamelogic::common::Relationship;
+        use game_engine::common::game_common::Relationship;
 
         let local = self.local_player_id().and_then(|id| self.players.get(&id));
         // C++ grabSinglePlayerInfo substitutes the first human Player when
@@ -199,7 +199,7 @@ impl GameLogic {
 mod receiving_roster_relationship_tests {
     use super::*;
     use crate::game_logic::{Player, Team};
-    use gamelogic::common::Relationship;
+    use game_engine::common::game_common::Relationship;
 
     #[test]
     fn score_roster_uses_player_relation_only_for_a_live_default_team() {

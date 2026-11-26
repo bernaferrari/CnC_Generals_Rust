@@ -1206,7 +1206,7 @@ impl PathfindingGrid {
                     // Only the receiver's world can resolve this relationship.
                     return false;
                 };
-                let allied = relationship == gamelogic::common::Relationship::Allies;
+                let allied = relationship == game_engine::common::game_common::Relationship::Allies;
                 if allied || (bits.pos_unit == goal_id && !mover.can_crush_or_squish(goal, false)) {
                     return false;
                 }

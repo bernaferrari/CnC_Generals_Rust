@@ -1707,9 +1707,9 @@ pub(in super::super) fn apply_logic_player_list_relationships(
         let Ok(mut player) = player_arc.write() else {
             continue;
         };
-        player.set_player_relationship_by_index(index, gamelogic::common::Relationship::Allies);
+        player.set_player_relationship_by_index(index, game_engine::common::game_common::Relationship::Allies);
         if index != 0 {
-            player.set_player_relationship_by_index(0, gamelogic::common::Relationship::Neutral);
+            player.set_player_relationship_by_index(0, game_engine::common::game_common::Relationship::Neutral);
         }
         for token in dict
             .get_ascii_string(key_player_enemies())
@@ -1718,7 +1718,7 @@ pub(in super::super) fn apply_logic_player_list_relationships(
             if let Some(&enemy) = name_to_index.get(token) {
                 player.set_player_relationship_by_index(
                     enemy,
-                    gamelogic::common::Relationship::Enemies,
+                    game_engine::common::game_common::Relationship::Enemies,
                 );
             }
         }
@@ -1729,7 +1729,7 @@ pub(in super::super) fn apply_logic_player_list_relationships(
             if let Some(&ally) = name_to_index.get(token) {
                 player.set_player_relationship_by_index(
                     ally,
-                    gamelogic::common::Relationship::Allies,
+                    game_engine::common::game_common::Relationship::Allies,
                 );
             }
         }

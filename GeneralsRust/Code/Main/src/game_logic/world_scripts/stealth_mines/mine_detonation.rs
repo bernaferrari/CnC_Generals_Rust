@@ -770,7 +770,7 @@ impl GameLogic {
         use crate::game_logic::host_mines::{
             HostMineKind, demo_trap_proximity_requires_enemies, land_mine_proximity_trips,
         };
-        use gamelogic::common::Relationship;
+        use game_engine::common::game_common::Relationship;
 
         let Some(mine) = self.objects.get(&mine_id) else {
             return true;

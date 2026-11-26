@@ -169,7 +169,7 @@ fn map_with_later_prototype_creation(root: &std::path::Path) -> std::path::PathB
         Parameter::with_string(ParameterType::Team, "LaterPrototype".into()),
         Parameter::with_coord(
             ParameterType::Coord3D,
-            gamelogic::common::Coord3D::new(120.0, 0.0, 120.0),
+            glam::Vec3::new(120.0, 0.0, 120.0),
         ),
         Parameter::with_real(ParameterType::Angle, 0.0),
     ] {
@@ -883,7 +883,7 @@ fn map_authored_generic_team_camera_condition_uses_receiving_view_completion() {
     for parameter in [
         Parameter::with_coord(
             ParameterType::Coord3D,
-            gamelogic::common::Coord3D::new(300.0, 0.0, 300.0),
+            glam::Vec3::new(300.0, 0.0, 300.0),
         ),
         Parameter::with_real(ParameterType::Real, 10.0),
         Parameter::with_real(ParameterType::Real, 0.0),

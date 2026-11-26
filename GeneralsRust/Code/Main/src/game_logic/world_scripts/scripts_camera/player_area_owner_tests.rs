@@ -11,9 +11,9 @@ fn area(world: &mut GameLogic) {
             501,
             "OwnerTriangle".into(),
             vec![
-                gamelogic::common::ICoord3D::new(0, 0, 0),
-                gamelogic::common::ICoord3D::new(20, 0, 0),
-                gamelogic::common::ICoord3D::new(0, 20, 0),
+                glam::IVec3::new(0, 0, 0),
+                glam::IVec3::new(20, 0, 0),
+                glam::IVec3::new(0, 20, 0),
             ],
         )]);
 }
@@ -99,7 +99,7 @@ fn outside_area_distinguishes_an_absent_player_from_an_absent_trigger() {
 
 #[test]
 fn player_area_assesses_the_enemy_only_after_finding_the_trigger() {
-    use gamelogic::common::Relationship;
+    use game_engine::common::game_common::Relationship;
     use gamelogic::scripting::core::{OrCondition, Script, THIS_PLAYER_ENEMY};
 
     let (mut owner, _, target) = world();
@@ -232,7 +232,8 @@ fn team_inside_area_condition_reads_the_receiving_same_id_objects() {
 
 #[test]
 fn enemy_perimeter_condition_acquires_only_the_receiving_worlds_enemy() {
-    use gamelogic::common::{ICoord3D, Relationship};
+    use glam::IVec3 as ICoord3D;
+    use game_engine::common::game_common::Relationship;
     use gamelogic::polygon_trigger::PolygonTrigger;
     use gamelogic::scripting::core::{OrCondition, Script};
 

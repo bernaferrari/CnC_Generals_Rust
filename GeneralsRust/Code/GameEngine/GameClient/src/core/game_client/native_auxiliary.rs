@@ -355,7 +355,7 @@ impl NativeDrawableOwner<'_> {
             receipt,
             transform: draw.native_base_transform(),
         })?;
-        let position = gamelogic::common::Coord3D::new(position[0], position[2], position[1]);
+        let position = glam::Vec3::new(position[0], position[2], position[1]);
         let scale = draw.get_instance_scale();
         for slot in draw.get_draw_modules_mut() {
             let Some(tree) = slot

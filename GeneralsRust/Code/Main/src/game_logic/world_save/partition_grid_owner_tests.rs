@@ -4,7 +4,7 @@ use super::*;
 use crate::presentation_frame::PresentationFrame;
 use crate::save_load::{SnapshotBuilder, snapshot::decode_bincode_world_snapshot};
 use game_engine::common::ini::ini_game_data::CameraMovementRules;
-use gamelogic::common::Coord3D;
+use glam::Vec3 as Coord3D;
 use gamelogic::system::shroud_manager::ShroudState;
 use std::path::{Path, PathBuf};
 

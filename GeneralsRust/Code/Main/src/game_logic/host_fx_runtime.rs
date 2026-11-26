@@ -280,7 +280,7 @@ impl GameClientFxRuntime for HostFxRuntime<'_, '_> {
             &mut |low, high| random.next_real(low, high),
             &mut |position| {
                 let terrain = terrain.read().unwrap_or_else(|error| error.into_inner());
-                let point = gamelogic::common::Coord3D::new(position.x, position.y, position.z);
+                let point = glam::Vec3::new(position.x, position.y, position.z);
                 let layer = terrain.get_layer_for_destination(&point);
                 Some(terrain.get_layer_height(point.x, point.y, layer, None, true))
             },
@@ -292,7 +292,7 @@ impl GameClientFxRuntime for HostFxRuntime<'_, '_> {
     }
     fn shake(
         &mut self,
-        position: gamelogic::common::Coord3D,
+        position: glam::Vec3,
         kind: game_client::display::view::CameraShakeType,
     ) {
         let view = &mut self.world.session_view;
@@ -306,7 +306,7 @@ impl GameClientFxRuntime for HostFxRuntime<'_, '_> {
             &mut |low, high| view.client_random.next_real(low, high),
         );
     }
-    fn scorch(&mut self, position: gamelogic::common::Coord3D, radius: f32, kind: i32) {
+    fn scorch(&mut self, position: glam::Vec3, radius: f32, kind: i32) {
         if let Some(terrain) = self.effects.terrain.as_deref_mut() {
             terrain.add_scorch([position.x, position.y, position.z], radius, kind);
         }

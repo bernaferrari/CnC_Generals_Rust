@@ -107,7 +107,7 @@ impl GameLogic {
                                 || candidate.status.effectively_dead
                                 || candidate.status.off_map != object.status.off_map
                                 || self.script_sighting_relationship(object, candidate)
-                                    != gamelogic::common::Relationship::Enemies
+                                    != game_engine::common::game_common::Relationship::Enemies
                             {
                                 return false;
                             }

@@ -67,7 +67,7 @@ fn world_for_with(
     map.width = 32;
     map.height = 32;
     map.heightmap = vec![0; 1024];
-    map.boundaries = vec![gamelogic::common::ICoord2D::new(32, 32)];
+    map.boundaries = vec![glam::IVec2::new(32, 32)];
     world.world_services.terrain().write().unwrap().try_load_map_geometry(map).unwrap();
     world.initialize_receiving_partition_grid().unwrap();
     for (id, team) in [(0, Team::USA), (1, Team::China)] {

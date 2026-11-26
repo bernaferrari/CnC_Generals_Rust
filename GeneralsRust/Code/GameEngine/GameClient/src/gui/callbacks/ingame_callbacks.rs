@@ -13,7 +13,7 @@ use crate::gui::{
 use crate::language_filter::get_language_filter;
 use game_engine::common::ini::get_global_data;
 use game_engine::common::name_key_generator::NameKeyGenerator;
-use gamelogic::common::Relationship;
+use game_engine::common::game_common::Relationship;
 use gamelogic::helpers::TheGameLogic;
 use gamelogic::player::{PlayerIndex, ThePlayerList};
 use log::{debug, info, warn};

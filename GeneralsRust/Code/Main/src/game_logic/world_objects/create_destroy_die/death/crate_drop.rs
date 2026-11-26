@@ -1,7 +1,7 @@
 //! CreateCrateDie runs synchronously at its authored onDie slot.
 use super::*;
 use crate::game_logic::host_fx_list_die::leftover_veterancy_from_host;
-use gamelogic::common::Relationship;
+use game_engine::common::game_common::Relationship;
 use gamelogic::object::crate_system::CrateSystem;
 use gamelogic::object::die::CreateCrateDieModuleData;
 use std::sync::Arc;

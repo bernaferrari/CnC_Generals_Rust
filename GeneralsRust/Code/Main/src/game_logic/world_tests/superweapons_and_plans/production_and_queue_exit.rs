@@ -23,7 +23,7 @@ fn supply_construction_fixture_power(logic: &mut GameLogic) {
 fn script_skirmish_attack_nearest_group_uses_relationship_and_cell_value() {
     use crate::game_logic::AIState;
     use crate::game_logic::partition_manager::PARTITION_CELL_SIZE_RESIDUAL;
-    use gamelogic::common::Relationship;
+    use game_engine::common::game_common::Relationship;
     use gamelogic::scripting::{ComparisonType, request_host_skirmish_attack_nearest_group};
 
     let mut logic = GameLogic::new();

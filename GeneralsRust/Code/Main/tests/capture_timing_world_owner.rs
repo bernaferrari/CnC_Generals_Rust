@@ -44,7 +44,7 @@ End
     .unwrap();
     game.start_new_game(GameMode::SinglePlayer).unwrap();
     let mut owner = Player::new(1, Team::USA, "Owner", true);
-    owner.set_map_relationship(2, gamelogic::common::Relationship::Enemies);
+    owner.set_map_relationship(2, game_engine::common::game_common::Relationship::Enemies);
     game.add_player(owner);
     game.add_player(Player::new(2, Team::GLA, "Target", false));
 

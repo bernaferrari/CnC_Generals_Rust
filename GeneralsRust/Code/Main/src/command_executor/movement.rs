@@ -13,7 +13,7 @@ use crate::game_logic::{
 use crate::localization;
 use crate::ui::audio::translate_audio_event;
 use gamelogic::common::AsciiString;
-use gamelogic::common::types::Coord3D as LogicCoord3D;
+use glam::Vec3 as LogicCoord3D;
 use gamelogic::system::game_logic::current_frame;
 use generals_sim::pathfinding::group::{
     DEFAULT_MIN_GROUP_PATH_DISTANCE, MIN_INFANTRY_FOR_COLUMN, MIN_VEHICLES_FOR_COLUMN,
@@ -114,7 +114,7 @@ impl<'a> CommandExecutor<'a> {
     }
 
     fn force_move_has_crush_target(&self, units: &[ObjectId], dest: Vec3) -> bool {
-        use gamelogic::common::Relationship;
+        use game_engine::common::game_common::Relationship;
         let Some(tid) = self.dest_drawable_at(dest) else {
             return false;
         };

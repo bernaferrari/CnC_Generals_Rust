@@ -113,7 +113,7 @@ fn script_frame_without_supply_conditions_does_not_assess_enemies() {
 }
 
 fn enemy_alias_world() -> GameLogic {
-    use gamelogic::common::Relationship;
+    use game_engine::common::game_common::Relationship;
 
     let (mut world, _) = owner_world();
     world.game_mode = GameMode::Skirmish;
@@ -385,8 +385,8 @@ fn authored_superweapon_action_targets_and_consumes_only_receiving_world() {
         world.add_player(Player::new(2, Team::GLA, "Enemy", true).with_script_identity("Enemy"));
         world.ai_manager.add_ai_player(1, Team::USA, crate::ai::AIDifficulty::Medium);
         world.get_player_mut(1).unwrap().map_side.is_skirmish_ai = true;
-        world.get_player_mut(1).unwrap().map_side.relations.insert(2, gamelogic::common::Relationship::Enemies);
-        world.get_player_mut(2).unwrap().map_side.relations.insert(1, gamelogic::common::Relationship::Enemies);
+        world.get_player_mut(1).unwrap().map_side.relations.insert(2, game_engine::common::game_common::Relationship::Enemies);
+        world.get_player_mut(2).unwrap().map_side.relations.insert(1, game_engine::common::game_common::Relationship::Enemies);
 
         let mut cannon = ThingTemplate::new("ScriptCannon");
         cannon.set_health(4000.0);

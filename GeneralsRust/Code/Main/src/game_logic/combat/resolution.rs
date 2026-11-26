@@ -808,20 +808,20 @@ impl CombatSystem {
                                 // the frozen launch teams when no player
                                 // registry is wired into this combat pass.
                                 Some(_map) if obj.owner_player_id == *shooter_owner_player_id => {
-                                    gamelogic::common::Relationship::Allies
+                                    game_engine::common::game_common::Relationship::Allies
                                 }
                                 Some(map) => {
                                     let _ = map;
                                     if obj.team == *shooter_team {
-                                        gamelogic::common::Relationship::Allies
+                                        game_engine::common::game_common::Relationship::Allies
                                     } else {
-                                        gamelogic::common::Relationship::Neutral
+                                        game_engine::common::game_common::Relationship::Neutral
                                     }
                                 }
                                 None if obj.team == *shooter_team => {
-                                    gamelogic::common::Relationship::Allies
+                                    game_engine::common::game_common::Relationship::Allies
                                 }
-                                None => gamelogic::common::Relationship::Neutral,
+                                None => game_engine::common::game_common::Relationship::Neutral,
                             };
                             let allowed =
                                 crate::game_logic::weapon_bootstrap::radius_damage_affects_victim(

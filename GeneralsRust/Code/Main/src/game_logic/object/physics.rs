@@ -618,7 +618,7 @@ impl Object {
         frame: u32,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
         trigger_world: Option<
-            &std::sync::Mutex<gamelogic::scripting::HostTriggerWorld>,
+            &std::sync::Mutex<crate::game_logic::ScriptTriggerWorld>,
         >,
         team_factory: Option<&gamelogic::team::TeamFactoryHandle>,
     ) -> (PhysicsTurningType, f32) {
@@ -724,7 +724,7 @@ impl Object {
         frame: u32,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
         trigger_world: Option<
-            &std::sync::Mutex<gamelogic::scripting::HostTriggerWorld>,
+            &std::sync::Mutex<crate::game_logic::ScriptTriggerWorld>,
         >,
         team_factory: Option<&gamelogic::team::TeamFactoryHandle>,
     ) -> (PhysicsTurningType, f32) {
@@ -1008,7 +1008,7 @@ impl Object {
         frame: u32,
         surface_y: f32,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-        trigger_world: &std::sync::Mutex<gamelogic::scripting::HostTriggerWorld>,
+        trigger_world: &std::sync::Mutex<crate::game_logic::ScriptTriggerWorld>,
         team_factory: &gamelogic::team::TeamFactoryHandle,
     ) -> bool {
         self.loco_maintain_appearance_with_team_factory_context(
@@ -1027,7 +1027,7 @@ impl Object {
         surface_y: f32,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
         trigger_world: Option<
-            &std::sync::Mutex<gamelogic::scripting::HostTriggerWorld>,
+            &std::sync::Mutex<crate::game_logic::ScriptTriggerWorld>,
         >,
         team_factory: Option<&gamelogic::team::TeamFactoryHandle>,
     ) -> bool {
@@ -1903,7 +1903,7 @@ impl Object {
         frame: u32,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
         trigger_world: Option<
-            &std::sync::Mutex<gamelogic::scripting::HostTriggerWorld>,
+            &std::sync::Mutex<crate::game_logic::ScriptTriggerWorld>,
         >,
         team_factory: Option<&gamelogic::team::TeamFactoryHandle>,
     ) {

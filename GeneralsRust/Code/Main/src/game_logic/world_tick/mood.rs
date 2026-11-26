@@ -179,7 +179,7 @@ impl GameLogic {
                 // that undetected → Allies. Neither is ENEMIES.
                 false
             } else if self.has_object_ownership_provenance(me, obj) {
-                self.object_relationship(me, obj) == gamelogic::common::Relationship::Enemies
+                self.object_relationship(me, obj) == game_engine::common::game_common::Relationship::Enemies
             } else {
                 obj.is_targetable_by_enemy_of(me_team)
             };
@@ -214,7 +214,7 @@ impl GameLogic {
                                 "",
                                 Some(tgt),
                                 "",
-                            ) != gamelogic::common::Relationship::Enemies
+                            ) != game_engine::common::game_common::Relationship::Enemies
                         } else {
                             false
                         }
@@ -256,7 +256,7 @@ impl GameLogic {
                                 "",
                                 Some(tgt),
                                 "",
-                            ) == gamelogic::common::Relationship::Enemies
+                            ) == game_engine::common::game_common::Relationship::Enemies
                         });
                     if hidden_garrison {
                         continue;
@@ -1031,8 +1031,8 @@ impl GameLogic {
         let owner_relationship = self.object_relationship(source, victim);
         let (allies, enemies) = if owner_relationship_known {
             (
-                owner_relationship == gamelogic::common::Relationship::Allies,
-                owner_relationship == gamelogic::common::Relationship::Enemies,
+                owner_relationship == game_engine::common::game_common::Relationship::Allies,
+                owner_relationship == game_engine::common::game_common::Relationship::Enemies,
             )
         } else {
             let allies = source.team == victim.team;
@@ -1107,11 +1107,11 @@ impl GameLogic {
             let r = if owner_relationship_known {
                 owner_relationship
             } else if allies {
-                gamelogic::common::Relationship::Allies
+                game_engine::common::game_common::Relationship::Allies
             } else if enemies {
-                gamelogic::common::Relationship::Enemies
+                game_engine::common::game_common::Relationship::Enemies
             } else {
-                gamelogic::common::Relationship::Neutral
+                game_engine::common::game_common::Relationship::Neutral
             };
             if self.host_apparent_controller_blocks_player(source, victim, from_player, r) {
                 return CanAttackResult::NotPossible;
@@ -1138,7 +1138,7 @@ impl GameLogic {
         source: &Object,
         victim: &Object,
         from_player: bool,
-        source_to_victim: gamelogic::common::Relationship,
+        source_to_victim: game_engine::common::game_common::Relationship,
     ) -> bool {
         let Some(_source_player_id) = self.host_controlling_player_id(source) else {
             return false;
@@ -1191,7 +1191,7 @@ impl GameLogic {
                 self.host_controlling_player_id(source),
             ) {
                 (Some(cur), Some(obs)) => self.player_relationship(cur, obs),
-                _ => gamelogic::common::Relationship::Neutral,
+                _ => game_engine::common::game_common::Relationship::Neutral,
             };
             if gamelogic::object::contain::garrison_hide_returns_original_controller(
                 hide,
@@ -1211,7 +1211,7 @@ impl GameLogic {
         &self,
         source: &Object,
         apparent_team: Team,
-    ) -> gamelogic::common::Relationship {
+    ) -> game_engine::common::game_common::Relationship {
         let apparent_owner = self
             .players
             .values()
@@ -1219,11 +1219,11 @@ impl GameLogic {
             .map(|p| p.id);
         match (self.host_controlling_player_id(source), apparent_owner) {
             (Some(src), Some(app)) => self.player_relationship(src, app),
-            _ if source.team == apparent_team => gamelogic::common::Relationship::Allies,
+            _ if source.team == apparent_team => game_engine::common::game_common::Relationship::Allies,
             _ if source.team == Team::Neutral || apparent_team == Team::Neutral => {
-                gamelogic::common::Relationship::Neutral
+                game_engine::common::game_common::Relationship::Neutral
             }
-            _ => gamelogic::common::Relationship::Enemies,
+            _ => game_engine::common::game_common::Relationship::Enemies,
         }
     }
 
@@ -1283,7 +1283,7 @@ impl GameLogic {
             };
             let owner_relationship_known = self.has_object_ownership_provenance(source, v);
             let allied = if owner_relationship_known {
-                self.object_relationship(source, v) == gamelogic::common::Relationship::Allies
+                self.object_relationship(source, v) == game_engine::common::game_common::Relationship::Allies
             } else {
                 v.team == source.team
             };
@@ -1982,7 +1982,7 @@ mod common_target_parity {
     fn find_closest_enemy_skips_undetected_defector() {
         // C++ PartitionFilterLiveMapEnemies uses getRelationship == ENEMIES.
         use crate::game_logic::{Player, find_enemy_flags};
-        use gamelogic::common::Relationship;
+        use game_engine::common::game_common::Relationship;
         let mut logic = GameLogic::new();
         let mut usa = Player::new(0, Team::USA, "PlyrAmerica", true);
         let mut gla = Player::new(1, Team::GLA, "PlyrGLA", false);
@@ -2643,7 +2643,7 @@ mod get_able_weapon_parity {
             logic
                 .get_player_mut(player)
                 .unwrap()
-                .set_map_relationship(other, gamelogic::common::Relationship::Enemies);
+                .set_map_relationship(other, game_engine::common::game_common::Relationship::Enemies);
         }
         let site = logic
             .create_object_for_player("FixtureStingerSite", 1, Vec3::ZERO)

@@ -422,12 +422,12 @@ fn exercise_retail_track(unit: RetailTrackUnit, exercise: TrackExercise) {
             let hiding_by_stealth = matches!(exercise, TrackExercise::InvisibleStealth);
             if hiding_by_stealth {
                 let mut observer = Player::new(1, Team::USA, "Enemy Track Observer", true);
-                observer.set_map_relationship(0, gamelogic::common::Relationship::Enemies);
+                observer.set_map_relationship(0, game_engine::common::game_common::Relationship::Enemies);
                 world.add_player(observer);
                 world
                     .get_player_mut(0)
                     .unwrap()
-                    .set_map_relationship(1, gamelogic::common::Relationship::Enemies);
+                    .set_map_relationship(1, game_engine::common::game_common::Relationship::Enemies);
                 assert!(world.select_local_player(Some(1)));
             }
             with_view(

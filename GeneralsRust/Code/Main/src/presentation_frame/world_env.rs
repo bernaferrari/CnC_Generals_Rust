@@ -1114,7 +1114,8 @@ fn default_fog_alpha() -> u8 {
 #[cfg(test)]
 mod water_area_tests {
     use super::PresentationWaterArea;
-    use gamelogic::common::{AsciiString, ICoord3D};
+    use gamelogic::common::AsciiString;
+    use glam::IVec3 as ICoord3D;
     use gamelogic::polygon_trigger::PolygonTrigger;
 
     #[test]

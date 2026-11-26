@@ -13,7 +13,7 @@ use crate::game_logic::{
 use crate::localization;
 use crate::ui::audio::translate_audio_event;
 use gamelogic::common::AsciiString;
-use gamelogic::common::types::Coord3D as LogicCoord3D;
+use glam::Vec3 as LogicCoord3D;
 use gamelogic::system::game_logic::current_frame;
 use glam::Vec3;
 use log::{debug, warn};
@@ -184,14 +184,14 @@ impl<'a> CommandExecutor<'a> {
                 (Some(unit), Some(target)) => {
                     let rel = match (unit.owner_player_id, target.owner_player_id) {
                         (Some(a), Some(b)) => self.game_logic.player_relationship(a, b),
-                        _ if unit.team == target.team => gamelogic::common::Relationship::Allies,
-                        _ => gamelogic::common::Relationship::Neutral,
+                        _ if unit.team == target.team => game_engine::common::game_common::Relationship::Allies,
+                        _ => game_engine::common::game_common::Relationship::Neutral,
                     };
                     (
                         target.is_kind_of(crate::game_logic::KindOf::HealPad),
                         target.is_kind_of(crate::game_logic::KindOf::Structure),
-                        rel == gamelogic::common::Relationship::Enemies,
-                        rel == gamelogic::common::Relationship::Allies,
+                        rel == game_engine::common::game_common::Relationship::Enemies,
+                        rel == game_engine::common::game_common::Relationship::Allies,
                     )
                 }
                 _ => (false, false, false, true),

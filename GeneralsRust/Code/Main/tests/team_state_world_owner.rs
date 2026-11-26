@@ -145,7 +145,7 @@ fn sighting_script_uses_receiving_off_map_status() {
         world
             .get_player_mut(1)
             .unwrap()
-            .set_map_relationship(2, gamelogic::common::Relationship::Enemies);
+            .set_map_relationship(2, game_engine::common::game_common::Relationship::Enemies);
         world.add_player(opponent);
         world.host_object_mut(observer).unwrap().name = "SightingObserver".into();
         world.host_object_mut(observer).unwrap().vision_range = 100.0;

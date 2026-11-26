@@ -94,7 +94,7 @@ impl GameLogic {
         building_id: ObjectId,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) {
-        use gamelogic::common::Relationship;
+        use game_engine::common::game_common::Relationship;
         self.visit_owned_construction_footprint_candidates(building_id, |owner, mine_id| {
             let relation =
                 owner.object_relationship(&owner.objects[&building_id], &owner.objects[&mine_id]);

@@ -1039,7 +1039,7 @@ impl GameLogic {
                     e.is_alive()
                         && self.objects.get(&killer_id).is_some_and(|killer| {
                             self.object_relationship(killer, e)
-                                == gamelogic::common::Relationship::Enemies
+                                == game_engine::common::game_common::Relationship::Enemies
                         })
                 })
             }) else {

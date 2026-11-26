@@ -41,7 +41,7 @@ fn defection_timer_uses_receiving_drawable_and_misc_audio() {
                 world
                     .get_player_mut(0)
                     .unwrap()
-                    .set_map_relationship(1, gamelogic::common::Relationship::Enemies);
+                    .set_map_relationship(1, game_engine::common::game_common::Relationship::Enemies);
                 {
                     let mut misc = world.world_services.common().ini.misc_audio.write();
                     misc.defector_timer_tick_sound = AudioEventRTS::from_event_name(tick.into());
@@ -239,7 +239,7 @@ End
                 world
                     .get_player_mut(0)
                     .unwrap()
-                    .set_map_relationship(1, gamelogic::common::Relationship::Enemies);
+                    .set_map_relationship(1, game_engine::common::game_common::Relationship::Enemies);
                 let common = world.world_services.common();
                 common.ini.misc_audio.write().defector_timer_tick_sound =
                     AudioEventRTS::from_event_name(tick.into());

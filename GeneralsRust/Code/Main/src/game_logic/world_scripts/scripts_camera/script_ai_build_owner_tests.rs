@@ -353,7 +353,7 @@ fn ai_match_phase_queues_research_only_after_the_authored_action() {
 fn ordinary_script_supply_uses_warehouse_and_script_enemy_context_for_priority_rows() {
     use crate::ai::{AIDifficulty, OrdinaryAiTiming};
     use crate::fixture_content::{FixtureObject, admit_fixture_content_with_actions};
-    use gamelogic::common::Relationship;
+    use game_engine::common::game_common::Relationship;
 
     let mut world = GameLogic::new();
     world.override_world_size(1000.0, 1000.0);

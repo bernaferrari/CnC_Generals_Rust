@@ -1,7 +1,8 @@
 //! Per-carrier continuation for the artillery DeliverPayload order.
 
 use game_engine::common::game_common::SECONDS_PER_LOGICFRAME_REAL;
-use gamelogic::common::{Coord3D, Region3D};
+use gamelogic::common::Region3D;
+use glam::Vec3 as Coord3D;
 use glam::Vec3;
 use serde::{Deserialize, Serialize};
 

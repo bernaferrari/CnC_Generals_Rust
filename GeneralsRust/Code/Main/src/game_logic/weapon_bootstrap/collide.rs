@@ -146,7 +146,7 @@ pub(super) fn seed_radius_damage_affects_for(name: &str) -> u32 {
 /// that produced it (War Factory, airfield, Stinger Site).
 pub fn radius_damage_affects_victim(
     affects: u32,
-    relationship: gamelogic::common::Relationship,
+    relationship: game_engine::common::game_common::Relationship,
     shooter_id: crate::game_logic::ObjectId,
     victim_id: crate::game_logic::ObjectId,
     producer_id: Option<crate::game_logic::ObjectId>,
@@ -154,7 +154,7 @@ pub fn radius_damage_affects_victim(
     same_template: bool,
 ) -> bool {
     use generals_sim::weapon::WeaponAffectsMask;
-    use gamelogic::common::Relationship;
+    use game_engine::common::game_common::Relationship;
 
     if (shooter_id == victim_id || producer_id == Some(victim_id))
         && (affects & WeaponAffectsMask::SELF) == 0

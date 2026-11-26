@@ -345,7 +345,7 @@ mod tests {
         {
             let mut factory = world.team_factory.lock().unwrap();
             let mut proto = (*factory.find_team_prototype("MainRecruit").unwrap()).clone();
-            proto.set_home_location(gamelogic::common::Coord3D {
+            proto.set_home_location(glam::Vec3 {
                 x: 1.,
                 y: 2.,
                 z: 0.,

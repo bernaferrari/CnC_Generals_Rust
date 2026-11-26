@@ -412,7 +412,7 @@ impl GameLogic {
     /// Computer crush/squish chase only: turreted weapon, not DONT_AUTO_CRUSH,
     /// and canCrushOrSquish (ALLIES / unmanned / levels).
     pub fn want_to_squish_target(&self, unit_id: ObjectId, victim_id: ObjectId) -> bool {
-        use gamelogic::common::Relationship;
+        use game_engine::common::game_common::Relationship;
         let Some(obj) = self.objects.get(&unit_id) else {
             return false;
         };
@@ -760,7 +760,7 @@ impl GameLogic {
                     }
                 }
                 let (victim_spd, can_crush) = {
-                    use gamelogic::common::Relationship;
+                    use game_engine::common::game_common::Relationship;
                     let Some(victim) = self.objects.get(&victim_id) else {
                         return Ok(AttackMachineResult::Success);
                     };

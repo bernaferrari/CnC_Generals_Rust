@@ -760,7 +760,7 @@ fn possible_destination_reads_each_worlds_live_goal_object() {
 
 #[test]
 fn possible_destination_honors_directional_team_override_before_player_relation() {
-    use gamelogic::common::Relationship;
+    use game_engine::common::game_common::Relationship;
     let goal = Vec3::new(55.0, 0.0, 55.0);
     let ground = PathfindingGround::Flat(0.0);
     let mut worlds = [GameLogic::new(), GameLogic::new()];

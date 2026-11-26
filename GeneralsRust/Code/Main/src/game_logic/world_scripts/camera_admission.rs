@@ -280,7 +280,7 @@ mod camera_request_admission_tests {
         map.width = 256;
         map.height = 256;
         map.heightmap = vec![0; 256 * 256];
-        map.boundaries = vec![gamelogic::common::ICoord2D::new(256, 256)];
+        map.boundaries = vec![glam::IVec2::new(256, 256)];
         assert!(
             world
                 .world_services

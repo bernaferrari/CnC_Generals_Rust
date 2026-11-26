@@ -72,12 +72,12 @@ fn named_waypoint_orders_read_owned_map_preserve_formation_and_use_script_source
     map.width = 64;
     map.height = 64;
     map.heightmap = vec![0; 64 * 64];
-    map.boundaries = vec![gamelogic::common::ICoord2D::new(64, 64)];
+    map.boundaries = vec![glam::IVec2::new(64, 64)];
     map.waypoints
         .push(gamelogic::system::map_loader::MapWaypoint {
             id: 9101,
             name: "OwnedWaypoint".into(),
-            location: gamelogic::common::Coord3D::new(80.0, 90.0, 0.0),
+            location: glam::Vec3::new(80.0, 90.0, 0.0),
             path_label1: "OwnedPath".into(),
             path_label2: String::new(),
             path_label3: String::new(),
@@ -152,12 +152,12 @@ fn team_move_uses_the_receiving_world_for_colliding_object_ids() {
     map.width = 64;
     map.height = 64;
     map.heightmap = vec![0; 64 * 64];
-    map.boundaries = vec![gamelogic::common::ICoord2D::new(64, 64)];
+    map.boundaries = vec![glam::IVec2::new(64, 64)];
     map.waypoints
         .push(gamelogic::system::map_loader::MapWaypoint {
             id: 9201,
             name: "MoveOwnerWaypoint".into(),
-            location: gamelogic::common::Coord3D::new(180.0, 210.0, 0.0),
+            location: glam::Vec3::new(180.0, 210.0, 0.0),
             path_label1: String::new(),
             path_label2: String::new(),
             path_label3: String::new(),
@@ -221,7 +221,7 @@ fn team_move_this_team_uses_calling_team_identity() {
         .push(gamelogic::system::map_loader::MapWaypoint {
             id: 9202,
             name: "ContextMoveWaypoint".into(),
-            location: gamelogic::common::Coord3D::new(210.0, 230.0, 0.0),
+            location: glam::Vec3::new(210.0, 230.0, 0.0),
             path_label1: String::new(),
             path_label2: String::new(),
             path_label3: String::new(),
@@ -305,7 +305,7 @@ fn team_move_this_team_prefers_calling_team_identity_over_condition_team() {
         .push(gamelogic::system::map_loader::MapWaypoint {
             id: 9202,
             name: "ContextMoveWaypoint".into(),
-            location: gamelogic::common::Coord3D::new(210.0, 230.0, 0.0),
+            location: glam::Vec3::new(210.0, 230.0, 0.0),
             path_label1: String::new(),
             path_label2: String::new(),
             path_label3: String::new(),
@@ -798,7 +798,7 @@ fn borrowed_script_topple_override_reaches_immediate_named_and_negative_team_dea
         let foreign_engine = peer.owned_script_engine.take().unwrap();
         foreign_engine.set_topple_direction(
             "BorrowedFallingHall",
-            Some(gamelogic::common::Coord3D::new(-1.0, 0.0, 0.0)),
+            Some(glam::Vec3::new(-1.0, 0.0, 0.0)),
         );
         peer.owned_script_engine = Some(foreign_engine);
         assert!(owner.owned_script_engine.is_none());
@@ -926,12 +926,12 @@ fn team_move_admits_roster_order_before_waypoint_and_keeps_membership_when_missi
     map.width = 64;
     map.height = 64;
     map.heightmap = vec![0; 64 * 64];
-    map.boundaries = vec![gamelogic::common::ICoord2D::new(64, 64)];
+    map.boundaries = vec![glam::IVec2::new(64, 64)];
     map.waypoints
         .push(gamelogic::system::map_loader::MapWaypoint {
             id: 9301,
             name: "RosterWaypoint".into(),
-            location: gamelogic::common::Coord3D::new(300.0, 300.0, 0.0),
+            location: glam::Vec3::new(300.0, 300.0, 0.0),
             path_label1: String::new(),
             path_label2: String::new(),
             path_label3: String::new(),

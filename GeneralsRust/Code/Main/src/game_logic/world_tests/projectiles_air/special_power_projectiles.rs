@@ -136,7 +136,7 @@ fn defector_special_power_defects_enemy() {
     logic
         .get_player_mut(0)
         .unwrap()
-        .set_map_relationship(2, gamelogic::common::Relationship::Enemies);
+        .set_map_relationship(2, game_engine::common::game_common::Relationship::Enemies);
     let mut template = ThingTemplate::new("AmericaCommandCenter");
     template.set_health(1000.0);
     template.add_kind_of(KindOf::Structure);

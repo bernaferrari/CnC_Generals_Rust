@@ -31,7 +31,7 @@ impl GameLogic {
             build.set_template_name(gamelogic::common::AsciiString::from(
                 entry.template.as_str(),
             ));
-            build.set_location(gamelogic::common::Coord3D::new(
+            build.set_location(glam::Vec3::new(
                 entry.position.x,
                 entry.position.y,
                 0.0,

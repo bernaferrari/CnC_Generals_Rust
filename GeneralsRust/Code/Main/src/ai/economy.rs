@@ -1380,11 +1380,11 @@ impl AIPlayer {
                     let relationship = match source.owner_player_id {
                         Some(owner) => game_logic.player_relationship(self.player_id, owner),
                         None if source.team != Team::Neutral && source.team != self.team => {
-                            gamelogic::common::Relationship::Enemies
+                            game_engine::common::game_common::Relationship::Enemies
                         }
-                        None => gamelogic::common::Relationship::Neutral,
+                        None => game_engine::common::game_common::Relationship::Neutral,
                     };
-                    if relationship == gamelogic::common::Relationship::Enemies {
+                    if relationship == game_engine::common::game_common::Relationship::Enemies {
                         return None;
                     }
                 }

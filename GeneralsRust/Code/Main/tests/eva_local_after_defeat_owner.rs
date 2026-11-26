@@ -66,7 +66,7 @@ fn defeated_local_owner_still_gets_base_under_attack_eva() {
 
 #[test]
 fn defeated_local_player_still_classifies_ally_under_attack_per_world() {
-    use gamelogic::common::Relationship;
+    use game_engine::common::game_common::Relationship;
     use glam::Vec3;
 
     fn world(relationship: Relationship) -> (GameLogic, generals_main::game_logic::ObjectId) {

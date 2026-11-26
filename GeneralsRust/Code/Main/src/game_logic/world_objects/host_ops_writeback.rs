@@ -1167,7 +1167,7 @@ impl GameLogic {
     ) -> Option<(
         &mut Object,
         &mut crate::game_logic::partition_manager::PartitionManager,
-        &std::sync::Mutex<gamelogic::scripting::HostTriggerWorld>,
+        &std::sync::Mutex<crate::game_logic::ScriptTriggerWorld>,
     )> {
         let _ = self.host_object_mut(id)?;
         Some((
