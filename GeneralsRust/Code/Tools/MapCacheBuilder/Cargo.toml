@@ -49,6 +49,7 @@ eframe = { workspace = true, optional = true }
 
 [dev-dependencies]
 tempfile = {workspace = true}
+game_engine = { path = "../../GameEngine/Common", features = ["test-ambient-services"] }
 
 [[bin]]
 name = "map_cache_builder"

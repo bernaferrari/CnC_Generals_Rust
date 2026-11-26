@@ -254,23 +254,6 @@ impl MapCache {
         )
     }
 
-    /// Extract a text field from map file content
-    fn extract_field(&self, text: &str, field_name: &str) -> Option<String> {
-        text.lines()
-            .find(|line| line.contains(field_name))
-            .and_then(|line| {
-                line.split('=')
-                    .nth(1)
-                    .map(|s| s.trim().trim_matches('"').to_string())
-            })
-    }
-
-    /// Extract a numeric field from map file content
-    fn extract_numeric_field(&self, text: &str, field_name: &str) -> Option<f32> {
-        self.extract_field(text, field_name)
-            .and_then(|s| s.parse().ok())
-    }
-
     /// Write the cache to a .ini file
     /// Corresponds to C++ MapCache::writeCacheINI() from MapUtil.cpp
     pub fn write_cache_file(&self, output_path: &Path) -> Result<()> {
@@ -906,8 +889,6 @@ mod tests {
 
     #[test]
     fn shipping_argv_stem_keeps_folder_map_like_cpp_add_shipping_map() {
-        use std::io::Write;
-
         let root = tempfile::tempdir().unwrap();
         let alpine_dir = root.path().join("Alpine War");
         std::fs::create_dir_all(&alpine_dir).unwrap();

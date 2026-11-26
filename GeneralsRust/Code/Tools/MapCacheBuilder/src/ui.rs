@@ -44,8 +44,8 @@ impl MapCacheUiApp {
 }
 
 impl eframe::App for MapCacheUiApp {
-    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        egui::TopBottomPanel::top("toolbar").show(ctx, |ui| {
+    fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        egui::Panel::top("toolbar").show(ui, |ui| {
             ui.horizontal_wrapped(|ui| {
                 ui.heading("MapCacheBuilder");
                 ui.separator();
@@ -76,7 +76,7 @@ impl eframe::App for MapCacheUiApp {
             });
         });
 
-        egui::TopBottomPanel::bottom("status").show(ctx, |ui| {
+        egui::Panel::bottom("status").show(ui, |ui| {
             ui.horizontal_wrapped(|ui| {
                 ui.label(format!("Maps: {}", self.chrome.map_count));
                 ui.separator();
@@ -100,7 +100,7 @@ impl eframe::App for MapCacheUiApp {
             });
         });
 
-        egui::CentralPanel::default().show(ctx, |ui| {
+        egui::CentralPanel::default().show(ui, |ui| {
             ui.horizontal(|ui| {
                 ui.label("Input maps folder:");
                 ui.add(

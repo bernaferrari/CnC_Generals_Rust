@@ -1,9 +1,6 @@
 //! MapCacheBuilder library: HeightMap v4 parse/getExtent + tool chrome model.
 
 #![allow(clippy::type_complexity)]
-#![allow(dead_code)]
-#![allow(unused_imports)]
-#![allow(unused_variables)]
 
 pub mod cache;
 pub mod chrome;

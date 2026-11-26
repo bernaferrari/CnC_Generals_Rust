@@ -2,7 +2,7 @@
 //!
 //! Scan/Build call the shipped HeightMap v4 parse/`getExtent` path in [`crate::cache`].
 
-use crate::cache::{CACHE_FILE_NAME, MAP_HEIGHT_SCALE, MAP_XY_FACTOR, MapCache, parse_map_bytes};
+use crate::cache::{CACHE_FILE_NAME, MAP_XY_FACTOR, MapCache, parse_map_bytes};
 use anyhow::{Context, Result};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -245,6 +245,7 @@ impl MapCacheChrome {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::cache::MAP_HEIGHT_SCALE;
     use crate::cache::write_synthetic_ckmp_map;
 
     #[test]
@@ -281,7 +282,6 @@ mod tests {
         assert!(text.contains("  Player_1_Start ="));
         assert!(text.contains("END"));
         assert!(chrome.status.contains("Built 1 map"));
-        let _ = MAP_HEIGHT_SCALE;
     }
 
     #[test]
