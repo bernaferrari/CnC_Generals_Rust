@@ -56,7 +56,6 @@ pub mod perf_metrics;
 pub mod quickmatch_preferences;
 pub mod special_power_mask_type;
 pub mod special_power_type;
-pub mod stl_typedefs;
 pub mod thing_sort;
 pub mod unit_timings;
 pub mod xfer_deep_crc;
