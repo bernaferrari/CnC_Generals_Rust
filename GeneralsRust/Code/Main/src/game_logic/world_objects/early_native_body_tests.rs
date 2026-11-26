@@ -211,7 +211,9 @@ fn max_health_modes_keep_cached_state_and_deliver_add_current_synchronously() {
 #[test]
 fn actual_script_difficulty_reclassifies_kept_cache_once_on_receiving_nonlocal_human() {
     use crate::game_logic::object::MaxHealthChange;
-    use gamelogic::scripting::core::{Parameter, ParameterType, ScriptAction, ScriptActionType};
+    use generals_sim::scripting::program::{
+        Parameter, ParameterType, ScriptAction, ScriptActionType,
+    };
     // Admit mode and Easy before the real factory, just as NewGame does.
     // Existing compatibility policy is expected to resolve human Easy to1.5;
     // failure here identifies factor-policy drift before the native assertion.

@@ -10,7 +10,7 @@ impl GameLogic {
     ) -> Option<ObjectId> {
         // CPP ScriptEngine::getUnitNamed: exact authored name, or the calling
         // object (before condition object) supplied by the borrowed engine.
-        if name == gamelogic::scripting::core::THIS_OBJECT {
+        if name == generals_sim::scripting::program::THIS_OBJECT {
             return this_object.filter(|id| self.host_object(*id).is_some());
         }
         self.host_object_id_by_script_name(name)

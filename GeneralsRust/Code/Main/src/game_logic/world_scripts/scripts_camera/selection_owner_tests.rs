@@ -15,7 +15,7 @@ fn world() -> (GameLogic, ObjectId, ObjectId) {
 }
 use super::script_execution_driver::HostScriptExecutionDriver;
 use super::*;
-use gamelogic::scripting::core::{
+use generals_sim::scripting::program::{
     Condition, ConditionType, OrCondition, Parameter, ParameterType, Script,
 };
 use gamelogic::scripting::engine::{ScriptEngine, ScriptExecutionDriver, ScriptOwnerQuery};

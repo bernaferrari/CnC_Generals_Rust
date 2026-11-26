@@ -234,15 +234,15 @@ fn cached_player_start_waypoints_pairs_rally() {
     meta.start_waypoints = vec![
         (
             "Player_1_Start".into(),
-            gamelogic::scripting::core::Coord3D::new(10.0, 20.0, 1.0),
+            generals_sim::scripting::program::Coord3D::new(10.0, 20.0, 1.0),
         ),
         (
             "Player_1_Rally".into(),
-            gamelogic::scripting::core::Coord3D::new(-120.0, 140.0, 12.0),
+            generals_sim::scripting::program::Coord3D::new(-120.0, 140.0, 12.0),
         ),
         (
             "Player_2_Start".into(),
-            gamelogic::scripting::core::Coord3D::new(30.0, 40.0, 2.0),
+            generals_sim::scripting::program::Coord3D::new(30.0, 40.0, 2.0),
         ),
     ];
     logic.last_map_settings = Some(meta);
@@ -298,11 +298,11 @@ fn spawn_skirmish_starting_units_uses_player_rally() {
     metadata.start_waypoints = vec![
         (
             "Player_1_Start".into(),
-            gamelogic::scripting::core::Coord3D::new(100.0, 100.0, 0.0),
+            generals_sim::scripting::program::Coord3D::new(100.0, 100.0, 0.0),
         ),
         (
             "Player_1_Rally".into(),
-            gamelogic::scripting::core::Coord3D::new(-120.0, 140.0, 12.0),
+            generals_sim::scripting::program::Coord3D::new(-120.0, 140.0, 12.0),
         ),
     ];
     logic.last_map_settings = Some(metadata);

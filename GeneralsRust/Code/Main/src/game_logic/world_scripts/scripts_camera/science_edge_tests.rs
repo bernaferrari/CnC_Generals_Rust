@@ -7,7 +7,7 @@ use crate::command_system::{CommandResult, CommandType, GameCommand, ModifierKey
 use game_engine::common::rts::science::{
     SCIENCE_INVALID, ScienceInfo, ScienceNameFacts, ScienceStore, ScienceType, get_science_store,
 };
-use gamelogic::scripting::core::{
+use generals_sim::scripting::program::{
     Condition, ConditionType, OrCondition, Parameter, ParameterType, Script, ScriptAction,
     ScriptActionType, ScriptList,
 };
@@ -266,7 +266,7 @@ fn script_purchase_uses_receiving_cost_and_delivers_one_edge() {
 #[test]
 #[cfg(not(target_arch = "wasm32"))]
 fn this_player_enemy_science_condition_and_action_query_the_receiving_ai_once() {
-    use gamelogic::scripting::core::THIS_PLAYER_ENEMY;
+    use generals_sim::scripting::program::THIS_PLAYER_ENEMY;
 
     super::sequential_actor_tests::isolated(
         module_path!(),

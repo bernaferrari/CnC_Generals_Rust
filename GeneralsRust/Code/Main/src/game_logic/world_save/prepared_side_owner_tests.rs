@@ -25,7 +25,7 @@ fn map_rows(named: &str, include_neutral: bool) -> (Vec<Dict>, Vec<ScriptList>) 
     faction.set_ascii_string(key_player_name(), "MapFactionSource");
     faction.set_ascii_string(key_player_faction(), "FactionGLA");
     let mut script = ScriptList::new();
-    script.append_script(Box::new(gamelogic::scripting::core::Script::new()));
+    script.append_script(Box::new(generals_sim::scripting::program::Script::new()));
     let mut rows = vec![civilian, faction];
     let mut scripts = vec![ScriptList::new(), script];
     if include_neutral {
@@ -46,7 +46,7 @@ fn prepare(world: &mut GameLogic, name: &str, include_neutral: bool) -> Vec<Dict
     let builds = [super::script_loader::SideBuildEntry {
         building_name: "SourceBase".into(),
         template: "GLACommandCenter".into(),
-        position: gamelogic::scripting::core::Coord3D::new(40.0, 70.0, 0.0),
+        position: generals_sim::scripting::program::Coord3D::new(40.0, 70.0, 0.0),
         angle: 0.75,
         initially_built: true,
         num_rebuilds: 2,

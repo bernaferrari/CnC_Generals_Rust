@@ -1,7 +1,7 @@
 use game_engine::common::dict::Dict;
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::system::DataChunkOutput;
-use gamelogic::scripting::core::{
+use generals_sim::scripting::program::{
     Condition, ConditionType, OrCondition, Parameter, ParameterType, Script, ScriptAction,
     ScriptActionType, ScriptList,
 };

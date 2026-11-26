@@ -857,7 +857,7 @@ End
         use crate::scripting::{chunk_codec::ScriptTemplateLookup, core::ScriptActionType};
         with_active_stores(&source, || {
             let slot = source.services().scripts().engine().read().unwrap();
-            let action_key = ScriptTemplateLookup::from_engine(slot.as_ref().unwrap())
+            let action_key = slot.as_ref().unwrap().script_template_lookup()
                 .action_key(ScriptActionType::Victory)
                 .unwrap();
             write_bridge_save_map(&map_path, action_key);

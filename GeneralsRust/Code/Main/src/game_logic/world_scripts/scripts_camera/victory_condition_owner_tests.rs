@@ -2,7 +2,7 @@
 use super::script_execution_driver::HostScriptExecutionDriver;
 use super::*;
 use game_engine::common::game_common::Relationship;
-use gamelogic::scripting::core::{Condition, ConditionType, OrCondition, Script};
+use generals_sim::scripting::program::{Condition, ConditionType, OrCondition, Script};
 
 fn fixture(allied: bool) -> (GameLogic, ObjectId, ObjectId) {
     let (mut world, unit, target) = super::named_command_test_support::world();

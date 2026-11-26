@@ -5,10 +5,10 @@ use super::*;
 // process-local request queue or an object name that only resembles a roster.
 fn execute_owned_fixture_action(
     world: &mut GameLogic,
-    kind: gamelogic::scripting::core::ScriptActionType,
-    parameters: Vec<gamelogic::scripting::core::Parameter>,
+    kind: generals_sim::scripting::program::ScriptActionType,
+    parameters: Vec<generals_sim::scripting::program::Parameter>,
 ) {
-    use gamelogic::scripting::core::{
+    use generals_sim::scripting::program::{
         Condition, ConditionType, OrCondition, Script, ScriptAction, ScriptList,
     };
     let mut action = ScriptAction::new(kind);
@@ -2768,7 +2768,7 @@ fn script_disable_unit_construction_and_techtree_override_write_live() {
     use crate::game_logic::host_production_buildable_command_residual::{
         BSTATUS_NO, CANMAKE_FACTORY_IS_DISABLED, CANMAKE_NO_PREREQ, CANMAKE_OK,
     };
-    use gamelogic::scripting::core::{Parameter, ParameterType, ScriptActionType, THIS_PLAYER};
+    use generals_sim::scripting::program::{Parameter, ParameterType, ScriptActionType, THIS_PLAYER};
 
     let mut logic = GameLogic::new();
     logic.scripts_loaded = true;
@@ -2842,7 +2842,7 @@ fn script_disable_unit_construction_and_techtree_override_write_live() {
 
 #[test]
 fn named_held_releases_the_mask_without_replaying_the_enable_callback() {
-    use gamelogic::scripting::core::{Parameter, ParameterType, ScriptActionType};
+    use generals_sim::scripting::program::{Parameter, ParameterType, ScriptActionType};
 
     let fixture = || {
         let mut world = GameLogic::new();
@@ -2932,7 +2932,7 @@ End";
 #[test]
 fn script_disable_applies_producer_energy_before_the_next_action() {
     use crate::game_logic::{Player, Team};
-    use gamelogic::scripting::core::{Parameter, ParameterType, ScriptActionType, THIS_PLAYER};
+    use generals_sim::scripting::program::{Parameter, ParameterType, ScriptActionType, THIS_PLAYER};
 
     let fixture = || {
         let mut world = GameLogic::new();
@@ -3014,7 +3014,7 @@ End";
 
 #[test]
 fn script_named_receive_upgrade_writes_live_object() {
-    use gamelogic::scripting::core::{
+    use generals_sim::scripting::program::{
         Condition, ConditionType, OrCondition, Parameter, ParameterType, Script, ScriptAction,
         ScriptActionType, ScriptList,
     };
@@ -3320,7 +3320,7 @@ fn script_idle_all_units_and_resume_supply_write_live() {
 #[test]
 fn script_idle_and_guard_for_framecount_write_live() {
     use crate::game_logic::AIState;
-    use gamelogic::scripting::core::{Parameter, ParameterType, ScriptActionType};
+    use generals_sim::scripting::program::{Parameter, ParameterType, ScriptActionType};
 
     let mut logic = GameLogic::new();
     logic.scripts_loaded = true;
@@ -3493,7 +3493,9 @@ fn script_move_towards_nearest_writes_live() {
 
 #[test]
 fn script_wait_for_not_contained_uses_live_contained_by_census() {
-    use gamelogic::scripting::core::{Parameter, ParameterType, ScriptAction, ScriptActionType};
+    use generals_sim::scripting::program::{
+        Parameter, ParameterType, ScriptAction, ScriptActionType,
+    };
     use gamelogic::scripting::executor::{
         ScriptActionDispatcher, ScriptActionResult, ScriptContext,
     };
@@ -3680,7 +3682,7 @@ fn script_set_base_construction_speed_writes_live_ai_team_seconds() {
 #[test]
 fn script_team_nearest_and_partial_command_button_live() {
     use crate::game_logic::AIState;
-    use gamelogic::scripting::core::{Parameter, ParameterType, ScriptActionType};
+    use generals_sim::scripting::program::{Parameter, ParameterType, ScriptActionType};
 
     // Owned command execution resolves actual authored definitions; these
     // commands are not inferred from a missing catalog's button spelling.

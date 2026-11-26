@@ -39,9 +39,9 @@ fn native_ui_world() -> GameLogic {
     script.script_name = "NativeAiUi".into();
     script.is_subroutine = true;
     script.is_one_shot = false;
-    let mut condition = gamelogic::scripting::OrCondition::new();
-    condition.set_first_and_condition(Some(Box::new(gamelogic::scripting::Condition::new(
-        gamelogic::scripting::ConditionType::ConditionTrue,
+    let mut condition = generals_sim::scripting::program::OrCondition::new();
+    condition.set_first_and_condition(Some(Box::new(generals_sim::scripting::program::Condition::new(
+        generals_sim::scripting::program::ConditionType::ConditionTrue,
     ))));
     script.condition = Some(Box::new(condition));
     let mut begin = ScriptAction::new(ScriptActionType::CameraLetterboxBegin);

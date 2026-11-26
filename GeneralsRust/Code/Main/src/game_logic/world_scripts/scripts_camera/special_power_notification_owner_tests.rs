@@ -2,7 +2,7 @@
 //! and nested private temporary Weapon visits. No test publishes an active owner.
 use super::script_execution_driver::HostScriptExecutionDriver;
 use super::*;
-use gamelogic::scripting::core::{Parameter, ParameterType, ScriptAction, ScriptActionType};
+use generals_sim::scripting::program::{Parameter, ParameterType, ScriptAction, ScriptActionType};
 use gamelogic::scripting::engine::{ScriptEngine, ScriptExecutionDriver};
 const POWER: &str = "SpecialPowerSpySatellite";
 const CREATOR: u32 = 42;

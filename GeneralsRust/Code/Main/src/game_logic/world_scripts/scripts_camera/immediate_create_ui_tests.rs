@@ -68,7 +68,7 @@ fn immediate_creation_callback_inherits_ui_before_parent_next_action() {
                             Parameter::with_string(ParameterType::Team, "UiCreationTeam".into()),
                             Parameter::with_coord(
                                 ParameterType::Coord3D,
-                                gamelogic::scripting::core::Coord3D::new(300., 400., 7.),
+                                generals_sim::scripting::program::Coord3D::new(300., 400., 7.),
                             ),
                             Parameter::with_real(ParameterType::Angle, 0.),
                         ],

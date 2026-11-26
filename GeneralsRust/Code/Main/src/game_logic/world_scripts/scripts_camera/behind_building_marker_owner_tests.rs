@@ -1,7 +1,7 @@
 use super::*;
 use crate::save_load::{SnapshotBuilder, snapshot::decode_bincode_world_snapshot};
 use gamelogic::helpers::TheGameLogic;
-use gamelogic::scripting::core::{Parameter, ParameterType, ScriptAction, ScriptActionType};
+use generals_sim::scripting::program::{Parameter, ParameterType, ScriptAction, ScriptActionType};
 
 fn authored_mode(mode: i32) -> ScriptAction {
     let mut action = ScriptAction::new(ScriptActionType::OptionsSetOcclusionMode);

@@ -419,7 +419,7 @@ fn structure_player_completion_replaces_only_its_owned_footprint() {
 }
 
 fn attached_completion_engine() -> gamelogic::scripting::engine::ScriptEngine {
-    use gamelogic::scripting::core::{
+    use generals_sim::scripting::program::{
         Condition, ConditionType, OrCondition, Parameter, ParameterType, Script, ScriptAction,
         ScriptActionType, ScriptList,
     };

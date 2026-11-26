@@ -1,7 +1,7 @@
 //! CPP ScriptConditions1443–1540: consume this engine's first matching event.
 use super::script_execution_driver::HostScriptExecutionDriver;
 use super::*;
-use gamelogic::scripting::core::{
+use generals_sim::scripting::program::{
     Condition, ConditionType, OrCondition, Parameter, ParameterType, Script, ScriptAction,
     ScriptActionType, ScriptList,
 };
@@ -259,14 +259,14 @@ fn exact_authored_names_and_literal_event_names_are_preserved() {
     let own_engine = engine(condition(
         kind,
         "AuthoredEventPlayer",
-        gamelogic::scripting::core::LOCAL_PLAYER,
+        generals_sim::scripting::program::LOCAL_PLAYER,
         Some(SOURCE),
     ));
     notify(
         &own_engine,
         kind,
         1,
-        gamelogic::scripting::core::LOCAL_PLAYER,
+        generals_sim::scripting::program::LOCAL_PLAYER,
         id,
     );
     assert_eq!(tick(&own_engine, &mut world), 1);
@@ -281,7 +281,7 @@ fn local_player_alias_resolves_within_driving_world() {
     let kind = ConditionType::PlayerBuiltUpgrade;
     let engine = engine(condition(
         kind,
-        gamelogic::scripting::core::LOCAL_PLAYER,
+        generals_sim::scripting::program::LOCAL_PLAYER,
         EVENT,
         None,
     ));
@@ -314,7 +314,7 @@ fn this_object_identity_and_prepared_binding_admission_are_explicit() {
         let driver = HostScriptExecutionDriver::new(&mut world);
         let selected = driver.player_event_source(
             PLAYER,
-            Some(gamelogic::scripting::core::THIS_OBJECT),
+            Some(generals_sim::scripting::program::THIS_OBJECT),
             None,
             Some(id.0),
         );
@@ -324,7 +324,7 @@ fn this_object_identity_and_prepared_binding_admission_are_explicit() {
         assert_eq!(
             driver.player_event_source(
                 PLAYER,
-                Some(gamelogic::scripting::core::THIS_OBJECT),
+                Some(generals_sim::scripting::program::THIS_OBJECT),
                 None,
                 Some(99999)
             ),

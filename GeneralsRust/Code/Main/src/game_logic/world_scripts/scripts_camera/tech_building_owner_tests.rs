@@ -2,7 +2,7 @@
 use super::script_execution_driver::HostScriptExecutionDriver;
 use super::*;
 use game_engine::common::game_common::Relationship;
-use gamelogic::scripting::core::{
+use generals_sim::scripting::program::{
     Condition, ConditionType, OrCondition, Parameter, ParameterType, Script, ScriptAction,
     ScriptActionType, ScriptList,
 };
@@ -434,7 +434,7 @@ fn owned_tech_aliases_use_explicit_current_player_and_enemy_perimeter() {
         module_path!(),
         "owned_tech_aliases_use_explicit_current_player_and_enemy_perimeter",
         || {
-            use gamelogic::scripting::core::{LOCAL_PLAYER, THIS_PLAYER, THIS_PLAYER_ENEMY};
+            use generals_sim::scripting::program::{LOCAL_PLAYER, THIS_PLAYER, THIS_PLAYER_ENEMY};
             use gamelogic::scripting::engine::{ScriptExecutionDriver, ScriptOwnerQuery};
             let (mut world, id) = world();
             world.players.get_mut(&1).unwrap().start_position = 2;

@@ -2,6 +2,9 @@
 
 use std::fmt;
 
+mod status_mask;
+pub use status_mask::ObjectStatusMaskType;
+
 /// Object status types (matching C++ ObjectStatusTypes)
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[repr(u32)]

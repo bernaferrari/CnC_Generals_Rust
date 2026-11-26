@@ -6,7 +6,7 @@ use crate::game_logic::{
 };
 use game_client::core::subsystems::InGameUISubsystem;
 use game_client::gui::control_bar::ControlBar;
-use gamelogic::scripting::core::{
+use generals_sim::scripting::program::{
     Condition, ConditionType, OrCondition, Script, ScriptAction, ScriptActionType, ScriptList,
 };
 use gamelogic::scripting::engine::{ScriptActionHandler, ScriptEngine};

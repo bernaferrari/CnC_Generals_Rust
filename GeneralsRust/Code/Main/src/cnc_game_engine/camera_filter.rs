@@ -138,7 +138,7 @@ mod tests {
                 use super::super::camera_motion::{
                     AxisKind, AxisMotion, MotionAdmission, step_axis,
                 };
-                use gamelogic::scripting::core::{
+                use generals_sim::scripting::program::{
                     Parameter, ParameterType, Script, ScriptAction, ScriptActionType, ScriptList,
                 };
                 use gamelogic::scripting::engine::ScriptEngine;

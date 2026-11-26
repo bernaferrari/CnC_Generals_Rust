@@ -11,14 +11,14 @@ fn install_player_team_prototype(
     let _ = gamelogic::scripting::engine::initialize_script_engine();
     if let Ok(guard) = gamelogic::scripting::engine::get_script_engine().read() {
         if let Some(engine) = guard.as_ref() {
-            let mut or_c = gamelogic::scripting::OrCondition::new();
-            or_c.set_first_and_condition(Some(Box::new(gamelogic::scripting::Condition::new(
-                gamelogic::scripting::ConditionType::ConditionTrue,
+            let mut or_c = generals_sim::scripting::program::OrCondition::new();
+            or_c.set_first_and_condition(Some(Box::new(generals_sim::scripting::program::Condition::new(
+                generals_sim::scripting::program::ConditionType::ConditionTrue,
             ))));
-            let mut script = gamelogic::scripting::core::Script::new();
+            let mut script = generals_sim::scripting::program::Script::new();
             script.set_name("AlwaysBuild".into());
             script.condition = Some(Box::new(or_c));
-            let mut list = gamelogic::scripting::ScriptList::new();
+            let mut list = generals_sim::scripting::program::ScriptList::new();
             list.append_script(Box::new(script));
             let _ =
                 engine.set_script_list_for_player(leftover_index as usize, Some(Box::new(list)));

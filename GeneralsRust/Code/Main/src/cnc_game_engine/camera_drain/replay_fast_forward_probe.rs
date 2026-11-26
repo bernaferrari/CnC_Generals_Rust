@@ -1124,7 +1124,7 @@ fn native_drawable_loco_archive_witness(engine: &mut CnCGameEngine) -> anyhow::R
 
 fn actual_team_failure_stops_native_shell_and_fast_forward(engine: &mut CnCGameEngine) {
     use game_engine::common::{dict::Dict, well_known_keys::*};
-    use gamelogic::scripting::core::{
+    use generals_sim::scripting::program::{
         Condition, ConditionType, OrCondition, Parameter, ParameterType, Script, ScriptAction,
         ScriptActionType, ScriptList,
     };

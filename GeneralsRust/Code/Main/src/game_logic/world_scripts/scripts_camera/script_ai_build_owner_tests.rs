@@ -1,7 +1,7 @@
 //! ScriptActions.cpp:1082–1087,2284–2310 through real borrowed host admission.
 use super::script_execution_driver::HostScriptExecutionDriver;
 use super::*;
-use gamelogic::scripting::core::{Parameter, ParameterType, ScriptAction, ScriptActionType};
+use generals_sim::scripting::program::{Parameter, ParameterType, ScriptAction, ScriptActionType};
 use gamelogic::scripting::engine::ScriptEngine;
 
 fn world() -> (GameLogic, ObjectId, ObjectId) {
@@ -1024,7 +1024,7 @@ fn partial_authored_button_executes_actual_power_for_first_valid_owned_team_memb
     button.special_power_template = Some("OwnerCia".into());
     owner
         .apply_owned_team_partial_button_definition(
-            gamelogic::scripting::core::THIS_TEAM,
+            generals_sim::scripting::program::THIS_TEAM,
             &button,
             50.0,
             Some(91),

@@ -1,7 +1,7 @@
 //! ScriptActions.cpp1042/6081: commands belong to the driving session.
 use super::script_execution_driver::HostScriptExecutionDriver;
 use super::*;
-use gamelogic::scripting::core::{
+use generals_sim::scripting::program::{
     Condition, ConditionType, OrCondition, Parameter, ParameterType, Script, ScriptAction,
     ScriptActionType, ScriptList,
 };
@@ -554,7 +554,7 @@ fn world_snapshot_capture_keeps_every_valid_owned_object() {
 fn named_this_object_is_an_owned_id_and_self_face_is_borrow_safe() {
     use gamelogic::scripting::engine::{ScriptExecutionDriver, ScriptNamedCommand};
     let (mut world, id, target) = world();
-    let token = gamelogic::scripting::core::THIS_OBJECT;
+    let token = generals_sim::scripting::program::THIS_OBJECT;
     {
         let mut driver = HostScriptExecutionDriver::new(&mut world);
         assert!(

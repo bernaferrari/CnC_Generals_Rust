@@ -1,6 +1,6 @@
 //! Ordinary dozer completion carries the native UI loan into its AI attachment.
 use super::*;
-use gamelogic::scripting::core::{
+use generals_sim::scripting::program::{
     Condition, ConditionType, OrCondition, Script, ScriptAction, ScriptActionType, ScriptList,
 };
 

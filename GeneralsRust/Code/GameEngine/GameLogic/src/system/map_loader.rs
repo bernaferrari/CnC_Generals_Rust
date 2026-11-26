@@ -205,7 +205,7 @@ impl MapLoader {
             .read()
             .map_err(|error| io::Error::other(error.to_string()))?
             .as_ref()
-            .map(ScriptTemplateLookup::from_engine)
+            .map(|engine| engine.script_template_lookup())
             .unwrap_or_default();
         let common = world.common();
         let decoded = {

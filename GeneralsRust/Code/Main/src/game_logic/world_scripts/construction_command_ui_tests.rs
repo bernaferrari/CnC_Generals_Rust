@@ -2,7 +2,7 @@
 //! Factory birth/payment/placement remain DozerAIUpdate.cpp:1671-1717; the
 //! attachment executes at AIPlayer.cpp:118 before completion returns.
 use super::super::*;
-use gamelogic::scripting::core::{
+use generals_sim::scripting::program::{
     Condition, ConditionType, OrCondition, Script, ScriptAction, ScriptActionType, ScriptList,
 };
 

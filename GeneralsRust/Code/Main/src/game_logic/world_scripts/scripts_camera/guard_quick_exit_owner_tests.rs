@@ -4,7 +4,7 @@ use super::guard_return_rate_control_tests::{authored_rates, unfinished_return};
 use super::named_command_test_support::{execute, world, world_with};
 use super::*;
 use crate::game_logic::object::unit_ai_runtime::GuardPhase;
-use gamelogic::scripting::core::ScriptActionType;
+use generals_sim::scripting::program::ScriptActionType;
 
 #[derive(Debug, PartialEq)]
 struct Observation {

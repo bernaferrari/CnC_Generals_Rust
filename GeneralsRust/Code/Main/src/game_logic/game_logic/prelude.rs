@@ -47,7 +47,7 @@ pub(super) use gamelogic::player::{
     GameDifficulty as LogicGameDifficulty, Player as LogicPlayer, PlayerList as LogicPlayerList,
     PlayerTemplate as LogicPlayerTemplate, PlayerType as LogicPlayerType, ThePlayerList,
 };
-pub(super) use gamelogic::scripting::core::ScriptList;
+pub(super) use generals_sim::scripting::program::ScriptList;
 pub(super) use gamelogic::scripting::engine::ScriptActionHandler;
 #[cfg(test)]
 pub(super) use gamelogic::sides_list::get_sides_list;

@@ -1,7 +1,7 @@
 //! Team transition markers belong to the resolved team until the script update clears them.
 use super::super::named_command_test_support::world;
 use super::*;
-use gamelogic::scripting::core::{Condition, ConditionType, Parameter, ParameterType};
+use generals_sim::scripting::program::{Condition, ConditionType, Parameter, ParameterType};
 
 fn condition(team: &str, area: &str) -> Condition {
     let mut condition = Condition::new(ConditionType::TeamEnteredAreaPartially);

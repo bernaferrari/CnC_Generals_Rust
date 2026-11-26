@@ -118,17 +118,17 @@ impl GameLogic {
     ) -> Option<
         Vec<(
             u32,
-            gamelogic::scripting::core::Coord3D,
-            Option<gamelogic::scripting::core::Coord3D>,
+            generals_sim::scripting::program::Coord3D,
+            Option<generals_sim::scripting::program::Coord3D>,
         )>,
     > {
         let meta = self.last_map_settings.as_ref()?;
         if meta.start_waypoints.is_empty() {
             return None;
         }
-        let mut starts: std::collections::HashMap<u32, gamelogic::scripting::core::Coord3D> =
+        let mut starts: std::collections::HashMap<u32, generals_sim::scripting::program::Coord3D> =
             std::collections::HashMap::new();
-        let mut rallies: std::collections::HashMap<u32, gamelogic::scripting::core::Coord3D> =
+        let mut rallies: std::collections::HashMap<u32, generals_sim::scripting::program::Coord3D> =
             std::collections::HashMap::new();
         for (name, pos) in &meta.start_waypoints {
             let lower = name.trim().to_ascii_lowercase();

@@ -4,7 +4,7 @@
 impl Script {
     /// CPP Scripts.cpp:971-1000: duplicate one definition, not its linked list
     /// or accumulated execution state. Parameter assignment retains its caches.
-    pub(crate) fn duplicate_definition(&self) -> Self {
+    pub fn duplicate_definition(&self) -> Self {
         fn condition(source: &Condition) -> Box<Condition> {
             Box::new(Condition {
                 condition_type: source.condition_type,

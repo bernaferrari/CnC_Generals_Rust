@@ -804,7 +804,7 @@ impl SidesList {
         for side in &self.sides {
             script_lists.push(side.get_script_list());
         }
-        ScriptList::write_scripts_data_chunk(output, &script_lists, templates);
+        crate::scripting::chunk_codec::write_scripts_data_chunk(output, &script_lists, templates);
 
         output.close_data_chunk();
         let _ = self.validate_sides();

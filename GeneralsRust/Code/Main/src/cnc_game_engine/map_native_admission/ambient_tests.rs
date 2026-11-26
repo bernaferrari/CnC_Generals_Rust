@@ -10,7 +10,7 @@ use game_engine::common::audio::{
     AC_LOOP, AudioAffect, AudioEventInfo, AudioManager, AudioPriority, ST_GLOBAL,
 };
 use game_engine::common::{dict::Dict, system::DataChunkOutput, well_known_keys::*};
-use gamelogic::scripting::core::{Parameter, ParameterType, ScriptAction, ScriptActionType};
+use generals_sim::scripting::program::{Parameter, ParameterType, ScriptAction, ScriptActionType};
 use std::sync::{Arc, Mutex};
 
 #[test]

@@ -138,7 +138,7 @@ fn named_camera_this_object_uses_driving_interpreter_and_restores_cursor() {
                     "CameraCallingObject",
                     vec![named_camera_action(
                         kind,
-                        gamelogic::scripting::core::THIS_OBJECT,
+                        generals_sim::scripting::program::THIS_OBJECT,
                     )],
                     true,
                 );
@@ -173,7 +173,7 @@ fn named_camera_this_object_uses_driving_interpreter_and_restores_cursor() {
                 owner.session_view.camera.rotation_registers.finish();
                 let before_miss = owner.capture_camera_continuation().unwrap();
                 interpreter.friend_execute_action_with_driver(
-                    &named_camera_action(kind, gamelogic::scripting::core::THIS_OBJECT),
+                    &named_camera_action(kind, generals_sim::scripting::program::THIS_OBJECT),
                     None,
                     ScriptContext::at_frame(frame),
                     &mut HostScriptExecutionDriver::with_interpreter(&mut owner, &interpreter),

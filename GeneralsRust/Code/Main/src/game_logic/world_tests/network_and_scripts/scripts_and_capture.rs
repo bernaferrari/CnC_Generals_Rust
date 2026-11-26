@@ -2822,7 +2822,7 @@ fn live_host_injects_completed_waypoint_labels_and_shroud_discovered_by() {
 
 #[test]
 fn live_named_and_skirmish_conditions_use_receiving_driver() {
-    use gamelogic::scripting::core::{
+    use generals_sim::scripting::program::{
         Condition, ConditionType, OrCondition, Parameter, ParameterType, Script,
     };
     use gamelogic::scripting::engine::ScriptEngine;
@@ -3163,7 +3163,7 @@ fn live_set_stopping_distance_aborts_at_first_member_without_locomotor() {
 #[test]
 fn live_named_enter_and_exit_all_drain_ai_enter_evacuate() {
     use crate::game_logic::AIState;
-    use gamelogic::scripting::core::{
+    use generals_sim::scripting::program::{
         Condition, ConditionType, OrCondition, Parameter, ParameterType, Script, ScriptAction,
         ScriptActionType, ScriptList,
     };
@@ -3348,7 +3348,7 @@ fn live_team_garrison_specific_building_drains_ai_enter() {
     use crate::game_logic::AIState;
     use crate::game_logic::{BuildingData, BuildingType};
     use gamelogic::object::registry::OBJECT_REGISTRY;
-    use gamelogic::scripting::core::{
+    use generals_sim::scripting::program::{
         Condition, ConditionType, OrCondition, Parameter, ParameterType, Script, ScriptAction,
         ScriptActionType, ScriptList,
     };
@@ -3500,7 +3500,7 @@ fn live_team_garrison_specific_building_drains_ai_enter() {
 
 #[test]
 fn live_team_garrison_nearest_preserves_roster_order_for_membership() {
-    use gamelogic::scripting::core::{
+    use generals_sim::scripting::program::{
         Condition, ConditionType, OrCondition, Parameter, ParameterType, Script, ScriptAction,
         ScriptActionType, ScriptList,
     };

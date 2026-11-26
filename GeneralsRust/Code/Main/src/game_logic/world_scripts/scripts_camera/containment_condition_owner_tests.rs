@@ -1,6 +1,6 @@
 //! CPP ScriptConditions1008/1589: module presence is independent of admission.
 use super::*;
-use gamelogic::scripting::core::{Condition, ConditionType, Parameter, ParameterType};
+use generals_sim::scripting::program::{Condition, ConditionType, Parameter, ParameterType};
 fn condition(kind: ConditionType, name: &str) -> Condition {
     let mut condition = Condition::new(kind);
     condition

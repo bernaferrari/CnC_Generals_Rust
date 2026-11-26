@@ -1,7 +1,7 @@
 //! Real ScriptActions admission changes only the explicitly driving session.
 use super::script_execution_driver::HostScriptExecutionDriver;
 use super::*;
-use gamelogic::scripting::core::{Parameter, ParameterType, ScriptAction, ScriptActionType};
+use generals_sim::scripting::program::{Parameter, ParameterType, ScriptAction, ScriptActionType};
 
 fn apply(world: &mut GameLogic, engine: &gamelogic::scripting::engine::ScriptEngine, seconds: f32) {
     let mut action = ScriptAction::new(ScriptActionType::ScriptingOverrideHulkLifetime);

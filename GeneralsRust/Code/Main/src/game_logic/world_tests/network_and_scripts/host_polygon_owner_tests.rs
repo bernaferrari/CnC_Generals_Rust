@@ -12,7 +12,9 @@ fn live_host_polygon_inside_and_enter_without_object_registry() {
             use glam::IVec3 as ICoord3D;
             use gamelogic::object::registry::OBJECT_REGISTRY;
             use game_engine::polygon_trigger::PolygonTrigger;
-            use gamelogic::scripting::core::{Condition, ConditionType, Parameter, ParameterType};
+            use generals_sim::scripting::program::{
+                Condition, ConditionType, Parameter, ParameterType,
+            };
 
             assert!(OBJECT_REGISTRY.is_empty());
             let trigger = PolygonTrigger::new(

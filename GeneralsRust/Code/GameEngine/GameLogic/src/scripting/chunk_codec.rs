@@ -2,70 +2,13 @@
 //! travel together; nested callbacks never select an ambient ScriptEngine.
 use super::core::*;
 use super::engine::with_script_engine_ref;
-use game_engine::common::system::{DataChunkInfo, DataChunkInput};
+use crate::common::{ALL_KIND_OF, KindOf, ObjectStatusMaskType};
+use crate::object::behavior::auto_heal_behavior::parse_kind_of;
+use game_engine::common::name_key_generator::NameKeyGenerator;
+use game_engine::common::system::{DataChunkInfo, DataChunkInput, DataChunkOutput};
 use std::rc::Rc;
 
-/// Ordered definition keys for one script read/write operation.
-///
-/// Keys retain the receiving engine's namespace. Decoders must pass that same
-/// namespace to `DataChunkInput::with_namespace`; the numeric snapshot alone
-/// cannot be moved to another namespace.
-#[derive(Clone, Default)]
-pub struct ScriptTemplateLookup {
-    condition_keys: Vec<u32>,
-    action_keys: Vec<u32>,
-}
-impl ScriptTemplateLookup {
-    /// Capture ordered definitions from the explicitly supplied engine.
-    pub fn from_engine(engine: &super::engine::ScriptEngine) -> Self {
-        engine.script_template_lookup()
-    }
-
-    pub fn from_keys(condition_keys: Vec<u32>, action_keys: Vec<u32>) -> Self {
-        Self {
-            condition_keys,
-            action_keys,
-        }
-    }
-    pub(crate) fn condition_key(&self, kind: ConditionType) -> Option<u32> {
-        self.condition_keys.get(kind as usize).copied()
-    }
-
-    pub(crate) fn action_key(&self, kind: ScriptActionType) -> Option<u32> {
-        self.action_keys.get(kind as usize).copied()
-    }
-
-    /// C++ Scripts.cpp:1663-1680: prefer the stored ordinal, then first key match.
-    pub fn resolve_condition(&self, stored: ConditionType, key: u32) -> ConditionType {
-        if self.condition_keys.get(stored as usize) == Some(&key) {
-            return stored;
-        }
-        self.condition_keys
-            .iter()
-            .enumerate()
-            .find_map(|(i, candidate)| {
-                (*candidate == key)
-                    .then(|| ConditionType::from_u32(i as u32))
-                    .flatten()
-            })
-            .unwrap_or(ConditionType::ConditionFalse)
-    }
-    /// C++ Scripts.cpp:2423-2449: preserve ordered action rematching and NO_OP.
-    pub fn resolve_action(&self, stored: ScriptActionType, key: u32) -> ScriptActionType {
-        if self.action_keys.get(stored as usize) == Some(&key) {
-            return stored;
-        }
-        self.action_keys
-            .iter()
-            .enumerate()
-            .find_map(|(i, candidate)| {
-                (*candidate == key)
-                    .then(|| ScriptActionType::from_u32(i as u32))
-                    .flatten()
-            })
-            .unwrap_or(ScriptActionType::NoOp)
-    }
-}
+pub use generals_sim::scripting::program::ScriptTemplateLookup;
 
 // TEMPORARY root adapter while canonical world ownership is migrated (hq-r0o8i).
 // The frozen definitions, not the engine, are retained by the decoder.
@@ -163,7 +106,7 @@ fn parse_group_data_chunk(
     let Some(list) = user_data_mut::<DecodeState<ScriptList>>(user_data) else {
         return false;
     };
-    let mut group = DecodeState::new(ScriptGroup::new(), Rc::clone(&list.templates));
+    let mut group = DecodeState::new(new_script_group(), Rc::clone(&list.templates));
     group.node.group_name = input.read_ascii_string();
     group.node.is_group_active = input.read_byte() != 0;
     if info.version >= 2 {
@@ -241,7 +184,7 @@ fn parse_condition_data_chunk(
     let mut condition = Box::new(Condition::new(condition_type));
     condition.num_parms = num_parms;
     for idx in 0..num_parms.min(MAX_PARMS) {
-        condition.parameters[idx] = Parameter::read_parameter(input);
+        condition.parameters[idx] = read_parameter(input);
     }
 
     if condition.condition_type == ConditionType::SkirmishSpecialPowerReady
@@ -283,7 +226,7 @@ fn parse_action(
     let num_parms = input.read_int().max(0) as usize;
     action.num_parms = num_parms;
     for idx in 0..num_parms.min(MAX_PARMS) {
-        action.parameters[idx] = Parameter::read_parameter(input);
+        action.parameters[idx] = read_parameter(input);
     }
 
     if action.action_type == ScriptActionType::SkirmishFireSpecialPowerAtMostCost
@@ -445,47 +388,311 @@ pub fn parse_player_scripts_list_chunk(
     input.parse(read_info)
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    #[test]
-    fn stored_ordinal_wins_over_earlier_duplicate_key() {
-        let lookup = ScriptTemplateLookup::from_keys(vec![7, 7], vec![9, 9]);
-        assert_eq!(
-            lookup.resolve_condition(ConditionType::Counter, 7),
-            ConditionType::Counter
-        );
-        assert_eq!(
-            lookup.resolve_action(ScriptActionType::SetFlag, 9),
-            ScriptActionType::SetFlag
-        );
+const K_SCRIPTS_DATA_VERSION_1: u16 = 1;
+const K_SCRIPT_LIST_DATA_VERSION_1: u16 = 1;
+const K_SCRIPT_GROUP_DATA_VERSION_2: u16 = 2;
+const K_SCRIPT_DATA_VERSION_2: u16 = 2;
+const K_SCRIPT_ACTION_VERSION_2: u16 = 2;
+const K_SCRIPT_CONDITION_VERSION_4: u16 = 4;
+const K_SCRIPT_OR_CONDITION_DATA_VERSION_1: u16 = 1;
+
+fn kind_of_index_to_name(index: i32) -> &'static str {
+    let idx = index.max(0) as usize;
+    if idx >= ALL_KIND_OF.len() {
+        return "";
     }
-    #[test]
-    fn rematching_uses_first_valid_enum_index() {
-        let lookup = ScriptTemplateLookup::from_keys(vec![7, 7], vec![9, 9]);
-        assert_eq!(
-            lookup.resolve_condition(ConditionType::ConditionTrue, 7),
-            ConditionType::from_u32(0).unwrap()
-        );
-        assert_eq!(
-            lookup.resolve_action(ScriptActionType::Victory, 9),
-            ScriptActionType::from_u32(0).unwrap()
-        );
+    match ALL_KIND_OF[idx] {
+        KindOf::Selectable => "SELECTABLE",
+        KindOf::Unit => "UNIT",
+        KindOf::Building => "BUILDING",
+        KindOf::Vehicle => "VEHICLE",
+        KindOf::Infantry => "INFANTRY",
+        KindOf::Aircraft => "AIRCRAFT",
+        KindOf::Drone => "DRONE",
+        KindOf::CliffJumper => "CLIFFJUMPER",
+        KindOf::Structure => "STRUCTURE",
+        KindOf::Weapon => "WEAPON",
+        KindOf::Projectile => "PROJECTILE",
+        KindOf::CanSeeThrough => "CAN_SEE_THROUGH",
+        KindOf::AlwaysSelectable => "ALWAYS_SELECTABLE",
+        KindOf::Crate => "CRATE",
+        KindOf::ResourceNode => "RESOURCE_NODE",
+        KindOf::SupplySourceOnPreview => "SUPPLY_SOURCE_ON_PREVIEW",
+        KindOf::SupplySource => "SUPPLY_SOURCE",
+        KindOf::Disguiser => "DISGUISER",
+        KindOf::PortableStructure => "PORTABLE_STRUCTURE",
+        KindOf::TechBuilding => "TECH_BUILDING",
+        KindOf::Bridge => "BRIDGE",
+        KindOf::Barrier => "BARRIER",
+        KindOf::Civilian => "CIVILIAN",
+        KindOf::Destructible => "DESTRUCTIBLE",
+        KindOf::CanCrossBridges => "CAN_CROSS_BRIDGES",
+        KindOf::Amphibious => "AMPHIBIOUS",
+        KindOf::AmphibiousTransport => "AMPHIBIOUS_TRANSPORT",
+        KindOf::CanCapture => "CAN_CAPTURE",
+        KindOf::Saboteur => "SABOTEUR",
+        KindOf::Hacker => "HACKER",
+        KindOf::Hero => "HERO",
+        KindOf::KeyStructure => "KEY_STRUCTURE",
+        KindOf::CommandCenter => "COMMAND_CENTER",
+        KindOf::Prison => "PRISON",
+        KindOf::CollectsPrisonBounty => "COLLECTS_PRISON_BOUNTY",
+        KindOf::PowTruck => "POW_TRUCK",
+        KindOf::PowerPlant => "POWER_PLANT",
+        KindOf::Refinery => "REFINERY",
+        KindOf::Factory => "FACTORY",
+        KindOf::Defense => "DEFENSE",
+        KindOf::Shrubbery => "SHRUBBERY",
+        KindOf::Dozer => "DOZER",
+        KindOf::Harvester => "HARVESTER",
+        KindOf::Hulk => "HULK",
+        KindOf::Salvager => "SALVAGER",
+        KindOf::WeaponSalvager => "WEAPON_SALVAGER",
+        KindOf::ArmorSalvager => "ARMOR_SALVAGER",
+        KindOf::AircraftCarrier => "AIRCRAFT_CARRIER",
+        KindOf::FSBarracks => "FS_BARRACKS",
+        KindOf::FSWarfactory => "FS_WARFACTORY",
+        KindOf::FSAirfield => "FS_AIRFIELD",
+        KindOf::FSInternetCenter => "FS_INTERNET_CENTER",
+        KindOf::FSPower => "FS_POWER",
+        KindOf::FSBaseDefense => "FS_BASE_DEFENSE",
+        KindOf::FSSupplyDropzone => "FS_SUPPLY_DROPZONE",
+        KindOf::FSSupplyCenter => "FS_SUPPLY_CENTER",
+        KindOf::FSSuperweapon => "FS_SUPERWEAPON",
+        KindOf::FSStrategyCenter => "FS_STRATEGY_CENTER",
+        KindOf::CountsForVictory => "COUNTS_FOR_VICTORY",
+        KindOf::Mine => "MINE",
+        KindOf::CleanupHazard => "CLEANUP_HAZARD",
+        KindOf::HealPad => "HEAL_PAD",
+        KindOf::WaveGuide => "WAVE_GUIDE",
+        KindOf::BridgeTower => "BRIDGE_TOWER",
+        KindOf::Immobile => "IMMOBILE",
+        KindOf::BoobyTrap => "BOOBY_TRAP",
+        KindOf::CanBeRepulsed => "CAN_BE_REPULSED",
+        KindOf::EmpHardened => "EMP_HARDENED",
+        KindOf::SpawnsAreTheWeapons => "SPAWNS_ARE_THE_WEAPONS",
+        KindOf::IgnoreDockingBones => "IGNORE_DOCKING_BONES",
+        KindOf::CanSurrender => "CAN_SURRENDER",
+        KindOf::RepairPad => "REPAIR_PAD",
+        KindOf::RejectUnmanned => "REJECT_UNMANNED",
+        KindOf::IgnoredInGui => "IGNORED_IN_GUI",
+        KindOf::MobNexus => "MOB_NEXUS",
+        KindOf::Capturable => "CAPTURABLE",
+        KindOf::ImmuneToCapture => "IMMUNE_TO_CAPTURE",
+        KindOf::CashGenerator => "CASH_GENERATOR",
+        KindOf::RebuildHole => "REBUILD_HOLE",
+        KindOf::FSTechnology => "FS_TECHNOLOGY",
+        KindOf::GarrisonableUntilDestroyed => "GARRISONABLE_UNTIL_DESTROYED",
+        KindOf::NoGarrison => "NO_GARRISON",
+        _ => "",
     }
-    #[test]
-    fn unknown_and_missing_keys_keep_cpp_false_noop_policy() {
-        for lookup in [
-            ScriptTemplateLookup::default(),
-            ScriptTemplateLookup::from_keys(vec![7], vec![9]),
-        ] {
-            assert_eq!(
-                lookup.resolve_condition(ConditionType::ConditionTrue, 88),
-                ConditionType::ConditionFalse
-            );
-            assert_eq!(
-                lookup.resolve_action(ScriptActionType::Victory, 88),
-                ScriptActionType::NoOp
-            );
+}
+
+pub(super) fn write_parameter(parameter: &mut Parameter, writer: &mut DataChunkOutput) {
+    writer.write_int(parameter.param_type as i32);
+    if parameter.param_type == ParameterType::KindOfParam {
+        parameter.string_value = kind_of_index_to_name(parameter.int_value).to_string();
+    }
+    if parameter.param_type == ParameterType::Coord3D {
+        writer.write_real(parameter.coord_value.x);
+        writer.write_real(parameter.coord_value.y);
+        writer.write_real(parameter.coord_value.z);
+    } else {
+        writer.write_int(parameter.int_value);
+        writer.write_real(parameter.real_value);
+        writer.write_ascii_string(&parameter.string_value);
+    }
+}
+
+fn read_parameter(input: &mut DataChunkInput) -> Option<Parameter> {
+    let param_type = ParameterType::from_u32(input.read_int() as u32)?;
+    let mut param = Parameter::new(param_type);
+    param.initialized = true;
+    if param_type == ParameterType::Coord3D {
+        let x = input.read_real();
+        let y = input.read_real();
+        let z = input.read_real();
+        param.coord_value = Coord3D::new(x, y, z);
+    } else {
+        param.int_value = input.read_int();
+        param.real_value = input.read_real();
+        param.string_value = input.read_ascii_string();
+    }
+
+    if param_type == ParameterType::ObjectType && param.string_value.starts_with("Fundamentalist") {
+        let old = param.string_value.clone();
+        let suffix = old.trim_start_matches("Fundamentalist");
+        param.string_value = format!("GLA{suffix}");
+    }
+
+    if param_type == ParameterType::Upgrade
+        && (param.string_value == "Upgrade_AmericaRangerCaptureBuilding"
+            || param.string_value == "Upgrade_ChinaRedguardCaptureBuilding"
+            || param.string_value == "Upgrade_GLARebelCaptureBuilding")
+    {
+        param.string_value = "Upgrade_InfantryCaptureBuilding".to_string();
+    }
+
+    if param_type == ParameterType::ObjectStatus {
+        if let Some(mask) = ObjectStatusMaskType::from_case_insensitive_name(&param.string_value) {
+            param.object_status = mask;
         }
+    }
+
+    if param_type == ParameterType::KindOfParam {
+        if !param.string_value.is_empty() {
+            if let Some(kind) = parse_kind_of(&param.string_value) {
+                if let Some(index) = ALL_KIND_OF.iter().position(|k| *k == kind) {
+                    param.int_value = index as i32;
+                }
+            }
+        } else {
+            param.string_value = kind_of_index_to_name(param.int_value).to_string();
+        }
+    }
+
+    Some(param)
+}
+
+pub(crate) fn write_condition_data_chunk(
+    mut condition: Option<&Condition>,
+    output: &mut DataChunkOutput,
+    templates: &ScriptTemplateLookup,
+) {
+    while let Some(cur) = condition {
+        output.open_data_chunk("Condition", K_SCRIPT_CONDITION_VERSION_4);
+        output.write_int(cur.condition_type as i32);
+        let key = templates
+            .condition_key(cur.condition_type)
+            .unwrap_or_else(|| NameKeyGenerator::name_to_key("Bogus"));
+        output.write_name_key(key);
+        output.write_int(cur.num_parms as i32);
+        for index in 0..cur.num_parms {
+            if let Some(param) = cur.parameters.get(index).and_then(|p| p.as_ref()) {
+                let mut param = param.clone();
+                write_parameter(&mut param, output);
+            }
+        }
+        output.close_data_chunk();
+        condition = cur.next_and_condition.as_deref();
+    }
+}
+
+fn write_or_condition_data_chunk(
+    mut condition: Option<&OrCondition>,
+    output: &mut DataChunkOutput,
+    templates: &ScriptTemplateLookup,
+) {
+    while let Some(cur) = condition {
+        output.open_data_chunk("OrCondition", K_SCRIPT_OR_CONDITION_DATA_VERSION_1);
+        if let Some(first_and) = cur.first_and.as_deref() {
+            write_condition_data_chunk(Some(first_and), output, templates);
+        }
+        output.close_data_chunk();
+        condition = cur.next_or.as_deref();
+    }
+}
+
+pub(crate) fn write_action_data_chunk(
+    mut action: Option<&ScriptAction>,
+    output: &mut DataChunkOutput,
+    label: &str,
+    templates: &ScriptTemplateLookup,
+) {
+    while let Some(cur) = action {
+        output.open_data_chunk(label, K_SCRIPT_ACTION_VERSION_2);
+        output.write_int(cur.action_type as i32);
+        let key = templates
+            .action_key(cur.action_type)
+            .unwrap_or_else(|| NameKeyGenerator::name_to_key("Bogus"));
+        output.write_name_key(key);
+        output.write_int(cur.num_parms as i32);
+        for index in 0..cur.num_parms {
+            if let Some(param) = cur.parameters.get(index).and_then(|p| p.as_ref()) {
+                let mut param = param.clone();
+                write_parameter(&mut param, output);
+            }
+        }
+        output.close_data_chunk();
+        action = cur.next_action.as_deref();
+    }
+}
+
+fn write_script_data_chunk(
+    mut script: Option<&Script>,
+    output: &mut DataChunkOutput,
+    templates: &ScriptTemplateLookup,
+) {
+    while let Some(cur) = script {
+        output.open_data_chunk("Script", K_SCRIPT_DATA_VERSION_2);
+        output.write_ascii_string(&cur.script_name);
+        output.write_ascii_string(&cur.comment);
+        output.write_ascii_string(&cur.condition_comment);
+        output.write_ascii_string(&cur.action_comment);
+        output.write_byte(cur.is_active as u8);
+        output.write_byte(cur.is_one_shot as u8);
+        output.write_byte(cur.easy as u8);
+        output.write_byte(cur.normal as u8);
+        output.write_byte(cur.hard as u8);
+        output.write_byte(cur.is_subroutine as u8);
+        output.write_int(cur.delay_evaluation_seconds);
+        if let Some(condition) = cur.condition.as_deref() {
+            write_or_condition_data_chunk(Some(condition), output, templates);
+        }
+        if let Some(action) = cur.action.as_deref() {
+            write_action_data_chunk(Some(action), output, "ScriptAction", templates);
+        }
+        if let Some(action_false) = cur.action_false.as_deref() {
+            write_action_data_chunk(Some(action_false), output, "ScriptActionFalse", templates);
+        }
+        output.close_data_chunk();
+        script = cur.next_script.as_deref();
+    }
+}
+
+fn write_group_data_chunk(
+    mut group: Option<&ScriptGroup>,
+    output: &mut DataChunkOutput,
+    templates: &ScriptTemplateLookup,
+) {
+    while let Some(cur) = group {
+        output.open_data_chunk("ScriptGroup", K_SCRIPT_GROUP_DATA_VERSION_2);
+        output.write_ascii_string(&cur.group_name);
+        output.write_byte(cur.is_group_active as u8);
+        output.write_byte(cur.is_group_subroutine as u8);
+        if let Some(script) = cur.first_script.as_deref() {
+            write_script_data_chunk(Some(script), output, templates);
+        }
+        output.close_data_chunk();
+        group = cur.next_group.as_deref();
+    }
+}
+
+pub(crate) fn write_scripts_data_chunk(
+    output: &mut DataChunkOutput,
+    script_lists: &[Option<&ScriptList>],
+    templates: &ScriptTemplateLookup,
+) {
+    output.open_data_chunk("PlayerScriptsList", K_SCRIPTS_DATA_VERSION_1);
+    for list in script_lists {
+        output.open_data_chunk("ScriptList", K_SCRIPT_LIST_DATA_VERSION_1);
+        if let Some(list) = list {
+            write_script_list_data_chunk(list, output, templates);
+        }
+        output.close_data_chunk();
+    }
+    output.close_data_chunk();
+}
+
+fn write_script_list_data_chunk(
+    list: &ScriptList,
+    output: &mut DataChunkOutput,
+    templates: &ScriptTemplateLookup,
+) {
+    if let Some(script) = list.first_script.as_deref() {
+        write_script_data_chunk(Some(script), output, templates);
+    }
+    if let Some(group) = list.first_group.as_deref() {
+        write_group_data_chunk(Some(group), output, templates);
     }
 }

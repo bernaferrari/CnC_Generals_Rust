@@ -297,7 +297,7 @@ mod initial_and_stage_tests {
 mod prepared_event_tests {
     use super::receiving_tests::{first_update, world};
     use super::*;
-    use gamelogic::scripting::core::{
+    use generals_sim::scripting::program::{
         Condition, ConditionType, OrCondition, Parameter, ParameterType, Script,
     };
     fn query(world: &mut crate::game_logic::GameLogic, source: &str) -> bool {

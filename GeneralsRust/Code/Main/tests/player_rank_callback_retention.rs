@@ -2,7 +2,7 @@
 //! This regression prevents the Main ownership migration from dropping them.
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use gamelogic::player::{Player as CorePlayer, PlayerList};
-use gamelogic::scripting::core::{
+use generals_sim::scripting::program::{
     Condition, ConditionType, OrCondition, Parameter, ParameterType, Script, ScriptAction,
     ScriptActionType, ScriptList, LOCAL_PLAYER,
 };

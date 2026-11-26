@@ -1076,7 +1076,7 @@ mod tests {
     #[test]
     fn v7_restores_owned_condition_delay_and_v6_clears_unproven_cache() {
         let mut source = china_ai_logic();
-        let mut script = gamelogic::scripting::core::Script::new();
+        let mut script = generals_sim::scripting::program::Script::new();
         script.frame_to_evaluate_at = 600;
         script.delay_evaluation_seconds = 2;
         source

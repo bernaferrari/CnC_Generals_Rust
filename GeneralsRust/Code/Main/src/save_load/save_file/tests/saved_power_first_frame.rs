@@ -9,7 +9,7 @@ use game_engine::common::{
     rts::player_template::PlayerTemplateStore,
     system::DataChunkOutput,
 };
-use gamelogic::scripting::core::{ConditionType, Parameter, ParameterType, ScriptActionType};
+use generals_sim::scripting::program::{ConditionType, Parameter, ParameterType, ScriptActionType};
 use crate::game_logic::{GameLogic, GameMode, ObjectId, Player, Team};
 use crate::save_load::{GameDifficulty, SaveFileManager, SaveFileType, SaveGameInfo};
 use glam::Vec3;

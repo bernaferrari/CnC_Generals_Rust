@@ -206,7 +206,7 @@ mod sides_host_apply_tests {
         let builds = [super::super::script_loader::SideBuildEntry {
             building_name: "cc".into(),
             template: "AmericaCommandCenter".into(),
-            position: gamelogic::scripting::core::Coord3D {
+            position: generals_sim::scripting::program::Coord3D {
                 x: 10.0,
                 y: 20.0,
                 z: 0.0,

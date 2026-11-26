@@ -67,7 +67,7 @@ mod authored_definition_tests {
     fn read(engine: &ScriptEngine, document: &ChunkyMap) -> Box<Script> {
         // The ordinary Main initializer calls this bound production entry point.
         // No test/global slot lock or scoped engine publication is needed.
-        let catalog = ScriptTemplateLookup::from_engine(engine);
+        let catalog = engine.script_template_lookup();
         let mut result = load_map_scripts_from_chunky_with_templates(document, &catalog)
             .unwrap()
             .unwrap();
@@ -190,7 +190,7 @@ mod authored_definition_tests {
             .key_for_name("UNREGISTERED_SESSION_ACTION").is_none());
 
         fn run(engine: &mut ScriptEngine, world: &gamelogic::system::engine_stores::WorldServices, documents: &[ChunkyMap]) {
-            let catalog = ScriptTemplateLookup::from_engine(engine);
+            let catalog = engine.script_template_lookup();
             for document in documents {
                 let mut names = world.common().name_key_namespace.lock().unwrap();
                 let mut loaded = load_map_scripts_from_chunky_with_catalog(document, &catalog, &mut names)

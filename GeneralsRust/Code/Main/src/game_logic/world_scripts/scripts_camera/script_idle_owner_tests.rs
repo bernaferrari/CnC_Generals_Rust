@@ -2,7 +2,7 @@
 use super::named_command_test_support::{execute, world};
 use super::script_execution_driver::HostScriptExecutionDriver;
 use super::*;
-use gamelogic::scripting::core::{
+use generals_sim::scripting::program::{
     Parameter, ParameterType, Script, ScriptAction, ScriptActionType, ScriptList,
 };
 use gamelogic::scripting::engine::ScriptEngine;

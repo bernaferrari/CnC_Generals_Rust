@@ -3717,6 +3717,7 @@ dependencies = [
 name = "generals-sim"
 version = "0.1.0"
 dependencies = [
+ "bitflags 2.13.2",
  "generals_game_domain",
  "generals_map",
  "glam",

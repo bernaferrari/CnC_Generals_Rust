@@ -198,7 +198,7 @@ fn bridge_query_history_does_not_leak_through_reset_or_detached_restore() {
 
 fn execute_bridge_condition(world: &mut GameLogic, name: &str, repaired: bool) -> bool {
     use super::script_execution_driver::HostScriptExecutionDriver;
-    use gamelogic::scripting::core::{
+    use generals_sim::scripting::program::{
         Condition, ConditionType, OrCondition, Parameter, ParameterType, Script, ScriptAction,
         ScriptActionType, ScriptList,
     };
@@ -335,7 +335,7 @@ fn named_damage_completes_bridge_callbacks_before_subroutine_condition() {
         "named_damage_completes_bridge_callbacks_before_subroutine_condition",
         || {
             use super::script_execution_driver::HostScriptExecutionDriver;
-            use gamelogic::scripting::core::{
+            use generals_sim::scripting::program::{
                 Condition, ConditionType, OrCondition, Parameter, ParameterType, Script,
                 ScriptAction, ScriptActionType, ScriptList,
             };

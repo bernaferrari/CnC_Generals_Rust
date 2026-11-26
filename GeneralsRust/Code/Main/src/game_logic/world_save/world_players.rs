@@ -1299,7 +1299,7 @@ impl GameLogic {
 mod map_singleton_owner_tests {
     use super::*;
     use game_engine::common::well_known_keys::*;
-    use gamelogic::scripting::core::{
+    use generals_sim::scripting::program::{
         Parameter, ParameterType, Script, ScriptAction, ScriptActionType, ScriptList,
     };
     use gamelogic::scripting::engine::ScriptEngine;
@@ -1341,7 +1341,7 @@ mod map_singleton_owner_tests {
         spawn
             .add_parameter(Parameter::with_coord(
                 ParameterType::Coord3D,
-                gamelogic::scripting::core::Coord3D::new(17.0, 23.0, 0.0),
+                generals_sim::scripting::program::Coord3D::new(17.0, 23.0, 0.0),
             ))
             .unwrap();
         spawn

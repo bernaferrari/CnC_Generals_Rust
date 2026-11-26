@@ -27,7 +27,7 @@ impl HostScriptExecutionDriver<'_> {
         token: &str,
         current_player: Option<&str>,
     ) -> Option<u32> {
-        use gamelogic::scripting::core::{
+        use generals_sim::scripting::program::{
             LOCAL_PLAYER, THE_PLAYER, THIS_PLAYER, THIS_PLAYER_ENEMY,
         };
         match token {
@@ -51,7 +51,7 @@ impl HostScriptExecutionDriver<'_> {
     }
 
     fn first_human_script_enemy(&self) -> Option<u32> {
-        use gamelogic::scripting::core::THE_PLAYER;
+        use generals_sim::scripting::program::THE_PLAYER;
 
         self.world.players.values()
             .filter(|p| p.is_human && !(self.world.is_challenge_session()
@@ -75,7 +75,7 @@ impl HostScriptExecutionDriver<'_> {
         token: &str,
         current_player: Option<&str>,
     ) -> Option<u32> {
-        if token == gamelogic::scripting::core::THIS_PLAYER_ENEMY
+        if token == generals_sim::scripting::program::THIS_PLAYER_ENEMY
             && let Some(current) =
                 current_player.and_then(|name| self.world.authored_script_player_id(name))
         {

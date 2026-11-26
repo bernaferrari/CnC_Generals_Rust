@@ -49,7 +49,7 @@ pub fn load_map_scripts(map_name: &str) -> LoaderResult<Option<MapScriptLoadResu
 
 fn current_script_templates() -> ScriptTemplateLookup {
     gamelogic::scripting::engine::with_script_engine_ref(|engine| {
-        ScriptTemplateLookup::from_engine(engine)
+        engine.script_template_lookup()
     })
     .unwrap_or_default()
 }
@@ -410,7 +410,7 @@ fn parse_script_group(
     names: &mut NameKeyNamespace,
 ) -> LoaderResult<ScriptGroup> {
     let mut reader = BinaryReader::new(data);
-    let mut group = ScriptGroup::new();
+    let mut group = gamelogic::scripting::core::new_script_group();
     group.group_name = reader.read_ascii_string()?;
     group.is_group_active = reader.read_u8()? != 0;
     group.is_group_subroutine = if version >= 2 {
@@ -638,7 +638,7 @@ fn configuration_error(message: impl Into<String>) -> GameLogicError {
 #[cfg(test)]
 mod out_of_range_ordinal_rematch_tests {
     use super::*;
-    use gamelogic::scripting::chunk_codec::ScriptTemplateLookup;
+    use generals_sim::scripting::program::ScriptTemplateLookup;
     use std::sync::Arc;
 
     fn with_name_keys<T>(f: impl FnOnce() -> T) -> T {

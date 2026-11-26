@@ -1,4 +1,5 @@
 // Exercise the actual SidesList fallback through the public map decoder.
+use generals_sim::scripting::program::ScriptTemplateLookup;
 fn owned_template_sides_document(engine: &gamelogic::scripting::engine::ScriptEngine) -> ChunkyMap {
     use game_engine::common::system::DataChunkOutput;
     let mut output = DataChunkOutput::new();
@@ -69,7 +70,7 @@ fn sides_fallback_uses_supplied_catalog_for_nested_conditions_and_both_actions()
             ScriptActionType::NoOp,
         ),
         (
-            ScriptTemplateLookup::from_engine(&engine),
+            engine.script_template_lookup(),
             ConditionType::ConditionTrue,
             ScriptActionType::Victory,
         ),

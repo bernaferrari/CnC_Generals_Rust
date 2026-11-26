@@ -5,7 +5,7 @@ use super::{action, engine, script, world};
 use game_client::gui::callbacks::control_bar_callbacks::ControlBarCallbacks;
 use game_client::gui::control_bar::ControlBar;
 use game_client::gui::{GameWindow, window_manager::WindowManager};
-use gamelogic::scripting::core::{
+use generals_sim::scripting::program::{
     Parameter, ParameterType, ScriptAction, ScriptActionType, ScriptList,
 };
 use gamelogic::scripting::engine::ScriptExecutionDriver;

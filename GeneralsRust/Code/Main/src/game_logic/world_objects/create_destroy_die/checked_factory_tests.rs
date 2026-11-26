@@ -500,7 +500,7 @@ fn exact_script_propagates_nested_garrison_error_before_following_action() {
         module_path!(),
         "exact_script_propagates_nested_garrison_error_before_following_action",
         || {
-            use gamelogic::scripting::core::{
+            use generals_sim::scripting::program::{
                 Parameter, ParameterType, ScriptAction, ScriptActionType,
             };
             let mut world = world();

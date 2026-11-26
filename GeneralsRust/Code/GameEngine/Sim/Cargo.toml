@@ -10,6 +10,7 @@ license.workspace = true
 workspace = true
 
 [dependencies]
+bitflags = { workspace = true }
 generals_game_domain = { path = "../GameDomain" }
 generals_map = { path = "../Map" }
 log = { workspace = true }

@@ -136,7 +136,7 @@ fn dense_host_lists_keep_attack_random_and_cinematic_scripts_in_cxx_order() {
         ));
     }
 
-    let mut active_group = ScriptGroup::new();
+    let mut active_group = crate::scripting::core::new_script_group();
     active_group.set_name("Post Root Camera Group".to_string());
     active_group.set_active(true);
     active_group.append_script(one_shot_script(
@@ -145,7 +145,7 @@ fn dense_host_lists_keep_attack_random_and_cinematic_scripts_in_cxx_order() {
     ));
     list.append_group(Box::new(active_group));
 
-    let mut subroutine_group = ScriptGroup::new();
+    let mut subroutine_group = crate::scripting::core::new_script_group();
     subroutine_group.set_name("SUB-Generate Random Number".to_string());
     subroutine_group.set_active(true);
     subroutine_group.set_subroutine(true);
@@ -276,7 +276,7 @@ fn group_name_toggles_apply_at_cxx_group_boundaries_without_skipping_siblings() 
         display_text_action("root-after-enable"),
     ));
 
-    let mut dormant_group = ScriptGroup::new();
+    let mut dormant_group = crate::scripting::core::new_script_group();
     dormant_group.set_name("Dormant Attack Group".to_string());
     dormant_group.set_active(false);
     let mut dormant_member = Script::new();
@@ -286,7 +286,7 @@ fn group_name_toggles_apply_at_cxx_group_boundaries_without_skipping_siblings() 
     dormant_group.append_script(Box::new(dormant_member));
     list.append_group(Box::new(dormant_group));
 
-    let mut self_disabling_group = ScriptGroup::new();
+    let mut self_disabling_group = crate::scripting::core::new_script_group();
     self_disabling_group.set_name("Self Disabling Group".to_string());
     self_disabling_group.set_active(true);
     self_disabling_group.append_script(one_shot_script(
@@ -355,7 +355,7 @@ fn script_and_group_toggles_keep_cxx_authored_name_case() {
     root_script.set_name("Mixed Case Root Script".to_string());
     root_script.set_active(false);
 
-    let mut group = ScriptGroup::new();
+    let mut group = crate::scripting::core::new_script_group();
     group.set_name("Mixed Case Group".to_string());
     group.set_active(false);
 

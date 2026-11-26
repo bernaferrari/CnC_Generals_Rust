@@ -1,8 +1,10 @@
 //! Behavior suite extracted from `science_and_upgrades`.
 use super::*;
 
-fn run_rank_script(world: &mut GameLogic, action: gamelogic::scripting::core::ScriptAction) {
-    use gamelogic::scripting::core::{Condition, ConditionType, OrCondition, Script, ScriptList};
+fn run_rank_script(world: &mut GameLogic, action: generals_sim::scripting::program::ScriptAction) {
+    use generals_sim::scripting::program::{
+        Condition, ConditionType, OrCondition, Script, ScriptList,
+    };
     use gamelogic::scripting::engine::ScriptEngine;
 
     let mut condition = OrCondition::new();
@@ -110,7 +112,9 @@ fn script_rank_caps_stay_with_the_driving_match() {
     // GameLogic.h:205-209 owns the cap; Player.cpp:2433-2456 and
     // 2654-2672 consult that match for awards and explicit rank changes.
     use crate::game_logic::{Player, Team};
-    use gamelogic::scripting::core::{Parameter, ParameterType, ScriptAction, ScriptActionType};
+    use generals_sim::scripting::program::{
+        Parameter, ParameterType, ScriptAction, ScriptActionType,
+    };
     let mut first = GameLogic::new();
     let mut second = GameLogic::new();
     for world in [&mut first, &mut second] {
@@ -174,7 +178,9 @@ fn script_set_rank_level_plays_eva_general_level_up() {
     // C++ Player.cpp:2708-2714 setRankLevel always EVA for local.
     use crate::game_logic::Team;
     use gamelogic::helpers::EvaEvent;
-    use gamelogic::scripting::core::{Parameter, ParameterType, ScriptAction, ScriptActionType};
+    use generals_sim::scripting::program::{
+        Parameter, ParameterType, ScriptAction, ScriptActionType,
+    };
     let mut logic = GameLogic::new();
     logic.scripts_loaded = true;
     let store = game_engine::common::rts::science::ScienceStore::new_owned();

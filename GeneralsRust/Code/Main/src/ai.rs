@@ -372,7 +372,7 @@ struct ReinforceCandidate {
 pub(crate) struct OwnedProductionConditionState {
     pub(crate) condition_name: String,
     pub(crate) always_false: bool,
-    pub(crate) script: Option<gamelogic::scripting::core::Script>,
+    pub(crate) script: Option<generals_sim::scripting::program::Script>,
 }
 
 #[derive(Debug)]

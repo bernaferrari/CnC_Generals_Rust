@@ -2,7 +2,7 @@
 use super::named_command_test_support::{execute, world};
 use super::script_execution_driver::HostScriptExecutionDriver;
 use super::*;
-use gamelogic::scripting::core::ScriptActionType;
+use generals_sim::scripting::program::ScriptActionType;
 
 fn guard(world: &mut GameLogic, name: &str) {
     assert_eq!(
@@ -325,7 +325,7 @@ fn guard_this_object_uses_only_the_supplied_owned_id() {
         HostScriptExecutionDriver::new(&mut world)
             .named_command(
                 ScriptNamedCommand::Guard {
-                    unit: gamelogic::scripting::core::THIS_OBJECT,
+                    unit: generals_sim::scripting::program::THIS_OBJECT,
                 },
                 supplied,
             )
@@ -336,7 +336,7 @@ fn guard_this_object_uses_only_the_supplied_owned_id() {
     HostScriptExecutionDriver::new(&mut world)
         .named_command(
             ScriptNamedCommand::Guard {
-                unit: gamelogic::scripting::core::THIS_OBJECT,
+                unit: generals_sim::scripting::program::THIS_OBJECT,
             },
             Some(id.0),
         )

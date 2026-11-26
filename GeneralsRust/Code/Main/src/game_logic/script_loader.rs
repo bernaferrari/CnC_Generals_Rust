@@ -28,10 +28,9 @@ use game_engine::common::system::{
 };
 use game_engine::map_object::MAP_XY_FACTOR;
 use game_engine::polygon_trigger::PolygonTrigger;
-use gamelogic::scripting::chunk_codec::ScriptTemplateLookup;
-use gamelogic::scripting::core::{
+use generals_sim::scripting::program::{
     Condition, ConditionType, Coord3D, OrCondition, Parameter, ParameterType, Script, ScriptAction,
-    ScriptActionType, ScriptGroup, ScriptList,
+    ScriptActionType, ScriptGroup, ScriptList, ScriptTemplateLookup,
 };
 use gamelogic::scripting::{ScriptListReadInfo, parse_player_scripts_list_chunk};
 use gamelogic::system::Coord3D as SystemCoord3D;

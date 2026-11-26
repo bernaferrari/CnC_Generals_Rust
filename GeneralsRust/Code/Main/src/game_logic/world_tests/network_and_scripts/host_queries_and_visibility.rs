@@ -165,7 +165,7 @@ fn host_named_unit_found_with_empty_object_registry() {
 #[test]
 fn live_executor_named_team_conditions_use_host_snapshot() {
     use gamelogic::object::registry::OBJECT_REGISTRY;
-    use gamelogic::scripting::core::{Condition, ConditionType, Parameter, ParameterType};
+    use generals_sim::scripting::program::{Condition, ConditionType, Parameter, ParameterType};
     use gamelogic::scripting::engine::get_named_object_tracker;
 
     assert!(OBJECT_REGISTRY.is_empty());
@@ -242,7 +242,7 @@ fn unit_health_injects_leftover_initial_health_not_current_max() {
     // hq-um3v2: C++ evaluateUnitHealth divides by BodyModule::getInitialHealth,
     // not current max. Live inject used to send max, so INI InitialHealth 80 /
     // MaxHealth 100 at authored start fired at ~80% instead of 100%.
-    use gamelogic::scripting::core::{Condition, ConditionType, Parameter, ParameterType};
+    use generals_sim::scripting::program::{Condition, ConditionType, Parameter, ParameterType};
     let mut logic = GameLogic::new();
     let mut t = ThingTemplate::new("HurtHero");
     t.set_health(100.0);
@@ -406,7 +406,7 @@ fn host_player_census_keeps_same_faction_players_distinct() {
 
 #[test]
 fn host_player_census_excludes_kindof_inert_from_has_any_objects() {
-    use gamelogic::scripting::core::{Condition, ConditionType, Parameter, ParameterType};
+    use generals_sim::scripting::program::{Condition, ConditionType, Parameter, ParameterType};
     let destroyed = || {
         let mut condition = Condition::new(ConditionType::PlayerAllDestroyed);
         condition

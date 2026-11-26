@@ -684,7 +684,7 @@ fn contextual_team_override_action(target: &str, relation: i32) -> ScriptAction 
     action
         .add_parameter(Parameter::with_string(
             ParameterType::Team,
-            gamelogic::scripting::core::THIS_TEAM.into(),
+            generals_sim::scripting::program::THIS_TEAM.into(),
         ))
         .unwrap();
     action
@@ -1148,7 +1148,7 @@ fn contextual_relationship_actions_use_live_team_ids_and_reset_per_world() {
     // PLAYER_SET_OVERRIDE_RELATION_TO_TEAM resolves <This Team> from each
     // target context and stores by exact target Team ID, including siblings.
     let owner_player_script = contextual_action_engine(
-        contextual_player_override_action(gamelogic::scripting::core::THIS_TEAM, 2),
+        contextual_player_override_action(generals_sim::scripting::program::THIS_TEAM, 2),
         "TargetRoster",
     );
     run_contextual_action(&mut owner, &owner_player_script);
@@ -1165,7 +1165,7 @@ fn contextual_relationship_actions_use_live_team_ids_and_reset_per_world() {
     assert!(peer.get_player(1).unwrap().team_relations.is_empty());
 
     let peer_player_script = contextual_action_engine(
-        contextual_player_override_action(gamelogic::scripting::core::THIS_TEAM, 1),
+        contextual_player_override_action(generals_sim::scripting::program::THIS_TEAM, 1),
         "TargetRoster",
     );
     run_contextual_action(&mut peer, &peer_player_script);

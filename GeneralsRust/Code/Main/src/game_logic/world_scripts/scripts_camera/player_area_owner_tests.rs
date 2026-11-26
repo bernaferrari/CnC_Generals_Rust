@@ -1,7 +1,7 @@
 //! CPP420/513/2088: canonical players/objects with the owned polygon.
 use super::named_command_test_support::{named_infantry, world, world_with};
 use super::*;
-use gamelogic::scripting::core::{Condition, ConditionType, Parameter, ParameterType};
+use generals_sim::scripting::program::{Condition, ConditionType, Parameter, ParameterType};
 fn area(world: &mut GameLogic) {
     world
         .host_trigger_world
@@ -20,7 +20,7 @@ fn area(world: &mut GameLogic) {
 
 fn run_team_set_state_action(world: &mut GameLogic, team: &str, state: &str) {
     use super::script_execution_driver::HostScriptExecutionDriver;
-    use gamelogic::scripting::core::{
+    use generals_sim::scripting::program::{
         OrCondition, Script, ScriptAction, ScriptActionType, ScriptList,
     };
     use gamelogic::scripting::engine::ScriptEngine;
@@ -100,7 +100,7 @@ fn outside_area_distinguishes_an_absent_player_from_an_absent_trigger() {
 #[test]
 fn player_area_assesses_the_enemy_only_after_finding_the_trigger() {
     use game_engine::common::game_common::Relationship;
-    use gamelogic::scripting::core::{OrCondition, Script, THIS_PLAYER_ENEMY};
+    use generals_sim::scripting::program::{OrCondition, Script, THIS_PLAYER_ENEMY};
 
     let (mut owner, _, target) = world();
     owner.game_mode = GameMode::Skirmish;
@@ -235,7 +235,7 @@ fn enemy_perimeter_condition_acquires_only_the_receiving_worlds_enemy() {
     use glam::IVec3 as ICoord3D;
     use game_engine::common::game_common::Relationship;
     use game_engine::polygon_trigger::PolygonTrigger;
-    use gamelogic::scripting::core::{OrCondition, Script};
+    use generals_sim::scripting::program::{OrCondition, Script};
 
     fn fixture(outside: bool) -> (GameLogic, ObjectId) {
         let (mut world, unit, _) = world();
@@ -512,7 +512,7 @@ fn run_team_waypoint_trigger(world: &mut GameLogic, team: &str, path: &str) -> b
 
 fn run_condition_trigger(world: &mut GameLogic, condition: Condition) -> bool {
     use super::script_execution_driver::HostScriptExecutionDriver;
-    use gamelogic::scripting::core::{
+    use generals_sim::scripting::program::{
         OrCondition, Script, ScriptAction, ScriptActionType, ScriptList,
     };
     use gamelogic::scripting::engine::ScriptEngine;

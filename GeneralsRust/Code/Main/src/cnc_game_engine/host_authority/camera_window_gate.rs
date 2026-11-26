@@ -318,7 +318,7 @@ impl CnCGameEngine {
     /// Real authored movement, native full-view/HAG and archive restore on the
     /// existing receiving Engine. No synthetic pose or replacement owner.
     fn camera_gate_scripted_origin(&mut self, saved_slot: &str) -> Result<Value, String> {
-        use gamelogic::scripting::core::{
+        use generals_sim::scripting::program::{
             Condition, ConditionType, OrCondition, Parameter, ParameterType, Script, ScriptAction,
             ScriptActionType, ScriptList,
         };

@@ -1,7 +1,7 @@
 //! Authored world effects must follow the receiver, not a retained adapter.
 use super::script_execution_driver::HostScriptExecutionDriver;
 use super::*;
-use gamelogic::scripting::core::{Parameter, ParameterType, ScriptAction, ScriptActionType};
+use generals_sim::scripting::program::{Parameter, ParameterType, ScriptAction, ScriptActionType};
 
 #[test]
 fn authored_freeze_speed_weather_follow_receiver_without_or_with_foreign_handler() {

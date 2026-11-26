@@ -802,7 +802,7 @@ impl AIPlayer {
         if on_create.is_empty() || on_create == "<none>" {
             return OnCreateIntent::None;
         }
-        use gamelogic::scripting::core::ScriptActionType;
+        use generals_sim::scripting::program::ScriptActionType;
         if let Some(e) = engine {
             if let Some(script) = e.find_script_clone_by_name(on_create) {
                 let mut act = script.get_action();
@@ -904,7 +904,7 @@ impl AIPlayer {
         on_create: &str,
         engine: Option<&gamelogic::scripting::engine::ScriptEngine>,
     ) -> Option<String> {
-        use gamelogic::scripting::core::ScriptActionType;
+        use generals_sim::scripting::program::ScriptActionType;
         let e = engine?;
         let script = e.find_script_clone_by_name(on_create)?;
         let mut act = script.get_action();

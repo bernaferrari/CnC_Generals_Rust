@@ -2,7 +2,7 @@ use game_engine::common::{
     dict::Dict, ini::ini_locomotor::LocomotorStore, name_key_generator::NameKeyGenerator,
     system::DataChunkOutput,
 };
-use gamelogic::scripting::core::{
+use generals_sim::scripting::program::{
     Condition, ConditionType, OrCondition, Parameter, ParameterType, Script, ScriptAction,
     ScriptActionType, ScriptList,
 };

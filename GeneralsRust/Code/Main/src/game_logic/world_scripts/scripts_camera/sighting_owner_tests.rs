@@ -2,7 +2,7 @@
 use super::script_execution_driver::HostScriptExecutionDriver;
 use super::*;
 use game_engine::common::game_common::Relationship;
-use gamelogic::scripting::core::{
+use generals_sim::scripting::program::{
     Condition, ConditionType, OrCondition, Parameter, ParameterType, Script, ScriptAction,
     ScriptActionType, ScriptList,
 };
@@ -318,7 +318,7 @@ fn sighting_reads_live_exact_object_types_and_authoritative_absence() {
         world.host_object_mut(target).unwrap().owner_player_id = Some(1);
         assert!(observed(
             &mut world,
-            types(OBSERVER, TYPES, gamelogic::scripting::core::LOCAL_PLAYER)
+            types(OBSERVER, TYPES, generals_sim::scripting::program::LOCAL_PLAYER)
         ));
     });
 }
@@ -482,7 +482,7 @@ fn sighting_default_team_uses_authored_player_name() {
 #[test]
 fn sighting_supplied_this_object_and_current_player_are_owned_identities() {
     isolated(|| {
-        use gamelogic::scripting::core::{THIS_OBJECT, THIS_PLAYER};
+        use generals_sim::scripting::program::{THIS_OBJECT, THIS_PLAYER};
         use gamelogic::scripting::engine::{
             ScriptExecutionDriver, ScriptOwnerQuery, ScriptSightingFilter,
         };

@@ -2,7 +2,7 @@
 use super::named_command_test_support::world;
 use super::script_execution_driver::HostScriptExecutionDriver;
 use super::*;
-use gamelogic::scripting::core::{Parameter, ParameterType, ScriptAction, ScriptActionType};
+use generals_sim::scripting::program::{Parameter, ParameterType, ScriptAction, ScriptActionType};
 use gamelogic::scripting::engine::ScriptEngine;
 
 fn roster(owner: &GameLogic, unit: ObjectId) -> u32 {

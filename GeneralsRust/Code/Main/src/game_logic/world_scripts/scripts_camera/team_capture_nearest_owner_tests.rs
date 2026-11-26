@@ -4,7 +4,7 @@ use super::named_command_test_support::world_with;
 use crate::fixture_content::FixtureObject;
 use super::script_execution_driver::HostScriptExecutionDriver;
 use super::*;
-use gamelogic::scripting::core::{Parameter, ParameterType, ScriptAction, ScriptActionType};
+use generals_sim::scripting::program::{Parameter, ParameterType, ScriptAction, ScriptActionType};
 use gamelogic::scripting::engine::ScriptEngine;
 
 fn install_roster(world: &mut GameLogic, name: &str, member: ObjectId) -> u32 {
@@ -54,7 +54,7 @@ fn capture_nearest(
     action
         .add_parameter(Parameter::with_string(
             ParameterType::Team,
-            gamelogic::scripting::core::THIS_TEAM.into(),
+            generals_sim::scripting::program::THIS_TEAM.into(),
         ))
         .unwrap();
     let mut after_capture = ScriptAction::new(ScriptActionType::IncrementCounter);

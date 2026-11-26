@@ -1,7 +1,7 @@
 //! CPP privateAttackTeam and AttackSquad retain the concrete team identity.
 use super::named_command_test_support::{execute, world};
 use super::*;
-use gamelogic::scripting::core::ScriptActionType;
+use generals_sim::scripting::program::ScriptActionType;
 
 fn roster(owner: &GameLogic, name: &str, members: &[ObjectId]) -> u32 {
     let mut factory = owner.team_factory.lock().unwrap();
@@ -123,7 +123,7 @@ fn team_attack_named_runs_on_the_driving_roster_and_named_target() {
 
 #[test]
 fn named_attitude_changes_only_owned_ai_without_command_admission() {
-    use gamelogic::scripting::core::{Parameter, ParameterType, ScriptAction};
+    use generals_sim::scripting::program::{Parameter, ParameterType, ScriptAction};
     use gamelogic::scripting::engine::ScriptEngine;
     let (mut owner, unit, _) = world();
     let (foreign, peer, _) = world();
@@ -151,7 +151,7 @@ fn named_attitude_changes_only_owned_ai_without_command_admission() {
 
 #[test]
 fn team_stop_disband_stops_then_recruits_and_merges_actual_owned_rosters() {
-    use gamelogic::scripting::core::{Parameter, ParameterType, ScriptAction};
+    use generals_sim::scripting::program::{Parameter, ParameterType, ScriptAction};
     use gamelogic::scripting::engine::ScriptEngine;
     let (mut owner, unit, target) = world();
     let (foreign, peer, _) = world();
@@ -253,7 +253,7 @@ fn team_stop_disband_stops_then_recruits_and_merges_actual_owned_rosters() {
 #[test]
 fn create_object_uses_exact_team_controller_before_factory_admission() {
     use super::script_execution_driver::HostScriptExecutionDriver;
-    use gamelogic::scripting::core::{Parameter, ParameterType, ScriptAction};
+    use generals_sim::scripting::program::{Parameter, ParameterType, ScriptAction};
     use gamelogic::scripting::engine::ScriptEngine;
     let (mut owner, _, _) = world();
     let (mut peer, _, _) = world();
@@ -287,7 +287,7 @@ fn create_object_uses_exact_team_controller_before_factory_admission() {
     action
         .add_parameter(Parameter::with_coord(
             ParameterType::Coord3D,
-            gamelogic::scripting::core::Coord3D::new(123.0, 234.0, 7.0),
+            generals_sim::scripting::program::Coord3D::new(123.0, 234.0, 7.0),
         ))
         .unwrap();
     action

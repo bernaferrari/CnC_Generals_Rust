@@ -1,6 +1,6 @@
 //! Actual MapData admission -> owned script command -> movement -> condition -> save.
 use super::*;
-use gamelogic::scripting::core::{Condition, ConditionType, Parameter, ParameterType};
+use generals_sim::scripting::program::{Condition, ConditionType, Parameter, ParameterType};
 use glam::Vec3 as Coord3D;
 use game_engine::map_data::{MapData, MapWaypoint};
 

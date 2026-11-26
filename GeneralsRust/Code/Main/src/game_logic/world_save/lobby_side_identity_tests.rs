@@ -40,7 +40,7 @@ fn prepared(world: &GameLogic) -> SidesList {
     faction.set_ascii_string(key_player_faction(), "FactionGLA");
     sides.add_side(&faction);
     let mut source = ScriptList::new();
-    source.append_script(Box::new(gamelogic::scripting::core::Script::new()));
+    source.append_script(Box::new(generals_sim::scripting::program::Script::new()));
     sides
         .get_side_info_mut(2)
         .unwrap()

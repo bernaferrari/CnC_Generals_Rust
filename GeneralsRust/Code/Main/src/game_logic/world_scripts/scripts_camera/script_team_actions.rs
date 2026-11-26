@@ -611,7 +611,7 @@ impl GameLogic {
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
         interpreter: &gamelogic::scripting::engine::ScriptEngine,
     ) {
-        use gamelogic::scripting::ComparisonType;
+        use generals_sim::scripting::program::ComparisonType;
 
         let attacks = gamelogic::scripting::take_host_skirmish_attack_nearest_group_requests();
         for (team, comparison, value) in attacks {
@@ -1016,7 +1016,7 @@ impl GameLogic {
         let team_id = if let Some((id, _)) = resolved {
             id
         } else {
-            if request.team == gamelogic::scripting::core::THIS_TEAM {
+            if request.team == generals_sim::scripting::program::THIS_TEAM {
                 return Ok(());
             }
             self.require_owned_team_creation_interpreter(request.team, true, interpreter)?;
@@ -1176,7 +1176,7 @@ impl GameLogic {
         let resolved = self
             .resolve_owned_script_team(team_name, calling, condition)
             .ok()?;
-        if resolved.is_none() && team_name == gamelogic::scripting::core::THIS_TEAM {
+        if resolved.is_none() && team_name == generals_sim::scripting::program::THIS_TEAM {
             return None;
         }
         let selected = {

@@ -3,7 +3,9 @@
 //! retail map or a synthetic HostScriptQueryObject/AI callback witness.
 
 use super::*;
-use gamelogic::scripting::core::{Parameter, ParameterType, Script, ScriptAction, ScriptActionType};
+use generals_sim::scripting::program::{
+    Parameter, ParameterType, Script, ScriptAction, ScriptActionType,
+};
 use gamelogic::scripting::engine::{ScriptEngine, SequentialScript, get_script_engine};
 use game_engine::map_data::{MapData, MapWaypoint};
 fn set_flag(name: &str) -> Box<ScriptAction> {

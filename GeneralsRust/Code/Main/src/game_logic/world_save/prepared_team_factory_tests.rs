@@ -1,7 +1,7 @@
 //! Actual receiving map foundation; CPP Team.cpp198 / PlayerList.cpp159.
 use super::*;
 use game_engine::common::well_known_keys::*;
-use gamelogic::scripting::core::{
+use generals_sim::scripting::program::{
     Parameter, ParameterType, Script, ScriptAction, ScriptActionType, ScriptList,
 };
 use gamelogic::scripting::engine::ScriptEngine;

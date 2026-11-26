@@ -1,6 +1,6 @@
 //! hq-3dabn: OLD/GREEN behavior controls at the ordinary Main script update.
 use super::*;
-use gamelogic::scripting::core::{
+use generals_sim::scripting::program::{
     Condition, ConditionType, OrCondition, Parameter, ParameterType, Script, ScriptAction,
     ScriptActionType, ScriptList,
 };

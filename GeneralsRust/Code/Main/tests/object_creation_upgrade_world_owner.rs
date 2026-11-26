@@ -10,7 +10,6 @@ use game_engine::common::{
 };
 use gamelogic::{
     scripting::{
-        chunk_codec::ScriptTemplateLookup,
         core::{
             Condition, ConditionType, OrCondition, Parameter, ParameterType, Script, ScriptAction,
             ScriptActionType, ScriptList,
@@ -112,7 +111,7 @@ fn write_upgrade_map(path: &Path, master: &str, team_name: &str, script: Script)
         map.write_dict(&properties);
         map.close_data_chunk();
         map.close_data_chunk();
-        sides.write_sides_data_chunk(&mut map, &ScriptTemplateLookup::from_engine(&script_engine));
+        sides.write_sides_data_chunk(&mut map, &script_engine.script_template_lookup());
 
         std::fs::write(path, map.into_ckmp_bytes()).unwrap();
     });

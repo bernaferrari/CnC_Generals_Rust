@@ -1,6 +1,6 @@
 //! hq-g90ur: actual authored/action-boundary and external queue OLD/GREEN controls.
 use super::*;
-use gamelogic::scripting::core::{
+use generals_sim::scripting::program::{
     Condition, ConditionType, OrCondition, Parameter, ParameterType, Script, ScriptAction,
     ScriptActionType, ScriptList,
 };

@@ -3,7 +3,7 @@ use super::named_command_test_support::{world, world_with};
 use super::script_execution_driver::HostScriptExecutionDriver;
 use super::*;
 use crate::command_system::{CommandType, GameCommand, ModifierKeys};
-use gamelogic::scripting::core::{Parameter, ParameterType, ScriptAction, ScriptActionType};
+use generals_sim::scripting::program::{Parameter, ParameterType, ScriptAction, ScriptActionType};
 use gamelogic::scripting::engine::{ScriptEngine, ScriptExecutionDriver, ScriptOwnerQuery};
 
 /// All objects and both containment definitions enter through one receiving

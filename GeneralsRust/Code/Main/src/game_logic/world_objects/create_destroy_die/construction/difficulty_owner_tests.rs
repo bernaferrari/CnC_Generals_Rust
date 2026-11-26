@@ -1,7 +1,7 @@
 //! CPP ScriptActions difficulty policy affects existing objects immediately and
 //! each later Object::init, including creation while the interpreter is borrowed.
 use super::*;
-use gamelogic::scripting::core::{Parameter, ParameterType, ScriptAction, ScriptActionType};
+use generals_sim::scripting::program::{Parameter, ParameterType, ScriptAction, ScriptActionType};
 use gamelogic::scripting::engine::ScriptEngine;
 
 fn world() -> GameLogic {
@@ -56,7 +56,7 @@ fn spawn() -> ScriptAction {
     action
         .add_parameter(Parameter::with_coord(
             ParameterType::Coord3D,
-            gamelogic::scripting::core::Coord3D::new(10.0, 10.0, 0.0),
+            generals_sim::scripting::program::Coord3D::new(10.0, 10.0, 0.0),
         ))
         .unwrap();
     action

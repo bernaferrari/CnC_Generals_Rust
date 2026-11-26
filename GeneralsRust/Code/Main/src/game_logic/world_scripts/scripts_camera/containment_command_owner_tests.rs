@@ -2,7 +2,7 @@
 use super::named_command_test_support::{execute, named_infantry, world_with};
 use crate::fixture_content::FixtureObject;
 use super::*;
-use gamelogic::scripting::core::ScriptActionType;
+use generals_sim::scripting::program::ScriptActionType;
 
 /// The named world plus this file's authored one-seat infantry transport and
 /// a STEALTH_GARRISON passenger.
@@ -374,7 +374,7 @@ fn enter_group_preparation_does_not_write_foreign_core_object_with_same_id() {
                     "ForeignCoreOwner".into(),
                 )),
                 id.0,
-                gamelogic::common::ObjectStatusMaskType::NONE,
+                generals_sim::object::ObjectStatusMaskType::NONE,
                 None,
             );
             foreign.enter_group(&gamelogic::ai::AIGroup::new(913));

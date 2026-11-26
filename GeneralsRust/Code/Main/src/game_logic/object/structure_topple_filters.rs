@@ -38,7 +38,7 @@ impl Object {
     }
 
     pub(crate) fn structure_topple_status_mask(&self) -> gamelogic::object::die::ObjectStatusMask {
-        use gamelogic::common::ObjectStatusMaskType as Mask;
+        use generals_sim::object::ObjectStatusMaskType as Mask;
         // Unrepresented status bits retain their actual host bitset value.
         // Where Main owns a dedicated field, it is the observation authority;
         // stale bitset values must not override that field in either direction.

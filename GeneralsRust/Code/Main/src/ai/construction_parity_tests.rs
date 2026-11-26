@@ -434,7 +434,7 @@ fn prepare_scripted_external_energy_with_nested(
     nested: bool,
 ) -> crate::game_logic::Object {
     use game_engine::common::{dict::Dict, well_known_keys::*};
-    use gamelogic::scripting::core::{
+    use generals_sim::scripting::program::{
         Parameter, ParameterType, Script, ScriptAction, ScriptActionType, ScriptList,
     };
     let scaffold = world
@@ -734,7 +734,7 @@ fn running_actual_team_creation_cannot_be_snapshot_as_ready() {
 #[test]
 fn actual_singleton_factory_reuses_running_identity_and_executes_its_creation_actions() {
     use game_engine::common::{dict::Dict, well_known_keys::*};
-    use gamelogic::scripting::core::{
+    use generals_sim::scripting::program::{
         Parameter, ParameterType, Script, ScriptAction, ScriptActionType, ScriptList,
     };
     let mut world = energy_admission_world();

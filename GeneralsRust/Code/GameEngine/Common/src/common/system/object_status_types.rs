@@ -156,10 +156,8 @@ bitflags! {
 impl ObjectStatusMaskType {
     /// Resolve a mask bit by its canonical (case-insensitive) name.
     pub fn from_case_insensitive_name(name: &str) -> Option<Self> {
-        STATUS_FLAG_LOOKUP
-            .iter()
-            .find(|(candidate, _)| candidate.eq_ignore_ascii_case(name))
-            .map(|(_, flag)| *flag)
+        generals_game_domain::object_status::object_status_bit_by_name(name)
+            .map(Self::from_bits_retain)
     }
 
     /// Parse a sequence of status-bit tokens into a mask.
@@ -173,84 +171,8 @@ impl ObjectStatusMaskType {
     where
         I: IntoIterator<Item = &'a str>,
     {
-        let mut mask = Self::empty();
-        let mut found_normal = false;
-        let mut found_add_or_sub = false;
-
-        for raw in tokens {
-            let token = raw.trim();
-            if token.is_empty() {
-                continue;
-            }
-
-            if token.eq_ignore_ascii_case("NONE") {
-                if found_normal || found_add_or_sub {
-                    return Err("cannot mix NONE with other object status tokens".to_string());
-                }
-                mask = Self::empty();
-                return Ok(mask);
-            }
-
-            let (op, name) = match token.chars().next() {
-                Some('+') | Some('-') => (token.chars().next(), &token[1..]),
-                _ => (None, token),
-            };
-
-            // BitFlagsIO checks the listing mode before scanning the name,
-            // including unknown/empty names in a conflicting mode.
-            match op {
-                Some('+') if found_normal => {
-                    return Err(
-                        "cannot mix additive object status tokens with direct listings".to_string(),
-                    );
-                }
-                Some('-') if found_normal => {
-                    return Err(
-                        "cannot mix subtractive object status tokens with direct listings"
-                            .to_string(),
-                    );
-                }
-                None if found_add_or_sub => {
-                    return Err(
-                        "cannot mix direct object status listings with +/- modifiers".to_string(),
-                    );
-                }
-                _ => {}
-            }
-
-            if name.is_empty() {
-                return Err(format!("invalid object status token '{token}'"));
-            }
-
-            let flag = Self::from_case_insensitive_name(name)
-                .ok_or_else(|| format!("unknown object status '{name}'"))?;
-
-            match op {
-                Some('+') => {
-                    mask.insert(flag);
-                    found_add_or_sub = true;
-                }
-                Some('-') => {
-                    mask.remove(flag);
-                    found_add_or_sub = true;
-                }
-                None => {
-                    if !found_normal {
-                        mask = Self::empty();
-                    }
-                    mask.insert(flag);
-                    found_normal = true;
-                }
-                Some(other) => {
-                    return Err(format!(
-                        "unsupported object status modifier '{}{}'",
-                        other, name
-                    ));
-                }
-            }
-        }
-
-        Ok(mask)
+        generals_game_domain::object_status::parse_object_status_bits(tokens)
+            .map(Self::from_bits_retain)
     }
 
     /// Create an object status mask from a single status type
@@ -386,59 +308,6 @@ pub const OBJECT_STATUS_BIT_NAMES: &[&str] = &[
     "IMMOBILE",
     "DISGUISED",
     "DEPLOYED",
-];
-
-const STATUS_FLAG_LOOKUP: &[(&str, ObjectStatusMaskType)] = &[
-    ("DESTROYED", ObjectStatusMaskType::DESTROYED),
-    ("CAN_ATTACK", ObjectStatusMaskType::CAN_ATTACK),
-    (
-        "UNDER_CONSTRUCTION",
-        ObjectStatusMaskType::UNDER_CONSTRUCTION,
-    ),
-    ("UNSELECTABLE", ObjectStatusMaskType::UNSELECTABLE),
-    ("NO_COLLISIONS", ObjectStatusMaskType::NO_COLLISIONS),
-    ("NO_ATTACK", ObjectStatusMaskType::NO_ATTACK),
-    ("AIRBORNE_TARGET", ObjectStatusMaskType::AIRBORNE_TARGET),
-    ("PARACHUTING", ObjectStatusMaskType::PARACHUTING),
-    ("REPULSOR", ObjectStatusMaskType::REPULSOR),
-    ("HIJACKED", ObjectStatusMaskType::HIJACKED),
-    ("AFLAME", ObjectStatusMaskType::AFLAME),
-    ("BURNED", ObjectStatusMaskType::BURNED),
-    ("WET", ObjectStatusMaskType::WET),
-    ("IS_FIRING_WEAPON", ObjectStatusMaskType::IS_FIRING_WEAPON),
-    ("IS_BRAKING", ObjectStatusMaskType::IS_BRAKING),
-    ("STEALTHED", ObjectStatusMaskType::STEALTHED),
-    ("DETECTED", ObjectStatusMaskType::DETECTED),
-    ("CAN_STEALTH", ObjectStatusMaskType::CAN_STEALTH),
-    ("SOLD", ObjectStatusMaskType::SOLD),
-    ("UNDERGOING_REPAIR", ObjectStatusMaskType::UNDERGOING_REPAIR),
-    ("RECONSTRUCTING", ObjectStatusMaskType::RECONSTRUCTING),
-    ("MASKED", ObjectStatusMaskType::MASKED),
-    ("IS_ATTACKING", ObjectStatusMaskType::IS_ATTACKING),
-    ("USING_ABILITY", ObjectStatusMaskType::USING_ABILITY),
-    ("IS_AIMING_WEAPON", ObjectStatusMaskType::IS_AIMING_WEAPON),
-    ("NO_ATTACK_FROM_AI", ObjectStatusMaskType::NO_ATTACK_FROM_AI),
-    ("IGNORING_STEALTH", ObjectStatusMaskType::IGNORING_STEALTH),
-    ("IS_CARBOMB", ObjectStatusMaskType::IS_CARBOMB),
-    (
-        "DECK_HEIGHT_OFFSET",
-        ObjectStatusMaskType::DECK_HEIGHT_OFFSET,
-    ),
-    ("STATUS_RIDER1", ObjectStatusMaskType::STATUS_RIDER1),
-    ("STATUS_RIDER2", ObjectStatusMaskType::STATUS_RIDER2),
-    ("STATUS_RIDER3", ObjectStatusMaskType::STATUS_RIDER3),
-    ("STATUS_RIDER4", ObjectStatusMaskType::STATUS_RIDER4),
-    ("STATUS_RIDER5", ObjectStatusMaskType::STATUS_RIDER5),
-    ("STATUS_RIDER6", ObjectStatusMaskType::STATUS_RIDER6),
-    ("STATUS_RIDER7", ObjectStatusMaskType::STATUS_RIDER7),
-    ("STATUS_RIDER8", ObjectStatusMaskType::STATUS_RIDER8),
-    ("FAERIE_FIRE", ObjectStatusMaskType::FAERIE_FIRE),
-    ("KILLING_SELF", ObjectStatusMaskType::KILLING_SELF),
-    ("REASSIGN_PARKING", ObjectStatusMaskType::REASSIGN_PARKING),
-    ("BOOBY_TRAPPED", ObjectStatusMaskType::BOOBY_TRAPPED),
-    ("IMMOBILE", ObjectStatusMaskType::IMMOBILE),
-    ("DISGUISED", ObjectStatusMaskType::DISGUISED),
-    ("DEPLOYED", ObjectStatusMaskType::DEPLOYED),
 ];
 
 lazy_static! {

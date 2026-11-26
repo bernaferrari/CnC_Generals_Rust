@@ -1,6 +1,6 @@
 //! CPP ScriptActions5315: synchronous giveUpgrade on the actual named receiver.
 use super::*;
-use gamelogic::scripting::core::{Parameter, ParameterType, ScriptAction, ScriptActionType};
+use generals_sim::scripting::program::{Parameter, ParameterType, ScriptAction, ScriptActionType};
 use gamelogic::scripting::engine::{ScriptEngine, ScriptExecutionDriver, ScriptOwnerQuery};
 use gamelogic::scripting::executor::ScriptContext;
 const KEY: &str = "Upgrade_CostReduction";
@@ -204,7 +204,7 @@ fn unknown_own_definition_and_missing_object_are_authoritative_while_this_uses_a
                 let mut driver = HostScriptExecutionDriver::with_interpreter(&mut owner, &engine);
                 assert!(
                     driver
-                        .named_upgrade(gamelogic::scripting::core::THIS_OBJECT, KEY, Some(id.0))
+                        .named_upgrade(generals_sim::scripting::program::THIS_OBJECT, KEY, Some(id.0))
                         .unwrap()
                         .is_ok()
                 );

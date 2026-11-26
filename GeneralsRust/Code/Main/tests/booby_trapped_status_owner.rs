@@ -23,8 +23,8 @@ fn world() -> (GameLogic, ObjectId) {
 }
 
 fn script_observes_trap(game: &mut GameLogic, id: ObjectId) -> bool {
-    use gamelogic::common::ObjectStatusMaskType;
-    use gamelogic::scripting::core::{
+    use generals_sim::object::ObjectStatusMaskType;
+    use generals_sim::scripting::program::{
         Condition, ConditionType, OrCondition, Parameter, ParameterType, Script, ScriptAction,
         ScriptActionType, ScriptList,
     };

@@ -1,6 +1,6 @@
 //! Real primary script admission writes its receiving match before Core fallback.
 use super::*;
-use gamelogic::scripting::core::{Parameter, ParameterType, ScriptAction, ScriptActionType};
+use generals_sim::scripting::program::{Parameter, ParameterType, ScriptAction, ScriptActionType};
 
 fn action(mode: i32) -> ScriptAction {
     let mut action = ScriptAction::new(ScriptActionType::OptionsSetDrawiconUiMode);

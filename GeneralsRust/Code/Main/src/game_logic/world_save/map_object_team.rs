@@ -473,7 +473,7 @@ mod tests {
     }
     #[test]
     fn implicit_map_team_creation_actions_finish_before_incoming_factory_birth() {
-        use gamelogic::scripting::core::{
+        use generals_sim::scripting::program::{
             Condition, ConditionType, OrCondition, Parameter, ParameterType, Script, ScriptAction,
             ScriptActionType, ScriptList,
         };
@@ -651,7 +651,7 @@ mod tests {
     }
     #[test]
     fn script_create_object_redirects_dead_and_observer_teams_without_restamping_requested_name() {
-        use gamelogic::scripting::core::{
+        use generals_sim::scripting::program::{
             Parameter, ParameterType, ScriptAction, ScriptActionType,
         };
         for observer in [false, true] {

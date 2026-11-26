@@ -24,7 +24,8 @@ fn script_skirmish_attack_nearest_group_uses_relationship_and_cell_value() {
     use crate::game_logic::AIState;
     use crate::game_logic::partition_manager::PARTITION_CELL_SIZE_RESIDUAL;
     use game_engine::common::game_common::Relationship;
-    use gamelogic::scripting::{ComparisonType, request_host_skirmish_attack_nearest_group};
+    use generals_sim::scripting::program::ComparisonType;
+    use gamelogic::scripting::request_host_skirmish_attack_nearest_group;
 
     let mut logic = GameLogic::new();
     // Match admission initializes the actual receiving scalar grid before

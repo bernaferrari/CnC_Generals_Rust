@@ -118,7 +118,9 @@ impl GameLogic {
 mod tests {
     use super::*;
     use game_engine::common::system::DataChunkOutput;
-    use gamelogic::scripting::core::{ConditionType, Parameter, ParameterType, ScriptActionType};
+    use generals_sim::scripting::program::{
+        ConditionType, Parameter, ParameterType, ScriptActionType,
+    };
 
     const TEMPLATE: &str = "AmericaPowerPlant";
     const BUILDING: &str = "AuthoredInitialPower";

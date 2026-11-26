@@ -218,7 +218,7 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
                     .map(|player| player.map_side.map_player_name.clone()),
             ),
             None => {
-                use gamelogic::scripting::core::{
+                use generals_sim::scripting::program::{
                     LOCAL_PLAYER, THE_PLAYER, THIS_PLAYER, THIS_PLAYER_ENEMY,
                 };
                 let authored_selector = matches!(
@@ -979,7 +979,7 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
         calling: Option<u32>,
         condition: Option<u32>,
     ) -> Option<generals_sim::GameLogicResult<()>> {
-        if team == gamelogic::scripting::core::TEAM_THE_PLAYER && self.world.is_challenge_session()
+        if team == generals_sim::scripting::program::TEAM_THE_PLAYER && self.world.is_challenge_session()
         {
             let result = (|| {
                 let Some(player_id) = self.world.local_player_id() else {
@@ -1072,7 +1072,7 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
         calling: Option<u32>,
         condition: Option<u32>,
     ) -> Option<generals_sim::GameLogicResult<()>> {
-        if team == gamelogic::scripting::core::TEAM_THE_PLAYER && self.world.is_challenge_session()
+        if team == generals_sim::scripting::program::TEAM_THE_PLAYER && self.world.is_challenge_session()
         {
             let Some(player_id) = self.world.local_player_id() else {
                 return Some(Err(generals_sim::GameLogicError::Configuration(
@@ -2091,7 +2091,7 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
         };
         let source_object = match source {
             None => gamelogic::common::INVALID_ID,
-            Some(gamelogic::scripting::core::THIS_OBJECT) => {
+            Some(generals_sim::scripting::program::THIS_OBJECT) => {
                 let Some(id) =
                     this_object.filter(|id| self.world.host_object(ObjectId(*id)).is_some())
                 else {
@@ -2126,7 +2126,7 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
         // That identity is not yet admitted by Main (hq-dryhs/hq-9bqdm);
         // retain the existing adapter for this capability rather than invent
         // a team from a display name or choose an unrelated same-name instance.
-        if team == gamelogic::scripting::core::TEAM_THE_PLAYER && self.world.is_challenge_session()
+        if team == generals_sim::scripting::program::TEAM_THE_PLAYER && self.world.is_challenge_session()
         {
             return None;
         }
@@ -2168,7 +2168,7 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
         condition_team: Option<u32>,
         mood: i32,
     ) -> Option<generals_sim::GameLogicResult<()>> {
-        if team == gamelogic::scripting::core::TEAM_THE_PLAYER && self.world.is_challenge_session()
+        if team == generals_sim::scripting::program::TEAM_THE_PLAYER && self.world.is_challenge_session()
         {
             return None;
         }
@@ -2183,10 +2183,10 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
         team: &str,
         calling_team: Option<u32>,
         condition_team: Option<u32>,
-        script: Option<(gamelogic::scripting::core::Script, i32)>,
+        script: Option<(generals_sim::scripting::program::Script, i32)>,
         engine: &gamelogic::scripting::engine::ScriptEngine,
     ) -> Option<generals_sim::GameLogicResult<()>> {
-        if team == gamelogic::scripting::core::TEAM_THE_PLAYER && self.world.is_challenge_session()
+        if team == generals_sim::scripting::program::TEAM_THE_PLAYER && self.world.is_challenge_session()
         {
             return None;
         }
@@ -2535,7 +2535,7 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
         &mut self,
         name: &str,
         power_name: &str,
-        action: gamelogic::scripting::core::ScriptActionType,
+        action: generals_sim::scripting::program::ScriptActionType,
         seconds: i32,
         this_object: Option<u32>,
     ) -> Option<generals_sim::GameLogicResult<()>> {
@@ -3272,7 +3272,7 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
         calling: Option<u32>,
         condition: Option<u32>,
     ) -> ScriptOwnerQuery<bool> {
-        let contextual = name == gamelogic::scripting::core::THIS_TEAM
+        let contextual = name == generals_sim::scripting::program::THIS_TEAM
             || calling.or(condition).is_some_and(|id| {
                 self.owned_team(id).is_some_and(|team| {
                     team.read().expect("owned unit context").get_name().as_str() == name
@@ -3632,7 +3632,7 @@ mod map_visibility_owner_tests {
 
     #[test]
     fn map_shroud_resolves_script_player_aliases_in_the_receiving_world() {
-        use gamelogic::scripting::core::{
+        use generals_sim::scripting::program::{
             LOCAL_PLAYER, THE_PLAYER, THIS_PLAYER, THIS_PLAYER_ENEMY,
         };
 
@@ -3874,7 +3874,7 @@ impl GameLogic {
     pub(crate) fn evaluate_owned_script_conditions(
         &mut self,
         engine: &gamelogic::scripting::engine::ScriptEngine,
-        script: &mut gamelogic::scripting::core::Script,
+        script: &mut generals_sim::scripting::program::Script,
         player_name: Option<&str>,
     ) -> bool {
         let mut context = gamelogic::scripting::executor::ScriptContext::at_frame(self.frame)

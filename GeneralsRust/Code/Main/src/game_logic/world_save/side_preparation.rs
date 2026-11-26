@@ -72,7 +72,7 @@ impl GameLogic {
             match self.owned_script_engine.as_ref() {
                 Some(engine) => {
                     let templates =
-                        gamelogic::scripting::chunk_codec::ScriptTemplateLookup::from_engine(engine);
+                        engine.script_template_lookup();
                     sides.prepare_for_mp_or_skirmish_with_definitions(
                         templates,
                         &self.world_services.common().name_key_namespace,

@@ -1,7 +1,7 @@
 //! Real ScriptEngine player actions target the borrowed Main owner.
 use super::script_execution_driver::HostScriptExecutionDriver;
 use super::*;
-use gamelogic::scripting::core::{Parameter, ParameterType, ScriptAction, ScriptActionType};
+use generals_sim::scripting::program::{Parameter, ParameterType, ScriptAction, ScriptActionType};
 use gamelogic::scripting::engine::ScriptEngine;
 
 fn player_action(kind: ScriptActionType, player: &str, value: i32) -> ScriptAction {
@@ -134,7 +134,7 @@ fn enemy_alias_world() -> GameLogic {
 
 #[test]
 fn enemy_player_token_queries_the_receiving_ai_during_the_action() {
-    use gamelogic::scripting::core::{
+    use generals_sim::scripting::program::{
         Condition, ConditionType, OrCondition, Script, ScriptList, THIS_PLAYER_ENEMY,
     };
     use gamelogic::scripting::executor::ScriptContext;
@@ -192,7 +192,7 @@ fn enemy_player_token_queries_the_receiving_ai_during_the_action() {
 
 #[test]
 fn enemy_player_census_assesses_on_the_receiving_condition() {
-    use gamelogic::scripting::core::{
+    use generals_sim::scripting::program::{
         Condition, ConditionType, OrCondition, Script, THIS_PLAYER_ENEMY,
     };
     use gamelogic::scripting::executor::ScriptContext;

@@ -1,6 +1,6 @@
 //! CPP ScriptConditions274-335: pointer lifetime differs from effective death.
 use super::*;
-use gamelogic::scripting::core::{
+use generals_sim::scripting::program::{
     Condition, ConditionType, OrCondition, Parameter, ParameterType, Script,
 };
 use gamelogic::scripting::engine::ScriptEngine;

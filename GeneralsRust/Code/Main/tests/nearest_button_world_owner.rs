@@ -7,8 +7,7 @@ use game_engine::common::well_known_keys::{
     key_player_faction, key_player_is_human, key_player_name, key_team_enemy_sighted_script,
     key_team_is_singleton, key_team_name, key_team_owner,
 };
-use gamelogic::scripting::chunk_codec::ScriptTemplateLookup;
-use gamelogic::scripting::core::{
+use generals_sim::scripting::program::{
     Condition, ConditionType, OrCondition, Parameter, ParameterType, Script, ScriptAction,
     ScriptActionType, ScriptList,
 };
@@ -115,7 +114,7 @@ fn world_with_roster(
         map.close_data_chunk();
     }
     map.close_data_chunk();
-    sides.write_sides_data_chunk(&mut map, &ScriptTemplateLookup::from_engine(&engine));
+    sides.write_sides_data_chunk(&mut map, &engine.script_template_lookup());
     let path = root.join("NearestButton.map");
     std::fs::write(&path, map.into_ckmp_bytes()).unwrap();
     let power = "SpecialPower SpecialAbilityMissileDefenderLaserGuidedMissiles\n Enum = SPECIAL_MISSILE_DEFENDER_LASER_GUIDED_MISSILES\n ReloadTime = 0\nEnd\n";

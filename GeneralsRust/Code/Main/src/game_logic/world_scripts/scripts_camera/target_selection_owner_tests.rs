@@ -1,6 +1,6 @@
 //! CPP AIStates5949 + ScriptActions6353: same-action interpreter policy.
 use super::*;
-use gamelogic::scripting::core::{Parameter, ParameterType, ScriptAction, ScriptActionType};
+use generals_sim::scripting::program::{Parameter, ParameterType, ScriptAction, ScriptActionType};
 use gamelogic::scripting::engine::{ScriptEngine, ScriptExecutionDriver};
 
 fn fixture(normal: bool) -> (GameLogic, ObjectId, ObjectId, ObjectId) {

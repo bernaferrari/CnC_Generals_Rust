@@ -1250,7 +1250,7 @@ fn enable_disable_actions_toggle_private_subroutine_group_before_following_call(
         .expect("boolean parameter should fit");
     member.set_action(Some(Box::new(set_flag)));
 
-    let mut group = ScriptGroup::new();
+    let mut group = crate::scripting::core::new_script_group();
     group.set_name(GROUP_NAME.to_string());
     group.set_active(false);
     group.set_subroutine(true);

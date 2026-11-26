@@ -4,7 +4,7 @@ use crate::game_logic::pathfinding::GridPos;
 use generals_sim::pathfinding::PathfindCellType;
 use gamelogic::common::AsciiString;
 use glam::IVec3 as ICoord3D;
-use gamelogic::scripting::core::{Parameter, ParameterType, ScriptAction, ScriptActionType};
+use generals_sim::scripting::program::{Parameter, ParameterType, ScriptAction, ScriptActionType};
 use gamelogic::scripting::engine::{ScriptEngine, ScriptWaterRequest};
 use gamelogic::terrain::TerrainDynamicWaterSnapshotEntry;
 

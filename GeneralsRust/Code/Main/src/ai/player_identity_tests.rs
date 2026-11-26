@@ -68,10 +68,10 @@ fn skirmish_build_building_marks_only_the_executing_players_pad() {
 }
 
 fn supply_condition(
-    kind: gamelogic::scripting::core::ConditionType,
+    kind: generals_sim::scripting::program::ConditionType,
     player: &str,
-) -> gamelogic::scripting::core::Script {
-    use gamelogic::scripting::core::{
+) -> generals_sim::scripting::program::Script {
+    use generals_sim::scripting::program::{
         Condition, ConditionType, OrCondition, Parameter, ParameterType, Script,
     };
 
@@ -93,7 +93,7 @@ fn supply_condition(
 
 fn evaluate_supply(
     world: &mut GameLogic,
-    condition: &mut gamelogic::scripting::core::Script,
+    condition: &mut generals_sim::scripting::program::Script,
 ) -> bool {
     world
         .with_owned_script_engine(|engine, world| {
@@ -104,7 +104,7 @@ fn evaluate_supply(
 
 #[test]
 fn supply_source_queries_for_a_player_without_ai_match_cpp_defaults() {
-    use gamelogic::scripting::core::ConditionType;
+    use generals_sim::scripting::program::ConditionType;
 
     let mut world = GameLogic::new();
     world.add_player(Player::new(0, Team::USA, "Display Label", true)
@@ -119,7 +119,7 @@ fn supply_source_queries_for_a_player_without_ai_match_cpp_defaults() {
 
 #[test]
 fn supply_source_queries_use_canonical_map_player_identity() {
-    use gamelogic::scripting::core::ConditionType;
+    use generals_sim::scripting::program::ConditionType;
 
     fn world(identity: &str) -> (GameLogic, crate::game_logic::ObjectId) {
         let mut world = GameLogic::new();

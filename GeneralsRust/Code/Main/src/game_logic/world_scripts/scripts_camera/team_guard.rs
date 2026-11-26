@@ -77,7 +77,7 @@ impl GameLogic {
         }
         // ScriptEngine.cpp resolves this special name only in Challenge mode.
         // The local player's default Team belongs to the receiving session.
-        if raw_team == gamelogic::scripting::core::TEAM_THE_PLAYER && self.is_challenge_session() {
+        if raw_team == generals_sim::scripting::program::TEAM_THE_PLAYER && self.is_challenge_session() {
             return match self.local_player_id() {
                 Some(player) => self.resolve_owned_player_default_team(player),
                 None => Ok(None),
@@ -85,7 +85,7 @@ impl GameLogic {
         }
         self.team_factory
             .with_read_without_flushing(|factory| {
-                let contextual = if raw_team == gamelogic::scripting::core::THIS_TEAM {
+                let contextual = if raw_team == generals_sim::scripting::program::THIS_TEAM {
                     calling_team.or(condition_team)
                 } else {
                     let mut selected = None;
@@ -105,7 +105,7 @@ impl GameLogic {
                 };
                 let team = if let Some(id) = contextual {
                     factory.find_team_by_id(id)
-                } else if raw_team == gamelogic::scripting::core::THIS_TEAM {
+                } else if raw_team == generals_sim::scripting::program::THIS_TEAM {
                     None
                 } else {
                     let Some(prototype) = factory.find_team_prototype(raw_team) else {
@@ -295,7 +295,7 @@ impl GameLogic {
         raw_team: &str,
         calling_team: Option<u32>,
         condition_team: Option<u32>,
-        script: Option<(gamelogic::scripting::core::Script, i32)>,
+        script: Option<(generals_sim::scripting::program::Script, i32)>,
         engine: &gamelogic::scripting::engine::ScriptEngine,
     ) -> generals_sim::GameLogicResult<()> {
         let Some((id, members)) =
@@ -322,7 +322,7 @@ impl GameLogic {
     pub(crate) fn execute_script_team_actions(
         &mut self,
         engine: &gamelogic::scripting::engine::ScriptEngine,
-        action: &gamelogic::scripting::core::ScriptAction,
+        action: &generals_sim::scripting::program::ScriptAction,
         team_id: Option<u32>,
     ) {
         self.execute_script_team_actions_with_effects(
@@ -336,7 +336,7 @@ impl GameLogic {
     pub(crate) fn execute_script_team_actions_with_effects(
         &mut self,
         engine: &gamelogic::scripting::engine::ScriptEngine,
-        action: &gamelogic::scripting::core::ScriptAction,
+        action: &generals_sim::scripting::program::ScriptAction,
         team_id: Option<u32>,
         ui: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) {
@@ -352,7 +352,7 @@ impl GameLogic {
     pub(crate) fn execute_script_team_actions_with_effects_checked(
         &mut self,
         engine: &gamelogic::scripting::engine::ScriptEngine,
-        action: &gamelogic::scripting::core::ScriptAction,
+        action: &generals_sim::scripting::program::ScriptAction,
         team_id: Option<u32>,
         ui: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> generals_sim::GameLogicResult<()> {
@@ -374,7 +374,7 @@ impl GameLogic {
 impl GameLogic {
     /// Exercise the real borrowed script walk without publishing a request.
     pub(crate) fn execute_team_guard_script_for_test(&mut self, team: &str) {
-        use gamelogic::scripting::core::{
+        use generals_sim::scripting::program::{
             Parameter, ParameterType, ScriptAction, ScriptActionType,
         };
         let mut action = ScriptAction::new(ScriptActionType::TeamGuard);
@@ -397,7 +397,7 @@ impl GameLogic {
     pub(in crate::game_logic) fn execute_checked_factory_actions_for_test(
         &mut self,
         engine: &gamelogic::scripting::engine::ScriptEngine,
-        action: &gamelogic::scripting::core::ScriptAction,
+        action: &generals_sim::scripting::program::ScriptAction,
     ) -> generals_sim::GameLogicResult<()> {
         engine.friend_execute_action_with_driver_checked(
             action,

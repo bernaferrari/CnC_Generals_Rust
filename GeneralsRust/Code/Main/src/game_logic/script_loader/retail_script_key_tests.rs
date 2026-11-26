@@ -45,7 +45,7 @@ mod retail_script_key_tests {
     fn physical_map_script_key_trace() {
         let path = std::env::var("GENERALS_SCRIPT_KEY_RETAIL_MAP").expect("retail path required");
         let engine = ScriptEngine::new_in_published_world().unwrap();
-        let catalog = ScriptTemplateLookup::from_engine(&engine);
+        let catalog = engine.script_template_lookup();
         let document = load_chunky_map(&path)
             .unwrap()
             .expect("physical map exists");

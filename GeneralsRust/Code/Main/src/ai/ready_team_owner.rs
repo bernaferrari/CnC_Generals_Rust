@@ -316,7 +316,7 @@ mod tests {
     }
     #[test]
     fn activation_runs_real_on_create_once_at_next_owned_script_tick() {
-        use gamelogic::scripting::core::{
+        use generals_sim::scripting::program::{
             Parameter, ParameterType, Script, ScriptAction, ScriptActionType, ScriptList,
         };
         let (mut world, unit, id) = fixture();
@@ -381,9 +381,9 @@ mod tests {
         let mut script = Script::new();
         script.script_name = "ActualCreate".into();
         script.is_subroutine = true;
-        let mut condition = gamelogic::scripting::OrCondition::new();
-        condition.set_first_and_condition(Some(Box::new(gamelogic::scripting::Condition::new(
-            gamelogic::scripting::ConditionType::ConditionTrue,
+        let mut condition = generals_sim::scripting::program::OrCondition::new();
+        condition.set_first_and_condition(Some(Box::new(generals_sim::scripting::program::Condition::new(
+            generals_sim::scripting::program::ConditionType::ConditionTrue,
         ))));
         script.condition = Some(Box::new(condition));
         script.action = Some(Box::new(action));

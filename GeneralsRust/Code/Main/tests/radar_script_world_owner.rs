@@ -1,4 +1,4 @@
-use gamelogic::scripting::core::{
+use generals_sim::scripting::program::{
     Condition, ConditionType, OrCondition, Script, ScriptAction, ScriptActionType, ScriptList,
 };
 use gamelogic::scripting::engine::ScriptEngine;

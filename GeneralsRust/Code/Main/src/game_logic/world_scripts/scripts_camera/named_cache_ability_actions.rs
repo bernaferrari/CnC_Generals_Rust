@@ -171,7 +171,7 @@ impl<'a> HostScriptExecutionDriver<'a> {
         &mut self,
         name: &str,
         power_name: &str,
-        action: gamelogic::scripting::core::ScriptActionType,
+        action: generals_sim::scripting::program::ScriptActionType,
         seconds: i32,
         this_object: Option<u32>,
     ) -> Option<generals_sim::GameLogicResult<()>> {
@@ -185,7 +185,7 @@ impl<'a> HostScriptExecutionDriver<'a> {
         else {
             return Some(Ok(()));
         };
-        use gamelogic::scripting::core::ScriptActionType;
+        use generals_sim::scripting::program::ScriptActionType;
         match action {
             ScriptActionType::NamedStopSpecialPowerCountdown => {
                 self.world

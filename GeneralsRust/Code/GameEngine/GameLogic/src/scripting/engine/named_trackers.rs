@@ -696,11 +696,11 @@ impl ScriptEngine {
     }
 
     /// Freeze only definition keys for one script read/write operation, in C++ enum order.
-    pub(super) fn script_template_lookup(
+    pub fn script_template_lookup(
         &self,
-    ) -> crate::scripting::chunk_codec::ScriptTemplateLookup {
+    ) -> generals_sim::scripting::program::ScriptTemplateLookup {
         self.with_inner(|inner| {
-            crate::scripting::chunk_codec::ScriptTemplateLookup::from_keys(
+            generals_sim::scripting::program::ScriptTemplateLookup::from_keys(
                 inner
                     .templates
                     .conditions()

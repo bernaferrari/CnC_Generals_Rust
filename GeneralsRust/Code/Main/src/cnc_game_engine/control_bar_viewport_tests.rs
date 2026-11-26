@@ -130,7 +130,7 @@ fn script_rank_reset_uses_receiving_map_text_and_borrowed_interpreter() {
     use game_client::core::GameClient;
     use game_engine::common::ini::ini_rank::RankInfo;
     use game_engine::common::rts::science::{ScienceNameFacts, ScienceStore};
-    use gamelogic::scripting::core::{
+    use generals_sim::scripting::program::{
         Condition, ConditionType, OrCondition, Parameter, ParameterType, Script, ScriptAction,
         ScriptActionType, ScriptList,
     };

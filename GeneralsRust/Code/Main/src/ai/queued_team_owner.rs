@@ -1065,7 +1065,7 @@ mod tests {
 
 
     use crate::game_logic::{Player, ThingTemplate};
-    use gamelogic::scripting::core::{
+    use generals_sim::scripting::program::{
         Parameter, ParameterType, Script, ScriptAction, ScriptActionType, ScriptList,
     };
 
@@ -1197,10 +1197,10 @@ mod tests {
             let mut script = Script::new();
             script.script_name = name.into();
             script.is_subroutine = true;
-            let mut condition = gamelogic::scripting::OrCondition::new();
+            let mut condition = generals_sim::scripting::program::OrCondition::new();
             condition.set_first_and_condition(Some(Box::new(
-                gamelogic::scripting::Condition::new(
-                    gamelogic::scripting::ConditionType::ConditionTrue,
+                generals_sim::scripting::program::Condition::new(
+                    generals_sim::scripting::program::ConditionType::ConditionTrue,
                 ),
             )));
             script.condition = Some(Box::new(condition));
@@ -1265,7 +1265,7 @@ mod tests {
         failing
             .add_parameter(Parameter::with_string(
                 ParameterType::Team,
-                gamelogic::scripting::core::TEAM_THE_PLAYER.into(),
+                generals_sim::scripting::program::TEAM_THE_PLAYER.into(),
             ))
             .unwrap();
         failing
@@ -1915,7 +1915,7 @@ mod tests {
         let mut stop = ScriptAction::new(ScriptActionType::TeamStop);
         stop.add_parameter(Parameter::with_string(
             ParameterType::Team,
-            gamelogic::scripting::core::THIS_TEAM.into(),
+            generals_sim::scripting::program::THIS_TEAM.into(),
         ))
         .unwrap();
         display.next_action = Some(Box::new(stop));

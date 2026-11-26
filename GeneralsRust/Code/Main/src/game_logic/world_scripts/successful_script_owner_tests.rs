@@ -1,5 +1,5 @@
 use super::*;
-use gamelogic::scripting::core::ScriptActionType;
+use generals_sim::scripting::program::ScriptActionType;
 
 fn map(directory: &std::path::Path) -> std::path::PathBuf {
     let mut out = game_engine::common::system::DataChunkOutput::new();

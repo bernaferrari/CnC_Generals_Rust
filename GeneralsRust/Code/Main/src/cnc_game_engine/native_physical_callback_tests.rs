@@ -431,7 +431,7 @@ impl NativeViewEffects for PanicAfterActualFactoryBirth<'_, '_> {
 #[ignore = "requires native WGPU; actual receiving factory panic continuation"]
 fn actual_team_creation_panic_retains_exact_team_partial_native_life_and_peer() {
     use game_engine::common::{dict::Dict, well_known_keys::*};
-    use gamelogic::scripting::core::{
+    use generals_sim::scripting::program::{
         Parameter, ParameterType, Script, ScriptAction, ScriptActionType, ScriptList,
     };
     let engine = ww3d_engine::init_headless_blocking(ww3d_engine::EngineConfig {

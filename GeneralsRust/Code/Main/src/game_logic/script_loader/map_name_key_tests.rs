@@ -3,6 +3,7 @@ mod map_name_key_tests {
     use super::*;
     use game_engine::common::system::DataChunkOutput;
     use gamelogic::scripting::engine::ScriptEngine;
+    use generals_sim::scripting::program::ScriptTemplateLookup;
 
     #[derive(Clone, Copy)]
     struct Record {
@@ -95,7 +96,7 @@ mod map_name_key_tests {
     struct Templates(ScriptTemplateLookup);
     impl Templates {
         fn new(engine: &ScriptEngine) -> Self {
-            Self(ScriptTemplateLookup::from_engine(engine))
+            Self(engine.script_template_lookup())
         }
         fn read(&self, document: &ChunkyMap) -> MapScriptLoadResult {
             load_map_scripts_from_chunky_with_templates(document, &self.0)
@@ -158,7 +159,7 @@ mod map_name_key_tests {
     fn conflicting_catalogs_stay_explicit_across_interleaved_decode_routes() {
         let engine = ScriptEngine::new_in_published_world().unwrap();
         let record = Record::valid(&engine);
-        let authored = ScriptTemplateLookup::from_engine(&engine);
+        let authored = engine.script_template_lookup();
         let empty = ScriptTemplateLookup::default();
         for sides in [false, true] {
             let map = document(record, sides, 9);

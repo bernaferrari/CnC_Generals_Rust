@@ -11,7 +11,7 @@ fn toppling_structure(name: &str) -> FixtureObject {
         .module("Behavior = StructureToppleUpdate ModuleTag_Topple\nEnd")
 }
 use super::*;
-use gamelogic::scripting::core::{
+use generals_sim::scripting::program::{
     Parameter, ParameterType, ScriptAction, ScriptActionType, THIS_TEAM,
 };
 use gamelogic::scripting::engine::ScriptEngine;
@@ -566,7 +566,7 @@ fn guard_object_rejects_missing_owner_target_and_preserves_group_and_locomotor()
 #[test]
 fn team_damage_runs_immediate_owned_unresistable_health_and_negative_kill() {
     use super::script_execution_driver::HostScriptExecutionDriver;
-    use gamelogic::scripting::core::{Parameter, ParameterType, ScriptAction};
+    use generals_sim::scripting::program::{Parameter, ParameterType, ScriptAction};
     let (mut owner, unit, _) = world();
     let (peer, peer_unit, _) = world();
     roster(&owner, "DamageTeam", unit, 1);
@@ -603,7 +603,7 @@ fn team_damage_runs_immediate_owned_unresistable_health_and_negative_kill() {
 #[test]
 fn world_effects_deliver_to_the_driving_interpreter_hooks_before_next_action() {
     use super::script_execution_driver::HostScriptExecutionDriver;
-    use gamelogic::scripting::core::{Parameter, ParameterType, ScriptAction};
+    use generals_sim::scripting::program::{Parameter, ParameterType, ScriptAction};
     let (mut owner, _, _) = world();
     let (peer, _, _) = world();
     let mut engine = gamelogic::scripting::engine::ScriptEngine::new_in_published_world().unwrap();
@@ -648,7 +648,9 @@ fn world_effects_deliver_to_the_driving_interpreter_hooks_before_next_action() {
 #[test]
 fn named_presentation_and_sequential_use_owned_identity_then_topple_consumes_owned_cache() {
     use super::script_execution_driver::HostScriptExecutionDriver;
-    use gamelogic::scripting::core::{Parameter, ParameterType, Script, ScriptAction, ScriptList};
+    use generals_sim::scripting::program::{
+        Parameter, ParameterType, Script, ScriptAction, ScriptList,
+    };
     let (mut owner, unit, _) = world_with(&[toppling_structure("OwnedTopplingStructure")], &[], "");
     let (peer, peer_unit, _) = world();
     let building = owner
@@ -692,7 +694,7 @@ fn named_presentation_and_sequential_use_owned_identity_then_topple_consumes_own
             action
                 .add_parameter(Parameter::with_coord(
                     ParameterType::Coord3D,
-                    gamelogic::scripting::core::Coord3D::new(0.0, 1.0, 0.0),
+                    generals_sim::scripting::program::Coord3D::new(0.0, 1.0, 0.0),
                 ))
                 .unwrap();
         }
@@ -767,7 +769,7 @@ fn input_actions_and_victory_admit_only_the_driving_world() {
 #[test]
 fn borrowed_script_topple_override_reaches_immediate_named_and_negative_team_death() {
     use super::script_execution_driver::HostScriptExecutionDriver;
-    use gamelogic::scripting::core::{Parameter, ParameterType, ScriptAction};
+    use generals_sim::scripting::program::{Parameter, ParameterType, ScriptAction};
     for team_kill in [false, true] {
         let content = [toppling_structure("BorrowedScriptToppleBuilding")];
         let (mut owner, _, _) = world_with(&content, &[], "");
@@ -812,7 +814,7 @@ fn borrowed_script_topple_override_reaches_immediate_named_and_negative_team_dea
         topple
             .add_parameter(Parameter::with_coord(
                 ParameterType::Coord3D,
-                gamelogic::scripting::core::Coord3D::new(0.0, 1.0, 0.0),
+                generals_sim::scripting::program::Coord3D::new(0.0, 1.0, 0.0),
             ))
             .unwrap();
         engine.friend_execute_action_with_driver(

@@ -5,8 +5,7 @@ use game_engine::common::well_known_keys::{
     key_player_faction, key_player_is_human, key_player_name, key_team_is_singleton, key_team_name,
     key_team_on_unit_destroyed_script, key_team_owner,
 };
-use gamelogic::scripting::chunk_codec::ScriptTemplateLookup;
-use gamelogic::scripting::core::{
+use generals_sim::scripting::program::{
     Condition, ConditionType, OrCondition, Parameter, ParameterType, Script, ScriptAction,
     ScriptActionType, ScriptList, THIS_TEAM,
 };
@@ -101,7 +100,7 @@ fn map_file(root: &std::path::Path, destination: [f32; 3]) -> std::path::PathBuf
     out.write_dict(&waypoint);
     out.close_data_chunk();
     out.close_data_chunk();
-    sides.write_sides_data_chunk(&mut out, &ScriptTemplateLookup::from_engine(&engine));
+    sides.write_sides_data_chunk(&mut out, &engine.script_template_lookup());
 
     let path = root.join("ResidentDeath.map");
     std::fs::write(&path, out.into_ckmp_bytes()).expect("write receiving map");

@@ -1,6 +1,6 @@
 //! C++ ScriptConditions.cpp1427–1438 queries and flushes the driving engine.
 use super::*;
-use gamelogic::scripting::core::{
+use generals_sim::scripting::program::{
     Condition, ConditionType, OrCondition, Parameter, ParameterType, Script, ScriptAction,
     ScriptActionType, ScriptList,
 };

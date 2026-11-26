@@ -972,7 +972,7 @@ fn authored_signed_supply_uses_receiving_price_and_real_dock() {
     use crate::game_logic::SupplyTruckState;
     use game_engine::common::ini::ini_game_data::ProductionEnergyRules;
     use game_engine::common::system::DataChunkOutput;
-    use gamelogic::scripting::core::{
+    use generals_sim::scripting::program::{
         Condition, ConditionType, OrCondition, Parameter, ParameterType, Script, ScriptAction,
         ScriptActionType, ScriptList,
     };

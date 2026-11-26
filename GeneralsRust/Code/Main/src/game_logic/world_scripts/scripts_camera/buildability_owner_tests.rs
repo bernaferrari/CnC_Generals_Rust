@@ -4,7 +4,7 @@ use super::*;
 use crate::game_logic::host_production_buildable_command_residual::{
     CANMAKE_NO_PREREQ, CANMAKE_OK,
 };
-use gamelogic::scripting::core::{Parameter, ParameterType, ScriptAction, ScriptActionType};
+use generals_sim::scripting::program::{Parameter, ParameterType, ScriptAction, ScriptActionType};
 const SET: &str = "OwnedOverrideProducerSet";
 const PRODUCER: &str = "OwnedOverrideBarracks";
 const UNIT: &str = "OwnedOverrideInfantry";

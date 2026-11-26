@@ -1765,7 +1765,7 @@ impl GameLogic {
             return false;
         };
         let templates =
-            gamelogic::scripting::chunk_codec::ScriptTemplateLookup::from_engine(receiving);
+            receiving.script_template_lookup();
         let result = {
             let mut names = self.world_services.common().name_key_namespace.lock()
                 .unwrap_or_else(|poisoned| poisoned.into_inner());

@@ -1,7 +1,7 @@
 //! CPP ScriptActions1336–1359 validates the polygon before leave/Normal/AttackArea.
 use super::named_command_test_support::{execute, world};
 use super::*;
-use gamelogic::scripting::core::ScriptActionType;
+use generals_sim::scripting::program::ScriptActionType;
 
 fn polygon(owner: &GameLogic, min: i32, max: i32) {
     owner

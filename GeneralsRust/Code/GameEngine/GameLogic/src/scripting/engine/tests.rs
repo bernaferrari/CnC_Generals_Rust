@@ -498,7 +498,7 @@ fn call_subroutine_resolves_subroutine_group_name_first() {
     grouped_subroutine.is_one_shot = true;
     grouped_subroutine.condition = Some(Box::new(or_condition));
 
-    let mut group = ScriptGroup::new();
+    let mut group = crate::scripting::core::new_script_group();
     group.group_name = "NamedSubroutineGroup".to_string();
     group.is_group_subroutine = true;
     group.is_group_active = true;
@@ -541,7 +541,7 @@ fn enable_disable_script_by_group_name_toggles_cxx_group_state() {
     member.condition = Some(always_true_condition());
     member.action = Some(set_flag_action("group_toggle_fired"));
 
-    let mut group = ScriptGroup::new();
+    let mut group = crate::scripting::core::new_script_group();
     group.group_name = "Toggle Group".to_string();
     group.is_group_subroutine = true;
     group.is_group_active = false;

@@ -12,7 +12,6 @@ use bitflags::bitflags;
 pub use game_engine::common::ascii_string::AsciiString;
 use game_engine::common::bit_flags::ArmorSetBitFlags;
 use game_engine::common::global_data;
-use game_engine::common::system::object_status_types as legacy_object_status;
 use game_engine::common::thing::module::ModuleInterfaceType;
 use game_engine::common::thing::thing_template::ModuleDescriptorSet;
 use game_engine::system::geometry::{

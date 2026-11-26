@@ -308,7 +308,7 @@ fn object_fx_keeps_owned_pose_when_foreign_core_object_has_same_id() {
                             "ForeignCoreFxOwner".into(),
                         )),
                         primary.0,
-                        gamelogic::common::ObjectStatusMaskType::none(),
+                        generals_sim::object::ObjectStatusMaskType::none(),
                         None,
                     ),
                 ));

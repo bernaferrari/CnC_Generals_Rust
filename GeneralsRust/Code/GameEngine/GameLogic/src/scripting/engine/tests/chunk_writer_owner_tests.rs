@@ -27,7 +27,7 @@ fn write_conditions(
     output: &mut DataChunkOutput,
     catalog: &ScriptTemplateLookup,
 ) {
-    Condition::write_condition_data_chunk(node, output, catalog);
+    crate::scripting::chunk_codec::write_condition_data_chunk(node, output, catalog);
 }
 fn write_actions(
     node: Option<&ScriptAction>,
@@ -35,7 +35,7 @@ fn write_actions(
     label: &str,
     catalog: &ScriptTemplateLookup,
 ) {
-    ScriptAction::write_action_data_chunk(node, output, label, catalog);
+    crate::scripting::chunk_codec::write_action_data_chunk(node, output, label, catalog);
 }
 fn script(name: &str) -> Box<Script> {
     let mut script = Script::new();
@@ -68,12 +68,12 @@ fn graph() -> ScriptList {
     let mut first = script("direct");
     first.next_script = Some(script("sibling"));
     list.first_script = Some(first);
-    let mut first = ScriptGroup::new();
+    let mut first = crate::scripting::core::new_script_group();
     first.group_name = "group-one".into();
     first.is_group_active = false;
     first.is_group_subroutine = true;
     first.first_script = Some(script("nested-one"));
-    let mut second = ScriptGroup::new();
+    let mut second = crate::scripting::core::new_script_group();
     second.group_name = "group-two".into();
     second.first_script = Some(script("nested-two"));
     first.next_group = Some(Box::new(second));
@@ -98,7 +98,7 @@ fn encode(
             sides.write_sides_data_chunk(&mut output, catalog);
         } else {
             let empty = ScriptList::new();
-            ScriptList::write_scripts_data_chunk(
+            crate::scripting::chunk_codec::write_scripts_data_chunk(
                 &mut output,
                 &[Some(list), None, Some(&empty)],
                 catalog,
@@ -225,7 +225,7 @@ fn check_graph(list: &ScriptList) {
 #[test]
 fn private_writer_catalog_survives_foreign_active_engine_in_all_branches() {
     let engine = private_engine();
-    let catalog = ScriptTemplateLookup::from_engine(&engine);
+    let catalog = engine.script_template_lookup();
     let foreign = ScriptEngine::new_in_published_world().unwrap();
     let list = graph();
     for sides in [false, true] {
@@ -243,7 +243,7 @@ fn private_writer_catalog_survives_foreign_active_engine_in_all_branches() {
 #[test]
 fn retained_catalog_outlives_engine_and_is_stable_across_nested_scopes() {
     let engine = private_engine();
-    let catalog = ScriptTemplateLookup::from_engine(&engine);
+    let catalog = engine.script_template_lookup();
     drop(engine);
     let first = ScriptEngine::new_in_published_world().unwrap();
     let second = ScriptEngine::new_in_published_world().unwrap();
@@ -321,7 +321,7 @@ fn present_zero_key_is_not_a_missing_template() {
 fn valid_template_does_not_intern_cpp_bogus_fallback() {
     std::thread::spawn(|| {
         let engine = ScriptEngine::new_in_published_world().unwrap();
-        let catalog = ScriptTemplateLookup::from_engine(&engine);
+        let catalog = engine.script_template_lookup();
         let before = NameKeyGenerator::name_to_key("OWNER41_BEFORE_VALID_WRITE");
         for action in [false, true] {
             let _ = leaf_bytes(&catalog, action);
@@ -339,7 +339,7 @@ fn valid_template_does_not_intern_cpp_bogus_fallback() {
 #[test]
 fn retained_chunk_writer_wire_trace() {
     let engine = ScriptEngine::new_in_published_world().unwrap();
-    let catalog = ScriptTemplateLookup::from_engine(&engine);
+    let catalog = engine.script_template_lookup();
     for sides in [false, true] {
         let bytes = encode(&engine, &graph(), &catalog, sides);
         eprintln!(
@@ -356,7 +356,7 @@ fn retained_chunk_writer_wire_trace() {
 #[test]
 fn populated_parameters_and_siblings_keep_cpp_chunk_bytes() {
     let engine = private_engine();
-    let catalog = ScriptTemplateLookup::from_engine(&engine);
+    let catalog = engine.script_template_lookup();
     let mut first = Condition::new(ConditionType::ConditionTrue);
     first
         .add_parameter(Parameter::with_int(ParameterType::Int, -73))
@@ -382,7 +382,7 @@ fn populated_parameters_and_siblings_keep_cpp_chunk_bytes() {
         );
         expected.write_int(node.num_parms as i32);
         for param in node.parameters.iter().take(node.num_parms).flatten() {
-            param.clone().write_parameter(&mut expected);
+            crate::scripting::chunk_codec::write_parameter(&mut param.clone(), &mut expected);
         }
         expected.close_data_chunk();
         cursor = node.next_and_condition.as_deref();
@@ -417,7 +417,7 @@ fn populated_parameters_and_siblings_keep_cpp_chunk_bytes() {
             );
             expected.write_int(node.num_parms as i32);
             for param in node.parameters.iter().take(node.num_parms).flatten() {
-                param.clone().write_parameter(&mut expected);
+                crate::scripting::chunk_codec::write_parameter(&mut param.clone(), &mut expected);
             }
             expected.close_data_chunk();
             cursor = node.next_action.as_deref();

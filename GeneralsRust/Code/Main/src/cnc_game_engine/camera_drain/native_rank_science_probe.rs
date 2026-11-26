@@ -54,7 +54,9 @@ fn state(world: &GameLogic) -> (u32, i32, i32) {
 /// Execute a real TeamFactory on-create subroutine through the native map loan.
 fn on_create_rank_down(engine: &mut CnCGameEngine, base_science: i32) -> anyhow::Result<()> {
     use crate::game_logic::NativeMapAdmission;
-    use gamelogic::scripting::core::{Parameter, ParameterType, Script, ScriptAction, ScriptActionType, ScriptList};
+    use generals_sim::scripting::program::{
+        Parameter, ParameterType, Script, ScriptAction, ScriptActionType, ScriptList,
+    };
     use game_engine::common::well_known_keys::{
         key_team_executes_actions_on_create, key_team_is_singleton, key_team_name,
         key_team_owner, key_team_production_condition,

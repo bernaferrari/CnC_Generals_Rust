@@ -994,7 +994,7 @@ fn switched_boundary_worlds() -> (GameLogic, GameLogic, ObjectId, ObjectId, Obje
     let peer_shroud_before_switch = builder.create_world_snapshot(&restored).unwrap().shroud;
     // Run the authored action through the receiving script driver, then save
     // its real boundary and partition continuation for the other session.
-    use gamelogic::scripting::core::{
+    use generals_sim::scripting::program::{
         Condition, ConditionType, OrCondition, Parameter, ParameterType, Script, ScriptAction,
         ScriptActionType, ScriptList,
     };
@@ -1130,7 +1130,7 @@ fn attack_continues_after_authored_boundary_switch() {
 #[test]
 fn oversized_boundary_rejection_leaves_the_receiving_session_unchanged() {
     use game_engine::common::system::DataChunkOutput;
-    use gamelogic::scripting::core::{
+    use generals_sim::scripting::program::{
         Condition, ConditionType, OrCondition, Parameter, ParameterType, Script, ScriptAction,
         ScriptActionType, ScriptList,
     };
@@ -1197,7 +1197,7 @@ fn oversized_boundary_rejection_leaves_the_receiving_session_unchanged() {
 #[test]
 fn boundary_observer_uses_authored_player_name_not_display_label() {
     use game_engine::common::system::DataChunkOutput;
-    use gamelogic::scripting::core::{
+    use generals_sim::scripting::program::{
         Condition, ConditionType, OrCondition, Parameter, ParameterType, Script, ScriptAction,
         ScriptActionType, ScriptList,
     };

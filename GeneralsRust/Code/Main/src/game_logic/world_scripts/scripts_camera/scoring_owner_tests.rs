@@ -1,7 +1,7 @@
 //! CPP GameLogic396/458/4797 and ScriptActions2819/6792: match-owned scoring.
 use super::script_execution_driver::HostScriptExecutionDriver;
 use super::*;
-use gamelogic::scripting::core::{ScriptAction, ScriptActionType};
+use generals_sim::scripting::program::{ScriptAction, ScriptActionType};
 use gamelogic::scripting::engine::ScriptEngine;
 
 #[cfg(test)]

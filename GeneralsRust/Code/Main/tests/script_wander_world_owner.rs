@@ -1,7 +1,7 @@
 use game_engine::common::common_services::{CommonServices, install_common_services};
 use game_engine::common::ini::ini_locomotor::LocomotorStore;
 use game_engine::common::system::DataChunkOutput;
-use gamelogic::scripting::core::{
+use generals_sim::scripting::program::{
     Condition, ConditionType, OrCondition, Parameter, ParameterType, Script, ScriptAction,
     ScriptActionType, ScriptList,
 };

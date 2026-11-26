@@ -172,7 +172,7 @@ fn camera_create_prototype(world: &mut GameLogic, name: &str, singleton: bool) {
 }
 
 fn camera_create_engine() -> gamelogic::scripting::engine::ScriptEngine {
-    use gamelogic::scripting::core::{
+    use generals_sim::scripting::program::{
         Parameter, ParameterType, Script, ScriptAction, ScriptActionType, ScriptList,
     };
     let mut action = ScriptAction::new(ScriptActionType::ScreenShake);
@@ -194,7 +194,9 @@ fn camera_create_engine() -> gamelogic::scripting::engine::ScriptEngine {
 
 #[test]
 fn native_authored_merge_uses_borrowed_interpreter_then_retires_source_and_activates_destination() {
-    use gamelogic::scripting::core::{Parameter, ParameterType, ScriptAction, ScriptActionType};
+    use generals_sim::scripting::program::{
+        Parameter, ParameterType, ScriptAction, ScriptActionType,
+    };
     let mut world = owner();
     let peer = owner();
     let unit = world
@@ -278,7 +280,7 @@ fn native_team_implicit_find_runs_create_shake_in_receiving_interpreter_once() {
 #[test]
 fn native_nested_authored_create_keeps_current_interpreter_and_exact_team_identity() {
     use game_engine::common::{dict::Dict, well_known_keys::*};
-    use gamelogic::scripting::core::{
+    use generals_sim::scripting::program::{
         Parameter, ParameterType, Script, ScriptAction, ScriptActionType, ScriptList,
     };
     let mut world = owner();
@@ -425,7 +427,7 @@ fn native_death_notification_never_creates_or_retargets_a_same_name_team() {
 #[test]
 fn death_runs_the_resident_team_script_on_the_receiving_world_once() {
     use game_engine::common::{dict::Dict, well_known_keys::key_team_on_unit_destroyed_script};
-    use gamelogic::scripting::core::{
+    use generals_sim::scripting::program::{
         Condition, ConditionType, OrCondition, Parameter, ParameterType, Script, ScriptAction,
         ScriptActionType, ScriptList,
     };
@@ -495,7 +497,7 @@ fn death_runs_the_resident_team_script_on_the_receiving_world_once() {
 
 #[test]
 fn native_authored_reinforcement_keeps_condition_team_and_runs_callback_before_final_activation() {
-    use gamelogic::scripting::core::{
+    use generals_sim::scripting::program::{
         Condition, ConditionType, OrCondition, Parameter, ParameterType, Script, ScriptAction,
         ScriptActionType, ScriptList, THIS_TEAM,
     };

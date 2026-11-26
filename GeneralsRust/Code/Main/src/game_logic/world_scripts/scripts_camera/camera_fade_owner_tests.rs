@@ -2,7 +2,7 @@
 use super::script_execution_driver::HostScriptExecutionDriver;
 use super::*;
 use crate::presentation_frame::{PresentationCameraFade, PresentationFrame};
-use gamelogic::scripting::core::{Parameter, ParameterType, ScriptAction, ScriptActionType};
+use generals_sim::scripting::program::{Parameter, ParameterType, ScriptAction, ScriptActionType};
 
 fn fade_action(kind: ScriptActionType, min: f32, max: f32) -> ScriptAction {
     let mut action = ScriptAction::new(kind);

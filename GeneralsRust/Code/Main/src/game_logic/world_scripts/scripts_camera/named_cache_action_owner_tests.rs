@@ -1,6 +1,6 @@
 //! Actual dispatcher transport: no standalone named tracker before Main.
 use super::*;
-use gamelogic::scripting::core::{Parameter, ParameterType, ScriptAction, ScriptActionType};
+use generals_sim::scripting::program::{Parameter, ParameterType, ScriptAction, ScriptActionType};
 
 fn world() -> (GameLogic, ObjectId) {
     world_with_energy(None)
@@ -70,7 +70,7 @@ fn team_panel_flag_updates_energy_before_the_next_named_action() {
     disable
         .add_parameter(Parameter::with_string(
             ParameterType::Team,
-            gamelogic::scripting::core::THIS_TEAM.into(),
+            generals_sim::scripting::program::THIS_TEAM.into(),
         ))
         .unwrap();
     disable
@@ -340,7 +340,7 @@ fn actual_named_spawn_preserves_calling_same_name_team_and_missing_this_is_not_c
             assert_ne!(older, newer);
             let count = driver.world.host_objects().registered().count();
             engine.friend_execute_action_with_driver(
-                &spawn("MissingThisSpawn", gamelogic::scripting::core::THIS_TEAM),
+                &spawn("MissingThisSpawn", generals_sim::scripting::program::THIS_TEAM),
                 Some(u32::MAX),
                 gamelogic::scripting::executor::ScriptContext::new(),
                 &mut driver,

@@ -2,7 +2,7 @@
 use super::named_command_test_support::{execute, named_infantry, world_with};
 use super::*;
 use crate::fixture_content::FixtureObject;
-use gamelogic::scripting::core::ScriptActionType;
+use generals_sim::scripting::program::ScriptActionType;
 
 fn roster(owner: &GameLogic, members: &[ObjectId]) {
     let mut factory = owner.team_factory.lock().unwrap();
@@ -174,7 +174,7 @@ fn team_attack_named_forwards_owned_passengers_then_locked_hive_in_near_to_far_o
 
 #[test]
 fn team_stop_idles_admitted_spawn_child_with_script_source() {
-    use gamelogic::scripting::core::{Parameter, ParameterType, ScriptAction};
+    use generals_sim::scripting::program::{Parameter, ParameterType, ScriptAction};
     use gamelogic::scripting::engine::ScriptEngine;
     // ScriptActions::doTeamStop calls groupIdle(CMD_FROM_SCRIPT)
     // (ScriptActions.cpp:4537-4550), the same operation player S uses; its

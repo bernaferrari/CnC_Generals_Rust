@@ -2,7 +2,7 @@
 use super::*;
 use crate::game_logic::{Player, Team};
 use crate::presentation_frame::camera::shake_rules::CameraShakeRules;
-use gamelogic::scripting::core::{
+use generals_sim::scripting::program::{
     Condition, ConditionType, OrCondition, Parameter, ParameterType, Script, ScriptAction,
     ScriptActionType, ScriptList,
 };

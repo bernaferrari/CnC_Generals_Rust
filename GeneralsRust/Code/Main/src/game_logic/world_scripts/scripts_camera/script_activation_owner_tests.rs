@@ -1,6 +1,6 @@
 //! Main uses one canonical script walk; presentation hooks do not own simulation geometry.
 use super::*;
-use gamelogic::scripting::core::{
+use generals_sim::scripting::program::{
     Condition, ConditionType, OrCondition, Parameter, ParameterType, Script, ScriptAction,
     ScriptActionType, ScriptGroup, ScriptList,
 };
@@ -92,7 +92,7 @@ fn saved_side_scripts_keep_independent_one_shots_with_the_same_name() {
             group.set_first_and_condition(Some(Box::new(condition)));
             member.condition = Some(Box::new(group));
         }
-        let mut group = ScriptGroup::new();
+        let mut group = gamelogic::scripting::core::new_script_group();
         group.set_name("Expansion".into());
         group.append_script(member);
         let mut list = ScriptList::new();
@@ -211,20 +211,20 @@ fn actual_main_dense_scripts_keep_immediate_activation_case_and_entered_group_or
                 let name = format!("root-{index}");
                 list.append_script(script(&name, vec![message(&name)], true));
             }
-            let mut sub = ScriptGroup::new();
+            let mut sub = gamelogic::scripting::core::new_script_group();
             sub.set_name("Sub".into());
             sub.set_active(false);
             sub.set_subroutine(true);
             sub.append_script(script("Nested", vec![message("nested")], false));
             list.append_group(Box::new(sub));
 
-            let mut dormant = ScriptGroup::new();
+            let mut dormant = gamelogic::scripting::core::new_script_group();
             dormant.set_name("Dormant".into());
             dormant.set_active(false);
             dormant.append_script(script("DormantMember", vec![message("enabled")], false));
             list.append_group(Box::new(dormant));
 
-            let mut entered = ScriptGroup::new();
+            let mut entered = gamelogic::scripting::core::new_script_group();
             entered.set_name("Entered".into());
             entered.append_script(script(
                 "DisableOwnGroup",
@@ -237,7 +237,7 @@ fn actual_main_dense_scripts_keep_immediate_activation_case_and_entered_group_or
             entered.append_script(script("Sibling", vec![message("entered-next")], false));
             list.append_group(Box::new(entered));
 
-            let mut blocked = ScriptGroup::new();
+            let mut blocked = gamelogic::scripting::core::new_script_group();
             blocked.set_name("Blocked".into());
             blocked.append_script(script("BlockedMember", vec![message("blocked")], false));
             list.append_group(Box::new(blocked));

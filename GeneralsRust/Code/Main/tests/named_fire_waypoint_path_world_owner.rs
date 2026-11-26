@@ -7,7 +7,6 @@ use game_engine::common::{
 };
 use gamelogic::{
     scripting::{
-        chunk_codec::ScriptTemplateLookup,
         core::{
             Condition, ConditionType, OrCondition, Parameter, ParameterType, Script, ScriptAction,
             ScriptActionType, ScriptList,
@@ -118,7 +117,7 @@ fn waypoint_map(root: &std::path::Path, endpoint_x: f32) -> std::path::PathBuf {
     map.write_int(1);
     map.write_int(2);
     map.close_data_chunk();
-    sides.write_sides_data_chunk(&mut map, &ScriptTemplateLookup::from_engine(&script_engine));
+    sides.write_sides_data_chunk(&mut map, &script_engine.script_template_lookup());
 
     let directory = root.join(format!("endpoint-{endpoint_x}"));
     std::fs::create_dir(&directory).expect("create map fixture directory");

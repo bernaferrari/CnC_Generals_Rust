@@ -342,7 +342,7 @@ fn set_cave_index_runs_on_the_receiving_host() {
     assert_eq!(logic.cave_system.index_of(a), Some(0));
     assert_eq!(logic.cave_system.index_of(b), Some(0));
 
-    use gamelogic::scripting::core::{
+    use generals_sim::scripting::program::{
         Condition, ConditionType, OrCondition, Parameter, ParameterType, Script, ScriptAction,
         ScriptActionType, ScriptList,
     };

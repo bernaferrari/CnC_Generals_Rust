@@ -2,7 +2,7 @@
 use super::script_execution_driver::HostScriptExecutionDriver;
 use super::*;
 use game_engine::common::rts::ProductionPrerequisite;
-use gamelogic::scripting::core::{
+use generals_sim::scripting::program::{
     Condition, ConditionType, OrCondition, Parameter, ParameterType, Script, ScriptAction,
     ScriptActionType, ScriptList,
 };
@@ -369,7 +369,7 @@ fn prepared_bindings_and_player_tokens_are_explicit() {
     let driver = HostScriptExecutionDriver::new(&mut world);
     assert_eq!(
         driver.skirmish_player_can_build_any(
-            gamelogic::scripting::core::THIS_PLAYER,
+            generals_sim::scripting::program::THIS_PLAYER,
             &candidates,
             Some(PLAYER)
         ),
@@ -377,7 +377,7 @@ fn prepared_bindings_and_player_tokens_are_explicit() {
     );
     assert_eq!(
         driver.skirmish_player_can_build_any(
-            gamelogic::scripting::core::LOCAL_PLAYER,
+            generals_sim::scripting::program::LOCAL_PLAYER,
             &candidates,
             None
         ),

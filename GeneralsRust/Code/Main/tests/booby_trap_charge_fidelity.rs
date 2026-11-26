@@ -76,7 +76,7 @@ fn scripted_team_boobytrap_engine(
     template: &str,
     team: &str,
 ) -> gamelogic::scripting::engine::ScriptEngine {
-    use gamelogic::scripting::core::{
+    use generals_sim::scripting::program::{
         Condition, ConditionType, OrCondition, Parameter, ParameterType, Script, ScriptAction,
         ScriptActionType, ScriptList,
     };

@@ -1,7 +1,7 @@
 //! CPP ScriptConditions1614–1631: real driving-object entry edge/window.
 use super::named_command_test_support::world;
 use super::*;
-use gamelogic::scripting::core::{Condition, ConditionType, Parameter, ParameterType};
+use generals_sim::scripting::program::{Condition, ConditionType, Parameter, ParameterType};
 fn condition(name: &str) -> Condition {
     let mut condition = Condition::new(ConditionType::NamedEnteredArea);
     condition

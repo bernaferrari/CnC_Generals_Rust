@@ -1,6 +1,6 @@
 //! CPP AIPlayer1513/1638: player prototype order and live native reinforcement.
 use super::*;
-use gamelogic::scripting::core::{Condition, ConditionType, OrCondition, Script, ScriptList};
+use generals_sim::scripting::program::{Condition, ConditionType, OrCondition, Script, ScriptList};
 
 fn fixture(priority: i32) -> (GameLogic, ObjectId, u32) {
     fixture_with_new_team_condition(priority, ConditionType::ConditionTrue)

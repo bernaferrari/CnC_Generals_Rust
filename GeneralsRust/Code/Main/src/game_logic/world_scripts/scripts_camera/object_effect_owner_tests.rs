@@ -1,7 +1,7 @@
 //! Actual script dispatch mutates only its supplied Main object owner.
 use super::super::named_command_test_support::world;
 use super::*;
-use gamelogic::scripting::core::{Parameter, ParameterType, ScriptAction, ScriptActionType};
+use generals_sim::scripting::program::{Parameter, ParameterType, ScriptAction, ScriptActionType};
 
 fn execute(world: &mut GameLogic, kind: ScriptActionType, name: &str, value: Option<i32>) {
     let engine = gamelogic::scripting::engine::ScriptEngine::new_in_published_world().unwrap();

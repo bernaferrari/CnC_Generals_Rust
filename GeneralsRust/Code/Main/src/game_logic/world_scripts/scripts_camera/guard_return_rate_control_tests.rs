@@ -2,7 +2,7 @@
 use super::named_command_test_support::{execute, world};
 use super::*;
 use game_engine::common::ini::AIData;
-use gamelogic::scripting::core::ScriptActionType;
+use generals_sim::scripting::program::ScriptActionType;
 
 pub(super) fn authored_rates(world: &mut GameLogic, return_rate: u32, idle_rate: u32) {
     world.set_ai_definition_base(AIData {

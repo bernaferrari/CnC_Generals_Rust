@@ -1,7 +1,7 @@
 //! Real ScriptEngine conditions read this world's current player and object census.
 use super::named_command_test_support::{world, world_with};
 use super::*;
-use gamelogic::scripting::core::{Condition, ConditionType, Parameter, ParameterType};
+use generals_sim::scripting::program::{Condition, ConditionType, Parameter, ParameterType};
 
 fn credits(name: &str) -> Condition {
     let mut condition = Condition::new(ConditionType::PlayerHasCredits);
@@ -64,7 +64,7 @@ fn owned_player_census_conditions_ignore_same_id_peer_and_observe_live_mutation(
 
 #[test]
 fn built_by_player_requires_owned_literal_definition_before_type_list_expansion() {
-    use gamelogic::scripting::core::{OrCondition, Script};
+    use generals_sim::scripting::program::{OrCondition, Script};
     use gamelogic::scripting::engine::ScriptEngine;
     let (mut owner, unit, _) = world();
     // Only the second owner's startup content authors the literal template.
@@ -278,7 +278,9 @@ fn same_display_labels_keep_player_census_and_script_names_distinct() {
 #[test]
 fn crossed_display_labels_cannot_redirect_script_condition_or_action_owner() {
     use super::script_execution_driver::HostScriptExecutionDriver;
-    use gamelogic::scripting::core::{Parameter, ParameterType, ScriptAction, ScriptActionType};
+    use generals_sim::scripting::program::{
+        Parameter, ParameterType, ScriptAction, ScriptActionType,
+    };
     use gamelogic::scripting::engine::ScriptEngine;
 
     let mut world = GameLogic::new();

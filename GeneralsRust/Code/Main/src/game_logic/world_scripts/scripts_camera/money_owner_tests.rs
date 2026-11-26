@@ -1,7 +1,7 @@
 //! CPP ScriptActions3978–4020: cash changes synchronously in the driving player.
 use super::script_execution_driver::HostScriptExecutionDriver;
 use super::*;
-use gamelogic::scripting::core::{
+use generals_sim::scripting::program::{
     LOCAL_PLAYER, Parameter, ParameterType, ScriptAction, ScriptActionType,
 };
 use gamelogic::scripting::engine::ScriptEngine;

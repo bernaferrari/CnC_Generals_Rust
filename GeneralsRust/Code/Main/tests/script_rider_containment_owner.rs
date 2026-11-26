@@ -3,7 +3,7 @@ use game_engine::common::ini::INILoadType;
 use game_engine::common::ini::ini_locomotor::LocomotorStore;
 use game_engine::common::rts::player_template::PlayerTemplateStore;
 use game_engine::common::system::DataChunkOutput;
-use gamelogic::scripting::core::{
+use generals_sim::scripting::program::{
     Condition, ConditionType, OrCondition, Parameter, ParameterType, Script, ScriptAction,
     ScriptActionType, ScriptList,
 };

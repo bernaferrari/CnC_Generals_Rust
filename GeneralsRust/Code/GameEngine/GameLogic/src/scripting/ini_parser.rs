@@ -185,7 +185,7 @@ impl IniScriptParser {
                 groups.push(group);
             } else if trimmed.starts_with("Script") && !trimmed.starts_with("ScriptGroup") {
                 // Orphan script without a group - create implicit group
-                let mut group = ScriptGroup::new();
+                let mut group = crate::scripting::core::new_script_group();
                 group.group_name = "DefaultGroup".to_string();
 
                 let script = self.parse_script(context)?;
@@ -220,7 +220,7 @@ impl IniScriptParser {
         let group_name = parts[1].to_string();
         context.advance();
 
-        let mut group = ScriptGroup::new();
+        let mut group = crate::scripting::core::new_script_group();
         group.group_name = group_name;
 
         let mut scripts = Vec::new();

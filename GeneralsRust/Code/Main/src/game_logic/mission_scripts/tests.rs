@@ -3,7 +3,7 @@
 #[cfg(test)]
 mod tests {
     use super::*;
-    use gamelogic::scripting::core::{
+    use generals_sim::scripting::program::{
         Condition, ConditionType, Coord3D, OrCondition, Parameter, ParameterType, Script,
         ScriptAction, ScriptActionType, ScriptGroup, ScriptList,
     };
@@ -1004,7 +1004,7 @@ mod tests {
         // C++ ScriptActions.cpp:169-176 doQuickVictory → startQuickEndGameTimer.
         // ScriptEngine.cpp:5514-5518 expiry appends MSG_CLEAR_GAME_DATA.
         use game_engine::common::message_stream::{GameMessageType, get_message_stream};
-        use gamelogic::scripting::core::ScriptAction;
+        use generals_sim::scripting::program::ScriptAction;
         use gamelogic::scripting::engine::ScriptExecutionDriver;
 
         // The receiving side of closeWindows: C++ GameLogic::closeWindows
