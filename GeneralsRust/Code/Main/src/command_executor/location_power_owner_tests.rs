@@ -8,7 +8,7 @@ use crate::game_logic::{
 use gamelogic::common::AsciiString;
 use glam::IVec2 as ICoord2D;
 use glam::IVec3 as ICoord3D;
-use gamelogic::polygon_trigger::PolygonTrigger;
+use game_engine::polygon_trigger::PolygonTrigger;
 use gamelogic::system::map_loader::MapData;
 use gamelogic::system::shroud_manager::ShroudState;
 use glam::Vec3;

@@ -2,7 +2,7 @@
 use super::*;
 use gamelogic::common::AsciiString;
 use glam::IVec3 as ICoord3D;
-use gamelogic::polygon_trigger::PolygonTrigger;
+use game_engine::polygon_trigger::PolygonTrigger;
 
 fn polygon(name: &str) -> PolygonTrigger {
     PolygonTrigger::new(

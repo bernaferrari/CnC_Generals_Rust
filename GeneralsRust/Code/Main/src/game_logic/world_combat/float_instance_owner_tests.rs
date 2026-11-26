@@ -226,7 +226,7 @@ fn float_update_uses_receiving_water_when_foreign_core_services_are_published() 
             {
                 let terrain_owner = foreign.services().terrain();
                 let mut terrain = terrain_owner.write().unwrap();
-                let mut water = gamelogic::polygon_trigger::PolygonTrigger::new(
+                let mut water = game_engine::polygon_trigger::PolygonTrigger::new(
                     99,
                     "ForeignFloatWater".into(),
                     vec![

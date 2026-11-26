@@ -266,7 +266,7 @@ impl ScriptConditionEvaluator<'_> {
             .map_err(|_| ScriptError::ExecutionFailed("Failed to read player".to_string()))?;
 
         let trigger = self.get_trigger_area(&area_name)?;
-        let center = trigger.get_center_point();
+        let center = crate::polygon_trigger::terrain_center(&trigger);
         let radius = trigger.get_radius() + distance;
 
         let supply_box_value = player_guard.get_supply_box_value() as f32;
@@ -437,7 +437,7 @@ impl ScriptConditionEvaluator<'_> {
             .map_err(|_| ScriptError::ExecutionFailed("Failed to read player".to_string()))?;
 
         let trigger = self.get_trigger_area(&area_name)?;
-        let center = trigger.get_center_point();
+        let center = crate::polygon_trigger::terrain_center(&trigger);
         let radius = trigger.get_radius() + distance;
 
         let mut found = false;

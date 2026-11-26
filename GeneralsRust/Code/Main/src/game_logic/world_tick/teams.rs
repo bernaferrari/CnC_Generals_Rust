@@ -2660,7 +2660,7 @@ mod tests {
     fn guard_area_scan_skips_when_trigger_stamp_expired() {
         use gamelogic::common::AsciiString;
         use glam::IVec3 as ICoord3D;
-        use gamelogic::polygon_trigger::PolygonTrigger;
+        use game_engine::polygon_trigger::PolygonTrigger;
         let trigger = PolygonTrigger::new(
             25097,
             AsciiString::from("W25GuardAreaStamp"),

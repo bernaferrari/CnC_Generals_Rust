@@ -20,6 +20,7 @@ use crate::polygon_trigger::{PolygonTrigger, PolygonTriggerList};
 use crate::scripting::chunk_codec::ScriptTemplateLookup;
 use crate::sides_list::{SidesList, get_sides_list};
 use crate::system::engine_stores::WorldServices;
+use game_engine::common::common_services::{CommonServices, common_services};
 use game_engine::common::dict::{Dict, DictType};
 use game_engine::common::name_key_generator::NameKeyNamespace;
 use game_engine::common::system::DataChunkInfo;
@@ -346,7 +347,7 @@ impl MapLoader {
                 .name_key_namespace
                 .lock()
                 .map_err(|error| io::Error::other(error.to_string()))?;
-            Self::parse_map_data(&bytes, true, Some(&mut names), Some(templates))?
+            Self::parse_map_data(&bytes, true, Some(&mut names), Some(templates), Some(common.clone()))?
         };
         let mut bridge_models = BridgeModels::default();
         self.accept_decoded(
@@ -400,7 +401,7 @@ impl MapLoader {
     }
 
     fn load_with_legacy_services(&mut self, bytes: &[u8], include_objects: bool) -> io::Result<()> {
-        let decoded = Self::parse_map_data(bytes, include_objects, None, None)?;
+        let decoded = Self::parse_map_data(bytes, include_objects, None, None, None)?;
         self.accept_decoded(
             decoded,
             |name| TheThingFactory::find_template(name),
@@ -439,6 +440,7 @@ impl MapLoader {
         include_objects: bool,
         names: Option<&mut NameKeyNamespace>,
         script_templates: Option<ScriptTemplateLookup>,
+        common: Option<Arc<CommonServices>>,
     ) -> io::Result<MapParseContext> {
         let chunk_bytes = Self::decode_map_chunk_bytes(data)?.into_owned();
         let mut input = match names {
@@ -452,7 +454,7 @@ impl MapLoader {
             ));
         }
 
-        let mut context = MapParseContext::new(script_templates);
+        let mut context = MapParseContext::new(script_templates, common);
         input.register_parser("HeightMapData", "", parse_heightmap_size_chunk);
         input.register_parser("WorldInfo", "", parse_world_info_chunk);
         if include_objects {
@@ -608,10 +610,14 @@ struct MapParseContext {
     sides: Option<SidesList>,
     script_templates: Option<ScriptTemplateLookup>,
     bridge_markers: BridgeMarkers,
+    common: Option<Arc<CommonServices>>,
 }
 
 impl MapParseContext {
-    fn new(script_templates: Option<ScriptTemplateLookup>) -> Self {
+    fn new(
+        script_templates: Option<ScriptTemplateLookup>,
+        common: Option<Arc<CommonServices>>,
+    ) -> Self {
         Self {
             heightmap: HeightMap::new(),
             world_dict: HashMap::new(),
@@ -624,6 +630,7 @@ impl MapParseContext {
             sides: None,
             script_templates,
             bridge_markers: BridgeMarkers::default(),
+            common,
         }
     }
 }
@@ -832,11 +839,20 @@ fn parse_polygon_triggers_chunk(
     let Some(ctx) = map_parse_context(user_data) else {
         return false;
     };
-    PolygonTriggerList::parse_polygon_triggers_data_chunk(
-        input,
-        info,
-        &mut ctx.triggers as &mut dyn std::any::Any,
-    )
+    ctx.triggers.read_polygon_triggers_data_chunk(input, info.version, || {
+        let common = ctx.common.clone().unwrap_or_else(common_services);
+        let data = common
+            .system
+            .global_data
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .clone();
+        data.map_or([0.0; 2], |data| {
+            let data = data.read();
+            [data.water_extent_x, data.water_extent_y]
+        })
+    });
+    true
 }
 
 fn dict_to_string_map(dict: &Dict, input: &DataChunkInput) -> HashMap<String, String> {
@@ -1196,6 +1212,54 @@ mod tests {
     }
 
     #[test]
+    fn version_one_polygon_water_uses_the_receiving_map_loader_owner() {
+        use game_engine::common::common_services::with_common_services;
+        use game_engine::common::ini::ini_game_data::ensure_global_data;
+        use game_engine::common::system::DataChunkOutput;
+
+        fn with_water_extent(x: f32, y: f32) -> Arc<CommonServices> {
+            let common = Arc::new(CommonServices::new());
+            with_common_services(&common, || {
+                let data = ensure_global_data();
+                let mut data = data.write();
+                data.water_extent_x = x;
+                data.water_extent_y = y;
+            });
+            common
+        }
+
+        let mut out = DataChunkOutput::new();
+        out.open_data_chunk("HeightMapData", 3);
+        for value in [2, 2, 0, 4] {
+            out.write_int(value);
+        }
+        for _ in 0..4 {
+            out.write_byte(0);
+        }
+        out.close_data_chunk();
+        out.open_data_chunk("PolygonTriggers", 1);
+        out.write_int(0);
+        out.close_data_chunk();
+        let bytes = out.into_ckmp_bytes();
+
+        let a = with_water_extent(88.0, 112.0);
+        let b = with_water_extent(224.0, 330.0);
+        let point = |active: &Arc<CommonServices>, receiving: &Arc<CommonServices>| {
+            with_common_services(active, || {
+                let decoded =
+                    MapLoader::parse_map_data(&bytes, false, None, None, Some(receiving.clone()))
+                        .unwrap();
+                let water = decoded.triggers.get_by_id(0).unwrap();
+                assert!(water.is_water_area());
+                *water.get_point(2).unwrap()
+            })
+        };
+        assert_eq!(point(&b, &a), glam::IVec3::new(388, 412, 7));
+        assert_eq!(point(&a, &b), glam::IVec3::new(524, 630, 7));
+        assert_eq!(point(&b, &a), glam::IVec3::new(388, 412, 7));
+    }
+
+    #[test]
     fn test_waypoints_list_parser_tolerates_trailing_bytes() {
         let mut payload = Vec::new();
         payload.extend_from_slice(&1i32.to_le_bytes());
@@ -1206,7 +1270,7 @@ mod tests {
         let mut input = DataChunkInput::new(make_chunk_bytes("WaypointsList", 0, &payload));
         assert!(input.is_valid_file_type());
 
-        let mut ctx = MapParseContext::new(None);
+        let mut ctx = MapParseContext::new(None, None);
         input.register_parser("WaypointsList", "", parse_waypoints_list_chunk);
         assert!(input.parse(&mut ctx));
         assert_eq!(ctx.waypoint_links, vec![(7, 9)]);

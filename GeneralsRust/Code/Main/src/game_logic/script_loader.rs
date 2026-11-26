@@ -26,11 +26,8 @@ use game_engine::common::name_key_generator::{NameKeyGenerator, NameKeyNamespace
 use game_engine::common::system::{
     DataChunkInfo, DataChunkInput, file::FileAccess, file_system::get_file_system,
 };
-use generals_sim::GameLogicError;
-use gamelogic::common::MAP_XY_FACTOR;
-use gamelogic::common::AsciiString;
-use glam::IVec3 as ICoord3D;
-use gamelogic::polygon_trigger::PolygonTrigger;
+use game_engine::map_object::MAP_XY_FACTOR;
+use game_engine::polygon_trigger::PolygonTrigger;
 use gamelogic::scripting::chunk_codec::ScriptTemplateLookup;
 use gamelogic::scripting::core::{
     Condition, ConditionType, Coord3D, OrCondition, Parameter, ParameterType, Script, ScriptAction,
@@ -39,6 +36,7 @@ use gamelogic::scripting::core::{
 use gamelogic::scripting::{ScriptListReadInfo, parse_player_scripts_list_chunk};
 use gamelogic::system::Coord3D as SystemCoord3D;
 use gamelogic::system::map_loader::{BridgeEndpoints, BridgeMarkers};
+use generals_sim::GameLogicError;
 use log::{debug, info, trace, warn};
 
 type LoaderResult<T> = Result<T, GameLogicError>;

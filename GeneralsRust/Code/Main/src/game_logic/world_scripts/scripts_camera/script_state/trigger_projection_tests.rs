@@ -6,10 +6,10 @@ use gamelogic::scripting::core::{
 };
 use gamelogic::scripting::engine::{ScriptEngine, get_script_engine, with_script_engine_ref};
 
-fn area() -> gamelogic::polygon_trigger::PolygonTrigger {
+fn area() -> game_engine::polygon_trigger::PolygonTrigger {
     use gamelogic::common::AsciiString;
     use glam::IVec3 as ICoord3D;
-    gamelogic::polygon_trigger::PolygonTrigger::new(
+    game_engine::polygon_trigger::PolygonTrigger::new(
         19321,
         AsciiString::from("ProjectionArea"),
         vec![

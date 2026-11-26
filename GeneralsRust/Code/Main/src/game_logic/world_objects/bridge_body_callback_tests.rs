@@ -368,7 +368,7 @@ fn owned_water_damage_completes_linked_bridge_callbacks_before_returning() {
             map.height = 20;
             map.heightmap = vec![0; 400];
             let mut water =
-                gamelogic::polygon_trigger::PolygonTrigger::new(7, "Lake".into(), Vec::new());
+                game_engine::polygon_trigger::PolygonTrigger::new(7, "Lake".into(), Vec::new());
             water.set_water_area(true);
             for (x, y) in [(0, 0), (80, 0), (80, 80), (0, 80)] {
                 water.add_point(glam::IVec3::new(x, y, 20));

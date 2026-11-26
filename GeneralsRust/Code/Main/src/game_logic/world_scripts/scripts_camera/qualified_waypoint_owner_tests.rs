@@ -44,7 +44,7 @@ fn my_inner_perimeter_qualification_uses_owned_player_start_and_polygon() {
         .host_trigger_world
         .lock()
         .unwrap()
-        .set_trigger_areas(&[gamelogic::polygon_trigger::PolygonTrigger::new(
+        .set_trigger_areas(&[game_engine::polygon_trigger::PolygonTrigger::new(
             9301,
             "InnerPerimeter1".into(),
             vec![

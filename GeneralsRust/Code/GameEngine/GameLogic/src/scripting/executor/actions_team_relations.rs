@@ -671,7 +671,7 @@ impl ScriptActionDispatcher<'_> {
         }
 
         let (area_center, trigger_id) = match self.get_trigger_area(&area_name) {
-            Ok(trigger) => (trigger.get_center_point(), trigger.get_id()),
+            Ok(trigger) => (crate::polygon_trigger::terrain_center(&trigger), trigger.get_id()),
             Err(_) => {
                 log::warn!("Trigger area '{}' not found for guard", area_name);
                 return Ok(ScriptActionResult::Success);
@@ -986,7 +986,7 @@ impl ScriptActionDispatcher<'_> {
         }
 
         let (area_center, trigger_id) = match self.get_trigger_area(&area_name) {
-            Ok(trigger) => (trigger.get_center_point(), trigger.get_id()),
+            Ok(trigger) => (crate::polygon_trigger::terrain_center(&trigger), trigger.get_id()),
             Err(_) => {
                 log::warn!("Trigger area '{}' not found", area_name);
                 return Ok(ScriptActionResult::Success);

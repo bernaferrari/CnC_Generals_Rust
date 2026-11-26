@@ -7,7 +7,7 @@ fn area(world: &mut GameLogic) {
         .host_trigger_world
         .lock()
         .unwrap()
-        .set_trigger_areas(&[gamelogic::polygon_trigger::PolygonTrigger::new(
+        .set_trigger_areas(&[game_engine::polygon_trigger::PolygonTrigger::new(
             501,
             "OwnerTriangle".into(),
             vec![
@@ -234,7 +234,7 @@ fn team_inside_area_condition_reads_the_receiving_same_id_objects() {
 fn enemy_perimeter_condition_acquires_only_the_receiving_worlds_enemy() {
     use glam::IVec3 as ICoord3D;
     use game_engine::common::game_common::Relationship;
-    use gamelogic::polygon_trigger::PolygonTrigger;
+    use game_engine::polygon_trigger::PolygonTrigger;
     use gamelogic::scripting::core::{OrCondition, Script};
 
     fn fixture(outside: bool) -> (GameLogic, ObjectId) {

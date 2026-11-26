@@ -301,10 +301,11 @@ impl GameLogic {
             0.43,
             "Fast sync polygons",
         )?;
+        let lighting = self.lighting_rules_baseline();
         let polygon_triggers =
-            match super::script_loader::parse_runtime_polygon_triggers_from_chunky_with_lighting_rules(
+            match super::script_loader::parse_runtime_polygon_triggers_from_chunky(
                 chunky,
-                self.lighting_rules_baseline(),
+                [lighting.water_extent_x, lighting.water_extent_y],
             ) {
                 Ok(value) => value,
                 Err(err) => {

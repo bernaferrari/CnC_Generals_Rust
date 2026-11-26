@@ -104,7 +104,7 @@ impl AIGuardState {
         let mut guard_machine = AIGuardMachine::new(Arc::downgrade(&owner));
         if let Some(polygon) = self.enter_polygon.clone() {
             guard_machine.set_area_to_guard(Some(polygon.clone()));
-            let center = polygon.get_center_point();
+            let center = crate::polygon_trigger::terrain_center(&polygon);
             guard_machine.set_target_position_to_guard(&center);
         } else if goal_id != crate::common::INVALID_ID {
             if let Some(target) = crate::helpers::TheGameLogic::find_object_by_id(goal_id)
@@ -233,7 +233,7 @@ impl CppState for AIGuardState {
 
         if let Some(polygon) = self.base.get_machine_goal_polygon() {
             guard_machine.set_area_to_guard(Some(polygon.clone()));
-            let center = polygon.get_center_point();
+            let center = crate::polygon_trigger::terrain_center(&polygon);
             guard_machine.set_target_position_to_guard(&center);
         } else if let Some(target) = self.base.get_machine_goal_object_id().and_then(|id| {
             crate::helpers::TheGameLogic::find_object_by_id(id)

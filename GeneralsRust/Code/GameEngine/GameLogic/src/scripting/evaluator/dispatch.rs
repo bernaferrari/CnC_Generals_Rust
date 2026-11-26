@@ -1430,7 +1430,7 @@ impl ScriptEvaluator {
                     return Ok(false);
                 };
 
-                let center = trigger.get_center_point();
+                let center = crate::polygon_trigger::terrain_center(&trigger);
                 let radius = trigger.get_radius() + distance;
                 let supply_box_value = player_guard.get_supply_box_value() as f32;
                 let mut max_value = 0.0f32;
@@ -1563,7 +1563,7 @@ impl ScriptEvaluator {
                     None => return Ok(false),
                 };
 
-                let center = trigger.get_center_point();
+                let center = crate::polygon_trigger::terrain_center(&trigger);
                 let radius = trigger.get_radius() + distance;
 
                 let Some(partition) = crate::helpers::ThePartitionManager::get() else {

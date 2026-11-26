@@ -388,144 +388,18 @@ fn parse_runtime_world_info_dict(
 /// Missing or truncated chunks fail-soft to an empty list.
 pub fn parse_runtime_polygon_triggers_from_chunky(
     chunky: &ChunkyMap,
-) -> LoaderResult<Vec<PolygonTrigger>> {
-    let rules = game_engine::common::ini::get_global_data()
-        .map(|data| {
-            let data = data.read();
-            game_engine::common::ini::ini_game_data::LightingContentRules::from_global_data(&data)
-        })
-        .unwrap_or_else(
-            || game_engine::common::ini::ini_game_data::LightingContentRules {
-                water_extent_x: 0.0,
-                water_extent_y: 0.0,
-                ..Default::default()
-            },
-        );
-    parse_runtime_polygon_triggers_from_chunky_with_lighting_rules(chunky, &rules)
-}
-
-/// Parse using the receiving session's admitted application GameData owner.
-pub(crate) fn parse_runtime_polygon_triggers_from_chunky_with_lighting_rules(
-    chunky: &ChunkyMap,
-    rules: &game_engine::common::ini::ini_game_data::LightingContentRules,
+    water_extent: [f32; 2],
 ) -> LoaderResult<Vec<PolygonTrigger>> {
     let body = &chunky.bytes[chunky.body_offset..];
     let Some((version, payload)) = find_chunk_by_label(body, &chunky.toc, "PolygonTriggers")?
     else {
         return Ok(Vec::new());
     };
-
-    let mut reader = BinaryReader::new(payload);
-    if reader.remaining() < 4 {
-        return Ok(Vec::new());
-    }
-    let count = reader.read_i32()?.max(0);
-    let mut triggers = Vec::new();
-    let mut max_trigger_id = 0i32;
-    for _ in 0..count {
-        if reader.remaining() < 2 {
-            break;
-        }
-        let trigger_name = match reader.read_ascii_string() {
-            Ok(name) => name,
-            Err(_) => break,
-        };
-        let layer_name = if version >= 4 {
-            match reader.read_ascii_string() {
-                Ok(name) => name,
-                Err(_) => break,
-            }
-        } else {
-            String::new()
-        };
-        let Ok(trigger_id) = reader.read_i32() else {
-            break;
-        };
-        let is_water = if version >= 2 {
-            match reader.read_u8() {
-                Ok(byte) => byte != 0,
-                Err(_) => break,
-            }
-        } else {
-            false
-        };
-        let (is_river, river_start) = if version >= 3 {
-            let river = match reader.read_u8() {
-                Ok(byte) => byte != 0,
-                Err(_) => break,
-            };
-            let start = match reader.read_i32() {
-                Ok(value) => value,
-                Err(_) => break,
-            };
-            (river, start)
-        } else {
-            (false, 0)
-        };
-        let Ok(num_points) = reader.read_i32() else {
-            break;
-        };
-        let mut points = Vec::new();
-        let mut points_ok = true;
-        for _ in 0..num_points.max(0) {
-            let (Ok(x), Ok(y), Ok(z)) = (reader.read_i32(), reader.read_i32(), reader.read_i32())
-            else {
-                points_ok = false;
-                break;
-            };
-            points.push(ICoord3D::new(x, y, z));
-        }
-        if !points_ok {
-            break;
-        }
-        if trigger_id > max_trigger_id {
-            max_trigger_id = trigger_id;
-        }
-        if points.len() < 2 {
-            continue;
-        }
-        let mut trigger =
-            PolygonTrigger::new(trigger_id, AsciiString::from(trigger_name.as_str()), points);
-        trigger.set_layer_name(AsciiString::from(layer_name.as_str()));
-        trigger.set_water_area(is_water);
-        trigger.set_river(is_river);
-        trigger.set_river_start(river_start);
-        triggers.push(trigger);
-    }
-
-    // C++ PolygonTrigger.cpp version-1 maps auto-add a full-extent water table.
-    if version == 1 {
-        // C++ `pTrig->m_triggerID = maxTriggerId++` reuses the current max.
-        let water_id = max_trigger_id;
-        let mut trigger = PolygonTrigger::new(
-            water_id,
-            AsciiString::from("AutoAddedWaterAreaTrigger"),
-            Vec::new(),
-        );
-        trigger.set_water_area(true);
-        let water_extent_x = rules.water_extent_x;
-        let water_extent_y = rules.water_extent_y;
-        let border = 30.0 * MAP_XY_FACTOR;
-        trigger.add_point(ICoord3D::new((-border) as i32, (-border) as i32, 7));
-        trigger.add_point(ICoord3D::new(
-            (border + water_extent_x) as i32,
-            (-border) as i32,
-            7,
-        ));
-        trigger.add_point(ICoord3D::new(
-            (border + water_extent_x) as i32,
-            (border + water_extent_y) as i32,
-            7,
-        ));
-        trigger.add_point(ICoord3D::new(
-            (-border) as i32,
-            (border + water_extent_y) as i32,
-            7,
-        ));
-        triggers.push(trigger);
-    }
-
-    Ok(triggers)
+    Ok(game_engine::polygon_trigger::decode_polygon_triggers(
+        version,
+        payload,
+        water_extent,
+    ))
 }
 
 /// Admit the parsed polygon table on its explicit receiving logical owner.

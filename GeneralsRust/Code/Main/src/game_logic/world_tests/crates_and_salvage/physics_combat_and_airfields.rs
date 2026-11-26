@@ -1051,7 +1051,7 @@ fn tick_shock_stun_all_samples_terrain_surface() {
         map.width = 8;
         map.height = 8;
         map.heightmap = vec![0; 64];
-        let mut water = gamelogic::polygon_trigger::PolygonTrigger::new(
+        let mut water = game_engine::polygon_trigger::PolygonTrigger::new(
             1,
             "StunSurfaceWater".into(),
             Vec::new(),

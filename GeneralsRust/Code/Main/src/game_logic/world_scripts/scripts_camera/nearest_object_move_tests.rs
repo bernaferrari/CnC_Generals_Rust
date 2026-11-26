@@ -20,7 +20,7 @@ fn tracking_world() -> (GameLogic, ObjectId, ObjectId) {
 }
 
 fn trigger(world: &GameLogic) {
-    let polygon = gamelogic::polygon_trigger::PolygonTrigger::new(
+    let polygon = game_engine::polygon_trigger::PolygonTrigger::new(
         9901,
         "NearestOwned".into(),
         vec![

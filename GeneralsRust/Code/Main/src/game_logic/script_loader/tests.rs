@@ -297,7 +297,7 @@ End\n";
         let _ = parse_runtime_water_height_from_chunky(&chunky).expect("water");
         let water_s = t.elapsed();
         let t = std::time::Instant::now();
-        let polys = parse_runtime_polygon_triggers_from_chunky(&chunky).expect("polygons");
+        let polys = parse_runtime_polygon_triggers_from_chunky(&chunky, [0.0; 2]).expect("polygons");
         let polygons_s = t.elapsed();
         let t = std::time::Instant::now();
         let sides = parse_runtime_sides_from_chunky(&chunky).expect("sides");
@@ -637,7 +637,7 @@ End\n";
             .expect("waterHeight must be recovered from WorldInfo");
         assert_eq!(water_height, 7.5);
 
-        let triggers = parse_runtime_polygon_triggers_from_chunky(&chunky)
+        let triggers = parse_runtime_polygon_triggers_from_chunky(&chunky, [0.0; 2])
             .expect("PolygonTriggers parse should fail-soft, not error");
         assert_eq!(triggers.len(), 1);
         assert!(triggers[0].is_water_area());
@@ -672,7 +672,7 @@ End\n";
             None
         );
         assert!(
-            parse_runtime_polygon_triggers_from_chunky(&missing)
+            parse_runtime_polygon_triggers_from_chunky(&missing, [0.0; 2])
                 .unwrap()
                 .is_empty()
         );

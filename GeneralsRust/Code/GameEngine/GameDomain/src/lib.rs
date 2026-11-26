@@ -6,6 +6,7 @@ pub mod armor_ini;
 pub mod difficulty;
 pub mod indexed_heap;
 pub mod ini;
+pub mod polygons;
 pub use difficulty::AIDifficulty;
 
 /// Unique identifier for Main host game objects.

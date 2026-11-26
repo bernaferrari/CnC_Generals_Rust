@@ -3576,6 +3576,7 @@ dependencies = [
  "generals_compression",
  "generals_fx",
  "generals_game_domain",
+ "generals_map",
  "getrandom 0.3.4",
  "getrandom 0.4.2",
  "glam",

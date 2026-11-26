@@ -961,7 +961,7 @@ impl HostScriptQuery {
     /// C++ PolygonTrigger::getCenterPoint + getRadius, else host AABB circumradius.
     fn host_trigger_center_radius(&self, area_name: &str) -> Option<(f32, f32, f32)> {
         if let Some(trigger) = host_script_lookup_polygon_trigger(area_name) {
-            let center = trigger.get_center_point();
+            let center = crate::polygon_trigger::terrain_center(&trigger);
             return Some((center.x, center.y, trigger.get_radius()));
         }
         let (min_x, min_z, max_x, max_z) = self.host_script_area_bounds(area_name)?;
@@ -1034,7 +1034,7 @@ impl HostScriptQuery {
                 .and_then(|terrain| terrain.get_trigger_area_by_name(name).cloned())
         };
         if let Some(trigger) = from_terrain(&resolved).or_else(|| from_terrain(area_name)) {
-            let center = trigger.get_center_point();
+            let center = crate::polygon_trigger::terrain_center(&trigger);
             return Some((center.x, center.y, trigger.get_radius()));
         }
         if let Some(trigger) = crate::scripting::engine::with_script_engine_ref(|engine| {
@@ -1042,7 +1042,7 @@ impl HostScriptQuery {
         })
         .flatten()
         {
-            let center = trigger.get_center_point();
+            let center = crate::polygon_trigger::terrain_center(&trigger);
             return Some((center.x, center.y, trigger.get_radius()));
         }
         let (min_x, min_z, max_x, max_z) =

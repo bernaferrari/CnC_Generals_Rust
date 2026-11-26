@@ -948,7 +948,7 @@ if let Ok(mut list) = __arc_bind.write() {
 
     /// C++ WaterRenderObjClass::renderWater uses every authored water polygon,
     /// including river flag/start and per-point Z. Instance owned map data.
-    pub fn terrain_water_triggers_snapshot(&self) -> &[gamelogic::polygon_trigger::PolygonTrigger] {
+    pub fn terrain_water_triggers_snapshot(&self) -> &[game_engine::polygon_trigger::PolygonTrigger] {
         &self.runtime_water_triggers
     }
 

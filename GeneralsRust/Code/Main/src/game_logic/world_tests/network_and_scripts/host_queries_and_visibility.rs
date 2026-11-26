@@ -7,7 +7,7 @@ use super::*;
 fn host_named_unit_found_with_empty_object_registry() {
     use gamelogic::common::AsciiString;
     use glam::IVec3 as ICoord3D;
-    use gamelogic::polygon_trigger::PolygonTrigger;
+    use game_engine::polygon_trigger::PolygonTrigger;
     let mut logic = GameLogic::new();
     let mut template = ThingTemplate::new("NamedScout");
     template.set_health(100.0);
@@ -3324,7 +3324,7 @@ fn capture_command_rejects_under_construction_building() {
 fn host_trigger_snapshot_capture_is_isolated_between_live_worlds() {
 
     gamelogic::scripting::HostScriptQuery::from_world(gamelogic::system::engine_stores::try_active_services()).clear_host_script_query_snapshot();
-    let trigger_a = gamelogic::polygon_trigger::PolygonTrigger::new(
+    let trigger_a = game_engine::polygon_trigger::PolygonTrigger::new(
         19021,
         gamelogic::common::AsciiString::from("OwnerProbeAreaA"),
         vec![
@@ -3334,7 +3334,7 @@ fn host_trigger_snapshot_capture_is_isolated_between_live_worlds() {
             glam::IVec3::new(100, 130, 0),
         ],
     );
-    let trigger_b = gamelogic::polygon_trigger::PolygonTrigger::new(
+    let trigger_b = game_engine::polygon_trigger::PolygonTrigger::new(
         19022,
         gamelogic::common::AsciiString::from("OwnerProbeAreaB"),
         vec![

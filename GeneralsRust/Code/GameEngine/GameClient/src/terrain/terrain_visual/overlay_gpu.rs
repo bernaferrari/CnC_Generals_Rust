@@ -281,7 +281,7 @@ impl TerrainVisualImpl {
     pub fn set_map_water_areas(&mut self, areas: Vec<TerrainWaterArea>) {
         if self.overlay.water_areas != areas {
             use glam::IVec3 as ICoord3D;
-            use gamelogic::polygon_trigger::PolygonTrigger;
+            use game_engine::polygon_trigger::PolygonTrigger;
             // Both forms belong to this map. The integer query reuses the
             // original PolygonTrigger containment and precomputed bounds.
             self.overlay.shoreline_water_areas = areas.iter().map(|area| {

@@ -228,6 +228,6 @@ pub(crate) mod player_controllers;
 mod host_reexports;
 pub use host_reexports::*;
 
-/// Trigger history for the driving simulation with legacy polygon descriptors.
+/// Trigger history for the driving simulation with the authored map polygons.
 pub(crate) type ScriptTriggerWorld =
-    generals_sim::scripting::TriggerWorld<gamelogic::polygon_trigger::PolygonTrigger>;
+    generals_sim::scripting::TriggerWorld<game_engine::polygon_trigger::PolygonTrigger>;

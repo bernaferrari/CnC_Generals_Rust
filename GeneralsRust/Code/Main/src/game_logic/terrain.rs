@@ -588,7 +588,7 @@ mod tests {
         // Pre-fix: TerrainData.water_plane_y stayed None, lakes always dry.
         use gamelogic::common::AsciiString;
         use glam::IVec3 as ICoord3D;
-        use gamelogic::polygon_trigger::PolygonTrigger;
+        use game_engine::polygon_trigger::PolygonTrigger;
         use gamelogic::system::map_loader::MapData;
         use gamelogic::terrain::TerrainLogic;
 

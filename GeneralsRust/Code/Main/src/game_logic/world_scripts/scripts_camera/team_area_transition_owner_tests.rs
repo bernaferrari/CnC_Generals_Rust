@@ -42,7 +42,7 @@ fn team_event_marker_survives_roster_removal_until_script_state_phase() {
         object.team_instance_id = Some(team_id);
     }
     world.frame = 20;
-    let area = gamelogic::polygon_trigger::PolygonTrigger::new(
+    let area = game_engine::polygon_trigger::PolygonTrigger::new(
         1902,
         "RosterEdgeArea".into(),
         vec![

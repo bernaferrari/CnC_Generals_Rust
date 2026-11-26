@@ -19,7 +19,7 @@ fn owner_world() -> (GameLogic, ObjectId) {
     map.width = 20;
     map.height = 20;
     map.heightmap = vec![0; 400];
-    let mut water = gamelogic::polygon_trigger::PolygonTrigger::new(7, "Lake".into(), Vec::new());
+    let mut water = game_engine::polygon_trigger::PolygonTrigger::new(7, "Lake".into(), Vec::new());
     water.set_water_area(true);
     for (x, y) in [(0, 0), (80, 0), (80, 80), (0, 80)] {
         water.add_point(ICoord3D::new(x, y, 0));
@@ -404,7 +404,7 @@ fn script_water_damage_uses_original_diagonal_range_and_no_projectile_skip() {
         || {
             let (mut world, inside) = owner_world();
             let mut other =
-                gamelogic::polygon_trigger::PolygonTrigger::new(8, "OtherLake".into(), Vec::new());
+                game_engine::polygon_trigger::PolygonTrigger::new(8, "OtherLake".into(), Vec::new());
             other.set_water_area(true);
             for (x, y) in [(80, 80), (200, 80), (200, 200), (80, 200)] {
                 other.add_point(ICoord3D::new(x, y, 10));

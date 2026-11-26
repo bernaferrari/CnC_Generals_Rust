@@ -20,7 +20,7 @@ fn named_entered_condition_observes_owned_geometry_edge_window_and_same_id_peer(
     let (mut owner, unit, _) = world();
     let (mut peer, peer_unit, _) = world();
     assert_eq!(unit, peer_unit);
-    let trigger = gamelogic::polygon_trigger::PolygonTrigger::new(
+    let trigger = game_engine::polygon_trigger::PolygonTrigger::new(
         1814,
         "OwnedEntryTriangle".into(),
         vec![

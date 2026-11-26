@@ -127,7 +127,7 @@ fn float_phase_ignores_foreign_published_terrain() {
     let foreign = gamelogic::system::engine_stores::new_world_services();
     {
         let mut terrain = foreign.terrain().write().unwrap();
-        let mut water = gamelogic::polygon_trigger::PolygonTrigger::new(
+        let mut water = game_engine::polygon_trigger::PolygonTrigger::new(
             99,
             "ForeignFloatWater".into(),
             vec![

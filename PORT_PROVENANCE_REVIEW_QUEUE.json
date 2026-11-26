@@ -42014,13 +42014,19 @@
         {
           "blockers": [
             "unreviewed_mapping",
-            "unreviewed_symbol_ownership"
+            "unreviewed_symbol_ownership",
+            "unreviewed_source_range_ownership"
           ],
           "candidate_destinations": [
             {
               "cargo_reachable": true,
               "classification": "implementation",
-              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/polygon_trigger.rs"
+              "path": "GeneralsRust/Code/GameEngine/Common/src/polygon_trigger.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "implementation",
+              "path": "GeneralsRust/Code/GameEngine/Common/src/polygon_trigger/map_chunk.rs"
             }
           ],
           "entry_id": "game_engine:Source/GameLogic/Map/PolygonTrigger.cpp",
@@ -187727,7 +187733,7 @@
       ]
     }
   ],
-  "provenance_input_digest": "bba35474841f74b7b4538504517e38dca37135e1cf5ffa47af63c88dc40aaf2a",
+  "provenance_input_digest": "053b308fbe9af0e88e74bd936574f60d43ca6220cb28a759dfbd8eb7557c1baa",
   "schema_version": 1,
   "summary": {
     "maximum_packet_size": 15,

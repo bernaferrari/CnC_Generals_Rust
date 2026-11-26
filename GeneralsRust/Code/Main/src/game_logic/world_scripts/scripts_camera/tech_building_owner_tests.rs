@@ -75,7 +75,7 @@ fn world() -> (GameLogic, ObjectId) {
         .get_mut(&1)
         .unwrap()
         .set_map_relationship(2, Relationship::Enemies);
-    let trigger = gamelogic::polygon_trigger::PolygonTrigger::new(
+    let trigger = game_engine::polygon_trigger::PolygonTrigger::new(
         1,
         "HomeBase".into(),
         vec![
@@ -131,7 +131,7 @@ fn admitted_world(mode: GameMode, relationship: Relationship) -> (GameLogic, Obj
         .set_map_relationship(3, relationship);
     world.world_min = Vec3::ZERO;
     world.world_max = Vec3::splat(1000.0);
-    let trigger = gamelogic::polygon_trigger::PolygonTrigger::new(
+    let trigger = game_engine::polygon_trigger::PolygonTrigger::new(
         1,
         "HomeBase".into(),
         vec![
@@ -305,7 +305,7 @@ fn live_tech_condition_retries_missing_trigger_but_latches_empty_search() {
             let (mut world, id) = world();
             let engine = observing_engine(condition("Viewer", "LaterArea", 0.0), 1);
             assert_eq!(tick(&engine, &mut world), 0);
-            let trigger = gamelogic::polygon_trigger::PolygonTrigger::new(
+            let trigger = game_engine::polygon_trigger::PolygonTrigger::new(
                 2,
                 "LaterArea".into(),
                 vec![
@@ -450,7 +450,7 @@ fn owned_tech_aliases_use_explicit_current_player_and_enemy_perimeter() {
                 .unwrap()
                 .enemy_player_id = Some(2);
             let areas = ["InnerPerimeter3", "OuterPerimeter6", THIS_PLAYER].map(|name| {
-                gamelogic::polygon_trigger::PolygonTrigger::new(
+                game_engine::polygon_trigger::PolygonTrigger::new(
                     3,
                     name.into(),
                     vec![
@@ -599,7 +599,7 @@ fn warehouse_condition_values_receiving_signed_boxes_and_current_price() {
         world.admit_object_ini_sources([("SupplyCondition.ini".into(), "Object ConditionWarehouse\nKindOf = STRUCTURE SUPPLY_SOURCE\nBody = ActiveBody Body\nMaxHealth = 100\nInitialHealth = 100\nEnd\nBehavior = SupplyWarehouseDockUpdate Dock\nStartingBoxes = 1\nEnd\nEnd\n".into())]).unwrap();
         world.admit_production_energy_base(ProductionEnergyRules { value_per_supply_box: price, ..Default::default() });
         world.add_player(Player::new(1, Team::USA, "Viewer", true).with_script_identity("Viewer"));
-        let trigger = gamelogic::polygon_trigger::PolygonTrigger::new(
+        let trigger = game_engine::polygon_trigger::PolygonTrigger::new(
             1, "PriceTest".into(),
             vec![glam::IVec3::new(0, 0, 0), glam::IVec3::new(20, 20, 0)],
         );

@@ -32217,10 +32217,17 @@
             "classification": "implementation",
             "owned_source_ranges": [],
             "owned_symbols": [],
-            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/polygon_trigger.rs"
+            "path": "GeneralsRust/Code/GameEngine/Common/src/polygon_trigger.rs"
+          },
+          {
+            "cargo_reachable": true,
+            "classification": "implementation",
+            "owned_source_ranges": [],
+            "owned_symbols": [],
+            "path": "GeneralsRust/Code/GameEngine/Common/src/polygon_trigger/map_chunk.rs"
           }
         ],
-        "mode": "stem_inferred",
+        "mode": "split_inferred",
         "ownership_diagnostics": [],
         "range_validation": "not_required",
         "review_state": "unreviewed",
@@ -55996,7 +56003,8 @@
       },
       "blockers": [
         "unreviewed_mapping",
-        "unreviewed_symbol_ownership"
+        "unreviewed_symbol_ownership",
+        "unreviewed_source_range_ownership"
       ],
       "id": "game_engine:Source/GameLogic/Map/PolygonTrigger.cpp",
       "inventory_class": "required_runtime",
@@ -56008,12 +56016,19 @@
             "classification": "implementation",
             "owned_source_ranges": [],
             "owned_symbols": [],
-            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/polygon_trigger.rs"
+            "path": "GeneralsRust/Code/GameEngine/Common/src/polygon_trigger.rs"
+          },
+          {
+            "cargo_reachable": true,
+            "classification": "implementation",
+            "owned_source_ranges": [],
+            "owned_symbols": [],
+            "path": "GeneralsRust/Code/GameEngine/Common/src/polygon_trigger/map_chunk.rs"
           }
         ],
-        "mode": "stem_inferred",
+        "mode": "split_inferred",
         "ownership_diagnostics": [],
-        "range_validation": "not_required",
+        "range_validation": "unreviewed",
         "review_state": "unreviewed",
         "reviewed_path_implementation": false,
         "stale_reviewed_destinations": [],
@@ -153678,7 +153693,7 @@
     }
   ],
   "generator": "GeneralsRust/Code/Main/scripts/generate_port_provenance.py",
-  "input_digest": "bba35474841f74b7b4538504517e38dca37135e1cf5ffa47af63c88dc40aaf2a",
+  "input_digest": "053b308fbe9af0e88e74bd936574f60d43ca6220cb28a759dfbd8eb7557c1baa",
   "metric_contract": {
     "behavior_requires_explicit_evidence": true,
     "candidate_mapping_is_reviewed": false,
@@ -160565,6 +160580,30 @@
       },
       "path": "GeneralsRust/Code/GameEngine/Common/src/perf_metrics.rs",
       "sha256": "3e62e5a5f89efaf20f3540d2e6faade8a3a3d1e78105b0e11dc6d04de5a4ad1f",
+      "symbol_index_status": "awaiting_mapping_review",
+      "symbols": []
+    },
+    {
+      "cargo_reachable": true,
+      "classification": "implementation",
+      "file_range": {
+        "end_line": 288,
+        "start_line": 1
+      },
+      "path": "GeneralsRust/Code/GameEngine/Common/src/polygon_trigger/map_chunk.rs",
+      "sha256": "514b3747f8f9e5fc6b7a26a327bac81837e42d89166f0a969e1b41ec1482fd21",
+      "symbol_index_status": "awaiting_mapping_review",
+      "symbols": []
+    },
+    {
+      "cargo_reachable": true,
+      "classification": "implementation",
+      "file_range": {
+        "end_line": 490,
+        "start_line": 1
+      },
+      "path": "GeneralsRust/Code/GameEngine/Common/src/polygon_trigger.rs",
+      "sha256": "a4d75b0cbf19d90451d0399b2482816b3930369afc7480b81fa73d5dbff78aaf",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -172173,7 +172212,7 @@
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/terrain/terrain_visual/overlay_gpu.rs",
-      "sha256": "2c356ec21b4c0ee104cdd25bb2c122f18c0e77d5a807459151e8c4f2c5472462",
+      "sha256": "f262fedbc7ef136302453094f1e18ab5c5e1444b22263f8802d88ebb11e6489c",
       "symbol_index_status": "indexed",
       "symbols": [
         {
@@ -173645,7 +173684,7 @@
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/terrain/terrain_visual/types.rs",
-      "sha256": "98d0a210d88c1c0beba8e7cbc61faf6a118810da647cdb61e37433905adc8eea",
+      "sha256": "7576749dbbaf7d521dcf34dcb6958c698bdd7ca469d2feb0f402da3e45540f73",
       "symbol_index_status": "indexed",
       "symbols": [
         {
@@ -178351,7 +178390,7 @@
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/ai/guard.rs",
-      "sha256": "25e565b29390f3e6f89a2be328955268d5c5edafbb976463f49024a9b253527f",
+      "sha256": "c2d3217154897aeb99aac070dd2a0f027816ceab7709529e04f7f0416ac71a92",
       "symbol_index_status": "indexed",
       "symbols": [
         {
@@ -192747,7 +192786,7 @@
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/ai/states/guard.rs",
-      "sha256": "4e3d15ce3114a301d4071d5169fbce61bfc15d93841d36a59872c1684ff8bc76",
+      "sha256": "28fdb8ebbbaa3e2121d957556d8f9b8ed3c355f8c231cc44f002827fb0a1baae",
       "symbol_index_status": "indexed",
       "symbols": [
         {
@@ -206705,18 +206744,6 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 696,
-        "start_line": 1
-      },
-      "path": "GeneralsRust/Code/GameEngine/GameLogic/src/polygon_trigger.rs",
-      "sha256": "feadf05d3471211cc67b63648e17a407bf9478b2a785ae0c3e47854abdaa9344",
-      "symbol_index_status": "awaiting_mapping_review",
-      "symbols": []
-    },
-    {
-      "cargo_reachable": true,
-      "classification": "implementation",
-      "file_range": {
         "end_line": 1102,
         "start_line": 1
       },
@@ -213204,7 +213231,7 @@
       "ownership_range": 1,
       "ownership_symbol": 6,
       "unreviewed_mapping": 1379,
-      "unreviewed_source_range_ownership": 67,
+      "unreviewed_source_range_ownership": 68,
       "unreviewed_symbol_ownership": 1388
     },
     "by_scope": {
@@ -213271,7 +213298,7 @@
     "required_translation_units": 1389,
     "reviewed_path_implementations": 10,
     "source_range_ownership_reviewed": 2,
-    "strict_blockers": 5002,
+    "strict_blockers": 5003,
     "symbol_ownership_reviewed": 1,
     "translation_units": 1436
   }

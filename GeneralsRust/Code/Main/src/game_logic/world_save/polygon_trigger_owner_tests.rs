@@ -130,7 +130,7 @@ fn actual_map_polygon_admission_preserves_duplicates_and_same_id_receiving_owner
             let temp = tempfile::tempdir().unwrap();
             let foreign = gamelogic::system::engine_stores::new_for_world();
             let mut foreign_terrain = foreign.services().terrain().write().unwrap();
-            foreign_terrain.add_trigger_area(gamelogic::polygon_trigger::PolygonTrigger::new(
+            foreign_terrain.add_trigger_area(game_engine::polygon_trigger::PolygonTrigger::new(
                 99,
                 "Foreign".into(),
                 vec![

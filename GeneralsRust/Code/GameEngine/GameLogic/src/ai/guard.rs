@@ -134,7 +134,7 @@ fn scan_guard_inner_target(
             return None;
         }
         vision_range = area.get_radius();
-        center = area.get_center_point();
+        center = crate::polygon_trigger::terrain_center(&area);
     }
     let flying_only = matches!(guard_mode, GuardMode::GuardFlyingUnitsOnly);
     let Some(partition) = ThePartitionManager::get() else {
@@ -924,7 +924,7 @@ impl AIGuardMachine {
 
         let area = self.area_to_guard.clone();
         let center = if let Some(area) = area.as_ref() {
-            area.get_center_point()
+            crate::polygon_trigger::terrain_center(&area)
         } else if let Some(target_arc) = self.find_target_to_guard_by_id() {
             target_arc
                 .read()
@@ -1746,7 +1746,7 @@ impl AIGuardOuterState {
             if range < area.get_radius() {
                 range = area.get_radius();
             }
-            center = area.get_center_point();
+            center = crate::polygon_trigger::terrain_center(&area);
         }
 
         {
@@ -2075,7 +2075,7 @@ impl AIGuardReturnState {
             }
         }
         if let Some(area) = machine.friend_area_to_guard() {
-            self.goal_position = area.get_center_point();
+            self.goal_position = crate::polygon_trigger::terrain_center(&area);
         }
 
         if let Some(ai) = ai.as_deref_mut() {

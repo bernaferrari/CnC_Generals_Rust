@@ -8,7 +8,7 @@ fn polygon(owner: &GameLogic, min: i32, max: i32) {
         .host_trigger_world
         .lock()
         .unwrap()
-        .set_trigger_areas(&[gamelogic::polygon_trigger::PolygonTrigger::new(
+        .set_trigger_areas(&[game_engine::polygon_trigger::PolygonTrigger::new(
             8470,
             "OwnedAttackArea".into(),
             vec![

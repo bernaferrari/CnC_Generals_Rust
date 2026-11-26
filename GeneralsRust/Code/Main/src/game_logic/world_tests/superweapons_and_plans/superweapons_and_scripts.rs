@@ -3395,7 +3395,7 @@ fn script_idle_and_guard_for_framecount_write_live() {
 fn script_move_towards_nearest_writes_live() {
     use gamelogic::common::AsciiString;
     use glam::IVec3 as ICoord3D;
-    use gamelogic::polygon_trigger::PolygonTrigger;
+    use game_engine::polygon_trigger::PolygonTrigger;
 
     let trigger = PolygonTrigger::new(
         8801,

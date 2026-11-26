@@ -1,14 +1,7 @@
 //! Per-world script trigger history and the geometry contract it uses.
 
-use glam::IVec3;
+pub use generals_game_domain::polygons::TriggerArea;
 use std::collections::HashMap;
-
-/// A copied polygon descriptor with stable identity in its receiving world.
-pub trait TriggerArea: Clone {
-    fn trigger_id(&self) -> i32;
-    fn trigger_name(&self) -> &str;
-    fn contains_trigger_point(&self, point: IVec3) -> bool;
-}
 
 pub const MY_INNER_PERIMETER: &str = "[Skirmish]MyInnerPerimeter";
 pub const MY_OUTER_PERIMETER: &str = "[Skirmish]MyOuterPerimeter";
@@ -198,12 +191,11 @@ impl<A: TriggerArea> TriggerWorld<A> {
             }
         }
         let mut trigger_event = false;
-        let old = IVec3::new(state.i_x, state.i_y, 0);
         for slot in &mut state.slots {
             let Some(trigger) = triggers.iter().find(|t| t.trigger_id() == slot.trigger_id) else {
                 continue;
             };
-            if !trigger.contains_trigger_point(old) {
+            if !trigger.contains_trigger_point(state.i_x, state.i_y) {
                 slot.is_inside = false;
                 slot.exited = true;
                 state.entered_or_exited_frame = frame;
@@ -212,7 +204,6 @@ impl<A: TriggerArea> TriggerWorld<A> {
         }
         state.i_x = new_x;
         state.i_y = new_y;
-        let now_pt = IVec3::new(state.i_x, state.i_y, 0);
         for trigger in triggers {
             if state
                 .slots
@@ -221,7 +212,7 @@ impl<A: TriggerArea> TriggerWorld<A> {
             {
                 continue;
             }
-            if !trigger.contains_trigger_point(now_pt) {
+            if !trigger.contains_trigger_point(state.i_x, state.i_y) {
                 continue;
             }
             if state.slots.len() >= MAX_TRIGGER_INFOS {
@@ -415,8 +406,8 @@ mod tests {
             self.name
         }
 
-        fn contains_trigger_point(&self, point: IVec3) -> bool {
-            (4..10).contains(&point.x) && (2..6).contains(&point.y)
+        fn contains_trigger_point(&self, x: i32, y: i32) -> bool {
+            (4..10).contains(&x) && (2..6).contains(&y)
         }
     }
 

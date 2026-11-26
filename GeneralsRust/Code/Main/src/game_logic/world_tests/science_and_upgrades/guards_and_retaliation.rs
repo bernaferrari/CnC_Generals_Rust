@@ -641,7 +641,7 @@ fn guard_area_polygon_rejects_outside_and_covers_far_corner() {
     use crate::game_logic::{AIState, KindOf, Object, ObjectId, Team, ThingTemplate};
     use gamelogic::common::AsciiString;
     use glam::IVec3 as ICoord3D;
-    use gamelogic::polygon_trigger::PolygonTrigger;
+    use game_engine::polygon_trigger::PolygonTrigger;
 
     let trigger = PolygonTrigger::new(
         6120,
@@ -1359,7 +1359,7 @@ fn area_guard_outer_chase_uses_polygon_radius() {
     use crate::game_logic::{AIState, KindOf, Object, ObjectId, Team, ThingTemplate};
     use gamelogic::common::AsciiString;
     use glam::IVec3 as ICoord3D;
-    use gamelogic::polygon_trigger::PolygonTrigger;
+    use game_engine::polygon_trigger::PolygonTrigger;
 
     let trigger = PolygonTrigger::new(
         6300,
@@ -1912,7 +1912,7 @@ fn tn_guard_nemesis_rejects_unattackable_damager() {
 fn named_guard_outer_geometry_is_owner_local_with_same_ids_and_reset() {
     use gamelogic::common::AsciiString;
     use glam::IVec3 as ICoord3D;
-    use gamelogic::polygon_trigger::PolygonTrigger;
+    use game_engine::polygon_trigger::PolygonTrigger;
     const NAME: &str = "OwnerGuardPolygon";
     const GUARD: ObjectId = ObjectId(6301);
     const PREY: ObjectId = ObjectId(6302);
@@ -2031,7 +2031,7 @@ fn named_guard_outer_geometry_is_owner_local_with_same_ids_and_reset() {
 fn named_guard_center_height_uses_driving_world_after_other_owner_reset_and_drop() {
     use gamelogic::common::AsciiString;
     use glam::IVec3 as ICoord3D;
-    use gamelogic::polygon_trigger::PolygonTrigger;
+    use game_engine::polygon_trigger::PolygonTrigger;
     const NAME: &str = "OwnedGuardHeight";
     fn admit(world: &mut GameLogic, height: f32) {
         let width = world.pathfinding_system.grid.width() as u32;

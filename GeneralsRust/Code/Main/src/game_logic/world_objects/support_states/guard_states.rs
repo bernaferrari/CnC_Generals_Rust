@@ -43,7 +43,7 @@ fn host_guard_area_stamp_expired(frame: u32, changed: u32, scan_rate: u32) -> bo
 impl GameLogic {
     fn note_host_guard_area_occupancy(
         &self,
-        trigger: &gamelogic::polygon_trigger::PolygonTrigger,
+        trigger: &game_engine::polygon_trigger::PolygonTrigger,
     ) -> bool {
         let name = trigger.get_trigger_name().as_str();
         let mut current = std::collections::BTreeSet::new();
@@ -63,7 +63,7 @@ impl GameLogic {
     pub(crate) fn host_named_guard_area_polygon(
         &self,
         name: &str,
-    ) -> Option<(glam::Vec3, f32, gamelogic::polygon_trigger::PolygonTrigger)> {
+    ) -> Option<(glam::Vec3, f32, game_engine::polygon_trigger::PolygonTrigger)> {
         let trigger = self
             .host_trigger_world
             .lock()
@@ -84,7 +84,7 @@ impl GameLogic {
     }
 
     fn host_point_in_guard_area(
-        trigger: &gamelogic::polygon_trigger::PolygonTrigger,
+        trigger: &game_engine::polygon_trigger::PolygonTrigger,
         pos: glam::Vec3,
     ) -> bool {
         trigger.point_in_trigger(&glam::Vec2::new(pos.x, pos.z))
@@ -127,7 +127,7 @@ impl GameLogic {
         flying_only: bool,
         enter_guard: bool,
         hijack_guard: bool,
-        polygon: Option<&gamelogic::polygon_trigger::PolygonTrigger>,
+        polygon: Option<&game_engine::polygon_trigger::PolygonTrigger>,
     ) -> Option<ObjectId> {
         if acquire_radius <= 0.0 {
             return None;

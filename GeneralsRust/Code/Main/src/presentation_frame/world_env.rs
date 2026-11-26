@@ -476,7 +476,7 @@ pub struct PresentationWaterArea {
 }
 
 impl PresentationWaterArea {
-    fn from_trigger(trigger: &gamelogic::polygon_trigger::PolygonTrigger) -> Option<Self> {
+    fn from_trigger(trigger: &game_engine::polygon_trigger::PolygonTrigger) -> Option<Self> {
         if !trigger.is_water_area() || trigger.get_num_points() <= 2 {
             return None;
         }
@@ -1116,7 +1116,7 @@ mod water_area_tests {
     use super::PresentationWaterArea;
     use gamelogic::common::AsciiString;
     use glam::IVec3 as ICoord3D;
-    use gamelogic::polygon_trigger::PolygonTrigger;
+    use game_engine::polygon_trigger::PolygonTrigger;
 
     #[test]
     fn frozen_water_preserves_authored_vertices_and_river_metadata() {

@@ -2,7 +2,7 @@ use crate::game_logic::GameLogic;
 use game_client::terrain::terrain_visual::{TerrainVisualImpl, TerrainVisualMotion};
 use game_client::terrain::{BreezeInfo, water_tracks::WaterTrackType};
 use glam::IVec3 as ICoord3D;
-use gamelogic::polygon_trigger::PolygonTrigger;
+use game_engine::polygon_trigger::PolygonTrigger;
 use glam::{Mat4, Vec2, Vec3};
 
 #[test]

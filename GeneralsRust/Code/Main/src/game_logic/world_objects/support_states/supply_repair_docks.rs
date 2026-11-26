@@ -539,7 +539,7 @@ impl GameLogic {
         flying_only: bool,
         enter_guard: bool,
         hijack_guard: bool,
-        polygon: Option<&gamelogic::polygon_trigger::PolygonTrigger>,
+        polygon: Option<&game_engine::polygon_trigger::PolygonTrigger>,
     ) -> Option<ObjectId> {
         self.scan_guard_inner_target(
             object_id,

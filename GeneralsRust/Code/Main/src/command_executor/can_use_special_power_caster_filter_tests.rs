@@ -877,7 +877,7 @@ fn location_power_unit_click_leftover_gates_underwater_paradrop() {
     use crate::game_logic::KindOf;
     use gamelogic::common::AsciiString;
     use glam::IVec3 as ICoord3D;
-    use gamelogic::polygon_trigger::PolygonTrigger;
+    use game_engine::polygon_trigger::PolygonTrigger;
     use gamelogic::system::map_loader::MapData;
 
     // C++ ActionManager.cpp:1459-1468: map-owned underwater query.

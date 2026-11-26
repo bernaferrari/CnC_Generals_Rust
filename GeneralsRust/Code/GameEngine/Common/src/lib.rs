@@ -53,6 +53,7 @@ pub mod model_state;
 pub mod overridable;
 pub mod r#override;
 pub mod perf_metrics;
+pub mod polygon_trigger;
 pub mod quickmatch_preferences;
 pub mod special_power_mask_type;
 pub mod special_power_type;

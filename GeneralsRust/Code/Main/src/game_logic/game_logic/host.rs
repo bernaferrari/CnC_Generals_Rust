@@ -1457,7 +1457,7 @@ pub struct GameLogic {
     pub(super) runtime_road_segments: Vec<super::script_loader::RuntimeRoadSegment>,
     /// Authored map water geometry retained by this game instance for the
     /// presentation freeze (C++ PolygonTrigger water areas).
-    pub(super) runtime_water_triggers: Vec<gamelogic::polygon_trigger::PolygonTrigger>,
+    pub(super) runtime_water_triggers: Vec<game_engine::polygon_trigger::PolygonTrigger>,
     pub(super) runtime_terrain_texture_classes: Vec<super::script_loader::BlendTileTextureClass>,
     /// HeightMapData/BlendTileData from fast sync — world_load must not re-parse.
     pub(super) pending_map_heightmap: Option<super::script_loader::HeightMapData>,
