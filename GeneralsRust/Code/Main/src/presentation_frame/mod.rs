@@ -47,6 +47,8 @@ pub(crate) use live_draw_source::{
 mod live_draw_source_tests;
 #[cfg(test)]
 mod money_audio_owner_tests;
+#[cfg(test)]
+mod object_status_owner_tests;
 mod native_factory_source;
 mod particles;
 mod projectile;

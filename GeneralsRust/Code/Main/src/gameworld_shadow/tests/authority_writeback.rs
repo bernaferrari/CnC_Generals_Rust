@@ -73,54 +73,6 @@ fn gameworld_step_movement_advances_move_target() {
 }
 
 #[test]
-fn experience_is_immediate_even_during_shadow_coupling() {
-    use crate::game_logic::{KindOf, Team, ThingTemplate};
-    let mut logic = GameLogic::new();
-
-    let mut template = ThingTemplate::new("RangerXp");
-    template.set_health(100.0);
-    template.add_kind_of(KindOf::Infantry);
-    template.is_trainable = true;
-    template.veterancy_xp_thresholds = [1000.0, 2000.0, 3000.0];
-    logic.templates.insert(template.name.clone(), template);
-    let id = logic
-        .create_object("RangerXp", Team::USA, glam::Vec3::new(3.0, 0.0, 3.0))
-        .unwrap();
-    let mut shadow = GameWorldShadow::new();
-    shadow.sync_from_host(&logic);
-    let entity = shadow.entity_for_host(id).unwrap();
-    let before = logic.host_object(id).unwrap().experience.current;
-
-    {
-        logic.award_experience(id, 50.0);
-        assert_eq!(
-            logic.host_object(id).unwrap().experience.current,
-            before + 50.0
-        );
-    };
-    shadow
-        .world_mut()
-        .world_mut()
-        .entity_mut(entity)
-        .unwrap()
-        .experience_points = 999.0;
-    logic.award_experience(id, 50.0);
-    assert_eq!(
-        logic.host_object(id).unwrap().experience.current,
-        before + 100.0
-    );
-    observe_completed_owner(&mut shadow, &mut logic);
-    assert_eq!(
-        logic.host_object(id).unwrap().experience.current,
-        before + 100.0
-    );
-    assert_eq!(
-        shadow.world().entity(entity).unwrap().experience_points,
-        before + 100.0
-    );
-}
-
-#[test]
 fn host_update_movement_skips_when_gameworld_movement_authority() {
     let mut logic = GameLogic::new();
 
@@ -268,65 +220,6 @@ fn host_disable_timers_log_drives_set_disable_timers_channel() {
         (500, 600, 700)
     );
 }
-#[test]
-fn host_experience_is_canonical_and_shadow_only_observes() {
-    use crate::game_logic::{KindOf, Team, ThingTemplate};
-    fn world() -> (GameLogic, crate::game_logic::ObjectId) {
-        let mut logic = GameLogic::new();
-        let mut template = ThingTemplate::new("XpU");
-        template.set_health(100.0);
-        template.add_kind_of(KindOf::Selectable);
-        template.is_trainable = true;
-        template.veterancy_xp_thresholds = [1000.0, 2000.0, 3000.0];
-        logic.templates.insert(template.name.clone(), template);
-        let id = logic
-            .create_object("XpU", Team::USA, glam::Vec3::new(3.0, 0.0, 3.0))
-            .unwrap();
-        (logic, id)
-    }
-    let (mut logic, id) = world();
-    let (mut peer, peer_id) = world();
-    assert_eq!(id, peer_id);
-    logic.award_experience(id, 42.0);
-    peer.award_experience(peer_id, 7.0);
-    assert_eq!(logic.host_object(id).unwrap().experience.current, 42.0);
-    let mut shadow = GameWorldShadow::new();
-    shadow.sync_from_host(&logic);
-    let entity = shadow.entity_for_host(id).unwrap();
-    assert_eq!(
-        shadow.world().entity(entity).unwrap().experience_points,
-        42.0
-    );
-    shadow
-        .world_mut()
-        .world_mut()
-        .entity_mut(entity)
-        .unwrap()
-        .experience_points = 9000.0;
-    logic.award_experience(id, 1.0);
-    shadow.sync_from_host(&logic);
-    assert_eq!(logic.host_object(id).unwrap().experience.current, 43.0);
-    assert_eq!(
-        shadow.world().entity(entity).unwrap().experience_points,
-        43.0
-    );
-    assert_eq!(peer.host_object(peer_id).unwrap().experience.current, 7.0);
-    let builder = crate::save_load::SnapshotBuilder::new();
-    let snapshot = builder.create_world_snapshot(&logic).unwrap();
-    let mut restored = GameLogic::new();
-    restored.templates = logic.templates.clone();
-    builder
-        .restore_from_snapshot(&snapshot, &mut restored)
-        .unwrap();
-    restored.award_experience(id, 1.0);
-    logic.award_experience(id, 1.0);
-    assert_eq!(restored.host_object(id).unwrap().experience.current, 44.0);
-    assert_eq!(logic.host_object(id).unwrap().experience.current, 44.0);
-    peer.reset();
-    drop(peer);
-    assert_eq!(logic.host_object(id).unwrap().experience.current, 44.0);
-}
-
 #[test]
 fn apply_host_positions_uses_host_orientation_channel() {
     // Object::set_orientation may be masked by engine-bridge registry reads; the

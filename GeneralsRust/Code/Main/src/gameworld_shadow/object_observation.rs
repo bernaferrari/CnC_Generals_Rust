@@ -31,7 +31,6 @@ impl GameWorldShadow {
         obj: &crate::game_logic::Object,
         e: &mut gamelogic::world::entities::Entity,
     ) {
-        e.disguised = obj.status.disguised;
         e.disabled_subdued = obj.status.disabled_subdued;
         e.subdual_damage = obj.subdual_damage;
         e.subdual_heal_amount = obj.subdual_heal_amount;
@@ -325,8 +324,6 @@ impl GameWorldShadow {
         e.repulsor = obj.status.repulsor;
         e.repulsor_until_frame = obj.repulsor_until_frame;
         e.disabled_freefall = obj.status.disabled_freefall;
-        e.no_collisions = obj.status.no_collisions;
-        e.private_captured = obj.status.private_captured;
         e.is_surrendered = obj.is_surrendered;
         e.emoticon_name.clone_from(&obj.emoticon_name);
         e.emoticon_frames_left = obj.emoticon_frames_left;
@@ -347,17 +344,13 @@ impl GameWorldShadow {
         e.formation_offset = [obj.formation_offset.x, obj.formation_offset.y];
         e.disguise_transitioning_to = obj.status.disguise_transitioning_to;
         e.disguise_halfpoint_reached = obj.status.disguise_halfpoint_reached;
-        e.faerie_fire = obj.status.faerie_fire;
         e.booby_trapped = obj.status.booby_trapped;
         e.eject_invulnerable = obj.status.eject_invulnerable;
         e.eject_invulnerable_until_frame = obj.status.eject_invulnerable_until_frame;
         e.pilot_did_move_to_base = obj.pilot_did_move_to_base();
-        e.parachuting = obj.status.parachuting;
         e.parachute_open = obj.status.parachute_open;
         e.parachute_landing_override_set = obj.status.parachute_landing_override_set;
-        e.is_building = obj.building_data.is_some();
         if let Some(bd) = obj.building_data.as_ref() {
-            e.building_type_ordinal = Self::host_building_type_ordinal(bd.building_type);
             const MAX_QUEUE: usize = 16;
             let queue = &bd.production_queue;
             let shown = &queue[..queue.len().min(MAX_QUEUE)];
@@ -387,7 +380,6 @@ impl GameWorldShadow {
             e.garrison_count = bd.garrisoned_units.len().min(u16::MAX as usize) as u16;
             e.max_garrison = bd.max_garrison.min(u16::MAX as usize) as u16;
         } else {
-            e.building_type_ordinal = 255;
             e.production_queue_len = 0;
             e.production_progress = 0.0;
             e.production_template.clear();
@@ -730,8 +722,6 @@ impl GameWorldShadow {
         oid: ObjectId,
         obj: &crate::game_logic::Object,
         eid: EntityId,
-        catalog: Option<&crate::assets::ww3d_asset_manager::ObjectCatalog>,
-        visibility: crate::fow_rendering::ObjectVisibility,
     ) {
         let pos = obj.get_position();
         let transform = Transform::new([pos.x, pos.y, pos.z], obj.get_orientation());
@@ -752,14 +742,8 @@ impl GameWorldShadow {
 
         e.health = health;
         e.transform = transform;
-        e.max_health = obj.max_health.max(obj.health.current).max(1.0);
         e.body_damage_state = obj.body_damage_state.ordinal();
-        e.selected = obj.selected;
-        e.destroyed = obj.status.destroyed;
         e.death_type = obj.status.death_type.ordinal();
-        {
-            e.construction_percent = obj.construction_percent.clamp(-1.0, 1.0);
-        }
         e.is_rebuild_hole = obj.is_rebuild_hole;
         obj.rebuild_template_name
             .as_deref()
@@ -771,50 +755,15 @@ impl GameWorldShadow {
         e.rebuild_reconstructing_id = obj.rebuild_reconstructing_id.map(|id| id.0);
         e.producer_id = obj.producer_id.map(|id| id.0);
         e.construction_complete_clear_frame = obj.construction_complete_clear_frame;
-        e.team_ordinal = Self::host_team_ordinal(obj.team);
-        e.selection_radius = obj.selection_radius.max(5.0);
-        e.crusher_level = obj.crusher_level;
-        e.crushable_level = obj.crushable_level;
         e.front_crushed = obj.front_crushed;
         e.back_crushed = obj.back_crushed;
-        e.user_1 = (obj.model_condition_bits
-            & (1u128 << crate::game_logic::host_enum_table_residual::user_1_model_bit()))
-            != 0;
-        e.user_2 = (obj.model_condition_bits
-            & (1u128 << crate::game_logic::host_enum_table_residual::user_2_model_bit()))
-            != 0;
-        e.vision_range = obj.vision_range;
-        e.shroud_clearing_range = obj.shroud_clearing_range;
-        {
-            e.under_construction = obj.status.under_construction;
-        }
         e.sold = obj.status.sold;
         e.reconstructing = obj.status.reconstructing;
         e.unselectable = obj.status.unselectable;
-        e.deployed = obj.status.deployed;
-        e.moving = obj.status.moving;
-        e.attacking = obj.status.attacking;
-        e.is_firing_weapon = obj.status.is_firing_weapon;
         e.is_aiming_weapon = obj.status.is_aiming_weapon;
-        e.team_color = obj.team_color;
-        e.power_provided = obj.power_provided;
-        e.power_consumed = obj.power_consumed;
-        e.object_type_ordinal = Self::host_object_type_ordinal(obj.object_type);
         e.max_transport = obj.max_transport;
-        e.force_attack = obj.force_attack;
-        e.show_health_bar = obj.show_health_bar;
         e.occupant_count = obj.contained_unit_ids().len().min(u16::MAX as usize) as u16;
-        e.experience_points = obj.experience.current;
-        e.veterancy_ordinal = Self::host_veterancy_ordinal(obj.experience.level);
         e.stored_supplies = obj.stored_resources.supplies;
-        e.stealthed = obj.status.stealthed;
-        e.detected = obj.status.detected;
-        e.using_ability = obj.status.using_ability;
-        e.airborne_target = obj.status.airborne_target;
-        e.disabled_underpowered = obj.status.disabled_underpowered;
-        e.disabled_unmanned = obj.status.disabled_unmanned;
-        e.disabled_hacked = obj.status.disabled_hacked;
-        e.disabled_emp = obj.status.disabled_emp;
         e.disabled_emp_until_frame = obj.status.disabled_emp_until_frame;
         e.disabled_hacked_until_frame = obj.status.disabled_hacked_until_frame;
         e.disabled_paralyzed_until_frame = obj.status.disabled_paralyzed_until_frame;
@@ -823,7 +772,6 @@ impl GameWorldShadow {
         e.disabled_script_underpowered = obj.status.disabled_script_underpowered;
         e.disabled_held = obj.status.disabled_held;
         e.weapons_jammed = obj.status.weapons_jammed;
-        e.masked = obj.status.masked;
         e.unattackable = obj.is_kind_of(crate::game_logic::KindOf::Unattackable);
         e.dock_kind = obj.thing().template.dock_kind as u8;
         e.capturable = obj.thing().template.capturable;
@@ -1031,39 +979,9 @@ impl GameWorldShadow {
         e.path_waypoints.clear();
         e.path_waypoints
             .extend(obj.movement.path.iter().take(16).map(|p| [p.x, p.y, p.z]));
-        e.display_name.clone_from(&obj.name);
-        crate::assets::mesh_asset_resolve::update_model_key_from_catalog(
-            &mut e.model_key,
-            catalog,
-            obj.get_template(),
-        );
-        e.model_condition_bits = obj.model_condition_bits;
         e.radar_extend_done_frame = obj.radar_extend_done_frame;
         e.radar_extend_complete = obj.radar_extend_complete;
         e.radar_active = obj.radar_active;
-        e.mesh_scale =
-            crate::assets::mesh_asset_resolve::mesh_scale_from_template(obj.get_template());
-        e.fow_visibility_alpha = visibility.visibility_alpha;
-        e.fow_is_explored = visibility.is_explored;
-        e.fow_visibility_falloff = visibility.visibility_falloff;
-        {
-            let pos = obj.get_position();
-            if obj.ground_height_from_terrain {
-                e.ground_height = obj.ground_height;
-                e.ground_height_from_terrain = true;
-            } else {
-                match logic.terrain_height_at(pos) {
-                    Some(h) if h.is_finite() => {
-                        e.ground_height = h;
-                        e.ground_height_from_terrain = true;
-                    }
-                    _ => {
-                        e.ground_height = obj.ground_height;
-                        e.ground_height_from_terrain = obj.ground_height_from_terrain;
-                    }
-                }
-            }
-        }
         e.engine_bridged = false;
         let containment_id = logic.redirected_containment_owner(obj.id);
         let containment = logic.host_object(containment_id).unwrap_or(obj);
@@ -1072,13 +990,11 @@ impl GameWorldShadow {
         } else {
             u16::MAX
         };
-        e.passengers_allowed_to_fire = containment.passengers_allowed_to_fire;
         e.second_life = obj.armor_set_second_life;
         e.is_battle_bus_transport = obj.is_battle_bus_transport;
         e.is_technical_transport = obj.is_technical_transport;
         e.is_combat_cycle_transport = obj.is_combat_cycle_transport;
         e.combat_cycle_rider = obj.combat_cycle_rider;
-        e.is_tunnel_network = obj.is_tunnel_network;
         e.is_combat_chinook_transport = obj.is_combat_chinook_transport;
         e.contained_by_host = obj.contained_by.map(|id| id.0).unwrap_or(0);
         {
@@ -1096,8 +1012,6 @@ impl GameWorldShadow {
                 }
             }
         }
-        e.kind_of_bits = Self::host_kind_of_bits(obj);
-        e.cheer_timer = obj.cheer_timer;
         e.overcharge_enabled = obj.overcharge_enabled;
         e.weapon_fire_status = obj.weapon_fire_status as u8;
         e.applied_upgrade_count = obj.applied_upgrades.len().min(u16::MAX as usize) as u16;
@@ -1130,7 +1044,6 @@ impl GameWorldShadow {
         e.hijacker_eject_pos = obj.hijacker_eject_pos.map(|p| [p.x, p.y, p.z]);
         e.hive_slave_respawn_frame = obj.hive_slave_respawn_frame;
         e.next_detection_scan_frame = obj.next_detection_scan_frame;
-        e.innate_stealth = obj.innate_stealth;
         e.stealth_allowed_frame = obj.stealth_allowed_frame;
         e.detection_expires_frame = obj.detection_expires_frame;
         e.camo_opacity_pulse_phase = obj.camo_opacity_pulse_phase;
@@ -1146,12 +1059,10 @@ impl GameWorldShadow {
         e.weapon_bonus_battle_plan_hold_the_line = obj.weapon_bonus_battle_plan_hold_the_line;
         e.weapon_bonus_battle_plan_search_and_destroy =
             obj.weapon_bonus_battle_plan_search_and_destroy;
-        e.faerie_fire_until_frame = obj.faerie_fire_until_frame;
         e.is_humvee_transport = obj.is_humvee_transport;
         e.is_listening_outpost_transport = obj.is_listening_outpost_transport;
         e.is_troop_crawler_transport = obj.is_troop_crawler_transport;
         e.is_helix_transport = obj.is_helix_transport;
-        e.demo_suicided_detonating = obj.demo_suicided_detonating;
         e.hive_slave_count = obj.hive_slave_count;
         e.hive_slave_hp = obj.hive_slave_hp;
         e.hive_slaves_alive = [
@@ -1263,27 +1174,6 @@ impl GameWorldShadow {
         e.last_damage_source_host = obj.last_damage_source.map(|id| id.0).unwrap_or(0);
         e.sole_healing_benefactor_id = obj.sole_healing_benefactor.map(|id| id.0);
         e.sole_healing_benefactor_expiration_frame = obj.sole_healing_benefactor_expiration_frame;
-        obj.command_set_override
-            .as_deref()
-            .unwrap_or_default()
-            .clone_into(&mut e.command_set_override);
-        obj.disguise_as_template
-            .as_deref()
-            .unwrap_or_default()
-            .clone_into(&mut e.disguise_as_template);
-        e.disguise_as_team_ordinal = obj
-            .disguise_as_team
-            .map(|t| match t {
-                Team::USA => 0,
-                Team::China => 1,
-                Team::GLA => 2,
-                Team::Neutral => 3,
-            })
-            .unwrap_or(255);
-        e.vision_spied_mask = obj.vision_spied_mask;
-        e.camo_friendly_opacity = obj.camo_friendly_opacity;
-        e.camo_stealth_look = obj.camo_stealth_look as u8;
-        e.has_mine_data = obj.mine_data.is_some();
         e.pre_attack_target_host = obj.pre_attack_target.map(|id| id.0).unwrap_or(0);
         e.pre_attack_ready_at = obj.pre_attack_ready_at;
         e.consecutive_shots_at_target = obj.consecutive_shots_at_target;

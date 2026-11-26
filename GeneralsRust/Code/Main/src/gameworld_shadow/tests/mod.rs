@@ -51,7 +51,6 @@ mod economy_construction;
 mod entity_channels;
 mod fire_damage;
 mod host_log_combat;
-mod sciences_upgrades;
 
 
 /// Complete the receiving world's receipts, then refresh this test's mirror.
