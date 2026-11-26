@@ -111,7 +111,8 @@ fn owned_update(
     assert!(crate::gameworld_shadow::gameworld_shadow_enabled());
     world.update();
     assert_eq!(world.getFrame(), before + 1);
-    crate::gameworld_shadow::run_owned_host_boundary(Some(shadow), world);
+    world.complete_presentation_observations();
+    shadow.sync_from_host(world);
     before
 }
 

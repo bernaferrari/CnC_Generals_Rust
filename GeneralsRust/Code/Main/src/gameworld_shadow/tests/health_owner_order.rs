@@ -263,14 +263,14 @@ fn pending_health_records_keep_order_without_shadow_session() {
     for heal_first in [true, false] {
         let (mut logic, _shadow, id) = injured_world();
         record_pending_pair(&mut logic, id, heal_first);
-        crate::gameworld_shadow::run_owned_host_boundary(None, &mut logic);
+        logic.complete_presentation_observations();
         let expected = if heal_first { 70.0 } else { 80.0 };
         assert_eq!(
             logic.host_object(id).unwrap().health.current,
             expected,
             "heal_first={heal_first}"
         );
-        crate::gameworld_shadow::run_owned_host_boundary(None, &mut logic);
+        logic.complete_presentation_observations();
         assert_eq!(logic.host_object(id).unwrap().health.current, expected);
     }
 }
@@ -389,7 +389,7 @@ fn completed_damage_after_coupled_healing_is_not_replayed_without_session() {
         // The no-session fallback consumes observations without erasing the
         // later body operation; repeated admission is inert.
         for _ in 0..2 {
-            crate::gameworld_shadow::run_owned_host_boundary(None, &mut logic);
+            logic.complete_presentation_observations();
             assert_eq!(logic.host_object(id).unwrap().health.current, 50.0);
         }
     }
@@ -439,14 +439,14 @@ fn pending_lethal_damage_keeps_destruction_admission_before_later_absolute_healt
     );
     assert!(logic.health_events.snapshot_damage().is_empty());
     assert!(logic.health_events.snapshot_heal().is_empty());
-    crate::gameworld_shadow::run_owned_host_boundary(None, &mut logic);
+    logic.complete_presentation_observations();
     assert!(logic.host_object(id).unwrap().status.destroyed);
     assert!(logic.objects.ordered_ids().contains(&id));
     assert!(logic.has_pending_destroy_work());
     logic
         .process_destroy_list_with_effects_checked(&mut Default::default())
         .unwrap();
-    crate::gameworld_shadow::run_owned_host_boundary(None, &mut logic);
+    logic.complete_presentation_observations();
     assert!(
         logic.host_object(id).is_none(),
         "original admitted death completes physical cleanup once"

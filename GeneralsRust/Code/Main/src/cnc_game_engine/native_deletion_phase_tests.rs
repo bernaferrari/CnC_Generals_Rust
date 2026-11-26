@@ -1,15 +1,16 @@
 //! Original physical deletion stays in its checked outer frame phase.
 use super::*;
+use crate::presentation_frame::PresentationFrame;
 
 #[test]
-#[ignore = "requires native WGPU; explicit isolated recrew/observer phase acceptance"]
-fn actual_recrew_and_host_observer_retain_queued_native_lifetimes_until_checked_endphase() {
+#[ignore = "requires native WGPU; exercises recrew and the checked physical retirement phase"]
+fn actual_recrew_retains_queued_native_lifetimes_until_checked_retirement() {
     deletion_phase_scene(true);
 }
 
 #[test]
-#[ignore = "requires native WGPU; explicit isolated observer-only phase acceptance"]
-fn actual_observer_preserves_pending_native_deletion_without_a_physical_owner() {
+#[ignore = "requires native WGPU; exercises direct presentation before physical retirement"]
+fn native_presentation_preserves_pending_deletion_until_checked_retirement() {
     deletion_phase_scene(false);
 }
 
@@ -162,15 +163,18 @@ fn deletion_phase_scene(recrew: bool) {
                 runtime.drawables.binding_key(EPOCH, unrelated.0),
                 Some(unrelated_key)
             );
-            // This is the actual native after-step observer helper. It receives no
-            // native owner and must never perform a hidden physical flush.
-            let mut shadow = crate::gameworld_shadow::GameWorldShadow::new(16);
-            crate::gameworld_shadow::run_owned_host_boundary(Some(&mut shadow), &mut world);
-            crate::gameworld_shadow::run_owned_host_boundary(None, &mut world);
+            // Completing receipts and building a frame cannot retire native bindings.
+            world.complete_presentation_observations();
+            let queued = PresentationFrame::try_build_from_logic(&mut world, 0).unwrap();
             for id in [infantry, unrelated] {
                 assert!(world.objects.contains_key(&id));
                 assert!(world.objects.ordered_ids().contains(&id));
-                assert!(shadow.entity_for_host(id).is_some());
+                assert!(
+                    queued
+                        .direct_host_drawables
+                        .iter()
+                        .any(|row| { row.object.id == id && row.object.destroyed && row.resident })
+                );
             }
             assert_eq!(
                 runtime.drawables.binding_key(EPOCH, infantry.0),
@@ -188,15 +192,27 @@ fn deletion_phase_scene(recrew: bool) {
 },
                 )
                 .unwrap();
-            crate::gameworld_shadow::run_owned_host_boundary(Some(&mut shadow), &mut world);
+            world.complete_presentation_observations();
+            let retired = PresentationFrame::try_build_from_logic(&mut world, 0).unwrap();
             for id in [infantry, unrelated] {
-                assert!(shadow.entity_for_host(id).is_none());
+                assert!(
+                    !retired
+                        .direct_host_drawables
+                        .iter()
+                        .any(|row| row.object.id == id)
+                );
                 assert!(!world.objects.contains_key(&id));
                 assert!(!world.objects.ordered_ids().contains(&id));
                 assert!(runtime.drawables.binding_key(EPOCH, id.0).is_none());
             }
             assert!(!world.has_pending_object_removals());
             assert!(world.objects.contains_key(&vehicle));
+            assert!(
+                retired
+                    .direct_host_drawables
+                    .iter()
+                    .any(|row| row.object.id == vehicle)
+            );
             assert_eq!(
                 runtime.drawables.binding_key(EPOCH, vehicle.0),
                 Some(vehicle_key)

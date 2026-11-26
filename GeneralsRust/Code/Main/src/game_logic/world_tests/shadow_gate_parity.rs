@@ -25,7 +25,8 @@ use crate::gameworld_shadow::GameWorldShadow;
 /// `host_run_fast_forward_loop`.
 fn owned_frame(shadow: &mut GameWorldShadow, logic: &mut GameLogic) {
     logic.tick_logic_frame(LOGIC_FRAME_TIMESTEP, None, None);
-    crate::gameworld_shadow::run_owned_host_boundary(Some(shadow), logic);
+    logic.complete_presentation_observations();
+    shadow.sync_from_host(logic);
 }
 
 /// Wave 780 / Fix A: a damaged BaseRegenerateUpdate structure must self-repair

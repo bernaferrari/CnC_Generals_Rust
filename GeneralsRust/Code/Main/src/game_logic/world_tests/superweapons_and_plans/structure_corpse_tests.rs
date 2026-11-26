@@ -239,8 +239,8 @@ fn exercise_retained_body(coupled: bool) {
             }
             if coupled {
                 shadow.sync_from_host(&world);
-                let _ =
-                    crate::gameworld_shadow::run_owned_host_boundary(Some(&mut shadow), &mut world);
+                world.complete_presentation_observations();
+                shadow.sync_from_host(&world);
             }
             assert_corpse(&world, id);
             assert!(world.get_next_mood_target(id, true, true).is_none());

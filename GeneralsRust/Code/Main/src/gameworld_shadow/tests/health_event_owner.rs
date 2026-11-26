@@ -66,7 +66,7 @@ fn another_world_boundary_cannot_consume_completed_body_damage() {
     let pending = owner.health_events.snapshot_damage();
     assert_eq!(pending.len(), 1);
     assert_eq!(pending[0].body_observation().current, 40.0);
-    crate::gameworld_shadow::run_owned_host_boundary(None, &mut other);
+    other.complete_presentation_observations();
     assert_eq!(other.host_object(other_id).unwrap().health.current, 100.0);
     assert_eq!(
         other
@@ -80,7 +80,7 @@ fn another_world_boundary_cannot_consume_completed_body_damage() {
         pending,
         "a foreign boundary consumed the owner's event"
     );
-    crate::gameworld_shadow::run_owned_host_boundary(None, &mut owner);
+    owner.complete_presentation_observations();
     assert!(owner.health_events.snapshot_damage().is_empty());
     assert_eq!(owner.host_object(id).unwrap().health.current, 40.0);
     assert_eq!(owner.host_object(id).unwrap().previous_health, 100.0);
@@ -103,7 +103,7 @@ fn another_world_boundary_cannot_admit_the_owners_lethal_damage() {
     owner.health_events.clear();
     perform_owner_damage(&mut owner, id, 1000.0, None);
     assert!(owner.host_object(id).unwrap().status.destroyed);
-    crate::gameworld_shadow::run_owned_host_boundary(None, &mut other);
+    other.complete_presentation_observations();
     let foreign = other.host_object(other_id).unwrap();
     assert!(
         foreign.is_alive(),
@@ -112,7 +112,7 @@ fn another_world_boundary_cannot_admit_the_owners_lethal_damage() {
     assert_eq!(foreign.health.current, 100.0);
     assert!(!foreign.status.on_die_started);
     assert!(!other.has_pending_destroy_work());
-    crate::gameworld_shadow::run_owned_host_boundary(None, &mut owner);
+    owner.complete_presentation_observations();
     assert!(owner.host_object(id).unwrap().status.destroyed);
     assert!(owner.objects.ordered_ids().contains(&id));
     assert!(owner.has_pending_destroy_work());
@@ -122,7 +122,7 @@ fn another_world_boundary_cannot_admit_the_owners_lethal_damage() {
     owner
         .process_destroy_list_with_effects_checked(&mut Default::default())
         .unwrap();
-    crate::gameworld_shadow::run_owned_host_boundary(None, &mut owner);
+    owner.complete_presentation_observations();
     assert!(owner.host_object(id).is_none());
     assert!(!owner.has_pending_destroy_work());
     let completed = owner.health_events.snapshot_last_damage();
@@ -148,12 +148,12 @@ fn interleaved_worlds_keep_mixed_health_events_totals_and_presentation_receipts(
     let pending = owner.health_events.snapshot_ordered();
     let (object, events) = other.host_object_and_health_events_mut(other_id).unwrap();
     object.take_damage(30.0, 0, events);
-    crate::gameworld_shadow::run_owned_host_boundary(None, &mut other);
+    other.complete_presentation_observations();
     assert_eq!(other.host_object(other_id).unwrap().health.current, 70.0);
     assert_eq!(owner.health_events.snapshot_ordered(), pending);
     assert_eq!(owner.health_events.cumulative_totals(), (20.0, 0));
     assert_eq!(other.health_events.cumulative_totals(), (30.0, 0));
-    crate::gameworld_shadow::run_owned_host_boundary(None, &mut owner);
+    owner.complete_presentation_observations();
     assert_eq!(owner.host_object(id).unwrap().health.current, 90.0);
     let receipt = owner.health_events.snapshot_last_damage();
     let _ = crate::presentation_frame::PresentationFrame::build_from_logic(&mut other, 0);
@@ -182,7 +182,7 @@ fn constructing_resetting_and_dropping_other_world_preserve_owner_health_transpo
         assert_eq!(owner.health_events.snapshot_ordered(), pending);
     }
     assert_eq!(owner.health_events.snapshot_ordered(), pending);
-    crate::gameworld_shadow::run_owned_host_boundary(None, &mut owner);
+    owner.complete_presentation_observations();
     assert_eq!(owner.host_object(id).unwrap().health.current, 80.0);
     owner.reset();
     assert!(owner.health_events.snapshot_ordered().is_empty());
@@ -202,7 +202,7 @@ fn interleaved_eager_and_session_boundaries_keep_the_owners_health_batch() {
     let entity = shadow.entity_for_host(id).unwrap();
     assert_eq!(shadow.world().entity(entity).unwrap().health, 80.0);
     let pending = owner.health_events.snapshot_ordered();
-    crate::gameworld_shadow::run_owned_host_boundary(None, &mut other);
+    other.complete_presentation_observations();
     assert_eq!(other.host_object(other_id).unwrap().health.current, 100.0);
     assert_eq!(owner.health_events.snapshot_ordered(), pending);
     observe_completed_owner(&mut shadow, &mut owner);
@@ -241,7 +241,7 @@ fn snapshot_restore_invalidates_only_the_receivers_transient_health_transport() 
     assert_eq!(receiver.health_events.cumulative_totals(), (0.0, 0));
     assert_eq!(owner.health_events.snapshot_ordered(), pending);
     assert_eq!(owner.health_events.cumulative_totals(), (20.0, 0));
-    crate::gameworld_shadow::run_owned_host_boundary(None, &mut owner);
+    owner.complete_presentation_observations();
     assert_eq!(owner.host_object(id).unwrap().health.current, 80.0);
 }
 

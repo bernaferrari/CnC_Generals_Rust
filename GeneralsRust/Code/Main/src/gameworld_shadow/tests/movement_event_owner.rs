@@ -235,7 +235,7 @@ fn restoring_a_snapshot_baselines_only_the_receiving_world_output_case() {
         &mut writer,
         &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
     );
-    run_owned_host_boundary(None, &mut owner);
+    owner.complete_presentation_observations();
     let completed = owner.movement_events.snapshot_completed().to_vec();
     let builder = crate::save_load::snapshot::SnapshotBuilder::new();
     let mut saved = builder.create_world_snapshot(&owner).unwrap();
@@ -280,7 +280,7 @@ fn restoring_a_snapshot_baselines_only_the_receiving_world_output_case() {
         &mut writer,
         &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
     );
-    run_owned_host_boundary(None, &mut receiver);
+    receiver.complete_presentation_observations();
     assert_eq!(receiver.movement_events.snapshot_completed().len(), 1);
     assert_eq!(
         receiver.movement_events.snapshot_completed()[0].session,

@@ -134,7 +134,8 @@ fn finish_owner(logic: &mut GameLogic, shadow: &mut GameWorldShadow, id: ObjectI
         let before = logic.getFrame();
         logic.update();
         assert_eq!(logic.getFrame(), before + 1);
-        crate::gameworld_shadow::run_owned_host_boundary(Some(shadow), logic);
+        logic.complete_presentation_observations();
+        shadow.sync_from_host(logic);
     }
     panic!("actual owner death timer did not complete within its admitted fixture bounds");
 }
@@ -152,7 +153,8 @@ fn two_worlds(kind: DeathKind) {
     for _ in 0..3 {
         let frame = a.getFrame();
         b.update();
-        crate::gameworld_shadow::run_owned_host_boundary(Some(&mut sb), &mut b);
+        b.complete_presentation_observations();
+        sb.sync_from_host(&b);
         assert_eq!(
             a.getFrame(),
             frame,
@@ -162,7 +164,8 @@ fn two_worlds(kind: DeathKind) {
     }
     finish_owner(&mut a, &mut sa, aid);
     assert_live(&b, bid, "same-ID peer cannot receive final deletion");
-    crate::gameworld_shadow::run_owned_host_boundary(Some(&mut sb), &mut b);
+    b.complete_presentation_observations();
+    sb.sync_from_host(&b);
     assert_live(
         &b,
         bid,
@@ -192,7 +195,8 @@ fn owner_boundary(kind: DeathKind) {
             _ => unreachable!(),
         }
         sa.sync_from_host(&b);
-        crate::gameworld_shadow::run_owned_host_boundary(Some(&mut sa), &mut b);
+        b.complete_presentation_observations();
+        sa.sync_from_host(&b);
         assert_live(&b, bid, "observer reuse cannot deliver a foreign deletion");
         assert_eq!(a.getFrame(), frame);
         finish_owner(&mut a, &mut sa, aid);
@@ -237,7 +241,8 @@ fn authority_toggle(kind: DeathKind) {
     entity.slow_death_phase = 4;
     entity.jet_slow_death_done = true;
     entity.heli_slow_death_done = true;
-    crate::gameworld_shadow::run_owned_host_boundary(Some(&mut sa), &mut a);
+    a.complete_presentation_observations();
+    sa.sync_from_host(&a);
     assert_eq!(
         timer_capsule(&a, aid),
         before,

@@ -316,10 +316,8 @@ fn coupled_default_authority_keeps_host_slow_death_timer_until_original_deadline
                         before < due,
                         "default host owns final deletion before the shadow boundary"
                     );
-                    let _ = crate::gameworld_shadow::run_owned_host_boundary(
-                        Some(&mut shadow),
-                        &mut world,
-                    );
+                    world.complete_presentation_observations();
+                    shadow.sync_from_host(&world);
                     if before < due {
                         let owner = world
                             .host_object(id)
@@ -375,10 +373,8 @@ fn declared_movement_authority_shadow_final_deletion_does_not_reenter_death_star
                                 .is_active(),
                             "actual owner timer remains active before its original deadline"
                         );
-                        let _ = crate::gameworld_shadow::run_owned_host_boundary(
-                            Some(&mut shadow),
-                            &mut world,
-                        );
+                        world.complete_presentation_observations();
+                        shadow.sync_from_host(&world);
                         if world.getFrame() < due {
                             assert!(world.host_object(id).is_some());
                             assert!(world.objects_to_destroy.iter().all(|event| event.id != id));
@@ -634,10 +630,8 @@ fn coupled_default_structure_completion_retains_objects_until_explicit_delete() 
                                 .expect("receiving AI operation succeeds");
                         }
                         shadow.sync_from_host(&world);
-                        let _ = crate::gameworld_shadow::run_owned_host_boundary(
-                            Some(&mut shadow),
-                            &mut world,
-                        );
+                        world.complete_presentation_observations();
+                        shadow.sync_from_host(&world);
                         let object = world.host_object(id).expect("structure survives animation");
                         assert!(!object.status.destroyed);
                         assert!(world.objects_to_destroy.iter().all(|event| event.id != id));

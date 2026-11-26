@@ -1,10 +1,8 @@
-//! Ordinary production frames borrow their Main owner and publish observations.
-//! These witnesses use the engine's fixed-step adapter, without shadow coupling.
+//! Completed frames read timers, health and presentation events from the receiving world.
 
 use super::*;
 
-fn advance_owned(logic: &mut GameLogic, shadow: Option<&mut GameWorldShadow>) {
-    let mut shadow = shadow;
+fn advance_owned(logic: &mut GameLogic) {
     let snapshot = CnCGameEngine::host_update_logic_frame(
         logic,
         false,
@@ -12,19 +10,16 @@ fn advance_owned(logic: &mut GameLogic, shadow: Option<&mut GameWorldShadow>) {
         None,
         Some(1),
         |_| {},
-        |owner| {
-            gameworld_shadow::run_owned_host_boundary(shadow.as_deref_mut(), owner);
-        },
+        GameLogic::complete_presentation_observations,
     );
     assert_eq!(snapshot.steps_run, 1);
 }
 
 fn advance_owned_with_test_audio(
     logic: &mut GameLogic,
-    shadow: Option<&mut GameWorldShadow>,
     manager: &mut crate::subsystem_manager::SubsystemManager,
 ) {
-    advance_owned(logic, shadow);
+    advance_owned(logic);
     let requests = logic.process_audio_events(None);
     if let Some(audio) = manager.get_mut::<crate::subsystem_manager::AudioManagerSubsystem>() {
         for request in requests {
@@ -49,7 +44,7 @@ fn sabotage_command_browns_out_the_owner_until_after_its_deadline_case() {
                 "Behavior = SabotagePowerPlantCrateCollide SabotagePower{index}\n{fields}\nEnd"
             ));
         }
-        let (mut world, _, _) = fixture_with(
+        let (mut world, _) = fixture_with(
             "SabotageWitness",
             100.0,
             &[
@@ -78,7 +73,7 @@ fn sabotage_command_browns_out_the_owner_until_after_its_deadline_case() {
             .unwrap();
         world.session_view.definitions =
             PresentationDefinitions::with_radar_cues("SabotageRadarUp", "SabotageRadarDown");
-        advance_owned(&mut world, None);
+        advance_owned(&mut world);
         assert!(world.get_player(victim).unwrap().has_radar());
         (world, victim, infiltrator, plant, consumer, saboteur)
     };
@@ -111,7 +106,7 @@ fn sabotage_command_browns_out_the_owner_until_after_its_deadline_case() {
         });
     };
     sabotage(&mut world, infiltrator, saboteur, plant);
-    advance_owned(&mut world, None);
+    advance_owned(&mut world);
     let victim_state = world.get_player(victim).unwrap();
     let deadline = victim_state.power_sabotaged_till_frame;
     assert_eq!(deadline, contact_frame + 30);
@@ -137,7 +132,7 @@ fn sabotage_command_browns_out_the_owner_until_after_its_deadline_case() {
         (deadline + 1, true),
     ] {
         world.set_current_frame(u64::from(processed_frame));
-        advance_owned(&mut world, None);
+        advance_owned(&mut world);
         let player = world.get_player(victim).unwrap();
         assert_eq!(world.get_frame(), processed_frame + 1);
         assert_eq!(
@@ -186,7 +181,7 @@ fn sabotage_command_browns_out_the_owner_until_after_its_deadline_case() {
             ("SabotageRadarUp".to_owned(), Some(victim as i32)),
         ]
     );
-    advance_owned(&mut peer, None);
+    advance_owned(&mut peer);
     assert!(peer.get_player(peer_victim).unwrap().has_radar());
     assert_eq!(
         peer.get_player(peer_victim)
@@ -205,7 +200,7 @@ fn sabotage_command_browns_out_the_owner_until_after_its_deadline_case() {
     assert_eq!(peer.host_radar.offline_transitions, 0);
     let peer_contact = peer.get_frame();
     sabotage(&mut peer, peer_infiltrator, peer_saboteur, peer_plant);
-    advance_owned(&mut peer, None);
+    advance_owned(&mut peer);
     let player = peer.get_player(peer_victim).unwrap();
     assert_eq!(player.power_sabotaged_till_frame, peer_contact + 60);
     assert!(!player.has_radar());
@@ -217,7 +212,7 @@ fn sabotage_command_browns_out_the_owner_until_after_its_deadline_case() {
         fixture("MissionInfiltrator", &[" BuildingPickup = Yes"]);
     let contact = default.get_frame();
     sabotage(&mut default, infiltrator, saboteur, plant);
-    advance_owned(&mut default, None);
+    advance_owned(&mut default);
     assert_eq!(
         default
             .get_player(victim)
@@ -233,14 +228,14 @@ fn sabotage_command_browns_out_the_owner_until_after_its_deadline_case() {
             .status
             .disabled_underpowered
     );
-    advance_owned(&mut default, None);
+    advance_owned(&mut default);
     assert!(default.get_player(victim).unwrap().has_radar());
 
     // A name-compatible template with the module removed leaves the grid alone.
     let (mut absent, victim, infiltrator, plant, consumer, saboteur) =
         fixture(saboteur_template, &[]);
     sabotage(&mut absent, infiltrator, saboteur, plant);
-    advance_owned(&mut absent, None);
+    advance_owned(&mut absent);
     assert_eq!(
         absent
             .get_player(victim)
@@ -296,58 +291,54 @@ fn assert_timers(logic: &GameLogic, id: ObjectId, initial_flash: u32) {
     assert_eq!(object.is_undetected_defector(), frame <= 1);
 }
 
-fn ordinary_shadow_frames_preserve_owned_timer_deadlines_and_save_continuation_case() {
-    let (mut source, id, mut shadow) = fixture("OwnedFrameTimers", 100.0);
+fn ordinary_frames_preserve_owned_timer_deadlines_and_save_continuation_case() {
+    let (mut source, id) = fixture("OwnedFrameTimers", 100.0);
     let initial_flash = author_timers(&mut source, id);
-    shadow.sync_from_host(&source);
-    advance_owned(&mut source, Some(&mut shadow));
+    advance_owned(&mut source);
     assert_timers(&source, id, initial_flash);
 
     let builder = crate::save_load::snapshot::SnapshotBuilder::new();
     let snapshot = builder.create_world_snapshot(&source).unwrap();
     // Native restore requires the receiving map's actual team definitions.
     // Re-admit the same content rather than sharing the source factory.
-    let (mut restored, restored_id, _) = fixture("OwnedFrameTimers", 100.0);
+    let (mut restored, restored_id) = fixture("OwnedFrameTimers", 100.0);
     assert_eq!(restored_id, id);
     builder
         .restore_from_snapshot(&snapshot, &mut restored)
         .unwrap();
-    let mut restored_shadow = GameWorldShadow::new(64);
-    restored_shadow.sync_from_host(&restored);
+    let mut stale = PresentationFrame::try_build_from_logic(&mut source, 0).unwrap();
+    let stale_row = stale.objects.iter_mut().find(|row| row.id == id).unwrap();
+    stale_row.health_current = 999.0;
+    stale_row.selection_flash_remaining = 999;
 
     for _ in 0..2 {
-        // An observation may be stale or corrupt; it cannot reverse-write the
-        // owner's health, selection envelope, or authored expiry phase.
-        let entity = shadow.entity_for_host(id).unwrap();
-        let observer = shadow.world_mut().world_mut().entity_mut(entity).unwrap();
-        observer.health = 999.0;
-        observer.selection_flash_remaining = 999;
-        advance_owned(&mut source, Some(&mut shadow));
-        advance_owned(&mut restored, Some(&mut restored_shadow));
-        assert_timers(&source, id, initial_flash);
-        assert_timers(&restored, id, initial_flash);
-        assert_eq!(source.host_authoritative_health(id), Some(100.0));
-        assert_eq!(shadow.world().entity(entity).unwrap().health, 100.0);
-        assert_eq!(
-            shadow
-                .world()
-                .entity(entity)
-                .unwrap()
-                .selection_flash_remaining,
-            initial_flash - source.get_frame()
-        );
+        for world in [&mut source, &mut restored] {
+            advance_owned(world);
+            assert_timers(world, id, initial_flash);
+            assert_eq!(world.host_authoritative_health(id), Some(100.0));
+            let frame = PresentationFrame::try_build_from_logic(world, 0).unwrap();
+            let row = frame_object(&frame, id).unwrap();
+            assert_eq!(row.health_current, 100.0);
+            assert_eq!(row.selection_flash_remaining, initial_flash - frame.frame.0);
+        }
+        assert_eq!(source.get_frame(), restored.get_frame());
+        assert_eq!(frame_object(&stale, id).unwrap().health_current, 999.0);
     }
 }
 
-fn ordinary_frames_with_and_without_observers_keep_same_id_worlds_independent_case() {
-    let (mut a, id_a, mut shadow_a) = fixture("OwnedObserved", 100.0);
-    let (mut b, id_b, _) = fixture("OwnedUnobserved", 240.0);
+fn publishing_one_world_keeps_same_id_worlds_independent_case() {
+    let (mut a, id_a) = fixture("OwnedObserved", 100.0);
+    let (mut b, id_b) = fixture("OwnedUnobserved", 240.0);
     assert_eq!(id_a, id_b);
     let flash_a = author_timers(&mut a, id_a);
     let flash_b = author_timers(&mut b, id_b);
     for _ in 0..3 {
-        advance_owned(&mut a, Some(&mut shadow_a));
-        advance_owned(&mut b, None);
+        advance_owned(&mut a);
+        let frame = PresentationFrame::try_build_from_logic(&mut a, 0).unwrap();
+        let row = frame_object(&frame, id_a).unwrap();
+        assert_eq!(row.health_current, 100.0);
+        assert_eq!(row.selection_flash_remaining, flash_a - frame.frame.0);
+        advance_owned(&mut b);
         assert_timers(&a, id_a, flash_a);
         assert_timers(&b, id_b, flash_b);
         assert_eq!(a.host_authoritative_health(id_a), Some(100.0));
@@ -356,20 +347,16 @@ fn ordinary_frames_with_and_without_observers_keep_same_id_worlds_independent_ca
 }
 
 fn ordinary_boundary_admits_owned_damage_and_removes_dead_objects_before_next_frame_case() {
-    let (mut logic, id, mut shadow) = fixture("OwnedFrameDamage", 100.0);
-    let entity = shadow.entity_for_host(id).unwrap();
+    let (mut logic, id) = fixture("OwnedFrameDamage", 100.0);
+    let before = PresentationFrame::try_build_from_logic(&mut logic, 0).unwrap();
     let (object, events) = logic.host_object_and_health_events_mut(id).unwrap();
     assert!(!object.take_damage_from(40.0, None, 0, events));
     assert_eq!(logic.host_authoritative_health(id), Some(60.0));
-    shadow
-        .world_mut()
-        .world_mut()
-        .entity_mut(entity)
-        .unwrap()
-        .health = 999.0;
-    advance_owned(&mut logic, Some(&mut shadow));
+    advance_owned(&mut logic);
     assert_eq!(logic.host_authoritative_health(id), Some(60.0));
-    assert_eq!(shadow.world().entity(entity).unwrap().health, 60.0);
+    let damaged = PresentationFrame::try_build_from_logic(&mut logic, 0).unwrap();
+    assert_eq!(frame_object(&damaged, id).unwrap().health_current, 60.0);
+    assert_eq!(frame_object(&before, id).unwrap().health_current, 100.0);
 
     logic
         .apply_owned_damage(
@@ -386,26 +373,25 @@ fn ordinary_boundary_admits_owned_damage_and_removes_dead_objects_before_next_fr
             ),
         )
         .expect("receiving body and onDie operation");
-    advance_owned(&mut logic, Some(&mut shadow));
-    assert!(
-        logic.host_object(id).is_none(),
-        "owner destroy queue must complete"
-    );
-    assert!(
-        shadow.entity_for_host(id).is_none(),
-        "observer copies actual removal"
-    );
-    advance_owned(&mut logic, Some(&mut shadow));
-    assert!(
-        logic.host_object(id).is_none(),
-        "a stale mirror cannot revive the ID"
-    );
+    for _ in 0..2 {
+        advance_owned(&mut logic);
+        assert!(
+            logic.host_object(id).is_none(),
+            "owner destroy queue must complete"
+        );
+        let frame = PresentationFrame::try_build_from_logic(&mut logic, 0).unwrap();
+        assert!(
+            frame_object(&frame, id).is_none(),
+            "retired ID cannot reappear"
+        );
+    }
+    assert_eq!(frame_object(&damaged, id).unwrap().health_current, 60.0);
 }
 
 fn ordinary_boundary_preserves_actual_move_commands_for_presentation_case() {
     use crate::presentation_frame::{PresentationEvent, PresentationFrame};
-    let (mut logic, id, mut shadow) = fixture("OwnedFrameMove", 100.0);
-    let (mut other, other_id, mut other_shadow) = fixture("OtherFrameMove", 100.0);
+    let (mut logic, id) = fixture("OwnedFrameMove", 100.0);
+    let (mut other, other_id) = fixture("OtherFrameMove", 100.0);
     assert_eq!(id, other_id, "numeric object IDs deliberately collide");
     let session = logic.movement_events.session().clone();
     let other_session = other.movement_events.session().clone();
@@ -413,7 +399,7 @@ fn ordinary_boundary_preserves_actual_move_commands_for_presentation_case() {
 
     let first = Vec3::new(23.0, 0.0, 24.0);
     assert!(logic.append_unit_waypoint(id, first));
-    advance_owned(&mut logic, Some(&mut shadow));
+    advance_owned(&mut logic);
     let first_completed = logic.movement_events.snapshot_completed().to_vec();
     assert!(
         first_completed
@@ -431,9 +417,9 @@ fn ordinary_boundary_preserves_actual_move_commands_for_presentation_case() {
     let mut reset_world = GameLogic::new();
     reset_world.reset();
     drop(reset_world);
-    advance_owned(&mut other, Some(&mut other_shadow));
+    advance_owned(&mut other);
     assert_eq!(logic.movement_events.snapshot_pending(), pending);
-    advance_owned(&mut logic, Some(&mut shadow));
+    advance_owned(&mut logic);
     let completed = logic.movement_events.snapshot_completed().to_vec();
     assert!(
         completed.starts_with(&first_completed),
@@ -511,7 +497,7 @@ fn ordinary_boundary_preserves_actual_move_commands_for_presentation_case() {
 fn ordinary_boundary_keeps_actual_construction_completion_pending_for_presentation_case() {
     use crate::fixture_content::FixtureObject;
     use gamelogic::object::update::ai_update::dozer_ai_update::DozerBuildSubTask;
-    let (mut logic, _, mut shadow) = fixture_with(
+    let (mut logic, _) = fixture_with(
         "OwnedFrameBuilder",
         100.0,
         &[
@@ -540,7 +526,7 @@ fn ordinary_boundary_keeps_actual_construction_completion_pending_for_presentati
         .create_object("OwnedFrameDozer", Team::USA, Vec3::new(80.0, 0.0, 80.0))
         .expect("actual builder");
     // DozerAIUpdate.cpp:2244-2267 selects only orders after frame zero.
-    advance_owned(&mut logic, Some(&mut shadow));
+    advance_owned(&mut logic);
     let owner = logic.host_object(dozer).unwrap().owner_player_id.expect("builder owner");
     let id = logic
         .create_dozer_scaffold(
@@ -554,10 +540,9 @@ fn ordinary_boundary_keeps_actual_construction_completion_pending_for_presentati
         .expect("scaffold factory")
         .expect("authored scaffold");
     assert!(logic.dozer_new_task_build(dozer, id).unwrap());
-    shadow.sync_from_host(&logic);
     // Advance owned frames until the builder's first BUILD contribution.
     for _ in 0..600 {
-        advance_owned(&mut logic, Some(&mut shadow));
+        advance_owned(&mut logic);
         if logic.host_object(id).unwrap().construction_percent > 0.0 {
             break;
         }
@@ -582,7 +567,7 @@ fn ordinary_boundary_keeps_actual_construction_completion_pending_for_presentati
     assert!(!logic.construction_events.has_pending(id));
     // One more BUILD frame (1 / 30 of a one-second BuildTime) completes it.
     logic.host_object_mut(id).unwrap().construction_percent = 0.99;
-    advance_owned(&mut logic, Some(&mut shadow));
+    advance_owned(&mut logic);
     assert!(!logic.host_object(id).unwrap().status.under_construction);
     assert!(logic.construction_events.has_pending(id));
 
@@ -599,7 +584,7 @@ fn ordinary_boundary_keeps_actual_construction_completion_pending_for_presentati
 
 fn ordinary_disabled_producer_resumes_only_after_the_expiry_frame_case() {
     use crate::fixture_content::FixtureObject;
-    let (mut logic, _, mut shadow) = fixture_with(
+    let (mut logic, _) = fixture_with(
         "OwnedDisableClock",
         100.0,
         &[
@@ -634,10 +619,9 @@ fn ordinary_disabled_producer_resumes_only_after_the_expiry_frame_case() {
         1,
         &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
     );
-    shadow.sync_from_host(&logic);
 
     for next_frame in 1..=3 {
-        advance_owned(&mut logic, Some(&mut shadow));
+        advance_owned(&mut logic);
         assert_eq!(logic.get_frame(), next_frame);
         let object = logic.host_object(producer).expect("live producer");
         assert_eq!(object.status.disabled_emp, next_frame == 1);
@@ -677,7 +661,7 @@ fn ordinary_expiry_restores_radar_and_generation_in_the_same_completed_frame_cas
     AudioManagerSubsystem::install_test_queue(&mut audio_manager);
     for disable_generator in [false, true] {
         use crate::fixture_content::FixtureObject;
-        let (mut logic, _, mut shadow) = fixture_with(
+        let (mut logic, _) = fixture_with(
             "OwnedExpiryEffects",
             100.0,
             &[
@@ -710,8 +694,7 @@ fn ordinary_expiry_restores_radar_and_generation_in_the_same_completed_frame_cas
                 Vec3::new(130.0, 0.0, 90.0),
             )
             .unwrap();
-        shadow.sync_from_host(&logic);
-        advance_owned_with_test_audio(&mut logic, Some(&mut shadow), &mut audio_manager);
+        advance_owned_with_test_audio(&mut logic, &mut audio_manager);
         assert_eq!(logic.get_frame(), 1);
         assert!(logic.get_player(owner).unwrap().has_radar());
         assert_eq!(logic.host_radar.online_transitions, 1);
@@ -733,7 +716,7 @@ fn ordinary_expiry_restores_radar_and_generation_in_the_same_completed_frame_cas
                 &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
             );
         };
-        advance_owned_with_test_audio(&mut logic, Some(&mut shadow), &mut audio_manager);
+        advance_owned_with_test_audio(&mut logic, &mut audio_manager);
         assert_eq!(logic.get_frame(), 2, "processed expiry frame 1 completed");
         assert!(!logic.host_object(cc).unwrap().status.disabled_emp);
         assert!(!logic.host_object(plant).unwrap().status.disabled_emp);
@@ -779,7 +762,7 @@ fn ordinary_expiry_restores_radar_and_generation_in_the_same_completed_frame_cas
             radar_requests,
             [(radar_off, Some(owner as i32)), (radar_on, Some(owner as i32))]
         );
-        advance_owned_with_test_audio(&mut logic, Some(&mut shadow), &mut audio_manager);
+        advance_owned_with_test_audio(&mut logic, &mut audio_manager);
         assert_eq!(logic.get_player(owner).unwrap().radar_count, 1);
         assert_eq!(
             logic.host_radar.online_transitions, 2,
@@ -809,7 +792,7 @@ fn ordinary_expiry_restores_radar_and_generation_in_the_same_completed_frame() {
 fn ordinary_same_id_worlds_keep_pending_disabled_radar_callbacks_owned_case() {
     let make = || {
         use crate::fixture_content::FixtureObject;
-        let (mut logic, _, _) = fixture_with(
+        let (mut logic, _) = fixture_with(
             "OwnedRadarCallbackCanary",
             100.0,
             &[
@@ -831,13 +814,11 @@ fn ordinary_same_id_worlds_keep_pending_disabled_radar_callbacks_owned_case() {
                 Vec3::new(110.0, 0.0, 90.0),
             )
             .unwrap();
-        let mut shadow = GameWorldShadow::new(64);
-        shadow.sync_from_host(&logic);
-        advance_owned(&mut logic, Some(&mut shadow));
-        (logic, id, shadow)
+        advance_owned(&mut logic);
+        (logic, id)
     };
-    let (mut a, id_a, mut observer_a) = make();
-    let (mut b, id_b, mut observer_b) = make();
+    let (mut a, id_a) = make();
+    let (mut b, id_b) = make();
     assert_eq!(id_a, id_b);
     let owner = a.get_player_by_team(Team::USA).unwrap().id;
     {
@@ -863,7 +844,7 @@ fn ordinary_same_id_worlds_keep_pending_disabled_radar_callbacks_owned_case() {
             .len(),
         1
     );
-    advance_owned(&mut a, Some(&mut observer_a));
+    advance_owned(&mut a);
     assert_eq!(a.get_player(owner).unwrap().radar_count, 1);
     assert!(a.get_player(owner).unwrap().has_radar());
     assert!(b.host_object(id_b).unwrap().status.disabled_emp);
@@ -877,7 +858,7 @@ fn ordinary_same_id_worlds_keep_pending_disabled_radar_callbacks_owned_case() {
         1,
         "A cannot consume a same-ID foreign Object's pending owner callback"
     );
-    advance_owned(&mut b, Some(&mut observer_b));
+    advance_owned(&mut b);
     assert_eq!(b.get_player(owner).unwrap().radar_count, 0);
     assert!(!b.get_player(owner).unwrap().has_radar());
     assert!(
@@ -900,20 +881,20 @@ fn ordinary_same_id_worlds_keep_pending_disabled_radar_callbacks_owned() {
 }
 
 #[test]
-fn ordinary_shadow_frames_preserve_owned_timer_deadlines_and_save_continuation() {
+fn ordinary_frames_preserve_owned_timer_deadlines_and_save_continuation() {
     crate::game_logic::game_logic::pose_owner_tests::isolated_at(
         module_path!(),
-        "ordinary_shadow_frames_preserve_owned_timer_deadlines_and_save_continuation",
-        ordinary_shadow_frames_preserve_owned_timer_deadlines_and_save_continuation_case,
+        "ordinary_frames_preserve_owned_timer_deadlines_and_save_continuation",
+        ordinary_frames_preserve_owned_timer_deadlines_and_save_continuation_case,
     );
 }
 
 #[test]
-fn ordinary_frames_with_and_without_observers_keep_same_id_worlds_independent() {
+fn publishing_one_world_keeps_same_id_worlds_independent() {
     crate::game_logic::game_logic::pose_owner_tests::isolated_at(
         module_path!(),
-        "ordinary_frames_with_and_without_observers_keep_same_id_worlds_independent",
-        ordinary_frames_with_and_without_observers_keep_same_id_worlds_independent_case,
+        "publishing_one_world_keeps_same_id_worlds_independent",
+        publishing_one_world_keeps_same_id_worlds_independent_case,
     );
 }
 

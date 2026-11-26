@@ -706,7 +706,6 @@ fn script_default_view_pitch_starts_and_resets_to_zero() {
 fn force_attack_hint_uses_only_admitted_spawn_children() {
     use crate::fixture_content::{admit_fixture_content, FixtureObject, FixtureWeapon};
     use crate::game_logic::{GameLogic, Player, Team};
-    use crate::gameworld_shadow::GameWorldShadow;
     use crate::presentation_frame::PresentationFrame;
     use glam::Vec3;
 
@@ -759,15 +758,9 @@ fn force_attack_hint_uses_only_admitted_spawn_children() {
     assert_ne!(child, bystander);
     world.set_fixture_object_position(child, Vec3::new(5.0, 0.0, 0.0));
 
-    let publish = |world: &mut GameLogic| -> PresentationFrame {
-        let mut shadow = GameWorldShadow::new(64);
-        shadow.sync_from_host(world);
-        PresentationFrame::build_for_engine(world, 1, Some(&shadow))
-    };
-
     // The only admitted child (x=5) cannot reach x=100; the bystander would.
     let point = Vec3::new(100.0, 0.0, 0.0);
-    let frame = publish(&mut world);
+    let frame = PresentationFrame::try_build_from_logic(&mut world, 1).unwrap();
     let attacker = frame.objects.iter().find(|o| o.id == nest).unwrap();
     assert!(
         !presentation_object_can_force_attack(&frame, attacker, None, point),
@@ -783,19 +776,9 @@ fn force_attack_hint_uses_only_admitted_spawn_children() {
         ),
         "exact SPAWNS_ARE_THE_WEAPONS kind admits the child's weapon"
     );
-    // Host-only freeze (no shadow) agrees.
-    let direct = PresentationFrame::build_from_logic(&mut world, 1);
-    let direct_attacker = direct.objects.iter().find(|o| o.id == nest).unwrap();
-    assert!(!presentation_object_can_force_attack(
-        &direct,
-        direct_attacker,
-        None,
-        point
-    ));
-
     // Moving the genuine child into range changes the next freeze only.
     world.set_fixture_object_position(child, Vec3::new(90.0, 0.0, 0.0));
-    let next = publish(&mut world);
+    let next = PresentationFrame::try_build_from_logic(&mut world, 1).unwrap();
     let next_attacker = next.objects.iter().find(|o| o.id == nest).unwrap();
     assert!(presentation_object_can_force_attack(
         &next,
@@ -819,7 +802,7 @@ fn force_attack_hint_uses_only_admitted_spawn_children() {
         .create_object_for_player("CursorGuard", 1, Vec3::new(100.0, 0.0, 50.0))
         .unwrap();
     world.host_object_mut(other_bystander).unwrap().producer_id = Some(empty_nest);
-    let third = publish(&mut world);
+    let third = PresentationFrame::try_build_from_logic(&mut world, 1).unwrap();
     let empty_attacker = third
         .objects
         .iter()

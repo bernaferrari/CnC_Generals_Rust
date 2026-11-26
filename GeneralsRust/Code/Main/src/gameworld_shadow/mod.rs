@@ -22,8 +22,6 @@ mod observation_metrics;
 mod presentation;
 mod projectile_observation;
 mod weapon_observation;
-#[cfg(test)]
-pub(crate) use host_observation_boundary::run_owned_host_boundary;
 pub use presentation::*;
 
 /// Session holding GameWorld + stable host↔entity ID maps.

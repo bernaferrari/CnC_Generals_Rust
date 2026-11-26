@@ -1,6 +1,7 @@
 //! BuildAssistant1503-1560 / ParkingPlaceBehavior614-640 native phase acceptance.
 //! Real Client constructors and the strict WGPU receiver, with synthetic art.
 use super::*;
+use crate::presentation_frame::PresentationFrame;
 
 const RACK: &str = "NativeSellRack540";
 const JET: &str = "NativeSellAircraft540";
@@ -253,13 +254,17 @@ fn actual_airfield_sale_runs_body_die_before_native_retirement_and_checks_the_en
                     .truncate(),
                 jet_position
             );
-            let mut shadow = crate::gameworld_shadow::GameWorldShadow::new(16);
-            crate::gameworld_shadow::run_owned_host_boundary(Some(&mut shadow), &mut world);
-            crate::gameworld_shadow::run_owned_host_boundary(None, &mut world);
+            world.complete_presentation_observations();
+            let queued = PresentationFrame::try_build_from_logic(&mut world, 0).unwrap();
             for (id, key) in [(jet, jet_key), (unrelated, unrelated_key)] {
                 assert!(world.objects.contains_key(&id));
                 assert!(world.objects.ordered_ids().contains(&id));
-                assert!(shadow.entity_for_host(id).is_some());
+                assert!(
+                    queued
+                        .direct_host_drawables
+                        .iter()
+                        .any(|row| { row.object.id == id && row.object.destroyed && row.resident })
+                );
                 assert_eq!(runtime.drawables.binding_key(EPOCH, id.0), Some(key));
                 assert!(runtime.poses.has_drawable_lifetime(id.0));
             }
@@ -275,11 +280,17 @@ fn actual_airfield_sale_runs_body_die_before_native_retirement_and_checks_the_en
 },
                 )
                 .unwrap();
-            crate::gameworld_shadow::run_owned_host_boundary(Some(&mut shadow), &mut world);
+            world.complete_presentation_observations();
+            let retired = PresentationFrame::try_build_from_logic(&mut world, 0).unwrap();
             for id in [jet, unrelated] {
                 assert!(!world.objects.contains_key(&id));
                 assert!(!world.objects.ordered_ids().contains(&id));
-                assert!(shadow.entity_for_host(id).is_none());
+                assert!(
+                    !retired
+                        .direct_host_drawables
+                        .iter()
+                        .any(|row| row.object.id == id)
+                );
                 assert!(runtime.drawables.binding_key(EPOCH, id.0).is_none());
                 assert!(!runtime.poses.has_drawable_lifetime(id.0));
             }
@@ -288,6 +299,12 @@ fn actual_airfield_sale_runs_body_die_before_native_retirement_and_checks_the_en
                 SlaveCameraSample::MissingDrawable
             ));
             assert_eq!(runtime.drawables.binding_key(EPOCH, rack.0), Some(rack_key));
+            assert!(
+                retired
+                    .direct_host_drawables
+                    .iter()
+                    .any(|row| row.object.id == rack)
+            );
             assert!(runtime.poses.has_drawable_lifetime(rack.0));
             assert!(!world.has_pending_object_removals());
             world.destroy_object_with_effects(

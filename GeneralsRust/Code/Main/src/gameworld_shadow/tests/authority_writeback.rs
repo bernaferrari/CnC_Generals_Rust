@@ -31,7 +31,7 @@ fn no_shadow_boundary_still_admits_projected_lethal_damage() {
     assert!(logic.host_object(id).unwrap().status.destroyed);
     assert!(logic.host_object(id).unwrap().status.effectively_dead);
     assert!(logic.health_events.snapshot_damage().is_empty());
-    crate::gameworld_shadow::run_owned_host_boundary(None, &mut logic);
+    logic.complete_presentation_observations();
     assert_eq!(logic.host_object(id).unwrap().health.current, 0.0);
 }
 
@@ -1828,7 +1828,7 @@ fn no_shadow_boundary_does_not_replay_committed_damage_and_is_idempotent() {
 
     // Main's no-session branch calls this exact boundary. It must drain the
     // residual without applying already committed HP a second time.
-    crate::gameworld_shadow::run_owned_host_boundary(None, &mut logic);
+    logic.complete_presentation_observations();
     {
         let object = logic
             .host_object(ordinary)
@@ -1840,7 +1840,7 @@ fn no_shadow_boundary_does_not_replay_committed_damage_and_is_idempotent() {
     assert!(logic.health_events.snapshot_damage().is_empty());
 
     // A second no-session boundary is a no-op after the event has been drained.
-    crate::gameworld_shadow::run_owned_host_boundary(None, &mut logic);
+    logic.complete_presentation_observations();
     assert_eq!(logic.host_object(ordinary).unwrap().health.current, 80.0);
     assert_eq!(logic.host_object(ordinary).unwrap().previous_health, 100.0);
     assert!(!logic.host_object(ordinary).unwrap().status.destroyed);
@@ -1854,7 +1854,7 @@ fn no_shadow_boundary_does_not_replay_committed_damage_and_is_idempotent() {
         assert_eq!(object.previous_health, zero_previous);
     }
     assert!(logic.health_events.snapshot_damage().is_empty());
-    crate::gameworld_shadow::run_owned_host_boundary(None, &mut logic);
+    logic.complete_presentation_observations();
     assert_eq!(logic.host_object(zero).unwrap().health.current, 100.0);
     assert_eq!(
         logic.host_object(zero).unwrap().previous_health,
@@ -1873,7 +1873,7 @@ fn no_shadow_boundary_does_not_replay_committed_damage_and_is_idempotent() {
     assert_eq!(lethal_event.len(), 1);
     assert_eq!(lethal_event[0].target, lethal);
     assert!(lethal_event[0].destroyed);
-    crate::gameworld_shadow::run_owned_host_boundary(None, &mut logic);
+    logic.complete_presentation_observations();
     assert!(logic.host_object(lethal).unwrap().status.destroyed);
     assert_eq!(logic.host_object(lethal).unwrap().health.current, 0.0);
     assert!(logic.objects.ordered_ids().contains(&lethal));
@@ -1888,11 +1888,11 @@ fn no_shadow_boundary_does_not_replay_committed_damage_and_is_idempotent() {
     logic
         .process_destroy_list_with_effects_checked(&mut Default::default())
         .unwrap();
-    crate::gameworld_shadow::run_owned_host_boundary(None, &mut logic);
+    logic.complete_presentation_observations();
     assert!(logic.host_object(lethal).is_none());
     assert!(!logic.has_pending_destroy_work());
     assert_eq!(logic.health_events.snapshot_last_damage(), completed);
-    crate::gameworld_shadow::run_owned_host_boundary(None, &mut logic);
+    logic.complete_presentation_observations();
     assert!(logic.host_object(lethal).is_none());
     assert!(!logic.has_pending_destroy_work());
     assert_eq!(logic.health_events.snapshot_last_damage(), completed);
@@ -1936,7 +1936,7 @@ fn no_shadow_boundary_preserves_committed_heal_damage_order() {
         assert_eq!(logic.health_events.snapshot_damage().len(), 1);
         assert_eq!(logic.health_events.snapshot_heal().len(), 1);
         for _ in 0..2 {
-            crate::gameworld_shadow::run_owned_host_boundary(None, &mut logic);
+            logic.complete_presentation_observations();
             let object = logic.host_object(id).expect("target after boundary");
             assert_eq!(object.health.current, 70.0, "heal_first={heal_first}");
             assert_eq!(object.previous_health, previous);
@@ -1973,7 +1973,7 @@ fn no_shadow_boundary_preserves_completed_coupled_healing() {
     assert_eq!(events.len(), 1);
     assert_eq!(events[0].health, 70.0);
     for _ in 0..2 {
-        crate::gameworld_shadow::run_owned_host_boundary(None, &mut logic);
+        logic.complete_presentation_observations();
         assert_eq!(logic.host_object(id).unwrap().health.current, 70.0);
         assert!(!logic.host_object(id).unwrap().status.destroyed);
     }

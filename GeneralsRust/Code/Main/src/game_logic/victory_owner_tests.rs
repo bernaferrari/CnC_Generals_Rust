@@ -232,7 +232,8 @@ fn observation_scenario(coupled: bool) {
     let phase_frame = owner.get_frame();
     if coupled {
         owner.update();
-        crate::gameworld_shadow::run_owned_host_boundary(Some(&mut shadow), &mut owner);
+        owner.complete_presentation_observations();
+        shadow.sync_from_host(&owner);
     } else {
         owner.update();
     }

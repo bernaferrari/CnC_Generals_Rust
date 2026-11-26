@@ -164,7 +164,8 @@ fn tick(logic: &mut GameLogic, shadow: &mut GameWorldShadow) {
         frame + 1,
         "ordinary simulation tick"
     );
-    crate::gameworld_shadow::run_owned_host_boundary(Some(shadow), logic);
+    logic.complete_presentation_observations();
+    shadow.sync_from_host(logic);
 }
 
 fn complete(logic: &GameLogic, infantry: ObjectId, foreign: ObjectId, at_frame: u32) {
@@ -238,7 +239,8 @@ fn upgrade_completion_owner_two_worlds_and_reset_reuse_keep_canonical_effects() 
     complete(&a, a_ids.1, a_ids.2, 39);
     let a_complete = only_entry(&a);
     let b_pending = only_entry(&b);
-    crate::gameworld_shadow::run_owned_host_boundary(Some(&mut a_shadow), &mut a);
+    a.complete_presentation_observations();
+    a_shadow.sync_from_host(&a);
     assert_eq!(
         only_entry(&a),
         a_complete,
