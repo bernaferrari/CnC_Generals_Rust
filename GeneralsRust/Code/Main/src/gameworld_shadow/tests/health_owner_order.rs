@@ -195,7 +195,7 @@ fn actual_coupled_fixed_frame_auto_heal_commits_owner_before_boundary() {
         assert_eq!(Some(shadow.world().entity(eid).unwrap().health), Some(40.0));
     };
     observe_completed_owner(&mut shadow, &mut logic);
-    let _ = observe_completed_owner(&mut shadow, &mut logic);
+    observe_completed_owner(&mut shadow, &mut logic);
     assert_eq!(logic.host_object(id).unwrap().health.current, 42.0);
     assert_eq!(shadow.world().entity(eid).unwrap().health, 42.0);
 }
@@ -215,7 +215,7 @@ fn coupled_health_batch_preserves_completed_heal_then_damage() {
         50.0,
         "heal 40→70 then damage 70→50 must retain that order"
     );
-    let _ = observe_completed_owner(&mut shadow, &mut logic);
+    observe_completed_owner(&mut shadow, &mut logic);
     assert_eq!(logic.host_object(id).unwrap().health.current, 50.0);
 }
 
@@ -240,7 +240,7 @@ fn pending_health_records_keep_order_in_eager_and_session_paths() {
             if eager {
                 observe_completed_owner(&mut shadow, &mut logic);
             }
-            let _ = observe_completed_owner(&mut shadow, &mut logic);
+            observe_completed_owner(&mut shadow, &mut logic);
             let expected = if heal_first { 70.0 } else { 80.0 };
             assert_eq!(
                 shadow.world().entity(eid).unwrap().health,
@@ -248,7 +248,7 @@ fn pending_health_records_keep_order_in_eager_and_session_paths() {
                 "eager={eager}, heal_first={heal_first}"
             );
             assert_eq!(logic.host_object(id).unwrap().health.current, expected);
-            let _ = observe_completed_owner(&mut shadow, &mut logic);
+            observe_completed_owner(&mut shadow, &mut logic);
             assert_eq!(
                 logic.host_object(id).unwrap().health.current,
                 expected,
@@ -305,7 +305,7 @@ fn coupled_owner_healing_is_visible_to_repeated_borrows_and_damage_state() {
         assert_eq!(logic.host_object_mut(id).unwrap().health.current, 100.0);
     };
     observe_completed_owner(&mut shadow, &mut logic);
-    let _ = observe_completed_owner(&mut shadow, &mut logic);
+    observe_completed_owner(&mut shadow, &mut logic);
     assert_eq!(logic.host_object(id).unwrap().health.current, 100.0);
 }
 
@@ -326,7 +326,7 @@ fn health_admission_preserves_max_health_and_experience_neighbors() {
         if eager {
             observe_completed_owner(&mut shadow, &mut logic);
         }
-        let _ = observe_completed_owner(&mut shadow, &mut logic);
+        observe_completed_owner(&mut shadow, &mut logic);
         let entity = shadow.world().entity(eid).unwrap();
         assert_eq!(entity.health, 60.0, "eager={eager}");
         assert_eq!(entity.max_health, 60.0);
@@ -348,7 +348,7 @@ fn new_object_health_is_admitted_after_mapping_without_losing_heal() {
     let _ = owner_damage(&mut logic, id, 10.0);
     assert!(shadow.entity_for_host(id).is_none());
 
-    let _ = observe_completed_owner(&mut shadow, &mut logic);
+    observe_completed_owner(&mut shadow, &mut logic);
     let eid = shadow.entity_for_host(id).expect("newly mapped object");
     assert_eq!(shadow.world().entity(eid).unwrap().health, 70.0);
     assert_eq!(logic.host_object(id).unwrap().health.current, 70.0);
@@ -360,7 +360,7 @@ fn damage_disabled_session_retains_heal_only_admission_after_sync() {
 
     let eid = shadow.entity_for_host(id).unwrap();
     perform_owner_health(&mut logic, id, 80.0);
-    let _ = observe_completed_owner(&mut shadow, &mut logic);
+    observe_completed_owner(&mut shadow, &mut logic);
     assert_eq!(shadow.world().entity(eid).unwrap().health, 80.0);
 }
 
@@ -419,7 +419,7 @@ fn damage_reactions_observe_damage_state_before_later_healing() {
         "authored POISON25%: pristine0.625 follows damaged0.5 and critical0.5"
     );
     // A second observation boundary cannot reexecute the reaction weapons.
-    let _ = observe_completed_owner(&mut shadow, &mut logic);
+    observe_completed_owner(&mut shadow, &mut logic);
     logic.health_events.clear_damage();
     logic.health_events.clear_heal();
 }
@@ -492,7 +492,7 @@ fn fatal_owner_damage_reacts_to_zero_health_and_cannot_write_back_stale_hp() {
     observe_completed_owner(&mut shadow, &mut logic);
     assert!(logic.host_object(id).is_none());
     assert!(shadow.entity_for_host(id).is_none());
-    let _ = observe_completed_owner(&mut shadow, &mut logic);
+    observe_completed_owner(&mut shadow, &mut logic);
     if let Some(object) = logic.host_object(id) {
         assert_eq!(object.health.current, 0.0);
         assert!(!object.is_alive());
@@ -518,7 +518,7 @@ fn eager_receipt_does_not_claim_unmapped_health_or_experience_was_applied() {
     logic.award_experience(new_id, 12.0);
 
     observe_completed_owner(&mut shadow, &mut logic);
-    let _ = observe_completed_owner(&mut shadow, &mut logic);
+    observe_completed_owner(&mut shadow, &mut logic);
     let new_eid = shadow.entity_for_host(new_id).unwrap();
     assert_eq!(
         (
@@ -529,7 +529,7 @@ fn eager_receipt_does_not_claim_unmapped_health_or_experience_was_applied() {
         (90.0, 12.0, 70.0),
         "admit unmapped effects without replaying the mapped damage prefix"
     );
-    let _ = observe_completed_owner(&mut shadow, &mut logic);
+    observe_completed_owner(&mut shadow, &mut logic);
     assert_eq!(logic.host_object(new_id).unwrap().health.current, 90.0);
     assert_eq!(logic.host_object(mapped).unwrap().health.current, 70.0);
     logic.health_events.clear_damage();
@@ -547,7 +547,7 @@ fn newly_mapped_body_does_not_replay_completed_damage() {
         if eager {
             observe_completed_owner(&mut shadow, &mut logic);
         }
-        let _ = observe_completed_owner(&mut shadow, &mut logic);
+        observe_completed_owner(&mut shadow, &mut logic);
         assert_eq!(
             logic.host_object(id).unwrap().health.current,
             30.0,

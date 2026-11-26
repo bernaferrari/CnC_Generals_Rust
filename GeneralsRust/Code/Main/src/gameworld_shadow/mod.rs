@@ -1,21 +1,13 @@
-//! Immutable Main simulation projection for presentation and diagnostics.
-//! Main owns objects, AI, timers and effects. The observer copies completed
-//! values and never advances gameplay or writes them back into the session.
+//! Legacy GameWorld mirror used by the remaining comparison tests.
 
 use crate::game_logic::{GameLogic, ObjectId, Team};
 
 use gamelogic::world::entities::{EntityId, EntityProductionItem, TemplateRef, Transform};
-use gamelogic::world::{GameWorld, PlayerId, WorldMutation, WorldSnapshot};
+use gamelogic::world::{GameWorld, PlayerId, WorldMutation};
 use std::collections::{HashMap, HashSet};
-
-mod types;
-use types::HordePlayerRel;
-pub use types::*;
 
 mod construct;
 mod construction_observation;
-mod counts;
-mod observation_metrics;
 mod projectile_observation;
 mod weapon_observation;
 
@@ -24,7 +16,7 @@ mod weapon_observation;
 pub struct GameWorldShadow {
     world: GameWorld,
     // Id-keyed lookup tables: iteration order never feeds sim decisions
-    // (stale removal / metrics are order-independent), so use the Fx hasher.
+    // (stale removal is order-independent), so use the Fx hasher.
     host_to_entity: game_engine::common::fast_hash::FxHashMap<u32, EntityId>,
     entity_to_host: game_engine::common::fast_hash::FxHashMap<u32, u32>,
     // Births are assigned in numeric host order. Reuse that order until the
@@ -32,7 +24,6 @@ pub struct GameWorldShadow {
     registered_host_ids: Vec<ObjectId>,
     sorted_host_ids: Vec<ObjectId>,
     checked_entity_roster: Option<(u32, u64)>,
-    observed_object_revision: Option<ObjectObservationRevision>,
     max_entities: usize,
     /// Host player id → dense GameWorld PlayerId
     host_player_to_gw: HashMap<u32, PlayerId>,
@@ -52,11 +43,12 @@ pub struct GameWorldShadow {
     carpet_pending_drops: Vec<crate::game_logic::host_carpet_bomb_flight::PendingCarpetBombDrop>,
 }
 
-#[derive(Debug)]
-struct ObjectObservationRevision {
-    host: std::sync::Weak<()>,
-    host_revision: u64,
-    entity_roster: (u32, u64),
+/// Host player factsfor C++ HordeUpdate AlliesOnly (`getRelationship == ALLIES`).
+#[derive(Debug, Clone)]
+pub(super) struct HordePlayerRel {
+    pub alliance_team: i32,
+    pub is_alive: bool,
+    pub map_relations: HashMap<u32, gamelogic::common::Relationship>,
 }
 
 #[cfg(test)]

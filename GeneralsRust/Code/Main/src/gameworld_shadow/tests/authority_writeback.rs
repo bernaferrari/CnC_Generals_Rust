@@ -149,7 +149,7 @@ fn damage_authority_defers_host_hp_until_writeback() {
         let (o, health_events) = logic.host_object_and_health_events_mut(oid).expect("o");
         let _ = o.take_damage(25.0, 0, health_events);
     }
-    let _ = observe_completed_owner(&mut shadow, &mut logic);
+    observe_completed_owner(&mut shadow, &mut logic);
     let after = logic.host_objects().lookup(&oid).expect("o").health.current;
     assert!(
         after < before - 20.0,
@@ -212,7 +212,7 @@ fn heal_authority_commits_host_hp_before_shadow_writeback() {
         "events {:?}",
         events
     );
-    let _ = observe_completed_owner(&mut shadow, &mut logic);
+    observe_completed_owner(&mut shadow, &mut logic);
     let after = logic.host_objects().lookup(&oid).expect("o").health.current;
     assert!((after - 70.0).abs() < 1e-3, "writeback heal after={after}");
     assert!(logic.health_events.snapshot_heal().is_empty());
@@ -255,7 +255,7 @@ fn experience_is_immediate_even_during_shadow_coupling() {
         logic.host_object(id).unwrap().experience.current,
         before + 100.0
     );
-    let _ = observe_completed_owner(&mut shadow, &mut logic);
+    observe_completed_owner(&mut shadow, &mut logic);
     assert_eq!(
         logic.host_object(id).unwrap().experience.current,
         before + 100.0
@@ -327,7 +327,7 @@ fn host_update_movement_skips_when_gameworld_movement_authority() {
     // Multiple authority frames (path integrate + pose writeback each session).
     for _ in 0..10 {
         logic.update();
-        let _ = observe_completed_owner(&mut shadow, &mut logic);
+        observe_completed_owner(&mut shadow, &mut logic);
     }
     let after = logic
         .host_objects()
@@ -884,24 +884,6 @@ fn attack_target_writeback_updates_host() {
     shadow.sync_from_host(&logic);
 
     assert_eq!(logic.host_objects().lookup(&a).unwrap().target, None);
-}
-
-#[test]
-fn probe_includes_host_victory_fields() {
-    let mut logic = GameLogic::new();
-    let cfg = golden_skirmish_config("VicProbe");
-    logic.admit_object_ini_sources(std::iter::empty()).expect("fixture Object content admitted before NewGame");
-    apply_skirmish_config(&mut logic, &cfg).expect("cfg");
-    let mut shadow = GameWorldShadow::new(4096);
-    shadow.sync_from_host(&logic);
-    let probe = shadow.probe(&mut logic);
-    // Fresh skirmish: match not over; fields must still be populated honestly.
-    assert!(!probe.host_match_over || probe.victory_label.is_some());
-    let _ = probe.format_report(); // includes victory_over=
-    assert!(
-        probe.format_report().contains("victory_over="),
-        "probe report must expose victory residual"
-    );
 }
 
 #[test]

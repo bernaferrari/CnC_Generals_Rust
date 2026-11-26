@@ -230,7 +230,7 @@ fn economy_authority_pending_blocks_double_spend() {
     assert_eq!(logic.get_player(hid).unwrap().resources.supplies, 50);
     assert_eq!(logic.get_player(hid).unwrap().effective_supplies(), 50);
     let mut shadow = GameWorldShadow::new(64);
-    let _ = observe_completed_owner(&mut shadow, &mut logic);
+    observe_completed_owner(&mut shadow, &mut logic);
     assert_eq!(logic.get_player(hid).unwrap().resources.supplies, 50);
 }
 
@@ -311,7 +311,7 @@ fn credit_supplies_defers_under_economy_authority() {
     assert_eq!(logic.get_player(hid).unwrap().resources.supplies, 1250);
     assert_eq!(logic.get_player(hid).unwrap().effective_supplies(), 1250);
     let mut shadow = GameWorldShadow::new(64);
-    let _ = observe_completed_owner(&mut shadow, &mut logic);
+    observe_completed_owner(&mut shadow, &mut logic);
     assert_eq!(logic.get_player(hid).unwrap().resources.supplies, 1250);
 }
 
@@ -363,7 +363,7 @@ fn construction_complete_heal_log_sets_full_hp_via_writeback() {
         o.status.under_construction = false;
     }
     assert!((logic.host_objects().lookup(&oid).expect("o").health.current - 500.0).abs() < 1e-5);
-    let _ = observe_completed_owner(&mut shadow, &mut logic);
+    observe_completed_owner(&mut shadow, &mut logic);
     let o = logic.host_objects().lookup(&oid).expect("o");
     assert!(
         (o.health.current - o.health.maximum).abs() < 1e-3,

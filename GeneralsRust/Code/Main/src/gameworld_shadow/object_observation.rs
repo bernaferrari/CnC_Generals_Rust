@@ -3,7 +3,7 @@
 use super::*;
 use crate::game_logic::{GameLogic, ObjectId, Team};
 use gamelogic::world::entities::{EntityId, EntityProductionItem, TemplateRef, Transform};
-use gamelogic::world::{GameWorld, PlayerId, WorldMutation, WorldSnapshot};
+use gamelogic::world::{GameWorld, PlayerId, WorldMutation};
 use std::collections::{HashMap, HashSet};
 
 fn observe_production_item(
@@ -767,7 +767,6 @@ impl GameWorldShadow {
         eid: EntityId,
         catalog: Option<&crate::assets::ww3d_asset_manager::ObjectCatalog>,
         visibility: crate::fow_rendering::ObjectVisibility,
-        refresh_object_values: bool,
     ) {
         let pos = obj.get_position();
         let transform = Transform::new([pos.x, pos.y, pos.z], obj.get_orientation());
@@ -898,9 +897,7 @@ impl GameWorldShadow {
             e.special_power_ready_template_name.clear();
             e.special_power_ready_template_id = 0;
         }
-        if refresh_object_values {
-            Self::observe_object_owned_runtime(obj, e);
-        }
+        Self::observe_object_owned_runtime(obj, e);
         e.aurora_bomb_mission_live = obj
             .aurora_bomb_mission_id
             .map(|mid| logic.aurora_bombs.has_mission(mid))

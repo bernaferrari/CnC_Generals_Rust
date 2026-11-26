@@ -27,8 +27,6 @@ fn sync_from_host_copies_entity_xp_status_residual() {
     }
     let mut shadow = GameWorldShadow::new(64);
     shadow.sync_from_host(&logic);
-    assert_eq!(shadow.elite_entity_count(), 1);
-    assert_eq!(shadow.stealthed_entity_count(), 1);
     let eid = shadow.entity_for_host(id).expect("map");
     let e = shadow.world().entity(eid).expect("e");
     assert!((e.experience_points - 420.0).abs() < 0.01);
@@ -64,8 +62,6 @@ fn sync_from_host_copies_entity_combat_intent_residual() {
     }
     let mut shadow = GameWorldShadow::new(64);
     shadow.sync_from_host(&logic);
-    assert_eq!(shadow.force_attack_entity_count(), 1);
-    assert!(shadow.non_idle_ai_entity_count() >= 1);
     let eid = shadow.entity_for_host(id).expect("map");
     let e = shadow.world().entity(eid).expect("e");
     assert!(e.force_attack);
@@ -97,8 +93,6 @@ fn sync_from_host_copies_entity_color_power_type() {
     }
     let mut shadow = GameWorldShadow::new(64);
     shadow.sync_from_host(&logic);
-    assert_eq!(shadow.building_entity_count(), 1);
-    assert_eq!(shadow.total_entity_power_provided(), 50);
     let eid = shadow.entity_for_host(id).expect("map");
     let e = shadow.world().entity(eid).expect("e");
     assert_eq!(e.object_type_ordinal, 3);
@@ -127,9 +121,6 @@ fn sync_from_host_copies_entity_team_status_residual() {
     }
     let mut shadow = GameWorldShadow::new(64);
     shadow.sync_from_host(&logic);
-    assert_eq!(shadow.entity_count_for_team_ordinal(1), 1, "China ordinal");
-    assert_eq!(shadow.moving_entity_count(), 1);
-    assert_eq!(shadow.attacking_entity_count(), 1);
     let eid = shadow.entity_for_host(id).expect("map");
     let e = shadow.world().entity(eid).expect("e");
     assert_eq!(e.team_ordinal, 1);
@@ -157,98 +148,12 @@ fn sync_from_host_copies_entity_selection_residual() {
     }
     let mut shadow = GameWorldShadow::new(64);
     shadow.sync_from_host(&logic);
-    assert_eq!(shadow.selected_entity_count(), 1);
-    assert_eq!(shadow.under_construction_entity_count(), 1);
     let eid = shadow.entity_for_host(id).expect("map");
     let e = shadow.world().entity(eid).expect("e");
     assert!(e.selected);
     assert!((e.max_health - 150.0).abs() < 0.01);
     assert!((e.construction_percent - 0.4).abs() < 0.01);
     assert!(!e.destroyed);
-}
-
-#[test]
-fn sync_players_copies_alive_and_cash_bounty() {
-    let mut logic = GameLogic::new();
-    let cfg = golden_skirmish_config("AliveBountyShadow");
-    logic.admit_object_ini_sources(std::iter::empty()).expect("fixture Object content admitted before NewGame");
-    apply_skirmish_config(&mut logic, &cfg).expect("cfg");
-    let pid = logic.get_players().keys().copied().min().expect("player");
-    let n_players = logic.get_players().len();
-    // C++ Player.cpp:443 `m_isPlayerDead = m_observer; // observers are dead`:
-    // apply_skirmish_config installs the FactionObserver ReplayObserver
-    // (Team::Neutral, is_alive=false), so it must not count as alive.
-    assert!(
-        logic
-            .get_players()
-            .values()
-            .any(|p| p.name == "ReplayObserver" && !p.is_alive),
-        "fixture must include the dead ReplayObserver side"
-    );
-    let n_alive = n_players - 1;
-    {
-        let p = logic.get_player_mut(pid).expect("p");
-        p.cash_bounty_percent = 0.2;
-        p.color_rgb = (12, 34, 56);
-        p.is_alive = true;
-    }
-    let mut shadow = GameWorldShadow::new(64);
-    shadow.sync_from_host(&logic);
-    assert_eq!(shadow.alive_player_count(), n_alive);
-    assert!((shadow.max_cash_bounty_percent() - 0.2).abs() < 0.001);
-    let tinted = shadow
-        .world
-        .world()
-        .active_players()
-        .any(|(_, p)| p.color_rgb == (12, 34, 56));
-    assert!(tinted, "color_rgb residual must copy");
-    {
-        let p = logic.get_player_mut(pid).expect("p");
-        p.is_alive = false;
-    }
-    shadow.sync_from_host(&logic);
-    assert_eq!(
-        shadow.alive_player_count(),
-        n_alive.saturating_sub(1),
-        "killing pid must drop exactly one alive player"
-    );
-}
-
-#[test]
-fn sync_players_copies_radar_residual() {
-    let mut logic = GameLogic::new();
-    let cfg = golden_skirmish_config("RadarShadow");
-    logic.admit_object_ini_sources(std::iter::empty()).expect("fixture Object content admitted before NewGame");
-    apply_skirmish_config(&mut logic, &cfg).expect("cfg");
-    let pid = logic.get_players().keys().copied().min().expect("player");
-    {
-        let p = logic.get_player_mut(pid).expect("p");
-        p.radar_count = 2;
-        p.radar_disabled = false;
-    }
-    let mut shadow = GameWorldShadow::new(64);
-    shadow.sync_from_host(&logic);
-    assert!(
-        shadow.radar_residual_present(),
-        "shadow must copy host radar_count"
-    );
-    assert!(
-        shadow.any_player_has_radar(),
-        "hasRadar residual: count>0 && !disabled"
-    );
-    {
-        let p = logic.get_player_mut(pid).expect("p");
-        p.radar_disabled = true;
-    }
-    shadow.sync_from_host(&logic);
-    assert!(
-        shadow.radar_residual_present(),
-        "disabled flag must still be residual-present"
-    );
-    assert!(
-        !shadow.any_player_has_radar(),
-        "disabled radar must fail hasRadar residual"
-    );
 }
 
 #[test]
@@ -359,55 +264,6 @@ fn sync_players_copies_shared_special_power_cooldowns() {
             - 3.0)
             .abs()
             < 1e-5
-    );
-}
-
-#[test]
-fn sync_players_copies_power_produced_consumed() {
-    let mut logic = GameLogic::new();
-    let cfg = golden_skirmish_config("PowerBarShadow");
-    logic.admit_object_ini_sources(std::iter::empty()).expect("fixture Object content admitted before NewGame");
-    apply_skirmish_config(&mut logic, &cfg).expect("cfg");
-    let pid = logic.get_players().keys().copied().min().expect("player");
-    {
-        let p = logic.get_player_mut(pid).expect("p");
-        p.power_produced = 120;
-        p.power_consumed = 45;
-        p.power_available = 75;
-    }
-    let mut shadow = GameWorldShadow::new(64);
-    shadow.sync_from_host(&logic);
-    assert!(
-        shadow.power_bar_residual_present(),
-        "shadow must copy host power_produced/consumed"
-    );
-    let pd = shadow
-        .world
-        .world()
-        .active_players()
-        .map(|(_, p)| p)
-        .find(|p| p.power_produced == 120 && p.power_consumed == 45)
-        .expect("mapped power bar player");
-    assert_eq!(pd.power_available, 75);
-}
-
-#[test]
-fn sync_players_copies_unlocked_sciences() {
-    let mut logic = GameLogic::new();
-    let cfg = golden_skirmish_config("ScienceShadow");
-    logic.admit_object_ini_sources(std::iter::empty()).expect("fixture Object content admitted before NewGame");
-    apply_skirmish_config(&mut logic, &cfg).expect("cfg");
-    let pid = logic.get_players().keys().copied().min().expect("player");
-    {
-        let p = logic.get_player_mut(pid).expect("p");
-        p.unlocked_sciences.insert("SCIENCE_PaladinTank".into());
-        p.unlocked_sciences.insert("SCIENCE_Pathfinder".into());
-    }
-    let mut shadow = GameWorldShadow::new(64);
-    shadow.sync_from_host(&logic);
-    assert!(
-        shadow.unlocked_science_count() >= 2,
-        "shadow must copy host unlocked sciences"
     );
 }
 

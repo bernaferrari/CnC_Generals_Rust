@@ -3,82 +3,6 @@
 use super::*;
 
 #[test]
-fn shadow_stable_ids_across_sync() {
-    let mut logic = GameLogic::new();
-    let cfg = golden_skirmish_config("StableIdMap");
-    logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object ShadowUnit\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
-    apply_skirmish_config(&mut logic, &cfg).expect("cfg");
-    insert_fixture_template(&mut logic, "ShadowUnit", 100.0);
-    let a = logic
-        .create_object("ShadowUnit", Team::USA, Vec3::new(0.0, 0.0, 0.0))
-        .expect("a");
-    let b = logic
-        .create_object("ShadowUnit", Team::USA, Vec3::new(10.0, 0.0, 0.0))
-        .expect("b");
-
-    let mut shadow = GameWorldShadow::new(4096);
-    shadow.sync_from_host(&logic);
-    let ea = shadow.entity_for_host(a).expect("map a");
-    let eb = shadow.entity_for_host(b).expect("map b");
-    assert_ne!(ea.get(), eb.get());
-
-    // Second sync must keep the same EntityIds.
-    shadow.sync_from_host(&logic);
-    assert_eq!(shadow.entity_for_host(a), Some(ea));
-    assert_eq!(shadow.entity_for_host(b), Some(eb));
-
-    let probe = shadow.probe(&mut logic);
-    assert!(probe.full_match(), "{}", probe.format_report());
-}
-
-#[test]
-fn saved_frames_keep_short_lived_object_ids_after_physical_removal() {
-    use crate::presentation_frame::PresentationFrame;
-
-    let mut logic = GameLogic::new();
-    ensure_template(&mut logic, "ObservationUnit", 100.0);
-    let first = logic
-        .create_object("ObservationUnit", Team::USA, Vec3::ZERO)
-        .unwrap();
-    let initial = PresentationFrame::try_build_from_logic(&mut logic, 0).unwrap();
-
-    let transient = logic
-        .create_object("ObservationUnit", Team::USA, Vec3::X)
-        .unwrap();
-    logic.frame = 1;
-    logic.complete_presentation_observations();
-    let middle = PresentationFrame::try_build_from_logic(&mut logic, 0).unwrap();
-
-    logic.destroy_object(transient).unwrap();
-    logic
-        .process_destroy_list_with_effects_checked(&mut Default::default())
-        .unwrap();
-    let survivor = logic
-        .create_object("ObservationUnit", Team::USA, Vec3::Y)
-        .unwrap();
-    logic.frame = 2;
-    logic.complete_presentation_observations();
-    let final_frame = PresentationFrame::try_build_from_logic(&mut logic, 0).unwrap();
-
-    assert_eq!(initial.frame.0, 0);
-    assert_eq!(initial.renderable_object_ids(), [first]);
-    assert_eq!(middle.frame.0, 1);
-    assert_eq!(middle.renderable_object_ids(), [first, transient]);
-    assert_eq!(final_frame.frame.0, 2);
-    assert_ne!(transient, survivor);
-    assert_eq!(final_frame.renderable_object_ids(), [first, survivor]);
-    assert_eq!(
-        final_frame
-            .objects
-            .iter()
-            .find(|row| row.id == survivor)
-            .unwrap()
-            .position,
-        Vec3::Y
-    );
-}
-
-#[test]
 fn unchanged_host_roster_rebinds_only_the_removed_observation_entity() {
     let mut logic = GameLogic::new();
     ensure_template(&mut logic, "ObservationUnit", 100.0);
@@ -291,96 +215,6 @@ fn same_faction_slots_keep_owner_authority_through_shadow_and_presentation() {
     assert!(frame.is_owned_by_local(mine_frame));
     assert!(!frame.is_owned_by_local(theirs_frame));
     assert!(frame.is_enemy_of_local(theirs_frame));
-}
-
-#[test]
-fn shadow_damage_mutation_matches_host() {
-    let mut logic = GameLogic::new();
-    let cfg = golden_skirmish_config("DamageParity");
-    crate::fixture_content::admit_fixture_objects(
-        &mut logic,
-        &[
-            crate::fixture_content::FixtureObject::new("DmgUnit").kind_of("SELECTABLE").health(200.0),
-        ],
-    );
-    apply_skirmish_config(&mut logic, &cfg).expect("cfg");
-    let id = logic
-        .create_object("DmgUnit", Team::USA, Vec3::new(5.0, 0.0, 0.0))
-        .expect("unit");
-
-    let mut shadow = GameWorldShadow::new(4096);
-    shadow.sync_from_host(&logic);
-    logic.apply_host_damage(id, 35.0).unwrap();
-    assert_eq!(logic.host_object(id).unwrap().health.current, 165.0);
-    shadow.sync_from_host(&logic);
-    // ID remains stable after damage.
-    assert!(shadow.entity_for_host(id).is_some());
-    let probe = shadow.probe(&mut logic);
-    assert!(probe.health_match, "{}", probe.format_report());
-}
-
-#[test]
-fn shadow_counts_and_economy_match_after_skirmish_config() {
-    let mut logic = GameLogic::new();
-    let cfg = golden_skirmish_config("GameWorldShadowMap");
-    logic
-        .admit_object_ini_sources(std::iter::empty())
-        .expect("fixture Object content admitted before NewGame");
-    apply_skirmish_config(&mut logic, &cfg).expect("cfg");
-    let (_, probe) = probe_host_vs_gameworld(&mut logic);
-    assert!(
-        probe.full_match() || probe.host_objects > 4096,
-        "{}",
-        probe.format_report()
-    );
-    let frame =
-        crate::presentation_frame::PresentationFrame::try_build_from_logic(&mut logic, 0).unwrap();
-    assert_eq!(frame.frame.0, logic.get_frame());
-    assert_eq!(frame.objects.len(), logic.host_objects().registered_len());
-    assert_eq!(
-        frame.local_supplies,
-        logic.get_player(0).unwrap().resources.supplies
-    );
-}
-
-#[test]
-fn frame_health_is_frozen_across_a_receiving_body_write() {
-    use crate::presentation_frame::PresentationFrame;
-    let mut logic = GameLogic::new();
-    let cfg = golden_skirmish_config("PresOverlay");
-    logic
-        .admit_object_ini_sources([(
-            "fixture-objects.ini".into(),
-            "Object OverlayUnit\nEnd\n".into(),
-        )])
-        .expect("fixture Object content admitted before NewGame");
-    apply_skirmish_config(&mut logic, &cfg).expect("cfg");
-    insert_fixture_template(&mut logic, "OverlayUnit", 100.0);
-    let id = logic
-        .create_object("OverlayUnit", Team::USA, glam::Vec3::new(4.0, 0.0, 0.0))
-        .expect("u");
-    let before = PresentationFrame::try_build_from_logic(&mut logic, 0).unwrap();
-    let (object, events) = logic.host_object_and_health_events_mut(id).unwrap();
-    assert!(!object.take_damage_from(40.0, None, before.frame.0, events));
-    let after = PresentationFrame::try_build_from_logic(&mut logic, 0).unwrap();
-    assert_eq!(
-        before
-            .objects
-            .iter()
-            .find(|row| row.id == id)
-            .unwrap()
-            .health_current,
-        100.0
-    );
-    assert_eq!(
-        after
-            .objects
-            .iter()
-            .find(|row| row.id == id)
-            .unwrap()
-            .health_current,
-        60.0
-    );
 }
 
 #[test]
@@ -741,8 +575,6 @@ fn sync_from_host_copies_entity_combat_timing_residual() {
     }
     let mut shadow = GameWorldShadow::new(64);
     shadow.sync_from_host(&logic);
-    assert_eq!(shadow.frenzy_until_entity_count(), 1);
-    assert_eq!(shadow.battle_plan_sight_entity_count(), 1);
     let eid = shadow.entity_for_host(id).expect("map");
     let e = shadow.world().entity(eid).expect("e");
     assert_eq!(e.weapon_bonus_frenzy_until_frame, 90);
@@ -798,8 +630,6 @@ fn sync_from_host_copies_entity_combat_bonus_residual() {
     }
     let mut shadow = GameWorldShadow::new(64);
     shadow.sync_from_host(&logic);
-    assert_eq!(shadow.horde_bonus_entity_count(), 1);
-    assert_eq!(shadow.humvee_transport_entity_count(), 1);
     let eid = shadow.entity_for_host(id).expect("map");
     let e = shadow.world().entity(eid).expect("e");
     assert!(e.weapon_bonus_enthusiastic && e.weapon_bonus_horde && e.weapon_bonus_frenzy);
@@ -846,8 +676,6 @@ fn sync_from_host_copies_entity_detector_sp_residual() {
     }
     let mut shadow = GameWorldShadow::new(64);
     shadow.sync_from_host(&logic);
-    assert_eq!(shadow.detector_entity_count(), 1);
-    assert_eq!(shadow.special_power_ready_entity_count(), 1);
     let eid = shadow.entity_for_host(id).expect("map");
     let e = shadow.world().entity(eid).expect("e");
     assert!((e.cheer_timer - 2.5).abs() < 0.01);
@@ -910,8 +738,6 @@ fn sync_from_host_copies_entity_transport_residual() {
     }
     let mut shadow = GameWorldShadow::new(64);
     shadow.sync_from_host(&logic);
-    assert_eq!(shadow.battle_bus_entity_count(), 1);
-    assert_eq!(shadow.contained_entity_count(), 2);
     let eid = shadow.entity_for_host(bus).expect("map");
     let e = shadow.world().entity(eid).expect("e");
     assert_eq!(e.display_name, "OL-1");
@@ -973,8 +799,6 @@ fn sync_from_host_copies_entity_weapon_move_residual() {
     }
     let mut shadow = GameWorldShadow::new(64);
     shadow.sync_from_host(&logic);
-    assert_eq!(shadow.armed_entity_count(), 1);
-    assert_eq!(shadow.pathing_entity_count(), 1);
     let eid = shadow.entity_for_host(id).expect("map");
     let e = shadow.world().entity(eid).expect("e");
     assert!(e.has_weapon && e.has_secondary_weapon);
@@ -1025,8 +849,6 @@ fn sync_from_host_copies_entity_building_residual() {
     }
     let mut shadow = GameWorldShadow::new(64);
     shadow.sync_from_host(&logic);
-    assert_eq!(shadow.building_data_entity_count(), 1);
-    assert_eq!(shadow.producing_entity_count(), 1);
     let eid = shadow.entity_for_host(id).expect("map");
     let e = shadow.world().entity(eid).expect("e");
     assert!(e.is_building);

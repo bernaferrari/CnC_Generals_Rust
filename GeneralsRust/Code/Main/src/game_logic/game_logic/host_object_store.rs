@@ -12,9 +12,9 @@ pub struct HostObjectStore {
     // Keep the ID table compact and retire each Object in its original allocation.
     map: game_engine::common::fast_hash::FxHashMap<ObjectId, Box<Object>>,
     registration_order: Vec<ObjectId>,
-    // A mutable Object loan can change weapon or passenger observations even
-    // during input/script work with no advancement of the simulation frame.
-    object_revision: u64,
+    // Test instrumentation for passes that must avoid mutable Object loans.
+    #[cfg(test)]
+    mutation_count: u64,
     // Namespace is a weak loan of the EXISTING GameLogic identity. Raw standalone
     // stores remain usable for registered fixtures, but cannot admit constructors.
     constructor_world: std::sync::Weak<()>,
@@ -36,8 +36,12 @@ struct FailedObjectRetirement {
 }
 
 impl HostObjectStore {
+    #[inline]
     fn mark_objects_mutably_accessed(&mut self) {
-        self.object_revision = self.object_revision.wrapping_add(1);
+        #[cfg(test)]
+        {
+            self.mutation_count = self.mutation_count.wrapping_add(1);
+        }
     }
 
     /// Explicit old-owner cleanup for reset/Drop, including a retained failed
@@ -478,11 +482,10 @@ impl<'a> HostObjectRead<'a> {
     ) -> impl DoubleEndedIterator<Item = &'a ObjectId> + ExactSizeIterator + 'a {
         self.registered_ids().iter()
     }
-    /// World provenance and a conservative revision for Object-owned values.
-    /// Plain reads and coupling observations do not change the revision.
-    pub(crate) fn observation_revision(self) -> Option<(std::sync::Weak<()>, u64)> {
-        let owner = &self.store.constructor_world;
-        (owner.strong_count() > 0).then(|| (owner.clone(), self.store.object_revision))
+    /// Counter for verifying which passes took mutable Object loans.
+    #[cfg(test)]
+    pub(crate) fn mutation_count(self) -> u64 {
+        self.store.mutation_count
     }
 
     pub(crate) fn registered_ids(self) -> &'a [ObjectId] {

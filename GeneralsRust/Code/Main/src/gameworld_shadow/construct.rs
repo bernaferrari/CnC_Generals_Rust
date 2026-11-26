@@ -1,10 +1,9 @@
 //! Construct, ID maps, ordinal helpers, and host sync.
 
-use super::types::HordePlayerRel;
 use super::*;
 use crate::game_logic::{GameLogic, ObjectId, Team};
 use gamelogic::world::entities::{EntityId, EntityProductionItem, TemplateRef, Transform};
-use gamelogic::world::{GameWorld, PlayerId, WorldMutation, WorldSnapshot};
+use gamelogic::world::{GameWorld, PlayerId, WorldMutation};
 use std::collections::{HashMap, HashSet};
 
 impl GameWorldShadow {
@@ -48,7 +47,6 @@ impl GameWorldShadow {
             registered_host_ids: Vec::new(),
             sorted_host_ids: Vec::new(),
             checked_entity_roster: None,
-            observed_object_revision: None,
             max_entities: max_entities.max(1),
             host_player_to_gw: HashMap::new(),
             horde_player_rel: HashMap::new(),
@@ -82,7 +80,6 @@ impl GameWorldShadow {
 
     #[cfg(test)]
     pub fn world_mut(&mut self) -> &mut GameWorld {
-        self.observed_object_revision = None;
         &mut self.world
     }
 
@@ -254,28 +251,6 @@ impl GameWorldShadow {
         self.sync_players(logic);
         self.sync_object_identities(logic);
         let host_objects = logic.host_objects();
-        // Object-owned runtime facts, weapon slots and ordinary passengers
-        // stay valid until a live Object or mapped identity can change.
-        // Other fields continue to sample the receiving world on every present.
-        let observed = if self.world.has_pending_mutations() {
-            None
-        } else {
-            host_objects.observation_revision().map(|(host, host_revision)| {
-                ObjectObservationRevision {
-                    host,
-                    host_revision,
-                    entity_roster: self.world.world().entity_roster_revision(),
-                }
-            })
-        };
-        let refresh_object_values = match (&self.observed_object_revision, &observed) {
-            (Some(previous), Some(now)) => {
-                !previous.host.ptr_eq(&now.host)
-                    || previous.host_revision != now.host_revision
-                    || previous.entity_roster != now.entity_roster
-            }
-            _ => true,
-        };
         let assets = logic.application_assets();
         let catalog = assets.as_ref().and_then(|assets| {
             assets.lock().ok().map(|manager| manager.object_catalog())
@@ -313,11 +288,8 @@ impl GameWorldShadow {
                 eid,
                 catalog.as_deref(),
                 visibility,
-                refresh_object_values,
             );
-            if refresh_object_values {
-                self.sync_weapon_slots_from_host(eid, obj);
-            }
+            self.sync_weapon_slots_from_host(eid, obj);
         }
         drop(shroud);
 
@@ -329,25 +301,22 @@ impl GameWorldShadow {
         // Wave 792: mirror A10 pending missile drops for GW sole-tick.
         self.carpet_pending_drops = logic.carpet_bomb_flight_reg.pending_drops.clone();
 
-        if refresh_object_values {
-            // Containment is an observation of the receiving Main roster. Rebuild
-            // its indexed view after all IDs exist; never admit it back to Main.
-            self.world.contain_roster_mut().clear();
-            for (&host, object) in host_objects.registered() {
-                let occupants = object.contained_unit_ids();
-                if occupants.is_empty() {
-                    continue;
-                }
-                let Some(&container) = self.host_to_entity.get(&host.0) else {
-                    continue;
-                };
-                for occupant in occupants {
-                    if let Some(&occupant) = self.host_to_entity.get(&occupant.0) {
-                        let _ = self.world.contain_roster_mut().enter(container, occupant);
-                    }
+        // Containment is an observation of the receiving Main roster. Rebuild
+        // its indexed view after all IDs exist; never admit it back to Main.
+        self.world.contain_roster_mut().clear();
+        for (&host, object) in host_objects.registered() {
+            let occupants = object.contained_unit_ids();
+            if occupants.is_empty() {
+                continue;
+            }
+            let Some(&container) = self.host_to_entity.get(&host.0) else {
+                continue;
+            };
+            for occupant in occupants {
+                if let Some(&occupant) = self.host_to_entity.get(&occupant.0) {
+                    let _ = self.world.contain_roster_mut().enter(container, occupant);
                 }
             }
-            self.observed_object_revision = observed;
         }
 
         self.sync_projectile_observations(logic);

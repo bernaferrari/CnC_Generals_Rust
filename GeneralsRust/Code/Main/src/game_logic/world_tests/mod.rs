@@ -4,6 +4,8 @@ use super::*;
 
 mod connected_session;
 mod direct_destroy_owner;
+mod factory_frame_tests;
+mod frame_publication_tests;
 mod helpers;
 use helpers::*;
 
@@ -14,6 +16,7 @@ mod cave_bridge;
 mod combat_particles_and_economy;
 mod crates_and_salvage;
 mod hud_feedback_chains;
+mod match_start_radar_tests;
 mod move_receipt_tests;
 mod network_and_scripts;
 mod ocl_and_bombs;
@@ -33,6 +36,7 @@ mod superweapons_and_plans;
 mod team_factory_owner_red;
 mod unit_residuals;
 mod vehicles_and_lasers;
+mod weapon_and_movement_frame_tests;
 
 #[test]
 fn fast_chunky_sync_fail_opens_when_legacy_globals_are_busy() {

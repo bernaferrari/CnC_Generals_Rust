@@ -26,6 +26,7 @@ fn direct_destroy_preserves_body_and_does_not_enter_die() {
     world.destroy_object(id).unwrap();
     let object = world.host_object(id).unwrap();
     assert!(object.status.destroyed);
+    assert!(!object.is_alive());
     assert!(
         !object.status.on_die_started,
         "destroyObject never implicitly calls onDie"

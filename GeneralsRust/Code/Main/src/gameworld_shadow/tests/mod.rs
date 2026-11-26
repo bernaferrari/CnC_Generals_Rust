@@ -8,13 +8,6 @@ pub(super) use glam::Vec3;
 pub(super) mod harness;
 pub(super) use harness::{perform_owner_damage, perform_owner_health};
 
-fn probe_host_vs_gameworld(logic: &GameLogic) -> (GameWorldShadow, GameWorldShadowProbe) {
-    let mut shadow = GameWorldShadow::new(4096);
-    shadow.sync_from_host(logic);
-    let probe = shadow.probe(logic);
-    (shadow, probe)
-}
-
 /// Programmatic shape for an Object the fixture declared in its admitted
 /// ordered content; replaces the bare declaration's host template.
 pub(super) fn insert_fixture_template(logic: &mut GameLogic, name: &str, hp: f32) {
@@ -53,36 +46,24 @@ fn admit_shadow_fixture(logic: &mut GameLogic, name: &str, kind: &str) {
     logic.admit_startup_content(content).expect("admit shadow fixture");
 }
 
-mod authority_dry_run;
 mod authority_writeback;
 mod combat_status;
-mod command_authority;
 mod continue_attack;
-mod deferred_destroy;
 mod economy_construction;
 mod entity_channels;
-mod factory_contain_commands;
 mod fire_damage;
 mod host_log_combat;
-mod radar_coupled;
 mod sciences_upgrades;
 mod sell_heal;
 mod sync_ids;
-mod weapon_movement_authority;
 
 mod upgrade_completion_owner;
 
 mod health_event_owner;
 mod health_owner_order;
 
-
-
 /// Complete the receiving world's receipts, then refresh this test's mirror.
-pub(super) fn observe_completed_owner(
-    shadow: &mut GameWorldShadow,
-    logic: &mut GameLogic,
-) -> GameWorldShadowProbe {
+pub(super) fn observe_completed_owner(shadow: &mut GameWorldShadow, logic: &mut GameLogic) {
     logic.complete_presentation_observations();
     shadow.sync_from_host(logic);
-    shadow.probe(logic)
 }

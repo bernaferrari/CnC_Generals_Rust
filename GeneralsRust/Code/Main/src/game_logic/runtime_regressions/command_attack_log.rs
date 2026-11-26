@@ -46,6 +46,15 @@ fn attack_command_publishes_the_receiving_worlds_target_id() {
         selected_units: vec![attacker],
         modifier_keys: ModifierKeys::default(),
     });
+    assert_eq!(logic.host_object(attacker).unwrap().target, None);
+    let queued = PresentationFrame::try_build_from_logic(&mut logic, 0).unwrap();
+    let uncommitted = queued
+        .objects
+        .iter()
+        .find(|row| row.id == attacker)
+        .unwrap();
+    assert_eq!(uncommitted.attack_target, None);
+
     logic.process_commands();
 
     assert_eq!(logic.host_object(attacker).unwrap().target, Some(target));
@@ -56,5 +65,6 @@ fn attack_command_publishes_the_receiving_worlds_target_id() {
         .find(|row| row.id == attacker)
         .unwrap();
     assert_eq!(row.attack_target, Some(target));
+    assert_eq!(uncommitted.attack_target, None);
     assert!(presentation.objects.iter().any(|row| row.id == target));
 }

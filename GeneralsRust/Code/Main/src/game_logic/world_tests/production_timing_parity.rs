@@ -40,9 +40,9 @@ fn empty_production_queues_preserve_object_observations() {
         .unwrap();
     assert!(building.production_queue.is_empty());
 
-    let (_, before) = world.objects.read().observation_revision().unwrap();
+    let before = world.objects.read().mutation_count();
     world.update_production(1.0 / 30.0);
-    let (_, after) = world.objects.read().observation_revision().unwrap();
+    let after = world.objects.read().mutation_count();
     assert_eq!(after, before);
 }
 

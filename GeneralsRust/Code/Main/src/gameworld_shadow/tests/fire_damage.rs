@@ -629,39 +629,6 @@ fn host_owner_log_feeds_transfer_owner_mutation() {
 }
 
 #[test]
-fn host_heal_log_feeds_set_health_mutation() {
-    let mut logic = GameLogic::new();
-    let cfg = golden_skirmish_config("HealLog");
-    logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object HealT\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
-    apply_skirmish_config(&mut logic, &cfg).expect("cfg");
-    insert_fixture_template(&mut logic, "HealT", 100.0);
-    let id = logic
-        .create_object("HealT", Team::USA, glam::Vec3::ZERO)
-        .expect("id");
-    {
-        let o = logic.host_object_mut(id).unwrap();
-        o.health.current = 40.0;
-    }
-    let mut shadow = GameWorldShadow::new(4096);
-    shadow.sync_from_host(&logic);
-    {
-        let body_frame = logic.frame;
-        let (o, events) = logic.host_object_and_health_events_mut(id).unwrap();
-        o.heal(30.0, events, body_frame);
-    }
-    let heals = logic.health_events.drain_heal();
-    assert_eq!(heals.len(), 1);
-    assert_eq!(logic.host_object(id).unwrap().health.current, 70.0);
-    shadow.sync_from_host(&logic);
-    let probe = shadow.probe(&logic);
-    assert!(
-        probe.health_match,
-        "heal SetHealth should match host: {}",
-        probe.detail
-    );
-}
-
-#[test]
 fn actual_damage_is_copied_into_projection() {
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("DmgLogChannel");

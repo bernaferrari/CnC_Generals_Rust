@@ -399,7 +399,7 @@ mod tests {
     use super::*;
 
     /// Objects whose Flammable/FireSpread clocks are all asleep must not take
-    /// a mutable object loan: `object_revision` only moves when a deadline
+    /// a mutable object loan: the test mutation counter only moves when a deadline
     /// actually fires.
     #[test]
     fn sleeping_fire_clocks_take_no_mutable_object_loan() {
@@ -423,17 +423,9 @@ mod tests {
 
         // Every clock ignition armed sleeps in the future at the same frame.
         let health_before = logic.host_object(a).unwrap().health.current;
-        let (_, before) = logic
-            .objects
-            .read()
-            .observation_revision()
-            .expect("observation revision");
+        let before = logic.objects.read().mutation_count();
         logic.update_fire_spread().unwrap();
-        let (_, after_sleep) = logic
-            .objects
-            .read()
-            .observation_revision()
-            .expect("observation revision");
+        let after_sleep = logic.objects.read().mutation_count();
         assert_eq!(
             before, after_sleep,
             "sleeping clocks must not take a mutable object loan"
@@ -451,11 +443,7 @@ mod tests {
         assert!(damage_frame > 0);
         logic.set_current_frame(damage_frame as u64);
         logic.update_fire_spread().unwrap();
-        let (_, after_dot) = logic
-            .objects
-            .read()
-            .observation_revision()
-            .expect("observation revision");
+        let after_dot = logic.objects.read().mutation_count();
         assert_ne!(after_sleep, after_dot, "a due clock must take the loan");
         assert!(
             logic.host_object(a).unwrap().health.current < health_before,
