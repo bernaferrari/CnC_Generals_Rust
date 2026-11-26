@@ -26,7 +26,6 @@ pub mod linked_list;
 pub mod list;
 pub mod local_file;
 pub mod local_file_system;
-pub mod memory_init;
 pub mod object_status_types;
 pub mod quick_trig;
 pub mod quoted_printable;
