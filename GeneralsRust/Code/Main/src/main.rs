@@ -36,7 +36,6 @@
 
 use game_engine::common::game_engine::clear_game_engine;
 use game_engine::common::common_services::CommonServicesScope;
-use game_engine::common::system::game_memory::init_memory_manager;
 use generals_main::command_line::{self, CommandLineArgs};
 use log::{LevelFilter, debug, error, info, warn};
 use std::io::Write;
@@ -252,15 +251,9 @@ async fn main() {
 
     info!("Starting game initialization sequence...");
 
-    // Publish CommonServices before memory init: MemoryPoolFactory lives on
-    // SystemStores. Engine later pushes its own WorldServices common on TLS.
+    // Publish CommonServices for subsystem initialization. Engine later pushes
+    // its own WorldServices common on TLS.
     let _boot_common = CommonServicesScope::new();
-
-    // =========================================================================
-    // PHASE 5: MEMORY MANAGER INITIALIZATION (matches WinMain.cpp:982-985)
-    // =========================================================================
-    init_memory_manager();
-    debug!("Game memory initialized");
 
     // =========================================================================
     // PHASE 6: VERSION SYSTEM INITIALIZATION (matches WinMain.cpp:982-986)

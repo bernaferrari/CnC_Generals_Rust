@@ -426,7 +426,6 @@ fn run_instance(
     game_engine::common::common_services::common_services()
         .application
         .extension(move || shared_retail);
-    game_engine::common::system::game_memory::init_memory_manager();
     crate::localization::init("English");
     register_real_game_client_bootstrap();
 

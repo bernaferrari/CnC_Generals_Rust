@@ -8,28 +8,12 @@
       "constructs": 3,
       "undocumented": 0
     },
-    "Code/GameEngine/Common/src/common/system/game_memory/ptr_identity.rs": {
-      "constructs": 13,
-      "undocumented": 0
-    },
     "Code/GameEngine/Common/src/common/system/registry.rs": {
       "constructs": 2,
       "undocumented": 0
     },
-    "Code/GameEngine/Common/src/memory/allocator.rs": {
-      "constructs": 25,
-      "undocumented": 0
-    },
-    "Code/GameEngine/Common/tests/game_memory.rs": {
-      "constructs": 9,
-      "undocumented": 0
-    },
     "Code/GameEngine/GameClient/examples/complete_ui_demo.rs": {
       "constructs": 1,
-      "undocumented": 0
-    },
-    "Code/GameEngine/GameClient/gui/src/gui/gadget/gadget_list_box.rs": {
-      "constructs": 2,
       "undocumented": 0
     },
     "Code/GameEngine/GameClient/src/assets/mod.rs": {
@@ -60,43 +44,11 @@
       "constructs": 5,
       "undocumented": 0
     },
-    "Code/GameEngine/GameEngineDevice/src/audio/audio_driver_complete.rs": {
-      "constructs": 1,
-      "undocumented": 0
-    },
-    "Code/GameEngine/GameEngineDevice/src/input/platform/linux.rs": {
-      "constructs": 3,
-      "undocumented": 0
-    },
-    "Code/GameEngine/GameEngineDevice/src/input/platform/windows.rs": {
-      "constructs": 1,
-      "undocumented": 0
-    },
-    "Code/GameEngine/GameEngineDevice/src/platform/linux_device.rs": {
-      "constructs": 2,
-      "undocumented": 0
-    },
-    "Code/GameEngine/GameEngineDevice/src/platform/macos_device.rs": {
-      "constructs": 6,
-      "undocumented": 0
-    },
-    "Code/GameEngine/GameEngineDevice/src/platform/os_display.rs": {
-      "constructs": 1,
-      "undocumented": 0
-    },
-    "Code/GameEngine/GameEngineDevice/src/platform/win32_device.rs": {
-      "constructs": 2,
-      "undocumented": 0
-    },
     "Code/GameEngine/GameLogic/src/transport/packet.rs": {
       "constructs": 5,
       "undocumented": 0
     },
     "Code/GameEngine/GameLogic/src/transport/tests.rs": {
-      "constructs": 2,
-      "undocumented": 0
-    },
-    "Code/GameEngine/GameLogic/src/transport/udp.rs": {
       "constructs": 2,
       "undocumented": 0
     },
@@ -132,42 +84,6 @@
       "constructs": 4,
       "undocumented": 0
     },
-    "Code/GameEngineDevice/src/VideoDevice/Bink/bink_video_player.rs": {
-      "constructs": 1,
-      "undocumented": 0
-    },
-    "Code/GameEngineDevice/src/W3DDevice/GameClient/wthree_d_game_font.rs": {
-      "constructs": 2,
-      "undocumented": 0
-    },
-    "Code/GameEngineDevice/src/W3DDevice/GameClient/wthree_d_tree_buffer.rs": {
-      "constructs": 2,
-      "undocumented": 0
-    },
-    "Code/GameEngineDevice/src/W3DDevice/GameClient/wthree_d_view.rs": {
-      "constructs": 2,
-      "undocumented": 0
-    },
-    "Code/Integration/src/lib.rs": {
-      "constructs": 5,
-      "undocumented": 0
-    },
-    "Code/Integration/src/performance_manager.rs": {
-      "constructs": 2,
-      "undocumented": 0
-    },
-    "Code/Libraries/Source/Compression/EAC/src/streaming.rs": {
-      "constructs": 2,
-      "undocumented": 0
-    },
-    "Code/Libraries/Source/Compression/LZHCompress/src/streaming.rs": {
-      "constructs": 1,
-      "undocumented": 0
-    },
-    "Code/Libraries/Source/Compression/ZLib/src/streaming.rs": {
-      "constructs": 1,
-      "undocumented": 0
-    },
     "Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-collision/src/aabtree_optimized.rs": {
       "constructs": 3,
       "undocumented": 0
@@ -181,70 +97,6 @@
       "undocumented": 0
     },
     "Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-renderer-3d/benches/uv_mapper_bench.rs": {
-      "constructs": 1,
-      "undocumented": 0
-    },
-    "Code/Libraries/Source/WWVegas/WWAudio/src/aud_time.rs": {
-      "constructs": 1,
-      "undocumented": 0
-    },
-    "Code/Libraries/Source/WWVegas/WWAudio/src/aud_windows.rs": {
-      "constructs": 1,
-      "undocumented": 0
-    },
-    "Code/Libraries/Source/WWVegas/WWAudio/src/memory.rs": {
-      "constructs": 2,
-      "undocumented": 0
-    },
-    "Code/Libraries/Source/WWVegas/WWDebug/src/debug_io_net.rs": {
-      "constructs": 9,
-      "undocumented": 0
-    },
-    "Code/Libraries/Source/WWVegas/WWDebug/src/debug_io_ods.rs": {
-      "constructs": 1,
-      "undocumented": 0
-    },
-    "Code/Libraries/Source/WWVegas/WWDebug/src/timing.rs": {
-      "constructs": 3,
-      "undocumented": 0
-    },
-    "Code/Libraries/Source/WWVegas/WWDebug/src/wwdebug.rs": {
-      "constructs": 11,
-      "undocumented": 0
-    },
-    "Code/Libraries/Source/WWVegas/WWDownload/src/lib.rs": {
-      "constructs": 1,
-      "undocumented": 0
-    },
-    "Code/Libraries/Source/WWVegas/WWDownload/src/registry.rs": {
-      "constructs": 12,
-      "undocumented": 0
-    },
-    "Code/Libraries/Source/WWVegas/WWLib/src/keyboard.rs": {
-      "constructs": 6,
-      "undocumented": 0
-    },
-    "Code/Libraries/Source/WWVegas/WWLib/src/palette.rs": {
-      "constructs": 2,
-      "undocumented": 0
-    },
-    "Code/Libraries/Source/WWVegas/WWLib/src/rawfile.rs": {
-      "constructs": 2,
-      "undocumented": 0
-    },
-    "Code/Libraries/Source/WWVegas/WWLib/src/rcfile.rs": {
-      "constructs": 1,
-      "undocumented": 0
-    },
-    "Code/Libraries/Source/WWVegas/WWLib/src/registry.rs": {
-      "constructs": 26,
-      "undocumented": 0
-    },
-    "Code/Libraries/Source/WWVegas/WWLib/src/verchk.rs": {
-      "constructs": 6,
-      "undocumented": 0
-    },
-    "Code/Libraries/Source/WWVegas/WWLib/src/win.rs": {
       "constructs": 1,
       "undocumented": 0
     },

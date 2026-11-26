@@ -15,7 +15,6 @@ use crate::common::system::archive_file_system::ArchiveFileSystem;
 use crate::common::system::build_assistant::BuildAssistant;
 use crate::common::system::cd_manager::CDManagerInterface;
 use crate::common::system::debug::{DebugSystem, Profiler};
-use crate::common::system::game_memory::MemoryPoolFactory;
 use crate::common::system::local_file_system::LocalFileSystem;
 use crate::common::system::radar::{
     RadarDataSink, RadarEventFeedback, RadarMapSource, RadarObjectProvider, RadarSystem,
@@ -71,8 +70,6 @@ pub struct SystemStores {
     pub cd_manager: Mutex<Option<Arc<Mutex<Box<dyn CDManagerInterface + Send>>>>>,
     /// ZH registry (JSON-backed config).
     pub zh_registry: Mutex<Registry>,
-    /// C++ memory pool factory.
-    pub memory_pool_factory: ParkingMutex<MemoryPoolFactory>,
     /// C++ debug system + profiler.
     pub debug_system: Mutex<Option<Arc<Mutex<DebugSystem>>>>,
     pub profiler: Mutex<Option<Arc<Profiler>>>,
@@ -181,7 +178,6 @@ impl SystemStores {
             local_file_system: Arc::new(ParkingMutex::new(LocalFileSystem::new())),
             cd_manager: Mutex::new(None),
             zh_registry: Mutex::new(Registry::new()),
-            memory_pool_factory: ParkingMutex::new(MemoryPoolFactory::new()),
             debug_system: Mutex::new(None),
             profiler: Mutex::new(None),
             team_factory: Arc::new(Mutex::new(TeamFactory::new())),

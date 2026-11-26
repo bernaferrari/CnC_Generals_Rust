@@ -4,7 +4,7 @@ Workspace lints warn on `unsafe_code`. Do **not** `forbid` workspace-wide until 
 
 | Crate / module | Why unsafe exists today | Isolation target |
 |---|---|---|
-| `game_engine` `common/system/game_memory.rs` | C++ `GameMemory.h`/`GameMemory.cpp` pool: embedded headers, `0xDEADBEEF` free-fill, `*mut u8` user ABI. SlotMap would change pointer identity. Live GameLogic allocate is `Arc`. | keep documented; do not rewrite |
+| `game_engine` `common/system/game_memory.rs` | **deleted**: the C++ pool API had no production callers; initialization only constructed an empty allocator. Rust allocations already use ownership types. | done |
 | `wwlib` `ref_ptr.rs` | **deleted** (hq-ghcr.12 first surface; unused COM `*mut T` wrapper). WWSaveLoad already uses `type RefCountPtr<T> = Arc<T>` | done |
 | `ww3d-core` `dllist.rs` | **rewritten** to `SlotMap` keys (no raw pointers). C++ `dllist.h` `DLListClass` did not need pointer identity for save/ABI. | done |
 | `wwlib` `fast_allocator/` | **rewritten** to `Vec` + index handles. C++ `fastallocator.h` free-list pointers were unused on the game path. | done |
