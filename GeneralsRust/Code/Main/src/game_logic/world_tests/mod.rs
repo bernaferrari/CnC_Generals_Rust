@@ -2,11 +2,14 @@
 #![allow(unused_imports, non_snake_case, unused_variables, dead_code)]
 use super::*;
 
+mod body_order_tests;
 mod connected_session;
+mod damage_reaction_tests;
 mod direct_destroy_owner;
 mod factory_frame_tests;
 mod factory_exit_owner_tests;
 mod frame_publication_tests;
+mod health_receipt_tests;
 mod object_frame_tests;
 mod helpers;
 use helpers::*;

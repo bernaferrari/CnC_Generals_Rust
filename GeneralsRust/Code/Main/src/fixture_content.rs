@@ -6,7 +6,7 @@
 //! INI blocks, instead of inserting programmatic ThingTemplates afterwards
 //! (an admitted world builds bodies, AI and locomotors from the INI only).
 
-use crate::game_logic::GameLogic;
+use crate::game_logic::{GameLogic, ObjectId};
 
 #[path = "fixture_content/bridge_art.rs"]
 pub(crate) mod bridge_art;
@@ -807,5 +807,37 @@ mod tests {
         assert_eq!((primary.damage, primary.range), (9.0, 80.0));
         assert_eq!(object.weapon_slot(1).expect("SECONDARY").damage, 30.0);
         assert!(object.weapon_slot(2).is_none());
+    }
+}
+
+/// Apply explosive damage from no source through the receiving world's body.
+pub(crate) fn apply_fixture_damage(logic: &mut GameLogic, id: ObjectId, amount: f32) {
+    use crate::game_logic::{
+        combat::DamageType, host_usa_pilot::HostDeathType, object::DamageHitContext,
+    };
+    let kind = DamageType::Explosive;
+    let context = DamageHitContext::new(None, None, kind);
+    let _ = logic.apply_owned_damage(
+        id,
+        amount,
+        None,
+        kind,
+        HostDeathType::from_host_damage_type(kind),
+        None,
+        &context,
+    );
+}
+
+/// Heal up to the requested amount or use the script setter to reduce health.
+pub(crate) fn set_fixture_health(logic: &mut GameLogic, id: ObjectId, health: f32) {
+    let Some(current) = logic.host_object(id).map(|o| o.health.current) else {
+        return;
+    };
+    if health > current {
+        let body_frame = logic.frame;
+        let (object, observations) = logic.host_object_and_health_events_mut(id).unwrap();
+        object.heal(health - current, observations, body_frame);
+    } else {
+        logic.set_health_absolute_authority_aware(id, health);
     }
 }

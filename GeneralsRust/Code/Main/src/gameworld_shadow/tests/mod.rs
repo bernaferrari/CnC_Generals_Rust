@@ -6,7 +6,6 @@ pub(super) use crate::skirmish_config::{apply_skirmish_config, golden_skirmish_c
 pub(super) use glam::Vec3;
 
 pub(super) mod harness;
-pub(super) use harness::{perform_owner_damage, perform_owner_health};
 
 /// Programmatic shape for an Object the fixture declared in its admitted
 /// ordered content; replaces the bare declaration's host template.
@@ -55,9 +54,6 @@ mod fire_damage;
 mod host_log_combat;
 mod sciences_upgrades;
 
-
-mod health_event_owner;
-mod health_owner_order;
 
 /// Complete the receiving world's receipts, then refresh this test's mirror.
 pub(super) fn observe_completed_owner(shadow: &mut GameWorldShadow, logic: &mut GameLogic) {

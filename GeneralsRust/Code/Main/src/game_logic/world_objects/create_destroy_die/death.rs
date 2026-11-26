@@ -174,25 +174,6 @@ impl GameLogic {
         Ok(())
     }
 
-    /// Wave 752: lethal finish that respects damage-authority HP last-write.
-    /// Prefer this over direct host HP zeroing for production destroy residual.
-    #[allow(dead_code)]
-    pub(crate) fn host_lethal_finish_object(
-        &mut self,
-        id: ObjectId,
-        source: Option<ObjectId>,
-    ) -> bool {
-        let Some(o) = self.objects.get_mut(&id) else {
-            return false;
-        };
-        {
-            o.internal_change_health(-o.health.current);
-        }
-        o.status.destroyed = true;
-        o.status.effectively_dead = true;
-        true
-    }
-
     /// True when the object is a DAM (battle dam) template residual.
     fn dam_template_at(&self, id: ObjectId) -> bool {
         self.objects

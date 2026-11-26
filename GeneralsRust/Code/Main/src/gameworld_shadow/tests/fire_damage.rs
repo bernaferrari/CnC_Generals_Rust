@@ -495,109 +495,6 @@ fn special_power_timer_belongs_to_owner_not_projection() {
 }
 
 #[test]
-fn damage_is_immediate_and_projection_cannot_reapply_it() {
-    let mut logic = GameLogic::new();
-    let cfg = golden_skirmish_config("DmgAuthority");
-    logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object AuthUnit\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
-    apply_skirmish_config(&mut logic, &cfg).expect("cfg");
-    insert_fixture_template(&mut logic, "AuthUnit", 100.0);
-    let id = logic
-        .create_object("AuthUnit", Team::USA, Vec3::new(2.0, 0.0, 0.0))
-        .expect("unit");
-
-    let mut shadow = GameWorldShadow::new();
-    shadow.sync_from_host(&logic);
-    let pre = logic.host_objects().lookup(&id).unwrap().health.current;
-
-    // Wave 758: couple for damage_authority_live.
-
-    {
-        if let Some((obj, health_events)) = logic.host_object_and_health_events_mut(id) {
-            let _ = obj.take_damage(25.0, 0, health_events);
-        }
-    };
-
-    let host_mid = logic.host_objects().lookup(&id).unwrap().health.current;
-    // C++ ActiveBody::internalChangeHealth writes HP the same frame.
-    // The observer cannot change the result of this owner write.
-    assert!(
-        (host_mid - (pre - 25.0)).abs() < 0.01,
-        "host HP must apply same frame (C++ internalChangeHealth); mid={host_mid} pre={pre}"
-    );
-
-    let events = logic.health_events.drain_damage();
-    assert!(!events.is_empty());
-    let eid = shadow.entity_for_host(id).unwrap();
-    shadow
-        .world_mut()
-        .world_mut()
-        .entity_mut(eid)
-        .unwrap()
-        .health = 999.0;
-    for _ in 0..2 {
-        shadow.sync_from_host(&logic);
-        let host_final = logic.host_object(id).unwrap().health.current;
-        let observed = shadow.world().entity(eid).unwrap().health;
-        assert!((host_final - (pre - 25.0)).abs() < 0.01);
-        assert!((observed - host_final).abs() < 0.01);
-        assert!(host_final < pre);
-    }
-}
-
-#[test]
-fn damage_authority_applies_host_hp_when_shadow_disabled() {
-    // Without a live shadow session, deferred damage would never write back.
-    // Authority must couple to shadow_enabled so host-only combat still hits.
-    let mut logic = GameLogic::new();
-
-    logic.health_events.clear_damage();
-    let cfg = golden_skirmish_config("DmgAuthNoShadow");
-    logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object AuthUnit\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
-    apply_skirmish_config(&mut logic, &cfg).expect("cfg");
-    insert_fixture_template(&mut logic, "AuthUnit", 100.0);
-    let id = logic
-        .create_object("AuthUnit", Team::USA, Vec3::new(2.0, 0.0, 0.0))
-        .expect("unit");
-    let pre = logic.host_objects().lookup(&id).unwrap().health.current;
-    if let Some((obj, health_events)) = logic.host_object_and_health_events_mut(id) {
-        let _ = obj.take_damage(25.0, 0, health_events);
-    }
-    let mid = logic.host_objects().lookup(&id).unwrap().health.current;
-    assert!(
-        (mid - (pre - 25.0)).abs() < 0.01,
-        "host HP must apply immediately when shadow disabled; pre={pre} mid={mid}"
-    );
-}
-
-#[test]
-fn lethal_damage_marks_destroyed_and_zero_health_immediately() {
-    // C++ ActiveBody::internalChangeHealth writes HP the same frame.
-    let mut logic = GameLogic::new();
-
-    let cfg = golden_skirmish_config("DmgAuthLethalFlag");
-    logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object AuthUnit\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
-    apply_skirmish_config(&mut logic, &cfg).expect("cfg");
-    insert_fixture_template(&mut logic, "AuthUnit", 50.0);
-    let id = logic
-        .create_object("AuthUnit", Team::USA, Vec3::new(3.0, 0.0, 0.0))
-        .expect("unit");
-
-    if let Some((obj, health_events)) = logic.host_object_and_health_events_mut(id) {
-        let dead = obj.take_damage(999.0, 0, health_events);
-        assert!(dead, "projected lethal");
-        assert!(obj.status.destroyed, "destroyed flag must flip mid-frame");
-        assert!(!obj.is_alive(), "is_alive must fail after lethal");
-        assert!(
-            obj.health.current <= 0.0,
-            "same-frame death HP must match C++ internalChangeHealth; now={}",
-            obj.health.current
-        );
-    } else {
-        panic!("missing unit");
-    }
-}
-
-#[test]
 fn host_owner_log_feeds_transfer_owner_mutation() {
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("OwnerLog");
@@ -626,29 +523,6 @@ fn host_owner_log_feeds_transfer_owner_mutation() {
         owner, expected,
         "TransferOwner should map host team to shadow player"
     );
-}
-
-#[test]
-fn actual_damage_is_copied_into_projection() {
-    let mut logic = GameLogic::new();
-    let cfg = golden_skirmish_config("DmgLogChannel");
-    crate::fixture_content::admit_fixture_objects(
-        &mut logic,
-        &[
-            crate::fixture_content::FixtureObject::new("LogUnit").kind_of("SELECTABLE").health(150.0),
-        ],
-    );
-    apply_skirmish_config(&mut logic, &cfg).expect("cfg");
-    let id = logic
-        .create_object("LogUnit", Team::USA, Vec3::new(1.0, 0.0, 0.0))
-        .expect("unit");
-    let mut shadow = GameWorldShadow::new();
-    assert!(!owner_damage(&mut logic, id, 40.0));
-    assert_eq!(logic.host_object(id).unwrap().health.current, 110.0);
-    shadow.sync_from_host(&logic);
-    let entity = shadow.entity_for_host(id).unwrap();
-    assert_eq!(shadow.world().entity(entity).unwrap().health, 110.0);
-    assert!(shadow.entity_for_host(id).is_some());
 }
 
 #[test]
