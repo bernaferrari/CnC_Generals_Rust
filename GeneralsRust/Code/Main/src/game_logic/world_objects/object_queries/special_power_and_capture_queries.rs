@@ -366,11 +366,11 @@ impl GameLogic {
 
     /// Wake every matching behavior on objects controlled by the receiving player.
     pub fn on_special_power_science_creation(&mut self, player_id: u32, science_name: &str) {
-        use crate::game_logic::host_sp_science_upgrade_player_team_residual_wave109::normalize_science_name_residual;
+        use generals_sim::science::normalize_science_name;
         if !self.players.contains_key(&player_id) {
             return;
         }
-        let science = normalize_science_name_residual(science_name);
+        let science = normalize_science_name(science_name);
         if science.is_empty() {
             return;
         }
@@ -378,7 +378,7 @@ impl GameLogic {
             .filter(|object| self.player_owner_for_host_object(object) == Some(player_id))
             .flat_map(|object| object.thing().template.special_power_modules.iter()
                 .filter(|module| module.required_science.as_deref().is_some_and(|required|
-                    normalize_science_name_residual(required).eq_ignore_ascii_case(&science)))
+                    normalize_science_name(required).eq_ignore_ascii_case(&science)))
                 .map(move |module| (object.id, module.source_index, module.special_power_template.to_ascii_lowercase(),
                     module.shared_n_sync, module.starts_paused, module.public_timer,
                     object.is_kind_of(KindOf::Structure))))

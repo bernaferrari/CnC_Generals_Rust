@@ -614,9 +614,8 @@ impl AIPlayer {
         template_name: &str,
     ) -> f32 {
         use crate::command_system::SpecialPowerType as P;
-        use crate::game_logic::host_sp_science_upgrade_player_team_residual_wave109::special_power_template_row_wave109;
-        if let Some(row) = special_power_template_row_wave109(template_name) {
-            return row.radius_cursor_radius;
+        if let Some(radius) = generals_sim::special_power::fallback_radius_cursor(template_name) {
+            return radius;
         }
         match power {
             P::ClusterMines | P::NukeDrop => 100.0,

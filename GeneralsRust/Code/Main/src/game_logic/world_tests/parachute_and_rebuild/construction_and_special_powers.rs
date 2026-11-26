@@ -2155,9 +2155,6 @@ fn civilian_and_ignored_in_gui_kills_grant_no_rank_points() {
 
 #[test]
 fn science_purchase_spends_points_not_supplies() {
-    use crate::game_logic::host_sp_science_upgrade_player_team_residual_wave109::{
-        is_capable_of_purchasing_science_residual, science_purchase_point_cost_residual,
-    };
     let mut logic = GameLogic::new();
     ensure_test_player_for_team(&mut logic, Team::USA);
     let pid = logic
@@ -2173,15 +2170,12 @@ fn science_purchase_spends_points_not_supplies() {
         p.resources.supplies = 10_000;
     }
     let supplies_before = logic.get_player(pid).unwrap().resources.supplies;
-    assert_eq!(
-        science_purchase_point_cost_residual("SCIENCE_DaisyCutter"),
-        Some(1)
+    assert!(
+        logic
+            .get_player(pid)
+            .unwrap()
+            .is_capable_of_purchasing_science("SCIENCE_DaisyCutter")
     );
-    assert!(is_capable_of_purchasing_science_residual(
-        &logic.get_player(pid).unwrap().unlocked_sciences,
-        2,
-        "SCIENCE_DaisyCutter"
-    ));
     assert!(
         logic
             .get_player_mut(pid)

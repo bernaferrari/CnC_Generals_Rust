@@ -437,7 +437,7 @@ impl GameLogic {
         let canonical = if facts.science(science_name.trim()).is_some() {
             science_name.trim().to_owned()
         } else {
-            crate::game_logic::host_sp_science_upgrade_player_team_residual_wave109::normalize_science_name_residual(science_name)
+            generals_sim::science::normalize_science_name(science_name)
         };
         player
             .science_purchase_cost_with_facts(&canonical, facts)

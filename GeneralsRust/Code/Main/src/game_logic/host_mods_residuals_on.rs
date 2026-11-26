@@ -57,9 +57,6 @@ pub mod host_residual_acquire;
 #[path = "host_rng_residual.rs"]
 pub mod host_rng_residual;
 
-#[path = "host_sp_science_upgrade_player_team_residual_wave109.rs"]
-pub mod host_sp_science_upgrade_player_team_residual_wave109;
-
 #[path = "host_special_power_enum_residual.rs"]
 pub mod host_special_power_enum_residual;
 

@@ -2,6 +2,8 @@
 #![allow(non_snake_case, unused_imports, dead_code)]
 #[path = "player_energy.rs"]
 mod energy_runtime;
+#[path = "player_science.rs"]
+mod science;
 #[path = "player_upgrade_runtime.rs"]
 mod upgrade_runtime;
 
@@ -13,6 +15,7 @@ use super::prelude::*;
 use super::script_camera::*;
 use super::*;
 use gamelogic::upgrade::UpgradeTemplatePlayerExt;
+use generals_sim::science::normalize_science_name;
 
 /// Admission identity is independent of faction, display name and observer state.
 /// C++ gives occupied GameSlots, the reserved neutral and ReplayObserver distinct owners.
@@ -508,9 +511,8 @@ impl GameLogic {
 
     /// Purchase through this session's science definitions and live player.
     pub(crate) fn attempt_player_science_purchase(&mut self, id: u32, name: &str) -> bool {
-        use crate::game_logic::host_sp_science_upgrade_player_team_residual_wave109::normalize_science_name_residual;
         let Some(content) = self.receiving_module_content.as_ref() else {
-            let canonical = normalize_science_name_residual(name);
+            let canonical = normalize_science_name(name);
             return self.with_own_services_mut(|this| {
                 this.players
                     .get_mut(&id)
@@ -521,7 +523,7 @@ impl GameLogic {
         let canonical = if facts.science(name.trim()).is_some() {
             name.trim().to_owned()
         } else {
-            normalize_science_name_residual(name)
+            normalize_science_name(name)
         };
         let Some(player) = self.players.get_mut(&id) else {
             return false;
@@ -543,7 +545,6 @@ impl GameLogic {
         interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
         ui: &mut dyn FnMut(game_engine::common::message_stream::ReceivingRankScienceUi),
     ) -> bool {
-        use crate::game_logic::host_sp_science_upgrade_player_team_residual_wave109::normalize_science_name_residual;
         use game_engine::common::message_stream::ReceivingRankScienceUi;
 
         let Some(old_points) = self.players.get(&id).map(|p| p.science_purchase_points) else {
@@ -553,7 +554,7 @@ impl GameLogic {
             let facts = content.science_facts_ref();
             facts
                 .science(name.trim())
-                .or_else(|| facts.science(&normalize_science_name_residual(name)))
+                .or_else(|| facts.science(&normalize_science_name(name)))
         });
         let gained = if grant {
             self.grant_player_science(id, name)
@@ -579,9 +580,8 @@ impl GameLogic {
 
     /// Grant only a science marked grantable by this session's definitions.
     pub(crate) fn grant_player_science(&mut self, id: u32, name: &str) -> bool {
-        use crate::game_logic::host_sp_science_upgrade_player_team_residual_wave109::normalize_science_name_residual;
         let Some(content) = self.receiving_module_content.as_ref() else {
-            let canonical = normalize_science_name_residual(name);
+            let canonical = normalize_science_name(name);
             return self
                 .players
                 .get_mut(&id)
@@ -591,7 +591,7 @@ impl GameLogic {
         let canonical = if facts.science(name.trim()).is_some() {
             name.trim().to_owned()
         } else {
-            normalize_science_name_residual(name)
+            normalize_science_name(name)
         };
         if !facts
             .science(&canonical)
@@ -1375,14 +1375,6 @@ impl Player {
         inserted
     }
 
-    /// C++ `Player::grantScience` — refuse when `ScienceStore::isScienceGrantable` is false.
-    pub fn grant_science(&mut self, science_name: &str) -> bool {
-        if !host_science_is_grantable(science_name) {
-            return false;
-        }
-        self.unlock_science(science_name)
-    }
-
     pub(crate) fn science_purchase_cost_with_facts(
         &self,
         name: &str,
@@ -1491,54 +1483,6 @@ impl Player {
         self.science_purchase_points = template
             .get_intrinsic_science_purchase_points()
             .saturating_add(rank1_grant);
-    }
-
-    /// C++ Player::isCapableOfPurchasingScience residual.
-    pub fn is_capable_of_purchasing_science(&self, science_name: &str) -> bool {
-        if self.is_science_disabled(science_name) || self.is_science_hidden(science_name) {
-            return false;
-        }
-        if crate::game_logic::host_sp_science_upgrade_player_team_residual_wave109::leftover_science_hidden_or_disabled(
-            self.id,
-            science_name,
-        ) {
-            return false;
-        }
-        crate::game_logic::host_sp_science_upgrade_player_team_residual_wave109::is_capable_of_purchasing_science_residual(
-            &self.unlocked_sciences,
-            self.science_purchase_points,
-            science_name,
-        )
-    }
-
-    /// C++ Player::attemptToPurchaseScience residual.
-    ///
-    /// Spends **science purchase points** (not supplies). Cost 0 = not purchasable.
-    pub fn attempt_to_purchase_science(&mut self, science_name: &str) -> bool {
-        use crate::game_logic::host_sp_science_upgrade_player_team_residual_wave109::{
-            normalize_science_name_residual, science_purchase_point_cost_residual,
-        };
-        let canonical = normalize_science_name_residual(science_name);
-        if !self.is_capable_of_purchasing_science(&canonical) {
-            return false;
-        }
-        let cost = science_purchase_point_cost_residual(&canonical).unwrap_or(0);
-        if cost <= 0 || cost > self.science_purchase_points {
-            return false;
-        }
-        self.science_purchase_points -= cost;
-        let unlocked = self.unlock_science(&canonical);
-        if unlocked {
-            crate::game_logic::host_sp_science_upgrade_player_team_residual_wave109::sync_host_science_to_crate_player(
-                self.id,
-                &canonical,
-            );
-            crate::game_logic::host_sp_science_upgrade_player_team_residual_wave109::sync_host_spp_to_crate_player(
-                self.id,
-                self.science_purchase_points,
-            );
-        }
-        unlocked
     }
 
     pub fn has_queued_upgrade(&self, upgrade_name: &str) -> bool {
@@ -1752,26 +1696,24 @@ impl Player {
 
     /// C++ `Player::isScienceDisabled`.
     pub fn is_science_disabled(&self, science_name: &str) -> bool {
-        use crate::game_logic::host_sp_science_upgrade_player_team_residual_wave109::normalize_science_name_residual;
-        let key = normalize_science_name_residual(science_name);
+        let key = normalize_science_name(science_name);
         if key.is_empty() {
             return false;
         }
         self.sciences_disabled
             .iter()
-            .any(|s| normalize_science_name_residual(s) == key)
+            .any(|s| normalize_science_name(s) == key)
     }
 
     /// C++ `Player::isScienceHidden`.
     pub fn is_science_hidden(&self, science_name: &str) -> bool {
-        use crate::game_logic::host_sp_science_upgrade_player_team_residual_wave109::normalize_science_name_residual;
-        let key = normalize_science_name_residual(science_name);
+        let key = normalize_science_name(science_name);
         if key.is_empty() {
             return false;
         }
         self.sciences_hidden
             .iter()
-            .any(|s| normalize_science_name_residual(s) == key)
+            .any(|s| normalize_science_name(s) == key)
     }
 
     /// C++ `Player::setScienceAvailability`.
@@ -1789,20 +1731,19 @@ impl Player {
         science_name: &str,
         availability: gamelogic::player::ScienceAvailabilityType,
     ) -> bool {
-        use crate::game_logic::host_sp_science_upgrade_player_team_residual_wave109::normalize_science_name_residual;
         use gamelogic::player::ScienceAvailabilityType;
 
-        let key = normalize_science_name_residual(science_name);
+        let key = normalize_science_name(science_name);
         if key.is_empty() {
             return false;
         }
         if availability != ScienceAvailabilityType::Disabled {
             self.sciences_disabled
-                .retain(|s| normalize_science_name_residual(s) != key);
+                .retain(|s| normalize_science_name(s) != key);
         }
         if availability != ScienceAvailabilityType::Hidden {
             self.sciences_hidden
-                .retain(|s| normalize_science_name_residual(s) != key);
+                .retain(|s| normalize_science_name(s) != key);
         }
         match availability {
             ScienceAvailabilityType::Available => {}
@@ -1847,29 +1788,6 @@ impl Player {
     pub fn set_can_build_base(&mut self, can_build: bool) {
         self.can_build_base = can_build;
     }
-}
-
-/// C++ `ScienceStore::isScienceGrantable` — unknown science is not grantable.
-fn host_science_is_grantable(science_name: &str) -> bool {
-    let name = science_name.trim();
-    if name.is_empty() {
-        return false;
-    }
-    if let Some(store) = game_engine::common::rts::get_science_store() {
-        let science = store.get_science_from_internal_name(name);
-        if science != game_engine::common::rts::SCIENCE_INVALID {
-            return store.is_science_grantable(science);
-        }
-    }
-    let leftover = game_engine::common::ini::ini_science::get_science_store();
-    if let Some(st) = leftover.get_science_from_internal_name(name) {
-        return leftover.is_science_grantable(st);
-    }
-    crate::game_logic::host_sp_science_upgrade_player_team_residual_wave109::science_store_row_wave109(
-        name,
-    )
-    .map(|row| row.grantable)
-    .unwrap_or(false)
 }
 
 pub(super) fn normalize_upgrade_name(name: &str) -> String {

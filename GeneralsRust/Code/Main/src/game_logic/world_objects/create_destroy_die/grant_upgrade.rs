@@ -1,44 +1,35 @@
 //! `GrantUpgradeCreate` upgrade-kind lookup authority.
 
-/// C++ `UpgradeType` for `GrantUpgradeCreate` branching.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) enum GrantUpgradeKind {
-    Player,
-    Object,
-}
+use game_engine::common::system::upgrade::UpgradeType;
 
-/// C++ `TheUpgradeCenter->findUpgrade` then `getUpgradeType()`.
-/// Residual store covers tests / unloaded INI. Missing template → `None`
-/// (`GrantUpgradeCreate.cpp:102-105` returns without granting).
+const FALLBACK_UPGRADE_TYPES: &[(&str, UpgradeType)] = &[
+    ("Upgrade_Nationalism", UpgradeType::Player),
+    ("Upgrade_AmericaRadar", UpgradeType::Object),
+    ("Upgrade_AmericaAdvancedControlRods", UpgradeType::Object),
+    ("Upgrade_AmericaSupplyLines", UpgradeType::Player),
+    ("Upgrade_AmericaRangerFlashBangGrenade", UpgradeType::Player),
+    ("Upgrade_AmericaTOWMissile", UpgradeType::Player),
+    ("Upgrade_ComancheRocketPods", UpgradeType::Player),
+    ("Upgrade_AmericaCompositeArmor", UpgradeType::Player),
+    ("Upgrade_ChinaNuclearTanks", UpgradeType::Player),
+    ("Upgrade_GLACamouflage", UpgradeType::Player),
+];
+
+/// C++ TheUpgradeCenter resolves the controlling player or object upgrade.
+/// When a session has no matching template, consult the known fallback types.
 pub(super) fn host_grant_upgrade_kind(
     game_logic: &crate::game_logic::GameLogic,
     name: &str,
-) -> Option<GrantUpgradeKind> {
-    use crate::game_logic::host_sp_science_upgrade_player_team_residual_wave109::{
-        UPGRADE_STORE_TABLE_WAVE109, UPGRADE_TYPE_OBJECT, upgrade_store_row_wave109,
-    };
-
-    if let Some(kind) = game_logic
+) -> Option<UpgradeType> {
+    game_logic
         .upgrade_template(name)
         .map(|template| template.get_upgrade_type())
-    {
-        return Some(match kind {
-            gamelogic::upgrade::UpgradeType::Object => GrantUpgradeKind::Object,
-            gamelogic::upgrade::UpgradeType::Player => GrantUpgradeKind::Player,
-        });
-    }
-    if let Some(row) = upgrade_store_row_wave109(name).or_else(|| {
-        UPGRADE_STORE_TABLE_WAVE109
-            .iter()
-            .find(|row| row.name.eq_ignore_ascii_case(name.trim()))
-    }) {
-        return Some(if row.upgrade_type == UPGRADE_TYPE_OBJECT {
-            GrantUpgradeKind::Object
-        } else {
-            GrantUpgradeKind::Player
-        });
-    }
-    None
+        .or_else(|| {
+            let name = name.trim();
+            FALLBACK_UPGRADE_TYPES.iter().find_map(|(candidate, kind)| {
+                candidate.eq_ignore_ascii_case(name).then_some(*kind)
+            })
+        })
 }
 
 use super::{GameLogic, ObjectId};
@@ -86,7 +77,7 @@ impl GameLogic {
                 return Ok(());
             }
             match host_grant_upgrade_kind(self, &grant.upgrade_name) {
-                Some(GrantUpgradeKind::Player) => {
+                Some(UpgradeType::Player) => {
                     if let Some(pid) = player_id {
                         self.add_completed_player_upgrade_with_interpreter_and_effects(
                             pid,
@@ -96,7 +87,7 @@ impl GameLogic {
                         );
                     }
                 }
-                Some(GrantUpgradeKind::Object) => {
+                Some(UpgradeType::Object) => {
                     // C++ GrantUpgradeCreate::onCreate calls Object::giveUpgrade,
                     // which updates the Object completion mask and immediately
                     // dispatches UpgradeMux callbacks. Keep that operation at

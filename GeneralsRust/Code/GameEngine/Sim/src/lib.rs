@@ -7,6 +7,8 @@ pub mod kind_of;
 pub mod object;
 pub mod pathfinding;
 pub mod recurring;
+pub mod science;
+pub mod special_power;
 pub mod step;
 pub mod terrain;
 pub mod time;
