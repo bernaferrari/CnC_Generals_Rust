@@ -376,8 +376,6 @@ pub struct PresentationFrame {
     /// InGameUI world animations (MoneyPickUp Anim2D residual) frozen from host.
     /// Fail-closed: not full Anim2DCollection GPU draw.
     pub world_anims: Vec<PresentationWorldAnim>,
-    /// Dual-tick residual counters (build / apply / content counts).
-    pub dual_tick: PresentationDualTickResidual,
     /// World/environment identity for lighting/shell/bounds/heightmap residual.
     /// Prefer this over live `GameLogic` during GPU collect/execute.
     pub world_env: PresentationWorldEnv,

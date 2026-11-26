@@ -139,12 +139,13 @@ mod tests {
             .expect("terrain payload");
 
         let frame =
-            crate::presentation_frame::PresentationFrame::build_for_engine_with_runtime_heightmap(
+            crate::presentation_frame::PresentationFrame::try_publish_for_engine_with_runtime_heightmap(
                 &mut logic,
                 0,
-                None,
                 Some(shared),
-            );
+                false,
+            )
+            .expect("publish terrain from the receiving world");
         // RenderPipeline receives a cloned immutable frame, so this is the
         // exact ownership operation used by the presentation handoff.
         let pipeline_frame = frame.clone();

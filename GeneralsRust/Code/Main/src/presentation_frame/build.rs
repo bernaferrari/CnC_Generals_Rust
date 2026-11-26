@@ -1959,16 +1959,6 @@ impl PresentationFrame {
             }
         }
 
-        // A hidden Object has a roster row without a resident Drawable.
-        let dual_tick = PresentationDualTickResidual::from_counts(
-            direct_host_drawables.len(),
-            selected.len(),
-            laser_beams.len(),
-            floating_texts.len(),
-            world_anims.len(),
-            particle_systems.len(),
-        );
-
         #[cfg(feature = "game_client")]
         let purchase_science = super::science_purchase::freeze(logic, local_player_id);
         #[cfg(feature = "game_client")]
@@ -2304,7 +2294,6 @@ impl PresentationFrame {
             projectiles,
             floating_texts,
             world_anims,
-            dual_tick,
             world_env,
             gameworld_overlay_stamped: 0,
             gameworld_appended: 0,
@@ -2531,8 +2520,6 @@ impl PresentationFrame {
         self.world_env.map_name.hash(&mut h);
         self.world_env.has_map_metadata.hash(&mut h);
         self.world_env.map_object_count.hash(&mut h);
-        self.dual_tick.builds.hash(&mut h);
-        self.dual_tick.object_count.hash(&mut h);
         h.finish()
     }
 }

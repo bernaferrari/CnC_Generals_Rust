@@ -52,26 +52,6 @@ impl CnCGameEngine {
         Ok(texts)
     }
 
-    /// Load ordered startup sources into a private headless setup.
-    pub(crate) async fn load_owned_multiplayer_definitions()
-    -> Result<game_engine::common::ini::ini_multiplayer::MultiplayerSettings, String> {
-        let texts = Self::load_startup_ini_texts(MULTIPLAYER_PATHS, None).await?;
-        let mut settings = game_engine::common::ini::ini_multiplayer::MultiplayerSettings::new();
-        for (path, text) in texts {
-            let mut ini = game_engine::common::ini::INI::new();
-            ini.with_inline_source(&text, |ini| {
-                ini.parse_current_file_into_multiplayer_settings(&mut settings)
-            })
-            .map_err(|err| format!("{path}: {err}"))?;
-        }
-        if settings.color_definitions.is_empty() {
-            return Err(
-                "authored MultiplayerColorDefinition palette is unavailable at startup".into(),
-            );
-        }
-        Ok(settings)
-    }
-
     pub(super) async fn load_startup_multiplayer_definitions(
         application_assets: &Mutex<crate::assets::manager::AssetManager>,
     ) -> Result<i32, String> {

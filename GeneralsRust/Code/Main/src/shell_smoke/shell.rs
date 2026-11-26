@@ -29,8 +29,10 @@ pub(super) fn evaluate_shell_ui() -> ShellUiResiduals {
     // This is **not** windowed W3D retail — only layout script → window tree.
     #[cfg(feature = "game_client")]
     let layout_honesty = {
-        let mut client = game_client::game_client::GameClient::new()
-            .expect("construct receiving shell smoke client");
+        let mut client = game_client::core::GameClient::new_with_input_authority(
+            game_client::core::game_client::ClientInputAuthority::NativeHosted,
+        )
+        .expect("construct receiving shell smoke client");
         client.with_window_event_effects(None, |effects| {
             crate::gameplay_layout::control_bar_layout_honesty_with_owner(true, effects)
         })

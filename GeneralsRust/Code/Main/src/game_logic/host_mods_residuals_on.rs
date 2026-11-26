@@ -39,9 +39,6 @@ pub mod presentation_command_filters;
 #[path = "presentation_mouse_input.rs"]
 pub mod presentation_mouse_input;
 
-#[path = "presentation_environment.rs"]
-pub mod presentation_environment;
-
 #[path = "presentation_selection.rs"]
 pub mod presentation_selection;
 

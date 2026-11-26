@@ -10,7 +10,7 @@ fn main() -> gamelogic::GameLogicResult<()> {
         && r.hud_selection_ok
         && r.selection_consumers_ok
         && r.screen_skirmish_ok
-        && r.dual_tick_presentation_ok
+        && r.presentation_ok
         && r.minimap_fow_presentation_ok
         && r.laser_segment_upload_ok
         && r.projectile_segment_upload_ok

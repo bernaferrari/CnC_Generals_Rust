@@ -1,17 +1,15 @@
-//! Host construction, skirmish apply, map load, dual-tick frames.
+//! Skirmish admission and publication of completed simulation frames.
 
 #![allow(unused_imports)]
 
 use super::imports::*;
 
 pub(super) struct HostSession {
-    pub logic: crate::game_logic::GameLogic,
     pub hud: crate::ui::GameHUD,
     pub ui_state: crate::ui::GameUIState,
     pub rts: crate::ui::RTSInterface,
     pub command_panel: crate::ui::UnitCommandPanel,
     pub pres: crate::presentation_frame::PresentationFrame,
-    pub seed_pres: crate::presentation_frame::PresentationFrame,
     pub select_id: Option<crate::game_logic::ObjectId>,
     pub host_constructed: bool,
     pub skirmish_config_ok: bool,
@@ -21,25 +19,29 @@ pub(super) struct HostSession {
     pub frames_advanced: u32,
     pub frames_ok: bool,
     pub presentation_ok: bool,
-    pub dual_tick_presentation_ok: bool,
-    pub dual_tick_counters_ok: bool,
-    pub gameworld_shadow_ok: bool,
-
-    pub dual_tick_policy_authority_only: bool,
 }
 
-pub(super) fn run_host_session(frames: u32) -> gamelogic::GameLogicResult<HostSession> {
-    let mut logic = GameLogic::new();
+pub(super) fn run_host_session(
+    logic: &mut GameLogic,
+    frames: u32,
+) -> gamelogic::GameLogicResult<HostSession> {
     // GameEngine::init brings up TheFileSystem, then loads GameData, Locomotor,
     // PlayerTemplate, Multiplayer and Object INI before any NewGame
     // (GameEngine.cpp:281-329, 428-458); NewGame requires that admitted content.
-    let _ = crate::subsystem_manager::SubsystemInterface::init(
-        &mut crate::subsystem_manager::FileSystemSubsystem::new(),
-    );
+    {
+        let common = logic.world_services.common();
+        let mut file_system = common.application.file_system.lock().map_err(|error| {
+            gamelogic::GameLogicError::Configuration(format!(
+                "cannot lock the shell filesystem: {error}"
+            ))
+        })?;
+        crate::subsystem_manager::FileSystemSubsystem::mount_common_files(&mut file_system)
+            .map_err(|error| gamelogic::GameLogicError::Configuration(error.to_string()))?;
+    }
     let definitions = crate::parallel_harness::RetailWorldDefinitions::load()
         .map_err(|error| gamelogic::GameLogicError::Configuration(error.to_string()))?;
-    logic
-        .with_own_services_mut(|logic| definitions.admit(logic))
+    definitions
+        .admit(logic)
         .map_err(gamelogic::GameLogicError::Configuration)?;
 
     let resolved = super::maps::resolve_host_map();
@@ -51,10 +53,14 @@ pub(super) fn run_host_session(frames: u32) -> gamelogic::GameLogicResult<HostSe
     let map_path = resolved.map(|(_, p)| p);
 
     // Production UI path only — no golden_skirmish_config fallback.
-    let settings = pollster::block_on(
-        crate::cnc_game_engine::CnCGameEngine::load_owned_multiplayer_definitions(),
-    )
-    .map_err(gamelogic::GameLogicError::Configuration)?;
+    let settings = logic.multiplayer_definitions.clone().ok_or_else(|| {
+        gamelogic::GameLogicError::Configuration("missing shell multiplayer definitions".into())
+    })?;
+    if settings.color_definitions.is_empty() {
+        return Err(gamelogic::GameLogicError::Configuration(
+            "authored MultiplayerColorDefinition palette is unavailable at startup".into(),
+        ));
+    }
     let mut menu = SkirmishMenu::new();
     let menu_init_ok = menu.initialize_with_settings(&settings).is_ok();
     // Slot 0 is Human by default; configure slot 1 as Medium AI via menu cycling.
@@ -84,7 +90,7 @@ pub(super) fn run_host_session(frames: u32) -> gamelogic::GameLogicResult<HostSe
     let menu_config_ok = menu_init_ok && medium_ai_ok && active >= 2 && has_human && has_ai;
 
     let apply_ok = crate::skirmish_config::apply_skirmish_config_with_multiplayer_settings(
-        &mut logic, &cfg, &settings,
+        logic, &cfg, &settings,
     )
     .is_ok();
     let skirmish_config_ok = apply_ok
@@ -101,39 +107,34 @@ pub(super) fn run_host_session(frames: u32) -> gamelogic::GameLogicResult<HostSe
         false
     };
 
-    // Immediate post-map seed (matches start_game_from_ui seed before first dual-tick).
-    // Multi-consumer residual: HUD + UIState + RTS + unit command panel share snapshot.
     let mut hud = GameHUD::new();
     let mut ui_state = GameUIState::default();
     let mut rts = RTSInterface::new();
     let mut command_panel = UnitCommandPanel::new();
-    let seed_pres = PresentationFrame::build_and_apply_for_shell_consumers(
-        &mut logic,
-        0,
-        &mut hud,
-        &mut ui_state,
-        &mut rts,
-        &mut command_panel,
-    );
+    let mut publish = |logic: &mut GameLogic, with_victory| {
+        let frame = PresentationFrame::try_publish_for_engine_with_runtime_heightmap(
+            logic, 0, None, with_victory,
+        )
+        .map_err(gamelogic::GameLogicError::Configuration)?;
+        frame.apply_to_shell_ui_consumers(&mut hud, &mut ui_state, &mut rts, &mut command_panel);
+        Ok::<_, gamelogic::GameLogicError>(frame)
+    };
+    let seed_pres = publish(logic, false)?;
     let seed_ok = seed_pres.frame.0 == logic.get_frame()
         && (seed_pres.alive_object_count() > 0 || !map_loaded);
 
     let frame_before = logic.get_frame();
+    let mut step_frames_ok = true;
     for _ in 0..frames.max(1) {
-        // Dual-tick: authority step then multi-consumer presentation apply.
+        let next_frame = logic.get_frame().wrapping_add(1);
         logic.update();
+        logic.complete_presentation_observations();
         logic.headless_camera_view_offer(33)?;
-        let _ = PresentationFrame::build_and_apply_for_shell_consumers(
-            &mut logic,
-            0,
-            &mut hud,
-            &mut ui_state,
-            &mut rts,
-            &mut command_panel,
-        );
+        let presented = publish(logic, true)?;
+        step_frames_ok &= presented.frame.0 == next_frame && presented.frame.0 == logic.get_frame();
     }
     let frames_advanced = logic.get_frame().saturating_sub(frame_before);
-    let frames_ok = frames_advanced > 0;
+    let frames_ok = frames_advanced == frames.max(1);
 
     // Ensure at least one selectable unit is selected so selection health is exercised.
     let select_id = logic
@@ -151,15 +152,9 @@ pub(super) fn run_host_session(frames: u32) -> gamelogic::GameLogicResult<HostSe
         }
     }
 
-    let pres = PresentationFrame::build_and_apply_for_shell_consumers(
-        &mut logic,
-        0,
-        &mut hud,
-        &mut ui_state,
-        &mut rts,
-        &mut command_panel,
-    );
+    let pres = publish(logic, true)?;
     let presentation_ok = seed_ok
+        && step_frames_ok
         && pres.frame.0 == logic.get_frame()
         && (pres.alive_object_count() > 0 || !map_loaded)
         && !pres.objects.iter().any(|o| {
@@ -175,40 +170,12 @@ pub(super) fn run_host_session(frames: u32) -> gamelogic::GameLogicResult<HostSe
             o.model_key.is_none() && !o.destroyed && !authored_model_less
         });
 
-    // Dual-tick residual honesty: seed frame applied, then post-update presentation
-    // matches authority frame (start_game_from_ui / engine dual-tick order).
-    let dual_tick_presentation_ok = seed_ok
-        && frames_ok
-        && presentation_ok
-        && pres.frame.0 == logic.get_frame()
-        && seed_pres.frame.0 <= pres.frame.0;
-    // Dual-tick residual counters (build + apply recorded on shell apply path).
-    let dual_tick_counters_ok = presentation_ok
-        && dual_tick_presentation_ok
-        && seed_pres.dual_tick_presentation_residual_ok()
-        && seed_pres.dual_tick.honesty_apply_ok()
-        && pres.dual_tick_presentation_residual_ok()
-        && pres.dual_tick.honesty_apply_ok()
-        && seed_pres.dual_tick.applies >= 1
-        && pres.dual_tick.applies >= 1;
-    let gameworld_shadow_ok = {
-        let (_w, probe) = crate::gameworld_shadow::probe_host_vs_gameworld(&logic);
-        probe.full_match()
-    };
-
-    let dual_tick_policy_authority_only = matches!(
-        crate::authoritative_world::dual_tick_policy(),
-        crate::authoritative_world::DualTickPolicy::AuthorityOnly
-    );
-
     Ok(HostSession {
-        logic,
         hud,
         ui_state,
         rts,
         command_panel,
         pres,
-        seed_pres,
         select_id,
         host_constructed,
         skirmish_config_ok,
@@ -218,10 +185,5 @@ pub(super) fn run_host_session(frames: u32) -> gamelogic::GameLogicResult<HostSe
         frames_advanced,
         frames_ok,
         presentation_ok,
-        dual_tick_presentation_ok,
-        dual_tick_counters_ok,
-        gameworld_shadow_ok,
-
-        dual_tick_policy_authority_only,
     })
 }

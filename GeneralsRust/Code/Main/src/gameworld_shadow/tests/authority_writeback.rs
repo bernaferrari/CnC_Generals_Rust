@@ -1370,13 +1370,6 @@ fn owned_damage_and_move_do_not_implicitly_publish_to_comparison_world() {
     ) {
         return;
     }
-    assert!(
-        matches!(
-            crate::authoritative_world::dual_tick_policy(),
-            crate::authoritative_world::DualTickPolicy::AuthorityOnly
-        ),
-        "production dual_tick_policy stays AuthorityOnly"
-    );
     assert!(gameworld_shadow_enabled());
 
     let mut logic = GameLogic::new();
@@ -1502,13 +1495,6 @@ fn owned_fat_fields_remain_visible_without_implicit_shadow_publication() {
     ) {
         return;
     }
-    assert!(
-        matches!(
-            crate::authoritative_world::dual_tick_policy(),
-            crate::authoritative_world::DualTickPolicy::AuthorityOnly
-        ),
-        "dual crate tick stays off"
-    );
 
     assert!(
         gamelogic::object::registry::OBJECT_REGISTRY.store_is_empty(),
@@ -1635,13 +1621,6 @@ fn host_object_store_mutation_is_canonical_without_shadow_writeback() {
     ) {
         return;
     }
-    assert!(
-        matches!(
-            crate::authoritative_world::dual_tick_policy(),
-            crate::authoritative_world::DualTickPolicy::AuthorityOnly
-        ),
-        "production dual_tick_policy stays AuthorityOnly"
-    );
 
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("HostStore");

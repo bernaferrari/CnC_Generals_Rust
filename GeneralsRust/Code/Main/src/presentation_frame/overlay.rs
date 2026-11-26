@@ -2003,10 +2003,6 @@ impl PresentationFrame {
                 appended += 1;
             }
         }
-        if appended > 0 {
-            // Keep dual-tick particle_count honest with expanded list.
-            self.dual_tick.particle_count = self.particle_systems.len() as u32;
-        }
         appended
     }
 
@@ -2555,24 +2551,6 @@ impl PresentationFrame {
         )
     }
 
-    /// Engine-only GameWorld roster build retaining the revision-frozen terrain
-    /// payload from the host presentation cache.
-    pub(crate) fn build_from_gameworld_with_runtime_heightmap(
-        shadow: &crate::gameworld_shadow::GameWorldShadow,
-        local_player_id: u32,
-        host: Option<&mut GameLogic>,
-        runtime_heightmap: Option<std::sync::Arc<PresentationRuntimeHeightmap>>,
-    ) -> Self {
-        Self::build_from_gameworld_with_runtime_heightmap_and_discharges(
-            shadow,
-            local_player_id,
-            host,
-            runtime_heightmap,
-            Vec::new(),
-            super::camera_fade::FrameFade::Compatibility,
-        )
-    }
-
     fn build_from_gameworld_with_runtime_heightmap_and_discharges(
         shadow: &crate::gameworld_shadow::GameWorldShadow,
         local_player_id: u32,
@@ -2637,22 +2615,11 @@ impl PresentationFrame {
         local_player_id: u32,
         shadow: Option<&crate::gameworld_shadow::GameWorldShadow>,
     ) -> Self {
-        Self::build_for_engine_with_runtime_heightmap(logic, local_player_id, shadow, None)
-    }
-
-    /// Engine-only presentation build retaining one cached full terrain payload
-    /// for every frame in a terrain revision.
-    pub(crate) fn build_for_engine_with_runtime_heightmap(
-        logic: &mut GameLogic,
-        local_player_id: u32,
-        shadow: Option<&crate::gameworld_shadow::GameWorldShadow>,
-        runtime_heightmap: Option<std::sync::Arc<PresentationRuntimeHeightmap>>,
-    ) -> Self {
         Self::build_for_engine_with_runtime_heightmap_and_discharges(
             logic,
             local_player_id,
             shadow,
-            runtime_heightmap,
+            None,
             Vec::new(),
             super::camera_fade::FrameFade::Compatibility,
         )

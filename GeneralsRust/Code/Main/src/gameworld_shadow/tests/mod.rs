@@ -8,6 +8,13 @@ pub(super) use glam::Vec3;
 pub(super) mod harness;
 pub(super) use harness::{perform_owner_damage, perform_owner_health};
 
+fn probe_host_vs_gameworld(logic: &GameLogic) -> (GameWorldShadow, GameWorldShadowProbe) {
+    let mut shadow = GameWorldShadow::new(4096);
+    shadow.sync_from_host(logic);
+    let probe = shadow.probe(logic);
+    (shadow, probe)
+}
+
 /// Programmatic shape for an Object the fixture declared in its admitted
 /// ordered content; replaces the bare declaration's host template.
 pub(super) fn insert_fixture_template(logic: &mut GameLogic, name: &str, hp: f32) {

@@ -1,10 +1,4 @@
-//! Single-authority simulation control for match runtime.
-//!
-//! Production path is always [`DualTickPolicy::AuthorityOnly`]. The dual crate
-//! `GameLogic` tick machinery was removed (wave-1 no-legacy sweep); Main
-//! GameLogic is the sole authority.
-
-//! Wave 957: host_object/host_objects authority dual-read seal.
+//! Read-only checkpoints of the receiving simulation.
 use crate::game_logic::GameLogic;
 
 /// Snapshot of authoritative match state for probes and golden checkpoints.
@@ -59,20 +53,6 @@ impl AuthorityProbe {
     }
 }
 
-/// Result of one authoritative logic-frame tick policy decision.
-///
-/// Only [`DualTickPolicy::AuthorityOnly`] exists: the vestigial dual-tick
-/// variants and their env opt-in plumbing were deleted.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum DualTickPolicy {
-    /// Only Main GameLogic advances; gamelogic crate is not ticked.
-    AuthorityOnly,
-}
-
-pub fn dual_tick_policy() -> DualTickPolicy {
-    DualTickPolicy::AuthorityOnly
-}
-
 /// Advance Main GameLogic by `frames` and collect probes each frame (production path).
 pub fn advance_authority_frames(
     logic: &mut GameLogic,
@@ -91,11 +71,6 @@ pub fn advance_authority_frames(
 mod tests {
     use super::*;
     use crate::game_logic::{GameLogic, GameMode, Player, Team};
-
-    #[test]
-    fn dual_tick_policy_is_always_single_authority() {
-        assert_eq!(dual_tick_policy(), DualTickPolicy::AuthorityOnly);
-    }
 
     #[test]
     fn probe_advances_with_main_game_logic_only() {

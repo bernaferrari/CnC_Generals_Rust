@@ -24,8 +24,9 @@ Match -> subsystem save continuations
 The native `CnCGameEngine` builds `PresentationFrame` from its receiving
 `GameLogic`. Registered objects supply the roster for match start, hint
 initialization, and frames published after simulation steps. The engine and
-renderer share the completed frame. Explicit `GameWorldShadow` probes can
-still create a separate observer for diagnostics.
+renderer share the completed frame. The headless shell smoke gate uses the
+same publisher and checks each frame number and the selection shown by the
+UI consumers. Standalone comparison tests still use `GameWorldShadow`.
 
 Move WGPU, model, texture, and widget handles into their consumers as the
 presentation interface is narrowed. A pixel renderer or a different UI
@@ -1287,7 +1288,7 @@ double-stepping after `GameLogic::update`. Engine may still hold a
 |------|--------|
 | `playability_audit` | File mapping only — **not** playability |
 | `map_frame_gate` | Logic frames advance (map optional unless assets present) |
-| `shell_smoke_gate` | SkirmishMenu→config→apply→map→dual-tick PresentationFrame→HUD selection/minimap→ControlBar.wnd ensure→shell→InGame screen (headless host path; not windowed WND/GPU) |
+| `shell_smoke_gate` | Headless skirmish setup, map admission, frame publication after each step, HUD selection, minimap, and ControlBar WND loading |
 | `golden_skirmish_gate` | Host vertical slice via AttackObject/update_combat only — no take_damage fallback, no HP caps after spawn |
 | `breadth_gate` | Category API smokes |
 | `release_candidate_gate` | Soak + presentation smoke + campaign hooks |

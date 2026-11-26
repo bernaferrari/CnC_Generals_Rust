@@ -14,10 +14,19 @@ pub use report::format_shell_smoke_report;
 pub use result::ShellSmokeResult;
 
 pub fn run_shell_smoke(frames: u32) -> gamelogic::GameLogicResult<ShellSmokeResult> {
-    let host = host::run_host_session(frames)?;
+    let mut logic = crate::game_logic::GameLogic::new();
+    // Standalone archive mounting and menu localization still use the application's service scope.
+    logic.with_own_services_mut(|logic| run_shell_session(logic, frames))
+}
+
+fn run_shell_session(
+    logic: &mut crate::game_logic::GameLogic,
+    frames: u32,
+) -> gamelogic::GameLogicResult<ShellSmokeResult> {
+    let host = host::run_host_session(logic, frames)?;
     let presentation =
         presentation::evaluate_presentation_residuals(&host.pres, host.presentation_ok);
-    let (hud_selection_ok, selection_consumers_ok) = hud::evaluate_selection(&host);
+    let (hud_selection_ok, selection_consumers_ok) = hud::evaluate_selection(&host, logic);
     let shell_ui = shell::evaluate_shell_ui();
     let host_path_ok = host.host_constructed
         && host.skirmish_config_ok
@@ -26,7 +35,6 @@ pub fn run_shell_smoke(frames: u32) -> gamelogic::GameLogicResult<ShellSmokeResu
         && host.presentation_ok
         && hud_selection_ok
         && selection_consumers_ok
-        && host.dual_tick_presentation_ok
         && shell_ui.screen_skirmish_ok
         && shell_ui.control_bar_layout_ok
         && (!host.map_resolved || host.map_loaded);
@@ -53,10 +61,6 @@ pub fn run_shell_smoke(frames: u32) -> gamelogic::GameLogicResult<ShellSmokeResu
     out.frames_advanced = host.frames_advanced;
     out.frames_ok = host.frames_ok;
     out.presentation_ok = host.presentation_ok;
-    out.dual_tick_presentation_ok = host.dual_tick_presentation_ok;
-    out.dual_tick_counters_ok = host.dual_tick_counters_ok;
-    out.gameworld_shadow_ok = host.gameworld_shadow_ok;
-    out.dual_tick_policy_authority_only = host.dual_tick_policy_authority_only;
     out.minimap_fow_presentation_ok = presentation.minimap_fow_presentation_ok;
     out.laser_segment_upload_ok = presentation.laser_segment_upload_ok;
     out.projectile_segment_upload_ok = presentation.projectile_segment_upload_ok;

@@ -157,40 +157,6 @@ impl PresentationFrame {
             && !g.to_r8_texture().is_empty()
     }
 
-    /// Dual-tick residual counters on this frame.
-    #[inline]
-    pub fn dual_tick(&self) -> &PresentationDualTickResidual {
-        &self.dual_tick
-    }
-
-    /// Honesty: dual-tick build residual counters are self-consistent.
-    pub fn dual_tick_presentation_residual_ok(&self) -> bool {
-        self.dual_tick.honesty_build_ok()
-            && self.dual_tick.object_count == self.objects.len() as u32
-            && self.dual_tick.laser_beam_count == self.laser_beams.len() as u32
-            && self.dual_tick.floating_text_count == self.floating_texts.len() as u32
-            && self.dual_tick.world_anim_count == self.world_anims.len() as u32
-            // Wave 102: selected + particle dual-tick residual counters.
-            && self.dual_tick.selected_count == self.selected.len() as u32
-            && self.dual_tick.particle_count == self.particle_systems.len() as u32
-    }
-
-    /// Wave 102: dual-tick residual deepen honesty (build + apply + content counts).
-    ///
-    /// Deepens dual-tick bookkeeping beyond Wave 65/75 counters: selected/particle
-    /// counts, apply order residual (applies ≥ builds after shell apply), and
-    /// cross-link presentation residual packs. Fail-closed vs live dual-run GPU.
-    pub fn dual_tick_presentation_residual_deepen_ok(&self) -> bool {
-        self.dual_tick_presentation_residual_ok()
-            && self.dual_tick.builds >= 1
-            && self.floating_text_vanish_residual_ok()
-            && self.world_anim_fade_residual_ok()
-            && self.laser_presentation_residual_ok()
-            && self.spectre_orbit_decal_presentation_residual_ok()
-            && self.mesh_scale_presentation_residual_ok()
-            && self.ground_height_presentation_residual_ok()
-    }
-
     /// Honesty: floating-text vanish-rate residual fields (empty is honest).
     pub fn floating_text_vanish_residual_ok(&self) -> bool {
         PresentationFloatingText::honesty_vanish_rate_residual_ok()
@@ -251,10 +217,5 @@ impl PresentationFrame {
             && self.objects.iter().all(|o| {
                 honesty_ground_height_residual_ok(o.ground_height, o.ground_height_from_terrain)
             })
-    }
-
-    /// Note a dual-tick apply on this snapshot (HUD / shell multi-consumer path).
-    pub fn note_dual_tick_apply(&mut self) {
-        self.dual_tick.applies = self.dual_tick.applies.saturating_add(1);
     }
 }

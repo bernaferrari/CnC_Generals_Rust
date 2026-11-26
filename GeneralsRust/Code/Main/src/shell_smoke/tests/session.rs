@@ -4,29 +4,9 @@ fn assert_core(r: &ShellSmokeResult) {
     assert!(r.host_constructed, "host only after apply: {}", r.detail);
     assert!(r.skirmish_config_ok, "{}", r.detail);
     assert!(r.menu_config_ok, "{}", r.detail);
-    assert!(r.frames_advanced > 0, "{}", r.detail);
+    assert!(r.frames_ok, "{}", r.detail);
     assert!(r.hud_selection_ok, "HUD selection residual: {}", r.detail);
-    assert!(
-        r.dual_tick_presentation_ok,
-        "dual-tick presentation residual: {}",
-        r.detail
-    );
-    assert!(
-        r.dual_tick_counters_ok,
-        "dual-tick residual counters: {}",
-        r.detail
-    );
-    assert!(
-        r.gameworld_shadow_ok,
-        "gameworld shadow count parity: {}",
-        r.detail
-    );
-
-    assert!(
-        r.dual_tick_policy_authority_only,
-        "dual-tick must stay AuthorityOnly by default: {}",
-        r.detail
-    );
+    assert!(r.presentation_ok, "published simulation frame: {}", r.detail);
 
     assert!(
         r.control_bar_layout_ok,
@@ -182,6 +162,7 @@ fn assert_presentation(r: &ShellSmokeResult) {
 #[test]
 fn skirmish_session_advances_and_updates_presentation_consumers() {
     let result = run_shell_smoke(8).unwrap();
+    assert_eq!(result.frames_advanced, 8, "{}", result.detail);
     assert_core(&result);
     assert_presentation(&result);
 }

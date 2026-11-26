@@ -21,12 +21,10 @@ mod host_observation_boundary;
 mod observation_metrics;
 mod presentation;
 mod projectile_observation;
-mod session;
 mod weapon_observation;
 #[cfg(test)]
 pub(crate) use host_observation_boundary::run_owned_host_boundary;
 pub use presentation::*;
-pub use session::*;
 
 /// Session holding GameWorld + stable host↔entity ID maps.
 #[derive(Debug)]

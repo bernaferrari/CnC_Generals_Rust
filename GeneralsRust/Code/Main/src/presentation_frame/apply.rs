@@ -1664,10 +1664,7 @@ impl PresentationFrame {
         }
     }
 
-    /// Dual-tick multi-consumer residual: HUD + UI state + RTS + unit command panel
-    /// (+ ControlBar when `game_client` is enabled). Snapshot-owned only.
-    ///
-    /// Does **not** claim full windowed WND/GPU playthrough.
+    /// Apply the completed frame to the headless shell's UI consumers.
     pub fn apply_to_shell_ui_consumers(
         &self,
         hud: &mut crate::ui::GameHUD,
@@ -1681,26 +1678,20 @@ impl PresentationFrame {
         self.apply_to_unit_command_panel(command_panel);
     }
 
-    /// Dual-tick presentation consumer after map load / logic step:
-    /// build snapshot from authority and apply it to the production GameHUD.
-    ///
-    /// Does **not** advance the world — caller is responsible for `logic.update()`.
+    /// Freeze the current simulation frame and update the HUD.
+    #[cfg(test)]
     pub fn build_and_apply_for_hud(
         logic: &mut GameLogic,
         local_player_id: u32,
         hud: &mut crate::ui::GameHUD,
     ) -> Self {
-        let mut frame = Self::build_from_logic(logic, local_player_id);
+        let frame = Self::build_from_logic(logic, local_player_id);
         frame.apply_to_game_hud(hud);
-        frame.note_dual_tick_apply();
         frame
     }
 
-    /// Dual-tick residual: build snapshot and apply to all headless shell UI consumers.
-    ///
-    /// Order matches production StartGame: authority step (caller) → presentation freeze
-    /// → HUD / UIState / RTS / unit command panel. Optional ControlBar is applied by
-    /// the engine path when `game_client` is present.
+    /// Freeze the current simulation frame and update the headless shell UI.
+    #[cfg(test)]
     pub fn build_and_apply_for_shell_consumers(
         logic: &mut GameLogic,
         local_player_id: u32,
@@ -1709,9 +1700,8 @@ impl PresentationFrame {
         rts: &mut crate::ui::RTSInterface,
         command_panel: &mut crate::ui::UnitCommandPanel,
     ) -> Self {
-        let mut frame = Self::build_from_logic(logic, local_player_id);
+        let frame = Self::build_from_logic(logic, local_player_id);
         frame.apply_to_shell_ui_consumers(hud, ui, rts, command_panel);
-        frame.note_dual_tick_apply();
         frame
     }
 }

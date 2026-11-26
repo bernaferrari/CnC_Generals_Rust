@@ -3520,24 +3520,6 @@ impl CnCGameEngine {
         Ok(())
     }
 
-    /// Wave 928: runtime-host GameWorld authority probe boundary.
-    #[inline]
-    pub(super) fn host_simulate_gameworld_authority_probe(&mut self) -> bool {
-        // Wave 928: runtime-host GameWorld authority probe boundary.
-
-        let (_, probe) = crate::gameworld_shadow::probe_host_vs_gameworld(&self.game_logic);
-        probe.counts_match
-            && probe.economy_match
-            && probe.health_match
-            && probe.pose_match
-            && probe.attack_target_match
-            && probe.move_target_match
-            && probe.weapon_match
-            && probe.contain_match
-            && probe.production_match
-            && probe.destroy_visibility_match
-    }
-
     pub(super) fn host_quick_save_from_hotkey(&mut self, source: &str) {
         // Wave 611: host residual helper.
         // Prefer presentation game_mode residual when installed.

@@ -1,7 +1,6 @@
 //! Guarded authority-flag dry-run. Does not change production defaults.
 
 use super::*;
-use crate::gameworld_shadow::probe_host_vs_gameworld;
 
 #[test]
 fn ordinary_owner_frames_keep_observation_metrics_consistent() {

@@ -1443,13 +1443,10 @@ fn presentation_frame_freezes_floating_text_and_world_anim() {
     assert!(wa.honesty_fade_residual_ok());
     assert!(PresentationWorldAnim::honesty_money_pickup_fade_params_ok());
     assert!((wa.fade_alpha_at(0) - 1.0).abs() < 0.01);
-    // Dual-tick residual counters on freeze.
-    assert!(snap.dual_tick_presentation_residual_ok());
     assert!(snap.floating_text_vanish_residual_ok());
     assert!(snap.world_anim_fade_residual_ok());
-    assert_eq!(snap.dual_tick.builds, 1);
-    assert_eq!(snap.dual_tick.floating_text_count, 2);
-    assert_eq!(snap.dual_tick.world_anim_count, 1);
+    assert_eq!(snap.floating_texts().len(), 2);
+    assert_eq!(snap.world_anims().len(), 1);
 }
 
 /// Residual: presentation freezes assist laser Line3D segments for SegLine pack.
@@ -1536,29 +1533,6 @@ fn presentation_frame_freezes_laser_line3d_segments() {
     assert!((elapsed - 1.0).abs() < 0.001);
     assert!((width_scalar - 1.0).abs() < 0.001);
     assert!(snap.laser_presentation_residual_ok() || empty.laser_presentation_residual_ok());
-    assert!(empty.dual_tick_presentation_residual_ok());
-}
-
-#[test]
-fn dual_tick_residual_counters_increment_on_apply() {
-    let mut logic = GameLogic::new();
-    let cfg = golden_skirmish_config("DualTickCtr");
-    logic.admit_object_ini_sources(std::iter::empty()).expect("fixture Object content admitted before NewGame");
-    crate::skirmish_config::lobby_definition_tests::start_slot_skirmish(&mut logic, &cfg).expect("config");
-    let mut hud = crate::ui::GameHUD::new();
-    let mut ui = crate::ui::GameUIState::default();
-    let mut rts = crate::ui::RTSInterface::new();
-    let mut cmd = crate::ui::UnitCommandPanel::new();
-    let frame = PresentationFrame::build_and_apply_for_shell_consumers(
-        &mut logic, 0, &mut hud, &mut ui, &mut rts, &mut cmd,
-    );
-    assert!(frame.dual_tick_presentation_residual_ok());
-    assert!(frame.dual_tick.honesty_apply_ok());
-    assert_eq!(frame.dual_tick.builds, 1);
-    assert_eq!(frame.dual_tick.applies, 1);
-    assert!(frame.floating_text_vanish_residual_ok());
-    assert!(frame.world_anim_fade_residual_ok());
-    assert!(frame.laser_presentation_residual_ok());
 }
 
 /// Wave 73: Spectre AttackAreaDecal / TargetingReticleDecal presentation residual.
@@ -1583,32 +1557,6 @@ fn spectre_orbit_decal_presentation_residual_wave73() {
     crate::skirmish_config::lobby_definition_tests::start_slot_skirmish(&mut logic, &cfg).expect("config");
     let snap = PresentationFrame::build_from_logic(&mut logic, 0);
     assert!(snap.spectre_orbit_decal_presentation_residual_ok());
-}
-
-/// Wave 102 residual: dual-tick deepen (selected/particle counters + packs).
-#[test]
-fn presentation_dual_tick_residual_deepen_wave102() {
-    assert!(honesty_presentation_dual_tick_residual_deepen_wave102());
-    assert!(honesty_presentation_residual_deepen_pack_wave102());
-    let mut logic = GameLogic::new();
-    let cfg = golden_skirmish_config("Pres102");
-    logic.admit_object_ini_sources(std::iter::empty()).expect("fixture Object content admitted before NewGame");
-    crate::skirmish_config::lobby_definition_tests::start_slot_skirmish(&mut logic, &cfg).expect("config");
-    let mut hud = crate::ui::GameHUD::new();
-    let mut ui = crate::ui::GameUIState::default();
-    let mut rts = crate::ui::RTSInterface::new();
-    let mut cmd = crate::ui::UnitCommandPanel::new();
-    let frame = PresentationFrame::build_and_apply_for_shell_consumers(
-        &mut logic, 0, &mut hud, &mut ui, &mut rts, &mut cmd,
-    );
-    assert!(frame.dual_tick_presentation_residual_ok());
-    assert!(frame.dual_tick_presentation_residual_deepen_ok());
-    assert_eq!(frame.dual_tick.selected_count, frame.selected.len() as u32);
-    assert_eq!(
-        frame.dual_tick.particle_count,
-        frame.particle_systems.len() as u32
-    );
-    assert!(frame.dual_tick.honesty_apply_ok());
 }
 
 #[test]

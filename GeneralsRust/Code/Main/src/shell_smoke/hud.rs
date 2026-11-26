@@ -5,7 +5,7 @@
 use super::host::HostSession;
 use super::imports::*;
 
-pub(super) fn evaluate_selection(host: &HostSession) -> (bool, bool) {
+pub(super) fn evaluate_selection(host: &HostSession, logic: &GameLogic) -> (bool, bool) {
     let select_id = host.select_id;
     let hud = &host.hud;
     let pres = &host.pres;
@@ -32,13 +32,37 @@ pub(super) fn evaluate_selection(host: &HostSession) -> (bool, bool) {
         // Optional ControlBar path (headless selection health; not full WND claim).
         #[cfg(feature = "game_client")]
         let control_bar_ok = {
+            use game_client::core::game_client::ClientInputAuthority;
+            use game_client::gui::callbacks::control_bar_observation::{
+                ControlBarCallbackObservation, ControlBarPlayerObservation,
+            };
+
+            let id = pres.local_player_id;
+            let local_player = logic.get_player(id).map(|player| ControlBarPlayerObservation {
+                id,
+                active: player.is_alive && !player.is_observer,
+                selection_count: pres.selected.len(),
+            });
+            let local_player_side = logic.player_template_identity(id).and_then(|identity| {
+                let template = identity.resolve_in(logic.player_template_definitions.as_ref()?)?;
+                Some(template.get_side().to_owned())
+            });
             let mut bar = game_client::gui::control_bar::ControlBar::new();
-            let mut client =
-                game_client::core::GameClient::new().expect("owned headless ControlBar client");
+            let mut client = game_client::core::GameClient::new_with_input_authority(
+                ClientInputAuthority::NativeHosted,
+            )
+            .expect("owned headless ControlBar client");
             client.set_in_game_ui_subsystem(
                 game_client::core::subsystems::InGameUISubsystem::default(),
             );
             client.with_window_event_effects(None, |effects| {
+                effects.admit_control_bar_callback_observation(ControlBarCallbackObservation {
+                    game_ending: logic.owned_script_game_ending(),
+                    multiplayer: false,
+                    local_player,
+                    local_player_side,
+                    mouse: None,
+                });
                 effects.with_manager(|manager, effects| {
                     pres.apply_to_control_bar(&mut bar, manager, effects)
                 })
