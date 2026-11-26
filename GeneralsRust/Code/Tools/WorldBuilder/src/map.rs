@@ -79,8 +79,8 @@ impl Map {
     }
 
     /// Load a map from file
-    pub async fn load(path: &Path) -> Result<Self> {
-        let bytes = tokio::fs::read(path).await?;
+    pub fn load(path: &Path) -> Result<Self> {
+        let bytes = std::fs::read(path)?;
         if bytes.starts_with(b"CkMp") {
             let doc = world_builder::MapDocument::read_ckmp(&bytes)
                 .map_err(|e| anyhow::anyhow!("CkMp load failed: {e}"))?;
@@ -95,7 +95,7 @@ impl Map {
     }
 
     /// Save the map to a C++-shaped `.map` (CkMp HeightMapData + ObjectsList).
-    pub async fn save(&mut self, path: &Path) -> Result<()> {
+    pub fn save(&mut self, path: &Path) -> Result<()> {
         self.modified_time = chrono::Utc::now();
         self.file_path = Some(path.to_path_buf());
         let doc = self.to_map_document()?;
@@ -594,10 +594,7 @@ mod tests {
         ));
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("EditorSave.map");
-        tokio::runtime::Runtime::new()
-            .unwrap()
-            .block_on(map.save(&path))
-            .unwrap();
+        map.save(&path).unwrap();
         let bytes = std::fs::read(&path).unwrap();
         assert!(bytes.starts_with(b"CkMp"));
         assert!(
@@ -616,5 +613,8 @@ mod tests {
             loaded.objects[0].waypoint_name.as_deref(),
             Some("Player_1_Start")
         );
+        let reopened = Map::load(&path).unwrap();
+        assert_eq!(reopened.get_height(1, 2), Some(55.0));
+        assert_eq!(reopened.objects()[0].name, "Player_1_Start");
     }
 }

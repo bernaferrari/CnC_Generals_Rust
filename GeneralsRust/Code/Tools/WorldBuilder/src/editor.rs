@@ -158,8 +158,7 @@ impl WorldBuilderTool {
     pub fn load_map(&mut self, path: PathBuf) -> Result<()> {
         log::info!("Loading map from: {}", path.display());
 
-        // Run async operation in blocking context
-        let map = tokio::runtime::Runtime::new()?.block_on(Map::load(&path))?;
+        let map = Map::load(&path)?;
 
         let map_arc = Arc::new(RwLock::new(map));
         self.current_map = Some(map_arc.clone());
@@ -202,8 +201,7 @@ impl WorldBuilderTool {
             self.object_manager.save_to_map(&mut *map_guard)?;
             self.script_editor.save_to_map(&mut *map_guard)?;
 
-            // Save to file (run async in blocking context)
-            tokio::runtime::Runtime::new()?.block_on(map_guard.save(&path))?;
+            map_guard.save(&path)?;
 
             drop(map_guard);
 
