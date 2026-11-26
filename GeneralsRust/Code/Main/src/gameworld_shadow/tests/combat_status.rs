@@ -366,56 +366,6 @@ fn canonical_containment_projects_without_writeback() {
 }
 
 #[test]
-// Wave 947: channel-drive tests mutate host via host_object_mut authority.
-fn host_ai_state_is_canonical_and_shadow_only_observes() {
-    use crate::game_logic::{AIState, KindOf, Team, ThingTemplate};
-    let mut logic = GameLogic::new();
-    let cfg = golden_skirmish_config("AiStateCh");
-    logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object AiU\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
-    apply_skirmish_config(&mut logic, &cfg).expect("cfg");
-    {
-        let mut t = ThingTemplate::new("AiU");
-        t.set_health(100.0);
-        t.add_kind_of(KindOf::Selectable);
-        logic.templates.insert("AiU".into(), t);
-    }
-    let id = logic
-        .create_object("AiU", Team::USA, glam::Vec3::new(1.0, 0.0, 1.0))
-        .expect("id");
-    logic.host_object_mut(id).expect("o").set_ai_state(
-        AIState::GuardingObject,
-        0,
-        &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
-    );
-    assert_eq!(
-        logic.host_object(id).expect("o").ai_state(),
-        AIState::GuardingObject
-    );
-    let mut shadow = GameWorldShadow::new();
-    shadow.sync_from_host(&logic);
-    let eid = shadow.entity_for_host(id).expect("map");
-    assert_eq!(shadow.world().entity(eid).expect("e").ai_state_ordinal, 10);
-    shadow
-        .world_mut()
-        .world_mut()
-        .entity_mut(eid)
-        .expect("e")
-        .ai_state_ordinal = 0;
-    assert_eq!(
-        logic.host_object(id).expect("o").ai_state(),
-        AIState::GuardingObject
-    );
-    logic.host_object_mut(id).expect("o").set_ai_state(
-        AIState::Idle,
-        0,
-        &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
-    );
-    assert_eq!(logic.host_object(id).expect("o").ai_state(), AIState::Idle);
-    shadow.sync_from_host(&logic);
-    assert_eq!(shadow.world().entity(eid).expect("e").ai_state_ordinal, 0);
-}
-
-#[test]
 fn host_special_power_cooldown_remaining_channel() {
     use crate::game_logic::{KindOf, Team, ThingTemplate};
     let mut logic = GameLogic::new();

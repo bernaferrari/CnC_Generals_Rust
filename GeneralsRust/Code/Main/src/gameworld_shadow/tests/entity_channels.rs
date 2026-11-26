@@ -93,56 +93,6 @@ fn ai_mood_is_canonical_and_shadow_only_observes() {
 }
 
 #[test]
-fn guard_radius_is_owned_and_shadow_only_observes() {
-    use crate::game_logic::{KindOf, Team, ThingTemplate};
-    let mut logic = GameLogic::new();
-    let cfg = golden_skirmish_config("GuardR");
-    logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object GuardU\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
-    apply_skirmish_config(&mut logic, &cfg).expect("cfg");
-    {
-        let mut t = ThingTemplate::new("GuardU");
-        t.add_kind_of(KindOf::Infantry);
-        logic.templates.insert("GuardU".into(), t);
-    }
-    let oid = logic
-        .create_object("GuardU", Team::USA, glam::Vec3::new(50.0, 0.0, 50.0))
-        .expect("id");
-    let position = glam::Vec3::new(55.0, 0.0, 55.0);
-    logic.host_object_mut(oid).unwrap().set_guard_position(
-        Some(position),
-        0,
-        &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
-    );
-    assert!(logic.unit_command_set_guard_radius(oid, 175.0));
-    let mut shadow = GameWorldShadow::new();
-    shadow.sync_from_host(&logic);
-    let entity = shadow.entity_for_host(oid).unwrap();
-    assert_eq!(shadow.world().entity(entity).unwrap().guard_radius, 175.0);
-    assert_eq!(
-        shadow
-            .world()
-            .entity(entity)
-            .unwrap()
-            .guard_position,
-        Some([55.0, 0.0, 55.0])
-    );
-    shadow
-        .world_mut()
-        .world_mut()
-        .entity_mut(entity)
-        .unwrap()
-        .guard_radius = 999.0;
-    assert_eq!(logic.host_object(oid).unwrap().guard_radius, 175.0);
-    assert!(logic.unit_command_set_guard_radius(oid, 80.0));
-    shadow.sync_from_host(&logic);
-    assert_eq!(shadow.world().entity(entity).unwrap().guard_radius, 80.0);
-    assert_eq!(
-        logic.host_object(oid).unwrap().active_guard_position(),
-        Some(position)
-    );
-}
-
-#[test]
 fn canonical_production_door_is_projected_from_receiving_owner() {
     use crate::game_logic::{KindOf, Team, ThingTemplate};
 

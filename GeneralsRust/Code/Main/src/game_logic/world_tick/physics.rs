@@ -1663,10 +1663,6 @@ impl GameLogic {
         // actual Physics method is called, exactly as on the World route.
         obj.handle_behavior_z_with_highest_surface(surface_y, goal_y, surface_y, 0);
     }
-    #[cfg(test)]
-    pub fn transfer_attack_for_test(&mut self, from_id: ObjectId, to_id: ObjectId) -> usize {
-        self.transfer_attack(from_id, to_id)
-    }
 }
 
 #[cfg(test)]

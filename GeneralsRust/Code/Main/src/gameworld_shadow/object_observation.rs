@@ -752,12 +752,6 @@ impl GameWorldShadow {
 
         e.health = health;
         e.transform = transform;
-        {
-            e.attack_target = obj
-                .target
-                .and_then(|tid| self.host_to_entity.get(&tid.0).copied());
-        }
-        e.move_target = obj.movement.target_position.map(|p| [p.x, p.y, p.z]);
         e.max_health = obj.max_health.max(obj.health.current).max(1.0);
         e.body_damage_state = obj.body_damage_state.ordinal();
         e.selected = obj.selected;
@@ -809,10 +803,6 @@ impl GameWorldShadow {
         e.max_transport = obj.max_transport;
         e.force_attack = obj.force_attack;
         e.show_health_bar = obj.show_health_bar;
-        e.target_location = obj.target_location.map(|p| [p.x, p.y, p.z]);
-        e.guard_position = obj.active_guard_position().map(|p| [p.x, p.y, p.z]);
-        e.guard_target_host = obj.active_guard_target().map(|id| id.0).unwrap_or(0);
-        e.ai_state_ordinal = obj.ai_state().to_ordinal();
         e.occupant_count = obj.contained_unit_ids().len().min(u16::MAX as usize) as u16;
         e.experience_points = obj.experience.current;
         e.veterancy_ordinal = Self::host_veterancy_ordinal(obj.experience.level);
@@ -1110,7 +1100,6 @@ impl GameWorldShadow {
         e.cheer_timer = obj.cheer_timer;
         e.overcharge_enabled = obj.overcharge_enabled;
         e.weapon_fire_status = obj.weapon_fire_status as u8;
-        e.guard_radius = obj.guard_radius;
         e.applied_upgrade_count = obj.applied_upgrades.len().min(u16::MAX as usize) as u16;
         {
             const MAX_UPGRADES: usize = 24;

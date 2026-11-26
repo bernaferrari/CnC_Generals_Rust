@@ -525,70 +525,6 @@ fn host_ai_attitude_is_canonical_and_shadow_only_observes() {
 }
 
 #[test]
-fn host_guard_is_canonical_and_shadow_only_observes() {
-    use crate::game_logic::{KindOf, Team, ThingTemplate};
-    let mut logic = GameLogic::new();
-    let cfg = golden_skirmish_config("GuardCh");
-    crate::fixture_content::admit_fixture_objects(
-        &mut logic,
-        &[
-            crate::fixture_content::FixtureObject::new("GU").kind_of("SELECTABLE").health(100.0).walker(),
-        ],
-    );
-    apply_skirmish_config(&mut logic, &cfg).expect("cfg");
-    let oid = logic
-        .create_object("GU", Team::USA, glam::Vec3::new(12.0, 0.0, 12.0))
-        .expect("id");
-    let tid = logic
-        .create_object("GU", Team::USA, glam::Vec3::new(14.0, 0.0, 14.0))
-        .expect("tid");
-    // C++ AIUpdateInterface keeps one m_guardTargetType: a position guard and
-    // an object guard are alternatives, never both active (AIGuard.cpp).
-    let position = glam::Vec3::new(3.0, 0.0, 5.0);
-    logic.host_object_mut(oid).unwrap().set_guard_position(
-        Some(position),
-        0,
-        &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
-    );
-    let mut shadow = GameWorldShadow::new();
-    shadow.sync_from_host(&logic);
-    let entity = shadow.entity_for_host(oid).unwrap();
-    assert_eq!(
-        shadow.world().entity(entity).unwrap().guard_position,
-        Some([3.0, 0.0, 5.0])
-    );
-    assert_eq!(shadow.world().entity(entity).unwrap().guard_target_host, 0);
-    // Shadow edits never write back to the canonical host guard.
-    shadow.world_mut().world_mut().entity_mut(entity).unwrap().guard_position = None;
-    assert_eq!(
-        logic.host_object(oid).unwrap().active_guard_position(),
-        Some(position)
-    );
-
-    logic.host_object_mut(oid).unwrap().set_guard_target(
-        Some(tid),
-        0,
-        &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
-    );
-    shadow.sync_from_host(&logic);
-    assert_eq!(shadow.world().entity(entity).unwrap().guard_position, None);
-    assert_eq!(shadow.world().entity(entity).unwrap().guard_target_host, tid.0);
-    shadow.world_mut().world_mut().entity_mut(entity).unwrap().guard_target_host = 0;
-    assert_eq!(logic.host_object(oid).unwrap().active_guard_target(), Some(tid));
-    assert_eq!(logic.host_object(oid).unwrap().active_guard_position(), None);
-
-    logic.host_object_mut(oid).unwrap().set_guard_target(
-        None,
-        0,
-        &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
-    );
-    shadow.sync_from_host(&logic);
-    assert_eq!(shadow.world().entity(entity).unwrap().guard_position, None);
-    assert_eq!(shadow.world().entity(entity).unwrap().guard_target_host, 0);
-    assert_eq!(logic.host_object(oid).unwrap().active_guard_target(), None);
-}
-
-#[test]
 fn canonical_detector_projects_without_writeback() {
     use crate::game_logic::{KindOf, Team, ThingTemplate};
     let mut logic = GameLogic::new();
@@ -635,53 +571,6 @@ fn canonical_detector_projects_without_writeback() {
     assert!(o.is_detector);
     assert!((o.detection_range - 175.0).abs() < 1e-3);
     assert_eq!(o.detection_rate_frames, 12);
-}
-
-#[test]
-fn host_target_location_log_drives_set_target_location_channel() {
-    use crate::game_logic::{KindOf, Team, ThingTemplate};
-    let mut logic = GameLogic::new();
-    let cfg = golden_skirmish_config("TLocCh");
-    logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object TLocU\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
-    apply_skirmish_config(&mut logic, &cfg).expect("cfg");
-    {
-        let mut t = ThingTemplate::new("TLocU");
-        t.set_health(100.0);
-        t.add_kind_of(KindOf::Selectable);
-        logic.templates.insert("TLocU".into(), t);
-    }
-    let oid = logic
-        .create_object("TLocU", Team::USA, glam::Vec3::new(9.0, 0.0, 9.0))
-        .expect("id");
-
-    {
-        let o = logic.host_object_mut(oid).expect("o");
-        o.set_target_location(
-            Some(glam::Vec3::new(11.0, 0.0, 13.0)),
-            0,
-            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
-        );
-    }
-    let mut shadow = GameWorldShadow::new();
-    shadow.sync_from_host(&logic);
-    let eid = *shadow.host_to_entity.get(&oid.0).expect("map");
-    if let Some(e) = shadow.world_mut().world_mut().entity_mut(eid) {
-        e.target_location = None;
-    }
-
-    shadow.sync_from_host(&logic);
-    let e = shadow.world().entity(eid).expect("e");
-    let tl = e.target_location.expect("tl");
-    assert!((tl[0] - 11.0).abs() < 1e-3 && (tl[2] - 13.0).abs() < 1e-3);
-
-    if let Some(e) = shadow.world_mut().world_mut().entity_mut(eid) {
-        e.target_location = Some([11.0, 0.0, 13.0]);
-    }
-    shadow.sync_from_host(&logic);
-
-    let o = logic.host_objects().lookup(&oid).expect("o");
-    let p = o.target_location.expect("host tl");
-    assert!((p.x - 11.0).abs() < 1e-3 && (p.z - 13.0).abs() < 1e-3);
 }
 
 #[test]

@@ -38,42 +38,6 @@ fn sync_from_host_copies_entity_xp_status_residual() {
 }
 
 #[test]
-fn sync_from_host_copies_entity_combat_intent_residual() {
-    let mut logic = GameLogic::new();
-    let cfg = golden_skirmish_config("EntityCombatIntent");
-    logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object CbtIntentU\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
-    apply_skirmish_config(&mut logic, &cfg).expect("cfg");
-    insert_fixture_template(&mut logic, "CbtIntentU", 100.0);
-    let id = logic
-        .create_object("CbtIntentU", Team::USA, glam::Vec3::new(4.0, 0.0, 4.0))
-        .expect("id");
-    let guard = logic
-        .create_object("CbtIntentU", Team::USA, glam::Vec3::new(8.0, 0.0, 4.0))
-        .expect("guard");
-    {
-        let obj = logic.host_object_mut(id).expect("obj");
-        obj.force_attack = true;
-        obj.show_health_bar = false;
-        obj.target_location = Some(glam::Vec3::new(10.0, 0.0, 10.0));
-        obj.set_guard_position_data(Some(glam::Vec3::new(1.0, 0.0, 1.0)));
-        obj.set_guard_target_data(Some(guard));
-        obj.restore_ai_state(crate::game_logic::AIState::GuardingObject);
-        obj.occupants = vec![guard];
-    }
-    let mut shadow = GameWorldShadow::new();
-    shadow.sync_from_host(&logic);
-    let eid = shadow.entity_for_host(id).expect("map");
-    let e = shadow.world().entity(eid).expect("e");
-    assert!(e.force_attack);
-    assert!(!e.show_health_bar);
-    assert_eq!(e.guard_target_host, guard.0);
-    assert_eq!(e.ai_state_ordinal, 10); // GuardingObject
-    assert_eq!(e.occupant_count, 1);
-    let tl = e.target_location.expect("tl");
-    assert!((tl[0] - 10.0).abs() < 0.01);
-}
-
-#[test]
 fn sync_from_host_copies_entity_color_power_type() {
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("EntityColorPower");

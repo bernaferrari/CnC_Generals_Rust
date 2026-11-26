@@ -47,7 +47,6 @@ fn admit_shadow_fixture(logic: &mut GameLogic, name: &str, kind: &str) {
 
 mod authority_writeback;
 mod combat_status;
-mod continue_attack;
 mod economy_construction;
 mod entity_channels;
 mod fire_damage;

@@ -6,6 +6,8 @@
 mod ai_authority;
 #[cfg(test)]
 mod ai_order_owner_tests;
+#[cfg(test)]
+mod ai_order_transition_tests;
 pub(crate) mod authored_upgrade_modules;
 mod bridge_body_callbacks;
 mod containment_death;
