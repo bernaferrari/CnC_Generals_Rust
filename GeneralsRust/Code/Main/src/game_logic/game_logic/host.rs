@@ -1466,7 +1466,7 @@ pub struct GameLogic {
     pub(super) pathfinding_height_samples: Option<PathfindingHeightSamples>,
     pub(super) weather_state: RuntimeWeatherState,
     /// C++ `m_sleepyUpdates` host residual (`GameLogic.cpp:3699-3740`).
-    pub(super) host_sleepy: super::world_tick::HostSleepyHeap,
+    pub(super) recurring_updates: generals_sim::recurring::RecurringUpdates,
     /// C++ startNewGame installs MultiplayerScripts.scb when numTeams > 1.
     pub(super) install_multiplayer_scripts: bool,
 }

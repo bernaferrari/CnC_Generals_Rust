@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 
 pub mod armor_ini;
 pub mod difficulty;
+pub mod indexed_heap;
 pub mod ini;
 pub use difficulty::AIDifficulty;
 

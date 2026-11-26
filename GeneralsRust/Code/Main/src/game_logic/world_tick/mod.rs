@@ -35,13 +35,11 @@ mod shock;
 mod splash_partition_order_tests;
 #[cfg(test)]
 mod self_position_damage_tests;
-mod sleepy;
 mod step;
 pub(crate) use step::{
     NativeCommandAction, NativeCommandCompletion, NativeTickContinuation, NativeTickProgress,
 };
 mod water_owner;
-pub(in super::super) use sleepy::{HostSleepyHeap, HostSleepyKind};
 mod team_membership;
 #[cfg(test)]
 mod team_membership_owner_tests;

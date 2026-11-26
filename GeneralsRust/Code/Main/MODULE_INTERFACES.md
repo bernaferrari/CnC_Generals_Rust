@@ -9,7 +9,7 @@ is part of this architecture.
 | Owner | Responsibility | Dependencies and consumers |
 | --- | --- | --- |
 | `generals_game_domain` | Canonical host object ID, faction value, combat particle kind, AI difficulty | Depends on serde. Main and Presentation use the same types through reexports. |
-| `generals-sim` | Fixed-step clock, grid search, authored weapon and armor rules | Owns receiving catalogs, ordered weapon and armor coefficient application, and ArmorSet selection shared by damage and damage FX. Main supplies the receiving RNG at firing. Legacy runtime adapters consume the same rules. |
+| `generals-sim` | Fixed-step driver, recurring updates, grid search, authored weapon and armor rules | Owns frame advance, catch-up and command continuation accounting, wake scheduling, and receiving weapon and armor rules. Main supplies world callbacks, command payloads, presentation, and the receiving RNG. |
 | `generals_presentation` | Frozen events, HUD records, objectives, command buttons, weapon visual dispatch records | Depends on GameDomain, serde and glam. Does not depend on simulation, assets, UI widgets or GPU types. |
 | Main `presentation_frame` | Builds the completed frame from simulation and adapts it to existing UI/render consumers | Owns `PresentationFrame`, renderable objects and live-host conversions. Its HUD view borrows existing frame fields. |
 | Main `assets` | Finds and loads live assets | Each `AssetManager` owns an `ArchiveFileSystem`, which owns the local resolver and BIG mounts. Existing worker synchronization remains at actual I/O boundaries. |
@@ -27,9 +27,10 @@ and `AIPathfind.h`, then edit `generals_sim::pathfinding`. World terrain, bridge
 origin and path admission belong in the existing GameLogic/Main adapters. Cell-center height
 is supplied by the caller; a leaf search must never discover an active terrain singleton.
 
-`generals_sim::time` admits fixed steps and accounts for offered time. Main executes the
-simulation phases, advances object and frame identity, and reports completed steps to its
-clients. The save decoder validates the elapsed seconds and carried time before restoring them.
+`generals_sim::step` admits fixed steps using `generals_sim::time`, advances the logic frame,
+and handles time carried across native commands. Main executes the gameplay phases, admits
+object births and retirements, and reports completed steps to its clients. The save decoder
+validates the elapsed seconds and carried time before restoring them.
 
 `generals_sim::weapon` applies the weapon masks, attack range, delay and damage rules.
 Main supplies the target facts, the firing session's random draw, and its bonus entries.

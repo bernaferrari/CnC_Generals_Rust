@@ -765,7 +765,7 @@ impl GameLogic {
             pending_blend_tile_data: None,
             pathfinding_height_samples: None,
             weather_state: RuntimeWeatherState::default(),
-            host_sleepy: super::world_tick::HostSleepyHeap::new(),
+            recurring_updates: generals_sim::recurring::RecurringUpdates::new(),
             install_multiplayer_scripts: false,
         };
         instance.refresh_pathfinding_ai_definitions();

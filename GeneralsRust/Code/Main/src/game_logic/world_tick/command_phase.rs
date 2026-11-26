@@ -2,6 +2,7 @@
 use super::*;
 use crate::command_system::{AdmittedCommand, AdmittedCommandBatch};
 use game_engine::common::message_stream::GameMessageType;
+use generals_sim::step::CommandStepOutcome;
 
 impl GameLogic {
     pub(crate) fn prepare_native_command_difficulty(&mut self, code: i32) {
@@ -161,9 +162,7 @@ impl GameLogic {
         }
         let delta = timing.map_or(dt, FrameTiming::delta_seconds);
         let pending = self.step_simulation_with_callbacks(
-            delta,
-            budget.map(|n| n.max(1)),
-            None,
+            FixedStepBatch::new(delta, budget.map(|n| n.max(1))),
             |world, fixed| {
                 let client_frame = before(world.frame);
                 if let Some(ui) = ui.ui.as_deref_mut() {
@@ -217,14 +216,13 @@ impl GameLogic {
         match (pending.phase.kind, completion) {
             (CommandActionKind::Clear, NativeCommandCompletion::Cleared { reset_performed }) => {
                 if reset_performed {
-                    pending.reset_seen = true;
-                    pending.new_game_pending = false;
+                    pending.lifecycle.record_reset();
                     pending.phase.object_ids = None;
                 }
             }
             (CommandActionKind::NewGame, NativeCommandCompletion::NewGamePrepared { prepared }) => {
                 if prepared {
-                    pending.new_game_pending = true;
+                    pending.lifecycle.record_prepared_start();
                 }
             }
             _ => panic!("source command completion does not match its continuation"),
@@ -253,7 +251,7 @@ impl GameLogic {
                                 ui.reborrow(),
                                 ids,
                                 source_now,
-                                pending.reset_seen,
+                                pending.lifecycle.reset_performed(),
                             )
                         }
                     }
@@ -276,61 +274,38 @@ impl GameLogic {
             matches!(outcome, SimulationStepOutcome::Advanced),
             "post-command tail cannot freeze again"
         );
-        if !pending.reset_seen && !pending.new_game_pending {
-            // The command was ignored/rejected without changing ownership.
-            // Finish the current step and any remaining original budget in
-            // the SAME fixed-step loop. No delta is admitted a second time.
-            self.simulation_clock.resume_step(pending.carry);
-            let mut completed = Some(SimulationStepOutcome::Advanced);
-            let next = self.step_simulation_with_callbacks(
-                0.,
-                pending.max_fixed_steps,
-                Some(FixedStepCounts {
-                    advanced: pending.prior_steps,
-                    frozen: pending.frozen_steps,
-                }),
-                |world, fixed| {
-                    if let Some(outcome) = completed.take() {
-                        return outcome;
-                    }
-                    let client_frame = before(world.frame);
-                    if let Some(ui) = ui.ui.as_deref_mut() {
-                        ui.admit_command_hint_client_frame(client_frame);
-                    }
-                    world.update_simulation_with_command_phase(
-                        fixed,
-                        ui.reborrow(),
-                        CommandPhaseMode::BorrowedEngine,
-                    )
-                },
-                &mut after,
-            );
-            return match next {
-                Ok(Some(next)) => NativeTickProgress::CommandBoundary(next),
-                Ok(None) => NativeTickProgress::Complete(self.sim_timing_snapshot()),
-                Err(error) => NativeTickProgress::Failed(error),
-            };
-        }
-        let dropped_excess_time = self.simulation_clock.finish_interrupted_step(
-            pending.carry,
-            dt,
-            pending.reset_seen,
-        );
-        if !pending.new_game_pending {
-            self.frame = self.frame.wrapping_add(1);
-            self.host_trigger_world
-                .lock()
-                .unwrap_or_else(|e| e.into_inner())
-                .set_current_frame(self.frame);
-            self.simulation_clock.record_frame_advance(dt);
-        }
-        self.last_fixed_step_diagnostics = FixedStepDiagnostics {
-            steps_run: pending.prior_steps + 1,
-            frozen_steps: pending.frozen_steps,
-            budget_hit: false,
-            accumulated_time_seconds: self.simulation_clock.carried_seconds(),
-            dropped_excess_time,
+        let diagnostics = match pending.step.complete_command(self, dt, pending.lifecycle) {
+            CommandStepOutcome::Complete(diagnostics) => diagnostics,
+            CommandStepOutcome::Resume(batch) => {
+                // Finish the already-executed tail in the original batch.
+                // It consumes time once and does not trigger a second ingress.
+                let mut completed = Some(SimulationStepOutcome::Advanced);
+                let next = self.step_simulation_with_callbacks(
+                    batch,
+                    |world, fixed| {
+                        if let Some(outcome) = completed.take() {
+                            return outcome;
+                        }
+                        let client_frame = before(world.frame);
+                        if let Some(ui) = ui.ui.as_deref_mut() {
+                            ui.admit_command_hint_client_frame(client_frame);
+                        }
+                        world.update_simulation_with_command_phase(
+                            fixed,
+                            ui.reborrow(),
+                            CommandPhaseMode::BorrowedEngine,
+                        )
+                    },
+                    &mut after,
+                );
+                return match next {
+                    Ok(Some(next)) => NativeTickProgress::CommandBoundary(next),
+                    Ok(None) => NativeTickProgress::Complete(self.sim_timing_snapshot()),
+                    Err(error) => NativeTickProgress::Failed(error),
+                };
+            }
         };
+        self.last_fixed_step_diagnostics = diagnostics;
         // The normal central loop scopes the receiving stream through its
         // completed-frame callback. Reset/start termination must do so too.
         let random = self.logic_random.clone();

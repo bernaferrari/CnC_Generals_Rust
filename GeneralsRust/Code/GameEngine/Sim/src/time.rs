@@ -4,7 +4,7 @@ pub const LOGIC_FRAMES_PER_SECOND: f32 = 30.0;
 pub const LOGIC_FRAME_TIMESTEP: f32 = 1.0 / LOGIC_FRAMES_PER_SECOND;
 
 #[derive(Debug, PartialEq, Eq)]
-pub enum StepAdmission {
+pub(super) enum StepAdmission {
     Waiting,
     Ready,
     BudgetExhausted { dropped_excess_time: bool },
@@ -35,13 +35,13 @@ impl SimulationClock {
         self.carry
     }
 
-    pub fn offer(&mut self, delta_seconds: f32) {
+    pub(super) fn offer(&mut self, delta_seconds: f32) {
         self.carry += delta_seconds;
     }
 
     /// A live update admits one step, like C++ GameEngine::update. Explicit
     /// headless budgets retain pending time for a subsequent update.
-    pub fn admit_step(&mut self, steps_used: usize, budget: Option<usize>) -> StepAdmission {
+    pub(super) fn admit_step(&mut self, steps_used: usize, budget: Option<usize>) -> StepAdmission {
         if self.carry >= LOGIC_FRAME_TIMESTEP {
             if steps_used < budget.unwrap_or(1) {
                 return StepAdmission::Ready;
@@ -58,22 +58,22 @@ impl SimulationClock {
     }
 
     /// A completed or frozen step consumes the same amount of offered time.
-    pub fn consume_step(&mut self) {
+    pub(super) fn consume_step(&mut self) {
         self.carry -= LOGIC_FRAME_TIMESTEP;
     }
 
-    pub fn record_frame_advance(&mut self, step_seconds: f32) {
+    pub(super) fn record_frame_advance(&mut self, step_seconds: f32) {
         self.elapsed_seconds += step_seconds;
     }
 
     /// Restore the offered time of a step suspended at an engine command.
-    pub fn resume_step(&mut self, suspended_carry: f32) {
+    pub(super) fn resume_step(&mut self, suspended_carry: f32) {
         self.carry = suspended_carry;
     }
 
     /// End a command step that reset the world or prepared another match.
     /// Return whether the reset discarded time beyond the interrupted step.
-    pub fn finish_interrupted_step(
+    pub(super) fn finish_interrupted_step(
         &mut self,
         suspended_carry: f32,
         step_seconds: f32,

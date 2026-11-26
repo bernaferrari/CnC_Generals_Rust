@@ -214,30 +214,7 @@ pub enum GameMode {
     None,
 }
 
-/// Fixed-step loop diagnostics used for shell/menu stall investigations.
-/// `frozen_steps` counts steps whose update ran scripts but returned early on
-/// the C++ freezeTime check (GameLogic.cpp:3614-3616) — time consumed, nothing
-/// advanced.
-#[derive(Debug, Clone, Copy, Default)]
-pub struct FixedStepDiagnostics {
-    pub steps_run: usize,
-    pub frozen_steps: usize,
-    pub budget_hit: bool,
-    pub accumulated_time_seconds: f32,
-    /// Live-path clamp (`step_simulation_with_budget` with `max_fixed_steps
-    /// = None`): after hitting the 6-step per drive_frame ceiling, the excess
-    /// accumulated time was dropped instead of carried into later frames.
-    pub dropped_excess_time: bool,
-}
-
-/// Wave 908: post-tick host residual stamp payload (frame + fixed-step diagnostics).
-#[derive(Debug, Clone, Copy, Default, PartialEq)]
-pub struct SimTimingSnapshot {
-    pub frame: u32,
-    pub steps_run: usize,
-    pub budget_hit: bool,
-    pub accumulated_time_seconds: f32,
-}
+pub use generals_sim::step::{FixedStepDiagnostics, SimTimingSnapshot};
 
 #[path = "player_statistics.rs"]
 mod player_statistics;

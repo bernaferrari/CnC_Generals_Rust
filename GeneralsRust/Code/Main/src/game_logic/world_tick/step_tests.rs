@@ -490,24 +490,12 @@ fn high_refresh_drive_keeps_thirty_logic_ticks_per_second() {
     }
 }
 
-/// Perf-gate seam: on a fresh world every residual registry is empty, so
-/// each gated residual pass must be SKIPPED (counter bumps once per step)
-/// while the step itself still advances normally — the gates are pure
-/// performance cuts with no observable behavior when registries are empty.
 #[test]
-fn residual_gates_skip_empty_registries() {
-    residual_gate_seam::reset_all();
-
+fn empty_step_advances_without_spawning_objects() {
     let mut logic = GameLogic::new();
     logic.step_simulation_with_budget(LOGIC_FRAME_TIMESTEP, None);
-
-    // Every registry-backed residual pass must have skipped on the empty
-    // world (each gate counter bumped once by this step).
-    residual_gate_seam::assert_each_skipped_at_least_once();
-    assert_eq!(
-        logic.frame, 1,
-        "the gated step must still advance exactly one frame"
-    );
+    assert_eq!(logic.frame, 1);
+    assert!(logic.objects.registered_is_empty());
 }
 fn seed_boundary_test_owner(logic: &mut GameLogic, seed: u32) {
     logic.set_logic_random_seed(seed);
@@ -702,10 +690,10 @@ fn empty_scheduler_clock_boundary_admits_maximum_then_wraps_logic_once() {
     // Isolate UnsignedInt frame arithmetic. C++ sleepy priorities have a
     // 30-bit wake domain; recurring updates cannot complete at u32::MAX.
     // This is not a claim that a full match supports that frame value.
-    for kind in super::super::HostSleepyKind::ALL {
-        assert!(logic.host_sleepy.erase(kind));
+    for kind in generals_sim::recurring::RecurringUpdate::ALL {
+        assert!(logic.recurring_updates.erase(kind));
     }
-    assert_eq!(logic.host_sleepy.len(), 0);
+    assert!(logic.recurring_updates.is_empty());
     logic.frame = u32::MAX;
     let mut admitted = Vec::new();
     let mut completed = Vec::new();

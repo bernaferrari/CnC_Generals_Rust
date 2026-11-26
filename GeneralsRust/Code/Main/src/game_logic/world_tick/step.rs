@@ -1,7 +1,11 @@
 //! Host tick `impl GameLogic` — `step`.
 #![allow(unused_imports, non_snake_case)]
 use super::super::*;
-use generals_sim::time::{SimulationClock, StepAdmission};
+use generals_sim::step::{
+    CommandLifecycle, FixedStepBatch, FixedStepBatchOutcome, FixedStepOutcome,
+    FixedStepWorld, SuspendedFixedStep,
+};
+use generals_sim::time::SimulationClock;
 #[cfg(test)]
 #[path = "ai_phase_tests.rs"]
 mod ai_phase_tests;
@@ -35,21 +39,8 @@ impl Drop for HostLogicStep<'_> {
     }
 }
 
-/// Outcome of one `update_simulation` step (one C++ `GameLogic::update` pass,
-/// GameLogic.cpp:3548-3803).
-#[derive(Debug)]
-pub(in super::super) enum SimulationStepOutcome {
-    /// Full update ran; the step loop owns the frame/sim-time advancement
-    /// (C++ `m_frame++`, GameLogic.cpp:3795-3803).
-    Advanced,
-    /// `freezeTime` was set and no MSG_CLEAR_GAME_DATA escape applied: scripts
-    /// evaluated, then C++ returned before terrain/commands/modules
-    /// (GameLogic.cpp:3614-3616). The step loop consumes the timestep but
-    /// advances nothing.
-    Frozen,
-    CommandBoundary(CommandPhaseYield),
-    Failed(gamelogic::GameLogicError),
-}
+pub(in super::super) type SimulationStepOutcome =
+    FixedStepOutcome<CommandPhaseYield, gamelogic::GameLogicError>;
 
 #[derive(Clone, Copy)]
 enum CommandPhaseMode {
@@ -91,23 +82,13 @@ pub(crate) enum NativeTickProgress {
     Failed(gamelogic::GameLogicError),
 }
 
-#[derive(Default)]
-struct FixedStepCounts {
-    advanced: usize,
-    frozen: usize,
-}
-
 /// An in-flight fixed step; constructors and fields stay inside this kernel.
 /// The driving caller must consume the action before resuming this owner once.
 pub(crate) struct NativeTickContinuation {
     receiving_services: std::sync::Weak<gamelogic::system::engine_stores::WorldServices>,
     phase: CommandPhaseYield,
-    prior_steps: usize,
-    frozen_steps: usize,
-    max_fixed_steps: Option<usize>,
-    carry: f32,
-    reset_seen: bool,
-    new_game_pending: bool,
+    step: SuspendedFixedStep,
+    lifecycle: CommandLifecycle,
 }
 impl NativeTickContinuation {
     pub(crate) fn take_action(&mut self) -> NativeCommandAction {
@@ -118,72 +99,22 @@ impl NativeTickContinuation {
     }
 }
 
-/// Residual-gate skip counters — test seam only.
-///
-/// The gates sprinkled through `update_simulation` are pure performance cuts
-/// (skip a whole-world residual pass when its registry is provably empty);
-/// production builds never touch these counters. Tests reset them, run a
-/// step on an empty world, and assert each gate actually skipped.
-#[cfg(test)]
-pub(in super::super) mod residual_gate_seam {
-    use std::sync::atomic::{AtomicU32, Ordering};
+impl FixedStepWorld for GameLogic {
+    type Error = gamelogic::GameLogicError;
 
-    macro_rules! residual_gate_counters {
-        ($(($counter:ident, $label:literal)),* $(,)?) => {
-            $(
-                #[doc = $label]
-                pub static $counter: AtomicU32 = AtomicU32::new(0);
-            )*
-            /// Reset every gate counter (call between steps).
-            pub fn reset_all() {
-                $(
-                    $counter.store(0, Ordering::Relaxed);
-                )*
-            }
-
-            /// Assert every gate skipped at least once since `reset_all`.
-            pub fn assert_each_skipped_at_least_once() {
-                $(
-                    assert!(
-                        $counter.load(Ordering::Relaxed) >= 1,
-                        concat!("residual gate never skipped: ", $label),
-                    );
-                )*
-            }
-        };
+    fn simulation_time(&mut self) -> (&mut SimulationClock, &mut u32) {
+        (&mut self.simulation_clock, &mut self.frame)
     }
 
-    residual_gate_counters!(
-        (
-            NUKE_RADIATION_FIELDS,
-            "spawn_nuke_radiation_field_objects_for_new_fields"
-        ),
-        (
-            ANTHRAX_TOXIN_FIELDS,
-            "spawn_anthrax_toxin_field_objects_for_new_fields"
-        ),
-        (PARADROPS, "update_paradrops"),
-        (DELIVER_PAYLOADS, "update_deliver_payloads"),
-        (AMBUSHES, "update_ambushes"),
-        (LEAFLET_DROPS, "update_leaflet_drops"),
-        (SNEAK_ATTACKS, "update_sneak_attacks"),
-        (FRENZY_MARKERS, "update_frenzy_invisible_markers"),
-        (SPY_DRONE_GROW, "update_spy_drone_grow"),
-        (NUKE_CANNON_ZONES, "update_nuke_cannon_radiation_zones"),
-        (FIRE_BASE_SHELLS, "update_fire_base_shell_projectiles"),
-        (
-            TECHNICAL_CANNON_SHELLS,
-            "update_technical_cannon_shell_projectiles"
-        ),
-        (CLEANUP_AREA_ORDERS, "update_cleanup_area_orders"),
-        (CLEANUP_STREAM_MISSILES, "update_cleanup_stream_projectiles"),
-        (HELIX_NAPALM_FIRESTORMS, "update_helix_napalm_firestorms"),
-    );
+    fn frame_advanced(&mut self, frame: u32) {
+        self.host_trigger_world
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .set_current_frame(frame);
+    }
 
-    /// Count one skipped residual pass.
-    #[inline]
-    pub fn note(counter: &AtomicU32) {
-        counter.fetch_add(1, Ordering::Relaxed);
+    fn pending_step_error(&self) -> Option<Self::Error> {
+        self.team_creation_error()
     }
 }
 
@@ -200,7 +131,7 @@ impl GameLogic {
     }
 
     pub(crate) fn reset_recurring_updates(&mut self) {
-        self.host_sleepy = super::HostSleepyHeap::new();
+        self.recurring_updates = generals_sim::recurring::RecurringUpdates::new();
     }
 
     /// Main update loop with delta time
@@ -233,7 +164,7 @@ impl GameLogic {
         self.sim_timing_snapshot()
     }
 
-    /// Wave 923: single host logic-tick boundary (dt/timing + optional budget).
+    /// Drive the same logic tick from host timing or an explicit elapsed time.
     #[inline]
     pub fn tick_logic_frame(
         &mut self,
@@ -249,9 +180,7 @@ impl GameLogic {
         }
     }
 
-    /// Drive the owning instance and deliver each completed logic step before
-    /// another step can synchronize from its shadow. The callback is internal:
-    /// it admits residuals, not arbitrary lifecycle or RNG-field mutation.
+    /// Deliver each completed frame before admitting the next step.
     pub(crate) fn tick_logic_frame_with_boundary(
         &mut self,
         dt: f32,
@@ -292,9 +221,7 @@ impl GameLogic {
     ) -> SimTimingSnapshot {
         let delta_time = timing.map_or(dt, FrameTiming::delta_seconds);
         let pending = self.step_simulation_with_callbacks(
-            delta_time,
-            budget.map(|budget| budget.max(1)),
-            None,
+            FixedStepBatch::new(delta_time, budget.map(|budget| budget.max(1))),
             |logic, fixed_dt| {
                 before_step(logic.frame);
                 logic.update_simulation_with_script_effects(fixed_dt, ui.reborrow())
@@ -362,9 +289,7 @@ impl GameLogic {
     ) -> gamelogic::GameLogicResult<()> {
         self.refresh_owned_bridge_pathfinder_states();
         let pending = self.step_simulation_with_callbacks(
-            LOGIC_FRAME_TIMESTEP,
-            None,
-            None,
+            FixedStepBatch::new(LOGIC_FRAME_TIMESTEP, None),
             |logic, dt| logic.update_simulation_with_script_effects(dt, effects.reborrow()),
             |_| {},
         )?;
@@ -401,9 +326,7 @@ impl GameLogic {
         max_fixed_steps: Option<usize>,
     ) {
         let pending = self.step_simulation_with_callbacks(
-            delta_time,
-            max_fixed_steps,
-            None,
+            FixedStepBatch::new(delta_time, max_fixed_steps),
             |logic, fixed_dt| logic.update_simulation(fixed_dt),
             |_| {},
         );
@@ -416,11 +339,9 @@ impl GameLogic {
 
     fn step_simulation_with_callbacks(
         &mut self,
-        delta_time: f32,
-        max_fixed_steps: Option<usize>,
-        resumed_counts: Option<FixedStepCounts>,
-        mut run_step: impl FnMut(&mut Self, f32) -> SimulationStepOutcome,
-        mut after_step: impl FnMut(&mut Self),
+        batch: FixedStepBatch,
+        run_step: impl FnMut(&mut Self, f32) -> SimulationStepOutcome,
+        after_step: impl FnMut(&mut Self),
     ) -> gamelogic::GameLogicResult<Option<NativeTickContinuation>> {
         if let Some(error) = self.object_retirement_error() {
             return Err(error);
@@ -428,116 +349,28 @@ impl GameLogic {
         if let Some(error) = self.team_creation_error() {
             return Err(error);
         }
-        // An already-started source step is completed even if one of its
-        // commands changed pause. Ordinary entry keeps its original guard.
-        if self.is_paused && resumed_counts.is_none() {
+        if self.is_paused && !batch.is_resuming() {
             return Ok(None);
         }
-        let counts = resumed_counts.unwrap_or_default();
-        self.simulation_clock.offer(delta_time);
 
-        let mut steps_run = counts.advanced;
-        let mut frozen_steps = counts.frozen;
-        let mut budget_hit = false;
-        let mut dropped_excess_time = false;
-
-        // Safe local handle keeps the canonical field installed throughout
-        // callbacks. Nested world steps restore the previous scoped handle.
+        // Keep the receiving RNG installed through world and completed-frame
+        // callbacks. Nested world steps restore the preceding scoped owner.
         let logic_rng = self.logic_random.clone();
-        let mut suspended = None;
-        let mut failure = None;
-        game_engine::common::random_value::with_session_random(&logic_rng, || {
-            loop {
-                // Frozen steps still evaluate scripts, so they burn real work
-                // and count against the same per-call catch-up budget even
-                // though they advance nothing.
-                match self.simulation_clock.admit_step(steps_run + frozen_steps, max_fixed_steps) {
-                    StepAdmission::Waiting => break,
-                    StepAdmission::BudgetExhausted {
-                        dropped_excess_time: dropped,
-                    } => {
-                        budget_hit = true;
-                        dropped_excess_time = dropped;
-                        break;
-                    }
-                    StepAdmission::Ready => {}
-                }
-                if let Some(error) = self.team_creation_error() {
-                    failure = Some(error);
-                    break;
-                }
-                let outcome = run_step(self, LOGIC_FRAME_TIMESTEP);
-                if let Some(error) = self.team_creation_error() {
-                    failure = Some(error);
-                    break;
-                }
-                match outcome {
-                    SimulationStepOutcome::Failed(error) => {
-                        failure = Some(error);
-                        break;
-                    }
-                    SimulationStepOutcome::Advanced => {
-                        self.simulation_clock.consume_step();
-                        // C++ m_frame++ (GameLogic.cpp:3795-3803): this loop is
-                        // the single frame/sim-time advancement owner.
-                        self.frame = self.frame.wrapping_add(1);
-                        self.host_trigger_world
-                            .lock()
-                            .unwrap_or_else(|e| e.into_inner())
-                            .set_current_frame(self.frame);
-                        self.simulation_clock.record_frame_advance(LOGIC_FRAME_TIMESTEP);
-                        steps_run += 1;
-                        // Residual admission belongs to this completed frame,
-                        // before the next host ingress. Keep the RNG owner
-                        // published through any factory/audio/effect draws.
-                        after_step(self);
-                        if let Some(error) = self.team_creation_error() {
-                            failure = Some(error);
-                            break;
-                        }
-                    }
-                    SimulationStepOutcome::CommandBoundary(phase) => {
-                        suspended = Some(NativeTickContinuation {
-                            receiving_services: std::sync::Arc::downgrade(&self.world_services),
-                            phase,
-                            prior_steps: steps_run,
-                            frozen_steps,
-                            max_fixed_steps,
-                            carry: self.simulation_clock.carried_seconds(),
-                            reset_seen: false,
-                            new_game_pending: false,
-                        });
-                        break;
-                    }
-                    SimulationStepOutcome::Frozen => {
-                        // C++ GameLogic.cpp:3614-3616 returned early, but the
-                        // engine still ticked that frame: a frozen step burns
-                        // real time. Consume the timestep so the loop cannot
-                        // spin on one step, and advance nothing else.
-                        self.simulation_clock.consume_step();
-                        frozen_steps += 1;
-                    }
-                }
+        let result = game_engine::common::random_value::with_session_random(&logic_rng, || {
+            batch.run(self, run_step, after_step)
+        })?;
+        match result {
+            FixedStepBatchOutcome::Complete(diagnostics) => {
+                self.last_fixed_step_diagnostics = diagnostics;
+                Ok(None)
             }
-        });
-
-        if let Some(error) = failure {
-            return Err(error);
+            FixedStepBatchOutcome::Suspended(phase, step) => Ok(Some(NativeTickContinuation {
+                receiving_services: std::sync::Arc::downgrade(&self.world_services),
+                phase,
+                step,
+                lifecycle: CommandLifecycle::default(),
+            })),
         }
-        if suspended.is_some() {
-            return Ok(suspended);
-        }
-        self.last_fixed_step_diagnostics = FixedStepDiagnostics {
-            steps_run,
-            frozen_steps,
-            budget_hit,
-            accumulated_time_seconds: self.simulation_clock.carried_seconds(),
-            dropped_excess_time,
-        };
-
-        // C++ processDestroyList runs inside every GameLogic::update
-        // (GameLogic.cpp:3762), not once after the fixed-step catch-up batch.
-        Ok(None)
     }
 
     /// Execute one simulation step.
@@ -769,9 +602,7 @@ mod failed_step_owner_tests {
                 let old_time = world.get_total_play_time();
                 let mut after_calls = 0;
                 let result = world.step_simulation_with_callbacks(
-                    LOGIC_FRAME_TIMESTEP,
-                    Some(3),
-                    None,
+                    FixedStepBatch::new(LOGIC_FRAME_TIMESTEP, Some(3)),
                     |_, _| {
                         SimulationStepOutcome::Failed(gamelogic::GameLogicError::Configuration(
                             "birth rejected".into(),

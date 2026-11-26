@@ -1,6 +1,7 @@
 //! Source post-command update phases; one kernel for an ordinary or resumed tick.
 //! GameLogic.cpp3672–3803. Extraction alone changes no clear dispatch behavior.
 use super::*;
+use generals_sim::recurring::{RecurringUpdate, UPDATE_SLEEP_NONE};
 
 impl GameLogic {
     pub(super) fn update_simulation_after_commands(
@@ -22,21 +23,21 @@ impl GameLogic {
         // C++ clamps registration wake frames to 1, but compares them with
         // the actual current frame. Clamping the tick repeats frame 1.
         let now = source_now;
-        while let Some(token) = self.host_sleepy.next_due(now) {
+        while let Some(token) = self.recurring_updates.next_due(now) {
             match token.kind {
-                super::super::HostSleepyKind::Construction => {
+                RecurringUpdate::Construction => {
                     self.update_construction_with_effects(&object_ids, dt, &mut ui);
                 }
-                super::super::HostSleepyKind::SellList => {
+                RecurringUpdate::SellList => {
                     self.update_sell_list_with_effects(&mut ui);
                 }
-                super::super::HostSleepyKind::DozerBoredRepair => {
+                RecurringUpdate::DozerBoredRepair => {
                     self.update_dozer_bored_repair();
                 }
-                super::super::HostSleepyKind::RebuildHoles => {
+                RecurringUpdate::RebuildHoles => {
                     self.update_rebuild_holes_with_effects(&mut ui);
                 }
-                super::super::HostSleepyKind::Movement => {
+                RecurringUpdate::Movement => {
                     // C++ AIUpdate updates the active state before
                     // AIUpdate::doLocomotor. Panic continuation must therefore
                     // inspect the path completed by the preceding locomotor
@@ -66,11 +67,11 @@ impl GameLogic {
                         return SimulationStepOutcome::Failed(error);
                     }
                 }
-                super::super::HostSleepyKind::SpecialPowers => {
+                RecurringUpdate::SpecialPowers => {
                     update_special_powers();
                 }
             }
-            self.host_sleepy.finish(token, now, 1);
+            self.recurring_updates.finish(token, now, UPDATE_SLEEP_NONE);
         }
 
         // Host superweapon residual: complete queued DaisyCutter / A10 / Scud /
@@ -94,9 +95,6 @@ impl GameLogic {
             .is_empty()
         {
             self.spawn_nuke_radiation_field_objects_for_new_fields_with_effects(&mut ui);
-        } else {
-            #[cfg(test)]
-            residual_gate_seam::note(&residual_gate_seam::NUKE_RADIATION_FIELDS);
         }
         // Wave 802: host-sole unless movement authority live: field-object lifetime is owned by
         // GW tick_status_timer_expirations + expire logs.
@@ -112,9 +110,6 @@ impl GameLogic {
             .is_empty()
         {
             self.spawn_anthrax_toxin_field_objects_for_new_fields_with_effects(&mut ui);
-        } else {
-            #[cfg(test)]
-            residual_gate_seam::note(&residual_gate_seam::ANTHRAX_TOXIN_FIELDS);
         }
         // Wave 802: host-sole unless movement authority live: field-object lifetime is owned by
         // GW tick_status_timer_expirations + expire logs.
@@ -136,9 +131,6 @@ impl GameLogic {
         // insert; the missions map is insert-only). Skip the pass.
         if self.host_paradrops.mission_count() > 0 {
             self.update_paradrops_with_effects(&mut ui);
-        } else {
-            #[cfg(test)]
-            residual_gate_seam::note(&residual_gate_seam::PARADROPS);
         }
 
         // Host DeliverPayload cargo residual: DropDelay-staggered spawn of payload
@@ -148,9 +140,6 @@ impl GameLogic {
         // side queues are populated only alongside a mission insert).
         if self.host_deliver_payloads.mission_count() > 0 {
             self.update_deliver_payloads_with_effects(&mut ui);
-        } else {
-            #[cfg(test)]
-            residual_gate_seam::note(&residual_gate_seam::DELIVER_PAYLOADS);
         }
 
         // Host MoneyCrateCollide residual: unit + BuildingPickup cash collect.
@@ -166,9 +155,6 @@ impl GameLogic {
         // ambush spawn, which requires a mission).
         if self.host_ambushes.mission_count() > 0 {
             self.update_ambushes_with_effects(&mut ui);
-        } else {
-            #[cfg(test)]
-            residual_gate_seam::note(&residual_gate_seam::AMBUSHES);
         }
 
         // Host USA Leaflet Drop residual: disable enemy infantry/vehicles after Delay.
@@ -183,9 +169,6 @@ impl GameLogic {
         // re-pulse, so mission_count — any phase — is the only safe test).
         if self.host_leaflet_drops.mission_count() > 0 {
             self.update_leaflet_drops();
-        } else {
-            #[cfg(test)]
-            residual_gate_seam::note(&residual_gate_seam::LEAFLET_DROPS);
         }
 
         // Host GLA Sneak Attack residual: spawn tunnel + shockwave after Lifetime delay.
@@ -197,9 +180,6 @@ impl GameLogic {
             if let Err(error) = self.update_sneak_attacks_with_effects(&mut ui) {
                 return SimulationStepOutcome::Failed(error);
             }
-        } else {
-            #[cfg(test)]
-            residual_gate_seam::note(&residual_gate_seam::SNEAK_ATTACKS);
         }
 
         // Host mine / demo-trap residual: proximity trigger + timed detonation.
@@ -289,18 +269,12 @@ impl GameLogic {
             if let Err(error) = self.update_fire_base_shell_projectiles_with_effects(&mut ui) {
                 return SimulationStepOutcome::Failed(error);
             }
-        } else {
-            #[cfg(test)]
-            residual_gate_seam::note(&residual_gate_seam::FIRE_BASE_SHELLS);
         }
         // Gate (latched counter): see the technical_rpg gate above.
         if self.technical_cannon_shells_spawned > 0 {
             if let Err(error) = self.update_technical_cannon_shell_projectiles_with_effects(&mut ui) {
                 return SimulationStepOutcome::Failed(error);
             }
-        } else {
-            #[cfg(test)]
-            residual_gate_seam::note(&residual_gate_seam::TECHNICAL_CANNON_SHELLS);
         }
         // Gate: no queued cleanup order -> take_orders/restore_orders are
         // provable no-ops and the per-order hazard scan never runs.
@@ -308,18 +282,12 @@ impl GameLogic {
             if let Err(error) = self.update_cleanup_area_orders_with_effects(&mut ui) {
                 return SimulationStepOutcome::Failed(error);
             }
-        } else {
-            #[cfg(test)]
-            residual_gate_seam::note(&residual_gate_seam::CLEANUP_AREA_ORDERS);
         }
         // Gate (latched counter): see the technical_rpg gate above.
         if self.cleanup_stream_missiles_spawned > 0 {
             if let Err(error) = self.update_cleanup_stream_projectiles_with_effects(&mut ui) {
                 return SimulationStepOutcome::Failed(error);
             }
-        } else {
-            #[cfg(test)]
-            residual_gate_seam::note(&residual_gate_seam::CLEANUP_STREAM_MISSILES);
         }
         self.update_missile_defender_laser_beam_objects_with_effects(&mut ui);
 
@@ -394,9 +362,6 @@ impl GameLogic {
             if let Err(error) = self.update_helix_napalm_firestorms_with_effects(&mut ui) {
                 return SimulationStepOutcome::Failed(error);
             }
-        } else {
-            #[cfg(test)]
-            residual_gate_seam::note(&residual_gate_seam::HELIX_NAPALM_FIRESTORMS);
         }
         // Wave 804: host-sole unless movement authority live: residual owned by GW expire + logs.
         {
@@ -542,9 +507,6 @@ impl GameLogic {
             if let Err(error) = self.update_frenzy_invisible_markers_with_effects(&mut ui) {
                 return SimulationStepOutcome::Failed(error);
             }
-        } else {
-            #[cfg(test)]
-            residual_gate_seam::note(&residual_gate_seam::FRENZY_MARKERS);
         }
         if let Err(error) = self.update_gps_scrambler_grow_with_effects(&mut ui) {
             return SimulationStepOutcome::Failed(error);
@@ -553,9 +515,6 @@ impl GameLogic {
         // before any world work; skip the activation scan entirely.
         if self.spy_drones.activations_mut().iter().any(|a| a.growing) {
             self.update_spy_drone_grow();
-        } else {
-            #[cfg(test)]
-            residual_gate_seam::note(&residual_gate_seam::SPY_DRONE_GROW);
         }
         // Gate: zero active nuke-cannon radiation zones -> the unconditional
         // whole-world object-position snapshot, plan_due_ticks, and
@@ -564,9 +523,6 @@ impl GameLogic {
             if let Err(error) = self.update_nuke_cannon_radiation_zones_with_effects(&mut ui) {
                 return SimulationStepOutcome::Failed(error);
             }
-        } else {
-            #[cfg(test)]
-            residual_gate_seam::note(&residual_gate_seam::NUKE_CANNON_ZONES);
         }
         // Wave 825: host-sole unless movement authority live: zone/field damage sole-ticks after GW writeback.
         {
