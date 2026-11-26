@@ -65,7 +65,6 @@ members = [
     "Code/Tools/DebugWindow",
     "Code/Tools/ImagePacker",
     "Code/Tools/MapCacheBuilder",
-    "Code/Tools/Launcher",
 
 ]
 
