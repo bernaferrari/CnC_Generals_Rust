@@ -109,36 +109,6 @@ impl MinimapDimensions {
     }
 }
 
-/// Wave 79 minimap residual honesty pack (dimensions / FOW shade / soft-edge).
-///
-/// Fail-closed: not full SAGE Radar/Minimap GPU atlas or live click-to-scroll camera.
-pub fn honesty_minimap_residual_pack_wave79() -> bool {
-    let std = MinimapDimensions::standard();
-    let visible =
-        MinimapFowManager::blend_fow_with_base([200, 180, 160, 255], MinimapFowState::Visible);
-    let explored =
-        MinimapFowManager::blend_fow_with_base([200, 180, 160, 255], MinimapFowState::Explored);
-    let hidden =
-        MinimapFowManager::blend_fow_with_base([200, 180, 160, 255], MinimapFowState::Hidden);
-    std.width == MINIMAP_STANDARD_SIZE
-        && std.height == MINIMAP_STANDARD_SIZE
-        && (MINIMAP_DEFAULT_WORLD_SPAN - 1024.0).abs() < 0.01
-        && (MINIMAP_DEFAULT_SCREEN_ORIGIN - 10.0).abs() < 0.01
-        && (MINIMAP_FOW_SHADE_VISIBLE - 1.0).abs() < 0.001
-        && (MINIMAP_FOW_SHADE_EXPLORED - 0.5).abs() < 0.001
-        && (MINIMAP_FOW_SHADE_HIDDEN - 0.12).abs() < 0.001
-        && MinimapFowManager::state_to_rgba(MinimapFowState::Hidden) == MINIMAP_FOW_RGBA_HIDDEN
-        && MinimapFowManager::state_to_rgba(MinimapFowState::Explored) == MINIMAP_FOW_RGBA_EXPLORED
-        && MinimapFowManager::state_to_rgba(MinimapFowState::Visible) == MINIMAP_FOW_RGBA_VISIBLE
-        && visible == [200, 180, 160, 255]
-        && explored[0] < visible[0]
-        && hidden[0] < explored[0]
-        && MINIMAP_SOFTEN_SELF_WEIGHT + MINIMAP_SOFTEN_NEIGHBOR_WEIGHT == MINIMAP_SOFTEN_WEIGHT_SUM
-        && PresentationFowGrid::CELL_HIDDEN == 0
-        && PresentationFowGrid::CELL_EXPLORED == 1
-        && PresentationFowGrid::CELL_VISIBLE == 2
-}
-
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub enum MinimapFowState {
     Hidden,
@@ -1065,8 +1035,33 @@ mod tests {
     }
 
     #[test]
-    fn minimap_residual_pack_wave79_honesty() {
-        assert!(honesty_minimap_residual_pack_wave79());
+    fn minimap_defaults_and_fow_blending_match_retail_residuals() {
+        let standard = MinimapDimensions::standard();
+        let base = [200, 180, 160, 255];
+        let visible = MinimapFowManager::blend_fow_with_base(base, MinimapFowState::Visible);
+        let explored = MinimapFowManager::blend_fow_with_base(base, MinimapFowState::Explored);
+        let hidden = MinimapFowManager::blend_fow_with_base(base, MinimapFowState::Hidden);
+
+        assert_eq!(standard.width, MINIMAP_STANDARD_SIZE);
+        assert_eq!(standard.height, MINIMAP_STANDARD_SIZE);
+        assert_eq!(MINIMAP_DEFAULT_WORLD_SPAN, 1024.0);
+        assert_eq!(MINIMAP_DEFAULT_SCREEN_ORIGIN, 10.0);
+        assert_eq!(MINIMAP_FOW_SHADE_VISIBLE, 1.0);
+        assert_eq!(MINIMAP_FOW_SHADE_EXPLORED, 0.5);
+        assert_eq!(MINIMAP_FOW_SHADE_HIDDEN, 0.12);
+        assert_eq!(MinimapFowManager::state_to_rgba(MinimapFowState::Hidden), MINIMAP_FOW_RGBA_HIDDEN);
+        assert_eq!(MinimapFowManager::state_to_rgba(MinimapFowState::Explored), MINIMAP_FOW_RGBA_EXPLORED);
+        assert_eq!(MinimapFowManager::state_to_rgba(MinimapFowState::Visible), MINIMAP_FOW_RGBA_VISIBLE);
+        assert_eq!(visible, base);
+        assert!(explored[0] < visible[0]);
+        assert!(hidden[0] < explored[0]);
+        assert_eq!(
+            MINIMAP_SOFTEN_SELF_WEIGHT + MINIMAP_SOFTEN_NEIGHBOR_WEIGHT,
+            MINIMAP_SOFTEN_WEIGHT_SUM
+        );
+        assert_eq!(PresentationFowGrid::CELL_HIDDEN, 0);
+        assert_eq!(PresentationFowGrid::CELL_EXPLORED, 1);
+        assert_eq!(PresentationFowGrid::CELL_VISIBLE, 2);
     }
 
     #[test]

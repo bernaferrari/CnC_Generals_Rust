@@ -56,35 +56,6 @@ pub const AI_SKIRMISH_STRUCTURE_TIMER_FRAMES: u32 =
 pub const AI_SKIRMISH_TEAM_TIMER_FRAMES: u32 =
     (AI_SKIRMISH_TEAM_SECONDS as u32).saturating_mul(AI_SKIRMISH_LOGIC_FPS);
 
-/// Honesty: AI skirmish residual pack (Wave 77).
-///
-/// Freezes AIPlayer/AIData default timer + wealth modifiers + base-defense
-/// extra distance used by Medium skirmish AI residual path.
-/// Fail-closed: not full AI.ini side build list / live dozer pathfinding.
-pub fn honesty_ai_skirmish_residual_pack_wave77() -> bool {
-    // Retail Default/AIData.ini:
-    // StructureSeconds=0, TeamSeconds=10, Wealthy=7000, Poor=2000,
-    // Structures/TeamsPoorRate=0.6, Structures/TeamsWealthyRate=2.0
-    AI_SKIRMISH_LOGIC_FPS == 30
-        && (AI_SKIRMISH_STRUCTURE_SECONDS - 0.0).abs() < 0.01
-        && (AI_SKIRMISH_TEAM_SECONDS - 10.0).abs() < 0.01
-        && AI_SKIRMISH_RESOURCES_POOR == 2000
-        && AI_SKIRMISH_RESOURCES_WEALTHY == 7000
-        && AI_SKIRMISH_RESOURCES_WEALTHY > AI_SKIRMISH_RESOURCES_POOR
-        && (AI_SKIRMISH_STRUCTURES_POOR_MOD - 0.6).abs() < 0.01
-        && (AI_SKIRMISH_STRUCTURES_WEALTHY_MOD - 2.0).abs() < 0.01
-        && (AI_SKIRMISH_TEAMS_POOR_MOD - 0.6).abs() < 0.01
-        && (AI_SKIRMISH_TEAMS_WEALTHY_MOD - 2.0).abs() < 0.01
-        && AI_SKIRMISH_REBUILD_DELAY_SECONDS == 30
-        && (AI_SKIRMISH_BASE_DEFENSE_EXTRA_DISTANCE - 150.0).abs() < 0.01
-        && AI_SKIRMISH_STRUCTURE_TIMER_FRAMES == 0 // 0s * 30 FPS
-        && AI_SKIRMISH_TEAM_TIMER_FRAMES == 300 // 10s * 30 FPS
-        // C++ divides timer by rate: poor 0.6 slows, wealthy 2.0 speeds.
-        && AI_SKIRMISH_STRUCTURES_POOR_MOD > 0.0
-        && AI_SKIRMISH_STRUCTURES_POOR_MOD < 1.0
-        && AI_SKIRMISH_STRUCTURES_WEALTHY_MOD > 1.0
-}
-
 #[derive(Debug, Clone)]
 pub struct AiSkirmishActivityResult {
     pub config_applied: bool,
@@ -549,10 +520,8 @@ mod tests {
         );
     }
 
-    /// Wave 77 residual: AI skirmish structure/team timer + wealth mod pack honesty.
     #[test]
-    fn ai_skirmish_residual_pack_wave77_honesty() {
-        assert!(honesty_ai_skirmish_residual_pack_wave77());
+    fn ai_skirmish_timer_and_wealth_defaults_match_retail() {
         assert_eq!(AI_SKIRMISH_LOGIC_FPS, 30);
         assert!((AI_SKIRMISH_STRUCTURE_SECONDS - 0.0).abs() < 0.01);
         assert!((AI_SKIRMISH_TEAM_SECONDS - 10.0).abs() < 0.01);
@@ -564,5 +533,11 @@ mod tests {
         assert!((AI_SKIRMISH_TEAMS_POOR_MOD - 0.6).abs() < 0.01);
         assert!((AI_SKIRMISH_BASE_DEFENSE_EXTRA_DISTANCE - 150.0).abs() < 0.01);
         assert_eq!(AI_SKIRMISH_REBUILD_DELAY_SECONDS, 30);
+        assert!(AI_SKIRMISH_RESOURCES_WEALTHY > AI_SKIRMISH_RESOURCES_POOR);
+        assert!((AI_SKIRMISH_STRUCTURES_WEALTHY_MOD - 2.0).abs() < 0.01);
+        assert!((AI_SKIRMISH_TEAMS_WEALTHY_MOD - 2.0).abs() < 0.01);
+        assert!(AI_SKIRMISH_STRUCTURES_POOR_MOD > 0.0);
+        assert!(AI_SKIRMISH_STRUCTURES_POOR_MOD < 1.0);
+        assert!(AI_SKIRMISH_STRUCTURES_WEALTHY_MOD > 1.0);
     }
 }

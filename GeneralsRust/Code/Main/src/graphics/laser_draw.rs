@@ -183,16 +183,6 @@ impl LaserDrawGpu {
     }
 }
 
-/// Honesty: execute / forward path must call `draw` on uploaded laser verts.
-pub fn honesty_laser_additive_draw_in_execute(execute_src: &str, forward_src: &str) -> bool {
-    let execute_has_draw = execute_src.contains("enqueue_laser_additive_draw")
-        || execute_src.contains("draw_uploaded_lasers");
-    let forward_has_draw = forward_src.contains("render_pass.draw(")
-        && forward_src.contains("laser")
-        || forward_src.contains(".draw(") && forward_src.contains("laser_vertex");
-    execute_has_draw && (forward_has_draw || execute_src.contains("laser_draw_gpu"))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

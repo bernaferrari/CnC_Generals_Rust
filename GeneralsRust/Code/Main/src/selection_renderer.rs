@@ -54,30 +54,6 @@ pub const SELECTION_PULSE_ALPHA_BIAS: f32 = 0.7;
 pub const SELECTION_PULSE_ALPHA_MIN: f32 = 0.4;
 pub const SELECTION_PULSE_ALPHA_MAX: f32 = 1.0;
 
-/// Wave 79 selection/HUD residual honesty pack.
-///
-/// Fail-closed: not full Drawable::drawIcon UI / health-bar bone attach GPU.
-pub fn honesty_selection_hud_residual_pack_wave79() -> bool {
-    let r = SelectionRenderer::new();
-    r.selection_color == SELECTION_COLOR_RGBA
-        && r.hover_color == SELECTION_HOVER_COLOR_RGBA
-        && r.friendly_color == SELECTION_FRIENDLY_COLOR_RGBA
-        && r.enemy_color == SELECTION_ENEMY_COLOR_RGBA
-        && r.neutral_color == SELECTION_NEUTRAL_COLOR_RGBA
-        && r.health_bar_bg_color == SELECTION_HEALTH_BAR_BG_RGBA
-        && r.health_bar_fg_color == SELECTION_HEALTH_BAR_FG_RGBA
-        && (r.selection_circle_radius - SELECTION_CIRCLE_RADIUS).abs() < 0.001
-        && (r.selection_circle_thickness - SELECTION_CIRCLE_THICKNESS).abs() < 0.001
-        && (r.health_bar_width - SELECTION_HEALTH_BAR_WIDTH).abs() < 0.001
-        && (r.health_bar_height - SELECTION_HEALTH_BAR_HEIGHT).abs() < 0.001
-        && (r.health_bar_offset - SELECTION_HEALTH_BAR_OFFSET).abs() < 0.001
-        && (r.selection_pulse_speed - SELECTION_PULSE_SPEED).abs() < 0.001
-        && (r.hover_fade_speed - SELECTION_HOVER_FADE_SPEED).abs() < 0.001
-        && (SELECTION_HOVER_RADIUS_SCALE - 1.2).abs() < 0.001
-        && (SELECTION_PULSE_ALPHA_AMPLITUDE - 0.3).abs() < 0.001
-        && (SELECTION_PULSE_ALPHA_BIAS - 0.7).abs() < 0.001
-}
-
 /// Visual feedback for unit selection and highlighting
 pub struct SelectionRenderer {
     /// Colors for different selection states
@@ -853,8 +829,25 @@ mod presentation_identity_tests {
     use glam::{Mat4, Vec3};
 
     #[test]
-    fn selection_hud_residual_pack_wave79_honesty() {
-        assert!(honesty_selection_hud_residual_pack_wave79());
+    fn selection_renderer_defaults_match_retail_residuals() {
+        let renderer = SelectionRenderer::new();
+        assert_eq!(renderer.selection_color, SELECTION_COLOR_RGBA);
+        assert_eq!(renderer.hover_color, SELECTION_HOVER_COLOR_RGBA);
+        assert_eq!(renderer.friendly_color, SELECTION_FRIENDLY_COLOR_RGBA);
+        assert_eq!(renderer.enemy_color, SELECTION_ENEMY_COLOR_RGBA);
+        assert_eq!(renderer.neutral_color, SELECTION_NEUTRAL_COLOR_RGBA);
+        assert_eq!(renderer.health_bar_bg_color, SELECTION_HEALTH_BAR_BG_RGBA);
+        assert_eq!(renderer.health_bar_fg_color, SELECTION_HEALTH_BAR_FG_RGBA);
+        assert!((renderer.selection_circle_radius - SELECTION_CIRCLE_RADIUS).abs() < 0.001);
+        assert!((renderer.selection_circle_thickness - SELECTION_CIRCLE_THICKNESS).abs() < 0.001);
+        assert!((renderer.health_bar_width - SELECTION_HEALTH_BAR_WIDTH).abs() < 0.001);
+        assert!((renderer.health_bar_height - SELECTION_HEALTH_BAR_HEIGHT).abs() < 0.001);
+        assert!((renderer.health_bar_offset - SELECTION_HEALTH_BAR_OFFSET).abs() < 0.001);
+        assert!((renderer.selection_pulse_speed - SELECTION_PULSE_SPEED).abs() < 0.001);
+        assert!((renderer.hover_fade_speed - SELECTION_HOVER_FADE_SPEED).abs() < 0.001);
+        assert_eq!(SELECTION_HOVER_RADIUS_SCALE, 1.2);
+        assert_eq!(SELECTION_PULSE_ALPHA_AMPLITUDE, 0.3);
+        assert_eq!(SELECTION_PULSE_ALPHA_BIAS, 0.7);
     }
 
     #[test]

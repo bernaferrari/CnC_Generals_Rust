@@ -16,16 +16,6 @@ use winit::keyboard::{Key, NamedKey};
 /// Screen-pixel residual: drag distance above this becomes box selection (not click).
 pub const DRAG_SELECT_THRESHOLD_PX: f32 = 5.0;
 
-/// Wave 79 input residual honesty pack (drag threshold + double-click gate).
-///
-/// Fail-closed: not full C++ InGameUI drag / MessageDispatcher remapping.
-pub fn honesty_input_residual_pack_wave79() -> bool {
-    (DRAG_SELECT_THRESHOLD_PX - 5.0).abs() < 0.001
-        && (DOUBLE_CLICK_THRESHOLD_SECS - 0.3).abs() < 0.001
-        && DRAG_SELECT_THRESHOLD_PX > 0.0
-        && DOUBLE_CLICK_THRESHOLD_SECS > 0.0
-}
-
 /// Integration handler for unit control input
 pub struct UnitInputHandler {
     /// Unit control system
@@ -446,7 +436,8 @@ mod tests {
     }
 
     #[test]
-    fn input_residual_pack_wave79_honesty() {
-        assert!(honesty_input_residual_pack_wave79());
+    fn drag_threshold_and_double_click_defaults_match_retail_residuals() {
+        assert_eq!(DRAG_SELECT_THRESHOLD_PX, 5.0);
+        assert_eq!(DOUBLE_CLICK_THRESHOLD_SECS, 0.3);
     }
 }
