@@ -1379,6 +1379,68 @@ fn live_publication_keeps_receiving_player_facts_with_stale_shadow() {
 }
 
 #[test]
+fn live_publication_reads_body_and_pose_from_receiving_objects() {
+    use crate::game_logic::{Object, host_enum_table_residual::HostBodyDamageType};
+    use crate::gameworld_shadow::GameWorldShadow;
+
+    let id = ObjectId(42);
+    let mut template = ThingTemplate::new("PublicationUnit");
+    template.set_health(100.0);
+    let mut world = GameLogic::new();
+    world.add_object(Object::new(template.clone(), id, Team::USA));
+    let mut peer = GameLogic::new();
+    peer.add_object(Object::new(template, id, Team::USA));
+
+    let mut shadow = GameWorldShadow::new(16);
+    shadow.sync_from_host(&world);
+    let (object, partition) = world.host_object_and_partition_mut(id).unwrap();
+    let position = glam::Vec3::new(24.0, 4.0, 35.0);
+    object.set_position_with_partition_owner(position, 0, &mut Default::default(), partition);
+    object.set_orientation_with_partition_owner(1.25, partition);
+    object.health.current = 37.0;
+    object.health.maximum = 150.0;
+    object.max_health = 150.0;
+    object.body_damage_state = HostBodyDamageType::ReallyDamaged;
+
+    for with_victory in [false, true] {
+        let frame = PresentationFrame::try_publish_for_engine_with_runtime_heightmap(
+            &mut world,
+            0,
+            Some(&shadow),
+            None,
+            with_victory,
+        )
+        .unwrap();
+        let row = frame.objects.iter().find(|row| row.id == id).unwrap();
+        assert_eq!(row.position, position);
+        assert_eq!(row.orientation, 1.25);
+        assert_eq!((row.health_current, row.health_max), (37.0, 150.0));
+        assert_eq!(
+            row.body_damage_state,
+            HostBodyDamageType::ReallyDamaged.ordinal()
+        );
+        assert!(!row.destroyed);
+    }
+
+    // A stale dead observation must leave the receiving actor in the frame.
+    let entity = shadow.entity_for_host(id).unwrap();
+    let stale = shadow.world_mut().world_mut().entity_mut(entity).unwrap();
+    stale.health = 0.0;
+    stale.destroyed = true;
+    let frame = PresentationFrame::try_publish_for_engine_with_runtime_heightmap(
+        &mut peer,
+        0,
+        Some(&shadow),
+        None,
+        false,
+    )
+    .unwrap();
+    let row = frame.objects.iter().find(|row| row.id == id).unwrap();
+    assert_eq!(row.health_current, 100.0);
+    assert!(!row.destroyed);
+}
+
+#[test]
 fn host_player_facts_survive_shadow_object_overlay() {
     use crate::game_logic::GameLogic;
     use crate::gameworld_shadow::GameWorldShadow;

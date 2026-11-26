@@ -2,7 +2,47 @@ use super::*;
 use super::build::{HostRoster, RiderChangeRosters};
 use crate::game_logic::KindOfSet;
 use game_engine::common::fast_hash::{FxHashMap, FxHashSet};
+use gamelogic::world::entities::Entity;
 use std::sync::Arc;
+
+/// Body and pose inputs for a row assembled with shadow metadata.
+#[derive(Clone, Copy)]
+struct ObjectBodyObservation {
+    position: Vec3,
+    orientation: f32,
+    health: f32,
+    max_health: f32,
+    status_destroyed: bool,
+    damage_state: u8,
+}
+
+impl ObjectBodyObservation {
+    fn capture(logic: Option<&GameLogic>, id: Option<ObjectId>, entity: &Entity) -> Self {
+        if let Some(object) = logic.zip(id).and_then(|(logic, id)| logic.host_object(id)) {
+            return Self {
+                position: object.get_position(),
+                orientation: object.get_orientation(),
+                health: object.health.current.max(0.0),
+                max_health: object.max_health.max(object.health.current).max(1.0),
+                status_destroyed: object.status.destroyed,
+                damage_state: object.body_damage_state.ordinal(),
+            };
+        }
+        let position = entity.transform.position;
+        Self {
+            position: Vec3::new(position.x, position.y, position.z),
+            orientation: entity.transform.orientation,
+            health: entity.health,
+            max_health: entity.max_health,
+            status_destroyed: entity.destroyed,
+            damage_state: entity.body_damage_state,
+        }
+    }
+
+    fn retired(self) -> bool {
+        self.status_destroyed && self.health <= 0.0
+    }
+}
 
 impl PresentationFrame {
     /// Freeze the only clip record currently owned by a coupled GameWorld
@@ -35,6 +75,14 @@ impl PresentationFrame {
         &mut self,
         shadow: &crate::gameworld_shadow::GameWorldShadow,
     ) -> usize {
+        self.overlay_observed_objects(shadow, None)
+    }
+
+    fn overlay_observed_objects(
+        &mut self,
+        shadow: &crate::gameworld_shadow::GameWorldShadow,
+        logic: Option<&GameLogic>,
+    ) -> usize {
         let asset_manager = self.asset_owner.0.as_deref();
         let mut updated = 0;
         for obj in &mut self.objects {
@@ -44,6 +92,7 @@ impl PresentationFrame {
                 shadow,
                 asset_manager,
                 entity,
+                logic,
             ));
         }
         self.gameworld_overlay_stamped = updated;
@@ -55,15 +104,17 @@ impl PresentationFrame {
         shadow: &crate::gameworld_shadow::GameWorldShadow,
         asset_manager: Option<&std::sync::Mutex<crate::assets::AssetManager>>,
         entity: Option<gamelogic::world::entities::EntityId>,
+        logic: Option<&GameLogic>,
     ) -> bool {
         let Some(entity) = entity else {
             return false;
         };
         if let Some(ent) = shadow.world().entity(entity) {
-            return Self::overlay_gameworld_object(obj, ent, shadow, asset_manager, false);
+            let body = ObjectBodyObservation::capture(logic, Some(obj.id), ent);
+            return Self::overlay_gameworld_object(obj, ent, shadow, asset_manager, false, body);
         }
         // A mapped entity may have been retired since the host frame was built.
-        if obj.destroyed {
+        if obj.destroyed || logic.is_some_and(|logic| logic.host_object(obj.id).is_some()) {
             return false;
         }
         obj.destroyed = true;
@@ -77,22 +128,17 @@ impl PresentationFrame {
         shadow: &crate::gameworld_shadow::GameWorldShadow,
         asset_manager: Option<&std::sync::Mutex<crate::assets::AssetManager>>,
         draw_models_are_current: bool,
+        body: ObjectBodyObservation,
     ) -> bool {
-        let pos = glam::Vec3::new(
-            ent.transform.position.x,
-            ent.transform.position.y,
-            ent.transform.position.z,
-        );
-        let h = ent.health.max(0.0);
-        let destroyed = h <= 0.0 || ent.destroyed;
-        // Always apply shadow last-writer residual for presentation identity.
+        let h = body.health.max(0.0);
+        let destroyed = h <= 0.0 || body.status_destroyed;
         let mut dirty = false;
-        if (obj.position - pos).length_squared() > 1e-6 {
-            obj.position = pos;
+        if (obj.position - body.position).length_squared() > 1e-6 {
+            obj.position = body.position;
             dirty = true;
         }
-        if (obj.orientation - ent.transform.orientation).abs() > 1e-5 {
-            obj.orientation = ent.transform.orientation;
+        if (obj.orientation - body.orientation).abs() > 1e-5 {
+            obj.orientation = body.orientation;
             dirty = true;
         }
         let move_dest = ent.move_target.map(|d| glam::Vec3::new(d[0], d[1], d[2]));
@@ -116,8 +162,8 @@ impl PresentationFrame {
             obj.health_current = h;
             dirty = true;
         }
-        if (obj.health_max - ent.max_health).abs() > 1e-3 && ent.max_health > 0.0 {
-            obj.health_max = ent.max_health;
+        if (obj.health_max - body.max_health).abs() > 1e-3 && body.max_health > 0.0 {
+            obj.health_max = body.max_health;
             dirty = true;
         }
         if obj.destroyed != destroyed {
@@ -142,8 +188,8 @@ impl PresentationFrame {
             obj.team_color = ent.team_color;
             dirty = true;
         }
-        if obj.body_damage_state != ent.body_damage_state {
-            obj.body_damage_state = ent.body_damage_state;
+        if obj.body_damage_state != body.damage_state {
+            obj.body_damage_state = body.damage_state;
             dirty = true;
         }
         // Identity residual (template/team/type) from shadow — no live dual-read.
@@ -1252,6 +1298,7 @@ impl PresentationFrame {
             ent,
             command_set_name,
             draw_models.into(),
+            ObjectBodyObservation::capture(None, None, ent),
         )
     }
 
@@ -1312,6 +1359,7 @@ impl PresentationFrame {
         ent: &gamelogic::world::entities::Entity,
         command_set_name: String,
         draw_models: Arc<[crate::assets::AuthoredDrawModel]>,
+        body: ObjectBodyObservation,
     ) -> RenderableObject {
         let team = match ent.team_ordinal {
             0 => crate::game_logic::Team::USA,
@@ -1319,17 +1367,15 @@ impl PresentationFrame {
             2 => crate::game_logic::Team::GLA,
             _ => crate::game_logic::Team::Neutral,
         };
-        let p = ent.transform.position;
-        let pos = glam::Vec3::new(p.x, p.y, p.z);
         let vel = glam::Vec3::new(ent.velocity[0], ent.velocity[1], ent.velocity[2]);
         let move_destination = ent.move_target.map(|p| glam::Vec3::new(p[0], p[1], p[2]));
         let attack_target = ent
             .attack_target
             .map(|eid| crate::game_logic::ObjectId(eid.get()));
-        let health_max = if ent.max_health > 0.0 {
-            ent.max_health
-        } else if ent.health > 0.0 {
-            ent.health
+        let health_max = if body.max_health > 0.0 {
+            body.max_health
+        } else if body.health > 0.0 {
+            body.health
         } else {
             1.0
         };
@@ -1349,8 +1395,8 @@ impl PresentationFrame {
             // overlay_host_fx_residual resolves the corresponding host ID.
             owner_player_id: None,
             team_color: ent.team_color,
-            position: pos,
-            orientation: ent.transform.orientation,
+            position: body.position,
+            orientation: body.orientation,
             float_yaw: ent.float_yaw,
             float_pitch: ent.float_pitch,
             // Wave 498: filled by overlay_host_fx_residual when host is available.
@@ -1457,20 +1503,20 @@ impl PresentationFrame {
             special_power_ready_template_id: (!ent.special_power_ready_template_name.is_empty())
                 .then_some(ent.special_power_ready_template_id),
             special_power_override_destination: None,
-            health_current: ent.health.max(0.0),
+            health_current: body.health.max(0.0),
             selection_flash_color: None,
 
             health_max,
             selected: ent.selected,
             is_deployed: ent.deployed,
             selection_flash_remaining: ent.selection_flash_remaining,
-            destroyed: ent.destroyed || ent.health <= 0.0,
+            destroyed: body.status_destroyed || body.health <= 0.0,
             // Wave 488: carry GW entity presentation channels (not hard-zero).
             model_condition_bits: ent.model_condition_bits,
             radar_active: ent.radar_active,
             radar_extend_complete: ent.radar_extend_complete,
             production_door_phase: ent.production_door_phase,
-            body_damage_state: ent.body_damage_state,
+            body_damage_state: body.damage_state,
             // Wave 498 defaults; overlay_host_fx_residual stamps live host FX residual.
             damage_fx_name: ent.damage_fx_name.clone(),
             bone_fx_name: ent.bone_fx_name.clone(),
@@ -1848,16 +1894,25 @@ impl PresentationFrame {
         &mut self,
         shadow: &crate::gameworld_shadow::GameWorldShadow,
     ) -> usize {
+        self.append_observed_objects(shadow, None)
+    }
+
+    fn append_observed_objects(
+        &mut self,
+        shadow: &crate::gameworld_shadow::GameWorldShadow,
+        logic: Option<&GameLogic>,
+    ) -> usize {
         let existing: FxHashSet<u32> = self.objects.iter().map(|o| o.id.0).collect();
         let asset_manager = self.asset_owner.0.as_deref();
         let mut appended = 0usize;
         let mut command_sets = FxHashMap::default();
         for ent in shadow.world().world().entities() {
-            if ent.destroyed && ent.health <= 0.0 {
+            let host = shadow.host_for_entity(ent.id);
+            let body = ObjectBodyObservation::capture(logic, host, ent);
+            if body.retired() {
                 continue;
             }
-            let host_id = shadow
-                .host_for_entity(ent.id)
+            let host_id = host
                 .unwrap_or_else(|| crate::game_logic::ObjectId(0x8000_0000 | ent.id.get()));
             if existing.contains(&host_id.0) {
                 continue;
@@ -1871,6 +1926,7 @@ impl PresentationFrame {
                 ent,
                 command_set_name,
                 draw_models.into(),
+                body,
             ));
             appended += 1;
         }
@@ -2348,13 +2404,21 @@ impl PresentationFrame {
     /// empty-world fallback. Direct host drawables are frozen either way.
     fn host_roster_for_gameworld(
         shadow: Option<&crate::gameworld_shadow::GameWorldShadow>,
+        logic: &GameLogic,
     ) -> super::build::HostRoster {
         if shadow.is_some_and(|shadow| {
             shadow
                 .world()
                 .world()
                 .entities()
-                .any(|ent| !(ent.destroyed && ent.health <= 0.0))
+                .any(|ent| {
+                    !ObjectBodyObservation::capture(
+                        Some(logic),
+                        shadow.host_for_entity(ent.id),
+                        ent,
+                    )
+                    .retired()
+                })
         }) {
             super::build::HostRoster::DrawablesOnly
         } else {
@@ -2368,6 +2432,14 @@ impl PresentationFrame {
         &mut self,
         shadow: &crate::gameworld_shadow::GameWorldShadow,
     ) -> usize {
+        self.rebuild_observed_objects(shadow, None)
+    }
+
+    fn rebuild_observed_objects(
+        &mut self,
+        shadow: &crate::gameworld_shadow::GameWorldShadow,
+        logic: Option<&GameLogic>,
+    ) -> usize {
         let world = shadow.world().world();
         self.objects.clear();
         self.objects.reserve(world.entity_count());
@@ -2379,11 +2451,12 @@ impl PresentationFrame {
         let mut command_sets = FxHashMap::default();
         let mut draw_selections = FxHashMap::default();
         for ent in world.entities() {
-            if ent.destroyed && ent.health <= 0.0 {
+            let host = shadow.host_for_entity(ent.id);
+            let body = ObjectBodyObservation::capture(logic, host, ent);
+            if body.retired() {
                 continue;
             }
-            let host_id = shadow
-                .host_for_entity(ent.id)
+            let host_id = host
                 .unwrap_or_else(|| crate::game_logic::ObjectId(0x8000_0000 | ent.id.get()));
             let command_set_name =
                 Self::template_command_set_name(&mut command_sets, &ent.template.name, ent);
@@ -2413,6 +2486,7 @@ impl PresentationFrame {
                 ent,
                 command_set_name,
                 draw_models,
+                body,
             );
             let mapped = shadow.entity_for_host(host_id);
             let changed = if mapped == Some(ent.id) {
@@ -2422,9 +2496,10 @@ impl PresentationFrame {
                     shadow,
                     asset_manager,
                     draw_models_are_current,
+                    body,
                 )
             } else {
-                Self::overlay_gameworld_object_by_id(&mut object, shadow, asset_manager, mapped)
+                Self::overlay_gameworld_object_by_id(&mut object, shadow, asset_manager, mapped, logic)
             };
             updated += usize::from(changed);
             self.objects.push(object);
@@ -2495,7 +2570,7 @@ impl PresentationFrame {
                 false,
                 discharges,
                 camera_fade,
-                Self::host_roster_for_gameworld(Some(shadow)),
+                Self::host_roster_for_gameworld(Some(shadow), logic),
                 &mut rider_change_rosters,
             )
         } else {
@@ -2513,11 +2588,11 @@ impl PresentationFrame {
             f
         };
         let host_objects = std::mem::take(&mut frame.objects);
-        let gw_n = frame.rebuild_objects_from_gameworld(shadow);
+        let gw_n = frame.rebuild_observed_objects(shadow, host.as_deref());
         // Wave 838: keep host objects when shadow yields nothing.
         if gw_n == 0 && !host_objects.is_empty() {
             frame.objects = host_objects;
-            let _ = frame.overlay_gameworld_shadow(shadow);
+            let _ = frame.overlay_observed_objects(shadow, host.as_deref());
         }
         // Wave 498: host FX residual survives GameWorld object rebuild.
         if let Some(logic) = host.as_deref() {
@@ -2629,8 +2704,8 @@ impl PresentationFrame {
                     HostRoster::Keep,
                     &mut rider_change_rosters,
                 );
-                let _ = frame.overlay_gameworld_shadow(shadow);
-                let _ = frame.append_missing_from_gameworld(shadow);
+                let _ = frame.overlay_observed_objects(shadow, Some(logic));
+                let _ = frame.append_observed_objects(shadow, Some(logic));
                 // Shadow overlay is non-authoritative for containment and can
                 // replace hidden/shared data with an entrance-local roster.
                 let _ = frame.overlay_host_fx_residual_with_rider_rosters(logic, &mut rider_change_rosters);
@@ -2696,18 +2771,18 @@ impl PresentationFrame {
             runtime_heightmap,
             false,
             camera_fade,
-            Self::host_roster_for_gameworld(gameworld_roster),
+            Self::host_roster_for_gameworld(gameworld_roster, logic),
             &mut rider_change_rosters,
         );
         match shadow {
             Some(shadow) if presentation_from_gameworld_enabled() => {
                 let host_objects = std::mem::take(&mut frame.objects);
-                let gw_n = frame.rebuild_objects_from_gameworld(shadow);
+                let gw_n = frame.rebuild_observed_objects(shadow, Some(logic));
                 // Wave 838: empty GameWorld shadow must not erase a non-empty host
                 // roster (construct/train/map objects) or unit mesh collect stays 0.
                 if gw_n == 0 && !host_objects.is_empty() {
                     frame.objects = host_objects;
-                    let _ = frame.overlay_gameworld_shadow(shadow);
+                    let _ = frame.overlay_observed_objects(shadow, Some(logic));
                 }
                 // Wave 498: host FX residual after GW object rebuild.
                 let _ = frame.overlay_host_fx_residual_with_rider_rosters(logic, &mut rider_change_rosters);
@@ -2715,8 +2790,8 @@ impl PresentationFrame {
                 let _ = frame.append_object_residual_fx_particles();
             }
             Some(shadow) => {
-                let _ = frame.overlay_gameworld_shadow(shadow);
-                let _ = frame.append_missing_from_gameworld(shadow);
+                let _ = frame.overlay_observed_objects(shadow, Some(logic));
+                let _ = frame.append_observed_objects(shadow, Some(logic));
                 // Shadow overlay is non-authoritative for containment and can
                 // replace hidden/shared data with an entrance-local roster.
                 let _ = frame.overlay_host_fx_residual_with_rider_rosters(logic, &mut rider_change_rosters);
