@@ -44,10 +44,6 @@
       "constructs": 5,
       "undocumented": 0
     },
-    "Code/GameEngine/GameLogic/tests/crc_standalone_test.rs": {
-      "constructs": 3,
-      "undocumented": 0
-    },
     "Code/GameEngine/GameNetwork/examples/game_server_with_upnp.rs": {
       "constructs": 1,
       "undocumented": 0
