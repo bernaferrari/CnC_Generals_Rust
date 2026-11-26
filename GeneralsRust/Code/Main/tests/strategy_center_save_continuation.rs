@@ -293,7 +293,7 @@ fn inputs(logic: &GameLogic, case: Case) -> Value {
         "positions":{"center":[0.0,0.0,0.0],"target":[150.0,0.0,0.0],"anchor":[2000.0,0.0,0.0]},
         "asset_manager":false,"scenario_named_weapon_bindings":false,"scenario_locomotor_bindings":false,
         "world_snapshot_version":generals_main::save_load::WORLD_SNAPSHOT_BINCODE_VERSION,
-        "compiled_features":{"game_client":cfg!(feature="game_client"),"host_residuals":cfg!(feature="host-residuals"),
+        "compiled_features":{"game_client":cfg!(feature="game_client"),
             "integration_tests":cfg!(feature="integration-tests"),"network":cfg!(feature="network")},
         "post_load_mutations":"ordinary GameLogic::update only"
     })

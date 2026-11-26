@@ -356,6 +356,7 @@ fn presentation_overlay_uses_shadow_health() {
     let mut shadow = GameWorldShadow::new(64);
     shadow.sync_from_host(&logic);
     let entity = shadow.entity_for_host(id).unwrap();
+    assert_eq!(shadow.host_for_entity(entity), Some(id));
     shadow
         .world_mut()
         .world_mut()

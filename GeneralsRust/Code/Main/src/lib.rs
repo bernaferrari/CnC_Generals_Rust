@@ -147,7 +147,7 @@ pub mod presentation_frame;
 pub mod release_candidate;
 pub mod windowed_acceptance;
 // Headless skirmish and presentation probe for diagnostic builds and tests.
-#[cfg(any(test, feature = "host-residuals"))]
+#[cfg(any(test, feature = "dev-tools"))]
 pub mod shell_smoke;
 pub mod skirmish_config;
 

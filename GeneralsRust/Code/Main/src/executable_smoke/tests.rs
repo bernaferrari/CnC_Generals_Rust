@@ -566,27 +566,6 @@ mod tests {
         assert!((s.startup_progress - 1.0).abs() < f32::EPSILON);
     }
 
-    // Residual packs live behind cfg(test)/host-residuals; this test is lib-only.
-    #[cfg(any(test, feature = "host-residuals"))]
-    #[test]
-    fn residual_packs_cannot_set_playable_claim() {
-        // Constructing/running residual packs must not publish playable_claim.
-
-        let mut r = ExecutableSmokeResult::default();
-
-        assert!(!r.playable_claim);
-        r.apply_host_vertical_slice_gate();
-
-        let report = format_executable_smoke_report(&r);
-        assert!(report.contains("playable_claim=false"));
-        assert!(report.contains("window_visible=false"));
-        assert!(report.contains("wnd_widget_tree_nav=false"));
-        assert!(report.contains("live_frame_ok=false"));
-        assert!(report.contains("retail_sit_through_missing="));
-
-        // Production smoke must keep five-flag formula only (no residual_pack OR).
-    }
-
     #[test]
     fn playable_claim_always_false_on_default() {
         let r = ExecutableSmokeResult::default();

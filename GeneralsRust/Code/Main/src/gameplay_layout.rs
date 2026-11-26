@@ -1340,32 +1340,28 @@ mod tests {
 
     #[cfg(feature = "game_client")]
     #[test]
-    fn main_menu_wnd_load_residual_live() {
+    fn retail_main_menu_load_materializes_windows_and_reads_init_callback() {
         let h = main_menu_wnd_honesty_with_load(true);
         assert!(
             h.shell_residual_ok(),
-            "MainMenu.wnd load residual: {}",
+            "MainMenu.wnd load: {}",
             h.detail
         );
+        let Some(path) = h.path.as_deref() else {
+            return;
+        };
+        assert_eq!(h.named_key_hits, MAIN_MENU_WND_KEY_NAMES_RESIDUAL.len());
         assert!(
-            simulate_main_menu_wnd_prepare_load_honesty(),
-            "load honesty: {}",
-            h.detail
+            h.window_loaded && h.window_count >= MAIN_MENU_WND_NAMED_COUNT_RESIDUAL / 2,
+            "resolved MainMenu.wnd must materialise its window tree: {}",
+            h.detail,
         );
-        if h.path_resolved && h.wnd_validated {
-            assert!(
-                h.window_loaded && h.window_count > 0,
-                "resolved MainMenu.wnd must materialise windows: {}",
-                h.detail
-            );
-            // Retail named-child residual count is 63 NAME= lines.
-            assert!(
-                h.window_count >= MAIN_MENU_WND_NAMED_COUNT_RESIDUAL / 2,
-                "window_count={} expected substantial tree: {}",
-                h.window_count,
-                h.detail
-            );
-        }
+        let layout = game_client::gui::window_script::parse_window_script(path)
+            .expect("parse the loaded MainMenu.wnd");
+        assert!(matches!(
+            layout.init_callback.as_str(),
+            "W3DMainMenuInit" | "MainMenuInit"
+        ));
     }
 
     #[test]
