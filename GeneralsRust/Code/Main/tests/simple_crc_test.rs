@@ -229,16 +229,12 @@ fn test_random_seed_crc() {
         0x76543210,
     ]; // 1 bit different
 
-    // Convert to bytes for CRC calculation
-    let seed1_bytes: &[u8] =
-        // SAFETY: seed1 is [u32; 6]; the byte view spans exactly its storage.
-        unsafe { std::slice::from_raw_parts(seed1.as_ptr() as *const u8, 6 * 4) };
-    let seed2_bytes: &[u8] =
-        // SAFETY: seed2 is [u32; 6]; the byte view spans exactly its storage.
-        unsafe { std::slice::from_raw_parts(seed2.as_ptr() as *const u8, 6 * 4) };
+    // Convert to little-endian bytes for CRC calculation.
+    let seed1_bytes: Vec<u8> = seed1.iter().flat_map(|value| value.to_le_bytes()).collect();
+    let seed2_bytes: Vec<u8> = seed2.iter().flat_map(|value| value.to_le_bytes()).collect();
 
-    let crc1 = crc32fast::hash(seed1_bytes);
-    let crc2 = crc32fast::hash(seed2_bytes);
+    let crc1 = crc32fast::hash(&seed1_bytes);
+    let crc2 = crc32fast::hash(&seed2_bytes);
 
     assert_ne!(
         crc1, crc2,
@@ -246,7 +242,7 @@ fn test_random_seed_crc() {
     );
 
     // Same seed should produce same CRC
-    let crc1_repeat = crc32fast::hash(seed1_bytes);
+    let crc1_repeat = crc32fast::hash(&seed1_bytes);
     assert_eq!(crc1, crc1_repeat, "Same seed should produce same CRC");
 
     println!(
