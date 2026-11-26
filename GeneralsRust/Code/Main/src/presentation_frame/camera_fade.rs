@@ -83,8 +83,6 @@ impl PresentationFrame {
                 runtime_heightmap,
                 true,
                 fade,
-                super::build::HostRoster::Keep,
-                &mut super::build::RiderChangeRosters::default(),
             )
         } else {
             let discharges = logic.take_weapon_discharges_for_presentation();

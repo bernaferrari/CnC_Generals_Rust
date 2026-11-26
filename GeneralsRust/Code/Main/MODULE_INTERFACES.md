@@ -40,8 +40,9 @@ For HUD and rendering changes, edit the Main frame builder or its consumers. Pre
 contains only immutable contracts and pure dispatch decisions. Builders retain frame timing,
 event order, asset associations and serialization layout. `hud_read_model()` returns borrowed
 slices; callers must not introduce a second deep copy of the completed frame.
-Production builders read the receiving simulation directly. `GameWorldShadow`
-and its frame builders compile only for Main's remaining unit tests.
+Frame builders read the receiving simulation directly. `GameWorldShadow` and
+its row projection helpers remain available to Main unit tests that inspect the
+mirror.
 
 For asset precedence, edit the owned resolver/file opening path. C++ `FileSystem::openFile`
 tries local files before archives. Resident model caching precedes a fresh load. Once a local

@@ -1,9 +1,11 @@
 //! Actual owning Main world/accepted-fire/publication boundary tests.
 //! No AI replacement runner, queue injection, fake registry, or lock witness.
 use super::*;
-use crate::gameworld_shadow::GameWorldShadow;
-use crate::presentation_frame::{PresentationEvent, PresentationFrame};
+use crate::presentation_frame::{
+    PresentationEvent, PresentationFrame, PresentationRuntimeHeightmap,
+};
 use crate::save_load::snapshot::SnapshotBuilder;
+use std::sync::Arc;
 
 const SOURCE: ObjectId = ObjectId(93_701);
 const VICTIM: ObjectId = ObjectId(93_702);
@@ -104,31 +106,38 @@ fn cues(frame: &PresentationFrame) -> Vec<(ObjectId, u64, u8, u8, u32)> {
 }
 
 fn publish(logic: &mut GameLogic) -> PresentationFrame {
-    PresentationFrame::publish_for_engine(logic, 0, None)
+    PresentationFrame::try_publish_for_engine_with_runtime_heightmap(logic, 0, None, false).unwrap()
 }
 
-fn publish_shadow_case(
+fn publish_with_terrain(
     logic: &mut GameLogic,
-    shadow: &GameWorldShadow,
-    case: u8,
+    with_victory: bool,
+    with_terrain: bool,
 ) -> PresentationFrame {
-    match case {
-        0 => PresentationFrame::publish_for_engine(logic, 0, Some(shadow)),
-        1 => PresentationFrame::publish_for_engine_with_runtime_heightmap(
-            logic,
-            0,
-            Some(shadow),
-            None,
-        ),
-        2 => PresentationFrame::build_with_victory_for_engine(logic, 0, Some(shadow)),
-        3 => PresentationFrame::build_with_victory_for_engine_with_runtime_heightmap(
-            logic,
-            0,
-            Some(shadow),
-            None,
-        ),
-        _ => unreachable!(),
+    let terrain = with_terrain.then(|| {
+        Arc::new(PresentationRuntimeHeightmap {
+            width: 2,
+            height: 2,
+            heights: vec![0.0, 1.0, 2.0, 3.0],
+            scale: 1.0,
+            ..Default::default()
+        })
+    });
+    let frame = PresentationFrame::try_publish_for_engine_with_runtime_heightmap(
+        logic,
+        0,
+        terrain.clone(),
+        with_victory,
+    )
+    .unwrap();
+    #[cfg(feature = "game_client")]
+    if let Some(terrain) = terrain {
+        assert!(Arc::ptr_eq(
+            frame.world_env.runtime_heightmap.as_ref().unwrap(),
+            &terrain
+        ));
     }
+    frame
 }
 
 #[test]
@@ -177,12 +186,9 @@ fn accepted_discharge_borrowed_queries_leave_pending_cues_for_publication() {
     let marker = logic.host_object(SOURCE).unwrap().weapon_discharge_marker();
     let source_query_clone = logic.host_object(SOURCE).unwrap().clone();
     assert_eq!(source_query_clone.weapon_discharge_marker(), marker);
-    let mut shadow = GameWorldShadow::new(2);
-    shadow.sync_from_host(&logic);
     let frames = [
         PresentationFrame::build_from_logic(&mut logic, 0),
-        PresentationFrame::build_for_engine(&mut logic, 0, Some(&shadow)),
-        PresentationFrame::build_from_gameworld(&shadow, 0, Some(&mut logic)),
+        PresentationFrame::try_build_from_logic(&mut logic, 0).unwrap(),
     ];
     for frame in frames {
         assert!(
@@ -199,11 +205,7 @@ fn accepted_discharge_borrowed_queries_leave_pending_cues_for_publication() {
     assert!(cues(&publish(&mut logic)).is_empty());
 }
 
-fn assert_synchronized_empty_roster_fallback(case: u8) {
-    assert!(
-        crate::presentation_frame::presentation_from_gameworld_enabled(),
-        "this fixture requires the shipped default roster route"
-    );
+fn assert_cues_with_destroyed_registered_sources(with_victory: bool, with_terrain: bool) {
     let mut logic = admitted_world(2);
     accept_shot(&mut logic, 1.0);
     accept_shot(&mut logic, 2.0);
@@ -213,47 +215,51 @@ fn assert_synchronized_empty_roster_fallback(case: u8) {
         let object = logic.host_object(id).unwrap();
         assert!(object.status.destroyed && object.health.current <= 0.0);
     }
-    // This is the real accepted-fire + immediate-damage + synchronized
-    // builder API boundary before deferred destruction is drained. It is
-    // not a claim that the ordinary engine tick retains this roster window.
-    let mut shadow = GameWorldShadow::new(2);
-    shadow.sync_from_host(&logic);
-    let mut sparse = PresentationFrame::build_from_gameworld(&shadow, 0, None);
-    assert_eq!(sparse.rebuild_objects_from_gameworld(&shadow), 0);
+    // Capture the boundary before physically retiring the destroyed objects.
+    assert_eq!(logic.weapon_discharge_log.len(), 2);
+    let frame = publish_with_terrain(&mut logic, with_victory, with_terrain);
     assert_eq!(
-        logic.weapon_discharge_log.len(),
-        2,
-        "no-host probe must not touch this world"
+        frame
+            .objects
+            .iter()
+            .map(|row| (row.id, row.destroyed))
+            .collect::<Vec<_>>(),
+        [(SOURCE, true), (VICTIM, true)]
     );
-    let frame = publish_shadow_case(&mut logic, &shadow, case);
-    assert_eq!(frame.objects.len(), 2, "host fallback roster, case {case}");
     assert_eq!(
         cues(&frame),
         vec![(SOURCE, 1, 0, 2, 30), (SOURCE, 2, 0, 0, 30)],
-        "the host fallback must retain the one published batch, case {case}"
+        "each accepted cue is frozen in its original order"
     );
     assert_eq!(logic.weapon_discharge_log.len(), 0);
-    assert!(cues(&publish_shadow_case(&mut logic, &shadow, case)).is_empty());
+    assert!(
+        cues(&publish_with_terrain(
+            &mut logic,
+            with_victory,
+            with_terrain
+        ))
+        .is_empty()
+    );
 }
 
 #[test]
-fn accepted_discharge_synchronized_empty_roster_fallback_keeps_first_batch() {
-    assert_synchronized_empty_roster_fallback(0);
+fn accepted_discharge_with_destroyed_registered_sources_ordinary() {
+    assert_cues_with_destroyed_registered_sources(false, false);
 }
 
 #[test]
-fn accepted_discharge_synchronized_empty_roster_runtime_fallback_keeps_first_batch() {
-    assert_synchronized_empty_roster_fallback(1);
+fn accepted_discharge_with_destroyed_registered_sources_with_terrain() {
+    assert_cues_with_destroyed_registered_sources(false, true);
 }
 
 #[test]
-fn accepted_discharge_synchronized_empty_roster_victory_fallback_keeps_first_batch() {
-    assert_synchronized_empty_roster_fallback(2);
+fn accepted_discharge_with_destroyed_registered_sources_at_victory() {
+    assert_cues_with_destroyed_registered_sources(true, false);
 }
 
 #[test]
-fn accepted_discharge_synchronized_empty_roster_victory_runtime_fallback_keeps_first_batch() {
-    assert_synchronized_empty_roster_fallback(3);
+fn accepted_discharge_with_destroyed_registered_sources_at_victory_with_terrain() {
+    assert_cues_with_destroyed_registered_sources(true, true);
 }
 
 #[test]
@@ -397,9 +403,8 @@ fn accepted_discharge_snapshot_builder_restores_baseline_without_replaying_cues(
 }
 
 #[test]
-fn accepted_discharge_victory_fallback_freezes_post_defeat_cash() {
-    assert!(crate::presentation_frame::presentation_from_gameworld_enabled());
-    for case in [2, 3] {
+fn accepted_discharge_victory_freezes_post_defeat_cash() {
+    for with_terrain in [false, true] {
         let mut logic = admitted_world(2);
         logic.game_mode = GameMode::Skirmish;
         logic.get_player_mut(0).unwrap().resources.supplies = 1_234;
@@ -409,35 +414,24 @@ fn accepted_discharge_victory_fallback_freezes_post_defeat_cash() {
             assert!(object.take_damage_from_immediate(1_000_000.0, None, 0, health_events));
             assert!(logic.host_object(id).unwrap().status.destroyed);
         }
-        // Use the documented sync-before-builder API boundary. All mapped
-        // objects are dead, so the empty-roster fallback is exercised.
-        let mut shadow = GameWorldShadow::new(2);
-        shadow.sync_from_host(&logic);
-        let mut sparse = PresentationFrame::build_from_gameworld(&shadow, 0, None);
-        assert_eq!(sparse.rebuild_objects_from_gameworld(&shadow), 0);
         assert_eq!(logic.get_player(0).unwrap().resources.supplies, 1_234);
         // Match production order: the logic phase updates before presentation.
         assert!(logic.evaluate_victory_condition().unwrap().is_some());
-        let frame = publish_shadow_case(&mut logic, &shadow, case);
-        assert!(
-            frame.match_over,
-            "actual Skirmish victory evaluator, case {case}"
-        );
+        let frame = publish_with_terrain(&mut logic, true, with_terrain);
+        assert!(frame.match_over, "actual Skirmish victory evaluator");
         assert_eq!(
             logic.get_player(0).unwrap().resources.supplies,
             0,
-            "actual killPlayer cash mutation must run, case {case}"
+            "actual killPlayer cash mutation must run"
         );
         assert_eq!(
             frame.local_supplies, 0,
-            "freeze the completed post-defeat cash, case {case}"
+            "freeze the completed post-defeat cash"
         );
-        // Keep the original accepted-cue acceptance as well. Original OLD
-        // fallback loses this cue; a repair must satisfy both assertions.
         assert_eq!(
             cues(&frame),
             vec![(SOURCE, 1, 0, 2, 30)],
-            "retain the one accepted batch, case {case}"
+            "retain the one accepted batch"
         );
         assert_eq!(logic.weapon_discharge_log.len(), 0);
     }

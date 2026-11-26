@@ -193,18 +193,16 @@ fn observation_match() -> (GameLogic, [ObjectId; 2]) {
 
 fn assert_observers(
     world: &mut GameLogic,
-    shadow: &crate::gameworld_shadow::GameWorldShadow,
     expected: Option<VictoryCondition>,
 ) {
     let before = gameplay_observation(world);
     for _ in 0..3 {
-        let probe = shadow.probe(world);
-        assert_eq!(probe.host_match_over, expected.is_some());
-        assert_eq!(probe.victory_label, expected.map(|v| format!("{v:?}")));
         let probe = crate::authoritative_world::AuthorityProbe::capture_with_victory(world, 0);
         assert_eq!(probe.match_over, expected.is_some());
         assert_eq!(probe.victory_label, expected.map(|v| format!("{v:?}")));
-        let frame = PresentationFrame::build_with_victory_for_engine(world, 0, Some(shadow));
+        let frame =
+            PresentationFrame::try_publish_for_engine_with_runtime_heightmap(world, 0, None, true)
+                .unwrap();
         assert_eq!(frame.match_over, expected.is_some());
         assert_eq!(frame.victory_label, expected.map(|v| format!("{v:?}")));
         assert_eq!(
@@ -215,27 +213,22 @@ fn assert_observers(
     }
 }
 
-fn observation_scenario(coupled: bool) {
+fn observation_scenario(complete_receipts: bool) {
     let (mut owner, ids) = observation_match();
     let (other, other_ids) = admitted_match();
     assert_eq!(ids, other_ids, "allocator-local IDs intentionally alias");
     let other_before = gameplay_observation(&other);
-    let mut shadow = crate::gameworld_shadow::GameWorldShadow::new(64);
-    shadow.sync_from_host(&owner);
     // China has a live unit but no victory-counting building. Observers must
     // not defeat it before C++'s Phase 15, even with an interleaved other owner.
-    assert_observers(&mut owner, &shadow, None);
+    assert_observers(&mut owner, None);
     assert!(owner.host_object(ids[1]).unwrap().is_alive());
     assert!(owner.peek_defeat_events().is_empty());
     assert_eq!(gameplay_observation(&other), other_before);
 
     let phase_frame = owner.get_frame();
-    if coupled {
-        owner.update();
+    owner.update();
+    if complete_receipts {
         owner.complete_presentation_observations();
-        shadow.sync_from_host(&owner);
-    } else {
-        owner.update();
     }
     assert_eq!(
         owner.get_frame(),
@@ -250,11 +243,11 @@ fn observation_scenario(coupled: bool) {
     assert_eq!(owner.get_player(1).unwrap().resources.supplies, 0);
     assert_eq!(owner.peek_defeat_events(), &[1]);
     assert_eq!(owner.victory_conditions.end_frame(), Some(phase_frame));
-    assert_observers(&mut owner, &shadow, Some(VictoryCondition::Winner(0)));
+    assert_observers(&mut owner, Some(VictoryCondition::Winner(0)));
     assert_eq!(owner.take_defeat_events(), vec![1]);
     let alliances = owner.take_alliance_events();
     assert!(!alliances.is_empty());
-    assert_observers(&mut owner, &shadow, Some(VictoryCondition::Winner(0)));
+    assert_observers(&mut owner, Some(VictoryCondition::Winner(0)));
     assert!(
         owner.peek_defeat_events().is_empty(),
         "observers must not replay drained defeat events"
@@ -265,9 +258,9 @@ fn observation_scenario(coupled: bool) {
     );
     assert_eq!(gameplay_observation(&other), other_before);
     drop(other);
-    assert_observers(&mut owner, &shadow, Some(VictoryCondition::Winner(0)));
+    assert_observers(&mut owner, Some(VictoryCondition::Winner(0)));
     owner.reset();
-    assert_observers(&mut owner, &shadow, None);
+    assert_observers(&mut owner, None);
 }
 
 #[test]
@@ -279,8 +272,8 @@ fn probe_and_presentation_observe_victory_without_running_the_logic_phase() {
 }
 
 #[test]
-fn coupled_probe_and_presentation_observe_completed_victory() {
-    if isolated("coupled_probe_and_presentation_observe_completed_victory") {
+fn completed_receipts_and_presentation_observe_completed_victory() {
+    if isolated("completed_receipts_and_presentation_observe_completed_victory") {
         return;
     }
     observation_scenario(true);
@@ -315,11 +308,10 @@ fn completed_observation_tracks_each_evaluation_and_game_mode() {
         crate::authoritative_world::AuthorityProbe::capture_with_victory(&world, 0).match_over,
         "CPP singleAlliance/endFrame remains latched when the current winner query changes"
     );
-    let mut shadow = crate::gameworld_shadow::GameWorldShadow::new(64);
-    shadow.sync_from_host(&world);
-    assert!(shadow.probe(&world).host_match_over);
     let before = gameplay_observation(&world);
-    let frame = PresentationFrame::build_with_victory_for_engine(&mut world, 0, Some(&shadow));
+    let frame =
+        PresentationFrame::try_publish_for_engine_with_runtime_heightmap(&mut world, 0, None, true)
+            .unwrap();
     assert!(frame.match_over);
     assert!(
         frame.victory_label.is_none(),
@@ -373,9 +365,7 @@ fn successful_restore_clears_only_transient_victory_observation() {
         .restore_from_snapshot(&snapshot, &mut receiver)
         .unwrap();
     assert_eq!(receiver.current_victory_condition(), None);
-    let mut shadow = crate::gameworld_shadow::GameWorldShadow::new(64);
-    shadow.sync_from_host(&receiver);
-    assert_observers(&mut receiver, &shadow, None);
+    assert_observers(&mut receiver, None);
     assert_eq!(source.current_victory_condition(), None);
     receiver.players.get_mut(&1).unwrap().alliance_team = 0;
     assert_eq!(
@@ -409,7 +399,9 @@ fn foreign_observer_cannot_exempt_the_owners_dead_player_from_defeat() {
     let _foreign = ForeignRoster::install(true, false);
     destroy_armies(&mut owner, ids);
     assert!(owner.evaluate_victory_condition().unwrap().is_some());
-    let frame = PresentationFrame::build_with_victory_for_engine(&mut owner, 0, None);
+    let frame =
+        PresentationFrame::try_publish_for_engine_with_runtime_heightmap(&mut owner, 0, None, true)
+            .unwrap();
     assert!(frame.match_over);
     assert_eq!(
         owner.get_player(0).unwrap().resources.supplies,
@@ -438,7 +430,9 @@ fn foreign_civilian_cannot_exempt_the_owners_dead_player_from_defeat() {
     let _foreign = ForeignRoster::install(false, true);
     destroy_armies(&mut owner, ids);
     assert!(owner.evaluate_victory_condition().unwrap().is_some());
-    let frame = PresentationFrame::build_with_victory_for_engine(&mut owner, 0, None);
+    let frame =
+        PresentationFrame::try_publish_for_engine_with_runtime_heightmap(&mut owner, 0, None, true)
+            .unwrap();
     assert!(frame.match_over);
     assert_eq!(owner.get_player(0).unwrap().resources.supplies, 0);
     assert_eq!(frame.local_supplies, 0);
@@ -462,7 +456,9 @@ fn owned_observer_remains_exempt_with_an_ordinary_foreign_slot() {
     let _foreign = ForeignRoster::install(false, false);
     destroy_armies(&mut owner, ids);
     assert!(owner.evaluate_victory_condition().unwrap().is_some());
-    let frame = PresentationFrame::build_with_victory_for_engine(&mut owner, 0, None);
+    let frame =
+        PresentationFrame::try_publish_for_engine_with_runtime_heightmap(&mut owner, 0, None, true)
+            .unwrap();
     assert!(frame.match_over);
     assert_eq!(owner.get_player(0).unwrap().resources.supplies, 1234);
     // CPP isLocalAlliedDefeat returns m_singleAllianceRemaining for observers.

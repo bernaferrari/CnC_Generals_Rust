@@ -1,8 +1,8 @@
 //! Executable command and lifecycle regressions.
 
-fn presentation_rebuilt_vertical_gate() -> bool {
+#[test]
+fn newly_admitted_actor_reaches_native_presentation_at_its_world_pose() {
     use crate::game_logic::Team;
-    use crate::gameworld_shadow::GameWorldShadow;
     use crate::presentation_frame::PresentationFrame;
     use crate::skirmish_config::{apply_skirmish_config, golden_skirmish_config};
     use glam::Vec3;
@@ -17,39 +17,23 @@ fn presentation_rebuilt_vertical_gate() -> bool {
         &logic,
         &golden_skirmish_config("RebuiltVert196"),
     );
-    if apply_skirmish_config(&mut logic, &cfg).is_err() {
-        return false;
-    }
-    let Some(_oid) = logic.create_object("RebuiltVert196", Team::USA, Vec3::new(5.0, 0.0, 6.0))
-    else {
-        return false;
-    };
-
-    let mut shadow = GameWorldShadow::new(64);
-    shadow.sync_from_host(&logic);
-
-    let mut pres = PresentationFrame::build_for_engine(&mut logic, 0, Some(&shadow));
-    if crate::presentation_frame::presentation_from_gameworld_enabled() {
-        if !pres.gameworld_primary_objects {
-            return false;
-        }
-        if pres.gameworld_rebuilt == 0 {
-            return false;
-        }
-    }
-
-    // Soft boundary identity: entities observed without rebuilt fails the gate predicate.
-    let entities_ok = true;
-    let rebuilt_ok = pres.gameworld_rebuilt > 0;
-    let boundary = !entities_ok || rebuilt_ok;
-    if crate::presentation_frame::presentation_from_gameworld_enabled() && !boundary {
-        return false;
-    }
-
-    true
-}
-
-#[test]
-fn presentation_rebuilt_vertical_gate_runs() {
-    assert!(presentation_rebuilt_vertical_gate());
+    apply_skirmish_config(&mut logic, &cfg).unwrap();
+    let before = PresentationFrame::try_build_from_logic(&mut logic, 0).unwrap();
+    let position = Vec3::new(5.0, 0.0, 6.0);
+    let id = logic
+        .create_object("RebuiltVert196", Team::USA, position)
+        .unwrap();
+    let published =
+        PresentationFrame::try_publish_for_engine_with_runtime_heightmap(&mut logic, 0, None, true)
+            .unwrap();
+    assert!(before.objects.iter().all(|row| row.id != id));
+    let row = published.objects.iter().find(|row| row.id == id).unwrap();
+    assert_eq!(row.position, position);
+    assert_eq!(row.health_current, 100.0);
+    assert!(
+        published
+            .direct_host_drawables
+            .iter()
+            .any(|draw| draw.object.id == id && draw.resident)
+    );
 }

@@ -963,7 +963,7 @@ fn presentation_feeds_control_bar_garrison_inventory() {
     if let Some(p) = logic.get_player_mut(0) {
         p.selected_objects = vec![bunker];
     }
-    let frame = PresentationFrame::build_from_logic(&mut logic, 0);
+    let frame = PresentationFrame::try_build_from_logic(&mut logic, 0).unwrap();
     let panel = frame.control_bar_selection_panel();
     assert_eq!(panel.max_garrison, 5);
     assert_eq!(panel.garrisoned_count, 1);
@@ -973,11 +973,6 @@ fn presentation_feeds_control_bar_garrison_inventory() {
     {
         assert_eq!(frame.inventory_occupants.len(), 1);
         assert!(frame.inventory_occupants.contains_key(&ranger.0));
-        let mut shadow = crate::gameworld_shadow::GameWorldShadow::new(64);
-        shadow.sync_from_host(&logic);
-        let shadow_frame = PresentationFrame::build_for_engine(&mut logic, 0, Some(&shadow));
-        assert_eq!(shadow_frame.inventory_occupants, frame.inventory_occupants);
-
         let owner = game_client::gui::window_manager::WindowManagerOwner::new();
         game_client::gui::game_window::WindowEventEffects::with_standalone(|effects| {
             owner.with_manager(|manager| {

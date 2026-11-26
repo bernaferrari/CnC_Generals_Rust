@@ -364,6 +364,7 @@ impl PresentationFrame {
         portraits
     }
 
+    /// Freeze the receiving simulation's objects and drawables into one frame.
     pub(super) fn build_from_logic_with_tint_update(
         logic: &mut GameLogic,
         local_player_id: u32,
@@ -372,30 +373,7 @@ impl PresentationFrame {
         discharges: Vec<crate::game_logic::host_weapon_discharge_log::HostWeaponDischargeEvent>,
         camera_fade: super::camera_fade::FrameFade,
     ) -> Self {
-        Self::build_from_logic_with_host_roster(
-            logic,
-            local_player_id,
-            runtime_heightmap,
-            freeze_tints,
-            discharges,
-            camera_fade,
-            HostRoster::Keep,
-            &mut RiderChangeRosters::default(),
-        )
-    }
-
-    /// Freeze the receiving simulation's objects and drawables into one frame.
-    pub(super) fn build_from_logic_with_host_roster(
-        logic: &mut GameLogic,
-        local_player_id: u32,
-        runtime_heightmap: Option<std::sync::Arc<PresentationRuntimeHeightmap>>,
-        freeze_tints: bool,
-        discharges: Vec<crate::game_logic::host_weapon_discharge_log::HostWeaponDischargeEvent>,
-        camera_fade: super::camera_fade::FrameFade,
-        host_roster: HostRoster,
-        rider_change_rosters: &mut RiderChangeRosters,
-    ) -> Self {
-        let keep_host_roster = host_roster == HostRoster::Keep;
+        let mut rider_change_rosters = RiderChangeRosters::default();
         let application_assets = logic.application_assets();
         #[cfg(feature = "game_client")]
         let w3d_ghost_scene = Some(super::ghosts::freeze_owned_scene(logic, local_player_id));
@@ -479,11 +457,7 @@ impl PresentationFrame {
         // The stable order remains ObjectId, including ties in diagnostic fixtures.
         frozen_object_shrouds.sort_by_key(|(object, _, _)| object.id.0);
         let weapon_ready_time_seconds = logic.frame as f32 / 30.0;
-        let mut objects = Vec::with_capacity(if keep_host_roster {
-            logic.host_objects().registered_len()
-        } else {
-            0
-        });
+        let mut objects = Vec::with_capacity(logic.host_objects().registered_len());
         let mut direct_host_drawables = Vec::with_capacity(logic.host_objects().registered_len());
         let mut native_ghost_scale_sources = std::collections::HashMap::new();
         let mut structure_topple_transforms = std::collections::HashMap::new();
@@ -1205,13 +1179,8 @@ impl PresentationFrame {
                 objects.push(renderable);
                 continue;
             }
-            let (object, roster_entry) = if keep_host_roster {
-                (renderable.clone(), Some(renderable))
-            } else {
-                (renderable, None)
-            };
             direct_host_drawables.push(PresentationDirectHostDrawable {
-                object,
+                object: renderable.clone(),
                 receiving_client_template: logic
                     .receiving_module_content
                     .as_ref()
@@ -1287,7 +1256,7 @@ impl PresentationFrame {
                 // derive it from health or gameplay destruction flags.
                 resident: true,
             });
-            objects.extend(roster_entry);
+            objects.push(renderable);
         }
         // C++ W3DShroud copies logical cells into a padded destination texture
         // before per-object material passes sample it.  Freeze that complete
@@ -2301,9 +2270,7 @@ impl PresentationFrame {
         };
         frame.stamp_restrict_a(logic);
         // Wave 500: named damage/death/bone FX residual → particle observe list.
-        if keep_host_roster {
-            let _ = frame.append_object_fx_particles();
-        }
+        let _ = frame.append_object_fx_particles();
         if freeze_tints {
             frame.freeze_drawable_status_tints_from_logic(logic);
         }
@@ -2327,8 +2294,6 @@ impl PresentationFrame {
             runtime_heightmap,
             true,
             super::camera_fade::FrameFade::Compatibility,
-            HostRoster::Keep,
-            &mut RiderChangeRosters::default(),
         )
     }
 
@@ -2338,23 +2303,19 @@ impl PresentationFrame {
         runtime_heightmap: Option<std::sync::Arc<PresentationRuntimeHeightmap>>,
         freeze_tints: bool,
         camera_fade: super::camera_fade::FrameFade,
-        host_roster: HostRoster,
-        rider_change_rosters: &mut RiderChangeRosters,
     ) -> Self {
         // C++ GameLogic.cpp:3769 owns victory and killPlayer in the logic step.
         // Read its completed result and accepted discharges together; building
         // a frame must not run defeat callbacks or change their timing.
         let victory = logic.current_victory_observation();
         let discharges = logic.take_weapon_discharges_for_presentation();
-        let mut frame = Self::build_from_logic_with_host_roster(
+        let mut frame = Self::build_from_logic_with_tint_update(
             logic,
             local_player_id,
             runtime_heightmap,
             false,
             discharges,
             camera_fade,
-            host_roster,
-            rider_change_rosters,
         );
         frame.match_over = victory.match_over;
         if let Some(v) = victory.outcome {
@@ -3007,12 +2968,4 @@ mod sw_hud_tests {
         assert!(row.remaining <= 0.0);
         assert!(!row.ready, "brownout ready PUC is 0:00 not bold");
     }
-}
-
-/// Whether a host presentation build keeps its own `objects` roster.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) enum HostRoster {
-    Keep,
-    #[cfg(test)]
-    DrawablesAndHiddenObjects,
 }

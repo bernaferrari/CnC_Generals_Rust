@@ -1,9 +1,9 @@
-//! Frame builders used by the remaining shadow observation tests.
+//! Entity projections used by the remaining shadow observation tests.
 
+use super::build::RiderChangeRosters;
 use super::*;
-use super::build::{HostRoster, RiderChangeRosters};
 use crate::game_logic::KindOfSet;
-use game_engine::common::fast_hash::{FxHashMap, FxHashSet};
+use game_engine::common::fast_hash::FxHashMap;
 use gamelogic::world::entities::Entity;
 use std::sync::Arc;
 
@@ -20,18 +20,7 @@ struct ObjectBodyObservation {
 }
 
 impl ObjectBodyObservation {
-    fn capture(logic: Option<&GameLogic>, id: Option<ObjectId>, entity: &Entity) -> Self {
-        if let Some(object) = logic.zip(id).and_then(|(logic, id)| logic.host_object(id)) {
-            return Self {
-                position: object.get_position(),
-                orientation: object.get_orientation(),
-                health: object.health.current.max(0.0),
-                max_health: object.max_health.max(object.health.current).max(1.0),
-                status_destroyed: object.status.destroyed,
-                damage_state: object.body_damage_state.ordinal(),
-                drawable_hidden: object.drawable_hidden,
-            };
-        }
+    fn capture(entity: &Entity) -> Self {
         let position = entity.transform.position;
         Self {
             position: Vec3::new(position.x, position.y, position.z),
@@ -80,27 +69,15 @@ impl PresentationFrame {
         &mut self,
         shadow: &crate::gameworld_shadow::GameWorldShadow,
     ) -> usize {
-        self.overlay_observed_objects(shadow, None)
-    }
-
-    fn overlay_observed_objects(
-        &mut self,
-        shadow: &crate::gameworld_shadow::GameWorldShadow,
-        logic: Option<&GameLogic>,
-    ) -> usize {
         let asset_manager = self.asset_owner.0.as_deref();
         let mut updated = 0;
         for obj in &mut self.objects {
-            if logic.is_some() && obj.drawable_hidden {
-                continue;
-            }
             let entity = shadow.entity_for_host(obj.id);
             updated += usize::from(Self::overlay_gameworld_object_by_id(
                 obj,
                 shadow,
                 asset_manager,
                 entity,
-                logic,
             ));
         }
         self.gameworld_overlay_stamped = updated;
@@ -112,17 +89,16 @@ impl PresentationFrame {
         shadow: &crate::gameworld_shadow::GameWorldShadow,
         asset_manager: Option<&std::sync::Mutex<crate::assets::AssetManager>>,
         entity: Option<gamelogic::world::entities::EntityId>,
-        logic: Option<&GameLogic>,
     ) -> bool {
         let Some(entity) = entity else {
             return false;
         };
         if let Some(ent) = shadow.world().entity(entity) {
-            let body = ObjectBodyObservation::capture(logic, Some(obj.id), ent);
+            let body = ObjectBodyObservation::capture(ent);
             return Self::overlay_gameworld_object(obj, ent, shadow, asset_manager, false, body);
         }
         // A mapped entity may have been retired since the host frame was built.
-        if obj.destroyed || logic.is_some_and(|logic| logic.host_object(obj.id).is_some()) {
+        if obj.destroyed {
             return false;
         }
         obj.destroyed = true;
@@ -1270,19 +1246,6 @@ impl PresentationFrame {
         dirty
     }
 
-    fn populate_shadow_only_local_player(
-        &mut self,
-        shadow: &crate::gameworld_shadow::GameWorldShadow,
-    ) {
-        let local_pid = gamelogic::world::PlayerId::from_index(self.local_player_id as u8);
-        if let Some(p) = shadow.world().player(local_pid) {
-            self.local_is_alive = p.is_alive;
-            self.local_radar_count = p.radar_count;
-            self.local_radar_disabled = p.radar_disabled;
-            self.local_cash_bounty_percent = p.cash_bounty_percent;
-            self.local_color_rgb = p.color_rgb;
-        }
-    }
     /// Sparse RenderableObject from a GameWorld entity (Wave 192).
     ///
     /// Fills identity/pose/HP/motion/selection from the borrow-first entity store.
@@ -1306,7 +1269,7 @@ impl PresentationFrame {
             ent,
             command_set_name,
             draw_models.into(),
-            ObjectBodyObservation::capture(None, None, ent),
+            ObjectBodyObservation::capture(ent),
         )
     }
 
@@ -1893,56 +1856,6 @@ impl PresentationFrame {
         }
     }
 
-    /// Append sparse RenderableObjects for GameWorld entities not already on the
-    /// host-built frame (Wave 192). Uses host ObjectId when the shadow map has one;
-    /// otherwise synthesizes `ObjectId(0x8000_0000 | entity_id)`.
-    ///
-    /// Call after `overlay_gameworld_shadow`. Counts land in `gameworld_appended`.
-    /// Fail-closed: not full `build_from_gameworld` cutover / playable_claim.
-    pub fn append_missing_from_gameworld(
-        &mut self,
-        shadow: &crate::gameworld_shadow::GameWorldShadow,
-    ) -> usize {
-        self.append_observed_objects(shadow, None)
-    }
-
-    fn append_observed_objects(
-        &mut self,
-        shadow: &crate::gameworld_shadow::GameWorldShadow,
-        logic: Option<&GameLogic>,
-    ) -> usize {
-        let existing: FxHashSet<u32> = self.objects.iter().map(|o| o.id.0).collect();
-        let asset_manager = self.asset_owner.0.as_deref();
-        let mut appended = 0usize;
-        let mut command_sets = FxHashMap::default();
-        for ent in shadow.world().world().entities() {
-            let host = shadow.host_for_entity(ent.id);
-            let body = ObjectBodyObservation::capture(logic, host, ent);
-            if body.retired() {
-                continue;
-            }
-            let host_id = host
-                .unwrap_or_else(|| crate::game_logic::ObjectId(0x8000_0000 | ent.id.get()));
-            if existing.contains(&host_id.0) {
-                continue;
-            }
-            let command_set_name =
-                Self::template_command_set_name(&mut command_sets, &ent.template.name, ent);
-            let draw_models = Self::select_gameworld_draw_models(asset_manager, ent)
-                .unwrap_or_else(|| Self::gameworld_fallback_draw_models(asset_manager, ent, None));
-            self.objects.push(Self::renderable_from_gameworld_entity_with_command_set(
-                host_id,
-                ent,
-                command_set_name,
-                draw_models.into(),
-                body,
-            ));
-            appended += 1;
-        }
-        self.gameworld_appended = self.gameworld_appended.saturating_add(appended);
-        appended
-    }
-
     /// Wave 498: re-stamp host-only FX presentation residual after GameWorld object rebuild.
     ///
     /// GW entities do not yet own TransitionDamageFX / BoneFX / poison tint / defector /
@@ -2340,54 +2253,15 @@ impl PresentationFrame {
         stamped
     }
 
-    /// Keep the complete host roster for the empty-shadow fallback.
-    fn host_roster_for_gameworld(
-        shadow: Option<&crate::gameworld_shadow::GameWorldShadow>,
-        logic: &GameLogic,
-    ) -> super::build::HostRoster {
-        if shadow.is_some_and(|shadow| {
-            shadow
-                .world()
-                .world()
-                .entities()
-                .any(|ent| {
-                    !ObjectBodyObservation::capture(
-                        Some(logic),
-                        shadow.host_for_entity(ent.id),
-                        ent,
-                    )
-                    .retired()
-                })
-        }) {
-            super::build::HostRoster::DrawablesAndHiddenObjects
-        } else {
-            super::build::HostRoster::Keep
-        }
-    }
-
     /// Rebuild the `objects` list from the GameWorld entity store. Entities
     /// without a host ID use `ObjectId(0x8000_0000 | entity_id)`.
     pub fn rebuild_objects_from_gameworld(
         &mut self,
         shadow: &crate::gameworld_shadow::GameWorldShadow,
     ) -> usize {
-        self.rebuild_observed_objects(shadow, None, &[])
-    }
-
-    fn rebuild_observed_objects(
-        &mut self,
-        shadow: &crate::gameworld_shadow::GameWorldShadow,
-        logic: Option<&GameLogic>,
-        host_objects: &[RenderableObject],
-    ) -> usize {
         let world = shadow.world().world();
         self.objects.clear();
         self.objects.reserve(world.entity_count());
-        let mut hidden_objects: FxHashMap<_, _> = host_objects
-            .iter()
-            .filter(|object| object.drawable_hidden)
-            .map(|object| (object.id, object))
-            .collect();
         let asset_manager = self.asset_owner.0.as_deref();
         let catalog = asset_manager.map(|assets| {
             assets.lock().map(|assets| assets.object_catalog()).map_err(|_| ())
@@ -2398,11 +2272,7 @@ impl PresentationFrame {
         let mut draw_selections = FxHashMap::default();
         for ent in world.entities() {
             let host = shadow.host_for_entity(ent.id);
-            if let Some(object) = host.and_then(|id| hidden_objects.remove(&id)) {
-                self.objects.push(object.clone());
-                continue;
-            }
-            let body = ObjectBodyObservation::capture(logic, host, ent);
+            let body = ObjectBodyObservation::capture(ent);
             if body.retired() {
                 continue;
             }
@@ -2449,269 +2319,16 @@ impl PresentationFrame {
                     body,
                 )
             } else {
-                Self::overlay_gameworld_object_by_id(&mut object, shadow, asset_manager, mapped, logic)
+                Self::overlay_gameworld_object_by_id(&mut object, shadow, asset_manager, mapped)
             };
             updated += usize::from(changed);
             self.objects.push(object);
             rebuilt += 1;
-        }
-        if !self.objects.is_empty() {
-            // A newly admitted actor can be missing from the last observation.
-            self.objects.extend(
-                host_objects
-                    .iter()
-                    .filter(|object| hidden_objects.contains_key(&object.id))
-                    .cloned(),
-            );
         }
         let n = self.objects.len();
         self.gameworld_rebuilt = rebuilt;
         self.gameworld_primary_objects = rebuilt > 0 || self.gameworld_primary_objects;
         self.gameworld_overlay_stamped = updated;
         n
-    }
-
-    /// Build a diagnostic frame with an explicitly supplied GameWorld shadow.
-    /// An optional receiving simulation supplies host-owned state.
-    pub fn build_from_gameworld(
-        shadow: &crate::gameworld_shadow::GameWorldShadow,
-        local_player_id: u32,
-        host: Option<&mut GameLogic>,
-    ) -> Self {
-        Self::build_from_gameworld_with_runtime_heightmap_and_discharges(
-            shadow,
-            local_player_id,
-            host,
-            None,
-            Vec::new(),
-            super::camera_fade::FrameFade::Compatibility,
-        )
-    }
-
-    fn build_from_gameworld_with_runtime_heightmap_and_discharges(
-        shadow: &crate::gameworld_shadow::GameWorldShadow,
-        local_player_id: u32,
-        mut host: Option<&mut GameLogic>,
-        runtime_heightmap: Option<std::sync::Arc<PresentationRuntimeHeightmap>>,
-        discharges: Vec<crate::game_logic::host_weapon_discharge_log::HostWeaponDischargeEvent>,
-        camera_fade: super::camera_fade::FrameFade,
-    ) -> Self {
-        let mut rider_change_rosters = RiderChangeRosters::default();
-        let mut frame = if let Some(logic) = host.as_deref_mut() {
-            Self::build_from_logic_with_host_roster(
-                logic,
-                local_player_id,
-                runtime_heightmap,
-                false,
-                discharges,
-                camera_fade,
-                Self::host_roster_for_gameworld(Some(shadow), logic),
-                &mut rider_change_rosters,
-            )
-        } else {
-            // A no-host shell frame cannot reuse a host terrain payload.
-            let mut f = Self::build_from_logic_with_tint_update(
-                &mut GameLogic::new(),
-                local_player_id,
-                None,
-                false,
-                Vec::new(),
-                camera_fade,
-            );
-            f.objects.clear();
-            f.events.clear();
-            f
-        };
-        let host_objects = std::mem::take(&mut frame.objects);
-        let gw_n = frame.rebuild_observed_objects(shadow, host.as_deref(), &host_objects);
-        // Wave 838: keep host objects when shadow yields nothing.
-        if gw_n == 0 && !host_objects.is_empty() {
-            frame.objects = host_objects;
-            let _ = frame.overlay_observed_objects(shadow, host.as_deref());
-        }
-        // Wave 498: host FX residual survives GameWorld object rebuild.
-        if let Some(logic) = host.as_deref() {
-            let _ = frame.overlay_host_fx_residual_with_rider_rosters(logic, &mut rider_change_rosters);
-        }
-        // Wave 500: object FX residual names → particle list after host FX stamp.
-        let _ = frame.append_object_fx_particles();
-        match host {
-            Some(logic) => frame.freeze_drawable_status_tints_from_logic_with_shadow(logic, Some(shadow)),
-            None => {
-                frame.populate_shadow_only_local_player(shadow);
-                frame.freeze_drawable_status_tints_from_shadow(shadow);
-            }
-        }
-        frame
-    }
-
-    /// Programmatic frame builder with an optional diagnostic shadow.
-    /// A supplied shadow must be synchronized before the call.
-    pub fn build_for_engine(
-        logic: &mut GameLogic,
-        local_player_id: u32,
-        shadow: Option<&crate::gameworld_shadow::GameWorldShadow>,
-    ) -> Self {
-        Self::build_for_engine_with_runtime_heightmap_and_discharges(
-            logic,
-            local_player_id,
-            shadow,
-            None,
-            Vec::new(),
-            super::camera_fade::FrameFade::Compatibility,
-        )
-    }
-
-    /// Publish one completed accepted-shot batch from the driving game world.
-    /// The frame then owns the batch; borrowed query builders do not consume it.
-    pub fn publish_for_engine(
-        logic: &mut GameLogic,
-        local_player_id: u32,
-        shadow: Option<&crate::gameworld_shadow::GameWorldShadow>,
-    ) -> Self {
-        Self::publish_for_engine_with_runtime_heightmap(logic, local_player_id, shadow, None)
-    }
-
-    pub(crate) fn publish_for_engine_with_runtime_heightmap(
-        logic: &mut GameLogic,
-        local_player_id: u32,
-        shadow: Option<&crate::gameworld_shadow::GameWorldShadow>,
-        runtime_heightmap: Option<std::sync::Arc<PresentationRuntimeHeightmap>>,
-    ) -> Self {
-        let discharges = logic.take_weapon_discharges_for_presentation();
-        Self::build_for_engine_with_runtime_heightmap_and_discharges(
-            logic,
-            local_player_id,
-            shadow,
-            runtime_heightmap,
-            discharges,
-            super::camera_fade::FrameFade::Compatibility,
-        )
-    }
-
-    pub(super) fn build_for_engine_with_runtime_heightmap_and_discharges(
-        logic: &mut GameLogic,
-        local_player_id: u32,
-        shadow: Option<&crate::gameworld_shadow::GameWorldShadow>,
-        runtime_heightmap: Option<std::sync::Arc<PresentationRuntimeHeightmap>>,
-        discharges: Vec<crate::game_logic::host_weapon_discharge_log::HostWeaponDischargeEvent>,
-        camera_fade: super::camera_fade::FrameFade,
-    ) -> Self {
-        match shadow {
-            Some(shadow) if presentation_from_gameworld_enabled() => {
-                Self::build_from_gameworld_with_runtime_heightmap_and_discharges(
-                    shadow,
-                    local_player_id,
-                    Some(logic),
-                    runtime_heightmap,
-                    discharges,
-                    camera_fade,
-                )
-            }
-            Some(shadow) => {
-                let mut rider_change_rosters = RiderChangeRosters::default();
-                let mut frame = Self::build_from_logic_with_host_roster(
-                    logic,
-                    local_player_id,
-                    runtime_heightmap,
-                    false,
-                    discharges,
-                    camera_fade,
-                    HostRoster::Keep,
-                    &mut rider_change_rosters,
-                );
-                let _ = frame.overlay_observed_objects(shadow, Some(logic));
-                let _ = frame.append_observed_objects(shadow, Some(logic));
-                // Shadow overlay is non-authoritative for containment and can
-                // replace hidden/shared data with an entrance-local roster.
-                let _ = frame.overlay_host_fx_residual_with_rider_rosters(logic, &mut rider_change_rosters);
-                frame.freeze_drawable_status_tints_from_logic_with_shadow(logic, Some(shadow));
-                frame
-            }
-            None => Self::build_from_logic_with_tint_update(
-                logic,
-                local_player_id,
-                runtime_heightmap,
-                true,
-                discharges,
-                camera_fade,
-            ),
-        }
-    }
-
-    /// Programmatic victory publication with an optional diagnostic shadow.
-    pub fn build_with_victory_for_engine(
-        logic: &mut GameLogic,
-        local_player_id: u32,
-        shadow: Option<&crate::gameworld_shadow::GameWorldShadow>,
-    ) -> Self {
-        Self::build_with_victory_for_engine_with_runtime_heightmap(
-            logic,
-            local_player_id,
-            shadow,
-            None,
-        )
-    }
-
-    /// Engine-only victory variant carrying the revision-frozen terrain payload.
-    pub(crate) fn build_with_victory_for_engine_with_runtime_heightmap(
-        logic: &mut GameLogic,
-        local_player_id: u32,
-        shadow: Option<&crate::gameworld_shadow::GameWorldShadow>,
-        runtime_heightmap: Option<std::sync::Arc<PresentationRuntimeHeightmap>>,
-    ) -> Self {
-        Self::build_with_victory_for_engine_with_runtime_heightmap_and_fade(
-            logic,
-            local_player_id,
-            shadow,
-            runtime_heightmap,
-            super::camera_fade::FrameFade::Compatibility,
-        )
-    }
-
-    pub(super) fn build_with_victory_for_engine_with_runtime_heightmap_and_fade(
-        logic: &mut GameLogic,
-        local_player_id: u32,
-        shadow: Option<&crate::gameworld_shadow::GameWorldShadow>,
-        runtime_heightmap: Option<std::sync::Arc<PresentationRuntimeHeightmap>>,
-        camera_fade: super::camera_fade::FrameFade,
-    ) -> Self {
-        let gameworld_roster = shadow.filter(|_| presentation_from_gameworld_enabled());
-        let mut rider_change_rosters = RiderChangeRosters::default();
-        let mut frame = Self::build_with_victory_with_tint_update(
-            logic,
-            local_player_id,
-            runtime_heightmap,
-            false,
-            camera_fade,
-            Self::host_roster_for_gameworld(gameworld_roster, logic),
-            &mut rider_change_rosters,
-        );
-        match shadow {
-            Some(shadow) if presentation_from_gameworld_enabled() => {
-                let host_objects = std::mem::take(&mut frame.objects);
-                let gw_n = frame.rebuild_observed_objects(shadow, Some(logic), &host_objects);
-                // Wave 838: empty GameWorld shadow must not erase a non-empty host
-                // roster (construct/train/map objects) or unit mesh collect stays 0.
-                if gw_n == 0 && !host_objects.is_empty() {
-                    frame.objects = host_objects;
-                    let _ = frame.overlay_observed_objects(shadow, Some(logic));
-                }
-                // Wave 498: host FX residual after GW object rebuild.
-                let _ = frame.overlay_host_fx_residual_with_rider_rosters(logic, &mut rider_change_rosters);
-                // Wave 500: object FX residual names → particle list.
-                let _ = frame.append_object_fx_particles();
-            }
-            Some(shadow) => {
-                let _ = frame.overlay_observed_objects(shadow, Some(logic));
-                let _ = frame.append_observed_objects(shadow, Some(logic));
-                // Shadow overlay is non-authoritative for containment and can
-                // replace hidden/shared data with an entrance-local roster.
-                let _ = frame.overlay_host_fx_residual_with_rider_rosters(logic, &mut rider_change_rosters);
-            }
-            None => {}
-        }
-        frame.freeze_drawable_status_tints_from_logic_with_shadow(logic, shadow);
-        frame
     }
 }

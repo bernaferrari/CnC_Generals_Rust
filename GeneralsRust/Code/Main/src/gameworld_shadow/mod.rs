@@ -28,7 +28,6 @@ pub use presentation::*;
 #[derive(Debug)]
 pub struct GameWorldShadow {
     /// Tint owner for hostless presentation through the shared shadow API.
-    pub(crate) drawable_tint_envelopes: std::cell::RefCell<crate::game_logic::DrawableTintEnvelopes>,
     world: GameWorld,
     // Id-keyed lookup tables: iteration order never feeds sim decisions
     // (stale removal / metrics are order-independent), so use the Fx hasher.

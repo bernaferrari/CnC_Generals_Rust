@@ -422,20 +422,3 @@ impl PresentationFrame {
         }
     }
 }
-
-/// Whether presentation object rosters should be rebuilt from GameWorld (Wave 194).
-///
-/// **Default ON** when shadow is present. Opt out with
-/// `GENERALS_PRESENTATION_FROM_GAMEWORLD=0` (or false/no/off).
-/// Fail-closed: does not flip shell `playable_claim`; host still supplies
-/// non-object residual (scripts/FX/camera) via `build_from_logic` when used.
-#[cfg(test)]
-pub fn presentation_from_gameworld_enabled() -> bool {
-    match std::env::var("GENERALS_PRESENTATION_FROM_GAMEWORLD") {
-        Ok(v) => {
-            let t = v.trim();
-            !matches!(t, "0" | "false" | "FALSE" | "no" | "NO" | "off" | "OFF")
-        }
-        Err(_) => true,
-    }
-}

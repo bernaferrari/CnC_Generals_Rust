@@ -2546,7 +2546,7 @@ fn weapon_discharge_world_tick_combat_preserves_preadvance_barrel_and_freezes_on
     );
 
     let frozen =
-        crate::presentation_frame::PresentationFrame::publish_for_engine(&mut game_logic, 0, None);
+        crate::presentation_frame::PresentationFrame::try_publish_for_engine_with_runtime_heightmap(&mut game_logic, 0, None, false).unwrap();
     assert!(frozen.events.iter().any(|event| matches!(
         event,
         crate::presentation_frame::PresentationEvent::WeaponDischarged {
@@ -2559,7 +2559,7 @@ fn weapon_discharge_world_tick_combat_preserves_preadvance_barrel_and_freezes_on
         } if *source == attacker_id
     )));
     assert!(
-        crate::presentation_frame::PresentationFrame::publish_for_engine(&mut game_logic, 0, None)
+        crate::presentation_frame::PresentationFrame::try_publish_for_engine_with_runtime_heightmap(&mut game_logic, 0, None, false).unwrap()
             .events
             .iter()
             .all(|event| !matches!(

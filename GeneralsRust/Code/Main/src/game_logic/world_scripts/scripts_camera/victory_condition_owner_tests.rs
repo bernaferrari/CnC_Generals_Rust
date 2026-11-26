@@ -89,9 +89,7 @@ fn receiving_defeat_keeps_script_and_native_presentation_events() {
     assert!(query(&mut owner, ConditionType::MultiplayerAlliedDefeat));
     assert!(!query(&mut owner, ConditionType::MultiplayerPlayerDefeat));
     assert!(!query(&mut peer, ConditionType::MultiplayerAlliedDefeat));
-    let frame = crate::presentation_frame::PresentationFrame::build_with_victory_for_engine(
-        &mut owner, 1, None,
-    );
+    let frame = crate::presentation_frame::PresentationFrame::try_publish_for_engine_with_runtime_heightmap(&mut owner, 1, None, true).unwrap();
     assert!(frame.defeated_player_ids.contains(&1));
     assert!(peer.host_object(unit).unwrap().is_alive());
 }

@@ -1,6 +1,7 @@
 //! No catalog/registry: exact receiving definitions across same-name worlds.
 use super::*;
 use crate::game_logic::{GameLogic, KindOf, ObjectId, Player, Team};
+use crate::presentation_frame::PresentationFrame;
 use glam::Vec3;
 fn admitted(carbomb: bool, boat: bool) -> (GameLogic, ObjectId) {
     admitted_with_cliff(carbomb, boat, false)
@@ -51,8 +52,8 @@ fn same_name_same_id_car_capability_and_kind_are_owned_and_frozen_without_catalo
     assert!(carbomb_target_rejected(peer.host_object(pid).unwrap()));
     assert!(!hijack_target_rejected(owner.host_object(id).unwrap()));
     assert!(hijack_target_rejected(peer.host_object(pid).unwrap()));
-    let frame = crate::presentation_frame::PresentationFrame::build_from_logic(&mut owner, 1);
-    let other = crate::presentation_frame::PresentationFrame::build_from_logic(&mut peer, 1);
+    let frame = PresentationFrame::try_build_from_logic(&mut owner, 1).unwrap();
+    let other = PresentationFrame::try_build_from_logic(&mut peer, 1).unwrap();
     let a = frame.objects.iter().find(|object| object.id == id).unwrap();
     let b = other
         .objects
@@ -81,70 +82,6 @@ fn same_name_same_id_car_capability_and_kind_are_owned_and_frozen_without_catalo
     );
     assert!(crate::presentation_frame::PresentationFrame::object_has_kind(a, KindOf::CliffJumper));
     assert!(!crate::presentation_frame::PresentationFrame::object_has_kind(b, KindOf::CliffJumper));
-    // Rebuilding from a sparse observer must refresh the complete actual host facts.
-    let mut overlaid = frame.clone();
-    let stale = overlaid
-        .objects
-        .iter_mut()
-        .find(|object| object.id == id)
-        .unwrap();
-    stale.kind_of.clear();
-    stale.is_force_attackable = false;
-    stale.always_selectable = false;
-    assert!(overlaid.overlay_host_fx_residual(&owner) > 0);
-    let refreshed = overlaid
-        .objects
-        .iter()
-        .find(|object| object.id == id)
-        .unwrap();
-    assert!(
-        crate::presentation_frame::PresentationFrame::object_has_kind(
-            refreshed,
-            KindOf::ForceAttackable
-        )
-    );
-    assert!(
-        crate::presentation_frame::PresentationFrame::object_has_kind(
-            refreshed,
-            KindOf::AlwaysSelectable
-        )
-    );
-    assert!(
-        crate::presentation_frame::PresentationFrame::object_has_kind(
-            refreshed,
-            KindOf::CliffJumper
-        )
-    );
-    let mut shadow = crate::gameworld_shadow::GameWorldShadow::new(32);
-    shadow.sync_from_host(&owner);
-    let engine_frame = crate::presentation_frame::PresentationFrame::build_for_engine(
-        &mut owner,
-        1,
-        Some(&shadow),
-    );
-    let engine_object = engine_frame
-        .objects
-        .iter()
-        .find(|object| object.id == id)
-        .unwrap();
-    assert!(
-        crate::presentation_frame::PresentationFrame::object_has_kind(
-            engine_object,
-            KindOf::ForceAttackable
-        )
-    );
-    assert!(
-        crate::presentation_frame::PresentationFrame::object_has_kind(
-            engine_object,
-            KindOf::AlwaysSelectable
-        )
-    );
-    assert!(
-        crate::presentation_frame::PresentationFrame::object_has_kind(
-            engine_object,
-            KindOf::CliffJumper
-        )
-    );
     owner
         .clear_all_objects_with_effects_checked(&mut Default::default())
         .unwrap();
@@ -164,6 +101,19 @@ fn same_name_same_id_car_capability_and_kind_are_owned_and_frozen_without_catalo
             .unwrap()
             .authors_carbomb_weapon_set()
     );
+    let replaced = PresentationFrame::try_build_from_logic(&mut owner, 1).unwrap();
+    let row = replaced
+        .objects
+        .iter()
+        .find(|row| row.id == replacement)
+        .unwrap();
+    for kind in [
+        KindOf::ForceAttackable,
+        KindOf::AlwaysSelectable,
+        KindOf::CliffJumper,
+    ] {
+        assert!(PresentationFrame::object_has_kind(row, kind));
+    }
     assert!(!peer.host_object(pid).unwrap().authors_carbomb_weapon_set());
     assert!(
         a.authors_carbomb_weapon_set,
@@ -295,8 +245,8 @@ fn authored_reject_unmanned_controls_live_recrew_frozen_facts_and_native_restore
             .unwrap()
             .presentation_kind_of_bits()
     );
-    let frame = crate::presentation_frame::PresentationFrame::build_from_logic(&mut owner, 1);
-    let peer_frame = crate::presentation_frame::PresentationFrame::build_from_logic(&mut peer, 1);
+    let frame = PresentationFrame::try_build_from_logic(&mut owner, 1).unwrap();
+    let peer_frame = PresentationFrame::try_build_from_logic(&mut peer, 1).unwrap();
     let frozen = frame
         .objects
         .iter()

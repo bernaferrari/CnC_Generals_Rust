@@ -957,55 +957,6 @@ impl PresentationFrame {
         self.freeze_drawable_status_tints(owner);
     }
 
-    #[cfg(test)]
-    pub(super) fn freeze_drawable_status_tints_from_logic_with_shadow(
-        &mut self,
-        logic: &mut GameLogic,
-        shadow: Option<&crate::gameworld_shadow::GameWorldShadow>,
-    ) {
-        let objects = &logic.objects;
-        let owner = &mut logic.drawable_tint_envelopes;
-        owner.retain(|id| {
-            if id & 0x8000_0000 == 0 {
-                objects.lookup(&crate::game_logic::ObjectId(id)).is_some()
-                    || shadow.is_some_and(|shadow| {
-                        shadow
-                            .entity_for_host(crate::game_logic::ObjectId(id))
-                            .is_some_and(|entity| shadow.world().entity(entity).is_some())
-                    })
-            } else {
-                shadow.is_some_and(|shadow| {
-                    shadow
-                        .world()
-                        .entity(gamelogic::world::entities::EntityId::from_raw(
-                            id & 0x7fff_ffff,
-                        ))
-                        .is_some()
-                })
-            }
-        });
-        self.freeze_drawable_status_tints(owner);
-    }
-
-    #[cfg(test)]
-    pub(super) fn freeze_drawable_status_tints_from_shadow(
-        &mut self,
-        shadow: &crate::gameworld_shadow::GameWorldShadow,
-    ) {
-        let mut owner = shadow.drawable_tint_envelopes.borrow_mut();
-        owner.retain(|id| {
-            let entity = if id & 0x8000_0000 == 0 {
-                shadow.entity_for_host(crate::game_logic::ObjectId(id))
-            } else {
-                Some(gamelogic::world::entities::EntityId::from_raw(
-                    id & 0x7fff_ffff,
-                ))
-            };
-            entity.is_some_and(|entity| shadow.world().entity(entity).is_some())
-        });
-        self.freeze_drawable_status_tints(&mut owner);
-    }
-
     /// Sample client tint once after all object/authority overlays are complete.
     fn freeze_drawable_status_tints(&mut self, owner: &mut crate::game_logic::DrawableTintEnvelopes) {
         for ro in &mut self.objects {
@@ -1099,28 +1050,23 @@ mod tests {
     }
 
     #[test]
-    fn owned_tint_hostless_shadow_preserves_and_isolates_samples() {
-        let (logic, id) = owned_tint_world(true);
-        let mut first = crate::gameworld_shadow::GameWorldShadow::new(64);
-        first.sync_from_host(&logic);
-        first
-            .drawable_tint_envelopes
-            .get_mut()
-            .sample(id.0, 0, true, false, false, false);
-        let dark = first
-            .drawable_tint_envelopes
-            .get_mut()
-            .sample(id.0, 30, true, false, false, false);
-        let frame = PresentationFrame::build_from_gameworld(&mut first, 0, None);
-        assert_eq!(frame.unit_render_inputs()[0].status_tint, dark);
-        let mut second = crate::gameworld_shadow::GameWorldShadow::new(64);
-        second.sync_from_host(&logic);
-        let fresh = PresentationFrame::build_from_gameworld(&mut second, 0, None);
-        assert!(fresh.unit_render_inputs()[0].status_tint[0] > dark[0]);
-        let entity = first.entity_for_host(id).unwrap();
-        first.world_mut().world_mut().remove_entity(entity);
-        let _ = PresentationFrame::build_from_gameworld(&mut first, 0, None);
-        assert!(first.drawable_tint_envelopes.get_mut().capture(id.0).is_none());
+    fn owned_tint_samples_stay_frozen_through_peer_publication_and_retirement() {
+        let (mut first, id) = owned_tint_world(true);
+        let (mut peer, peer_id) = owned_tint_world(false);
+        assert_eq!(id, peer_id);
+        let _ = PresentationFrame::try_build_from_logic(&mut first, 0).unwrap();
+        first.frame = 30;
+        let dark = PresentationFrame::try_build_from_logic(&mut first, 0).unwrap();
+        let tint = dark.unit_render_inputs()[0].status_tint;
+        assert!(tint[0] < -0.45);
+        let clear = PresentationFrame::try_build_from_logic(&mut peer, 0).unwrap();
+        assert_eq!(clear.unit_render_inputs()[0].status_tint, [0.0; 3]);
+        first.destroy_object(id).unwrap();
+        first.process_destroy_list();
+        let retired = PresentationFrame::try_build_from_logic(&mut first, 0).unwrap();
+        assert!(retired.objects.is_empty());
+        assert!(first.drawable_tint_envelopes.capture(id.0).is_none());
+        assert_eq!(dark.unit_render_inputs()[0].status_tint, tint);
     }
 
     #[test]

@@ -675,7 +675,7 @@ mod tests {
         // A presentation frame can trail multiple fixed logic steps. It must
         // receive both accepted events, rather than only the last drain batch.
         let frame =
-            crate::presentation_frame::PresentationFrame::publish_for_engine(&mut logic, 0, None);
+            crate::presentation_frame::PresentationFrame::try_publish_for_engine_with_runtime_heightmap(&mut logic, 0, None, false).unwrap();
         let frozen: Vec<_> = frame
             .events
             .iter()
@@ -695,7 +695,7 @@ mod tests {
             .collect();
         assert_eq!(frozen, vec![(1, 0, 2, 77), (2, 0, 0, 77)]);
         assert!(
-            crate::presentation_frame::PresentationFrame::publish_for_engine(&mut logic, 0, None)
+            crate::presentation_frame::PresentationFrame::try_publish_for_engine_with_runtime_heightmap(&mut logic, 0, None, false).unwrap()
                 .events
                 .iter()
                 .all(|event| !matches!(
