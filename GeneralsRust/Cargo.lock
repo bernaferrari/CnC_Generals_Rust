@@ -6055,25 +6055,15 @@ name = "map_cache_builder"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "chrono",
  "crc32fast",
  "eframe",
  "egui",
  "env_logger",
- "flate2",
  "game_engine",
- "image",
  "log",
- "lz4",
- "rayon",
  "rfd",
  "serde",
- "serde_json",
  "tempfile",
- "thiserror 2.0.20",
- "tokio",
- "toml 1.1.6+spec-1.1.0",
- "uuid",
  "walkdir",
 ]
 
