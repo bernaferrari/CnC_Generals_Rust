@@ -1,6 +1,8 @@
 //! Fixed-step time accounting for one simulation instance.
 
-pub const LOGIC_FRAMES_PER_SECOND: f32 = 30.0;
+/// Fixed simulation updates per second (C++ GameCommon.h).
+pub const LOGIC_HZ: u32 = 30;
+pub const LOGIC_FRAMES_PER_SECOND: f32 = LOGIC_HZ as f32;
 pub const LOGIC_FRAME_TIMESTEP: f32 = 1.0 / LOGIC_FRAMES_PER_SECOND;
 
 #[derive(Debug, PartialEq, Eq)]

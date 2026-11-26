@@ -487,8 +487,8 @@ fn projectiles_step_inside_game_logic_update() {
         shock_wave_radius: 0.0,
         shock_wave_taper_off: 0.0,
         radius_damage_affects:
-            crate::game_logic::host_ai_path_combat_residual_wave105::WEAPON_AFFECTS_ENEMIES
-                | crate::game_logic::host_ai_path_combat_residual_wave105::WEAPON_AFFECTS_NEUTRALS,
+            generals_sim::weapon::WeaponAffectsMask::ENEMIES
+                | generals_sim::weapon::WeaponAffectsMask::NEUTRALS,
         projectile_collides: crate::game_logic::weapon_bootstrap::PROJECTILE_COLLIDE_DEFAULT,
         scatter_radius: 0.0,
         scatter_table_offset: None,

@@ -111,10 +111,7 @@ pub fn projectile_collides_with_structure_or_fence(
 }
 
 /// C++ Weapon.cpp:271 default `m_affectsMask` when RadiusDamageAffects is omitted.
-pub const WEAPON_AFFECTS_DEFAULT: u32 =
-    crate::game_logic::host_ai_path_combat_residual_wave105::WEAPON_AFFECTS_ALLIES
-        | crate::game_logic::host_ai_path_combat_residual_wave105::WEAPON_AFFECTS_ENEMIES
-        | crate::game_logic::host_ai_path_combat_residual_wave105::WEAPON_AFFECTS_NEUTRALS;
+pub const WEAPON_AFFECTS_DEFAULT: u32 = generals_sim::weapon::WeaponAffectsMask::DEFAULT;
 
 /// C++ Weapon.ini RadiusDamageAffects residual mask (Regular).
 ///
@@ -145,7 +142,7 @@ pub(super) fn seed_radius_damage_affects_for(name: &str) -> u32 {
 /// Leftover `should_apply_damage` uses the same ALLIES/ENEMIES/NEUTRALS bits.
 ///
 /// `producer_id` is `source->getProducerID()` (Weapon.cpp:1330-1337). When
-/// `WEAPON_AFFECTS_SELF` is unset, C++ skips both the firer and the building
+/// `WeaponAffectsMask::SELF` is unset, C++ skips both the firer and the building
 /// that produced it (War Factory, airfield, Stinger Site).
 pub fn radius_damage_affects_victim(
     affects: u32,
@@ -156,30 +153,27 @@ pub fn radius_damage_affects_victim(
     victim_airborne: bool,
     same_template: bool,
 ) -> bool {
-    use crate::game_logic::host_ai_path_combat_residual_wave105::{
-        WEAPON_AFFECTS_ALLIES, WEAPON_AFFECTS_ENEMIES, WEAPON_AFFECTS_NEUTRALS,
-        WEAPON_AFFECTS_SELF, WEAPON_DOESNT_AFFECT_AIRBORNE, WEAPON_DOESNT_AFFECT_SIMILAR,
-    };
+    use generals_sim::weapon::WeaponAffectsMask;
     use gamelogic::common::Relationship;
 
     if (shooter_id == victim_id || producer_id == Some(victim_id))
-        && (affects & WEAPON_AFFECTS_SELF) == 0
+        && (affects & WeaponAffectsMask::SELF) == 0
     {
         return false;
     }
-    if (affects & WEAPON_DOESNT_AFFECT_AIRBORNE) != 0 && victim_airborne {
+    if (affects & WeaponAffectsMask::DOESNT_AFFECT_AIRBORNE) != 0 && victim_airborne {
         return false;
     }
-    if (affects & WEAPON_DOESNT_AFFECT_SIMILAR) != 0 && same_template {
+    if (affects & WeaponAffectsMask::DOESNT_AFFECT_SIMILAR) != 0 && same_template {
         // C++ source->getRelationship(curVictim) == ALLIES && equivalent template.
         if relationship == Relationship::Allies {
             return false;
         }
     }
     let required_mask = match relationship {
-        Relationship::Allies => WEAPON_AFFECTS_ALLIES,
-        Relationship::Enemies => WEAPON_AFFECTS_ENEMIES,
-        Relationship::Neutral => WEAPON_AFFECTS_NEUTRALS,
+        Relationship::Allies => WeaponAffectsMask::ALLIES,
+        Relationship::Enemies => WeaponAffectsMask::ENEMIES,
+        Relationship::Neutral => WeaponAffectsMask::NEUTRALS,
     };
     (affects & required_mask) != 0
 }

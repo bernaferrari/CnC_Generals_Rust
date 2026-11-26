@@ -1,5 +1,5 @@
 use super::*;
-use crate::game_logic::host_ai_path_combat_residual_wave105::LOGIC_FRAMES_PER_SECOND_RESIDUAL;
+use generals_sim::time::LOGIC_HZ;
 
 impl GameLogic {
     #[allow(clippy::too_many_arguments)]
@@ -83,7 +83,7 @@ impl GameLogic {
                                 });
                             pilot.movement.path.is_empty()
                                 || pilot.is_blocked_and_stuck
-                                || pilot.num_frames_blocked > 2 * LOGIC_FRAMES_PER_SECOND_RESIDUAL
+                                || pilot.num_frames_blocked > 2 * LOGIC_HZ
                                 || goal_moved
                         });
                         if should_repath {

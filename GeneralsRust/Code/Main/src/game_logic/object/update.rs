@@ -388,7 +388,7 @@ impl Object {
             self,
         ) || matches!(self.loco_appearance, LocomotorAppearance::Hover)
             || self.path_extra_distance
-                > crate::game_logic::host_ai_path_combat_residual_wave105::PATHFIND_CLOSE_ENOUGH;
+                > generals_sim::pathfinding::PATHFIND_CLOSE_ENOUGH;
         if !treat_as_aircraft {
             let last = self.movement.path.last().copied().unwrap_or(goal);
             let ldx = last.x - current.x;

@@ -691,7 +691,7 @@ impl GameLogic {
                             obj,
                         );
                     let doesnt_affect_similar =
-                        crate::game_logic::host_ai_path_combat_residual_wave105::WEAPON_DOESNT_AFFECT_SIMILAR;
+                        generals_sim::weapon::WeaponAffectsMask::DOESNT_AFFECT_SIMILAR;
                     if (affects & doesnt_affect_similar) != 0
                         && same_tmpl
                         && similar_relationship == gamelogic::common::Relationship::Allies
@@ -1005,7 +1005,7 @@ impl GameLogic {
                         };
                     }
                     let doesnt_affect_similar =
-                        crate::game_logic::host_ai_path_combat_residual_wave105::WEAPON_DOESNT_AFFECT_SIMILAR;
+                        generals_sim::weapon::WeaponAffectsMask::DOESNT_AFFECT_SIMILAR;
                     if (affects & doesnt_affect_similar) != 0
                         && same_tmpl
                         && similar_relationship == gamelogic::common::Relationship::Allies

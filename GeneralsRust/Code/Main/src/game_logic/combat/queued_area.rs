@@ -164,7 +164,7 @@ impl<'a> AreaDamage<'a> {
                     shooter_team_instance_name,
                 )
             };
-            let doesnt_affect_similar = crate::game_logic::host_ai_path_combat_residual_wave105::WEAPON_DOESNT_AFFECT_SIMILAR;
+            let doesnt_affect_similar = generals_sim::weapon::WeaponAffectsMask::DOESNT_AFFECT_SIMILAR;
             if (*radius_damage_affects & doesnt_affect_similar) != 0
                 && crate::game_logic::weapon_bootstrap::receiving_splash_templates_equivalent(
                     templates,

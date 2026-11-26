@@ -153566,7 +153566,7 @@
     }
   ],
   "generator": "GeneralsRust/Code/Main/scripts/generate_port_provenance.py",
-  "input_digest": "b35cb1b8e726eae1fcb5f0ba1b9ac610ac1fbc94342be5c04c8aadf69b6c0885",
+  "input_digest": "472b648ac19f3808b518da99e4b31307133755d9d1e758d4dbe603ed92e837e0",
   "metric_contract": {
     "behavior_requires_explicit_evidence": true,
     "candidate_mapping_is_reviewed": false,
@@ -184107,18 +184107,13 @@
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/ai/pathfind.rs",
-      "sha256": "eaceff2f9c94714dde16c5e249b0b817388354b52c313ab376532eaea3eee832",
+      "sha256": "f35a4fb0f9181520d3fbed03d79996173d804bde0b1992025ae78e9eabcdad15",
       "symbol_index_status": "indexed",
       "symbols": [
         {
           "kind": "fn",
           "line": 22,
           "name": "dual_world_registry_unavailable"
-        },
-        {
-          "kind": "const",
-          "line": 27,
-          "name": "PATHFIND_CLOSE_ENOUGH"
         },
         {
           "kind": "const",
@@ -207453,11 +207448,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 208,
+        "end_line": 207,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/weapon/helpers.rs",
-      "sha256": "2e2d8b26c733456584d12da531ee25c15645cf26b2654c1884a955fe3e6ffa33",
+      "sha256": "b062249b801859798b5026133c54f0d3da3e0b498d5faaa9b6f2e79369c3883c",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },

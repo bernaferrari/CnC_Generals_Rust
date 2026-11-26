@@ -238,11 +238,7 @@ impl WeaponDefinition {
             damage_status_type: WeaponDamageStatus::new(WeaponDamageStatus::NONE),
             death_type: DeathType::Normal,
             anti_mask: WeaponAntiMask::new(WeaponAntiMask::GROUND),
-            affects_mask: WeaponAffectsMask::new(
-                WeaponAffectsMask::ALLIES
-                    | WeaponAffectsMask::ENEMIES
-                    | WeaponAffectsMask::NEUTRALS,
-            ),
+            affects_mask: WeaponAffectsMask::new(WeaponAffectsMask::DEFAULT),
             collide_mask: WeaponCollideMask::new(WeaponCollideMask::STRUCTURES),
             damage_dealt_at_self_position: false,
             reload_type: WeaponReloadType::AutoReload,

@@ -38,6 +38,7 @@
 mod astar;
 mod cell;
 mod grid_edit;
+pub mod group;
 mod hierarchical;
 mod line_traversal;
 mod obstacles;
@@ -48,7 +49,8 @@ mod zones;
 pub use astar::{AStarPathfinder, SearchPathNode};
 pub use cell::{
     COST_DIAGONAL, COST_ORTHOGONAL, CellFlags, GridCoord, MAX_FRAMES_AHEAD, PATHFIND_CELL_SIZE,
-    PATHFIND_CELL_SIZE_F, PathfindCell, PathfindCellType, PathfindLayerEnum, ZONE_IMPASSABLE_COST,
+    PATHFIND_CELL_SIZE_F, PATHFIND_CLOSE_ENOUGH, PathfindCell, PathfindCellType, PathfindLayerEnum,
+    ZONE_IMPASSABLE_COST,
 };
 pub use line_traversal::visit_cell_line;
 

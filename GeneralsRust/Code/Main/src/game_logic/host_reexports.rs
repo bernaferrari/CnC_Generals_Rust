@@ -2,13 +2,6 @@
 //!
 //! Keeps public paths such as `crate::game_logic::HostAmbushKind`.
 
-pub use super::host_ai_path_combat_residual_wave105::{
-    honesty_ai_group_residual_pack_wave105, honesty_ai_path_combat_residual_pack_wave105,
-    honesty_ai_path_residual_deepen_pack_wave105,
-    honesty_damage_application_residual_deepen_pack_wave105,
-    honesty_veterancy_residual_deepen_pack_wave105,
-    honesty_weapon_fire_residual_deepen_pack_wave105,
-};
 pub use super::host_ambush::{
     AMBUSH_RESIDUAL_TEMPLATE, AMBUSH_SPAWN_RADIUS, GLA_AMBUSH1_UNIT_COUNT, HostAmbushKind,
     HostAmbushMission, HostAmbushPhase, HostAmbushRegistry,

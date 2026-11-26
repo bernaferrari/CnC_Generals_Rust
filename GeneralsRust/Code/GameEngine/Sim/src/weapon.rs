@@ -13,6 +13,9 @@ pub use definition::{Coord2D, WeaponDefinition, WeaponFxName, WeaponSound};
 pub use estimate::{DamageEstimateTarget, WeaponDamageEstimate, estimate_weapon_template_damage};
 pub use ini::{WeaponEffectOverrides, apply_weapon_ini_fields};
 
+/// Sentinel for an attack order without a maximum shot count.
+pub const NO_MAX_SHOTS_LIMIT: i32 = i32::MAX;
+
 const RANGE_UNDERSIZE: f32 = PATHFIND_CELL_SIZE_F * 0.25;
 
 /// Minimum reach uses the same quarter-cell adjustment as maximum reach.
@@ -209,6 +212,8 @@ impl WeaponAffectsMask {
     pub const KILLS_SELF: u32 = 0x10;
     pub const DOESNT_AFFECT_SIMILAR: u32 = 0x20;
     pub const DOESNT_AFFECT_AIRBORNE: u32 = 0x40;
+    /// C++ WeaponTemplate default when RadiusDamageAffects is omitted.
+    pub const DEFAULT: u32 = Self::ALLIES | Self::ENEMIES | Self::NEUTRALS;
 
     pub fn new(mask: u32) -> Self {
         Self(mask)

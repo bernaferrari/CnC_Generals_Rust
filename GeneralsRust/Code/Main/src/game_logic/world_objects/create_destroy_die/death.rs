@@ -1130,7 +1130,7 @@ impl GameLogic {
         } else if template.radius_damage_angle < std::f32::consts::PI {
             Some("directional radius damage")
         } else if template.affects_mask.bits()
-            & crate::game_logic::host_ai_path_combat_residual_wave105::WEAPON_KILLS_SELF
+            & generals_sim::weapon::WeaponAffectsMask::KILLS_SELF
             != 0
         {
             Some("KillsSelf")

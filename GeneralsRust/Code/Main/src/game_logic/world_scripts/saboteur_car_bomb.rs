@@ -925,7 +925,7 @@ impl GameLogic {
         // full transform height is deliberately not snapped to the terrain.
         let building = self.objects.get(&building_id).unwrap();
         let p = exit.natural_rally_point_with_path_offset(
-            crate::game_logic::host_ai_path_combat_residual_wave105::PATHFIND_CELL_SIZE_F,
+            generals_sim::pathfinding::PATHFIND_CELL_SIZE_F,
         );
         let natural =
             crate::game_logic::host_production_buildable_command_residual::transform_model_exit_offset(

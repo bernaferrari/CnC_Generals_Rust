@@ -1,4 +1,5 @@
 use super::*;
+use generals_sim::{time::LOGIC_HZ, weapon::NO_MAX_SHOTS_LIMIT};
 
 /// C++ Locomotor.cpp:2420/761 adds 2.5 seconds at 30 logic frames per second.
 const LOCOMOTOR_DONUT_DELAY_FRAMES: u32 =
@@ -1470,8 +1471,7 @@ impl Object {
         self.waiting_for_path = true;
         if self.path_timestamp > current_frame.wrapping_sub(3) {
             // C++ setQueueForPathTime(2 * LOGICFRAMES_PER_SECOND) and setLocomotorGoalNone.
-            self.queue_for_path_frame = current_frame.wrapping_add(2
-                * crate::game_logic::host_ai_path_combat_residual_wave105::LOGIC_FRAMES_PER_SECOND_RESIDUAL);
+            self.queue_for_path_frame = current_frame.wrapping_add(2 * LOGIC_HZ);
             self.set_locomotor_goal_none();
             return false;
         }
@@ -1483,9 +1483,7 @@ impl Object {
     pub fn begin_request_move_path(&mut self, destination: glam::Vec3, current_frame: u32) -> bool {
         let ok = self.begin_request_move_path_inner(destination, current_frame, true);
         if !ok && !self.movement.path.is_empty() && self.is_blocked_and_stuck {
-            self.ignore_collisions_until_frame = current_frame.saturating_add(
-                2 * crate::game_logic::host_ai_path_combat_residual_wave105::LOGIC_FRAMES_PER_SECOND_RESIDUAL,
-            );
+            self.ignore_collisions_until_frame = current_frame.saturating_add(2 * LOGIC_HZ);
             self.num_frames_blocked = 0;
             self.is_blocked = false;
             self.is_blocked_and_stuck = false;
@@ -1512,7 +1510,7 @@ impl Object {
         }
         self.waiting_for_path = true;
         if self.path_timestamp > current_frame.wrapping_sub(3) {
-            self.queue_for_path_frame = current_frame.wrapping_add(crate::game_logic::host_ai_path_combat_residual_wave105::LOGIC_FRAMES_PER_SECOND_RESIDUAL);
+            self.queue_for_path_frame = current_frame.wrapping_add(LOGIC_HZ);
             return false;
         }
 
@@ -1565,8 +1563,7 @@ impl Object {
         self.is_approach_path = true;
         self.is_final_goal = true;
         if !ok {
-            self.queue_for_path_frame = current_frame.wrapping_add(2
-                * crate::game_logic::host_ai_path_combat_residual_wave105::LOGIC_FRAMES_PER_SECOND_RESIDUAL);
+            self.queue_for_path_frame = current_frame.wrapping_add(2 * LOGIC_HZ);
         }
         ok
     }
@@ -1587,8 +1584,7 @@ impl Object {
         // (AIStates.cpp:2265 and :2294). It never restores true.
         self.set_adjust_destinations(false);
         if !ok {
-            self.queue_for_path_frame = current_frame.wrapping_add(2
-                * crate::game_logic::host_ai_path_combat_residual_wave105::LOGIC_FRAMES_PER_SECOND_RESIDUAL);
+            self.queue_for_path_frame = current_frame.wrapping_add(2 * LOGIC_HZ);
         }
         if previous != Some(repulsor) {
             self.safe_path_repulsor2 = previous;
@@ -1717,9 +1713,7 @@ impl Object {
 
     /// C++ `--m_maxShotCount` residual after a successful discharge.
     pub fn consume_max_shot_count(&mut self) {
-        const NO_MAX: i32 =
-            crate::game_logic::host_ai_path_combat_residual_wave105::NO_MAX_SHOTS_LIMIT;
-        if self.max_shots_to_fire == -1 || self.max_shots_to_fire == NO_MAX {
+        if self.max_shots_to_fire == -1 || self.max_shots_to_fire == NO_MAX_SHOTS_LIMIT {
             return;
         }
         if self.max_shots_to_fire > 0 {

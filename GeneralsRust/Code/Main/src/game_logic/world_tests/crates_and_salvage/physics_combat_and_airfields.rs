@@ -1305,7 +1305,7 @@ fn splash_kill_awards_score_the_kill_experience() {
 
 #[test]
 fn scatter_miss_splash_honors_radius_damage_affects() {
-    use crate::game_logic::host_ai_path_combat_residual_wave105::WEAPON_AFFECTS_ALLIES;
+    use generals_sim::weapon::WeaponAffectsMask;
     use crate::game_logic::weapon_bootstrap::{
         WEAPON_AFFECTS_DEFAULT, ensure_host_weapon_store,
         host_radius_damage_affects_for_weapon_name, radius_damage_affects_victim,
@@ -1327,11 +1327,11 @@ End
     );
 
     let gun = host_radius_damage_affects_for_weapon_name("TestNoAllySplashWeapon");
-    assert_eq!(gun & WEAPON_AFFECTS_ALLIES, 0);
+    assert_eq!(gun & WeaponAffectsMask::ALLIES, 0);
     // C++ omitted RadiusDamageAffects / unknown name: ALLIES|ENEMIES|NEUTRALS.
     let omitted = host_radius_damage_affects_for_weapon_name("CompletelyUnknownSplashWeaponXYZ");
     assert_eq!(omitted, WEAPON_AFFECTS_DEFAULT);
-    assert_ne!(omitted & WEAPON_AFFECTS_ALLIES, 0);
+    assert_ne!(omitted & WeaponAffectsMask::ALLIES, 0);
 
     let mut logic = GameLogic::new();
     enemy_players(&mut logic);
@@ -1429,9 +1429,7 @@ End
 
 #[test]
 fn scatter_miss_splash_honors_not_airborne_ini() {
-    use crate::game_logic::host_ai_path_combat_residual_wave105::{
-        WEAPON_AFFECTS_ENEMIES, WEAPON_AFFECTS_NEUTRALS, WEAPON_DOESNT_AFFECT_AIRBORNE,
-    };
+    use generals_sim::weapon::WeaponAffectsMask;
     use crate::game_logic::weapon_bootstrap::{
         ensure_host_weapon_store, host_radius_damage_affects_for_weapon_name,
     };
@@ -1451,9 +1449,9 @@ End
         1
     );
     let mask = host_radius_damage_affects_for_weapon_name("TestNotAirborneSplashWeapon");
-    assert_ne!(mask & WEAPON_DOESNT_AFFECT_AIRBORNE, 0);
-    assert_eq!(mask & WEAPON_AFFECTS_ENEMIES, WEAPON_AFFECTS_ENEMIES);
-    assert_eq!(mask & WEAPON_AFFECTS_NEUTRALS, WEAPON_AFFECTS_NEUTRALS);
+    assert_ne!(mask & WeaponAffectsMask::DOESNT_AFFECT_AIRBORNE, 0);
+    assert_eq!(mask & WeaponAffectsMask::ENEMIES, WeaponAffectsMask::ENEMIES);
+    assert_eq!(mask & WeaponAffectsMask::NEUTRALS, WeaponAffectsMask::NEUTRALS);
 
     let mut logic = GameLogic::new();
     enemy_players(&mut logic);

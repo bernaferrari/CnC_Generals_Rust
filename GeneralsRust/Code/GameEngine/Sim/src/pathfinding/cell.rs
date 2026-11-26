@@ -15,7 +15,8 @@ pub const ZONE_IMPASSABLE_COST: u32 = 100 * COST_ORTHOGONAL;
 
 /// Pathfinding cell size matching C++ AIPathfind.h:415-416
 pub const PATHFIND_CELL_SIZE: i32 = 10;
-pub const PATHFIND_CELL_SIZE_F: f32 = 10.0;
+pub const PATHFIND_CELL_SIZE_F: f32 = PATHFIND_CELL_SIZE as f32;
+pub const PATHFIND_CLOSE_ENOUGH: f32 = 1.0;
 
 /// Maximum frames ahead for synchronization matching C++ Connection.cpp
 pub const MAX_FRAMES_AHEAD: u32 = 300;

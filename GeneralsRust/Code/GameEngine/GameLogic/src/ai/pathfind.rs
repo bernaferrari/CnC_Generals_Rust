@@ -24,7 +24,7 @@ fn dual_world_registry_unavailable() -> bool {
 }
 
 /// How close is close enough when moving
-pub const PATHFIND_CLOSE_ENOUGH: f32 = 1.0;
+pub use generals_sim::pathfinding::PATHFIND_CLOSE_ENOUGH;
 pub const PATH_MAX_PRIORITY: i32 = i32::MAX;
 
 /// Maximum wall pieces supported

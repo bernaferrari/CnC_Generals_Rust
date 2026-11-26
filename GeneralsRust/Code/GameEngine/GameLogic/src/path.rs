@@ -27,9 +27,7 @@ pub use crate::locomotor::SURFACE_AIR;
 pub use crate::waypoint::Waypoint;
 
 // Constants matching C++ implementation
-pub const PATHFIND_CELL_SIZE: i32 = 10;
-pub const PATHFIND_CELL_SIZE_F: f32 = 10.0;
-pub const PATHFIND_CLOSE_ENOUGH: f32 = 1.0;
+pub use generals_sim::pathfinding::{PATHFIND_CELL_SIZE, PATHFIND_CELL_SIZE_F, PATHFIND_CLOSE_ENOUGH};
 pub const PATH_MAX_PRIORITY: i32 = 0x7FFFFFFF;
 pub const PATHFIND_QUEUE_LEN: usize = 512;
 pub const MAX_WALL_PIECES: usize = 128;

@@ -1047,7 +1047,7 @@ impl GameLogic {
 
     /// C++ `Pathfinder::getRadiusAndCenter` (AIPathfind.cpp:5026-5054).
     fn factory_exit_radius_and_center(unit_radius: f32) -> (i32, bool) {
-        let cell = crate::game_logic::host_ai_path_combat_residual_wave105::PATHFIND_CELL_SIZE_F;
+        let cell = generals_sim::pathfinding::PATHFIND_CELL_SIZE_F;
         let mut diameter = 2.0 * unit_radius;
         if diameter > cell && diameter < 2.0 * cell {
             diameter = 2.0 * cell;
@@ -1475,7 +1475,7 @@ impl GameLogic {
                             exit.natural_rally_point
                         } else {
                             exit.natural_rally_point_with_path_offset(
-                                crate::game_logic::host_ai_path_combat_residual_wave105::PATHFIND_CELL_SIZE_F,
+                                generals_sim::pathfinding::PATHFIND_CELL_SIZE_F,
                             )
                         };
                         crate::game_logic::host_production_buildable_command_residual::transform_model_exit_offset(

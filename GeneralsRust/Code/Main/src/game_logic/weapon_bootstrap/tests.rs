@@ -1018,19 +1018,16 @@ fn shock_wave_for_seeded_weapons_residual() {
 #[test]
 fn radius_damage_affects_for_seeded_weapons_residual() {
     use crate::game_logic::ObjectId;
-    use crate::game_logic::host_ai_path_combat_residual_wave105::{
-        WEAPON_AFFECTS_ALLIES, WEAPON_AFFECTS_ENEMIES, WEAPON_AFFECTS_NEUTRALS,
-        WEAPON_DOESNT_AFFECT_AIRBORNE,
-    };
+    use generals_sim::weapon::WeaponAffectsMask;
     use gamelogic::common::Relationship;
 
     ensure_host_weapon_store();
     // Omitted RadiusDamageAffects / unknown name: C++ constructor default.
     let omitted = seed_radius_damage_affects_for("CompletelyUnknownSplashWeaponXYZ");
     assert_eq!(omitted, WEAPON_AFFECTS_DEFAULT);
-    assert_eq!(omitted & WEAPON_AFFECTS_ALLIES, WEAPON_AFFECTS_ALLIES);
-    assert_eq!(omitted & WEAPON_AFFECTS_ENEMIES, WEAPON_AFFECTS_ENEMIES);
-    assert_eq!(omitted & WEAPON_AFFECTS_NEUTRALS, WEAPON_AFFECTS_NEUTRALS);
+    assert_eq!(omitted & WeaponAffectsMask::ALLIES, WeaponAffectsMask::ALLIES);
+    assert_eq!(omitted & WeaponAffectsMask::ENEMIES, WeaponAffectsMask::ENEMIES);
+    assert_eq!(omitted & WeaponAffectsMask::NEUTRALS, WeaponAffectsMask::NEUTRALS);
 
     assert_eq!(
         crate::assets::ini_template_loader::register_weapons_from_ini_text(
@@ -1042,8 +1039,8 @@ End
         1
     );
     let n = host_radius_damage_affects_for_weapon_name("TestNeutronSplashWeapon");
-    assert_ne!(n & WEAPON_DOESNT_AFFECT_AIRBORNE, 0);
-    assert_ne!(n & WEAPON_AFFECTS_ALLIES, 0);
+    assert_ne!(n & WeaponAffectsMask::DOESNT_AFFECT_AIRBORNE, 0);
+    assert_ne!(n & WeaponAffectsMask::ALLIES, 0);
     assert_eq!(n, seed_radius_damage_affects_for("TestNeutronSplashWeapon"));
 
     assert!(radius_damage_affects_victim(
@@ -1078,11 +1075,11 @@ End
 
 #[test]
 fn host_radius_damage_affects_uses_store_or_cpp_default() {
-    use crate::game_logic::host_ai_path_combat_residual_wave105::WEAPON_AFFECTS_ALLIES;
+    use generals_sim::weapon::WeaponAffectsMask;
     ensure_host_weapon_store();
     let unknown = host_radius_damage_affects_for_weapon_name("CompletelyUnknownSplashWeaponXYZ");
     assert_eq!(unknown, WEAPON_AFFECTS_DEFAULT);
-    assert_ne!(unknown & WEAPON_AFFECTS_ALLIES, 0);
+    assert_ne!(unknown & WeaponAffectsMask::ALLIES, 0);
 }
 
 #[test]
@@ -1455,11 +1452,9 @@ fn shock_wave_force_tapers_from_firer_not_impact() {
 #[test]
 fn splash_skips_producer_when_self_unset() {
     use crate::game_logic::ObjectId;
-    use crate::game_logic::host_ai_path_combat_residual_wave105::{
-        WEAPON_AFFECTS_ALLIES, WEAPON_AFFECTS_ENEMIES, WEAPON_AFFECTS_NEUTRALS, WEAPON_AFFECTS_SELF,
-    };
+    use generals_sim::weapon::WeaponAffectsMask;
     use gamelogic::common::Relationship;
-    let default_mask = WEAPON_AFFECTS_ALLIES | WEAPON_AFFECTS_ENEMIES | WEAPON_AFFECTS_NEUTRALS;
+    let default_mask = WeaponAffectsMask::ALLIES | WeaponAffectsMask::ENEMIES | WeaponAffectsMask::NEUTRALS;
     let tank = ObjectId(10);
     let factory = ObjectId(1);
     assert!(!radius_damage_affects_victim(
@@ -1472,7 +1467,7 @@ fn splash_skips_producer_when_self_unset() {
         false,
     ));
     assert!(radius_damage_affects_victim(
-        default_mask | WEAPON_AFFECTS_SELF,
+        default_mask | WeaponAffectsMask::SELF,
         Relationship::Allies,
         tank,
         factory,

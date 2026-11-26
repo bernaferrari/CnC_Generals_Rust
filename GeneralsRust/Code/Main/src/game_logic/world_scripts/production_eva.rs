@@ -91,7 +91,7 @@ impl GameLogic {
             (rule.affects_mask.bits(), rule.damage_type, rule.death_type)
         };
         if weapon.0
-            & crate::game_logic::host_ai_path_combat_residual_wave105::WEAPON_KILLS_SELF
+            & generals_sim::weapon::WeaponAffectsMask::KILLS_SELF
             == 0
         {
             return Ok(false);

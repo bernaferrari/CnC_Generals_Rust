@@ -12,9 +12,6 @@ use super::VeterancyLevel;
 use super::Weapon;
 use super::combat;
 
-#[path = "host_ai_path_combat_residual_wave105.rs"]
-pub mod host_ai_path_combat_residual_wave105;
-
 #[path = "armor.rs"]
 pub mod armor;
 

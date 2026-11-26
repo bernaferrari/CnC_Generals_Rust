@@ -21,11 +21,10 @@ use std::collections::{HashMap, HashSet};
 
 impl<'a> CommandExecutor<'a> {
     /// C++ `TheAI->getAiData()->m_minDistanceForGroup` /
-    /// `m_distanceRequiresGroup` from this world, with existing retail
-    /// residuals (100 / 500).
+    /// `m_distanceRequiresGroup` from this world, with fallbacks of 100 and 500.
     fn group_path_distance_thresholds(&self) -> (f32, f32) {
-        use crate::game_logic::host_ai_path_combat_residual_wave105::{
-            DISTANCE_REQUIRES_GROUP_RESIDUAL, MIN_DISTANCE_FOR_GROUP_RESIDUAL,
+        use generals_sim::pathfinding::group::{
+            DEFAULT_GROUP_PATH_REQUIRED_DISTANCE, DEFAULT_MIN_GROUP_PATH_DISTANCE,
         };
         let data = self.game_logic.ai_definitions.data();
         let (min_d, req) = (data.min_distance_for_group, data.distance_requires_group);
@@ -35,12 +34,12 @@ impl<'a> CommandExecutor<'a> {
             if min_d > 0.0 {
                 min_d
             } else {
-                MIN_DISTANCE_FOR_GROUP_RESIDUAL
+                DEFAULT_MIN_GROUP_PATH_DISTANCE
             },
             if req > 0.0 {
                 req
             } else {
-                DISTANCE_REQUIRES_GROUP_RESIDUAL
+                DEFAULT_GROUP_PATH_REQUIRED_DISTANCE
             },
         )
     }

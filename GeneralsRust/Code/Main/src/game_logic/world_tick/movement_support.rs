@@ -1000,7 +1000,7 @@ impl GameLogic {
             obj.do_final_position = false;
             obj.set_locomotor_goal_none();
             obj.queue_for_path_frame = self.frame.wrapping_add(
-                crate::game_logic::host_ai_path_combat_residual_wave105::LOGIC_FRAMES_PER_SECOND_RESIDUAL,
+                generals_sim::time::LOGIC_HZ,
             );
             obj.num_frames_blocked = 0;
             obj.path_timestamp = self.frame;

@@ -234,7 +234,7 @@ impl Projectile {
     }
 
     pub(in crate::game_logic) fn warhead_kills_source(affects: u32) -> bool {
-        affects & crate::game_logic::host_ai_path_combat_residual_wave105::WEAPON_KILLS_SELF != 0
+        affects & generals_sim::weapon::WeaponAffectsMask::KILLS_SELF != 0
     }
 
     pub fn new(

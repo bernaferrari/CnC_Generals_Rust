@@ -214,7 +214,7 @@ fn supply_center_one_shot_collector_uses_exit_interface() {
         .production_exit_metadata
         .expect("supply exit");
     let offset_point = exit.natural_rally_point_with_path_offset(
-        crate::game_logic::host_ai_path_combat_residual_wave105::PATHFIND_CELL_SIZE_F,
+        generals_sim::pathfinding::PATHFIND_CELL_SIZE_F,
     );
     let offset_natural =
         crate::game_logic::host_production_buildable_command_residual::transform_model_exit_offset(

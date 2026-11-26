@@ -37,8 +37,7 @@ pub(crate) fn dual_world_registry_unavailable() -> bool {
     crate::object::registry::OBJECT_REGISTRY.is_empty()
 }
 
-/// Maximum shots limit constant
-pub const NO_MAX_SHOTS_LIMIT: i32 = 0x7fffffff;
+pub use generals_sim::weapon::NO_MAX_SHOTS_LIMIT;
 pub(crate) const EFFECTIVELY_UNLIMITED_CLIP_AMMO: u32 = 0x7fffffff;
 
 /// Object ID type

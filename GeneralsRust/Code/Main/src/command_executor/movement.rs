@@ -15,6 +15,10 @@ use crate::ui::audio::translate_audio_event;
 use gamelogic::common::AsciiString;
 use gamelogic::common::types::Coord3D as LogicCoord3D;
 use gamelogic::system::game_logic::current_frame;
+use generals_sim::pathfinding::group::{
+    DEFAULT_MIN_GROUP_PATH_DISTANCE, MIN_INFANTRY_FOR_COLUMN, MIN_VEHICLES_FOR_COLUMN,
+    is_group_gather_target,
+};
 use glam::Vec3;
 use log::{debug, warn};
 use std::collections::{HashMap, HashSet};
@@ -291,7 +295,7 @@ impl<'a> CommandExecutor<'a> {
                             .host_object(*id)
                             .is_some_and(|o| o.is_kind_of(crate::game_logic::KindOf::MobNexus))
                     });
-                    !mob && n >= crate::game_logic::host_ai_path_combat_residual_wave105::MIN_INFANTRY_FOR_GROUP_RESIDUAL
+                    !mob && n >= MIN_INFANTRY_FOR_COLUMN
                 };
                 let veh_columned = {
                     let n = goals.iter().filter(|(id, _)| {
@@ -302,7 +306,7 @@ impl<'a> CommandExecutor<'a> {
                                 && (o.is_mobile() || o.can_attack())
                         })
                     }).count() as i32;
-                    n >= crate::game_logic::host_ai_path_combat_residual_wave105::MIN_VEHICLES_FOR_GROUP_RESIDUAL
+                    n >= MIN_VEHICLES_FOR_COLUMN
                 };
                 for (unit_id, goal) in &goals {
                     let skip = self.game_logic.host_object(*unit_id).is_some_and(|o| {
@@ -533,8 +537,7 @@ impl<'a> CommandExecutor<'a> {
         // now + stealth_delay_frames + skew.
         let now = self.game_logic.get_frame();
         for (i, &unit_id) in unit_ids.iter().enumerate() {
-            let skew = (i as u32)
-                % crate::game_logic::host_ai_path_combat_residual_wave105::LOGIC_FRAMES_PER_SECOND_RESIDUAL;
+            let skew = (i as u32) % generals_sim::time::LOGIC_HZ;
             let scheduled = self
                 .game_logic
                 .unit_command_apply_stealth_mood_delay(unit_id, now, skew);
@@ -790,22 +793,10 @@ impl<'a> CommandExecutor<'a> {
             .collect()
     }
 
-    /// Retail GameData.ini `GroupMoveClickToGatherAreaFactor` residual (0.5).
-    /// Leftover GlobalData ctor is 1.0 (C++ ctor) until INI applies; live
-    /// uses the leftover residual so click-to-gather is the inner half bbox.
-    /// C++ `ScaleRect2D` — no invented 20wu pad.
-    fn group_move_click_to_gather_factor() -> f32 {
-        crate::game_logic::host_ai_path_combat_residual_wave105::GROUP_MOVE_CLICK_TO_GATHER_FACTOR_RESIDUAL
-    }
-
-    /// True when destination lies inside the selected group's XZ bounding rect
-    /// scaled by gather factor — C++ groupMoveToPosition tighten path
-    /// (`AIGroup.cpp:1559-1608`). After ScaleRect2D the cell-area cap uses
-    /// the scaled x-span twice (retail quirk) and only tightens when
-    /// `cells < 2000`.
+    /// Whether a move target falls inside the selected group's gather area.
+    /// C++ AIGroup.cpp:1559–1608 excludes airborne fixed-wing units.
     pub(crate) fn should_tighten_group_move(&self, units: &[ObjectId], destination: Vec3) -> bool {
-        let factor = Self::group_move_click_to_gather_factor();
-        if factor <= 0.0 || units.len() < 2 {
+        if units.len() < 2 {
             return false;
         }
         let mut min_x = f32::INFINITY;
@@ -841,25 +832,11 @@ impl<'a> CommandExecutor<'a> {
         if count < 2 {
             return false;
         }
-        // ScaleRect2D about center by gather factor (no 20wu pad).
-        let cx = 0.5 * (min_x + max_x);
-        let cz = 0.5 * (min_z + max_z);
-        let hx = 0.5 * (max_x - min_x) * factor;
-        let hz = 0.5 * (max_z - min_z) * factor;
-        if !(destination.x >= cx - hx
-            && destination.x <= cx + hx
-            && destination.z >= cz - hz
-            && destination.z <= cz + hz)
-        {
-            return false;
-        }
-        // C++ AIGroup.cpp:1602-1605 after ScaleRect2D mutates min/max:
-        // dx=(max.x-min.x)/CELL; dy=(max.x-min.x)/CELL; cells=dx*dy; <2000.
-        let cell = crate::game_logic::PATHFIND_CELL_SIZE_F_RESIDUAL;
-        let scaled_x = hx * 2.0;
-        let dx = (scaled_x / cell) as i32;
-        let cells = dx.saturating_mul(dx);
-        cells < 2000
+        is_group_gather_target(
+            glam::Vec2::new(min_x, min_z),
+            glam::Vec2::new(max_x, max_z),
+            glam::Vec2::new(destination.x, destination.z),
+        )
     }
 
     /// C++ AIGroup::groupTightenToPosition — near-to-far; helis get
@@ -1044,11 +1021,6 @@ impl<'a> CommandExecutor<'a> {
         movers: &[(ObjectId, Vec3, f32, u32, glam::Vec2, bool, bool)],
         destination: Vec3,
     ) -> Option<Vec<(ObjectId, Vec3)>> {
-        use crate::game_logic::host_ai_path_combat_residual_wave105::{
-            MIN_DISTANCE_FOR_GROUP_RESIDUAL, MIN_INFANTRY_FOR_GROUP_RESIDUAL,
-            MIN_VEHICLES_FOR_GROUP_RESIDUAL,
-        };
-
         // C++ groupMoveToPosition calls friend_moveInfantryToPos then
         // friend_moveVehicleToPos on the same member list (AIGroup.cpp:1550-1553).
         // Each pass packs only its kind (infantry 3-col, vehicles 2-col).
@@ -1066,8 +1038,8 @@ impl<'a> CommandExecutor<'a> {
             &infantry,
             destination,
             3,
-            MIN_INFANTRY_FOR_GROUP_RESIDUAL,
-            MIN_DISTANCE_FOR_GROUP_RESIDUAL,
+            MIN_INFANTRY_FOR_COLUMN,
+            DEFAULT_MIN_GROUP_PATH_DISTANCE,
             &priority_of,
         ) {
             out.extend(col);
@@ -1076,8 +1048,8 @@ impl<'a> CommandExecutor<'a> {
             &vehicles,
             destination,
             2,
-            MIN_VEHICLES_FOR_GROUP_RESIDUAL,
-            MIN_DISTANCE_FOR_GROUP_RESIDUAL,
+            MIN_VEHICLES_FOR_COLUMN,
+            DEFAULT_MIN_GROUP_PATH_DISTANCE,
             &priority_of,
         ) {
             out.extend(col);

@@ -115,8 +115,8 @@ pub(in crate::game_logic) mod tests {
             shock_wave_radius: 0.0,
             shock_wave_taper_off: 0.0,
             radius_damage_affects:
-                crate::game_logic::host_ai_path_combat_residual_wave105::WEAPON_AFFECTS_ENEMIES
-                    | crate::game_logic::host_ai_path_combat_residual_wave105::WEAPON_AFFECTS_NEUTRALS,
+                generals_sim::weapon::WeaponAffectsMask::ENEMIES
+                    | generals_sim::weapon::WeaponAffectsMask::NEUTRALS,
             projectile_collides: 0,
             scatter_radius: 0.0,
             scatter_table_offset: None,
@@ -1502,8 +1502,8 @@ pub(in crate::game_logic) mod tests {
             shock_wave_amount: 0.0,
             shock_wave_radius: 0.0,
             shock_wave_taper_off: 0.0,
-            radius_damage_affects: crate::game_logic::host_ai_path_combat_residual_wave105::WEAPON_AFFECTS_ENEMIES
-                | crate::game_logic::host_ai_path_combat_residual_wave105::WEAPON_AFFECTS_NEUTRALS,
+            radius_damage_affects: generals_sim::weapon::WeaponAffectsMask::ENEMIES
+                | generals_sim::weapon::WeaponAffectsMask::NEUTRALS,
             projectile_collides: crate::game_logic::weapon_bootstrap::PROJECTILE_COLLIDE_DEFAULT,
             scatter_radius: 0.0,
             scatter_table_offset: None,
@@ -1818,8 +1818,8 @@ pub(in crate::game_logic) mod tests {
             p.source_team = Team::USA;
             p.explosion_radius = 20.0;
             p.radius_damage_affects =
-                crate::game_logic::host_ai_path_combat_residual_wave105::WEAPON_AFFECTS_ENEMIES
-                    | crate::game_logic::host_ai_path_combat_residual_wave105::WEAPON_AFFECTS_NEUTRALS;
+                generals_sim::weapon::WeaponAffectsMask::ENEMIES
+                    | generals_sim::weapon::WeaponAffectsMask::NEUTRALS;
         }
         let _ = combat.update_projectiles(
             1.0 / 30.0,
@@ -1970,9 +1970,9 @@ pub(in crate::game_logic) mod tests {
         if let Some(p) = combat.projectile_mut(pid) {
             p.explosion_radius = 20.0;
             p.radius_damage_affects =
-                crate::game_logic::host_ai_path_combat_residual_wave105::WEAPON_AFFECTS_ENEMIES
-                    | crate::game_logic::host_ai_path_combat_residual_wave105::WEAPON_AFFECTS_NEUTRALS
-                    | crate::game_logic::host_ai_path_combat_residual_wave105::WEAPON_DOESNT_AFFECT_AIRBORNE;
+                generals_sim::weapon::WeaponAffectsMask::ENEMIES
+                    | generals_sim::weapon::WeaponAffectsMask::NEUTRALS
+                    | generals_sim::weapon::WeaponAffectsMask::DOESNT_AFFECT_AIRBORNE;
             p.target_id = None;
         }
         let _ = combat.update_projectiles(
@@ -2118,8 +2118,8 @@ pub(in crate::game_logic) mod tests {
             p.source_team = Team::USA;
             p.explosion_radius = 20.0;
             p.radius_damage_affects =
-                crate::game_logic::host_ai_path_combat_residual_wave105::WEAPON_AFFECTS_ENEMIES
-                    | crate::game_logic::host_ai_path_combat_residual_wave105::WEAPON_AFFECTS_NEUTRALS;
+                generals_sim::weapon::WeaponAffectsMask::ENEMIES
+                    | generals_sim::weapon::WeaponAffectsMask::NEUTRALS;
         }
         let _ = combat.update_projectiles(
             1.0 / 30.0,
@@ -2221,9 +2221,9 @@ pub(in crate::game_logic) mod tests {
         projectile.explosion_radius = 20.0;
         projectile.source_team = Team::GLA;
         projectile.radius_damage_affects =
-            crate::game_logic::host_ai_path_combat_residual_wave105::WEAPON_AFFECTS_ENEMIES
-                | crate::game_logic::host_ai_path_combat_residual_wave105::WEAPON_AFFECTS_NEUTRALS
-                | crate::game_logic::host_ai_path_combat_residual_wave105::WEAPON_KILLS_SELF;
+            generals_sim::weapon::WeaponAffectsMask::ENEMIES
+                | generals_sim::weapon::WeaponAffectsMask::NEUTRALS
+                | generals_sim::weapon::WeaponAffectsMask::KILLS_SELF;
         let _ = combat.update_projectiles(
             1.0 / 30.0,
             &mut objects,
@@ -2368,8 +2368,8 @@ pub(in crate::game_logic) mod tests {
             shock_wave_radius: 0.0,
             shock_wave_taper_off: 0.0,
             radius_damage_affects:
-                crate::game_logic::host_ai_path_combat_residual_wave105::WEAPON_AFFECTS_ENEMIES
-                    | crate::game_logic::host_ai_path_combat_residual_wave105::WEAPON_AFFECTS_NEUTRALS,
+                generals_sim::weapon::WeaponAffectsMask::ENEMIES
+                    | generals_sim::weapon::WeaponAffectsMask::NEUTRALS,
             projectile_collides: crate::game_logic::weapon_bootstrap::PROJECTILE_COLLIDE_DEFAULT,
             scatter_radius: 10.0,
             scatter_table_offset: None,
@@ -2449,8 +2449,8 @@ pub(in crate::game_logic) mod tests {
             shock_wave_radius: 0.0,
             shock_wave_taper_off: 0.0,
             radius_damage_affects:
-                crate::game_logic::host_ai_path_combat_residual_wave105::WEAPON_AFFECTS_ENEMIES
-                    | crate::game_logic::host_ai_path_combat_residual_wave105::WEAPON_AFFECTS_NEUTRALS,
+                generals_sim::weapon::WeaponAffectsMask::ENEMIES
+                    | generals_sim::weapon::WeaponAffectsMask::NEUTRALS,
             projectile_collides: crate::game_logic::weapon_bootstrap::PROJECTILE_COLLIDE_DEFAULT,
             scatter_radius: 0.0,
             scatter_table_offset: None,
@@ -2511,8 +2511,8 @@ pub(in crate::game_logic) mod tests {
             shock_wave_radius: 0.0,
             shock_wave_taper_off: 0.0,
             radius_damage_affects:
-                crate::game_logic::host_ai_path_combat_residual_wave105::WEAPON_AFFECTS_ENEMIES
-                    | crate::game_logic::host_ai_path_combat_residual_wave105::WEAPON_AFFECTS_NEUTRALS,
+                generals_sim::weapon::WeaponAffectsMask::ENEMIES
+                    | generals_sim::weapon::WeaponAffectsMask::NEUTRALS,
             projectile_collides: crate::game_logic::weapon_bootstrap::PROJECTILE_COLLIDE_DEFAULT,
             scatter_radius: 0.0,
             scatter_table_offset: None,
@@ -2648,8 +2648,8 @@ pub(in crate::game_logic) mod tests {
             shock_wave_radius: 0.0,
             shock_wave_taper_off: 0.0,
             radius_damage_affects:
-                crate::game_logic::host_ai_path_combat_residual_wave105::WEAPON_AFFECTS_ENEMIES
-                    | crate::game_logic::host_ai_path_combat_residual_wave105::WEAPON_AFFECTS_NEUTRALS,
+                generals_sim::weapon::WeaponAffectsMask::ENEMIES
+                    | generals_sim::weapon::WeaponAffectsMask::NEUTRALS,
             projectile_collides: crate::game_logic::weapon_bootstrap::PROJECTILE_COLLIDE_DEFAULT,
             scatter_radius: 0.0,
             scatter_table_offset: None,

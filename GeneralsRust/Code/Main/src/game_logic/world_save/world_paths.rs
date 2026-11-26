@@ -1450,9 +1450,7 @@ impl GameLogic {
         destination: Vec3,
         dir: (f32, f32),
     ) -> std::collections::HashMap<ObjectId, (i32, i32, bool)> {
-        use crate::game_logic::host_ai_path_combat_residual_wave105::{
-            MIN_INFANTRY_FOR_GROUP_RESIDUAL, MIN_VEHICLES_FOR_GROUP_RESIDUAL,
-        };
+        use generals_sim::pathfinding::group::{MIN_INFANTRY_FOR_COLUMN, MIN_VEHICLES_FOR_COLUMN};
         let (nx, nz) = (-dir.1, dir.0);
         let mut infantry: Vec<(ObjectId, f32)> = Vec::new();
         let mut vehicles: Vec<(ObjectId, f32)> = Vec::new();
@@ -1483,8 +1481,8 @@ impl GameLogic {
         }
         let mut out = std::collections::HashMap::new();
         for (list, num_columns, min_count) in [
-            (&mut infantry, 3_i32, MIN_INFANTRY_FOR_GROUP_RESIDUAL),
-            (&mut vehicles, 2_i32, MIN_VEHICLES_FOR_GROUP_RESIDUAL),
+            (&mut infantry, 3_i32, MIN_INFANTRY_FOR_COLUMN),
+            (&mut vehicles, 2_i32, MIN_VEHICLES_FOR_COLUMN),
         ] {
             let n = list.len() as i32;
             if n < min_count.max(1) {
@@ -1943,7 +1941,7 @@ impl GameLogic {
             unit.do_final_position = false;
             unit.set_locomotor_goal_none();
             unit.queue_for_path_frame = self.frame.wrapping_add(
-                crate::game_logic::host_ai_path_combat_residual_wave105::LOGIC_FRAMES_PER_SECOND_RESIDUAL,
+                generals_sim::time::LOGIC_HZ,
             );
             unit.is_blocked = false;
             unit.waiting_for_path = true;

@@ -634,8 +634,7 @@ impl<'a> CommandExecutor<'a> {
             // C++ GameLogicRandomValue(0, LOGICFRAMES_PER_SECOND)
             // (AIGroup.cpp:2059) is a live-stream draw; the deterministic host
             // stand-in skews each member by its position in the selection.
-            let skew = index as u32
-                % crate::game_logic::host_ai_path_combat_residual_wave105::LOGIC_FRAMES_PER_SECOND_RESIDUAL;
+            let skew = index as u32 % generals_sim::time::LOGIC_HZ;
             self.game_logic.idle_group_member_with_effects(
                 id,
                 crate::game_logic::host_command_button_hunt::HUNT_CMD_FROM_PLAYER,
