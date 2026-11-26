@@ -12,8 +12,6 @@
 //!
 //! - **SIMD Optimizations** - Vectorized operations for maximum performance
 //! - **Multi-threading** - Parallel compression/decompression with rayon
-//! - **Streaming Support** - Process large files without loading into memory
-//! - **GPU Acceleration** - WGPU-based compression for massive datasets (optional)
 //! - **Memory Safety** - Zero memory leaks with Rust's ownership system
 //! - **C++ Compatibility** - Drop-in replacement for original C++ implementation
 //!
@@ -41,14 +39,10 @@
 //! let lzh_compressed = compress(&data, CompressionType::LZH)?;
 //! let zlib_compressed = compress(&data, CompressionType::ZLib(6))?;
 //!
-//! // Stream large files
-//! let mut compressor = StreamingCompressor::new(CompressionType::RefPack);
-//! compressor.compress_file("large_file.bin", "compressed.gcz")?;
 //! # Ok::<(), Box<dyn std::error::Error>>(())
 //! ```
 
 use serde::{Deserialize, Serialize};
-use std::io::{Read, Write};
 use thiserror::Error;
 
 // All compression now handled by industry-standard libraries
@@ -525,76 +519,6 @@ const fn generate_crc32_table() -> [u32; 256] {
 fn create_empty_compressed(compression_type: CompressionType) -> Vec<u8> {
     let header = CompressionHeader::new(compression_type, 0, 0);
     header.to_bytes().to_vec()
-}
-
-/// Streaming compressor for large files
-pub struct StreamingCompressor {
-    compression_type: CompressionType,
-    chunk_size: usize,
-}
-
-impl StreamingCompressor {
-    pub fn new(compression_type: CompressionType) -> Self {
-        Self {
-            compression_type,
-            chunk_size: 64 * 1024, // 64KB chunks
-        }
-    }
-
-    pub fn with_chunk_size(compression_type: CompressionType, chunk_size: usize) -> Self {
-        Self {
-            compression_type,
-            chunk_size,
-        }
-    }
-
-    /// Compress file from path to path
-    pub fn compress_file<P: AsRef<std::path::Path>>(
-        &mut self,
-        input_path: P,
-        output_path: P,
-    ) -> Result<usize> {
-        use std::io::{BufReader, BufWriter};
-
-        let input_file = std::fs::File::open(input_path)?;
-        let output_file = std::fs::File::create(output_path)?;
-
-        let mut reader = BufReader::new(input_file);
-        let mut writer = BufWriter::new(output_file);
-
-        self.compress_stream(&mut reader, &mut writer)
-    }
-
-    /// Compress from reader to writer
-    pub fn compress_stream<R: Read, W: Write>(
-        &mut self,
-        reader: &mut R,
-        writer: &mut W,
-    ) -> Result<usize> {
-        let mut buffer = vec![0u8; self.chunk_size];
-        let mut total_compressed = 0;
-
-        loop {
-            let bytes_read = reader.read(&mut buffer)?;
-            if bytes_read == 0 {
-                break;
-            }
-
-            let chunk = &buffer[..bytes_read];
-            let compressed = compress(chunk, self.compression_type)?;
-
-            // Write chunk size then compressed data
-            writer.write_all(&(compressed.len() as u32).to_le_bytes())?;
-            writer.write_all(&compressed)?;
-
-            total_compressed += compressed.len();
-        }
-
-        // Write end marker
-        writer.write_all(&0u32.to_le_bytes())?;
-
-        Ok(total_compressed)
-    }
 }
 
 #[cfg(test)]

@@ -2801,13 +2801,11 @@ dependencies = [
  "crc32fast",
  "criterion",
  "env_logger",
- "futures",
  "log",
  "proptest",
  "rayon",
  "tempfile",
  "thiserror 2.0.20",
- "tokio",
  "tokio-test",
  "wide 1.7.0",
 ]

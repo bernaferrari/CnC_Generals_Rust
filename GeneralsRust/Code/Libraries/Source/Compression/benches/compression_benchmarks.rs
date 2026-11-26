@@ -166,44 +166,6 @@ fn benchmark_auto_compression(c: &mut Criterion) {
     group.finish();
 }
 
-fn benchmark_streaming_compression(c: &mut Criterion) {
-    let sizes = [65536, 262144, 1048576]; // 64KB to 1MB
-    let chunk_sizes = [4096, 16384, 65536]; // 4KB to 64KB chunks
-
-    for &size in &sizes {
-        for &chunk_size in &chunk_sizes {
-            let data = generate_test_data(size, TestPattern::Binary);
-
-            let mut group = c.benchmark_group(format!("streaming_{}_{}", size, chunk_size));
-            group.throughput(Throughput::Bytes(size as u64));
-
-            group.bench_function("refpack", |b| {
-                b.iter(|| {
-                    let mut compressor =
-                        StreamingCompressor::with_chunk_size(CompressionType::RefPack, chunk_size);
-                    let mut input = std::io::Cursor::new(&data);
-                    let mut output = Vec::new();
-                    compressor.compress_stream(&mut input, &mut output).unwrap();
-                    output
-                })
-            });
-
-            group.bench_function("lzh", |b| {
-                b.iter(|| {
-                    let mut compressor =
-                        StreamingCompressor::with_chunk_size(CompressionType::LZH, chunk_size);
-                    let mut input = std::io::Cursor::new(&data);
-                    let mut output = Vec::new();
-                    compressor.compress_stream(&mut input, &mut output).unwrap();
-                    output
-                })
-            });
-
-            group.finish();
-        }
-    }
-}
-
 fn benchmark_compression_ratios(c: &mut Criterion) {
     let size = 65536; // 64KB test size
     let patterns = [
@@ -259,7 +221,6 @@ criterion_group!(
     benches,
     benchmark_compression,
     benchmark_decompression,
-    benchmark_auto_compression,
-    benchmark_streaming_compression
+    benchmark_auto_compression
 );
 criterion_main!(benches);

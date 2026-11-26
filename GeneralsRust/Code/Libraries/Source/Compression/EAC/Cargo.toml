@@ -15,7 +15,6 @@ workspace = true
 [features]
 default = ["simd"]
 simd = ["wide"]
-streaming = ["tokio"]
 benchmarks = ["criterion"]
 internal = []
 
@@ -30,9 +29,6 @@ rayon = {workspace = true}
 # SIMD optimizations
 wide = {workspace = true, optional = true}
 
-# Async streaming
-tokio = {workspace = true, features = ["full"], optional = true}
-futures = {workspace = true}
 
 
 # Benchmarking

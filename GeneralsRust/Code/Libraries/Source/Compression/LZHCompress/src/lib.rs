@@ -6,9 +6,7 @@
 //! with advanced optimizations and features:
 //!
 //! - **SIMD Acceleration** - Vectorized operations for pattern matching
-//! - **GPU Processing** - Massively parallel compression on GPU
 //! - **Dictionary Compression** - Advanced dictionary management
-//! - **Streaming Support** - Process large files without memory constraints
 //! - **Multi-threading** - Parallel compression across CPU cores
 //!
 //! ## Algorithm Overview
@@ -37,9 +35,6 @@
 //! let decompressed = decompress(&compressed)?;
 //! assert_eq!(data, &decompressed[..]);
 //!
-//! // Streaming compression for large files
-//! let mut compressor = StreamingCompressor::new(CompressionLevel::High);
-//! compressor.compress_file("large_file.bin", "compressed.lzh")?;
 //! # Ok::<(), Box<dyn std::error::Error>>(())
 //! ```
 
@@ -51,7 +46,6 @@ use rayon::prelude::*;
 pub mod compress;
 pub mod decompress;
 pub mod dictionary;
-pub mod streaming;
 
 
 /// LZH compression error types

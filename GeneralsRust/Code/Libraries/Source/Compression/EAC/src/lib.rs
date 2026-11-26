@@ -13,7 +13,6 @@
 //!
 //! - **SIMD Optimizations** - Vectorized operations for maximum performance
 //! - **Multi-threading** - Parallel compression/decompression with rayon
-//! - **Streaming Support** - Process small files in chunks or large files with explicit in-memory chunking
 //! - **Memory Safety** - Zero memory leaks with Rust's ownership system
 //!
 //! ## Performance
@@ -34,9 +33,6 @@
 //! let decompressed = decompress_refpack(&compressed)?;
 //! assert_eq!(data, &decompressed[..]);
 //!
-//! // Stream large files
-//! let mut compressor = StreamingCompressor::new(CompressionType::RefPack);
-//! compressor.compress_file("large_file.bin", "compressed.eac")?;
 //! # Ok::<(), Box<dyn std::error::Error>>(())
 //! ```
 
@@ -49,7 +45,6 @@ pub mod encoder;
 pub mod gimex;
 pub mod huffman;
 
-pub mod streaming;
 
 // SIMD module not yet implemented
 // #[cfg(feature = "simd")]
