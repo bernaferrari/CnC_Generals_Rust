@@ -3,8 +3,10 @@ use super::*;
 use crate::game_logic::{GameLogic, Object, ObjectId};
 use crate::save_load::{SaveLoadError, SaveLoadResult, Xfer, XferData, XferMode};
 use gamelogic::object::update::ai_update::dozer_ai_update::{
-    DozerBuildSubTask, DozerTask,
-    owned_state::{ActionMachine, ActionState, PrimaryMachine, PrimaryState},
+    load_original_dozer_primary, save_original_dozer_primary,
+};
+use generals_sim::dozer::{
+    ActionMachine, ActionState, DozerBuildSubTask, DozerTask, PrimaryMachine, PrimaryState,
 };
 use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -65,10 +67,10 @@ fn save_primary(value: &PrimaryMachine) -> SaveLoadResult<Vec<u8>> {
     let mut native = value.clone();
     let p = native.control.goal_position;
     native.control.goal_position = glam::Vec3::new(p.x, p.z, p.y);
-    native.save_original_control_bytes().map_err(bad)
+    save_original_dozer_primary(&native).map_err(bad)
 }
 fn load_primary(bytes: &[u8]) -> SaveLoadResult<PrimaryMachine> {
-    let mut value = PrimaryMachine::load_original_control_bytes(bytes).map_err(bad)?;
+    let mut value = load_original_dozer_primary(bytes).map_err(bad)?;
     let p = value.control.goal_position;
     value.control.goal_position = glam::Vec3::new(p.x, p.z, p.y);
     Ok(value)
@@ -272,11 +274,10 @@ pub(super) fn apply_after_admission(o: &ObjectSnapshot, w: &mut GameLogic) -> Sa
         object.dozer_tasks.requests[i].order_frame = saved.requests[i].1;
         for j in 0..3 {
             let (valid, v) = saved.docks[i][j];
-            object.dozer_tasks.docks[i][j] =
-                gamelogic::object::update::ai_update::dozer_ai_update::DozerDockPointInfo {
-                    valid,
-                    location: glam::Vec3::new(v[0], v[2], v[1]),
-                };
+            object.dozer_tasks.docks[i][j] = generals_sim::dozer::DozerDockPointInfo {
+                valid,
+                location: glam::Vec3::new(v[0], v[2], v[1]),
+            };
         }
     }
     object.dozer_tasks.primary = primary;

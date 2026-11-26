@@ -1,6 +1,6 @@
 use super::*;
 use game_engine::common::system::kind_of::KindOfMask;
-use gamelogic::object::update::ai_update::dozer_ai_update::DozerTask;
+use generals_sim::dozer::DozerTask;
 
 pub(super) struct DozerReadiness {
     pub(super) available: Option<ObjectId>,

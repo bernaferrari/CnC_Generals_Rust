@@ -1,9 +1,9 @@
 //! Source-owned, receiving-independent primary/action transitions.
 //! The driving object remains installed while its context applies each synchronous
 //! move/Idle/model/audio operation between prepare and finish. No effects queue.
-use super::owned_state::{ActionState, PrimaryState};
-use super::task_owner::DozerTaskOwner;
-use super::{Coord3D, DozerTask, ObjectID};
+use super::{ActionState, DozerTask, DozerTaskOwner, PrimaryState};
+use crate::pathfinding::find_position_around_candidates;
+use glam::Vec3;
 
 impl<R, D> DozerTaskOwner<R, D> {
     /// DozerActionState::onEnter1195. Selection and entry are separate from
@@ -32,7 +32,7 @@ impl<R, D> DozerTaskOwner<R, D> {
     /// CPP PickActionPos leaves Pick installed until synchronous aiMoveToPosition
     /// returns. A reentrant command may reset the primary while it executes.
 
-    pub fn finish_action_move(&mut self, task: DozerTask, target: ObjectID, position: Coord3D) {
+    pub fn finish_action_move(&mut self, task: DozerTask, target: u32, position: Vec3) {
         if self.current != task {
             return;
         }
@@ -64,12 +64,10 @@ impl<R, D> DozerTaskOwner<R, D> {
 /// Original Partition ring sampler for a Dozer's fixed sphere-radius query.
 /// Admission belongs to the explicit receiving terrain/path/partition context.
 pub fn sample_action_position(
-    center: Coord3D,
+    center: Vec3,
     radius: f32,
     start: f32,
-    admit: impl FnMut(Coord3D, f32) -> Option<Coord3D>,
-) -> Option<Coord3D> {
-    crate::helpers::find_position_sampling::find_position_around_candidates(
-        center, radius, radius, start, admit,
-    )
+    admit: impl FnMut(Vec3, f32) -> Option<Vec3>,
+) -> Option<Vec3> {
+    find_position_around_candidates(center, radius, radius, start, admit)
 }

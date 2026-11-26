@@ -3504,7 +3504,7 @@ impl Object {
 
     /// Action dock location for the current/build task (legacy `dozer_dock_action`).
     pub fn dozer_dock_action(&self) -> Option<glam::Vec3> {
-        use gamelogic::object::update::ai_update::dozer_ai_update::DozerDockPoint;
+        use generals_sim::dozer::DozerDockPoint;
 
         let dock = &self.dozer_tasks.docks[dozer_tasks::DozerTask::Build as usize]
             [DozerDockPoint::Action as usize];
@@ -3512,7 +3512,7 @@ impl Object {
     }
 
     pub fn set_dozer_dock_action(&mut self, pos: Option<glam::Vec3>) {
-        use gamelogic::object::update::ai_update::dozer_ai_update::{DozerDockPoint, DozerDockPointInfo};
+        use generals_sim::dozer::{DozerDockPoint, DozerDockPointInfo};
 
         self.dozer_tasks.docks[dozer_tasks::DozerTask::Build as usize]
             [DozerDockPoint::Action as usize] = match pos {

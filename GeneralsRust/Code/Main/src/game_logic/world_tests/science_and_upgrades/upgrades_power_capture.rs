@@ -2343,7 +2343,7 @@ fn actively_constructing_bit_on_dozer_and_factory() {
         if logic
             .host_object(did)
             .is_some_and(|o| o.dozer_tasks.build_sub_task
-                == gamelogic::object::update::ai_update::dozer_ai_update::DozerBuildSubTask::DoBuildAtDock)
+                == generals_sim::dozer::DozerBuildSubTask::DoBuildAtDock)
         {
             break;
         }

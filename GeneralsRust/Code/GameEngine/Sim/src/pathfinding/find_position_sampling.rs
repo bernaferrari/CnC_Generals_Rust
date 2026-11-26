@@ -1,16 +1,16 @@
 //! Original PartitionManager.cpp:3855-3934 ring order, with candidate
 //! admission borrowed from the receiving terrain/pathfinder/partition owner.
-use crate::common::{Coord3D, Real};
+use glam::Vec3;
 
-pub(crate) fn find_position_around_candidates<T>(
-    center: Coord3D,
-    min_radius: Real,
-    max_radius: Real,
-    start_angle: Real,
-    mut admit: impl FnMut(Coord3D, Real) -> Option<T>,
+pub fn find_position_around_candidates<T>(
+    center: Vec3,
+    min_radius: f32,
+    max_radius: f32,
+    start_angle: f32,
+    mut admit: impl FnMut(Vec3, f32) -> Option<T>,
 ) -> Option<T> {
-    const RING_SPACING: Real = 5.0;
-    const TWO_PI: Real = std::f32::consts::PI * 2.0;
+    const RING_SPACING: f32 = 5.0;
+    const TWO_PI: f32 = std::f32::consts::PI * 2.0;
     let mut dist = min_radius;
     while dist <= max_radius {
         let spacing = if dist == min_radius {
@@ -20,9 +20,9 @@ pub(crate) fn find_position_around_candidates<T>(
         };
         let samples = ((TWO_PI / spacing) / 2.0).ceil() as i32;
         for sample in 0..samples {
-            let offset = spacing * sample as Real;
+            let offset = spacing * sample as f32;
             let angle = start_angle + offset;
-            let position = Coord3D::new(
+            let position = Vec3::new(
                 center.x + dist * angle.cos(),
                 center.y + dist * angle.sin(),
                 center.z,
@@ -32,7 +32,7 @@ pub(crate) fn find_position_around_candidates<T>(
             }
             if sample != 0 {
                 let angle = start_angle - offset;
-                let position = Coord3D::new(
+                let position = Vec3::new(
                     center.x + dist * angle.cos(),
                     center.y + dist * angle.sin(),
                     center.z,
@@ -53,8 +53,8 @@ mod tests {
 
     #[test]
     fn dozer_sphere_ring_admits_exact_approach_candidate_and_receiving_height() {
-        let center = Coord3D::new(20.0, 40.0, 90.0);
-        let source = Coord3D::new(20.0, 60.0, 12.0);
+        let center = Vec3::new(20.0, 40.0, 90.0);
+        let source = Vec3::new(20.0, 60.0, 12.0);
         let start = (source.y - center.y).atan2(source.x - center.x);
         let mut checked = Vec::new();
         let found =
@@ -73,9 +73,9 @@ mod tests {
 
     #[test]
     fn rejected_fixed_radius_has_no_other_side_or_ring_before_dozer_fallback() {
-        let target = Coord3D::new(11.0, 29.0, 47.0);
+        let target = Vec3::new(11.0, 29.0, 47.0);
         let mut checked = 0;
-        let found = find_position_around_candidates::<Coord3D>(target, 12.0, 12.0, 0.3, |_, _| {
+        let found = find_position_around_candidates::<Vec3>(target, 12.0, 12.0, 0.3, |_, _| {
             checked += 1;
             None
         });
@@ -87,7 +87,7 @@ mod tests {
 
     #[test]
     fn outer_ring_preserves_left_then_right_sampling_and_first_admission() {
-        let center = Coord3D::new(0.0, 0.0, 47.0);
+        let center = Vec3::new(0.0, 0.0, 47.0);
         let mut checked = Vec::new();
         let result = find_position_around_candidates(center, 0.0, 5.0, 0.7, |position, angle| {
             checked.push((

@@ -1,115 +1,7 @@
 //! Owned Dozer primary/action state data, with explicit original saved IDs.
 //! CPP DozerAIUpdate.cpp51–58/936–940; no shared state graph or ambient owner.
 use super::*;
-#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub enum PrimaryState {
-    Idle,
-    Build,
-    Repair,
-    Fortify,
-    GoingHome,
-}
-impl PrimaryState {
-    pub(super) fn id(self) -> u32 {
-        match self {
-            Self::Idle => 0,
-            Self::Build => 1,
-            Self::Repair => 2,
-            Self::Fortify => 3,
-            Self::GoingHome => 4,
-        }
-    }
-    pub(super) fn from_id(id: u32) -> Result<Self, String> {
-        match id {
-            0 => Ok(Self::Idle),
-            1 => Ok(Self::Build),
-            2 => Ok(Self::Repair),
-            3 => Ok(Self::Fortify),
-            4 => Ok(Self::GoingHome),
-            _ => Err("invalid Dozer primary state".into()),
-        }
-    }
-}
-#[derive(Debug, Clone, Copy, serde::Serialize, serde::Deserialize)]
-pub enum ActionState {
-    PickPosition { failed_attempts: Int },
-    MoveToPosition,
-    DoAction { enter_frame: u32 },
-}
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub struct MachineControl {
-    pub sleep_until: u32,
-    pub default_id: u32,
-    pub goal_object: ObjectID,
-    pub goal_position: Coord3D,
-    pub locked: bool,
-    pub initialized: bool,
-}
-impl MachineControl {
-    fn new(initialized: bool) -> Self {
-        Self {
-            sleep_until: 0,
-            default_id: 0,
-            goal_object: INVALID_ID,
-            goal_position: Coord3D::ZERO,
-            locked: false,
-            initialized,
-        }
-    }
-}
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub struct ActionMachine {
-    pub task: DozerTask,
-    pub state: ActionState,
-    pub control: MachineControl,
-}
-impl ActionMachine {
-    fn new(task: DozerTask) -> Self {
-        Self {
-            task,
-            state: ActionState::PickPosition { failed_attempts: 0 },
-            control: MachineControl::new(true),
-        }
-    }
-    pub(super) fn reset(&mut self) {
-        self.state = ActionState::PickPosition { failed_attempts: 0 };
-        self.control.sleep_until = 0;
-    }
-}
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub struct PrimaryMachine {
-    pub state: PrimaryState,
-    pub control: MachineControl,
-    pub idle: DozerPrimaryIdle,
-    #[serde(skip, default = "fresh_actions")]
-    pub actions: [ActionMachine; DOZER_NUM_TASKS],
-}
-impl PrimaryMachine {
-    pub fn new() -> Self {
-        Self {
-            state: PrimaryState::Idle,
-            control: MachineControl::new(false),
-            idle: DozerPrimaryIdle {
-                idle_since: 0,
-                player: 0,
-                marked: false,
-            },
-            actions: fresh_actions(),
-        }
-    }
-}
-fn fresh_actions() -> [ActionMachine; DOZER_NUM_TASKS] {
-    [
-        ActionMachine::new(DozerTask::Build),
-        ActionMachine::new(DozerTask::Repair),
-        ActionMachine::new(DozerTask::Fortify),
-    ]
-}
-impl Default for PrimaryMachine {
-    fn default() -> Self {
-        Self::new()
-    }
-}
+use generals_sim::dozer::{ActionFacts, ActionStep};
 /// Immediate self-AI effects. The caller releases only the bounded derived
 /// borrow, executes the original commands, then resumes the state transition.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -134,7 +26,6 @@ impl DozerAIUpdate {
         regular_idle: bool,
         world: &mut dyn crate::modules::ai_world::AiWorld,
     ) -> Result<DozerStep, String> {
-        use super::action_kernel::{ActionFacts, ActionStep};
         if self.task_owner.primary.state == PrimaryState::Idle {
             if self.owned_build_is_admitted() && self.task_owner.current == DozerTask::Build {
                 // set_build_task records the request and the original dock
@@ -297,7 +188,6 @@ impl DozerAIUpdate {
         regular_idle: bool,
         world: &mut dyn crate::modules::ai_world::AiWorld,
     ) -> Result<DozerStep, String> {
-        use super::action_kernel::{ActionFacts, ActionStep};
         if self.task_owner.current != DozerTask::Build {
             return Err("owned Dozer Build primary has no current Build task".into());
         }
@@ -493,23 +383,22 @@ impl DozerAIUpdate {
         }
     }
 }
-impl DozerTaskOwner<DozerTaskEntry, DozerDockPointInfo> {
-    pub(super) fn build_is_admitted(&self) -> bool {
-        self.primary.control.initialized
-            && !self.primary.control.locked
-            && self.requests[DozerTask::Build.as_index()].target_id != INVALID_ID
-            && self.requests[DozerTask::Repair.as_index()].target_id == INVALID_ID
-            && self.requests[DozerTask::Fortify.as_index()].target_id == INVALID_ID
-            && matches!(
-                (self.primary.state, self.current),
-                (PrimaryState::Idle, DozerTask::Invalid | DozerTask::Build)
-                    | (PrimaryState::Build, DozerTask::Build)
-            )
-    }
+pub(super) fn build_is_admitted(owner: &DozerTaskOwner<DozerTaskEntry, DozerDockPointInfo>) -> bool {
+    owner.primary.control.initialized
+        && !owner.primary.control.locked
+        && owner.requests[DozerTask::Build.as_index()].target_id != INVALID_ID
+        && owner.requests[DozerTask::Repair.as_index()].target_id == INVALID_ID
+        && owner.requests[DozerTask::Fortify.as_index()].target_id == INVALID_ID
+        && matches!(
+            (owner.primary.state, owner.current),
+            (PrimaryState::Idle, DozerTask::Invalid | DozerTask::Build)
+                | (PrimaryState::Build, DozerTask::Build)
+        )
 }
+
 impl DozerAIUpdate {
     pub(crate) fn owned_build_is_admitted(&self) -> bool {
-        self.task_owner.build_is_admitted()
+        build_is_admitted(&self.task_owner)
     }
     pub(crate) fn owned_primary_is_admitted(&self) -> bool {
         self.owned_fortify_is_admitted() || self.owned_build_is_admitted()

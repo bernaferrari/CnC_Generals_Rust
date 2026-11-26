@@ -500,7 +500,7 @@ fn repair_mid_build_keeps_pending_build_and_idle_resumes() {
         );
         // Mid-build: primary has entered BUILD even though newTask resets current.
         dz.dozer_tasks.enter_primary_task(
-            gamelogic::object::update::ai_update::dozer_ai_update::DozerTask::Build,
+            generals_sim::dozer::DozerTask::Build,
         );
     }
     logic.frame = 11; // REPAIR must outrank same-frame BUILD for getMostRecentCommand

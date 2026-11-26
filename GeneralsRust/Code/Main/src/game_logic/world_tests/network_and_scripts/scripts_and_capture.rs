@@ -85,7 +85,7 @@ fn capture_command_rejects_non_infantry_units() {
 
 #[test]
 fn repair_command_sets_all_selected_repairers_to_repairing() {
-    use gamelogic::object::update::ai_update::dozer_ai_update::DozerTask;
+    use generals_sim::dozer::DozerTask;
     let mut game_logic = admitted_dozer_world();
 
     let repairer_a = game_logic
@@ -176,7 +176,7 @@ fn repair_command_ignores_non_worker_units() {
 
 #[test]
 fn repair_command_allows_repairing_neutral_structures() {
-    use gamelogic::object::update::ai_update::dozer_ai_update::DozerTask;
+    use generals_sim::dozer::DozerTask;
     let mut game_logic = admitted_dozer_world();
 
     let repairer_id = game_logic
@@ -408,7 +408,7 @@ fn dozer_structure_repair_residual_walk_into_range_recovers_hp() {
     let dozer = game_logic.host_object(dozer_id).expect("dozer");
     assert_eq!(
         dozer.dozer_tasks.current,
-        gamelogic::object::update::ai_update::dozer_ai_update::DozerTask::Repair
+        generals_sim::dozer::DozerTask::Repair
     );
 }
 

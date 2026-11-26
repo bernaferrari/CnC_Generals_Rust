@@ -496,7 +496,7 @@ fn ordinary_boundary_preserves_actual_move_commands_for_presentation_case() {
 
 fn ordinary_boundary_keeps_actual_construction_completion_pending_for_presentation_case() {
     use crate::fixture_content::FixtureObject;
-    use gamelogic::object::update::ai_update::dozer_ai_update::DozerBuildSubTask;
+    use generals_sim::dozer::DozerBuildSubTask;
     let (mut logic, _) = fixture_with(
         "OwnedFrameBuilder",
         100.0,

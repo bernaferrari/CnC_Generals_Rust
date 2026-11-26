@@ -5,8 +5,7 @@ use crate::command_executor::CommandExecutor;
 use crate::command_system::{CommandResult, CommandType, GameCommand, ModifierKeys};
 use crate::save_load::snapshot::Snapshot;
 use game_engine::common::thing::update_module::DisabledType;
-use gamelogic::object::update::ai_update::dozer_ai_update::DozerTask;
-use gamelogic::object::update::ai_update::dozer_ai_update::owned_state::ActionState;
+use generals_sim::dozer::{ActionState, DozerTask};
 
 fn world() -> (GameLogic, ObjectId, ObjectId) {
     world_with_repair_rate("2")
@@ -415,10 +414,8 @@ fn untouched_admitted_dozer_initial_primary_roundtrips_actual_native_wire() {
     let (source, id, target) = world();
     let actor = source.host_object(id).unwrap();
     assert!(actor.dozer_tasks.primary.control.initialized);
-    let source_primary = actor
-        .dozer_tasks
-        .primary
-        .save_original_control_bytes()
+    use gamelogic::object::update::ai_update::dozer_ai_update::save_original_dozer_primary;
+    let source_primary = save_original_dozer_primary(&actor.dozer_tasks.primary)
         .expect("initialized source control");
     assert!(actor.test_weapon_condition(8));
     let hp = source.host_object(target).unwrap().health.current;
@@ -443,10 +440,7 @@ fn untouched_admitted_dozer_initial_primary_roundtrips_actual_native_wire() {
     let actor = restored.host_object(id).unwrap();
     assert_eq!(actor.dozer_tasks.current, DozerTask::Invalid);
     assert_eq!(
-        actor
-            .dozer_tasks
-            .primary
-            .save_original_control_bytes()
+        save_original_dozer_primary(&actor.dozer_tasks.primary)
             .expect("restored control"),
         source_primary
     );
@@ -778,7 +772,7 @@ fn action_build_first_piece(world: &mut GameLogic, builder: ObjectId, site: Obje
             .unwrap()
             .dozer_tasks
             .build_sub_task,
-        gamelogic::object::update::ai_update::dozer_ai_update::DozerBuildSubTask::DoBuildAtDock
+        generals_sim::dozer::DozerBuildSubTask::DoBuildAtDock
     );
 }
 
@@ -793,7 +787,7 @@ fn owned_dozer_phase_completes_structure_without_ready_writeback() {
         logic.update_with_dt(1.0 / 30.0);
         let builder = logic.host_object(dozer).expect("live builder");
         if builder.dozer_tasks.build_sub_task
-            == gamelogic::object::update::ai_update::dozer_ai_update::DozerBuildSubTask::DoBuildAtDock
+            == generals_sim::dozer::DozerBuildSubTask::DoBuildAtDock
         {
             break;
         }
@@ -802,7 +796,7 @@ fn owned_dozer_phase_completes_structure_without_ready_writeback() {
     assert_eq!(builder.dozer_tasks.current, DozerTask::Build);
     assert_eq!(
         builder.dozer_tasks.build_sub_task,
-        gamelogic::object::update::ai_update::dozer_ai_update::DozerBuildSubTask::DoBuildAtDock,
+        generals_sim::dozer::DozerBuildSubTask::DoBuildAtDock,
         "real approach must reach the selected build dock"
     );
     assert_eq!(

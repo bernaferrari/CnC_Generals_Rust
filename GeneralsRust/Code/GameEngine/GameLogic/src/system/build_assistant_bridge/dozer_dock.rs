@@ -1,7 +1,7 @@
 //! The C++ Build dock search, using only the scaffold's receiving match.
 use generals_sim::pathfinding::{PathfindCellType, PathfindLayerEnum};
 use crate::common::{Coord3D, ObjectID};
-use crate::helpers::find_position_sampling::find_position_around_candidates;
+use generals_sim::pathfinding::find_position_around_candidates;
 use crate::object::Object;
 use crate::object::collide::collision_geometry::{
     CollideInfo, GeometryInfo, collide_test_dispatch,

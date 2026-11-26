@@ -1189,7 +1189,7 @@ impl GameLogic {
         for id in &ids {
             let _ = self.dozer_cancel_task_owned(
                 *id,
-                gamelogic::object::update::ai_update::dozer_ai_update::DozerTask::Build,
+                generals_sim::dozer::DozerTask::Build,
             )?;
         }
         self.dozer_cancel_task_events = self
@@ -1202,7 +1202,7 @@ impl GameLogic {
     fn builder_is_actively_building(&self, builder_id: ObjectId, structure_id: ObjectId) -> bool {
         self.objects.get(&builder_id).is_some_and(|o| {
             o.dozer_tasks.current
-                == gamelogic::object::update::ai_update::dozer_ai_update::DozerTask::Build
+                == generals_sim::dozer::DozerTask::Build
                 && o.dozer_tasks.requests[0].target == Some(structure_id)
         })
     }

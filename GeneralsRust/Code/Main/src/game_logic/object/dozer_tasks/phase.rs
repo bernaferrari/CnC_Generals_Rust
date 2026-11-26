@@ -2,10 +2,7 @@
 //! self-command runs with the actor and its authoritative owner installed.
 use super::*;
 use game_engine::common::bit_flags::WeaponSetFlags;
-use gamelogic::object::update::ai_update::dozer_ai_update::{
-    DozerBuildSubTask,
-    owned_state::{ActionState, PrimaryState},
-};
+use generals_sim::dozer::{ActionFacts, ActionState, ActionStep, DozerBuildSubTask, PrimaryState};
 
 impl GameLogic {
     /// Exact REPAIR/RESUME aiDoCommand preamble (CPP2357/2371). A busy
@@ -131,9 +128,6 @@ impl GameLogic {
         if current == DozerTask::Invalid {
             return Ok(());
         }
-        use gamelogic::object::update::ai_update::dozer_ai_update::action_kernel::{
-            ActionFacts, ActionStep,
-        };
         let slot = current as usize;
         let Some((phase, goal, target, start, action, radius, position, birth)) =
             self.objects.get(&id).map(|o| {

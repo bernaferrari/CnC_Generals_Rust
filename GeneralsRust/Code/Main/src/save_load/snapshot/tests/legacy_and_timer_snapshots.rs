@@ -643,7 +643,7 @@ fn snapshot_round_trips_builder_id_and_dozer_build_task() {
     );
     assert_eq!(
         source.host_object(dozer).unwrap().dozer_tasks.current,
-        gamelogic::object::update::ai_update::dozer_ai_update::DozerTask::Invalid
+        generals_sim::dozer::DozerTask::Invalid
     );
     let builder = SnapshotBuilder::new();
     let mut snapshot = builder.create_world_snapshot(&source).expect("snapshot");
@@ -673,7 +673,7 @@ fn snapshot_round_trips_builder_id_and_dozer_build_task() {
     assert_eq!(loaded.requests[0].order_frame, 77);
     assert_eq!(
         loaded.current,
-        gamelogic::object::update::ai_update::dozer_ai_update::DozerTask::Invalid,
+        generals_sim::dozer::DozerTask::Invalid,
         "restore does not infer entry from a pending request"
     );
 }
@@ -814,7 +814,7 @@ fn direct_xfer_current_round_trips_cia_builder_sell_tail() {
     assert_eq!(task.requests[0], (scaffold.0, 12));
     assert_eq!(
         task.current,
-        gamelogic::object::update::ai_update::dozer_ai_update::DozerTask::Invalid as i32
+        generals_sim::dozer::DozerTask::Invalid as i32
     );
 }
 

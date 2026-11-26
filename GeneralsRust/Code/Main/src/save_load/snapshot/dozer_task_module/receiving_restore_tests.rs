@@ -1,7 +1,7 @@
 //! Actual admitted repair request and sole native module continuation.
 use crate::game_logic::{GameLogic, ObjectId, Player, Team};
 use crate::save_load::{XferData, XferLoad, XferSave};
-use gamelogic::object::update::ai_update::dozer_ai_update::DozerTask;
+use generals_sim::dozer::DozerTask;
 use glam::Vec3;
 
 fn world() -> (GameLogic, ObjectId, ObjectId) {

@@ -6,7 +6,7 @@ fn dozer_repair_sets_actively_constructing_and_completes() {
     use crate::game_logic::host_enum_table_residual::{
         actively_constructing_model_bit, host_model_condition_has,
     };
-    use gamelogic::object::update::ai_update::dozer_ai_update::DozerTask;
+    use generals_sim::dozer::DozerTask;
     let mut logic = admitted_dozer_world();
     let sid = logic
         .create_object("TestBuilding", Team::USA, glam::Vec3::new(0.0, 0.0, 0.0))
@@ -67,7 +67,7 @@ fn dozer_repair_sets_actively_constructing_and_completes() {
 }
 #[test]
 fn resume_construction_assigns_dozer_and_model_bits() {
-    use gamelogic::object::update::ai_update::dozer_ai_update::DozerTask;
+    use generals_sim::dozer::DozerTask;
     use crate::game_logic::host_enum_table_residual::{
         actively_being_constructed_model_bit, actively_constructing_model_bit,
         host_model_condition_has, partially_constructed_model_bit,

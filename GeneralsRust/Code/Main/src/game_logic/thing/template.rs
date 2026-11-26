@@ -1,3 +1,4 @@
+use game_engine::common::thing::builder_ai_data::{DozerAIUpdateModuleData, WorkerAIUpdateModuleData};
 use super::*;
 use crate::assets::AuthoredDrawModel;
 use gamelogic::object::collide::crate_collide::sabotage_power_plant_crate_collide::PowerPlantSabotageRule;
@@ -538,14 +539,9 @@ impl ReceivingClientTemplate {
             .nth(self.receiving_ai_source_index()?)?;
         let guard = entry.data.read();
         let data = guard.as_any();
-        if data
-            .is::<gamelogic::object::update::ai_update::worker_ai_update::WorkerAIUpdateModuleData>(
-            )
-        {
+        if data.is::<WorkerAIUpdateModuleData>() {
             Some(true)
-        } else if data
-            .is::<gamelogic::object::update::ai_update::dozer_ai_update::DozerAIUpdateModuleData>()
-        {
+        } else if data.is::<DozerAIUpdateModuleData>() {
             Some(false)
         } else {
             None
@@ -561,14 +557,10 @@ impl ReceivingClientTemplate {
             .nth(self.receiving_ai_source_index()?)?;
         let guard = entry.data.read();
         let data = guard.as_any();
-        if let Some(dozer) = data.downcast_ref::<
-            gamelogic::object::update::ai_update::dozer_ai_update::DozerAIUpdateModuleData,
-        >() {
+        if let Some(dozer) = data.downcast_ref::<DozerAIUpdateModuleData>() {
             Some(dozer.repair_health_percent_per_second)
         } else {
-            data.downcast_ref::<
-                gamelogic::object::update::ai_update::worker_ai_update::WorkerAIUpdateModuleData,
-            >()
+            data.downcast_ref::<WorkerAIUpdateModuleData>()
             .map(|worker| worker.repair_health_percent_per_second)
         }
     }

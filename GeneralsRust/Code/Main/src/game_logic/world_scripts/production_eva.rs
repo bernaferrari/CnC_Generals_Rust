@@ -1236,9 +1236,7 @@ impl GameLogic {
             let Some(obj) = self.objects.get_mut(&id) else {
                 continue;
             };
-            use gamelogic::object::update::ai_update::dozer_ai_update::{
-                DozerBuildSubTask, DozerTask,
-            };
+            use generals_sim::dozer::{DozerBuildSubTask, DozerTask};
             let is_dozer_building = (obj.dozer_tasks.action_is_running(DozerTask::Build)
                 && obj.dozer_tasks.build_sub_task == DozerBuildSubTask::DoBuildAtDock)
                 || obj.dozer_tasks.action_is_running(DozerTask::Repair);

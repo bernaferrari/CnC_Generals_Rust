@@ -8,7 +8,7 @@
 //! only part of the simulation; a pass is not proof of complete isolation or
 //! parity with the original game.
 
-use gamelogic::object::update::ai_update::dozer_ai_update::DozerBuildSubTask;
+use generals_sim::dozer::DozerBuildSubTask;
 use generals_main::game_logic::AIState;
 use generals_main::parallel_harness::{
     HeadlessSkirmish, HumanOrders, SharedSkirmishAssets, SkirmishObservation, SkirmishSpec,

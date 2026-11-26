@@ -245,7 +245,7 @@ impl GameLogic {
         // An earlier queued edge could be drained by a child's brownout.
         if disable_callback {
             // Object::onDisabledEdge cancels an entered Dozer task before Radar and Energy.
-            use gamelogic::object::update::ai_update::dozer_ai_update::DozerTask;
+            use generals_sim::dozer::DozerTask;
             let dozer_task = self.host_object(id).and_then(|object| {
                 let task = object.dozer_tasks.current;
                 (task != DozerTask::Invalid

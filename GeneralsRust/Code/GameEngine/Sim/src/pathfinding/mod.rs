@@ -37,6 +37,7 @@
 
 mod astar;
 mod cell;
+mod find_position_sampling;
 mod grid_edit;
 pub mod group;
 mod hierarchical;
@@ -52,6 +53,7 @@ pub use cell::{
     PATHFIND_CELL_SIZE_F, PATHFIND_CLOSE_ENOUGH, PathfindCell, PathfindCellType, PathfindLayerEnum,
     ZONE_IMPASSABLE_COST,
 };
+pub use find_position_sampling::find_position_around_candidates;
 pub use line_traversal::visit_cell_line;
 
 /// Crate-internal names reached by sibling modules and by `src/tests.rs`

@@ -4,6 +4,7 @@ pub mod armor;
 pub mod chinook;
 pub mod damage;
 pub mod debris;
+pub mod dozer;
 pub mod error;
 pub mod kind_of;
 pub mod object;

@@ -1385,7 +1385,7 @@ pub(super) fn advance_logic_frames(logic: &mut GameLogic, frames: u32) {
 /// dock, then runs that one AI frame alone so the BUILD action's own audio and state
 /// are observed before the session drains its audio queue.
 pub(super) fn dock_builder_for_site(logic: &mut GameLogic, site: ObjectId) -> ObjectId {
-    use gamelogic::object::update::ai_update::dozer_ai_update::DozerBuildSubTask;
+    use generals_sim::dozer::DozerBuildSubTask;
     let builder = logic
         .host_object(site)
         .and_then(|o| o.builder_id)

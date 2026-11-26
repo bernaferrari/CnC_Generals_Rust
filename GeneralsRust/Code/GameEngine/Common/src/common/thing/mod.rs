@@ -64,6 +64,7 @@
 
 pub mod draw_module;
 pub mod ai_update_data;
+pub mod builder_ai_data;
 pub mod deliver_payload_ai_data;
 pub mod jet_ai_data;
 pub mod radius_decal_data;

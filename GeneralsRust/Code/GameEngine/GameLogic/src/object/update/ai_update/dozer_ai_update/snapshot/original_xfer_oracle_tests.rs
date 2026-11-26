@@ -31,13 +31,13 @@ fn primary_native_codec_matches_executed_original_cpp_xfer_bodies() {
         value.idle.marked = true;
         let expected = decode_hex(row["primary_hex"].as_str().unwrap());
         assert_eq!(
-            value.save_original_control_bytes().unwrap(),
+            save_original_dozer_primary(&value).unwrap(),
             expected,
             "{name}"
         );
-        let loaded = PrimaryMachine::load_original_control_bytes(&expected).unwrap();
+        let loaded = load_original_dozer_primary(&expected).unwrap();
         assert_eq!(
-            loaded.save_original_control_bytes().unwrap(),
+            save_original_dozer_primary(&loaded).unwrap(),
             expected,
             "{name} load"
         );

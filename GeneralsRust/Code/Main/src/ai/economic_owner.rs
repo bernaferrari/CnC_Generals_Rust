@@ -1,7 +1,7 @@
 //! Original base-building effects run with the canonical AI roster installed.
 use super::*;
 #[cfg(test)]
-use gamelogic::object::update::ai_update::dozer_ai_update::DozerTask;
+use generals_sim::dozer::DozerTask;
 
 pub(super) enum BaseBuildingAction {
     Wait,

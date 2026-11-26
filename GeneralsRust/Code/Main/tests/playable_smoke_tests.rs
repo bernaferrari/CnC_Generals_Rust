@@ -987,7 +987,7 @@ fn dozer_construct_places_barracks_under_construction() {
         Some(barracks_id),
         "DozerConstruct must retain the placed structure as its order target"
     );
-    use gamelogic::object::update::ai_update::dozer_ai_update::DozerTask;
+    use generals_sim::dozer::DozerTask;
     assert!(
         run_until(&mut game_logic, 90, |world| {
             world

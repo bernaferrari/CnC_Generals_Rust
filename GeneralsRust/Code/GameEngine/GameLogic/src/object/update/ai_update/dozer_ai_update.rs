@@ -11,7 +11,7 @@ use crate::ai::{CommandSourceType, the_ai};
 use crate::common::audio::AudioEventRts;
 use crate::common::{
     AsciiString, Bool, Coord3D, INVALID_ID, Int, KindOf, MODELCONDITION_ACTIVELY_CONSTRUCTING,
-    ModelConditionFlags, ObjectID, Real, SECONDS_PER_LOGICFRAME_REAL, UnsignedInt,
+    ModelConditionFlags, ObjectID, Real, SECONDS_PER_LOGICFRAME_REAL,
 };
 use crate::helpers::{FindPositionOptions, TheAudio, TheGameLogic, ThePartitionManager};
 use crate::modules::AIUpdateInterface;
@@ -19,11 +19,9 @@ use crate::object::Object;
 use crate::object::behavior::behavior_module::{
     BridgeBehaviorInterface, BridgeTowerBehaviorInterface, BridgeTowerType,
 };
-use crate::object::update::ai_update_interface::AIUpdateModuleData;
 use crate::path::PATHFIND_CELL_SIZE_F;
 use crate::player::player_list;
 use crate::state_machine::StateReturnType;
-use game_engine::common::ini::{FieldParse, INI, INIError, INILoadType};
 use game_engine::common::system::{Snapshotable, Xfer};
 use game_engine::common::thing::module::{Module, ModuleData, ModuleDataHandle, ModuleDataRead, NameKeyType};
 
@@ -33,386 +31,45 @@ fn dual_world_registry_unavailable() -> bool {
     crate::object::registry::OBJECT_REGISTRY.is_empty()
 }
 
-pub mod action_kernel;
-pub mod phase;
-pub mod task_owner;
-use task_owner::DozerTaskOwner;
 mod primary_owned;
-pub use primary_owned::DozerPrimaryIdle;
 mod delete_owned;
 pub mod owned_state;
 mod snapshot;
 #[cfg(test)]
 use owned_state::DozerOwnedObservation;
 use owned_state::DozerStep;
-use owned_state::{ActionState, PrimaryMachine, PrimaryState};
+pub use game_engine::common::thing::builder_ai_data::DozerAIUpdateModuleData;
+pub use generals_sim::dozer::{DozerBuildSubTask, DozerDockPoint, DozerDockPointInfo, DozerTask};
+use generals_sim::dozer::{
+    ActionState, DOZER_NUM_DOCK_POINTS, DOZER_NUM_TASKS, DozerTaskOwner, PrimaryMachine, PrimaryState,
+};
+pub use snapshot::{load_original_dozer_primary, save_original_dozer_primary};
 
 const MIN_ACTION_TOLERANCE: Real = 70.0;
 
-const AUTO_ACQUIRE_ENEMIES_NAMES: &[&str] = &[
-    "YES",
-    "STEALTHED",
-    "NO",
-    "NOTWHILEATTACKING",
-    "ATTACK_BUILDINGS",
-];
-
-/// Dozer task types (matches C++ DozerTask).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub enum DozerTask {
-    Invalid = -1,
-    Build = 0,
-    Repair = 1,
-    Fortify = 2,
-}
-
-impl DozerTask {
-    fn as_index(self) -> usize {
-        self as i32 as usize
-    }
-}
-
-const DOZER_NUM_TASKS: usize = 3;
-
-/// Dock points for dozer tasks (matches C++ DozerDockPoint).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum DozerDockPoint {
-    Start = 0,
-    Action = 1,
-    End = 2,
-}
-
-impl DozerDockPoint {
-    fn as_index(self) -> usize {
-        self as i32 as usize
-    }
-}
-
-const DOZER_NUM_DOCK_POINTS: usize = 3;
-
-/// Build subtask (matches C++ DozerBuildSubTask).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub enum DozerBuildSubTask {
-    SelectBuildDockLocation = 0,
-    MovingToBuildDockLocation = 1,
-    DoBuildAtDock = 2,
-}
-
-impl DozerBuildSubTask {
-    /// DozerAIUpdate.cpp:481–510 issues Action as a distinct inherited move.
-    /// Both Dozer and Worker run this nested construction state machine.
-    pub(crate) fn advance_to_dock(
-        &mut self,
-        parent: &mut dyn AIUpdateInterface,
-        dock: Option<Coord3D>,
-    ) -> Result<bool, String> {
-        if *self == Self::SelectBuildDockLocation {
-            if let Some(dock) = dock {
-                let mut command = crate::ai::AiCommandParams::new(
-                    crate::ai::AiCommandType::MoveToPosition,
-                    CommandSourceType::FromAi,
-                );
-                command.pos = dock;
-                parent.execute_command(&command).map_err(|error| error.to_string())?;
-            }
-            *self = Self::MovingToBuildDockLocation;
+/// DozerAIUpdate.cpp:481–510 issues Action as a distinct inherited move.
+/// Both Dozer and Worker run this nested construction state machine.
+pub(crate) fn advance_build_sub_task_to_dock(
+    sub_task: &mut DozerBuildSubTask,
+    parent: &mut dyn AIUpdateInterface,
+    dock: Option<Coord3D>,
+) -> Result<bool, String> {
+    if *sub_task == DozerBuildSubTask::SelectBuildDockLocation {
+        if let Some(dock) = dock {
+            let mut command = crate::ai::AiCommandParams::new(
+                crate::ai::AiCommandType::MoveToPosition,
+                CommandSourceType::FromAi,
+            );
+            command.pos = dock;
+            parent.execute_command(&command).map_err(|error| error.to_string())?;
         }
-        if *self == Self::MovingToBuildDockLocation && parent.is_idle() {
-            *self = Self::DoBuildAtDock;
-        }
-        Ok(*self == Self::DoBuildAtDock)
+        *sub_task = DozerBuildSubTask::MovingToBuildDockLocation;
     }
+    if *sub_task == DozerBuildSubTask::MovingToBuildDockLocation && parent.is_idle() {
+        *sub_task = DozerBuildSubTask::DoBuildAtDock;
+    }
+    Ok(*sub_task == DozerBuildSubTask::DoBuildAtDock)
 }
-
-/// Module data for DozerAIUpdate (INI-driven).
-#[derive(Debug, Clone)]
-pub struct DozerAIUpdateModuleData {
-    module_tag_name_key: NameKeyType,
-    pub base: AIUpdateModuleData,
-    pub repair_health_percent_per_second: Real,
-    pub bored_time: Real,
-    pub bored_range: Real,
-}
-
-impl Default for DozerAIUpdateModuleData {
-    fn default() -> Self {
-        Self {
-            module_tag_name_key: 0,
-            base: AIUpdateModuleData::default(),
-            repair_health_percent_per_second: 0.0,
-            bored_time: 0.0,
-            bored_range: 0.0,
-        }
-    }
-}
-
-impl DozerAIUpdateModuleData {
-    pub fn parse_from_ini(&mut self, ini: &mut INI) -> Result<(), INIError> {
-        ini.init_from_ini_with_inherited_fields(
-            self,
-            |data| &mut data.base,
-            crate::object::update::ai_update_interface::AI_UPDATE_FIELDS,
-            DOZER_AI_UPDATE_FIELDS,
-        )
-    }
-}
-
-impl ModuleData for DozerAIUpdateModuleData {
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-
-    fn set_module_tag_name_key(&mut self, key: NameKeyType) {
-        self.module_tag_name_key = key;
-    }
-
-    fn get_module_tag_name_key(&self) -> NameKeyType {
-        self.module_tag_name_key
-    }
-
-    fn is_ai_module_data(&self) -> bool {
-        true
-    }
-
-    fn ai_update_data(&self) -> Option<&game_engine::common::thing::ai_update_data::AIUpdateModuleData> {
-        Some(&self.base)
-    }
-
-    fn ai_update_data_mut(&mut self) -> Option<&mut game_engine::common::thing::ai_update_data::AIUpdateModuleData> {
-        Some(&mut self.base)
-    }
-}
-
-impl Snapshotable for DozerAIUpdateModuleData {
-    fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        let mut version: u8 = 0;
-        xfer.xfer_version(&mut version, 1)
-            .map_err(|e| e.to_string())?;
-        Ok(())
-    }
-
-    fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        let xfer_io = |r: std::io::Result<()>| r.map_err(|e| e.to_string());
-        self.base.xfer(xfer)?;
-        xfer_io(xfer.xfer_real(&mut self.repair_health_percent_per_second))?;
-        xfer_io(xfer.xfer_real(&mut self.bored_time))?;
-        xfer_io(xfer.xfer_real(&mut self.bored_range))?;
-        Ok(())
-    }
-
-    fn load_post_process(&mut self) -> Result<(), String> {
-        Ok(())
-    }
-}
-
-fn parse_auto_acquire_field(
-    _ini: &mut INI,
-    data: &mut DozerAIUpdateModuleData,
-    tokens: &[&str],
-) -> Result<(), INIError> {
-    let values = value_tokens(tokens)?;
-    let value = INI::parse_bit_string_32(&values, AUTO_ACQUIRE_ENEMIES_NAMES)?;
-    data.base.set_auto_acquire_enemies_when_idle(value);
-    Ok(())
-}
-
-fn required_value<'a>(tokens: &'a [&'a str]) -> Result<&'a str, INIError> {
-    tokens
-        .iter()
-        .copied()
-        .find(|token| *token != "=")
-        .ok_or(INIError::InvalidData)
-}
-
-fn value_tokens<'a>(tokens: &'a [&'a str]) -> Result<Vec<&'a str>, INIError> {
-    let values: Vec<_> = tokens
-        .iter()
-        .copied()
-        .filter(|token| *token != "=")
-        .collect();
-    if values.is_empty() {
-        return Err(INIError::InvalidData);
-    }
-    Ok(values)
-}
-
-fn parse_duration_unsigned_field(
-    setter: &mut dyn FnMut(UnsignedInt),
-    tokens: &[&str],
-) -> Result<(), INIError> {
-    let token = required_value(tokens)?;
-    setter(INI::parse_duration_unsigned_int(token)?);
-    Ok(())
-}
-
-fn parse_duration_real_field(
-    setter: &mut dyn FnMut(Real),
-    tokens: &[&str],
-) -> Result<(), INIError> {
-    let token = required_value(tokens)?;
-    setter(INI::parse_duration_real(token)?);
-    Ok(())
-}
-
-fn parse_bool_field(setter: &mut dyn FnMut(Bool), tokens: &[&str]) -> Result<(), INIError> {
-    let token = required_value(tokens)?;
-    setter(INI::parse_bool(token)?);
-    Ok(())
-}
-
-fn parse_real_field(setter: &mut dyn FnMut(Real), tokens: &[&str]) -> Result<(), INIError> {
-    let token = required_value(tokens)?;
-    setter(INI::parse_real(token)?);
-    Ok(())
-}
-
-fn parse_percent_to_real_field(
-    setter: &mut dyn FnMut(Real),
-    tokens: &[&str],
-) -> Result<(), INIError> {
-    let token = required_value(tokens)?;
-    setter(INI::parse_percent_to_real(token)?);
-    Ok(())
-}
-
-fn parse_locomotor_set_field(
-    ini: &mut INI,
-    data: &mut DozerAIUpdateModuleData,
-    tokens: &[&str],
-) -> Result<(), INIError> {
-    let values = value_tokens(tokens)?;
-    if values.len() < 2 {
-        return Err(INIError::InvalidData);
-    }
-
-    let set = match values[0] {
-        "SET_NORMAL" => crate::common::LocomotorSetType::Normal,
-        "SET_NORMAL_UPGRADED" => crate::common::LocomotorSetType::NormalUpgraded,
-        "SET_FREEFALL" => crate::common::LocomotorSetType::Freefall,
-        "SET_WANDER" => crate::common::LocomotorSetType::Wander,
-        "SET_PANIC" => crate::common::LocomotorSetType::Panic,
-        "SET_TAXIING" => crate::common::LocomotorSetType::Taxiing,
-        "SET_SUPERSONIC" => crate::common::LocomotorSetType::Supersonic,
-        "SET_SLUGGISH" => crate::common::LocomotorSetType::Sluggish,
-        _ => return Err(INIError::InvalidData),
-    };
-
-    if data.base.has_locomotor_set(set) && ini.get_load_type() != INILoadType::CreateOverrides {
-        return Err(INIError::InvalidData);
-    }
-
-    let mut entries = Vec::new();
-    for token in values.iter().skip(1) {
-        if token.is_empty() || token.eq_ignore_ascii_case("None") {
-            continue;
-        }
-        entries.push(AsciiString::from(*token));
-    }
-    if entries.is_empty() {
-        return Err(INIError::InvalidData);
-    }
-    data.base.set_locomotor_set_entries(set, entries);
-    Ok(())
-}
-
-fn parse_turret_field(
-    ini: &mut INI,
-    data: &mut DozerAIUpdateModuleData,
-    _tokens: &[&str],
-) -> Result<(), INIError> {
-    if data.base.turret_primary().is_some() {
-        return Err(INIError::InvalidData);
-    }
-    let mut turret = crate::object::update::ai_update_interface::TurretAIData::default();
-    turret.parse_from_ini(ini)?;
-    data.base.set_turret_primary(turret);
-    Ok(())
-}
-
-fn parse_alt_turret_field(
-    ini: &mut INI,
-    data: &mut DozerAIUpdateModuleData,
-    _tokens: &[&str],
-) -> Result<(), INIError> {
-    if data.base.turret_secondary().is_some() {
-        return Err(INIError::InvalidData);
-    }
-    let mut turret = crate::object::update::ai_update_interface::TurretAIData::default();
-    turret.parse_from_ini(ini)?;
-    data.base.set_turret_secondary(turret);
-    Ok(())
-}
-
-const DOZER_AI_UPDATE_FIELDS: &[FieldParse<DozerAIUpdateModuleData>] = &[
-    FieldParse {
-        token: "Turret",
-        parse: parse_turret_field,
-    },
-    FieldParse {
-        token: "AltTurret",
-        parse: parse_alt_turret_field,
-    },
-    FieldParse {
-        token: "AutoAcquireEnemiesWhenIdle",
-        parse: parse_auto_acquire_field,
-    },
-    FieldParse {
-        token: "Locomotor",
-        parse: parse_locomotor_set_field,
-    },
-    FieldParse {
-        token: "MoodAttackCheckRate",
-        parse: |_, data, tokens| {
-            parse_duration_unsigned_field(
-                &mut |value| data.base.set_mood_attack_check_rate(value),
-                tokens,
-            )
-        },
-    },
-    FieldParse {
-        token: "SurrenderDuration",
-        parse: |_, data, tokens| {
-            parse_duration_unsigned_field(
-                &mut |value| data.base.set_surrender_duration_frames(value),
-                tokens,
-            )
-        },
-    },
-    FieldParse {
-        token: "ForbidPlayerCommands",
-        parse: |_, data, tokens| {
-            parse_bool_field(
-                &mut |value| data.base.set_forbid_player_commands(value),
-                tokens,
-            )
-        },
-    },
-    FieldParse {
-        token: "TurretsLinked",
-        parse: |_, data, tokens| {
-            parse_bool_field(&mut |value| data.base.set_turrets_linked(value), tokens)
-        },
-    },
-    FieldParse {
-        token: "RepairHealthPercentPerSecond",
-        parse: |_, data, tokens| {
-            parse_percent_to_real_field(
-                &mut |value| data.repair_health_percent_per_second = value,
-                tokens,
-            )
-        },
-    },
-    FieldParse {
-        token: "BoredTime",
-        parse: |_, data, tokens| {
-            parse_duration_real_field(&mut |value| data.bored_time = value, tokens)
-        },
-    },
-    FieldParse {
-        token: "BoredRange",
-        parse: |_, data, tokens| parse_real_field(&mut |value| data.bored_range = value, tokens),
-    },
-];
 
 #[derive(Debug, Clone)]
 struct DozerTaskEntry {
@@ -425,38 +82,6 @@ impl Default for DozerTaskEntry {
         Self {
             target_id: INVALID_ID,
             order_frame: 0,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct DozerDockPointInfo {
-    pub valid: bool,
-    pub location: Coord3D,
-}
-
-impl DozerDockPointInfo {
-    pub fn from_position(location: Coord3D) -> Self {
-        Self {
-            valid: true,
-            location,
-        }
-    }
-    pub fn point(self) -> Option<Coord3D> {
-        self.valid.then_some(self.location)
-    }
-    /// CPP internalTaskComplete invalidates the dock without erasing its raw
-    /// coordinates. Both fields remain in the original Xfer payload.
-    pub fn invalidate(&mut self) {
-        self.valid = false;
-    }
-}
-
-impl Default for DozerDockPointInfo {
-    fn default() -> Self {
-        Self {
-            valid: false,
-            location: Coord3D::ZERO,
         }
     }
 }
@@ -562,7 +187,7 @@ impl DozerAIUpdate {
             };
         }
         self.task_owner.current = task;
-        self.task_owner.primary.state = crate::object::update::ai_update::dozer_ai_update::owned_state::PrimaryState::Idle;
+        self.task_owner.primary.state = PrimaryState::Idle;
         self.task_owner.primary.control.initialized = true;
         self.task_owner.primary.actions[task_index].reset();
         self.task_owner.build_sub_task = DozerBuildSubTask::SelectBuildDockLocation;
@@ -1357,7 +982,7 @@ impl DozerAIUpdate {
         }
         let dock = self.get_dock_point(DozerTask::Build, DozerDockPoint::Action);
         let action = Self::with_action_parent(owner, parent, |ai| {
-            self.task_owner.build_sub_task.advance_to_dock(ai, dock)
+            advance_build_sub_task_to_dock(&mut self.task_owner.build_sub_task, ai, dock)
         });
         match action {
             Some(result) => result,
@@ -2193,7 +1818,6 @@ impl Snapshotable for DozerAIUpdateModule {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::common::LocomotorSetType;
 
     #[test]
     fn build_dock_query_matches_cpp_bias_and_locomotor_options() {
@@ -2242,57 +1866,7 @@ mod tests {
         );
     }
 
-    fn parse_field(data: &mut DozerAIUpdateModuleData, token: &str, values: &[&str]) {
-        let field = DOZER_AI_UPDATE_FIELDS
-            .iter()
-            .find(|field| field.token == token)
-            .expect("field exists");
-        let mut ini = INI::new();
-        (field.parse)(&mut ini, data, values).expect("field parses");
-    }
 
-    #[test]
-    fn dozer_fields_accept_ini_equals_token() {
-        let mut data = DozerAIUpdateModuleData::default();
-
-        parse_field(
-            &mut data,
-            "AutoAcquireEnemiesWhenIdle",
-            &["=", "YES", "ATTACK_BUILDINGS"],
-        );
-        parse_field(
-            &mut data,
-            "Locomotor",
-            &["=", "SET_NORMAL", "DozerLocomotor"],
-        );
-        parse_field(&mut data, "MoodAttackCheckRate", &["=", "2000"]);
-        parse_field(&mut data, "SurrenderDuration", &["=", "3000"]);
-        parse_field(&mut data, "ForbidPlayerCommands", &["=", "Yes"]);
-        parse_field(&mut data, "TurretsLinked", &["=", "Yes"]);
-        parse_field(&mut data, "RepairHealthPercentPerSecond", &["=", "25%"]);
-        parse_field(&mut data, "BoredTime", &["=", "1500"]);
-        parse_field(&mut data, "BoredRange", &["=", "125.5"]);
-
-        assert_ne!(data.base.auto_acquire_enemies_when_idle(), 0);
-        assert!(data.base.has_locomotor_set(LocomotorSetType::Normal));
-        assert_eq!(data.base.mood_attack_check_rate(), 60);
-        assert_eq!(data.base.surrender_duration_frames(), 90);
-        assert!(data.base.forbid_player_commands());
-        assert!(data.base.turrets_linked());
-        assert_eq!(data.repair_health_percent_per_second, 0.25);
-        assert_eq!(data.bored_time, 45.0);
-        assert_eq!(data.bored_range, 125.5);
-    }
-
-    #[test]
-    fn parse_duration_real_field_accepts_duration_suffixes() {
-        let mut parsed = 0.0;
-        parse_duration_real_field(&mut |value| parsed = value, &["1500ms"]).expect("duration");
-        assert!((parsed - 45.0).abs() < f32::EPSILON);
-
-        parse_duration_real_field(&mut |value| parsed = value, &["1.5s"]).expect("duration");
-        assert!((parsed - 45.0).abs() < f32::EPSILON);
-    }
 }
 
 #[cfg(test)]

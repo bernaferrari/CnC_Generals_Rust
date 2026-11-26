@@ -3,9 +3,7 @@
 // Split from `helpers.rs` for module-size parity.
 // Observable behavior is unchanged.
 
-#[path = "find_position_sampling.rs"]
-pub(crate) mod find_position_sampling;
-use find_position_sampling::find_position_around_candidates;
+use generals_sim::pathfinding::find_position_around_candidates;
 
 pub struct ThePartitionManager;
 

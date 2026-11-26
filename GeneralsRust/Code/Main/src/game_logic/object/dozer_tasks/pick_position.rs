@@ -44,7 +44,7 @@ impl GameLogic {
         let start = (source.z - center.z).atan2(source.x - center.x);
         let cpp_center = Vec3::new(center.x, center.z, center.y);
         let picked =
-            gamelogic::object::update::ai_update::dozer_ai_update::phase::sample_action_position(
+            generals_sim::dozer::sample_action_position(
                 cpp_center,
                 radius,
                 start,

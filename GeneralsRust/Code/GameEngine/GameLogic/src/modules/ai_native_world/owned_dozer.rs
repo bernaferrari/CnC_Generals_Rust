@@ -100,7 +100,7 @@ impl BorrowedAiWorld<'_> {
         let start = (owner_position.y - center.y).atan2(owner_position.x - center.x);
         let mut failure = None;
         let result =
-            crate::object::update::ai_update::dozer_ai_update::phase::sample_action_position(
+            generals_sim::dozer::sample_action_position(
                 center,
                 radius,
                 start,

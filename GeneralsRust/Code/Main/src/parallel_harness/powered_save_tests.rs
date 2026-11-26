@@ -1,8 +1,6 @@
 use super::{HeadlessSkirmish, HumanOrders, SharedSkirmishAssets};
 use crate::save_load::SaveFileManager;
-use gamelogic::object::update::ai_update::dozer_ai_update::{
-    DozerBuildSubTask, DozerTask, owned_state::ActionState,
-};
+use generals_sim::dozer::{ActionState, DozerBuildSubTask, DozerTask};
 
 #[test]
 #[ignore = "requires retail assets"]

@@ -1,4 +1,4 @@
-use crate::object::update::ai_update::dozer_ai_update::{ConstructionAdvance, DozerAIUpdate, DozerBuildSubTask, DozerDockPoint};
+use crate::object::update::ai_update::dozer_ai_update::{ConstructionAdvance, DozerAIUpdate, DozerBuildSubTask, DozerDockPoint, advance_build_sub_task_to_dock};
 
 /// Worker AI update module data (matches C++ WorkerAIUpdateModuleData fields).
 #[derive(Debug, Clone)]
@@ -906,7 +906,7 @@ impl WorkerAIUpdate {
                 dock.valid.then_some(dock.location)
             });
             // WorkerAIUpdate.cpp:247–280 runs the same nested Dozer action.
-            match task.build_sub_task.advance_to_dock(ai, dock) {
+            match advance_build_sub_task_to_dock(&mut task.build_sub_task, ai, dock) {
                 Ok(true) => {}
                 result => {
                     failure = result.err();

@@ -5,13 +5,6 @@
 use super::*;
 use crate::modules::ai_world::AiWorld;
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub struct DozerPrimaryIdle {
-    pub(super) idle_since: u32,
-    pub(super) player: Int,
-    pub(super) marked: bool,
-}
-
 impl DozerAIUpdate {
     pub(super) fn reset_primary_idle_owned(
         &mut self,

@@ -1,18 +1,18 @@
 //! One original action transition kernel for native and receiving Main contexts.
 //! Facts are frozen from the driving owner; one returned step is applied
 //! synchronously with that owner still installed, then its transition is finished.
-use super::owned_state::ActionState;
-use super::task_owner::DozerTaskOwner;
-use super::{Coord3D, DozerBuildSubTask, DozerTask, ObjectID};
+use super::{ActionState, DozerBuildSubTask, DozerTask, DozerTaskOwner};
+use glam::Vec3;
+
 #[derive(Debug, Clone, Copy)]
 pub struct ActionFacts {
     pub frame: u32,
     pub regular_idle: bool,
-    pub target: ObjectID,
+    pub target: u32,
     pub target_exists: bool,
     pub claim_valid: bool,
     pub unmanned: bool,
-    pub picked_position: Coord3D,
+    pub picked_position: Vec3,
     pub ignore_obstacle_count: u8,
     pub distance_squared: f32,
     pub actor_radius: f32,
@@ -25,17 +25,17 @@ pub enum ActionStep {
     },
     Move {
         task: DozerTask,
-        target: ObjectID,
-        position: Coord3D,
+        target: u32,
+        position: Vec3,
         ignore_obstacle_count: u8,
     },
     CompleteRequest {
         task: DozerTask,
-        target: ObjectID,
+        target: u32,
     },
     EnterAction {
         task: DozerTask,
-        target: ObjectID,
+        target: u32,
         frame: u32,
     },
     ResetPrimary,
@@ -106,7 +106,7 @@ impl<R, D> DozerTaskOwner<R, D> {
             }
         }
     }
-    pub fn finish_enter_action(&mut self, task: DozerTask, target: ObjectID, frame: u32) {
+    pub fn finish_enter_action(&mut self, task: DozerTask, target: u32, frame: u32) {
         if self.current != task {
             return;
         }
@@ -120,7 +120,7 @@ impl<R, D> DozerTaskOwner<R, D> {
             }
         }
     }
-    pub fn finish_claim_failure(&mut self, task: DozerTask, target: ObjectID) {
+    pub fn finish_claim_failure(&mut self, task: DozerTask, target: u32) {
         if self.current != task {
             return;
         }
@@ -144,7 +144,7 @@ mod unmanned_tests {
             target_exists: true,
             claim_valid: true,
             unmanned,
-            picked_position: Coord3D::ZERO,
+            picked_position: Vec3::ZERO,
             ignore_obstacle_count: 1,
             distance_squared: 0.0,
             actor_radius: 0.0,
@@ -192,7 +192,10 @@ mod unmanned_tests {
             missing.target_exists = false;
             missing.claim_valid = false;
 
-            assert!(matches!(owner.prepare_action_phase(missing), ActionStep::Continue));
+            assert!(matches!(
+                owner.prepare_action_phase(missing),
+                ActionStep::Continue
+            ));
             assert!(matches!(
                 owner.primary.actions[task as usize].state,
                 ActionState::PickPosition { .. }

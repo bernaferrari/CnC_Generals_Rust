@@ -679,7 +679,7 @@ impl<'a> CommandExecutor<'a> {
             // C++ canAcceptNewRepair: m_currentTask == DOZER_TASK_REPAIR.
             let already = self.game_logic.host_object(unit_id).and_then(|unit| {
                 if unit.dozer_tasks.current
-                    != gamelogic::object::update::ai_update::dozer_ai_update::DozerTask::Repair
+                    != generals_sim::dozer::DozerTask::Repair
                 {
                     return None;
                 }
@@ -1563,7 +1563,7 @@ impl GameLogic {
         self.dozer_request_task_owned(
             dozer_id,
             build_target,
-            gamelogic::object::update::ai_update::dozer_ai_update::DozerTask::Build,
+            generals_sim::dozer::DozerTask::Build,
         )
     }
 
@@ -1577,7 +1577,7 @@ impl GameLogic {
         self.dozer_request_task_owned(
             dozer_id,
             repair_target,
-            gamelogic::object::update::ai_update::dozer_ai_update::DozerTask::Repair,
+            generals_sim::dozer::DozerTask::Repair,
         )
     }
 
@@ -1644,7 +1644,7 @@ impl GameLogic {
     }
 
     fn dozer_most_recent_pending_task(&self, dozer_id: ObjectId) -> Option<(bool, ObjectId)> {
-        use gamelogic::object::update::ai_update::dozer_ai_update::DozerTask;
+        use generals_sim::dozer::DozerTask;
         let obj = self.objects.get(&dozer_id)?;
         let task = obj
             .dozer_tasks
@@ -1990,9 +1990,9 @@ impl GameLogic {
         &mut self,
         id: ObjectId,
         target: ObjectId,
-        task: gamelogic::object::update::ai_update::dozer_ai_update::DozerTask,
+        task: generals_sim::dozer::DozerTask,
     ) -> generals_sim::GameLogicResult<bool> {
-        use gamelogic::object::update::ai_update::dozer_ai_update::DozerTask;
+        use generals_sim::dozer::DozerTask;
         if task == DozerTask::Invalid
             || self.objects.get(&id).is_none()
             || self.objects.get(&target).is_none()
@@ -2017,7 +2017,7 @@ impl GameLogic {
             .get(&id)
             .is_some_and(|o| o.dozer_tasks.requests[slot].target.is_some())
         {
-            use gamelogic::object::update::ai_update::dozer_ai_update::DozerTask;
+            use generals_sim::dozer::DozerTask;
             let _ = self.dozer_cancel_task_owned(
                 id,
                 if repair {
@@ -2065,7 +2065,7 @@ impl GameLogic {
         if let Some(o) = self.objects.get_mut(&id) {
             o.dozer_tasks.requests[slot].target = Some(target);
             o.dozer_tasks.requests[slot].order_frame = frame;
-            o.dozer_tasks.docks[slot] = [dock, dock, end].map(gamelogic::object::update::ai_update::dozer_ai_update::DozerDockPointInfo::from_position);
+            o.dozer_tasks.docks[slot] = [dock, dock, end].map(generals_sim::dozer::DozerDockPointInfo::from_position);
             o.target_location = None;
         }
         if !repair {
@@ -2080,7 +2080,7 @@ impl GameLogic {
         &mut self,
         dozer_id: ObjectId,
     ) -> generals_sim::GameLogicResult<bool> {
-        use gamelogic::object::update::ai_update::dozer_ai_update::DozerTask;
+        use generals_sim::dozer::DozerTask;
         let Some((task, ai)) = self
             .objects
             .get(&dozer_id)
@@ -2103,9 +2103,9 @@ impl GameLogic {
     pub(crate) fn dozer_cancel_task_owned(
         &mut self,
         id: ObjectId,
-        task: gamelogic::object::update::ai_update::dozer_ai_update::DozerTask,
+        task: generals_sim::dozer::DozerTask,
     ) -> generals_sim::GameLogicResult<bool> {
-        use gamelogic::object::update::ai_update::dozer_ai_update::DozerTask;
+        use generals_sim::dozer::DozerTask;
         match task {
             DozerTask::Build => {
                 let _ = self.dozer_internal_task_complete(id, false);

@@ -4,9 +4,7 @@
 use super::*;
 use crate::game_logic::{GameLogic, Player, Team};
 use crate::save_load::{XferLoad, XferSave};
-use gamelogic::object::update::ai_update::dozer_ai_update::{
-    DozerBuildSubTask, DozerDockPointInfo, DozerTask, owned_state::PrimaryState,
-};
+use generals_sim::dozer::{DozerBuildSubTask, DozerDockPointInfo, DozerTask, PrimaryState};
 use glam::Vec3;
 use std::io::Cursor;
 

@@ -18920,6 +18920,11 @@
             },
             {
               "cargo_reachable": true,
+              "classification": "implementation",
+              "path": "GeneralsRust/Code/GameEngine/Common/src/common/thing/builder_ai_data.rs"
+            },
+            {
+              "cargo_reachable": true,
               "classification": "test",
               "path": "GeneralsRust/Code/GameEngine/Common/src/common/thing/builtin_module_mask_lookup_tests.rs"
             },
@@ -51733,13 +51738,10 @@
             "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/deliver_payload_data.rs",
             "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/deploy_style_ai_update.rs",
             "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/dozer_ai_update.rs",
-            "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/dozer_ai_update/action_kernel.rs",
             "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/dozer_ai_update/delete_owned.rs",
             "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/dozer_ai_update/owned_state.rs",
-            "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/dozer_ai_update/phase.rs",
             "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/dozer_ai_update/primary_owned.rs",
             "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/dozer_ai_update/snapshot.rs",
-            "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/dozer_ai_update/task_owner.rs",
             "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/hack_internet_ai_update.rs",
             "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/jet_ai_update.rs",
             "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/mod.rs",
@@ -54295,22 +54297,12 @@
             {
               "cargo_reachable": true,
               "classification": "implementation",
-              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/dozer_ai_update/action_kernel.rs"
-            },
-            {
-              "cargo_reachable": true,
-              "classification": "implementation",
               "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/dozer_ai_update/delete_owned.rs"
             },
             {
               "cargo_reachable": true,
               "classification": "implementation",
               "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/dozer_ai_update/owned_state.rs"
-            },
-            {
-              "cargo_reachable": true,
-              "classification": "implementation",
-              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/dozer_ai_update/phase.rs"
             },
             {
               "cargo_reachable": true,
@@ -54326,11 +54318,6 @@
               "cargo_reachable": true,
               "classification": "test",
               "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/dozer_ai_update/snapshot/original_xfer_oracle_tests.rs"
-            },
-            {
-              "cargo_reachable": true,
-              "classification": "implementation",
-              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/dozer_ai_update/task_owner.rs"
             },
             {
               "cargo_reachable": true,
@@ -58595,13 +58582,10 @@
             "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/deliver_payload_data.rs",
             "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/deploy_style_ai_update.rs",
             "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/dozer_ai_update.rs",
-            "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/dozer_ai_update/action_kernel.rs",
             "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/dozer_ai_update/delete_owned.rs",
             "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/dozer_ai_update/owned_state.rs",
-            "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/dozer_ai_update/phase.rs",
             "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/dozer_ai_update/primary_owned.rs",
             "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/dozer_ai_update/snapshot.rs",
-            "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/dozer_ai_update/task_owner.rs",
             "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/hack_internet_ai_update.rs",
             "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/jet_ai_update.rs",
             "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/mod.rs",
@@ -58711,22 +58695,12 @@
             {
               "cargo_reachable": true,
               "classification": "implementation",
-              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/dozer_ai_update/action_kernel.rs"
-            },
-            {
-              "cargo_reachable": true,
-              "classification": "implementation",
               "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/dozer_ai_update/delete_owned.rs"
             },
             {
               "cargo_reachable": true,
               "classification": "implementation",
               "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/dozer_ai_update/owned_state.rs"
-            },
-            {
-              "cargo_reachable": true,
-              "classification": "implementation",
-              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/dozer_ai_update/phase.rs"
             },
             {
               "cargo_reachable": true,
@@ -58742,11 +58716,6 @@
               "cargo_reachable": true,
               "classification": "test",
               "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/dozer_ai_update/snapshot/original_xfer_oracle_tests.rs"
-            },
-            {
-              "cargo_reachable": true,
-              "classification": "implementation",
-              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/dozer_ai_update/task_owner.rs"
             },
             {
               "cargo_reachable": true,
@@ -60476,13 +60445,10 @@
             "unreviewed_symbol_ownership",
             "unreviewed_source_range_ownership",
             "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/dozer_ai_update.rs",
-            "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/dozer_ai_update/action_kernel.rs",
             "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/dozer_ai_update/delete_owned.rs",
             "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/dozer_ai_update/owned_state.rs",
-            "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/dozer_ai_update/phase.rs",
             "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/dozer_ai_update/primary_owned.rs",
-            "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/dozer_ai_update/snapshot.rs",
-            "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/dozer_ai_update/task_owner.rs"
+            "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/dozer_ai_update/snapshot.rs"
           ],
           "candidate_destinations": [
             {
@@ -60498,22 +60464,12 @@
             {
               "cargo_reachable": true,
               "classification": "implementation",
-              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/dozer_ai_update/action_kernel.rs"
-            },
-            {
-              "cargo_reachable": true,
-              "classification": "implementation",
               "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/dozer_ai_update/delete_owned.rs"
             },
             {
               "cargo_reachable": true,
               "classification": "implementation",
               "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/dozer_ai_update/owned_state.rs"
-            },
-            {
-              "cargo_reachable": true,
-              "classification": "implementation",
-              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/dozer_ai_update/phase.rs"
             },
             {
               "cargo_reachable": true,
@@ -60529,11 +60485,6 @@
               "cargo_reachable": true,
               "classification": "test",
               "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/dozer_ai_update/snapshot/original_xfer_oracle_tests.rs"
-            },
-            {
-              "cargo_reachable": true,
-              "classification": "implementation",
-              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/dozer_ai_update/task_owner.rs"
             }
           ],
           "entry_id": "game_engine:Source/GameLogic/Object/Update/AIUpdate/DozerAIUpdate.cpp",
@@ -187753,7 +187704,7 @@
       ]
     }
   ],
-  "provenance_input_digest": "e8e04de87d0cc2ca9f8c62440fcded3f5311bcc003a07d0c358bf65309128bd1",
+  "provenance_input_digest": "02aca52afb02d060090245bdeb17be7e03fd5b298270b660ab2671ccad7df677",
   "schema_version": 1,
   "summary": {
     "maximum_packet_size": 15,
