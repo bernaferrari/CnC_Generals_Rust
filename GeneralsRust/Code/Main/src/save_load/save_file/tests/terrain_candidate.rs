@@ -371,7 +371,7 @@ fn direct_archive_bad_terrain_companion_preserves_running_foreign_world() {
                     &manager.get_save_path("invalid_tail"),
                     &snapshot,
                     &info,
-                    &[],
+                    None,
                     Some(&archive),
                     SAVED_GAME_MODE_SINGLE_PLAYER,
                     &game_engine::System::CampaignManagerXferState::default(),

@@ -220,7 +220,18 @@ fn malformed_client_chunk_rejects_candidate_before_touching_live_client() {
             live.set_frame(777);
             let logic = GameLogic::new();
             let catalog = logic.templates.clone();
-            let invalid_chunk = vec![3, 0, 0, 0, 0, 1, 0xff, 0xff, 0xff, 0xff];
+            let mut malformed_drawable = game_client::drawable::drawable::BasicDrawableArchive::default();
+            malformed_drawable.drawable_id = 91;
+            malformed_drawable.object_id = 7;
+            let invalid_chunk = game_client::core::game_client::GameClientArchive {
+                frame: 0,
+                drawables: vec![game_client::core::game_client::GameClientDrawableArchive {
+                    template_name: "MalformedFixture".into(),
+                    object_id: 8,
+                    drawable: malformed_drawable,
+                }],
+                briefing_history: Vec::new(),
+            };
             let err = CnCGameEngine::stage_decoded_saved_world_for_restore(
                 &crate::save_load::WorldSnapshot::default(),
                 save_info("corrupt_client", "Not A Retail Map".to_string()),
@@ -469,10 +480,10 @@ fn staged_restore_requires_the_saved_retail_map_before_snapshot_restore() {
                 "staged restore must carry the renderer companion to the commit boundary"
             );
             #[cfg(feature = "game_client")]
-            crate::save_load::snapshot::validate_game_client_xfer_bytes(
+            crate::save_load::snapshot::validate_game_client_archive(
                 restored
-                    .game_client_xfer_bytes
-                    .as_deref()
+                    .game_client_archive
+                    .as_ref()
                     .expect("staged client chunk"),
             )
             .expect("staged client chunk remains valid until commit");
@@ -696,10 +707,10 @@ fn forced_post_restore_failure_restores_globals_and_tls_effect_queues() {
                 let mut saved = game_client::core::game_client::GameClient::new()
                     .expect("saved client payload");
                 saved.set_frame(42);
-                Some(saved.capture_xfer_bytes().expect("valid client chunk"))
+                Some(saved.capture_archive().expect("valid client archive"))
             };
             #[cfg(not(feature = "game_client"))]
-            let staged_client_bytes: Option<Vec<u8>> = None;
+            let staged_client_bytes: Option<game_client::core::game_client::GameClientArchive> = None;
 
             let retained_ai_definitions = source.ai_definitions.snapshot();
             source
@@ -2470,21 +2481,21 @@ End
                 ),
                 1
             );
-            let mut invalid_drawable = vec![3];
-            invalid_drawable.extend_from_slice(&888_u32.to_le_bytes());
-            invalid_drawable.push(1);
-            invalid_drawable.extend_from_slice(&1_u32.to_le_bytes());
-            invalid_drawable.push(DRAWABLE.len() as u8);
-            invalid_drawable.extend_from_slice(DRAWABLE.as_bytes());
-            invalid_drawable.extend_from_slice(&1_u16.to_le_bytes());
-            invalid_drawable.extend_from_slice(&1_u16.to_le_bytes());
-            invalid_drawable.extend_from_slice(&1_u16.to_le_bytes());
-            invalid_drawable.extend_from_slice(&4_i32.to_le_bytes());
-            invalid_drawable.extend_from_slice(&0_u32.to_le_bytes());
-            invalid_drawable.extend_from_slice(&0_i32.to_le_bytes());
-            crate::save_load::snapshot::validate_game_client_xfer_bytes(&invalid_drawable).unwrap();
+            let mut unknown_drawable = game_client::drawable::drawable::BasicDrawableArchive::default();
+            unknown_drawable.drawable_id = 77;
+            unknown_drawable.object_id = 0;
+            let invalid_drawable = game_client::core::game_client::GameClientArchive {
+                frame: 0,
+                drawables: vec![game_client::core::game_client::GameClientDrawableArchive {
+                    template_name: "DefinitelyMissingArchiveTemplate".into(),
+                    object_id: 0,
+                    drawable: unknown_drawable,
+                }],
+                briefing_history: Vec::new(),
+            };
+            crate::save_load::snapshot::validate_game_client_archive(&invalid_drawable).unwrap();
             let stage = |native: &mut super::super::map_native_admission::NativeMapCandidate,
-                         client_bytes: Option<Vec<u8>>,
+                         client_bytes: Option<game_client::core::game_client::GameClientArchive>,
                          graphics: &mut GraphicsSystem,
                          pipeline: &mut RenderPipeline| {
                 let mut retirement =
@@ -2558,9 +2569,9 @@ End
             rejected.native_map = rejected_native;
             assert_service_empty();
             let mut failed_client = game_client::core::game_client::GameClient::new().unwrap();
-            let error = crate::save_load::snapshot::restore_game_client_from_xfer_bytes(
+            let error = crate::save_load::snapshot::restore_game_client_from_archive(
                 &mut failed_client,
-                rejected.game_client_xfer_bytes.as_deref().unwrap(),
+                rejected.game_client_archive.as_ref().unwrap(),
             )
             .expect_err("real GameClient Drawable payload rejects after successful staging");
             assert!(!error.to_string().is_empty());

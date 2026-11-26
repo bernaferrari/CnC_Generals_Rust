@@ -10,6 +10,7 @@ use game_engine::common::ini::{Anim2DMode, Anim2DTemplate, INI, get_anim2d_colle
 use game_engine::common::system::{Snapshotable, Xfer, XferMode, XferVersion};
 use gamelogic::helpers::TheGameLogic;
 use parking_lot::Mutex;
+use serde::{Deserialize, Serialize};
 use std::sync::{Arc, Weak};
 
 bitflags::bitflags! {
@@ -20,6 +21,23 @@ bitflags::bitflags! {
         const REVERSED = 0x02;
         const COMPLETE = 0x04;
     }
+}
+
+
+/// Value-only animation continuation persisted by typed Drawable archives.
+///
+/// This is the semantic content of `Anim2D::xfer` v1. Template identity is
+/// owned by the enclosing icon record; the constructor's random/default frame
+/// is intentionally overwritten here exactly as the positional load did.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct Anim2DArchiveState {
+    pub current_frame: u16,
+    pub last_update_frame: u32,
+    pub status_bits: u8,
+    pub min_frame: u16,
+    pub max_frame: u16,
+    pub frames_between_updates: u32,
+    pub alpha: f32,
 }
 
 /// 2D animation instance.
@@ -96,6 +114,36 @@ impl Anim2D {
         instance.collection_system = Some(Arc::downgrade(collection));
         drop(instance);
         collection.lock().register_animation(animation);
+    }
+
+
+    pub fn capture_archive_state(&self) -> Anim2DArchiveState {
+        Anim2DArchiveState {
+            current_frame: self.current_frame,
+            last_update_frame: self.last_update_frame,
+            status_bits: self.status.bits(),
+            min_frame: self.min_frame,
+            max_frame: self.max_frame,
+            frames_between_updates: self.frames_between_updates,
+            alpha: self.alpha,
+        }
+    }
+
+    pub fn apply_archive_state(&mut self, archive: Anim2DArchiveState) {
+        self.current_frame = archive.current_frame;
+        self.last_update_frame = archive.last_update_frame;
+        self.status = Anim2DStatus::from_bits_truncate(archive.status_bits);
+        self.min_frame = archive.min_frame;
+        self.max_frame = archive.max_frame;
+        self.frames_between_updates = archive.frames_between_updates;
+        self.alpha = archive.alpha;
+
+        // Match `Anim2D::xfer` load: clamp the restored current frame against
+        // the receiving template, while retaining every other saved value.
+        let max = self.template.read().get_num_frames();
+        if max > 0 {
+            self.current_frame = self.current_frame.min(max.saturating_sub(1));
+        }
     }
 
     pub fn get_current_frame(&self) -> u16 {

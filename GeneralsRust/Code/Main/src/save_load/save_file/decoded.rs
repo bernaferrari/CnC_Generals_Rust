@@ -25,7 +25,7 @@ pub struct DecodedGameSave {
     pub saved_game_mode: Option<i32>,
     /// Absent for the historical one-byte NullSnapshot or omitted client chunk.
     /// Kept detached until the receiving host admits the candidate world.
-    pub game_client_xfer: Option<Vec<u8>>,
+    pub game_client_archive: Option<crate::save_load::snapshot::GameClientArchive>,
     /// Paired with this archive, never published for another restore to take.
     pub terrain_visual_archive: Option<crate::save_load::snapshot::TerrainVisualArchive>,
 }
@@ -56,7 +56,7 @@ pub struct SaveArchive {
     pub campaign_state: Option<game_engine::System::CampaignManagerXferState>,
     pub map_admission_intent: MapAdmissionIntent,
     pub saved_game_mode: Option<i32>,
-    pub game_client_xfer: Option<Vec<u8>>,
+    pub game_client_archive: Option<crate::save_load::snapshot::GameClientArchive>,
     pub terrain_visual_archive: Option<crate::save_load::snapshot::TerrainVisualArchive>,
     pub ghost_object_archive: Option<crate::save_load::snapshot::W3DGhostObjectManagerArchive>,
     pub particle_system_archive: Option<crate::save_load::snapshot::ParticleSystemManagerArchive>,
@@ -74,7 +74,7 @@ pub struct SaveArchiveRef<'a> {
     pub campaign_state: Option<&'a game_engine::System::CampaignManagerXferState>,
     pub map_admission_intent: MapAdmissionIntent,
     pub saved_game_mode: Option<i32>,
-    pub game_client_xfer: Option<&'a [u8]>,
+    pub game_client_archive: Option<&'a crate::save_load::snapshot::GameClientArchive>,
     pub terrain_visual_archive: Option<&'a crate::save_load::snapshot::TerrainVisualArchive>,
     pub ghost_object_archive: Option<&'a crate::save_load::snapshot::W3DGhostObjectManagerArchive>,
     pub particle_system_archive: Option<&'a crate::save_load::snapshot::ParticleSystemManagerArchive>,

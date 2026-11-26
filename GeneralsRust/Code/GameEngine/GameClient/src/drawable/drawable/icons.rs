@@ -7,6 +7,7 @@ use game_engine::common::ini::{Anim2DTemplate, get_anim2d_collection};
 use game_engine::common::system::{Snapshotable, Xfer, XferMode, XferVersion};
 use parking_lot::{Mutex, RwLock};
 use serde::{Deserialize, Serialize};
+use std::any::Any;
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -96,6 +97,20 @@ pub(crate) enum DisabledIconContent<'a> {
     Receiving(Option<&'a Arc<RwLock<Anim2DTemplate>>>),
 }
 
+
+/// Typed continuation for one Anim2D-backed Drawable icon.
+///
+/// The positional stream's icon-count byte and fixed enum order are container
+/// artifacts. The archive stores each present icon explicitly in that same
+/// fixed order, preserving template identity, expiry, and animation state.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct DrawableIconArchive {
+    pub icon_type: IconType,
+    pub keep_till_frame: u32,
+    pub template_name: String,
+    pub anim: crate::system::anim2_d::Anim2DArchiveState,
+}
+
 /// Icon information for drawable objects
 #[derive(Debug, Clone)]
 pub struct IconInfo {
@@ -147,6 +162,67 @@ impl IconInfo {
         for icon_type in expired_icons {
             self.clear_icon(icon_type);
         }
+    }
+
+
+    /// Capture icons in the fixed C++ Drawable xfer order.
+    pub fn capture_archive(&self) -> Result<Vec<DrawableIconArchive>, String> {
+        let mut entries = Vec::with_capacity(self.icons.len());
+        for icon_type in IconType::XFER_ORDER {
+            let Some(icon) = self.icons.get(&icon_type) else {
+                continue;
+            };
+            let anim_icon = icon
+                .as_any()
+                .downcast_ref::<Anim2DIcon>()
+                .ok_or_else(|| "Icon is not Anim2D-backed".to_string())?;
+            entries.push(DrawableIconArchive {
+                icon_type,
+                keep_till_frame: *self.keep_till_frame.get(&icon_type).unwrap_or(&0),
+                template_name: anim_icon.template_name().to_string(),
+                anim: anim_icon.anim.lock().capture_archive_state(),
+            });
+        }
+        Ok(entries)
+    }
+
+    /// Reconstruct icon state using the same template-resolution split as the
+    /// positional loader. Constructor frame/random observations still happen
+    /// before the saved continuation is applied.
+    pub fn from_archive(
+        entries: &[DrawableIconArchive],
+        disabled_content: DisabledIconContent<'_>,
+    ) -> Result<Option<Self>, String> {
+        if entries.is_empty() {
+            return Ok(None);
+        }
+        let mut info = Self::new();
+        for entry in entries {
+            let mut icon = match (entry.icon_type, disabled_content) {
+                (IconType::Disabled, DisabledIconContent::Receiving(template)) => {
+                    let template = template
+                        .filter(|template| template.read().get_name().as_str() == entry.template_name)
+                        .ok_or_else(|| {
+                            format!(
+                                "Unknown receiving Anim2D template '{}'",
+                                entry.template_name
+                            )
+                        })?;
+                    Anim2DIcon {
+                        anim: Anim2D::new_for_restore(Arc::clone(template)),
+                        template_name: entry.template_name.clone(),
+                    }
+                }
+                _ => Anim2DIcon::from_template_name(
+                    &entry.template_name,
+                    &mut game_engine::common::random_value::RandomState::default(),
+                )?,
+            };
+            icon.anim.lock().apply_archive_state(entry.anim);
+            info.icons.insert(entry.icon_type, Arc::new(icon));
+            info.keep_till_frame.insert(entry.icon_type, entry.keep_till_frame);
+        }
+        Ok(Some(info))
     }
 
     pub(crate) fn xfer_cpp_layout(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
@@ -349,6 +425,7 @@ impl BasicDrawable {
 
 /// Trait for drawable icons
 pub trait Icon: std::fmt::Debug + Send + Sync {
+    fn as_any(&self) -> &dyn Any;
     fn render(&self, position: Vector3, size: Vector3, renderer: &mut crate::gui::UIRenderer);
     fn render_with_receiving_images(
         &self,
@@ -418,6 +495,10 @@ impl Anim2DIcon {
 }
 
 impl Icon for Anim2DIcon {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+
     fn render(&self, position: Vector3, size: Vector3, renderer: &mut crate::gui::UIRenderer) {
         let mut anim = self.anim.lock();
         anim.draw_sized(

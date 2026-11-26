@@ -157,10 +157,10 @@ pub use ai::*;
 pub use builder::*;
 pub use client_drawable::*;
 #[cfg(feature = "game_client")]
-pub(crate) use game_client_save::capture_game_client_xfer_bytes_excluding_owned;
+pub(crate) use game_client_save::capture_game_client_archive_excluding_owned;
 pub use game_client_save::{
-    CHUNK_GAME_CLIENT, capture_game_client_xfer_bytes, restore_game_client_from_xfer_bytes,
-    restore_objectless_from_client_drawables, validate_game_client_xfer_bytes,
+    CHUNK_GAME_CLIENT, GameClientArchive, capture_game_client_archive, restore_game_client_from_archive,
+    restore_objectless_from_client_drawables, validate_game_client_archive,
 };
 pub use game_state::*;
 pub use gamelogic::system::shroud_manager::{

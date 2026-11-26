@@ -20,7 +20,7 @@ use decoded::{SaveArchiveRef, SaveMapArchive};
 /// and client companions explicitly; decoding never publishes pieces of one
 /// candidate for another restore to take.
 pub(crate) const VERSIONED_SAVE_MAGIC: &[u8; 8] = b"GZHRSAV\0";
-pub(crate) const VERSIONED_SAVE_ARCHIVE_VERSION: u32 = 5;
+pub(crate) const VERSIONED_SAVE_ARCHIVE_VERSION: u32 = 6;
 const MAX_VERSIONED_SAVE_BYTES: usize = 512 * 1024 * 1024;
 
 /// Stored game-mode integers written by `GameStateMap::xfer` v2
@@ -154,7 +154,7 @@ pub(crate) fn rewrite_versioned_save_archive(
         campaign_state: archive.campaign_state.as_ref(),
         map_admission_intent: archive.map_admission_intent,
         saved_game_mode: archive.saved_game_mode,
-        game_client_xfer: archive.game_client_xfer.as_deref(),
+        game_client_archive: archive.game_client_archive.as_ref(),
         terrain_visual_archive: archive.terrain_visual_archive.as_ref(),
         ghost_object_archive: archive.snapshot.w3d_ghost_archive.as_ref(),
         particle_system_archive: archive.snapshot.particle_system_archive.as_ref(),
@@ -681,20 +681,20 @@ impl SaveFileManager {
                 "receiving campaign owner and admitted session kind disagree".into(),
             ));
         }
-        let client_xfer_bytes = if let Some(client) = client.as_deref_mut() {
+        let client_archive = if let Some(client) = client.as_deref_mut() {
             #[cfg(feature = "game_client")]
             {
-                crate::save_load::snapshot::capture_game_client_xfer_bytes_excluding_owned(
+                Some(crate::save_load::snapshot::capture_game_client_archive_excluding_owned(
                     client,
                     &game_logic.owned_jet_lockon_receipts(),
-                )?
+                )?)
             }
             #[cfg(not(feature = "game_client"))]
             {
-                capture_game_client_xfer_bytes(client)?
+                Some(capture_game_client_archive(client)?)
             }
         } else {
-            Vec::new()
+            None
         };
         // C++ named phases: GameLogic, GameClient, then ParticleSystem. Capture
         // once on this new save candidate; the writer never consults a later
@@ -740,7 +740,7 @@ impl SaveFileManager {
             &temp_path,
             &world_snapshot,
             &effective_info,
-            &client_xfer_bytes,
+            client_archive.as_ref(),
             Some(&terrain_visual_archive),
             encode_saved_game_mode(game_logic.game_mode()),
             &campaign_state,
@@ -997,7 +997,7 @@ impl SaveFileManager {
         path: &Path,
         world_snapshot: &WorldSnapshot,
         save_info: &SaveGameInfo,
-        client_xfer_bytes: &[u8],
+        client_archive: Option<&crate::save_load::snapshot::GameClientArchive>,
         terrain_visual_archive: Option<&crate::save_load::snapshot::TerrainVisualArchive>,
         supplied_game_mode: i32,
         campaign_state: &game_engine::System::CampaignManagerXferState,
@@ -1050,7 +1050,7 @@ impl SaveFileManager {
             campaign_state: Some(campaign_state),
             map_admission_intent: map_intent,
             saved_game_mode,
-            game_client_xfer: (!client_xfer_bytes.is_empty()).then_some(client_xfer_bytes),
+            game_client_archive: client_archive,
             terrain_visual_archive,
             ghost_object_archive: snapshot.w3d_ghost_archive.as_ref(),
             particle_system_archive: snapshot.particle_system_archive.as_ref(),
@@ -1120,7 +1120,7 @@ impl SaveFileManager {
             campaign_state: archive.campaign_state,
             save_info,
             map_admission_intent: archive.map_admission_intent,
-            game_client_xfer: archive.game_client_xfer,
+            game_client_archive: archive.game_client_archive,
             terrain_visual_archive: archive.terrain_visual_archive,
             saved_game_mode,
         })
@@ -1139,7 +1139,7 @@ impl SaveFileManager {
             campaign_state: Some(campaign_state),
             map_admission_intent: MapAdmissionIntent::Authored,
             saved_game_mode: None,
-            game_client_xfer: None,
+            game_client_archive: None,
             terrain_visual_archive: None,
             ghost_object_archive: None,
             particle_system_archive: None,

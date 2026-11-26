@@ -55,7 +55,7 @@ struct StagedRestoreWorld {
     /// against the first fresh presentation topology by RenderPipeline.
     client_drawables: crate::save_load::snapshot::ClientDrawableWorldSnapshot,
     /// Decoded client state stays detached until the candidate world commits.
-    game_client_xfer_bytes: Option<Vec<u8>>,
+    game_client_archive: Option<crate::save_load::snapshot::GameClientArchive>,
     /// Native terrain effects stay detached until this candidate commits.
     terrain_visual: Option<crate::save_load::snapshot::PreparedTerrainVisual>,
     /// Immutable successful source map configuration receipt; not a second owner.
@@ -1648,7 +1648,7 @@ impl CnCGameEngine {
             runtime_world,
             shroud: _,
             client_drawables,
-            game_client_xfer_bytes,
+            game_client_archive,
             terrain_visual,
             map_water_configuration,
             client_persist,
@@ -1812,7 +1812,7 @@ impl CnCGameEngine {
                 &self.game_logic.world_services,
             )));
         #[cfg(feature = "game_client")]
-        if let Some(bytes) = game_client_xfer_bytes.as_deref() {
+        if let Some(archive) = game_client_archive.as_ref() {
             let policy =
                 super::native_view_effects::receiving_native_drawable_policy_for(&self.game_logic);
             let is_night = matches!(
@@ -1822,8 +1822,8 @@ impl CnCGameEngine {
             let (content, mut color_for_object) = self.game_logic.drawable_restore_inputs(is_night);
             let restore_result = self
                 .game_client
-                .restore_from_xfer_bytes_with_receiving_content_and_indicator_colors(
-                    bytes,
+                .restore_from_archive_with_receiving_content_and_indicator_colors(
+                    archive,
                     content,
                     policy,
                     &mut color_for_object,
@@ -1839,9 +1839,7 @@ impl CnCGameEngine {
             &mut self.game_client,
         );
         #[cfg(feature = "game_client")]
-        let restore_drawable_postprocess = game_client_xfer_bytes
-            .as_deref()
-            .is_some_and(|bytes| !bytes.is_empty());
+        let restore_drawable_postprocess = game_client_archive.is_some();
         #[cfg(feature = "game_client")]
         if restore_drawable_postprocess {
             // XferLoad queues Module loadPostProcess until all chunks are
@@ -2377,7 +2375,7 @@ impl CnCGameEngine {
             campaign_state,
             snapshot,
             save_info,
-            game_client_xfer: game_client_xfer_bytes,
+            game_client_archive: game_client_archive,
             terrain_visual_archive,
             saved_game_mode,
             map_admission_intent: _,
@@ -2390,7 +2388,7 @@ impl CnCGameEngine {
             save_info,
             saved_game_mode,
             campaign_state.as_ref(),
-            game_client_xfer_bytes,
+            game_client_archive,
             terrain_visual_archive,
             slot,
             active_mode,
@@ -2451,7 +2449,7 @@ impl CnCGameEngine {
             snapshot,
             save_info,
             saved_game_mode,
-            game_client_xfer,
+            game_client_archive,
             terrain_visual_archive,
             map_admission_intent: _,
         } = decoded;
@@ -2460,7 +2458,7 @@ impl CnCGameEngine {
             save_info,
             saved_game_mode,
             campaign_state.as_ref(),
-            game_client_xfer,
+            game_client_archive,
             terrain_visual_archive,
             slot,
             live.game_mode(),
@@ -2724,7 +2722,7 @@ impl CnCGameEngine {
         save_info: SaveGameInfo,
         saved_game_mode: Option<i32>,
         campaign_state: Option<&game_engine::System::CampaignManagerXferState>,
-        game_client_xfer_bytes: Option<Vec<u8>>,
+        game_client_archive: Option<crate::save_load::snapshot::GameClientArchive>,
         terrain_visual_archive: Option<crate::save_load::snapshot::TerrainVisualArchive>,
         slot: &str,
         active_mode: crate::game_logic::GameMode,
@@ -2761,7 +2759,7 @@ impl CnCGameEngine {
             save_info,
             saved_game_mode,
             campaign_state,
-            game_client_xfer_bytes,
+            game_client_archive,
             terrain_visual_archive,
             slot,
             active_mode,
@@ -2792,7 +2790,7 @@ impl CnCGameEngine {
         save_info: SaveGameInfo,
         saved_game_mode: Option<i32>,
         campaign_state: Option<&game_engine::System::CampaignManagerXferState>,
-        game_client_xfer_bytes: Option<Vec<u8>>,
+        game_client_archive: Option<crate::save_load::snapshot::GameClientArchive>,
         terrain_visual_archive: Option<crate::save_load::snapshot::TerrainVisualArchive>,
         slot: &str,
         active_mode: crate::game_logic::GameMode,
@@ -2867,8 +2865,8 @@ impl CnCGameEngine {
         if let Some(camera) = snapshot.persist_v18.tactical_view_camera {
             camera.validate().map_err(|err| format!("{err}"))?;
         }
-        if let Some(bytes) = game_client_xfer_bytes.as_deref() {
-            crate::save_load::snapshot::validate_game_client_xfer_bytes(bytes)
+        if let Some(archive) = game_client_archive.as_ref() {
+            crate::save_load::snapshot::validate_game_client_archive(archive)
                 .map_err(|err| format!("{err}"))?;
         }
         // Validate historical HSQD bytes before staging. The generic Player
@@ -3046,7 +3044,7 @@ impl CnCGameEngine {
             if let Some(native) = native.as_mut() {
                 native.admit_restored_object_drawables(&mut staged)?;
                 #[cfg(feature = "game_client")]
-                if game_client_xfer_bytes.as_deref().is_none_or(<[u8]>::is_empty) {
+                if game_client_archive.is_none() {
                     staged.post_process_restored_supply_warehouses(&mut native.effects())?;
                 }
             }
@@ -3128,7 +3126,7 @@ impl CnCGameEngine {
             runtime_world,
             shroud: snapshot.shroud.clone(),
             client_drawables: snapshot.client_drawables.clone(),
-            game_client_xfer_bytes,
+            game_client_archive,
             terrain_visual,
             map_water_configuration,
             client_persist: snapshot.persist_v18.clone(),

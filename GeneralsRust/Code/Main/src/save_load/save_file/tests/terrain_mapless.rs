@@ -166,7 +166,7 @@ fn mapless_bad_companion_and_late_snapshot_failure_preserve_live_grid_factory_an
                         &manager.get_save_path(slot),
                         &candidate,
                         &info,
-                        &[1],
+                        None,
                         Some(&payload),
                         SAVED_GAME_MODE_NONE,
                         &game_engine::System::CampaignManagerXferState::default(),

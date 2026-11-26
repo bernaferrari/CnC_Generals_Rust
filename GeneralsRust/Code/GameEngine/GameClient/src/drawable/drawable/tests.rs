@@ -571,6 +571,10 @@ fn test_icon_info() {
     #[derive(Debug)]
     struct MockIcon;
     impl Icon for MockIcon {
+        fn as_any(&self) -> &dyn std::any::Any {
+            self
+        }
+
         fn render(&self, _position: Vector3, _size: Vector3, _renderer: &mut crate::gui::UIRenderer) {}
         fn xfer(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
             Ok(())

@@ -143,6 +143,7 @@ use ww3d_core::w3d_io::{W3DChunk, W3DReader};
 // stay identical to the former `core/game_client.rs` god-file.
 
 include!("ids.rs");
+mod archive;
 mod drawable_world;
 mod native_projected_resources;
 pub(crate) use native_projected_resources::{
@@ -150,6 +151,7 @@ pub(crate) use native_projected_resources::{
 };
 #[cfg(test)]
 pub(crate) use native_projected_resources::reset_test_projected_decals;
+pub use archive::{GameClientArchive, GameClientDrawableArchive};
 pub use drawable_world::DrawableWorld as NativeDrawableWorld;
 include!("semantic_admission.rs");
 mod native_auxiliary;

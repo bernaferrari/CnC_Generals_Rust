@@ -1035,11 +1035,11 @@ fn native_drawable_loco_archive_witness(engine: &mut CnCGameEngine) -> anyhow::R
         .host_save_game_from_ui(SLOT, "Native Drawable locomotor continuation")
         .map_err(anyhow::Error::msg)?;
     let decoded = engine.save_file_manager.load_game_snapshot(SLOT)?;
-    let bytes = decoded
-        .game_client_xfer
-        .as_deref()
+    let archive = decoded
+        .game_client_archive
+        .as_ref()
         .expect("full CHUNK_GameClient saved");
-    crate::save_load::snapshot::validate_game_client_xfer_bytes(bytes)?;
+    crate::save_load::snapshot::validate_game_client_archive(archive)?;
     // The outgoing same numeric ObjectId now differs from the saved actor.
     set_loco(&mut engine.game_client, id, LocoInfo::default());
     engine

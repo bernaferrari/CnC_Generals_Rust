@@ -2,20 +2,20 @@
 // Split from `core/game_client.rs` dump. Included by `game_client/mod.rs`
 // so this stays one logical `game_client` module (public API identical).
 
-enum XferDrawableTemplate {
+pub(super) enum XferDrawableTemplate {
     Receiving(game_engine::common::thing::receiving_module_content::ReceivingTemplateResolution),
     Compatibility(Arc<ThingTemplate>),
 }
 
 impl XferDrawableTemplate {
-    fn template(&self) -> &ThingTemplate {
+    pub(super) fn template(&self) -> &ThingTemplate {
         match self {
             Self::Receiving(resolution) => resolution.effective_admission().template(),
             Self::Compatibility(template) => template.as_ref(),
         }
     }
 
-    fn receiving_admission(
+    pub(super) fn receiving_admission(
         &self,
     ) -> Option<Arc<game_engine::common::thing::thing_template::AdmittedReceivingTemplate>> {
         match self {
@@ -24,7 +24,7 @@ impl XferDrawableTemplate {
         }
     }
 
-    fn matches_existing(&self, drawable: &dyn Drawable) -> Result<bool, String> {
+    pub(super) fn matches_existing(&self, drawable: &dyn Drawable) -> Result<bool, String> {
         match self {
             Self::Receiving(resolution) => {
                 let Some(basic) = drawable.as_any().downcast_ref::<BasicDrawable>() else {

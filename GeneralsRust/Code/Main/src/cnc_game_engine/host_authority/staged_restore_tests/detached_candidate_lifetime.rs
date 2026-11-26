@@ -17,7 +17,7 @@ fn stage_decoded(
         snapshot,
         save_info,
         saved_game_mode,
-        game_client_xfer,
+        game_client_archive,
         terrain_visual_archive,
         map_admission_intent: _,
     } = decoded;
@@ -27,7 +27,7 @@ fn stage_decoded(
         save_info,
         saved_game_mode,
         None,
-        game_client_xfer,
+        game_client_archive,
         terrain_visual_archive,
         slot,
         GameMode::Shell,
