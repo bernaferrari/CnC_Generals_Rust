@@ -2537,27 +2537,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "debug_window"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "chrono",
- "eframe",
- "egui",
- "env_logger",
- "log",
- "parking_lot",
- "rfd",
- "serde",
- "serde_json",
- "sysinfo 0.39.6",
- "thiserror 2.0.20",
- "tokio",
- "uuid",
- "winit 0.30.13",
-]
-
-[[package]]
 name = "deflate64"
 version = "0.1.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"

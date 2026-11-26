@@ -62,7 +62,6 @@ members = [
     "Code/Tools/WorldBuilder",
     "Code/Tools/ParticleEditor",
     "Code/Tools/GUIEdit",
-    "Code/Tools/DebugWindow",
     "Code/Tools/ImagePacker",
     "Code/Tools/MapCacheBuilder",
 
