@@ -195,7 +195,7 @@ fn interleaved_eager_and_session_boundaries_keep_the_owners_health_batch() {
     let (mut owner, id) = admitted_world();
     let (mut other, other_id) = admitted_world();
     assert_eq!(id, other_id);
-    let mut shadow = GameWorldShadow::new(64);
+    let mut shadow = GameWorldShadow::new();
     let (object, events) = owner.host_object_and_health_events_mut(id).unwrap();
     object.take_damage(20.0, 0, events);
     shadow.sync_from_host(&owner);
@@ -248,7 +248,7 @@ fn snapshot_restore_invalidates_only_the_receivers_transient_health_transport() 
 #[test]
 fn health_event_fallback_admits_unmapped_eager_health_before_new_owner_events() {
     let (mut owner, id) = admitted_world();
-    let mut shadow = GameWorldShadow::new(64);
+    let mut shadow = GameWorldShadow::new();
     perform_owner_health(&mut owner, id, 90.0);
     // An observer lookup cannot admit, reorder, or consume pending owner work.
     let pending = owner.health_events.snapshot_ordered();
@@ -269,7 +269,7 @@ fn health_event_fallback_admits_unmapped_eager_health_before_new_owner_events() 
 #[test]
 fn health_handoff_session_admits_events_recorded_after_eager_damage() {
     let (mut owner, id) = admitted_world();
-    let mut shadow = GameWorldShadow::new(64);
+    let mut shadow = GameWorldShadow::new();
     let (object, events) = owner.host_object_and_health_events_mut(id).unwrap();
     object.take_damage(20.0, 0, events);
     assert_eq!(object.health.current, 80.0);
@@ -295,7 +295,7 @@ fn health_handoff_session_admits_events_recorded_after_eager_damage() {
 #[test]
 fn health_handoff_empty_eager_preserves_an_unmapped_receipt() {
     let (mut owner, id) = admitted_world();
-    let mut shadow = GameWorldShadow::new(64);
+    let mut shadow = GameWorldShadow::new();
     perform_owner_health(&mut owner, id, 90.0);
     // An observer lookup cannot admit, reorder, or consume pending owner work.
     let pending = owner.health_events.snapshot_ordered();
@@ -316,7 +316,7 @@ fn health_handoff_empty_eager_preserves_an_unmapped_receipt() {
 #[test]
 fn health_handoff_repeated_eager_preserves_the_applied_prefix() {
     let (mut owner, id) = admitted_world();
-    let mut shadow = GameWorldShadow::new(64);
+    let mut shadow = GameWorldShadow::new();
     let (object, events) = owner.host_object_and_health_events_mut(id).unwrap();
     object.take_damage(20.0, 0, events);
     shadow.sync_from_host(&owner);
@@ -338,7 +338,7 @@ fn health_handoff_repeated_eager_preserves_the_applied_prefix() {
 #[test]
 fn health_handoff_preserves_completed_body_writes_after_eager_admission() {
     let (mut owner, id) = admitted_world();
-    let mut shadow = GameWorldShadow::new(64);
+    let mut shadow = GameWorldShadow::new();
     let (object, events) = owner.host_object_and_health_events_mut(id).unwrap();
     object.take_damage(20.0, 0, events);
     assert_eq!(object.health.current, 80.0);

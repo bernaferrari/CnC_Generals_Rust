@@ -25,7 +25,7 @@ fn sync_from_host_copies_entity_xp_status_residual() {
         obj.status.disabled_unmanned = false;
         obj.status.disabled_hacked = true;
     }
-    let mut shadow = GameWorldShadow::new(64);
+    let mut shadow = GameWorldShadow::new();
     shadow.sync_from_host(&logic);
     let eid = shadow.entity_for_host(id).expect("map");
     let e = shadow.world().entity(eid).expect("e");
@@ -60,7 +60,7 @@ fn sync_from_host_copies_entity_combat_intent_residual() {
         obj.restore_ai_state(crate::game_logic::AIState::GuardingObject);
         obj.occupants = vec![guard];
     }
-    let mut shadow = GameWorldShadow::new(64);
+    let mut shadow = GameWorldShadow::new();
     shadow.sync_from_host(&logic);
     let eid = shadow.entity_for_host(id).expect("map");
     let e = shadow.world().entity(eid).expect("e");
@@ -91,7 +91,7 @@ fn sync_from_host_copies_entity_color_power_type() {
         obj.power_consumed = 5;
         obj.max_transport = 0;
     }
-    let mut shadow = GameWorldShadow::new(64);
+    let mut shadow = GameWorldShadow::new();
     shadow.sync_from_host(&logic);
     let eid = shadow.entity_for_host(id).expect("map");
     let e = shadow.world().entity(eid).expect("e");
@@ -119,7 +119,7 @@ fn sync_from_host_copies_entity_team_status_residual() {
         obj.status.attacking = true;
         obj.status.under_construction = false;
     }
-    let mut shadow = GameWorldShadow::new(64);
+    let mut shadow = GameWorldShadow::new();
     shadow.sync_from_host(&logic);
     let eid = shadow.entity_for_host(id).expect("map");
     let e = shadow.world().entity(eid).expect("e");
@@ -146,7 +146,7 @@ fn sync_from_host_copies_entity_selection_residual() {
         obj.construction_percent = 0.4;
         obj.status.destroyed = false;
     }
-    let mut shadow = GameWorldShadow::new(64);
+    let mut shadow = GameWorldShadow::new();
     shadow.sync_from_host(&logic);
     let eid = shadow.entity_for_host(id).expect("map");
     let e = shadow.world().entity(eid).expect("e");
@@ -169,7 +169,7 @@ fn sync_players_copies_rank_residual() {
         p.skill_points = 512;
         p.science_purchase_points = 3;
     }
-    let mut shadow = GameWorldShadow::new(64);
+    let mut shadow = GameWorldShadow::new();
     shadow.sync_from_host(&logic);
     let gw = shadow.host_player_to_gw.get(&pid).copied().expect("mapped");
     shadow.sync_from_host(&logic);
@@ -219,7 +219,7 @@ fn sync_players_copies_shared_special_power_cooldowns() {
         p.shared_special_power_cooldowns
             .insert(SpecialPowerType::ScudStorm, 10.0);
     }
-    let mut shadow = GameWorldShadow::new(64);
+    let mut shadow = GameWorldShadow::new();
     shadow.sync_from_host(&logic);
     let gw = shadow.host_player_to_gw.get(&pid).copied().expect("map");
     shadow.sync_from_host(&logic);
@@ -289,7 +289,7 @@ fn canonical_command_set_is_projected_from_receiving_owner() {
         let o = logic.host_object_mut(oid).expect("o");
         o.set_command_set_override(Some("Command_DemoSuicide".into()));
     }
-    let mut shadow = GameWorldShadow::new(64);
+    let mut shadow = GameWorldShadow::new();
     shadow.sync_from_host(&logic);
     let eid = *shadow.host_to_entity.get(&oid.0).expect("map");
     if let Some(e) = shadow.world_mut().world_mut().entity_mut(eid) {
@@ -334,7 +334,7 @@ fn canonical_selection_radius_projects_without_writeback() {
         let o = logic.host_object_mut(oid).expect("o");
         o.set_selection_radius(14.5);
     }
-    let mut shadow = GameWorldShadow::new(64);
+    let mut shadow = GameWorldShadow::new();
     shadow.sync_from_host(&logic);
     let eid = *shadow.host_to_entity.get(&oid.0).expect("map");
     if let Some(e) = shadow.world_mut().world_mut().entity_mut(eid) {
@@ -376,7 +376,7 @@ fn canonical_ground_height_is_projected_from_receiving_owner() {
         let o = logic.host_object_mut(oid).expect("o");
         o.set_ground_height_residual(12.5, true);
     }
-    let mut shadow = GameWorldShadow::new(64);
+    let mut shadow = GameWorldShadow::new();
     shadow.sync_from_host(&logic);
     let eid = *shadow.host_to_entity.get(&oid.0).expect("map");
     if let Some(e) = shadow.world_mut().world_mut().entity_mut(eid) {
@@ -420,7 +420,7 @@ fn canonical_effective_model_mesh_is_projected_from_receiving_owner() {
     let oid = logic
         .create_object("RangerMesh", Team::USA, glam::Vec3::new(1.0, 0.0, 1.0))
         .expect("id");
-    let mut shadow = GameWorldShadow::new(64);
+    let mut shadow = GameWorldShadow::new();
     shadow.sync_from_host(&logic);
     let eid = *shadow.host_to_entity.get(&oid.0).expect("map");
 
@@ -471,7 +471,7 @@ fn canonical_fow_is_projected_from_receiving_owner() {
         shroud.mark_host_object_explored(local, oid.0);
         shroud.mark_host_vision_ready();
     }
-    let mut shadow = GameWorldShadow::new(64);
+    let mut shadow = GameWorldShadow::new();
     shadow.sync_from_host(&logic);
     let eid = *shadow.host_to_entity.get(&oid.0).expect("map");
     shadow.sync_from_host(&logic);
@@ -502,7 +502,7 @@ fn canonical_kind_of_projects_without_writeback() {
     let oid = logic
         .create_object("RangerKo", Team::USA, glam::Vec3::new(3.0, 0.0, 3.0))
         .expect("id");
-    let mut shadow = GameWorldShadow::new(64);
+    let mut shadow = GameWorldShadow::new();
     shadow.sync_from_host(&logic);
     let eid = *shadow.host_to_entity.get(&oid.0).expect("map");
 
@@ -546,7 +546,7 @@ fn canonical_identity_projects_without_writeback() {
         o.name = "ScriptRanger".into();
         o.team_color = [0.1, 0.2, 0.3, 1.0];
     }
-    let mut shadow = GameWorldShadow::new(64);
+    let mut shadow = GameWorldShadow::new();
     shadow.sync_from_host(&logic);
     let eid = *shadow.host_to_entity.get(&oid.0).expect("map");
     if let Some(e) = shadow.world_mut().world_mut().entity_mut(eid) {
@@ -592,7 +592,7 @@ fn canonical_building_type_is_projected_from_receiving_owner() {
         let o = logic.host_object_mut(oid).expect("o");
         o.building_data = Some(BuildingData::new(BuildingType::Barracks));
     }
-    let mut shadow = GameWorldShadow::new(64);
+    let mut shadow = GameWorldShadow::new();
     shadow.sync_from_host(&logic);
     let eid = *shadow.host_to_entity.get(&oid.0).expect("map");
     if let Some(e) = shadow.world_mut().world_mut().entity_mut(eid) {
@@ -643,7 +643,7 @@ fn canonical_crush_vision_is_projected_from_receiving_owner() {
         o.vision_range = 175.0;
         o.shroud_clearing_range = 200.0;
     }
-    let mut shadow = GameWorldShadow::new(64);
+    let mut shadow = GameWorldShadow::new();
     shadow.sync_from_host(&logic);
     let eid = *shadow.host_to_entity.get(&oid.0).expect("map");
     if let Some(e) = shadow.world_mut().world_mut().entity_mut(eid) {
@@ -701,7 +701,7 @@ fn canonical_mine_cheer_is_projected_from_receiving_owner() {
         o.cheer_timer = 2.5;
         o.mine_data = Some(HostMineData::new(HostMineKind::LandMine));
     }
-    let mut shadow = GameWorldShadow::new(64);
+    let mut shadow = GameWorldShadow::new();
     shadow.sync_from_host(&logic);
     let eid = *shadow.host_to_entity.get(&oid.0).expect("map");
     if let Some(e) = shadow.world_mut().world_mut().entity_mut(eid) {
@@ -750,7 +750,7 @@ fn canonical_model_condition_is_projected_from_receiving_owner() {
         let o = logic.host_object_mut(oid).expect("o");
         o.model_condition_bits = 0b1011;
     }
-    let mut shadow = GameWorldShadow::new(64);
+    let mut shadow = GameWorldShadow::new();
     shadow.sync_from_host(&logic);
     let eid = *shadow.host_to_entity.get(&oid.0).expect("map");
     if let Some(e) = shadow.world_mut().world_mut().entity_mut(eid) {

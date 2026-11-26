@@ -28,7 +28,7 @@ fn canonical_movement_is_projected_from_receiving_owner() {
         o.movement.set_path_coords(vec![Vec3::new(1.0, 0.0, 1.0), Vec3::new(2.0, 0.0, 2.0)]);
         o.movement.path_cursor = o.movement.path.cursor_at_ordinal(1);
     }
-    let mut shadow = GameWorldShadow::new(64);
+    let mut shadow = GameWorldShadow::new();
     shadow.sync_from_host(&logic);
     let eid = *shadow.host_to_entity.get(&oid.0).expect("map");
     if let Some(e) = shadow.world_mut().world_mut().entity_mut(eid) {
@@ -108,7 +108,7 @@ fn canonical_weapon_stats_is_projected_from_receiving_owner() {
             },
         );
     }
-    let mut shadow = GameWorldShadow::new(64);
+    let mut shadow = GameWorldShadow::new();
     shadow.sync_from_host(&logic);
     let eid = *shadow.host_to_entity.get(&oid.0).expect("map");
     if let Some(e) = shadow.world_mut().world_mut().entity_mut(eid) {
@@ -182,7 +182,7 @@ fn canonical_vision_camo_projects_without_writeback() {
         o.camo_friendly_opacity = 0.35;
         o.camo_stealth_look = 2;
     }
-    let mut shadow = GameWorldShadow::new(64);
+    let mut shadow = GameWorldShadow::new();
     shadow.sync_from_host(&logic);
     let eid = *shadow.host_to_entity.get(&oid.0).expect("map");
     if let Some(e) = shadow.world_mut().world_mut().entity_mut(eid) {
@@ -233,7 +233,7 @@ fn canonical_disguise_projects_without_writeback() {
         o.disguise_as_template = Some("AmericaVehicleHumvee".into());
         o.disguise_as_team = Some(Team::USA);
     }
-    let mut shadow = GameWorldShadow::new(64);
+    let mut shadow = GameWorldShadow::new();
     shadow.sync_from_host(&logic);
     let eid = *shadow.host_to_entity.get(&oid.0).expect("map");
     if let Some(e) = shadow.world_mut().world_mut().entity_mut(eid) {
@@ -290,7 +290,7 @@ fn canonical_overlord_projects_without_writeback() {
     let rider = logic.create_object("ShadowPortableBunker", Team::China, glam::Vec3::ZERO).unwrap();
     logic.attach_overlord_portable_occupant(oid, rider);
     logic.host_object_mut(oid).unwrap().is_helix_transport = true;
-    let mut shadow = GameWorldShadow::new(64);
+    let mut shadow = GameWorldShadow::new();
     shadow.sync_from_host(&logic);
     let eid = *shadow.host_to_entity.get(&oid.0).expect("map");
     if let Some(e) = shadow.world_mut().world_mut().entity_mut(eid) {
@@ -338,7 +338,7 @@ fn canonical_stealth_flags_projects_without_writeback() {
         o.is_tunnel_network = true;
         o.passengers_allowed_to_fire = true;
     }
-    let mut shadow = GameWorldShadow::new(64);
+    let mut shadow = GameWorldShadow::new();
     shadow.sync_from_host(&logic);
     let eid = *shadow.host_to_entity.get(&oid.0).expect("map");
     if let Some(e) = shadow.world_mut().world_mut().entity_mut(eid) {
@@ -387,7 +387,7 @@ fn canonical_hive_state_is_projected_without_observer_writeback() {
         o.hive_slave_count = 3;
         o.hive_slave_hp = 55.0;
     }
-    let mut shadow = GameWorldShadow::new(64);
+    let mut shadow = GameWorldShadow::new();
     shadow.sync_from_host(&logic);
     let eid = *shadow.host_to_entity.get(&oid.0).expect("map");
     if let Some(e) = shadow.world_mut().world_mut().entity_mut(eid) {
@@ -436,7 +436,7 @@ fn canonical_contain_capacity_projects_without_writeback() {
         bd.max_garrison = 8;
         o.building_data = Some(bd);
     }
-    let mut shadow = GameWorldShadow::new(64);
+    let mut shadow = GameWorldShadow::new();
     shadow.sync_from_host(&logic);
     let eid = *shadow.host_to_entity.get(&oid.0).expect("map");
     if let Some(e) = shadow.world_mut().world_mut().entity_mut(eid) {
@@ -481,7 +481,7 @@ fn canonical_overcharge_projects_without_writeback() {
         let o = logic.host_object_mut(oid).expect("o");
         o.set_overcharge_enabled(true);
     }
-    let mut shadow = GameWorldShadow::new(64);
+    let mut shadow = GameWorldShadow::new();
     shadow.sync_from_host(&logic);
     let eid = *shadow.host_to_entity.get(&oid.0).expect("map");
     if let Some(e) = shadow.world_mut().world_mut().entity_mut(eid) {
@@ -523,7 +523,7 @@ fn canonical_weapon_set_is_projected_from_receiving_owner() {
         o.set_weapon_condition_at_frame(3, true, 0);
         o.armed_riders_upgrade_weapon_set = true;
     }
-    let mut shadow = GameWorldShadow::new(64);
+    let mut shadow = GameWorldShadow::new();
     shadow.sync_from_host(&logic);
     let eid = *shadow.host_to_entity.get(&oid.0).expect("map");
     if let Some(e) = shadow.world_mut().world_mut().entity_mut(eid) {
@@ -576,7 +576,7 @@ fn host_ai_attitude_is_canonical_and_shadow_only_observes() {
         .host_object_mut(peer_id)
         .unwrap()
         .set_ai_attitude_i8(-2);
-    let mut shadow = GameWorldShadow::new(64);
+    let mut shadow = GameWorldShadow::new();
     shadow.sync_from_host(&first);
     let eid = shadow.host_to_entity[&id.0];
     assert_eq!(shadow.world().entity(eid).unwrap().ai_attitude, 2);
@@ -689,7 +689,7 @@ fn host_guard_is_canonical_and_shadow_only_observes() {
         0,
         &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
     );
-    let mut shadow = GameWorldShadow::new(64);
+    let mut shadow = GameWorldShadow::new();
     shadow.sync_from_host(&logic);
     let entity = shadow.entity_for_host(oid).unwrap();
     assert_eq!(
@@ -750,7 +750,7 @@ fn canonical_continuous_fire_is_projected_from_receiving_owner() {
         o.consecutive_shots_at_target = 9;
         o.continuous_fire_coast_until_frame = 44;
     }
-    let mut shadow = GameWorldShadow::new(64);
+    let mut shadow = GameWorldShadow::new();
     shadow.sync_from_host(&logic);
     let eid = *shadow.host_to_entity.get(&oid.0).expect("map");
     if let Some(e) = shadow.world_mut().world_mut().entity_mut(eid) {
@@ -799,7 +799,7 @@ fn canonical_detector_projects_without_writeback() {
         let o = logic.host_object_mut(oid).expect("o");
         o.set_detector_state(true, 175.0, 12);
     }
-    let mut shadow = GameWorldShadow::new(64);
+    let mut shadow = GameWorldShadow::new();
     shadow.sync_from_host(&logic);
     let eid = *shadow.host_to_entity.get(&oid.0).expect("map");
     if let Some(e) = shadow.world_mut().world_mut().entity_mut(eid) {
@@ -852,7 +852,7 @@ fn host_target_location_log_drives_set_target_location_channel() {
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     }
-    let mut shadow = GameWorldShadow::new(64);
+    let mut shadow = GameWorldShadow::new();
     shadow.sync_from_host(&logic);
     let eid = *shadow.host_to_entity.get(&oid.0).expect("map");
     if let Some(e) = shadow.world_mut().world_mut().entity_mut(eid) {
@@ -898,7 +898,7 @@ fn canonical_turret_is_projected_from_receiving_owner() {
         o.turret_ai.turret_holding = true;
         o.turret_ai.turret_idle_scanning = false;
     }
-    let mut shadow = GameWorldShadow::new(64);
+    let mut shadow = GameWorldShadow::new();
     shadow.sync_from_host(&logic);
     let eid = *shadow.host_to_entity.get(&oid.0).expect("map");
     if let Some(e) = shadow.world_mut().world_mut().entity_mut(eid) {
@@ -948,7 +948,7 @@ fn canonical_entity_power_projects_without_writeback() {
         let o = logic.host_object_mut(oid).expect("o");
         o.set_entity_power(50, 5);
     }
-    let mut shadow = GameWorldShadow::new(64);
+    let mut shadow = GameWorldShadow::new();
     shadow.sync_from_host(&logic);
     let eid = *shadow.host_to_entity.get(&oid.0).expect("map");
     if let Some(e) = shadow.world_mut().world_mut().entity_mut(eid) {
@@ -993,7 +993,7 @@ fn canonical_weapon_slot_is_projected_from_receiving_owner() {
         let o = logic.host_object_mut(oid).expect("o");
         o.set_active_weapon_slot(1);
     }
-    let mut shadow = GameWorldShadow::new(64);
+    let mut shadow = GameWorldShadow::new();
     shadow.sync_from_host(&logic);
     let eid = *shadow.host_to_entity.get(&oid.0).expect("map");
     if let Some(e) = shadow.world_mut().world_mut().entity_mut(eid) {
@@ -1037,7 +1037,7 @@ fn canonical_weapon_bonus_is_projected_from_receiving_owner() {
         o.weapon_bonus_nationalism = true;
         o.battle_plan_sight_scalar_applied = 1.25;
     }
-    let mut shadow = GameWorldShadow::new(64);
+    let mut shadow = GameWorldShadow::new();
     shadow.sync_from_host(&logic);
     let eid = *shadow.host_to_entity.get(&oid.0).expect("map");
     if let Some(e) = shadow.world_mut().world_mut().entity_mut(eid) {
@@ -1103,7 +1103,7 @@ fn canonical_faerie_fire_is_projected_from_receiving_owner() {
         .create_object("RangerFf", Team::USA, glam::Vec3::new(4.0, 0.0, 4.0))
         .expect("id");
     logic.host_object_mut(oid).unwrap().apply_faerie_fire(1234);
-    let mut shadow = GameWorldShadow::new(64);
+    let mut shadow = GameWorldShadow::new();
     shadow.sync_from_host(&logic);
     let eid = *shadow.host_to_entity.get(&oid.0).expect("map");
 
@@ -1161,7 +1161,7 @@ fn canonical_repulsor_projects_without_writeback() {
         object.set_status_repulsor(true);
         object.arm_repulsor_countdown(60);
     }
-    let mut shadow = GameWorldShadow::new(64);
+    let mut shadow = GameWorldShadow::new();
     shadow.sync_from_host(&logic);
     let eid = *shadow.host_to_entity.get(&oid.0).expect("map");
 

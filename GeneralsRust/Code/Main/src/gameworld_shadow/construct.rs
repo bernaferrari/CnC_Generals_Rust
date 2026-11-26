@@ -39,39 +39,12 @@ impl GameWorldShadow {
             })
     }
 
-    pub fn new(max_entities: usize) -> Self {
+    pub fn new() -> Self {
         Self {
             world: GameWorld::new(8),
             host_to_entity: Default::default(),
-            entity_to_host: Default::default(),
-            registered_host_ids: Vec::new(),
-            sorted_host_ids: Vec::new(),
-            checked_entity_roster: None,
-            max_entities: max_entities.max(1),
             host_player_to_gw: HashMap::new(),
-            horde_player_rel: HashMap::new(),
-
-            production_power_factor_by_host: HashMap::new(),
-            special_power_frozen_by_host: HashMap::new(),
-            map_min_x: 0.0,
-            map_min_z: 0.0,
-            map_max_x: 0.0,
-            map_max_z: 0.0,
-            carpet_pending_drops: Vec::new(),
         }
-    }
-
-    /// Discard all shadow state at a host-world replacement boundary.
-    ///
-    /// Host `ObjectId`s are allocator-local and may be reused by a reset,
-    /// map load, or staged save restore.  Keeping the old `GameWorld` and its
-    /// per-host residual queues would therefore alias entities from the
-    /// previous match into the new authoritative world.  Reconstructing the
-    /// shadow also clears the GameWorld's pending mutations/projectile and AI
-    /// residuals, while retaining the configured entity capacity.
-    pub fn reset_for_world_boundary(&mut self) {
-        let max_entities = self.max_entities;
-        *self = Self::new(max_entities);
     }
 
     pub fn world(&self) -> &GameWorld {
@@ -91,31 +64,6 @@ impl GameWorldShadow {
     #[cfg(test)]
     pub(crate) fn player_for_host(&self, host: u32) -> Option<PlayerId> {
         self.host_player_to_gw.get(&host).copied()
-    }
-
-    pub fn host_for_entity(&self, entity: EntityId) -> Option<ObjectId> {
-        self.entity_to_host
-            .get(&entity.get())
-            .copied()
-            .map(ObjectId)
-    }
-
-    pub fn mapped_count(&self) -> usize {
-        self.host_to_entity.len()
-    }
-
-    pub(super) fn invalidate_dead_entity_maps(&mut self) {
-        let dead: Vec<u32> = self
-            .entity_to_host
-            .keys()
-            .copied()
-            .filter(|eid| self.world.entity(EntityId::from_raw(*eid)).is_none())
-            .collect();
-        for eid in dead {
-            if let Some(hid) = self.entity_to_host.remove(&eid) {
-                self.host_to_entity.remove(&hid);
-            }
-        }
     }
 
     /// Full/delta sync from host: create, update health/transform/owner, destroy missing.
@@ -185,72 +133,38 @@ impl GameWorldShadow {
         }
     }
 
-    /// Keep the original per-step identity lifecycle, including short-lived
-    /// objects within a fast-forward batch. Copy roster fields at publication.
-    pub(crate) fn sync_host_step_identities(&mut self, logic: &GameLogic) {
-        self.sync_player_identities(logic);
-        self.sync_object_identities(logic);
-        self.world.set_frame(u64::from(logic.get_frame()));
-    }
+    fn sync_object_identities(&mut self, logic: &GameLogic, ids: &[ObjectId]) {
+        self.host_to_entity.retain(|host, entity| {
+            if ids.binary_search_by_key(host, |id| id.0).is_ok() {
+                return self.world.entity(*entity).is_some();
+            }
+            self.world.world_mut().remove_entity(*entity);
+            false
+        });
 
-    fn sync_object_identities(&mut self, logic: &GameLogic) {
-        let registered = logic.host_objects().registered_ids();
-        let ids_changed = self.registered_host_ids.as_slice() != registered;
-        if !ids_changed
-            && self.checked_entity_roster == Some(self.world.world().entity_roster_revision())
-        {
-            return;
-        }
-        if ids_changed {
-            self.registered_host_ids.clear();
-            self.registered_host_ids.extend_from_slice(registered);
-            self.sorted_host_ids.clone_from(&self.registered_host_ids);
-            self.sorted_host_ids.sort_unstable_by_key(|id| id.0);
-            // GameLogic.cpp:3827–3841 grows the ID lookup past its initial hint.
-            self.max_entities = self.max_entities.max(registered.len());
-
-            // Retire in the existing map's iteration order.
-            let sorted = &self.sorted_host_ids;
-            self.host_to_entity.retain(|hid, eid| {
-                if sorted.binary_search_by_key(hid, |id| id.0).is_ok() {
-                    return true;
-                }
-                let _ = self.world.world_mut().remove_entity(*eid);
-                self.entity_to_host.remove(&eid.get());
-                false
-            });
-        }
-
-        // Bind identities before copying references so every target/container
-        // resolves on the first observation, independent of object iteration order.
-        // A receiving shadow entity may disappear while its host still exists.
-        for index in 0..self.sorted_host_ids.len() {
-            let oid = self.sorted_host_ids[index];
-            let mapped = self.host_to_entity.get(&oid.0).copied();
-            if mapped.is_some_and(|eid| self.world.world().entity(eid).is_some()) {
+        // Bind every ObjectID before publishing any cross-object references.
+        for &id in ids {
+            if self.host_to_entity.contains_key(&id.0) {
                 continue;
             }
-            let Some(obj) = logic.host_object(oid) else {
+            let Some(object) = logic.host_object(id) else {
                 continue;
             };
-            if let Some(eid) = mapped {
-                self.host_to_entity.remove(&oid.0);
-                self.entity_to_host.remove(&eid.get());
-            }
-            let pos = obj.get_position();
-            let transform = Transform::new([pos.x, pos.y, pos.z], obj.get_orientation());
-            let owner = self.owner_for_host_object(logic, obj);
-            self.spawn_mapped(oid, obj, owner, transform, obj.health.current.max(0.0));
+            let position = object.get_position();
+            let pose = Transform::new(position.to_array(), object.get_orientation());
+            let owner = self.owner_for_host_object(logic, object);
+            self.spawn_mapped(id, object, owner, pose, object.health.current.max(0.0));
         }
-        self.checked_entity_roster = Some(self.world.world().entity_roster_revision());
     }
 
     pub fn sync_from_host(&mut self, logic: &GameLogic) {
         use crate::fow_rendering::{ObjectShroudFrame, ObjectVisibility};
 
         self.sync_players(logic);
-        self.sync_object_identities(logic);
         let host_objects = logic.host_objects();
+        let mut ids = host_objects.registered_ids().to_vec();
+        ids.sort_unstable_by_key(|id| id.0);
+        self.sync_object_identities(logic, &ids);
         let assets = logic.application_assets();
         let catalog = assets.as_ref().and_then(|assets| {
             assets.lock().ok().map(|manager| manager.object_catalog())
@@ -263,8 +177,7 @@ impl GameWorldShadow {
             logic.world_services.shroud().lock().ok()
         };
         let shroud_frame = ObjectShroudFrame::new(shroud.as_deref(), local_player);
-        for index in 0..self.sorted_host_ids.len() {
-            let oid = self.sorted_host_ids[index];
+        for oid in ids {
             let Some(obj) = logic.host_object(oid) else {
                 continue;
             };
@@ -292,14 +205,6 @@ impl GameWorldShadow {
             self.sync_weapon_slots_from_host(eid, obj);
         }
         drop(shroud);
-
-        let (map_min, map_max) = logic.world_bounds();
-        self.map_min_x = map_min.x;
-        self.map_min_z = map_min.z;
-        self.map_max_x = map_max.x;
-        self.map_max_z = map_max.z;
-        // Wave 792: mirror A10 pending missile drops for GW sole-tick.
-        self.carpet_pending_drops = logic.carpet_bomb_flight_reg.pending_drops.clone();
 
         // Containment is an observation of the receiving Main roster. Rebuild
         // its indexed view after all IDs exist; never admit it back to Main.
@@ -341,7 +246,6 @@ impl GameWorldShadow {
             health,
         );
         self.host_to_entity.insert(host.0, eid);
-        self.entity_to_host.insert(eid.get(), host.0);
     }
 
     pub(super) fn copy_host_player_residual(
@@ -497,69 +401,6 @@ impl GameWorldShadow {
             .find_map(|(&host_player_id, &gw_player_id)| {
                 (gw_player_id == owner).then_some(host_player_id)
             })
-    }
-
-    /// Snapshot host `Player::getRelationship` facts used by GW AlliesOnly horde.
-    pub(super) fn sync_horde_player_rel(&mut self, logic: &GameLogic) {
-        self.horde_player_rel.clear();
-        for (&id, p) in logic.get_players() {
-            self.horde_player_rel.insert(
-                id,
-                HordePlayerRel {
-                    alliance_team: p.alliance_team,
-                    is_alive: p.is_alive,
-                    map_relations: p.map_side.relations.clone(),
-                },
-            );
-        }
-    }
-
-    /// C++ `Player::getRelationship` / `GameLogic::player_relationship_from_map`.
-    /// Same controlling player is always ALLIES (even before the roster snapshot).
-    fn horde_player_relationship(
-        &self,
-        source_player_id: u32,
-        target_player_id: u32,
-    ) -> gamelogic::common::Relationship {
-        use gamelogic::common::Relationship;
-        if source_player_id == target_player_id {
-            return Relationship::Allies;
-        }
-        let Some(source) = self.horde_player_rel.get(&source_player_id) else {
-            return Relationship::Neutral;
-        };
-        let Some(target) = self.horde_player_rel.get(&target_player_id) else {
-            return Relationship::Neutral;
-        };
-        if !source.is_alive || !target.is_alive {
-            return Relationship::Neutral;
-        }
-        if let Some(rel) = source.map_relations.get(&target_player_id) {
-            return *rel;
-        }
-        if source.alliance_team >= 0 && source.alliance_team == target.alliance_team {
-            Relationship::Allies
-        } else if source.alliance_team >= 0 && target.alliance_team >= 0 {
-            Relationship::Enemies
-        } else {
-            Relationship::Neutral
-        }
-    }
-
-    /// C++ `PartitionFilterHordeMember::allow` AlliesOnly (`HordeUpdate.cpp:77-79`).
-    pub(super) fn horde_allies_only(
-        &self,
-        a_owner: Option<u32>,
-        a_team: u8,
-        b_owner: Option<u32>,
-        b_team: u8,
-    ) -> bool {
-        use gamelogic::common::Relationship;
-        match (a_owner, b_owner) {
-            (Some(a), Some(b)) => self.horde_player_relationship(a, b) == Relationship::Allies,
-            (None, None) => a_team == b_team,
-            _ => false,
-        }
     }
 
     /// Resolve a host object through its explicit controlling player. Objects

@@ -46,7 +46,7 @@ fn ai_decision_buffer_channel_via_push_ai_decision() {
     );
     let path_goal = object.movement.target_position.map(|p| [p.x, p.y, p.z]);
     assert!(path_goal.is_some());
-    let mut shadow = GameWorldShadow::new(64);
+    let mut shadow = GameWorldShadow::new();
     shadow.sync_from_host(&logic);
     let entity = shadow.entity_for_host(oid).unwrap();
     assert_eq!(shadow.world().entity(entity).unwrap().move_target, path_goal);
@@ -89,7 +89,7 @@ fn ai_decision_authority_applies_attack_via_gameworld() {
         );
     };
     assert_eq!(logic.host_object(oid).unwrap().target, Some(vid));
-    let mut shadow = GameWorldShadow::new(64);
+    let mut shadow = GameWorldShadow::new();
     shadow.sync_from_host(&logic);
     let attacker = shadow.entity_for_host(oid).unwrap();
     assert_eq!(
@@ -149,7 +149,7 @@ fn apply_ai_command_logs_and_host_applies_under_authority() {
         crate::game_logic::AIState::Attacking,
         "host applies SetAIState same-frame"
     );
-    let mut shadow = GameWorldShadow::new(64);
+    let mut shadow = GameWorldShadow::new();
     shadow.sync_from_host(&logic);
     shadow.sync_from_host(&logic);
     // Host already holds the target; writeback is a no-op when equal.
@@ -223,7 +223,7 @@ fn continue_attack_after_kill_decision_authority() {
         Some(next),
         "original continuation installs its next victim immediately"
     );
-    let mut shadow = GameWorldShadow::new(64);
+    let mut shadow = GameWorldShadow::new();
     shadow.sync_from_host(&logic);
     shadow.sync_from_host(&logic);
     shadow.sync_from_host(&logic);
@@ -287,7 +287,7 @@ fn assign_unit_attack_path_decision_authority() {
         !host.movement.path.is_empty() || host.movement.target_position.is_some(),
         "path must still be assigned on host"
     );
-    let mut shadow = GameWorldShadow::new(64);
+    let mut shadow = GameWorldShadow::new();
     shadow.sync_from_host(&logic);
     shadow.sync_from_host(&logic);
     shadow.sync_from_host(&logic);
@@ -328,7 +328,7 @@ fn path_approach_with_state_decision_authority() {
 
     // assign_unit_path may stamp Moving on the host; decision log carries Gathering
     // and GameWorld writeback is last-writer (AIUpdate.cpp state is the last write).
-    let mut shadow = GameWorldShadow::new(64);
+    let mut shadow = GameWorldShadow::new();
     shadow.sync_from_host(&logic);
     shadow.sync_from_host(&logic);
     assert_eq!(
@@ -393,7 +393,7 @@ fn troop_crawler_assault_decision_authority() {
         "assault deploy must set host target same-frame; ordered={ordered} occ_target={:?}",
         logic.host_objects().lookup(&occ).map(|o| o.target)
     );
-    let mut shadow = GameWorldShadow::new(64);
+    let mut shadow = GameWorldShadow::new();
     shadow.sync_from_host(&logic);
     shadow.sync_from_host(&logic);
     shadow.sync_from_host(&logic);
@@ -486,7 +486,7 @@ fn missile_defender_laser_guided_decision_authority() {
             .active_weapon_slot,
         1
     );
-    let mut shadow = GameWorldShadow::new(64);
+    let mut shadow = GameWorldShadow::new();
     shadow.sync_from_host(&logic);
     shadow.sync_from_host(&logic);
     shadow.sync_from_host(&logic);
@@ -538,7 +538,7 @@ fn private_attack_object_decision_authority() {
     // AIUpdate.cpp:3395 installs the goal before entering the attack state.
     // Diagnostic decision recording does not postpone the host transition.
     assert_eq!(logic.host_objects().lookup(&uid).unwrap().target, Some(vid));
-    let mut shadow = GameWorldShadow::new(64);
+    let mut shadow = GameWorldShadow::new();
     shadow.sync_from_host(&logic);
     shadow.sync_from_host(&logic);
     // Exercise writeback only after proving the ordinary host command worked.
@@ -599,7 +599,7 @@ fn transfer_attack_decision_authority() {
         Some(to),
         "host must retarget immediately"
     );
-    let mut shadow = GameWorldShadow::new(64);
+    let mut shadow = GameWorldShadow::new();
     shadow.sync_from_host(&logic);
     shadow.sync_from_host(&logic);
     shadow.sync_from_host(&logic);
@@ -643,7 +643,7 @@ fn apply_engagement_decision_aware_writeback() {
     // C++ AIAttackState sets the goal on the Object same-frame
     // (AIAttackState.cpp enter/update). Host applies immediately; GW last-writes.
     assert_eq!(logic.host_objects().lookup(&uid).unwrap().target, Some(vid));
-    let mut shadow = GameWorldShadow::new(64);
+    let mut shadow = GameWorldShadow::new();
     shadow.sync_from_host(&logic);
     shadow.sync_from_host(&logic);
     let projected = shadow.entity_for_host(uid).unwrap();
@@ -749,7 +749,7 @@ fn mood_auto_acquire_logs_decision_under_authority() {
 
     // AIStates.cpp:1417-1427 enters the attack during the owning mood update.
     assert_eq!(logic.host_objects().lookup(&oid).unwrap().target, Some(vid));
-    let mut shadow = GameWorldShadow::new(64);
+    let mut shadow = GameWorldShadow::new();
     shadow.sync_from_host(&logic);
     shadow.sync_from_host(&logic);
     let projected = shadow.entity_for_host(oid).unwrap();
@@ -799,7 +799,7 @@ fn support_guard_engage_uses_decision_authority() {
         Some(vid),
         "host engage immediate"
     );
-    let mut shadow = GameWorldShadow::new(64);
+    let mut shadow = GameWorldShadow::new();
     shadow.sync_from_host(&logic);
     shadow.sync_from_host(&logic);
     shadow.sync_from_host(&logic);
@@ -884,7 +884,7 @@ fn faction_ai_launch_attack_decision_authority_writeback() {
         Some(enemy),
         "launch_attack must engage host target immediately"
     );
-    let mut shadow = GameWorldShadow::new(64);
+    let mut shadow = GameWorldShadow::new();
     shadow.sync_from_host(&logic);
     shadow.sync_from_host(&logic);
     shadow.sync_from_host(&logic);
@@ -936,7 +936,7 @@ fn stop_attack_decision_authority_clears_via_writeback() {
         logic.host_objects().lookup(&oid).unwrap().target.is_none(),
         "host target must clear immediately on stop"
     );
-    let mut shadow = GameWorldShadow::new(64);
+    let mut shadow = GameWorldShadow::new();
     shadow.sync_from_host(&logic);
     // Seed world attack then apply stop decision; host already clear, writeback is no-op.
     shadow.sync_from_host(&logic);
@@ -1271,7 +1271,7 @@ fn ai_attack_authority_gates_fire_intent_writeback() {
         object.fire_intent_count = 1;
         object.last_fire_victim_host = 9;
     }
-    let mut shadow = GameWorldShadow::new(64);
+    let mut shadow = GameWorldShadow::new();
     shadow.sync_from_host(&logic);
     let entity = shadow.entity_for_host(oid).unwrap();
     shadow

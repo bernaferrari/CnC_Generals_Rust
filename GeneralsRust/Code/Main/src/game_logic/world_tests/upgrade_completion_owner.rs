@@ -1,12 +1,13 @@
-//! Ordinary authored research owns completion; shadow publication cannot replay it.
+//! Authored research completes on its owner's logic boundary.
 //! CPP ProductionUpdate.cpp:874-939; Player.cpp:3005-3048, 3985-4065.
-use super::*;
 use crate::command_system::{CommandType, GameCommand, ModifierKeys, SpecialPowerType};
 use crate::game_logic::host_upgrades::{
     HostUpgradePhase, HostUpgradeResearch, UPGRADE_INFANTRY_CAPTURE,
 };
-use crate::game_logic::{CapturePowerKind, ObjectId, Player};
+use crate::game_logic::{CapturePowerKind, GameLogic, KindOf, ObjectId, Player, Team};
+use crate::presentation_frame::PresentationFrame;
 use crate::save_load::{GameDifficulty, SaveFileManager, SaveFileType, SaveGameInfo};
+use glam::Vec3;
 use std::time::{Duration, SystemTime};
 
 const OWNER: u32 = 7;
@@ -44,9 +45,8 @@ fn install_rules(logic: &mut GameLogic, cost: u32, seconds: u32) {
         let actions = format!(
             "CommandButton FixtureCaptureUpgrade\n  Command = PLAYER_UPGRADE\n  Upgrade = {UPGRADE_INFANTRY_CAPTURE}\nEnd\nCommandSet FixtureResearchSet\n  1 = FixtureCaptureUpgrade\nEnd\n"
         );
-        let sciences = std::sync::Arc::new(
-            game_engine::common::rts::science::ScienceNameFacts::default(),
-        );
+        let sciences =
+            std::sync::Arc::new(game_engine::common::rts::science::ScienceNameFacts::default());
         let mut definitions = game_engine::common::thing::receiving_module_content::ReceivingActionDefinitions::default();
         definitions
             .apply_source(&actions, &sciences)
@@ -156,7 +156,7 @@ fn only_entry(logic: &GameLogic) -> HostUpgradeResearch {
     entries.pop().unwrap()
 }
 
-fn tick(logic: &mut GameLogic, shadow: &mut GameWorldShadow) {
+fn tick(logic: &mut GameLogic) {
     let frame = logic.get_current_frame();
     logic.update();
     assert_eq!(
@@ -165,7 +165,6 @@ fn tick(logic: &mut GameLogic, shadow: &mut GameWorldShadow) {
         "ordinary simulation tick"
     );
     logic.complete_presentation_observations();
-    shadow.sync_from_host(logic);
 }
 
 fn complete(logic: &GameLogic, infantry: ObjectId, foreign: ObjectId, at_frame: u32) {
@@ -214,6 +213,18 @@ fn upgrade_completion_owner_two_worlds_and_reset_reuse_keep_canonical_effects() 
     let a_ids = admit(&mut a);
     a.set_current_frame(10);
     queue(&mut a, a_ids.0, 321, 30);
+    let pending_frame = PresentationFrame::try_build_from_logic(&mut a, OWNER).unwrap();
+    let pending_producer = pending_frame
+        .objects
+        .iter()
+        .find(|row| row.id == a_ids.0)
+        .unwrap();
+    assert_eq!(pending_producer.production_queue.len(), 1);
+    assert_eq!(
+        pending_producer.production_queue[0].template_name,
+        UPGRADE_INFANTRY_CAPTURE
+    );
+    assert!(pending_producer.production_queue[0].is_upgrade);
     let a_queued = only_entry(&a);
     let mut b = GameLogic::new();
     assert!(b.host_upgrades().entries_snapshot().is_empty());
@@ -227,20 +238,25 @@ fn upgrade_completion_owner_two_worlds_and_reset_reuse_keep_canonical_effects() 
     assert_eq!(a_ids, b_ids, "same numerical ObjectIds in separate worlds");
     b.set_current_frame(10);
     queue(&mut b, b_ids.0, 654, 60);
-    let mut a_shadow = GameWorldShadow::new(16);
-    let mut b_shadow = GameWorldShadow::new(16);
     for _ in 0..29 {
-        tick(&mut a, &mut a_shadow);
-        tick(&mut b, &mut b_shadow);
+        tick(&mut a);
+        tick(&mut b);
     }
     assert_eq!(only_entry(&a).phase, HostUpgradePhase::Queued);
     assert_eq!(only_entry(&b).phase, HostUpgradePhase::Queued);
-    tick(&mut a, &mut a_shadow);
+    tick(&mut a);
     complete(&a, a_ids.1, a_ids.2, 39);
     let a_complete = only_entry(&a);
     let b_pending = only_entry(&b);
     a.complete_presentation_observations();
-    a_shadow.sync_from_host(&a);
+    let completed_frame = PresentationFrame::try_build_from_logic(&mut a, OWNER).unwrap();
+    let completed_producer = completed_frame
+        .objects
+        .iter()
+        .find(|row| row.id == a_ids.0)
+        .unwrap();
+    assert!(completed_producer.production_queue.is_empty());
+    assert_eq!(pending_producer.production_queue.len(), 1);
     assert_eq!(
         only_entry(&a),
         a_complete,
@@ -252,7 +268,7 @@ fn upgrade_completion_owner_two_worlds_and_reset_reuse_keep_canonical_effects() 
         "equal IDs do not complete the foreign world"
     );
     for _ in 29..60 {
-        tick(&mut b, &mut b_shadow);
+        tick(&mut b);
     }
     complete(&b, b_ids.1, b_ids.2, 69);
     let b_complete = only_entry(&b);
@@ -265,10 +281,10 @@ fn upgrade_completion_owner_two_worlds_and_reset_reuse_keep_canonical_effects() 
     assert_eq!(only_entry(&b), b_complete);
     queue(&mut a, reused.0, 321, 30);
     for _ in 0..29 {
-        tick(&mut a, &mut a_shadow);
+        tick(&mut a);
     }
     assert_eq!(only_entry(&a).phase, HostUpgradePhase::Queued);
-    tick(&mut a, &mut a_shadow);
+    tick(&mut a);
     complete(&a, reused.1, reused.2, 29);
     assert_eq!(only_entry(&b), b_complete);
 }
@@ -299,9 +315,8 @@ fn upgrade_completion_owner_actual_file_writer_restores_pending_and_completed_re
     let ids = admit(&mut source);
     source.set_current_frame(10);
     queue(&mut source, ids.0, 321, 30);
-    let mut shadow = GameWorldShadow::new(16);
     for _ in 0..10 {
-        tick(&mut source, &mut shadow);
+        tick(&mut source);
     }
     let pending = only_entry(&source);
     manager
@@ -327,12 +342,11 @@ fn upgrade_completion_owner_actual_file_writer_restores_pending_and_completed_re
             .unwrap()
             .is_special_power_countdown_paused(&SpecialPowerType::RangerCaptureBuilding)
     );
-    let mut restored_shadow = GameWorldShadow::new(16);
     for _ in 0..19 {
-        tick(&mut restored, &mut restored_shadow);
+        tick(&mut restored);
     }
     assert_eq!(only_entry(&restored).phase, HostUpgradePhase::Queued);
-    tick(&mut restored, &mut restored_shadow);
+    tick(&mut restored);
     complete(&restored, ids.1, ids.2, 39);
     let completed = only_entry(&restored);
     manager
@@ -345,8 +359,7 @@ fn upgrade_completion_owner_actual_file_writer_restores_pending_and_completed_re
         .expect("actual completed decoder/fixups");
     complete(&loaded, ids.1, ids.2, 39);
     assert_eq!(only_entry(&loaded), completed);
-    let mut loaded_shadow = GameWorldShadow::new(16);
-    tick(&mut loaded, &mut loaded_shadow);
+    tick(&mut loaded);
     assert_eq!(
         only_entry(&loaded),
         completed,

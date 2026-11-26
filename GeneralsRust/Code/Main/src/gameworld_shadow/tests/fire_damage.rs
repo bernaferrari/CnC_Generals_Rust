@@ -55,7 +55,7 @@ fn fire_at_records_fire_intent_residual() {
         assert_eq!(o.last_fire_frame, 77);
         assert!(o.fire_intent_count >= 1, "counter still advances");
     }
-    let mut shadow = GameWorldShadow::new(64);
+    let mut shadow = GameWorldShadow::new();
     shadow.sync_from_host(&logic);
 
     let o = logic.host_objects().lookup(&oid).unwrap();
@@ -137,7 +137,7 @@ fn assign_unit_path_decision_authority() {
                 .is_empty(),
         "movement residual still on host"
     );
-    let mut shadow = GameWorldShadow::new(64);
+    let mut shadow = GameWorldShadow::new();
     shadow.sync_from_host(&logic);
 
     assert_eq!(
@@ -184,7 +184,7 @@ fn private_idle_decision_authority() {
     let idle = logic.host_objects().lookup(&oid).unwrap();
     assert!(idle.target.is_none());
     assert_eq!(idle.ai_state(), AIState::Idle);
-    let mut shadow = GameWorldShadow::new(64);
+    let mut shadow = GameWorldShadow::new();
     shadow.sync_from_host(&logic);
 
     let entity = shadow.entity_for_host(oid).unwrap();
@@ -270,7 +270,7 @@ fn append_unit_waypoint_decision_authority() {
         AIState::Moving,
         "host Moving immediate"
     );
-    let mut shadow = GameWorldShadow::new(64);
+    let mut shadow = GameWorldShadow::new();
     shadow.sync_from_host(&logic);
 
     assert_eq!(
@@ -303,7 +303,7 @@ fn set_ai_state_decision_aware_writeback() {
         logic.host_objects().lookup(&oid).unwrap().ai_state(),
         AIState::Gathering
     );
-    let mut shadow = GameWorldShadow::new(64);
+    let mut shadow = GameWorldShadow::new();
     shadow.sync_from_host(&logic);
 
     assert_eq!(
@@ -333,7 +333,7 @@ fn death_type_channel_via_set_death_type() {
         o.status.destroyed = true;
         o.status.death_type = HostDeathType::Burned;
     }
-    let mut shadow = GameWorldShadow::new(64);
+    let mut shadow = GameWorldShadow::new();
     shadow.sync_from_host(&logic);
     let eid = *shadow.host_to_entity.get(&oid.0).expect("map");
 
@@ -381,7 +381,7 @@ fn radar_extend_channel_via_set_radar_extend() {
         o.radar_active = true;
     }
 
-    let mut shadow = GameWorldShadow::new(64);
+    let mut shadow = GameWorldShadow::new();
     shadow.sync_from_host(&logic);
     let eid = *shadow.host_to_entity.get(&oid.0).expect("map");
 
@@ -462,7 +462,7 @@ fn special_power_timer_belongs_to_owner_not_projection() {
         o.special_power_cooldown_remaining = 2.0;
         o.set_special_power_ready(false);
     }
-    let mut shadow = GameWorldShadow::new(64);
+    let mut shadow = GameWorldShadow::new();
     shadow.sync_from_host(&logic);
     let projected = shadow
         .world()
@@ -505,7 +505,7 @@ fn damage_is_immediate_and_projection_cannot_reapply_it() {
         .create_object("AuthUnit", Team::USA, Vec3::new(2.0, 0.0, 0.0))
         .expect("unit");
 
-    let mut shadow = GameWorldShadow::new(4096);
+    let mut shadow = GameWorldShadow::new();
     shadow.sync_from_host(&logic);
     let pre = logic.host_objects().lookup(&id).unwrap().health.current;
 
@@ -607,7 +607,7 @@ fn host_owner_log_feeds_transfer_owner_mutation() {
     let id = logic
         .create_object("OwnT", Team::GLA, glam::Vec3::ZERO)
         .expect("id");
-    let mut shadow = GameWorldShadow::new(4096);
+    let mut shadow = GameWorldShadow::new();
     shadow.sync_from_host(&logic);
     {
         let (o, ownership_events, fixture_partition) =
@@ -642,7 +642,7 @@ fn actual_damage_is_copied_into_projection() {
     let id = logic
         .create_object("LogUnit", Team::USA, Vec3::new(1.0, 0.0, 0.0))
         .expect("unit");
-    let mut shadow = GameWorldShadow::new(4096);
+    let mut shadow = GameWorldShadow::new();
     assert!(!owner_damage(&mut logic, id, 40.0));
     assert_eq!(logic.host_object(id).unwrap().health.current, 110.0);
     shadow.sync_from_host(&logic);
@@ -662,7 +662,7 @@ fn owned_construction_events_map_completed_structure_without_consuming_output() 
         .create_object("USA_Barracks", Team::USA, glam::Vec3::ZERO)
         .expect("barracks");
     // Simulate host recording construction complete without pre-sync map.
-    let mut shadow = GameWorldShadow::new(64);
+    let mut shadow = GameWorldShadow::new();
     // Do not sync first — apply construction should map via spawn residual.
     logic.construction_events.record(id, "USA_Barracks");
     let events = logic.construction_events.pending();
@@ -705,7 +705,7 @@ fn dozer_bored_repair_state_decision_authority() {
         AIState::Repairing,
         "host AI state applies immediately"
     );
-    let mut shadow = GameWorldShadow::new(64);
+    let mut shadow = GameWorldShadow::new();
     shadow.sync_from_host(&logic);
 
     assert_eq!(
@@ -738,7 +738,7 @@ fn hijacker_docked_state_decision_authority() {
         AIState::Docked,
         "host AI state applies immediately"
     );
-    let mut shadow = GameWorldShadow::new(64);
+    let mut shadow = GameWorldShadow::new();
     shadow.sync_from_host(&logic);
 
     assert_eq!(
@@ -796,7 +796,7 @@ fn residual_auto_fire_damage_source_writeback_channel() {
             .any(|e| { e.target == victim && e.source == Some(attacker) && e.amount >= 20.0 }),
         "damage log must carry source; got {events:?}"
     );
-    let mut shadow = GameWorldShadow::new(64);
+    let mut shadow = GameWorldShadow::new();
     shadow.sync_from_host(&logic);
     assert_eq!(logic.host_object(victim).unwrap().health.current, 75.0);
     let entity = shadow.entity_for_host(victim).unwrap();
@@ -837,7 +837,7 @@ fn private_stop_clears_owner_before_projection() {
         "private_stop must clear host target immediately"
     );
 
-    let mut shadow = GameWorldShadow::new(64);
+    let mut shadow = GameWorldShadow::new();
     shadow.sync_from_host(&logic);
     let entity = shadow.entity_for_host(oid).unwrap();
     let target = shadow.entity_for_host(vid).unwrap();

@@ -1,15 +1,22 @@
-//! Sell/rebuild, heal, cancel-production, movement/damage source residuals.
+//! Owner-side sale, refund and healing receipts.
 
-use super::*;
+use crate::game_logic::GameLogic;
+use crate::presentation_frame::PresentationFrame;
+use crate::skirmish_config::{apply_skirmish_config, golden_skirmish_config};
+use glam::Vec3;
 
 #[test]
-fn cancel_production_refund_commits_to_owner_without_shadow_writeback() {
-    use crate::game_logic::host_economy_log;
+fn cancelling_production_publishes_the_owners_refund_once() {
     use crate::game_logic::{KindOf, Team, ThingTemplate};
 
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("EconRef");
-    logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object EconFac\nEnd\nObject EconUnit\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
+    logic
+        .admit_object_ini_sources([(
+            "fixture-objects.ini".into(),
+            "Object EconFac\nEnd\nObject EconUnit\nEnd\n".into(),
+        )])
+        .expect("fixture Object content admitted before NewGame");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
     // Seed a local player with known cash.
     let pid = logic
@@ -93,10 +100,12 @@ fn cancel_production_refund_commits_to_owner_without_shadow_writeback() {
         "already cancelled queue cannot refund twice"
     );
     assert_eq!(logic.get_player(pid).unwrap().resources.supplies, 1250);
+    let frame = PresentationFrame::try_build_from_logic(&mut logic, pid).unwrap();
+    assert_eq!(frame.local_supplies, 1250);
 }
 
 #[test]
-fn start_sell_sets_construction_percent_under_authority() {
+fn sale_start_sets_percent_and_status_immediately() {
     use crate::game_logic::{KindOf, Team, ThingTemplate};
 
     let mut logic = GameLogic::new();
@@ -104,9 +113,9 @@ fn start_sell_sets_construction_percent_under_authority() {
     let cfg = golden_skirmish_config("SellPct");
     crate::fixture_content::admit_fixture_objects(
         &mut logic,
-        &[
-            crate::fixture_content::FixtureObject::new("SellPad").kind_of("STRUCTURE").health(500.0),
-        ],
+        &[crate::fixture_content::FixtureObject::new("SellPad")
+            .kind_of("STRUCTURE")
+            .health(500.0)],
     );
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
     let oid = logic
@@ -119,7 +128,6 @@ fn start_sell_sets_construction_percent_under_authority() {
     }
     assert!(logic.start_sell_object(oid).unwrap());
     // CPP sell start changes the canonical percent immediately to 0.999.
-    // Construction authority no longer freezes host percent (stalls multi-frame sell).
     assert!(
         (logic
             .host_objects()
@@ -136,10 +144,14 @@ fn start_sell_sets_construction_percent_under_authority() {
     assert!(object.status.sold);
     assert!(object.status.unselectable);
     assert!(!object.status.under_construction);
+    let frame = PresentationFrame::try_build_from_logic(&mut logic, 0).unwrap();
+    let sold = frame.objects.iter().find(|row| row.id == oid).unwrap();
+    assert!(sold.sold && sold.unselectable && !sold.under_construction);
+    assert!((sold.construction_percent - 0.999).abs() < 1e-4);
 }
 
 #[test]
-fn sell_deconstruction_negative_percent_survives_shadow_writeback() {
+fn selling_retains_signed_owner_percent_until_retirement() {
     use crate::game_logic::{KindOf, Team, ThingTemplate};
 
     let mut logic = GameLogic::new();
@@ -147,9 +159,9 @@ fn sell_deconstruction_negative_percent_survives_shadow_writeback() {
     let cfg = golden_skirmish_config("SellNegPct");
     crate::fixture_content::admit_fixture_objects(
         &mut logic,
-        &[
-            crate::fixture_content::FixtureObject::new("SellPad").kind_of("STRUCTURE MP_COUNT_FOR_VICTORY").health(500.0),
-        ],
+        &[crate::fixture_content::FixtureObject::new("SellPad")
+            .kind_of("STRUCTURE MP_COUNT_FOR_VICTORY")
+            .health(500.0)],
     );
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
     {
@@ -199,25 +211,27 @@ fn sell_deconstruction_negative_percent_survives_shadow_writeback() {
         "host sell percent should go negative, got {host_pct}"
     );
 
-    let mut shadow = GameWorldShadow::new(64);
-    shadow.sync_from_host(&logic);
-    shadow.sync_from_host(&logic);
-    let eid = shadow.entity_for_host(oid).expect("mapped");
-    let ent_pct = shadow.world().entity(eid).expect("e").construction_percent;
-    assert!(
-        (ent_pct - host_pct).abs() < 1e-4,
-        "shadow entity percent {ent_pct} vs host {host_pct}"
-    );
-    {
-        let o = logic.host_object_mut(oid).expect("o");
-        o.construction_percent = 0.5; // dirty host so writeback must restore
+    let frame_number = logic.get_frame();
+    for _ in 0..2 {
+        let frame = PresentationFrame::try_build_from_logic(&mut logic, 0).unwrap();
+        let sold = frame.objects.iter().find(|row| row.id == oid).unwrap();
+        assert!(sold.sold && sold.unselectable);
+        assert_eq!(sold.construction_percent, 0.0);
+        assert_eq!(
+            logic.host_object(oid).unwrap().construction_percent,
+            host_pct
+        );
     }
-    assert!(shadow.compare_construction_to_host(&logic) >= 1);
-    let after = logic.host_object(oid).expect("o").construction_percent;
-    assert!(
-        (after - 0.5).abs() < 1e-4,
-        "a shadow comparison must retain canonical sell percent: after={after}"
-    );
+    assert_eq!(logic.get_frame(), frame_number);
+    for _ in 0..240 {
+        if logic.host_object(oid).is_none() {
+            break;
+        }
+        logic.update();
+    }
+    assert!(logic.host_object(oid).is_none());
+    let frame = PresentationFrame::try_build_from_logic(&mut logic, 0).unwrap();
+    assert!(frame.objects.iter().all(|row| row.id != oid));
 }
 
 #[test]
@@ -273,7 +287,10 @@ fn sell_command_uses_authored_refund_value_through_world_completion() {
             modifier_keys: ModifierKeys::default(),
         };
         assert_eq!(
-            command_system.execute_command(&sell, &mut logic), CommandResult::Success, "the physical sell command must enter the normal world sell lifecycle");
+            command_system.execute_command(&sell, &mut logic),
+            CommandResult::Success,
+            "the physical sell command must enter the normal world sell lifecycle"
+        );
 
         for frame in 1..=240 {
             logic.set_current_frame(frame);
@@ -288,7 +305,8 @@ fn sell_command_uses_authored_refund_value_through_world_completion() {
             logic.host_object(structure_id).is_none(),
             "sell lifecycle must finish by destroying the structure"
         );
-        assert_eq!(logic.get_player(0).expect("owner").effective_supplies(),
+        assert_eq!(
+            logic.get_player(0).expect("owner").effective_supplies(),
             650,
             "C++ RefundValue must override BuildCost × SellPercentage"
         );
@@ -325,7 +343,8 @@ fn sell_command_uses_authored_refund_value_through_world_completion() {
             modifier_keys: ModifierKeys::default(),
         };
         assert!(
-            command_system.execute_command(&fallback_sell, &mut logic) == CommandResult::Success);
+            command_system.execute_command(&fallback_sell, &mut logic) == CommandResult::Success
+        );
         for frame in 241..=480 {
             logic.set_current_frame(frame);
             logic.update_sell_list();
@@ -344,12 +363,14 @@ fn sell_command_uses_authored_refund_value_through_world_completion() {
 }
 
 #[test]
-fn pending_absolute_health_record_waits_for_admission() {
+fn body_heal_commits_and_records_absolute_health() {
     use crate::game_logic::{KindOf, Team, ThingTemplate};
     let mut logic = GameLogic::new();
 
     let cfg = golden_skirmish_config("HealAuth");
-    logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object HealU\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
+    logic
+        .admit_object_ini_sources([("fixture-objects.ini".into(), "Object HealU\nEnd\n".into())])
+        .expect("fixture Object content admitted before NewGame");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
     {
         let mut t = ThingTemplate::new("HealU");
@@ -365,12 +386,12 @@ fn pending_absolute_health_record_waits_for_admission() {
         o.health.current = 40.0;
         o.health.maximum = 100.0;
     }
-    // This tests the transport's genuinely deferred producer contract. It does
-    // not execute a crate collision or claim to verify the crate behavior.
-    perform_owner_health(&mut logic, oid, 100.0);
+    let frame = logic.get_frame();
+    let (actor, health_events) = logic.host_object_and_health_events_mut(oid).unwrap();
+    actor.heal(60.0, health_events, frame);
     assert!(
         (logic.host_objects().lookup(&oid).unwrap().health.current - 100.0).abs() < 1e-3,
-        "actual body healing commits before any observer boundary"
+        "body healing commits synchronously"
     );
     let evs = logic.health_events.drain_heal();
     assert!(

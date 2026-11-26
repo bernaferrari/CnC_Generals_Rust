@@ -28,7 +28,7 @@ fn set_combat_status_mutation_channel_updates_shadow_entity() {
         o.status.masked = true;
         o.status.disguised = true;
     }
-    let mut shadow = GameWorldShadow::new(64);
+    let mut shadow = GameWorldShadow::new();
     shadow.sync_from_host(&logic);
     let eid = shadow.entity_for_host(id).expect("map");
     shadow.sync_from_host(&logic);
@@ -80,7 +80,7 @@ fn host_selection_status_log_drives_set_combat_status_channel() {
         let o = logic.host_object_mut(id).expect("o");
         o.select();
     }
-    let mut shadow = GameWorldShadow::new(64);
+    let mut shadow = GameWorldShadow::new();
     shadow.sync_from_host(&logic);
     // Poison shadow selected off, then apply host status events as mutations.
     let eid = shadow.entity_for_host(id).expect("map");
@@ -129,7 +129,7 @@ fn host_attacking_status_log_drives_set_combat_status_channel() {
         o.set_status_attacking(true);
         o.set_status_firing_weapon(true);
     }
-    let mut shadow = GameWorldShadow::new(64);
+    let mut shadow = GameWorldShadow::new();
     shadow.sync_from_host(&logic);
     let eid = shadow.entity_for_host(id).expect("map");
     if let Some(e) = shadow.world_mut().world_mut().entity_mut(eid) {
@@ -179,7 +179,7 @@ fn host_stealth_status_log_drives_set_combat_status_channel() {
         o.set_status_stealthed(true);
         o.set_status_detected(false);
     }
-    let mut shadow = GameWorldShadow::new(64);
+    let mut shadow = GameWorldShadow::new();
     shadow.sync_from_host(&logic);
     let eid = shadow.entity_for_host(id).expect("map");
     if let Some(e) = shadow.world_mut().world_mut().entity_mut(eid) {
@@ -237,7 +237,7 @@ fn host_emp_status_log_drives_set_combat_status_channel() {
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     }
-    let mut shadow = GameWorldShadow::new(64);
+    let mut shadow = GameWorldShadow::new();
     shadow.sync_from_host(&logic);
     let eid = shadow.entity_for_host(id).expect("map");
     if let Some(e) = shadow.world_mut().world_mut().entity_mut(eid) {
@@ -282,7 +282,7 @@ fn canonical_player_cooldowns_project_without_writeback() {
         let p = logic.get_player_mut(pid).expect("p");
         p.reset_shared_special_power_timer(&SpecialPowerType::Airstrike, 12.5);
     }
-    let mut shadow = GameWorldShadow::new(64);
+    let mut shadow = GameWorldShadow::new();
     shadow.sync_from_host(&logic);
     let gw = *shadow.host_player_to_gw.get(&pid).expect("map");
     if let Some(p) = shadow.world_mut().world_mut().player_mut(gw) {
@@ -338,7 +338,7 @@ fn canonical_player_meta_projects_without_writeback() {
         let p = logic.get_player_mut(pid).expect("p");
         p.is_alive = false;
     }
-    let mut shadow = GameWorldShadow::new(64);
+    let mut shadow = GameWorldShadow::new();
     shadow.sync_from_host(&logic);
     let gw = *shadow.host_player_to_gw.get(&pid).expect("map");
     if let Some(p) = shadow.world_mut().world_mut().player_mut(gw) {
@@ -385,7 +385,7 @@ fn canonical_player_progress_projects_without_writeback() {
         p.skill_points = 50;
         p.science_purchase_points = 2;
     }
-    let mut shadow = GameWorldShadow::new(64);
+    let mut shadow = GameWorldShadow::new();
     shadow.sync_from_host(&logic);
     let gw = *shadow.host_player_to_gw.get(&pid).expect("map");
     if let Some(p) = shadow.world_mut().world_mut().player_mut(gw) {
@@ -437,7 +437,7 @@ fn host_radar_log_drives_set_player_radar_channel() {
         let p = logic.get_player_mut(pid).expect("p");
         p.set_radar_state(2, false);
     }
-    let mut shadow = GameWorldShadow::new(64);
+    let mut shadow = GameWorldShadow::new();
     shadow.sync_from_host(&logic);
     let gw = *shadow.host_player_to_gw.get(&pid).expect("map");
     if let Some(p) = shadow.world_mut().world_mut().player_mut(gw) {
@@ -520,7 +520,7 @@ fn canonical_containment_projects_without_writeback() {
         let (o, fixture_partition) = logic.host_object_and_partition_mut(inf).expect("i");
         o.set_contained_by_with_partition_owner(Some(bunker), true, fixture_partition);
     }
-    let mut shadow = GameWorldShadow::new(64);
+    let mut shadow = GameWorldShadow::new();
     shadow.sync_from_host(&logic);
     let eid_i = shadow.entity_for_host(inf).expect("map i");
     let eid_b = shadow.entity_for_host(bunker).expect("map b");
@@ -590,7 +590,7 @@ fn host_ai_state_is_canonical_and_shadow_only_observes() {
         logic.host_object(id).expect("o").ai_state(),
         AIState::GuardingObject
     );
-    let mut shadow = GameWorldShadow::new(64);
+    let mut shadow = GameWorldShadow::new();
     shadow.sync_from_host(&logic);
     let eid = shadow.entity_for_host(id).expect("map");
     assert_eq!(shadow.world().entity(eid).expect("e").ai_state_ordinal, 10);
@@ -638,7 +638,7 @@ fn host_special_power_cooldown_remaining_channel() {
         o.special_power_cooldown_remaining = 18.0;
         o.special_power_ready = false;
     }
-    let mut shadow = GameWorldShadow::new(64);
+    let mut shadow = GameWorldShadow::new();
     shadow.sync_from_host(&logic);
     let eid = *shadow.host_to_entity.get(&oid.0).expect("map");
     if let Some(e) = shadow.world_mut().world_mut().entity_mut(eid) {
@@ -691,7 +691,7 @@ fn canonical_special_power_projects_without_writeback() {
         let o = logic.host_object_mut(id).expect("o");
         o.set_special_power_ready(true);
     }
-    let mut shadow = GameWorldShadow::new(64);
+    let mut shadow = GameWorldShadow::new();
     shadow.sync_from_host(&logic);
     let eid = shadow.entity_for_host(id).expect("map");
     if let Some(e) = shadow.world_mut().world_mut().entity_mut(eid) {
@@ -737,7 +737,7 @@ fn canonical_stored_supplies_is_projected_from_receiving_owner() {
         let o = logic.host_object_mut(id).expect("o");
         o.set_stored_supplies(900);
     }
-    let mut shadow = GameWorldShadow::new(64);
+    let mut shadow = GameWorldShadow::new();
     shadow.sync_from_host(&logic);
     let eid = shadow.entity_for_host(id).expect("map");
     if let Some(e) = shadow.world_mut().world_mut().entity_mut(eid) {
@@ -761,53 +761,6 @@ fn canonical_stored_supplies_is_projected_from_receiving_owner() {
             .supplies,
         900
     );
-}
-
-#[test]
-fn owned_construction_snapshot_refreshes_projection_without_writeback() {
-    use crate::game_logic::{KindOf, Team, ThingTemplate};
-    let mut logic = GameLogic::new();
-    let cfg = golden_skirmish_config("ConstrProgCh");
-    logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object CProg\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
-    apply_skirmish_config(&mut logic, &cfg).expect("cfg");
-    {
-        let mut t = ThingTemplate::new("CProg");
-        t.set_health(500.0);
-        t.add_kind_of(KindOf::Structure);
-        t.add_kind_of(KindOf::Selectable);
-        logic.templates.insert("CProg".into(), t);
-    }
-    let id = logic
-        .create_object("CProg", Team::USA, glam::Vec3::new(5.0, 0.0, 5.0))
-        .expect("id");
-    {
-        let o = logic.host_object_mut(id).expect("o");
-        o.construction_percent = 0.25;
-        o.set_status_under_construction(true);
-    }
-
-    let mut shadow = GameWorldShadow::new(64);
-    shadow.sync_from_host(&logic);
-    let eid = shadow.entity_for_host(id).expect("map");
-    if let Some(e) = shadow.world_mut().world_mut().entity_mut(eid) {
-        e.construction_percent = 0.0;
-        e.under_construction = false;
-    }
-
-    shadow.sync_from_host(&logic);
-    let e = shadow.world().entity(eid).expect("e");
-    assert!((e.construction_percent - 0.25).abs() < 1e-5);
-    assert!(e.under_construction);
-    {
-        let o = logic.host_object_mut(id).expect("o");
-        o.construction_percent = 0.0;
-        o.status.under_construction = false;
-    }
-    let wb = shadow.compare_construction_to_host(&logic);
-    assert!(wb >= 1);
-    let o = logic.host_objects().lookup(&id).expect("o");
-    assert_eq!(o.construction_percent, 0.0);
-    assert!(!o.status.under_construction);
 }
 
 #[test]
@@ -870,7 +823,7 @@ fn host_owner_log_drives_transfer_owner_channel() {
             fixture_partition,
         );
     }
-    let mut shadow = GameWorldShadow::new(64);
+    let mut shadow = GameWorldShadow::new();
     shadow.sync_from_host(&logic);
     let eid = shadow.entity_for_host(id).expect("map");
     shadow.sync_from_host(&logic);
@@ -899,79 +852,6 @@ fn host_owner_log_drives_transfer_owner_channel() {
 
     assert_eq!(o.team, capture_team);
     assert_eq!(o.owner_player_id, Some(capture_pid));
-}
-
-#[test]
-fn host_production_log_drives_set_production_queue_channel() {
-    use crate::game_logic::host_production_log;
-    use crate::game_logic::{
-        BuildingData, BuildingType, KindOf, ProductionItem, ProductionKind, Resources, Team,
-        ThingTemplate,
-    };
-    // writeback_production_to_host is the opt-in GameLogic::set_production_authority(true)
-    // last-writer (default off like C++ no-shadow builds). Enable it here; hq-e84zk
-    // retired the env flag.
-    let mut logic = GameLogic::new();
-
-    let cfg = golden_skirmish_config("ProdQueueCh");
-    logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object ProdBarracks\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
-    apply_skirmish_config(&mut logic, &cfg).expect("cfg");
-    {
-        let mut t = ThingTemplate::new("ProdBarracks");
-        t.set_health(500.0);
-        t.add_kind_of(KindOf::Structure);
-        t.add_kind_of(KindOf::Selectable);
-        logic.templates.insert("ProdBarracks".into(), t);
-    }
-    let barracks = logic
-        .create_object("ProdBarracks", Team::USA, glam::Vec3::new(10.0, 0.0, 10.0))
-        .expect("barracks");
-    {
-        let o = logic.host_object_mut(barracks).expect("b");
-        let mut bd = BuildingData::new(BuildingType::Barracks);
-        bd.production_queue.push(ProductionItem {
-            runtime_entry_identity: 0,
-            template_name: "ProdRanger".into(),
-            progress: 0.0,
-            total_time: 10.0,
-            construction_frames: 0,
-            cost: Resources {
-                supplies: 150,
-                power: 0,
-            },
-            quantity_total: 1,
-            quantity_produced: 0,
-            kind: ProductionKind::Unit,
-        });
-        o.building_data = Some(bd);
-    }
-
-    let mut shadow = GameWorldShadow::new(64);
-    shadow.sync_from_host(&logic);
-    let eid = shadow.entity_for_host(barracks).expect("map");
-    if let Some(e) = shadow.world_mut().world_mut().entity_mut(eid) {
-        e.production_queue_items.clear();
-        e.production_paused = false;
-        e.production_template.clear();
-    }
-    // Re-record for apply (drain consumed).
-
-    shadow.sync_from_host(&logic);
-    let e = shadow.world().entity(eid).expect("e");
-    assert!(
-        !e.production_queue_items.is_empty(),
-        "queue should be last-written from host"
-    );
-    assert_eq!(e.production_queue_items[0].template_name, "ProdRanger");
-
-    shadow.sync_from_host(&logic);
-
-    let _ = shadow.compare_rebuild_producer_to_host(&logic);
-    shadow.sync_from_host(&logic);
-
-    let o = logic.host_objects().lookup(&barracks).expect("b");
-    let q = &o.building_data.as_ref().expect("bd").production_queue;
-    assert_eq!(q[0].template_name, "ProdRanger");
 }
 
 #[test]
@@ -1034,7 +914,7 @@ fn production_authority_writeback_is_queue_last_writer() {
     }];
     host_production_progress_log::record(oid, items.clone(), 0.0, 1.0);
 
-    let mut shadow = GameWorldShadow::new(64);
+    let mut shadow = GameWorldShadow::new();
     shadow.sync_from_host(&logic);
     let entity = shadow.entity_for_host(oid).unwrap();
     shadow
@@ -1119,7 +999,7 @@ fn host_veterancy_is_canonical_and_shadow_only_observes() {
         logic.host_object(id).unwrap().experience.level,
         VeterancyLevel::Elite
     );
-    let mut shadow = GameWorldShadow::new(64);
+    let mut shadow = GameWorldShadow::new();
     shadow.sync_from_host(&logic);
     let entity = shadow.entity_for_host(id).unwrap();
     assert_eq!(shadow.world().entity(entity).unwrap().veterancy_ordinal, 2);
@@ -1173,7 +1053,7 @@ fn host_force_attack_status_log_drives_set_combat_status_channel() {
         o.set_status_using_ability(true);
         o.set_status_deployed(true);
     }
-    let mut shadow = GameWorldShadow::new(64);
+    let mut shadow = GameWorldShadow::new();
     shadow.sync_from_host(&logic);
     let eid = shadow.entity_for_host(id).expect("map");
     if let Some(e) = shadow.world_mut().world_mut().entity_mut(eid) {
@@ -1228,7 +1108,7 @@ fn host_residual_status_log_drives_set_combat_status_channel() {
         o.set_status_faerie_fire(true);
         o.set_status_parachuting(true);
     }
-    let mut shadow = GameWorldShadow::new(64);
+    let mut shadow = GameWorldShadow::new();
     shadow.sync_from_host(&logic);
     let eid = shadow.entity_for_host(id).expect("map");
     if let Some(e) = shadow.world_mut().world_mut().entity_mut(eid) {

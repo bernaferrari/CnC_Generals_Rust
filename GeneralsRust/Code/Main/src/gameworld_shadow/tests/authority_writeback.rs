@@ -23,7 +23,7 @@ fn no_shadow_boundary_still_admits_projected_lethal_damage() {
     let id = logic
         .create_object("PendingLethalTarget", Team::USA, Vec3::ZERO)
         .expect("target");
-    let mut shadow = GameWorldShadow::new(64);
+    let mut shadow = GameWorldShadow::new();
     shadow.sync_from_host(&logic);
     logic.health_events.clear_damage();
     assert!(logic.host_lethal_finish_object(id, None));
@@ -70,7 +70,7 @@ fn gameworld_step_movement_advances_move_target() {
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     }
-    let mut shadow = GameWorldShadow::new(64);
+    let mut shadow = GameWorldShadow::new();
     shadow.sync_from_host(&logic);
     let eid = *shadow.host_to_entity.get(&oid.0).expect("map");
     let before = shadow.world().entity(eid).expect("e").transform.position.x;
@@ -118,7 +118,7 @@ fn damage_authority_defers_host_hp_until_writeback() {
     let oid = logic
         .create_object("RangerDmg", Team::USA, glam::Vec3::new(1.0, 0.0, 1.0))
         .expect("id");
-    let mut shadow = GameWorldShadow::new(64);
+    let mut shadow = GameWorldShadow::new();
     shadow.sync_from_host(&logic);
     let before = logic.host_objects().lookup(&oid).expect("o").health.current;
     logic.health_events.clear_damage();
@@ -192,7 +192,7 @@ fn heal_authority_commits_host_hp_before_shadow_writeback() {
     logic
         .create_object("HealthVictoryKeepAlive", Team::USA, glam::Vec3::ZERO)
         .unwrap();
-    let mut shadow = GameWorldShadow::new(64);
+    let mut shadow = GameWorldShadow::new();
     shadow.sync_from_host(&logic);
     logic.health_events.clear_heal();
 
@@ -232,7 +232,7 @@ fn experience_is_immediate_even_during_shadow_coupling() {
     let id = logic
         .create_object("RangerXp", Team::USA, glam::Vec3::new(3.0, 0.0, 3.0))
         .unwrap();
-    let mut shadow = GameWorldShadow::new(64);
+    let mut shadow = GameWorldShadow::new();
     shadow.sync_from_host(&logic);
     let entity = shadow.entity_for_host(id).unwrap();
     let before = logic.host_object(id).unwrap().experience.current;
@@ -323,7 +323,7 @@ fn host_update_movement_skips_when_gameworld_movement_authority() {
         .expect("o")
         .get_position()
         .x;
-    let mut shadow = GameWorldShadow::new(64);
+    let mut shadow = GameWorldShadow::new();
     // Multiple authority frames (path integrate + pose writeback each session).
     for _ in 0..10 {
         logic.update();
@@ -357,7 +357,7 @@ fn host_disable_timers_log_drives_set_disable_timers_channel() {
     let oid = logic
         .create_object("RangerDt", Team::USA, glam::Vec3::new(6.0, 0.0, 6.0))
         .expect("id");
-    let mut shadow = GameWorldShadow::new(64);
+    let mut shadow = GameWorldShadow::new();
     shadow.sync_from_host(&logic);
     let eid = *shadow.host_to_entity.get(&oid.0).expect("map");
 
@@ -436,7 +436,7 @@ fn host_experience_is_canonical_and_shadow_only_observes() {
     logic.award_experience(id, 42.0);
     peer.award_experience(peer_id, 7.0);
     assert_eq!(logic.host_object(id).unwrap().experience.current, 42.0);
-    let mut shadow = GameWorldShadow::new(64);
+    let mut shadow = GameWorldShadow::new();
     shadow.sync_from_host(&logic);
     let entity = shadow.entity_for_host(id).unwrap();
     assert_eq!(
@@ -497,7 +497,7 @@ fn canonical_max_health_is_projected_from_receiving_owner() {
     }
     assert_eq!(logic.host_object(oid).unwrap().max_health, 250.0);
     assert_eq!(logic.host_object(oid).unwrap().health.current, 200.0);
-    let mut shadow = GameWorldShadow::new(64);
+    let mut shadow = GameWorldShadow::new();
     shadow.sync_from_host(&logic);
     let eid = *shadow.host_to_entity.get(&oid.0).expect("map");
     if let Some(e) = shadow.world_mut().world_mut().entity_mut(eid) {
@@ -534,7 +534,7 @@ fn apply_host_positions_uses_host_orientation_channel() {
     let id = logic
         .create_object("OrientU", Team::USA, glam::Vec3::new(5.0, 0.0, 5.0))
         .expect("id");
-    let mut shadow = GameWorldShadow::new(64);
+    let mut shadow = GameWorldShadow::new();
     shadow.sync_from_host(&logic);
     let pos = {
         let obj = logic.host_objects().lookup(&id).unwrap();
@@ -581,7 +581,7 @@ fn set_transform_mutation_moves_shadow_entity() {
     let id = logic
         .create_object("MoveUnit", Team::USA, glam::Vec3::new(0.0, 0.0, 0.0))
         .expect("u");
-    let mut shadow = GameWorldShadow::new(64);
+    let mut shadow = GameWorldShadow::new();
     shadow.sync_from_host(&logic);
     {
         let (o, fixture_partition_o) = logic.host_object_and_partition_mut(id).unwrap();
@@ -643,7 +643,7 @@ fn spawn_is_committed_to_receiving_host_before_shadow_observation() {
     assert_eq!(object.template_name, "SpMut");
     assert_eq!(object.team, Team::USA);
     assert_eq!(object.get_position(), glam::Vec3::new(3.0, 0.0, 4.0));
-    let mut shadow = GameWorldShadow::new(4096);
+    let mut shadow = GameWorldShadow::new();
     shadow.sync_from_host(&logic); // may already map
     assert!(shadow.entity_for_host(id).is_some());
     let entity = shadow.entity_for_host(id).unwrap();
@@ -671,7 +671,7 @@ fn spawn_and_destroy_channel_maps_ids() {
     assert_eq!(object.team, Team::USA);
     assert_eq!(object.get_position(), glam::Vec3::new(3.0, 0.0, 0.0));
 
-    let mut shadow = GameWorldShadow::new(64);
+    let mut shadow = GameWorldShadow::new();
     shadow.sync_from_host(&logic);
     // apply_spawn should be no-op (already mapped)
     shadow.sync_from_host(&logic);
@@ -785,7 +785,7 @@ fn attack_log_feeds_set_attack_target_mutation() {
     assert_eq!(evs[0].attacker, a);
     assert_eq!(evs[0].target, b);
 
-    let mut shadow = GameWorldShadow::new(64);
+    let mut shadow = GameWorldShadow::new();
     shadow.sync_from_host(&logic);
     // Clear then re-apply via log channel
     let ea = shadow.entity_for_host(a).unwrap();
@@ -825,7 +825,7 @@ fn attack_target_syncs_to_shadow_entity() {
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     }
-    let mut shadow = GameWorldShadow::new(64);
+    let mut shadow = GameWorldShadow::new();
     shadow.sync_from_host(&logic);
     let ea = shadow.entity_for_host(a).unwrap();
     let eb = shadow.entity_for_host(b).unwrap();
@@ -856,7 +856,7 @@ fn attack_target_writeback_updates_host() {
     let b = logic
         .create_object("AtkWB", Team::GLA, glam::Vec3::new(20.0, 0.0, 0.0))
         .expect("b");
-    let mut shadow = GameWorldShadow::new(64);
+    let mut shadow = GameWorldShadow::new();
     shadow.sync_from_host(&logic);
     {
         let (object, attack_events) = logic.host_object_and_attack_events_mut(a).unwrap();
@@ -988,7 +988,7 @@ fn move_target_writeback_updates_host() {
     }
     let events = logic.movement_events.drain_for_host_boundary();
     assert!(!events.is_empty(), "move log should hold destination");
-    let mut shadow = GameWorldShadow::new(64);
+    let mut shadow = GameWorldShadow::new();
     shadow.sync_from_host(&logic);
     shadow.sync_from_host(&logic);
     shadow.sync_from_host(&logic);
@@ -1024,7 +1024,7 @@ fn production_complete_applies_spawn_map_when_missing() {
     let id = logic
         .create_object("PMapU", Team::USA, glam::Vec3::new(1.0, 0.0, 2.0))
         .expect("id");
-    let mut shadow = GameWorldShadow::new(64);
+    let mut shadow = GameWorldShadow::new();
     // Do not sync — only Complete path should map.
     let ev = [HostProductionEvent::Complete {
         producer: ObjectId(1),
@@ -1108,7 +1108,7 @@ fn production_complete_identifies_the_actual_created_object() {
     assert_eq!(object.template_name, "CompletionInfantry");
     assert_eq!(object.owner_player_id, Some(0));
     assert_eq!(object.team, Team::USA);
-    let mut shadow = GameWorldShadow::new(64);
+    let mut shadow = GameWorldShadow::new();
     shadow.sync_from_host(&logic);
     let entity = shadow
         .entity_for_host(spawned)
@@ -1347,7 +1347,7 @@ fn owned_damage_and_move_do_not_implicitly_publish_to_comparison_world() {
         .create_object("GwStoreU", Team::USA, glam::Vec3::new(0.0, 0.0, 0.0))
         .expect("id");
 
-    let mut shadow = GameWorldShadow::new(64);
+    let mut shadow = GameWorldShadow::new();
     shadow.sync_from_host(&logic);
 
     let before_gw = {
@@ -1419,7 +1419,7 @@ fn host_object_mut_borrows_owned_fields_without_observation_ingress() {
         .create_object("GwViewU", Team::USA, glam::Vec3::new(1.0, 0.0, 2.0))
         .expect("id");
 
-    let mut shadow = GameWorldShadow::new(64);
+    let mut shadow = GameWorldShadow::new();
     shadow.sync_from_host(&logic);
 
     let eid = shadow.entity_for_host(oid).expect("map");
@@ -1476,7 +1476,7 @@ fn owned_fat_fields_remain_visible_without_implicit_shadow_publication() {
         .create_object("GwFatPax", Team::USA, glam::Vec3::new(2.0, 0.0, 0.0))
         .expect("pax");
 
-    let mut shadow = GameWorldShadow::new(64);
+    let mut shadow = GameWorldShadow::new();
     shadow.sync_from_host(&logic);
 
     {
@@ -1595,7 +1595,7 @@ fn host_object_store_mutation_is_canonical_without_shadow_writeback() {
         .create_object("HostStoreU", Team::USA, glam::Vec3::new(8.0, 0.0, 1.0))
         .expect("victim");
 
-    let mut shadow = GameWorldShadow::new(64);
+    let mut shadow = GameWorldShadow::new();
     shadow.sync_from_host(&logic);
 
     {
@@ -1670,7 +1670,7 @@ fn is_alive_uses_owned_body_even_with_conflicting_comparison_health() {
         .create_object("AliveAuthU", Team::USA, glam::Vec3::new(0.0, 0.0, 0.0))
         .expect("id");
 
-    let mut shadow = GameWorldShadow::new(64);
+    let mut shadow = GameWorldShadow::new();
     shadow.sync_from_host(&logic);
 
     {
@@ -1716,7 +1716,7 @@ fn snapshot_builder_uses_authoritative_health() {
         .create_object("SnapAuthU", Team::USA, glam::Vec3::new(0.0, 0.0, 0.0))
         .expect("id");
 
-    let mut shadow = GameWorldShadow::new(64);
+    let mut shadow = GameWorldShadow::new();
     shadow.sync_from_host(&logic);
 
     {
@@ -1919,7 +1919,7 @@ fn no_shadow_boundary_preserves_completed_coupled_healing() {
         .create_object("PendingHealingTarget", Team::USA, Vec3::ZERO)
         .expect("target");
     logic.host_object_mut(id).unwrap().health.current = 40.0;
-    let mut shadow = GameWorldShadow::new(64);
+    let mut shadow = GameWorldShadow::new();
     shadow.sync_from_host(&logic);
     logic.health_events.clear_heal();
     {
@@ -1996,7 +1996,7 @@ fn coupled_tick_group_speed_reads_script_damage_from_host_owner_before_shadow_bo
     let formation = CommandExecutor::new(&mut logic, 0).execute_create_formation(&[fast, slow]);
     assert!(formation == CommandResult::Success);
 
-    let mut shadow = GameWorldShadow::new(64);
+    let mut shadow = GameWorldShadow::new();
     shadow.sync_from_host(&logic);
     let slow_eid = shadow.entity_for_host(slow).expect("slow shadow mapping");
     // The NAMED_DAMAGE request queues on this world's own script services,
@@ -2070,7 +2070,7 @@ fn host_logic_step_active_keeps_repeated_object_mutations_and_getters_on_owner()
     let target = logic
         .create_object("OwnerPhaseUnit", Team::USA, Vec3::new(5.0, 0.0, 6.0))
         .expect("target");
-    let mut shadow = GameWorldShadow::new(64);
+    let mut shadow = GameWorldShadow::new();
     shadow.sync_from_host(&logic);
     let source_eid = shadow.entity_for_host(source).expect("source mapping");
     let owner_position = [17.0, 0.0, 19.0];
@@ -2294,8 +2294,8 @@ fn interleaved_creation_and_peer_drop_stay_with_the_receiving_host() {
         a_id, b_id,
         "fixture deliberately overlaps session-local identities"
     );
-    let mut a_shadow = GameWorldShadow::new(64);
-    let mut b_shadow = GameWorldShadow::new(64);
+    let mut a_shadow = GameWorldShadow::new();
+    let mut b_shadow = GameWorldShadow::new();
     a_shadow.sync_from_host(&a);
     b_shadow.sync_from_host(&b);
     let a_entity = a_shadow.entity_for_host(a_id).unwrap();

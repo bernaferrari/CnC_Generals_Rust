@@ -127,7 +127,7 @@ fn economy_authority_applies_logged_spend() {
     };
     assert!(!events.is_empty());
 
-    let mut shadow = GameWorldShadow::new(64);
+    let mut shadow = GameWorldShadow::new();
     shadow.sync_from_host(&logic);
     // Desync shadow supplies upward, then apply log as authority.
     if let Some(p) = shadow
@@ -154,7 +154,7 @@ fn economy_authority_writeback_supplies() {
     let cfg = golden_skirmish_config("EconAuth");
     logic.admit_object_ini_sources(std::iter::empty()).expect("fixture Object content admitted before NewGame");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
-    let mut shadow = GameWorldShadow::new(64);
+    let mut shadow = GameWorldShadow::new();
     shadow.sync_from_host(&logic);
     assert!(!logic.get_players().is_empty());
     let mut ids: Vec<u32> = logic.get_players().keys().copied().collect();
@@ -229,7 +229,7 @@ fn economy_authority_pending_blocks_double_spend() {
     );
     assert_eq!(logic.get_player(hid).unwrap().resources.supplies, 50);
     assert_eq!(logic.get_player(hid).unwrap().effective_supplies(), 50);
-    let mut shadow = GameWorldShadow::new(64);
+    let mut shadow = GameWorldShadow::new();
     observe_completed_owner(&mut shadow, &mut logic);
     assert_eq!(logic.get_player(hid).unwrap().resources.supplies, 50);
 }
@@ -310,321 +310,9 @@ fn credit_supplies_defers_under_economy_authority() {
     };
     assert_eq!(logic.get_player(hid).unwrap().resources.supplies, 1250);
     assert_eq!(logic.get_player(hid).unwrap().effective_supplies(), 1250);
-    let mut shadow = GameWorldShadow::new(64);
+    let mut shadow = GameWorldShadow::new();
     observe_completed_owner(&mut shadow, &mut logic);
     assert_eq!(logic.get_player(hid).unwrap().resources.supplies, 1250);
-}
-
-#[test]
-fn construction_complete_heal_log_sets_full_hp_via_writeback() {
-    use crate::game_logic::{KindOf, Team, ThingTemplate};
-    let mut logic = GameLogic::new();
-
-    let cfg = golden_skirmish_config("ConstHp");
-    crate::fixture_content::admit_fixture_objects(
-        &mut logic,
-        &[
-            crate::fixture_content::FixtureObject::new("PadHp").kind_of("STRUCTURE").health(500.0),
-            crate::fixture_content::FixtureObject::new("HealthVictoryKeepAlive").kind_of("STRUCTURE MP_COUNT_FOR_VICTORY").health(100.0),
-        ],
-    );
-    apply_skirmish_config(&mut logic, &cfg).expect("cfg");
-    let oid = logic
-        .create_object("PadHp", Team::USA, glam::Vec3::new(8.0, 0.0, 8.0))
-        .expect("id");
-    {
-        let o = logic.host_object_mut(oid).expect("o");
-        o.status.under_construction = true;
-        o.construction_percent = 0.99;
-        o.health.current = 50.0;
-    }
-    // CPP VictoryConditions87–95/168–196: skirmish requires a live
-    // victory-counting structure. Otherwise the session defeats this player
-    // and kills its army while this control is checking health writeback.
-    logic
-        .create_object("HealthVictoryKeepAlive", Team::USA, glam::Vec3::ZERO)
-        .unwrap();
-    let mut shadow = GameWorldShadow::new(64);
-    shadow.sync_from_host(&logic);
-    // Simulate completion residual: log full HP without host mutate.
-    logic.health_events.clear_heal();
-
-    {
-        let body_frame = logic.frame;
-        let (o, health_events) = logic.host_object_and_health_events_mut(oid).expect("o");
-        let full = o.health.maximum;
-        o.heal(
-            (full - o.health.current).max(0.0),
-            health_events,
-            body_frame,
-        );
-
-        o.construction_percent = 1.0;
-        o.status.under_construction = false;
-    }
-    assert!((logic.host_objects().lookup(&oid).expect("o").health.current - 500.0).abs() < 1e-5);
-    observe_completed_owner(&mut shadow, &mut logic);
-    let o = logic.host_objects().lookup(&oid).expect("o");
-    assert!(
-        (o.health.current - o.health.maximum).abs() < 1e-3,
-        "hp {}",
-        o.health.current
-    );
-    assert!((o.construction_percent - 1.0).abs() < 1e-5);
-    assert!(!o.status.under_construction);
-}
-
-#[test]
-fn construction_shadow_reports_disagreement_without_rewriting_percent() {
-    use crate::game_logic::{KindOf, Team, ThingTemplate};
-    let mut logic = GameLogic::new();
-
-    let cfg = golden_skirmish_config("ConstAuth");
-    logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object PadAuth\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
-    apply_skirmish_config(&mut logic, &cfg).expect("cfg");
-    {
-        let mut t = ThingTemplate::new("PadAuth");
-        t.set_health(400.0);
-        t.build_time = 10.0;
-        t.add_kind_of(KindOf::Structure);
-        logic.templates.insert("PadAuth".into(), t);
-    }
-    let oid = logic
-        .create_object("PadAuth", Team::USA, glam::Vec3::new(9.0, 0.0, 9.0))
-        .expect("id");
-    {
-        let o = logic.host_object_mut(oid).expect("o");
-        o.status.under_construction = true;
-        o.construction_percent = 0.5;
-    }
-
-    assert!(
-        (logic
-            .host_objects()
-            .lookup(&oid)
-            .expect("o")
-            .construction_percent
-            - 0.5)
-            .abs()
-            < 1e-5
-    );
-    let mut shadow = GameWorldShadow::new(64);
-    shadow.sync_from_host(&logic);
-    // Projection updates are explicit; deliberate disagreement cannot change the host.
-
-    shadow.sync_from_host(&logic);
-    let entity = shadow.entity_for_host(oid).unwrap();
-    shadow
-        .world_mut()
-        .world_mut()
-        .entity_mut(entity)
-        .unwrap()
-        .construction_percent = 0.6;
-    assert!(shadow.compare_construction_to_host(&logic) >= 1);
-    assert!(
-        (logic
-            .host_objects()
-            .lookup(&oid)
-            .expect("o")
-            .construction_percent
-            - 0.5)
-            .abs()
-            < 1e-5
-    );
-}
-
-#[test]
-fn owned_construction_observation_never_advances_simulation_percent() {
-    use crate::game_logic::{KindOf, Team, ThingTemplate};
-    let mut logic = GameLogic::new();
-
-    let cfg = golden_skirmish_config("RateOnlyUc");
-    logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object PadRateUc\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
-    apply_skirmish_config(&mut logic, &cfg).expect("cfg");
-    {
-        let mut t = ThingTemplate::new("PadRateUc");
-        t.set_health(400.0);
-        t.build_time = 10.0;
-        t.add_kind_of(KindOf::Structure);
-        logic.templates.insert("PadRateUc".into(), t);
-    }
-    let oid = logic
-        .create_object("PadRateUc", Team::USA, glam::Vec3::new(11.0, 0.0, 11.0))
-        .expect("id");
-    {
-        let o = logic.host_object_mut(oid).expect("o");
-        o.status.under_construction = true;
-        o.construction_percent = 0.0;
-    }
-
-    // Observing current owned state cannot advance a construction timer.
-
-    let mut shadow = GameWorldShadow::new(64);
-    shadow.sync_from_host(&logic);
-    // Drop UC on the entity to reproduce the live mapping hole.
-    let eid = shadow.entity_for_host(oid).unwrap();
-    shadow
-        .world_mut()
-        .world_mut()
-        .entity_mut(eid)
-        .unwrap()
-        .under_construction = false;
-
-    let _ = shadow.sync_from_host(&logic);
-    let pct = shadow
-        .entity_for_host(oid)
-        .and_then(|eid| shadow.world.entity(eid).map(|e| e.construction_percent))
-        .unwrap_or(0.0);
-    assert_eq!(
-        pct, 0.0,
-        "shadow rate observation must not advance construction"
-    );
-    assert_eq!(logic.host_object(oid).unwrap().construction_percent, 0.0);
-}
-
-#[test]
-fn production_progress_log_drives_set_production_queue() {
-    use crate::game_logic::host_production_progress_log::{self, HostProductionQueueItem};
-    use crate::game_logic::{KindOf, Team, ThingTemplate};
-
-    let mut logic = GameLogic::new();
-    let cfg = golden_skirmish_config("ProdProg");
-    logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object FactProg\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
-    apply_skirmish_config(&mut logic, &cfg).expect("cfg");
-    {
-        let mut t = ThingTemplate::new("FactProg");
-        t.add_kind_of(KindOf::Structure);
-        t.add_kind_of(KindOf::FSBarracks);
-        logic.templates.insert("FactProg".into(), t);
-    }
-    let oid = logic
-        .create_object("FactProg", Team::USA, glam::Vec3::new(4.0, 0.0, 4.0))
-        .expect("id");
-
-    {
-        use crate::game_logic::{
-            BuildingData, BuildingType, ProductionItem, ProductionKind, Resources,
-        };
-        let mut data = BuildingData::new(BuildingType::Barracks);
-        data.production_queue.push(ProductionItem {
-            runtime_entry_identity: 0,
-            template_name: "Ranger".into(),
-            progress: 3.5,
-            total_time: 10.0,
-            construction_frames: 0,
-            cost: Resources {
-                supplies: 150,
-                power: 0,
-            },
-            quantity_total: 1,
-            quantity_produced: 0,
-            kind: ProductionKind::Unit,
-        });
-        logic.host_object_mut(oid).unwrap().building_data = Some(data);
-        logic.host_object_mut(oid).unwrap().production_exit_state.delay_frames = 36;
-    }
-    let mut shadow = GameWorldShadow::new(64);
-    shadow.sync_from_host(&logic);
-    let eid = *shadow.host_to_entity.get(&oid.0).expect("map");
-
-    shadow.sync_from_host(&logic);
-
-    let e = shadow.world().entity(eid).expect("e");
-    assert_eq!(e.production_queue_items.len(), 1);
-    assert!((e.production_queue_items[0].progress - 3.5).abs() < 1e-5);
-    assert_eq!(e.production_queue_items[0].template_name, "Ranger");
-    assert!((e.production_progress - 3.5).abs() < 1e-5);
-    assert!((e.exit_delay_remaining - 1.2).abs() < 1e-5);
-}
-
-#[test]
-fn exit_delay_remaining_channel_via_production_progress() {
-    use crate::game_logic::host_production_progress_log::{self, HostProductionQueueItem};
-    use crate::game_logic::{KindOf, Team, ThingTemplate};
-    // writeback_production_to_host is the opt-in GameLogic::set_production_authority(true)
-    // last-writer (default off like C++ no-shadow builds). Enable it here; hq-e84zk
-    // retired the env flag.
-
-    let mut logic = GameLogic::new();
-
-    let cfg = golden_skirmish_config("ExitDel");
-    logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object FactExit\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
-    apply_skirmish_config(&mut logic, &cfg).expect("cfg");
-    {
-        let mut t = ThingTemplate::new("FactExit");
-        t.add_kind_of(KindOf::Structure);
-        t.add_kind_of(KindOf::FSBarracks);
-        logic.templates.insert("FactExit".into(), t);
-    }
-    let oid = logic
-        .create_object("FactExit", Team::USA, glam::Vec3::new(5.0, 0.0, 5.0))
-        .expect("id");
-    {
-        let o = logic.host_object_mut(oid).expect("o");
-        o.production_exit_state.delay_frames = 75;
-    }
-
-    let mut shadow = GameWorldShadow::new(64);
-    shadow.sync_from_host(&logic);
-    let eid = *shadow.host_to_entity.get(&oid.0).expect("map");
-    shadow.sync_from_host(&logic);
-    assert!((shadow.world().entity(eid).unwrap().exit_delay_remaining - 2.5).abs() < 1e-5);
-    // Host cleared; GameWorld residual writeback restores exit delay.
-
-    shadow.sync_from_host(&logic);
-
-    let _ = shadow.compare_rebuild_producer_to_host(&logic);
-    shadow.sync_from_host(&logic);
-
-    let d = logic
-        .host_objects()
-        .lookup(&oid)
-        .unwrap()
-        .production_exit_state.delay_frames as f32 / 30.0;
-    assert!((d - 2.5).abs() < 1e-5, "exit delay wb got {d}");
-}
-
-#[test]
-fn body_damage_state_channel_via_set_body_damage() {
-    use crate::game_logic::host_enum_table_residual::HostBodyDamageType;
-    use crate::game_logic::{KindOf, Team, ThingTemplate};
-
-    let mut logic = GameLogic::new();
-    let cfg = golden_skirmish_config("BodyDmg");
-    logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object TankBd\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
-    apply_skirmish_config(&mut logic, &cfg).expect("cfg");
-    {
-        let mut t = ThingTemplate::new("TankBd");
-        t.add_kind_of(KindOf::Vehicle);
-        logic.templates.insert("TankBd".into(), t);
-    }
-    let oid = logic
-        .create_object("TankBd", Team::USA, glam::Vec3::new(10.0, 0.0, 10.0))
-        .expect("id");
-    {
-        let o = logic.host_object_mut(oid).expect("o");
-        o.body_damage_state = HostBodyDamageType::ReallyDamaged;
-    }
-
-    let mut shadow = GameWorldShadow::new(64);
-    shadow.sync_from_host(&logic);
-    let eid = *shadow.host_to_entity.get(&oid.0).expect("map");
-    shadow.sync_from_host(&logic);
-    assert_eq!(
-        shadow.world().entity(eid).unwrap().body_damage_state,
-        2,
-        "really damaged ordinal"
-    );
-
-    shadow.sync_from_host(&logic);
-
-    let _ = shadow.compare_rebuild_producer_to_host(&logic);
-    shadow.sync_from_host(&logic);
-
-    assert_eq!(
-        logic.host_objects().lookup(&oid).unwrap().body_damage_state,
-        HostBodyDamageType::ReallyDamaged
-    );
 }
 
 #[test]
@@ -657,7 +345,7 @@ fn weapon_last_fire_time_channel_via_set_weapon_stats() {
         can_target_ground: true,
         ..Default::default()
     });
-    let mut shadow = GameWorldShadow::new(64);
+    let mut shadow = GameWorldShadow::new();
     shadow.sync_from_host(&logic);
     let eid = *shadow.host_to_entity.get(&oid.0).expect("map");
     shadow.sync_from_host(&logic);
@@ -697,7 +385,7 @@ fn weapon_clip_size_channel_via_set_weapon_stats() {
         can_target_ground: true,
         ..Default::default()
     });
-    let mut shadow = GameWorldShadow::new(64);
+    let mut shadow = GameWorldShadow::new();
     shadow.sync_from_host(&logic);
     let eid = *shadow.host_to_entity.get(&oid.0).expect("map");
     shadow.sync_from_host(&logic);
@@ -731,7 +419,7 @@ fn canonical_front_crushed_is_projected_from_receiving_owner() {
         o.crushable_level = 1;
     }
 
-    let mut shadow = GameWorldShadow::new(64);
+    let mut shadow = GameWorldShadow::new();
     shadow.sync_from_host(&logic);
     let eid = *shadow.host_to_entity.get(&oid.0).expect("map");
     shadow.sync_from_host(&logic);
@@ -769,7 +457,7 @@ fn waiting_for_path_channel_via_set_movement() {
         o.movement.max_speed = 12.0;
     }
 
-    let mut shadow = GameWorldShadow::new(64);
+    let mut shadow = GameWorldShadow::new();
     shadow.sync_from_host(&logic);
     let eid = *shadow.host_to_entity.get(&oid.0).expect("map");
     shadow.sync_from_host(&logic);
@@ -812,7 +500,7 @@ fn locomotor_path_flags_channel_via_set_movement() {
         o.movement.max_speed = 15.0;
     }
 
-    let mut shadow = GameWorldShadow::new(64);
+    let mut shadow = GameWorldShadow::new();
     shadow.sync_from_host(&logic);
     let eid = *shadow.host_to_entity.get(&oid.0).expect("map");
     shadow.sync_from_host(&logic);
@@ -832,58 +520,6 @@ fn locomotor_path_flags_channel_via_set_movement() {
     assert!(o.is_braking);
     assert_eq!(o.queue_for_path_frame, 3);
     assert_eq!(o.path_timestamp, 42);
-}
-
-#[test]
-fn canonical_shock_stun_is_projected_from_receiving_owner() {
-    use crate::game_logic::{KindOf, Team, ThingTemplate};
-
-    let mut logic = GameLogic::new();
-    let cfg = golden_skirmish_config("ShockSt");
-    logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object ShockU\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
-    apply_skirmish_config(&mut logic, &cfg).expect("cfg");
-    {
-        let mut t = ThingTemplate::new("ShockU");
-        t.add_kind_of(KindOf::Infantry);
-        logic.templates.insert("ShockU".into(), t);
-    }
-    let oid = logic
-        .create_object("ShockU", Team::USA, glam::Vec3::new(11.0, 0.0, 11.0))
-        .expect("id");
-    {
-        let o = logic.host_object_mut(oid).expect("o");
-        o.shock_stun_frames = 30;
-        o.shock_yaw_rate = 0.5;
-        o.shock_pitch_rate = -0.25;
-        o.shock_roll_rate = 0.1;
-        o.shock_up_z = 0.9;
-        o.shock_allow_bounce = true;
-        o.shock_grounded_once = true;
-        o.shock_was_airborne = true;
-        o.cell_is_cliff = true;
-        o.cell_is_underwater = false;
-    }
-
-    let mut shadow = GameWorldShadow::new(64);
-    shadow.sync_from_host(&logic);
-    let eid = *shadow.host_to_entity.get(&oid.0).expect("map");
-    shadow.sync_from_host(&logic);
-    let e = shadow.world().entity(eid).unwrap();
-    assert_eq!(e.shock_stun_frames, 30);
-    assert!((e.shock_yaw_rate - 0.5).abs() < 1e-5);
-    assert!(e.shock_allow_bounce);
-    assert!(e.cell_is_cliff);
-
-    shadow.sync_from_host(&logic);
-
-    let _ = shadow.compare_rebuild_producer_to_host(&logic);
-    shadow.sync_from_host(&logic);
-
-    let o = logic.host_objects().lookup(&oid).unwrap();
-    assert_eq!(o.shock_stun_frames, 30);
-    assert!((o.shock_yaw_rate - 0.5).abs() < 1e-5);
-    assert!(o.shock_allow_bounce);
-    assert!(o.cell_is_cliff);
 }
 
 #[test]
@@ -915,7 +551,7 @@ fn blocked_path_channel_via_set_movement() {
         o.movement.max_speed = 10.0;
     }
 
-    let mut shadow = GameWorldShadow::new(64);
+    let mut shadow = GameWorldShadow::new();
     shadow.sync_from_host(&logic);
     let eid = *shadow.host_to_entity.get(&oid.0).expect("map");
     shadow.sync_from_host(&logic);
@@ -934,74 +570,4 @@ fn blocked_path_channel_via_set_movement() {
     assert!(o.is_blocked);
     assert_eq!(o.move_away_from, Some(other));
     assert_eq!(o.requested_victim_id, Some(other));
-}
-
-#[test]
-fn canonical_rebuild_producer_is_projected_from_receiving_owner() {
-    use crate::game_logic::{KindOf, Team, ThingTemplate};
-
-    let mut logic = GameLogic::new();
-    let cfg = golden_skirmish_config("RebuildP");
-    logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object HoleA\nEnd\nObject BldA\nEnd\nObject WorkerA\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
-    apply_skirmish_config(&mut logic, &cfg).expect("cfg");
-    for name in ["HoleA", "BldA", "WorkerA"] {
-        {
-            let mut t = ThingTemplate::new(name);
-            t.add_kind_of(KindOf::Structure);
-            logic.templates.insert(name.into(), t);
-        }
-    }
-    let hole = logic
-        .create_object("HoleA", Team::USA, glam::Vec3::new(20.0, 0.0, 20.0))
-        .expect("hole");
-    let bld = logic
-        .create_object("BldA", Team::USA, glam::Vec3::new(22.0, 0.0, 20.0))
-        .expect("bld");
-    let worker = logic
-        .create_object("WorkerA", Team::USA, glam::Vec3::new(24.0, 0.0, 20.0))
-        .expect("worker");
-    {
-        let o = logic.host_object_mut(hole).expect("o");
-        o.is_rebuild_hole = true;
-        o.rebuild_template_name = Some("BldA".into());
-        o.rebuild_ready_frame = 100;
-        o.rebuild_spawner_id = Some(bld);
-        o.rebuild_worker_id = Some(worker);
-        o.rebuild_reconstructing_id = Some(bld);
-        o.producer_id = Some(hole);
-        o.construction_complete_clear_frame = 250;
-    }
-
-    let mut shadow = GameWorldShadow::new(64);
-    shadow.sync_from_host(&logic);
-    let eid = *shadow.host_to_entity.get(&hole.0).expect("map");
-    shadow.sync_from_host(&logic);
-    let e = shadow.world().entity(eid).unwrap();
-    assert!(e.is_rebuild_hole);
-    assert_eq!(e.rebuild_template_name, "BldA");
-    assert_eq!(e.rebuild_ready_frame, 100);
-    assert_eq!(e.rebuild_spawner_id, Some(bld.0));
-    assert_eq!(e.rebuild_worker_id, Some(worker.0));
-    assert_eq!(e.rebuild_reconstructing_id, Some(bld.0));
-    assert_eq!(e.producer_id, Some(hole.0));
-    assert_eq!(e.construction_complete_clear_frame, 250);
-
-    shadow
-        .world_mut()
-        .world_mut()
-        .entity_mut(eid)
-        .unwrap()
-        .rebuild_ready_frame = 0;
-    assert!(shadow.compare_rebuild_producer_to_host(&logic) >= 1);
-    shadow.sync_from_host(&logic);
-
-    let o = logic.host_objects().lookup(&hole).unwrap();
-    assert!(o.is_rebuild_hole);
-    assert_eq!(o.rebuild_template_name.as_deref(), Some("BldA"));
-    assert_eq!(o.rebuild_ready_frame, 100);
-    assert_eq!(o.rebuild_spawner_id, Some(bld));
-    assert_eq!(o.rebuild_worker_id, Some(worker));
-    assert_eq!(o.rebuild_reconstructing_id, Some(bld));
-    assert_eq!(o.producer_id, Some(hole));
-    assert_eq!(o.construction_complete_clear_frame, 250);
 }

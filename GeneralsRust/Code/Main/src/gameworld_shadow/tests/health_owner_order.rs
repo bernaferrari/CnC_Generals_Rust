@@ -55,7 +55,7 @@ fn finish_injured_world(mut logic: GameLogic) -> (GameLogic, GameWorldShadow, Ob
     let object = logic.host_object_mut(id).unwrap();
     object.internal_change_health(40.0 - object.health.current);
     object.previous_health = 40.0;
-    let mut shadow = GameWorldShadow::new(64);
+    let mut shadow = GameWorldShadow::new();
     shadow.sync_from_host(&logic);
     logic.health_events.clear_damage();
     logic.health_events.clear_heal();
@@ -343,7 +343,7 @@ fn health_admission_preserves_max_health_and_experience_neighbors() {
 #[test]
 fn new_object_health_is_admitted_after_mapping_without_losing_heal() {
     let (mut logic, _initial_shadow, id) = injured_world();
-    let mut shadow = GameWorldShadow::new(64);
+    let mut shadow = GameWorldShadow::new();
     owner_heal(&mut logic, id, 40.0);
     let _ = owner_damage(&mut logic, id, 10.0);
     assert!(shadow.entity_for_host(id).is_none());
@@ -542,7 +542,7 @@ fn newly_mapped_body_does_not_replay_completed_damage() {
         let (mut logic, _initial_shadow, id) = injured_world();
         let _ = owner_damage(&mut logic, id, 10.0);
         assert_eq!(logic.host_object(id).unwrap().health.current, 30.0);
-        let mut shadow = GameWorldShadow::new(64);
+        let mut shadow = GameWorldShadow::new();
 
         if eager {
             observe_completed_owner(&mut shadow, &mut logic);

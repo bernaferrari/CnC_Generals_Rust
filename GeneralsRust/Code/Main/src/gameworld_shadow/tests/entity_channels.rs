@@ -29,7 +29,7 @@ fn canonical_sole_healing_is_projected_from_receiving_owner() {
         o.sole_healing_benefactor_expiration_frame = 900;
     }
 
-    let mut shadow = GameWorldShadow::new(64);
+    let mut shadow = GameWorldShadow::new();
     shadow.sync_from_host(&logic);
     let eid = *shadow.host_to_entity.get(&tgt.0).expect("map");
     shadow.sync_from_host(&logic);
@@ -66,7 +66,7 @@ fn ai_mood_is_canonical_and_shadow_only_observes() {
         o.set_auto_acquire_when_idle(false);
         o.attack_priority_set = Some("Soldier".into());
     }
-    let mut shadow = GameWorldShadow::new(64);
+    let mut shadow = GameWorldShadow::new();
     shadow.sync_from_host(&logic);
     let eid = *shadow.host_to_entity.get(&oid.0).expect("map");
     let e = shadow.world().entity(eid).unwrap();
@@ -114,7 +114,7 @@ fn guard_radius_is_owned_and_shadow_only_observes() {
         &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
     );
     assert!(logic.unit_command_set_guard_radius(oid, 175.0));
-    let mut shadow = GameWorldShadow::new(64);
+    let mut shadow = GameWorldShadow::new();
     shadow.sync_from_host(&logic);
     let entity = shadow.entity_for_host(oid).unwrap();
     assert_eq!(shadow.world().entity(entity).unwrap().guard_radius, 175.0);
@@ -165,7 +165,7 @@ fn canonical_production_door_is_projected_from_receiving_owner() {
         o.production_door_hold_open = true;
     }
 
-    let mut shadow = GameWorldShadow::new(64);
+    let mut shadow = GameWorldShadow::new();
     shadow.sync_from_host(&logic);
     let eid = *shadow.host_to_entity.get(&oid.0).expect("map");
     shadow.sync_from_host(&logic);
@@ -217,7 +217,7 @@ fn physics_motive_channel_via_set_physics_motive() {
         o.immune_to_falling_damage = true;
     }
 
-    let mut shadow = GameWorldShadow::new(64);
+    let mut shadow = GameWorldShadow::new();
     shadow.sync_from_host(&logic);
     let eid = *shadow.host_to_entity.get(&oid.0).expect("map");
     shadow.sync_from_host(&logic);
@@ -278,7 +278,7 @@ fn canonical_bounce_land_is_projected_from_receiving_owner() {
         o.ignore_collisions_with = Some(other);
     }
 
-    let mut shadow = GameWorldShadow::new(64);
+    let mut shadow = GameWorldShadow::new();
     shadow.sync_from_host(&logic);
     let eid = *shadow.host_to_entity.get(&oid.0).expect("map");
     shadow.sync_from_host(&logic);
@@ -344,7 +344,7 @@ fn turret_extended_channel_via_set_turret() {
         o.turret_ai.turret_substate = TurretSubState::Aim;
     }
 
-    let mut shadow = GameWorldShadow::new(64);
+    let mut shadow = GameWorldShadow::new();
     shadow.sync_from_host(&logic);
     let eid = *shadow.host_to_entity.get(&oid.0).expect("map");
     shadow.sync_from_host(&logic);
@@ -391,7 +391,7 @@ fn stealth_delay_channel_via_set_stealth_delay() {
         o.queue_second_material_pass(1.0);
     }
 
-    let mut shadow = GameWorldShadow::new(64);
+    let mut shadow = GameWorldShadow::new();
     shadow.sync_from_host(&logic);
     let eid = *shadow.host_to_entity.get(&oid.0).expect("map");
     shadow.sync_from_host(&logic);
@@ -447,7 +447,7 @@ fn combat_attack_channel_via_set_combat_attack() {
         o.group_speed_factor = 0.85;
     }
 
-    let mut shadow = GameWorldShadow::new(64);
+    let mut shadow = GameWorldShadow::new();
     shadow.sync_from_host(&logic);
     let eid = *shadow.host_to_entity.get(&oid.0).expect("map");
     shadow.sync_from_host(&logic);
@@ -510,7 +510,7 @@ fn locomotor_channel_via_set_locomotor() {
         o.physics_turning = crate::game_logic::PhysicsTurningType::TurnPositive;
     }
 
-    let mut shadow = GameWorldShadow::new(64);
+    let mut shadow = GameWorldShadow::new();
     shadow.sync_from_host(&logic);
     let eid = *shadow.host_to_entity.get(&oid.0).expect("map");
     shadow.sync_from_host(&logic);
@@ -580,7 +580,7 @@ fn canonical_ai_request_is_projected_from_receiving_owner() {
         o.selection_flash_remaining = 15;
     }
 
-    let mut shadow = GameWorldShadow::new(64);
+    let mut shadow = GameWorldShadow::new();
     shadow.sync_from_host(&logic);
     let eid = *shadow.host_to_entity.get(&oid.0).expect("map");
     shadow.sync_from_host(&logic);
@@ -637,7 +637,7 @@ fn canonical_hijacker_is_projected_from_receiving_owner() {
         o.next_detection_scan_frame = 33;
     }
 
-    let mut shadow = GameWorldShadow::new(64);
+    let mut shadow = GameWorldShadow::new();
     shadow.sync_from_host(&logic);
     let eid = *shadow.host_to_entity.get(&oid.0).expect("map");
     shadow.sync_from_host(&logic);
@@ -681,7 +681,7 @@ fn leech_range_channel_via_set_weapon_stats() {
         o.leech_range_active_primary = true;
         o.leech_range_active_secondary = true;
     }
-    let mut shadow = GameWorldShadow::new(64);
+    let mut shadow = GameWorldShadow::new();
     shadow.sync_from_host(&logic);
     let eid = *shadow.host_to_entity.get(&oid.0).expect("map");
 
@@ -731,7 +731,7 @@ fn fire_intent_channel_via_set_fire_intent() {
         o.fire_intent_count = 3;
     }
 
-    let mut shadow = GameWorldShadow::new(64);
+    let mut shadow = GameWorldShadow::new();
     shadow.sync_from_host(&logic);
     let eid = *shadow.host_to_entity.get(&oid.0).expect("map");
     shadow.sync_from_host(&logic);
@@ -774,7 +774,7 @@ fn projectile_flight_channel_via_set_projectile_flight() {
     projectile.lifetime = 0.5;
     projectile.max_lifetime = 3.0;
     projectile.is_homing = true;
-    let mut shadow = GameWorldShadow::new(64);
+    let mut shadow = GameWorldShadow::new();
     shadow.sync_from_host(&logic);
     let p = shadow
         .world()
@@ -837,7 +837,7 @@ fn parsed_missile_kill_self_snapshot_holds_shadow_pose_and_retires() {
     projectile.missile_kill_self_started_frame = Some(11);
 
     *logic.combat_system.projectile_mut(id).unwrap() = projectile;
-    let mut shadow = GameWorldShadow::new(64);
+    let mut shadow = GameWorldShadow::new();
     shadow.sync_from_host(&logic);
     assert_eq!(
         shadow.world().projectile(id.0).unwrap().flight_state,
@@ -923,7 +923,7 @@ fn projectile_authority_steps_flight_and_writeback() {
                 .0
         );
     }
-    let mut shadow = GameWorldShadow::new(64);
+    let mut shadow = GameWorldShadow::new();
     shadow.sync_from_host(&logic);
     let before = shadow
         .world()
