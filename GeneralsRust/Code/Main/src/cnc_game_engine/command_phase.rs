@@ -246,10 +246,10 @@ impl CnCGameEngine {
             // Keep step-scoped events and observer identities in source order.
             // Publication copies the final world fields after the batch.
             if !shell {
-                *presentation_entity_count = crate::gameworld_shadow::observe_host_step(
-                    owned_observer.as_deref_mut(),
-                    logic,
-                );
+                logic.complete_presentation_observations();
+                *presentation_entity_count = owned_observer
+                    .as_deref_mut()
+                    .map_or(0, |shadow| shadow.observe_completed_host_step(logic));
             }
         };
         match operation {

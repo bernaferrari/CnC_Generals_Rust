@@ -48,10 +48,8 @@ fn coalesced_presentation_keeps_per_step_entity_ids_for_short_lived_objects() {
         .unwrap();
     logic.frame = 1;
     eager.sync_from_host(&logic);
-    assert_eq!(
-        crate::gameworld_shadow::observe_host_step(Some(&mut deferred), &mut logic),
-        2
-    );
+    logic.complete_presentation_observations();
+    assert_eq!(deferred.observe_completed_host_step(&logic), 2);
     assert_eq!(
         deferred.entity_for_host(transient),
         eager.entity_for_host(transient)
@@ -64,7 +62,8 @@ fn coalesced_presentation_keeps_per_step_entity_ids_for_short_lived_objects() {
         .unwrap();
     logic.frame = 2;
     eager.sync_from_host(&logic);
-    crate::gameworld_shadow::observe_host_step(Some(&mut deferred), &mut logic);
+    logic.complete_presentation_observations();
+    deferred.observe_completed_host_step(&logic);
     deferred.sync_from_host(&logic);
 
     assert_eq!(deferred.world().frame(), 2);
