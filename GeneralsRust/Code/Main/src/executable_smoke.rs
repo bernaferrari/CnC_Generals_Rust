@@ -264,8 +264,6 @@ fn run_smoke_with_boot_retry(
 // game_logic/combat and shell_smoke/result):
 //   result → status → process → bootstrap → frame_loop → gameplay_chain →
 //   presentation → shutdown → report → tests.
-// EXECUTABLE_SMOKE_SRC in executable_smoke/tests.rs concatenates these in
-// the same order for the source-text honesty assertions.
 include!("executable_smoke/result.rs");
 include!("executable_smoke/status.rs");
 #[path = "executable_smoke/retail_map.rs"]

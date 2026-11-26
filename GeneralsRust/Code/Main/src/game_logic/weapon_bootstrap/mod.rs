@@ -108,5 +108,3 @@ pub use extra_bonus::*;
 
 #[cfg(test)]
 mod tests;
-
-// Concatenated live weapon_bootstrap sources for residual `include_str` scans.

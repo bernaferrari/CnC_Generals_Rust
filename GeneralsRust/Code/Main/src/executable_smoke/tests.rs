@@ -1,17 +1,4 @@
-// Lifecycle: tests for the executable smoke harness (source honesty,
-// status parsing, claim gates). Both pre-split test mods, unchanged.
-//
-// The harness source is split across executable_smoke.rs (hub) and the
-// executable_smoke/ lifecycle fragments concatenated in `include!` order.
-// Source-text honesty assertions that previously read the single-file
-// monolith now read EXECUTABLE_SMOKE_SRC — the identical text stream
-// (hub first, then fragments, then these tests, matching the pre-split
-// file order that satisfied self-referencing assertions such as
-// `pause_ok:paused` / `pause_ok:resumed`).
-
-/// Concatenated executable_smoke sources in pre-split monolith order — shared
-/// with the game_logic residual packs via the private `executable_smoke_source`
-/// module (single source of truth; do not fork the fragment list).
+// Tests for the executable smoke harness, including status parsing and claim gates.
 
 #[cfg(test)]
 mod tests {

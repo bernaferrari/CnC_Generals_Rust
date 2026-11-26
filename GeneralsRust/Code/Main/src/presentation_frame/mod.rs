@@ -88,10 +88,6 @@ pub use unit_render::*;
 pub use weapon_visual_dispatch::*;
 pub use world_env::*;
 
-/// Concatenated presentation_frame sources for residual `include_str` scans.
-///
-/// External crate tests previously read `presentation_frame.rs`. After the
-/// directory split they should compare against this pack instead of a single file.
 mod session_view;
 pub(crate) use session_view::receiving_look_at_target;
 pub(crate) use session_view::world_animations::WorldAnimations;

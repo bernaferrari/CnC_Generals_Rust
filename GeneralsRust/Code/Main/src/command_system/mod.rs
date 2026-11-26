@@ -35,5 +35,3 @@ pub use record_tap::*;
 
 #[cfg(test)]
 mod tests;
-
-// Concatenated live command_system sources for residual `include_str` scans.

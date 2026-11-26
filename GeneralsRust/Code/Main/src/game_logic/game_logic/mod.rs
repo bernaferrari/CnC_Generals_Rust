@@ -265,9 +265,6 @@ mod builder_catalog_tests;
 #[path = "../world_skirmish_tests.rs"]
 mod skirmish_starting_unit_residual_tests;
 
-/// Concatenated facade source in original `game_logic.rs` order.
-/// Source-scan tests that previously `include_str!` the monolith use this.
-
 #[cfg(test)]
 pub(in crate::game_logic) mod accepted_projectile_owner_tests;
 

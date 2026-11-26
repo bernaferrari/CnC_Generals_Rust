@@ -186,7 +186,6 @@ mod runtime_host_option_tests;
 #[cfg(test)]
 mod tests;
 
-/// Concatenated engine source for residual `include_str!` scans.
 mod camera_continuation;
 pub(crate) use camera_continuation::NativeCameraContinuation;
 

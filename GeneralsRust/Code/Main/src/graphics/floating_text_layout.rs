@@ -242,11 +242,6 @@ pub fn display_string_set_text_changed(previous: &str, new_text: &str) -> bool {
     previous != new_text
 }
 
-/// Honesty: setText residual matches C++ early-out vs notifyTextChanged path.
-pub fn honesty_display_string_set_text(previous: &str, new_text: &str, changed: bool) -> bool {
-    display_string_set_text_changed(previous, new_text) == changed
-}
-
 /// DisplayString `setFont` residual: whether font change arms residual dirty.
 ///
 /// C++ `W3DDisplayString::setFont`: if `font == NULL` return; if `m_font == font`
@@ -256,11 +251,6 @@ pub fn honesty_display_string_set_text(previous: &str, new_text: &str, changed: 
 #[inline]
 pub fn display_string_set_font_changed(previous_font: &str, new_font: &str) -> bool {
     !new_font.is_empty() && previous_font != new_font
-}
-
-/// Honesty: setFont residual matches C++ early-out vs m_fontChanged path.
-pub fn honesty_display_string_set_font(previous_font: &str, new_font: &str, changed: bool) -> bool {
-    display_string_set_font_changed(previous_font, new_font) == changed
 }
 
 /// DisplayString `getTextLength` residual: number of characters in residual text.
@@ -273,11 +263,6 @@ pub fn display_string_get_text_length(text: &str) -> u32 {
     text.chars().count() as u32
 }
 
-/// Honesty: getTextLength residual matches char count.
-pub fn honesty_display_string_get_text_length(text: &str, length: u32) -> bool {
-    display_string_get_text_length(text) == length
-}
-
 /// DisplayString `getText` residual: return current residual text string.
 ///
 /// C++ `DisplayString::getText` → `m_textString`. Host residual is identity.
@@ -285,11 +270,6 @@ pub fn honesty_display_string_get_text_length(text: &str, length: u32) -> bool {
 #[inline]
 pub fn display_string_get_text(text: &str) -> &str {
     text
-}
-
-/// Honesty: getText residual matches stored residual text.
-pub fn honesty_display_string_get_text(text: &str, got: &str) -> bool {
-    display_string_get_text(text) == got
 }
 
 /// DisplayString `reset` residual: clear text + clear font; does **not** notify.
@@ -300,11 +280,6 @@ pub fn honesty_display_string_get_text(text: &str, got: &str) -> bool {
 #[inline]
 pub fn display_string_reset_residual() -> (String, String, bool) {
     (String::new(), String::new(), false)
-}
-
-/// Honesty: reset residual clears text/font without notify residual.
-pub fn honesty_display_string_reset(text: &str, font: &str, notified: bool) -> bool {
-    text.is_empty() && font.is_empty() && !notified
 }
 
 /// DisplayString `appendChar` residual: append one char and notifyTextChanged.
@@ -1807,52 +1782,41 @@ mod tests {
     }
 
     #[test]
-    fn display_string_set_text_residual_honesty() {
+    fn display_string_set_text_notifies_only_on_change() {
         // Equal text → no change residual (C++ early return).
         assert!(!display_string_set_text_changed("+$150", "+$150"));
-        assert!(honesty_display_string_set_text("+$150", "+$150", false));
         // Different text → notifyTextChanged residual.
         assert!(display_string_set_text_changed("+$150", "+$200"));
-        assert!(honesty_display_string_set_text("+$150", "+$200", true));
         assert!(display_string_set_text_changed("", "+$0"));
         assert!(!display_string_set_text_changed("", ""));
     }
 
     #[test]
-    fn display_string_set_font_residual_honesty() {
+    fn display_string_set_font_ignores_same_or_empty_font() {
         // Equal font → no change residual (C++ early return).
         assert!(!display_string_set_font_changed("Arial", "Arial"));
-        assert!(honesty_display_string_set_font("Arial", "Arial", false));
         // Different font → m_fontChanged residual.
         assert!(display_string_set_font_changed("Arial", "Times"));
-        assert!(honesty_display_string_set_font("Arial", "Times", true));
         // Empty new font → fail-closed (C++ NULL font early return).
         assert!(!display_string_set_font_changed("Arial", ""));
-        assert!(honesty_display_string_set_font("Arial", "", false));
     }
 
     #[test]
-    fn display_string_get_text_length_residual_honesty() {
+    fn display_string_get_text_length_matches_caption_width() {
         assert_eq!(display_string_get_text_length("+$150"), 5);
-        assert!(honesty_display_string_get_text_length("+$150", 5));
         assert_eq!(display_string_get_text_length(""), 0);
-        assert!(honesty_display_string_get_text_length("", 0));
         assert_eq!(display_string_get_text_length("$200"), 4);
-        assert!(honesty_display_string_get_text_length("$200", 4));
         // Measure residual width tracks glyph width × length.
         let (w, _) = crate::graphics::game_text_residual::measure_display_string_residual("+$150");
         assert_eq!(w, display_string_get_text_length("+$150") * 8);
     }
 
     #[test]
-    fn display_string_get_text_and_reset_residual_honesty() {
+    fn display_string_get_text_and_reset_without_notify() {
         assert_eq!(display_string_get_text("+$150"), "+$150");
-        assert!(honesty_display_string_get_text("+$150", "+$150"));
         assert_eq!(display_string_get_text(""), "");
-        assert!(honesty_display_string_get_text("", ""));
 
         let (text, font, notified) = display_string_reset_residual();
-        assert!(honesty_display_string_reset(&text, &font, notified));
         assert!(text.is_empty() && font.is_empty() && !notified);
     }
 

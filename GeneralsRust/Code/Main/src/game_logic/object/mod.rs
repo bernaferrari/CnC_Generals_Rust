@@ -3063,8 +3063,6 @@ mod healing_state_callback_owner_tests;
 
 pub(crate) mod unit_ai_runtime;
 
-// Concatenated live `object/*.rs` sources (excluding tests) for residual scans.
-
 pub use unit_ai_runtime::{BaseAiContinuation, GuardTargetType, TemporaryAiMove};
 
 #[derive(Debug, Clone)]
