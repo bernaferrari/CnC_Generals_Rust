@@ -3142,8 +3142,13 @@ fn tensile_update_rubble_sets_body_rubble_without_destroy_object() {
     logic.set_current_frame(400);
     logic.update_tensile_formations();
 
-    let o = logic.host_object(a).expect("rubble object must remain present");
-    assert!(o.tensile_formation.as_ref().unwrap().rubble, "life>300 must rubble");
+    let o = logic
+        .host_object(a)
+        .expect("rubble object must remain present");
+    assert!(
+        o.tensile_formation.as_ref().unwrap().rubble,
+        "life>300 must rubble"
+    );
     assert_eq!(
         o.body_damage_state,
         HostBodyDamageType::Rubble,
@@ -3153,6 +3158,22 @@ fn tensile_update_rubble_sets_body_rubble_without_destroy_object() {
     assert!(o.status.effectively_dead, "BODY_RUBBLE → effectivelyDead");
     assert!(!o.status.destroyed, "rubble is not destroyObject");
     assert!(!o.status.on_die_started, "rubble does not run onDie");
+    assert!(!logic.has_pending_destroy_work());
+    for _ in 0..3 {
+        logic.complete_presentation_observations();
+        let frame =
+            crate::presentation_frame::PresentationFrame::try_build_from_logic(&mut logic, 0)
+                .unwrap();
+        let rubble = frame.objects.iter().find(|row| row.id == a).unwrap();
+        assert_eq!(rubble.health_current, 0.0);
+        assert_eq!(
+            rubble.body_damage_state,
+            HostBodyDamageType::Rubble.ordinal()
+        );
+    }
+    let owner = logic.host_object(a).unwrap();
+    assert!(!owner.status.destroyed);
+    assert!(!owner.status.on_die_started);
     assert!(!logic.has_pending_destroy_work());
 }
 

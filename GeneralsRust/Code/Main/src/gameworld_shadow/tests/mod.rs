@@ -64,7 +64,6 @@ mod entity_channels;
 mod factory_contain_commands;
 mod fire_damage;
 mod host_log_combat;
-mod presentation;
 mod radar_coupled;
 mod sciences_upgrades;
 mod sell_heal;
@@ -73,13 +72,10 @@ mod weapon_movement_authority;
 
 mod upgrade_completion_owner;
 
-mod ai_decision_owner;
 mod health_event_owner;
 mod health_owner_order;
 
-mod direct_destroy_owner;
 
-mod movement_event_owner;
 
 /// Complete the receiving world's receipts, then refresh this test's mirror.
 pub(super) fn observe_completed_owner(

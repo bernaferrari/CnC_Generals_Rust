@@ -1,22 +1,6 @@
-//! Presentation audio/input/select, residual acquire, host ObjectId sources.
+//! Script names and attack priorities use each world's actual ObjectIDs.
 
-use super::*;
-
-#[test]
-fn boot_residual_dual_scan_labels_source() {
-    // Every live get_objects dual-scan should sit near Boot residual / Fail-open labels
-    // when a presentation-first path exists.
-    let mut unlabeled = 0u32;
-    let mut total = 0u32;
-
-    let mut offset = 0usize;
-
-    assert!(
-        unlabeled == 0,
-        "all remaining get_objects dual-scans must be labeled (total={total} unlabeled={unlabeled})"
-    );
-    let _ = total;
-}
+use crate::game_logic::GameLogic;
 
 #[test]
 fn host_name_transfer_and_priority_use_receiving_object_ids() {

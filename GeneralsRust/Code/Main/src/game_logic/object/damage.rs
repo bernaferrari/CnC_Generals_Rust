@@ -1574,15 +1574,6 @@ mod tests {
         let mut health_events = crate::game_logic::HostHealthEvents::default();
 
         // C++ ActiveBody::internalChangeHealth (ActiveBody.cpp:1188+).
-        // Pre-fix: gameworld_damage_authority_live left health.current stale.
-        if crate::gameworld_shadow::isolated_shadow_case(
-            module_path!(),
-            "take_damage_applies_host_hp_same_frame",
-        ) {
-            return;
-        }
-        let mut logic = crate::game_logic::GameLogic::new();
-
         let mut tank = vehicle("SameFrameHp", 24, 100.0);
         assert!(!tank.take_damage_from_typed(
             25.0,
@@ -1593,7 +1584,7 @@ mod tests {
         ));
         assert!(
             (tank.health.current - 75.0).abs() < 1e-3,
-            "host HP must update this frame under damage authority, got {}",
+            "the body must update its health in the same frame, got {}",
             tank.health.current
         );
         assert!(tank.take_damage_from_typed(

@@ -414,9 +414,9 @@ fn guard_disabled_masks_reject_after_script_preparation() {
 }
 
 #[test]
-fn canonical_guard_command_movement_and_save_ignore_poisoned_shadow_and_same_id_peer() {
+fn guard_movement_save_and_presentation_keep_the_receiving_world() {
     use crate::game_logic::object::unit_ai_runtime::GuardPhase;
-    use crate::gameworld_shadow::GameWorldShadow;
+    use crate::presentation_frame::PresentationFrame;
     let (mut owner, id) = super::guard_return_rate_control_tests::unfinished_return();
     let (mut peer, peer_id, _) = world();
     assert_eq!(id, peer_id);
@@ -426,14 +426,20 @@ fn canonical_guard_command_movement_and_save_ignore_poisoned_shadow_and_same_id_
         .unit_ai_runtime
         .set_guard_scan_deadline(Some(500));
     let start = owner.host_object(id).unwrap().get_position();
+    peer.set_fixture_object_position(peer_id, Vec3::new(900.0, 0.0, 900.0));
+    guard(&mut peer, "NamedUnit");
     let peer_before = projection(&peer, peer_id);
-    let mut shadow = GameWorldShadow::new(64);
-    shadow.sync_from_host(&owner);
-    let entity = shadow.entity_for_host(id).unwrap();
-    let copy = shadow.world_mut().world_mut().entity_mut(entity).unwrap();
-    copy.guard_position = Some([900.0, 0.0, 900.0]);
-    copy.guard_target_host = peer_id.0;
-    copy.guard_radius = 999.0;
+    let frozen_peer = PresentationFrame::try_build_from_logic(&mut peer, 0).unwrap();
+    let peer_actor = frozen_peer
+        .objects
+        .iter()
+        .find(|row| row.id == peer_id)
+        .unwrap();
+    assert_eq!(peer_actor.guard_position, peer_before.anchor);
+    assert_ne!(
+        peer_actor.guard_position,
+        owner.host_object(id).unwrap().active_guard_position()
+    );
     let builder = crate::save_load::SnapshotBuilder::new();
     let snapshot = builder.create_world_snapshot(&owner).unwrap();
     // Restore into the same authored map/player definitions, not a bare world.
@@ -476,15 +482,14 @@ fn canonical_guard_command_movement_and_save_ignore_poisoned_shadow_and_same_id_
     assert_ne!(owner.host_object(id).unwrap().get_position(), start);
     assert!(!owner.host_object(id).unwrap().status.moving);
     let anchor = owner.host_object(id).unwrap().active_guard_position();
-    shadow.sync_from_host(&owner);
+    let frame = PresentationFrame::try_build_from_logic(&mut owner, 0).unwrap();
+    let actor = frame.objects.iter().find(|row| row.id == id).unwrap();
+    assert_eq!(actor.guard_position, anchor);
     assert_eq!(
-        shadow
-            .world()
-            .entity(entity)
-            .unwrap()
-            .guard_position,
-        anchor.map(|p| [p.x, p.y, p.z])
+        actor.guard_target,
+        owner.host_object(id).unwrap().active_guard_target()
     );
+    assert_eq!(peer_actor.guard_position, peer_before.anchor);
     peer.reset();
     drop(peer);
     assert_eq!(

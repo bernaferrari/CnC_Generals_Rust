@@ -1,12 +1,9 @@
-//! Death timers belong to their actual Main owner. These controls use real
-//! Object begin and shipped Main fixed frames, with same-ID peers and poisoned
-//! read-only observations that cannot request deletion.
-//! They do not insert into a completion queue. Retail jet/heli selectors and
-//! parsed SlowDeath domain rules are fixture admission, not full asset parity.
+//! Slow-death timers advance on their owning world's fixed frames. These
+//! fixtures start the Object behaviors directly and exercise final retirement,
+//! presentation, and same-ID peers.
 use super::*;
-use crate::gameworld_shadow::GameWorldShadow;
-
 use crate::game_logic::game_logic::world_tick::heli_motion_tests::isolated_at;
+use crate::presentation_frame::PresentationFrame;
 
 #[derive(Clone, Copy, Debug)]
 enum DeathKind {
@@ -15,12 +12,16 @@ enum DeathKind {
     Helicopter,
 }
 
-fn fixture(kind: DeathKind, start: bool) -> (GameLogic, GameWorldShadow, ObjectId) {
-    let name = match kind {
+fn template_name(kind: DeathKind) -> &'static str {
+    match kind {
         DeathKind::Slow => "OwnedDeathInfantry",
         DeathKind::Jet => "AmericaJetRaptor",
         DeathKind::Helicopter => "AmericaHelicopterComanche",
-    };
+    }
+}
+
+fn fixture(kind: DeathKind, start: bool) -> (GameLogic, ObjectId) {
+    let name = template_name(kind);
     let mut logic = GameLogic::new();
 
     let mut template = ThingTemplate::new(name);
@@ -100,26 +101,24 @@ End
         }
     }
     if owner_idle_entry {
-        assert!(
-            logic
-                .set_ai_state_decision_aware_for_ai(id, AIState::Idle)
-                .expect("slow-death Idle entry belongs to the receiving world")
-        );
+        assert!(logic
+            .set_ai_state_decision_aware_for_ai(id, AIState::Idle)
+            .expect("slow-death Idle entry belongs to the receiving world"));
         let actor = logic.host_object(id).unwrap();
         assert!(!actor.idle_mood_reset_pending);
     }
-    let mut shadow = GameWorldShadow::new(64);
-    shadow.sync_from_host(&logic);
-    // First sync admits identities; the incremental sync carries timer fields.
-    shadow.sync_from_host(&logic);
-    (logic, shadow, id)
+    (logic, id)
 }
 
-// Run the shipped authoritative step. The projection never advances a death timer.
-fn finish_owner(logic: &mut GameLogic, shadow: &mut GameWorldShadow, id: ObjectId) {
+fn finish_owner(logic: &mut GameLogic, id: ObjectId) {
+    let initial = PresentationFrame::try_build_from_logic(logic, 0).unwrap();
+    let actor = initial.objects.iter().find(|row| row.id == id).unwrap();
+    assert_eq!(actor.health_current, 100.0);
     for _ in 0..512 {
         let Some(object) = logic.host_object(id) else {
-            assert!(shadow.entity_for_host(id).is_none());
+            let finished = PresentationFrame::try_build_from_logic(logic, 0).unwrap();
+            assert!(finished.objects.iter().all(|row| row.id != id));
+            assert!(logic.host_objects().lookup_registered(&id).is_none());
             assert!(
                 logic.health_events.snapshot_damage().is_empty(),
                 "final destroy must not fabricate another body hit"
@@ -135,10 +134,10 @@ fn finish_owner(logic: &mut GameLogic, shadow: &mut GameWorldShadow, id: ObjectI
         logic.update();
         assert_eq!(logic.getFrame(), before + 1);
         logic.complete_presentation_observations();
-        shadow.sync_from_host(logic);
     }
-    panic!("actual owner death timer did not complete within its admitted fixture bounds");
+    panic!("the death timer did not complete within its fixture bounds");
 }
+
 fn assert_live(logic: &GameLogic, id: ObjectId, why: &str) {
     let object = logic.host_object(id).expect(why);
     assert!(object.is_alive(), "{why}");
@@ -147,14 +146,13 @@ fn assert_live(logic: &GameLogic, id: ObjectId, why: &str) {
     assert!(logic.objects_to_destroy.iter().all(|event| event.id != id));
 }
 fn two_worlds(kind: DeathKind) {
-    let (mut a, mut sa, aid) = fixture(kind, true);
-    let (mut b, mut sb, bid) = fixture(kind, false);
+    let (mut a, aid) = fixture(kind, true);
+    let (mut b, bid) = fixture(kind, false);
     assert_eq!(aid, bid);
     for _ in 0..3 {
         let frame = a.getFrame();
         b.update();
         b.complete_presentation_observations();
-        sb.sync_from_host(&b);
         assert_eq!(
             a.getFrame(),
             frame,
@@ -162,10 +160,9 @@ fn two_worlds(kind: DeathKind) {
         );
         assert_live(&b, bid, "foreign owner remains alive");
     }
-    finish_owner(&mut a, &mut sa, aid);
+    finish_owner(&mut a, aid);
     assert_live(&b, bid, "same-ID peer cannot receive final deletion");
     b.complete_presentation_observations();
-    sb.sync_from_host(&b);
     assert_live(
         &b,
         bid,
@@ -173,36 +170,51 @@ fn two_worlds(kind: DeathKind) {
     );
 }
 fn normal_completion(kind: DeathKind) {
-    let (mut a, mut sa, aid) = fixture(kind, true);
-    let (b, _sb, bid) = fixture(kind, false);
+    let (mut a, aid) = fixture(kind, true);
+    let (b, bid) = fixture(kind, false);
     assert_eq!(aid, bid);
-    finish_owner(&mut a, &mut sa, aid);
+    finish_owner(&mut a, aid);
     assert_live(&b, bid, "inert constructor or completion changed a peer");
 }
 fn owner_boundary(kind: DeathKind) {
-    for boundary in ["reset", "clear", "drop"] {
-        let (mut a, mut sa, aid) = fixture(kind, true);
-        let (mut b, _sb, bid) = fixture(kind, false);
-        assert_eq!(aid, bid);
-        let frame = a.getFrame();
-        match boundary {
-            "reset" => sa.reset_for_world_boundary(),
-            "clear" => sa.world_mut().clear_entities(),
-            "drop" => {
-                drop(sa);
-                sa = GameWorldShadow::new(64);
-            }
-            _ => unreachable!(),
+    let (mut owner, id) = fixture(kind, true);
+    let before = timer_capsule(&owner, id);
+    let frame = owner.getFrame();
+
+    let spawn_replacement = |peer: &mut GameLogic| {
+        peer.create_object(template_name(kind), Team::USA, Vec3::new(0.0, 10.0, 0.0))
+            .unwrap()
+    };
+    let (mut reset, reset_id) = fixture(kind, true);
+    assert_eq!(reset_id, id);
+    reset.reset();
+    assert!(reset.host_object(id).is_none());
+    assert_eq!(spawn_replacement(&mut reset), id);
+
+    let (mut cleared, cleared_id) = fixture(kind, true);
+    assert_eq!(cleared_id, id);
+    cleared.clear_all_objects();
+    assert!(cleared.host_object(id).is_none());
+    assert_eq!(spawn_replacement(&mut cleared), id);
+
+    let (retired, retired_id) = fixture(kind, true);
+    assert_eq!(retired_id, id);
+    drop(retired);
+    let (mut rebuilt, rebuilt_id) = fixture(kind, false);
+    assert_eq!(rebuilt_id, id);
+
+    assert_eq!(owner.getFrame(), frame);
+    assert_eq!(timer_capsule(&owner, id), before);
+    finish_owner(&mut owner, id);
+    for peer in [&mut reset, &mut cleared, &mut rebuilt] {
+        for _ in 0..32 {
+            peer.update();
         }
-        sa.sync_from_host(&b);
-        b.complete_presentation_observations();
-        sa.sync_from_host(&b);
-        assert_live(&b, bid, "observer reuse cannot deliver a foreign deletion");
-        assert_eq!(a.getFrame(), frame);
-        finish_owner(&mut a, &mut sa, aid);
-        assert_live(&b, bid, "observer lifecycle cannot change same-ID peer");
+        peer.complete_presentation_observations();
+        assert_live(peer, id, "replacement has no retired actor's timer");
     }
 }
+
 fn timer_capsule(logic: &GameLogic, id: ObjectId) -> serde_json::Value {
     let object = logic.host_object(id).expect("installed timer owner");
     assert_eq!(object.health.current, 100.0);
@@ -218,37 +230,33 @@ fn timer_capsule(logic: &GameLogic, id: ObjectId) -> serde_json::Value {
     })
 }
 
-fn disabled_timer(kind: DeathKind) {
-    let (mut a, mut sa, aid) = fixture(kind, true);
-    let frame = a.getFrame();
-    let before = timer_capsule(&a, aid);
-    // Independent oracle frames have no authority over Main timer execution.
-    sa.world_mut().advance_frames(128);
-    assert_eq!(a.getFrame(), frame);
-    assert_eq!(
-        timer_capsule(&a, aid),
-        before,
-        "observer clocks cannot advance or remove the installed owner timer"
-    );
-    sa.sync_from_host(&a);
-    finish_owner(&mut a, &mut sa, aid);
+fn idle_owner_clock(kind: DeathKind) {
+    let (mut owner, id) = fixture(kind, true);
+    let (mut peer, peer_id) = fixture(kind, false);
+    assert_eq!(id, peer_id);
+    let frame = owner.getFrame();
+    let before = timer_capsule(&owner, id);
+    for _ in 0..128 {
+        peer.update();
+    }
+    assert_eq!(peer.getFrame(), 128);
+    assert_live(&peer, peer_id, "the stepped peer remains alive");
+    assert_eq!(owner.getFrame(), frame);
+    assert_eq!(timer_capsule(&owner, id), before);
+    finish_owner(&mut owner, id);
 }
-fn authority_toggle(kind: DeathKind) {
-    let (mut a, mut sa, aid) = fixture(kind, true);
-    let before = timer_capsule(&a, aid);
-    let eid = sa.entity_for_host(aid).unwrap();
-    let entity = sa.world_mut().world_mut().entity_mut(eid).unwrap();
-    entity.slow_death_phase = 4;
-    entity.jet_slow_death_done = true;
-    entity.heli_slow_death_done = true;
-    a.complete_presentation_observations();
-    sa.sync_from_host(&a);
-    assert_eq!(
-        timer_capsule(&a, aid),
-        before,
-        "poisoned observer completion cannot mutate Main"
-    );
-    finish_owner(&mut a, &mut sa, aid);
+
+fn peer_completion(kind: DeathKind) {
+    let (mut owner, id) = fixture(kind, true);
+    let (mut peer, peer_id) = fixture(kind, true);
+    assert_eq!(id, peer_id);
+    let before = timer_capsule(&owner, id);
+    let frame = owner.getFrame();
+    finish_owner(&mut peer, peer_id);
+    owner.complete_presentation_observations();
+    assert_eq!(owner.getFrame(), frame);
+    assert_eq!(timer_capsule(&owner, id), before);
+    finish_owner(&mut owner, id);
 }
 
 macro_rules! control {
@@ -282,25 +290,25 @@ control!(
 control!(slow_reset_clear_drop_reuse_ids, Slow, owner_boundary);
 control!(jet_reset_clear_drop_reuse_ids, Jet, owner_boundary);
 control!(heli_reset_clear_drop_reuse_ids, Helicopter, owner_boundary);
-control!(slow_disabled_timer_then_reenable, Slow, disabled_timer);
-control!(jet_disabled_timer_then_reenable, Jet, disabled_timer);
+control!(slow_timer_waits_for_its_own_world, Slow, idle_owner_clock);
+control!(jet_timer_waits_for_its_own_world, Jet, idle_owner_clock);
 control!(
-    heli_disabled_timer_then_reenable,
+    heli_timer_waits_for_its_own_world,
     Helicopter,
-    disabled_timer
+    idle_owner_clock
 );
 control!(
-    slow_pending_completion_authority_toggle,
+    slow_peer_completion_cannot_end_owner_timer,
     Slow,
-    authority_toggle
+    peer_completion
 );
 control!(
-    jet_pending_completion_authority_toggle,
+    jet_peer_completion_cannot_end_owner_timer,
     Jet,
-    authority_toggle
+    peer_completion
 );
 control!(
-    heli_pending_completion_authority_toggle,
+    heli_peer_completion_cannot_end_owner_timer,
     Helicopter,
-    authority_toggle
+    peer_completion
 );

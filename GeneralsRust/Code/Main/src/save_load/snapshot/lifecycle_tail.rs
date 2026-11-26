@@ -2,8 +2,6 @@
 
 use crate::game_logic::object::{decode_lifecycle_snapshot_block, encode_lifecycle_snapshot_block};
 use crate::game_logic::{GameLogic, ObjectId};
-#[cfg(test)]
-use crate::gameworld_shadow::GameWorldShadow;
 use crate::save_load::{SaveLoadError, SaveLoadResult};
 use gamelogic::world::entities::EntityId;
 use gamelogic::world::entities::EntityLifecycleEnvelope;
@@ -1252,49 +1250,35 @@ mod tests {
     }
 
     #[test]
-    fn capture_keeps_canonical_main_links_independent_of_observer_generations() {
+    fn capture_keeps_own_links_across_same_id_peer_rebirth() {
         use crate::game_logic::{Object, Team, ThingTemplate};
-        use gamelogic::world::entities::{TemplateRef, Transform};
 
+        let id = ObjectId(9);
         let mut logic = GameLogic::new();
-        let mut object = Object::new(
-            ThingTemplate::new("CivilianTrainEngine"),
-            ObjectId(9),
-            Team::USA,
-        );
+        let mut object = Object::new(ThingTemplate::new("CivilianTrainEngine"), id, Team::USA);
         object.producer_id = Some(ObjectId(4));
         object.occupants.push(ObjectId(5));
-        logic.host_objects_mut().insert(ObjectId(9), object);
-
-        let mut shadow = GameWorldShadow::new(64);
-        shadow.sync_from_host(&logic);
-        let eid = shadow.entity_for_host(ObjectId(9)).expect("mapped");
-        // Roll the store occupant once so the live generation is 2.
-        assert!(shadow.world_mut().world_mut().remove_entity(eid));
-        assert_eq!(
-            shadow.world_mut().spawn_entity_at(
-                eid,
-                TemplateRef::new("CivilianTrainEngine"),
-                None,
-                Transform::default(),
-                100.0
-            ),
-            Some(eid)
-        );
-        assert_eq!(
-            shadow.world().entity_handle(eid).map(|h| h.generation()),
-            Some(2)
-        );
+        assert_eq!(logic.try_add_object(object).unwrap(), id);
 
         let tail = capture_lifecycle_tail(&logic).expect("valid lifecycle capture");
         let restored = decode_lifecycle_tail(&encode_lifecycle_tail(&tail)).unwrap();
         assert_eq!(restored, tail);
-        // A second same-ID Main owner and a recycled observation arena cannot
-        // author this owner's future saved links.
         let mut peer = GameLogic::new();
-        let mut peer_object = Object::new(ThingTemplate::new("Peer"), ObjectId(9), Team::China);
-        peer_object.producer_id = Some(ObjectId(77));
-        peer.host_objects_mut().insert(ObjectId(9), peer_object);
+        let spawn_peer = |peer: &mut GameLogic, producer| {
+            let mut actor = Object::new(ThingTemplate::new("Peer"), id, Team::China);
+            actor.producer_id = Some(ObjectId(producer));
+            assert_eq!(peer.try_add_object(actor).unwrap(), id);
+        };
+        spawn_peer(&mut peer, 88);
+        let birth = peer.host_object(id).unwrap().visual_object_generation;
+        peer.clear_all_objects();
+        assert!(peer.host_object(id).is_none());
+        spawn_peer(&mut peer, 77);
+        assert_ne!(
+            peer.host_object(id).unwrap().visual_object_generation,
+            birth
+        );
+
         assert_eq!(
             capture_lifecycle_tail(&logic).expect("valid lifecycle capture"),
             tail

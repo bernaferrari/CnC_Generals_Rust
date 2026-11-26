@@ -376,10 +376,9 @@ pub(in crate::game_logic) mod tests {
     }
 
     #[test]
-    fn canonical_missile_kill_self_removal_retires_receiving_projection() {
+    fn missile_kill_self_retires_the_published_projectile_at_its_deadline() {
         use crate::game_logic::GameLogic;
-        use crate::gameworld_shadow::GameWorldShadow;
-        use gamelogic::world::ProjectileFlightState;
+        use crate::presentation_frame::PresentationFrame;
 
         let mut owner = GameLogic::new();
         let id = owner.combat_system.fire_projectile(
@@ -402,17 +401,9 @@ pub(in crate::game_logic) mod tests {
         projectile.missile_kill_self_started_frame = Some(0);
         projectile.lifetime = 2.0 / 30.0;
         owner.frame = 2;
-        let mut projection = owner.with_own_services(|| GameWorldShadow::new(64));
-        owner.with_own_services_mut(|owner| projection.sync_from_host(owner));
-        let observed = projection
-            .world()
-            .projectiles()
-            .get(&id.0)
-            .expect("active hold observation");
-        assert_eq!(
-            observed.flight_state,
-            ProjectileFlightState::MissileKillSelfHold
-        );
+        assert!(projectile.is_missile_kill_self_holding());
+        let initial = PresentationFrame::try_build_from_logic(&mut owner, 0).unwrap();
+        let observed = initial.projectiles.iter().find(|row| row.id == id).unwrap();
         assert_eq!(observed.lifetime, 2.0 / 30.0);
         assert_eq!(
             owner.combat_system.projectile_mut(id).unwrap().lifetime,
@@ -449,15 +440,9 @@ pub(in crate::game_logic) mod tests {
             owner.combat_system.take_impact_fx().is_empty(),
             "KILL_SELF retirement must not detonate"
         );
-        assert!(
-            projection.world().projectiles().contains_key(&id.0),
-            "last frozen output remains immutable until refreshed"
-        );
-        projection.sync_from_host(&owner);
-        assert!(
-            !projection.world().projectiles().contains_key(&id.0),
-            "actual receiving freeze must apply active=false retirement for its previously observed ID"
-        );
+        let retired = PresentationFrame::try_build_from_logic(&mut owner, 0).unwrap();
+        assert!(retired.projectiles.iter().all(|row| row.id != id));
+        assert_eq!(observed.lifetime, 2.0 / 30.0);
         assert_eq!(owner.combat_system.projectile_count(), 0);
     }
 

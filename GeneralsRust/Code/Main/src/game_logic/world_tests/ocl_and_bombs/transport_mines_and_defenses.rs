@@ -2165,7 +2165,7 @@ fn base_defense_residual_patriot_auto_fires_without_attack_object() {
 }
 
 #[test]
-fn residual_auto_fire_commits_canonical_target_before_observation() {
+fn auto_fire_commits_its_target_before_the_frame_is_published() {
     let mut logic = GameLogic::new();
 
     // Ordering hazard (R6): do NOT create a second GameLogic after this
@@ -2203,15 +2203,14 @@ fn residual_auto_fire_commits_canonical_target_before_observation() {
     assert!(logic.host_object(attacker).unwrap().target.is_none());
     let weapon = logic.host_object(attacker).and_then(|o| o.weapon.clone());
     let pos = logic.host_object(attacker).unwrap().get_position();
-    let _ = logic.residual_auto_fire_apply_damage(attacker, victim, 10.0, pos, weapon.as_ref(), 0).unwrap();
+    let _ = logic
+        .residual_auto_fire_apply_damage(attacker, victim, 10.0, pos, weapon.as_ref(), 0)
+        .unwrap();
     assert_eq!(logic.host_object(attacker).unwrap().target, Some(victim));
-    let mut shadow = crate::gameworld_shadow::GameWorldShadow::new(64);
-    shadow.sync_from_host(&logic);
-    let entity = shadow.entity_for_host(attacker).unwrap();
-    assert_eq!(
-        shadow.world().entity(entity).unwrap().attack_target,
-        shadow.entity_for_host(victim)
-    );
+    let frame =
+        crate::presentation_frame::PresentationFrame::try_build_from_logic(&mut logic, 0).unwrap();
+    let actor = frame.objects.iter().find(|row| row.id == attacker).unwrap();
+    assert_eq!(actor.attack_target, Some(victim));
 }
 
 #[test]
@@ -2232,7 +2231,34 @@ fn stinger_site_residual_dual_fire_and_ap_rockets() {
     // before Objects are created.
     game_logic.projectile_definitions =
         crate::game_logic::projectile_definitions::fixture_projectile_definitions();
-    game_logic.admit_default_locomotors_if_unadmitted();
+    let mut locomotors = game_engine::common::ini::ini_locomotor::LocomotorStore::new_owned();
+    locomotors
+        .apply_source(
+            r#"
+Locomotor StingerMissileLocomotor
+  Surfaces = AIR
+  Speed = 400
+  MinSpeed = 120
+  Acceleration = 900
+  Braking = 0
+  TurnRate = 625
+  MaxThrustAngle = 60
+  AllowAirborneMotiveForce = Yes
+  Appearance = THRUST
+  CloseEnoughDist3D = No
+End
+"#,
+        )
+        .unwrap();
+    game_logic.admit_locomotor_definitions(locomotors).unwrap();
+    assert!(
+        game_logic
+            .projectile_definitions
+            .get("StingerMissile")
+            .unwrap()
+            .locomotor
+            .is_some()
+    );
     ensure_test_tank_template(&mut game_logic);
 
     let mut stinger_tpl = crate::game_logic::ThingTemplate::new("GLA_StingerSite");
@@ -2416,7 +2442,6 @@ fn stinger_site_residual_dual_fire_and_ap_rockets() {
         assert!((sec.damage - STINGER_AIR_DAMAGE * STINGER_AP_ROCKETS_DAMAGE_MULT).abs() < 0.01);
     }
     assert!(game_logic.stinger_site_residual_ap_rockets_upgrades() > 0);
-
 }
 
 

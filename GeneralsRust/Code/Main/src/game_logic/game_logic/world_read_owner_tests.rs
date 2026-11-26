@@ -1,8 +1,8 @@
-//! Ordinary production queries borrow their actual world, even while another
-//! same-ID comparison session is published on the calling thread.
+//! Queries, mutable borrows, and fixed steps use their receiving world even
+//! when another world registers the same ObjectIDs.
 use super::pose_owner_tests::isolated_at;
 use super::*;
-use crate::gameworld_shadow::GameWorldShadow;
+use crate::presentation_frame::PresentationFrame;
 
 fn fixture(health: f32, cash: u32, x: f32) -> (GameLogic, ObjectId, ObjectId) {
     // C++ ThingFactory builds Objects only from INI it parsed into module
@@ -71,21 +71,23 @@ End
     (world, source, target)
 }
 
-fn conflicting_shadow() -> (GameLogic, ObjectId, ObjectId, GameWorldShadow) {
-    let (foreign, id, target) = fixture(0.0, 901, 91.0);
-    let mut shadow = GameWorldShadow::new(16);
-    shadow.sync_from_host(&foreign);
-    let eid = shadow.entity_for_host(id).unwrap();
-    let entity = shadow.world_mut().world_mut().entity_mut(eid).unwrap();
-    entity.weapon_ammo = 0;
-    entity.weapon_clip_size = 9;
-    entity.occupant_count = 7;
-    entity.attack_substate_ordinal = 0;
-    entity.attack_target = None;
-    entity.move_target = None;
-    entity.construction_percent = 1.0;
-    entity.under_construction = false;
-    (foreign, id, target, shadow)
+fn conflicting_world() -> (GameLogic, ObjectId, ObjectId) {
+    let (mut world, id, target) = fixture(0.0, 901, 91.0);
+    let object = world.host_object_mut(id).unwrap();
+    let weapon = object.weapon.as_mut().unwrap();
+    weapon.ammo = Some(0);
+    weapon.clip_size = 9;
+    object.set_attack_substate(crate::game_logic::AttackSubState::AimAtTarget);
+    object.target = None;
+    object.movement.target_position = None;
+    object.construction_percent = 1.0;
+    object.status.under_construction = false;
+    if let Some(building) = object.building_data.as_mut() {
+        building.garrisoned_units.clear();
+    } else {
+        object.occupants.clear();
+    }
+    (world, id, target)
 }
 
 #[test]
@@ -95,154 +97,135 @@ fn all_object_and_player_queries_use_the_receiving_owner() {
         "all_object_and_player_queries_use_the_receiving_owner",
         || {
             let (world, id, target) = fixture(80.0, 101, 1.0);
-            let (_foreign, foreign_id, foreign_target, mut shadow) = conflicting_shadow();
+            let (mut foreign, foreign_id, foreign_target) = conflicting_world();
             assert_eq!((id, target), (foreign_id, foreign_target));
 
-            {
-                assert_eq!(
-                    shadow
-                        .world()
-                        .entity(shadow.entity_for_host(id).unwrap())
-                        .map(|entity| entity.health),
-                    Some(0.0),
-                    "positive control observes the foreign entity"
-                );
-                assert_eq!(
-                    shadow
-                        .world()
-                        .player(shadow.player_for_host(0).unwrap())
-                        .map(|player| player.supplies),
-                    Some(901)
-                );
-                let object = world.host_object(id).unwrap();
-                assert!(
-                    object.is_alive(),
-                    "ordinary liveness must use the receiving body"
-                );
-                assert_eq!(object.get_health_percentage(), 0.8);
-                assert!(!object.is_constructed());
-                assert_eq!(world.host_authoritative_health(id), Some(80.0));
-                assert_eq!(world.host_authoritative_pose(id), Some([1.0, 0.0, 2.0]));
-                assert_eq!(world.host_authoritative_cash(0), Some(101));
-                assert_eq!(world.host_authoritative_target(id), Some(target));
-                assert_eq!(
-                    world.host_authoritative_move_dest(id),
-                    Some([11.0, 0.0, 12.0])
-                );
-                assert_eq!(
-                    world.host_authoritative_construction(id),
-                    Some((0.25, true))
-                );
-                assert_eq!(world.host_authoritative_weapon_ammo(id), Some(2));
-                assert_eq!(
-                    world.host_authoritative_projectile_clip_statuses(id),
-                    [Some((2, 4)), Some((3, 5)), Some((4, 6))]
-                );
-                assert_eq!(world.host_authoritative_occupant_count(id), Some(1));
-                assert_eq!(world.host_authoritative_contained_units(id), vec![target]);
-                assert_eq!(
-                    world.host_authoritative_attack_substate(id),
-                    Some(crate::game_logic::AttackSubState::ApproachTarget.to_ordinal())
-                );
-                let cloned = object.clone();
-                assert!(cloned.is_alive());
-                assert_eq!(cloned.get_health_percentage(), 0.8);
-                let saved = crate::save_load::snapshot::SnapshotBuilder::new()
-                    .create_world_snapshot(&world)
-                    .unwrap();
-                assert_eq!(saved.objects[&id].health.current, 80.0);
-                assert_eq!(
-                    saved.objects[&id].geometry.position,
-                    Vec3::new(1.0, 0.0, 2.0)
-                );
-                assert_eq!(
-                    world.host_authoritative_health(ObjectId(9001)),
-                    None,
-                    "a foreign mapping cannot admit a missing host object"
-                );
-            };
+            let frame = PresentationFrame::try_build_from_logic(&mut foreign, 0).unwrap();
+            let actor = frame.objects.iter().find(|row| row.id == id).unwrap();
+            assert_eq!(actor.health_current, 0.0);
+            assert_eq!(actor.position, Vec3::new(91.0, 0.0, 2.0));
+            assert_eq!(frame.local_supplies, 901);
+            assert_eq!(actor.attack_target, None);
+            assert_eq!(foreign.host_authoritative_move_dest(id), None);
+            assert_eq!(
+                foreign.host_authoritative_construction(id),
+                Some((1.0, false))
+            );
+            assert_eq!(foreign.host_authoritative_weapon_ammo(id), Some(0));
+            assert_eq!(foreign.host_authoritative_occupant_count(id), Some(0));
+            assert_eq!(
+                foreign.host_authoritative_attack_substate(id),
+                Some(crate::game_logic::AttackSubState::AimAtTarget.to_ordinal())
+            );
+
+            let object = world.host_object(id).unwrap();
+            assert!(object.is_alive());
+            assert_eq!(object.get_health_percentage(), 0.8);
+            assert!(!object.is_constructed());
+            assert_eq!(world.host_authoritative_health(id), Some(80.0));
+            assert_eq!(world.host_authoritative_pose(id), Some([1.0, 0.0, 2.0]));
+            assert_eq!(world.host_authoritative_cash(0), Some(101));
+            assert_eq!(world.host_authoritative_target(id), Some(target));
+            assert_eq!(
+                world.host_authoritative_move_dest(id),
+                Some([11.0, 0.0, 12.0])
+            );
+            assert_eq!(
+                world.host_authoritative_construction(id),
+                Some((0.25, true))
+            );
+            assert_eq!(world.host_authoritative_weapon_ammo(id), Some(2));
+            assert_eq!(
+                world.host_authoritative_projectile_clip_statuses(id),
+                [Some((2, 4)), Some((3, 5)), Some((4, 6))]
+            );
+            assert_eq!(world.host_authoritative_occupant_count(id), Some(1));
+            assert_eq!(world.host_authoritative_contained_units(id), vec![target]);
+            assert_eq!(
+                world.host_authoritative_attack_substate(id),
+                Some(crate::game_logic::AttackSubState::ApproachTarget.to_ordinal())
+            );
+            let cloned = object.clone();
+            assert!(cloned.is_alive());
+            assert_eq!(cloned.get_health_percentage(), 0.8);
+            let saved = crate::save_load::snapshot::SnapshotBuilder::new()
+                .create_world_snapshot(&world)
+                .unwrap();
+            assert_eq!(saved.objects[&id].health.current, 80.0);
+            assert_eq!(
+                saved.objects[&id].geometry.position,
+                Vec3::new(1.0, 0.0, 2.0)
+            );
+            assert_eq!(world.host_authoritative_health(ObjectId(9001)), None);
         },
     );
 }
 
 #[test]
-fn ordinary_mutable_borrows_never_overlay_or_publish_a_foreign_world() {
+fn ordinary_mutable_borrows_edit_only_the_receiving_world() {
     isolated_at(
         module_path!(),
-        "ordinary_mutable_borrows_never_overlay_or_publish_a_foreign_world",
+        "ordinary_mutable_borrows_edit_only_the_receiving_world",
         || {
             let (mut world, id, target) = fixture(80.0, 101, 1.0);
-            let (foreign, foreign_id, _, mut shadow) = conflicting_shadow();
+            let (foreign, foreign_id, _) = conflicting_world();
             assert_eq!(id, foreign_id);
-            let eid = shadow.entity_for_host(id).unwrap();
 
-            {
-                // C++ Object::setPosition updates the Object's own
-                // PartitionManager entry; the receiving world lends it here.
-                let (object, partition) = world.host_object_and_partition_mut(id).unwrap();
-                assert_eq!(
-                    object.health.current, 80.0,
-                    "borrow must not copy foreign HP"
-                );
-                assert_eq!(object.get_position(), Vec3::new(1.0, 0.0, 2.0));
-                assert_eq!(object.target, Some(target));
-                object.health.current = 65.0;
-                object.set_position_with_partition_owner(
-                    Vec3::new(17.0, 0.0, 19.0),
-                    0,
-                    &mut Default::default(),
-                    partition,
-                );
-                world
-                    .with_host_object_mut(id, |object| {
-                        assert_eq!(object.health.current, 65.0);
-                        assert_eq!(object.get_position(), Vec3::new(17.0, 0.0, 19.0));
-                        object.health.current = 55.0;
-                    })
-                    .unwrap();
-                let (object, events) = world.host_object_and_health_events_mut(id).unwrap();
-                assert_eq!(object.health.current, 55.0);
-                assert!(events.snapshot_damage().is_empty());
-                assert_eq!(world.host_authoritative_health(id), Some(55.0));
-                assert_eq!(
-                    shadow
-                        .world()
-                        .entity(shadow.entity_for_host(id).unwrap())
-                        .map(|entity| entity.health),
-                    Some(0.0)
-                );
-            };
-            assert_eq!(shadow.world().entity(eid).unwrap().health, 0.0);
-            assert_eq!(foreign.objects[&id].health.current, 0.0);
-            assert_eq!(world.objects[&id].health.current, 55.0);
+            // C++ Object::setPosition updates the Object's PartitionManager entry.
+            let (object, partition) = world.host_object_and_partition_mut(id).unwrap();
+            assert_eq!(object.health.current, 80.0);
+            assert_eq!(object.get_position(), Vec3::new(1.0, 0.0, 2.0));
+            assert_eq!(object.target, Some(target));
+            object.health.current = 65.0;
+            object.set_position_with_partition_owner(
+                Vec3::new(17.0, 0.0, 19.0),
+                0,
+                &mut Default::default(),
+                partition,
+            );
+            world
+                .with_host_object_mut(id, |object| {
+                    assert_eq!(object.health.current, 65.0);
+                    assert_eq!(object.get_position(), Vec3::new(17.0, 0.0, 19.0));
+                    object.health.current = 55.0;
+                })
+                .unwrap();
+            let (object, events) = world.host_object_and_health_events_mut(id).unwrap();
+            assert_eq!(object.health.current, 55.0);
+            assert!(events.snapshot_damage().is_empty());
+
+            let frame = PresentationFrame::try_build_from_logic(&mut world, 0).unwrap();
+            let actor = frame.objects.iter().find(|row| row.id == id).unwrap();
+            assert_eq!(actor.health_current, 55.0);
+            assert_eq!(actor.position, Vec3::new(17.0, 0.0, 19.0));
+            assert_eq!(foreign.host_authoritative_health(id), Some(0.0));
+            assert_eq!(foreign.host_authoritative_pose(id), Some([91.0, 0.0, 2.0]));
+            assert_eq!(foreign.host_authoritative_target(id), None);
         },
     );
 }
 
 #[test]
-fn a_completed_logic_step_cannot_ingress_same_id_foreign_shadow_values() {
+fn fixed_step_and_foreign_world_reset_preserve_the_receiving_body() {
     isolated_at(
         module_path!(),
-        "a_completed_logic_step_cannot_ingress_same_id_foreign_shadow_values",
+        "fixed_step_and_foreign_world_reset_preserve_the_receiving_body",
         || {
             let (mut world, id, _) = fixture(80.0, 101, 1.0);
-            let (mut foreign, foreign_id, _, mut shadow) = conflicting_shadow();
+            let (mut foreign, foreign_id, _) = conflicting_world();
             assert_eq!(id, foreign_id);
-            let before = world.objects[&id].get_position();
+            assert_eq!(foreign.host_authoritative_health(id), Some(0.0));
+            let before = world.host_object(id).unwrap().get_position();
+            let result = world.update_with_dt(1.0 / 30.0);
+            assert_eq!(result.steps_run, 1);
+            let object = world.host_object(id).unwrap();
+            assert_eq!(object.health.current, 80.0);
+            assert!(!object.status.destroyed);
+            assert_eq!(object.get_position(), before);
 
-            {
-                let result = world.update_with_dt(1.0 / 30.0);
-                assert_eq!(result.steps_run, 1, "actual Main fixed step ran");
-                assert_eq!(
-                    world.objects[&id].health.current, 80.0,
-                    "begin-step must not replace the canonical body"
-                );
-                assert!(!world.objects[&id].status.destroyed);
-                assert_eq!(world.objects[&id].get_position(), before);
-                assert_eq!(world.host_authoritative_health(id), Some(80.0));
-            };
             foreign.reset();
-            assert_eq!(world.objects[&id].health.current, 80.0);
+            assert!(foreign.host_object(id).is_none());
+            assert_eq!(world.host_authoritative_health(id), Some(80.0));
             assert_eq!(world.get_frame(), 1);
             drop(foreign);
             assert_eq!(world.host_authoritative_health(id), Some(80.0));
@@ -257,25 +240,17 @@ fn victory_phase_updates_the_receiving_players_from_owned_objects() {
         "victory_phase_updates_the_receiving_players_from_owned_objects",
         || {
             let (mut world, id, _) = fixture(80.0, 101, 1.0);
-            let (_foreign, foreign_id, _, mut shadow) = conflicting_shadow();
+            let (mut foreign, foreign_id, _) = conflicting_world();
             assert_eq!(id, foreign_id);
             world.players.get_mut(&0).unwrap().is_alive = false;
+            foreign.evaluate_victory_condition().unwrap();
+            assert!(!foreign.players[&0].is_alive);
+            assert_eq!(foreign.host_authoritative_health(id), Some(0.0));
 
-            {
-                assert_eq!(
-                    shadow
-                        .world()
-                        .entity(shadow.entity_for_host(id).unwrap())
-                        .map(|entity| entity.health),
-                    Some(0.0)
-                );
-                world.evaluate_victory_condition().unwrap();
-                assert!(
-                    world.players[&0].is_alive,
-                    "victory derives life from this world's actual objects"
-                );
-                assert_eq!(world.objects[&id].health.current, 80.0);
-            };
+            world.evaluate_victory_condition().unwrap();
+            assert!(world.players[&0].is_alive);
+            assert_eq!(world.host_authoritative_health(id), Some(80.0));
+            assert!(!foreign.players[&0].is_alive);
         },
     );
 }

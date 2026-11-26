@@ -225,22 +225,16 @@ fn finished(world: &GameLogic, id: ObjectId, collapse: bool) -> bool {
     }
 }
 
-fn exercise_retained_body(coupled: bool) {
+fn exercise_retained_body(publish_frames: bool) {
+    use crate::presentation_frame::PresentationFrame;
     bind_test_world();
     for collapse in [false, true] {
         let (mut world, id, victim) = lethal_owner(collapse);
-        let mut shadow = crate::gameworld_shadow::GameWorldShadow::new(64);
         let mut completed = false;
         for _ in 0..800 {
-            if coupled {
-                world.update();
-            } else {
-                world.update();
-            }
-            if coupled {
-                shadow.sync_from_host(&world);
+            world.update();
+            if publish_frames {
                 world.complete_presentation_observations();
-                shadow.sync_from_host(&world);
             }
             assert_corpse(&world, id);
             assert!(world.get_next_mood_target(id, true, true).is_none());
@@ -282,6 +276,12 @@ fn exercise_retained_body(coupled: bool) {
                 "real infantry must receive the retained corpse's crush sweep"
             );
         }
+        if publish_frames {
+            let frame = PresentationFrame::try_build_from_logic(&mut world, 0).unwrap();
+            let corpse = frame.objects.iter().find(|row| row.id == id).unwrap();
+            assert_eq!(corpse.health_current, 0.0);
+            assert!(corpse.destroyed);
+        }
         world.mark_object_for_destruction(id, Some(Team::GLA));
         assert_corpse(&world, id);
         world.destroy_object(id).unwrap();
@@ -298,6 +298,10 @@ fn exercise_retained_body(coupled: bool) {
         world.process_destroy_list();
         assert!(world.host_object(id).is_none());
         assert_eq!(world.get_player(0).unwrap().power_produced, 0);
+        if publish_frames {
+            let frame = PresentationFrame::try_build_from_logic(&mut world, 0).unwrap();
+            assert!(frame.objects.iter().all(|row| row.id != id));
+        }
     }
 }
 
@@ -313,10 +317,10 @@ fn lethal_structure_body_stays_dead_while_host_update_completes() {
 }
 
 #[test]
-fn lethal_structure_body_stays_dead_through_coupled_update_and_explicit_delete() {
+fn lethal_structure_corpse_is_published_until_explicit_delete() {
     crate::game_logic::game_logic::world_tick::heli_motion_tests::isolated_at(
         module_path!(),
-        "lethal_structure_body_stays_dead_through_coupled_update_and_explicit_delete",
+        "lethal_structure_corpse_is_published_until_explicit_delete",
         || {
             exercise_retained_body(true);
         },

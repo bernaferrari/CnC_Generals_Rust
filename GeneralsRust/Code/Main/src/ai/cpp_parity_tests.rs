@@ -2362,24 +2362,21 @@ fn retain_queue_object_ids_drops_missing_pad_binding() {
 
 #[test]
 fn launch_attack_sets_target_and_logs_host_attack() {
+    crate::game_logic::game_logic::pose_owner_tests::isolated_at(
+        module_path!(),
+        "launch_attack_sets_target_and_logs_host_attack",
+        launch_attack_sets_target_and_logs_host_attack_case,
+    );
+}
+
+fn launch_attack_sets_target_and_logs_host_attack_case() {
     use crate::game_logic::{GameLogic, Team, Weapon};
     use crate::skirmish_config::{
-        apply_skirmish_config, golden_skirmish_config, SkirmishPlayerTemplateSelection,
+        SkirmishPlayerTemplateSelection, apply_skirmish_config, golden_skirmish_config,
     };
     use game_engine::common::ini::INILoadType;
     use game_engine::common::rts::player_template::PlayerTemplateStore;
     use std::sync::Arc;
-
-    // Opt into AI decision authority via GameLogic::set_ai_decision_authority(true)
-    // (retired GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY env): launch_attack engages
-    // host + logs decisions.
-    if crate::gameworld_shadow::isolated_shadow_case(
-        module_path!(),
-        "launch_attack_sets_target_and_logs_host_attack",
-    ) {
-        return;
-    }
-    // Decision logs require coupled shadow writeback frame (live gate).
 
     let mut logic = GameLogic::new();
 
@@ -2399,7 +2396,9 @@ fn launch_attack_sets_target_and_logs_host_attack() {
         Vec::new(),
     )
     .expect("authored attack object definitions");
-    logic.admit_startup_content(content).expect("admit attack objects");
+    logic
+        .admit_startup_content(content)
+        .expect("admit attack objects");
 
     let mut players = PlayerTemplateStore::new_owned();
     players
@@ -2413,8 +2412,10 @@ fn launch_attack_sets_target_and_logs_host_attack() {
     for (slot, name) in cfg.slots.iter_mut().zip(["FactionAmerica", "FactionGLA"]) {
         slot.player_template = SkirmishPlayerTemplateSelection::Exact {
             template_name: name.into(),
-            template_index: i32::try_from(players.find_template_index(name).expect("player template"))
-                .expect("player template index"),
+            template_index: i32::try_from(
+                players.find_template_index(name).expect("player template"),
+            )
+            .expect("player template index"),
         };
     }
     logic
@@ -2465,7 +2466,7 @@ fn launch_attack_sets_target_and_logs_host_attack() {
         .expect("usa unit after launch");
     assert!(
         unit.target.is_some(),
-        "under AI decision authority host target engages immediately"
+        "the AI attack order sets its target immediately"
     );
     assert!(
         targeted
@@ -2476,7 +2477,7 @@ fn launch_attack_sets_target_and_logs_host_attack() {
     assert_eq!(unit.ai_state(), crate::game_logic::AIState::AttackMoving);
     assert!(
         !unit.movement.path.is_empty() || unit.movement.target_position.is_some(),
-        "launch_attack must still pathfind on host under decision authority"
+        "the AI attack order must find a route to its target"
     );
     // A second accepted order produces its own receiving-match receipt.
     logic.attack_events.clear();

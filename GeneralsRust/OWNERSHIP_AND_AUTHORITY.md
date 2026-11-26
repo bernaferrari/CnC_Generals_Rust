@@ -27,8 +27,8 @@ initialization, and frames published after simulation steps. The engine and
 renderer share the completed frame. The headless shell smoke gate uses the
 same publisher and checks each frame number and the selection shown by the
 UI consumers. The production library, integration fixtures, and command
-regressions build frames directly. Some Main unit tests still compile
-`GameWorldShadow` for comparison. The historical `GENERALS_GAMEWORLD_SHADOW`
+regressions build frames directly. The remaining `GameWorldShadow` consumers
+are confined to its own unit tests. The historical `GENERALS_GAMEWORLD_SHADOW`
 switch has been removed.
 
 Move WGPU, model, texture, and widget handles into their consumers as the

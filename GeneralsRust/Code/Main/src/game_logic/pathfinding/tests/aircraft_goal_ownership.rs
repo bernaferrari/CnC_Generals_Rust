@@ -715,136 +715,89 @@ fn authored_aircraft_save_load_continues_owned_goal_changes() {
 }
 
 #[test]
-fn authored_aircraft_liveness_ignores_same_id_foreign_shadow_health() {
-    if isolated("authored_aircraft_liveness_ignores_same_id_foreign_shadow_health") {
+fn authored_aircraft_goal_claims_use_the_receiving_bodys_liveness() {
+    if isolated("authored_aircraft_goal_claims_use_the_receiving_bodys_liveness") {
         return;
     }
-    use crate::gameworld_shadow::GameWorldShadow;
     let dest = Vec3::new(75.0, 40.0, 75.0);
     let (mut driving, hover, wings) = authored_world(dest);
-    // Only the hover reserves this goal; the wings is the attack seeker.
     set_goal(&mut driving, wings, None);
-    let (foreign, foreign_hover, foreign_wings) = authored_world(Vec3::new(175.0, 40.0, 175.0));
+    let foreign_goal = Vec3::new(175.0, 40.0, 175.0);
+    let (mut foreign_dead, foreign_hover, foreign_wings) = authored_world(foreign_goal);
     assert_eq!((hover, wings), (foreign_hover, foreign_wings));
-    let mut shadow = GameWorldShadow::new(16);
-    shadow.sync_from_host(&foreign);
-    let entity = shadow
-        .entity_for_host(foreign_hover)
-        .expect("actual foreign mapping");
-    assert_eq!(
-        shadow.world().entity(entity).unwrap().health,
-        foreign.objects[&foreign_hover].health.current
-    );
+    set_goal(&mut foreign_dead, foreign_wings, None);
+
     let baseline_claims = driving
         .pathfinding_system
         .grid
         .aircraft_goal_claims(driving.objects.read(), wings.0);
     let baseline_attack = adjusted(&driving, wings, dest);
-    let owner = &driving.objects[&hover];
-    assert!(
-        !baseline_claims.is_empty(),
-        "owned hover: alive={} immobile={} ground={} reserves={} loco={:?} appearance={:?} surfaces={} goal={:?} radius={} cell={}",
-        owner.is_alive(),
-        owner.is_kind_of(KindOf::Immobile),
-        PathfindingGrid::is_doing_ground_movement(owner),
-        PathfindingGrid::is_aircraft_that_adjusts_destination(owner),
-        owner.cur_locomotor_name,
-        owner.loco_appearance,
-        owner.locomotor_surfaces,
-        owner.movement.target_position,
-        owner.selection_radius,
-        driving.pathfinding_system.grid.grid_size(),
-    );
-    shadow
-        .world_mut()
-        .world_mut()
-        .entity_mut(entity)
+    assert!(!baseline_claims.is_empty());
+
+    foreign_dead
+        .objects
+        .get_mut(&foreign_hover)
         .unwrap()
-        .health = 0.0;
-    {
-        {
-            assert_eq!(
-                shadow.world().entity(entity).map(|entity| entity.health),
-                Some(0.0),
-                "positive control reads the dead foreign shadow"
-            );
-            assert!(
-                driving.objects[&hover].is_alive(),
-                "ordinary liveness uses the owned body"
-            );
-            assert_eq!(
-                driving
-                    .pathfinding_system
-                    .grid
-                    .aircraft_goal_claims(driving.objects.read(), wings.0),
-                baseline_claims
-            );
-            assert_eq!(adjusted(&driving, wings, dest), baseline_attack);
-            ({
-                let ground_source = crate::game_logic::pathfinding::PathfindingGround::Flat(0.0);
-                driving
-                    .pathfinding_system
-                    .grid
-                    .update_dynamic_obstacles(driving.objects.read(), &ground_source)
-            });
-            for cell in &baseline_claims {
-                assert_eq!(
-                    driving.pathfinding_system.grid.goal_aircraft(*cell),
-                    hover.0,
-                    "alive host reserves despite dead foreign HP"
-                );
-            }
-        };
+        .health
+        .current = 0.0;
+    foreign_dead.remove_registered_path_goal(foreign_hover);
+    assert!(!foreign_dead.objects[&foreign_hover].is_alive());
+    assert!(
+        foreign_dead
+            .pathfinding_system
+            .grid
+            .aircraft_goal_claims(foreign_dead.objects.read(), foreign_wings.0)
+            .is_empty()
+    );
+    assert!(driving.objects[&hover].is_alive());
+    assert_eq!(
+        driving
+            .pathfinding_system
+            .grid
+            .aircraft_goal_claims(driving.objects.read(), wings.0),
+        baseline_claims
+    );
+    assert_eq!(adjusted(&driving, wings, dest), baseline_attack);
+    let ground = crate::game_logic::pathfinding::PathfindingGround::Flat(0.0);
+    driving
+        .pathfinding_system
+        .grid
+        .update_dynamic_obstacles(driving.objects.read(), &ground);
+    for cell in &baseline_claims {
+        assert_eq!(
+            driving.pathfinding_system.grid.goal_aircraft(*cell),
+            hover.0
+        );
     }
-    // Reverse the disagreement and deliver the local removal event. A healthy
-    // foreign same-ID entity cannot recreate the removed local reservation.
+
+    let (mut foreign_alive, peer_hover, peer_wings) = authored_world(foreign_goal);
+    assert_eq!((hover, wings), (peer_hover, peer_wings));
+    set_goal(&mut foreign_alive, peer_wings, None);
     driving.objects.get_mut(&hover).unwrap().health.current = 0.0;
     driving.remove_registered_path_goal(hover);
-    shadow
-        .world_mut()
-        .world_mut()
-        .entity_mut(entity)
-        .unwrap()
-        .health = 220.0;
-    let dead_attack = adjusted(&driving, wings, dest);
-    assert_ne!(
-        dead_attack, baseline_attack,
-        "the local removal has a real effect"
+    assert!(!driving.objects[&hover].is_alive());
+    assert_eq!(foreign_alive.objects[&peer_hover].health.current, 220.0);
+    assert!(
+        !foreign_alive
+            .pathfinding_system
+            .grid
+            .aircraft_goal_claims(foreign_alive.objects.read(), peer_wings.0)
+            .is_empty()
     );
-    {
-        {
-            assert_eq!(
-                shadow.world().entity(entity).map(|entity| entity.health),
-                Some(220.0),
-                "positive control reads the live foreign shadow"
-            );
-            assert!(
-                !driving.objects[&hover].is_alive(),
-                "a healthy foreign body cannot revive this owner"
-            );
-            assert!(
-                driving
-                    .pathfinding_system
-                    .grid
-                    .aircraft_goal_claims(driving.objects.read(), wings.0)
-                    .is_empty()
-            );
-            assert_eq!(adjusted(&driving, wings, dest), dead_attack);
-            ({
-                let ground_source = crate::game_logic::pathfinding::PathfindingGround::Flat(0.0);
-                driving
-                    .pathfinding_system
-                    .grid
-                    .update_dynamic_obstacles(driving.objects.read(), &ground_source)
-            });
-            for cell in &baseline_claims {
-                assert_eq!(
-                    driving.pathfinding_system.grid.goal_aircraft(*cell),
-                    0,
-                    "dead host clears the old footprint despite healthy foreign HP"
-                );
-            }
-        };
+    assert_ne!(adjusted(&driving, wings, dest), baseline_attack);
+    assert!(
+        driving
+            .pathfinding_system
+            .grid
+            .aircraft_goal_claims(driving.objects.read(), wings.0)
+            .is_empty()
+    );
+    driving
+        .pathfinding_system
+        .grid
+        .update_dynamic_obstacles(driving.objects.read(), &ground);
+    for cell in &baseline_claims {
+        assert_eq!(driving.pathfinding_system.grid.goal_aircraft(*cell), 0);
     }
 }
 

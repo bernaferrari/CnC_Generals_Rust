@@ -1168,7 +1168,6 @@ impl GameLogic {
 #[cfg(test)]
 mod health_owner_tests {
     use super::*;
-    use crate::gameworld_shadow::GameWorldShadow;
 
     #[test]
     fn absolute_writes_commit_existing_owner_and_preserve_creation_cap() {
@@ -1180,16 +1179,13 @@ mod health_owner_tests {
         let mut object = Object::new(template, id, Team::USA);
         object.health.current = 40.0;
         logic.objects.insert(id, object);
-        let mut shadow = GameWorldShadow::new(64);
-        shadow.sync_from_host(&logic);
 
         {
             logic
                 .with_host_logic_step(|owner| {
                     owner.set_health_absolute_authority_aware(id, 70.0);
                     assert_eq!(owner.host_authoritative_health(id), Some(70.0));
-                    let (object, health_events) =
-                        owner.host_object_and_health_events_mut(id).unwrap();
+                    let (object, health_events) = owner.host_object_and_health_events_mut(id).unwrap();
                     // Projectile/upgraded-body setup resolves the new cap before
                     // its absolute write. The setter must use that held object.
                     object.health.maximum = 250.0;
@@ -1209,14 +1205,9 @@ mod health_owner_tests {
     }
 
     #[test]
-    fn absent_owner_absolute_write_remains_pending_under_live_authority() {
+    fn absolute_health_write_to_absent_actor_has_no_effect() {
         let mut logic = GameLogic::new();
-
-        let mut shadow = GameWorldShadow::new(8);
-
-        {
-            logic.set_health_absolute_authority_aware(ObjectId(99), 125.0);
-        };
+        logic.set_health_absolute_authority_aware(ObjectId(99), 125.0);
         assert!(!logic.objects.contains_key(&ObjectId(99)));
         let events = logic.health_events.drain_heal();
         assert!(

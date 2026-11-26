@@ -20,6 +20,8 @@ fn world_with_owner() -> (GameLogic, ObjectId) {
 
 #[test]
 fn direct_destroy_preserves_body_and_does_not_enter_die() {
+    use crate::presentation_frame::PresentationFrame;
+
     let (mut world, id) = world_with_owner();
     world.destroy_object(id).unwrap();
     let object = world.host_object(id).unwrap();
@@ -42,8 +44,23 @@ fn direct_destroy_preserves_body_and_does_not_enter_die() {
             .count(),
         1
     );
+    world.complete_presentation_observations();
+    let pending = PresentationFrame::try_build_from_logic(&mut world, 0).unwrap();
+    let actor = pending.objects.iter().find(|row| row.id == id).unwrap();
+    assert!(actor.destroyed);
+    assert_eq!(actor.health_current, 40.0);
+    assert_eq!(world.host_object(id).unwrap().previous_health, 50.0);
+    assert!(world.has_pending_destroy_work());
+    assert!(world.objects.ordered_ids().contains(&id));
+
     world.process_destroy_list();
     assert!(world.host_object(id).is_none());
+    let retired = PresentationFrame::try_build_from_logic(&mut world, 0).unwrap();
+    assert!(retired.objects.iter().all(|row| row.id != id));
+    assert_eq!(actor.health_current, 40.0);
+    world.process_destroy_list();
+    assert!(world.host_object(id).is_none());
+    assert!(world.health_events.snapshot_damage().is_empty());
 }
 
 #[test]

@@ -61,5 +61,3 @@ struct ObjectObservationRevision {
 
 #[cfg(test)]
 mod tests;
-#[cfg(test)]
-pub(crate) use tests::harness::isolated_shadow_case;

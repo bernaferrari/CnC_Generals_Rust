@@ -344,19 +344,15 @@ fn authored_cancel_all_has_one_final_event_and_deposit_per_paid_entry() {
 }
 
 #[test]
-fn authored_refund_keeps_canonical_cash_and_immutable_observation_contract() {
+fn authored_refund_publishes_owner_cash_and_leaves_prior_frames_intact() {
+    use crate::presentation_frame::PresentationFrame;
     {
         let (mut logic, producer) = authored_world(250, 1_000);
 
-        let mut shadow = crate::gameworld_shadow::GameWorldShadow::new(8);
-        shadow.sync_from_host(&logic);
         let withdrawal = enqueue(&mut logic, producer, 250);
-        shadow.sync_from_host(&logic);
         assert!(!withdrawal.is_empty());
-        // sync_players allocates these exact host IDs in sorted order: 0, 4.
-        let shadow_owner = gamelogic::world::PlayerId::from_index(1);
-        let shadow_teammate = gamelogic::world::PlayerId::from_index(0);
-        assert_eq!(shadow.world().player(shadow_owner).unwrap().supplies, 750);
+        let spent = PresentationFrame::try_build_from_logic(&mut logic, OWNER).unwrap();
+        assert_eq!(spent.local_supplies, 750);
         let player = logic.get_player(OWNER).unwrap();
         assert_eq!(player.resources.supplies, 750);
 
@@ -381,13 +377,11 @@ fn authored_refund_keeps_canonical_cash_and_immutable_observation_contract() {
                 kind: HostMoneyAudio::Deposit,
             }]
         );
-        shadow.sync_from_host(&logic);
-        assert_eq!(shadow.world().player(shadow_owner).unwrap().supplies, 1_000);
-        assert_eq!(
-            shadow.world().player(shadow_teammate).unwrap().supplies,
-            9_000
-        );
-        shadow.sync_from_host(&logic);
+        let refunded = PresentationFrame::try_build_from_logic(&mut logic, OWNER).unwrap();
+        let teammate = PresentationFrame::try_build_from_logic(&mut logic, TEAMMATE).unwrap();
+        assert_eq!(refunded.local_supplies, 1_000);
+        assert_eq!(teammate.local_supplies, 9_000);
+        assert_eq!(spent.local_supplies, 750);
         let player = logic.get_player(OWNER).unwrap();
         assert_eq!(player.resources.supplies, 1_000);
     };

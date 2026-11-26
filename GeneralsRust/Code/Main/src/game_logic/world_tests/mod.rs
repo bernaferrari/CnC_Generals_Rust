@@ -14,6 +14,7 @@ mod cave_bridge;
 mod combat_particles_and_economy;
 mod crates_and_salvage;
 mod hud_feedback_chains;
+mod move_receipt_tests;
 mod network_and_scripts;
 mod ocl_and_bombs;
 mod parachute_and_rebuild;
