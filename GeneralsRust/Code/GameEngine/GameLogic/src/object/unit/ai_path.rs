@@ -1373,7 +1373,7 @@ impl UnitAIUpdate {
                 }
                 let dx = goal.x - pos.x;
                 let dy = goal.y - pos.y;
-                let cell = crate::ai::pathfind_astar::PATHFIND_CELL_SIZE_F;
+                let cell = generals_sim::pathfinding::PATHFIND_CELL_SIZE_F;
                 if dx * dx + dy * dy >= cell * cell {
                     goal = pf.snap_position_for_radius(&pos, radius);
                 }

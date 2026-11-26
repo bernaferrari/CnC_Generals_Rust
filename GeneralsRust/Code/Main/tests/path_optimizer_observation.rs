@@ -3,16 +3,13 @@
 mod common {
     pub use gamelogic::common::{Coord2D, Coord3D};
 }
-mod pathfind_astar {
-    pub use gamelogic::ai::pathfind_astar::{GridCoord, PATHFIND_CELL_SIZE_F, PathfindLayerEnum};
-}
 #[allow(dead_code)]
 #[path = "../../GameEngine/GameLogic/src/ai/path_optimization.rs"]
 mod path_optimization;
 
 use common::Coord3D;
 use path_optimization::PathOptimizer;
-use pathfind_astar::PathfindLayerEnum;
+use generals_sim::pathfinding::PathfindLayerEnum;
 
 #[test]
 fn optimization_stops_at_the_first_observation_error() {

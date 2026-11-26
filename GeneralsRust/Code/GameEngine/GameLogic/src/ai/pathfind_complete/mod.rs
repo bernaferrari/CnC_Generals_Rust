@@ -10,7 +10,7 @@
 #![allow(unused_imports)]
 
 pub(crate) use super::path_optimization::PathOptimizer;
-pub use super::pathfind_astar::{
+pub use generals_sim::pathfinding::{
     AStarPathfinder, COST_DIAGONAL, COST_ORTHOGONAL, GridCoord, PATHFIND_CELL_SIZE,
     PATHFIND_CELL_SIZE_F, PathfindCellType, PathfindLayerEnum,
 };

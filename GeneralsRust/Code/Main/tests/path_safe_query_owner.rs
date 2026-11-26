@@ -163,7 +163,7 @@ fn safe_query_uses_its_own_human_extent_policy() {
 
 #[test]
 fn safe_search_accepts_the_last_reachable_cell_inside_the_repulsor() {
-    use gamelogic::ai::pathfind_astar::PathfindCellType;
+    use generals_sim::pathfinding::PathfindCellType;
     use generals_main::game_logic::pathfinding::GridPos;
     let from = Vec3::new(105.0, 0.0, 105.0);
     let (world, _, mover) = make_world_at(from);

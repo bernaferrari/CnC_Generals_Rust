@@ -1,4 +1,4 @@
-use game_pathfinding::{AStarPathfinder, GridCoord, PathfindCellType};
+use generals_sim::pathfinding::{AStarPathfinder, GridCoord, PathfindCellType};
 use gamelogic::ai::pathfind_complete::{UNINITIALIZED_ZONE, ZONE_BLOCK_SIZE};
 
 #[path = "../src/ai/pathfind_complete/zone_modify.rs"]

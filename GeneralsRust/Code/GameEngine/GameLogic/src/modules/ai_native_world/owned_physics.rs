@@ -335,11 +335,11 @@ impl BorrowedAiWorld<'_> {
             .read()
             .map_err(|_| "physics path position owner poisoned")?;
         let ground_movement = ai.is_doing_ground_movement_with_world(&object, self)?;
-        let layer = crate::ai::pathfind_astar::PathfindLayerEnum::from_u32(
+        let layer = generals_sim::pathfinding::PathfindLayerEnum::from_u32(
             object.get_layer() as u32,
         );
         let interacts_with_bridge_end = if ground_movement
-            && layer != crate::ai::pathfind_astar::PathfindLayerEnum::Ground
+            && layer != generals_sim::pathfinding::PathfindLayerEnum::Ground
         {
             self.services.terrain.object_interacts_with_bridge_end(
                 &object,

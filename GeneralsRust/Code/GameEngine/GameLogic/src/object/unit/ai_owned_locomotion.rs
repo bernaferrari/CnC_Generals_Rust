@@ -13,7 +13,7 @@ use super::imports::*;
 pub(super) fn ignored_obstacle_cells(
     world: &dyn crate::modules::ai_world::AiWorld,
     id: Option<ObjectID>,
-) -> Result<Option<std::collections::HashSet<crate::ai::pathfind_astar::GridCoord>>, String> {
+) -> Result<Option<std::collections::HashSet<generals_sim::pathfinding::GridCoord>>, String> {
     let Some(object) = id
         .filter(|id| *id != INVALID_ID)
         .and_then(|id| world.object(id))
@@ -30,7 +30,7 @@ pub(super) fn ignored_obstacle_cells(
         .map(|positions| {
             positions
                 .into_iter()
-                .map(|position| crate::ai::pathfind_astar::GridCoord::from_world(&position))
+                .map(|position| generals_sim::pathfinding::GridCoord::from_world(&position))
                 .collect()
         }),
     )

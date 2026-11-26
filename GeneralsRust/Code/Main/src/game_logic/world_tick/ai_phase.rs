@@ -26,7 +26,7 @@ impl GameLogic {
         self.refresh_movement_goal_objects(&object_ids);
         self.reissue_pending_moves()?;
         self.process_pathfind_queue()?;
-        let current_time = self.sim_time_seconds;
+        let current_time = self.get_total_play_time();
         crate::ai::AIManager::update_owned_with_effects(self, current_time, ui)?;
         Ok(())
     }

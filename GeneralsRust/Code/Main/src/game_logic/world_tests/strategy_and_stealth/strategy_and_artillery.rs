@@ -643,14 +643,14 @@ fn camera_mod_freeze_time_blocks_simulation_movement_updates() {
         .expect("frozen unit should exist")
         .get_position();
     let frozen_frame = frozen.frame;
-    let frozen_time = frozen.sim_time_seconds;
+    let frozen_time = frozen.get_total_play_time();
     // A full fixed step exercises GameLogic's early-script/freeze return;
     // a half-step could leave pose unchanged without reaching that boundary.
     frozen.update_with_dt_budget(LOGIC_FRAME_TIMESTEP, 1);
     assert_eq!(frozen.fixed_step_diagnostics().frozen_steps, 1);
     assert_eq!(frozen.fixed_step_diagnostics().steps_run, 0);
     assert_eq!(frozen.frame, frozen_frame);
-    assert_eq!(frozen.sim_time_seconds, frozen_time);
+    assert_eq!(frozen.get_total_play_time(), frozen_time);
     let frozen_after = frozen
         .host_object(frozen_unit)
         .expect("frozen unit should exist")

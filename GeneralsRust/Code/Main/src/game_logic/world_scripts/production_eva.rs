@@ -155,7 +155,7 @@ impl GameLogic {
             radar_notifications::RadarKind::Ally => 2,
         };
         const RADAR_DEDUP_WINDOW: f32 = 0.5;
-        if self.sim_time_seconds - self.last_radar_kind_time[kind_index] < RADAR_DEDUP_WINDOW {
+        if self.get_total_play_time() - self.last_radar_kind_time[kind_index] < RADAR_DEDUP_WINDOW {
             // Drop duplicate of same kind emitted too fast.
             return;
         }
@@ -163,12 +163,12 @@ impl GameLogic {
             text: label.into(),
             args,
             position,
-            timestamp: self.sim_time_seconds,
+            timestamp: self.get_total_play_time(),
             kind,
         };
         self.radar_notifications.push(entry.clone());
         self.last_radar_event = Some(entry);
-        self.last_radar_kind_time[kind_index] = self.sim_time_seconds;
+        self.last_radar_kind_time[kind_index] = self.get_total_play_time();
 
         // Trigger the classic radar/EVA audio cue to mirror the C++ client feedback.
         self.maybe_play_radar_audio("Radar_Event");

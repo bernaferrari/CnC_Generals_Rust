@@ -1273,10 +1273,10 @@ impl Object {
         if layer == self.layer {
             return;
         }
-        let old = crate::ai::pathfind_astar::PathfindLayerEnum::from_u32(self.layer as u32);
+        let old = generals_sim::pathfinding::PathfindLayerEnum::from_u32(self.layer as u32);
         pf.remove_pos_cells(self.id, 0, true, old);
         self.layer = layer;
-        let cell = crate::ai::pathfind_astar::GridCoord::from_world(self.get_position());
+        let cell = generals_sim::pathfinding::GridCoord::from_world(self.get_position());
         let interacts = terrain.object_interacts_with_bridge_end(
             self,
             crate::path::PathfindLayerEnum::from_u32(layer as u32),
@@ -1284,7 +1284,7 @@ impl Object {
         pf.update_pos_cells(
             cell,
             self.id,
-            crate::ai::pathfind_astar::PathfindLayerEnum::from_u32(layer as u32),
+            generals_sim::pathfinding::PathfindLayerEnum::from_u32(layer as u32),
             0,
             true,
             interacts,
@@ -1304,15 +1304,15 @@ impl Object {
         let Ok(mut pf) = pathfinder.write() else {
             return;
         };
-        let cell = crate::ai::pathfind_astar::GridCoord::from_world(self.get_position());
+        let cell = generals_sim::pathfinding::GridCoord::from_world(self.get_position());
         let astar_layer = {
             let v = self.layer as u32;
             if (2..=14).contains(&v) {
-                crate::ai::pathfind_astar::PathfindLayerEnum::from_u32(v)
+                generals_sim::pathfinding::PathfindLayerEnum::from_u32(v)
             } else if self.layer == PathfindLayerEnum::Wall {
-                crate::ai::pathfind_astar::PathfindLayerEnum::Wall
+                generals_sim::pathfinding::PathfindLayerEnum::Wall
             } else {
-                crate::ai::pathfind_astar::PathfindLayerEnum::Ground
+                generals_sim::pathfinding::PathfindLayerEnum::Ground
             }
         };
         if remove_only {

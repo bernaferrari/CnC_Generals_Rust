@@ -1832,7 +1832,7 @@ impl UnitAIUpdate {
             crate::ai::pathfind_complete::PathfindingSystem::compute_radius_and_center(radius);
         // updateGoal uses its original capped footprint, independently of updatePos.
         let mut diameter = 2.0 * radius;
-        let cell_size = crate::ai::pathfind_astar::PATHFIND_CELL_SIZE_F;
+        let cell_size = generals_sim::pathfinding::PATHFIND_CELL_SIZE_F;
         if diameter > cell_size && diameter < 2.0 * cell_size {
             diameter = 2.0 * cell_size;
         }
@@ -1850,7 +1850,7 @@ impl UnitAIUpdate {
         let goal = if !moving {
             Some(position)
         } else if saved_goal.x >= 0 && saved_goal.y >= 0 {
-            let cell = crate::ai::pathfind_astar::PATHFIND_CELL_SIZE_F;
+            let cell = generals_sim::pathfinding::PATHFIND_CELL_SIZE_F;
             Some(Coord3D::new(
                 saved_goal.x as f32 * cell + cell * 0.5,
                 saved_goal.y as f32 * cell + cell * 0.5,
@@ -1890,9 +1890,9 @@ impl UnitAIUpdate {
                 let cell =
                     super::ai_core::UnitAiRuntime::compute_goal_cell(&position, center_in_cell);
                 pathfinder.update_pos_cells(
-                    crate::ai::pathfind_astar::GridCoord::new(cell.x, cell.y),
+                    generals_sim::pathfinding::GridCoord::new(cell.x, cell.y),
                     id,
-                    crate::ai::pathfind_astar::PathfindLayerEnum::from_u32(layer as u32),
+                    generals_sim::pathfinding::PathfindLayerEnum::from_u32(layer as u32),
                     cell_radius,
                     center_in_cell,
                     bridge_end,
@@ -1960,7 +1960,7 @@ impl UnitAIUpdate {
                             crate::ai::pathfind_complete::PathfindingSystem::compute_radius_and_center(
                                 radius,
                             );
-                        let cell_size = crate::ai::pathfind_astar::PATHFIND_CELL_SIZE_F;
+                        let cell_size = generals_sim::pathfinding::PATHFIND_CELL_SIZE_F;
                         let (nx, ny) = if center_in_cell {
                             (
                                 (pos.x / cell_size).floor() as i32,
@@ -1972,9 +1972,9 @@ impl UnitAIUpdate {
                                 (0.5 + pos.y / cell_size).floor() as i32,
                             )
                         };
-                        let cell = crate::ai::pathfind_astar::GridCoord::new(nx, ny);
+                        let cell = generals_sim::pathfinding::GridCoord::new(nx, ny);
                         let pf_layer =
-                            crate::ai::pathfind_astar::PathfindLayerEnum::from_u32(layer as u32);
+                            generals_sim::pathfinding::PathfindLayerEnum::from_u32(layer as u32);
                         pf.update_pos_cells(
                             cell,
                             id,
@@ -1992,7 +1992,7 @@ impl UnitAIUpdate {
         } else if self.runtime.data.pathfind_goal_cell.x >= 0
             && self.runtime.data.pathfind_goal_cell.y >= 0
         {
-            let cell = crate::ai::pathfind_astar::PATHFIND_CELL_SIZE_F;
+            let cell = generals_sim::pathfinding::PATHFIND_CELL_SIZE_F;
             let goal = Coord3D::new(
                 self.runtime.data.pathfind_goal_cell.x as f32 * cell + cell * 0.5,
                 self.runtime.data.pathfind_goal_cell.y as f32 * cell + cell * 0.5,

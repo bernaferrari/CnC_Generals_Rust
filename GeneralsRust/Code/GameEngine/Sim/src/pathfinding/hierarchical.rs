@@ -9,8 +9,8 @@
 use std::cmp::Reverse;
 use std::collections::{BinaryHeap, HashMap, HashSet};
 
-use crate::astar::AStarPathfinder;
-use crate::cell::{GridCoord, PathfindLayerEnum, SURFACE_AIR};
+use super::astar::AStarPathfinder;
+use super::cell::{GridCoord, PathfindLayerEnum, SURFACE_AIR};
 
 impl AStarPathfinder {
     /// C++ `Pathfinder::findPath` hierarchical passable dance (AIPathfind.cpp:6375-6381).

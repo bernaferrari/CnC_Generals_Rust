@@ -178,7 +178,7 @@ def main() -> int:
         "PathfindCell *PathfindCell::removeFromOpenList( PathfindCell *list )",
     )
     driver = CPP_DRIVER.replace("__PUT_BODY__", put_body).replace("__REMOVE_BODY__", remove_body)
-    rust_source = (repo / "GeneralsRust/Code/GameEngine/Pathfinding/src/open_set.rs").read_text()
+    rust_source = (repo / "GeneralsRust/Code/GameEngine/Sim/src/pathfinding/open_set.rs").read_text()
     rust_driver = RUST_DRIVER.replace("__QUEUE_SOURCE__", extract_rust_queue_source(rust_source))
 
     with tempfile.TemporaryDirectory(prefix="generals-pathfinding-open-list-") as temp:

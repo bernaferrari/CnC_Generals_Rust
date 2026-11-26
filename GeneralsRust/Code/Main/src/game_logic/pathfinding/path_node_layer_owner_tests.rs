@@ -148,7 +148,7 @@ fn crosses_obstacle(segment: &[Vec3]) -> bool {
     let cell = |p: Vec3| ((p.x / 10.0).floor() as i32, (p.z / 10.0).floor() as i32);
     let start_cell = cell(segment[0]);
     let mut crossed = start_cell == (3, 5);
-    gamelogic::ai::pathfind_astar::visit_cell_line(start_cell, cell(segment[1]), |_, to| {
+    generals_sim::pathfinding::visit_cell_line(start_cell, cell(segment[1]), |_, to| {
         crossed |= to == (3, 5);
         !crossed
     });

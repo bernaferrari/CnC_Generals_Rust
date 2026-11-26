@@ -179,7 +179,7 @@ impl GameLogic {
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> gamelogic::GameLogicResult<()> {
         use crate::game_logic::pathfinding::PathfindingSystem;
-        use gamelogic::ai::pathfind_astar::PathfindLayerEnum;
+        use generals_sim::pathfinding::PathfindLayerEnum;
 
         let Some(wall) = self.objects.lookup(&structure) else {
             return Ok(());

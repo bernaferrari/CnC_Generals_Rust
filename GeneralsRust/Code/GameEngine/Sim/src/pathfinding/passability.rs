@@ -7,12 +7,12 @@
 
 use std::collections::{HashMap, HashSet};
 
-use crate::astar::AStarPathfinder;
-use crate::cell::{
+use super::astar::AStarPathfinder;
+use super::cell::{
     COST_DIAGONAL, COST_ORTHOGONAL, CellFlags, GridCoord, PathfindCellType, PathfindLayerEnum,
     SURFACE_AIR, SURFACE_CLIFF, SURFACE_GROUND, SURFACE_RUBBLE, SURFACE_WATER,
 };
-use crate::open_set::SearchKey;
+use super::open_set::SearchKey;
 
 // Common/GameType.h: INVALID_ID is zero.
 const INVALID_OBSTACLE_ID: u32 = 0;

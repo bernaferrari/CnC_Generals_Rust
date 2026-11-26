@@ -193,7 +193,7 @@ impl GameLogic {
     }
 
     pub(in super::super::super) fn should_track_player_stats(&self) -> bool {
-        self.sim_time_seconds > 0.0 || self.frame > 0
+        self.get_total_play_time() > 0.0 || self.frame > 0
     }
 
     pub(in super::super::super) fn live_score_counts_as_unit_create(obj: &Object) -> bool {

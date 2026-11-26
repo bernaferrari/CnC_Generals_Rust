@@ -4,7 +4,7 @@
 //! Memory-efficient cell information structure for A* pathfinding.
 //! This is allocated only when needed to save memory.
 //! This standalone cell-info facade is not Main's A* implementation; Main
-//! uses `ai::pathfind_astar`. Its link operations do not perform list sorting
+//! uses `generals_sim::pathfinding`. Its link operations do not perform list sorting
 //! or automatically change the open/closed flags.
 
 use super::*;

@@ -11,11 +11,11 @@ fn fix_invalid_position_3x3_shoves_off_water() {
         .world_to_grid(Vec3::new(50.0, 0.0, 50.0));
     logic.pathfinding_system.grid.set_cell_type(
         water,
-        gamelogic::ai::pathfind_astar::PathfindCellType::Water,
+        generals_sim::pathfinding::PathfindCellType::Water,
     );
     logic.pathfinding_system.grid.set_cell_type(
         GridPos::new(water.x - 1, water.y),
-        gamelogic::ai::pathfind_astar::PathfindCellType::Water,
+        generals_sim::pathfinding::PathfindCellType::Water,
     );
     let id = ObjectId(9711);
     let mut unit = ranger_at(9711, Vec3::new(50.0, 0.0, 50.0));
@@ -51,11 +51,11 @@ fn allow_invalid_position_skips_3x3_shove() {
         .world_to_grid(Vec3::new(50.0, 0.0, 50.0));
     logic.pathfinding_system.grid.set_cell_type(
         water,
-        gamelogic::ai::pathfind_astar::PathfindCellType::Water,
+        generals_sim::pathfinding::PathfindCellType::Water,
     );
     logic.pathfinding_system.grid.set_cell_type(
         GridPos::new(water.x - 1, water.y),
-        gamelogic::ai::pathfind_astar::PathfindCellType::Water,
+        generals_sim::pathfinding::PathfindCellType::Water,
     );
     let id = ObjectId(9721);
     let mut unit = ranger_at(9721, Vec3::new(50.0, 0.0, 50.0));

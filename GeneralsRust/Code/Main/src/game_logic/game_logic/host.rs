@@ -1162,8 +1162,7 @@ pub struct GameLogic {
     pub(super) is_paused: bool,
 
     /// Time tracking
-    pub(super) sim_time_seconds: f32,
-    pub(super) accumulated_time: f32,
+    pub(super) simulation_clock: generals_sim::time::SimulationClock,
     pub(super) last_fixed_step_diagnostics: FixedStepDiagnostics,
 
     /// Receiving typed module data and its one plain content name-key namespace.
@@ -1476,7 +1475,7 @@ impl GameLogic {
     /// the current 30 Hz logic frame. Read by opt-in render interpolation;
     /// callers gate pause/freeze before using it.
     pub(crate) fn logic_interpolation_alpha(&self) -> f32 {
-        (self.accumulated_time / LOGIC_FRAME_TIMESTEP).clamp(0.0, 1.0)
+        (self.simulation_clock.carried_seconds() / LOGIC_FRAME_TIMESTEP).clamp(0.0, 1.0)
     }
 
     /// Asset service bound to this world, not the thread's active service.

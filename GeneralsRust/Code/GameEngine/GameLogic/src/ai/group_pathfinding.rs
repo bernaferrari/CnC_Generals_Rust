@@ -2,7 +2,7 @@
 // Group Pathfinding and Formation Movement
 // Reference: C++ AIGroup and formation logic
 
-use super::pathfind_astar::GridCoord;
+use generals_sim::pathfinding::GridCoord;
 use super::pathfind_complete::{PathRequest, PathResult, PathfindingSystem, SURFACE_GROUND};
 use crate::common::{Coord2D, Coord3D, ObjectID};
 
@@ -240,7 +240,7 @@ impl GroupPathfinder {
                 unit_id,
                 pathfinder.world_pos_for_coord(
                     adjusted_pos,
-                    super::pathfind_astar::PathfindLayerEnum::Ground,
+                    generals_sim::pathfinding::PathfindLayerEnum::Ground,
                 ),
             );
         }

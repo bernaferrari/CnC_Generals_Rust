@@ -1564,7 +1564,7 @@ impl GameLogic {
             .unwrap_or(false);
         let (minx, minz, maxx, maxz) = self.ocl_map_extents();
         let plan = {
-            use gamelogic::ai::pathfind_astar::PathfindCellType;
+            use generals_sim::pathfinding::PathfindCellType;
             let grid = &self.pathfinding_system.grid;
             let is_clear = |pos: Vec3| {
                 let cell = grid.world_to_grid(pos);

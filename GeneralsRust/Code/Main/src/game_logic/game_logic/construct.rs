@@ -584,8 +584,7 @@ impl GameLogic {
             logic_base_seed: 0,
 
             is_paused: false,
-            sim_time_seconds: 0.0,
-            accumulated_time: 0.0,
+            simulation_clock: generals_sim::time::SimulationClock::default(),
             last_fixed_step_diagnostics: FixedStepDiagnostics::default(),
             receiving_module_content: None,
             command_action_definitions: None,
@@ -1447,8 +1446,7 @@ impl GameLogic {
         // menu's process RNG reseed cannot change this owner.
         self.logic_random.seed_random(self.logic_base_seed);
         self.is_paused = false;
-        self.sim_time_seconds = 0.0;
-        self.accumulated_time = 0.0;
+        self.simulation_clock = generals_sim::time::SimulationClock::default();
         self.last_fixed_step_diagnostics = FixedStepDiagnostics::default();
         self.map_loaded = false;
         self.map_loading_phase = Default::default();

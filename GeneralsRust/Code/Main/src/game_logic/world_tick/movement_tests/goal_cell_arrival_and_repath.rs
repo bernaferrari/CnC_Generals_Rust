@@ -579,7 +579,7 @@ fn stuck_failed_search_snaps_and_waits_one_second() {
         for y in 0..h {
             logic.pathfinding_system.grid.set_cell_type(
                 crate::game_logic::pathfinding::GridPos::new(x, y),
-                gamelogic::ai::pathfind_astar::PathfindCellType::Impassable,
+                generals_sim::pathfinding::PathfindCellType::Impassable,
             );
         }
     }

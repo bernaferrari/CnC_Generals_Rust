@@ -1,4 +1,4 @@
-use gamelogic::ai::pathfind_astar::{GridCoord, PathfindCellType, PathfindLayerEnum};
+use generals_sim::pathfinding::{GridCoord, PathfindCellType, PathfindLayerEnum};
 use gamelogic::ai::pathfind_complete::{PathfindingSystem, SURFACE_GROUND, SURFACE_WATER};
 use glam::Vec3;
 

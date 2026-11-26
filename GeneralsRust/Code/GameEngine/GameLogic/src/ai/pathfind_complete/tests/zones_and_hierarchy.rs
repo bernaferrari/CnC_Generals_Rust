@@ -29,7 +29,7 @@ fn zone_combiners_merge_ground_cliff() {
 
 #[test]
 fn obstacle_fence_flag_stamped_on_astar() {
-    let mut pf = crate::ai::pathfind_astar::AStarPathfinder::new(8, 8);
+    let mut pf = generals_sim::pathfinding::AStarPathfinder::new(8, 8);
     let c = GridCoord::new(3, 4);
     pf.set_cell_obstacle_id(c, 42, true, false);
     assert!(pf.is_obstacle_fence(c));

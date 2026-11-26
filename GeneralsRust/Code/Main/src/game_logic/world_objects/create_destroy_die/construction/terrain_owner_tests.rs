@@ -390,7 +390,7 @@ fn actual_construction_changes_receiving_group_ground_and_layer_without_peer_wri
             construct(&mut a, builder_a, Vec3::new(30., 10., 30.));
             assert_eq!(
                 borrowed_group_layer(&a, request),
-                gamelogic::ai::pathfind_astar::PathfindLayerEnum::Ground as u8
+                generals_sim::pathfinding::PathfindLayerEnum::Ground as u8
             );
             assert_eq!(borrowed_group_layer(&b, request), layer_b);
             let adjusted = a.adjust_group_member_goal(member_a, request, request);
@@ -407,7 +407,7 @@ fn actual_construction_changes_receiving_group_ground_and_layer_without_peer_wri
             );
             assert_eq!(
                 borrowed_group_layer(&a, request),
-                gamelogic::ai::pathfind_astar::PathfindLayerEnum::Ground as u8
+                generals_sim::pathfinding::PathfindLayerEnum::Ground as u8
             );
         },
     );

@@ -763,7 +763,7 @@ End
 
     #[test]
     fn full_core_save_restores_bridge_deck_before_the_first_damage_update() {
-        use crate::ai::pathfind_astar::{PathfindCellType, PathfindLayerEnum as GridLayer};
+        use generals_sim::pathfinding::{PathfindCellType, PathfindLayerEnum as GridLayer};
         use crate::ai::pathfind_complete::GridCoord;
         use crate::common::BodyDamageType;
         use crate::path::PathfindLayerEnum;

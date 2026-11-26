@@ -4,7 +4,7 @@ use crate::game_logic::{GameLogic, ObjectId};
 use crate::save_load::{
     GameDifficulty, SaveFileManager, SaveFileType, SaveGameInfo, SnapshotBuilder,
 };
-use gamelogic::ai::pathfind_astar::PathfindLayerEnum;
+use generals_sim::pathfinding::PathfindLayerEnum;
 use glam::Vec3;
 
 fn isolated(name: &str, run: impl FnOnce()) {
@@ -276,7 +276,7 @@ fn native_map_and_save_use_owned_model_bounds_and_sampled_bridge_heights() {
     isolated(
         "native_map_and_save_use_owned_model_bounds_and_sampled_bridge_heights",
         || {
-            use gamelogic::ai::pathfind_astar::PathfindCellType;
+            use generals_sim::pathfinding::PathfindCellType;
             use gamelogic::system::map_loader::{BridgeEndpoints, Coord3D};
 
             let temp = tempfile::tempdir().unwrap();
@@ -614,7 +614,7 @@ fn canonical_body_scaffold_repair_and_delete_ignore_foreign_same_id() {
                     .world_to_grid(Vec3::new(50.0, 21.0, 50.0));
                 assert_eq!(
                     world.pathfinding_system.grid.layer_cell_type(layer, pos),
-                    Some(gamelogic::ai::pathfind_astar::PathfindCellType::BridgeImpassable)
+                    Some(generals_sim::pathfinding::PathfindCellType::BridgeImpassable)
                 );
                 world.objects.get_mut(&id).unwrap().health.current = 300.0;
                 assert!(world.bridge_behavior.create_scaffolding(id));
@@ -635,13 +635,13 @@ fn canonical_body_scaffold_repair_and_delete_ignore_foreign_same_id() {
                 );
                 assert_eq!(
                     world.pathfinding_system.grid.layer_cell_type(layer, pos),
-                    Some(gamelogic::ai::pathfind_astar::PathfindCellType::BridgeImpassable)
+                    Some(generals_sim::pathfinding::PathfindCellType::BridgeImpassable)
                 );
                 world.bridge_behavior.span_mut(id).unwrap().scaffold_present = false;
                 world.refresh_owned_bridge_pathfinder_states();
                 assert_ne!(
                     world.pathfinding_system.grid.layer_cell_type(layer, pos),
-                    Some(gamelogic::ai::pathfind_astar::PathfindCellType::BridgeImpassable)
+                    Some(generals_sim::pathfinding::PathfindCellType::BridgeImpassable)
                 );
                 assert!(world.delete_owned_bridge_at(Vec3::new(50.0, 21.0, 50.0)));
                 assert!(bridges(&world).is_empty(), "unlink precedes destruction");
@@ -675,7 +675,7 @@ fn canonical_body_scaffold_repair_and_delete_ignore_foreign_same_id() {
                 );
                 assert_eq!(
                     world.pathfinding_system.grid.layer_cell_type(layer, pos),
-                    Some(gamelogic::ai::pathfind_astar::PathfindCellType::BridgeImpassable)
+                    Some(generals_sim::pathfinding::PathfindCellType::BridgeImpassable)
                 );
             });
             drop(held);
@@ -888,7 +888,7 @@ fn native_saved_map_reconstructs_layers_and_keeps_scaffold_continuation() {
                     .world_to_grid(Vec3::new(50.0, FIXTURE_DECK_Z, 50.0));
                 assert_eq!(
                     restored.pathfinding_system.grid.layer_cell_type(3, pos),
-                    Some(gamelogic::ai::pathfind_astar::PathfindCellType::BridgeImpassable)
+                    Some(generals_sim::pathfinding::PathfindCellType::BridgeImpassable)
                 );
                 source.sync_host_bridge_rubble_and_scaffolds();
                 restored.sync_host_bridge_rubble_and_scaffolds();
@@ -1034,11 +1034,11 @@ fn saved_coincident_overflow_bridges_keep_source_bindings_after_ids_change() {
         );
         assert_eq!(
             restored.pathfinding_system.grid.layer_cell_type(3, cell),
-            Some(gamelogic::ai::pathfind_astar::PathfindCellType::BridgeImpassable)
+            Some(generals_sim::pathfinding::PathfindCellType::BridgeImpassable)
         );
         assert_ne!(
             restored.pathfinding_system.grid.layer_cell_type(2, cell),
-            Some(gamelogic::ai::pathfind_astar::PathfindCellType::BridgeImpassable)
+            Some(generals_sim::pathfinding::PathfindCellType::BridgeImpassable)
         );
         for (_, _, id) in expected {
             let span = restored.bridge_behavior.span(ObjectId(id)).unwrap();
@@ -1254,7 +1254,7 @@ fn placed_landmark_identity_survives_coincident_spans_and_changed_object_ids() {
                 .world_to_grid(Vec3::new(65.0, 21.0, 100.0));
             assert_eq!(
                 restored.pathfinding_system.grid.layer_cell_type(3, cell),
-                Some(gamelogic::ai::pathfind_astar::PathfindCellType::BridgeImpassable)
+                Some(generals_sim::pathfinding::PathfindCellType::BridgeImpassable)
             );
         },
     );
@@ -1364,7 +1364,7 @@ fn native_bridge_body_callbacks_continue_through_damage_and_direct_healing() {
                         .world_to_grid(Vec3::new(50.0, 21.0, 50.0));
                     assert_eq!(
                         owner.pathfinding_system.grid.layer_cell_type(layer, cell),
-                        Some(gamelogic::ai::pathfind_astar::PathfindCellType::BridgeImpassable)
+                        Some(generals_sim::pathfinding::PathfindCellType::BridgeImpassable)
                     );
                 }
                 assert_eq!(

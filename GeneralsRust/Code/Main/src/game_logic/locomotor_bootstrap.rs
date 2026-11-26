@@ -856,13 +856,13 @@ pub(crate) fn choose_host_locomotor_set_member_for_surfaces(
 
 /// C++ `Pathfinder::validLocomotorSurfacesForCellType` (AIPathfind.cpp:4734-4757).
 pub fn valid_locomotor_surfaces_for_cell_type(
-    ty: gamelogic::ai::pathfind_astar::PathfindCellType,
+    ty: generals_sim::pathfinding::PathfindCellType,
 ) -> u32 {
     use crate::game_logic::object::{
         LOCO_SURFACE_AIR, LOCO_SURFACE_CLIFF, LOCO_SURFACE_GROUND, LOCO_SURFACE_RUBBLE,
         LOCO_SURFACE_WATER,
     };
-    use gamelogic::ai::pathfind_astar::PathfindCellType;
+    use generals_sim::pathfinding::PathfindCellType;
     match ty {
         PathfindCellType::Obstacle
         | PathfindCellType::Impassable

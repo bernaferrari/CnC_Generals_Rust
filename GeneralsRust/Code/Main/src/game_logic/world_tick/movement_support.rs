@@ -1384,7 +1384,7 @@ impl GameLogic {
                     let here = obj.get_position();
                     let cell = self.pathfinding_system.grid.world_to_grid(here);
                     let unpinched_cliff = cell_type
-                        == gamelogic::ai::pathfind_astar::PathfindCellType::Cliff
+                        == generals_sim::pathfinding::PathfindCellType::Cliff
                         && !self.pathfinding_system.grid.is_pinched(cell);
                     let in_move = obj.status.moving || has_move_goal;
                     if in_move && unpinched_cliff {
@@ -3372,8 +3372,8 @@ impl GameLogic {
         let grid = &mut self.pathfinding_system.grid;
         let (new_cell, on_ground) = if ground {
             let target_layer =
-                gamelogic::ai::pathfind_astar::PathfindLayerEnum::from_u32(layer as u32);
-            if target_layer == gamelogic::ai::pathfind_astar::PathfindLayerEnum::Invalid {
+                generals_sim::pathfinding::PathfindLayerEnum::from_u32(layer as u32);
+            if target_layer == generals_sim::pathfinding::PathfindLayerEnum::Invalid {
                 return;
             }
             let (_, center) =
@@ -3383,7 +3383,7 @@ impl GameLogic {
             let on_ground = if unchanged {
                 old_ground
             } else {
-                target_layer == gamelogic::ai::pathfind_astar::PathfindLayerEnum::Ground
+                target_layer == generals_sim::pathfinding::PathfindLayerEnum::Ground
                     || grid.object_interacts_with_bridge_end(position, minor_radius, target_layer)
             };
             let cell = grid.update_path_goal_cell(crate::game_logic::pathfinding::PathGoalUpdate {
@@ -3679,7 +3679,7 @@ fn valid_movement_terrain_at(
     layer: u8,
 ) -> bool {
     use crate::game_logic::locomotor_bootstrap::valid_locomotor_surfaces_for_cell_type;
-    use gamelogic::ai::pathfind_astar::PathfindCellType;
+    use generals_sim::pathfinding::PathfindCellType;
     let cell = grid.world_to_grid(world_pos);
     if !grid.is_valid_pos(cell) {
         return false;

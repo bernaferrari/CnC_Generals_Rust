@@ -1,5 +1,5 @@
 use gamelogic::ai::AI;
-use gamelogic::ai::pathfind_astar::PathfindCellType;
+use generals_sim::pathfinding::PathfindCellType;
 use gamelogic::ai::pathfind_complete::{SURFACE_AIR, SURFACE_GROUND, SURFACE_RUBBLE};
 use gamelogic::locomotor::{Locomotor, LocomotorSet, LocomotorTemplate};
 use glam::Vec3;

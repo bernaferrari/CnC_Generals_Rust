@@ -927,11 +927,11 @@ impl GameLogic {
         let cell = grid.world_to_grid(*dest);
         let raw_layer = obj.pathfind_layer as u32;
         let layer = if raw_layer <= 1 {
-            gamelogic::ai::pathfind_astar::PathfindLayerEnum::Ground
+            generals_sim::pathfinding::PathfindLayerEnum::Ground
         } else {
-            let parsed = gamelogic::ai::pathfind_astar::PathfindLayerEnum::from_u32(raw_layer);
-            if parsed == gamelogic::ai::pathfind_astar::PathfindLayerEnum::Invalid {
-                gamelogic::ai::pathfind_astar::PathfindLayerEnum::Ground
+            let parsed = generals_sim::pathfinding::PathfindLayerEnum::from_u32(raw_layer);
+            if parsed == generals_sim::pathfinding::PathfindLayerEnum::Invalid {
+                generals_sim::pathfinding::PathfindLayerEnum::Ground
             } else {
                 parsed
             }

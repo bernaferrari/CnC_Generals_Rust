@@ -539,7 +539,7 @@ fn reissued_gather_paths_to_the_approach() {
     assert!(
         logic.pathfinding_system.grid.valid_movement_position(
             logic.pathfinding_system.grid.world_to_grid(end),
-            gamelogic::ai::pathfind_astar::PathfindLayerEnum::Ground,
+            generals_sim::pathfinding::PathfindLayerEnum::Ground,
             unit.locomotor_surfaces,
             unit.crusher_level > 0,
             0,
@@ -722,7 +722,7 @@ fn stunned_return_click_holds_the_approach() {
 fn guard_object_adjusts_off_an_impassable_post() {
     use crate::game_logic::pathfinding::GridPos;
     use crate::game_logic::{GuardMode, KindOf, Player, ThingTemplate};
-    use gamelogic::ai::pathfind_astar::PathfindCellType;
+    use generals_sim::pathfinding::PathfindCellType;
     let mut logic = GameLogic::new();
     logic.admit_default_locomotors_if_unadmitted();
     logic.add_player(Player::new(0, Team::USA, "P0", true));
@@ -1238,7 +1238,7 @@ fn cliff_cell_picks_the_cliff_member_when_the_set_changes() {
         AuthoredLocomotorSet, HostLocomotorSetKind,
     };
     use crate::game_logic::{KindOf, Player, ThingTemplate};
-    use gamelogic::ai::pathfind_astar::PathfindCellType;
+    use generals_sim::pathfinding::PathfindCellType;
 
     let mut logic = GameLogic::new();
     logic.add_player(Player::new(0, Team::USA, "P0", true));

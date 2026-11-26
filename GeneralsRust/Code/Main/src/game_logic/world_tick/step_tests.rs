@@ -18,11 +18,11 @@ fn frozen_step_burns_time_advances_nothing_and_still_runs_scripts() {
 
     assert_eq!(logic.frame, 0, "frozen step must not advance the frame");
     assert_eq!(
-        logic.sim_time_seconds, 0.0,
+        logic.get_total_play_time(), 0.0,
         "frozen step must not advance sim time"
     );
     assert_eq!(
-        logic.accumulated_time, 0.0,
+        logic.simulation_clock.carried_seconds(), 0.0,
         "frozen step must still consume the accumulated timestep"
     );
     let diag = logic.fixed_step_diagnostics();
@@ -69,7 +69,7 @@ fn host_ai_runs_once_for_each_advanced_fixed_logic_frame() {
     for expected_frame in 1..=12 {
         // C++ calls TheAI->UPDATE before advancing the frame's simulation
         // clock, so AI observes the time at the beginning of each tick.
-        let tick_time = logic.sim_time_seconds;
+        let tick_time = logic.get_total_play_time();
         logic.step_simulation_with_budget(LOGIC_FRAME_TIMESTEP, None);
         assert_eq!(logic.frame, expected_frame);
         assert_eq!(
@@ -91,7 +91,7 @@ fn host_ai_does_not_run_on_frozen_steps_and_resumes_after_unfreeze() {
     assert_eq!(host_ai_last_update_time(&logic), initial_ai_time);
 
     logic.set_script_time_frozen_for_test(false);
-    let resumed_tick_time = logic.sim_time_seconds;
+    let resumed_tick_time = logic.get_total_play_time();
     logic.step_simulation_with_budget(LOGIC_FRAME_TIMESTEP, None);
     assert_eq!(logic.frame, 1);
     assert_eq!(
@@ -104,7 +104,7 @@ fn host_ai_does_not_run_on_frozen_steps_and_resumes_after_unfreeze() {
 fn host_ai_catch_up_updates_every_internal_fixed_step() {
     let mut logic = GameLogic::new();
     add_test_host_ai(&mut logic);
-    let first_tick_time = logic.sim_time_seconds;
+    let first_tick_time = logic.get_total_play_time();
     logic.step_simulation_with_budget(4.0 * LOGIC_FRAME_TIMESTEP, Some(4));
 
     assert_eq!(logic.frame, 4);
@@ -133,7 +133,7 @@ fn unfreeze_resumes_on_next_frame_without_skips() {
     assert_eq!(logic.frame, 1, "unfreeze resumes on the very next frame");
     logic.step_simulation_with_budget(LOGIC_FRAME_TIMESTEP, None);
     assert_eq!(logic.frame, 2, "no repeated frames after unfreeze");
-    assert!((logic.sim_time_seconds - 2.0 * LOGIC_FRAME_TIMESTEP).abs() < 1e-6);
+    assert!((logic.get_total_play_time() - 2.0 * LOGIC_FRAME_TIMESTEP).abs() < 1e-6);
 }
 
 /// GameLogic.cpp3603-3617 and ScriptEngine.cpp8455-8464: actual
@@ -461,7 +461,7 @@ fn live_catchup_runs_one_step_and_drops_excess_backlog() {
         "live clamp must drop the excess accumulated backlog"
     );
     assert_eq!(
-        logic.accumulated_time, 0.0,
+        logic.simulation_clock.carried_seconds(), 0.0,
         "dropped backlog must not carry into the next drive_frame"
     );
 
@@ -470,7 +470,7 @@ fn live_catchup_runs_one_step_and_drops_excess_backlog() {
     headless.step_simulation_with_budget(20.0 * LOGIC_FRAME_TIMESTEP, Some(3));
     assert_eq!(headless.frame, 3);
     assert!(
-        headless.accumulated_time >= LOGIC_FRAME_TIMESTEP,
+        headless.simulation_clock.carried_seconds() >= LOGIC_FRAME_TIMESTEP,
         "headless budget path carries the remaining backlog"
     );
     assert!(!headless.fixed_step_diagnostics().dropped_excess_time);
@@ -646,14 +646,14 @@ fn immutable_frame_timing_advances_only_the_logic_clock() {
         logic.tick_logic_frame_with_boundary(0.0, Some(&timing), Some(1), |_| callbacks += 1);
     assert_eq!(callbacks, 1);
     assert_eq!(snap.frame, 1);
-    assert_eq!(logic.sim_time_seconds, LOGIC_FRAME_TIMESTEP);
+    assert_eq!(logic.get_total_play_time(), LOGIC_FRAME_TIMESTEP);
     let mut frozen = GameLogic::new();
     frozen.set_script_time_frozen_for_test(true);
     let snap = frozen.tick_logic_frame_with_boundary(0.0, Some(&timing), Some(1), |_| {
         panic!("frozen step cannot deliver")
     });
     assert_eq!(snap.steps_run, 0);
-    assert_eq!(frozen.sim_time_seconds, 0.0);
+    assert_eq!(frozen.get_total_play_time(), 0.0);
 }
 #[test]
 fn host_logic_step_active_phase_restores_after_real_frozen_and_advanced_steps() {

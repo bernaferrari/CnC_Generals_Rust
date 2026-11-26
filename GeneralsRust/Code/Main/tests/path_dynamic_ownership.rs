@@ -332,7 +332,7 @@ fn fixed_occupant_cannot_be_overwritten_by_a_later_position_stamp() {
 
 #[test]
 fn bridge_goal_changes_the_layer_occupant_without_a_refresh() {
-    use gamelogic::ai::pathfind_astar::PathfindLayerEnum;
+    use generals_sim::pathfinding::PathfindLayerEnum;
     use gamelogic::ai::pathfind_complete::SURFACE_GROUND;
     use generals_main::game_logic::pathfinding::PathGoalUpdate;
 
@@ -564,7 +564,7 @@ fn possible_destination_uses_each_receivers_ignore_and_goal_identity() {
 
     systems[0]
         .grid
-        .set_cell_type(cell, gamelogic::ai::pathfind_astar::PathfindCellType::Clear);
+        .set_cell_type(cell, generals_sim::pathfinding::PathfindCellType::Clear);
     systems[0]
         .grid
         .update_ground_goal_cell(ids[0].0, 1.0, false, (-1, -1), goal);
@@ -666,7 +666,7 @@ fn possible_destination_does_not_use_ai_context_when_receiver_has_no_ai() {
 
     system.grid.set_cell_type(
         GridPos::new(5, 5),
-        gamelogic::ai::pathfind_astar::PathfindCellType::Clear,
+        generals_sim::pathfinding::PathfindCellType::Clear,
     );
     system.grid.update_ground_goal_cell(id.0, 1.0, false, (-1, -1), goal);
     let mut own_goal = goal;
@@ -681,7 +681,7 @@ fn possible_destination_does_not_use_ai_context_when_receiver_has_no_ai() {
 
 #[test]
 fn blocked_route_retry_uses_receiver_ignore_and_aircraft_stays_direct() {
-    use gamelogic::ai::pathfind_astar::PathfindCellType;
+    use generals_sim::pathfinding::PathfindCellType;
     use generals_main::game_logic::object::{LOCO_SURFACE_AIR, LocomotorAppearance};
     let mut worlds = [GameLogic::new(), GameLogic::new()];
     let mut systems = [PathfindingSystem::new(200.0, 200.0), PathfindingSystem::new(200.0, 200.0)];
@@ -910,7 +910,7 @@ fn possible_destination_uses_the_receivers_aircraft_goal_rules() {
 fn core_bridge_line_uses_the_deck_then_falls_back_to_blocked_ground() {
     let services = gamelogic::system::engine_stores::new_world_services();
     gamelogic::system::engine_stores::with_world_services(&services, || {
-    use gamelogic::ai::pathfind_astar::{GridCoord, PathfindCellType, PathfindLayerEnum};
+    use generals_sim::pathfinding::{GridCoord, PathfindCellType, PathfindLayerEnum};
     use gamelogic::ai::pathfind_complete::{PathfindingSystem as CorePathfinder, SURFACE_GROUND};
     let mut finder = CorePathfinder::new(20, 20);
     let layer = PathfindLayerEnum::from_u32(
@@ -962,7 +962,7 @@ fn core_bridge_line_uses_the_deck_then_falls_back_to_blocked_ground() {
 fn core_bridge_changes_recalculate_zones_before_draining_the_queue() {
     let services = gamelogic::system::engine_stores::new_world_services();
     gamelogic::system::engine_stores::with_world_services(&services, || {
-    use gamelogic::ai::pathfind_astar::{GridCoord, PathfindCellType, PathfindLayerEnum};
+    use generals_sim::pathfinding::{GridCoord, PathfindCellType, PathfindLayerEnum};
     use gamelogic::ai::pathfind_complete::{PathfindingSystem as CorePathfinder, SURFACE_GROUND};
     let mut finder = CorePathfinder::new(20, 20);
     let layer = finder.add_bridge((GridCoord::new(5, 4), GridCoord::new(11, 6)));
@@ -1061,7 +1061,7 @@ fn core_bridge_changes_recalculate_zones_before_draining_the_queue() {
 fn core_possible_candidate_uses_bridge_cell_and_zone() {
     let services = gamelogic::system::engine_stores::new_world_services();
     gamelogic::system::engine_stores::with_world_services(&services, || {
-    use gamelogic::ai::pathfind_astar::{GridCoord, PathfindCellType, PathfindLayerEnum};
+    use generals_sim::pathfinding::{GridCoord, PathfindCellType, PathfindLayerEnum};
     use gamelogic::ai::pathfind_complete::{
         PathfindingSystem as CorePathfinder, SURFACE_AIR, SURFACE_GROUND,
     };
@@ -1260,7 +1260,7 @@ fn core_possible_candidate_uses_bridge_cell_and_zone() {
 
 #[test]
 fn possible_candidate_maps_uninitialized_zone_for_unrestricted_locomotors() {
-    use gamelogic::ai::pathfind_astar::PathfindLayerEnum;
+    use generals_sim::pathfinding::PathfindLayerEnum;
     use gamelogic::ai::pathfind_complete::{
         SURFACE_AIR, SURFACE_CLIFF, SURFACE_GROUND, SURFACE_WATER,
     };
@@ -1335,7 +1335,7 @@ fn possible_candidate_maps_uninitialized_zone_for_unrestricted_locomotors() {
 
 #[test]
 fn core_possible_candidate_samples_receiving_terrain_only_after_acceptance() {
-    use gamelogic::ai::pathfind_astar::PathfindLayerEnum;
+    use generals_sim::pathfinding::PathfindLayerEnum;
     use gamelogic::ai::pathfind_complete::{PathfindingSystem, SURFACE_AIR, SURFACE_GROUND};
     use std::cell::Cell;
 
@@ -1413,7 +1413,7 @@ fn core_possible_candidate_samples_receiving_terrain_only_after_acceptance() {
 
 #[test]
 fn possible_candidate_maps_structure_separated_terrain_zones() {
-    use gamelogic::ai::pathfind_astar::{PathfindCellType, PathfindLayerEnum};
+    use generals_sim::pathfinding::{PathfindCellType, PathfindLayerEnum};
     use gamelogic::ai::pathfind_complete::SURFACE_GROUND;
     let ground = PathfindingGround::Flat(0.0);
     let mut grid = PathfindingGrid::new(200.0, 200.0, 10.0);
@@ -1453,7 +1453,7 @@ fn possible_candidate_maps_structure_separated_terrain_zones() {
 
 #[test]
 fn possible_destination_uses_terrain_zone_when_starting_inside_a_structure() {
-    use gamelogic::ai::pathfind_astar::PathfindCellType;
+    use generals_sim::pathfinding::PathfindCellType;
     use gamelogic::ai::pathfind_complete::SURFACE_GROUND;
 
     let ground = PathfindingGround::Flat(0.0);
@@ -1561,7 +1561,7 @@ fn possible_destination_reports_low_edge_overflow_after_the_half_cell_bias() {
 
 #[test]
 fn possible_destination_checks_the_whole_footprint_on_every_candidate() {
-    use gamelogic::ai::pathfind_astar::PathfindCellType;
+    use generals_sim::pathfinding::PathfindCellType;
     use gamelogic::ai::pathfind_complete::SURFACE_GROUND;
 
     let mut grid = PathfindingGrid::new(200.0, 200.0, 10.0);
@@ -1584,7 +1584,7 @@ fn possible_destination_checks_the_whole_footprint_on_every_candidate() {
 
 #[test]
 fn possible_destination_does_not_treat_neighboring_water_as_impassable() {
-    use gamelogic::ai::pathfind_astar::PathfindCellType;
+    use generals_sim::pathfinding::PathfindCellType;
     use gamelogic::ai::pathfind_complete::SURFACE_GROUND;
     let mut grid = PathfindingGrid::new(200.0, 200.0, 10.0);
     let ground = PathfindingGround::Flat(0.0);
@@ -1604,7 +1604,7 @@ fn possible_destination_does_not_treat_neighboring_water_as_impassable() {
 
 #[test]
 fn rejected_possible_destinations_leave_the_last_zone_candidate() {
-    use gamelogic::ai::pathfind_astar::PathfindCellType;
+    use generals_sim::pathfinding::PathfindCellType;
     use gamelogic::ai::pathfind_complete::SURFACE_GROUND;
     let mut grid = PathfindingGrid::new(200.0, 200.0, 10.0);
     let ground = PathfindingGround::Flat(0.0);
@@ -1633,7 +1633,7 @@ fn rejected_possible_destinations_leave_the_last_zone_candidate() {
 
 #[test]
 fn possible_destination_uses_bridge_zone_instead_of_ground_beneath_it() {
-    use gamelogic::ai::pathfind_astar::PathfindCellType;
+    use generals_sim::pathfinding::PathfindCellType;
     use generals_main::game_logic::HostGeometryType;
     let ground = PathfindingGround::Flat(0.0);
     let mut world = GameLogic::new();
@@ -1696,7 +1696,7 @@ fn possible_destination_uses_bridge_zone_instead_of_ground_beneath_it() {
 
 #[test]
 fn possible_destination_keeps_the_original_bridge_layer_while_spiraling() {
-    use gamelogic::ai::pathfind_astar::{PathfindCellType, PathfindLayerEnum};
+    use generals_sim::pathfinding::{PathfindCellType, PathfindLayerEnum};
     use gamelogic::ai::pathfind_complete::SURFACE_GROUND;
     use generals_main::game_logic::pathfinding::PathGoalUpdate;
 

@@ -1,7 +1,7 @@
 use super::*;
 
 use super::movement_footprint::MovementFootprint;
-use gamelogic::ai::pathfind_astar::visit_cell_line;
+use generals_sim::pathfinding::visit_cell_line;
 
 fn enqueue_closest_path_node(
     open: &mut BinaryHeap<std::cmp::Reverse<(i32, u64, i32, i32, i32, u8)>>,

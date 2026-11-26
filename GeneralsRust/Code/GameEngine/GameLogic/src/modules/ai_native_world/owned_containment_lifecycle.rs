@@ -173,7 +173,7 @@ impl BorrowedAiWorld<'_> {
                 .services
                 .pathfinder
                 .valid_movement_terrain_for_locomotor(
-                    crate::ai::pathfind_astar::PathfindLayerEnum::from_u32(layer as u32),
+                    generals_sim::pathfinding::PathfindLayerEnum::from_u32(layer as u32),
                     loco,
                     &position,
                 );

@@ -69,13 +69,13 @@ impl GameLogic {
             log::error!("script presentation effects: {error}");
         }
 
-        self.script_broadcasts
-            .retain(|msg| self.sim_time_seconds <= msg.expires_at);
+        let now = self.get_total_play_time();
+        self.script_broadcasts.retain(|msg| now <= msg.expires_at);
 
         if self
             .cinematic_text
             .as_ref()
-            .is_some_and(|(_, expires_at)| self.sim_time_seconds > *expires_at)
+            .is_some_and(|(_, expires_at)| self.get_total_play_time() > *expires_at)
         {
             self.cinematic_text = None;
             self.cinematic_font = None;
@@ -84,7 +84,7 @@ impl GameLogic {
         if self
             .military_caption
             .as_ref()
-            .is_some_and(|(_, expires_at)| self.sim_time_seconds > *expires_at)
+            .is_some_and(|(_, expires_at)| self.get_total_play_time() > *expires_at)
         {
             self.military_caption = None;
         }

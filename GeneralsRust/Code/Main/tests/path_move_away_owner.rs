@@ -133,7 +133,7 @@ fn move_away_clearance_uses_geometry_instead_of_selection_radius() {
 
 #[test]
 fn move_away_does_not_cut_a_closed_corner() {
-    use gamelogic::ai::pathfind_astar::PathfindCellType;
+    use generals_sim::pathfinding::PathfindCellType;
     use generals_main::game_logic::pathfinding::GridPos;
     let (world, large, small) = make_world();
     let ground = PathfindingGround::Flat(0.0);
@@ -169,7 +169,7 @@ fn move_away_equal_cost_uses_cpp_neighbor_order() {
 
 #[test]
 fn move_away_route_follows_open_detour_around_wall() {
-    use gamelogic::ai::pathfind_astar::PathfindCellType;
+    use generals_sim::pathfinding::PathfindCellType;
     use generals_main::game_logic::pathfinding::GridPos;
     let (world, large, small) = make_world();
     let ground = PathfindingGround::Flat(0.0);
@@ -207,7 +207,7 @@ fn move_away_route_follows_open_detour_around_wall() {
 
 #[test]
 fn move_away_queries_keep_same_id_worlds_separate() {
-    use gamelogic::ai::pathfind_astar::PathfindCellType;
+    use generals_sim::pathfinding::PathfindCellType;
     use generals_main::game_logic::pathfinding::GridPos;
     let (world, large, small) = make_world();
     let (peer, peer_large, peer_small) = make_world();
@@ -247,7 +247,7 @@ fn move_away_queries_keep_same_id_worlds_separate() {
 
 #[test]
 fn path_through_units_does_not_enable_tunneling_through_walls() {
-    use gamelogic::ai::pathfind_astar::PathfindCellType;
+    use generals_sim::pathfinding::PathfindCellType;
     use generals_main::game_logic::pathfinding::GridPos;
     let (mut world, large, small) = make_world();
     world.host_object_mut(small).unwrap().can_path_through_units = true;
@@ -336,7 +336,7 @@ fn collision_retry_sets_unit_flag_even_when_no_route_exists() {
 
 #[test]
 fn occupied_start_automatically_enables_escape_tunneling() {
-    use gamelogic::ai::pathfind_astar::PathfindCellType;
+    use generals_sim::pathfinding::PathfindCellType;
     use generals_main::game_logic::pathfinding::{GridPos, PathPositionFootprint};
     let (mut world, large, small) = make_world();
     world.add_player(Player::new(1, Team::GLA, "Enemy", false));

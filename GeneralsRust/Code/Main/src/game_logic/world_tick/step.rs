@@ -1,6 +1,7 @@
 //! Host tick `impl GameLogic` — `step`.
 #![allow(unused_imports, non_snake_case)]
 use super::super::*;
+use generals_sim::time::{SimulationClock, StepAdmission};
 #[cfg(test)]
 #[path = "ai_phase_tests.rs"]
 mod ai_phase_tests;
@@ -188,12 +189,14 @@ pub(in super::super) mod residual_gate_seam {
 
 impl GameLogic {
     pub(crate) fn snapshot_session_clock(&self) -> (f32, f32) {
-        (self.sim_time_seconds, self.accumulated_time)
+        (
+            self.simulation_clock.elapsed_seconds(),
+            self.simulation_clock.carried_seconds(),
+        )
     }
 
     pub(crate) fn restore_session_clock(&mut self, time: f32, accumulated: f32) {
-        self.sim_time_seconds = time;
-        self.accumulated_time = accumulated;
+        self.simulation_clock = SimulationClock::from_snapshot(time, accumulated);
     }
 
     pub(crate) fn reset_recurring_updates(&mut self) {
@@ -431,24 +434,11 @@ impl GameLogic {
             return Ok(None);
         }
         let counts = resumed_counts.unwrap_or_default();
-        self.accumulated_time += delta_time;
-
-        const FIXED_TIMESTEP: f32 = LOGIC_FRAME_TIMESTEP;
+        self.simulation_clock.offer(delta_time);
 
         let mut steps_run = counts.advanced;
         let mut frozen_steps = counts.frozen;
         let mut budget_hit = false;
-        // Live frame: C++ GameEngine::update calls TheGameLogic->UPDATE once
-        // (GameEngine.cpp:751), then execute presents that frame. A stalled
-        // present must not batch several logic frames into one drive_frame.
-        // Run at most one step and DROP the excess accumulated time instead of
-        // carrying it into later frames (carrying it would turn one stall into
-        // multi-hundred-ms sim spikes across subsequent frames). Headless
-        // callers pass an explicit Some(budget) and keep the carry-over
-        // semantics.
-        const LIVE_MAX_FIXED_STEPS_PER_DRIVE_FRAME: usize = 1;
-        let live_catchup = max_fixed_steps.is_none();
-        let step_budget = max_fixed_steps.unwrap_or(LIVE_MAX_FIXED_STEPS_PER_DRIVE_FRAME);
         let mut dropped_excess_time = false;
 
         // Safe local handle keeps the canonical field installed throughout
@@ -457,26 +447,26 @@ impl GameLogic {
         let mut suspended = None;
         let mut failure = None;
         game_engine::common::random_value::with_session_random(&logic_rng, || {
-            while self.accumulated_time >= FIXED_TIMESTEP {
+            loop {
                 // Frozen steps still evaluate scripts, so they burn real work
                 // and count against the same per-call catch-up budget even
                 // though they advance nothing.
-                if steps_run + frozen_steps >= step_budget {
-                    budget_hit = true;
-                    if live_catchup {
-                        // Drop the excess backlog: after a stall the sim
-                        // resumes from "now" instead of replaying the
-                        // missed window across the next drive frames.
-                        self.accumulated_time = 0.0;
-                        dropped_excess_time = true;
+                match self.simulation_clock.admit_step(steps_run + frozen_steps, max_fixed_steps) {
+                    StepAdmission::Waiting => break,
+                    StepAdmission::BudgetExhausted {
+                        dropped_excess_time: dropped,
+                    } => {
+                        budget_hit = true;
+                        dropped_excess_time = dropped;
+                        break;
                     }
-                    break;
+                    StepAdmission::Ready => {}
                 }
                 if let Some(error) = self.team_creation_error() {
                     failure = Some(error);
                     break;
                 }
-                let outcome = run_step(self, FIXED_TIMESTEP);
+                let outcome = run_step(self, LOGIC_FRAME_TIMESTEP);
                 if let Some(error) = self.team_creation_error() {
                     failure = Some(error);
                     break;
@@ -487,7 +477,7 @@ impl GameLogic {
                         break;
                     }
                     SimulationStepOutcome::Advanced => {
-                        self.accumulated_time -= FIXED_TIMESTEP;
+                        self.simulation_clock.consume_step();
                         // C++ m_frame++ (GameLogic.cpp:3795-3803): this loop is
                         // the single frame/sim-time advancement owner.
                         self.frame = self.frame.wrapping_add(1);
@@ -495,7 +485,7 @@ impl GameLogic {
                             .lock()
                             .unwrap_or_else(|e| e.into_inner())
                             .set_current_frame(self.frame);
-                        self.sim_time_seconds += FIXED_TIMESTEP;
+                        self.simulation_clock.record_frame_advance(LOGIC_FRAME_TIMESTEP);
                         steps_run += 1;
                         // Residual admission belongs to this completed frame,
                         // before the next host ingress. Keep the RNG owner
@@ -513,7 +503,7 @@ impl GameLogic {
                             prior_steps: steps_run,
                             frozen_steps,
                             max_fixed_steps,
-                            carry: self.accumulated_time,
+                            carry: self.simulation_clock.carried_seconds(),
                             reset_seen: false,
                             new_game_pending: false,
                         });
@@ -524,7 +514,7 @@ impl GameLogic {
                         // engine still ticked that frame: a frozen step burns
                         // real time. Consume the timestep so the loop cannot
                         // spin on one step, and advance nothing else.
-                        self.accumulated_time -= FIXED_TIMESTEP;
+                        self.simulation_clock.consume_step();
                         frozen_steps += 1;
                     }
                 }
@@ -541,7 +531,7 @@ impl GameLogic {
             steps_run,
             frozen_steps,
             budget_hit,
-            accumulated_time_seconds: self.accumulated_time,
+            accumulated_time_seconds: self.simulation_clock.carried_seconds(),
             dropped_excess_time,
         };
 
@@ -775,8 +765,8 @@ mod failed_step_owner_tests {
             || {
                 let mut world = GameLogic::new();
                 world.frame = 19;
-                world.sim_time_seconds = 19.0 * LOGIC_FRAME_TIMESTEP;
-                let old_time = world.sim_time_seconds;
+                world.restore_session_clock(19.0 * LOGIC_FRAME_TIMESTEP, world.simulation_clock.carried_seconds());
+                let old_time = world.get_total_play_time();
                 let mut after_calls = 0;
                 let result = world.step_simulation_with_callbacks(
                     LOGIC_FRAME_TIMESTEP,
@@ -793,7 +783,7 @@ mod failed_step_owner_tests {
                     matches!(result, Err(gamelogic::GameLogicError::Configuration(message)) if message == "birth rejected")
                 );
                 assert_eq!(world.frame, 19);
-                assert_eq!(world.sim_time_seconds, old_time);
+                assert_eq!(world.get_total_play_time(), old_time);
                 assert_eq!(after_calls, 0);
             },
         );

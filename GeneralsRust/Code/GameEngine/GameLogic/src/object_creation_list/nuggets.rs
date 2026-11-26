@@ -1262,7 +1262,7 @@ fn apply_dies_on_bad_land(
         }
     }
 
-    use crate::ai::pathfind_astar::PathfindCellType;
+    use generals_sim::pathfinding::PathfindCellType;
     if off_map
         || cell_type == PathfindCellType::Cliff
         || cell_type == PathfindCellType::Water
@@ -1277,8 +1277,8 @@ fn apply_dies_on_bad_land(
 fn pathfind_cell_type_at(
     pos: &Coord3D,
     layer: PathfindLayerEnum,
-) -> crate::ai::pathfind_astar::PathfindCellType {
-    use crate::ai::pathfind_astar::{PathfindCellType, PathfindLayerEnum as AStarLayer};
+) -> generals_sim::pathfinding::PathfindCellType {
+    use generals_sim::pathfinding::{PathfindCellType, PathfindLayerEnum as AStarLayer};
 
     // C++ ObjectCreationList.cpp:1262-1266
     //   Int cellX = REAL_TO_INT(obj->getPosition()->x / PATHFIND_CELL_SIZE);
@@ -2454,7 +2454,7 @@ End
     fn dies_on_bad_land_missing_pathfind_cell_treated_as_impassable_kills() {
         let _guard = TEST_GLOBALS.lock().unwrap();
         ensure_neutral_player_with_team();
-        use crate::ai::pathfind_astar::PathfindCellType;
+        use generals_sim::pathfinding::PathfindCellType;
         // Default the_ai pathfinder is a 1000x1000 Clear grid; negative cells are absent.
         let pos = Coord3D::new(-50.0, -50.0, 5.0);
         assert_eq!(

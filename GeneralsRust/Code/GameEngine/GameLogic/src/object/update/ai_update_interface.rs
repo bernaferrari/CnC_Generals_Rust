@@ -2839,7 +2839,7 @@ mod turret_owner_tests;
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ai::pathfind_astar::PathfindCellType;
+    use generals_sim::pathfinding::PathfindCellType;
     use crate::locomotor::SURFACE_WATER;
     use crate::object::Object;
     use game_engine::common::system::xfer_save::XferSave;

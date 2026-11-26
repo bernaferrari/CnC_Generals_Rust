@@ -12,7 +12,7 @@ use std::sync::{Arc, Mutex, RwLock};
 use std::time::{Duration, Instant};
 use std::vec::Vec;
 
-use self::pathfind_astar::PathfindCellType;
+use generals_sim::pathfinding::PathfindCellType;
 use self::pathfind_complete::{
     PATHFIND_CELLS_PER_FRAME, PathRequest as ClassicPathRequest, PathResult as ClassicPathResult,
     PathfindingSystem as ClassicPathfindingSystem,
@@ -1462,7 +1462,7 @@ pub struct Pathfinder {
 
 impl Pathfinder {
     pub fn world_to_grid(&self, world_pos: &Coord3D) -> ICoord2D {
-        let cell_size = self::pathfind_astar::PATHFIND_CELL_SIZE_F;
+        let cell_size = generals_sim::pathfinding::PATHFIND_CELL_SIZE_F;
         ICoord2D::new(
             (world_pos.x / cell_size).floor() as i32,
             (world_pos.y / cell_size).floor() as i32,
@@ -1470,7 +1470,7 @@ impl Pathfinder {
     }
 
     pub fn grid_to_world(&self, grid_pos: &ICoord2D) -> Coord3D {
-        let cell_size = self::pathfind_astar::PATHFIND_CELL_SIZE_F;
+        let cell_size = generals_sim::pathfinding::PATHFIND_CELL_SIZE_F;
         let x = (grid_pos.x as f32 + 0.5) * cell_size;
         let y = (grid_pos.y as f32 + 0.5) * cell_size;
         let z = crate::helpers::TheTerrainLogic::get()
@@ -1491,7 +1491,7 @@ pub(crate) fn object_footprint_positions_with_height(
     obj: &Object,
     mut height: impl FnMut(f32, f32) -> f32,
 ) -> Option<Vec<Coord3D>> {
-    use crate::ai::pathfind_astar::{GridCoord, PathfindLayerEnum};
+    use generals_sim::pathfinding::{GridCoord, PathfindLayerEnum};
     use crate::common::KindOf;
     use crate::path::PATHFIND_CELL_SIZE_F;
     use std::collections::HashSet;
@@ -1640,7 +1640,7 @@ impl Pathfinder {
 
     fn rebuild_terrain_cells(&mut self, terrain: &TerrainLogic) {
         let extent = terrain.get_maximum_pathfind_extent();
-        let cell_size = self::pathfind_astar::PATHFIND_CELL_SIZE_F;
+        let cell_size = generals_sim::pathfinding::PATHFIND_CELL_SIZE_F;
         let width = (extent.hi.x / cell_size).ceil().max(1.0) as usize;
         let height = (extent.hi.y / cell_size).ceil().max(1.0) as usize;
         let lo_x = (extent.lo.x / cell_size).floor() as i32;
@@ -1869,7 +1869,7 @@ impl Pathfinder {
         &mut self,
         from: &Coord3D,
         original_waypoints: &[Coord3D],
-        original_layers: &[pathfind_astar::PathfindLayerEnum],
+        original_layers: &[generals_sim::pathfinding::PathfindLayerEnum],
         surfaces: u32,
         is_crusher: bool,
         unit_radius: f32,
@@ -1941,7 +1941,7 @@ impl Pathfinder {
         &mut self,
         obj_id: ObjectID,
         path_waypoints: &[Coord3D],
-        path_layers: &[pathfind_astar::PathfindLayerEnum],
+        path_layers: &[generals_sim::pathfinding::PathfindLayerEnum],
         blocked_by_ally: bool,
         unit_radius: f32,
     ) -> bool {
@@ -1967,9 +1967,9 @@ impl Pathfinder {
 
     pub fn update_layer_for_object(
         &self,
-        desired_layer: pathfind_astar::PathfindLayerEnum,
+        desired_layer: generals_sim::pathfinding::PathfindLayerEnum,
         interacts_with_bridge_layer: bool,
-    ) -> pathfind_astar::PathfindLayerEnum {
+    ) -> generals_sim::pathfinding::PathfindLayerEnum {
         self.inner
             .update_layer_for_object(desired_layer, interacts_with_bridge_layer)
     }
@@ -2083,7 +2083,7 @@ impl Pathfinder {
     pub fn build_ground_path(
         &mut self,
         from: &Coord3D,
-        grid_path: &[pathfind_astar::GridCoord],
+        grid_path: &[generals_sim::pathfinding::GridCoord],
         is_crusher: bool,
         center: bool,
         path_diameter: i32,
@@ -2096,7 +2096,7 @@ impl Pathfinder {
     pub fn build_hierarchical_path(
         &mut self,
         from: &Coord3D,
-        grid_path: &[pathfind_astar::GridCoord],
+        grid_path: &[generals_sim::pathfinding::GridCoord],
     ) -> crate::ai::pathfind_complete::PathResult {
         self.inner.build_hierarchical_path(from, grid_path)
     }
@@ -2127,7 +2127,7 @@ impl Pathfinder {
         surfaces: u32,
         cell_x: i32,
         cell_y: i32,
-        layer: pathfind_astar::PathfindLayerEnum,
+        layer: generals_sim::pathfinding::PathfindLayerEnum,
         dest: &mut Coord3D,
         starting_in_obstacle: bool,
         terrain_height: impl FnOnce(f32, f32, crate::common::PathfindLayerEnum) -> f32,
@@ -2443,8 +2443,8 @@ impl Pathfinder {
         from: &Coord3D,
         to: &Coord3D,
         surfaces: u32,
-        layer: pathfind_astar::PathfindLayerEnum,
-        cells: Option<&std::collections::HashSet<pathfind_astar::GridCoord>>,
+        layer: generals_sim::pathfinding::PathfindLayerEnum,
+        cells: Option<&std::collections::HashSet<generals_sim::pathfinding::GridCoord>>,
     ) -> bool {
         self.inner
             .is_line_passable_on_layer_with_cells(from, to, surfaces, layer, cells)
@@ -2456,7 +2456,7 @@ impl Pathfinder {
         from: &Coord3D,
         to: &Coord3D,
         surfaces: u32,
-        layer: pathfind_astar::PathfindLayerEnum,
+        layer: generals_sim::pathfinding::PathfindLayerEnum,
         ignore_obstacle_id: Option<ObjectID>,
     ) -> bool {
         self.inner.is_line_passable_for_surfaces_on_layer(
@@ -2475,7 +2475,7 @@ impl Pathfinder {
         to: &Coord3D,
         diameter_cells: i32,
     ) -> Option<Vec<Coord3D>> {
-        let cell = self::pathfind_astar::PATHFIND_CELL_SIZE_F;
+        let cell = generals_sim::pathfinding::PATHFIND_CELL_SIZE_F;
         let radius = diameter_cells.max(1) as f32 * cell * 0.5;
         let result = self.inner.find_ground_path(
             *from,
@@ -2609,7 +2609,7 @@ impl Pathfinder {
     /// C++ `Pathfinder::validMovementTerrain`.
     pub(crate) fn valid_movement_terrain_for_locomotor(
         &self,
-        layer: crate::ai::pathfind_astar::PathfindLayerEnum,
+        layer: generals_sim::pathfinding::PathfindLayerEnum,
         locomotor: &crate::locomotor::Locomotor,
         position: &Coord3D,
     ) -> bool {
@@ -2619,7 +2619,7 @@ impl Pathfinder {
 
     pub fn valid_movement_terrain(
         &self,
-        layer: crate::ai::pathfind_astar::PathfindLayerEnum,
+        layer: generals_sim::pathfinding::PathfindLayerEnum,
         locomotor_set: &crate::locomotor::LocomotorSet,
         pos: &Coord3D,
     ) -> bool {
@@ -2703,7 +2703,7 @@ impl Pathfinder {
     ) {
         self.inner.set_cell_type_at_layer(
             pos,
-            self::pathfind_astar::PathfindLayerEnum::from_u32(layer as u32),
+            generals_sim::pathfinding::PathfindLayerEnum::from_u32(layer as u32),
             cell_type,
         );
     }
@@ -2821,9 +2821,9 @@ impl Pathfinder {
 
     pub fn update_goal_cells(
         &mut self,
-        cell: pathfind_astar::GridCoord,
+        cell: generals_sim::pathfinding::GridCoord,
         unit_id: ObjectID,
-        layer: pathfind_astar::PathfindLayerEnum,
+        layer: generals_sim::pathfinding::PathfindLayerEnum,
         radius: i32,
         center_in_cell: bool,
         interacts_with_bridge_end: bool,
@@ -2841,9 +2841,9 @@ impl Pathfinder {
     /// C++ `Pathfinder::updatePos`.
     pub fn update_pos_cells(
         &mut self,
-        cell: pathfind_astar::GridCoord,
+        cell: generals_sim::pathfinding::GridCoord,
         unit_id: ObjectID,
-        layer: pathfind_astar::PathfindLayerEnum,
+        layer: generals_sim::pathfinding::PathfindLayerEnum,
         radius: i32,
         center_in_cell: bool,
         interacts_with_bridge_end: bool,
@@ -2864,7 +2864,7 @@ impl Pathfinder {
         unit_id: ObjectID,
         radius: i32,
         center_in_cell: bool,
-        layer: pathfind_astar::PathfindLayerEnum,
+        layer: generals_sim::pathfinding::PathfindLayerEnum,
     ) {
         self.inner
             .remove_pos(unit_id, radius, center_in_cell, layer);
@@ -2876,7 +2876,7 @@ impl Pathfinder {
         unit_id: ObjectID,
         radius: i32,
         center_in_cell: bool,
-        layer: pathfind_astar::PathfindLayerEnum,
+        layer: generals_sim::pathfinding::PathfindLayerEnum,
     ) {
         self.inner
             .remove_unit_from_pathfind_map(unit_id, radius, center_in_cell, layer);
@@ -2888,7 +2888,7 @@ impl Pathfinder {
         center_cell: ICoord2D,
         radius: i32,
         center_in_cell: bool,
-        layer: pathfind_astar::PathfindLayerEnum,
+        layer: generals_sim::pathfinding::PathfindLayerEnum,
         do_ground: bool,
         do_layer: bool,
     ) {
@@ -2909,7 +2909,7 @@ impl Pathfinder {
         center_cell: ICoord2D,
         radius: i32,
         center_in_cell: bool,
-        layer: pathfind_astar::PathfindLayerEnum,
+        layer: generals_sim::pathfinding::PathfindLayerEnum,
         clear_ground: bool,
         clear_layer: bool,
     ) {
@@ -2959,7 +2959,7 @@ impl Pathfinder {
     pub fn get_cell_type_at_layer(
         &self,
         pos: &Coord3D,
-        layer: self::pathfind_astar::PathfindLayerEnum,
+        layer: generals_sim::pathfinding::PathfindLayerEnum,
     ) -> Option<PathfindCellType> {
         self.inner.get_cell_type_at_layer(pos, layer)
     }
@@ -2969,14 +2969,14 @@ impl Pathfinder {
     pub fn is_cell_clear_at(&self, pos: &Coord3D, layer: crate::common::PathfindLayerEnum) -> bool {
         self.inner.get_cell_type_at_layer(
             pos,
-            self::pathfind_astar::PathfindLayerEnum::from_u32(layer as u32),
+            generals_sim::pathfinding::PathfindLayerEnum::from_u32(layer as u32),
         ) == Some(PathfindCellType::Clear)
     }
 
     /// C++ `Pathfinder::getCell(layer, cellX, cellY)->getType()`.
     pub fn get_cell_type_at_cell(
         &self,
-        layer: self::pathfind_astar::PathfindLayerEnum,
+        layer: generals_sim::pathfinding::PathfindLayerEnum,
         cell_x: i32,
         cell_y: i32,
     ) -> Option<PathfindCellType> {
@@ -3092,7 +3092,7 @@ impl Pathfinder {
 
     fn stamp_wall_cells(&mut self, obj: &Object, insert: bool) {
         self.inner.mark_zones_dirty();
-        let cell = self::pathfind_astar::PATHFIND_CELL_SIZE_F;
+        let cell = generals_sim::pathfinding::PATHFIND_CELL_SIZE_F;
         let pos = *obj.get_position();
         let geom = obj.get_geometry_info();
         let kind = if insert {
@@ -3216,7 +3216,6 @@ pub mod pathfinding_system; // Production pathfinding system
 // These modules provide 100% C++ compatible pathfinding with all constants matching exactly
 pub mod group_pathfinding;
 pub mod path_optimization; // Path smoothing (AIPathfind.cpp:450-696)
-pub mod pathfind_astar; // A* algorithm (AIPathfind.cpp:6438-6694)
 #[path = "pathfind_complete/mod.rs"]
 pub mod pathfind_complete; // Complete system (all features integrated) // Group/formation pathfinding
 

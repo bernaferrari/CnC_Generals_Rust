@@ -96,7 +96,7 @@ fn valid_rider_movement_terrain(
     world_pos: glam::Vec3,
 ) -> bool {
     use crate::game_logic::locomotor_bootstrap::valid_locomotor_surfaces_for_cell_type;
-    use gamelogic::ai::pathfind_astar::PathfindCellType;
+    use generals_sim::pathfinding::PathfindCellType;
     let cell = grid.world_to_grid(world_pos);
     if !grid.is_valid_pos(cell) {
         return false;

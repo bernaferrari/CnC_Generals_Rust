@@ -290,7 +290,7 @@ fn bridge_healing_finishes_mirrors_and_keeps_scaffold_layer_closed() {
                 .world_to_grid(Vec3::new(50.0, 5.0, 50.0));
             assert_eq!(
                 world.pathfinding_system.grid.layer_cell_type(layer, cell),
-                Some(gamelogic::ai::pathfind_astar::PathfindCellType::BridgeImpassable)
+                Some(generals_sim::pathfinding::PathfindCellType::BridgeImpassable)
             );
             let motion = world
                 .bridge_behavior

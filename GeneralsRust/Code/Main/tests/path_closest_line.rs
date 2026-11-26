@@ -1,4 +1,4 @@
-use gamelogic::ai::pathfind_astar::visit_cell_line;
+use generals_sim::pathfinding::visit_cell_line;
 
 #[test]
 fn line_visits_original_intermediate_and_final_cells() {

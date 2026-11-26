@@ -148,7 +148,7 @@ fn unit_ai_update_without_unit() -> UnitAIUpdate {
 
 #[test]
 fn footprint_removal_clears_the_receiving_units_real_ai_cells() {
-    use crate::ai::pathfind_astar::{GridCoord, PathfindLayerEnum as Layer};
+    use generals_sim::pathfinding::{GridCoord, PathfindLayerEnum as Layer};
     use crate::system::engine_stores::EngineStores;
 
     let first = EngineStores::new_for_world();

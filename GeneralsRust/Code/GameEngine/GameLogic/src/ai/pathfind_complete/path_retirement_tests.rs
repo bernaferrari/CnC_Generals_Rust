@@ -156,7 +156,7 @@ fn crusher_fence_passability_does_not_bypass_cpp_quick_zone_gate() {
         &request.to
     ));
     assert!(!owner.find_path_result(request).success);
-    // Existing game_pathfinding::tests::crusher_find_path_only_crosses_fence_obstacles_like_cpp
+    // Existing generals_sim::pathfinding::tests::crusher_find_path_only_crosses_fence_obstacles_like_cpp
     // retains the admitted A* crossing contract. It is not a public quick-gate test.
     // CPP:6316-6318 adds 100*COST_ORTHOGONAL to base movement cost; the
     // retired raw traversal_cost's whole-cost assertion was not that contract.

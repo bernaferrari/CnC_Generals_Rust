@@ -1067,7 +1067,7 @@ impl GameLogic {
         self.register_path_goal_on_layer(
             id,
             adjusted,
-            gamelogic::ai::pathfind_astar::PathfindLayerEnum::Ground as u8,
+            generals_sim::pathfinding::PathfindLayerEnum::Ground as u8,
         );
         adjusted
     }

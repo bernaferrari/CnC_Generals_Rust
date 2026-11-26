@@ -10,7 +10,7 @@ pub(super) use crate::ai::dock::AIDockMachine;
 pub(super) use crate::ai::object_registry::get_legacy_object;
 pub(super) use crate::ai::pathfind::PathfindLayerEnum;
 pub(super) use crate::ai::pathfind::{Path as AiPath, PathfindLayerEnum as AiPathLayer};
-pub(super) use crate::ai::pathfind_astar::PathfindLayerEnum as ClassicPathLayer;
+pub(super) use generals_sim::pathfinding::PathfindLayerEnum as ClassicPathLayer;
 pub(super) use crate::ai::pathfinding_system::PathfindLayerEnum as PfLayer;
 pub(super) use crate::ai::states::{AIStateMachine, AIStateType};
 pub(super) use crate::ai::turret::{TurretAI, TurretStateMachine};

@@ -2303,7 +2303,7 @@ fn pathfind_cluster_reserved_slot_capacity_matches_cpp() {
 /// line passability that reads the resolved deck cell, not pinched ground.
 #[test]
 fn pathfind_cluster_bridge_layer_identity_and_line_passable() {
-    use gamelogic::ai::pathfind_astar::PathfindCellType;
+    use generals_sim::pathfinding::PathfindCellType;
     let ground = crate::game_logic::pathfinding::PathfindingGround::Flat(0.0);
     let mut g = open_grid(20, 12);
     // Seed ground water under a future deck cell.

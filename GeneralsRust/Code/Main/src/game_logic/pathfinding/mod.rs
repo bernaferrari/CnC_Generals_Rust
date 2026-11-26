@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;
 use std::collections::{BinaryHeap, HashMap, HashSet, VecDeque};
 
-use gamelogic::ai::pathfind_astar::{
+use generals_sim::pathfinding::{
     AStarPathfinder, COST_DIAGONAL, GridCoord, PathfindCellType, PathfindLayerEnum,
 };
 use gamelogic::ai::pathfind_complete::{

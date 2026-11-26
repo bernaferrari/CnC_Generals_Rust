@@ -1,7 +1,7 @@
 //! C++ AIPathfind.cpp:9278-9429 — attack LOS against this Pathfinder's cells.
 
 use super::*;
-use crate::ai::pathfind_astar::{GridCoord, PathfindLayerEnum};
+use generals_sim::pathfinding::{GridCoord, PathfindLayerEnum};
 
 impl Pathfinder {
     /// The caller supplies its AI rule and the actual terrain/weapon LOS query.

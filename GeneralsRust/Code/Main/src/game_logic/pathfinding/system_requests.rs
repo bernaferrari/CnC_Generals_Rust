@@ -821,7 +821,7 @@ impl PathfindingSystem {
             let mut blocked = false;
             for cell in cells.iter().skip(1).rev() {
                 if let Some(prev) = previous {
-                    let prev: &gamelogic::ai::pathfind_astar::SearchPathNode = prev;
+                    let prev: &generals_sim::pathfinding::SearchPathNode = prev;
                     if cell.coord == prev.coord {
                         let layer = if cell.layer == PathfindLayerEnum::Ground { prev.layer } else { cell.layer };
                         *layers.last_mut().expect("transition has a preceding node") = layer as u8;

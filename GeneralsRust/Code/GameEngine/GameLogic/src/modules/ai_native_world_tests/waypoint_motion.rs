@@ -494,16 +494,16 @@ pub(crate) fn other_path_moves_its_real_owner_and_continues_after_canonical_ai_x
     let pathfinding = first.pathfinder.pathfinding_system_mut();
     assert_eq!(
         pathfinding.pos_unit_at(
-            crate::ai::pathfind_astar::GridCoord::new(old_cell.x, old_cell.y),
-            crate::ai::pathfind_astar::PathfindLayerEnum::Ground,
+            generals_sim::pathfinding::GridCoord::new(old_cell.x, old_cell.y),
+            generals_sim::pathfinding::PathfindLayerEnum::Ground,
         ),
         crate::common::INVALID_ID,
         "C++ updatePos removes the previous footprint",
     );
     assert_eq!(
         pathfinding.pos_unit_at(
-            crate::ai::pathfind_astar::GridCoord::new(new_cell.x, new_cell.y),
-            crate::ai::pathfind_astar::PathfindLayerEnum::Ground,
+            generals_sim::pathfinding::GridCoord::new(new_cell.x, new_cell.y),
+            generals_sim::pathfinding::PathfindLayerEnum::Ground,
         ),
         actor_id,
         "native movement stamps the actual owner's live footprint",
@@ -902,7 +902,7 @@ fn queued_ground_approach_installs_the_receiving_closest_path_and_final_goal() {
     assert_eq!(observe().requested_destination, requested);
     game.pathfinder.set_cell_type_at(
         &requested,
-        crate::ai::pathfind_astar::PathfindCellType::Impassable,
+        generals_sim::pathfinding::PathfindCellType::Impassable,
     );
     let peer_before = ai_snapshot(&peer, "OwnedApproachPeerLoco");
     let mut processed = 0;

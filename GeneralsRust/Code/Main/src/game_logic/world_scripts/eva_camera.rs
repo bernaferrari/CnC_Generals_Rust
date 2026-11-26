@@ -592,9 +592,9 @@ impl GameLogic {
     /// Play radar audio with a short cooldown to avoid stacking duplicates if many events fire simultaneously.
     pub(in super::super) fn maybe_play_radar_audio(&mut self, cue: &str) {
         const RADAR_AUDIO_COOLDOWN: f32 = 1.0;
-        if self.sim_time_seconds - self.last_radar_audio_time >= RADAR_AUDIO_COOLDOWN {
+        if self.get_total_play_time() - self.last_radar_audio_time >= RADAR_AUDIO_COOLDOWN {
             self.queue_audio_event(AudioEventRequest::new(translate_audio_event(cue)));
-            self.last_radar_audio_time = self.sim_time_seconds;
+            self.last_radar_audio_time = self.get_total_play_time();
         }
     }
 

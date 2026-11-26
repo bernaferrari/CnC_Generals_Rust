@@ -29,7 +29,7 @@ impl GameLogic {
             DozerFindPositionQuery,
             find_good_build_or_repair_position as snap,
         };
-        use gamelogic::ai::pathfind_astar::PathfindCellType;
+        use generals_sim::pathfinding::PathfindCellType;
 
         let grid_live =
             self.pathfinding_system.grid.width() > 0 && self.pathfinding_system.grid.height() > 0;

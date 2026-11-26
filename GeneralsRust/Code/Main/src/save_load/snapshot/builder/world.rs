@@ -434,7 +434,7 @@ impl SnapshotBuilder {
             .get("session_clock_seconds")
             .or_else(|| timers.get("sim_time_seconds"))
             .copied()
-            .unwrap_or(snapshot.frame_number as f32 / 30.0);
+            .unwrap_or(snapshot.frame_number as f32 / generals_sim::time::LOGIC_FRAMES_PER_SECOND);
         let accumulated_time = timers
             .get("session_accumulated_seconds")
             .copied()

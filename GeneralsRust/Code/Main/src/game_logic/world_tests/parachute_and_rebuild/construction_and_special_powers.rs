@@ -559,7 +559,7 @@ fn structure_placement_rejects_no_clear_path_residual() {
     };
     use crate::game_logic::pathfinding::GridPos;
     use crate::game_logic::{KindOf, Team, ThingTemplate};
-    use gamelogic::ai::pathfind_astar::PathfindCellType;
+    use generals_sim::pathfinding::PathfindCellType;
 
     let mut logic = GameLogic::new();
     ensure_test_player_for_team(&mut logic, Team::USA);

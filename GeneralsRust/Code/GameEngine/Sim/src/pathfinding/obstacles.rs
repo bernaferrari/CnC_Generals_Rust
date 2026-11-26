@@ -6,8 +6,8 @@
 // a fence or transparent (C++ PathfindCellInfo obstacleID / m_obstacleIsFence /
 // m_obstacleIsTransparent).
 
-use crate::astar::AStarPathfinder;
-use crate::cell::{GridCoord, PathfindCellType, PathfindLayerEnum};
+use super::astar::AStarPathfinder;
+use super::cell::{GridCoord, PathfindCellType, PathfindLayerEnum};
 
 impl AStarPathfinder {
     /// Read all obstacle facts from the same C++ `getCell(layer, x, y)` result.

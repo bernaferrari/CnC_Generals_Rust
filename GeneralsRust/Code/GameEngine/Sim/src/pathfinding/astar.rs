@@ -8,12 +8,12 @@
 
 use std::collections::{HashMap, HashSet};
 
-use crate::cell::{
+use super::cell::{
     COST_DIAGONAL, COST_ORTHOGONAL, GridCoord, PATHFIND_CELL_SIZE_F, PathfindCell,
     PathfindCellType, PathfindLayerEnum, SURFACE_AIR, ZONE_IMPASSABLE_COST,
 };
-use crate::open_set::{AStarNode, OpenSet, SearchKey};
-use crate::passability::ObstacleIgnore;
+use super::open_set::{AStarNode, OpenSet, SearchKey};
+use super::passability::ObstacleIgnore;
 
 /// A cell on the accepted A* parent chain, before Path node construction.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1146,7 +1146,7 @@ impl AStarPathfinder {
         ally_blocked_cells: &mut HashSet<SearchKey>,
     ) {
         let mut from_g = parent_g;
-        crate::visit_cell_line((parent.x, parent.y), (goal.x, goal.y), |from, to| {
+        super::visit_cell_line((parent.x, parent.y), (goal.x, goal.y), |from, to| {
             let from = GridCoord::new(from.0, from.1);
             let to = GridCoord::new(to.0, to.1);
             let Some(from_cell) = self.get_cell_on_layer(from, layer) else {

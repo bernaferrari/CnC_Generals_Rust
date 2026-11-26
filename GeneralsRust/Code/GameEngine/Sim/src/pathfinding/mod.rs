@@ -32,7 +32,7 @@
 //! context as their occupancy cost and line-seed checks.
 //!
 //! Comparator semantics (equal-cost FIFO tie-break) are pinned by the
-//! PERMANENT DIFFERENTIAL FIXTURE tests in `src/tests.rs`, which cite the C++
+//! PERMANENT DIFFERENTIAL FIXTURE tests in `tests.rs`, which cite the C++
 //! lines they defend; none of those assertions may be relaxed.
 
 mod astar;

@@ -19,7 +19,7 @@ log = {workspace = true}
 serde = { workspace = true }
 serde_json = { workspace = true }
 game_engine = { path = "../Common" }
-game_pathfinding = { path = "../Pathfinding" }
+generals-sim = { path = "../Sim" }
 game_network = { path = "../GameNetwork", optional = true }
 
 # Math and geometry

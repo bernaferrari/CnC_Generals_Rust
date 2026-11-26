@@ -9,7 +9,7 @@ is part of this architecture.
 | Owner | Responsibility | Dependencies and consumers |
 | --- | --- | --- |
 | `generals_game_domain` | Canonical host object ID, faction value, combat particle kind, AI difficulty | Depends on serde. Main and Presentation use the same types through reexports. |
-| `game_pathfinding` | Grid coordinates, A* search, movement costs, search-local layer and occupancy data | Depends on glam. GameLogic reexports the canonical types; Main reaches them through GameLogic. |
+| `generals-sim` | Fixed-step clock, grid coordinates, A* search, movement costs, search-local layer and occupancy data | Depends on glam. Main and GameLogic import search types directly. Each Main world owns a `SimulationClock`. |
 | `generals_presentation` | Frozen events, HUD records, objectives, command buttons, weapon visual dispatch records | Depends on GameDomain, serde and glam. Does not depend on simulation, assets, UI widgets or GPU types. |
 | Main `presentation_frame` | Builds the completed frame from simulation and adapts it to existing UI/render consumers | Owns `PresentationFrame`, renderable objects and live-host conversions. Its HUD view borrows existing frame fields. |
 | Main `assets` | Finds and loads live assets | Each `AssetManager` owns an `ArchiveFileSystem`, which owns the local resolver and BIG mounts. Existing worker synchronization remains at actual I/O boundaries. |
@@ -23,9 +23,13 @@ their different discriminants and conversion rules.
 ## Where behavior changes belong
 
 For search costs, neighbor gating, line seeding or layer transitions, compare `AIPathfind.cpp`
-and `AIPathfind.h`, then edit Pathfinding. World terrain, bridges, object occupancy, coordinate
+and `AIPathfind.h`, then edit `generals_sim::pathfinding`. World terrain, bridges, object occupancy, coordinate
 origin and path admission belong in the existing GameLogic/Main adapters. Cell-center height
 is supplied by the caller; a leaf search must never discover an active terrain singleton.
+
+`generals_sim::time` admits fixed steps and accounts for offered time. Main executes the
+simulation phases, advances object and frame identity, and reports completed steps to its
+clients. The save decoder validates the elapsed seconds and carried time before restoring them.
 
 For HUD and rendering changes, edit the Main frame builder or its consumers. Presentation
 contains only immutable contracts and pure dispatch decisions. Builders retain frame timing,
@@ -58,7 +62,7 @@ all globals are gone, every subsystem is isolated, or an AI crate can yet be ext
 Run the contract crates independently:
 
 ```sh
-cargo test --locked -p game_pathfinding -p generals_game_domain -p generals_presentation --lib
+cargo test --locked -p generals-sim -p generals_game_domain -p generals_presentation --lib
 ```
 
 Exercise the existing production consumers and state persistence:
@@ -73,13 +77,12 @@ HUD tests cross the real frame-builder/UI seam. Existing save/load suites cover 
 identity and the unchanged flattened aggregate; extraction does not establish original C++
 snapshot fidelity beyond those tests.
 
-Cross-crate relocation checks use `validate_rust_split.py --extracted-source <path>`.
-For this extraction, use `--before-ref 2c7007b48`; a later HEAD contains the facade rather
-than the original implementation.
-Only reachable local dependencies qualify, and mapped source subtrees must preserve their
-own test coverage. Unrelated sibling tests cannot mask lost tests. Also run native/release
-and wasm compilation, scoped rustfmt, LOC/unsafe ratchets and `git diff --check`. Gate results
-and remaining gaps belong in beads, not a second task list in this document.
+For a Rust file split, use `validate_rust_split.py` with `--before-ref` set to the
+revision before the split. Pass a moved subtree with `--extracted-source <path>`
+when the original crate reaches it through a local dependency. Compare complete
+crate relocations against the previous tracked modules and rerun their tests. Run
+native and WASM checks, scoped rustfmt, the LOC and unsafe Rust checks, and
+`git diff --check`. Record gate results and remaining gaps in Beads.
 
 The game build checks use Main's default game configuration, including GameClient:
 

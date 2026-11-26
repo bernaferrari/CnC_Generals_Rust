@@ -365,7 +365,7 @@ impl UnitAIUpdate {
         if pathfinder.goal_position_for_unit(self.runtime.unit_id, radius, &mut goal) {
             let dx = goal.x - position.x;
             let dy = goal.y - position.y;
-            let cell = crate::ai::pathfind_astar::PATHFIND_CELL_SIZE_F;
+            let cell = generals_sim::pathfinding::PATHFIND_CELL_SIZE_F;
             if dx * dx + dy * dy >= cell * cell {
                 goal = pathfinder.snap_position_for_radius(&position, radius);
             }

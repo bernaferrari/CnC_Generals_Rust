@@ -283,14 +283,14 @@ fn live_team_move_preserves_a_formed_multi_unit_roster_and_speed() {
     );
     let (origin, _) = world.world_bounds();
     let cell = |point: glam::Vec3| {
-        let size = gamelogic::ai::pathfind_astar::PATHFIND_CELL_SIZE_F;
+        let size = generals_sim::pathfinding::PATHFIND_CELL_SIZE_F;
         (((point.x - origin.x) / size) as i32, ((point.z - origin.z) / size) as i32)
     };
     let line_blocked = |from: glam::Vec3, to: glam::Vec3| {
         let start = cell(from);
         let mut blocked = world.is_pathfinding_static_blocked(start.0, start.1);
         if start == cell(to) { return blocked; }
-        gamelogic::ai::pathfind_astar::visit_cell_line(start, cell(to), |_, next| {
+        generals_sim::pathfinding::visit_cell_line(start, cell(to), |_, next| {
             blocked |= world.is_pathfinding_static_blocked(next.0, next.1);
             !blocked
         });

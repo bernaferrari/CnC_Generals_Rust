@@ -1,4 +1,4 @@
-use gamelogic::ai::pathfind_astar::{GridCoord, PathfindCellType};
+use generals_sim::pathfinding::{GridCoord, PathfindCellType};
 use gamelogic::ai::pathfind_complete::{PathRequest, PathfindingSystem, SURFACE_GROUND};
 use gamelogic::common::INVALID_ID;
 

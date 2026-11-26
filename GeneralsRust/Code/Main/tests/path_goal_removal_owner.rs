@@ -38,7 +38,7 @@ fn allied_goal_seen_by(
     world: &mut GameLogic,
     cell: GridPos,
     player: u32,
-    layer: gamelogic::ai::pathfind_astar::PathfindLayerEnum,
+    layer: generals_sim::pathfinding::PathfindLayerEnum,
 ) -> bool {
     if !world.templates.contains_key("AlliedGoalProbe") {
         let mut template = ThingTemplate::new("AlliedGoalProbe");
@@ -245,7 +245,7 @@ fn bridge_goal_replacement_keeps_only_the_current_owner() {
     let layer = grid.layer_for_destination(goal, &ground);
     assert_ne!(
         layer,
-        gamelogic::ai::pathfind_astar::PathfindLayerEnum::Ground
+        generals_sim::pathfinding::PathfindLayerEnum::Ground
     );
     let mut world = GameLogic::new();
     world.add_player(Player::new(0, Team::USA, "First", true));
@@ -382,12 +382,12 @@ fn ignored_goal_keeps_its_owner_and_tracks_the_receiving_player() {
     // While ignored, the receiving search does not see the goal at all.
     assert!(!grid.has_allied_goal(cell, Some(0)));
     grid.update_dynamic_obstacles(world.host_objects(), &ground);
-    assert!(allied_goal_seen_by(&mut grid, &mut world, cell, 0, gamelogic::ai::pathfind_astar::PathfindLayerEnum::Ground));
+    assert!(allied_goal_seen_by(&mut grid, &mut world, cell, 0, generals_sim::pathfinding::PathfindLayerEnum::Ground));
 
     world.host_object_mut(id).unwrap().owner_player_id = Some(1);
     grid.update_dynamic_obstacles(world.host_objects(), &ground);
-    assert!(!allied_goal_seen_by(&mut grid, &mut world, cell, 0, gamelogic::ai::pathfind_astar::PathfindLayerEnum::Ground));
-    assert!(allied_goal_seen_by(&mut grid, &mut world, cell, 1, gamelogic::ai::pathfind_astar::PathfindLayerEnum::Ground));
+    assert!(!allied_goal_seen_by(&mut grid, &mut world, cell, 0, generals_sim::pathfinding::PathfindLayerEnum::Ground));
+    assert!(allied_goal_seen_by(&mut grid, &mut world, cell, 1, generals_sim::pathfinding::PathfindLayerEnum::Ground));
 }
 
 #[test]

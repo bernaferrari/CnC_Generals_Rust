@@ -29,7 +29,7 @@ fn assert_reserved_dock_approach_path(
     assert!(
         logic.pathfinding_system.grid.valid_movement_position(
             endpoint_cell,
-            gamelogic::ai::pathfind_astar::PathfindLayerEnum::Ground,
+            generals_sim::pathfinding::PathfindLayerEnum::Ground,
             unit.locomotor_surfaces,
             unit.crusher_level > 0,
             0,

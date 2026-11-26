@@ -62,7 +62,7 @@ fn overlapping_fences_do_not_replace_an_existing_obstacle_owner() {
 
 #[test]
 fn structure_reclassification_keeps_existing_rubble() {
-    use gamelogic::ai::pathfind_astar::PathfindCellType;
+    use generals_sim::pathfinding::PathfindCellType;
     let mut grid = PathfindingGrid::new(100.0, 100.0, 10.0);
     let object = structure(11);
     let center = grid.world_to_grid(object.get_position());
@@ -76,7 +76,7 @@ fn structure_reclassification_keeps_existing_rubble() {
 
 #[test]
 fn structure_classification_can_claim_an_impassable_cell() {
-    use gamelogic::ai::pathfind_astar::PathfindCellType;
+    use generals_sim::pathfinding::PathfindCellType;
     let mut grid = PathfindingGrid::new(100.0, 100.0, 10.0);
     let object = structure(11);
     let center = grid.world_to_grid(object.get_position());
@@ -91,7 +91,7 @@ fn structure_classification_can_claim_an_impassable_cell() {
 
 #[test]
 fn cell_admission_matches_source_pinned_cpp_execution() {
-    use gamelogic::ai::pathfind_astar::PathfindCellType;
+    use generals_sim::pathfinding::PathfindCellType;
     let object = structure(11);
     let ground = PathfindingGround::Flat(0.0);
     let mut matched = 0;
@@ -152,7 +152,7 @@ fn cell_admission_matches_source_pinned_cpp_execution() {
 
 #[test]
 fn boundary_classifier_derives_rubble_from_the_live_object_body() {
-    use gamelogic::ai::pathfind_astar::PathfindCellType;
+    use generals_sim::pathfinding::PathfindCellType;
     use generals_main::game_logic::host_enum_table_residual::HostBodyDamageType;
     use generals_main::game_logic::pathfinding::PathfindingSystem;
     let mut object = structure(11);

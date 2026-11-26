@@ -237,11 +237,11 @@ fn authored_contain_before_instant_death_evacuates_live_rider_then_retires_group
         ai.lock().unwrap().with_cur_locomotor(&mut |loco| {
             surfaces = Some(loco.get_legal_surfaces());
             valid = world.pathfinder().unwrap().valid_movement_terrain_for_locomotor(
-                crate::ai::pathfind_astar::PathfindLayerEnum::from_u32(layer as u32), loco, &position);
+                generals_sim::pathfinding::PathfindLayerEnum::from_u32(layer as u32), loco, &position);
         });
-        let cell = crate::ai::pathfind_astar::GridCoord::from_world(&position);
+        let cell = generals_sim::pathfinding::GridCoord::from_world(&position);
         exit_facts = format!("position {position:?}, layer {layer:?}, surfaces {surfaces:?}, valid {valid}, cell {:?}",
-            world.pathfinder().unwrap().get_cell_type_at_cell(crate::ai::pathfind_astar::PathfindLayerEnum::from_u32(layer as u32), cell.x, cell.y));
+            world.pathfinder().unwrap().get_cell_type_at_cell(generals_sim::pathfinding::PathfindLayerEnum::from_u32(layer as u32), cell.x, cell.y));
         world.attempt_damage_owned(&owner, &mut damage).unwrap();
     });
     assert!(owner.read().unwrap().is_destroyed());

@@ -717,7 +717,7 @@ impl GameLogic {
     ) -> gamelogic::GameLogicResult<()> {
         use crate::game_logic::host_partition_collision_physics_residual::PHYSICS_HUGE_DAMAGE_AMOUNT_RESIDUAL;
         use crate::game_logic::host_usa_pilot::HostDeathType;
-        use gamelogic::ai::pathfind_astar::PathfindCellType;
+        use generals_sim::pathfinding::PathfindCellType;
 
         let Some(rider) = self.objects.get(&rider_id) else {
             return Ok(());
@@ -791,7 +791,7 @@ impl GameLogic {
 
     /// C++ PartitionManager::findPositionAround clear-cell residual for chute open.
     fn parachute_open_lz_clear(&self, pos: glam::Vec3) -> bool {
-        use gamelogic::ai::pathfind_astar::PathfindCellType;
+        use generals_sim::pathfinding::PathfindCellType;
         if pos.x < self.world_min.x
             || pos.x > self.world_max.x
             || pos.z < self.world_min.z

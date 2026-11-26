@@ -84,7 +84,7 @@ impl UnitAIUpdate {
         let (radius_cells, center) =
             crate::ai::pathfind_complete::PathfindingSystem::compute_radius_and_center(radius);
         let cell = UnitAiRuntime::compute_goal_cell(&position, center);
-        let size = crate::ai::pathfind_astar::PATHFIND_CELL_SIZE_F;
+        let size = generals_sim::pathfinding::PATHFIND_CELL_SIZE_F;
         let mut diameter = 2.0 * radius;
         if diameter > size && diameter < 2.0 * size {
             diameter = 2.0 * size;
@@ -104,12 +104,12 @@ impl UnitAIUpdate {
             false
         };
         let pathfinder = world.pathfinder().ok_or("exit vehicle pathfinder absent")?;
-        let path_layer = crate::ai::pathfind_astar::PathfindLayerEnum::from_u32(layer as u32);
+        let path_layer = generals_sim::pathfinding::PathfindLayerEnum::from_u32(layer as u32);
         pathfinder.remove_unit_from_pathfind_map(id, radius_cells, center, path_layer);
         self.runtime.data.pathfind_cur_cell = ICoord2D::new(-1, -1);
         self.runtime.data.pathfind_goal_cell = ICoord2D::new(-1, -1);
         pathfinder.update_pos_cells(
-            crate::ai::pathfind_astar::GridCoord::new(cell.x, cell.y),
+            generals_sim::pathfinding::GridCoord::new(cell.x, cell.y),
             id,
             path_layer,
             radius_cells,
@@ -127,7 +127,7 @@ impl UnitAIUpdate {
             pathfinder,
             id,
             goal_cell,
-            crate::ai::pathfind_astar::PathfindLayerEnum::from_u32(goal_layer as u32),
+            generals_sim::pathfinding::PathfindLayerEnum::from_u32(goal_layer as u32),
             goal_radius,
             goal_center,
             bridge,

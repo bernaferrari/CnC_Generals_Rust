@@ -5,8 +5,8 @@
 // Zone manager state: the coarse ZONE_BLOCK_SIZE passable-block store
 // (C++ PathfindZoneManager).
 
-use crate::astar::AStarPathfinder;
-use crate::cell::GridCoord;
+use super::astar::AStarPathfinder;
+use super::cell::GridCoord;
 
 impl AStarPathfinder {
     /// Stamp obstacle object id / fence flag on a cell (C++ setTypeAsObstacle).

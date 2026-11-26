@@ -313,7 +313,7 @@ roots = {
     "GameNetwork": "Code/GameEngine/GameNetwork",
     "EngineCrates": [
         "Code/GameEngine/FX", "Code/GameEngine/GameDomain",
-        "Code/GameEngine/Map", "Code/GameEngine/Particles", "Code/GameEngine/Pathfinding",
+        "Code/GameEngine/Map", "Code/GameEngine/Particles", "Code/GameEngine/Sim",
         "Code/GameEngine/Presentation", "Code/GameEngine/UI",
     ],
 }

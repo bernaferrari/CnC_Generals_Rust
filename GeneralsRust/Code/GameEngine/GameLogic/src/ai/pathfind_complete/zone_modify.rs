@@ -1,6 +1,6 @@
 //! The immediate, bounded zone repair in `updateZonesForModify`.
 use super::{UNINITIALIZED_ZONE, ZONE_BLOCK_SIZE};
-use game_pathfinding::{AStarPathfinder, GridCoord};
+use generals_sim::pathfinding::{AStarPathfinder, GridCoord};
 
 /// Repair only uninitialized cells inside the original per-block bounds.
 pub(crate) fn update_modified_zones(

@@ -1062,7 +1062,7 @@ impl PathfindingGrid {
             return false;
         }
         let mut passable = true;
-        gamelogic::ai::pathfind_astar::visit_cell_line(
+        generals_sim::pathfinding::visit_cell_line(
             (from.x, from.y), (to.x, to.y),
             |_, next| {
                 let cell = GridPos::new(next.0, next.1);

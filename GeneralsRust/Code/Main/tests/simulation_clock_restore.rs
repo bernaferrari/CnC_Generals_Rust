@@ -8,7 +8,7 @@ fn snapshot_restores_session_clock_and_partial_fixed_step() {
     let initial = original.update_with_dt(0.05);
     assert_eq!(initial.steps_run, 1);
     assert!(initial.accumulated_time_seconds > 0.0);
-    let saved_time = original.update_ui_state(0).current_game_time;
+    let saved_time = original.get_total_play_time();
     let builder = SnapshotBuilder::new();
     let mut snapshot = builder.create_world_snapshot(&original).unwrap();
     let mut bytes = Cursor::new(Vec::new());
@@ -26,7 +26,7 @@ fn snapshot_restores_session_clock_and_partial_fixed_step() {
             timing.frame,
             timing.steps_run,
             timing.accumulated_time_seconds,
-            original.update_ui_state(0).current_game_time,
+            original.get_total_play_time(),
         ));
     }
     let mut fresh = GameLogic::new();
@@ -36,8 +36,8 @@ fn snapshot_restores_session_clock_and_partial_fixed_step() {
     builder
         .restore_from_snapshot(&snapshot, &mut original)
         .unwrap();
-    assert_eq!(fresh.update_ui_state(0).current_game_time, saved_time);
-    assert_eq!(original.update_ui_state(0).current_game_time, saved_time);
+    assert_eq!(fresh.get_total_play_time(), saved_time);
+    assert_eq!(original.get_total_play_time(), saved_time);
     for (delta, expected) in deltas.into_iter().zip(expected) {
         for world in [&mut fresh, &mut original] {
             let timing = world.update_with_dt(delta);
@@ -46,7 +46,7 @@ fn snapshot_restores_session_clock_and_partial_fixed_step() {
                     timing.frame,
                     timing.steps_run,
                     timing.accumulated_time_seconds,
-                    world.update_ui_state(0).current_game_time
+                    world.get_total_play_time()
                 ),
                 expected
             );
@@ -61,7 +61,7 @@ fn invalid_clock_is_rejected_before_mutating_a_session() {
     let builder = SnapshotBuilder::new();
     let mut snapshot = builder.create_world_snapshot(&world).unwrap();
     let frame = world.get_frame();
-    let time = world.update_ui_state(0).current_game_time;
+    let time = world.get_total_play_time();
     snapshot
         .global_ai_state
         .global_timers
@@ -72,7 +72,7 @@ fn invalid_clock_is_rejected_before_mutating_a_session() {
             .is_err()
     );
     assert_eq!(world.get_frame(), frame);
-    assert_eq!(world.update_ui_state(0).current_game_time, time);
+    assert_eq!(world.get_total_play_time(), time);
     snapshot
         .global_ai_state
         .global_timers
@@ -87,7 +87,7 @@ fn invalid_clock_is_rejected_before_mutating_a_session() {
             .is_err()
     );
     assert_eq!(world.get_frame(), frame);
-    assert_eq!(world.update_ui_state(0).current_game_time, time);
+    assert_eq!(world.get_total_play_time(), time);
 }
 
 #[test]
@@ -112,7 +112,7 @@ fn malformed_terrain_is_rejected_before_replacing_a_live_session() {
             .unwrap();
         receiving.update_with_dt(0.04);
         let frame = receiving.get_frame();
-        let time = receiving.update_ui_state(0).current_game_time;
+        let time = receiving.get_total_play_time();
         let mut snapshot = builder.create_world_snapshot(&source).unwrap();
         match malformed {
             0 => {
@@ -141,7 +141,7 @@ fn malformed_terrain_is_rejected_before_replacing_a_live_session() {
         };
         assert!(error.to_string().contains(expected), "{error:?}");
         assert_eq!(receiving.get_frame(), frame, "malformed case {malformed}");
-        assert_eq!(receiving.update_ui_state(0).current_game_time, time);
+        assert_eq!(receiving.get_total_play_time(), time);
         assert!(receiving.get_player(7).is_some());
         assert!(receiving.host_object(object).is_some());
         assert_eq!(source.get_frame(), 3);
@@ -168,7 +168,7 @@ fn older_snapshot_uses_frame_derived_time_and_no_partial_step() {
         .restore_from_snapshot(&snapshot, &mut receiver)
         .unwrap();
     assert_eq!(
-        receiver.update_ui_state(0).current_game_time,
+        receiver.get_total_play_time(),
         snapshot.frame_number as f32 / 30.0
     );
     assert_eq!(receiver.update_with_dt(0.01).steps_run, 0);
@@ -203,11 +203,11 @@ fn simulation_clock_follows_logic_steps_not_presentation_timestamps() {
         let b = second.update_with_timing(&timing(100));
         assert_eq!((a.frame, a.steps_run), (b.frame, b.steps_run));
         assert_eq!(
-            first.update_ui_state(0).current_game_time,
-            second.update_ui_state(0).current_game_time
+            first.get_total_play_time(),
+            second.get_total_play_time()
         );
         assert!(
-            (first.update_ui_state(0).current_game_time - a.frame as f32 / 30.0).abs() < 0.00001
+            (first.get_total_play_time() - a.frame as f32 / 30.0).abs() < 0.00001
         );
         let first_ai = first.capture_ai_player_queue_persist();
         let second_ai = second.capture_ai_player_queue_persist();

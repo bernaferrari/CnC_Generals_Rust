@@ -5,8 +5,8 @@
 // Stored-grid mutation: cell types, bridge/wall connect-layer stamps, pinch
 // flags and the pinch recompute pass (C++ Pathfinder map editing entry points).
 
-use crate::astar::AStarPathfinder;
-use crate::cell::{GridCoord, PathfindCellType, PathfindLayerEnum};
+use super::astar::AStarPathfinder;
+use super::cell::{GridCoord, PathfindCellType, PathfindLayerEnum};
 
 impl AStarPathfinder {
     /// Set cell type at coordinates (LAYER_GROUND / C++ `m_map`).
@@ -42,7 +42,7 @@ impl AStarPathfinder {
         let Some(cell) = self.get_cell_mut_on_layer(coord, layer) else {
             return;
         };
-        *cell = crate::cell::PathfindCell::new();
+        *cell = super::cell::PathfindCell::new();
         cell.set_layer(layer);
         cell.set_type(terrain);
         let key = Self::obstacle_key(coord, layer);

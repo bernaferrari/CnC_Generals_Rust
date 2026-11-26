@@ -95,10 +95,10 @@ fn radar_owner_reset_clears_only_its_world_and_allows_reused_ids() {
 fn radar_owner_preserves_fifo_kind_dedup_and_timestamp_boundary() {
     let mut logic = GameLogic::new();
     logic.queue_radar_message_at("first", Vec3::X, RadarKind::Attack);
-    logic.sim_time_seconds = 0.499;
+    logic.restore_session_clock(0.499, logic.simulation_clock.carried_seconds());
     logic.queue_radar_message_at("suppressed", Vec3::Y, RadarKind::Attack);
     logic.queue_radar_message_at("independent kind", Vec3::Z, RadarKind::Ally);
-    logic.sim_time_seconds = 0.5;
+    logic.restore_session_clock(0.5, logic.simulation_clock.carried_seconds());
     logic.queue_radar_message_at("at boundary", Vec3::Y, RadarKind::Attack);
     let snapshot = logic.radar_notification_snapshot();
     assert_eq!(

@@ -766,7 +766,7 @@ impl GameLogic {
     ) -> gamelogic::GameLogicResult<()> {
         use crate::game_logic::host_repair::{DozerFindPositionQuery, find_position_around_dozer};
         use crate::game_logic::host_supply_gather::REGROUP_SUCCESS_DISTANCE_SQUARED;
-        use gamelogic::ai::pathfind_astar::PathfindCellType;
+        use generals_sim::pathfinding::PathfindCellType;
         // C++ RegroupingState::onEnter clears the ignore before the search.
         if let Some(obj) = self.objects.get_mut(&object_id) {
             obj.ignored_obstacle_id = None;

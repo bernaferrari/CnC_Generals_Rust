@@ -4,10 +4,7 @@ use generals_main::deterministic_trace::{
     calculate_frame_crc, compare_frame_traces, first_trace_difference,
     first_trace_field_difference, run_trace_scenario,
 };
-use generals_main::game_logic::{
-    AbleToAttackType, CanAttackResult, GameLogic, KindOf, ObjectId, Player, Team, ThingTemplate,
-    Weapon,
-};
+use generals_main::game_logic::{AbleToAttackType, CanAttackResult, GameLogic, ObjectId, Player, Team};
 use glam::Vec3;
 use std::time::{Duration, UNIX_EPOCH};
 
@@ -130,18 +127,44 @@ fn trace_object(
     }
 }
 
-fn test_template(name: &str, max_health: f32) -> ThingTemplate {
-    let mut template = ThingTemplate::new(name);
-    template
-        .set_health(max_health)
-        .add_kind_of(KindOf::Selectable)
-        .add_kind_of(KindOf::Attackable)
-        .add_kind_of(KindOf::Vehicle);
-    template
-}
-
 fn traced_game_logic() -> (GameLogic, ObjectId, ObjectId) {
     let mut game_logic = GameLogic::new();
+    game_logic
+        .admit_object_ini_sources([(
+            "TraceObjects.ini".into(),
+            r#"
+Object TraceHumvee
+    KindOf = VEHICLE SELECTABLE CAN_ATTACK
+    Body = ActiveBody Body
+        MaxHealth = 360
+        InitialHealth = 360
+    End
+    Behavior = AIUpdateInterface Brain
+    End
+    WeaponSet
+        Conditions = NONE
+        Weapon = PRIMARY TraceGun
+    End
+End
+Object TraceTechnical
+    KindOf = VEHICLE SELECTABLE
+    Body = ActiveBody Body
+        MaxHealth = 240
+        InitialHealth = 240
+    End
+End
+"#
+            .into(),
+        )])
+        .unwrap();
+    let mut weapon = gamelogic::weapon::WeaponTemplate::new("TraceGun".into());
+    weapon.primary_damage = 25.0;
+    weapon.attack_range = 100.0;
+    weapon.projectile_name = "NONE".into();
+    game_logic
+        .admit_receiving_weapon_snapshot(vec![("TraceGun".into(), weapon)])
+        .unwrap();
+
     let mut source_player = Player::new(0, Team::USA, "USA", true);
     let mut target_player = Player::new(1, Team::GLA, "GLA", false);
     // Distinct factions alone do not declare enemies for owner-admitted units.
@@ -149,23 +172,6 @@ fn traced_game_logic() -> (GameLogic, ObjectId, ObjectId) {
     target_player.alliance_team = 1;
     game_logic.add_player(source_player);
     game_logic.add_player(target_player);
-    let humvee_weapon = Weapon {
-        damage: 25.0,
-        range: 100.0,
-        reload_time: 0.0,
-        projectile_speed: 0.0,
-        ..Weapon::default()
-    };
-    let mut humvee_template = test_template("TraceHumvee", 360.0);
-    humvee_template.set_primary_weapon(humvee_weapon.clone());
-    game_logic
-        .templates
-        .insert("TraceHumvee".to_string(), humvee_template);
-    game_logic.templates.insert(
-        "TraceTechnical".to_string(),
-        test_template("TraceTechnical", 240.0),
-    );
-
     let humvee = game_logic
         .create_object("TraceHumvee", Team::USA, Vec3::new(0.0, 0.0, 0.0))
         .expect("humvee should spawn");
@@ -180,16 +186,10 @@ fn traced_game_logic() -> (GameLogic, ObjectId, ObjectId) {
     let target = game_logic.get_object(technical).expect("technical exists");
     assert_eq!(source.owner_player_id, Some(0));
     assert_eq!(target.owner_player_id, Some(1));
-    assert_eq!(source.weapon_name_for_slot(0), None);
+    assert_eq!(source.weapon_name_for_slot(0), Some("TraceGun"));
     let admitted_weapon = source.weapon.as_ref().expect("authored weapon is admitted");
-    assert_eq!(
-        serde_json::to_value(admitted_weapon).unwrap(),
-        serde_json::to_value(&humvee_weapon).unwrap()
-    );
-    assert_eq!(
-        admitted_weapon.suspend_fx_frame,
-        humvee_weapon.suspend_fx_frame
-    );
+    assert_eq!(admitted_weapon.damage, 25.0);
+    assert_eq!(admitted_weapon.range, 100.0);
     assert_eq!(source.fire_intent_count, 0);
     assert_eq!(source.weapon_discharge_marker().sequence, 0);
     assert_eq!(source.health.current, 360.0);

@@ -481,7 +481,7 @@ fn diagonal_squeeze_both_orthogonals_blocked_no_path() {
 
 #[test]
 fn connect_layer_on_pathfind_cell() {
-    let mut pf = crate::ai::pathfind_astar::AStarPathfinder::new(8, 8);
+    let mut pf = generals_sim::pathfinding::AStarPathfinder::new(8, 8);
     let c = GridCoord::new(2, 2);
     assert_eq!(
         pf.get_cell_connect_layer(c),

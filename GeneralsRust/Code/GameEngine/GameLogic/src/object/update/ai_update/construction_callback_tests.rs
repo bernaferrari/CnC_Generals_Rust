@@ -1696,7 +1696,7 @@ fn admit_physical_construction_builder(
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn build_assistant_dozer_dock_checks_receiving_path_reachability() {
-    use crate::ai::pathfind_astar::PathfindCellType;
+    use generals_sim::pathfinding::PathfindCellType;
     use crate::system::build_assistant_bridge::GameLogicBuildAssistantBackend;
     use crate::system::engine_stores::{EngineStores, new_for_world, with_active_stores};
     use crate::test_process::{TestProcess, run_bounded};

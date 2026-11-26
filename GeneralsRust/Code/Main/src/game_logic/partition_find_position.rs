@@ -222,7 +222,7 @@ impl GameLogic {
         let cell = self.pathfinding_system.grid.world_to_grid(candidate);
         if !self.pathfinding_system.grid.is_valid_pos(cell)
             || self.pathfinding_system.grid.cell_type(cell)
-                == gamelogic::ai::pathfind_astar::PathfindCellType::Impassable
+                == generals_sim::pathfinding::PathfindCellType::Impassable
             || self.is_underwater_at(candidate)
         {
             return None;

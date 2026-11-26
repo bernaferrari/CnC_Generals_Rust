@@ -5,7 +5,7 @@ use crate::game_logic::pathfinding::PathPositionFootprint;
 use crate::game_logic::*;
 use crate::save_load::{SaveLoadError, SaveLoadResult, Xfer, XferData, XferMode};
 use game_engine::base_type::real_to_int;
-use gamelogic::ai::pathfind_astar::PathfindLayerEnum;
+use generals_sim::pathfinding::PathfindLayerEnum;
 use glam::Vec3;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};

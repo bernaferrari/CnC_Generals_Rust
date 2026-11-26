@@ -104,7 +104,7 @@ fn open_field_path_still_installs_waypoints() {
 #[test]
 fn right_click_move_uses_unit_locomotor_surfaces() {
     use crate::game_logic::{LOCO_SURFACE_GROUND, LOCO_SURFACE_WATER};
-    use gamelogic::ai::pathfind_astar::PathfindCellType;
+    use generals_sim::pathfinding::PathfindCellType;
     let mut logic = GameLogic::new();
     let start = Vec3::new(10.0, 0.0, 10.0);
     let goal = Vec3::new(80.0, 0.0, 10.0);
@@ -148,7 +148,7 @@ fn right_click_move_uses_unit_locomotor_surfaces() {
 fn rubble_capable_unit_paths_rubble_that_blocks_ground_only_unit() {
     use crate::game_logic::LOCO_SURFACE_GROUND;
     use crate::game_logic::object::LOCO_SURFACE_RUBBLE;
-    use gamelogic::ai::pathfind_astar::PathfindCellType;
+    use generals_sim::pathfinding::PathfindCellType;
     let mut logic = GameLogic::new();
     let start = Vec3::new(10.0, 0.0, 10.0);
     let goal = Vec3::new(80.0, 0.0, 10.0);

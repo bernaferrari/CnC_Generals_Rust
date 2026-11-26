@@ -39,7 +39,7 @@ mod tests {
         for y in 0..5 {
             classic.set_cell_type_for_test(
                 &Coord3D::new(25.0, (y as f32 + 0.5) * 10.0, 0.0),
-                crate::ai::pathfind_astar::PathfindCellType::Water,
+                generals_sim::pathfinding::PathfindCellType::Water,
             );
         }
         let request = classic_request(
@@ -66,7 +66,7 @@ mod tests {
             for y in 0..5 {
                 owner.set_cell_type_at(
                     &Coord3D::new(25.0, (y as f32 + 0.5) * 10.0, 0.0),
-                    crate::ai::pathfind_astar::PathfindCellType::Water,
+                    generals_sim::pathfinding::PathfindCellType::Water,
                 );
             }
         }
@@ -110,7 +110,7 @@ mod tests {
         assert!(classic.inner.is_map_ready());
         assert_eq!(
             classic.get_cell_type_at(&Coord3D::new(15.0, 15.0, 0.0)),
-            Some(crate::ai::pathfind_astar::PathfindCellType::Water),
+            Some(generals_sim::pathfinding::PathfindCellType::Water),
         );
     }
 
@@ -133,17 +133,17 @@ mod tests {
         for y in 0..40 {
             owner.set_cell_type_at(
                 &Coord3D::new(205.0, (y as f32 + 0.5) * 10.0, 0.0),
-                crate::ai::pathfind_astar::PathfindCellType::Impassable,
+                generals_sim::pathfinding::PathfindCellType::Impassable,
             );
         }
         owner.inner.recalculate_zones_from_cells();
         assert_eq!(
             owner.inner.get_cell_type_at_cell(
-                crate::ai::pathfind_astar::PathfindLayerEnum::Ground,
+                generals_sim::pathfinding::PathfindLayerEnum::Ground,
                 20,
                 15,
             ),
-            Some(crate::ai::pathfind_astar::PathfindCellType::Impassable),
+            Some(generals_sim::pathfinding::PathfindCellType::Impassable),
             "the ground barrier must survive cell mutation before AStar starts",
         );
 
@@ -161,7 +161,7 @@ mod tests {
             result
                 .layers
                 .iter()
-                .any(|layer| *layer == crate::ai::pathfind_astar::PathfindLayerEnum::Top),
+                .any(|layer| *layer == generals_sim::pathfinding::PathfindLayerEnum::Top),
             "the path must retain the bridge's C++ layer ID in its waypoints"
         );
     }

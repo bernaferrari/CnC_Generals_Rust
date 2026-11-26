@@ -68,5 +68,4 @@ pub(super) use std::time::{Duration, Instant, SystemTime};
 pub(super) use ww3d_engine::FrameTiming;
 
 pub(super) const SCRIPT_BROADCAST_DURATION: f32 = 6.0;
-pub(super) const LOGIC_FRAMES_PER_SECOND: f32 = 30.0;
-pub(super) const LOGIC_FRAME_TIMESTEP: f32 = 1.0 / LOGIC_FRAMES_PER_SECOND;
+pub(super) use generals_sim::time::{LOGIC_FRAME_TIMESTEP, LOGIC_FRAMES_PER_SECOND};

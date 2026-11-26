@@ -1137,7 +1137,7 @@ impl GameLogic {
 
     /// Get total play time for this game session
     pub fn get_total_play_time(&self) -> f32 {
-        self.sim_time_seconds
+        self.simulation_clock.elapsed_seconds()
     }
 
     /// C++ `Player::getPlayerDifficulty` (Player.cpp:1519-1525) plus

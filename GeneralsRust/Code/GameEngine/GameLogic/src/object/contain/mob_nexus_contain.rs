@@ -745,9 +745,9 @@ impl MobNexusContain {
             .with_owner_object(|me| {
                 let astar_layer = match me.get_layer() {
                     crate::common::PathfindLayerEnum::Top => {
-                        crate::ai::pathfind_astar::PathfindLayerEnum::Top
+                        generals_sim::pathfinding::PathfindLayerEnum::Top
                     }
-                    _ => crate::ai::pathfind_astar::PathfindLayerEnum::Ground,
+                    _ => generals_sim::pathfinding::PathfindLayerEnum::Ground,
                 };
                 crate::ai::the_ai()
                     .read()
@@ -757,20 +757,20 @@ impl MobNexusContain {
                         let pf_guard = pf.read().ok()?;
                         let found = pf_guard.get_cell_type_at_layer(me.get_position(), astar_layer);
                         let found = if found.is_none()
-                            && astar_layer == crate::ai::pathfind_astar::PathfindLayerEnum::Top
+                            && astar_layer == generals_sim::pathfinding::PathfindLayerEnum::Top
                         {
                             pf_guard.get_cell_type_at_layer(
                                 me.get_position(),
-                                crate::ai::pathfind_astar::PathfindLayerEnum::Ground,
+                                generals_sim::pathfinding::PathfindLayerEnum::Ground,
                             )
                         } else {
                             found
                         };
                         Some(!matches!(
                             found,
-                            Some(crate::ai::pathfind_astar::PathfindCellType::Cliff)
-                                | Some(crate::ai::pathfind_astar::PathfindCellType::Water)
-                                | Some(crate::ai::pathfind_astar::PathfindCellType::Impassable)
+                            Some(generals_sim::pathfinding::PathfindCellType::Cliff)
+                                | Some(generals_sim::pathfinding::PathfindCellType::Water)
+                                | Some(generals_sim::pathfinding::PathfindCellType::Impassable)
                                 | None
                         ))
                     })

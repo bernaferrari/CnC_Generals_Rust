@@ -566,8 +566,8 @@ impl GameLogic {
             None
         };
 
-        let duration = if self.sim_time_seconds > 0.0 {
-            Some(Duration::from_secs_f32(self.sim_time_seconds))
+        let duration = if self.get_total_play_time() > 0.0 {
+            Some(Duration::from_secs_f32(self.get_total_play_time()))
         } else {
             None
         };

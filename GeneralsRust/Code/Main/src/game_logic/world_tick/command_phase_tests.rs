@@ -19,7 +19,7 @@ fn fixture() -> (tempfile::TempDir, GameLogic) {
             stats_directory: directory.path().join("Stats"),
         });
     world.frame = 37;
-    world.sim_time_seconds = 37. * LOGIC_FRAME_TIMESTEP;
+    world.restore_session_clock(37. * LOGIC_FRAME_TIMESTEP, world.simulation_clock.carried_seconds());
     (directory, world)
 }
 fn boundary(progress: NativeTickProgress) -> NativeTickContinuation {
@@ -82,8 +82,8 @@ fn actual_source_clear_suspends_before_callbacks_and_advances_reset_frame_once()
             assert!(matches!(result, NativeTickProgress::Complete(_)));
             assert_eq!(callbacks, 1);
             assert_eq!(world.frame, 1, "never increment stale outgoing frame37");
-            assert_eq!(world.accumulated_time, 0.);
-            assert_eq!(world.sim_time_seconds, LOGIC_FRAME_TIMESTEP);
+            assert_eq!(world.simulation_clock.carried_seconds(), 0.);
+            assert_eq!(world.get_total_play_time(), LOGIC_FRAME_TIMESTEP);
         },
     );
 }
@@ -139,7 +139,7 @@ fn actual_source_tail_retains_newgame_payload_and_prevents_reset_frame_increment
             ));
             assert_eq!(callbacks, 1);
             assert_eq!(world.frame, 0, "C++ !m_startNewGame guards final increment");
-            assert_eq!(world.sim_time_seconds, 0.);
+            assert_eq!(world.get_total_play_time(), 0.);
             assert!(
                 world
                     .replay_pending
@@ -339,7 +339,7 @@ fn budget_receipt(
             None
         };
         let mut after = |receiving: &mut GameLogic| {
-            after_frames.push((receiving.frame, receiving.sim_time_seconds.to_bits()));
+            after_frames.push((receiving.frame, receiving.get_total_play_time().to_bits()));
             if freeze_after_first {
                 receiving.set_script_time_frozen_for_test(true);
             }
@@ -382,8 +382,8 @@ fn budget_receipt(
     let diagnostics = world.fixed_step_diagnostics();
     BudgetReceipt {
         frame: world.frame,
-        sim_time_bits: world.sim_time_seconds.to_bits(),
-        carry_bits: world.accumulated_time.to_bits(),
+        sim_time_bits: world.get_total_play_time().to_bits(),
+        carry_bits: world.simulation_clock.carried_seconds().to_bits(),
         advanced: diagnostics.steps_run,
         frozen: diagnostics.frozen_steps,
         budget_hit: diagnostics.budget_hit,

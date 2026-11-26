@@ -78,7 +78,7 @@ fn boarded_with_modules(target_ai: bool, physics: bool) -> NativeMatch {
 
 #[test]
 fn exit_destination_observes_the_borrowed_actor_and_policy_in_each_world() {
-    use crate::ai::pathfind_astar::{GridCoord, PathfindCellType};
+    use generals_sim::pathfinding::{GridCoord, PathfindCellType};
     let mut first = NativeMatch::new(150.0);
     let mut second = NativeMatch::new(150.0);
     let first_actor = first.source.clone();

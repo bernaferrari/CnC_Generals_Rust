@@ -132,7 +132,7 @@ fn same_id_construction_worlds_keep_factory_resources_and_builders_isolated() {
 #[test]
 fn completion_refreshes_only_its_current_footprint_in_the_receiving_world() {
     use crate::game_logic::pathfinding::{GridPos, PathfindingSystem};
-    use gamelogic::ai::pathfind_astar::PathfindCellType;
+    use generals_sim::pathfinding::PathfindCellType;
 
     fn setup() -> (GameLogic, ObjectId, ObjectId, GridPos) {
         let (mut world, _) = construction_world(1000, 0);
@@ -690,7 +690,7 @@ fn rebuilt_structure_callback_rebinds_only_exact_owned_hole_successor() {
 
 #[test]
 fn retiring_wall_drops_the_deck_without_splatting_its_occupant() {
-    use gamelogic::ai::pathfind_astar::{PathfindCellType, PathfindLayerEnum};
+    use generals_sim::pathfinding::{PathfindCellType, PathfindLayerEnum};
 
     let deck = Vec3::new(85.0, 12.0, 85.0);
     let fixture = || {
@@ -772,7 +772,7 @@ fn retiring_wall_drops_the_deck_without_splatting_its_occupant() {
 #[test]
 fn last_dozer_frame_splats_the_live_wall_layer_before_leaving_the_site() {
     use crate::game_logic::host_usa_pilot::HostDeathType;
-    use gamelogic::ai::pathfind_astar::PathfindLayerEnum;
+    use generals_sim::pathfinding::PathfindLayerEnum;
 
     let (mut world, builder) = construction_world(1000, 0);
     let wall_template = world.templates.get_mut("OwnedScaffold").unwrap();

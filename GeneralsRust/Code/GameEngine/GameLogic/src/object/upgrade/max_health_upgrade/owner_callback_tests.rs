@@ -284,7 +284,7 @@ fn admitted_structure_max_health_cap_applies_rubble_pose_before_visuals() {
     }
     assert_eq!(
         pf.read().unwrap().get_cell_type_at(&pos),
-        Some(crate::ai::pathfind_astar::PathfindCellType::Obstacle),
+        Some(generals_sim::pathfinding::PathfindCellType::Obstacle),
         "existing initial occupancy stamp uses the driving structure footprint"
     );
 }

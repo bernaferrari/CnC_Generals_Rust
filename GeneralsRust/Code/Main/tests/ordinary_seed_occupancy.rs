@@ -31,7 +31,7 @@ fn fixture(
     let mut finder = PathfindingSystem::new(200.0, 120.0);
     finder.grid.set_cell_type(
         generals_main::game_logic::pathfinding::GridPos::new(3, 4),
-        gamelogic::ai::pathfind_astar::PathfindCellType::Impassable,
+        generals_sim::pathfinding::PathfindCellType::Impassable,
     );
     if stamp_enemy {
         let footprint = finder

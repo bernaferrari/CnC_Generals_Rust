@@ -9,7 +9,7 @@
 use std::cmp::Ordering;
 use std::collections::BinaryHeap;
 
-use crate::cell::{GridCoord, PathfindLayerEnum};
+use super::cell::{GridCoord, PathfindLayerEnum};
 
 /// Internal A* key: C++ keeps a distinct PathfindCell per (x, y, layer).
 /// Public GridCoord stays (x, y); layer is search-only.

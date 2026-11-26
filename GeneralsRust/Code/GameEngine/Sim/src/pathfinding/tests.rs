@@ -21,7 +21,7 @@ fn obstacle_removal_uses_the_resolved_layer_and_owner() {
 
 #[test]
 fn ordinary_search_does_not_detour_around_water_for_an_invented_cost() {
-    use crate::cell::SURFACE_WATER;
+    use super::cell::SURFACE_WATER;
     let mut finder = AStarPathfinder::new(15, 5);
     for x in 2..=12 {
         finder.set_cell_type(GridCoord::new(x, 2), PathfindCellType::Water);
@@ -57,7 +57,7 @@ fn ordinary_search_does_not_detour_around_water_for_an_invented_cost() {
 
 #[test]
 fn cpp_cell_cost_does_not_weight_water_or_rubble() {
-    use crate::cell::{SURFACE_RUBBLE, SURFACE_WATER};
+    use super::cell::{SURFACE_RUBBLE, SURFACE_WATER};
     use std::collections::HashMap;
     let mut finder = AStarPathfinder::new(5, 5);
     let from = GridCoord::new(1, 1);
@@ -687,15 +687,60 @@ fn tunneling_invalid_step_allows_obstacle_with_surcharge() {
     assert_eq!(*path.0.last().unwrap(), goal);
 }
 
+fn tunnel_route(
+    pf: &AStarPathfinder,
+    start: GridCoord,
+    goal: GridCoord,
+    cell_allowed: &dyn Fn(GridCoord) -> bool,
+) -> Option<(Vec<GridCoord>, usize)> {
+    pf.find_path_with_start_layer(
+        start, goal, PathfindLayerEnum::Ground, PathfindLayerEnum::Ground,
+        SURFACE_GROUND, false, 50, false, None, None, false, None, None, None,
+        false, true, Some(cell_allowed), None,
+    )
+}
+
 #[test]
-fn pinched_extra_ortho_on_expand_cpp_surface() {
-    let src = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/lib.rs"));
-    assert!(
-        src.contains("starts_tunneling")
-            && src.contains("10 * COST_ORTHOGONAL")
-            && src.contains("is_tunneling = false"),
-        "expand must clear tunneling and apply C++ tunnel surcharge"
-    );
+fn tunnel_surcharge_keeps_the_invalid_branch_behind_the_exit() {
+    // AIPathfind.cpp:6259 charges an invalid tunnel step 10 extra orthogonal steps.
+    let mut pf = AStarPathfinder::new(12, 12);
+    let start = GridCoord::new(3, 3);
+    let invalid_branch = GridCoord::new(3, 2);
+    let pinched = GridCoord::new(4, 3);
+    let exit = GridCoord::new(5, 3);
+    pf.set_cell_type(start, PathfindCellType::Obstacle);
+    pf.set_cell_type(invalid_branch, PathfindCellType::Impassable);
+    pf.set_cell_type(pinched, PathfindCellType::Clear);
+    pf.set_cell_type(exit, PathfindCellType::Clear);
+    pf.set_pinched(pinched, true);
+
+    let allowed = |cell| [start, invalid_branch, pinched, exit].contains(&cell);
+    let (path, examined) = tunnel_route(&pf, start, exit, &allowed).expect("tunnel exit");
+    assert_eq!(path, [start, pinched, exit]);
+    assert_eq!(examined, 3, "the invalid branch must not take an expansion");
+}
+
+#[test]
+fn tunnel_survives_a_pinched_cell_and_stops_at_the_open_exit() {
+    // AIPathfind.cpp:6247 clears tunneling at the first valid non-pinched cell.
+    let mut pf = AStarPathfinder::new(12, 12);
+    let start = GridCoord::new(3, 3);
+    let pinched = GridCoord::new(4, 3);
+    let gap = GridCoord::new(5, 3);
+    let exit = GridCoord::new(6, 3);
+    let after_exit = GridCoord::new(8, 3);
+    pf.set_cell_type(start, PathfindCellType::Obstacle);
+    pf.set_cell_type(pinched, PathfindCellType::Clear);
+    pf.set_pinched(pinched, true);
+    pf.set_cell_type(gap, PathfindCellType::Water);
+    pf.set_cell_type(exit, PathfindCellType::Clear);
+    pf.set_cell_type(GridCoord::new(7, 3), PathfindCellType::Water);
+    pf.set_cell_type(after_exit, PathfindCellType::Clear);
+
+    let allowed = |cell: GridCoord| cell.y == 3 && (3..=8).contains(&cell.x);
+    let (path, _) = tunnel_route(&pf, start, exit, &allowed).expect("tunnel through the pinched cell");
+    assert_eq!(path, [start, pinched, gap, exit]);
+    assert!(tunnel_route(&pf, start, after_exit, &allowed).is_none());
 }
 
 #[test]
@@ -1667,7 +1712,7 @@ fn line_seed_passes_the_resolved_previous_layer_to_occupancy() {
 
 #[test]
 fn obstacle_owner_policy_reads_each_resolved_cell_and_layer() {
-    use crate::passability::ObstacleIgnore;
+    use super::passability::ObstacleIgnore;
     let cell = GridCoord::new(2, 1);
     let mut world = AStarPathfinder::new(5, 3);
     let mut peer = AStarPathfinder::new(5, 3);

@@ -1155,7 +1155,7 @@ fn choose_good_locomotor_switches_on_cliff_cell() {
     logic
         .pathfinding_system
         .grid
-        .set_cell_type(cell, gamelogic::ai::pathfind_astar::PathfindCellType::Cliff);
+        .set_cell_type(cell, generals_sim::pathfinding::PathfindCellType::Cliff);
     logic.objects.insert(id, bike);
     logic.update_movement_for_test(&[id], 1.0 / 30.0);
     let obj = logic.objects.get(&id).expect("bike");
@@ -1189,7 +1189,7 @@ fn choose_good_locomotor_fills_burton_set_from_template_name() {
     logic
         .pathfinding_system
         .grid
-        .set_cell_type(cell, gamelogic::ai::pathfind_astar::PathfindCellType::Cliff);
+        .set_cell_type(cell, generals_sim::pathfinding::PathfindCellType::Cliff);
     logic.objects.insert(id, burton);
     logic.update_movement_for_test(&[id], 1.0 / 30.0);
     let obj = logic.objects.get(&id).expect("burton");

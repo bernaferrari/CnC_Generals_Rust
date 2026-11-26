@@ -964,7 +964,7 @@ impl GarrisonContain {
             .and_then(|pf| {
                 pf.read().ok().map(|pf| {
                     pf.valid_movement_terrain(
-                        crate::ai::pathfind_astar::PathfindLayerEnum::Ground,
+                        generals_sim::pathfinding::PathfindLayerEnum::Ground,
                         &set,
                         pos,
                     )

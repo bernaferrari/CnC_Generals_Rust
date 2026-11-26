@@ -1010,7 +1010,7 @@ impl PartitionManager {
         }
         // Impassable / CLEAR_CELLS_ONLY: C++ floors to PATHFIND_CELL_SIZE.
         {
-            use crate::ai::pathfind_astar::PathfindCellType;
+            use generals_sim::pathfinding::PathfindCellType;
             use crate::ai::the_ai;
             let cell_size = crate::path::PATHFIND_CELL_SIZE_F;
             let snapped = Coord3D::new(

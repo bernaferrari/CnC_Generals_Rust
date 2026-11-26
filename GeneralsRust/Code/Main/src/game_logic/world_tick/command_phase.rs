@@ -280,7 +280,7 @@ impl GameLogic {
             // The command was ignored/rejected without changing ownership.
             // Finish the current step and any remaining original budget in
             // the SAME fixed-step loop. No delta is admitted a second time.
-            self.accumulated_time = pending.carry;
+            self.simulation_clock.resume_step(pending.carry);
             let mut completed = Some(SimulationStepOutcome::Advanced);
             let next = self.step_simulation_with_callbacks(
                 0.,
@@ -311,25 +311,25 @@ impl GameLogic {
                 Err(error) => NativeTickProgress::Failed(error),
             };
         }
-        self.accumulated_time = if pending.reset_seen {
-            0.
-        } else {
-            (pending.carry - dt).max(0.)
-        };
+        let dropped_excess_time = self.simulation_clock.finish_interrupted_step(
+            pending.carry,
+            dt,
+            pending.reset_seen,
+        );
         if !pending.new_game_pending {
             self.frame = self.frame.wrapping_add(1);
             self.host_trigger_world
                 .lock()
                 .unwrap_or_else(|e| e.into_inner())
                 .set_current_frame(self.frame);
-            self.sim_time_seconds += dt;
+            self.simulation_clock.record_frame_advance(dt);
         }
         self.last_fixed_step_diagnostics = FixedStepDiagnostics {
             steps_run: pending.prior_steps + 1,
             frozen_steps: pending.frozen_steps,
             budget_hit: false,
-            accumulated_time_seconds: self.accumulated_time,
-            dropped_excess_time: pending.reset_seen && pending.carry > dt,
+            accumulated_time_seconds: self.simulation_clock.carried_seconds(),
+            dropped_excess_time,
         };
         // The normal central loop scopes the receiving stream through its
         // completed-frame callback. Reset/start termination must do so too.

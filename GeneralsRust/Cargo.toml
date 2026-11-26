@@ -22,7 +22,7 @@ members = [
     "Code/GameEngine/Common",
     "Code/GameEngine/GameNetwork",
     "Code/GameEngine/GameLogic",
-    "Code/GameEngine/Pathfinding",
+    "Code/GameEngine/Sim",
     "Code/GameEngine/GameDomain",
     "Code/GameEngine/Presentation",
     "Code/GameEngine/FX",

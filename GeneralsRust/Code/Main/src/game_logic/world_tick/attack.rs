@@ -2700,7 +2700,7 @@ impl GameLogic {
             let cell = self.pathfinding_system.grid.world_to_grid(u.get_position());
             let off_map = !self.pathfinding_system.grid.is_valid_pos(cell);
             let ground_cliff = self.pathfinding_system.grid.cell_type(cell)
-                == gamelogic::ai::pathfind_astar::PathfindCellType::Cliff;
+                == generals_sim::pathfinding::PathfindCellType::Cliff;
             let cliff = if off_map {
                 true
             } else if u.pathfind_layer > 1 {
@@ -2709,7 +2709,7 @@ impl GameLogic {
                     .grid
                     .layer_cell_type(u.pathfind_layer, cell)
                 {
-                    Some(gamelogic::ai::pathfind_astar::PathfindCellType::Cliff) => true,
+                    Some(generals_sim::pathfinding::PathfindCellType::Cliff) => true,
                     Some(_) => false,
                     None => ground_cliff,
                 }

@@ -964,7 +964,7 @@ impl Weapon {
         if dual_world_registry_unavailable() {
             return false;
         }
-        const CELL_FUDGE: f32 = crate::ai::pathfind_astar::PATHFIND_CELL_SIZE_F * 0.25;
+        const CELL_FUDGE: f32 = generals_sim::pathfinding::PATHFIND_CELL_SIZE_F * 0.25;
         let source_radius = crate::object::registry::OBJECT_REGISTRY
             .with_object(source_obj, |guard| {
                 guard.get_geometry_info().get_bounding_circle_radius()

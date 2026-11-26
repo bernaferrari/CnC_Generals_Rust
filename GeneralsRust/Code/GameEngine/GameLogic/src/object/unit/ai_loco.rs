@@ -21,7 +21,7 @@ pub(super) struct NativePathMovementContext<'a> {
     pathfinder: NativePathfinderLoan<'a>,
     surfaces: crate::locomotor::LocomotorSurfaceTypeMask,
     ignore_obstacle_id: Option<ObjectID>,
-    owned_ignore_cells: Option<std::collections::HashSet<crate::ai::pathfind_astar::GridCoord>>,
+    owned_ignore_cells: Option<std::collections::HashSet<generals_sim::pathfinding::GridCoord>>,
     layer: crate::ai::pathfind::PathfindLayerEnum,
 }
 
@@ -45,7 +45,7 @@ impl<'a> NativePathMovementContext<'a> {
         surfaces: crate::locomotor::LocomotorSurfaceTypeMask,
         ignore_obstacle_id: Option<ObjectID>,
         layer: crate::ai::pathfind::PathfindLayerEnum,
-        owned_ignore_cells: Option<std::collections::HashSet<crate::ai::pathfind_astar::GridCoord>>,
+        owned_ignore_cells: Option<std::collections::HashSet<generals_sim::pathfinding::GridCoord>>,
     ) -> Self {
         Self {
             pathfinder: NativePathfinderLoan::Borrowed(pathfinder),
@@ -73,7 +73,7 @@ impl crate::ai::pathfind::PathMovementContext for NativePathMovementContext<'_> 
                 from,
                 to,
                 self.surfaces,
-                crate::ai::pathfind_astar::PathfindLayerEnum::from_u32(layer as u32),
+                generals_sim::pathfinding::PathfindLayerEnum::from_u32(layer as u32),
                 self.ignore_obstacle_id,
             )
         };
@@ -85,7 +85,7 @@ impl crate::ai::pathfind::PathMovementContext for NativePathMovementContext<'_> 
                 from,
                 to,
                 self.surfaces,
-                crate::ai::pathfind_astar::PathfindLayerEnum::from_u32(layer as u32),
+                generals_sim::pathfinding::PathfindLayerEnum::from_u32(layer as u32),
                 self.owned_ignore_cells.as_ref(),
             ),
         }
@@ -1177,7 +1177,7 @@ impl UnitAIUpdate {
             };
             let bridge_layer = crate::common::PathfindLayerEnum::from_u32(path_layer as u32);
             let pathfinder_layer =
-                crate::ai::pathfind_astar::PathfindLayerEnum::from_u32(path_layer as u32);
+                generals_sim::pathfinding::PathfindLayerEnum::from_u32(path_layer as u32);
             let interacts = owner
                 .read()
                 .ok()

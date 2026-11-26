@@ -285,7 +285,7 @@ fn authored_replacement_takes_the_exact_target_pose_and_team_before_retirement()
 #[test]
 fn authored_replace_removes_live_wall_footprint_before_source_retirement() {
     use crate::game_logic::host_usa_pilot::HostDeathType;
-    use gamelogic::ai::pathfind_astar::PathfindLayerEnum;
+    use generals_sim::pathfinding::PathfindLayerEnum;
 
     const SOURCE: &str = "ReplacementWallSource";
     const TARGET: &str = "ReplacementWallTarget";

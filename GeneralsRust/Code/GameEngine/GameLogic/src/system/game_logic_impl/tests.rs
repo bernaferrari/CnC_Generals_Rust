@@ -2511,7 +2511,7 @@ mod tests {
                 for y in 0..8 {
                     pathfinder.set_cell_type_at(
                         &Coord3D::new(x as f32 * 10.0 + 5.0, y as f32 * 10.0 + 5.0, 0.0),
-                        crate::ai::pathfind_astar::PathfindCellType::Clear,
+                        generals_sim::pathfinding::PathfindCellType::Clear,
                     );
                 }
             }
@@ -2555,21 +2555,21 @@ mod tests {
                 .read()
                 .unwrap()
                 .get_cell_type_at(&driving_position),
-            Some(crate::ai::pathfind_astar::PathfindCellType::Obstacle)
+            Some(generals_sim::pathfinding::PathfindCellType::Obstacle)
         );
         assert_eq!(
             foreign_pathfinder
                 .read()
                 .unwrap()
                 .get_cell_type_at(&foreign_position),
-            Some(crate::ai::pathfind_astar::PathfindCellType::Obstacle)
+            Some(generals_sim::pathfinding::PathfindCellType::Obstacle)
         );
         assert_eq!(
             driving_pathfinder
                 .read()
                 .unwrap()
                 .get_cell_type_at(&foreign_position),
-            Some(crate::ai::pathfind_astar::PathfindCellType::Clear),
+            Some(generals_sim::pathfinding::PathfindCellType::Clear),
             "same-ID peer registration must not bleed its obstacle location into the receiving owner"
         );
         assert_eq!(
@@ -2577,7 +2577,7 @@ mod tests {
                 .read()
                 .unwrap()
                 .get_cell_type_at(&driving_position),
-            Some(crate::ai::pathfind_astar::PathfindCellType::Clear),
+            Some(generals_sim::pathfinding::PathfindCellType::Clear),
             "same-ID peer registration must not bleed its obstacle location into the receiving owner"
         );
 
@@ -2592,14 +2592,14 @@ mod tests {
                 .read()
                 .unwrap()
                 .get_cell_type_at(&driving_position),
-            Some(crate::ai::pathfind_astar::PathfindCellType::Clear)
+            Some(generals_sim::pathfinding::PathfindCellType::Clear)
         );
         assert_eq!(
             foreign_pathfinder
                 .read()
                 .unwrap()
                 .get_cell_type_at(&foreign_position),
-            Some(crate::ai::pathfind_astar::PathfindCellType::Obstacle)
+            Some(generals_sim::pathfinding::PathfindCellType::Obstacle)
         );
         assert!(foreign.find_object_by_id(ID).is_some());
 
@@ -2612,7 +2612,7 @@ mod tests {
                 .read()
                 .unwrap()
                 .get_cell_type_at(&foreign_position),
-            Some(crate::ai::pathfind_astar::PathfindCellType::Clear)
+            Some(generals_sim::pathfinding::PathfindCellType::Clear)
         );
 
         // Restored walk-on-wall IDs and map rebuilds use the same receiving
@@ -2712,12 +2712,12 @@ mod tests {
         assert!(driving_pathfinder
             .read()
             .unwrap()
-            .get_cell_type_at_cell(crate::ai::pathfind_astar::PathfindLayerEnum::Ground, 3, 3)
+            .get_cell_type_at_cell(generals_sim::pathfinding::PathfindLayerEnum::Ground, 3, 3)
             .is_some());
         assert!(foreign_pathfinder
             .read()
             .unwrap()
-            .get_cell_type_at_cell(crate::ai::pathfind_astar::PathfindLayerEnum::Ground, 3, 3)
+            .get_cell_type_at_cell(generals_sim::pathfinding::PathfindLayerEnum::Ground, 3, 3)
             .is_none());
         crate::system::engine_stores::with_active_stores(&driving_owner, || {
             pathfinder_new_map_after_polygon_load(&foreign).unwrap();
@@ -2725,19 +2725,19 @@ mod tests {
         assert!(foreign_pathfinder
             .read()
             .unwrap()
-            .get_cell_type_at_cell(crate::ai::pathfind_astar::PathfindLayerEnum::Ground, 7, 7)
+            .get_cell_type_at_cell(generals_sim::pathfinding::PathfindLayerEnum::Ground, 7, 7)
             .is_some());
         assert!(driving_pathfinder
             .read()
             .unwrap()
-            .get_cell_type_at_cell(crate::ai::pathfind_astar::PathfindLayerEnum::Ground, 7, 7)
+            .get_cell_type_at_cell(generals_sim::pathfinding::PathfindLayerEnum::Ground, 7, 7)
             .is_none());
 
     }
 
     #[test]
     fn polygon_load_reclassifies_restored_scaffold_and_neighbor_in_receiving_order() {
-        use crate::ai::pathfind_astar::PathfindCellType;
+        use generals_sim::pathfinding::PathfindCellType;
         use game_engine::common::system::geometry::GeometryType;
 
         let _fixture = test_state_lock();
@@ -2843,7 +2843,7 @@ mod tests {
                 for y in 0..8 {
                     pathfinder.set_cell_type_at(
                         &Coord3D::new(x as f32 * 10.0 + 5.0, y as f32 * 10.0 + 5.0, 0.0),
-                        crate::ai::pathfind_astar::PathfindCellType::Clear,
+                        generals_sim::pathfinding::PathfindCellType::Clear,
                     );
                 }
             }
@@ -2874,7 +2874,7 @@ mod tests {
         });
         assert_eq!(
             pathfinder.read().unwrap().get_cell_type_at(&position),
-            Some(crate::ai::pathfind_astar::PathfindCellType::Obstacle)
+            Some(generals_sim::pathfinding::PathfindCellType::Obstacle)
         );
 
         crate::system::engine_stores::with_active_stores(&stores, || {
@@ -2883,7 +2883,7 @@ mod tests {
         });
         assert_eq!(
             pathfinder.read().unwrap().get_cell_type_at(&position),
-            Some(crate::ai::pathfind_astar::PathfindCellType::Clear)
+            Some(generals_sim::pathfinding::PathfindCellType::Clear)
         );
     }
 
@@ -2920,7 +2920,7 @@ mod tests {
 
     #[test]
     fn detached_wall_cleanup_reclassifies_the_receiving_layer_without_splat() {
-        use crate::ai::pathfind_astar::{GridCoord, PathfindCellType, PathfindLayerEnum};
+        use generals_sim::pathfinding::{GridCoord, PathfindCellType, PathfindLayerEnum};
         use crate::common::{AABox, Coord3D, DefaultThingTemplate, GeometryInfo};
         use crate::system::engine_stores::{EngineStores, new_for_world, with_active_stores};
 

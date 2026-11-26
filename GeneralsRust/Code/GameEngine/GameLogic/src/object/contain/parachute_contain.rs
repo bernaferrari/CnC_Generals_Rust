@@ -7,7 +7,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex, RwLock, Weak};
 
 use super::{ContainerIniParse, ContainerInterface};
-use crate::ai::pathfind_astar::PathfindCellType;
+use generals_sim::pathfinding::PathfindCellType;
 use crate::ai::the_ai;
 use crate::common::audio::AudioEventRts;
 use crate::common::{
@@ -620,16 +620,16 @@ impl ParachuteContain {
             ai.pathfinder().and_then(|pf| {
                 pf.read().ok().and_then(|pf_guard| {
                     let astar_layer = match layer {
-                        PathfindLayerEnum::Top => crate::ai::pathfind_astar::PathfindLayerEnum::Top,
-                        _ => crate::ai::pathfind_astar::PathfindLayerEnum::Ground,
+                        PathfindLayerEnum::Top => generals_sim::pathfinding::PathfindLayerEnum::Top,
+                        _ => generals_sim::pathfinding::PathfindLayerEnum::Ground,
                     };
                     let found = pf_guard.get_cell_type_at_layer(rider.get_position(), astar_layer);
                     if found.is_none()
-                        && astar_layer == crate::ai::pathfind_astar::PathfindLayerEnum::Top
+                        && astar_layer == generals_sim::pathfinding::PathfindLayerEnum::Top
                     {
                         pf_guard.get_cell_type_at_layer(
                             rider.get_position(),
-                            crate::ai::pathfind_astar::PathfindLayerEnum::Ground,
+                            generals_sim::pathfinding::PathfindLayerEnum::Ground,
                         )
                     } else {
                         found

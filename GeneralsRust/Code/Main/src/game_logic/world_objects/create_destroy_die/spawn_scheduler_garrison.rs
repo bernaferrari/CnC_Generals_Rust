@@ -42,7 +42,7 @@ impl GameLogic {
         let (sin, cos) = yaw.sin_cos();
         let mut start = origin;
         if has_ai && has_locomotor {
-            use gamelogic::ai::pathfind_astar::PathfindCellType;
+            use generals_sim::pathfinding::PathfindCellType;
             let grid = &self.pathfinding_system.grid;
             let valid = |position| {
                 let cell = grid.world_to_grid(position);

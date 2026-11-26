@@ -302,7 +302,7 @@ fn water_cell_set_change_falls_back_to_ground_not_the_previous_member() {
     };
     use crate::game_logic::object::LOCO_SURFACE_CLIFF;
     use crate::game_logic::{KindOf, Player, ThingTemplate};
-    use gamelogic::ai::pathfind_astar::PathfindCellType;
+    use generals_sim::pathfinding::PathfindCellType;
 
     let mut logic = GameLogic::new();
     logic.add_player(Player::new(0, Team::USA, "P0", true));
@@ -358,7 +358,7 @@ fn missing_bridge_layer_uses_the_ground_cell_not_clear() {
         AuthoredLocomotorSet, HostLocomotorSetKind,
     };
     use crate::game_logic::{KindOf, Player, ThingTemplate};
-    use gamelogic::ai::pathfind_astar::PathfindCellType;
+    use generals_sim::pathfinding::PathfindCellType;
 
     let mut logic = GameLogic::new();
     logic.add_player(Player::new(0, Team::USA, "P0", true));
@@ -400,7 +400,7 @@ fn bridge_deck_locomotor_ignores_the_water_underneath() {
         AuthoredLocomotorSet, HostLocomotorSetKind,
     };
     use crate::game_logic::{KindOf, Player, ThingTemplate};
-    use gamelogic::ai::pathfind_astar::PathfindCellType;
+    use generals_sim::pathfinding::PathfindCellType;
 
     let mut logic = GameLogic::new();
     logic.add_player(Player::new(0, Team::USA, "P0", true));

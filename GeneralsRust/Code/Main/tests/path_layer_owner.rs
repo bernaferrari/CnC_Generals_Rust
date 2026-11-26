@@ -5,7 +5,7 @@ use glam::Vec3;
 
 #[test]
 fn ordinary_search_checks_occupants_on_the_current_bridge_layer() {
-    use gamelogic::ai::pathfind_astar::PathfindCellType;
+    use generals_sim::pathfinding::PathfindCellType;
     use generals_main::game_logic::pathfinding::{GridPos, PathGoalUpdate};
 
     let ground = PathfindingGround::Flat(0.0);
@@ -107,7 +107,7 @@ fn ordinary_search_checks_occupants_on_the_current_bridge_layer() {
 
 #[test]
 fn move_away_uses_the_receiving_objects_layer_under_a_bridge() {
-    use gamelogic::ai::pathfind_astar::{PathfindCellType, PathfindLayerEnum};
+    use generals_sim::pathfinding::{PathfindCellType, PathfindLayerEnum};
     use generals_main::game_logic::pathfinding::GridPos;
     let mut worlds = Vec::new();
     let mut finders = Vec::new();
@@ -181,7 +181,7 @@ fn move_away_uses_the_receiving_objects_layer_under_a_bridge() {
 
 #[test]
 fn missing_bridge_layer_cell_reads_ground_occupancy() {
-    use gamelogic::ai::pathfind_astar::{PathfindCellType, PathfindLayerEnum};
+    use generals_sim::pathfinding::{PathfindCellType, PathfindLayerEnum};
     use generals_main::game_logic::pathfinding::GridPos;
     let ground = PathfindingGround::Flat(0.0);
     let mut finder = PathfindingSystem::new(200.0, 200.0);
@@ -232,7 +232,7 @@ fn missing_bridge_layer_cell_reads_ground_occupancy() {
 
 #[test]
 fn move_away_uses_ground_identity_after_leaving_the_bridge() {
-    use gamelogic::ai::pathfind_astar::PathfindCellType;
+    use generals_sim::pathfinding::PathfindCellType;
     use generals_main::game_logic::pathfinding::GridPos;
     let ground = PathfindingGround::Flat(0.0);
     let mut world = GameLogic::new();
@@ -282,7 +282,7 @@ fn move_away_uses_ground_identity_after_leaving_the_bridge() {
 
 #[test]
 fn safe_search_uses_the_receiving_objects_layer_under_a_bridge() {
-    use gamelogic::ai::pathfind_astar::PathfindCellType;
+    use generals_sim::pathfinding::PathfindCellType;
     use generals_main::game_logic::pathfinding::GridPos;
     let ground = PathfindingGround::Flat(0.0);
     let mut results = Vec::new();

@@ -122,7 +122,7 @@ impl GameLogic {
         for msg in self.mission_scripts.drain_messages() {
             self.script_broadcasts.push(ScriptBroadcast {
                 text: msg.clone(),
-                expires_at: self.sim_time_seconds + SCRIPT_BROADCAST_DURATION,
+                expires_at: self.get_total_play_time() + SCRIPT_BROADCAST_DURATION,
             });
             self.new_script_messages.push(msg);
         }
@@ -465,7 +465,7 @@ impl GameLogic {
             .last()
         {
             let duration = (duration_seconds as f32).max(0.0);
-            self.cinematic_text = Some((text, self.sim_time_seconds + duration));
+            self.cinematic_text = Some((text, self.get_total_play_time() + duration));
             self.cinematic_font = if font.is_empty() { None } else { Some(font) };
         }
 
@@ -476,7 +476,7 @@ impl GameLogic {
             .last()
         {
             let duration = Self::military_caption_duration_seconds(last.duration_ms);
-            self.military_caption = Some((last.text, self.sim_time_seconds + duration));
+            self.military_caption = Some((last.text, self.get_total_play_time() + duration));
         }
 
         if let Some(movie) = self
@@ -488,7 +488,7 @@ impl GameLogic {
             self.pending_movie = Some(movie.clone());
             self.script_broadcasts.push(ScriptBroadcast {
                 text: format!("Movie requested: {}", movie),
-                expires_at: self.sim_time_seconds + SCRIPT_BROADCAST_DURATION,
+                expires_at: self.get_total_play_time() + SCRIPT_BROADCAST_DURATION,
             });
         }
 
@@ -536,7 +536,7 @@ impl GameLogic {
                     "Effect '{}' at ({:.0}, {:.0}, {:.0})",
                     effect.effect_type, effect.position.x, effect.position.y, effect.position.z
                 ),
-                expires_at: self.sim_time_seconds + SCRIPT_BROADCAST_DURATION,
+                expires_at: self.get_total_play_time() + SCRIPT_BROADCAST_DURATION,
             });
         }
 
@@ -591,7 +591,7 @@ impl GameLogic {
                 }
                 self.script_broadcasts.push(ScriptBroadcast {
                     text: popup.message.clone(),
-                    expires_at: self.sim_time_seconds + SCRIPT_BROADCAST_DURATION,
+                    expires_at: self.get_total_play_time() + SCRIPT_BROADCAST_DURATION,
                 });
                 self.new_script_messages.push(popup.message.clone());
             }

@@ -1103,7 +1103,7 @@ impl Object {
     /// C++ `AIUpdateInterface::chooseGoodLocomotorFromCurrentSet` (AIUpdate.cpp:833-872).
     pub(crate) fn choose_good_locomotor_from_current_set(
         &mut self,
-        cell_type: gamelogic::ai::pathfind_astar::PathfindCellType,
+        cell_type: generals_sim::pathfinding::PathfindCellType,
         store: Option<&game_engine::common::ini::ini_locomotor::LocomotorStore>,
     ) {
         if self.locomotor_set_names.iter().all(|name| name.is_empty())

@@ -252,7 +252,7 @@ impl Locomotor {
             return true;
         };
         let set = LocomotorSet::from_surfaces(self.template.surfaces);
-        let astar_layer = crate::ai::pathfind_astar::PathfindLayerEnum::from_u32(layer as u32);
+        let astar_layer = generals_sim::pathfinding::PathfindLayerEnum::from_u32(layer as u32);
         pf.valid_movement_terrain(astar_layer, &set, &pos)
     }
 

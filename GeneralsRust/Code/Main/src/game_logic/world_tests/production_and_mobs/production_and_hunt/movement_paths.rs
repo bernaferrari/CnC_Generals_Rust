@@ -961,7 +961,7 @@ fn contact_attack_ignores_the_victim() {
         .world_to_grid(Vec3::new(120.0, 0.0, 0.0));
     assert_eq!(
         logic.pathfinding_system.grid.cell_type(target_cell),
-        gamelogic::ai::pathfind_astar::PathfindCellType::Obstacle,
+        generals_sim::pathfinding::PathfindCellType::Obstacle,
         "fixture must exercise the victim's actual obstacle footprint"
     );
     logic.force_map_loaded_for_path_test(true);
@@ -972,7 +972,7 @@ fn contact_attack_ignores_the_victim() {
     let enters_victim_footprint = unit.movement.path.iter().any(|wp| {
         let cell = logic.pathfinding_system.grid.world_to_grid(*wp);
         logic.pathfinding_system.grid.cell_type(cell)
-            == gamelogic::ai::pathfind_astar::PathfindCellType::Obstacle
+            == generals_sim::pathfinding::PathfindCellType::Obstacle
     });
     assert!(
         enters_victim_footprint,

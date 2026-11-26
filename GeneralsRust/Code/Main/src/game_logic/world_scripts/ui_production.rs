@@ -388,7 +388,7 @@ impl GameLogic {
             .collect();
 
         // Use WW3D-synchronized time
-        let game_time = self.sim_time_seconds;
+        let game_time = self.get_total_play_time();
 
         let player_name = player
             .map(|p| p.name.clone())
@@ -487,7 +487,7 @@ impl GameLogic {
         ui_state.radar_pings = radar_entries
             .iter()
             .filter_map(|entry| {
-                let age = (self.sim_time_seconds - entry.timestamp).max(0.0);
+                let age = (self.get_total_play_time() - entry.timestamp).max(0.0);
                 if age > RADAR_PING_LIFETIME {
                     return None;
                 }
@@ -594,7 +594,7 @@ impl GameLogic {
     /// Remaining military caption lifetime in milliseconds (0 if expired/absent).
     pub fn military_caption_remaining_ms(&self) -> Option<i32> {
         self.military_caption.as_ref().map(|(_, expiry)| {
-            let rem = (*expiry - self.sim_time_seconds).max(0.0);
+            let rem = (*expiry - self.get_total_play_time()).max(0.0);
             (rem * 1000.0).round() as i32
         })
     }
@@ -602,7 +602,7 @@ impl GameLogic {
     /// Remaining cinematic text lifetime in milliseconds.
     pub fn cinematic_text_remaining_ms(&self) -> Option<i32> {
         self.cinematic_text.as_ref().map(|(_, expiry)| {
-            let rem = (*expiry - self.sim_time_seconds).max(0.0);
+            let rem = (*expiry - self.get_total_play_time()).max(0.0);
             (rem * 1000.0).round() as i32
         })
     }
@@ -623,7 +623,7 @@ impl GameLogic {
         }
         self.script_broadcasts.push(ScriptBroadcast {
             text: msg.clone(),
-            expires_at: self.sim_time_seconds + 10.0,
+            expires_at: self.get_total_play_time() + 10.0,
         });
         self.new_script_messages.push(msg);
     }
@@ -632,11 +632,11 @@ impl GameLogic {
         if text.is_none() {
             self.cinematic_font = None;
         }
-        self.cinematic_text = text.map(|t| (t, self.sim_time_seconds + 10.0));
+        self.cinematic_text = text.map(|t| (t, self.get_total_play_time() + 10.0));
     }
 
     pub fn set_military_caption(&mut self, text: Option<String>) {
-        self.military_caption = text.map(|t| (t, self.sim_time_seconds + 10.0));
+        self.military_caption = text.map(|t| (t, self.get_total_play_time() + 10.0));
     }
 
     pub fn set_radar_forced(&mut self, forced: bool) {
@@ -1571,7 +1571,7 @@ impl GameLogic {
         position: glam::Vec3,
         place_radius: f32,
     ) -> bool {
-        use gamelogic::ai::pathfind_astar::PathfindCellType;
+        use generals_sim::pathfinding::PathfindCellType;
         let r = place_radius.max(1.0);
         let offsets = [
             (0.0, 0.0),
@@ -1613,7 +1613,7 @@ impl GameLogic {
             self.pathfinding_system
                 .grid
                 .layer_for_destination(position, &ground_source)
-        }) != gamelogic::ai::pathfind_astar::PathfindLayerEnum::Ground
+        }) != generals_sim::pathfinding::PathfindLayerEnum::Ground
         {
             return true;
         }

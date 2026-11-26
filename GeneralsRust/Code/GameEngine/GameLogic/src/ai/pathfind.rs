@@ -1,5 +1,5 @@
 use crate::ai::path_optimization::PathOptimizer;
-use crate::ai::pathfind_astar::{PATHFIND_CELL_SIZE_F, PathfindLayerEnum as OptLayer};
+use generals_sim::pathfinding::{PATHFIND_CELL_SIZE_F, PathfindLayerEnum as OptLayer};
 use crate::ai::the_ai;
 use crate::common::coord::*;
 use crate::common::xfer::XferExt;
@@ -1931,10 +1931,10 @@ pub fn update_goal_for_object(
         .try_read()
         .map_err(|_| "Could not lock object for goal update")?;
 
-    let cell = crate::ai::pathfind_astar::GridCoord::from_world(goal);
+    let cell = generals_sim::pathfinding::GridCoord::from_world(goal);
     let radius = {
         let geo = obj_guard.get_geometry_info();
-        let r = (geo.get_major_radius() / crate::ai::pathfind_astar::PATHFIND_CELL_SIZE_F).floor()
+        let r = (geo.get_major_radius() / generals_sim::pathfinding::PATHFIND_CELL_SIZE_F).floor()
             as i32;
         r.clamp(0, 2)
     };
@@ -1951,11 +1951,11 @@ pub fn update_goal_for_object(
         .map(|t| t.object_interacts_with_bridge_end(&*obj_guard, dest_layer))
         .unwrap_or(false);
     let pf_layer = if dest_layer != crate::path::PathfindLayerEnum::Ground {
-        crate::ai::pathfind_astar::PathfindLayerEnum::from_u32(dest_layer as u32)
+        generals_sim::pathfinding::PathfindLayerEnum::from_u32(dest_layer as u32)
     } else {
         match layer {
-            PathfindLayerEnum::Ground => crate::ai::pathfind_astar::PathfindLayerEnum::Ground,
-            other => crate::ai::pathfind_astar::PathfindLayerEnum::from_u32(other as u32),
+            PathfindLayerEnum::Ground => generals_sim::pathfinding::PathfindLayerEnum::Ground,
+            other => generals_sim::pathfinding::PathfindLayerEnum::from_u32(other as u32),
         }
     };
     drop(obj_guard);

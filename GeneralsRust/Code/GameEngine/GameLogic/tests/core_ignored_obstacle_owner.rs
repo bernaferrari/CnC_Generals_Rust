@@ -1,5 +1,5 @@
 use game_engine::system::geometry::{GeometryInfo as Shape, GeometryType};
-use gamelogic::ai::pathfind_astar::{GridCoord, PathfindCellType};
+use generals_sim::pathfinding::{GridCoord, PathfindCellType};
 use gamelogic::ai::pathfind_complete::{PathfindingSystem, SURFACE_GROUND};
 use gamelogic::common::{DefaultThingTemplate, GeometryInfo, KindOf, ObjectStatusMaskType};
 use gamelogic::object::Object;

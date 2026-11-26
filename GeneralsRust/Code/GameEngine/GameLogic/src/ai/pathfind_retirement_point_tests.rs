@@ -1,5 +1,5 @@
 use super::{Coord3D, Path, PathMovementContext, PathfindLayerEnum};
-use crate::ai::pathfind_astar::{GridCoord, PathfindCellType};
+use generals_sim::pathfinding::{GridCoord, PathfindCellType};
 use crate::ai::pathfind_complete::{PathRequest, SURFACE_GROUND};
 use crate::common::INVALID_ID;
 

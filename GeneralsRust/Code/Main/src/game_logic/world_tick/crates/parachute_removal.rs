@@ -129,7 +129,7 @@ impl GameLogic {
         );
         let grid = &self.pathfinding_system.grid;
         let cell = grid.world_to_grid(position);
-        use gamelogic::ai::pathfind_astar::PathfindCellType;
+        use generals_sim::pathfinding::PathfindCellType;
         let kind = if !grid.is_valid_pos(cell) {
             PathfindCellType::Impassable
         } else if rider.pathfind_layer == gamelogic::path::PathfindLayerEnum::Ground as u8 {

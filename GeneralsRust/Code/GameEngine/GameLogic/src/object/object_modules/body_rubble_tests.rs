@@ -3,7 +3,7 @@
 //! Initial construction has no cached CPP body during PF insertion, unlike a
 //! later damage callback. This packet preserves the existing initial obstacle
 //! stamp; complete CELL_RUBBLE/obstacle-owner classification is separate debt.
-use crate::ai::pathfind_astar::PathfindCellType;
+use generals_sim::pathfinding::PathfindCellType;
 use crate::common::{Coord3D, ObjectID, ObjectStatusMaskType, ThingTemplate};
 use crate::helpers::{TheGameLogic, TheThingFactory};
 use crate::object::object_factory::{ObjectCreationFlags, ObjectFactory};

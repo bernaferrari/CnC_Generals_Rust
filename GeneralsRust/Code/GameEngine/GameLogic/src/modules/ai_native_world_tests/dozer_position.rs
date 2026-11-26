@@ -127,7 +127,7 @@ fn impassable_approach_falls_back_to_target_without_searching_another_side() {
     let peer_candidate = expected(&peer);
     first.pathfinder.set_cell_type_at(
         &candidate,
-        crate::ai::pathfind_astar::PathfindCellType::Impassable,
+        generals_sim::pathfinding::PathfindCellType::Impassable,
     );
     assert_eq!(
         query(&mut first).unwrap(),

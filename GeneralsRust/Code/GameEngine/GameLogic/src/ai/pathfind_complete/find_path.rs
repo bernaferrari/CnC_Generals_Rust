@@ -887,7 +887,7 @@ impl PathfindingSystem {
             // line walk finds a cheaper parent. Ordinary neighbors cannot.
             if !tunneling && !downhill_only {
                 let mut seed_error = None;
-                game_pathfinding::visit_cell_line(
+                generals_sim::pathfinding::visit_cell_line(
                     (cx, cy),
                     (goal_grid.x, goal_grid.y),
                     |from, to| {

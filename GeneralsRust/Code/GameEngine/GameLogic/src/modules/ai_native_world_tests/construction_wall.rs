@@ -98,7 +98,7 @@ fn completed_wall_splats_live_wall_occupant_before_reclassifying_receiving_layer
         assert_eq!(
             pathfinder.get_stored_cell_type_at_layer(
                 &wall_position,
-                crate::ai::pathfind_astar::PathfindLayerEnum::Wall,
+                generals_sim::pathfinding::PathfindLayerEnum::Wall,
             ),
             Some(crate::ai::pathfind_complete::PathfindCellType::Cliff),
             "C++ wall classification tightens this edge cell to Cliff",
@@ -116,7 +116,7 @@ fn completed_wall_splats_live_wall_occupant_before_reclassifying_receiving_layer
     assert_eq!(
         pathfinder.get_stored_cell_type_at_layer(
             &wall_position,
-            crate::ai::pathfind_astar::PathfindLayerEnum::Wall,
+            generals_sim::pathfinding::PathfindLayerEnum::Wall,
         ),
         Some(crate::ai::pathfind_complete::PathfindCellType::Impassable),
         "C++ reclassifies the wall after applying falling damage",

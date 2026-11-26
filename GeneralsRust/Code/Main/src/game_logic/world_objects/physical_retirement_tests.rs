@@ -385,8 +385,8 @@ fn failed_owned_retirement_is_not_live_or_retried_and_cannot_advance_save_create
                     retained
                 );
                 let old_frame = owner.frame;
-                let old_time = owner.sim_time_seconds;
-                let old_carry = owner.accumulated_time;
+                let old_time = owner.get_total_play_time();
+                let old_carry = owner.simulation_clock.carried_seconds();
                 let mut before = 0;
                 let mut after = 0;
                 assert!(matches!(
@@ -405,7 +405,7 @@ fn failed_owned_retirement_is_not_live_or_retried_and_cannot_advance_save_create
                 ));
                 assert_eq!((before, after), (0, 0));
                 assert_eq!(
-                    (owner.frame, owner.sim_time_seconds, owner.accumulated_time),
+                    (owner.frame, owner.get_total_play_time(), owner.simulation_clock.carried_seconds()),
                     (old_frame, old_time, old_carry)
                 );
                 assert!(
@@ -429,7 +429,7 @@ fn failed_owned_retirement_is_not_live_or_retried_and_cannot_advance_save_create
                         .is_err()
                 );
                 assert_eq!(
-                    (owner.frame, owner.sim_time_seconds, owner.accumulated_time),
+                    (owner.frame, owner.get_total_play_time(), owner.simulation_clock.carried_seconds()),
                     (old_frame, old_time, old_carry)
                 );
                 assert_eq!(

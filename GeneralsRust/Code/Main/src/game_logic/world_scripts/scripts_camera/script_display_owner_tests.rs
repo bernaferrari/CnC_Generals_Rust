@@ -71,8 +71,8 @@ fn actual_main_display_actions_ignore_another_world_retained_handler() {
         || {
             let mut first = GameLogic::new();
             let mut second = GameLogic::new();
-            first.sim_time_seconds = 10.0;
-            second.sim_time_seconds = 20.0;
+            first.restore_session_clock(10.0, first.simulation_clock.carried_seconds());
+            second.restore_session_clock(20.0, second.simulation_clock.carried_seconds());
             // Deliberately retain the other world's callbacks, as an engine
             // created before world replacement can. Execution's owner wins.
             let first_engine = authored_engine("first", second.mission_scripts.clone());

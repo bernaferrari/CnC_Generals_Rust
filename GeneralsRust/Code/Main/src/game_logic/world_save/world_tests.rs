@@ -495,7 +495,7 @@ mod landmark_bridge_and_new_map_tests {
             || {
                 use crate::fixture_content::{FixtureObject, admit_fixture_objects};
                 use game_engine::common::system::DataChunkOutput;
-                use gamelogic::ai::pathfind_astar::PathfindLayerEnum;
+                use generals_sim::pathfinding::PathfindLayerEnum;
 
                 const WALKER: &str = "MapPlacedBridgeWalker";
                 let directory = tempfile::tempdir().unwrap();

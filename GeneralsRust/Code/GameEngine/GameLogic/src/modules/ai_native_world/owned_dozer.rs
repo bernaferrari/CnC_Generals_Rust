@@ -134,7 +134,7 @@ impl BorrowedAiWorld<'_> {
         {
             return Ok(None);
         }
-        use crate::ai::pathfind_astar::{PathfindCellType, PathfindLayerEnum};
+        use generals_sim::pathfinding::{PathfindCellType, PathfindLayerEnum};
         let cell = self.services.pathfinder.get_cell_type_at_cell(
             PathfindLayerEnum::Ground,
             (position.x / crate::path::PATHFIND_CELL_SIZE_F).floor() as i32,

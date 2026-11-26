@@ -1320,7 +1320,7 @@ if let Ok(mut list) = __arc_bind.write() {
                 let ty =
                     if center.x < min.x || center.x > max.x || center.z < min.z || center.z > max.z
                     {
-                        gamelogic::ai::pathfind_astar::PathfindCellType::Impassable
+                        generals_sim::pathfinding::PathfindCellType::Impassable
                     } else {
                         let water = [
                             (tl.x, tl.z),
@@ -1334,7 +1334,7 @@ if let Ok(mut list) = __arc_bind.write() {
                             terrain.is_cliff_at_world(tl),
                             water,
                             grid.cell_type(pos)
-                                == gamelogic::ai::pathfind_astar::PathfindCellType::Obstacle,
+                                == generals_sim::pathfinding::PathfindCellType::Obstacle,
                         )
                     };
                 grid.set_cell_type(pos, ty);

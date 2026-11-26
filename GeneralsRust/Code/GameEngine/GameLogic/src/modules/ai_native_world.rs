@@ -1428,24 +1428,24 @@ impl AiWorld for BorrowedAiWorld<'_> {
         if !position.is_finite() {
             return Err("locomotor position must be finite".into());
         }
-        let coordinate = crate::ai::pathfind_astar::GridCoord::from_world(position);
-        let layer = crate::ai::pathfind_astar::PathfindLayerEnum::from_u32(layer as u32);
+        let coordinate = generals_sim::pathfinding::GridCoord::from_world(position);
+        let layer = generals_sim::pathfinding::PathfindLayerEnum::from_u32(layer as u32);
         let elevated = !matches!(
             layer,
-            crate::ai::pathfind_astar::PathfindLayerEnum::Ground
-                | crate::ai::pathfind_astar::PathfindLayerEnum::Invalid
+            generals_sim::pathfinding::PathfindLayerEnum::Ground
+                | generals_sim::pathfinding::PathfindLayerEnum::Invalid
         );
         let cell = self
             .services
             .pathfinder
             .get_cell_type_at_cell(layer, coordinate.x, coordinate.y)
             .filter(|cell| {
-                !(elevated && *cell == crate::ai::pathfind_astar::PathfindCellType::Impassable)
+                !(elevated && *cell == generals_sim::pathfinding::PathfindCellType::Impassable)
             })
             .or_else(|| {
                 if elevated {
                     self.services.pathfinder.get_cell_type_at_cell(
-                        crate::ai::pathfind_astar::PathfindLayerEnum::Ground,
+                        generals_sim::pathfinding::PathfindLayerEnum::Ground,
                         coordinate.x,
                         coordinate.y,
                     )
@@ -1453,7 +1453,7 @@ impl AiWorld for BorrowedAiWorld<'_> {
                     None
                 }
             })
-            .unwrap_or(crate::ai::pathfind_astar::PathfindCellType::Clear);
+            .unwrap_or(generals_sim::pathfinding::PathfindCellType::Clear);
         Ok(
             crate::ai::pathfind_complete::PathfindingSystem::valid_locomotor_surfaces_for_cell_type(
                 cell,

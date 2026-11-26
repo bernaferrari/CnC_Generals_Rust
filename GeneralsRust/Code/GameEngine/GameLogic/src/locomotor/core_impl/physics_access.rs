@@ -77,7 +77,7 @@ impl LocomotorMovementObservations<'_> {
         position: Coord3D,
     ) -> bool {
         self.pathfinder.valid_movement_terrain(
-            crate::ai::pathfind_astar::PathfindLayerEnum::from_u32(layer as u32),
+            generals_sim::pathfinding::PathfindLayerEnum::from_u32(layer as u32),
             &LocomotorSet::from_surfaces(surfaces),
             &position,
         )

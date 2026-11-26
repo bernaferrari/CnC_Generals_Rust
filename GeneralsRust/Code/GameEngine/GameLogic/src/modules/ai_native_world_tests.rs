@@ -1078,7 +1078,7 @@ fn cached_native_enter_installed_path_save_load_continues_on_its_factory() {
 
 #[test]
 fn cached_native_enter_queued_path_routes_around_actual_wall_through_gap() {
-    use crate::ai::pathfind_astar::{GridCoord, PathfindCellType};
+    use generals_sim::pathfinding::{GridCoord, PathfindCellType};
     // Actual BasicHumanLocomotor INI: TWO_LEGS, 500 degrees/sec turns,
     // 20 units/sec, 100 units/sec² acceleration/braking. The inert template
     // defaults OTHER/zero turn rate cannot execute a bent ground route.
@@ -1625,7 +1625,7 @@ mod dozer_fortify;
 
 #[test]
 fn native_snap_uses_own_world_without_reborrowing_source() {
-    use crate::ai::pathfind_astar::{GridCoord, PathfindLayerEnum};
+    use generals_sim::pathfinding::{GridCoord, PathfindLayerEnum};
     let mut ally = NativeMatch::new(155.0);
     let mut enemy = NativeMatch::with_target_owner(155.0, container_template(), true);
     let ally_target = ally.target.read().unwrap().get_id();
@@ -1690,7 +1690,7 @@ fn native_snap_uses_own_world_without_reborrowing_source() {
 
 #[test]
 fn native_adjust_destination_respects_owned_goal_reservations() {
-    use crate::ai::pathfind_astar::{GridCoord, PathfindLayerEnum};
+    use generals_sim::pathfinding::{GridCoord, PathfindLayerEnum};
     let mut ally = NativeMatch::new(155.0);
     let mut enemy = NativeMatch::with_target_owner(155.0, container_template(), true);
     let cell = GridCoord::new(4, 4);
@@ -1779,7 +1779,7 @@ fn native_adjust_destination_respects_owned_goal_reservations() {
 
 #[test]
 fn native_adjust_uses_bridge_layer_for_quick_path_gate() {
-    use crate::ai::pathfind_astar::{GridCoord, PathfindCellType};
+    use generals_sim::pathfinding::{GridCoord, PathfindCellType};
     let mut game = NativeMatch::new(155.0);
     let bridge_center = Coord3D::new(45.0, 45.0, 20.0);
     let bounds = (GridCoord::new(2, 2), GridCoord::new(6, 6));

@@ -1,7 +1,7 @@
 //! Actual ScriptEngine effects and terrain phases on the driving Main owner.
 use super::*;
 use crate::game_logic::pathfinding::GridPos;
-use gamelogic::ai::pathfind_astar::PathfindCellType;
+use generals_sim::pathfinding::PathfindCellType;
 use gamelogic::common::{AsciiString, ICoord3D};
 use gamelogic::scripting::core::{Parameter, ParameterType, ScriptAction, ScriptActionType};
 use gamelogic::scripting::engine::{ScriptEngine, ScriptWaterRequest};

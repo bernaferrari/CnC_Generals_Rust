@@ -424,7 +424,7 @@ fn ordinary_path_reads_current_player_type_without_frame_refresh() {
 
 #[test]
 fn closest_search_tunnels_from_an_invalid_surface_until_goal_or_valid_exit() {
-    use gamelogic::ai::pathfind_astar::PathfindCellType;
+    use generals_sim::pathfinding::PathfindCellType;
     let (mut world, mut finder, mover, _) = make_world();
     let surfaces = gamelogic::ai::pathfind_complete::SURFACE_WATER;
     world.host_object_mut(mover).unwrap().locomotor_surfaces = surfaces;
@@ -792,7 +792,7 @@ fn closest_search_rejects_a_locomotor_without_valid_surfaces() {
 
 #[test]
 fn closest_search_does_not_readmit_an_already_open_neighbor() {
-    use gamelogic::ai::pathfind_astar::PathfindCellType;
+    use generals_sim::pathfinding::PathfindCellType;
     use generals_main::game_logic::HostGeometryType;
     use generals_main::game_logic::pathfinding::GridPos;
 
@@ -837,7 +837,7 @@ fn closest_search_does_not_readmit_an_already_open_neighbor() {
 
 #[test]
 fn closest_search_seeds_the_original_line_toward_a_blocked_goal() {
-    use gamelogic::ai::pathfind_astar::PathfindCellType;
+    use generals_sim::pathfinding::PathfindCellType;
     use generals_main::game_logic::HostGeometryType;
     use generals_main::game_logic::pathfinding::GridPos;
 
@@ -877,7 +877,7 @@ fn closest_search_seeds_the_original_line_toward_a_blocked_goal() {
 
 #[test]
 fn closest_seed_respects_receiving_world_occupants() {
-    use gamelogic::ai::pathfind_astar::PathfindCellType;
+    use generals_sim::pathfinding::PathfindCellType;
     use generals_main::game_logic::HostGeometryType;
     use generals_main::game_logic::pathfinding::GridPos;
 
