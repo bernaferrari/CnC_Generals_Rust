@@ -14,7 +14,6 @@
 //! - **SIMD Optimizations** - Vectorized operations for maximum performance
 //! - **Multi-threading** - Parallel compression/decompression with rayon
 //! - **Streaming Support** - Process small files in chunks or large files with explicit in-memory chunking
-//! - **GPU Acceleration** - WGPU-based compression for massive datasets
 //! - **Memory Safety** - Zero memory leaks with Rust's ownership system
 //!
 //! ## Performance
@@ -56,8 +55,6 @@ pub mod streaming;
 // #[cfg(feature = "simd")]
 // pub mod simd;
 
-#[cfg(feature = "gpu_acceleration")]
-pub mod gpu;
 
 /// EAC compression error types
 #[derive(Error, Debug)]

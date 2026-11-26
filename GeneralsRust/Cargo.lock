@@ -2797,7 +2797,6 @@ name = "eac_compression"
 version = "2.0.0"
 dependencies = [
  "anyhow",
- "bytemuck",
  "byteorder",
  "crc32fast",
  "criterion",
@@ -2810,7 +2809,6 @@ dependencies = [
  "thiserror 2.0.20",
  "tokio",
  "tokio-test",
- "wgpu",
  "wide 1.7.0",
 ]
 
@@ -6016,7 +6014,6 @@ name = "lzh_compression"
 version = "2.0.0"
 dependencies = [
  "anyhow",
- "bytemuck",
  "byteorder",
  "crc32fast",
  "criterion",
@@ -6027,7 +6024,6 @@ dependencies = [
  "rayon",
  "tempfile",
  "thiserror 2.0.20",
- "wgpu",
  "wide 1.7.0",
 ]
 

@@ -53,8 +53,6 @@ pub mod decompress;
 pub mod dictionary;
 pub mod streaming;
 
-#[cfg(feature = "gpu_acceleration")]
-pub mod gpu;
 
 /// LZH compression error types
 #[derive(Error, Debug)]

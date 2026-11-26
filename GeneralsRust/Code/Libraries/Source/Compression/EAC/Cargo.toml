@@ -17,7 +17,6 @@ default = ["simd"]
 simd = ["wide"]
 streaming = ["tokio"]
 benchmarks = ["criterion"]
-gpu_acceleration = ["wgpu", "bytemuck"]
 internal = []
 
 [dependencies]
@@ -35,9 +34,6 @@ wide = {workspace = true, optional = true}
 tokio = {workspace = true, features = ["full"], optional = true}
 futures = {workspace = true}
 
-# GPU acceleration
-wgpu = {workspace = true, optional = true}
-bytemuck = {workspace = true, features = ["derive"], optional = true}
 
 # Benchmarking
 criterion = {workspace = true, optional = true}
