@@ -165,7 +165,7 @@ impl FlightDeckBehaviorModuleData {
     }
 }
 
-crate::impl_behavior_module_data_via_base!(FlightDeckBehaviorModuleData, base);
+crate::impl_behavior_module_data_via_base!(FlightDeckBehaviorModuleData, base, ai_base);
 
 fn parse_int_field(
     _ini: &mut INI,

@@ -90,20 +90,7 @@ pub enum RadarPriorityType {
 // Re-export canonical CommandSourceType from Common (matches C++ with #[repr(u32)])
 pub use game_engine::common::game_common::CommandSourceType;
 
-/// Locomotor set selection (`LocomotorSetType` in C++).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
-#[repr(i32)]
-pub enum LocomotorSetType {
-    Invalid = -1,
-    Normal = 0,
-    NormalUpgraded = 1,
-    Freefall = 2,
-    Wander = 3,
-    Panic = 4,
-    Taxiing = 5,
-    Supersonic = 6,
-    Sluggish = 7,
-}
+pub use game_engine::common::thing::ai_update_data::LocomotorSetType;
 
 // Re-export AbleToAttackType helpers from Common (C++ bitmask semantics)
 pub use game_engine::common::game_common::{

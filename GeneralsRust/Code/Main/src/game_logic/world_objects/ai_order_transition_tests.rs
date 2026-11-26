@@ -659,7 +659,7 @@ fn idle_mood_publishes_the_auto_acquired_target() {
         // (AIUpdate.cpp; AUTO_ACQUIRE_* flags) — get_next_mood_target gates
         // called_during_idle on AUTO_ACQUIRE_IDLE, not the legacy bool.
         o.auto_acquire_idle_bits |=
-            gamelogic::object::update::ai_update_interface::AUTO_ACQUIRE_IDLE;
+            game_engine::common::thing::ai_update_data::AUTO_ACQUIRE_IDLE;
         // AIIdleState::onEnter arms resetNextMoodCheckTime (now + forceIdleFrames),
         // and getNextMoodTarget returns NULL until then (AIUpdate.cpp:4543). The
         // victim arrives and the owner is nudged with

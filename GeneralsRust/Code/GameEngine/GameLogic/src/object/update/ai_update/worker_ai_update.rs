@@ -81,6 +81,14 @@ impl ModuleData for WorkerAIUpdateModuleData {
     fn is_ai_module_data(&self) -> bool {
         true
     }
+
+    fn ai_update_data(&self) -> Option<&game_engine::common::thing::ai_update_data::AIUpdateModuleData> {
+        Some(&self.base)
+    }
+
+    fn ai_update_data_mut(&mut self) -> Option<&mut game_engine::common::thing::ai_update_data::AIUpdateModuleData> {
+        Some(&mut self.base)
+    }
 }
 
 impl Snapshotable for WorkerAIUpdateModuleData {

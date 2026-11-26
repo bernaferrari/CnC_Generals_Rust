@@ -372,7 +372,7 @@ impl ReceivingClientTemplate {
     pub(crate) fn validate_turret_slots(&self) -> Result<(), String> {
         for entry in self.definition.behavior_modules().iter() {
             let data = entry.data.read();
-            let Some(ai) = crate::game_logic::object::receiving_ai_base_data(&*data)
+            let Some(ai) = data.ai_update_data()
             else {
                 continue;
             };
@@ -493,7 +493,7 @@ impl ReceivingClientTemplate {
 
     pub(crate) fn receiving_ai_base_data(
         &self,
-    ) -> Option<impl std::ops::Deref<Target = gamelogic::object::update::ai_update_interface::AIUpdateModuleData> + '_> {
+    ) -> Option<impl std::ops::Deref<Target = game_engine::common::thing::ai_update_data::AIUpdateModuleData> + '_> {
         let entry = self
             .definition
             .behavior_modules()
@@ -501,7 +501,7 @@ impl ReceivingClientTemplate {
             .nth(self.receiving_ai_source_index()?)?;
         game_engine::common::thing::module::ModuleDataGuard::try_map(
             entry.data.read(),
-            crate::game_logic::object::receiving_ai_base_data,
+            |data| data.ai_update_data(),
         )
     }
 

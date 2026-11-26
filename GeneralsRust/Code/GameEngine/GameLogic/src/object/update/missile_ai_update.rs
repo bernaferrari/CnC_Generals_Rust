@@ -164,7 +164,7 @@ impl Default for MissileAIUpdateModuleData {
     }
 }
 
-crate::impl_behavior_module_data_via_base!(MissileAIUpdateModuleData, base);
+crate::impl_behavior_module_data_via_base!(MissileAIUpdateModuleData, base, ai_base);
 
 fn first_value_token<'a>(tokens: &'a [&'a str]) -> Option<&'a str> {
     tokens.iter().copied().find(|token| *token != "=")

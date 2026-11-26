@@ -123,14 +123,14 @@ pub(super) fn turret_spawn_alt_for_thing_template(
 }
 
 fn alt_turret_spawn_from_ai(
-    ai: &gamelogic::object::update::ai_update_interface::AIUpdateModuleData,
+    ai: &game_engine::common::thing::ai_update_data::AIUpdateModuleData,
 ) -> Option<TurretSpawnSpec> {
     ai.turret_primary()?;
     ai.turret_secondary().map(turret_spawn_from_typed_data)
 }
 
 fn turret_spawn_from_typed_data(
-    data: &gamelogic::object::update::ai_update_interface::TurretAIData,
+    data: &game_engine::common::thing::ai_update_data::TurretAIData,
 ) -> TurretSpawnSpec {
     let mut spec = TurretSpawnSpec::absent();
     spec.has_turret = true;
@@ -363,7 +363,7 @@ mod tests {
 
     #[test]
     fn alt_turret_block_seeds_second_host_turret_slot() {
-        use gamelogic::object::update::ai_update_interface::{AIUpdateModuleData, TurretAIData};
+        use game_engine::common::thing::ai_update_data::{AIUpdateModuleData, TurretAIData};
         let mut ai = AIUpdateModuleData::default();
         let mut primary = TurretAIData::default();
         primary.turn_rate = 0.1;

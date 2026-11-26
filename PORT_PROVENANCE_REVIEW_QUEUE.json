@@ -18915,6 +18915,11 @@
           "candidate_destinations": [
             {
               "cargo_reachable": true,
+              "classification": "implementation",
+              "path": "GeneralsRust/Code/GameEngine/Common/src/common/thing/ai_update_data.rs"
+            },
+            {
+              "cargo_reachable": true,
               "classification": "test",
               "path": "GeneralsRust/Code/GameEngine/Common/src/common/thing/builtin_module_mask_lookup_tests.rs"
             },
@@ -19052,11 +19057,6 @@
               "cargo_reachable": true,
               "classification": "implementation",
               "path": "GeneralsRust/Code/GameEngine/Common/src/common/thing/thing_template_color.rs"
-            },
-            {
-              "cargo_reachable": true,
-              "classification": "implementation",
-              "path": "GeneralsRust/Code/GameEngine/Common/src/common/thing/thing_template_locomotor.rs"
             },
             {
               "cargo_reachable": true,
@@ -187738,7 +187738,7 @@
       ]
     }
   ],
-  "provenance_input_digest": "f263a6010d9746065e619d4f4a010deb524cada3b7380ef1152f2c774bd8fd82",
+  "provenance_input_digest": "ce6547fa2c7865068635f0968b5a32e1e4423c97b07a566dca91a2d7f00c09d9",
   "schema_version": 1,
   "summary": {
     "maximum_packet_size": 15,

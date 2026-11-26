@@ -168,9 +168,46 @@ pub struct TurretAI {
 }
 
 impl TurretAI {
+    pub(crate) fn apply_config(&mut self, data: &game_engine::common::thing::ai_update_data::TurretAIData) {
+        self.set_turn_rate(data.turn_rate);
+        self.set_pitch_rate(data.pitch_rate);
+        self.set_natural_angle(data.natural_turret_angle);
+        self.set_natural_pitch(data.natural_turret_pitch);
+        self.set_fire_pitch(data.fire_pitch);
+        self.set_min_pitch(data.min_pitch);
+        self.set_ground_unit_pitch(data.ground_unit_pitch);
+        self.set_turret_weapon_slots_mask(data.turret_weapon_slots);
+        self.set_idle_scan_angle_range(data.min_idle_scan_angle, data.max_idle_scan_angle);
+        self
+            .set_idle_scan_interval_range(data.min_idle_scan_interval, data.max_idle_scan_interval);
+        self.set_recenter_time(data.recenter_time);
+        self.set_initially_disabled(data.initially_disabled);
+        self.set_turret_enabled(!data.initially_disabled);
+        self.set_fires_while_turning(data.fires_while_turning);
+        self.set_allows_pitch(data.allows_pitch);
+        self.set_inter_turret_delay(data.inter_turret_delay);
+
+        for (index, sweep) in data.turret_fire_angle_sweep.iter().enumerate() {
+            let slot = match index {
+                0 => WeaponSlotType::Primary,
+                1 => WeaponSlotType::Secondary,
+                _ => WeaponSlotType::Tertiary,
+            };
+            self.set_turret_fire_angle_sweep_for_weapon_slot(slot, *sweep);
+        }
+        for (index, modifier) in data.turret_sweep_speed_modifier.iter().enumerate() {
+            let slot = match index {
+                0 => WeaponSlotType::Primary,
+                1 => WeaponSlotType::Secondary,
+                _ => WeaponSlotType::Tertiary,
+            };
+            self.set_turret_sweep_speed_modifier_for_weapon_slot(slot, *modifier);
+        }
+    }
+
     /// C++ `TurretAI::TurretAI(Object* owner, const TurretAIData*, WhichTurretType)`
     /// (TurretAI.cpp:248-298), split in two here: this constructor keeps only
-    /// the id of the owner, `TurretAIData::apply_to` applies the INI half, and
+    /// the id of the owner, `TurretAI::apply_config` applies the INI half, and
     /// [`TurretStateMachine::new`] then builds the machine and enters the
     /// default state — the same order as C++, whose `TurretStateMachine` ctor
     /// and `initDefaultState()` run inside this constructor (TurretAI.cpp:294-
@@ -298,7 +335,7 @@ impl TurretAI {
     }
 
     /// Define the machine's states and enter the default one. Runs from
-    /// [`TurretStateMachine::new`] after `TurretAIData::apply_to`, matching the
+    /// [`TurretStateMachine::new`] after `TurretAI::apply_config`, matching the
     /// C++ order (UnitAI builds the turret, applies data, then constructs
     /// `TurretStateMachine`, TurretAI.cpp:40-71).
     fn build_state_machine(&mut self) {

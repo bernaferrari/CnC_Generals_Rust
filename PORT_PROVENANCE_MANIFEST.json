@@ -6302,6 +6302,13 @@
         "destinations": [
           {
             "cargo_reachable": true,
+            "classification": "implementation",
+            "owned_source_ranges": [],
+            "owned_symbols": [],
+            "path": "GeneralsRust/Code/GameEngine/Common/src/common/thing/ai_update_data.rs"
+          },
+          {
+            "cargo_reachable": true,
             "classification": "test",
             "owned_source_ranges": [],
             "owned_symbols": [],
@@ -6495,13 +6502,6 @@
             "owned_source_ranges": [],
             "owned_symbols": [],
             "path": "GeneralsRust/Code/GameEngine/Common/src/common/thing/thing_template_color.rs"
-          },
-          {
-            "cargo_reachable": true,
-            "classification": "implementation",
-            "owned_source_ranges": [],
-            "owned_symbols": [],
-            "path": "GeneralsRust/Code/GameEngine/Common/src/common/thing/thing_template_locomotor.rs"
           },
           {
             "cargo_reachable": true,
@@ -43495,6 +43495,13 @@
         "destinations": [
           {
             "cargo_reachable": true,
+            "classification": "implementation",
+            "owned_source_ranges": [],
+            "owned_symbols": [],
+            "path": "GeneralsRust/Code/GameEngine/Common/src/common/thing/ai_update_data.rs"
+          },
+          {
+            "cargo_reachable": true,
             "classification": "test",
             "owned_source_ranges": [],
             "owned_symbols": [],
@@ -43688,13 +43695,6 @@
             "owned_source_ranges": [],
             "owned_symbols": [],
             "path": "GeneralsRust/Code/GameEngine/Common/src/common/thing/thing_template_color.rs"
-          },
-          {
-            "cargo_reachable": true,
-            "classification": "implementation",
-            "owned_source_ranges": [],
-            "owned_symbols": [],
-            "path": "GeneralsRust/Code/GameEngine/Common/src/common/thing/thing_template_locomotor.rs"
           },
           {
             "cargo_reachable": true,
@@ -153707,7 +153707,7 @@
     }
   ],
   "generator": "GeneralsRust/Code/Main/scripts/generate_port_provenance.py",
-  "input_digest": "f263a6010d9746065e619d4f4a010deb524cada3b7380ef1152f2c774bd8fd82",
+  "input_digest": "ce6547fa2c7865068635f0968b5a32e1e4423c97b07a566dca91a2d7f00c09d9",
   "metric_contract": {
     "behavior_requires_explicit_evidence": true,
     "candidate_mapping_is_reviewed": false,
@@ -160047,6 +160047,18 @@
     },
     {
       "cargo_reachable": true,
+      "classification": "implementation",
+      "file_range": {
+        "end_line": 585,
+        "start_line": 1
+      },
+      "path": "GeneralsRust/Code/GameEngine/Common/src/common/thing/ai_update_data.rs",
+      "sha256": "4dc3510fbe9fc6bda0ffd06935a68d5bea04550f9a278fdc05c765b7a01081dc",
+      "symbol_index_status": "awaiting_mapping_review",
+      "symbols": []
+    },
+    {
+      "cargo_reachable": true,
       "classification": "test",
       "file_range": {
         "end_line": 130,
@@ -160101,7 +160113,7 @@
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/Common/src/common/thing/mod.rs",
-      "sha256": "ccdd71df5e4e29beaf9325332fe6c94ffc0ee56ab00f21b33ca5c9d3c4a5c95d",
+      "sha256": "d4441db9862feb8169f1275dff231f324e9406404e35d8f07284fdd77caac080",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -160109,11 +160121,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 1659,
+        "end_line": 1670,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/Common/src/common/thing/module.rs",
-      "sha256": "ec99649eeece26ee6fb5c2bf25debf61f75ad19298fe9486bfd3217d495ad25c",
+      "sha256": "e52f94c710de487d8263b29e5b062d27ac507ab6cfcc1198edcd87ce59ef5bb6",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -160361,11 +160373,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 3863,
+        "end_line": 3909,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/Common/src/common/thing/thing_template.rs",
-      "sha256": "afa75ce85175fb350c49cc5533db0cacc447dfad61a78204daa50840fc8bf1fb",
+      "sha256": "99fabc285e65c7380f2aa44674e858bad6b133b5e55c4d6d3a96c31c1fc2d25f",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -160378,18 +160390,6 @@
       },
       "path": "GeneralsRust/Code/GameEngine/Common/src/common/thing/thing_template_color.rs",
       "sha256": "a76a8375d6e101cfe95e5207c694d706cb8c43e2f8c94655c64bacdad37e2691",
-      "symbol_index_status": "awaiting_mapping_review",
-      "symbols": []
-    },
-    {
-      "cargo_reachable": true,
-      "classification": "implementation",
-      "file_range": {
-        "end_line": 38,
-        "start_line": 1
-      },
-      "path": "GeneralsRust/Code/GameEngine/Common/src/common/thing/thing_template_locomotor.rs",
-      "sha256": "2428e87fd3d7aa276d0db14d9e2aba389e9b91ca0ed4817b1618ce936e2969ef",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -196706,11 +196706,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 3091,
+        "end_line": 3128,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/ai/turret.rs",
-      "sha256": "20b84e293b35fceace5f78eaaf21cfd2dd80720403d943e9480b8e21182c370c",
+      "sha256": "c1264d1e51fde2bde2d979a3a97ca45768f297c12297da0a9d498c950c718399",
       "symbol_index_status": "indexed",
       "symbols": [
         {
@@ -196760,1217 +196760,1222 @@
         },
         {
           "kind": "fn",
-          "line": 179,
+          "line": 171,
+          "name": "apply_config"
+        },
+        {
+          "kind": "fn",
+          "line": 216,
           "name": "new"
         },
         {
           "kind": "fn",
-          "line": 240,
+          "line": 277,
           "name": "get_current_target_id"
         },
         {
           "kind": "fn",
-          "line": 248,
+          "line": 285,
           "name": "get_current_target"
         },
         {
           "kind": "fn",
-          "line": 259,
+          "line": 296,
           "name": "set_current_target"
         },
         {
           "kind": "fn",
-          "line": 289,
+          "line": 326,
           "name": "set_current_target_from_idle_mood"
         },
         {
           "kind": "fn",
-          "line": 296,
+          "line": 333,
           "name": "get_current_state_id"
         },
         {
           "kind": "fn",
-          "line": 304,
+          "line": 341,
           "name": "build_state_machine"
         },
         {
           "kind": "fn",
-          "line": 319,
+          "line": 356,
           "name": "owner_object"
         },
         {
           "kind": "fn",
-          "line": 326,
+          "line": 363,
           "name": "assign_idle_mood_target"
         },
         {
           "kind": "fn",
-          "line": 349,
+          "line": 386,
           "name": "set_weapon_slot"
         },
         {
           "kind": "fn",
-          "line": 353,
+          "line": 390,
           "name": "get_weapon_slot"
         },
         {
           "kind": "fn",
-          "line": 359,
+          "line": 396,
           "name": "friend_get_which_turret"
         },
         {
           "kind": "fn",
-          "line": 366,
+          "line": 403,
           "name": "target_was_set_by_idle_mood"
         },
         {
           "kind": "fn",
-          "line": 370,
+          "line": 407,
           "name": "is_force_attacking"
         },
         {
           "kind": "fn",
-          "line": 374,
+          "line": 411,
           "name": "set_current_target_with_force"
         },
         {
           "kind": "fn",
-          "line": 411,
+          "line": 448,
           "name": "set_target_position"
         },
         {
           "kind": "fn",
-          "line": 417,
+          "line": 454,
           "name": "set_turret_target_position"
         },
         {
           "kind": "fn",
-          "line": 437,
+          "line": 474,
           "name": "get_target_kind"
         },
         {
           "kind": "fn",
-          "line": 441,
+          "line": 478,
           "name": "get_target_position"
         },
         {
           "kind": "fn",
-          "line": 445,
+          "line": 482,
           "name": "sync_goal_object"
         },
         {
           "kind": "fn",
-          "line": 468,
+          "line": 505,
           "name": "note_transferred_victim"
         },
         {
           "kind": "fn",
-          "line": 476,
+          "line": 513,
           "name": "sync_state_for_target"
         },
         {
           "kind": "fn",
-          "line": 499,
+          "line": 536,
           "name": "owner_turrets_linked"
         },
         {
           "kind": "fn",
-          "line": 503,
+          "line": 540,
           "name": "owner_is_under_construction"
         },
         {
           "kind": "fn",
-          "line": 516,
+          "line": 553,
           "name": "remove_self_as_targeter"
         },
         {
           "kind": "fn",
-          "line": 537,
+          "line": 574,
           "name": "friend_get_turret_target"
         },
         {
           "kind": "fn",
-          "line": 583,
+          "line": 620,
           "name": "relative_angle_2d_to"
         },
         {
           "kind": "fn",
-          "line": 592,
+          "line": 629,
           "name": "nearer_bridge_attack_point"
         },
         {
           "kind": "fn",
-          "line": 616,
+          "line": 653,
           "name": "compute_desired_aim_pitch"
         },
         {
           "kind": "fn",
-          "line": 642,
+          "line": 679,
           "name": "apply_turret_rotate_model_condition"
         },
         {
           "kind": "fn",
-          "line": 657,
+          "line": 694,
           "name": "react_to_turret_change"
         },
         {
           "kind": "fn",
-          "line": 680,
+          "line": 717,
           "name": "owner_audio"
         },
         {
           "kind": "fn",
-          "line": 685,
+          "line": 722,
           "name": "ensure_turret_move_loop_sound"
         },
         {
           "kind": "fn",
-          "line": 702,
+          "line": 739,
           "name": "start_rot_or_pitch_sound"
         },
         {
           "kind": "fn",
-          "line": 717,
+          "line": 754,
           "name": "stop_rot_or_pitch_sound"
         },
         {
           "kind": "fn",
-          "line": 729,
+          "line": 766,
           "name": "friend_turn_towards_angle"
         },
         {
           "kind": "fn",
-          "line": 760,
+          "line": 797,
           "name": "friend_turn_towards_pitch"
         },
         {
           "kind": "fn",
-          "line": 783,
+          "line": 820,
           "name": "get_current_angle"
         },
         {
           "kind": "fn",
-          "line": 788,
+          "line": 825,
           "name": "set_current_angle"
         },
         {
           "kind": "fn",
-          "line": 793,
+          "line": 830,
           "name": "get_current_pitch"
         },
         {
           "kind": "fn",
-          "line": 798,
+          "line": 835,
           "name": "set_current_pitch"
         },
         {
           "kind": "fn",
-          "line": 803,
+          "line": 840,
           "name": "get_natural_angle"
         },
         {
           "kind": "fn",
-          "line": 808,
+          "line": 845,
           "name": "set_natural_angle"
         },
         {
           "kind": "fn",
-          "line": 813,
+          "line": 850,
           "name": "get_natural_pitch"
         },
         {
           "kind": "fn",
-          "line": 818,
+          "line": 855,
           "name": "set_natural_pitch"
         },
         {
           "kind": "fn",
-          "line": 823,
+          "line": 860,
           "name": "get_turn_rate"
         },
         {
           "kind": "fn",
-          "line": 828,
+          "line": 865,
           "name": "set_turn_rate"
         },
         {
           "kind": "fn",
-          "line": 833,
+          "line": 870,
           "name": "get_pitch_rate"
         },
         {
           "kind": "fn",
-          "line": 838,
+          "line": 875,
           "name": "set_pitch_rate"
         },
         {
           "kind": "fn",
-          "line": 843,
+          "line": 880,
           "name": "calculate_angle_to_target"
         },
         {
           "kind": "fn",
-          "line": 862,
+          "line": 899,
           "name": "calculate_pitch_to_target"
         },
         {
           "kind": "fn",
-          "line": 879,
+          "line": 916,
           "name": "rotate_towards_angle"
         },
         {
           "kind": "fn",
-          "line": 884,
+          "line": 921,
           "name": "rotate_towards_angle_with_speed"
         },
         {
           "kind": "fn",
-          "line": 894,
+          "line": 931,
           "name": "pitch_towards_angle"
         },
         {
           "kind": "fn",
-          "line": 899,
+          "line": 936,
           "name": "is_aimed_at_target"
         },
         {
           "kind": "fn",
-          "line": 908,
+          "line": 945,
           "name": "can_fire_at_target"
         },
         {
           "kind": "fn",
-          "line": 916,
+          "line": 953,
           "name": "is_target_in_weapon_range"
         },
         {
           "kind": "fn",
-          "line": 947,
+          "line": 984,
           "name": "friend_is_any_weapon_in_range_of"
         },
         {
           "kind": "fn",
-          "line": 979,
+          "line": 1016,
           "name": "scan_for_targets"
         },
         {
           "kind": "fn",
-          "line": 1048,
+          "line": 1085,
           "name": "find_best_target"
         },
         {
           "kind": "fn",
-          "line": 1084,
+          "line": 1121,
           "name": "normalize_angle"
         },
         {
           "kind": "fn",
-          "line": 1096,
+          "line": 1133,
           "name": "friend_notify_state_machine_changed"
         },
         {
           "kind": "fn",
-          "line": 1105,
+          "line": 1142,
           "name": "update_turret_ai"
         },
         {
           "kind": "fn",
-          "line": 1165,
+          "line": 1202,
           "name": "get_hold_time"
         },
         {
           "kind": "fn",
-          "line": 1170,
+          "line": 1207,
           "name": "set_hold_time"
         },
         {
           "kind": "fn",
-          "line": 1173,
+          "line": 1210,
           "name": "get_recenter_time"
         },
         {
           "kind": "fn",
-          "line": 1177,
+          "line": 1214,
           "name": "set_recenter_time"
         },
         {
           "kind": "fn",
-          "line": 1181,
+          "line": 1218,
           "name": "get_min_idle_scan_interval"
         },
         {
           "kind": "fn",
-          "line": 1185,
+          "line": 1222,
           "name": "get_max_idle_scan_interval"
         },
         {
           "kind": "fn",
-          "line": 1189,
+          "line": 1226,
           "name": "set_idle_scan_interval_range"
         },
         {
           "kind": "fn",
-          "line": 1194,
+          "line": 1231,
           "name": "get_min_idle_scan_angle"
         },
         {
           "kind": "fn",
-          "line": 1198,
+          "line": 1235,
           "name": "get_max_idle_scan_angle"
         },
         {
           "kind": "fn",
-          "line": 1202,
+          "line": 1239,
           "name": "set_idle_scan_angle_range"
         },
         {
           "kind": "fn",
-          "line": 1207,
+          "line": 1244,
           "name": "get_continuous_fire_expiration_frame"
         },
         {
           "kind": "fn",
-          "line": 1211,
+          "line": 1248,
           "name": "set_continuous_fire_expiration_frame"
         },
         {
           "kind": "fn",
-          "line": 1215,
+          "line": 1252,
           "name": "get_sleep_until"
         },
         {
           "kind": "fn",
-          "line": 1219,
+          "line": 1256,
           "name": "set_sleep_until"
         },
         {
           "kind": "fn",
-          "line": 1223,
+          "line": 1260,
           "name": "get_did_fire"
         },
         {
           "kind": "fn",
-          "line": 1227,
+          "line": 1264,
           "name": "set_did_fire"
         },
         {
           "kind": "fn",
-          "line": 1231,
+          "line": 1268,
           "name": "set_turrets_linked_cached"
         },
         {
           "kind": "fn",
-          "line": 1235,
+          "line": 1272,
           "name": "set_attack_ok_cached"
         },
         {
           "kind": "fn",
-          "line": 1239,
+          "line": 1276,
           "name": "attack_ok_cached"
         },
         {
           "kind": "fn",
-          "line": 1243,
+          "line": 1280,
           "name": "set_goal_object_id_cached"
         },
         {
           "kind": "fn",
-          "line": 1247,
+          "line": 1284,
           "name": "set_last_command_source_cached"
         },
         {
           "kind": "fn",
-          "line": 1251,
+          "line": 1288,
           "name": "turrets_linked_cached"
         },
         {
           "kind": "fn",
-          "line": 1255,
+          "line": 1292,
           "name": "set_next_mood_check_cached"
         },
         {
           "kind": "fn",
-          "line": 1259,
+          "line": 1296,
           "name": "take_reset_mood_check"
         },
         {
           "kind": "fn",
-          "line": 1265,
+          "line": 1302,
           "name": "take_clear_turret_sync"
         },
         {
           "kind": "fn",
-          "line": 1269,
+          "line": 1306,
           "name": "take_idle_mood_check"
         },
         {
           "kind": "fn",
-          "line": 1275,
+          "line": 1312,
           "name": "get_play_rot_sound"
         },
         {
           "kind": "fn",
-          "line": 1279,
+          "line": 1316,
           "name": "set_play_rot_sound"
         },
         {
           "kind": "fn",
-          "line": 1283,
+          "line": 1320,
           "name": "get_play_pitch_sound"
         },
         {
           "kind": "fn",
-          "line": 1287,
+          "line": 1324,
           "name": "set_play_pitch_sound"
         },
         {
           "kind": "fn",
-          "line": 1291,
+          "line": 1328,
           "name": "slot_index"
         },
         {
           "kind": "fn",
-          "line": 1299,
+          "line": 1336,
           "name": "set_turret_weapon_slots_mask"
         },
         {
           "kind": "fn",
-          "line": 1303,
+          "line": 1340,
           "name": "is_weapon_slot_on_turret"
         },
         {
           "kind": "fn",
-          "line": 1308,
+          "line": 1345,
           "name": "is_owners_cur_weapon_on_turret"
         },
         {
           "kind": "fn",
-          "line": 1327,
+          "line": 1364,
           "name": "get_turret_angle"
         },
         {
           "kind": "fn",
-          "line": 1331,
+          "line": 1368,
           "name": "get_turret_pitch"
         },
         {
           "kind": "fn",
-          "line": 1335,
+          "line": 1372,
           "name": "is_trying_to_aim_at_target"
         },
         {
           "kind": "fn",
-          "line": 1347,
+          "line": 1384,
           "name": "get_turret_fire_angle_sweep_for_weapon_slot"
         },
         {
           "kind": "fn",
-          "line": 1351,
+          "line": 1388,
           "name": "set_turret_fire_angle_sweep_for_weapon_slot"
         },
         {
           "kind": "fn",
-          "line": 1359,
+          "line": 1396,
           "name": "get_turret_sweep_speed_modifier_for_weapon_slot"
         },
         {
           "kind": "fn",
-          "line": 1363,
+          "line": 1400,
           "name": "set_turret_sweep_speed_modifier_for_weapon_slot"
         },
         {
           "kind": "fn",
-          "line": 1371,
+          "line": 1408,
           "name": "set_min_pitch"
         },
         {
           "kind": "fn",
-          "line": 1375,
+          "line": 1412,
           "name": "set_ground_unit_pitch"
         },
         {
           "kind": "fn",
-          "line": 1379,
+          "line": 1416,
           "name": "set_turret_enabled"
         },
         {
           "kind": "fn",
-          "line": 1386,
+          "line": 1423,
           "name": "is_turret_enabled"
         },
         {
           "kind": "fn",
-          "line": 1390,
+          "line": 1427,
           "name": "set_initially_disabled"
         },
         {
           "kind": "fn",
-          "line": 1394,
+          "line": 1431,
           "name": "set_fires_while_turning"
         },
         {
           "kind": "fn",
-          "line": 1398,
+          "line": 1435,
           "name": "set_inter_turret_delay"
         },
         {
           "kind": "fn",
-          "line": 1402,
+          "line": 1439,
           "name": "get_inter_turret_delay"
         },
         {
           "kind": "fn",
-          "line": 1406,
+          "line": 1443,
           "name": "get_fires_while_turning"
         },
         {
           "kind": "fn",
-          "line": 1410,
+          "line": 1447,
           "name": "recenter_turret"
         },
         {
           "kind": "fn",
-          "line": 1419,
+          "line": 1456,
           "name": "is_turret_in_natural_position"
         },
         {
           "kind": "fn",
-          "line": 1434,
+          "line": 1471,
           "name": "friend_is_sweep_enabled"
         },
         {
           "kind": "fn",
-          "line": 1438,
+          "line": 1475,
           "name": "friend_get_positive_sweep"
         },
         {
           "kind": "fn",
-          "line": 1442,
+          "line": 1479,
           "name": "friend_set_positive_sweep"
         },
         {
           "kind": "fn",
-          "line": 1446,
+          "line": 1483,
           "name": "set_allows_pitch"
         },
         {
           "kind": "fn",
-          "line": 1450,
+          "line": 1487,
           "name": "is_allows_pitch"
         },
         {
           "kind": "fn",
-          "line": 1454,
+          "line": 1491,
           "name": "set_fire_pitch"
         },
         {
           "kind": "fn",
-          "line": 1458,
+          "line": 1495,
           "name": "get_fire_pitch"
         },
         {
           "kind": "fn",
-          "line": 1464,
+          "line": 1501,
           "name": "friend_get_next_idle_mood_target_frame"
         },
         {
           "kind": "fn",
-          "line": 1473,
+          "line": 1510,
           "name": "friend_check_for_idle_mood_target"
         },
         {
           "kind": "fn",
-          "line": 1518,
+          "line": 1555,
           "name": "update_aim_state"
         },
         {
           "kind": "struct",
-          "line": 1692,
+          "line": 1729,
           "name": "TurretFireRangeCheck"
         },
         {
           "kind": "fn",
-          "line": 1696,
+          "line": 1733,
           "name": "turret_condition_invoke"
         },
         {
           "kind": "struct",
-          "line": 1716,
+          "line": 1753,
           "name": "TurretStateMachine"
         },
         {
           "kind": "fn",
-          "line": 1726,
+          "line": 1763,
           "name": "new"
         },
         {
           "kind": "fn",
-          "line": 1737,
+          "line": 1774,
           "name": "turret"
         },
         {
           "kind": "fn",
-          "line": 1744,
+          "line": 1781,
           "name": "turret_mut"
         },
         {
           "kind": "fn",
-          "line": 1753,
+          "line": 1790,
           "name": "take_turret"
         },
         {
           "kind": "fn",
-          "line": 1758,
+          "line": 1795,
           "name": "restore_turret"
         },
         {
           "kind": "fn",
-          "line": 1769,
+          "line": 1806,
           "name": "define_turret_states"
         },
         {
           "kind": "struct",
-          "line": 1859,
+          "line": 1896,
           "name": "TurretState"
         },
         {
           "kind": "fn",
-          "line": 1864,
+          "line": 1901,
           "name": "new"
         },
         {
           "kind": "fn",
-          "line": 1871,
+          "line": 1908,
           "name": "downcast_owner"
         },
         {
           "kind": "fn",
-          "line": 1875,
+          "line": 1912,
           "name": "get_name"
         },
         {
           "kind": "fn",
-          "line": 1879,
+          "line": 1916,
           "name": "get_id"
         },
         {
           "kind": "fn",
-          "line": 1883,
+          "line": 1920,
           "name": "set_id"
         },
         {
           "kind": "fn",
-          "line": 1889,
+          "line": 1926,
           "name": "bind_goal_object_id"
         },
         {
           "kind": "struct",
-          "line": 1896,
+          "line": 1933,
           "name": "TurretAIIdleState"
         },
         {
           "kind": "fn",
-          "line": 1902,
+          "line": 1939,
           "name": "new"
         },
         {
           "kind": "fn",
-          "line": 1911,
+          "line": 1948,
           "name": "classic_on_enter"
         },
         {
           "kind": "fn",
-          "line": 1924,
+          "line": 1961,
           "name": "reset_idle_scan"
         },
         {
           "kind": "fn",
-          "line": 1936,
+          "line": 1973,
           "name": "classic_on_update"
         },
         {
           "kind": "fn",
-          "line": 1959,
+          "line": 1996,
           "name": "update"
-        },
-        {
-          "kind": "fn",
-          "line": 1962,
-          "name": "on_enter_with_owner"
-        },
-        {
-          "kind": "fn",
-          "line": 1971,
-          "name": "update_with_owner"
-        },
-        {
-          "kind": "fn",
-          "line": 1980,
-          "name": "on_exit"
-        },
-        {
-          "kind": "fn",
-          "line": 1982,
-          "name": "xfer_snapshot"
-        },
-        {
-          "kind": "fn",
-          "line": 1991,
-          "name": "get_name"
-        },
-        {
-          "kind": "fn",
-          "line": 1995,
-          "name": "get_id"
         },
         {
           "kind": "fn",
           "line": 1999,
+          "name": "on_enter_with_owner"
+        },
+        {
+          "kind": "fn",
+          "line": 2008,
+          "name": "update_with_owner"
+        },
+        {
+          "kind": "fn",
+          "line": 2017,
+          "name": "on_exit"
+        },
+        {
+          "kind": "fn",
+          "line": 2019,
+          "name": "xfer_snapshot"
+        },
+        {
+          "kind": "fn",
+          "line": 2028,
+          "name": "get_name"
+        },
+        {
+          "kind": "fn",
+          "line": 2032,
+          "name": "get_id"
+        },
+        {
+          "kind": "fn",
+          "line": 2036,
           "name": "set_id"
         },
         {
           "kind": "fn",
-          "line": 2003,
+          "line": 2040,
           "name": "bind_goal_object_id"
         },
         {
           "kind": "fn",
-          "line": 2007,
+          "line": 2044,
           "name": "is_idle"
         },
         {
           "kind": "struct",
-          "line": 2015,
+          "line": 2052,
           "name": "TurretAIIdleScanState"
         },
         {
           "kind": "fn",
-          "line": 2021,
+          "line": 2058,
           "name": "new"
         },
         {
           "kind": "fn",
-          "line": 2027,
+          "line": 2064,
           "name": "classic_on_enter"
         },
         {
           "kind": "fn",
-          "line": 2043,
+          "line": 2080,
           "name": "classic_on_update"
         },
         {
           "kind": "fn",
-          "line": 2070,
+          "line": 2107,
           "name": "update"
-        },
-        {
-          "kind": "fn",
-          "line": 2073,
-          "name": "on_enter_with_owner"
-        },
-        {
-          "kind": "fn",
-          "line": 2082,
-          "name": "update_with_owner"
-        },
-        {
-          "kind": "fn",
-          "line": 2091,
-          "name": "on_exit"
-        },
-        {
-          "kind": "fn",
-          "line": 2093,
-          "name": "xfer_snapshot"
-        },
-        {
-          "kind": "fn",
-          "line": 2102,
-          "name": "get_name"
-        },
-        {
-          "kind": "fn",
-          "line": 2106,
-          "name": "get_id"
         },
         {
           "kind": "fn",
           "line": 2110,
-          "name": "set_id"
-        },
-        {
-          "kind": "fn",
-          "line": 2114,
-          "name": "bind_goal_object_id"
-        },
-        {
-          "kind": "fn",
-          "line": 2118,
-          "name": "is_busy"
-        },
-        {
-          "kind": "struct",
-          "line": 2126,
-          "name": "TurretAIAimTurretState"
-        },
-        {
-          "kind": "fn",
-          "line": 2132,
-          "name": "new"
-        },
-        {
-          "kind": "fn",
-          "line": 2138,
-          "name": "classic_on_enter"
-        },
-        {
-          "kind": "fn",
-          "line": 2147,
-          "name": "classic_on_update"
-        },
-        {
-          "kind": "fn",
-          "line": 2164,
-          "name": "update"
-        },
-        {
-          "kind": "fn",
-          "line": 2167,
           "name": "on_enter_with_owner"
         },
         {
           "kind": "fn",
-          "line": 2176,
+          "line": 2119,
           "name": "update_with_owner"
         },
         {
           "kind": "fn",
-          "line": 2185,
+          "line": 2128,
           "name": "on_exit"
         },
         {
           "kind": "fn",
-          "line": 2189,
-          "name": "get_name"
-        },
-        {
-          "kind": "fn",
-          "line": 2193,
-          "name": "get_id"
-        },
-        {
-          "kind": "fn",
-          "line": 2197,
-          "name": "set_id"
-        },
-        {
-          "kind": "fn",
-          "line": 2201,
-          "name": "bind_goal_object_id"
-        },
-        {
-          "kind": "fn",
-          "line": 2205,
-          "name": "is_busy"
-        },
-        {
-          "kind": "struct",
-          "line": 2213,
-          "name": "TurretAIFireWeaponState"
-        },
-        {
-          "kind": "fn",
-          "line": 2218,
-          "name": "new"
-        },
-        {
-          "kind": "fn",
-          "line": 2229,
-          "name": "out_of_weapon_range_object"
-        },
-        {
-          "kind": "fn",
-          "line": 2269,
-          "name": "classic_on_enter"
-        },
-        {
-          "kind": "fn",
-          "line": 2292,
-          "name": "classic_on_update"
-        },
-        {
-          "kind": "fn",
-          "line": 2455,
-          "name": "classic_on_exit"
-        },
-        {
-          "kind": "fn",
-          "line": 2467,
-          "name": "update"
-        },
-        {
-          "kind": "fn",
-          "line": 2470,
-          "name": "on_enter_with_owner"
-        },
-        {
-          "kind": "fn",
-          "line": 2479,
-          "name": "update_with_owner"
-        },
-        {
-          "kind": "fn",
-          "line": 2488,
-          "name": "on_exit"
-        },
-        {
-          "kind": "fn",
-          "line": 2517,
-          "name": "evaluate_transition_payload"
-        },
-        {
-          "kind": "fn",
-          "line": 2522,
-          "name": "get_name"
-        },
-        {
-          "kind": "fn",
-          "line": 2526,
-          "name": "get_id"
-        },
-        {
-          "kind": "fn",
-          "line": 2530,
-          "name": "set_id"
-        },
-        {
-          "kind": "fn",
-          "line": 2534,
-          "name": "bind_goal_object_id"
-        },
-        {
-          "kind": "fn",
-          "line": 2538,
-          "name": "get_machine_goal_object"
-        },
-        {
-          "kind": "fn",
-          "line": 2547,
-          "name": "is_attack"
-        },
-        {
-          "kind": "fn",
-          "line": 2551,
-          "name": "is_busy"
-        },
-        {
-          "kind": "struct",
-          "line": 2559,
-          "name": "TurretAIRecenterTurretState"
-        },
-        {
-          "kind": "fn",
-          "line": 2564,
-          "name": "new"
-        },
-        {
-          "kind": "fn",
-          "line": 2569,
-          "name": "classic_on_update"
-        },
-        {
-          "kind": "fn",
-          "line": 2596,
-          "name": "update"
-        },
-        {
-          "kind": "fn",
-          "line": 2599,
-          "name": "update_with_owner"
-        },
-        {
-          "kind": "fn",
-          "line": 2608,
-          "name": "get_name"
-        },
-        {
-          "kind": "fn",
-          "line": 2612,
-          "name": "get_id"
-        },
-        {
-          "kind": "fn",
-          "line": 2616,
-          "name": "set_id"
-        },
-        {
-          "kind": "fn",
-          "line": 2620,
-          "name": "bind_goal_object_id"
-        },
-        {
-          "kind": "fn",
-          "line": 2624,
-          "name": "is_busy"
-        },
-        {
-          "kind": "struct",
-          "line": 2632,
-          "name": "TurretAIHoldTurretState"
-        },
-        {
-          "kind": "fn",
-          "line": 2638,
-          "name": "new"
-        },
-        {
-          "kind": "fn",
-          "line": 2644,
-          "name": "classic_on_enter"
-        },
-        {
-          "kind": "fn",
-          "line": 2655,
-          "name": "classic_on_update"
-        },
-        {
-          "kind": "fn",
-          "line": 2681,
-          "name": "update"
-        },
-        {
-          "kind": "fn",
-          "line": 2684,
-          "name": "on_enter_with_owner"
-        },
-        {
-          "kind": "fn",
-          "line": 2693,
-          "name": "update_with_owner"
-        },
-        {
-          "kind": "fn",
-          "line": 2702,
+          "line": 2130,
           "name": "xfer_snapshot"
         },
         {
           "kind": "fn",
-          "line": 2711,
+          "line": 2139,
           "name": "get_name"
         },
         {
           "kind": "fn",
-          "line": 2715,
+          "line": 2143,
           "name": "get_id"
         },
         {
           "kind": "fn",
-          "line": 2719,
+          "line": 2147,
           "name": "set_id"
         },
         {
           "kind": "fn",
-          "line": 2723,
+          "line": 2151,
           "name": "bind_goal_object_id"
         },
         {
           "kind": "fn",
-          "line": 2727,
+          "line": 2155,
+          "name": "is_busy"
+        },
+        {
+          "kind": "struct",
+          "line": 2163,
+          "name": "TurretAIAimTurretState"
+        },
+        {
+          "kind": "fn",
+          "line": 2169,
+          "name": "new"
+        },
+        {
+          "kind": "fn",
+          "line": 2175,
+          "name": "classic_on_enter"
+        },
+        {
+          "kind": "fn",
+          "line": 2184,
+          "name": "classic_on_update"
+        },
+        {
+          "kind": "fn",
+          "line": 2201,
+          "name": "update"
+        },
+        {
+          "kind": "fn",
+          "line": 2204,
+          "name": "on_enter_with_owner"
+        },
+        {
+          "kind": "fn",
+          "line": 2213,
+          "name": "update_with_owner"
+        },
+        {
+          "kind": "fn",
+          "line": 2222,
+          "name": "on_exit"
+        },
+        {
+          "kind": "fn",
+          "line": 2226,
+          "name": "get_name"
+        },
+        {
+          "kind": "fn",
+          "line": 2230,
+          "name": "get_id"
+        },
+        {
+          "kind": "fn",
+          "line": 2234,
+          "name": "set_id"
+        },
+        {
+          "kind": "fn",
+          "line": 2238,
+          "name": "bind_goal_object_id"
+        },
+        {
+          "kind": "fn",
+          "line": 2242,
+          "name": "is_busy"
+        },
+        {
+          "kind": "struct",
+          "line": 2250,
+          "name": "TurretAIFireWeaponState"
+        },
+        {
+          "kind": "fn",
+          "line": 2255,
+          "name": "new"
+        },
+        {
+          "kind": "fn",
+          "line": 2266,
+          "name": "out_of_weapon_range_object"
+        },
+        {
+          "kind": "fn",
+          "line": 2306,
+          "name": "classic_on_enter"
+        },
+        {
+          "kind": "fn",
+          "line": 2329,
+          "name": "classic_on_update"
+        },
+        {
+          "kind": "fn",
+          "line": 2492,
+          "name": "classic_on_exit"
+        },
+        {
+          "kind": "fn",
+          "line": 2504,
+          "name": "update"
+        },
+        {
+          "kind": "fn",
+          "line": 2507,
+          "name": "on_enter_with_owner"
+        },
+        {
+          "kind": "fn",
+          "line": 2516,
+          "name": "update_with_owner"
+        },
+        {
+          "kind": "fn",
+          "line": 2525,
+          "name": "on_exit"
+        },
+        {
+          "kind": "fn",
+          "line": 2554,
+          "name": "evaluate_transition_payload"
+        },
+        {
+          "kind": "fn",
+          "line": 2559,
+          "name": "get_name"
+        },
+        {
+          "kind": "fn",
+          "line": 2563,
+          "name": "get_id"
+        },
+        {
+          "kind": "fn",
+          "line": 2567,
+          "name": "set_id"
+        },
+        {
+          "kind": "fn",
+          "line": 2571,
+          "name": "bind_goal_object_id"
+        },
+        {
+          "kind": "fn",
+          "line": 2575,
+          "name": "get_machine_goal_object"
+        },
+        {
+          "kind": "fn",
+          "line": 2584,
+          "name": "is_attack"
+        },
+        {
+          "kind": "fn",
+          "line": 2588,
+          "name": "is_busy"
+        },
+        {
+          "kind": "struct",
+          "line": 2596,
+          "name": "TurretAIRecenterTurretState"
+        },
+        {
+          "kind": "fn",
+          "line": 2601,
+          "name": "new"
+        },
+        {
+          "kind": "fn",
+          "line": 2606,
+          "name": "classic_on_update"
+        },
+        {
+          "kind": "fn",
+          "line": 2633,
+          "name": "update"
+        },
+        {
+          "kind": "fn",
+          "line": 2636,
+          "name": "update_with_owner"
+        },
+        {
+          "kind": "fn",
+          "line": 2645,
+          "name": "get_name"
+        },
+        {
+          "kind": "fn",
+          "line": 2649,
+          "name": "get_id"
+        },
+        {
+          "kind": "fn",
+          "line": 2653,
+          "name": "set_id"
+        },
+        {
+          "kind": "fn",
+          "line": 2657,
+          "name": "bind_goal_object_id"
+        },
+        {
+          "kind": "fn",
+          "line": 2661,
+          "name": "is_busy"
+        },
+        {
+          "kind": "struct",
+          "line": 2669,
+          "name": "TurretAIHoldTurretState"
+        },
+        {
+          "kind": "fn",
+          "line": 2675,
+          "name": "new"
+        },
+        {
+          "kind": "fn",
+          "line": 2681,
+          "name": "classic_on_enter"
+        },
+        {
+          "kind": "fn",
+          "line": 2692,
+          "name": "classic_on_update"
+        },
+        {
+          "kind": "fn",
+          "line": 2718,
+          "name": "update"
+        },
+        {
+          "kind": "fn",
+          "line": 2721,
+          "name": "on_enter_with_owner"
+        },
+        {
+          "kind": "fn",
+          "line": 2730,
+          "name": "update_with_owner"
+        },
+        {
+          "kind": "fn",
+          "line": 2739,
+          "name": "xfer_snapshot"
+        },
+        {
+          "kind": "fn",
+          "line": 2748,
+          "name": "get_name"
+        },
+        {
+          "kind": "fn",
+          "line": 2752,
+          "name": "get_id"
+        },
+        {
+          "kind": "fn",
+          "line": 2756,
+          "name": "set_id"
+        },
+        {
+          "kind": "fn",
+          "line": 2760,
+          "name": "bind_goal_object_id"
+        },
+        {
+          "kind": "fn",
+          "line": 2764,
           "name": "is_busy"
         },
         {
           "kind": "fn",
-          "line": 2734,
+          "line": 2771,
           "name": "crc"
         },
         {
           "kind": "const",
-          "line": 2735,
+          "line": 2772,
           "name": "CURRENT_VERSION"
         },
         {
           "kind": "fn",
-          "line": 2778,
+          "line": 2815,
           "name": "xfer"
         },
         {
           "kind": "const",
-          "line": 2779,
+          "line": 2816,
           "name": "CURRENT_VERSION"
         },
         {
           "kind": "fn",
-          "line": 2862,
+          "line": 2899,
           "name": "load_post_process"
         },
         {
           "kind": "fn",
-          "line": 2882,
+          "line": 2919,
           "name": "frame_to_sleep_time"
         },
         {
           "kind": "enum",
-          "line": 2910,
+          "line": 2947,
           "name": "TurretTargetKind"
         },
         {
           "kind": "fn",
-          "line": 2919,
+          "line": 2956,
           "name": "test_turret"
         },
         {
           "kind": "fn",
-          "line": 2925,
+          "line": 2962,
           "name": "owned_machine_builds_enters_idle_and_tracks_position_goal"
         },
         {
           "kind": "fn",
-          "line": 2970,
+          "line": 3007,
           "name": "turret_defaults_match_cpp_runtime_fields"
         },
         {
           "kind": "fn",
-          "line": 2981,
+          "line": 3018,
           "name": "turret_rotation_and_pitch_set_sound_flags_when_moving"
         },
         {
           "kind": "fn",
-          "line": 2995,
+          "line": 3032,
           "name": "set_target_position_refused_unless_linked_or_armed"
         },
         {
           "kind": "fn",
-          "line": 3008,
+          "line": 3045,
           "name": "set_target_position_dropped_when_not_linked"
         },
         {
           "kind": "fn",
-          "line": 3016,
+          "line": 3053,
           "name": "disabled_turret_without_recenter_sleeps"
         },
         {
           "kind": "fn",
-          "line": 3029,
+          "line": 3066,
           "name": "notify_fired_enables_three_frame_sweep"
         },
         {
           "kind": "fn",
-          "line": 3039,
+          "line": 3076,
           "name": "fire_pitch_overrides_computed_aim_pitch"
         },
         {
           "kind": "fn",
-          "line": 3052,
+          "line": 3089,
           "name": "ground_unit_pitch_scales_with_distance_over_range"
         },
         {
           "kind": "fn",
-          "line": 3064,
+          "line": 3101,
           "name": "friend_turn_aligns_within_rel_thresh"
         },
         {
           "kind": "fn",
-          "line": 3078,
+          "line": 3115,
           "name": "set_turret_target_position_is_position_kind"
         }
       ]
@@ -198859,7 +198864,7 @@
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/behavior/flight_deck_behavior.rs",
-      "sha256": "510048143dbf3fe38cd64d9ae4416b88096fee0815b21017e9d3eac0990b48f8",
+      "sha256": "e05857a6c1b3731d1d95a7df01b9432b77fe8833c3c9572dec673b99ab44c8db",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -204014,7 +204019,7 @@
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/unit/ai_runtime.rs",
-      "sha256": "e0036b3fc131cffef9de154bcd494adcbab16594f5104aaac70bb3bd1962271a",
+      "sha256": "59256edb0bcf01fbb027ec9b474764f59b36e3f52182846448d8206709a61453",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -204466,11 +204471,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 756,
+        "end_line": 764,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/assault_transport_ai_update.rs",
-      "sha256": "7547048bb840db5c78f228537eb7e0c7c4e4d5497d86d4b04a668f735e2c307b",
+      "sha256": "420160a40023421e32d3de800b8f21a8869271ca4f39e70d43b04e470825ad19",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -204526,11 +204531,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 495,
+        "end_line": 503,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/chinook_ai_update/module_data.rs",
-      "sha256": "6b9fd3929953db2c759470ef27d68440e860831313fd0f503e9d2c576001532b",
+      "sha256": "37447555a6456f1992625ad6d4c52ab4871dcf7f5af87be66ff12be19e6bf5fd",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -204634,11 +204639,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 1582,
+        "end_line": 1590,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/deliver_payload_ai_update.rs",
-      "sha256": "2d29e82a8a5f5951af8e71ba3e100e3a110421d859c11244a6b97c91266ae168",
+      "sha256": "db5f22a633cd2d01f7940ac28b27ec64c1c5f6c4aaca4e54eedaf49059f33e65",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -204670,11 +204675,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 638,
+        "end_line": 646,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/deploy_style_ai_update.rs",
-      "sha256": "27c6f873c45bbfceba97440302764db398b70ee1e1efcb7ff1e8c64a741997d1",
+      "sha256": "dcb6d00535abeadd0adc59ef819701c2aa2212731548abe6c4803042a9cddbb5",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -204778,11 +204783,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 2293,
+        "end_line": 2301,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/dozer_ai_update.rs",
-      "sha256": "b6a8726d2193be56b78ce735e3b6425473845f28a9b876cb84cf4225a4670765",
+      "sha256": "19d3a20907256ae03a4513fd90d9450efa33f312413dd23d65971f6cf3e3be77",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -204790,11 +204795,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 1080,
+        "end_line": 1088,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/hack_internet_ai_update.rs",
-      "sha256": "679cd374abc09a82401c5e8ccf0596f956319fe763b969f51a5521cee0fe1db0",
+      "sha256": "35a26e294b83a7f0aeaae3090ff4ebf859a3d3dfa8c2db313010aafae82e7cae",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -204802,11 +204807,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 3425,
+        "end_line": 3433,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/jet_ai_update.rs",
-      "sha256": "c55a33e145fdeab72de58a3ccbb1615b72e762e5c64fd02f7ca93bf5d516d424",
+      "sha256": "452b833d1f05f7236fd0efe89bb46589fea6a79e9cb04297d227149e3af4f32c",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -204850,11 +204855,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 699,
+        "end_line": 707,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/railed_transport_ai_update.rs",
-      "sha256": "a9acf1791c68c8f968557b96bd76c6ccdd6bf9e9b894c11e24acbccfee85172f",
+      "sha256": "3bcd4b787349600a3d5d5df5d00c83f2ea481f4586ee7b8b02b757c8e76e6165",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -204874,11 +204879,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 416,
+        "end_line": 424,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/supply_truck_ai_update.rs",
-      "sha256": "0e4d905aee1d6cda9814bee72b0290b43af5eba67e1a69b4cb177892afd3ec8a",
+      "sha256": "b33a88a70e4263f8c6d704f26431e314ab66055f119414ae8c688c8ed69a1a67",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -204886,11 +204891,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 252,
+        "end_line": 260,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/transport_ai_update.rs",
-      "sha256": "ebf6658393de9ad590107fd9257885cd090f76551e01155001a33fd8143a7c18",
+      "sha256": "7a19c4b26416c61c6dadf17738aab710524f1dc676792623820975c9ba06a3a4",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -204898,11 +204903,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 161,
+        "end_line": 169,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/wander_ai_update.rs",
-      "sha256": "71b825364b9dbb79704de1e8e7fcb9a6422d19255b2af193cc8c6d91b1b2a11e",
+      "sha256": "1bed2d9b0139a1130a37e68f239919a2ced97df72ec962e905cb062ba7f41ce6",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -204910,11 +204915,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 497,
+        "end_line": 505,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/worker_ai_update.rs",
-      "sha256": "3feb8ca585bab4c7749125321929d62aa20b0800a73ad68ed41acb84ec864eca",
+      "sha256": "2ba0a6ea5d1ec95d22ab7fc9153596de72130e5530e5c9a5f688c0a4eefabb48",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -204946,11 +204951,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 3962,
+        "end_line": 3352,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update_interface.rs",
-      "sha256": "855aea4164bef7b0b71dc6b44940a8ca9b861bbd4a9faf53021d76c8cc034930",
+      "sha256": "19a752a532a9eb9481546ee86f50e48fd1bd3985bb09e9838fa614939d8090b0",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -205430,7 +205435,7 @@
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/update/missile_ai_update.rs",
-      "sha256": "dedd96bd2124be57108c9b5309674b662b5b0df5a2381ae6233046a636f346f7",
+      "sha256": "b1ab85ab4b1cdb0a184040c0c1e8893d8dd7a558ab78ad15a099a1b2a5b07e0b",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },

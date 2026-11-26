@@ -1382,7 +1382,7 @@ fn stop_delays_mood_for_unstealthed_stealth_unit() {
     });
     // AIUpdate defaults to no auto-acquisition; this combat unit opts in.
     tpl.auto_acquire_enemies_when_idle =
-        gamelogic::object::update::ai_update_interface::AUTO_ACQUIRE_IDLE;
+        game_engine::common::thing::ai_update_data::AUTO_ACQUIRE_IDLE;
     logic.templates.insert("ST_A".to_string(), tpl);
     let a = logic.create_object("ST_A", Team::USA, Vec3::ZERO).unwrap();
     let frame = logic.frame;
@@ -1761,7 +1761,7 @@ fn move_delays_mood_for_unstealthed_stealth_unit() {
     });
     // AIUpdate defaults to no auto-acquisition; this combat unit opts in.
     tpl.auto_acquire_enemies_when_idle =
-        gamelogic::object::update::ai_update_interface::AUTO_ACQUIRE_IDLE;
+        game_engine::common::thing::ai_update_data::AUTO_ACQUIRE_IDLE;
     logic.templates.insert("MV_ST".to_string(), tpl);
     let a = logic.create_object("MV_ST", Team::USA, Vec3::ZERO).unwrap();
     {

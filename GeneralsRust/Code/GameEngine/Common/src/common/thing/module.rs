@@ -8,6 +8,7 @@
 //! These are class instances that we can assign to objects, drawables, and things
 //! to contain data and code for specific events, or just to hold data
 
+use super::ai_update_data::AIUpdateModuleData;
 pub use crate::common::rts::NameKeyType;
 use crate::common::{
     ascii_string::AsciiString,
@@ -115,6 +116,16 @@ pub trait ModuleData: Snapshotable + ModuleDataClone + Send + Sync + std::fmt::D
     fn get_module_tag_name_key(&self) -> NameKeyType;
     fn is_ai_module_data(&self) -> bool {
         false
+    }
+
+    /// The shared authored fields for a plain or derived AI module.
+    fn ai_update_data(&self) -> Option<&AIUpdateModuleData> {
+        None
+    }
+
+    /// The fields targeted by top-level Object.ini locomotor declarations.
+    fn ai_update_data_mut(&mut self) -> Option<&mut AIUpdateModuleData> {
+        None
     }
 
     // For W3D model compatibility (hack)

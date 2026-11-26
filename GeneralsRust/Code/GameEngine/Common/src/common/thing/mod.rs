@@ -63,6 +63,7 @@
 //! ```
 
 pub mod draw_module;
+pub mod ai_update_data;
 pub mod module;
 pub mod module_factory;
 pub mod receiving_module_content;
@@ -72,7 +73,6 @@ pub mod thing;
 pub mod thing_factory;
 pub mod thing_template;
 pub mod thing_template_color;
-pub mod thing_template_locomotor;
 pub mod update_module;
 
 // Re-export the main types for easier access

@@ -1556,7 +1556,7 @@ impl UnitAiRuntime {
             WeaponSlotType::Secondary => 1u32 << 1,
             WeaponSlotType::Tertiary => 1u32 << 2,
         };
-        data.apply_to(&mut turret_ai);
+        turret_ai.apply_config(data);
         if data.turret_weapon_slots == 0 {
             error!("TurretAIData missing ControlledWeaponSlots; applying slot fallback.");
             turret_ai.set_turret_weapon_slots_mask(mask);

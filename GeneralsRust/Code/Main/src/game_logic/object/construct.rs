@@ -23,7 +23,7 @@ fn parse_ini_real(text: Option<&str>) -> Option<f32> {
 }
 
 fn parse_auto_acquire_idle_bits(text: &str) -> u32 {
-    use gamelogic::object::update::ai_update_interface::{
+    use game_engine::common::thing::ai_update_data::{
         AUTO_ACQUIRE_IDLE, AUTO_ACQUIRE_IDLE_ATTACK_BUILDINGS, AUTO_ACQUIRE_IDLE_NO,
         AUTO_ACQUIRE_IDLE_NOT_WHILE_ATTACKING, AUTO_ACQUIRE_IDLE_STEALTHED,
     };
@@ -180,7 +180,7 @@ impl Object {
                 template.forbid_player_commands,
             ));
         let auto_acquire_when_idle = (auto_acquire_idle_bits
-            & gamelogic::object::update::ai_update_interface::AUTO_ACQUIRE_IDLE)
+            & game_engine::common::thing::ai_update_data::AUTO_ACQUIRE_IDLE)
             != 0;
 
         let locomotor_set_names = template.locomotor_set_names.clone();
@@ -1119,7 +1119,7 @@ impl Object {
                 template.forbid_player_commands,
             ));
         let auto_acquire_when_idle = (auto_acquire_idle_bits
-            & gamelogic::object::update::ai_update_interface::AUTO_ACQUIRE_IDLE)
+            & game_engine::common::thing::ai_update_data::AUTO_ACQUIRE_IDLE)
             != 0;
 
         let locomotor_set_names = template.locomotor_set_names.clone();
@@ -2568,11 +2568,11 @@ mod tests {
     fn construct_stamps_authored_auto_acquire_when_leftover_empty() {
         let mut tpl = ThingTemplate::new("AmericaTankCrusader");
         tpl.auto_acquire_enemies_when_idle =
-            gamelogic::object::update::ai_update_interface::AUTO_ACQUIRE_IDLE;
+            game_engine::common::thing::ai_update_data::AUTO_ACQUIRE_IDLE;
         let obj = Object::new(tpl, ObjectId(10), Team::USA);
         assert_eq!(
             obj.auto_acquire_idle_bits,
-            gamelogic::object::update::ai_update_interface::AUTO_ACQUIRE_IDLE
+            game_engine::common::thing::ai_update_data::AUTO_ACQUIRE_IDLE
         );
         assert!(obj.auto_acquire_when_idle());
     }
@@ -2813,60 +2813,10 @@ mod defection_timer_owner_tests {
 }
 
 /// Read only the installed immutable module data; never consult an active factory.
-pub(crate) fn receiving_ai_base_data(
-    data: &dyn game_engine::common::thing::module::ModuleData,
-) -> Option<&gamelogic::object::update::ai_update_interface::AIUpdateModuleData> {
-    use gamelogic::object::update::ai_update::{
-        AssaultTransportAIUpdateModuleData, ChinookAIUpdateModuleData,
-        DeliverPayloadAIUpdateModuleData, DeployStyleAIUpdateModuleData, DozerAIUpdateModuleData,
-        HackInternetAIUpdateModuleData, JetAIUpdateModuleData, RailedTransportAIUpdateModuleData,
-        SupplyTruckAIUpdateModuleData, TransportAIUpdateModuleData, WanderAIUpdateModuleData,
-        WorkerAIUpdateModuleData,
-    };
-    use gamelogic::object::update::ai_update_interface::AIUpdateModuleData;
-    let data = data.as_any();
-    if let Some(base) = data.downcast_ref::<AIUpdateModuleData>() {
-        return Some(base);
-    }
-    if let Some(flight_deck) = data.downcast_ref::<
-        gamelogic::object::behavior::flight_deck_behavior::FlightDeckBehaviorModuleData,
-    >() {
-        return Some(&flight_deck.ai_base);
-    }
-    if let Some(missile) = data
-        .downcast_ref::<gamelogic::object::update::missile_ai_update::MissileAIUpdateModuleData>(
-    ) {
-        return Some(&missile.ai_base);
-    }
-    macro_rules! derived_base {
-        ($($kind:ty),* $(,)?) => {
-            $(if let Some(value) = data.downcast_ref::<$kind>() {
-                return Some(&value.base);
-            })*
-        };
-    }
-    derived_base!(
-        AssaultTransportAIUpdateModuleData,
-        ChinookAIUpdateModuleData,
-        DeliverPayloadAIUpdateModuleData,
-        DeployStyleAIUpdateModuleData,
-        DozerAIUpdateModuleData,
-        HackInternetAIUpdateModuleData,
-        JetAIUpdateModuleData,
-        RailedTransportAIUpdateModuleData,
-        SupplyTruckAIUpdateModuleData,
-        TransportAIUpdateModuleData,
-        WanderAIUpdateModuleData,
-        WorkerAIUpdateModuleData,
-    );
-    None
-}
-
-/// Read only the installed immutable module data; never consult an active factory.
 pub(crate) fn receiving_ai_policy_data(
     data: &dyn game_engine::common::thing::module::ModuleData,
 ) -> (u32, bool) {
-    let base = receiving_ai_base_data(data);
+    let base = data.ai_update_data();
     let bits = base
         .map(|ai| ai.auto_acquire_enemies_when_idle())
         .unwrap_or_else(|| {

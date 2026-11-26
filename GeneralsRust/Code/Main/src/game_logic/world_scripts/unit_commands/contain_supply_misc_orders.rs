@@ -1199,7 +1199,7 @@ impl GameLogic {
         now_frame: u32,
         skew: u32,
     ) -> bool {
-        use gamelogic::object::update::ai_update_interface::AUTO_ACQUIRE_IDLE_STEALTHED;
+        use game_engine::common::thing::ai_update_data::AUTO_ACQUIRE_IDLE_STEALTHED;
         let Some(unit) = self.objects.get_mut(&id) else {
             return false;
         };

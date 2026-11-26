@@ -48,7 +48,7 @@ fn locomotor_member_names_from_raw(raw: &str) -> Vec<String> {
 }
 
 fn parse_auto_acquire_idle_bits_from_ini(text: &str) -> u32 {
-    use gamelogic::object::update::ai_update_interface::{
+    use game_engine::common::thing::ai_update_data::{
         AUTO_ACQUIRE_IDLE, AUTO_ACQUIRE_IDLE_ATTACK_BUILDINGS, AUTO_ACQUIRE_IDLE_NO,
         AUTO_ACQUIRE_IDLE_NOT_WHILE_ATTACKING, AUTO_ACQUIRE_IDLE_STEALTHED,
     };

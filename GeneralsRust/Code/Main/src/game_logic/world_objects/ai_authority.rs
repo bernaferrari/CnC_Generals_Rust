@@ -1492,7 +1492,7 @@ mod hq_m6gcj_tests {
         );
         if let Some(o) = logic.objects.get_mut(&ObjectId(1)) {
             o.auto_acquire_idle_bits =
-                gamelogic::object::update::ai_update_interface::AUTO_ACQUIRE_IDLE;
+                game_engine::common::thing::ai_update_data::AUTO_ACQUIRE_IDLE;
             o.set_auto_acquire_when_idle(true);
         }
         let _ = AbleToAttackType::NewTarget;

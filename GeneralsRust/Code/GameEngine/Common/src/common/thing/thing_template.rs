@@ -2511,19 +2511,25 @@ impl ThingTemplate {
             // parity for a missing or not-yet-typed AIUpdate block.
             return Ok(());
         };
-        let updated =
-            crate::common::thing::thing_template_locomotor::apply_locomotor_set_to_module_data(
-                data,
-                set_name,
-                names,
-                overrides_allowed,
-            )?;
-        self.behavior_module_info
-            .replace_first_ai_module_data(updated);
+        let set = super::ai_update_data::LocomotorSetType::from_ini_name(set_name)
+            .ok_or_else(|| format!("unknown Locomotor set {set_name}"))?;
+        {
+            let mut definition = data.write();
+            if let Some(ai) = definition.ai_update_data_mut() {
+                if ai.has_locomotor_set(set) && !overrides_allowed {
+                    return Err("re-specifying a LocomotorSet is no longer allowed".to_string());
+                }
+                ai.set_locomotor_set_entries(
+                    set,
+                    names.iter().map(|name| name.as_str().into()).collect(),
+                );
+            }
+        }
+        self.behavior_module_info.replace_first_ai_module_data(data);
         Ok(())
     }
 
-    /// Replay stored top-level Locomotor lines into AI module data (late hook install).
+    /// Replay stored top-level Locomotor lines after behavior definitions are admitted.
     ///
     /// hq-fgp6j: C++ `AIUpdateModuleData::parseLocomotorSet` throws
     /// `INI_INVALID_DATA` when `friend_getAIModuleInfo` is NULL. Early parse may
@@ -3858,5 +3864,45 @@ mod locomotor_parse_policy_owner_tests {
             err.contains("without an AIUpdate block"),
             "C++ diagnostic: {err}"
         );
+    }
+
+    #[test]
+    fn actual_ai_data_applier_does_not_inherit_a_peers_override_policy() {
+        use super::super::ai_update_data::{AIUpdateModuleData, LocomotorSetType};
+
+        let template_with_ai = || {
+            let mut template = ThingTemplate::new_receiving();
+            let definition = ModuleDataHandle::new(AIUpdateModuleData::default());
+            template.behavior_module_info.add_module_info(
+                "AIUpdateInterface".into(),
+                "ModuleTag_AI".into(),
+                definition.clone(),
+                0,
+                false,
+                false,
+            );
+            (template, definition)
+        };
+        let (mut owner, owner_data) = template_with_ai();
+        let (mut peer, peer_data) = template_with_ai();
+        owner.parse_locomotor_field("SET_NORMAL OwnerGround").unwrap();
+        peer.parse_locomotor_field("SET_NORMAL PeerGround").unwrap();
+        owner
+            .parse_locomotor_field_with_overrides("SET_NORMAL OwnerOverride", true)
+            .unwrap();
+        assert!(peer.parse_locomotor_field("SET_NORMAL RejectedPeer").is_err());
+        assert!(owner.parse_locomotor_field("SET_NORMAL RejectedOwner").is_err());
+
+        let names = |definition: &ModuleDataHandle| {
+            definition.read().ai_update_data().unwrap().locomotor_sets()[&LocomotorSetType::Normal]
+                .clone()
+        };
+        assert!(ModuleDataHandle::ptr_eq(
+            &owner_data,
+            owner.friend_get_ai_module_info().unwrap()
+        ));
+        assert!(!ModuleDataHandle::ptr_eq(&owner_data, &peer_data));
+        assert_eq!(names(&owner_data), vec!["OwnerOverride".to_owned()]);
+        assert_eq!(names(&peer_data), vec!["PeerGround".to_owned()]);
     }
 }

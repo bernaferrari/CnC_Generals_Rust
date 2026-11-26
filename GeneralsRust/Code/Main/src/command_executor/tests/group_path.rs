@@ -1158,7 +1158,7 @@ fn stealth_mood_delay_skips_while_stealthed_auto_acquire() {
         ..Default::default()
     });
     tpl.auto_acquire_enemies_when_idle =
-        gamelogic::object::update::ai_update_interface::AUTO_ACQUIRE_IDLE_STEALTHED;
+        game_engine::common::thing::ai_update_data::AUTO_ACQUIRE_IDLE_STEALTHED;
     logic.templates.insert("ST_P".to_string(), tpl);
     let id = logic.create_object("ST_P", Team::USA, Vec3::ZERO).unwrap();
     {
@@ -1188,7 +1188,7 @@ fn stealth_mood_delay_skips_while_stealthed_auto_acquire() {
 #[test]
 fn stealth_mood_delay_uses_authored_grant_and_live_acquire_mask() {
     use crate::game_logic::{GameLogic, KindOf, Team, ThingTemplate};
-    use gamelogic::object::update::ai_update_interface::{AUTO_ACQUIRE_IDLE, AUTO_ACQUIRE_IDLE_NO};
+    use game_engine::common::thing::ai_update_data::{AUTO_ACQUIRE_IDLE, AUTO_ACQUIRE_IDLE_NO};
     use glam::Vec3;
 
     let mut logic = GameLogic::new();

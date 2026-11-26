@@ -11,7 +11,6 @@ use super::factory_gaps::*;
 use super::helpers::*;
 use super::leftover::*;
 use super::production::*;
-use super::template_locomotor::install_template_locomotor_applier;
 use super::update_modules::*;
 use super::*;
 use game_engine::common::thing::thing_factory::apply_stored_locomotors_to_all_templates;
@@ -1360,7 +1359,6 @@ pub fn register_native_module_overrides(
 /// Compatibility startup initializes the current factory owner every time.
 /// A process-wide ready flag cannot certify another factory's catalog.
 pub fn ensure_module_overrides_installed() -> Result<(), String> {
-    install_template_locomotor_applier();
     {
         let mut guard = game_engine::common::thing::module_factory::get_module_factory()
             .map_err(|_| "Failed to lock module factory")?;

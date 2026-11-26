@@ -130,7 +130,7 @@ macro_rules! impl_legacy_module_data_with_key_field {
 
 #[macro_export]
 macro_rules! impl_legacy_module_data_via_base {
-    ($ty:ty, $field:ident) => {
+    ($ty:ty, $field:ident $(, $ai:ident)?) => {
         impl $crate::common::LegacyModuleData for $ty {
             fn as_any(&self) -> &dyn ::std::any::Any {
                 self
@@ -174,6 +174,10 @@ macro_rules! impl_legacy_module_data_via_base {
                 $crate::common::LegacyModuleData::is_ai_module_data(self)
             }
 
+            $(fn ai_update_data(&self) -> Option<&::game_engine::common::thing::ai_update_data::AIUpdateModuleData> {
+                Some(&self.$ai)
+            })?
+
             fn get_as_w3d_model_draw_module_data(&self) -> Option<&dyn ::std::any::Any> {
                 $crate::common::LegacyModuleData::get_as_w3d_model_draw_module_data(self)
             }
@@ -193,7 +197,7 @@ macro_rules! impl_legacy_module_data_via_base {
 
 #[macro_export]
 macro_rules! impl_behavior_module_data_via_base {
-    ($ty:ty, $field:ident) => {
+    ($ty:ty, $field:ident $(, $ai:ident)?) => {
         impl ::game_engine::common::system::Snapshotable for $ty {
             fn crc(&self, xfer: &mut dyn ::game_engine::system::Xfer) -> Result<(), String> {
                 self.$field.crc(xfer)
@@ -208,6 +212,6 @@ macro_rules! impl_behavior_module_data_via_base {
             }
         }
 
-        $crate::impl_legacy_module_data_via_base!($ty, $field);
+        $crate::impl_legacy_module_data_via_base!($ty, $field $(, $ai)?);
     };
 }

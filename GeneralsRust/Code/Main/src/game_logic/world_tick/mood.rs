@@ -681,7 +681,7 @@ impl GameLogic {
         if !alive || using_ability {
             return None;
         }
-        use gamelogic::object::update::ai_update_interface::{
+        use game_engine::common::thing::ai_update_data::{
             AUTO_ACQUIRE_IDLE, AUTO_ACQUIRE_IDLE_ATTACK_BUILDINGS,
             AUTO_ACQUIRE_IDLE_NOT_WHILE_ATTACKING, AUTO_ACQUIRE_IDLE_STEALTHED,
         };
@@ -1706,7 +1706,7 @@ mod common_target_parity {
 
     #[test]
     fn detected_stealthed_idle_requires_stealthed_bit() {
-        use gamelogic::object::update::ai_update_interface::{
+        use game_engine::common::thing::ai_update_data::{
             AUTO_ACQUIRE_IDLE, AUTO_ACQUIRE_IDLE_STEALTHED,
         };
         let mut logic = GameLogic::new();
@@ -1788,7 +1788,7 @@ mod common_target_parity {
 
     #[test]
     fn mood_scan_ignores_insignificant_buildings() {
-        use gamelogic::object::update::ai_update_interface::{
+        use game_engine::common::thing::ai_update_data::{
             AUTO_ACQUIRE_IDLE, AUTO_ACQUIRE_IDLE_ATTACK_BUILDINGS,
         };
         {
@@ -2050,7 +2050,7 @@ mod common_target_parity {
 
     #[test]
     fn idle_enter_delays_the_mood_check_then_jitters_once() {
-        use gamelogic::object::update::ai_update_interface::AUTO_ACQUIRE_IDLE;
+        use game_engine::common::thing::ai_update_data::AUTO_ACQUIRE_IDLE;
         let mut logic = GameLogic::new();
         // hq-6tx39: C++ resetNextMoodCheckTime uses AIData.forceIdleFramesCount.
         logic.set_ai_definition_base(game_engine::common::ini::AIData {

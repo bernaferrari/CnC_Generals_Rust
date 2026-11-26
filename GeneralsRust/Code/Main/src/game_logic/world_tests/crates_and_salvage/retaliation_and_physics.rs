@@ -936,7 +936,7 @@ fn get_next_mood_target_finds_nearby_enemy() {
         // AIUpdateModuleData::m_autoAcquireEnemiesWhenIdle & AAS_Idle; the C++
         // module default is 0 (AIUpdate.cpp:64), so the fixture opts in.
         o.auto_acquire_idle_bits =
-            gamelogic::object::update::ai_update_interface::AUTO_ACQUIRE_IDLE;
+            game_engine::common::thing::ai_update_data::AUTO_ACQUIRE_IDLE;
         o.ai_attitude = 0; // Normal
         o.vision_range = 200.0;
         crate::fixture_content::arm_with_stats(
@@ -998,7 +998,7 @@ fn get_next_mood_target_sleep_returns_none() {
         o.set_position(Vec3::ZERO);
         o.set_ai_attitude_i8(-2);
         o.auto_acquire_idle_bits =
-            gamelogic::object::update::ai_update_interface::AUTO_ACQUIRE_IDLE;
+            game_engine::common::thing::ai_update_data::AUTO_ACQUIRE_IDLE;
         o.vision_range = 200.0;
         crate::fixture_content::arm_with_stats(
             &mut o,
@@ -1063,7 +1063,7 @@ fn get_next_mood_target_passive_uses_last_damage_source() {
         // (module default 0, AIUpdate.cpp:64); passive mood still passes
         // through this gate before the last-damage-source branch.
         o.auto_acquire_idle_bits =
-            gamelogic::object::update::ai_update_interface::AUTO_ACQUIRE_IDLE;
+            game_engine::common::thing::ai_update_data::AUTO_ACQUIRE_IDLE;
         crate::fixture_content::arm_with_stats(
             &mut o,
             crate::game_logic::Weapon {
@@ -1130,7 +1130,7 @@ fn try_mood_auto_acquire_enters_attack() {
         // C++ AIIdleState::update → getNextMoodTarget(TRUE, TRUE) is gated on
         // AAS_Idle (AIUpdate.cpp:4484-4490; module default 0, AIUpdate.cpp:64).
         o.auto_acquire_idle_bits =
-            gamelogic::object::update::ai_update_interface::AUTO_ACQUIRE_IDLE;
+            game_engine::common::thing::ai_update_data::AUTO_ACQUIRE_IDLE;
         crate::fixture_content::arm_with_stats(
             &mut o,
             crate::game_logic::Weapon {

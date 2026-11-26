@@ -409,6 +409,7 @@ mod leftover;
 mod production;
 mod receiving_registration_keys;
 mod strict_module_data;
+#[cfg(test)]
 mod template_locomotor;
 mod update_modules;
 
