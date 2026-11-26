@@ -27,9 +27,6 @@ pub mod host_enum_table_residual;
 #[path = "host_faction_skirmish_residual.rs"]
 pub mod host_faction_skirmish_residual;
 
-#[path = "host_fx_ocl_particle_audio_residual_wave107.rs"]
-pub mod host_fx_ocl_particle_audio_residual_wave107;
-
 #[path = "host_gamedata_lobby_residual.rs"]
 pub mod host_gamedata_lobby_residual;
 
@@ -74,9 +71,6 @@ pub mod retail_map_resolution;
 
 #[path = "host_structure_economy_residual.rs"]
 pub mod host_structure_economy_residual;
-
-#[path = "host_terrain_bridge_water_road_residual_wave108.rs"]
-pub mod host_terrain_bridge_water_road_residual_wave108;
 
 #[path = "host_ui_presentation_residual.rs"]
 pub mod host_ui_presentation_residual;

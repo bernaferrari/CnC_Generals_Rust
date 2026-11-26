@@ -4,8 +4,10 @@
 //! → `WorldHeightMap::getCliffState`. Bits are packed 8 cells/byte and initialized
 //! from the four-corner world-Z range vs `PATHFIND_CLIFF_SLOPE_LIMIT_F` (9.8).
 
-use crate::common::MAP_HEIGHT_SCALE;
-use crate::common::MAP_XY_FACTOR;
+/// World units per raw heightmap cell along either horizontal axis.
+pub const MAP_XY_FACTOR: f32 = 10.0;
+/// Convert an 8-bit raw sample to world elevation.
+pub const MAP_HEIGHT_SCALE: f32 = MAP_XY_FACTOR / 16.0;
 
 /// C++ `WorldHeightMap.cpp` `PATHFIND_CLIFF_SLOPE_LIMIT_F`.
 pub const PATHFIND_CLIFF_SLOPE_LIMIT_F: f32 = 9.8;
@@ -121,21 +123,19 @@ impl CliffBitfield {
         let h10 = sample(map_data, map_dx, x + 1, y);
         let h01 = sample(map_data, map_dx, x, y + 1);
         let h11 = sample(map_data, map_dx, x + 1, y + 1);
-        let min_z = h00.min(h10).min(h01).min(h11);
-        let max_z = h00.max(h10).max(h01).max(h11);
-        self.set_cliff_state(x, y, max_z - min_z > PATHFIND_CLIFF_SLOPE_LIMIT_F);
+        self.set_cliff_state(x, y, is_cliff_from_raw_heights(h00, h10, h01, h11));
     }
 }
 
-fn sample(map_data: &[u8], map_dx: i32, x: i32, y: i32) -> f32 {
+fn sample(map_data: &[u8], map_dx: i32, x: i32, y: i32) -> u8 {
     if map_dx <= 0 || x < 0 || y < 0 {
-        return 0.0;
+        return 0;
     }
     let idx = (y * map_dx + x) as usize;
     if idx >= map_data.len() {
-        return 0.0;
+        return 0;
     }
-    map_data[idx] as f32 * MAP_HEIGHT_SCALE
+    map_data[idx]
 }
 
 /// C++ `WorldHeightMap::setCellCliffFlagFromHeights` four-corner test.

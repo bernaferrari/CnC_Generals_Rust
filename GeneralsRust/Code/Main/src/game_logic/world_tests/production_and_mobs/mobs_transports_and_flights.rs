@@ -862,11 +862,11 @@ fn float_update_ferry_sways() {
 #[test]
 fn ocl_create_debris_disposition_spawn() {
     use crate::game_logic::KindOf;
-    use crate::game_logic::host_ocl_create_debris::HostOclCreateDebrisPlan;
+    use generals_sim::debris::DebrisPlan;
     let mut logic = GameLogic::new();
     ensure_test_player_for_team(&mut logic, Team::USA);
     let ids = logic.spawn_ocl_create_debris(
-        &HostOclCreateDebrisPlan::generic_tank_debris(),
+        &DebrisPlan::generic_tank_debris(),
         Team::USA,
         Vec3::new(10.0, 5.0, 10.0),
         Vec3::new(2.0, 0.0, 0.0),
@@ -882,9 +882,6 @@ fn ocl_create_debris_disposition_spawn() {
         o.shock_allow_bounce,
         "C++ setAllowBouncing(true) on flying CreateDebris"
     );
-    assert!(logic.ocl_create_debris_reg.debris_spawned >= 3);
-    assert!(logic.ocl_create_debris_reg.flying_forces >= 1);
-    assert!(crate::game_logic::host_ocl_create_debris::honesty_ocl_create_debris_residual_ok());
 }
 
 #[test]

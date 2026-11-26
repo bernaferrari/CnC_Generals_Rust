@@ -59,20 +59,19 @@ impl super::GameLogic {
     /// A separate generation counter then follows this world's OCL creation
     /// order rather than the process-global GameLODManager counter.
     pub fn admit_dynamic_debris_skip_mask(&mut self, mask: u32) {
-        self.ocl_create_debris_reg.admit_dynamic_skip_mask(mask);
+        self.debris_lod.admit_dynamic_skip_mask(mask);
     }
 
     pub(crate) fn current_dynamic_debris_skip_mask(&self) -> u32 {
-        self.ocl_create_debris_reg.dynamic_skip_mask
+        self.debris_lod.dynamic_skip_mask
     }
 
     pub(crate) fn current_dynamic_debris_generations(&self) -> u32 {
-        self.ocl_create_debris_reg.debris_generations
+        self.debris_lod.debris_generations
     }
 
     pub(crate) fn admit_dynamic_debris_runtime_state(&mut self, mask: u32, generations: u32) {
-        self.ocl_create_debris_reg
-            .admit_runtime_state(mask, generations);
+        self.debris_lod.admit_runtime_state(mask, generations);
     }
 
     pub(crate) fn admit_lighting_rules_base(&mut self, rules: LightingContentRules) {
@@ -320,11 +319,11 @@ mod debris_generation_snapshot_tests {
         let builder = SnapshotBuilder::new();
         let mut source = GameLogic::new();
         source.admit_dynamic_debris_skip_mask(1);
-        let _ = source.ocl_create_debris_reg.is_debris_skipped();
-        let _ = source.ocl_create_debris_reg.is_debris_skipped();
+        let _ = source.debris_lod.is_debris_skipped();
+        let _ = source.debris_lod.is_debris_skipped();
         let snapshot = builder.create_world_snapshot(&source).expect("capture");
         let expected: Vec<_> = (0..6)
-            .map(|_| source.ocl_create_debris_reg.is_debris_skipped())
+            .map(|_| source.debris_lod.is_debris_skipped())
             .collect();
         let bytes = bincode_legacy::serialize(&snapshot).expect("encode save");
         let snapshot: crate::save_load::snapshot::WorldSnapshot =
@@ -333,18 +332,18 @@ mod debris_generation_snapshot_tests {
         let mut restored = GameLogic::new();
         restored.admit_dynamic_debris_skip_mask(1);
         for _ in 0..5 {
-            let _ = restored.ocl_create_debris_reg.is_debris_skipped();
+            let _ = restored.debris_lod.is_debris_skipped();
         }
         let mut peer = GameLogic::new();
         peer.admit_dynamic_debris_skip_mask(1);
-        let _ = peer.ocl_create_debris_reg.is_debris_skipped();
+        let _ = peer.debris_lod.is_debris_skipped();
         let peer_before = peer.current_dynamic_debris_generations();
 
         builder
             .restore_from_snapshot(&snapshot, &mut restored)
             .expect("restore save");
         let actual: Vec<_> = (0..6)
-            .map(|_| restored.ocl_create_debris_reg.is_debris_skipped())
+            .map(|_| restored.debris_lod.is_debris_skipped())
             .collect();
         assert_eq!(actual, expected);
         assert_eq!(peer.current_dynamic_debris_generations(), peer_before);
@@ -360,7 +359,7 @@ mod debris_generation_snapshot_tests {
         let mut receiving = GameLogic::new();
         receiving.admit_dynamic_debris_skip_mask(3);
         for _ in 0..7 {
-            let _ = receiving.ocl_create_debris_reg.is_debris_skipped();
+            let _ = receiving.debris_lod.is_debris_skipped();
         }
         let before = receiving.current_dynamic_debris_generations();
         assert!(

@@ -213,7 +213,7 @@ impl GameLogic {
             spectre_gunship_deployment_reg: crate::game_logic::host_spectre_gunship_deployment::HostSpectreGunshipDeploymentRegistry::new(),
             smart_bomb_target_homing_reg: crate::game_logic::host_smart_bomb_target_homing::HostSmartBombTargetHomingRegistry::new(),
             ocl_special_power_reg: crate::game_logic::host_ocl_special_power::HostOclSpecialPowerRegistry::new(),
-            ocl_create_debris_reg: crate::game_logic::host_ocl_create_debris::HostOclCreateDebrisRegistry::new(),
+            debris_lod: generals_sim::debris::DebrisLodState::new(),
             ocl_fire_weapon_attack_reg:
                 crate::game_logic::host_ocl_fire_weapon_attack::HostOclFireWeaponAttackRegistry::new(),
             fuel_air_gas_reg: crate::game_logic::host_fuel_air_gas_slow_death::HostFuelAirGasRegistry::new(),
@@ -1123,7 +1123,7 @@ impl GameLogic {
         self.spectre_gunship_deployment_reg.clear();
         self.smart_bomb_target_homing_reg.clear();
         self.ocl_special_power_reg.clear();
-        self.ocl_create_debris_reg.clear();
+        self.debris_lod.clear();
         self.ocl_fire_weapon_attack_reg.clear();
         self.fuel_air_gas_reg.clear();
         self.neutron_missile_update_reg.clear();

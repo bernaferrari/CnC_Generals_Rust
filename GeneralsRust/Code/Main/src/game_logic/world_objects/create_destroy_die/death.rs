@@ -1404,11 +1404,11 @@ impl GameLogic {
         for tmpl in spawns {
             let tl = tmpl.to_ascii_lowercase();
             if tl.contains("debris") || tl.contains("barrel") {
-                use crate::game_logic::host_ocl_create_debris::HostOclCreateDebrisPlan;
+                use generals_sim::debris::DebrisPlan;
                 let plan = if tl.contains("barrel") {
-                    HostOclCreateDebrisPlan::damaged_barrel()
+                    DebrisPlan::damaged_barrel()
                 } else {
-                    let mut p = HostOclCreateDebrisPlan::generic_tank_debris();
+                    let mut p = DebrisPlan::generic_tank_debris();
                     p.model_or_template = tmpl.clone();
                     p
                 };

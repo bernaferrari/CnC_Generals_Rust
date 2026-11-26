@@ -65,12 +65,6 @@ impl GameLogic {
         crate::game_logic::host_ocl_fire_weapon_attack::honesty_ocl_fire_weapon_attack_residual_ok()
     }
 
-    pub fn honesty_ocl_create_debris_ok(&self) -> bool {
-        crate::game_logic::host_ocl_create_debris::honesty_ocl_create_debris_residual_ok()
-            && (self.ocl_create_debris_reg.plans > 0
-                || self.ocl_create_debris_reg.debris_spawned == 0)
-    }
-
     pub fn honesty_ocl_special_power_ok(&self) -> bool {
         self.ocl_special_power_reg.honesty_host_path_ok()
             && crate::game_logic::host_ocl_special_power::honesty_ocl_special_power_residual_ok()

@@ -791,7 +791,7 @@ impl GameLogic {
     /// C++ ObjectCreationList CreateDebris residual with disposition force.
     pub fn spawn_ocl_create_debris(
         &mut self,
-        plan: &crate::game_logic::host_ocl_create_debris::HostOclCreateDebrisPlan,
+        plan: &generals_sim::debris::DebrisPlan,
         team: Team,
         origin: Vec3,
         inherit_vel: Vec3,
@@ -809,19 +809,18 @@ impl GameLogic {
 
     pub(crate) fn spawn_ocl_create_debris_with_effects(
         &mut self,
-        plan: &crate::game_logic::host_ocl_create_debris::HostOclCreateDebrisPlan,
+        plan: &generals_sim::debris::DebrisPlan,
         team: Team,
         origin: Vec3,
         inherit_vel: Vec3,
         owner_player_id: Option<u32>,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> Vec<ObjectId> {
-        use crate::game_logic::host_ocl_create_debris::{
-            debris_initial_velocity, spin_rate_rad_per_frame,
+        use generals_sim::debris::{
+            debris_initial_velocity, disposition_enables_bounce, spin_rate_rad_per_frame,
         };
         use crate::game_logic::{KindOf, ThingTemplate};
 
-        self.ocl_create_debris_reg.record_plan(plan.disposition);
         let mut out = Vec::new();
         let name = if plan.model_or_template.is_empty() {
             "GenericDebris".to_string()
@@ -868,9 +867,7 @@ impl GameLogic {
                 );
                 o.set_extra_friction(plan.extra_friction);
                 // C++ ObjectCreationList.cpp:1121-1123 flying/up/random debris.
-                if crate::game_logic::host_ocl_create_debris::disposition_enables_bounce(
-                    plan.disposition,
-                ) {
+                if disposition_enables_bounce(plan.disposition) {
                     o.set_extra_bounciness(plan.extra_bounciness);
                     o.set_allow_bouncing(true);
                 }
@@ -878,7 +875,6 @@ impl GameLogic {
                     o.set_bounce_sound(plan.bounce_sound.clone());
                 }
             }
-            self.ocl_create_debris_reg.record_spawn(plan.disposition);
             out.push(id);
         }
         out

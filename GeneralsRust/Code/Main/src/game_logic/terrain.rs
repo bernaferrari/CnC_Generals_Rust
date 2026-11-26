@@ -4,11 +4,9 @@
 ** Lightweight terrain representation used by the Rust main runtime for:
 ** - height queries (placing objects on ground)
 ** - coarse impassability for pathfinding (until full SAGE terrain decoding lands)
-**
-** Wave 81 residual: map height sample scale / bilinear residual honesty pack.
-** Fail-closed: not full SAGE bridge-aware HeightMap / cliff seam matrix.
 */
 
+use generals_sim::terrain::{MAP_HEIGHT_SCALE, MAP_XY_FACTOR};
 use glam::Vec3;
 
 #[cfg(feature = "game_client")]
@@ -23,40 +21,6 @@ struct HeightMap {
     height: u32,
     heights: Vec<f32>,
     max_height: f32,
-}
-
-// --- Wave 81 map height sample residual (C++ MAP_XY_FACTOR / MAP_HEIGHT_SCALE) ---
-
-/// C++ `MAP_XY_FACTOR` residual — world units per heightmap cell (X/Y).
-pub const MAP_HEIGHT_SAMPLE_XY_FACTOR: f32 = 10.0;
-/// C++ `MAP_HEIGHT_SCALE` residual — raw 8-bit sample → world Z (`MAP_XY_FACTOR / 16`).
-pub const MAP_HEIGHT_SAMPLE_SCALE: f32 = MAP_HEIGHT_SAMPLE_XY_FACTOR / 16.0;
-/// Raw heightmap sample bit depth residual (HeightMapData is u8).
-pub const MAP_HEIGHT_SAMPLE_RAW_MAX: u8 = 255;
-/// World Z residual at raw sample 0.
-pub const MAP_HEIGHT_SAMPLE_WORLD_MIN: f32 = 0.0;
-/// World Z residual at raw sample 255 = `255 * MAP_HEIGHT_SCALE`.
-pub const MAP_HEIGHT_SAMPLE_WORLD_MAX: f32 = 255.0 * MAP_HEIGHT_SAMPLE_SCALE;
-/// Pathfinding height-sample grid residual: cell center uses half-cell offset (0.5).
-pub const PATHFINDING_HEIGHT_SAMPLE_CELL_CENTER: f32 = 0.5;
-
-/// Convert a raw 8-bit height sample to world Z (C++ sample * MAP_HEIGHT_SCALE).
-#[inline]
-pub fn raw_height_sample_to_world(sample: u8) -> f32 {
-    (sample as f32) * MAP_HEIGHT_SAMPLE_SCALE
-}
-
-/// Bilinear height residual from four corner samples + fractional offsets in [0,1].
-///
-/// Kept for Wave 81 honesty pack. Live `TerrainData::height_at_world` uses the
-/// C++ `BaseHeightMap.cpp:900` fy>fx triangle split instead.
-#[inline]
-pub fn bilinear_height_sample(h00: f32, h10: f32, h01: f32, h11: f32, tx: f32, tz: f32) -> f32 {
-    let tx = tx.clamp(0.0, 1.0);
-    let tz = tz.clamp(0.0, 1.0);
-    let hx0 = h00 * (1.0 - tx) + h10 * tx;
-    let hx1 = h01 * (1.0 - tx) + h11 * tx;
-    hx0 * (1.0 - tz) + hx1 * tz
 }
 
 /// C++ `BaseHeightMapRenderObjClass::getHeightMapHeight` (BaseHeightMap.cpp:858-909).
@@ -94,32 +58,6 @@ pub fn triangle_split_height_sample(
 struct HostWaterPolygon {
     points: Vec<(i32, i32)>,
     height: f32,
-}
-
-/// Wave 81 residual honesty: map height sample scale + bilinear residual pack.
-///
-/// Fail-closed: not full SAGE HeightMap bridge/cliff matrix / live map decode.
-pub fn honesty_map_height_sample_residual_pack_wave81() -> bool {
-    (MAP_HEIGHT_SAMPLE_XY_FACTOR - 10.0).abs() < 0.001
-        && (MAP_HEIGHT_SAMPLE_SCALE - 0.625).abs() < 0.001
-        && (MAP_HEIGHT_SAMPLE_SCALE - MAP_HEIGHT_SAMPLE_XY_FACTOR / 16.0).abs() < 0.0001
-        && MAP_HEIGHT_SAMPLE_RAW_MAX == 255
-        && (MAP_HEIGHT_SAMPLE_WORLD_MIN - 0.0).abs() < 0.001
-        && (MAP_HEIGHT_SAMPLE_WORLD_MAX - 255.0 * 0.625).abs() < 0.01
-        && (raw_height_sample_to_world(0) - 0.0).abs() < 0.001
-        && (raw_height_sample_to_world(16) - 10.0).abs() < 0.01 // 16 * 0.625 = 10
-        && (raw_height_sample_to_world(255) - MAP_HEIGHT_SAMPLE_WORLD_MAX).abs() < 0.01
-        && (PATHFINDING_HEIGHT_SAMPLE_CELL_CENTER - 0.5).abs() < 0.001
-        // Bilinear mid-cell residual: all corners equal → same height.
-        && {
-            let mid = bilinear_height_sample(10.0, 10.0, 10.0, 10.0, 0.5, 0.5);
-            (mid - 10.0).abs() < 0.001
-        }
-        // Bilinear residual along X edge between h00=0 and h10=20 at tx=0.5.
-        && {
-            let edge = bilinear_height_sample(0.0, 20.0, 0.0, 20.0, 0.5, 0.0);
-            (edge - 10.0).abs() < 0.001
-        }
 }
 
 /// Terrain data loaded from a heightmap with a world-space mapping.
@@ -194,7 +132,7 @@ impl TerrainData {
                 width,
                 height,
                 heights: raw.iter().map(|h| *h as f32 / 255.0).collect(),
-                max_height: 255.0 * MAP_HEIGHT_SAMPLE_SCALE,
+                max_height: 255.0 * MAP_HEIGHT_SCALE,
             },
             world_min,
             world_max,
@@ -280,10 +218,10 @@ impl TerrainData {
                 .collect(),
             // Normalized bytes use the full source 255*MAP_HEIGHT_SCALE range,
             // never an observed map maximum which would rescale live heights.
-            max_height: MAP_HEIGHT_SAMPLE_WORLD_MAX,
-            scale: MAP_HEIGHT_SAMPLE_XY_FACTOR,
-            min_height: minimum * MAP_HEIGHT_SAMPLE_SCALE,
-            height_range: (maximum - minimum) * MAP_HEIGHT_SAMPLE_SCALE,
+            max_height: 255.0 * MAP_HEIGHT_SCALE,
+            scale: MAP_XY_FACTOR,
+            min_height: minimum * MAP_HEIGHT_SCALE,
+            height_range: (maximum - minimum) * MAP_HEIGHT_SCALE,
             border_size: border,
             tile_ndxes: metadata.map_or_else(|| vec![0; count], |map| map.tile_ndxes.clone()),
             blend_tile_ndxes: metadata
@@ -315,8 +253,8 @@ impl TerrainData {
     /// presentation mapping below, C++ uses fixed 10-unit cells and clips to a
     /// single sample near the outer edge (BaseHeightMap.h:115-131).
     pub(crate) fn logic_height_at_world(&self, world: Vec3) -> f32 {
-        let x = world.x / MAP_HEIGHT_SAMPLE_XY_FACTOR;
-        let z = world.z / MAP_HEIGHT_SAMPLE_XY_FACTOR;
+        let x = world.x / MAP_XY_FACTOR;
+        let z = world.z / MAP_XY_FACTOR;
         let floor_x = x.floor();
         let floor_z = z.floor();
         let ix = floor_x as i32 + self.border_size as i32;
@@ -383,14 +321,14 @@ impl TerrainData {
         (gx * gx + gz * gz).sqrt()
     }
 
-    /// C++ `WorldHeightMap::setCellCliffFlagFromHeights` / leftover `terrain_cliff`.
+    /// C++ `WorldHeightMap::setCellCliffFlagFromHeights`.
     ///
     /// Four-corner raw samples are converted to world Z (`* MAP_HEIGHT_SCALE`)
     /// and flagged cliff when maxZ−minZ > `PATHFIND_CLIFF_SLOPE_LIMIT_F` (9.8).
     #[cfg(feature = "game_client")]
     pub fn is_cliff_at_world(&self, world: Vec3) -> bool {
-        use crate::game_logic::host_terrain_bridge_water_road_residual_wave108::cliff_cell_from_raw_heights_residual;
-        // Four-corner raw residual around the cell (heightmap u8 samples).
+        use generals_sim::terrain::is_cliff_from_raw_heights;
+        // Recover the cell’s four raw height samples from normalized storage.
         let u = ((world.x - self.world_min.x) / self.scale_x + self.border_size as f32)
             .clamp(0.0, self.heightmap.width as f32 - 1.0);
         let v = ((world.z - self.world_min.z) / self.scale_z + self.border_size as f32)
@@ -407,7 +345,7 @@ impl TerrainData {
         let h10 = to_raw(x1, z0);
         let h01 = to_raw(x0, z1);
         let h11 = to_raw(x1, z1);
-        cliff_cell_from_raw_heights_residual(h00, h10, h01, h11)
+        is_cliff_from_raw_heights(h00, h10, h01, h11)
     }
 
     #[cfg(not(feature = "game_client"))]
@@ -590,14 +528,27 @@ mod tests {
         }
     }
 
+    #[cfg(feature = "game_client")]
     #[test]
-    fn map_height_sample_residual_pack_wave81_honesty() {
-        assert!(honesty_map_height_sample_residual_pack_wave81());
-        assert!((raw_height_sample_to_world(32) - 20.0).abs() < 0.01);
-        // Corner blend at (0,0) returns h00.
-        assert!((bilinear_height_sample(3.0, 7.0, 11.0, 13.0, 0.0, 0.0) - 3.0).abs() < 0.001);
-        // Corner blend at (1,1) returns h11.
-        assert!((bilinear_height_sample(3.0, 7.0, 11.0, 13.0, 1.0, 1.0) - 13.0).abs() < 0.001);
+    fn cliff_at_world_uses_four_corners_and_world_height_threshold() {
+        let mut heightmap = HeightMap::new(3, 2, 255.0 * MAP_HEIGHT_SCALE, 1.0);
+        for (sample, raw) in heightmap
+            .heights
+            .iter_mut()
+            .zip([81.0, 96.0, 85.0, 86.0, 90.0, 80.0])
+        {
+            *sample = raw / 255.0;
+        }
+        let terrain = TerrainData::from_heightmap(
+            heightmap,
+            Vec3::ZERO,
+            Vec3::new(20.0, 0.0, 10.0),
+            0,
+        );
+        // The first cell spans 15 raw steps (9.375 world units). The adjacent
+        // cell spans 16 steps (10 world units) because of its lower far corner.
+        assert!(!terrain.is_cliff_at_world(Vec3::new(5.0, 0.0, 5.0)));
+        assert!(terrain.is_cliff_at_world(Vec3::new(15.0, 0.0, 5.0)));
     }
 
     #[test]
@@ -606,10 +557,7 @@ mod tests {
         // Corners p0=0, p1=0, p2=1, p3=0. At fx=0.25, fy=0.75:
         // triangle = 0.25, bilinear = 0.1875. Pre-fix live path used bilinear.
         let split = triangle_split_height_sample(0.0, 0.0, 0.0, 1.0, 0.25, 0.75);
-        let bilinear = bilinear_height_sample(0.0, 0.0, 0.0, 1.0, 0.25, 0.75);
         assert!((split - 0.25).abs() < 1e-5, "got {split}");
-        assert!((bilinear - 0.1875).abs() < 1e-5, "got {bilinear}");
-        assert!((split - bilinear).abs() > 0.05);
 
         #[cfg(feature = "game_client")]
         {

@@ -85,7 +85,11 @@ pub mod team;
 pub mod template;
 pub mod terrain;
 pub mod terrain_bridge;
-pub mod terrain_cliff;
+pub mod terrain_cliff {
+    pub use generals_sim::terrain::{
+        CliffBitfield, PATHFIND_CLIFF_SLOPE_LIMIT_F, is_cliff_cell, is_cliff_from_raw_heights,
+    };
+}
 pub mod terrain_los;
 pub mod terrain_water;
 

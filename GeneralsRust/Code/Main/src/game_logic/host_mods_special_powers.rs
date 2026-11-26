@@ -39,10 +39,6 @@ pub mod host_fuel_air_gas_slow_death;
 #[path = "host_neutron_missile_update.rs"]
 pub mod host_neutron_missile_update;
 
-
-#[path = "host_ocl_create_debris.rs"]
-pub mod host_ocl_create_debris;
-
 #[path = "host_ocl_fire_weapon_attack.rs"]
 pub mod host_ocl_fire_weapon_attack;
 

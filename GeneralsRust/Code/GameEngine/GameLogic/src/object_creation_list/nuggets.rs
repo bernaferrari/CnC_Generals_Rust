@@ -18,6 +18,8 @@
 // - AttackNugget (C++ lines 151-221)
 // - ApplyRandomForceNugget (C++ lines 595-670)
 
+pub use generals_sim::debris::DebrisDisposition;
+
 use super::{CreationContext, CreationResult};
 use crate::common::*;
 use crate::helpers::{
@@ -168,35 +170,6 @@ pub trait ObjectCreationNugget: Send + Sync {
 
     /// Downcast helper for parse/create inspection (INI tests, typed field checks).
     fn as_any(&self) -> &dyn Any;
-}
-
-/// Debris disposition flags - how debris should behave when spawned
-/// Matches C++ enum DebrisDisposition (ObjectCreationList.cpp:673-684)
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct DebrisDisposition(u32);
-
-impl DebrisDisposition {
-    pub const LIKE_EXISTING: u32 = 0x00000001; // Use same orientation as source
-    pub const ON_GROUND_ALIGNED: u32 = 0x00000002; // Place on ground, random orientation
-    pub const SEND_IT_FLYING: u32 = 0x00000004; // Launch with random forces
-    pub const SEND_IT_UP: u32 = 0x00000008; // Launch upward
-    pub const SEND_IT_OUT: u32 = 0x00000010; // Push outward horizontally
-    pub const RANDOM_FORCE: u32 = 0x00000020; // Apply custom random force
-    pub const FLOATING: u32 = 0x00000040; // Enable floating (water)
-    pub const INHERIT_VELOCITY: u32 = 0x00000080; // Inherit source object velocity
-    pub const WHIRLING: u32 = 0x00000100; // Random spin rates
-
-    pub fn new(flags: u32) -> Self {
-        Self(flags)
-    }
-
-    pub fn has(&self, flag: u32) -> bool {
-        (self.0 & flag) != 0
-    }
-
-    pub fn set(&mut self, flag: u32) {
-        self.0 |= flag;
-    }
 }
 
 /// Animation set for debris (initial, flying, final)

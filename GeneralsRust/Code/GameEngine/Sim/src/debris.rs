@@ -1,29 +1,38 @@
-//! Host ObjectCreationList CreateDebris residual (disposition force matrix).
-//!
-//! C++: `GenericObjectCreationNugget` CreateDebris path applies DebrisDisposition
-//! bits (LIKE_EXISTING, ON_GROUND_ALIGNED, SEND_IT_FLYING/UP/OUT, RANDOM_FORCE,
-//! FLOATING, INHERIT_VELOCITY, WHIRLING) then physics force/spin.
-//!
-//! Residual playability slice:
-//! - Disposition flag peel + name table (shared with Wave 107 honesty constants)
-//! - Force magnitude / pitch → initial velocity residual
-//! - Count + offset spawn plan
-//! - Wire from CreateObjectDie GenericDebris peels
-//!
-//! Fail-closed: not full particle system attach / mass→friction matrix / W3D
-//! debris model LOD / full PhysicsBehavior whirling torque.
+//! Object creation debris plans, disposition flags, and per-world LOD state.
 
 use glam::Vec3;
 use serde::{Deserialize, Serialize};
 
-// Re-export disposition bits from wave107 pack for single source of truth.
-pub use crate::game_logic::host_fx_ocl_particle_audio_residual_wave107::{
-    DEBRIS_DISPOSITION_NAMES_RESIDUAL, DEBRIS_FLOATING, DEBRIS_INHERIT_VELOCITY,
-    DEBRIS_LIKE_EXISTING, DEBRIS_ON_GROUND_ALIGNED, DEBRIS_RANDOM_FORCE, DEBRIS_SEND_IT_FLYING,
-    DEBRIS_SEND_IT_OUT, DEBRIS_SEND_IT_UP, DEBRIS_WHIRLING,
-};
+/// Debris disposition flags - how debris should behave when spawned
+/// Matches C++ enum DebrisDisposition (ObjectCreationList.cpp:673-684)
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DebrisDisposition(u32);
 
-/// Retail OCL_CreateDamagedBarrel peel residual.
+impl DebrisDisposition {
+    pub const LIKE_EXISTING: u32 = 0x00000001; // Use same orientation as source
+    pub const ON_GROUND_ALIGNED: u32 = 0x00000002; // Place on ground, random orientation
+    pub const SEND_IT_FLYING: u32 = 0x00000004; // Launch with random forces
+    pub const SEND_IT_UP: u32 = 0x00000008; // Launch upward
+    pub const SEND_IT_OUT: u32 = 0x00000010; // Push outward horizontally
+    pub const RANDOM_FORCE: u32 = 0x00000020; // Apply custom random force
+    pub const FLOATING: u32 = 0x00000040; // Enable floating (water)
+    pub const INHERIT_VELOCITY: u32 = 0x00000080; // Inherit source object velocity
+    pub const WHIRLING: u32 = 0x00000100; // Random spin rates
+
+    pub fn new(flags: u32) -> Self {
+        Self(flags)
+    }
+
+    pub fn has(&self, flag: u32) -> bool {
+        (self.0 & flag) != 0
+    }
+
+    pub fn set(&mut self, flag: u32) {
+        self.0 |= flag;
+    }
+}
+
+/// Fallback for the retail OCL_CreateDamagedBarrel entry.
 pub const DAMAGED_BARREL_DEBRIS_MODEL: &str = "PMBarrel01_D1";
 pub const DAMAGED_BARREL_MIN_FORCE: f32 = 5.0;
 pub const DAMAGED_BARREL_MAX_FORCE: f32 = 7.0;
@@ -31,13 +40,13 @@ pub const DAMAGED_BARREL_SPIN_RATE: f32 = 180.0;
 pub const DAMAGED_BARREL_MIN_PITCH_DEG: f32 = 75.0;
 pub const DAMAGED_BARREL_MAX_PITCH_DEG: f32 = 90.0;
 
-/// Generic tank debris residual peel (CreateObjectDie common path).
+/// Fallback for GenericDebris on the CreateObjectDie path.
 pub const GENERIC_TANK_DEBRIS_TEMPLATE: &str = "GenericDebris";
 pub const GENERIC_TANK_DEBRIS_MIN_FORCE: f32 = 8.0;
 pub const GENERIC_TANK_DEBRIS_MAX_FORCE: f32 = 14.0;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct HostOclCreateDebrisPlan {
+pub struct DebrisPlan {
     pub model_or_template: String,
     pub count: u32,
     pub disposition: u32,
@@ -56,12 +65,12 @@ pub struct HostOclCreateDebrisPlan {
     pub bounce_sound: String,
 }
 
-impl HostOclCreateDebrisPlan {
+impl DebrisPlan {
     pub fn damaged_barrel() -> Self {
         Self {
             model_or_template: DAMAGED_BARREL_DEBRIS_MODEL.into(),
             count: 1,
-            disposition: DEBRIS_RANDOM_FORCE,
+            disposition: DebrisDisposition::RANDOM_FORCE,
             offset: Vec3::ZERO,
             mass: 2.0,
             min_force: DAMAGED_BARREL_MIN_FORCE,
@@ -79,7 +88,9 @@ impl HostOclCreateDebrisPlan {
         Self {
             model_or_template: GENERIC_TANK_DEBRIS_TEMPLATE.into(),
             count: 3,
-            disposition: DEBRIS_SEND_IT_FLYING | DEBRIS_RANDOM_FORCE | DEBRIS_INHERIT_VELOCITY,
+            disposition: DebrisDisposition::SEND_IT_FLYING
+                | DebrisDisposition::RANDOM_FORCE
+                | DebrisDisposition::INHERIT_VELOCITY,
             offset: Vec3::ZERO,
             mass: 5.0,
             min_force: GENERIC_TANK_DEBRIS_MIN_FORCE,
@@ -94,32 +105,17 @@ impl HostOclCreateDebrisPlan {
     }
 }
 
-/// Parse disposition name list ("A B C") into bit flags.
-pub fn parse_disposition_names(names: &str) -> u32 {
-    let mut bits = 0u32;
-    for tok in names.split(|c: char| c.is_whitespace() || c == '|' || c == ',') {
-        let t = tok.trim();
-        if t.is_empty() {
-            continue;
-        }
-        let u = t.to_ascii_uppercase();
-        if let Some(i) = DEBRIS_DISPOSITION_NAMES_RESIDUAL
-            .iter()
-            .position(|n| n.eq_ignore_ascii_case(&u))
-        {
-            bits |= 1u32 << i;
-        }
-    }
-    bits
-}
-
 /// C++ ObjectCreationList.cpp:1101 SEND_IT_FLYING|SEND_IT_UP|RANDOM_FORCE
 /// is the only path that setAllowBouncing(true).
 pub fn disposition_enables_bounce(disposition: u32) -> bool {
-    disposition & (DEBRIS_SEND_IT_FLYING | DEBRIS_SEND_IT_UP | DEBRIS_RANDOM_FORCE) != 0
+    disposition
+        & (DebrisDisposition::SEND_IT_FLYING
+            | DebrisDisposition::SEND_IT_UP
+            | DebrisDisposition::RANDOM_FORCE)
+        != 0
 }
 
-/// Deterministic residual force magnitude from min/max + index salt.
+/// Deterministic force magnitude for an item in a fallback debris plan.
 pub fn force_magnitude_for_index(min_f: f32, max_f: f32, index: u32) -> f32 {
     if max_f <= min_f {
         return min_f.max(0.0);
@@ -128,7 +124,7 @@ pub fn force_magnitude_for_index(min_f: f32, max_f: f32, index: u32) -> f32 {
     min_f + (max_f - min_f) * t
 }
 
-/// Deterministic pitch degrees residual.
+/// Deterministic pitch in degrees for an item in a fallback debris plan.
 pub fn pitch_deg_for_index(min_p: f32, max_p: f32, index: u32) -> f32 {
     if max_p <= min_p {
         return min_p;
@@ -137,7 +133,7 @@ pub fn pitch_deg_for_index(min_p: f32, max_p: f32, index: u32) -> f32 {
     min_p + (max_p - min_p) * t
 }
 
-/// Build initial velocity residual from disposition + force peels.
+/// Resolve the initial velocity for a fallback debris plan.
 /// Host Y-up: pitch from horizontal (90 = straight up).
 pub fn debris_initial_velocity(
     disposition: u32,
@@ -149,26 +145,31 @@ pub fn debris_initial_velocity(
     max_pitch_deg: f32,
 ) -> Vec3 {
     let mut vel = Vec3::ZERO;
-    if disposition & DEBRIS_INHERIT_VELOCITY != 0 {
+    if disposition & DebrisDisposition::INHERIT_VELOCITY != 0 {
         vel += inherit_vel;
     }
 
     let mag = force_magnitude_for_index(min_force, max_force, index);
     let pitch = pitch_deg_for_index(min_pitch_deg, max_pitch_deg, index).to_radians();
 
-    // Azimuth residual from index (full circle).
+    // Spread items around a full circle by index.
     let yaw = (index as f32 * 2.399_963) % std::f32::consts::TAU;
 
-    if disposition & DEBRIS_SEND_IT_UP != 0 {
+    if disposition & DebrisDisposition::SEND_IT_UP != 0 {
         vel.y += mag;
     }
-    if disposition & (DEBRIS_SEND_IT_FLYING | DEBRIS_RANDOM_FORCE | DEBRIS_SEND_IT_OUT) != 0 {
+    if disposition
+        & (DebrisDisposition::SEND_IT_FLYING
+            | DebrisDisposition::RANDOM_FORCE
+            | DebrisDisposition::SEND_IT_OUT)
+        != 0
+    {
         let horiz = mag * pitch.cos();
         let vert = mag * pitch.sin();
         vel.x += horiz * yaw.cos();
         vel.z += horiz * yaw.sin();
         vel.y += vert;
-    } else if disposition & DEBRIS_FLOATING != 0 {
+    } else if disposition & DebrisDisposition::FLOATING != 0 {
         vel.y += mag * 0.15;
     }
 
@@ -176,17 +177,13 @@ pub fn debris_initial_velocity(
     vel
 }
 
-/// Spin rate rad/frame residual from deg/sec peel @ 30 FPS.
+/// Convert spin from degrees per second to radians per logic frame.
 pub fn spin_rate_rad_per_frame(spin_rate_deg: f32) -> f32 {
-    spin_rate_deg.to_radians() / 30.0
+    spin_rate_deg.to_radians() / crate::time::LOGIC_FRAMES_PER_SECOND
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub struct HostOclCreateDebrisRegistry {
-    pub plans: u32,
-    pub debris_spawned: u32,
-    pub flying_forces: u32,
-    pub last_disposition: u32,
+pub struct DebrisLodState {
     /// Receiving-session copy of GameLODManager's dynamic debris mask.
     /// The generation counter is session-owned and advances once per parsed
     /// CreateDebris item, after its authored model selection.
@@ -196,7 +193,7 @@ pub struct HostOclCreateDebrisRegistry {
     pub debris_generations: u32,
 }
 
-impl HostOclCreateDebrisRegistry {
+impl DebrisLodState {
     pub fn new() -> Self {
         Self::default()
     }
@@ -220,38 +217,6 @@ impl HostOclCreateDebrisRegistry {
         self.debris_generations = self.debris_generations.wrapping_add(1);
         (self.debris_generations & self.dynamic_skip_mask) != self.dynamic_skip_mask
     }
-    pub fn record_plan(&mut self, disposition: u32) {
-        self.plans = self.plans.saturating_add(1);
-        self.last_disposition = disposition;
-    }
-    pub fn record_spawn(&mut self, disposition: u32) {
-        self.debris_spawned = self.debris_spawned.saturating_add(1);
-        if disposition
-            & (DEBRIS_SEND_IT_FLYING | DEBRIS_SEND_IT_UP | DEBRIS_SEND_IT_OUT | DEBRIS_RANDOM_FORCE)
-            != 0
-        {
-            self.flying_forces = self.flying_forces.saturating_add(1);
-        }
-    }
-    pub fn honesty_host_path_ok(&self) -> bool {
-        self.plans > 0 || self.debris_spawned > 0
-    }
-}
-
-pub fn honesty_ocl_create_debris_residual_ok() -> bool {
-    parse_disposition_names("RANDOM_FORCE") == DEBRIS_RANDOM_FORCE
-        && parse_disposition_names("SEND_IT_FLYING INHERIT_VELOCITY")
-            == (DEBRIS_SEND_IT_FLYING | DEBRIS_INHERIT_VELOCITY)
-        && {
-            let v =
-                debris_initial_velocity(DEBRIS_SEND_IT_UP, Vec3::ZERO, 0, 10.0, 10.0, 90.0, 90.0);
-            v.y >= 9.0
-        }
-        && {
-            let p = HostOclCreateDebrisPlan::damaged_barrel();
-            p.disposition == DEBRIS_RANDOM_FORCE && (p.min_force - 5.0).abs() < 1e-5
-        }
-        && spin_rate_rad_per_frame(180.0) > 0.0
 }
 
 #[cfg(test)]
@@ -259,10 +224,20 @@ mod tests {
     use super::*;
 
     #[test]
-    fn disposition_parse_and_force() {
-        assert!(honesty_ocl_create_debris_residual_ok());
-        let v = debris_initial_velocity(
-            DEBRIS_SEND_IT_FLYING | DEBRIS_RANDOM_FORCE,
+    fn debris_force_and_bounce_follow_disposition() {
+        let upward = debris_initial_velocity(
+            DebrisDisposition::SEND_IT_UP,
+            Vec3::ZERO,
+            0,
+            10.0,
+            10.0,
+            90.0,
+            90.0,
+        );
+        assert_eq!(upward, Vec3::new(0.0, 10.0, 0.0));
+
+        let flying = debris_initial_velocity(
+            DebrisDisposition::SEND_IT_FLYING | DebrisDisposition::RANDOM_FORCE,
             Vec3::new(1.0, 0.0, 0.0),
             3,
             5.0,
@@ -270,12 +245,20 @@ mod tests {
             75.0,
             90.0,
         );
-        assert!(v.length() > 1.0);
-        let tank = HostOclCreateDebrisPlan::generic_tank_debris();
+        assert!(flying.length() > 1.0);
+
+        let tank = DebrisPlan::generic_tank_debris();
         assert_eq!(tank.count, 3);
-        assert!(tank.disposition & DEBRIS_SEND_IT_FLYING != 0);
+        assert!(DebrisDisposition::new(tank.disposition).has(DebrisDisposition::SEND_IT_FLYING));
         assert!(disposition_enables_bounce(tank.disposition));
-        assert!(disposition_enables_bounce(DEBRIS_RANDOM_FORCE));
-        assert!(!disposition_enables_bounce(DEBRIS_ON_GROUND_ALIGNED));
+        assert!(disposition_enables_bounce(DebrisDisposition::RANDOM_FORCE));
+        assert!(!disposition_enables_bounce(
+            DebrisDisposition::ON_GROUND_ALIGNED
+        ));
+
+        let barrel = DebrisPlan::damaged_barrel();
+        assert_eq!(barrel.disposition, DebrisDisposition::RANDOM_FORCE);
+        assert_eq!(barrel.min_force, 5.0);
+        assert_eq!(spin_rate_rad_per_frame(180.0), std::f32::consts::PI / 30.0);
     }
 }

@@ -67,26 +67,6 @@ fn unsupported_host_ocl_nugget_name(
     }
 }
 
-fn host_ocl_disposition_bits(
-    disposition: gamelogic::object_creation_list::DebrisDisposition,
-) -> u32 {
-    use gamelogic::object_creation_list::DebrisDisposition as D;
-    [
-        D::LIKE_EXISTING,
-        D::ON_GROUND_ALIGNED,
-        D::SEND_IT_FLYING,
-        D::SEND_IT_UP,
-        D::SEND_IT_OUT,
-        D::RANDOM_FORCE,
-        D::FLOATING,
-        D::INHERIT_VELOCITY,
-        D::WHIRLING,
-    ]
-    .into_iter()
-    .filter(|flag| disposition.has(*flag))
-    .fold(0, |bits, flag| bits | flag)
-}
-
 fn usable_ocl_particle_sys_name(name: &str) -> Option<&str> {
     let name = name.trim();
     (!name.is_empty() && !name.eq_ignore_ascii_case("none")).then_some(name)
@@ -648,8 +628,6 @@ impl GameLogic {
             Team::Neutral
         };
         let orientation = positional_orientation.unwrap_or(source_orientation);
-        self.ocl_create_debris_reg
-            .record_plan(host_ocl_disposition_bits(generic.disposition));
 
         let mut created = Vec::new();
         let count = u32::try_from(generic.debris_to_generate).unwrap_or_default();
@@ -662,7 +640,7 @@ impl GameLogic {
             let pick = usize::try_from(self.logic_random.next_int(0, upper))
                 .unwrap_or_default()
                 .min(generic.names.len() - 1);
-            if self.ocl_create_debris_reg.is_debris_skipped() {
+            if self.debris_lod.is_debris_skipped() {
                 continue;
             }
             let model_name = generic.names[pick].trim();
@@ -785,8 +763,6 @@ impl GameLogic {
                 object.shock_roll_rate = roll;
                 object.shock_pitch_rate = pitch;
             }
-            self.ocl_create_debris_reg
-                .record_spawn(host_ocl_disposition_bits(generic.disposition));
         }
         OclExecutionOutcome::success(created)
     }

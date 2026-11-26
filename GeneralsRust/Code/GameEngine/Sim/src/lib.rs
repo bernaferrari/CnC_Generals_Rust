@@ -2,10 +2,12 @@
 
 pub mod armor;
 pub mod damage;
+pub mod debris;
 pub mod kind_of;
 pub mod object;
 pub mod pathfinding;
 pub mod recurring;
 pub mod step;
+pub mod terrain;
 pub mod time;
 pub mod weapon;

@@ -377,9 +377,8 @@ pub struct GameLogic {
     /// C++ OCLSpecialPower residual counters.
     pub(super) ocl_special_power_reg:
         crate::game_logic::host_ocl_special_power::HostOclSpecialPowerRegistry,
-    /// C++ ObjectCreationList CreateDebris disposition residual.
-    pub(in crate::game_logic) ocl_create_debris_reg:
-        crate::game_logic::host_ocl_create_debris::HostOclCreateDebrisRegistry,
+    /// Dynamic debris LOD for this world’s parsed ObjectCreationList entries.
+    pub(in crate::game_logic) debris_lod: generals_sim::debris::DebrisLodState,
     /// C++ OCL FireWeaponNugget + AttackNugget residual.
     pub(super) ocl_fire_weapon_attack_reg:
         crate::game_logic::host_ocl_fire_weapon_attack::HostOclFireWeaponAttackRegistry,
