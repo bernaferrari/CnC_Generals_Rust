@@ -3,7 +3,7 @@
 use super::*;
 use crate::game_logic::{GameLogic, ObjectId, Team};
 use gamelogic::world::entities::{EntityId, EntityProductionItem, TemplateRef, Transform};
-use gamelogic::world::{GameWorld, PlayerId, WorldMutation};
+use gamelogic::world::{GameWorld, PlayerId};
 use std::collections::{HashMap, HashSet};
 
 impl GameWorldShadow {
@@ -202,29 +202,8 @@ impl GameWorldShadow {
                 catalog.as_deref(),
                 visibility,
             );
-            self.sync_weapon_slots_from_host(eid, obj);
         }
         drop(shroud);
-
-        // Containment is an observation of the receiving Main roster. Rebuild
-        // its indexed view after all IDs exist; never admit it back to Main.
-        self.world.contain_roster_mut().clear();
-        for (&host, object) in host_objects.registered() {
-            let occupants = object.contained_unit_ids();
-            if occupants.is_empty() {
-                continue;
-            }
-            let Some(&container) = self.host_to_entity.get(&host.0) else {
-                continue;
-            };
-            for occupant in occupants {
-                if let Some(&occupant) = self.host_to_entity.get(&occupant.0) {
-                    let _ = self.world.contain_roster_mut().enter(container, occupant);
-                }
-            }
-        }
-
-        self.sync_projectile_observations(logic);
 
         // Align frame.
         let target = logic.get_frame() as u64;

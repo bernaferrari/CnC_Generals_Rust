@@ -323,29 +323,6 @@ impl CombatSystem {
         )
     }
 
-    /// Flight integrate only (lifetime + pose). Hit/detonation behavior is
-    /// separate, so this helper cannot silently discard a parsed expiry.
-    pub fn integrate_projectiles_only(&mut self, dt: f32) -> usize {
-        let dt = if dt.is_finite() && dt > 0.0 {
-            dt
-        } else {
-            1.0 / 30.0
-        };
-        let ids: Vec<ObjectId> = self.projectiles.keys().copied().collect();
-        let mut stepped = 0usize;
-        for id in ids {
-            let Some(p) = self.projectiles.get_mut(&id) else {
-                continue;
-            };
-            // This pose-only caller has no target-status input. Defer parsed
-            // target-loss and detonation behavior to the complete combat pass.
-            if p.update(dt, true) == ProjectileStep::Alive {
-                stepped += 1;
-            }
-        }
-        stepped
-    }
-
     /// Refresh homing aim points from registered object positions.
     pub fn refresh_homing_aims(&mut self, objects: HostObjectRead<'_>) {
         for p in self.projectiles.values_mut() {

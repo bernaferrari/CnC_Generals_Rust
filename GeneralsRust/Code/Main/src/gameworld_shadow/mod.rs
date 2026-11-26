@@ -3,12 +3,10 @@
 use crate::game_logic::{GameLogic, ObjectId, Team};
 
 use gamelogic::world::entities::{EntityId, EntityProductionItem, TemplateRef, Transform};
-use gamelogic::world::{GameWorld, PlayerId, WorldMutation};
+use gamelogic::world::{GameWorld, PlayerId};
 use std::collections::{HashMap, HashSet};
 
 mod construct;
-mod projectile_observation;
-mod weapon_observation;
 
 /// Comparison world with a lookup from ObjectIDs to mirrored entities.
 #[derive(Debug)]

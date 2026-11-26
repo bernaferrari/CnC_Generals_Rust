@@ -459,10 +459,8 @@ impl Projectile {
 
     /// Whether an authored MissileAIUpdate has entered C++ `KILL_SELF`.
     ///
-    /// Do not infer this from lifetime alone: unresolved or other projectile
-    /// behaviors deliberately remain in normal flight.  The GameWorld bridge
-    /// uses this narrowly typed predicate to suspend only coupled pose
-    /// integration while the host retains the projectile for contrail delay.
+    /// This state belongs to the parsed missile behavior and can retain
+    /// the projectile long enough for its contrail to finish.
     pub(crate) fn is_missile_kill_self_holding(&self) -> bool {
         matches!(
             self.projectile_lifecycle,
@@ -477,9 +475,7 @@ impl Projectile {
     }
 
     fn elapsed_logic_frames(&self) -> u32 {
-        // Host combat is ordinarily stepped at exactly 30 Hz. Round the
-        // observer duration back to frames so GameWorld's sole flight step can
-        // write the same age back before host impact behavior resolves.
+        // Recover the elapsed logic frames from the combat clock at 30 Hz.
         (self.lifetime.max(0.0) * 30.0).round() as u32
     }
 

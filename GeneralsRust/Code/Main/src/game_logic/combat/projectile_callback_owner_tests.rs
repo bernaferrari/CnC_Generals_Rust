@@ -110,7 +110,7 @@ End"
             max_lifespan_frames: 1,
             detonate_calls_kill: false,
         });
-        queue_projectile_direct(&mut world.combat_system, shot);
+        queue_projectile(&mut world.combat_system, shot);
         world
             .materialize_owned_queued_projectiles_with_effects(&mut Default::default())
             .unwrap();
@@ -261,7 +261,7 @@ End
         max_lifespan_frames: 1,
         detonate_calls_kill: false,
     });
-    queue_projectile_direct(&mut world.combat_system, shot);
+    queue_projectile(&mut world.combat_system, shot);
     world
         .materialize_owned_queued_projectiles_with_effects(&mut Default::default())
         .unwrap();

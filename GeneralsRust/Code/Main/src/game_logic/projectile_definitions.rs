@@ -412,7 +412,7 @@ mod tests {
     #[test]
     fn same_name_queued_projectiles_use_each_receiving_catalog_without_process_seeds() {
         use crate::game_logic::combat::{
-            queue_projectile_direct, tests::lifecycle_test_pending_projectile,
+            queue_projectile, tests::lifecycle_test_pending_projectile,
         };
         let (mut owner, source, target) = world_with_kind_and_fuel(0, "NONE", 100);
         let (mut peer, other_source, other_target) = world_with_kind_and_fuel(0, "NONE", 2000);
@@ -428,7 +428,7 @@ mod tests {
                 Vec3::new(10000., 0., 0.),
             );
             pending.shooter_id = source;
-            queue_projectile_direct(&mut world.combat_system, pending);
+            queue_projectile(&mut world.combat_system, pending);
             world.drain_pending_projectiles_into_combat();
         }
         let lifecycle = |world: &GameLogic| {
@@ -466,7 +466,7 @@ mod tests {
         let mut absent =
             lifecycle_test_pending_projectile("PatriotMissile", None, Vec3::new(10000., 0., 0.));
         absent.shooter_id = source;
-        queue_projectile_direct(&mut owner.combat_system, absent);
+        queue_projectile(&mut owner.combat_system, absent);
         owner.drain_pending_projectiles_into_combat();
         let last = owner
             .combat_system

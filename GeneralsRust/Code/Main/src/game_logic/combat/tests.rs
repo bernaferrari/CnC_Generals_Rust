@@ -193,7 +193,7 @@ pub(in crate::game_logic) mod tests {
         let _combat_serial = combat_test_guard();
 
         let mut objects = crate::game_logic::HostObjectStore::new();
-        queue_projectile_direct(
+        queue_projectile(
             &mut combat,
             lifecycle_test_pending_projectile(
                 "RangerFlashBangGrenade",
@@ -262,7 +262,7 @@ pub(in crate::game_logic) mod tests {
         // duration up to 11 logic frames and invokes its detonation weapon.
         let mut fuel_combat = CombatSystem::new();
         let mut fuel_objects = crate::game_logic::HostObjectStore::new();
-        queue_projectile_direct(
+        queue_projectile(
             &mut fuel_combat,
             lifecycle_test_pending_projectile(
                 "DragonTankFlameProjectile",
@@ -334,7 +334,7 @@ pub(in crate::game_logic) mod tests {
                 5.0,
             ),
         );
-        queue_projectile_direct(
+        queue_projectile(
             &mut target_loss_combat,
             lifecycle_test_pending_projectile(
                 "PatriotMissile",
@@ -398,34 +398,39 @@ pub(in crate::game_logic) mod tests {
                 kill_self_delay_frames: 3,
             },
         ));
-        projectile.missile_kill_self_started_frame = Some(0);
-        projectile.lifetime = 2.0 / 30.0;
-        owner.frame = 2;
+        projectile.missile_kill_self_started_frame = Some(11);
+        projectile.lifetime = 11.0 / 30.0;
+        owner.frame = 11;
         assert!(projectile.is_missile_kill_self_holding());
         let initial = PresentationFrame::try_build_from_logic(&mut owner, 0).unwrap();
         let observed = initial.projectiles.iter().find(|row| row.id == id).unwrap();
-        assert_eq!(observed.lifetime, 2.0 / 30.0);
+        assert_eq!(observed.lifetime, 11.0 / 30.0);
         assert_eq!(
             owner.combat_system.projectile_mut(id).unwrap().lifetime,
-            2.0 / 30.0,
+            11.0 / 30.0,
             "observation must not integrate its receiving projectile"
         );
 
-        let removed = owner.combat_system.update_projectiles_with_countermeasures(
-            0.0,
-            &mut owner.objects,
-            None,
-            owner.frame,
-            &mut owner.health_events,
-            &mut owner.ownership_events,
-        );
-        assert!(
-            removed.is_empty(),
-            "KILL_SELF must hold until the authored third frame"
-        );
-        assert_eq!(owner.combat_system.projectile_count(), 1);
-        assert!(owner.combat_system.take_impact_fx().is_empty());
-        owner.frame = 3;
+        for frame in 12..14 {
+            owner.frame = frame;
+            let removed = owner.combat_system.update_projectiles_with_countermeasures(
+                1.0 / 30.0,
+                &mut owner.objects,
+                None,
+                frame,
+                &mut owner.health_events,
+                &mut owner.ownership_events,
+            );
+            assert!(removed.is_empty());
+            assert!(owner.combat_system.take_impact_fx().is_empty());
+            let current = PresentationFrame::try_build_from_logic(&mut owner, 0).unwrap();
+            let held = current.projectiles.iter().find(|row| row.id == id).unwrap();
+            assert_eq!(held.position, observed.position);
+            assert_eq!(held.target_position, observed.target_position);
+            assert_eq!(held.velocity, observed.velocity);
+            assert!((held.lifetime - frame as f32 / 30.0).abs() < 1e-6);
+        }
+        owner.frame = 14;
         let removed = owner.combat_system.update_projectiles_with_countermeasures(
             1.0 / 30.0,
             &mut owner.objects,
@@ -442,7 +447,7 @@ pub(in crate::game_logic) mod tests {
         );
         let retired = PresentationFrame::try_build_from_logic(&mut owner, 0).unwrap();
         assert!(retired.projectiles.iter().all(|row| row.id != id));
-        assert_eq!(observed.lifetime, 2.0 / 30.0);
+        assert_eq!(observed.lifetime, 11.0 / 30.0);
         assert_eq!(owner.combat_system.projectile_count(), 0);
     }
 
@@ -2707,7 +2712,7 @@ pub(in crate::game_logic) mod tests {
         );
         pending.speed = parsed.projectile_speed;
         pending.speed_unit = ProjectileSpeedUnit::DistancePerLogicFrame;
-        queue_projectile_direct(&mut combat, pending);
+        queue_projectile(&mut combat, pending);
 
         let mut objects = crate::game_logic::HostObjectStore::new();
         drain_pending_projectiles(
@@ -2792,7 +2797,7 @@ pub(in crate::game_logic) mod tests {
         pending.shooter_pos = start;
         pending.speed = parsed.projectile_speed;
         pending.speed_unit = ProjectileSpeedUnit::DistancePerLogicFrame;
-        queue_projectile_direct(&mut combat, pending);
+        queue_projectile(&mut combat, pending);
 
         let mut objects = crate::game_logic::HostObjectStore::new();
         drain_pending_projectiles(
@@ -2854,7 +2859,7 @@ pub(in crate::game_logic) mod tests {
         pending.scale_weapon_speed = parsed.scale_weapon_speed;
         pending.attack_range = parsed.range;
         pending.min_attack_range = parsed.min_range;
-        queue_projectile_direct(&mut combat, pending);
+        queue_projectile(&mut combat, pending);
 
         let objects = crate::game_logic::HostObjectStore::new();
         drain_pending_projectiles(
@@ -2882,7 +2887,7 @@ pub(in crate::game_logic) mod tests {
             None,
             Vec3::new(50.0, 0.0, 0.0),
         );
-        queue_projectile_direct(&mut combat, pending);
+        queue_projectile(&mut combat, pending);
         let objects = crate::game_logic::HostObjectStore::new();
         drain_pending_projectiles(
             &mut combat,
@@ -2920,7 +2925,7 @@ pub(in crate::game_logic) mod tests {
         let mut objects = crate::game_logic::HostObjectStore::new();
         objects.insert(target, make_obj("Target", target, Team::USA, position, &[], 1.0));
         let mut combat = CombatSystem::new();
-        queue_projectile_direct(
+        queue_projectile(
             &mut combat,
             lifecycle_test_pending_projectile("PatriotMissile", Some(target), position),
         );
@@ -2952,7 +2957,7 @@ pub(in crate::game_logic) mod tests {
         let mut pending = lifecycle_test_pending_projectile("PatriotMissile", None, destination);
         pending.speed = parsed.projectile_speed;
         pending.speed_unit = ProjectileSpeedUnit::DistancePerLogicFrame;
-        queue_projectile_direct(&mut combat, pending);
+        queue_projectile(&mut combat, pending);
 
         let objects = crate::game_logic::HostObjectStore::new();
         drain_pending_projectiles(
@@ -3005,7 +3010,7 @@ pub(in crate::game_logic) mod tests {
             ),
         );
         let hp0 = objects.get(&ObjectId(502)).unwrap().health.current;
-        queue_projectile_direct(
+        queue_projectile(
             &mut combat,
             projectileless_pending(parsed.projectile_speed, Vec3::new(100.0, 0.0, 0.0), NAME),
         );
@@ -3080,7 +3085,7 @@ pub(in crate::game_logic) mod tests {
             ),
         );
         let hp0 = objects.get(&ObjectId(502)).unwrap().health.current;
-        queue_projectile_direct(
+        queue_projectile(
             &mut combat,
             projectileless_pending(10.0, Vec3::new(5.0, 0.0, 0.0), "Hq0c9b4CombatRifleNow"),
         );

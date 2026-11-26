@@ -63,7 +63,7 @@ fn encoded_pending_missile_keeps_accepted_launch_pose_after_shooter_is_destroyed
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         ).unwrap();
     let transform = shot.source_context.as_ref().unwrap().launch_transform.unwrap();
-    crate::game_logic::combat::queue_projectile_direct(&mut source_world.combat_system, shot);
+    crate::game_logic::combat::queue_projectile(&mut source_world.combat_system, shot);
     source_world.set_fixture_object_position(source, Vec3::new(35.0, 0.0, 20.0));
     source_world.destroy_object(source).unwrap();
     source_world.process_destroy_list_if_needed();
@@ -106,7 +106,7 @@ fn nonfinite_queued_launch_is_rejected_before_encoded_or_world_restore() {
     let mut captured = SnapshotBuilder::new().create_world_snapshot(&source_world).unwrap();
     shot.source_context.as_mut().unwrap().launch_transform =
         Some(glam::Mat4::from_cols_array(&[f32::INFINITY; 16]));
-    crate::game_logic::combat::queue_projectile_direct(&mut source_world.combat_system, shot);
+    crate::game_logic::combat::queue_projectile(&mut source_world.combat_system, shot);
     assert!(SnapshotBuilder::new().create_world_snapshot(&source_world).is_err());
     // Model an encoded corrupt record without bypassing capture validation.
     captured.pending_combat = source_world.combat_system.pending_combat_snapshot();

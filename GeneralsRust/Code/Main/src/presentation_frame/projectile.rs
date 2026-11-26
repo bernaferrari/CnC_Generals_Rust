@@ -99,10 +99,6 @@ pub struct PresentationProjectile {
 }
 
 impl PresentationProjectile {
-    pub fn from_combat(p: &crate::game_logic::combat::Projectile) -> Self {
-        Self::from_combat_with_model(p, None)
-    }
-
     pub(super) fn from_receiving_combat(
         p: &crate::game_logic::combat::Projectile,
         logic: &GameLogic,

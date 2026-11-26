@@ -29,6 +29,7 @@ mod parachute_and_rebuild;
 mod phase3_produce;
 mod pilots_and_movement;
 mod production_and_mobs;
+mod projectile_publication_tests;
 mod projectiles_air;
 mod radar_owner;
 mod scatter_and_chain;

@@ -124,7 +124,7 @@ fn queue_shot(
     pending.damage = 40.0;
     pending.damage_type = DamageType::Bullet;
     pending.detonation_fx_name.clear();
-    queue_projectile_direct(&mut world.combat_system, pending);
+    queue_projectile(&mut world.combat_system, pending);
 }
 
 /// Exercise the actual materialization boundary without publishing the clock.

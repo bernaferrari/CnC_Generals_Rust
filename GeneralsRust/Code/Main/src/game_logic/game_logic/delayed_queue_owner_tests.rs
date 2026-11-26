@@ -77,7 +77,7 @@ fn queue_authored_shot(
     pending.detonation_fx_name.clear();
     pending.historic_weapon_key = name;
     let core_before = crate::game_logic::combat::leftover_delayed_damage_count_for_test();
-    queue_projectile_direct(&mut world.combat_system, pending);
+    queue_projectile(&mut world.combat_system, pending);
     let frame = world.frame;
     materialize(world, frame);
     assert_eq!(

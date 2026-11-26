@@ -130,7 +130,7 @@ Object CallbackTarget\nKindOf = VEHICLE\nBody = ActiveBody Body\nMaxHealth = 100
     let context = shot.source_context.as_mut().unwrap();
     context.source_owner_player_id = Some(0);
     context.launch_transform = Some(glam::Mat4::from_translation(glam::Vec3::Y * 30.0));
-    crate::game_logic::combat::queue_projectile_direct(&mut world.combat_system, shot.clone());
+    crate::game_logic::combat::queue_projectile(&mut world.combat_system, shot.clone());
     world.destroy_object(target).unwrap();
     world.process_destroy_list_if_needed_with_effects_checked(&mut Default::default()).unwrap();
     assert!(world.host_object(target).is_none(), "queued target is physically removed");

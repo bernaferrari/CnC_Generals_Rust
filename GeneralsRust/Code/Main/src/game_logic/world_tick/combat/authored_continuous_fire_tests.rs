@@ -67,6 +67,14 @@ fn fired_slot_drives_threshold_and_coast_in_each_receiving_world() {
     assert_eq!(air.host_object(a).unwrap().consecutive_shots_at_target, 3);
     assert_eq!(air.host_object(a).unwrap().continuous_fire_level, 0);
     assert_eq!(air.host_object(a).unwrap().continuous_fire_coast_until_frame, 162);
+    for (world, id, level, coast_until) in [(&mut ground, g, 1, 132), (&mut air, a, 0, 162)] {
+        let frame = crate::presentation_frame::PresentationFrame::try_build_from_logic(world, 0)
+            .unwrap();
+        let row = frame.objects.iter().find(|row| row.id == id).unwrap();
+        assert_eq!(row.continuous_fire_level, level);
+        assert_eq!(row.continuous_fire_consecutive, 3);
+        assert_eq!(row.continuous_fire_coast_until_frame, coast_until);
+    }
     shot(&mut air, a, 103);
     assert_eq!(air.host_object(a).unwrap().continuous_fire_level, 1);
 

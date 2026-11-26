@@ -803,7 +803,7 @@ fn pending_shell_bonus_after_load_waits_for_receiving_materialization_phase() {
         Some(&source_world.projectile_definitions),
         &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
     ).expect("authored shell accepted");
-    crate::game_logic::combat::queue_projectile_direct(&mut source_world.combat_system, accepted);
+    crate::game_logic::combat::queue_projectile(&mut source_world.combat_system, accepted);
     source_world
         .materialize_owned_queued_projectiles_with_effects(&mut Default::default())
         .unwrap();

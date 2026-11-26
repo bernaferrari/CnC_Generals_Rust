@@ -3,7 +3,7 @@
 use super::*;
 use crate::game_logic::{GameLogic, ObjectId, Team};
 use gamelogic::world::entities::{EntityId, EntityProductionItem, TemplateRef, Transform};
-use gamelogic::world::{GameWorld, PlayerId, WorldMutation};
+use gamelogic::world::{GameWorld, PlayerId};
 use std::collections::{HashMap, HashSet};
 
 fn observe_production_item(
@@ -401,43 +401,8 @@ impl GameWorldShadow {
         e.exit_delay_remaining = obj.production_exit_state.delay_frames as f32 / 30.0;
         e.exit_burst_remaining = obj.production_exit_state.burst_remaining;
         e.queue_exit_state_initialized = obj.production_exit_state.initialized;
-        // Last-fire state is the object's own record (it survives a weapon
-        // swap or an unarmed object), so it is projected outside the weapon.
-        e.last_fire_victim_host = obj.last_fire_victim_host;
-        e.last_fire_slot = obj.last_fire_slot;
-        e.last_fire_damage = obj.last_fire_damage;
-        e.last_fire_range = obj.last_fire_range;
-        e.last_fire_sim_time = obj.last_fire_sim_time;
-        e.last_fire_frame = obj.last_fire_frame;
-        e.fire_intent_count = obj.fire_intent_count;
-        e.has_weapon = obj.weapon.is_some();
         e.leech_range_active_primary = obj.leech_range_active_primary;
         e.leech_range_active_secondary = obj.leech_range_active_secondary;
-        if let Some(w) = obj.weapon.as_ref() {
-            e.weapon_damage = w.damage;
-            e.weapon_range = w.range;
-            e.weapon_min_range = w.min_range;
-            e.weapon_reload_time = w.reload_time;
-            e.weapon_clip_reload_time = w.clip_reload_time;
-            e.weapon_last_fire_time = w.last_fire_time;
-            e.weapon_ammo = w.ammo.unwrap_or(u32::MAX);
-            e.weapon_clip_size = w.clip_size;
-            e.weapon_can_target_air = w.can_target_air;
-            e.weapon_can_target_ground = w.can_target_ground;
-            e.weapon_projectile_speed = w.projectile_speed;
-        } else {
-            e.weapon_damage = 0.0;
-            e.weapon_range = 0.0;
-            e.weapon_min_range = 0.0;
-            e.weapon_reload_time = 0.0;
-            e.weapon_clip_reload_time = 0.0;
-            e.weapon_ammo = u32::MAX;
-            e.weapon_clip_size = 0;
-            e.weapon_can_target_air = false;
-            e.weapon_can_target_ground = true;
-            e.weapon_projectile_speed = 0.0;
-        }
-        e.has_secondary_weapon = obj.secondary_weapon.is_some();
         e.move_max_speed = obj.movement.max_speed;
         e.velocity = [
             obj.movement.velocity.x,
@@ -1078,16 +1043,6 @@ impl GameWorldShadow {
         e.path_waypoints.clear();
         e.path_waypoints
             .extend(obj.movement.path.iter().take(16).map(|p| [p.x, p.y, p.z]));
-        e.secondary_weapon_range = obj
-            .secondary_weapon
-            .as_ref()
-            .map(|w| w.range)
-            .unwrap_or(0.0);
-        e.secondary_weapon_damage = obj
-            .secondary_weapon
-            .as_ref()
-            .map(|w| w.damage)
-            .unwrap_or(0.0);
         e.display_name.clone_from(&obj.name);
         crate::assets::mesh_asset_resolve::update_model_key_from_catalog(
             &mut e.model_key,
@@ -1130,8 +1085,6 @@ impl GameWorldShadow {
             u16::MAX
         };
         e.passengers_allowed_to_fire = containment.passengers_allowed_to_fire;
-        e.armed_riders_upgrade_weapon_set = obj.armed_riders_upgrade_weapon_set;
-        e.weapon_set_player_upgrade = obj.test_weapon_condition(3);
         e.second_life = obj.armor_set_second_life;
         e.is_battle_bus_transport = obj.is_battle_bus_transport;
         e.is_technical_transport = obj.is_technical_transport;
@@ -1158,7 +1111,6 @@ impl GameWorldShadow {
         e.kind_of_bits = Self::host_kind_of_bits(obj);
         e.cheer_timer = obj.cheer_timer;
         e.overcharge_enabled = obj.overcharge_enabled;
-        e.active_weapon_slot = obj.active_weapon_slot;
         e.weapon_fire_status = obj.weapon_fire_status as u8;
         e.guard_radius = obj.guard_radius;
         e.applied_upgrade_count = obj.applied_upgrades.len().min(u16::MAX as usize) as u16;
@@ -1198,21 +1150,15 @@ impl GameWorldShadow {
         e.camo_heat_vision_opacity = obj.pending_second_material_pass().unwrap_or(0.0);
         e.weapon_bonus_enthusiastic = obj.weapon_bonus_enthusiastic;
         e.weapon_bonus_subliminal = obj.weapon_bonus_subliminal;
-        e.weapon_bonus_horde = obj.weapon_bonus_horde;
-        e.weapon_bonus_nationalism = obj.weapon_bonus_nationalism;
         e.weapon_bonus_fanaticism = obj.weapon_bonus_fanaticism;
         e.last_horde_refresh_frame = obj.last_horde_refresh_frame;
         e.horde_next_wake_frame = obj.horde_next_wake_frame;
         e.horde_wake_initialized = obj.horde_wake_initialized;
 
-        e.weapon_bonus_frenzy = obj.weapon_bonus_frenzy;
-        e.weapon_bonus_frenzy_level = obj.weapon_bonus_frenzy_level;
         e.weapon_bonus_battle_plan_bombardment = obj.weapon_bonus_battle_plan_bombardment;
         e.weapon_bonus_battle_plan_hold_the_line = obj.weapon_bonus_battle_plan_hold_the_line;
         e.weapon_bonus_battle_plan_search_and_destroy =
             obj.weapon_bonus_battle_plan_search_and_destroy;
-        e.continuous_fire_level = obj.continuous_fire_level;
-        e.continuous_fire_consecutive = obj.consecutive_shots_at_target.min(u16::MAX as u32) as u16;
         e.faerie_fire_until_frame = obj.faerie_fire_until_frame;
         e.is_humvee_transport = obj.is_humvee_transport;
         e.is_listening_outpost_transport = obj.is_listening_outpost_transport;
@@ -1351,8 +1297,6 @@ impl GameWorldShadow {
         e.camo_friendly_opacity = obj.camo_friendly_opacity;
         e.camo_stealth_look = obj.camo_stealth_look as u8;
         e.has_mine_data = obj.mine_data.is_some();
-        e.weapon_bonus_frenzy_until_frame = obj.weapon_bonus_frenzy_until_frame;
-        e.continuous_fire_coast_until_frame = obj.continuous_fire_coast_until_frame;
         e.pre_attack_target_host = obj.pre_attack_target.map(|id| id.0).unwrap_or(0);
         e.pre_attack_ready_at = obj.pre_attack_ready_at;
         e.consecutive_shots_at_target = obj.consecutive_shots_at_target;
@@ -1364,7 +1308,6 @@ impl GameWorldShadow {
         e.maintain_pos = obj.maintain_pos.map(|p| [p.x, p.y, p.z]);
         e.temporary_move_frames = obj.temporary_ai_move_remaining(logic.get_frame());
         e.group_speed_factor = obj.group_speed_factor;
-        e.battle_plan_sight_scalar_applied = obj.battle_plan_sight_scalar_applied;
         // Keep template name if host renamed (rare).
         if e.template.name != obj.template_name {
             e.template = TemplateRef::new(obj.template_name.clone());

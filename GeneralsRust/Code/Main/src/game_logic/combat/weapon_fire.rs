@@ -602,12 +602,6 @@ pub fn queue_projectile(combat: &mut CombatSystem, mut pending: PendingProjectil
     combat.pending_projectiles.push(pending);
 }
 
-/// Unconditional enqueue for shadow fire-spawn apply (bypasses authority gate).
-pub fn queue_projectile_direct(combat: &mut CombatSystem, mut pending: PendingProjectile) {
-    stamp_pending_projectile_lifecycle(&mut pending);
-    combat.pending_projectiles.push(pending);
-}
-
 impl CombatSystem {
     pub(in crate::game_logic) fn take_pending_projectiles(&mut self) -> Vec<PendingProjectile> {
         std::mem::take(&mut self.pending_projectiles)
