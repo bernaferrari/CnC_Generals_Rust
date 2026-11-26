@@ -10,9 +10,9 @@ fn dictionary_parallel(c: &mut Criterion) {
         b.iter_batched(
             || data.clone(),
             |input| {
-                let compressed = compress_parallel(&input, CompressionLevel::Best, 32 * 1024)
+                let compressed = compress_parallel(&input, CompressionLevel::High, 32 * 1024)
                     .expect("parallel compression should succeed");
-                criterion::black_box(compressed);
+                std::hint::black_box(compressed);
             },
             BatchSize::LargeInput,
         );
