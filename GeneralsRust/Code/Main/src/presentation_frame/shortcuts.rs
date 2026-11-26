@@ -4,7 +4,7 @@ use game_client::gui::control_bar::{
     CommandAvailability, CommandOption, ReceivingShortcutEntry, ReceivingShortcutSnapshot,
 };
 use game_engine::common::rts::SCIENCE_INVALID;
-use gamelogic::commands::command::CommandType;
+use game_engine::common::message_stream::CommandType;
 
 pub(super) fn freeze(logic: &GameLogic, player_id: u32) -> ReceivingShortcutSnapshot {
     let Some(player) = logic.get_player(player_id) else {

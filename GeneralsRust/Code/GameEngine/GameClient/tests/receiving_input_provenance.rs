@@ -15,7 +15,7 @@ use game_client_rust::gui::window_manager::{ControlBarInputContext, WindowManage
 use game_client_rust::gui::{GameWindow, WindowMessage, WindowWidget};
 use game_client_rust::input::Mouse;
 use game_engine::common::name_key_generator::NameKeyGenerator;
-use gamelogic::commands::CommandType;
+use game_engine::common::message_stream::CommandType;
 use gamelogic::system::engine_stores::{new_world_services, with_world_services};
 use std::{cell::RefCell, rc::Rc};
 type Window = Rc<RefCell<GameWindow>>;

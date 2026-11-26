@@ -60,6 +60,7 @@ dashmap = {workspace = true}
 
 # System information
 num_cpus = {workspace = true}
+num_enum = { workspace = true }
 
 # Compression
 lz4 = {workspace = true, optional = true}

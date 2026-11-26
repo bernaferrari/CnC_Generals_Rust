@@ -4,7 +4,7 @@
 //! indexed by host enum discriminant. Serde keeps the historical sequence-of
 //! enum schema.
 
-use super::host_types::KindOf;
+use super::KindOf;
 use serde::de::{SeqAccess, Visitor};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::borrow::Borrow;
@@ -129,7 +129,8 @@ impl KindOfSet {
         }
     }
 
-    pub(crate) fn presentation_bits(self) -> u32 {
+    /// Pack the established 32-bit presentation bank.
+    pub fn presentation_bits(self) -> u32 {
         let (bank, prefix) = &PRESENTATION_KIND_BITS;
         let mut remaining = self.bits & prefix;
         let mut bits = 0;
@@ -140,7 +141,7 @@ impl KindOfSet {
         bits
     }
 
-    pub(crate) fn presentation_bank_kinds(mut bits: u32) -> impl Iterator<Item = KindOf> {
+    fn presentation_bank_kinds(mut bits: u32) -> impl Iterator<Item = KindOf> {
         std::iter::from_fn(move || {
             if bits == 0 {
                 return None;
@@ -151,7 +152,8 @@ impl KindOfSet {
         })
     }
 
-    pub(crate) fn presentation_order(self) -> impl Iterator<Item = KindOf> {
+    /// Iterate the presentation bank first, with other kinds in save ordinal order.
+    pub fn presentation_order(self) -> impl Iterator<Item = KindOf> {
         let prefix = Self::presentation_bank_kinds(self.presentation_bits());
         let suffix = KindOfSetIter {
             remaining: self.bits & !PRESENTATION_KIND_BITS.1,
@@ -322,11 +324,13 @@ mod tests {
         .into_iter()
         .collect();
         assert_eq!(set.presentation_bits(), (1 << 2) | (1 << 4) | (1 << 30));
-        assert!(KindOfSet::presentation_bank_kinds(set.presentation_bits()).eq([
-            KindOf::Vehicle,
-            KindOf::Projectile,
-            KindOf::Dozer,
-        ]));
+        assert!(
+            KindOfSet::presentation_bank_kinds(set.presentation_bits()).eq([
+                KindOf::Vehicle,
+                KindOf::Projectile,
+                KindOf::Dozer,
+            ])
+        );
         assert!(set.presentation_order().eq([
             KindOf::Vehicle,
             KindOf::Projectile,

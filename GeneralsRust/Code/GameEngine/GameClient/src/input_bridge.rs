@@ -43,7 +43,7 @@ use std::collections::HashMap;
 use std::time::Instant;
 
 use crate::input::{InputEvent, KeyCode, KeyModifiers, MouseButton};
-use gamelogic::commands::CommandType;
+use game_engine::common::message_stream::CommandType;
 
 // ---------------------------------------------------------------------------
 // GameCommand -- what the bridge produces for the game logic layer

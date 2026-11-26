@@ -2063,11 +2063,11 @@ impl GameLogic {
 
     /// Leftover `ScriptActionDispatcher::command_button_is_hunt_capable` switch.
     pub(super) fn leftover_command_type_is_hunt_capable(
-        command_type: gamelogic::commands::command::CommandType,
+        command_type: game_engine::common::message_stream::CommandType,
         has_special_power_template: bool,
         options_bits: u32,
     ) -> bool {
-        use gamelogic::commands::command::CommandType;
+        use game_engine::common::message_stream::CommandType;
         use gamelogic::object::update::special_power_update::SpecialPowerCommandOption;
         match command_type {
             CommandType::DoSpecialPower => {

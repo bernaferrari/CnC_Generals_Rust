@@ -35,7 +35,7 @@ use game_engine::common::ascii_string::AsciiString;
 use game_engine::common::audio::{AudioInstance, AudioManager};
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::{Snapshot as XferSnapshotTrait, Xfer, XferMode, XferStatus};
-use gamelogic::commands::command::CommandType;
+use game_engine::common::message_stream::CommandType;
 use gamelogic::helpers::{
     TerrainTreeRegistration, TheFXList, TheGameLogic, TheScriptEngine,
 };
@@ -2530,7 +2530,7 @@ pub fn create_mouse() -> crate::input::Mouse {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use gamelogic::commands::command::CommandType;
+    use game_engine::common::message_stream::CommandType;
 
     #[test]
     fn terrain_visual_bridge_fallback_normal_is_z_up_like_cpp_world() {

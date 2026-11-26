@@ -3307,6 +3307,11 @@
             {
               "cargo_reachable": true,
               "classification": "implementation",
+              "path": "GeneralsRust/Code/GameEngine/Common/src/common/message_stream/command_type.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "implementation",
               "path": "GeneralsRust/Code/GameEngine/Common/src/common/message_stream/game_message.rs"
             },
             {
@@ -16089,13 +16094,19 @@
         {
           "blockers": [
             "unreviewed_mapping",
-            "unreviewed_symbol_ownership"
+            "unreviewed_symbol_ownership",
+            "unreviewed_source_range_ownership"
           ],
           "candidate_destinations": [
             {
               "cargo_reachable": true,
               "classification": "implementation",
-              "path": "GeneralsRust/Code/GameEngine/Common/src/common/system/kind_of.rs"
+              "path": "GeneralsRust/Code/GameEngine/Sim/src/kind_of/mod.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "implementation",
+              "path": "GeneralsRust/Code/GameEngine/Sim/src/kind_of/set.rs"
             }
           ],
           "entry_id": "game_engine:Source/Common/System/KindOf.cpp",
@@ -187676,7 +187687,7 @@
       ]
     }
   ],
-  "provenance_input_digest": "9bae519438aabbfe9a4e6de9193dceb2f951bbeb99ace5c47bf218e67998aa17",
+  "provenance_input_digest": "c2c7a72e24be096ec64246059df3d084babc0eaec77ef92a6a3f90f867e1a554",
   "schema_version": 1,
   "summary": {
     "maximum_packet_size": 15,

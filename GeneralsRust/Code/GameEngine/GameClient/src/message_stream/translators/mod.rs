@@ -47,7 +47,7 @@ pub(in crate::message_stream::translators) use gamelogic::action_manager::{
 pub(in crate::message_stream::translators) use gamelogic::attack::{
     AbleToAttackType, CanAttackResult,
 };
-pub(in crate::message_stream::translators) use gamelogic::commands::command::CommandType;
+pub(in crate::message_stream::translators) use game_engine::common::message_stream::CommandType;
 pub(in crate::message_stream::translators) use gamelogic::commands::get_selection_manager;
 pub(in crate::message_stream::translators) use gamelogic::common::Coord3D as LogicCoord3D;
 pub(in crate::message_stream::translators) use gamelogic::common::{

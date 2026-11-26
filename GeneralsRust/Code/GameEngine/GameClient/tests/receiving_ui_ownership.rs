@@ -4,7 +4,7 @@ use game_client_rust::core::subsystems::{InGameUISubsystem, RadarPingEvent, Rada
 use game_client_rust::helpers::PendingCommand;
 use game_client_rust::message_stream::game_message::ICoord2D;
 use game_engine::{Snapshot, Xfer};
-use gamelogic::commands::command::CommandType;
+use game_engine::common::message_stream::CommandType;
 
 fn client(template: &str, message: &str) -> GameClient {
     let mut client = GameClient::new().expect("construct inert client");

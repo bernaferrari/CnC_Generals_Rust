@@ -41,7 +41,7 @@ use game_engine::common::ini::get_anim2d_collection;
 use game_engine::common::ini::ini_language::{FontDesc, get_global_language_read};
 use game_engine::common::thing::get_thing_factory;
 use gamelogic::action_manager::ActionManager;
-use gamelogic::commands::command::CommandType;
+use game_engine::common::message_stream::CommandType;
 use gamelogic::commands::selection::{SelectionType, get_selection_manager};
 use gamelogic::common::CommandSourceType;
 use gamelogic::common::audio::AudioEventRts;

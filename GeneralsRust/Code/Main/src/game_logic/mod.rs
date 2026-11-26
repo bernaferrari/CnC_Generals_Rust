@@ -70,10 +70,9 @@ pub(crate) fn evaluate_and_execute_scripts_for_test(logic: &mut game_logic::Game
 }
 
 mod host_types;
-mod kind_of_set;
 pub(crate) mod host_upgrade_rules;
 mod special_power_notifications;
-pub use kind_of_set::KindOfSet;
+pub use generals_sim::kind_of::KindOfSet;
 pub use host_types::*;
 pub(crate) use special_power_notifications::ScriptEventRecipient;
 // Child modules (`use super::*`) historically saw these parent imports.

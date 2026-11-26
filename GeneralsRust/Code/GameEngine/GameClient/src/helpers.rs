@@ -570,7 +570,7 @@ pub struct PendingSpecialPower {
 
 #[derive(Debug, Clone)]
 pub struct PendingCommand {
-    pub command_type: gamelogic::commands::command::CommandType,
+    pub command_type: game_engine::common::message_stream::CommandType,
     pub options: u32,
     pub source_object_id: u32,
     pub cursor_name: String,
@@ -998,7 +998,7 @@ impl crate::core::subsystems::InGameUISubsystem {
     }
     pub fn set_pending_command(
         &mut self,
-        command_type: gamelogic::commands::command::CommandType,
+        command_type: game_engine::common::message_stream::CommandType,
         options: u32,
         source_object_id: u32,
     ) {
@@ -1022,7 +1022,7 @@ impl crate::core::subsystems::InGameUISubsystem {
     }
     pub fn set_pending_command_with_visual(
         &mut self,
-        command_type: gamelogic::commands::command::CommandType,
+        command_type: game_engine::common::message_stream::CommandType,
         options: u32,
         source_object_id: u32,
         cursor_name: String,

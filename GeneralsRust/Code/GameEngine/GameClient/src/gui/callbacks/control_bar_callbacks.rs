@@ -27,7 +27,7 @@ use crate::message_stream::{GameMessage, GameMessageType};
 use game_engine::common::ini::get_global_data;
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::system::radar::{ICoord2D, RADAR_CELL_HEIGHT, RADAR_CELL_WIDTH};
-use gamelogic::commands::command::CommandType;
+use game_engine::common::message_stream::CommandType;
 use gamelogic::commands::selection::get_selection_manager;
 use gamelogic::helpers::{TheGameLogic, TheScriptEngine};
 use gamelogic::player::ThePlayerList;

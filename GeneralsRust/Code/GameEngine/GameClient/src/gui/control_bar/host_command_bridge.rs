@@ -9,7 +9,7 @@
 
 use std::collections::VecDeque;
 
-use gamelogic::commands::CommandType;
+use game_engine::common::message_stream::CommandType;
 
 use super::{CommandButton, CommandSourceType, ControlBarContext, QueueProductionType};
 

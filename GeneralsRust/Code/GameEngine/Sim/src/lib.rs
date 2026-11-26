@@ -2,6 +2,7 @@
 
 pub mod armor;
 pub mod damage;
+pub mod kind_of;
 pub mod object;
 pub mod pathfinding;
 pub mod recurring;

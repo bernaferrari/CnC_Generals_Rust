@@ -3588,6 +3588,7 @@ dependencies = [
  "minimp3",
  "nix 0.31.3",
  "num_cpus",
+ "num_enum",
  "once_cell",
  "parking_lot",
  "pollster 1.0.1",
@@ -3688,7 +3689,6 @@ dependencies = [
  "lazy_static",
  "log",
  "math_utilities",
- "num_enum",
  "once_cell",
  "parking_lot",
  "proptest",
@@ -3720,6 +3720,7 @@ dependencies = [
  "glam",
  "log",
  "serde",
+ "serde_json",
  "thiserror 2.0.20",
 ]
 

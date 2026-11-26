@@ -845,13 +845,13 @@ impl ControlBar {
                 let attack_move = command
                     .map(|button| {
                         button.get_command_type()
-                            == gamelogic::commands::CommandType::DoAttackMoveTo
+                            == game_engine::common::message_stream::CommandType::DoAttackMoveTo
                     })
                     .unwrap_or(false)
                     || common
                         .map(|button| {
                             button.get_command_type()
-                                == gamelogic::commands::CommandType::DoAttackMoveTo
+                                == game_engine::common::message_stream::CommandType::DoAttackMoveTo
                         })
                         .unwrap_or(false);
 

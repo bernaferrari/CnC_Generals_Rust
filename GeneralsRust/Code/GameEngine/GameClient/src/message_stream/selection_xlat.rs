@@ -2425,7 +2425,7 @@ mod tests {
 
             let _guard = test_state_lock();
 
-            use gamelogic::commands::command::CommandType;
+            use game_engine::common::message_stream::CommandType;
 
             let mut translator = SelectionTranslator::new();
             translator.current_selection.insert(7);
@@ -2454,7 +2454,7 @@ mod tests {
 
             let _guard = test_state_lock();
 
-            use gamelogic::commands::command::CommandType;
+            use game_engine::common::message_stream::CommandType;
 
             let mut translator = SelectionTranslator::new();
             translator.current_selection.insert(7);

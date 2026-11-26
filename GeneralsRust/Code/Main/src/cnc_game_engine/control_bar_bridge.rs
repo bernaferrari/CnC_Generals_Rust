@@ -12,7 +12,7 @@ use game_client::gui::control_bar::{
     HostControlBarRequest, HostControlBarTarget, QueueProductionType,
     take_host_control_bar_published_requests,
 };
-use gamelogic::commands::CommandType as LegacyCommandType;
+use game_engine::common::message_stream::CommandType as LegacyCommandType;
 
 const COMMAND_OPTION_ONE: u32 = 0x0000_2000;
 const COMMAND_OPTION_TWO: u32 = 0x0000_4000;

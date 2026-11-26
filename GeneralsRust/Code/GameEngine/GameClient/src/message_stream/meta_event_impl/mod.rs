@@ -39,7 +39,7 @@ use crate::presentation_translator_residual::{
     translator_entry_has_kind, translator_entry_is_local, with_translator_catalog,
 };
 use crate::system::DebugDisplay;
-use gamelogic::commands::command::CommandType;
+use game_engine::common::message_stream::CommandType;
 use gamelogic::commands::get_selection_manager;
 use gamelogic::common::types::{GeometryExtentModType, GeometryInfo, KindOf};
 use gamelogic::helpers::{

@@ -242,7 +242,7 @@ pub struct ControlBarContext {
 #[derive(Debug, Clone)]
 pub struct CommandButton {
     pub command_name: String,
-    pub command_type: gamelogic::commands::CommandType,
+    pub command_type: game_engine::common::message_stream::CommandType,
     /// C++ `CommandButton::m_command` (`PLAYER_UPGRADE` vs `OBJECT_UPGRADE`).
     pub gui_command: String,
     pub button_image: String,
@@ -317,7 +317,7 @@ impl Default for CommandButton {
     fn default() -> Self {
         Self {
             command_name: String::new(),
-            command_type: gamelogic::commands::CommandType::Invalid,
+            command_type: game_engine::common::message_stream::CommandType::Invalid,
             gui_command: String::new(),
             button_image: String::new(),
             button_border_type: String::new(),
