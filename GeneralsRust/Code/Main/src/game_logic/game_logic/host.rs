@@ -101,8 +101,8 @@ pub struct GameLogic {
     pub(crate) ai_definitions: crate::game_logic::ai_definitions::AiDefinitions,
     /// Immutable runtime lookup catalog plus pristine map-restart baseline.
     /// Purchased/completed upgrades remain on receiving Players/Objects.
-    pub(crate) upgrade_definitions: gamelogic::upgrade::center::UpgradeCenter,
-    pub(crate) upgrade_definition_base: gamelogic::upgrade::center::UpgradeCenter,
+    pub(crate) upgrade_definitions: game_engine::common::system::upgrade::UpgradeCenter,
+    pub(crate) upgrade_definition_base: game_engine::common::system::upgrade::UpgradeCenter,
     /// Main-owned terrain, shroud and visual services; no Core AI.
     /// Created inertly and installed as the active bundle at the world-start
     /// boundaries (`reset` for

@@ -1,5 +1,6 @@
 //! Object::updateUpgradeModules / removeUpgrade and the typed UpgradeMux pass.
 use super::*;
+use game_engine::common::system::upgrade::UpgradeMask;
 use gamelogic::object::upgrade::{
     ArmorUpgradeModuleData, CommandSetUpgradeModuleData, ModelConditionUpgradeModuleData,
     ReplaceObjectUpgradeModuleData, StealthUpgradeModuleData, SubObjectsUpgradeModuleData,
@@ -162,7 +163,7 @@ pub(super) struct AuthoredUpgradePass<'a> {
     birth: std::sync::Weak<()>,
     pending_upgrade: Option<&'a str>,
     modules: Vec<AuthoredOrderedUpgrade>,
-    mask: gamelogic::upgrade::UpgradeMask,
+    mask: UpgradeMask,
 }
 
 impl AuthoredOrderedUpgrade {
@@ -819,9 +820,9 @@ impl GameLogic {
         &self,
         object_id: ObjectId,
         pending_upgrade: Option<&str>,
-    ) -> gamelogic::upgrade::UpgradeMask {
+    ) -> UpgradeMask {
         let Some(object) = self.objects.get(&object_id) else {
-            return gamelogic::upgrade::UpgradeMask::none();
+            return UpgradeMask::none();
         };
         // C++ Object::updateUpgradeModules combines two separate masks:
         // completed upgrades on this Object and completed upgrades on its
@@ -833,7 +834,7 @@ impl GameLogic {
             .completed_object_upgrades
             .iter()
             .filter_map(|name| self.upgrade_template(name))
-            .fold(gamelogic::upgrade::UpgradeMask::none(), |mask, template| {
+            .fold(UpgradeMask::none(), |mask, template| {
                 mask | template.get_mask()
             });
         if let Some(owner_id) = self.player_owner_for_host_object(object) {
@@ -842,7 +843,7 @@ impl GameLogic {
                     .completed_upgrades
                     .iter()
                     .filter_map(|name| self.upgrade_template(name))
-                    .fold(gamelogic::upgrade::UpgradeMask::none(), |mask, template| {
+                    .fold(UpgradeMask::none(), |mask, template| {
                         mask | template.get_mask()
                     });
             }
@@ -1074,8 +1075,7 @@ impl GameLogic {
     fn upgrade_conflict_mask(
         &self,
         data: &gamelogic::upgrade::modules::upgrade_mux::UpgradeMuxData,
-    ) -> gamelogic::upgrade::UpgradeMask {
-        use gamelogic::upgrade::UpgradeMask;
+    ) -> UpgradeMask {
         data.conflicting_upgrade_names
             .iter()
             .filter_map(|name| self.upgrade_template(name.as_str()))
@@ -1087,9 +1087,8 @@ impl GameLogic {
     fn upgrade_mux_would_run(
         &self,
         data: &gamelogic::upgrade::modules::upgrade_mux::UpgradeMuxData,
-        key_mask: gamelogic::upgrade::UpgradeMask,
+        key_mask: UpgradeMask,
     ) -> bool {
-        use gamelogic::upgrade::UpgradeMask;
         let activation = data
             .activation_upgrade_names
             .iter()

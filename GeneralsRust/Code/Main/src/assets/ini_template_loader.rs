@@ -1162,7 +1162,7 @@ End
     fn owned_upgrade(
         center: &game_engine::common::system::upgrade::UpgradeCenter,
         name: &str,
-    ) -> std::sync::Arc<gamelogic::upgrade::UpgradeTemplate> {
+    ) -> std::sync::Arc<game_engine::common::system::upgrade::UpgradeTemplate> {
         center.find_upgrade(name).expect("upgrade registered")
     }
 

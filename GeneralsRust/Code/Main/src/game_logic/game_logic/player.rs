@@ -14,7 +14,7 @@ use super::host::*;
 use super::prelude::*;
 use super::script_camera::*;
 use super::*;
-use gamelogic::upgrade::UpgradeTemplatePlayerExt;
+use game_engine::common::system::upgrade::{UpgradeTemplate, UpgradeType};
 use generals_sim::science::normalize_science_name;
 
 /// Admission identity is independent of faction, display name and observer state.
@@ -824,7 +824,7 @@ impl Player {
     /// notifying scripts. Withdrawal alone is not completed production spend.
     pub(crate) fn record_upgrade_production_spending(
         &mut self,
-        definition: &gamelogic::upgrade::UpgradeTemplate,
+        definition: &UpgradeTemplate,
     ) {
         // Upgrade.cpp150-156 currently returns authored cost for every player.
         self.record_resources_spent(definition.get_cost().max(0) as u32);
@@ -834,7 +834,7 @@ impl Player {
     /// player addUpgrade / object giveUpgrade and their synchronous callbacks.
     pub(crate) fn record_upgrade_production_academy(
         &mut self,
-        definition: &gamelogic::upgrade::UpgradeTemplate,
+        definition: &UpgradeTemplate,
         frame: u32,
     ) {
         use game_engine::common::rts::academy_stats::AcademyClassificationType;
@@ -1982,12 +1982,12 @@ mod map_side_dict_tests {
                 assert!(player.queue_upgrade(
                     "Upgrade_ChinaOverlordBattleBunker",
                     &cost,
-                    gamelogic::upgrade::UpgradeType::Object,
+                    UpgradeType::Object,
                     &mut _economy_output,
                 ));
                 player.complete_researched_upgrade(
                     "Upgrade_ChinaOverlordBattleBunker",
-                    gamelogic::upgrade::UpgradeType::Object,
+                    UpgradeType::Object,
                 );
                 assert!(
                     !player.has_unlocked_upgrade("Upgrade_ChinaOverlordBattleBunker"),
@@ -1997,7 +1997,7 @@ mod map_side_dict_tests {
                     player.queue_upgrade(
                         "Upgrade_ChinaOverlordBattleBunker",
                         &cost,
-                        gamelogic::upgrade::UpgradeType::Object,
+                        UpgradeType::Object,
                         &mut _economy_output,
                     ),
                     "a second unit must still be able to queue the same OBJECT upgrade"
@@ -2023,24 +2023,24 @@ mod map_side_dict_tests {
                 assert!(player.queue_upgrade(
                     "Upgrade_AmericaSupplyLines",
                     &cost,
-                    gamelogic::upgrade::UpgradeType::Player,
+                    UpgradeType::Player,
                     &mut _economy_output,
                 ));
                 assert!(!player.queue_upgrade(
                     "Upgrade_AmericaSupplyLines",
                     &cost,
-                    gamelogic::upgrade::UpgradeType::Player,
+                    UpgradeType::Player,
                     &mut _economy_output,
                 ));
                 player.complete_researched_upgrade(
                     "Upgrade_AmericaSupplyLines",
-                    gamelogic::upgrade::UpgradeType::Player,
+                    UpgradeType::Player,
                 );
                 assert!(player.has_unlocked_upgrade("Upgrade_AmericaSupplyLines"));
                 assert!(!player.queue_upgrade(
                     "Upgrade_AmericaSupplyLines",
                     &cost,
-                    gamelogic::upgrade::UpgradeType::Player,
+                    UpgradeType::Player,
                     &mut _economy_output,
                 ));
             },
@@ -2177,7 +2177,7 @@ mod map_side_dict_tests {
 
     #[test]
     fn research_payment_completion_and_academy_are_distinct_owned_phases() {
-        let mut definition = gamelogic::upgrade::UpgradeTemplate::new("ReceivingRadar".into());
+        let mut definition = UpgradeTemplate::new("ReceivingRadar".into());
         let mut ini = game_engine::common::ini::INI::new();
         ini.with_inline_source(
             "ReceivingRadar\nBuildCost=800\nAcademyClassify=ACT_UPGRADE_RADAR\nEnd\n",
@@ -2197,7 +2197,7 @@ mod map_side_dict_tests {
                 supplies: 800,
                 power: 0
             },
-            gamelogic::upgrade::UpgradeType::Player,
+            UpgradeType::Player,
             &mut economy
         ));
         assert_eq!(owner.resources.supplies, 200);
@@ -2208,7 +2208,7 @@ mod map_side_dict_tests {
         assert!(!owner.has_unlocked_upgrade("ReceivingRadar"));
         assert_eq!(owner.academy_stats.get_upgrades_purchased(), 0);
         owner
-            .complete_researched_upgrade("ReceivingRadar", gamelogic::upgrade::UpgradeType::Player);
+            .complete_researched_upgrade("ReceivingRadar", UpgradeType::Player);
         assert!(owner.has_unlocked_upgrade("ReceivingRadar"));
         assert_eq!(owner.academy_stats.get_upgrades_purchased(), 0);
         owner.record_upgrade_production_academy(&definition, 73);
@@ -2232,7 +2232,7 @@ mod map_side_dict_tests {
         assert!(owner.queue_upgrade(
             "Cancelled",
             &cost,
-            gamelogic::upgrade::UpgradeType::Player,
+            UpgradeType::Player,
             &mut economy
         ));
         assert!(owner.cancel_queued_upgrade("Cancelled", &cost, &mut economy));

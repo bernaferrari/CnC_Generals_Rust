@@ -702,7 +702,7 @@ impl GameLogic {
             // Player.cpp3035–3045: addUpgrade(COMPLETE) dirties local UI
             // after module callbacks, before ProductionUpdate records Academy.
             // OBJECT giveUpgrade does not execute this Player-specific edge.
-            if upgrade_type == gamelogic::upgrade::UpgradeType::Player && self.is_local_player(pid)
+            if upgrade_type == game_engine::common::system::upgrade::UpgradeType::Player && self.is_local_player(pid)
             {
                 if let Some(ui) = effects.ui.as_deref_mut() {
                     ui.mark_control_bar_dirty();

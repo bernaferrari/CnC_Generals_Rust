@@ -267,7 +267,7 @@ fn stock_world(definitions: &crate::parallel_harness::RetailWorldDefinitions) ->
         .expect("stock Upgrade.ini is admitted into the receiving UpgradeCenter");
     assert_eq!(
         upgrade.get_upgrade_type(),
-        gamelogic::upgrade::UpgradeType::Object
+        game_engine::common::system::upgrade::UpgradeType::Object
     );
     assert_ne!(upgrade.get_mask().bits(), 0);
 

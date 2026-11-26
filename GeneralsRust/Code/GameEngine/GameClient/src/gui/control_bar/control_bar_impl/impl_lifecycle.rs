@@ -14,7 +14,7 @@ impl ControlBar {
     /// is mirrored or discovered through a singleton.
     pub fn set_receiving_upgrade_definitions(
         &mut self,
-        catalog: &gamelogic::upgrade::center::UpgradeCenter,
+        catalog: &UpgradeCenter,
         actions: Option<
             Arc<game_engine::common::thing::receiving_module_content::ReceivingActionDefinitions>,
         >,

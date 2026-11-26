@@ -1,5 +1,6 @@
 //! C++ player upgrade ledger transitions with explicitly supplied upgrade rules.
 use super::*;
+use game_engine::common::system::upgrade::UpgradeType;
 
 impl Player {
     /// Refund one paid production entry, publishing its final economy values.
@@ -29,13 +30,13 @@ impl Player {
         &mut self,
         upgrade_name: &str,
         cost: &Resources,
-        upgrade_type: gamelogic::upgrade::UpgradeType,
+        upgrade_type: UpgradeType,
         economy_events: &mut crate::game_logic::host_economy_log::EconomyEvents,
     ) -> bool {
         // C++ ProductionUpdate.cpp:250-272 — PLAYER refuses if complete or
         // already in production. OBJECT is per-producer (`giveUpgrade`), not
         // a player-wide unlock (one add-on per unit, not per player).
-        let object_scoped = upgrade_type == gamelogic::upgrade::UpgradeType::Object;
+        let object_scoped = upgrade_type == UpgradeType::Object;
         if !object_scoped
             && (self.has_unlocked_upgrade(upgrade_name) || self.has_queued_upgrade(upgrade_name))
         {
@@ -69,12 +70,12 @@ impl Player {
     pub fn complete_researched_upgrade(
         &mut self,
         upgrade_name: &str,
-        upgrade_type: gamelogic::upgrade::UpgradeType,
+        upgrade_type: UpgradeType,
     ) {
         if let Some(queued) = self.find_queued_upgrade_name(upgrade_name) {
             self.queued_upgrades.remove(&queued);
         }
-        if upgrade_type == gamelogic::upgrade::UpgradeType::Object {
+        if upgrade_type == UpgradeType::Object {
             return;
         }
         self.add_completed_upgrade(upgrade_name);

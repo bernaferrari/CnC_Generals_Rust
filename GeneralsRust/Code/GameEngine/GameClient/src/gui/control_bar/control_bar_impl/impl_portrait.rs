@@ -1096,7 +1096,7 @@ mod native_observer_roster_portrait_tests {
 }
 
 /// C++ `UpgradeTemplate::getButtonImage` resolves the template's own art.
-fn upgrade_cameo_image_name(upgrade: &gamelogic::upgrade::UpgradeTemplate) -> String {
+fn upgrade_cameo_image_name(upgrade: &UpgradeTemplate) -> String {
     upgrade
         .get_button_image()
         .map(|image| image.get_name())

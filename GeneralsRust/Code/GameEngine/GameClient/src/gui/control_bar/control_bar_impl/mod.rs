@@ -29,6 +29,7 @@ use crate::system::SubsystemInterface;
 use game_engine::common::ini::ini_command_button::CommandButton as IniCommandButton;
 use game_engine::common::ini::ini_multiplayer::with_multiplayer_settings;
 use game_engine::common::rts::{SCIENCE_INVALID, ScienceType, WeaponSlotType, get_science_store};
+use game_engine::common::system::upgrade::{UpgradeCenter, UpgradeTemplate, UpgradeType};
 use gamelogic::command_button::map_gui_command_to_command_type;
 use game_engine::common::message_stream::CommandType;
 use gamelogic::commands::{Command, CommandPriority, QueuedCommand, get_command_queue_manager};
@@ -38,7 +39,6 @@ use gamelogic::helpers::{TheGameLogic, TheThingFactory};
 use gamelogic::object::registry::OBJECT_REGISTRY;
 use gamelogic::player::{PlayerIndex, player_list as logic_player_list};
 use gamelogic::system::beacon_manager::snapshot_beacons;
-use gamelogic::upgrade::UpgradeCenterPlayerExt;
 use gamelogic::upgrade::center::with_upgrade_center;
 
 // Live `control_bar` module via `#[path = "control_bar_impl/mod.rs"]`.

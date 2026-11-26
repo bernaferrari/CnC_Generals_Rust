@@ -95,12 +95,12 @@ mod tests {
         let mut player = Player::new(1, Team::GLA, "GLA", true);
         player.complete_researched_upgrade(
             UPGRADE_GLA_WORKER_SHOES,
-            gamelogic::upgrade::UpgradeType::Player,
+            game_engine::common::system::upgrade::UpgradeType::Player,
         );
         assert!(player.completed_upgrades.contains(UPGRADE_GLA_WORKER_SHOES));
         player.complete_researched_upgrade(
             "Upgrade_BecomeRealGLABarracks",
-            gamelogic::upgrade::UpgradeType::Object,
+            game_engine::common::system::upgrade::UpgradeType::Object,
         );
         assert!(
             !player

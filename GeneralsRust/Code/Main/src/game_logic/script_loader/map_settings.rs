@@ -547,7 +547,7 @@ pub(crate) fn parse_map_settings_from_chunky_with_owned_definition_catalogs(
     road_definitions: game_engine::common::ini::ini_road::TerrainRoadCollection,
     armor_definitions: Option<std::sync::Arc<generals_sim::armor::ArmorDefinitions>>,
     admitted_object_sources: Option<&[(PathBuf, String)]>,
-    upgrade_definitions: gamelogic::upgrade::center::UpgradeCenter,
+    upgrade_definitions: game_engine::common::system::upgrade::UpgradeCenter,
     science_facts: std::sync::Arc<game_engine::common::rts::science::ScienceNameFacts>,
     player_templates_admitted: bool,
     locomotor_definitions_admitted: bool,

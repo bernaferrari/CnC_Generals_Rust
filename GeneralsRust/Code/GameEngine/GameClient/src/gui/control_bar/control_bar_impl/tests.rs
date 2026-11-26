@@ -253,7 +253,6 @@ mod tests {
     /// slots keep identity, and apply_upgrade_cameos_to_windows honors them.
     #[test]
     fn control_bar_cluster_sparse_upgrade_cameo_slots() {
-        use gamelogic::upgrade::center::UpgradeCenter;
         crate::test_support::ensure_ambient_host();
         let mut catalog = UpgradeCenter::new();
         catalog.new_upgrade("Upgrade_SlotSecond".into());
@@ -507,7 +506,7 @@ mod tests {
         control_bar.bind_command_definitions(Some(
             game_engine::common::ini::command_definitions::CommandDefinitions::from_common(&services),
         ));
-        let mut catalog = gamelogic::upgrade::center::UpgradeCenter::new();
+        let mut catalog = UpgradeCenter::new();
         catalog.new_upgrade(UPGRADE.into());
         control_bar.set_receiving_upgrade_definitions(&catalog, None);
         control_bar.context.available_commands.push(CommandButton {

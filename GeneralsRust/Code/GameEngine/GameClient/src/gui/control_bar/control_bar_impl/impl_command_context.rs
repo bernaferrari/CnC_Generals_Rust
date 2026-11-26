@@ -407,10 +407,10 @@ impl ControlBar {
                         .and_then(|center| center.find_upgrade(command.upgrade.as_str()));
                     if let Some(template) = upgrade {
                         let has_upgrade = match template.get_upgrade_type() {
-                            gamelogic::upgrade::UpgradeType::Player => {
+                            UpgradeType::Player => {
                                 player.has_upgrade_complete(&template)
                             }
-                            gamelogic::upgrade::UpgradeType::Object => obj.has_upgrade(&template),
+                            UpgradeType::Object => obj.has_upgrade(&template),
                         };
                         if !has_upgrade {
                             return Ok(CommandAvailability::Restricted);
@@ -1352,7 +1352,7 @@ fn leftover_is_object_upgrade_command(bar: &ControlBar, command: &CommandButton)
         .as_ref()
         .and_then(|center| center.find_upgrade(command.upgrade.as_str()))
         .is_some_and(|template| {
-            template.get_upgrade_type() == gamelogic::upgrade::UpgradeType::Object
+            template.get_upgrade_type() == UpgradeType::Object
         })
 }
 
@@ -1415,7 +1415,8 @@ fn leftover_queue_upgrade_availability(
     {
         return Ok(CommandAvailability::CantAfford);
     }
-    if !catalog.can_afford_upgrade(&player, &template, false) {
+    // C++ UpgradeCenter::canAffordUpgrade with displayReason = false.
+    if player.get_money().get_money() < template.get_cost() {
         return Ok(CommandAvailability::Restricted);
     }
     for science in &command.sciences_ids {
@@ -1891,9 +1892,9 @@ mod command_availability_window_tests {
     fn queue_upgrade_uses_each_receiving_catalog_for_upgrade_type() {
         crate::test_support::ensure_ambient_host();
         let name = "Upgrade_Veterancy_VETERAN";
-        let mut object_catalog = gamelogic::upgrade::center::UpgradeCenter::new();
+        let mut object_catalog = UpgradeCenter::new();
         object_catalog.init();
-        let mut player_catalog = gamelogic::upgrade::center::UpgradeCenter::new();
+        let mut player_catalog = UpgradeCenter::new();
         player_catalog.new_upgrade(name.into());
         let mut object_bar = ControlBar::new();
         let mut player_bar = ControlBar::new();

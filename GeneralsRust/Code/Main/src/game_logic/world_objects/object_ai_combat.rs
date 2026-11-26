@@ -655,6 +655,7 @@ mod live_upgrade_mux_tests {
     use crate::game_logic::host_overlord_addons::UPGRADE_OVERLORD_BUNKER;
     use crate::game_logic::host_upgrades::UPGRADE_CHINA_RADAR;
     use crate::game_logic::{GameLogic, KindOf, Player, Team, ThingTemplate};
+    use game_engine::common::system::upgrade::UpgradeType;
     use glam::Vec3;
 
     fn add_player(logic: &mut GameLogic, id: u32, team: Team) {
@@ -1075,7 +1076,7 @@ mod live_upgrade_mux_tests {
                     supplies: 0,
                     power: 0,
                 },
-                gamelogic::upgrade::UpgradeType::Object,
+                UpgradeType::Object,
                 economy_events,
             )
         };
@@ -1086,7 +1087,7 @@ mod live_upgrade_mux_tests {
             .expect("player")
             .complete_researched_upgrade(
                 UPGRADE_OVERLORD_BUNKER,
-                gamelogic::upgrade::UpgradeType::Object,
+                UpgradeType::Object,
             );
         assert!(
             !logic
@@ -1117,7 +1118,7 @@ mod live_upgrade_mux_tests {
                     supplies: 0,
                     power: 0,
                 },
-                gamelogic::upgrade::UpgradeType::Player,
+                UpgradeType::Player,
                 economy_events,
             )
         };
@@ -1166,7 +1167,7 @@ mod live_upgrade_mux_tests {
                     supplies: 0,
                     power: 0,
                 },
-                gamelogic::upgrade::UpgradeType::Player,
+                UpgradeType::Player,
                 economy_events,
             )
         };

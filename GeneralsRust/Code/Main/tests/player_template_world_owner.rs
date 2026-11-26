@@ -214,7 +214,7 @@ fn player_templates_follow_the_receiving_world_through_map_reset_and_save() {
             .unwrap();
         std::sync::Arc::new(actions)
     };
-    let upgrades = gamelogic::upgrade::center::UpgradeCenter::new();
+    let upgrades = game_engine::common::system::upgrade::UpgradeCenter::new();
     first_bar.set_receiving_upgrade_definitions(&upgrades, Some(actions(&first_map)));
     peer_bar.set_receiving_upgrade_definitions(&upgrades, Some(actions(&peer_map)));
     let mut first_client = game_client::core::GameClient::new().unwrap();

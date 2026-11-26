@@ -3,6 +3,7 @@ use super::*;
 use crate::game_logic::host_upgrade_rules::register_test_upgrade;
 use crate::game_logic::{Player, Resources, Team, ThingTemplate};
 use crate::save_load::snapshot::SnapshotBuilder;
+use game_engine::common::system::upgrade::UpgradeType;
 
 fn world(cost: u32, kind: &str) -> (GameLogic, crate::game_logic::ObjectId) {
     let mut world = GameLogic::new();
@@ -93,7 +94,7 @@ fn completed_upgrade_score_and_academy_survive_encoded_save_and_future_completio
             supplies: 800,
             power: 0
         },
-        gamelogic::upgrade::UpgradeType::Object,
+        UpgradeType::Object,
         &mut Default::default()
     ));
     source.host_apply_upgrade_production_completions(vec![(
@@ -127,7 +128,7 @@ fn completed_upgrade_score_and_academy_survive_encoded_save_and_future_completio
             supplies: 800,
             power: 0
         },
-        gamelogic::upgrade::UpgradeType::Object,
+        UpgradeType::Object,
         &mut Default::default()
     ));
     restored.host_apply_upgrade_production_completions(vec![(
@@ -203,7 +204,7 @@ fn production_upgrade_and_encoded_restore_never_publish_into_foreign_core_player
                     supplies: 800,
                     power: 0
                 },
-                gamelogic::upgrade::UpgradeType::Player,
+                UpgradeType::Player,
                 &mut Default::default(),
             ));
             owner.host_apply_upgrade_production_completions(vec![(
@@ -273,7 +274,7 @@ fn actual_producer_tick_completes_receiving_research_and_retires_only_its_queue(
                 supplies: cost,
                 power: 0
             },
-            gamelogic::upgrade::UpgradeType::Player,
+            UpgradeType::Player,
             &mut Default::default(),
         ));
         let mut building = BuildingData::new(BuildingType::WarFactory);
@@ -350,7 +351,7 @@ fn actual_completion_transaction_keeps_entry_through_callbacks_and_preserves_cal
     assert!(owner.get_player_mut(0).unwrap().queue_upgrade(
         name,
         &cost,
-        gamelogic::upgrade::UpgradeType::Player,
+        UpgradeType::Player,
         &mut Default::default(),
     ));
     let mut building = BuildingData::new(BuildingType::WarFactory);
@@ -453,7 +454,7 @@ fn mixed_unit_and_research_completion_receipts_follow_each_actual_producer_visit
                         supplies: 100,
                         power: 0
                     },
-                    gamelogic::upgrade::UpgradeType::Player,
+                    UpgradeType::Player,
                     &mut Default::default()
                 ));
                 assert!(building.add_upgrade_to_queue(

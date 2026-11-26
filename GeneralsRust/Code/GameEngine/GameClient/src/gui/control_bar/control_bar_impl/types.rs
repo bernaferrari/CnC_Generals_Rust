@@ -77,7 +77,7 @@ pub struct UpgradeCameoState {
 fn resolve_upgrade_cameo_button_image(
     upgrade_name: &str,
     context_commands: Option<&[CommandButton]>,
-    receiving_catalog: Option<&gamelogic::upgrade::center::UpgradeCenter>,
+    receiving_catalog: Option<&UpgradeCenter>,
     receiving_actions: Option<
         &game_engine::common::thing::receiving_module_content::ReceivingActionDefinitions,
     >,
@@ -90,7 +90,7 @@ fn resolve_upgrade_cameo_button_image(
 
     // 1) C++ TheUpgradeCenter->findUpgrade + getButtonImage()
     //    (cacheButtonImage clears the name once the image is resolved).
-    let image = |center: &gamelogic::upgrade::center::UpgradeCenter| {
+    let image = |center: &UpgradeCenter| {
         center
             .find_upgrade(trimmed)
             .map(|template| match template.get_button_image() {
@@ -274,7 +274,7 @@ pub fn clear_host_production_pause_requests(ui: &mut crate::core::subsystems::In
 
 pub struct ControlBar {
     /// Immutable presentation content from this receiving engine, never purchase state.
-    receiving_upgrade_catalog: Option<gamelogic::upgrade::center::UpgradeCenter>,
+    receiving_upgrade_catalog: Option<UpgradeCenter>,
     receiving_cameo_images: Option<game_engine::common::ini::ini_mapped_image::OwnedMappedImages>,
     receiving_upgrade_actions: Option<
         Arc<game_engine::common::thing::receiving_module_content::ReceivingActionDefinitions>,

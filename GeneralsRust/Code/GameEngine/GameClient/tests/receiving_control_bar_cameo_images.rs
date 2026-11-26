@@ -3,7 +3,8 @@ use game_engine::common::ini::{
     INI,
     ini_mapped_image::{ICoord2D, Image, ImageCollection, OwnedMappedImages},
 };
-use gamelogic::upgrade::center::UpgradeCenter;
+use game_engine::common::system::upgrade::UpgradeCenter;
+use gamelogic::system::engine_stores::{new_world_services, with_world_services};
 
 // OLD control: an implementation without admission continues using its shared
 // image collection. Once the inherent method exists, it takes precedence.
@@ -25,6 +26,11 @@ fn images(width: i32) -> OwnedMappedImages {
 
 #[test]
 fn cameo_image_metadata_comes_from_each_receiving_catalog() {
+    let world = new_world_services();
+    with_world_services(&world, check_receiving_cameo_images);
+}
+
+fn check_receiving_cameo_images() {
     let mut global = game_client_rust::display::image::Image::with_name("Cameo_SameName");
     global.set_image_size(game_client_rust::display::image::ICoord2D::new(99, 24));
     game_client_rust::display::image::get_mapped_image_collection()

@@ -897,7 +897,7 @@ fn presentation_feeds_control_bar_upgrade_cameos() {
         game_client::gui::game_window::WindowEventEffects::with_standalone(|effects| {
             owner.with_manager(|manager| {
                 let mut bar = game_client::gui::control_bar::ControlBar::new();
-                let mut upgrades = gamelogic::upgrade::center::UpgradeCenter::new();
+                let mut upgrades = game_engine::common::system::upgrade::UpgradeCenter::new();
                 upgrades.new_upgrade("UpgradeAdvancedTraining".into());
                 upgrades.new_upgrade("UpgradeCaptureBuilding".into());
                 bar.set_receiving_upgrade_definitions(&upgrades, None);

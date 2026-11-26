@@ -40,7 +40,7 @@ fn control_bar_queue_slot_cancel_releases_player_upgrade_state() {
         player.queue_upgrade(
             UPGRADE,
             &cost,
-            gamelogic::upgrade::UpgradeType::Player,
+            game_engine::common::system::upgrade::UpgradeType::Player,
             economy_events,
         )
     });

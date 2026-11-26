@@ -1,4 +1,5 @@
 use super::*;
+use game_engine::common::system::upgrade::UpgradeType;
 
 pub(super) enum OwnedTeamSelection {
     None,
@@ -1377,7 +1378,7 @@ impl AIPlayer {
         overrides: &crate::game_logic::game_logic::command_overrides::ControlBarOverrides,
         object: &crate::game_logic::Object,
         upgrade_name: &str,
-        upgrade_type: gamelogic::upgrade::UpgradeType,
+        upgrade_type: UpgradeType,
     ) -> bool {
         if !object.is_alive() || !object.is_constructed() || object.status.sold {
             return false;
@@ -1388,7 +1389,7 @@ impl AIPlayer {
         if building.production_queue.len() >= crate::game_logic::DEFAULT_PRODUCTION_QUEUE_LIMIT {
             return false;
         }
-        if upgrade_type == gamelogic::upgrade::UpgradeType::Object
+        if upgrade_type == UpgradeType::Object
             && object.refuses_object_upgrade(upgrade_name)
         {
             return false;
@@ -1413,7 +1414,7 @@ impl AIPlayer {
         &self,
         game_logic: &(impl AiReadSource + ?Sized),
         upgrade_name: &str,
-        upgrade_type: gamelogic::upgrade::UpgradeType,
+        upgrade_type: UpgradeType,
     ) -> Option<ObjectId> {
         let world = AiWorldView::new(game_logic);
         let definitions = world.upgrade_action_definitions();

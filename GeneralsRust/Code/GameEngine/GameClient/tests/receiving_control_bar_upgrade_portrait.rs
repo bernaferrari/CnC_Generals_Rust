@@ -3,14 +3,21 @@ use std::sync::{Arc, RwLock};
 use game_client_rust::gui::control_bar::ControlBar;
 use game_engine::common::ini::INILoadType;
 use game_engine::common::name_key_generator::NameKeyNamespace;
+use game_engine::common::system::upgrade::UpgradeCenter;
 use game_engine::common::thing::{
     module_factory::ModuleFactory, receiving_module_content::ReceivingModuleContent,
 };
 use gamelogic::object::registry::OBJECT_REGISTRY;
-use gamelogic::upgrade::center::{UpgradeCenter, with_upgrade_center_mut};
+use gamelogic::system::engine_stores::{new_for_world, with_active_stores};
+use gamelogic::upgrade::center::with_upgrade_center_mut;
 
 #[test]
 fn portrait_uses_receiving_upgrade_masks_and_hides_missing_definitions() {
+    let world = new_for_world();
+    with_active_stores(&world, check_receiving_upgrade_masks);
+}
+
+fn check_receiving_upgrade_masks() {
     const ID: u32 = 719_202;
     const NAME: &str = "Upgrade_PortraitReceiving";
     const TEMPLATE: &str = "PortraitReceivingObject";

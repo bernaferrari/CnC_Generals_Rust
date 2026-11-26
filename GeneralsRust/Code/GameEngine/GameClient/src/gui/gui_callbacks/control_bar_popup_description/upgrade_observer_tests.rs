@@ -1,6 +1,6 @@
 use super::super::*;
 use super::*;
-use gamelogic::upgrade::UpgradeTemplate;
+use game_engine::common::system::upgrade::UpgradeTemplate;
 
 use crate::gui::game_window::WindowEventEffects;
 #[test]

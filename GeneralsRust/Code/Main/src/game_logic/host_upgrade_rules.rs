@@ -3,7 +3,7 @@
 //! C++ UpgradeCenter::findUpgrade supplies one immutable template to production.
 //! Keep that identity while avoiding active-world discovery in host operations.
 use super::GameLogic;
-use gamelogic::upgrade::{UpgradeTemplate, UpgradeType};
+use game_engine::common::system::upgrade::{UpgradeTemplate, UpgradeType};
 use std::sync::Arc;
 
 impl GameLogic {

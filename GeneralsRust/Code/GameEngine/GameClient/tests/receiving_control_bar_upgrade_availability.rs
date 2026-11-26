@@ -1,12 +1,20 @@
 use std::sync::{Arc, RwLock};
 
 use game_client_rust::gui::control_bar::{CommandAvailability, CommandOption, ControlBar};
+use game_engine::common::ini::INI;
+use game_engine::common::system::upgrade::UpgradeCenter;
 use gamelogic::object::registry::OBJECT_REGISTRY;
 use gamelogic::player::PlayerArcExt;
-use gamelogic::upgrade::center::{UpgradeCenter, with_upgrade_center_mut};
+use gamelogic::system::engine_stores::{new_for_world, with_active_stores};
+use gamelogic::upgrade::center::with_upgrade_center_mut;
 
 #[test]
 fn required_upgrade_is_resolved_from_the_receiving_bar() {
+    let world = new_for_world();
+    with_active_stores(&world, check_receiving_upgrade_availability);
+}
+
+fn check_receiving_upgrade_availability() {
     const OBJECT_ID: u32 = 719_201;
     const PLAYER_ID: i32 = 7;
     const NAME: &str = "Upgrade_ReceivingAvailability";
@@ -20,9 +28,11 @@ fn required_upgrade_is_resolved_from_the_receiving_bar() {
     // The receiving instance's own CommandButton catalog.
     let services = game_engine::common::common_services::CommonServices::new();
     let catalog_owner = || {
-        Some(game_engine::common::ini::command_definitions::CommandDefinitions::from_common(
-            &services,
-        ))
+        Some(
+            game_engine::common::ini::command_definitions::CommandDefinitions::from_common(
+                &services,
+            ),
+        )
     };
     {
         let mut definitions = services.ini.control_bar.write();
@@ -121,6 +131,37 @@ fn required_upgrade_is_resolved_from_the_receiving_bar() {
             PLAYER_ID as u32,
         ),
         CommandAvailability::Available
+    );
+
+    const QUEUED_UPGRADE: &str = "Upgrade_ReceivingCost";
+    const QUEUE_BUTTON: &str = "Command_ReceivingCost";
+    {
+        let mut definitions = services.ini.control_bar.write();
+        let button = definitions.new_command_button(QUEUE_BUTTON.into());
+        button.command = "PLAYER_UPGRADE".into();
+        button.upgrade = QUEUED_UPGRADE.into();
+    }
+    let priced_catalog = |cost| {
+        let mut catalog = catalog.clone();
+        let source = format!("Upgrade {QUEUED_UPGRADE}\nBuildCost = {cost}\nEnd\n");
+        INI::new()
+            .with_inline_source(&source, |ini| {
+                ini.read_line()?;
+                catalog.parse_upgrade_definition(ini)
+            })
+            .unwrap();
+        catalog
+    };
+    owner.set_receiving_upgrade_definitions(&priced_catalog(100), None);
+    peer.set_receiving_upgrade_definitions(&priced_catalog(101), None);
+    player.write().unwrap().get_money_mut().set_money(100);
+    assert_eq!(
+        owner.leftover_evaluate_named_command(QUEUE_BUTTON, OBJECT_ID, PLAYER_ID as u32),
+        CommandAvailability::Available
+    );
+    assert_eq!(
+        peer.leftover_evaluate_named_command(QUEUE_BUTTON, OBJECT_ID, PLAYER_ID as u32),
+        CommandAvailability::Restricted
     );
     OBJECT_REGISTRY.unregister_object(OBJECT_ID);
 }

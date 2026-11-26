@@ -42,7 +42,7 @@ fn check_receiving_science_catalogs() {
     let (first_actions, first_science) = catalog("FirstButton", false);
     let (peer_actions, peer_science) = catalog("PeerButton", true);
     assert_ne!(first_science, peer_science);
-    let upgrades = gamelogic::upgrade::center::UpgradeCenter::new();
+    let upgrades = game_engine::common::system::upgrade::UpgradeCenter::new();
     let mut first = ControlBar::new();
     let mut peer = ControlBar::new();
     first.set_receiving_upgrade_definitions(&upgrades, Some(first_actions));
@@ -139,7 +139,7 @@ fn check_receiving_upgrade_commands() {
         CommandSourceType, HostControlBarInputProvenance, SelectedContextFacts,
     };
     use game_engine::common::ascii_string::AsciiString;
-    use gamelogic::upgrade::center::UpgradeCenter;
+    use game_engine::common::system::upgrade::UpgradeCenter;
     use std::sync::Mutex;
 
     const PLAYER_ID: i32 = 0;

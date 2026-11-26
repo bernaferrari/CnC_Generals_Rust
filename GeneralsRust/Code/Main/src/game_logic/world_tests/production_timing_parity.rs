@@ -715,7 +715,7 @@ fn queued_duration_restore_keeps_upgrade_authored_frames_without_general_or_powe
                 player.queue_upgrade(
                     UPGRADE,
                     &cost,
-                    gamelogic::upgrade::UpgradeType::Player,
+                    game_engine::common::system::upgrade::UpgradeType::Player,
                     economy_events,
                 )
             });
@@ -1156,7 +1156,7 @@ fn queued_upgrade_restore_preserves_authored_zero_and_fractional_continuation() 
                 );
                 assert_eq!(
                     restored.upgrade_type(name),
-                    gamelogic::upgrade::UpgradeType::Player
+                    game_engine::common::system::upgrade::UpgradeType::Player
                 );
                 assert!(!std::sync::Arc::ptr_eq(
                     &source.upgrade_template(name).unwrap(),

@@ -489,6 +489,7 @@ impl GameLogic {
 #[cfg(test)]
 mod tests {
     use crate::game_logic::{GameLogic, Player, Team};
+    use game_engine::common::system::upgrade::UpgradeType;
 
     fn admit(world: &mut GameLogic, name: &str, modules: &str) {
         world.add_player(Player::new(0, Team::USA, "Owner", true));
@@ -569,7 +570,7 @@ mod tests {
         let owned = world.create_object_for_player("PlainHauler", 0, glam::Vec3::ZERO).unwrap();
         let other = world.create_object_for_player("PlainHauler", 1, glam::Vec3::ZERO).unwrap();
         world.players.get_mut(&0).unwrap().complete_researched_upgrade(
-            "Upgrade_TestPlating", gamelogic::upgrade::UpgradeType::Player,
+            "Upgrade_TestPlating", UpgradeType::Player,
         );
         world.apply_host_upgrade_complete(Team::USA, 0, "Upgrade_TestPlating");
         assert_eq!(world.host_object(owned).unwrap().health.maximum, 300.0);
@@ -600,7 +601,7 @@ mod tests {
         let owned = world.create_object_for_player("PlainHauler", 0, glam::Vec3::ZERO).unwrap();
         let peer = world.create_object_for_player("PlainHauler", 0, glam::Vec3::ZERO).unwrap();
         world.players.get_mut(&0).unwrap().complete_researched_upgrade(
-            "Upgrade_TestPlating", gamelogic::upgrade::UpgradeType::Player,
+            "Upgrade_TestPlating", UpgradeType::Player,
         );
         world.apply_host_upgrade_complete(Team::USA, 0, "Upgrade_TestPlating");
         assert_eq!(world.host_object(owned).unwrap().health.maximum, 200.0);
@@ -669,7 +670,7 @@ mod tests {
         let reset = "Behavior = StatusBitsUpgrade ResetHealth\nTriggeredBy = Upgrade_TestPlating\nRemovesUpgrades = Upgrade_TestPlating\nStatusToSet = BOOBY_TRAPPED\nEnd\n";
         admit(&mut world, "PlainHauler", &format!("{ARMOR}{reset}"));
         world.players.get_mut(&0).unwrap().complete_researched_upgrade(
-            "Upgrade_TestPlating", gamelogic::upgrade::UpgradeType::Player,
+            "Upgrade_TestPlating", UpgradeType::Player,
         );
         let id = world.create_object_for_player("PlainHauler", 0, glam::Vec3::ZERO).unwrap();
         let object = world.host_object(id).unwrap();
@@ -751,6 +752,7 @@ mod unpause_tests {
 #[cfg(test)]
 mod flag_tests {
     use crate::game_logic::{GameLogic, Player, Team};
+    use game_engine::common::system::upgrade::UpgradeType;
 
     #[test]
     fn mounted_flashbang_follows_the_authored_secondary_slot_and_upgrade_trigger() {
@@ -1002,7 +1004,7 @@ mod flag_tests {
             assert!(world.fire_owned_passive_weapon(source, target, 0, glam::Vec3::ZERO));
             assert_eq!(world.host_object(target).unwrap().health.current, before - 7.0);
             world.players.get_mut(&0).unwrap().complete_researched_upgrade(
-                "Upgrade_OrderedWeapon", gamelogic::upgrade::UpgradeType::Player,
+                "Upgrade_OrderedWeapon", UpgradeType::Player,
             );
             let born = world.create_object_for_player("OrderedActor", 0, glam::Vec3::ZERO).unwrap();
             assert_eq!(world.host_object(born).unwrap().weapon.as_ref().unwrap().damage, 7.0);

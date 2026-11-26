@@ -228,7 +228,7 @@ impl<'a> CommandExecutor<'a> {
                         return false;
                     }
                     // C++ queueUpgrade OBJECT: hasUpgrade || !affectedByUpgrade.
-                    if upgrade_type == gamelogic::upgrade::UpgradeType::Object
+                    if upgrade_type == game_engine::common::system::upgrade::UpgradeType::Object
                         && source.refuses_object_upgrade(upgrade_name)
                     {
                         return false;

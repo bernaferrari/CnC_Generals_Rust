@@ -885,7 +885,7 @@ impl AIPlayer {
             return None;
         }
         let upgrade_type = game_logic.upgrade_type(upgrade_name);
-        if upgrade_type == gamelogic::upgrade::UpgradeType::Object {
+        if upgrade_type == game_engine::common::system::upgrade::UpgradeType::Object {
             return None;
         }
         let Some(player) = game_logic.get_player(self.player_id) else {

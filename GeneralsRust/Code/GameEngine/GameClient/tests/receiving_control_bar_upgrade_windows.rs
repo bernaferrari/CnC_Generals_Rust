@@ -3,7 +3,7 @@ use game_engine::common::ini::{
     INI,
     ini_mapped_image::{ICoord2D, Image, ImageCollection, OwnedMappedImages},
 };
-use gamelogic::upgrade::center::UpgradeCenter;
+use game_engine::common::system::upgrade::UpgradeCenter;
 
 #[test]
 fn each_bar_applies_sparse_upgrade_cameos_to_its_own_windows() {

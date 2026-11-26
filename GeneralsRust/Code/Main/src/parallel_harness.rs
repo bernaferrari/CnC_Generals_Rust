@@ -46,7 +46,7 @@ pub struct RetailWorldDefinitions {
     player_templates: PlayerTemplateStore,
     locomotors: LocomotorStore,
     multiplayer: Arc<MultiplayerSettings>,
-    upgrade_definitions: gamelogic::upgrade::center::UpgradeCenter,
+    upgrade_definitions: game_engine::common::system::upgrade::UpgradeCenter,
     /// AIData.ini (GameEngine.cpp:480): SideInfo and SkirmishBuildList.
     ai_data: game_engine::common::ini::ini_ai_data::AIData,
     crates: game_engine::common::ini::ParsedCrateSystem,
@@ -386,7 +386,7 @@ impl RetailWorldDefinitions {
 
         // GameEngine.cpp:468 initializes the three veterancy bits, then
         // applies Default/Upgrade.ini and Upgrade.ini in source order.
-        let mut upgrade_definitions = gamelogic::upgrade::center::UpgradeCenter::new();
+        let mut upgrade_definitions = game_engine::common::system::upgrade::UpgradeCenter::new();
         upgrade_definitions.init();
         for (path, text) in startup.definition_texts("Upgrade.ini") {
             crate::assets::ini_template_loader::load_upgrade_ini_text(

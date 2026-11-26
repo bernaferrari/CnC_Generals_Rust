@@ -408,7 +408,7 @@ fn parsed_upgrade_ledger_cancel_refunds_once() {
         assert_eq!(definition.get_build_time(), 9.0);
         assert_eq!(
             definition.get_upgrade_type(),
-            gamelogic::upgrade::UpgradeType::Player
+            game_engine::common::system::upgrade::UpgradeType::Player
         );
         let cost = Resources {
             supplies: definition.get_cost() as u32,
@@ -497,7 +497,7 @@ fn zero_money_ledger_cancel_leaves_energy_unchanged_without_deposit_cue() {
         assert!(player.queue_upgrade(
             "Upgrade_ZeroMoneyLedgerControl",
             &zero,
-            gamelogic::upgrade::UpgradeType::Player,
+            game_engine::common::system::upgrade::UpgradeType::Player,
             economy_events,
         ));
         assert_eq!(player.power_available, before_power);

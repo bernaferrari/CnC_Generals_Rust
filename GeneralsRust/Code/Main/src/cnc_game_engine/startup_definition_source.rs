@@ -51,7 +51,7 @@ pub(super) struct StartupSimulationRules {
     max_beacons_per_player: i32,
     combat_bonus: game_engine::common::ini::ini_game_data::CombatBonusRules,
     tunnel_capacity: i32,
-    upgrade_definitions: gamelogic::upgrade::center::UpgradeCenter,
+    upgrade_definitions: game_engine::common::system::upgrade::UpgradeCenter,
     player_templates: Option<game_engine::common::rts::player_template::PlayerTemplateStore>,
     multiplayer_definitions:
         Option<std::sync::Arc<game_engine::common::ini::ini_multiplayer::MultiplayerSettings>>,
@@ -85,13 +85,13 @@ impl StartupSimulationRules {
             locomotors: world.locomotor_definition_base.clone(),
         }
     }
-    pub(super) fn upgrade_definitions(&self) -> &gamelogic::upgrade::center::UpgradeCenter {
+    pub(super) fn upgrade_definitions(&self) -> &game_engine::common::system::upgrade::UpgradeCenter {
         &self.upgrade_definitions
     }
     /// Use the catalog loaded by the application that owns this startup.
     pub(super) fn admit_upgrade_definitions(
         &mut self,
-        definitions: gamelogic::upgrade::center::UpgradeCenter,
+        definitions: game_engine::common::system::upgrade::UpgradeCenter,
     ) {
         self.upgrade_definitions = definitions;
     }
