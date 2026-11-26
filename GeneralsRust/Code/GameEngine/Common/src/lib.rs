@@ -48,6 +48,7 @@ pub mod ini_exception;
 pub mod ladder_preferences;
 pub mod map_data;
 pub mod map_object;
+pub mod map_preview;
 pub mod map_reader_writer_info;
 pub mod misc_audio;
 pub mod model_state;

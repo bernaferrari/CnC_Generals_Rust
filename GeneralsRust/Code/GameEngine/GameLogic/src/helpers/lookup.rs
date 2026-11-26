@@ -688,33 +688,8 @@ impl TheThingFactory {
     }
 
     pub fn find_template(name: impl AsRef<str>) -> Option<Arc<dyn crate::common::ThingTemplate>> {
-        let key = crate::common::AsciiString::from(name.as_ref());
-        let mut should_retry_init = true;
-        if let Ok(factory_guard) = get_thing_factory() {
-            if let Some(factory) = factory_guard.as_ref() {
-                should_retry_init = factory.first_template().is_none();
-                if let Some(template) = factory.find_template(key.as_str(), false) {
-                    return Some(Arc::new(EngineThingTemplateAdapter::new(template)));
-                }
-            } else {
-                should_retry_init = true;
-            }
-        }
-
-        // The original C++ runtime assumes the global thing database is available when scripts
-        // start creating units. Retry once by rebuilding the shared factory on demand only when
-        // the factory appears uninitialized to avoid expensive reloads on normal misses.
-        if should_retry_init && init_thing_factory().is_ok() {
-            if let Ok(factory_guard) = get_thing_factory() {
-                if let Some(factory) = factory_guard.as_ref() {
-                    if let Some(template) = factory.find_template(key.as_str(), false) {
-                        return Some(Arc::new(EngineThingTemplateAdapter::new(template)));
-                    }
-                }
-            }
-        }
-
-        None
+        game_engine::common::thing::template_lookup::find_template_or_initialize(name.as_ref())
+            .map(adapt_owned_thing_template)
     }
 
     pub fn build_facility_context_for(

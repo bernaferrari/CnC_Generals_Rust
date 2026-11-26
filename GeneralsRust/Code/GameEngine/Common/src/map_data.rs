@@ -1,11 +1,17 @@
 //! Authored map data shared by simulation, terrain, and presentation.
 
+use std::borrow::Cow;
+use std::io;
+
+use crate::common::system::compression::{decompress_data, is_data_compressed};
 use crate::common::system::geometry::{Coord3D as ExtentPoint, Region3D};
 use crate::map_object::MAP_XY_FACTOR;
 use crate::polygon_trigger::PolygonTrigger;
 use glam::{IVec2, Vec3};
 
 mod bridges;
+mod object_chunk;
+pub use object_chunk::MapObjectChunk;
 pub use bridges::{
     BridgeData, BridgeEndpoints, BridgeMarkers, BridgeModels, MAX_AUTHORED_BRIDGES,
     read_mounted_bridge_model,
@@ -116,4 +122,12 @@ pub struct MapWaypoint {
     pub path_label2: String,
     pub path_label3: String,
     pub bi_directional: bool,
+}
+
+/// Open a raw or compressed map's chunky payload.
+pub fn uncompressed_map_bytes(bytes: &[u8]) -> io::Result<Cow<'_, [u8]>> {
+    if is_data_compressed(bytes) {
+        return decompress_data(bytes).map(Cow::Owned);
+    }
+    Ok(Cow::Borrowed(bytes))
 }

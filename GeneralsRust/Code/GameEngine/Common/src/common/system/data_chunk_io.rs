@@ -310,6 +310,13 @@ impl<'a> DataChunkInput<'a> {
             .unwrap_or(true)
     }
 
+    pub(crate) fn remaining_in_chunk(&self) -> usize {
+        self.chunk_stack.last().map_or(0, |chunk| {
+            (chunk.data_left.max(0) as usize)
+                .min(self.stream.data.len().saturating_sub(self.stream.tell()))
+        })
+    }
+
     pub fn get_chunk_version(&self) -> DataChunkVersionType {
         self.chunk_stack.last().map(|c| c.version).unwrap_or(0)
     }

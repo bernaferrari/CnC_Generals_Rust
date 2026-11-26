@@ -13,7 +13,7 @@ use game_engine::common::system::{
     file::FileAccess,
     file_system::{FileSystem, get_file_system},
 };
-use gamelogic::system::map_loader::MapLoader;
+use game_engine::map_preview::map_has_terrain;
 use std::path::Path;
 use std::sync::Mutex;
 
@@ -174,7 +174,7 @@ fn campaign_map_loadable(files: &Mutex<FileSystem>, map_name: &str) -> bool {
         Some(mut file) => file.read_entire_and_close().ok(),
         None => resolve_campaign_map_file(map_name).and_then(|path| std::fs::read(path).ok()),
     };
-    bytes.is_some_and(|bytes| MapLoader::new().load_runtime_support_from_bytes(&bytes).is_ok())
+    bytes.as_deref().is_some_and(map_has_terrain)
 }
 
 /// Public helper used by host/golden: init INI store then walk USA/GLA/China

@@ -7,7 +7,6 @@
 //!
 //! This module implements the complete map initialization flow from the C++ codebase.
 
-use std::borrow::Cow;
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::{self, Read};
@@ -25,7 +24,7 @@ use game_engine::common::dict::{Dict, DictType};
 use game_engine::common::name_key_generator::NameKeyNamespace;
 use game_engine::common::system::DataChunkInfo;
 use game_engine::common::system::DataChunkInput;
-use game_engine::common::system::compression::{decompress_data, is_data_compressed};
+use game_engine::map_data::{MapObjectChunk, uncompressed_map_bytes};
 
 pub use game_engine::common::system::geometry::Coord2D;
 pub use game_engine::map_data::{
@@ -309,7 +308,7 @@ impl MapLoader {
         script_templates: Option<ScriptTemplateLookup>,
         common: Option<Arc<CommonServices>>,
     ) -> io::Result<MapParseContext> {
-        let chunk_bytes = Self::decode_map_chunk_bytes(data)?.into_owned();
+        let chunk_bytes = uncompressed_map_bytes(data)?.into_owned();
         let mut input = match names {
             Some(names) => DataChunkInput::with_namespace(chunk_bytes, names),
             None => DataChunkInput::new(chunk_bytes),
@@ -386,14 +385,6 @@ impl MapLoader {
             .filter_map(bridge)
             .take(MAX_AUTHORED_BRIDGES)
             .collect();
-    }
-
-    fn decode_map_chunk_bytes(data: &[u8]) -> io::Result<Cow<'_, [u8]>> {
-        if is_data_compressed(data) {
-            return decompress_data(data).map(Cow::Owned);
-        }
-
-        Ok(Cow::Borrowed(data))
     }
 
     /// Get the loaded heightmap
@@ -592,33 +583,14 @@ fn parse_object_chunk(
         return false;
     };
 
-    let mut loc = Coord3D::new(input.read_real(), input.read_real(), input.read_real());
-    if info.version <= K_OBJECTS_VERSION_2 as u16 {
-        loc.z = 0.0;
-    }
-
-    let _angle = input.read_real();
-    let flags = input.read_int() as u32;
-    let name = input.read_ascii_string();
-    let dict = if info.version >= K_OBJECTS_VERSION_2 as u16 {
-        input.read_dict()
-    } else {
-        Dict::new()
-    };
-
-    if let Some(span) = ctx.bridge_markers.observe(flags, &name, loc, &dict) {
+    let row = MapObjectChunk::read(input, info.version);
+    let loc = row.position;
+    let dict = &row.properties;
+    if let Some(span) = ctx.bridge_markers.observe(row.flags, &row.name, loc, dict) {
         ctx.bridges.push(span);
     }
 
-    let waypoint_key = input.intern_name("waypointID");
-    if let Some(id) = dict_get_int(&dict, waypoint_key) {
-        let name_key = input.intern_name("waypointName");
-        let waypoint_name = dict_get_string(&dict, name_key);
-        let resolved = if waypoint_name.is_empty() {
-            name.clone()
-        } else {
-            waypoint_name
-        };
+    if let Some((id, resolved)) = row.waypoint(input) {
         let label1_key = input.intern_name("waypointPathLabel1");
         let label2_key = input.intern_name("waypointPathLabel2");
         let label3_key = input.intern_name("waypointPathLabel3");
@@ -628,10 +600,10 @@ fn parse_object_chunk(
             id: id as u32,
             name: resolved.clone(),
             location: loc,
-            path_label1: dict_get_string(&dict, label1_key),
-            path_label2: dict_get_string(&dict, label2_key),
-            path_label3: dict_get_string(&dict, label3_key),
-            bi_directional: dict_get_bool(&dict, bidir_key),
+            path_label1: dict_get_string(dict, label1_key),
+            path_label2: dict_get_string(dict, label2_key),
+            path_label3: dict_get_string(dict, label3_key),
+            bi_directional: dict_get_bool(dict, bidir_key),
         };
 
         ctx.waypoints.insert(resolved, loc);
@@ -639,7 +611,7 @@ fn parse_object_chunk(
         return true;
     }
 
-    ctx.placed_objects.push((name, loc));
+    ctx.placed_objects.push((row.name, loc));
 
     true
 }
@@ -727,13 +699,6 @@ fn dict_to_string_map(dict: &Dict, input: &DataChunkInput) -> HashMap<String, St
         }
     }
     result
-}
-
-fn dict_get_int(dict: &Dict, key: u32) -> Option<i32> {
-    match dict.get_type(key) {
-        Some(DictType::Int) => Some(dict.get_int(key)),
-        _ => None,
-    }
 }
 
 fn dict_get_bool(dict: &Dict, key: u32) -> bool {

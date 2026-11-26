@@ -26,7 +26,7 @@ use game_engine::common::system::quoted_printable::ascii_string_to_quoted_printa
 use game_network::gamespy::ladder_defs::{
     LadderMapMeta, LadderMapProvider,
 };
-use gamelogic::system::map_loader::MapLoader;
+use game_engine::map_preview::{MapPreview, PreviewMarker};
 
 const MAP_CACHE_NAME: &str = "MapCache.ini";
 pub(crate) const MAP_EXTENSION: &str = "map";
@@ -280,10 +280,9 @@ impl MapCache {
             Ok(bytes) => bytes,
             Err(_) => return false,
         };
-        let mut loader = MapLoader::new();
-        if loader.load_map_from_bytes(&file_bytes).is_err() {
+        let Ok(preview) = read_map_preview(&file_bytes) else {
             return false;
-        }
+        };
 
         let mut metadata = MapMetaData::new();
         metadata.file_name = lower_path.clone();
@@ -291,32 +290,19 @@ impl MapCache {
         metadata.is_official = is_official;
         metadata.timestamp = WinTimeStamp::new(file_info.timestamp_low, file_info.timestamp_high);
 
-        let num_players = loader.count_start_spots() as i32;
+        let num_players = preview.count_start_spots() as i32;
         metadata.num_players = num_players;
         metadata.is_multiplayer = num_players >= 2;
-        metadata.extent = map_extent(loader.get_heightmap());
-        metadata.waypoints = loader
-            .get_waypoints()
-            .iter()
-            .map(|(k, v)| (k.clone(), to_ini_coord3d(*v)))
+        metadata.extent = preview.extent;
+        metadata.waypoints = preview
+            .waypoints
+            .into_iter()
+            .map(|(name, position)| (name, to_ini_coord3d(position)))
             .collect();
-        metadata.supply_positions = loader
-            .get_supply_positions()
-            .iter()
-            .map(|v| to_ini_coord3d(*v))
-            .collect();
-        metadata.tech_positions = loader
-            .get_tech_positions()
-            .iter()
-            .map(|v| to_ini_coord3d(*v))
-            .collect();
+        metadata.supply_positions = preview.supply_positions.into_iter().map(to_ini_coord3d).collect();
+        metadata.tech_positions = preview.tech_positions.into_iter().map(to_ini_coord3d).collect();
         metadata.crc = Crc::from_buffer(&file_bytes).get();
-
-        metadata.name_lookup_tag = loader
-            .get_world_dict()
-            .get("mapName")
-            .cloned()
-            .unwrap_or_default();
+        metadata.name_lookup_tag = preview.name_lookup_tag;
 
         let display_name = compute_display_name(&metadata, map_path);
         metadata.display_name = display_name;
@@ -922,14 +908,20 @@ fn map_string_file_for_map(map_path: &str) -> Option<String> {
     None
 }
 
-fn map_extent(heightmap: &gamelogic::system::map_loader::HeightMap) -> Region3D {
-    let (dx, dy) = heightmap.get_playable_dimensions();
-    let max_x = dx as f32 * gamelogic::system::map_loader::MAP_XY_FACTOR;
-    let max_y = dy as f32 * gamelogic::system::map_loader::MAP_XY_FACTOR;
-    Region3D {
-        lo: Coord3D::new(0.0, 0.0, 0.0),
-        hi: Coord3D::new(max_x, max_y, 0.0),
-    }
+pub(crate) fn read_map_preview(bytes: &[u8]) -> std::io::Result<MapPreview> {
+    use game_engine::common::system::kind_of::KindOfMask;
+    use game_engine::common::thing::template_lookup::find_template_or_initialize;
+
+    MapPreview::read(bytes, |name| {
+        let template = find_template_or_initialize(name)?;
+        if template.is_kind_of_mask(KindOfMask::TECH_BUILDING.bits()) {
+            Some(PreviewMarker::Tech)
+        } else if template.is_kind_of_mask(KindOfMask::SUPPLY_SOURCE_ON_PREVIEW.bits()) {
+            Some(PreviewMarker::Supply)
+        } else {
+            None
+        }
+    })
 }
 
 pub fn is_map_cached(map_name: &str) -> bool {

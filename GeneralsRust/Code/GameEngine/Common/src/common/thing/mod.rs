@@ -67,6 +67,7 @@ pub mod module;
 pub mod module_factory;
 pub mod receiving_module_content;
 pub mod sparse_match_finder;
+pub mod template_lookup;
 pub mod thing;
 pub mod thing_factory;
 pub mod thing_template;

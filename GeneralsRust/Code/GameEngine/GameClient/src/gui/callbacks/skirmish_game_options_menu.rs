@@ -23,7 +23,7 @@ use crate::shell_hooks::{
     SHELL_SCRIPT_HOOK_SKIRMISH_OPENED, signal_ui_interaction,
 };
 use game_engine::common::ini::ini_map_cache::{
-    Coord3D, MapMetaData, Region3D, get_map_cache_mut, init_global_map_cache,
+    Coord3D, MapMetaData, get_map_cache_mut, init_global_map_cache,
 };
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::random_value::init_game_logic_random;
@@ -1443,11 +1443,12 @@ fn path_is_official_map(path: &std::path::Path) -> bool {
 }
 
 fn parse_map_header_meta(map_name: &str, path: &std::path::Path) -> Option<MapMetaData> {
-    let mut loader = gamelogic::system::map_loader::MapLoader::new();
-    loader.load_map(path).ok()?;
-    let num_players = loader.count_start_spots() as i32;
+    if path.extension().is_none_or(|ext| ext != "map") {
+        return None;
+    }
+    let preview = crate::map_util::read_map_preview(&std::fs::read(path).ok()?).ok()?;
+    let num_players = preview.count_start_spots() as i32;
     let is_official = path_is_official_map(path);
-    let extent = loader.get_heightmap().get_extent();
     let display = std::path::Path::new(map_name)
         .file_stem()
         .and_then(|s| s.to_str())
@@ -1460,22 +1461,18 @@ fn parse_map_header_meta(map_name: &str, path: &std::path::Path) -> Option<MapMe
     meta.num_players = num_players;
     meta.is_multiplayer = num_players >= 2;
     meta.is_official = is_official;
-    meta.extent = Region3D::new(
-        Coord3D::new(extent.lo.x, extent.lo.y, extent.lo.z),
-        Coord3D::new(extent.hi.x, extent.hi.y, extent.hi.z),
-    );
+    meta.extent = preview.extent;
     if let Ok(stat) = std::fs::metadata(path) {
         meta.filesize = stat.len() as u32;
     }
-    for (name, pos) in loader.get_waypoints() {
-        meta.set_waypoint(name.clone(), Coord3D::new(pos.x, pos.y, pos.z));
+    for (name, position) in preview.waypoints {
+        meta.set_waypoint(name, Coord3D::new(position.x, position.y, position.z));
     }
-    for pos in loader.get_supply_positions() {
-        meta.supply_positions
-            .push(Coord3D::new(pos.x, pos.y, pos.z));
+    for position in preview.supply_positions {
+        meta.supply_positions.push(Coord3D::new(position.x, position.y, position.z));
     }
-    for pos in loader.get_tech_positions() {
-        meta.tech_positions.push(Coord3D::new(pos.x, pos.y, pos.z));
+    for position in preview.tech_positions {
+        meta.tech_positions.push(Coord3D::new(position.x, position.y, position.z));
     }
     Some(meta)
 }

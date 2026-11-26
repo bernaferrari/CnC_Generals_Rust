@@ -19005,6 +19005,11 @@
             },
             {
               "cargo_reachable": true,
+              "classification": "implementation",
+              "path": "GeneralsRust/Code/GameEngine/Common/src/common/thing/template_lookup.rs"
+            },
+            {
+              "cargo_reachable": true,
               "classification": "test",
               "path": "GeneralsRust/Code/GameEngine/Common/src/common/thing/tests.rs"
             },
@@ -176954,7 +176959,7 @@
             {
               "cargo_reachable": true,
               "classification": "implementation",
-              "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/w3d_gadget_draw/map_preview.rs"
+              "path": "GeneralsRust/Code/GameEngine/Common/src/map_preview.rs"
             }
           ],
           "entry_id": "tools:WorldBuilder/src/MapPreview.cpp",
@@ -187733,7 +187738,7 @@
       ]
     }
   ],
-  "provenance_input_digest": "99bf415431477bc2b905f2b3fc8e2ae5ab4d9a32f78171f903503f375f4aa174",
+  "provenance_input_digest": "f4eed8885e727879c8988b650f9b9ad89b1cababf6ea7ae50295ce49038b1dd0",
   "schema_version": 1,
   "summary": {
     "maximum_packet_size": 15,

@@ -55,7 +55,7 @@ use game_engine::common::thing::module::{
     ModuleType, Thing as ModuleThing,
 };
 use game_engine::common::thing::module_factory::get_module_factory;
-use game_engine::common::thing::thing_factory::{get_thing_factory, init_thing_factory};
+use game_engine::common::thing::thing_factory::get_thing_factory;
 use game_engine::common::thing::thing_template::BuildCompletionType;
 use game_engine::common::thing::thing_template::{
     ModuleDescriptorSet, ThingTemplate as EngineThingTemplate,
