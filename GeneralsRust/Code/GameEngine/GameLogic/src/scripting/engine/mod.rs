@@ -9,8 +9,10 @@ use super::core::*;
 use super::events::{AreaTracker, EventManager, NamedObjectTracker};
 use crate::ObjectId;
 use crate::common::{
-    AsciiString, INVALID_ID, KindOf, LOGICFRAMES_PER_SECOND, ObjectID, kind_of_indices,
+    AsciiString, INVALID_ID, KindOf, ObjectID, kind_of_indices,
 };
+#[cfg(test)]
+use crate::common::LOGICFRAMES_PER_SECOND;
 use crate::helpers::{TheAudio, TheGameLogic, TheThingFactory};
 use crate::object::object_types::ObjectTypes;
 use crate::object::registry::OBJECT_REGISTRY;
@@ -26,6 +28,8 @@ use game_engine::common::thing::thing_factory::get_thing_factory;
 use game_engine::common::thing::thing_template::ThingTemplate as EngineThingTemplate;
 use generals_sim::scripting::attack_priorities::AttackPriorityTable;
 pub use generals_sim::scripting::attack_priorities::{AttackPriorityInfo, MAX_ATTACK_PRIORITIES};
+use generals_sim::scripting::frame::{self, ScriptFade, ScriptFrame, ScriptFrameDriver};
+pub use generals_sim::scripting::frame::TFade;
 use generals_sim::scripting::map_reveals::NamedReveals;
 pub use generals_sim::scripting::map_reveals::{NamedReveal, NamedRevealOperation};
 use generals_sim::scripting::program_execution::{
@@ -39,7 +43,7 @@ use generals_sim::scripting::sequential_scripts::{
 use generals_sim::scripting::sequential_scripts::is_sequential_only_action;
 pub use generals_sim::scripting::sequential_scripts::{SequentialScript, SequentialScriptSnapshot};
 use generals_sim::scripting::side_scripts::SideScripts;
-use generals_sim::scripting::variables::{MissionTimers, NamedTrackersSnapshot, ScriptVariables};
+use generals_sim::scripting::variables::NamedTrackersSnapshot;
 pub use generals_sim::scripting::variables::{
     Counter as TCounter, Flag as TFlag, MAX_COUNTERS, MAX_FLAGS,
 };
@@ -84,3 +88,5 @@ mod condition_query_tests;
 
 #[cfg(test)]
 mod checked_friend_action_tests;
+#[cfg(test)]
+mod frame_owner_tests;

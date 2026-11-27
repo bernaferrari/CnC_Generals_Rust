@@ -130,7 +130,10 @@ impl PlayerList {
     /// Find a player by name key (from player name)
     /// Matches C++ PlayerList::findPlayerWithNameKey()
     pub fn find_player_by_name(&self, name: &str) -> Option<Arc<RwLock<Player>>> {
-        let key = NameKeyGenerator::name_to_key(name);
+        self.find_player_by_name_key(NameKeyGenerator::name_to_key(name))
+    }
+
+    pub(crate) fn find_player_by_name_key(&self, key: NameKeyType) -> Option<Arc<RwLock<Player>>> {
         self.iter().find_map(|player| {
             let guard = player.read().ok()?;
             if guard.get_player_name_key() == key {

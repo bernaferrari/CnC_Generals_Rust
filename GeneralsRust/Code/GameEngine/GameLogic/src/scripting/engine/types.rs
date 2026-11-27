@@ -3,8 +3,6 @@
 // Included into `engine/mod.rs` so private fields and the current
 // RefCell / TLS re-entrancy pattern stay in the parent module.
 
-const FRAMES_TO_FADE_IN_AT_START: i32 = 33;
-
 /// Live owner query supplied by the world driving this execution.
 /// Unavailable is reserved for the standalone canonical adapter; Missing is
 /// authoritative absence and must never fall back to a frozen host snapshot.
@@ -2421,16 +2419,6 @@ pub(crate) fn qualify_trigger_area_name(
     Some(area_name.to_string())
 }
 
-/// Fade types matching C++ TFade enum
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum TFade {
-    None = 0,
-    Subtract = 1,
-    Add = 2,
-    Saturate = 3,
-    Multiply = 4,
-}
-
 /// Breeze info structure matching C++ BreezeInfo
 #[derive(Debug, Clone)]
 pub struct BreezeInfo {
@@ -2479,6 +2467,8 @@ pub struct ScriptStats {
 pub struct ScriptEngine {
     /// Roster of the world that constructed this engine, for Core rank actions.
     players: Arc<RwLock<crate::player::PlayerList>>,
+    team_factory: crate::team::TeamFactoryHandle,
+    common: Arc<game_engine::common::common_services::CommonServices>,
     /// Exact world owners for Core cave-index actions and Xfer fixups.
     cave_system: Arc<Mutex<crate::system::cave_system::CaveSystem>>,
     object_registry: Arc<crate::object::registry::ObjectRegistry>,
@@ -2508,31 +2498,19 @@ pub struct ScriptEngineInner {
     templates: ScriptTemplateCatalog,
 
     // Runtime state
-    variables: ScriptVariables,
+    frame: ScriptFrame,
     attack_priorities: AttackPriorityTable,
     // ScriptConditions::s_transportStatuses: reset/load-scoped, not original Xfer.
     receiving_transport_statuses: HashMap<ObjectID, (u32, usize)>,
 
     // Game state
-    mission_timers: MissionTimers,
     calling_team: Option<TeamID>,   // Exact callback instance
     calling_object: Option<u32>,    // Object ID instead of pointer
     condition_team: Option<TeamID>, // Exact condition instance
     condition_object: Option<u32>,  // Object ID instead of pointer
-    first_update: bool,
     current_player: Option<String>, // Player name instead of pointer
     skirmish_human_player: Option<String>, // Player name instead of pointer
     current_track_name: String,
-
-    // Fade state
-    fade: TFade,
-    min_fade: f32,
-    max_fade: f32,
-    cur_fade_value: f32,
-    cur_fade_frame: i32,
-    fade_frames_increase: i32,
-    fade_frames_hold: i32,
-    fade_frames_decrease: i32,
 
     // Object tracking
     frame_object_count_changed: u32,
@@ -2543,7 +2521,6 @@ pub struct ScriptEngineInner {
     completed_video: Vec<String>,
     testing_speech: Vec<(String, u32)>,
     testing_audio: Vec<(String, u32)>,
-    ui_interactions: Vec<String>,
 
     // Special power tracking per player
     triggered_special_powers: Vec<Vec<(String, u32)>>,
@@ -2562,7 +2539,6 @@ pub struct ScriptEngineInner {
     campaign_victorious: bool,
 
     freeze_by_script: bool,
-    freeze_by_debug: bool,
     objects_should_receive_difficulty_bonus: bool,
     choose_victim_always_uses_normal: bool,
     shown_mp_local_defeat_window: bool,

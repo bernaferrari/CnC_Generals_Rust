@@ -1,7 +1,4 @@
-// ScriptEngine update, side-script execution, and sequential progress
-//
-// Split from `scripting/engine.rs` for module-size parity.
-// Observable behavior is unchanged.
+// Bind script-frame callbacks to the receiving interpreter and game.
 
 impl ScriptEngine {
     pub(super) fn observe_object_count_changed_frame(&self, driver: &dyn ScriptExecutionDriver) {
@@ -38,72 +35,13 @@ impl ScriptEngine {
         #[cfg(feature = "script_profiling")]
         let start_time = Instant::now();
 
-        // `update` has installed a lexical active engine, so nested
-        // CALL_SUBROUTINE re-enters immediately without a second `&mut` borrow.
-
-        self.initialize_named_cache_on_first_update(execution.driver);
-
-        let close_expired = self.lock_inner_mut().mission_timers.tick_close_window();
-        if close_expired {
-            // C++ ScriptEngine.cpp:5508-5512 TheScriptActions->closeWindows(FALSE).
-            self.close_windows_with_driver(false, execution.driver)?;
-            // Expiry runs before authored trigger evaluation. Deliver the
-            // callback now so later script conditions/actions observe the same
-            // window order as C++ rather than waiting for end-of-update.
-            execution.driver.after_action()?;
-        }
-
-        let end_expired = self.lock_inner_mut().mission_timers.tick_end_game();
-        if end_expired {
-            // C++ ScriptEngine.cpp:5514-5518 appends MSG_CLEAR_GAME_DATA.
-            // It does not call TheGameLogic::clearGameData() directly.
-            log::info!("End game timer expired, appending MSG_CLEAR_GAME_DATA");
-            if let Ok(mut stream) =
-                game_engine::common::message_stream::get_message_stream().write()
-            {
-                stream.append_message(
-                    game_engine::common::message_stream::GameMessageType::ClearGameData,
-                );
-            }
-        }
-
-        // C++ parity: freeze-by-debug stops further script update progression.
-        if self.is_time_frozen_debug() {
+        let progress = frame::advance(&mut ScriptFrameWorld {
+            engine: self,
+            execution,
+        })?;
+        if progress == frame::ScriptFrameProgress::Suspended {
             return Ok(());
         }
-
-        let end_game_active = {
-            let mut inner = self.lock_inner_mut();
-            inner.variables.tick();
-            inner.mission_timers.end_game_active()
-        };
-
-        // Update fade effects
-        self.update_fades();
-
-        // If the engine is in an end-game timing-down state, C++ returns early.
-        if end_game_active {
-            return Ok(());
-        }
-
-        // Evaluate scripts for each player/side, matching C++ `ScriptEngine::update()`.
-        self.execute_side_scripts(execution)?;
-
-        // C++5573: team callbacks run after sides and before UI clearing/sequentials.
-        if let Some(result) = execution.driver.update_team_states(self) {
-            result?;
-        } else {
-            if let Ok(mut team_factory) = crate::team::get_team_factory().lock() {
-                team_factory.update(&self.host_query());
-            }
-            crate::team::flush_pending_team_script_events();
-        }
-
-        // Clear UI interaction flags (C++: m_uiInteractions.clear()).
-        self.lock_inner_mut().ui_interactions.clear();
-
-        // Process sequential scripts
-        self.evaluate_and_progress_all_sequential_scripts(execution)?;
 
         #[cfg(feature = "script_profiling")]
         {
@@ -123,34 +61,25 @@ impl ScriptEngine {
     /// Original first-UPDATE cache phase, shared with explicit receiving startup
     /// fixtures. No timers, team state or script actions advance in this phase.
     pub fn initialize_named_cache_on_first_update(&self, driver: &mut dyn ScriptExecutionDriver) {
-        let first_update = {
-            let mut inner = self.lock_inner_mut();
-            if inner.first_update {
-                inner.first_update = false;
-                true
-            } else {
-                false
-            }
-        };
+        let first_update = self.lock_inner_mut().frame.take_first_update();
         if first_update {
-            if driver.initialize_named_cache().is_none() {
-                self.create_named_cache();
-            }
-            log::info!("ScriptEngine first update: named cache populated");
+            self.initialize_named_cache(driver);
         }
+    }
+
+    fn initialize_named_cache(&self, driver: &mut dyn ScriptExecutionDriver) {
+        if driver.initialize_named_cache().is_none() {
+            self.create_named_cache();
+        }
+        log::info!("ScriptEngine first update: named cache populated");
     }
 
     /// Populate the NamedObjectTracker from currently registered objects.
     ///
     /// C++ Reference: `ScriptEngine::createNamedCache()`.
     fn create_named_cache(&self) {
-        // Wave 348: empty dual-world → no-op.
-        if dual_world_registry_unavailable() {
-            return;
-        }
-        let tracker = get_named_object_tracker();
-        for obj_id in OBJECT_REGISTRY.get_all_object_ids() {
-            let obj_arc = match OBJECT_REGISTRY.get_object(obj_id) {
+        for obj_id in self.object_registry.get_all_object_ids() {
+            let obj_arc = match self.object_registry.get_object(obj_id) {
                 Some(v) => v,
                 None => continue,
             };
@@ -159,7 +88,9 @@ impl ScriptEngine {
             if name.is_empty() {
                 continue;
             }
-            let _ = tracker.register_named_object(name.to_string(), obj.get_id());
+            let _ = self
+                .named_objects
+                .register_named_object(name.to_string(), obj.get_id());
         }
     }
 
@@ -173,7 +104,8 @@ impl ScriptEngine {
     }
 
     fn execute_side_scripts(&self, execution: &mut ScriptExecution<'_>) -> GameLogicResult<()> {
-        self.side_scripts.with_execution(|| self.execute_side_scripts_from_owned_lists(execution))
+        self.side_scripts
+            .with_execution(|| self.execute_side_scripts_from_owned_lists(execution))
     }
 
     fn execute_side_scripts_from_owned_lists(
@@ -201,8 +133,7 @@ impl ScriptEngine {
                 ScriptOwnerQuery::Missing => None,
                 ScriptOwnerQuery::Unavailable => {
                     let player_names = standalone_player_names.get_or_insert_with(|| {
-                        let player_list = crate::player::player_list();
-                        match player_list.try_read() {
+                        match self.players.try_read() {
                             Ok(list_guard) => {
                                 let player_count =
                                     list_guard.get_player_count().min(Self::MAX_PLAYER_COUNT);
@@ -210,9 +141,13 @@ impl ScriptEngine {
                                     .map(|index| {
                                         list_guard.get_player(index as i32).and_then(|player| {
                                             player.read().ok().and_then(|player| {
-                                                NameKeyGenerator::key_to_name(
-                                                    player.get_player_name_key(),
-                                                )
+                                                self.common
+                                                    .name_key_namespace
+                                                    .lock()
+                                                    .unwrap_or_else(|poisoned| {
+                                                        poisoned.into_inner()
+                                                    })
+                                                    .key_to_name(player.get_player_name_key())
                                             })
                                         })
                                     })
@@ -226,141 +161,60 @@ impl ScriptEngine {
             };
             self.lock_inner_mut().current_player = current_player;
 
-            self.side_scripts.execute_side(i, |script| program.run_script(script))?;
+            self.side_scripts
+                .execute_side(i, |script| program.run_script(script))?;
         }
 
         self.lock_inner_mut().current_player = None;
         Ok(())
     }
+}
 
-    fn initialize_script_runtime_fields_in_list(&self, script_list: &mut ScriptList) {
-        if let Some(script_head) = script_list.first_script.as_deref_mut() {
-            self.initialize_script_runtime_fields_in_chain(script_head);
-        }
+struct ScriptFrameWorld<'engine, 'context> {
+    engine: &'engine ScriptEngine,
+    execution: &'engine mut ScriptExecution<'context>,
+}
 
-        let mut group_opt = script_list.first_group.as_deref_mut();
-        while let Some(group) = group_opt {
-            if let Some(script_head) = group.first_script.as_deref_mut() {
-                self.initialize_script_runtime_fields_in_chain(script_head);
-            }
-            group_opt = group.next_group.as_deref_mut();
+impl ScriptFrameDriver for ScriptFrameWorld<'_, '_> {
+    fn with_frame<R>(&self, edit: impl FnOnce(&mut ScriptFrame) -> R) -> R {
+        edit(&mut self.engine.lock_inner_mut().frame)
+    }
+
+    fn create_named_cache(&mut self) {
+        self.engine.initialize_named_cache(self.execution.driver);
+    }
+
+    fn close_windows(&mut self) -> GameLogicResult<()> {
+        self.engine
+            .close_windows_with_driver(false, self.execution.driver)?;
+        self.execution.driver.after_action()
+    }
+
+    fn queue_clear_game_data(&mut self) {
+        use game_engine::common::message_stream::GameMessageType;
+        log::info!("End game timer expired, appending MSG_CLEAR_GAME_DATA");
+        if let Ok(mut stream) = self.engine.common.application.message_stream.write() {
+            stream.append_message(GameMessageType::ClearGameData);
         }
     }
 
-    fn initialize_script_runtime_fields_in_chain(&self, script_head: &mut Script) {
-        let mut current = Some(script_head);
-        while let Some(script) = current {
-            self.initialize_script_runtime_fields(script);
-            current = script.next_script.as_deref_mut();
-        }
+    fn execute_sides(&mut self) -> GameLogicResult<()> {
+        self.engine.execute_side_scripts(self.execution)
     }
 
-    fn initialize_script_runtime_fields(&self, script: &mut Script) {
-        self.initialize_script_evaluation_frame(script);
-        self.infer_script_condition_team_name(script);
+    fn update_teams(&mut self) -> GameLogicResult<()> {
+        if let Some(result) = self.execution.driver.update_team_states(self.engine) {
+            return result;
+        }
+        if let Ok(mut factory) = self.engine.team_factory.lock() {
+            factory.update(&self.engine.host_query());
+        }
+        crate::team::flush_pending_team_script_events();
+        Ok(())
     }
 
-    fn initialize_script_evaluation_frame(&self, script: &mut Script) {
-        if script.delay_evaluation_seconds > 0 {
-            let max_offset = (2 * LOGICFRAMES_PER_SECOND as i32).max(0);
-            let random_offset = crate::helpers::get_game_logic_random_value(0, max_offset).max(0);
-            script.frame_to_evaluate_at = random_offset as u32;
-        } else {
-            script.frame_to_evaluate_at = 0;
-        }
-    }
-
-    fn infer_script_condition_team_name(&self, script: &mut Script) {
-        let mut singleton_team_name = String::new();
-        let mut multi_team_name = String::new();
-        let script_name = script.script_name.clone();
-
-        let mut or_condition = script.condition.as_deref();
-        while let Some(or_node) = or_condition {
-            let mut and_condition = or_node.first_and.as_deref();
-            while let Some(condition) = and_condition {
-                for index in 0..condition.get_num_parameters() {
-                    let Some(param) = condition.get_parameter(index) else {
-                        continue;
-                    };
-                    if param.get_parameter_type() != ParameterType::Team {
-                        continue;
-                    }
-
-                    let team_name = param.get_string().trim();
-                    if team_name.is_empty() {
-                        continue;
-                    }
-
-                    let published_team_factory = get_team_factory();
-                    let Some(prototype) = published_team_factory
-                        .lock()
-                        .ok()
-                        .and_then(|factory| factory.find_team_prototype(team_name))
-                    else {
-                        continue;
-                    };
-
-                    let is_singleton =
-                        prototype.is_singleton() || prototype.get_max_instances() < 2;
-                    if is_singleton {
-                        singleton_team_name = team_name.to_string();
-                    } else if multi_team_name.is_empty() {
-                        multi_team_name = team_name.to_string();
-                    } else if multi_team_name != team_name {
-                        log::warn!(
-                            "Script '{}' contains multiple non-singleton team conditions: '{}' and '{}'",
-                            script_name,
-                            multi_team_name,
-                            team_name
-                        );
-                    }
-                }
-                and_condition = condition.get_next();
-            }
-            or_condition = or_node.get_next_or_condition();
-        }
-
-        if !multi_team_name.is_empty() {
-            script.condition_team_name = multi_team_name;
-        } else if !singleton_team_name.is_empty() {
-            script.condition_team_name = singleton_team_name;
-        }
-    }
-
-    /// Update fade effects
-    fn update_fades(&self) {
-        let mut inner = self.lock_inner_mut();
-        if inner.fade == TFade::None {
-            return;
-        }
-
-        inner.cur_fade_frame += 1;
-        let mut fade = inner.cur_fade_frame;
-
-        if fade <= inner.fade_frames_increase {
-            let factor = inner.cur_fade_frame as f32 / inner.fade_frames_increase as f32;
-            inner.cur_fade_value = inner.min_fade + factor * (inner.max_fade - inner.min_fade);
-            return;
-        }
-
-        fade -= inner.fade_frames_increase;
-        if fade <= inner.fade_frames_hold {
-            inner.cur_fade_value = inner.max_fade;
-            return;
-        }
-
-        fade -= inner.fade_frames_hold;
-        if fade <= inner.fade_frames_decrease {
-            let mut divisor = inner.fade_frames_decrease + 1;
-            if divisor == 0 {
-                divisor = 1;
-            }
-            let factor = fade as f32 / divisor as f32;
-            inner.cur_fade_value = inner.max_fade + factor * (inner.min_fade - inner.max_fade);
-            return;
-        }
-
-        inner.fade = TFade::None;
+    fn execute_sequences(&mut self) -> GameLogicResult<()> {
+        self.engine
+            .evaluate_and_progress_all_sequential_scripts(self.execution)
     }
 }

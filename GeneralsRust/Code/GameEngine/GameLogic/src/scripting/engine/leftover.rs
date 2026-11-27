@@ -295,7 +295,7 @@ impl XferSnapshot for ScriptEngine {
         }
 
         let inner = self.inner.get_mut();
-        let (counters, counter_count) = inner.variables.legacy_counters();
+        let (counters, counter_count) = inner.frame.variables.legacy_counters();
         let mut counters_size: u16 =
             if matches!(xfer.get_xfer_mode(), XferMode::Save | XferMode::Crc) {
                 *counter_count as u16
@@ -324,7 +324,7 @@ impl XferSnapshot for ScriptEngine {
             *counter_count = num_counters as usize;
         }
 
-        let (flags, flag_count) = inner.variables.legacy_flags();
+        let (flags, flag_count) = inner.frame.variables.legacy_flags();
         let mut flags_size: u16 = if matches!(xfer.get_xfer_mode(), XferMode::Save | XferMode::Crc)
         {
             *flag_count as u16
@@ -393,8 +393,8 @@ impl XferSnapshot for ScriptEngine {
             inner.attack_priorities.clear_assignments();
         }
 
-        xfer.xfer_int(&mut inner.mission_timers.end_game)?;
-        xfer.xfer_int(&mut inner.mission_timers.close_window)?;
+        xfer.xfer_int(&mut inner.frame.mission_timers.end_game)?;
+        xfer.xfer_int(&mut inner.frame.mission_timers.close_window)?;
 
         let named_object_tracker = &self.named_objects;
         let named_objects: Vec<(String, ObjectID)> =
@@ -446,9 +446,9 @@ impl XferSnapshot for ScriptEngine {
             XferMode::Invalid => return Err(XferStatus::ModeUnknown),
         }
 
-        xfer.xfer_bool(&mut inner.first_update)?;
+        xfer.xfer_bool(&mut inner.frame.first_update)?;
 
-        let mut fade_value: i32 = match inner.fade {
+        let mut fade_value: i32 = match inner.frame.fade.mode {
             TFade::None => 0,
             TFade::Subtract => 1,
             TFade::Add => 2,
@@ -457,7 +457,7 @@ impl XferSnapshot for ScriptEngine {
         };
         xfer.xfer_int(&mut fade_value)?;
         if xfer.get_xfer_mode() == XferMode::Load {
-            inner.fade = match fade_value {
+            inner.frame.fade.mode = match fade_value {
                 0 => TFade::None,
                 1 => TFade::Subtract,
                 2 => TFade::Add,
@@ -467,18 +467,18 @@ impl XferSnapshot for ScriptEngine {
             };
         }
 
-        xfer.xfer_real(&mut inner.min_fade)?;
-        xfer.xfer_real(&mut inner.max_fade)?;
-        xfer.xfer_real(&mut inner.cur_fade_value)?;
-        xfer.xfer_int(&mut inner.cur_fade_frame)?;
-        xfer.xfer_int(&mut inner.fade_frames_increase)?;
-        xfer.xfer_int(&mut inner.fade_frames_hold)?;
-        xfer.xfer_int(&mut inner.fade_frames_decrease)?;
+        xfer.xfer_real(&mut inner.frame.fade.min)?;
+        xfer.xfer_real(&mut inner.frame.fade.max)?;
+        xfer.xfer_real(&mut inner.frame.fade.value)?;
+        xfer.xfer_int(&mut inner.frame.fade.frame)?;
+        xfer.xfer_int(&mut inner.frame.fade.increase)?;
+        xfer.xfer_int(&mut inner.frame.fade.hold)?;
+        xfer.xfer_int(&mut inner.frame.fade.decrease)?;
 
         xfer_list_ascii_string(xfer, &mut inner.completed_video)?;
         xfer_list_ascii_string_uint(xfer, &mut inner.testing_speech)?;
         xfer_list_ascii_string_uint(xfer, &mut inner.testing_audio)?;
-        xfer_list_ascii_string(xfer, &mut inner.ui_interactions)?;
+        xfer_list_ascii_string(xfer, &mut inner.frame.ui_interactions)?;
 
         let mut triggered_special_powers_size: u16 = Self::MAX_PLAYER_COUNT as u16;
         xfer.xfer_unsigned_short(&mut triggered_special_powers_size)?;
@@ -672,15 +672,8 @@ impl XferSnapshot for ScriptEngine {
             inner.choose_victim_always_uses_normal = false;
         }
 
-        if xfer.get_xfer_mode() == XferMode::Load && inner.fade == TFade::None {
-            inner.fade = TFade::Multiply;
-            inner.cur_fade_frame = 0;
-            inner.min_fade = 1.0;
-            inner.max_fade = 0.0;
-            inner.fade_frames_increase = 0;
-            inner.fade_frames_hold = 0;
-            inner.fade_frames_decrease = FRAMES_TO_FADE_IN_AT_START;
-            inner.cur_fade_value = 0.0;
+        if xfer.get_xfer_mode() == XferMode::Load && inner.frame.fade.mode == TFade::None {
+            inner.frame.fade = ScriptFade::map_intro();
         }
 
         Ok(())

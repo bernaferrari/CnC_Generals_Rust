@@ -116,6 +116,8 @@ impl ScriptEngine {
     ) -> GameLogicResult<Self> {
         let mut engine = Self {
             players: Arc::clone(services.players()),
+            team_factory: services.team_factory().clone(),
+            common: Arc::clone(services.common()),
             cave_system: Arc::clone(&services.logic_managers().cave),
             object_registry: Arc::clone(services.object_registry()),
             named_objects: Arc::clone(services.scripts().named_objects()),
@@ -129,28 +131,17 @@ impl ScriptEngine {
             inner: std::cell::RefCell::new(ScriptEngineInner {
                 templates: ScriptTemplateCatalog::new(names),
 
-                variables: ScriptVariables::default(),
+                frame: ScriptFrame::default(),
                 attack_priorities: AttackPriorityTable::new(),
                 receiving_transport_statuses: HashMap::new(),
 
-                mission_timers: MissionTimers::default(),
                 calling_team: None,
                 calling_object: None,
                 condition_team: None,
                 condition_object: None,
-                first_update: true,
                 current_player: None,
                 skirmish_human_player: None,
                 current_track_name: String::new(),
-
-                fade: TFade::None,
-                min_fade: 0.0,
-                max_fade: 1.0,
-                cur_fade_value: 0.0,
-                cur_fade_frame: 0,
-                fade_frames_increase: 0,
-                fade_frames_hold: 0,
-                fade_frames_decrease: 0,
 
                 frame_object_count_changed: 0,
                 object_counts: HashMap::new(),
@@ -159,7 +150,6 @@ impl ScriptEngine {
                 completed_video: Vec::new(),
                 testing_speech: Vec::new(),
                 testing_audio: Vec::new(),
-                ui_interactions: Vec::new(),
 
                 triggered_special_powers: vec![Vec::new(); Self::MAX_PLAYER_COUNT],
                 midway_special_powers: vec![Vec::new(); Self::MAX_PLAYER_COUNT],
@@ -173,7 +163,6 @@ impl ScriptEngine {
                 game_difficulty: crate::player::GameDifficulty::Normal,
 
                 freeze_by_script: false,
-                freeze_by_debug: false,
                 objects_should_receive_difficulty_bonus: true,
                 choose_victim_always_uses_normal: false,
                 shown_mp_local_defeat_window: false,
@@ -192,7 +181,7 @@ impl ScriptEngine {
 
         {
             let inner = engine.inner.get_mut();
-            inner.variables.reserve_empty_slots();
+            inner.frame.variables.reserve_empty_slots();
             inner.attack_priorities.ensure_default();
         }
 
@@ -374,8 +363,34 @@ impl ScriptEngine {
         player_index: usize,
         script_list: Option<Box<ScriptList>>,
     ) -> GameLogicResult<()> {
+        self.install_script_list(
+            player_index,
+            script_list,
+            crate::helpers::get_game_logic_random_value,
+        )
+    }
+
+    /// Prepare authored scripts with the RNG of the accepting simulation.
+    pub fn set_script_list_for_player_with_random(
+        &self,
+        player_index: usize,
+        script_list: Option<Box<ScriptList>>,
+        random: &game_engine::common::random_value::SessionRandom,
+    ) -> GameLogicResult<()> {
+        self.install_script_list(player_index, script_list, |lo, hi| random.next_int(lo, hi))
+    }
+
+    fn install_script_list(
+        &self,
+        player_index: usize,
+        script_list: Option<Box<ScriptList>>,
+        draw: impl FnMut(i32, i32) -> i32,
+    ) -> GameLogicResult<()> {
         self.side_scripts.install(player_index, script_list, |list| {
-            self.initialize_script_runtime_fields_in_list(list)
+            generals_sim::scripting::program_install::initialize_script_list(list, draw, |name| {
+                let prototype = self.team_factory.lock().ok()?.find_team_prototype(name)?;
+                Some(prototype.is_singleton() || prototype.get_max_instances() < 2)
+            });
         })
     }
 
@@ -626,28 +641,22 @@ impl ScriptEngine {
         {
             let inner = self.inner.get_mut();
             // Clear runtime state
-            inner.variables.reset();
+            inner.frame.reset();
             inner.attack_priorities.clear();
             inner.receiving_transport_statuses.clear();
 
-            inner.mission_timers = MissionTimers::default();
             inner.calling_team = None;
             inner.calling_object = None;
             inner.condition_team = None;
             inner.condition_object = None;
-            inner.first_update = true;
             inner.current_player = None;
             inner.skirmish_human_player = None;
             inner.current_track_name.clear();
 
-            inner.fade = TFade::None;
-            inner.cur_fade_value = 0.0;
-            inner.cur_fade_frame = 0;
 
             inner.completed_video.clear();
             inner.testing_speech.clear();
             inner.testing_audio.clear();
-            inner.ui_interactions.clear();
 
             for powers in &mut inner.triggered_special_powers {
                 powers.clear();
@@ -672,7 +681,6 @@ impl ScriptEngine {
             inner.game_difficulty = crate::player::GameDifficulty::Normal;
 
             inner.freeze_by_script = false;
-            inner.freeze_by_debug = false;
             inner.objects_should_receive_difficulty_bonus = true;
             inner.choose_victim_always_uses_normal = false;
             inner.shown_mp_local_defeat_window = false;
@@ -691,7 +699,6 @@ impl ScriptEngine {
             inner.stats = ScriptStats::default();
         }
 
-        inner.variables.reserve_empty_slots();
         inner.attack_priorities.ensure_default();
     }
 
@@ -699,43 +706,26 @@ impl ScriptEngine {
     /// Resets transient counters/flags then starts the default 33-frame
     /// `FADE_MULTIPLY` fade-in from black. Does **not** clear script lists.
     pub fn new_map(&mut self) {
-        {
-            let inner = self.inner.get_mut();
-            inner.variables.reset();
-            inner.mission_timers = MissionTimers::default();
-            inner.first_update = true;
-            inner.completed_video.clear();
-            inner.testing_speech.clear();
-            inner.testing_audio.clear();
-            inner.ui_interactions.clear();
-            for powers in &mut inner.triggered_special_powers {
-                powers.clear();
-            }
-            for powers in &mut inner.midway_special_powers {
-                powers.clear();
-            }
-            for powers in &mut inner.finished_special_powers {
-                powers.clear();
-            }
-            for upgrades in &mut inner.completed_upgrades {
-                upgrades.clear();
-            }
-            for sciences in &mut inner.acquired_sciences {
-                sciences.clear();
-            }
-
-            // default to a fade in from black
-            inner.fade = TFade::Multiply;
-            inner.cur_fade_frame = 0;
-            inner.min_fade = 1.0;
-            inner.max_fade = 0.0;
-            inner.fade_frames_increase = 0;
-            inner.fade_frames_hold = 0;
-            inner.fade_frames_decrease = FRAMES_TO_FADE_IN_AT_START;
-            inner.cur_fade_value = 0.0;
-        }
         let inner = self.inner.get_mut();
-        inner.variables.reserve_empty_slots();
+        inner.frame.new_map();
+        inner.completed_video.clear();
+        inner.testing_speech.clear();
+        inner.testing_audio.clear();
+        for powers in &mut inner.triggered_special_powers {
+            powers.clear();
+        }
+        for powers in &mut inner.midway_special_powers {
+            powers.clear();
+        }
+        for powers in &mut inner.finished_special_powers {
+            powers.clear();
+        }
+        for upgrades in &mut inner.completed_upgrades {
+            upgrades.clear();
+        }
+        for sciences in &mut inner.acquired_sciences {
+            sciences.clear();
+        }
     }
 }
 

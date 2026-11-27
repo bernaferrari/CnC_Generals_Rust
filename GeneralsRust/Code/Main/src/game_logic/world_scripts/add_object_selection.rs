@@ -1810,9 +1810,11 @@ impl GameLogic {
         }
         engine.set_action_handler(Some(handler));
         for (index, list) in lists.iter().enumerate() {
-            if let Err(error) =
-                engine.set_script_list_for_player(index, Some(Box::new(list.clone())))
-            {
+            if let Err(error) = engine.set_script_list_for_player_with_random(
+                index,
+                Some(Box::new(list.clone())),
+                &self.logic_random,
+            ) {
                 log::error!("Failed to admit map script list {}: {:?}", index, error);
                 return false;
             }

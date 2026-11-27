@@ -53,10 +53,18 @@ impl ScriptProgramDriver for ScriptProgramWorld<'_, '_> {
         let difficulty = current_player
             .as_deref()
             .and_then(|name| {
-                crate::player::player_list()
+                let key = self
+                    .engine
+                    .common
+                    .name_key_namespace
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner())
+                    .name_to_key(name);
+                self.engine
+                    .players
                     .read()
                     .ok()
-                    .and_then(|list| list.find_player_by_name(name))
+                    .and_then(|list| list.find_player_by_name_key(key))
                     .and_then(|p| p.read().ok().map(|p| p.get_player_difficulty()))
             })
             .unwrap_or(GameDifficulty::Normal);
@@ -71,7 +79,9 @@ impl ScriptProgramDriver for ScriptProgramWorld<'_, '_> {
         match self.execution.driver.condition_team_after(name, after) {
             ScriptOwnerQuery::Present(id) => id,
             ScriptOwnerQuery::Missing => None,
-            ScriptOwnerQuery::Unavailable => get_team_factory()
+            ScriptOwnerQuery::Unavailable => self
+                .engine
+                .team_factory
                 .lock()
                 .ok()
                 .and_then(|factory| factory.condition_team_after(name, after)),

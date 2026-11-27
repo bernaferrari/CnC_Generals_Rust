@@ -1,7 +1,7 @@
 use super::*;
 use generals_sim::scripting::program::ScriptActionType;
 
-fn map(directory: &std::path::Path) -> std::path::PathBuf {
+fn map(directory: &std::path::Path, delay_seconds: i32) -> std::path::PathBuf {
     let mut out = game_engine::common::system::DataChunkOutput::new();
     out.open_data_chunk("HeightMapData", 3);
     for value in [8, 8, 0, 64] {
@@ -20,7 +20,7 @@ fn map(directory: &std::path::Path) -> std::path::PathBuf {
     for value in [0, 0, 1, 1, 1, 0] {
         out.write_byte(value);
     }
-    out.write_int(0);
+    out.write_int(delay_seconds);
     for _ in 0..3 {
         out.close_data_chunk();
     }
@@ -36,7 +36,7 @@ fn successful_chunky_map_retains_receiving_debug_templates_and_authored_script_l
         "successful_chunky_map_retains_receiving_debug_templates_and_authored_script_lists",
         || {
             let directory = tempfile::tempdir().unwrap();
-            let path = map(directory.path());
+            let path = map(directory.path(), 0);
             let mut owner = GameLogic::new();
             let mut peer = GameLogic::new();
             {
@@ -120,7 +120,7 @@ fn map_script_definition_admission_rejects_an_outstanding_actual_interpreter_loa
             // Direct definition admission is after reset, not another reset. Publish
             // the actual current policy exactly as the old install boundary did.
             let directory = tempfile::tempdir().unwrap();
-            let path = map(directory.path());
+            let path = map(directory.path(), 0);
             owner
                 .owned_script_engine
                 .as_ref()
@@ -143,4 +143,30 @@ fn map_script_definition_admission_rejects_an_outstanding_actual_interpreter_loa
             assert!(owner.script_debug_frozen(None).unwrap());
         },
     );
+}
+
+#[test]
+fn periodic_map_scripts_draw_from_the_receiving_world_during_admission() {
+    use game_engine::common::random_value::{SessionRandom, with_session_random};
+    use gamelogic::system::engine_stores::with_world_services;
+
+    let directory = tempfile::tempdir().unwrap();
+    let path = map(directory.path(), 2);
+    let mut owner = GameLogic::new();
+    let peer = GameLogic::new();
+    owner.logic_random.seed_random(81);
+    peer.logic_random.seed_random(19);
+    let expected = SessionRandom::from_state(owner.logic_random.snapshot());
+    let deadline = expected.next_int(0, 60) as u32;
+    let peer_before = peer.logic_random.seed_words();
+
+    with_world_services(&peer.world_services, || with_session_random(&peer.logic_random, || {
+        assert!(owner.admit_map_script_definitions_with_difficulty(path.to_str().unwrap(), None, None));
+    }));
+
+    let script = owner.owned_script_engine.as_ref().unwrap()
+        .find_script_clone_by_name("Retained authored script").unwrap();
+    assert_eq!(script.frame_to_evaluate_at, deadline);
+    assert_eq!(owner.logic_random.seed_words(), expected.seed_words());
+    assert_eq!(peer.logic_random.seed_words(), peer_before);
 }

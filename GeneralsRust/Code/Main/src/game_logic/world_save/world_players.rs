@@ -62,7 +62,11 @@ impl GameLogic {
                 self.loaded_script_lists.resize_with(id + 1, ScriptList::new);
             }
             if let Some(engine) = &self.owned_script_engine {
-                if let Err(error) = engine.set_script_list_for_player(id, Some(Box::new(list.clone()))) {
+                if let Err(error) = engine.set_script_list_for_player_with_random(
+                    id,
+                    Some(Box::new(list.clone())),
+                    &self.logic_random,
+                ) {
                     log::error!("Failed to admit skirmish script list {}: {:?}", id, error);
                     continue;
                 }

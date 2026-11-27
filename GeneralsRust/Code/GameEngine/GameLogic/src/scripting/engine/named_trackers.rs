@@ -5,32 +5,32 @@
 
 impl ScriptEngine {
     pub fn allocate_counter(&self, name: &str) -> GameLogicResult<usize> {
-        self.lock_inner_mut().variables.allocate_counter(name)
+        self.lock_inner_mut().frame.variables.allocate_counter(name)
     }
 
     pub fn allocate_flag(&self, name: &str) -> GameLogicResult<usize> {
-        self.lock_inner_mut().variables.allocate_flag(name)
+        self.lock_inner_mut().frame.variables.allocate_flag(name)
     }
 
     pub fn get_counter(&self, name: &str) -> Option<TCounter> {
-        self.with_inner(|inner| inner.variables.counter(name).cloned())
+        self.with_inner(|inner| inner.frame.variables.counter(name).cloned())
     }
 
     pub fn get_flag(&self, name: &str) -> Option<TFlag> {
-        self.with_inner(|inner| inner.variables.flag(name).cloned())
+        self.with_inner(|inner| inner.frame.variables.flag(name).cloned())
     }
 
     pub fn set_counter(&self, name: &str, value: i32) -> GameLogicResult<()> {
-        self.lock_inner_mut().variables.set_counter(name, value)
+        self.lock_inner_mut().frame.variables.set_counter(name, value)
     }
 
     pub fn set_flag(&self, name: &str, value: bool) -> GameLogicResult<()> {
-        self.lock_inner_mut().variables.set_flag(name, value)
+        self.lock_inner_mut().frame.variables.set_flag(name, value)
     }
 
     /// C++ `ScriptEngine::xfer` counter/flag tables.
     pub fn snapshot_named_trackers(&self) -> NamedTrackersSnapshot {
-        self.with_inner(|inner| inner.variables.snapshot())
+        self.with_inner(|inner| inner.frame.variables.snapshot())
     }
 
     pub fn restore_named_trackers(
@@ -38,7 +38,7 @@ impl ScriptEngine {
         counters: &[(String, i32, bool)],
         flags: &[(String, bool)],
     ) -> GameLogicResult<()> {
-        self.lock_inner_mut().variables.restore(counters, flags)
+        self.lock_inner_mut().frame.variables.restore(counters, flags)
     }
 
     /// C++ ScriptEngine::xfer writes each sequential script head.
@@ -71,23 +71,23 @@ impl ScriptEngine {
 
     pub fn increment_counter(&self, name: &str, amount: i32) -> GameLogicResult<()> {
         self.lock_inner_mut()
-            .variables
+            .frame.variables
             .increment_counter(name, amount)
     }
 
     pub fn decrement_counter(&self, name: &str, amount: i32) -> GameLogicResult<()> {
         self.lock_inner_mut()
-            .variables
+            .frame.variables
             .decrement_counter(name, amount)
     }
 
     pub fn set_timer(&self, name: &str, frames: i32) -> GameLogicResult<()> {
-        self.lock_inner_mut().variables.set_timer(name, frames)
+        self.lock_inner_mut().frame.variables.set_timer(name, frames)
     }
 
     pub fn set_timer_seconds(&self, name: &str, seconds: f32) -> GameLogicResult<()> {
         self.lock_inner_mut()
-            .variables
+            .frame.variables
             .set_timer_seconds(name, seconds)
     }
 
@@ -97,16 +97,16 @@ impl ScriptEngine {
         seconds: f32,
     ) -> GameLogicResult<()> {
         self.lock_inner_mut()
-            .variables
+            .frame.variables
             .set_timer_millisecond_script_seconds(name, seconds)
     }
 
     pub fn stop_timer(&self, name: &str) -> GameLogicResult<()> {
-        self.lock_inner_mut().variables.stop_timer(name)
+        self.lock_inner_mut().frame.variables.stop_timer(name)
     }
 
     pub fn restart_timer(&self, name: &str) -> GameLogicResult<()> {
-        self.lock_inner_mut().variables.restart_timer(name)
+        self.lock_inner_mut().frame.variables.restart_timer(name)
     }
 
     pub fn add_to_timer_millisecond_script_seconds(
@@ -115,7 +115,7 @@ impl ScriptEngine {
         seconds: f32,
     ) -> GameLogicResult<()> {
         self.lock_inner_mut()
-            .variables
+            .frame.variables
             .add_to_timer_millisecond_script_seconds(name, seconds)
     }
 
@@ -125,7 +125,7 @@ impl ScriptEngine {
         seconds: f32,
     ) -> GameLogicResult<()> {
         self.lock_inner_mut()
-            .variables
+            .frame.variables
             .subtract_from_timer_millisecond_script_seconds(name, seconds)
     }
 
@@ -136,19 +136,19 @@ impl ScriptEngine {
     /// engine is lexically scoped, without trying to lock the global engine
     /// again.
     pub fn start_end_game_timer(&self) {
-        self.lock_inner_mut().mission_timers.start_end_game();
+        self.lock_inner_mut().frame.mission_timers.start_end_game();
         log::info!("End game timer started");
     }
 
     /// Start the one-frame quick-victory timer.
     pub fn start_quick_end_game_timer(&self) {
-        self.lock_inner_mut().mission_timers.start_quick_end_game();
+        self.lock_inner_mut().frame.mission_timers.start_quick_end_game();
         log::info!("Quick end game timer started");
     }
 
     /// Start the local-defeat close-window timer.
     pub fn start_close_window_timer(&self) {
-        self.lock_inner_mut().mission_timers.start_close_window();
+        self.lock_inner_mut().frame.mission_timers.start_close_window();
         log::info!("Close window timer started");
     }
 
@@ -330,7 +330,7 @@ impl ScriptEngine {
 
     /// Check if game is ending
     pub fn is_game_ending(&self) -> bool {
-        self.with_inner(|inner| inner.mission_timers.end_game_active())
+        self.with_inner(|inner| inner.frame.mission_timers.end_game_active())
     }
 
     /// Freeze time
@@ -355,12 +355,12 @@ impl ScriptEngine {
     /// Set debug freeze state.
     pub fn set_time_frozen_debug(&mut self, frozen: bool) {
         let inner = self.inner.get_mut();
-        inner.freeze_by_debug = frozen;
+        inner.frame.freeze_by_debug = frozen;
     }
 
     /// Check if time is frozen by debug controls.
     pub fn is_time_frozen_debug(&self) -> bool {
-        self.with_inner(|inner| inner.freeze_by_debug)
+        self.with_inner(|inner| inner.frame.freeze_by_debug)
     }
 
     /// Check if time is frozen by any mechanism (script or debug).
@@ -370,7 +370,7 @@ impl ScriptEngine {
     ///        TheScriptEngine->isTimeFrozenDebug() ||
     ///        TheScriptEngine->isTimeFrozenScript();`
     pub fn is_time_frozen(&self) -> bool {
-        self.with_inner(|inner| inner.freeze_by_debug || inner.freeze_by_script)
+        self.with_inner(|inner| inner.frame.freeze_by_debug || inner.freeze_by_script)
     }
 
     /// Get breeze info (owned snapshot — never a borrow into `UnsafeCell`).
@@ -415,35 +415,34 @@ impl ScriptEngine {
         fade_frames_decrease: i32,
     ) {
         let mut inner = self.lock_inner_mut();
-        inner.fade = fade;
-        inner.cur_fade_frame = 0;
-        inner.min_fade = min_fade;
-        inner.max_fade = max_fade;
-        inner.fade_frames_increase = fade_frames_increase;
-        inner.fade_frames_hold = fade_frames_hold;
-        inner.fade_frames_decrease = fade_frames_decrease;
-        inner.cur_fade_value = inner.min_fade;
-
-        let update_immediately = inner.fade_frames_increase == 0;
-        drop(inner);
-        if update_immediately {
-            self.update_fades();
+        inner.frame.fade = ScriptFade {
+            mode: fade,
+            min: min_fade,
+            max: max_fade,
+            value: min_fade,
+            frame: 0,
+            increase: fade_frames_increase,
+            hold: fade_frames_hold,
+            decrease: fade_frames_decrease,
+        };
+        if fade_frames_increase == 0 {
+            inner.frame.fade.advance();
         }
     }
 
     /// Get fade type
     pub fn get_fade(&self) -> TFade {
-        self.with_inner(|inner| inner.fade)
+        self.with_inner(|inner| inner.frame.fade.mode)
     }
 
     /// Completed fade observation; reading never advances the script clock.
     pub fn fade_observation(&self) -> (TFade, f32) {
-        self.with_inner(|inner| (inner.fade, inner.cur_fade_value))
+        self.with_inner(|inner| (inner.frame.fade.mode, inner.frame.fade.value))
     }
 
     /// Get fade value
     pub fn get_fade_value(&self) -> f32 {
-        self.with_inner(|inner| inner.cur_fade_value)
+        self.with_inner(|inner| inner.frame.fade.value)
     }
 
     /// Get current track name (owned snapshot — never a borrow into `UnsafeCell`).
@@ -868,14 +867,14 @@ impl ScriptEngine {
     /// Signal UI interaction
     pub fn signal_ui_interact(&self, hook_name: &str) {
         let mut inner = self.lock_inner_mut();
-        inner.ui_interactions.push(hook_name.to_string());
+        inner.frame.ui_interactions.push(hook_name.to_string());
         log::debug!("UI interaction: {}", hook_name);
     }
 
     /// C++ `evaluateFlag` walks `m_uiInteractions` after the stored flag miss.
     /// `signalUIInteract` pulses the hook name true for one `ScriptEngine::update`.
     pub fn has_ui_interaction(&self, hook_name: &str) -> bool {
-        self.with_inner(|inner| inner.ui_interactions.iter().any(|name| name == hook_name))
+        self.with_inner(|inner| inner.frame.ui_interactions.iter().any(|name| name == hook_name))
     }
 
     pub fn create_named_map_reveal(
@@ -1227,13 +1226,13 @@ impl ScriptEngine {
     pub fn force_unfreeze_time(&self) {
         // Original calls the debug control's ForceAppContinue. Script and
         // tactical-camera freeze are separate owners and remain unchanged.
-        self.lock_inner_mut().freeze_by_debug = false;
+        self.lock_inner_mut().frame.freeze_by_debug = false;
     }
 
     // PARITY_NOTE: C++ ScriptEngine::clearFlag
     pub fn clear_flag(&self, name: &str) {
         self.lock_inner_mut()
-            .variables
+            .frame.variables
             .clear_flag(name, Self::MAX_PLAYER_COUNT);
     }
 
@@ -1423,7 +1422,7 @@ impl ScriptEngine {
     ) -> GameLogicResult<()> {
         self.inner
             .get_mut()
-            .variables
+            .frame.variables
             .adjust_timer(counter_name, value, millisecond_timer, add)
     }
 
@@ -1480,7 +1479,7 @@ impl ScriptEngine {
     pub fn restart_timer_if_positive(&mut self, name: &str) -> GameLogicResult<()> {
         self.inner
             .get_mut()
-            .variables
+            .frame.variables
             .restart_timer_if_positive(name)
     }
 
@@ -1495,7 +1494,7 @@ impl ScriptEngine {
     ) -> GameLogicResult<()> {
         self.inner
             .get_mut()
-            .variables
+            .frame.variables
             .set_timer_from(name, millisecond_timer, || {
                 if random {
                     let max = random_max.unwrap_or(value);
@@ -1541,7 +1540,7 @@ impl ScriptEngine {
 
     /// C++ `ScriptEngine::xfer` tail after sequential/counters/flags.
     pub fn snapshot_xfer_tail(&self) -> ScriptEngineXferTail {
-        let named_objects = get_named_object_tracker()
+        let named_objects = self.named_objects
             .get_all_named_objects()
             .unwrap_or_default();
         self.snapshot_xfer_tail_with_named_objects(named_objects)
@@ -1587,22 +1586,22 @@ impl ScriptEngine {
             ScriptEngineXferTail {
                 attack_priorities,
                 object_attack_priority_sets,
-                end_game_timer: inner.mission_timers.end_game,
-                close_window_timer: inner.mission_timers.close_window,
+                end_game_timer: inner.frame.mission_timers.end_game,
+                close_window_timer: inner.frame.mission_timers.close_window,
                 named_objects,
-                first_update: inner.first_update,
-                fade: inner.fade as i32,
-                min_fade: inner.min_fade,
-                max_fade: inner.max_fade,
-                cur_fade_value: inner.cur_fade_value,
-                cur_fade_frame: inner.cur_fade_frame,
-                fade_frames_increase: inner.fade_frames_increase,
-                fade_frames_hold: inner.fade_frames_hold,
-                fade_frames_decrease: inner.fade_frames_decrease,
+                first_update: inner.frame.first_update,
+                fade: inner.frame.fade.mode as i32,
+                min_fade: inner.frame.fade.min,
+                max_fade: inner.frame.fade.max,
+                cur_fade_value: inner.frame.fade.value,
+                cur_fade_frame: inner.frame.fade.frame,
+                fade_frames_increase: inner.frame.fade.increase,
+                fade_frames_hold: inner.frame.fade.hold,
+                fade_frames_decrease: inner.frame.fade.decrease,
                 completed_video: inner.completed_video.clone(),
                 testing_speech: inner.testing_speech.clone(),
                 testing_audio: inner.testing_audio.clone(),
-                ui_interactions: inner.ui_interactions.clone(),
+                ui_interactions: inner.frame.ui_interactions.clone(),
                 triggered_special_powers: inner.triggered_special_powers.clone(),
                 midway_special_powers: inner.midway_special_powers.clone(),
                 finished_special_powers: inner.finished_special_powers.clone(),
@@ -1650,7 +1649,7 @@ impl ScriptEngine {
     pub fn reset_receiving_named_state_for_legacy_load(&self) {
         let mut inner = self.lock_inner_mut();
         inner.receiving_transport_statuses.clear();
-        inner.first_update = true;
+        inner.frame.first_update = true;
     }
 
     /// Main owns the ordered name cache; restoring its interpreter never
@@ -1682,27 +1681,27 @@ impl ScriptEngine {
                     inner.attack_priorities.assign(*id, name);
                 }
             }
-            inner.mission_timers.end_game = tail.end_game_timer;
-            inner.mission_timers.close_window = tail.close_window_timer;
-            inner.first_update = tail.first_update;
-            inner.fade = match tail.fade {
+            inner.frame.mission_timers.end_game = tail.end_game_timer;
+            inner.frame.mission_timers.close_window = tail.close_window_timer;
+            inner.frame.first_update = tail.first_update;
+            inner.frame.fade.mode = match tail.fade {
                 1 => TFade::Subtract,
                 2 => TFade::Add,
                 3 => TFade::Saturate,
                 4 => TFade::Multiply,
                 _ => TFade::None,
             };
-            inner.min_fade = tail.min_fade;
-            inner.max_fade = tail.max_fade;
-            inner.cur_fade_value = tail.cur_fade_value;
-            inner.cur_fade_frame = tail.cur_fade_frame;
-            inner.fade_frames_increase = tail.fade_frames_increase;
-            inner.fade_frames_hold = tail.fade_frames_hold;
-            inner.fade_frames_decrease = tail.fade_frames_decrease;
+            inner.frame.fade.min = tail.min_fade;
+            inner.frame.fade.max = tail.max_fade;
+            inner.frame.fade.value = tail.cur_fade_value;
+            inner.frame.fade.frame = tail.cur_fade_frame;
+            inner.frame.fade.increase = tail.fade_frames_increase;
+            inner.frame.fade.hold = tail.fade_frames_hold;
+            inner.frame.fade.decrease = tail.fade_frames_decrease;
             inner.completed_video = tail.completed_video.clone();
             inner.testing_speech = tail.testing_speech.clone();
             inner.testing_audio = tail.testing_audio.clone();
-            inner.ui_interactions = tail.ui_interactions.clone();
+            inner.frame.ui_interactions = tail.ui_interactions.clone();
             let player_count = Self::MAX_PLAYER_COUNT;
             inner.triggered_special_powers =
                 pad_player_pairs(&tail.triggered_special_powers, player_count);
@@ -1758,22 +1757,15 @@ impl ScriptEngine {
             // hq-r9gaw / C++ ScriptEngine.cpp:9277-9286 — archive LOAD with
             // saved FADE_NONE starts the standard Multiply fade-in intro.
             // Core leftover Xfer already applies this; receiving restore must too.
-            if !standalone && matches!(inner.fade, TFade::None) {
-                inner.fade = TFade::Multiply;
-                inner.cur_fade_frame = 0;
-                inner.min_fade = 1.0;
-                inner.max_fade = 0.0;
-                inner.fade_frames_increase = 0;
-                inner.fade_frames_hold = 0;
-                inner.fade_frames_decrease = FRAMES_TO_FADE_IN_AT_START;
-                inner.cur_fade_value = 0.0;
+            if !standalone && matches!(inner.frame.fade.mode, TFade::None) {
+                inner.frame.fade = ScriptFade::map_intro();
             }
         }
 
         if !standalone {
             return;
         }
-        let tracker = get_named_object_tracker();
+        let tracker = &self.named_objects;
         let _ = tracker.clear();
         for (name, object_id) in &tail.named_objects {
             if *object_id != crate::common::INVALID_ID && !name.is_empty() {
