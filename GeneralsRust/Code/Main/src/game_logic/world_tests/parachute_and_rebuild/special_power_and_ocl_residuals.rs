@@ -8,18 +8,18 @@ fn tank_hunter_tnt_and_laser_howitzer_special_power_residuals() {
         is_missile_defender_template, missile_defender_laser_guided_weapon,
         missile_defender_primary_weapon,
     };
-    use crate::game_logic::host_special_power_enum_residual::host_command_power_cpp_enum_name;
+    use generals_sim::command::cpp_special_power_name;
     use crate::game_logic::host_tank_hunter::{
         TNT_START_ABILITY_RANGE, is_tank_hunter_template, tnt_in_start_range,
     };
     use crate::game_logic::{KindOf, Team, ThingTemplate};
 
     assert_eq!(
-        host_command_power_cpp_enum_name(&SpecialPowerType::TankHunterTnt),
+        cpp_special_power_name(&SpecialPowerType::TankHunterTnt),
         Some("SPECIAL_TANKHUNTER_TNT_ATTACK")
     );
     assert_eq!(
-        host_command_power_cpp_enum_name(&SpecialPowerType::LaserGuidedHowitzer),
+        cpp_special_power_name(&SpecialPowerType::LaserGuidedHowitzer),
         Some("SPECIAL_MISSILE_DEFENDER_LASER_GUIDED_MISSILES")
     );
     assert!(is_tank_hunter_template("ChinaInfantryTankHunter"));
@@ -400,10 +400,10 @@ fn missile_defender_laser_guided_special_locks_secondary() {
     use crate::game_logic::host_missile_defender::{
         LASER_GUIDED_START_ABILITY_RANGE, is_missile_defender_template,
     };
-    use crate::game_logic::host_special_power_enum_residual::host_command_power_cpp_enum_name;
+    use generals_sim::command::cpp_special_power_name;
     use crate::game_logic::Team;
     assert_eq!(
-        host_command_power_cpp_enum_name(&SpecialPowerType::MissileDefenderLaserGuided),
+        cpp_special_power_name(&SpecialPowerType::MissileDefenderLaserGuided),
         Some("SPECIAL_MISSILE_DEFENDER_LASER_GUIDED_MISSILES")
     );
     assert!(is_missile_defender_template(
@@ -665,11 +665,11 @@ fn helix_nuke_bomb_maps_to_helix_napalm_residual() {
     use crate::game_logic::host_helix_napalm::{
         UPGRADE_HELIX_NUKE_BOMB, honesty_helix_nuke_bomb_residual_pack_ok,
     };
-    use crate::game_logic::host_special_power_enum_residual::host_command_power_cpp_enum_name;
+    use generals_sim::command::cpp_special_power_name;
     use crate::game_logic::{KindOf, Team, ThingTemplate};
     assert!(honesty_helix_nuke_bomb_residual_pack_ok());
     assert_eq!(
-        host_command_power_cpp_enum_name(&SpecialPowerType::HelixNukeBomb),
+        cpp_special_power_name(&SpecialPowerType::HelixNukeBomb),
         Some("SPECIAL_HELIX_NAPALM_BOMB")
     );
 
@@ -720,12 +720,12 @@ fn communications_download_maps_to_cia_intelligence_residual() {
         COMMUNICATIONS_DOWNLOAD_RELOAD_MS, COMMUNICATIONS_DOWNLOAD_SPECIAL_ENUM,
         honesty_communications_download_residual_pack_ok,
     };
-    use crate::game_logic::host_special_power_enum_residual::host_command_power_cpp_enum_name;
+    use generals_sim::command::cpp_special_power_name;
     use crate::game_logic::{KindOf, Team, ThingTemplate};
     assert!(honesty_communications_download_residual_pack_ok());
     assert_eq!(COMMUNICATIONS_DOWNLOAD_RELOAD_MS, 10_000);
     assert_eq!(
-        host_command_power_cpp_enum_name(&SpecialPowerType::CommunicationsDownload),
+        cpp_special_power_name(&SpecialPowerType::CommunicationsDownload),
         Some(COMMUNICATIONS_DOWNLOAD_SPECIAL_ENUM)
     );
 
@@ -1121,15 +1121,15 @@ fn early_frenzy_and_emergency_repair_powers_activate() {
         HostEmergencyRepairLevel, highest_emergency_repair_level_from_sciences,
     };
     use crate::game_logic::host_frenzy::{HostFrenzyLevel, highest_frenzy_level_from_sciences};
-    use crate::game_logic::host_special_power_enum_residual::host_command_power_cpp_enum_name;
+    use generals_sim::command::cpp_special_power_name;
     use crate::game_logic::{KindOf, Team, ThingTemplate};
 
     assert_eq!(
-        host_command_power_cpp_enum_name(&SpecialPowerType::EarlyFrenzy),
+        cpp_special_power_name(&SpecialPowerType::EarlyFrenzy),
         Some("EARLY_SPECIAL_FRENZY")
     );
     assert_eq!(
-        host_command_power_cpp_enum_name(&SpecialPowerType::EarlyEmergencyRepair),
+        cpp_special_power_name(&SpecialPowerType::EarlyEmergencyRepair),
         Some("EARLY_SPECIAL_REPAIR_VEHICLES")
     );
     assert_eq!(

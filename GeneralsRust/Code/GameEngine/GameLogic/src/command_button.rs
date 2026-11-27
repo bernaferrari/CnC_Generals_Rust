@@ -671,44 +671,4 @@ mod tests {
     }
 }
 
-pub fn map_gui_command_to_command_type(command: &str) -> crate::commands::command::CommandType {
-    use crate::commands::command::CommandType;
-
-    match command.trim().to_ascii_uppercase().as_str() {
-        "NONE" => CommandType::Invalid,
-        "DOZER_CONSTRUCT" => CommandType::DozerConstruct,
-        "DOZER_CONSTRUCT_CANCEL" => CommandType::DozerCancelConstruct,
-        "UNIT_BUILD" => CommandType::QueueUnitCreate,
-        "CANCEL_UNIT_BUILD" => CommandType::CancelUnitCreate,
-        "PLAYER_UPGRADE" | "OBJECT_UPGRADE" => CommandType::QueueUpgrade,
-        "CANCEL_UPGRADE" => CommandType::CancelUpgrade,
-        "ATTACK_MOVE" => CommandType::DoAttackMoveTo,
-        "GUARD" | "GUARD_WITHOUT_PURSUIT" | "GUARD_FLYING_UNITS_ONLY" => {
-            CommandType::DoGuardPosition
-        }
-        "STOP" => CommandType::DoStop,
-        "WAYPOINTS" => CommandType::AddWaypoint,
-        "EXIT_CONTAINER" => CommandType::Exit,
-        "EVACUATE" => CommandType::Evacuate,
-        "EXECUTE_RAILED_TRANSPORT" => CommandType::ExecuteRailedTransport,
-        "BEACON_DELETE" => CommandType::RemoveBeacon,
-        "SET_RALLY_POINT" => CommandType::SetRallyPoint,
-        "SELL" => CommandType::Sell,
-        "FIRE_WEAPON" => CommandType::FireWeapon,
-        "SPECIAL_POWER"
-        | "SPECIAL_POWER_FROM_SHORTCUT"
-        | "SPECIAL_POWER_CONSTRUCT"
-        | "SPECIAL_POWER_CONSTRUCT_FROM_SHORTCUT" => CommandType::SpecialPower,
-        "PURCHASE_SCIENCE" => CommandType::PurchaseScience,
-        "HACK_INTERNET" => CommandType::InternetHack,
-        "TOGGLE_OVERCHARGE" => CommandType::ToggleOvercharge,
-        "COMBATDROP" => CommandType::CombatDropAtLocation,
-        "SWITCH_WEAPON" => CommandType::SwitchWeapons,
-        "HIJACK_VEHICLE" => CommandType::Enter,
-        "CONVERT_TO_CARBOMB" => CommandType::ConvertToCarBomb,
-        "SABOTAGE_BUILDING" => CommandType::Enter,
-        "PLACE_BEACON" => CommandType::PlaceBeacon,
-        "SELECT_ALL_UNITS_OF_TYPE" => CommandType::MetaSelectMatchingUnits,
-        _ => CommandType::Invalid,
-    }
-}
+pub use common_buttons::map_gui_command_to_command_type;

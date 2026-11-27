@@ -2646,18 +2646,7 @@ pub struct Object {
 
 pub use generals_sim::weapon::{WeaponFireStatus, WeaponLockType};
 
-/// C++ `GuardMode` (GameCommon.h) residual for AIGroup::groupGuard*.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
-#[repr(u8)]
-pub enum GuardMode {
-    /// GUARDMODE_NORMAL — may pursue outside the guard area.
-    #[default]
-    Normal = 0,
-    /// GUARDMODE_GUARD_WITHOUT_PURSUIT — no pursuit out of guard area.
-    WithoutPursuit = 1,
-    /// GUARDMODE_GUARD_FLYING_UNITS_ONLY — ignore non-flyers.
-    FlyingUnitsOnly = 2,
-}
+pub use generals_sim::command::GuardMode;
 
 /// Active attack child of a Guard or GuardRetaliate machine.
 /// This is an internal continuation, not a C++ state ID or wire layout.

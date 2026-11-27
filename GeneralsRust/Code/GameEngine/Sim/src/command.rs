@@ -1,4 +1,32 @@
-use super::*;
+//! Command envelopes accepted by the authoritative simulation.
+
+use generals_game_domain::ObjectId;
+use glam::Vec3;
+use serde::{Deserialize, Serialize};
+use std::time::SystemTime;
+
+mod batch;
+mod special_power;
+
+pub use batch::{AdmittedCommand, AdmittedCommandBatch};
+pub use special_power::{
+    SpecialPowerType, WeaponSlot, cpp_special_power, cpp_special_power_name,
+    special_power_ini_template_name, special_power_is_location_target_only,
+    special_power_is_no_target, special_power_type_from_template_name,
+};
+
+/// C++ `GuardMode` (GameCommon.h).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
+#[repr(u8)]
+pub enum GuardMode {
+    /// GUARDMODE_NORMAL — may pursue outside the guard area.
+    #[default]
+    Normal = 0,
+    /// GUARDMODE_GUARD_WITHOUT_PURSUIT — no pursuit out of guard area.
+    WithoutPursuit = 1,
+    /// GUARDMODE_GUARD_FLYING_UNITS_ONLY — ignore non-flyers.
+    FlyingUnitsOnly = 2,
+}
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum CommandType {
@@ -58,7 +86,7 @@ pub enum CommandType {
         target: GuardTarget,
         /// C++ GuardMode residual (default Normal).
         #[serde(default)]
-        mode: crate::game_logic::GuardMode,
+        mode: GuardMode,
     },
     /// Patrol residual: units wander and auto-engage nearby enemies.
     Patrol,
@@ -124,7 +152,7 @@ pub enum CommandType {
     /// C++ AIGroup::groupDoCommandButtonAtObject residual.
     DoCommandButtonAtObject {
         button: String,
-        target: crate::game_logic::ObjectId,
+        target: ObjectId,
     },
     /// C++ AIGroup::groupExecuteRailedTransport residual.
     ExecuteRailedTransport,
@@ -446,4 +474,60 @@ pub enum WeaponTarget {
 pub enum DropTarget {
     Location(Vec3),
     Object(ObjectId),
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub enum CommandResult {
+    Success,
+    InvalidTarget,
+    OutOfRange,
+    InsufficientResources,
+    InvalidCommand,
+    UnitBusy,
+    TargetDestroyed,
+    RequiresLineOfSight,
+    InvalidLocation,
+    CannotAttackTarget,
+    CannotMoveToLocation,
+    BuildingBlocked,
+}
+
+/// Command evaluation mode
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub enum CommandEvaluateType {
+    DoCommand,
+    DoHint,
+    EvaluateOnly,
+}
+
+/// A complete game command with metadata
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GameCommand {
+    pub command_type: CommandType,
+    pub player_id: u32,
+    pub command_id: u32,
+    pub timestamp: SystemTime,
+    pub selected_units: Vec<ObjectId>,
+    pub modifier_keys: ModifierKeys,
+}
+
+/// Mouse/keyboard modifier keys
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize)]
+pub struct ModifierKeys {
+    pub shift: bool,
+    pub ctrl: bool,
+    pub alt: bool,
+}
+
+fn default_max_shots_cmd() -> i32 {
+    -1
+}
+
+/// C++ `NO_MAX_SHOTS_LIMIT`, used by CommandButton::MaxShotsToFire.
+///
+/// Keep this separate from the historical host `-1` sentinel used by several
+/// movement commands: a deserialized legacy `DoWeapon` must retain the same
+/// unlimited value as a parsed command button with no explicit field.
+fn default_weapon_max_shots_cmd() -> i32 {
+    i32::MAX
 }

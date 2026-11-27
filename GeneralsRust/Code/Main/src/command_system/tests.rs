@@ -2824,23 +2824,23 @@ fn leftover_location_target_only_covers_need_target_pos_powers() {
     ];
     for power in location_only {
         assert!(
-            leftover_special_power_is_location_target_only(&power),
+            special_power_is_location_target_only(&power),
             "{power:?} must be leftover NEED_TARGET_POS"
         );
     }
-    assert!(!leftover_special_power_is_location_target_only(
+    assert!(!special_power_is_location_target_only(
         &P::BattleshipBombardment
     ));
-    assert!(!leftover_special_power_is_location_target_only(
+    assert!(!special_power_is_location_target_only(
         &P::MissileDefenderLaserGuided
     ));
-    assert!(!leftover_special_power_is_location_target_only(
+    assert!(!special_power_is_location_target_only(
         &P::LaserGuidedHowitzer
     ));
-    assert!(!leftover_special_power_is_location_target_only(
+    assert!(!special_power_is_location_target_only(
         &P::BaikonurRocket
     ));
-    assert!(!leftover_special_power_is_location_target_only(
+    assert!(!special_power_is_location_target_only(
         &P::RangerCaptureBuilding
     ));
 }
@@ -2861,15 +2861,15 @@ fn leftover_no_target_covers_can_do_special_power_types() {
     ];
     for power in no_target {
         assert!(
-            leftover_special_power_is_no_target(&power),
+            special_power_is_no_target(&power),
             "{power:?} must leftover-call can_do_special_power"
         );
         assert!(
-            !leftover_special_power_is_location_target_only(&power),
+            !special_power_is_location_target_only(&power),
             "{power:?} is not leftover NEED_TARGET_POS"
         );
     }
-    assert!(!leftover_special_power_is_no_target(&P::SpySatellite));
-    assert!(!leftover_special_power_is_no_target(&P::ParticleCannon));
-    assert!(!leftover_special_power_is_no_target(&P::CashHack));
+    assert!(!special_power_is_no_target(&P::SpySatellite));
+    assert!(!special_power_is_no_target(&P::ParticleCannon));
+    assert!(!special_power_is_no_target(&P::CashHack));
 }

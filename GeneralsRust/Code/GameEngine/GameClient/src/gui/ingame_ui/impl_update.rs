@@ -424,7 +424,7 @@ impl InGameUI {
                             .as_ref()
                             .map(|t| t.get_special_power_type())
                             .unwrap_or(
-                                gamelogic::object::special_power_types::SpecialPowerType::Invalid,
+                                generals_sim::special_power::SpecialPowerType::Invalid,
                             ),
                         template
                             .as_ref()
@@ -451,7 +451,7 @@ impl InGameUI {
                             .as_ref()
                             .map(|t| t.get_special_power_type())
                             .unwrap_or(
-                                gamelogic::object::special_power_types::SpecialPowerType::Invalid,
+                                generals_sim::special_power::SpecialPowerType::Invalid,
                             ),
                         template
                             .as_ref()
@@ -526,10 +526,10 @@ impl InGameUI {
 
     fn announce_superweapon_ready(
         object_id: ObjectID,
-        power_type: gamelogic::object::special_power_types::SpecialPowerType,
+        power_type: generals_sim::special_power::SpecialPowerType,
         eva: &mut crate::eva::Eva,
     ) {
-        use gamelogic::object::special_power_types::SpecialPowerType;
+        use generals_sim::special_power::SpecialPowerType;
         let Some(obj) = OBJECT_REGISTRY.get_object(object_id) else {
             return;
         };

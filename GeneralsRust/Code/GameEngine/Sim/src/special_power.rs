@@ -1,4 +1,9 @@
-//! Default AI targeting radii for named special powers.
+//! Authored special-power types and targeting policies.
+
+pub use crate::special_power_targeting::{
+    allows_location, allows_no_target, is_location_target_only,
+};
+pub use crate::special_power_type::{SpecialPowerMask, SpecialPowerType};
 
 /// Lookup the radius fallback by exact special-power template name.
 pub fn fallback_radius_cursor(template_name: &str) -> Option<f32> {

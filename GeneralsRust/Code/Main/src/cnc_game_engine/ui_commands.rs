@@ -2699,7 +2699,7 @@ impl CnCGameEngine {
                 return;
             }
             crate::command_system::CommandType::DoSpecialPower { ref power_type, .. }
-                if crate::command_system::leftover_special_power_is_no_target(power_type) =>
+                if generals_sim::command::special_power_is_no_target(power_type) =>
             {
                 // Leftover ActionManager::can_do_special_power / C++ CommandXlat
                 // no-option MSG_DO_SPECIAL_POWER. CIA, CommunicationsDownload,
@@ -2751,7 +2751,7 @@ impl CnCGameEngine {
                 let Some(power) = resolved else {
                     return;
                 };
-                if crate::command_system::leftover_special_power_is_no_target(&power) {
+                if generals_sim::command::special_power_is_no_target(&power) {
                     let player_id = self.local_player_id_for_ui();
                     let selected = self.ui_selected_ids(player_id);
                     if selected.is_empty() {
@@ -3003,7 +3003,7 @@ fn special_power_pending_options(power: &crate::command_system::SpecialPowerType
     const NEED_ENEMY: u32 = 0x0000_0001;
     const NEED_POS: u32 = 0x0000_0020;
     // Leftover ActionManager::can_do_special_power: no-option immediate fire.
-    if crate::command_system::leftover_special_power_is_no_target(power) {
+    if generals_sim::command::special_power_is_no_target(power) {
         return 0;
     }
     match power {

@@ -2,6 +2,7 @@
 
 pub mod armor;
 pub mod chinook;
+pub mod command;
 pub mod damage;
 pub mod debris;
 pub mod dozer;
@@ -14,6 +15,8 @@ pub mod recurring;
 pub mod science;
 pub mod scripting;
 pub mod special_power;
+mod special_power_targeting;
+mod special_power_type;
 pub mod step;
 pub mod terrain;
 pub mod time;

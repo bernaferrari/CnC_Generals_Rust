@@ -30,7 +30,7 @@ use game_engine::common::ini::ini_command_button::CommandButton as IniCommandBut
 use game_engine::common::ini::ini_multiplayer::with_multiplayer_settings;
 use game_engine::common::rts::{SCIENCE_INVALID, ScienceType, WeaponSlotType, get_science_store};
 use game_engine::common::system::upgrade::{UpgradeCenter, UpgradeTemplate, UpgradeType};
-use gamelogic::command_button::map_gui_command_to_command_type;
+use game_engine::common::ini::ini_command_button::map_gui_command_to_command_type;
 use game_engine::common::message_stream::CommandType;
 use gamelogic::commands::{Command, CommandPriority, QueuedCommand, get_command_queue_manager};
 use gamelogic::common::GameError;

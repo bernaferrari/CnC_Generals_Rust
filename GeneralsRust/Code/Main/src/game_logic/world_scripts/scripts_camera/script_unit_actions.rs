@@ -813,7 +813,7 @@ impl GameLogic {
                             .find(|module| module.special_power_template.eq_ignore_ascii_case(name))
                     })
                     .and_then(|module| module.command_power.as_ref())
-                    .is_some_and(crate::command_system::leftover_special_power_is_no_target)
+                    .is_some_and(generals_sim::command::special_power_is_no_target)
             };
             if accepted {
                 valid.push(object.id);

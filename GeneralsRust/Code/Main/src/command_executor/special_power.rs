@@ -32,24 +32,15 @@ fn special_power_has_overridable_destination(
     )
 }
 
-fn leftover_special_power_type(
-    power_type: &SpecialPowerType,
-) -> Option<gamelogic::object::special_power_types::SpecialPowerType> {
-    let name =
-        crate::game_logic::host_special_power_enum_residual::host_command_power_cpp_enum_name(
-            power_type,
-        )?;
-    gamelogic::object::special_power_types::SpecialPowerType::from_str(name)
-}
-
 /// C++ ActionManager::canDoSpecialPowerAtLocation leftover gates.
 /// Underwater (paradrop/crate-drop) + fully-shrouded damaging powers.
+#[cfg(test)]
 pub(super) fn leftover_can_do_special_power_at_location(
     power_type: &SpecialPowerType,
     loc: Vec3,
     player_index: i32,
 ) -> bool {
-    let Some(leftover_type) = leftover_special_power_type(power_type) else {
+    let Some(leftover_type) = generals_sim::command::cpp_special_power(power_type) else {
         return true;
     };
     // Leftover/C++ Coord3D is X/Y map plane; live host is Y-up (X/Z).
@@ -70,7 +61,7 @@ pub(super) fn owned_can_do_special_power_at_location(
     loc: Vec3,
     player_index: i32,
 ) -> bool {
-    let Some(power_type) = leftover_special_power_type(power_type) else {
+    let Some(power_type) = generals_sim::command::cpp_special_power(power_type) else {
         return true;
     };
     let terrain_handle = logic.world_services.terrain();
@@ -79,19 +70,24 @@ pub(super) fn owned_can_do_special_power_at_location(
         .read()
         .expect("driving location-power terrain");
     let shroud = shroud_handle.lock().expect("driving location-power shroud");
-    gamelogic::action_manager::TheActionManager::can_do_special_power_at_location_with_owners(
+    let loc = LogicCoord3D::new(loc.x, loc.z, loc.y);
+    generals_sim::special_power::allows_location(
         power_type,
-        &LogicCoord3D::new(loc.x, loc.z, loc.y),
-        player_index,
-        &terrain,
-        &shroud,
-        true,
+        || terrain.is_underwater(loc.x, loc.y, None, None),
+        || {
+            shroud.has_shroud_grid()
+                && (player_index < 0
+                    || shroud.get_shroud_state(player_index as u32, &loc)
+                        == gamelogic::system::shroud_manager::ShroudState::Hidden)
+        },
+        || {
+            let extent = terrain.get_extent();
+            loc.x >= extent.lo.x
+                && loc.x <= extent.hi.x
+                && loc.y >= extent.lo.y
+                && loc.y <= extent.hi.y
+        },
     )
-}
-
-/// C++ ActionManager::canDoSpecialPower leftover type switch (no-option fire).
-pub(super) fn leftover_can_do_special_power(power_type: &SpecialPowerType) -> bool {
-    crate::command_system::leftover_special_power_is_no_target(power_type)
 }
 
 /// C++ ActionManager.cpp:1558-1626 `canDoSpecialPowerAtObject` leftover replay.
@@ -120,8 +116,8 @@ pub(super) fn leftover_can_do_special_power_at_object(
         // Leftover can_do_special_power_at_object plant path (RemoteCharges).
         SpecialPowerType::DemoKellRemoteCharges | SpecialPowerType::BurtonRemoteCharges => true,
         // Leftover can_do_special_power no-target types: at_object is FALSE.
-        _ if leftover_can_do_special_power(power_type) => false,
-        _ => !crate::command_system::leftover_special_power_is_location_target_only(power_type),
+        _ if generals_sim::command::special_power_is_no_target(power_type) => false,
+        _ => !generals_sim::command::special_power_is_location_target_only(power_type),
     }
 }
 
@@ -286,7 +282,7 @@ impl<'a> CommandExecutor<'a> {
         // leftover canDoSpecialPowerAtLocation is the gate.
         let location_from_unit = match target {
             PowerTarget::Object(id)
-                if crate::command_system::leftover_special_power_is_location_target_only(
+                if generals_sim::command::special_power_is_location_target_only(
                     power_type,
                 ) =>
             {
@@ -322,7 +318,7 @@ impl<'a> CommandExecutor<'a> {
             // gate: their ground clicks fall through to the per-caster loop below,
             // where each power's doSpecialPowerAtLocation residual is a no-op
             // (CashHackSpecialPower.cpp:76-82) and nothing is issued or consumed.
-            if crate::command_system::leftover_special_power_is_location_target_only(power_type) {
+            if generals_sim::command::special_power_is_location_target_only(power_type) {
                 let player_index = {
                     let src = self.special_power_source_object(units, power_type);
                     src.and_then(|id| {

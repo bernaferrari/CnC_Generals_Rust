@@ -21,16 +21,3 @@ pub(super) fn screen_to_world(
         world_min.z + normalized_y * world_height,
     )
 }
-
-pub(super) fn default_max_shots_cmd() -> i32 {
-    -1
-}
-
-/// C++ `NO_MAX_SHOTS_LIMIT`, used by CommandButton::MaxShotsToFire.
-///
-/// Keep this separate from the historical host `-1` sentinel used by several
-/// movement commands: a deserialized legacy `DoWeapon` must retain the same
-/// unlimited value as a parsed command button with no explicit field.
-pub(super) fn default_weapon_max_shots_cmd() -> i32 {
-    i32::MAX
-}

@@ -1,4 +1,4 @@
-//! Wave 958: host_object dual-read seal (tests + residual).
+//! Command input, dispatch, and replay in the receiving application.
 
 // Restricted re-exports so impl submodules can `use super::*;`
 // without dumping the parent crate surface through `pub use`.
@@ -14,12 +14,14 @@ pub(in crate::command_system) use std::time::{Duration, Instant, SystemTime};
 
 mod helpers;
 pub use helpers::*;
-mod types;
-pub use types::*;
-mod special_power;
-pub use special_power::*;
-mod command;
-pub use command::*;
+pub use generals_sim::command::{
+    CommandEvaluateType, CommandResult, CommandType, DropTarget, GameCommand, GuardTarget,
+    ModifierKeys, PowerTarget, SpecialPowerType, WeaponSlot, WeaponTarget,
+    special_power_type_from_template_name,
+};
+use generals_sim::command::special_power_is_location_target_only;
+#[cfg(test)]
+use generals_sim::command::special_power_is_no_target;
 mod presentation;
 pub use presentation::*;
 mod system;

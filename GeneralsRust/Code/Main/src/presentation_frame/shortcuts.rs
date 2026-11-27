@@ -77,7 +77,7 @@ pub(super) fn freeze(logic: &GameLogic, player_id: u32) -> ReceivingShortcutSnap
             continue;
         }
         let command_type =
-            gamelogic::command_button::map_gui_command_to_command_type(&button.command);
+            game_engine::common::ini::ini_command_button::map_gui_command_to_command_type(&button.command);
         let mut entry = ReceivingShortcutEntry {
             command_name: button.name.clone(),
             availability: CommandAvailability::Available,
@@ -148,7 +148,7 @@ pub(super) fn freeze(logic: &GameLogic, player_id: u32) -> ReceivingShortcutSnap
                             }) else {
                                 continue;
                             };
-                            if gamelogic::command_button::map_gui_command_to_command_type(
+                            if game_engine::common::ini::ini_command_button::map_gui_command_to_command_type(
                                 &purchase.command,
                             ) == CommandType::PurchaseScience
                                 && purchase.parsed_science_required.first().copied()

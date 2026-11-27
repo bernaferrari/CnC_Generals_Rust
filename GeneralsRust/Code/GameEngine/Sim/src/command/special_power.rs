@@ -1,4 +1,7 @@
-use super::*;
+//! Retail special-power command names and targets.
+
+use crate::special_power::{self, SpecialPowerType as CppSpecialPowerType};
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum SpecialPowerType {
@@ -226,43 +229,6 @@ pub enum SpecialPowerType {
     Invalid,
 }
 
-/// Leftover ActionManager NEED_TARGET_POS-only specials (C++ CommandXlat).
-/// Unit-under-cursor clicks are AT_LOCATION, not AT_OBJECT.
-pub(crate) fn leftover_special_power_is_location_target_only(
-    power_type: &SpecialPowerType,
-) -> bool {
-    let Some(name) =
-        crate::game_logic::host_special_power_enum_residual::host_command_power_cpp_enum_name(
-            power_type,
-        )
-    else {
-        return false;
-    };
-    let Some(leftover) = gamelogic::object::special_power_types::SpecialPowerType::from_str(name)
-    else {
-        return false;
-    };
-    gamelogic::action_manager::TheActionManager::special_power_is_location_target_only(leftover)
-}
-
-/// Leftover ActionManager::can_do_special_power type switch (no-option fire).
-/// C++ CommandXlat MSG_DO_SPECIAL_POWER when the button has neither
-/// NEED_OBJECT_TARGET nor NEED_TARGET_POS.
-pub(crate) fn leftover_special_power_is_no_target(power_type: &SpecialPowerType) -> bool {
-    let Some(name) =
-        crate::game_logic::host_special_power_enum_residual::host_command_power_cpp_enum_name(
-            power_type,
-        )
-    else {
-        return false;
-    };
-    let Some(leftover) = gamelogic::object::special_power_types::SpecialPowerType::from_str(name)
-    else {
-        return false;
-    };
-    gamelogic::action_manager::TheActionManager::special_power_is_no_target(leftover)
-}
-
 /// Resolve an exact retail `CommandButton.ini` `SpecialPower` name.
 ///
 /// Command buttons carry the INI identity as text, whereas the authoritative
@@ -365,8 +331,8 @@ pub enum WeaponSlot {
 
 impl WeaponSlot {
     /// Resolve a command slot to one of the original Object weapon-set slots.
-    pub(crate) fn concrete(&self) -> Option<generals_sim::weapon::WeaponSlotType> {
-        use generals_sim::weapon::WeaponSlotType;
+    pub fn concrete(&self) -> Option<crate::weapon::WeaponSlotType> {
+        use crate::weapon::WeaponSlotType;
 
         match *self {
             Self::Primary => Some(WeaponSlotType::Primary),
@@ -375,5 +341,181 @@ impl WeaponSlot {
             Self::AntiAir => None,
             Self::Slot(ordinal) => WeaponSlotType::from_u32(ordinal),
         }
+    }
+}
+
+/// Resolve an authored command to its C++ special-power kind.
+pub fn cpp_special_power(power: &SpecialPowerType) -> Option<CppSpecialPowerType> {
+    match power {
+        SpecialPowerType::DaisyCutter | SpecialPowerType::FuelAirBomb => {
+            Some(CppSpecialPowerType::DaisyCutter)
+        }
+        SpecialPowerType::Airstrike => Some(CppSpecialPowerType::A10ThunderboltStrike),
+        SpecialPowerType::Artillery => Some(CppSpecialPowerType::ArtilleryBarrage),
+        SpecialPowerType::CarpetBomb => Some(CppSpecialPowerType::CarpetBomb),
+        SpecialPowerType::EarlyChinaCarpetBomb => Some(CppSpecialPowerType::EarlyChinaCarpetBomb),
+        SpecialPowerType::AirForceCarpetBomb => Some(CppSpecialPowerType::AirfCarpetBomb),
+        SpecialPowerType::ClusterMines => Some(CppSpecialPowerType::ClusterMines),
+        SpecialPowerType::CrateDrop => Some(CppSpecialPowerType::CrateDrop),
+        SpecialPowerType::EmergencyRepair => Some(CppSpecialPowerType::RepairVehicles),
+        SpecialPowerType::EarlyEmergencyRepair => Some(CppSpecialPowerType::EarlyRepairVehicles),
+        SpecialPowerType::NapalmStrike => Some(CppSpecialPowerType::NapalmStrike),
+        SpecialPowerType::NuclearMissile => Some(CppSpecialPowerType::NeutronMissile),
+        SpecialPowerType::BlackMarketNuke => Some(CppSpecialPowerType::BlackMarketNuke),
+        SpecialPowerType::DetonateDirtyNuke => Some(CppSpecialPowerType::DetonateDirtyNuke),
+        SpecialPowerType::Paradrop => Some(CppSpecialPowerType::ParadropAmerica),
+        SpecialPowerType::InfantryParadrop => Some(CppSpecialPowerType::InfaParadropAmerica),
+        SpecialPowerType::TankParadrop => Some(CppSpecialPowerType::TankParadrop),
+        SpecialPowerType::Ambush => Some(CppSpecialPowerType::Ambush),
+        SpecialPowerType::TerrorCell => Some(CppSpecialPowerType::TerrorCell),
+        SpecialPowerType::ParticleCannon => Some(CppSpecialPowerType::ParticleUplinkCannon),
+        SpecialPowerType::RadarScan => Some(CppSpecialPowerType::RadarVanScan),
+        SpecialPowerType::ScudStorm => Some(CppSpecialPowerType::ScudStorm),
+        SpecialPowerType::SpySatellite => Some(CppSpecialPowerType::SpySatellite),
+        SpecialPowerType::CiaIntelligence => Some(CppSpecialPowerType::CiaIntelligence),
+        SpecialPowerType::CommunicationsDownload => {
+            Some(CppSpecialPowerType::CommunicationsDownload)
+        }
+        SpecialPowerType::SpyDrone => Some(CppSpecialPowerType::SpyDrone),
+        SpecialPowerType::AnthraxBomb => Some(CppSpecialPowerType::AnthraxBomb),
+        SpecialPowerType::SpectreGunship => Some(CppSpecialPowerType::SpectreGunship),
+        SpecialPowerType::EmpPulse => Some(CppSpecialPowerType::EmpPulse),
+        SpecialPowerType::Frenzy => Some(CppSpecialPowerType::Frenzy),
+        SpecialPowerType::EarlyFrenzy => Some(CppSpecialPowerType::EarlyFrenzy),
+        SpecialPowerType::BattlePlanBombardment
+        | SpecialPowerType::BattlePlanHoldTheLine
+        | SpecialPowerType::BattlePlanSearchAndDestroy => {
+            Some(CppSpecialPowerType::ChangeBattlePlans)
+        }
+        SpecialPowerType::GpsScrambler => Some(CppSpecialPowerType::GpsScrambler),
+        SpecialPowerType::LeafletDrop => Some(CppSpecialPowerType::LeafletDrop),
+        SpecialPowerType::EarlyLeafletDrop => Some(CppSpecialPowerType::EarlyLeafletDrop),
+        SpecialPowerType::SneakAttack => Some(CppSpecialPowerType::SneakAttack),
+        SpecialPowerType::CruiseMissile => Some(CppSpecialPowerType::SuprCruiseMissile),
+        SpecialPowerType::CleanupArea => Some(CppSpecialPowerType::CleanupArea),
+        SpecialPowerType::HelixNapalmBomb => Some(CppSpecialPowerType::HelixNapalmBomb),
+        // Retail Nuke_SpecialAbilityHelixNukeBomb shares SPECIAL_HELIX_NAPALM_BOMB enum.
+        SpecialPowerType::HelixNukeBomb => Some(CppSpecialPowerType::HelixNapalmBomb),
+        SpecialPowerType::CashHack => Some(CppSpecialPowerType::CashHack),
+        SpecialPowerType::AirForceDaisyCutter => Some(CppSpecialPowerType::AirfDaisyCutter),
+        SpecialPowerType::AirForceAirstrike => Some(CppSpecialPowerType::AirfA10ThunderboltStrike),
+        SpecialPowerType::AirForceSpectreGunship => Some(CppSpecialPowerType::AirfSpectreGunship),
+        SpecialPowerType::SuperweaponParticleCannon => {
+            Some(CppSpecialPowerType::SupwParticleUplinkCannon)
+        }
+        SpecialPowerType::NukeNeutronMissile => Some(CppSpecialPowerType::NukeNeutronMissile),
+        SpecialPowerType::SuperweaponNeutronMissile => {
+            Some(CppSpecialPowerType::SupwNeutronMissile)
+        }
+        SpecialPowerType::NukeChinaCarpetBomb => Some(CppSpecialPowerType::EarlyChinaCarpetBomb),
+        SpecialPowerType::StealthGpsScrambler => Some(CppSpecialPowerType::SlthGpsScrambler),
+        SpecialPowerType::BaikonurRocket => Some(CppSpecialPowerType::LaunchBaikonurRocket),
+        SpecialPowerType::Defector => Some(CppSpecialPowerType::Defector),
+        SpecialPowerType::NukeDrop => Some(CppSpecialPowerType::NukeClusterMines),
+        SpecialPowerType::BattleshipBombardment => Some(CppSpecialPowerType::BattleshipBombardment),
+        SpecialPowerType::LaserCannon => Some(CppSpecialPowerType::LazrParticleUplinkCannon),
+        SpecialPowerType::MissileDefenderLaserGuided => {
+            Some(CppSpecialPowerType::MissileDefenderLaserGuidedMissiles)
+        }
+        SpecialPowerType::TankHunterTnt => Some(CppSpecialPowerType::TankHunterTntAttack),
+        SpecialPowerType::LaserGuidedHowitzer => {
+            Some(CppSpecialPowerType::MissileDefenderLaserGuidedMissiles)
+        }
+        SpecialPowerType::DemoRebelTimedCharges
+        | SpecialPowerType::DemoKellTimedCharges
+        | SpecialPowerType::DemoKellStickyCharges
+        | SpecialPowerType::BattleBusDemoTrapRollout
+        | SpecialPowerType::BurtonTimedCharges => Some(CppSpecialPowerType::TimedCharges),
+        SpecialPowerType::DemoKellRemoteCharges | SpecialPowerType::BurtonRemoteCharges => {
+            Some(CppSpecialPowerType::RemoteCharges)
+        }
+        SpecialPowerType::HackerDisableBuilding | SpecialPowerType::MicrowaveDisableBuilding => {
+            Some(CppSpecialPowerType::HackerDisableBuilding)
+        }
+        SpecialPowerType::BlackLotusDisableVehicle => {
+            Some(CppSpecialPowerType::BlackLotusDisableVehicleHack)
+        }
+        SpecialPowerType::BlackLotusStealCash => Some(CppSpecialPowerType::BlackLotusStealCashHack),
+        SpecialPowerType::BlackLotusCaptureBuilding => {
+            Some(CppSpecialPowerType::BlackLotusCaptureBuilding)
+        }
+        SpecialPowerType::RangerCaptureBuilding
+        | SpecialPowerType::RedGuardCaptureBuilding
+        | SpecialPowerType::RebelCaptureBuilding => {
+            Some(CppSpecialPowerType::InfantryCaptureBuilding)
+        }
+        SpecialPowerType::DisguiseAsVehiclePower => Some(CppSpecialPowerType::DisguiseAsVehicle),
+        SpecialPowerType::Invalid => Some(CppSpecialPowerType::Invalid),
+        // FireWall is a host FIRE_WEAPON residual (Dragon Tank), not a SpecialPowerType
+        // discriminant in C++ SpecialPowerType.h — no unique SPECIAL_* name residual.
+        SpecialPowerType::FireWall => None,
+        // Host residual placeholders without unique C++ SPECIAL_* discriminant.
+        SpecialPowerType::Healing
+        | SpecialPowerType::IonCannon
+        | SpecialPowerType::SuperweaponCountermeasures => None,
+    }
+}
+
+/// The original SPECIAL_* name of the command's authored power.
+pub fn cpp_special_power_name(power: &SpecialPowerType) -> Option<&'static str> {
+    cpp_special_power(power).map(|power| power.as_str())
+}
+
+/// Whether a unit-under-cursor click still requires a location command.
+pub fn special_power_is_location_target_only(power: &SpecialPowerType) -> bool {
+    cpp_special_power(power).is_some_and(special_power::is_location_target_only)
+}
+
+/// Whether the command fires without either an object or a location target.
+pub fn special_power_is_no_target(power: &SpecialPowerType) -> bool {
+    cpp_special_power(power).is_some_and(special_power::allows_no_target)
+}
+
+/// Retail SpecialPower.ini template name used by ScriptEngine conditions.
+///
+/// C++ `SpecialPowerModule::aboutToDoSpecialPower` notifies
+/// `getSpecialPowerTemplate()->getName()` (the INI block name).
+pub fn special_power_ini_template_name(power: &SpecialPowerType) -> &'static str {
+    use SpecialPowerType as P;
+    match power {
+        P::Airstrike => "SuperweaponA10ThunderboltMissileStrike",
+        P::AirForceAirstrike => "AirF_SuperweaponA10ThunderboltMissileStrike",
+        P::Artillery => "SuperweaponArtilleryBarrage",
+        P::BattleshipBombardment => "SpecialPowerBattleshipBombardment",
+        P::CarpetBomb => "SuperweaponCarpetBomb",
+        P::AirForceCarpetBomb => "AirF_SuperweaponCarpetBomb",
+        P::EarlyChinaCarpetBomb => "Early_SuperweaponChinaCarpetBomb",
+        P::NukeChinaCarpetBomb => "Nuke_SuperweaponChinaCarpetBomb",
+        P::DaisyCutter | P::FuelAirBomb => "SuperweaponDaisyCutter",
+        P::AirForceDaisyCutter => "AirF_SuperweaponDaisyCutter",
+        P::NuclearMissile | P::BaikonurRocket => "SuperweaponNeutronMissile",
+        P::NukeNeutronMissile => "Nuke_SuperweaponNeutronMissile",
+        P::SuperweaponNeutronMissile => "SupW_SuperweaponNeutronMissile",
+        P::ParticleCannon => "SuperweaponParticleUplinkCannon",
+        P::SuperweaponParticleCannon => "SupW_SuperweaponParticleUplinkCannon",
+        P::LaserCannon => "Lazr_LaserCannon",
+        P::ScudStorm => "SuperweaponScudStorm",
+        P::AnthraxBomb => "SuperweaponAnthraxBomb",
+        P::SpectreGunship => "SuperweaponSpectreGunship",
+        P::AirForceSpectreGunship => "AirF_SuperweaponSpectreGunship",
+        P::CruiseMissile => "SupW_CruiseMissile",
+        P::SpySatellite => "SpecialPowerSpySatellite",
+        P::RadarScan => "SpecialPowerRadarVanScan",
+        P::SpyDrone => "SpecialPowerSpyDrone",
+        P::CiaIntelligence => "SuperweaponCIAIntelligence",
+        P::ClusterMines => "SuperweaponClusterMines",
+        P::Paradrop => "SuperweaponParadropAmerica",
+        P::Ambush => "SuperweaponRebelAmbush",
+        P::EmpPulse => "SuperweaponEMPPulse",
+        P::Frenzy => "SuperweaponFrenzy",
+        P::EmergencyRepair => "SuperweaponEmergencyRepair",
+        P::GpsScrambler => "SuperweaponGPSScrambler",
+        P::StealthGpsScrambler => "Slth_SuperweaponGPSScrambler",
+        P::LeafletDrop => "SuperweaponLeafletDrop",
+        P::SneakAttack => "SuperweaponSneakAttack",
+        P::CashHack => "SuperweaponCashHack",
+        P::CrateDrop => "SuperweaponCrateDrop",
+        P::NapalmStrike => "SuperweaponNapalmStrike",
+        _ => cpp_special_power_name(power).unwrap_or("SPECIAL_INVALID"),
     }
 }

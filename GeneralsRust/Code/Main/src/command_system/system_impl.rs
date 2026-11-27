@@ -254,7 +254,7 @@ impl CommandSystem {
                 // canDoSpecialPowerAtObject is FALSE for these types.
                 let target = match context.target_object {
                     Some(target_id)
-                        if !leftover_special_power_is_location_target_only(power_type) =>
+                        if !special_power_is_location_target_only(power_type) =>
                     {
                         PowerTarget::Object(target_id)
                     }

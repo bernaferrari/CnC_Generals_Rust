@@ -2,39 +2,8 @@
 //! C++ GameEngine.cpp301 keeps CommandList outside the subsystem reset list.
 use super::*;
 
-/// Internal source entries retain their original relative order. No entry or
-/// batch is Clone: a borrowed driver returns its unconsumed owner exactly once.
-#[derive(Debug)]
-pub(crate) enum AdmittedCommand {
-    Queued(GameCommand),
-    Message(GameMessage),
-}
-
-#[derive(Debug)]
-pub(crate) struct AdmittedCommandBatch {
-    queued: VecDeque<GameCommand>,
-    messages: VecDeque<GameMessage>,
-}
-
-impl AdmittedCommandBatch {
-    pub(super) fn new(queued: VecDeque<GameCommand>, messages: Vec<GameMessage>) -> Self {
-        Self {
-            queued,
-            messages: messages.into(),
-        }
-    }
-
-    pub(crate) fn pop_front(&mut self) -> Option<AdmittedCommand> {
-        self.queued
-            .pop_front()
-            .map(AdmittedCommand::Queued)
-            .or_else(|| self.messages.pop_front().map(AdmittedCommand::Message))
-    }
-
-    pub(crate) fn is_empty(&self) -> bool {
-        self.queued.is_empty() && self.messages.is_empty()
-    }
-}
+pub(crate) type AdmittedCommand = generals_sim::command::AdmittedCommand<GameMessage>;
+pub(crate) type AdmittedCommandBatch = generals_sim::command::AdmittedCommandBatch<GameMessage>;
 
 #[cfg(test)]
 mod tests {

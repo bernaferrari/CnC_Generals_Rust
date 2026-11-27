@@ -71,7 +71,7 @@ impl GameLogic {
             .and_then(|object| self.player_owner_for_host_object(object))
             .unwrap_or(0);
         let name =
-            crate::game_logic::host_special_power_enum_residual::special_power_ini_template_name(
+            generals_sim::command::special_power_ini_template_name(
                 power,
             );
         self.notify_receiving_special_power_event(

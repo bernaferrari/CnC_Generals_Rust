@@ -403,8 +403,7 @@ fn battleship_object_target_locks_object_not_position() {
 #[test]
 fn leftover_object_click_gates_match_action_manager() {
     use crate::command_executor::special_power::{
-        leftover_can_do_special_power, leftover_can_do_special_power_at_location,
-        leftover_can_do_special_power_at_object,
+        leftover_can_do_special_power_at_location, leftover_can_do_special_power_at_object,
     };
     use crate::command_system::SpecialPowerType;
     use game_engine::common::game_common::Relationship;
@@ -543,22 +542,22 @@ fn leftover_object_click_gates_match_action_manager() {
         Relationship::Enemies,
         false,
     ));
-    assert!(leftover_can_do_special_power(
+    assert!(generals_sim::command::special_power_is_no_target(
         &SpecialPowerType::CiaIntelligence
     ));
-    assert!(leftover_can_do_special_power(
+    assert!(generals_sim::command::special_power_is_no_target(
         &SpecialPowerType::CommunicationsDownload
     ));
-    assert!(leftover_can_do_special_power(
+    assert!(generals_sim::command::special_power_is_no_target(
         &SpecialPowerType::DetonateDirtyNuke
     ));
-    assert!(leftover_can_do_special_power(
+    assert!(generals_sim::command::special_power_is_no_target(
         &SpecialPowerType::BurtonRemoteCharges
     ));
-    assert!(leftover_can_do_special_power(
+    assert!(generals_sim::command::special_power_is_no_target(
         &SpecialPowerType::BaikonurRocket
     ));
-    assert!(!leftover_can_do_special_power(
+    assert!(!generals_sim::command::special_power_is_no_target(
         &SpecialPowerType::SpySatellite
     ));
     let empty = Vec3::new(10.0, 0.0, 10.0);

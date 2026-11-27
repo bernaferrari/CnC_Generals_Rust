@@ -105,7 +105,7 @@ fn special_power_at_location_ok(
     player_index: crate::common::Int,
     shroud_unknown_is_clear: bool,
 ) -> bool {
-    special_power_at_location_with_queries(
+    generals_sim::special_power::allows_location(
         power_type,
         || {
             TheTerrainLogic::get()
@@ -125,95 +125,6 @@ fn special_power_at_location_ok(
         },
         || is_point_on_map(loc),
     )
-}
-
-/// One C++ type switch for both the standalone graph and explicit match owners.
-/// Queries run only in the original branch and order: water, then shroud/map.
-fn special_power_at_location_with_queries(
-    power_type: SpecialPowerType,
-    underwater: impl FnOnce() -> bool,
-    shrouded: impl FnOnce() -> bool,
-    on_map: impl FnOnce() -> bool,
-) -> bool {
-    match power_type {
-        SpecialPowerType::ParadropAmerica
-        | SpecialPowerType::InfaParadropAmerica
-        | SpecialPowerType::CrateDrop
-        | SpecialPowerType::TankParadrop => {
-            if underwater() {
-                return false;
-            }
-        }
-        _ => {}
-    }
-
-    match power_type {
-        SpecialPowerType::DaisyCutter
-        | SpecialPowerType::AirfDaisyCutter
-        | SpecialPowerType::ParadropAmerica
-        | SpecialPowerType::TankParadrop
-        | SpecialPowerType::InfaParadropAmerica
-        | SpecialPowerType::CarpetBomb
-        | SpecialPowerType::ChinaCarpetBomb
-        | SpecialPowerType::LeafletDrop
-        | SpecialPowerType::EarlyLeafletDrop
-        | SpecialPowerType::EarlyChinaCarpetBomb
-        | SpecialPowerType::AirfCarpetBomb
-        | SpecialPowerType::SuprCruiseMissile
-        | SpecialPowerType::ClusterMines
-        | SpecialPowerType::NukeClusterMines
-        | SpecialPowerType::EmpPulse
-        | SpecialPowerType::CrateDrop
-        | SpecialPowerType::NapalmStrike
-        | SpecialPowerType::BlackMarketNuke
-        | SpecialPowerType::AnthraxBomb
-        | SpecialPowerType::TerrorCell
-        | SpecialPowerType::Ambush
-        | SpecialPowerType::NeutronMissile
-        | SpecialPowerType::NukeNeutronMissile
-        | SpecialPowerType::SupwNeutronMissile
-        | SpecialPowerType::ScudStorm
-        | SpecialPowerType::Demoralize
-        | SpecialPowerType::A10ThunderboltStrike
-        | SpecialPowerType::AirfA10ThunderboltStrike
-        | SpecialPowerType::SpectreGunship
-        | SpecialPowerType::AirfSpectreGunship
-        | SpecialPowerType::RepairVehicles
-        | SpecialPowerType::EarlyRepairVehicles
-        | SpecialPowerType::GpsScrambler
-        | SpecialPowerType::SlthGpsScrambler
-        | SpecialPowerType::ArtilleryBarrage
-        | SpecialPowerType::Frenzy
-        | SpecialPowerType::EarlyFrenzy
-        | SpecialPowerType::ParticleUplinkCannon
-        | SpecialPowerType::SupwParticleUplinkCannon
-        | SpecialPowerType::LazrParticleUplinkCannon
-        | SpecialPowerType::CleanupArea
-        | SpecialPowerType::SneakAttack
-        | SpecialPowerType::BattleshipBombardment => !shrouded(),
-        SpecialPowerType::SpySatellite
-        | SpecialPowerType::RadarVanScan
-        | SpecialPowerType::SpyDrone
-        | SpecialPowerType::HelixNapalmBomb => on_map(),
-        SpecialPowerType::LaunchBaikonurRocket => true,
-        SpecialPowerType::MissileDefenderLaserGuidedMissiles
-        | SpecialPowerType::HackerDisableBuilding
-        | SpecialPowerType::TankHunterTntAttack
-        | SpecialPowerType::BoobyTrap
-        | SpecialPowerType::CashHack
-        | SpecialPowerType::Defector
-        | SpecialPowerType::BlackLotusCaptureBuilding
-        | SpecialPowerType::BlackLotusDisableVehicleHack
-        | SpecialPowerType::BlackLotusStealCashHack
-        | SpecialPowerType::InfantryCaptureBuilding
-        | SpecialPowerType::DetonateDirtyNuke
-        | SpecialPowerType::DisguiseAsVehicle
-        | SpecialPowerType::RemoteCharges
-        | SpecialPowerType::TimedCharges
-        | SpecialPowerType::CashBounty
-        | SpecialPowerType::ChangeBattlePlans => false,
-        _ => false,
-    }
 }
 
 /// C++ getSpecialPowerModule(spTemplate) + optional getPercentReady() < 1.0.
@@ -612,109 +523,6 @@ impl TheActionManager {
         special_power_at_location_ok(power_type, loc, player_index, shroud_unknown_is_clear)
     }
 
-    /// Match-owned location gate with the same C++ switch as standalone Objects.
-    /// No active terrain, partition or shroud selection occurs in this path.
-    pub fn can_do_special_power_at_location_with_owners(
-        power_type: SpecialPowerType,
-        loc: &crate::common::Coord3D,
-        player_index: crate::common::Int,
-        terrain: &crate::terrain::TerrainLogic,
-        shroud: &crate::system::shroud_manager::ShroudManager,
-        shroud_unknown_is_clear: bool,
-    ) -> bool {
-        special_power_at_location_with_queries(
-            power_type,
-            || terrain.is_underwater(loc.x, loc.y, None, None),
-            || {
-                if shroud_unknown_is_clear && !shroud.has_shroud_grid() {
-                    return false;
-                }
-                player_index < 0
-                    || shroud.get_shroud_state(player_index as u32, loc)
-                        == crate::system::shroud_manager::ShroudState::Hidden
-            },
-            || {
-                let extent = terrain.get_extent();
-                loc.x >= extent.lo.x
-                    && loc.x <= extent.hi.x
-                    && loc.y >= extent.lo.y
-                    && loc.y <= extent.hi.y
-            },
-        )
-    }
-
-    /// C++ `CommandXlat::issueSpecialPowerCommand` NEED_TARGET_POS-only specials.
-    ///
-    /// Leftover `canDoSpecialPowerAtObject` is unconditionally FALSE and
-    /// `canDoSpecialPowerAtLocation` evaluates underwater / shroud / on-map.
-    /// Dual-path Battleship, object-charge HelixNapalmBomb, and no-target
-    /// LaunchBaikonurRocket stay off this list.
-    pub fn special_power_is_location_target_only(power_type: SpecialPowerType) -> bool {
-        match power_type {
-            SpecialPowerType::DaisyCutter
-            | SpecialPowerType::AirfDaisyCutter
-            | SpecialPowerType::ParadropAmerica
-            | SpecialPowerType::TankParadrop
-            | SpecialPowerType::InfaParadropAmerica
-            | SpecialPowerType::CarpetBomb
-            | SpecialPowerType::ChinaCarpetBomb
-            | SpecialPowerType::LeafletDrop
-            | SpecialPowerType::EarlyLeafletDrop
-            | SpecialPowerType::EarlyChinaCarpetBomb
-            | SpecialPowerType::AirfCarpetBomb
-            | SpecialPowerType::SuprCruiseMissile
-            | SpecialPowerType::ClusterMines
-            | SpecialPowerType::NukeClusterMines
-            | SpecialPowerType::EmpPulse
-            | SpecialPowerType::CrateDrop
-            | SpecialPowerType::NapalmStrike
-            | SpecialPowerType::BlackMarketNuke
-            | SpecialPowerType::AnthraxBomb
-            | SpecialPowerType::TerrorCell
-            | SpecialPowerType::Ambush
-            | SpecialPowerType::NeutronMissile
-            | SpecialPowerType::NukeNeutronMissile
-            | SpecialPowerType::SupwNeutronMissile
-            | SpecialPowerType::ScudStorm
-            | SpecialPowerType::Demoralize
-            | SpecialPowerType::A10ThunderboltStrike
-            | SpecialPowerType::AirfA10ThunderboltStrike
-            | SpecialPowerType::SpectreGunship
-            | SpecialPowerType::AirfSpectreGunship
-            | SpecialPowerType::RepairVehicles
-            | SpecialPowerType::EarlyRepairVehicles
-            | SpecialPowerType::GpsScrambler
-            | SpecialPowerType::SlthGpsScrambler
-            | SpecialPowerType::ArtilleryBarrage
-            | SpecialPowerType::Frenzy
-            | SpecialPowerType::EarlyFrenzy
-            | SpecialPowerType::ParticleUplinkCannon
-            | SpecialPowerType::SupwParticleUplinkCannon
-            | SpecialPowerType::LazrParticleUplinkCannon
-            | SpecialPowerType::CleanupArea
-            | SpecialPowerType::SneakAttack
-            | SpecialPowerType::SpySatellite
-            | SpecialPowerType::RadarVanScan
-            | SpecialPowerType::SpyDrone => true,
-            _ => false,
-        }
-    }
-
-    /// C++ `ActionManager::canDoSpecialPower` type switch after module/ready
-    /// (`ActionManager.cpp:1820-1907`). These fire with neither
-    /// `COMMAND_OPTION_NEED_OBJECT_TARGET` nor `NEED_TARGET_POS`.
-    pub fn special_power_is_no_target(power_type: SpecialPowerType) -> bool {
-        match power_type {
-            SpecialPowerType::RemoteCharges
-            | SpecialPowerType::CiaIntelligence
-            | SpecialPowerType::CommunicationsDownload
-            | SpecialPowerType::DetonateDirtyNuke
-            | SpecialPowerType::ChangeBattlePlans
-            | SpecialPowerType::LaunchBaikonurRocket => true,
-            _ => false,
-        }
-    }
-
     /// Can `obj` execute a special power on a target object.
     /// Matches C++ ActionManager::canDoSpecialPowerAtObject.
     pub fn can_do_special_power_at_object(
@@ -883,7 +691,7 @@ impl TheActionManager {
             return false;
         }
 
-        Self::special_power_is_no_target(sp_template.get_special_power_type())
+        generals_sim::special_power::allows_no_target(sp_template.get_special_power_type())
     }
 
     /// Can `obj` transfer supplies at `transfer_dest` (C++ ActionManager::canTransferSuppliesAt).
@@ -2933,59 +2741,59 @@ mod tests {
 
     #[test]
     fn location_target_only_matches_need_target_pos_action_manager() {
-        assert!(TheActionManager::special_power_is_location_target_only(
+        assert!(generals_sim::special_power::is_location_target_only(
             SpecialPowerType::A10ThunderboltStrike
         ));
-        assert!(TheActionManager::special_power_is_location_target_only(
+        assert!(generals_sim::special_power::is_location_target_only(
             SpecialPowerType::DaisyCutter
         ));
-        assert!(TheActionManager::special_power_is_location_target_only(
+        assert!(generals_sim::special_power::is_location_target_only(
             SpecialPowerType::Frenzy
         ));
-        assert!(TheActionManager::special_power_is_location_target_only(
+        assert!(generals_sim::special_power::is_location_target_only(
             SpecialPowerType::ParadropAmerica
         ));
-        assert!(!TheActionManager::special_power_is_location_target_only(
+        assert!(!generals_sim::special_power::is_location_target_only(
             SpecialPowerType::BattleshipBombardment
         ));
-        assert!(!TheActionManager::special_power_is_location_target_only(
+        assert!(!generals_sim::special_power::is_location_target_only(
             SpecialPowerType::MissileDefenderLaserGuidedMissiles
         ));
-        assert!(!TheActionManager::special_power_is_location_target_only(
+        assert!(!generals_sim::special_power::is_location_target_only(
             SpecialPowerType::LaunchBaikonurRocket
         ));
-        assert!(!TheActionManager::special_power_is_location_target_only(
+        assert!(!generals_sim::special_power::is_location_target_only(
             SpecialPowerType::InfantryCaptureBuilding
         ));
     }
 
     #[test]
     fn no_target_matches_can_do_special_power_type_switch() {
-        assert!(TheActionManager::special_power_is_no_target(
+        assert!(generals_sim::special_power::allows_no_target(
             SpecialPowerType::CiaIntelligence
         ));
-        assert!(TheActionManager::special_power_is_no_target(
+        assert!(generals_sim::special_power::allows_no_target(
             SpecialPowerType::CommunicationsDownload
         ));
-        assert!(TheActionManager::special_power_is_no_target(
+        assert!(generals_sim::special_power::allows_no_target(
             SpecialPowerType::DetonateDirtyNuke
         ));
-        assert!(TheActionManager::special_power_is_no_target(
+        assert!(generals_sim::special_power::allows_no_target(
             SpecialPowerType::RemoteCharges
         ));
-        assert!(TheActionManager::special_power_is_no_target(
+        assert!(generals_sim::special_power::allows_no_target(
             SpecialPowerType::ChangeBattlePlans
         ));
-        assert!(TheActionManager::special_power_is_no_target(
+        assert!(generals_sim::special_power::allows_no_target(
             SpecialPowerType::LaunchBaikonurRocket
         ));
-        assert!(!TheActionManager::special_power_is_no_target(
+        assert!(!generals_sim::special_power::allows_no_target(
             SpecialPowerType::DaisyCutter
         ));
-        assert!(!TheActionManager::special_power_is_no_target(
+        assert!(!generals_sim::special_power::allows_no_target(
             SpecialPowerType::CashHack
         ));
-        assert!(!TheActionManager::special_power_is_no_target(
+        assert!(!generals_sim::special_power::allows_no_target(
             SpecialPowerType::SpySatellite
         ));
     }

@@ -14,6 +14,8 @@
 
 use crate::command_system::SpecialPowerType as HostCommandSpecialPowerType;
 use crate::game_logic::special_power_strikes::HostSuperweaponKind;
+#[cfg(test)]
+use generals_sim::command::{cpp_special_power_name, special_power_ini_template_name};
 
 /// C++ `SPECIALPOWER_COUNT` residual (SpecialPowerType.h).
 pub const SPECIALPOWER_COUNT: u32 = 67;
@@ -126,181 +128,6 @@ impl HostSuperweaponKind {
             HostSuperweaponKind::CruiseMissile => 63,
             HostSuperweaponKind::NapalmStrike => 6,
         }
-    }
-}
-
-/// Map host command-system power type to C++ SPECIAL_* residual name when known.
-pub fn host_command_power_cpp_enum_name(
-    power: &HostCommandSpecialPowerType,
-) -> Option<&'static str> {
-    match power {
-        HostCommandSpecialPowerType::DaisyCutter | HostCommandSpecialPowerType::FuelAirBomb => {
-            Some("SPECIAL_DAISY_CUTTER")
-        }
-        HostCommandSpecialPowerType::Airstrike => Some("SPECIAL_A10_THUNDERBOLT_STRIKE"),
-        HostCommandSpecialPowerType::Artillery => Some("SPECIAL_ARTILLERY_BARRAGE"),
-        HostCommandSpecialPowerType::CarpetBomb => Some("SPECIAL_CARPET_BOMB"),
-        HostCommandSpecialPowerType::EarlyChinaCarpetBomb => {
-            Some("EARLY_SPECIAL_CHINA_CARPET_BOMB")
-        }
-        HostCommandSpecialPowerType::AirForceCarpetBomb => Some("AIRF_SPECIAL_CARPET_BOMB"),
-        HostCommandSpecialPowerType::ClusterMines => Some("SPECIAL_CLUSTER_MINES"),
-        HostCommandSpecialPowerType::CrateDrop => Some("SPECIAL_CRATE_DROP"),
-        HostCommandSpecialPowerType::EmergencyRepair => Some("SPECIAL_REPAIR_VEHICLES"),
-        HostCommandSpecialPowerType::EarlyEmergencyRepair => Some("EARLY_SPECIAL_REPAIR_VEHICLES"),
-        HostCommandSpecialPowerType::NapalmStrike => Some("SPECIAL_NAPALM_STRIKE"),
-        HostCommandSpecialPowerType::NuclearMissile => Some("SPECIAL_NEUTRON_MISSILE"),
-        HostCommandSpecialPowerType::BlackMarketNuke => Some("SPECIAL_BLACK_MARKET_NUKE"),
-        HostCommandSpecialPowerType::DetonateDirtyNuke => Some("SPECIAL_DETONATE_DIRTY_NUKE"),
-        HostCommandSpecialPowerType::Paradrop => Some("SPECIAL_PARADROP_AMERICA"),
-        HostCommandSpecialPowerType::InfantryParadrop => Some("INFA_SPECIAL_PARADROP_AMERICA"),
-        HostCommandSpecialPowerType::TankParadrop => Some("SPECIAL_TANK_PARADROP"),
-        HostCommandSpecialPowerType::Ambush => Some("SPECIAL_AMBUSH"),
-        HostCommandSpecialPowerType::TerrorCell => Some("SPECIAL_TERROR_CELL"),
-        HostCommandSpecialPowerType::ParticleCannon => Some("SPECIAL_PARTICLE_UPLINK_CANNON"),
-        HostCommandSpecialPowerType::RadarScan => Some("SPECIAL_RADAR_VAN_SCAN"),
-        HostCommandSpecialPowerType::ScudStorm => Some("SPECIAL_SCUD_STORM"),
-        HostCommandSpecialPowerType::SpySatellite => Some("SPECIAL_SPY_SATELLITE"),
-        HostCommandSpecialPowerType::CiaIntelligence => Some("SPECIAL_CIA_INTELLIGENCE"),
-        HostCommandSpecialPowerType::CommunicationsDownload => {
-            Some("SPECIAL_COMMUNICATIONS_DOWNLOAD")
-        }
-        HostCommandSpecialPowerType::SpyDrone => Some("SPECIAL_SPY_DRONE"),
-        HostCommandSpecialPowerType::AnthraxBomb => Some("SPECIAL_ANTHRAX_BOMB"),
-        HostCommandSpecialPowerType::SpectreGunship => Some("SPECIAL_SPECTRE_GUNSHIP"),
-        HostCommandSpecialPowerType::EmpPulse => Some("SPECIAL_EMP_PULSE"),
-        HostCommandSpecialPowerType::Frenzy => Some("SPECIAL_FRENZY"),
-        HostCommandSpecialPowerType::EarlyFrenzy => Some("EARLY_SPECIAL_FRENZY"),
-        HostCommandSpecialPowerType::BattlePlanBombardment
-        | HostCommandSpecialPowerType::BattlePlanHoldTheLine
-        | HostCommandSpecialPowerType::BattlePlanSearchAndDestroy => {
-            Some("SPECIAL_CHANGE_BATTLE_PLANS")
-        }
-        HostCommandSpecialPowerType::GpsScrambler => Some("SPECIAL_GPS_SCRAMBLER"),
-        HostCommandSpecialPowerType::LeafletDrop => Some("SPECIAL_LEAFLET_DROP"),
-        HostCommandSpecialPowerType::EarlyLeafletDrop => Some("EARLY_SPECIAL_LEAFLET_DROP"),
-        HostCommandSpecialPowerType::SneakAttack => Some("SPECIAL_SNEAK_ATTACK"),
-        HostCommandSpecialPowerType::CruiseMissile => Some("SUPR_SPECIAL_CRUISE_MISSILE"),
-        HostCommandSpecialPowerType::CleanupArea => Some("SPECIAL_CLEANUP_AREA"),
-        HostCommandSpecialPowerType::HelixNapalmBomb => Some("SPECIAL_HELIX_NAPALM_BOMB"),
-        // Retail Nuke_SpecialAbilityHelixNukeBomb shares SPECIAL_HELIX_NAPALM_BOMB enum.
-        HostCommandSpecialPowerType::HelixNukeBomb => Some("SPECIAL_HELIX_NAPALM_BOMB"),
-        HostCommandSpecialPowerType::CashHack => Some("SPECIAL_CASH_HACK"),
-        HostCommandSpecialPowerType::AirForceDaisyCutter => Some("AIRF_SPECIAL_DAISY_CUTTER"),
-        HostCommandSpecialPowerType::AirForceAirstrike => {
-            Some("AIRF_SPECIAL_A10_THUNDERBOLT_STRIKE")
-        }
-        HostCommandSpecialPowerType::AirForceSpectreGunship => Some("AIRF_SPECIAL_SPECTRE_GUNSHIP"),
-        HostCommandSpecialPowerType::SuperweaponParticleCannon => {
-            Some("SUPW_SPECIAL_PARTICLE_UPLINK_CANNON")
-        }
-        HostCommandSpecialPowerType::NukeNeutronMissile => Some("NUKE_SPECIAL_NEUTRON_MISSILE"),
-        HostCommandSpecialPowerType::SuperweaponNeutronMissile => {
-            Some("SUPW_SPECIAL_NEUTRON_MISSILE")
-        }
-        HostCommandSpecialPowerType::NukeChinaCarpetBomb => Some("EARLY_SPECIAL_CHINA_CARPET_BOMB"),
-        HostCommandSpecialPowerType::StealthGpsScrambler => {
-            Some(crate::game_logic::host_gps_scrambler::GPS_SCRAMBLER_SLTH_ENUM)
-        }
-        HostCommandSpecialPowerType::BaikonurRocket => Some("SPECIAL_LAUNCH_BAIKONUR_ROCKET"),
-        HostCommandSpecialPowerType::Defector => Some("SPECIAL_DEFECTOR"),
-        HostCommandSpecialPowerType::NukeDrop => Some("NUKE_SPECIAL_CLUSTER_MINES"),
-        HostCommandSpecialPowerType::BattleshipBombardment => {
-            Some("SPECIAL_BATTLESHIP_BOMBARDMENT")
-        }
-        HostCommandSpecialPowerType::LaserCannon => Some("LAZR_SPECIAL_PARTICLE_UPLINK_CANNON"),
-        HostCommandSpecialPowerType::MissileDefenderLaserGuided => {
-            Some("SPECIAL_MISSILE_DEFENDER_LASER_GUIDED_MISSILES")
-        }
-        HostCommandSpecialPowerType::TankHunterTnt => Some("SPECIAL_TANKHUNTER_TNT_ATTACK"),
-        HostCommandSpecialPowerType::LaserGuidedHowitzer => {
-            Some("SPECIAL_MISSILE_DEFENDER_LASER_GUIDED_MISSILES")
-        }
-        HostCommandSpecialPowerType::DemoRebelTimedCharges
-        | HostCommandSpecialPowerType::DemoKellTimedCharges
-        | HostCommandSpecialPowerType::DemoKellStickyCharges
-        | HostCommandSpecialPowerType::BattleBusDemoTrapRollout
-        | HostCommandSpecialPowerType::BurtonTimedCharges => Some("SPECIAL_TIMED_CHARGES"),
-        HostCommandSpecialPowerType::DemoKellRemoteCharges
-        | HostCommandSpecialPowerType::BurtonRemoteCharges => Some("SPECIAL_REMOTE_CHARGES"),
-        HostCommandSpecialPowerType::HackerDisableBuilding
-        | HostCommandSpecialPowerType::MicrowaveDisableBuilding => {
-            Some("SPECIAL_HACKER_DISABLE_BUILDING")
-        }
-        HostCommandSpecialPowerType::BlackLotusDisableVehicle => {
-            Some("SPECIAL_BLACKLOTUS_DISABLE_VEHICLE_HACK")
-        }
-        HostCommandSpecialPowerType::BlackLotusStealCash => {
-            Some("SPECIAL_BLACKLOTUS_STEAL_CASH_HACK")
-        }
-        HostCommandSpecialPowerType::BlackLotusCaptureBuilding => {
-            Some("SPECIAL_BLACKLOTUS_CAPTURE_BUILDING")
-        }
-        HostCommandSpecialPowerType::RangerCaptureBuilding
-        | HostCommandSpecialPowerType::RedGuardCaptureBuilding
-        | HostCommandSpecialPowerType::RebelCaptureBuilding => {
-            Some("SPECIAL_INFANTRY_CAPTURE_BUILDING")
-        }
-        HostCommandSpecialPowerType::DisguiseAsVehiclePower => Some("SPECIAL_DISGUISE_AS_VEHICLE"),
-        HostCommandSpecialPowerType::Invalid => Some("SPECIAL_INVALID"),
-        // FireWall is a host FIRE_WEAPON residual (Dragon Tank), not a SpecialPowerType
-        // discriminant in C++ SpecialPowerType.h — no unique SPECIAL_* name residual.
-        HostCommandSpecialPowerType::FireWall => None,
-        // Host residual placeholders without unique C++ SPECIAL_* discriminant.
-        HostCommandSpecialPowerType::Healing
-        | HostCommandSpecialPowerType::IonCannon
-        | HostCommandSpecialPowerType::SuperweaponCountermeasures => None,
-    }
-}
-
-/// Retail SpecialPower.ini template name used by ScriptEngine conditions.
-///
-/// C++ `SpecialPowerModule::aboutToDoSpecialPower` notifies
-/// `getSpecialPowerTemplate()->getName()` (the INI block name).
-pub fn special_power_ini_template_name(power: &HostCommandSpecialPowerType) -> &'static str {
-    use HostCommandSpecialPowerType as P;
-    match power {
-        P::Airstrike => "SuperweaponA10ThunderboltMissileStrike",
-        P::AirForceAirstrike => "AirF_SuperweaponA10ThunderboltMissileStrike",
-        P::Artillery => "SuperweaponArtilleryBarrage",
-        P::BattleshipBombardment => "SpecialPowerBattleshipBombardment",
-        P::CarpetBomb => "SuperweaponCarpetBomb",
-        P::AirForceCarpetBomb => "AirF_SuperweaponCarpetBomb",
-        P::EarlyChinaCarpetBomb => "Early_SuperweaponChinaCarpetBomb",
-        P::NukeChinaCarpetBomb => "Nuke_SuperweaponChinaCarpetBomb",
-        P::DaisyCutter | P::FuelAirBomb => "SuperweaponDaisyCutter",
-        P::AirForceDaisyCutter => "AirF_SuperweaponDaisyCutter",
-        P::NuclearMissile | P::BaikonurRocket => "SuperweaponNeutronMissile",
-        P::NukeNeutronMissile => "Nuke_SuperweaponNeutronMissile",
-        P::SuperweaponNeutronMissile => "SupW_SuperweaponNeutronMissile",
-        P::ParticleCannon => "SuperweaponParticleUplinkCannon",
-        P::SuperweaponParticleCannon => "SupW_SuperweaponParticleUplinkCannon",
-        P::LaserCannon => "Lazr_LaserCannon",
-        P::ScudStorm => "SuperweaponScudStorm",
-        P::AnthraxBomb => "SuperweaponAnthraxBomb",
-        P::SpectreGunship => "SuperweaponSpectreGunship",
-        P::AirForceSpectreGunship => "AirF_SuperweaponSpectreGunship",
-        P::CruiseMissile => "SupW_CruiseMissile",
-        P::SpySatellite => "SpecialPowerSpySatellite",
-        P::RadarScan => "SpecialPowerRadarVanScan",
-        P::SpyDrone => "SpecialPowerSpyDrone",
-        P::CiaIntelligence => "SuperweaponCIAIntelligence",
-        P::ClusterMines => "SuperweaponClusterMines",
-        P::Paradrop => "SuperweaponParadropAmerica",
-        P::Ambush => "SuperweaponRebelAmbush",
-        P::EmpPulse => "SuperweaponEMPPulse",
-        P::Frenzy => "SuperweaponFrenzy",
-        P::EmergencyRepair => "SuperweaponEmergencyRepair",
-        P::GpsScrambler => crate::game_logic::host_gps_scrambler::SUPERWEAPON_GPS_SCRAMBLER,
-        P::StealthGpsScrambler => {
-            crate::game_logic::host_gps_scrambler::SLTH_SUPERWEAPON_GPS_SCRAMBLER
-        }
-        P::LeafletDrop => "SuperweaponLeafletDrop",
-        P::SneakAttack => "SuperweaponSneakAttack",
-        P::CashHack => "SuperweaponCashHack",
-        P::CrateDrop => "SuperweaponCrateDrop",
-        P::NapalmStrike => "SuperweaponNapalmStrike",
-        _ => host_command_power_cpp_enum_name(power).unwrap_or("SPECIAL_INVALID"),
     }
 }
 
@@ -774,18 +601,18 @@ mod tests {
                         && special_power_bit_name_index(name) == Some(ord)
                 })
                 // Host command power bridge residual (sample of superweapons).
-                && host_command_power_cpp_enum_name(&HostCommandSpecialPowerType::DaisyCutter)
+                && cpp_special_power_name(&HostCommandSpecialPowerType::DaisyCutter)
                     == Some("SPECIAL_DAISY_CUTTER")
-                && host_command_power_cpp_enum_name(&HostCommandSpecialPowerType::Airstrike)
+                && cpp_special_power_name(&HostCommandSpecialPowerType::Airstrike)
                     == Some("SPECIAL_A10_THUNDERBOLT_STRIKE")
-                && host_command_power_cpp_enum_name(&HostCommandSpecialPowerType::ParticleCannon)
+                && cpp_special_power_name(&HostCommandSpecialPowerType::ParticleCannon)
                     == Some("SPECIAL_PARTICLE_UPLINK_CANNON")
-                && host_command_power_cpp_enum_name(&HostCommandSpecialPowerType::CruiseMissile)
+                && cpp_special_power_name(&HostCommandSpecialPowerType::CruiseMissile)
                     == Some("SUPR_SPECIAL_CRUISE_MISSILE")
-                && host_command_power_cpp_enum_name(&HostCommandSpecialPowerType::Invalid)
+                && cpp_special_power_name(&HostCommandSpecialPowerType::Invalid)
                     == Some("SPECIAL_INVALID")
-                && host_command_power_cpp_enum_name(&HostCommandSpecialPowerType::IonCannon).is_none()
-                && host_command_power_cpp_enum_name(
+                && cpp_special_power_name(&HostCommandSpecialPowerType::IonCannon).is_none()
+                && cpp_special_power_name(
                     &HostCommandSpecialPowerType::StealthGpsScrambler,
                 ) == Some(crate::game_logic::host_gps_scrambler::GPS_SCRAMBLER_SLTH_ENUM)
                 && special_power_ini_template_name(&HostCommandSpecialPowerType::StealthGpsScrambler)

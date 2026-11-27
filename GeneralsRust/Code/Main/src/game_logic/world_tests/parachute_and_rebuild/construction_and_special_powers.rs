@@ -3009,21 +3009,21 @@ fn special_power_reload_seconds_uses_retail_residual_table() {
 #[test]
 fn infantry_capture_and_disguise_special_power_enum_residuals() {
     use crate::command_system::SpecialPowerType;
-    use crate::game_logic::host_special_power_enum_residual::host_command_power_cpp_enum_name;
+    use generals_sim::command::cpp_special_power_name;
     assert_eq!(
-        host_command_power_cpp_enum_name(&SpecialPowerType::RangerCaptureBuilding),
+        cpp_special_power_name(&SpecialPowerType::RangerCaptureBuilding),
         Some("SPECIAL_INFANTRY_CAPTURE_BUILDING")
     );
     assert_eq!(
-        host_command_power_cpp_enum_name(&SpecialPowerType::RedGuardCaptureBuilding),
+        cpp_special_power_name(&SpecialPowerType::RedGuardCaptureBuilding),
         Some("SPECIAL_INFANTRY_CAPTURE_BUILDING")
     );
     assert_eq!(
-        host_command_power_cpp_enum_name(&SpecialPowerType::RebelCaptureBuilding),
+        cpp_special_power_name(&SpecialPowerType::RebelCaptureBuilding),
         Some("SPECIAL_INFANTRY_CAPTURE_BUILDING")
     );
     assert_eq!(
-        host_command_power_cpp_enum_name(&SpecialPowerType::DisguiseAsVehiclePower),
+        cpp_special_power_name(&SpecialPowerType::DisguiseAsVehiclePower),
         Some("SPECIAL_DISGUISE_AS_VEHICLE")
     );
 }
@@ -3031,25 +3031,25 @@ fn infantry_capture_and_disguise_special_power_enum_residuals() {
 #[test]
 fn hacker_lotus_microwave_special_power_enum_residuals() {
     use crate::command_system::SpecialPowerType;
-    use crate::game_logic::host_special_power_enum_residual::host_command_power_cpp_enum_name;
+    use generals_sim::command::cpp_special_power_name;
     assert_eq!(
-        host_command_power_cpp_enum_name(&SpecialPowerType::HackerDisableBuilding),
+        cpp_special_power_name(&SpecialPowerType::HackerDisableBuilding),
         Some("SPECIAL_HACKER_DISABLE_BUILDING")
     );
     assert_eq!(
-        host_command_power_cpp_enum_name(&SpecialPowerType::MicrowaveDisableBuilding),
+        cpp_special_power_name(&SpecialPowerType::MicrowaveDisableBuilding),
         Some("SPECIAL_HACKER_DISABLE_BUILDING")
     );
     assert_eq!(
-        host_command_power_cpp_enum_name(&SpecialPowerType::BlackLotusDisableVehicle),
+        cpp_special_power_name(&SpecialPowerType::BlackLotusDisableVehicle),
         Some("SPECIAL_BLACKLOTUS_DISABLE_VEHICLE_HACK")
     );
     assert_eq!(
-        host_command_power_cpp_enum_name(&SpecialPowerType::BlackLotusStealCash),
+        cpp_special_power_name(&SpecialPowerType::BlackLotusStealCash),
         Some("SPECIAL_BLACKLOTUS_STEAL_CASH_HACK")
     );
     assert_eq!(
-        host_command_power_cpp_enum_name(&SpecialPowerType::BlackLotusCaptureBuilding),
+        cpp_special_power_name(&SpecialPowerType::BlackLotusCaptureBuilding),
         Some("SPECIAL_BLACKLOTUS_CAPTURE_BUILDING")
     );
 }
@@ -3057,25 +3057,25 @@ fn hacker_lotus_microwave_special_power_enum_residuals() {
 #[test]
 fn demo_and_burton_charge_special_power_enum_residuals() {
     use crate::command_system::SpecialPowerType;
-    use crate::game_logic::host_special_power_enum_residual::host_command_power_cpp_enum_name;
+    use generals_sim::command::cpp_special_power_name;
     assert_eq!(
-        host_command_power_cpp_enum_name(&SpecialPowerType::DemoRebelTimedCharges),
+        cpp_special_power_name(&SpecialPowerType::DemoRebelTimedCharges),
         Some("SPECIAL_TIMED_CHARGES")
     );
     assert_eq!(
-        host_command_power_cpp_enum_name(&SpecialPowerType::BattleBusDemoTrapRollout),
+        cpp_special_power_name(&SpecialPowerType::BattleBusDemoTrapRollout),
         Some("SPECIAL_TIMED_CHARGES")
     );
     assert_eq!(
-        host_command_power_cpp_enum_name(&SpecialPowerType::DemoKellRemoteCharges),
+        cpp_special_power_name(&SpecialPowerType::DemoKellRemoteCharges),
         Some("SPECIAL_REMOTE_CHARGES")
     );
     assert_eq!(
-        host_command_power_cpp_enum_name(&SpecialPowerType::BurtonRemoteCharges),
+        cpp_special_power_name(&SpecialPowerType::BurtonRemoteCharges),
         Some("SPECIAL_REMOTE_CHARGES")
     );
     assert_eq!(
-        host_command_power_cpp_enum_name(&SpecialPowerType::BurtonTimedCharges),
+        cpp_special_power_name(&SpecialPowerType::BurtonTimedCharges),
         Some("SPECIAL_TIMED_CHARGES")
     );
     // Plant residual APIs remain available for special-power completion.
