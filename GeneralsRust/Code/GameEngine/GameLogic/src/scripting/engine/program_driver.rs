@@ -78,20 +78,24 @@ impl ScriptProgramDriver for ScriptProgramWorld<'_, '_> {
         }
     }
 
-    fn set_condition_team(&mut self, team: Option<TeamID>) {
-        self.engine.runtime.set_condition_team(team);
-    }
-
-    fn evaluate_condition(&mut self, condition: &mut Condition) -> GameLogicResult<bool> {
+    fn evaluate_world_condition(&mut self, condition: &mut Condition) -> GameLogicResult<bool> {
         self.evaluator
             .evaluate_condition_truth_with_driver(condition, self.execution.driver)
             .map_err(|e| GameLogicError::Configuration(format!("Script condition error: {e}")))
     }
 
-    fn execute_action(&mut self, action: &ScriptAction) -> GameLogicResult<ScriptActionResult> {
+    fn execute_world_action(&mut self, action: &ScriptAction) -> GameLogicResult<ScriptActionResult> {
         self.dispatcher
             .execute_action_with_driver(action, self.execution.driver)
             .map_err(|e| GameLogicError::Configuration(format!("Script action error: {e}")))
+    }
+
+    fn timer_random_int(&self, low: i32, high: i32) -> i32 {
+        script_timer_random_int(self.execution.driver, low, high)
+    }
+
+    fn timer_random_real(&self, low: f32, high: f32) -> f32 {
+        script_timer_random_real(self.execution.driver, low, high)
     }
 
     fn call_subroutine(&mut self, name: &str) -> GameLogicResult<()> {
@@ -105,6 +109,32 @@ impl ScriptProgramDriver for ScriptProgramWorld<'_, '_> {
         self.engine
             .observe_object_count_changed_frame(self.execution.driver);
         Ok(())
+    }
+}
+
+pub(crate) fn script_timer_random_int(
+    driver: &dyn ScriptExecutionDriver<ScriptEngine>,
+    low: i32,
+    high: i32,
+) -> i32 {
+    use game_engine::common::random_value::get_game_logic_random_value;
+
+    match driver.logic_random() {
+        Some(random) => random.next_int(low, high),
+        None => get_game_logic_random_value(low, high),
+    }
+}
+
+pub(crate) fn script_timer_random_real(
+    driver: &dyn ScriptExecutionDriver<ScriptEngine>,
+    low: f32,
+    high: f32,
+) -> f32 {
+    use game_engine::common::random_value::get_game_logic_random_value_real;
+
+    match driver.logic_random() {
+        Some(random) => random.next_real(low, high),
+        None => get_game_logic_random_value_real(low, high),
     }
 }
 

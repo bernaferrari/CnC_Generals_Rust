@@ -5,12 +5,12 @@ use super::interpreter::ScriptInterpreter;
 use super::program::{ComparisonType, Condition, ConditionType, ScriptAction, ScriptActionType};
 
 impl ScriptInterpreter {
-    pub fn execute_variable_action(
+    pub fn try_execute_variable_action(
         &self,
         action: &ScriptAction,
         random_int: impl FnOnce(i32, i32) -> i32,
         random_real: impl FnOnce(f32, f32) -> f32,
-    ) -> Result<(), ScriptError> {
+    ) -> Result<bool, ScriptError> {
         use ScriptActionType::*;
 
         let parameter = |index| {
@@ -54,11 +54,9 @@ impl ScriptInterpreter {
             }
             SetRandomTimer => {
                 let (name, low, high) = (name(0)?, int(1)?, int(2)?);
-                let frames = if high < low {
-                    high
-                } else {
-                    random_int(low, high)
-                };
+                // C++ RandomValue.cpp uses a wrapping unsigned span. The stream
+                // handles reversed bounds and selects when a draw is required.
+                let frames = random_int(low, high);
                 self.frame_mut().variables.set_timer(name, frames)
             }
             SetRandomMsecTimer => {
@@ -94,16 +92,15 @@ impl ScriptInterpreter {
                     .variables
                     .subtract_from_timer_millisecond_script_seconds(name, seconds)
             }
-            other => {
-                return Err(ScriptError::ExecutionFailed(format!(
-                    "{other:?} is not a variable action"
-                )));
-            }
+            _ => return Ok(false),
         };
-        Ok(())
+        Ok(true)
     }
 
-    pub fn evaluate_variable_condition(&self, condition: &Condition) -> Result<bool, ScriptError> {
+    pub fn try_evaluate_variable_condition(
+        &self,
+        condition: &Condition,
+    ) -> Result<Option<bool>, ScriptError> {
         let parameter = |index| {
             condition
                 .get_parameter(index)
@@ -145,12 +142,8 @@ impl ScriptInterpreter {
                     .counter_mut(name)
                     .is_ok_and(|counter| counter.is_countdown_timer && counter.value <= 0)
             }
-            other => {
-                return Err(ScriptError::EvaluationFailed(format!(
-                    "{other:?} is not a variable condition"
-                )));
-            }
+            _ => return Ok(None),
         };
-        Ok(result)
+        Ok(Some(result))
     }
 }

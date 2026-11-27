@@ -1326,18 +1326,25 @@ impl ScriptActionDispatcher<'_> {
                 .context
                 .borrowed_engine()
                 .interpreter()
-                .execute_variable_action(
+                .try_execute_variable_action(
                     action,
-                    |low, high| match driver.logic_random() {
-                        Some(random) => random.next_int(low, high),
-                        None => get_game_logic_random_value(low, high),
+                    |low, high| {
+                        crate::scripting::engine::script_timer_random_int(driver, low, high)
                     },
-                    |low, high| match driver.logic_random() {
-                        Some(random) => random.next_real(low, high),
-                        None => get_game_logic_random_value_real(low, high),
+                    |low, high| {
+                        crate::scripting::engine::script_timer_random_real(driver, low, high)
                     },
                 )
-                .map(|()| ScriptActionResult::Success),
+                .and_then(|handled| {
+                    if handled {
+                        Ok(ScriptActionResult::Success)
+                    } else {
+                        Err(ScriptError::ExecutionFailed(format!(
+                            "Expected variable action, got {:?}",
+                            action.action_type
+                        )))
+                    }
+                }),
 
             // ============================================================================
             // SCRIPT CONTROL ACTIONS

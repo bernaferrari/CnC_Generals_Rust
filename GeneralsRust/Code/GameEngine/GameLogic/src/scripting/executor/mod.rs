@@ -33,10 +33,7 @@ use crate::common::{
     Relationship, WaypointID,
 };
 use crate::damage::{DamageInfo, DamageType, DeathType};
-use crate::helpers::{
-    TheAudio, TheGameLogic, ThePartitionManager, TheVictoryConditions, get_game_logic_random_value,
-    get_game_logic_random_value_real,
-};
+use crate::helpers::{TheAudio, TheGameLogic, ThePartitionManager, TheVictoryConditions};
 use crate::modules::AIAttitudeType;
 use crate::object::behavior::auto_heal_behavior::parse_kind_of;
 use crate::object::object_types::ObjectTypes;

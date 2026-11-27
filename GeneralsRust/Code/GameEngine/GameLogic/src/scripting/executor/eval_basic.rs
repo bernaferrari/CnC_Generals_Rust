@@ -501,8 +501,14 @@ impl ScriptConditionEvaluator<'_> {
                 .context
                 .borrowed_engine()
                 .interpreter()
-                .evaluate_variable_condition(condition)
-                .map(bool_result),
+                .try_evaluate_variable_condition(condition)
+                .and_then(|value| {
+                    value.map(bool_result).ok_or_else(|| {
+                        ScriptError::EvaluationFailed(format!(
+                            "Expected variable condition, got {condition_type:?}"
+                        ))
+                    })
+                }),
 
             // ============================================================================
             // PLAYER CONDITIONS

@@ -2,6 +2,7 @@
 //! C++ ScriptEngine.cpp:6829–6859, 6926–7022, 7558–7650.
 
 use super::ScriptActionResult;
+use super::interpreter::ScriptInterpreter;
 use super::program::{Condition, OrCondition, Script, ScriptAction, ScriptActionType};
 use super::sequential_scripts::is_sequential_only_action;
 use crate::time::LOGIC_HZ;
@@ -44,15 +45,20 @@ impl From<ScriptActionError> for GameLogicError {
 pub trait ScriptProgramDriver {
     fn difficulty(&self) -> ScriptDifficulty;
     fn condition_team_after(&self, name: &str, after: Option<u32>) -> Option<u32>;
-    fn set_condition_team(&mut self, team: Option<u32>);
-    fn evaluate_condition(&mut self, condition: &mut Condition) -> GameLogicResult<bool>;
-    fn execute_action(&mut self, action: &ScriptAction) -> GameLogicResult<ScriptActionResult>;
+    fn evaluate_world_condition(&mut self, condition: &mut Condition) -> GameLogicResult<bool>;
+    fn execute_world_action(
+        &mut self,
+        action: &ScriptAction,
+    ) -> GameLogicResult<ScriptActionResult>;
+    fn timer_random_int(&self, low: i32, high: i32) -> i32;
+    fn timer_random_real(&self, low: f32, high: f32) -> f32;
     fn call_subroutine(&mut self, name: &str) -> GameLogicResult<()>;
     fn after_action(&mut self) -> GameLogicResult<()>;
 }
 
-/// Run one installed script. The driver scopes the condition team to this call.
-pub fn execute_script(
+/// Run one installed script under the interpreter's condition-team scope.
+pub(super) fn execute_script(
+    interpreter: &ScriptInterpreter,
     script: &mut Script,
     frame: u32,
     driver: &mut impl ScriptProgramDriver,
@@ -77,8 +83,8 @@ pub fn execute_script(
         && let Some(mut team) = driver.condition_team_after(&team_name, None)
     {
         loop {
-            driver.set_condition_team(Some(team));
-            evaluate_script(script, frame, driver, false)?;
+            interpreter.set_condition_team(Some(team));
+            evaluate_script(interpreter, script, frame, driver, false)?;
             // Like DLINK_ITERATOR::advance, read the next team after the
             // condition and action callbacks have had a chance to mutate it.
             let Some(next) = driver.condition_team_after(&team_name, Some(team)) else {
@@ -88,19 +94,29 @@ pub fn execute_script(
         }
     }
 
-    driver.set_condition_team(None);
-    evaluate_script(script, frame, driver, true)
+    interpreter.set_condition_team(None);
+    evaluate_script(interpreter, script, frame, driver, true)
 }
 
 fn evaluate_script(
+    interpreter: &ScriptInterpreter,
     script: &mut Script,
     frame: u32,
     driver: &mut impl ScriptProgramDriver,
     deactivate_on_false_action: bool,
 ) -> GameLogicResult<()> {
-    let condition_true = evaluate_conditions(script.condition.as_deref_mut(), |condition| {
-        driver.evaluate_condition(condition)
-    })?;
+    let condition_true =
+        evaluate_conditions(
+            script.condition.as_deref_mut(),
+            |condition| match interpreter
+                .try_evaluate_variable_condition(condition)
+                .map_err(|error| {
+                    GameLogicError::Configuration(format!("Script condition error: {error}"))
+                })? {
+                Some(value) => Ok(value),
+                None => driver.evaluate_world_condition(condition),
+            },
+        )?;
     let actions = if condition_true {
         script.action.as_deref()
     } else if let Some(action) = script.action_false.as_deref() {
@@ -108,7 +124,7 @@ fn evaluate_script(
     } else {
         return Ok(());
     };
-    match execute_action_chain(actions, driver)? {
+    match execute_action_chain(interpreter, actions, driver)? {
         Some(frames) => {
             script.frame_to_evaluate_at = script
                 .frame_to_evaluate_at
@@ -143,11 +159,12 @@ pub fn evaluate_conditions<E>(
 
 /// Execute an ordinary action chain. Returns the delay in frames if it pauses.
 pub fn execute_action_chain(
+    interpreter: &ScriptInterpreter,
     mut actions: Option<&ScriptAction>,
     driver: &mut impl ScriptProgramDriver,
 ) -> GameLogicResult<Option<f32>> {
     while let Some(action) = actions {
-        match dispatch_action(action, driver)? {
+        match dispatch_action(interpreter, action, driver)? {
             ScriptActionResult::Pending(frames)
                 if !is_sequential_only_action(action.action_type) =>
             {
@@ -165,6 +182,7 @@ pub fn execute_action_chain(
 
 /// Dispatch one action, completing immediate subroutines before the callback.
 pub fn dispatch_action(
+    interpreter: &ScriptInterpreter,
     action: &ScriptAction,
     driver: &mut impl ScriptProgramDriver,
 ) -> GameLogicResult<ScriptActionResult> {
@@ -175,8 +193,17 @@ pub fn dispatch_action(
             .get_string();
         driver.call_subroutine(name)?;
         ScriptActionResult::Success
+    } else if interpreter
+        .try_execute_variable_action(
+            action,
+            |low, high| driver.timer_random_int(low, high),
+            |low, high| driver.timer_random_real(low, high),
+        )
+        .map_err(|error| GameLogicError::Configuration(format!("Script action error: {error}")))?
+    {
+        ScriptActionResult::Success
     } else {
-        driver.execute_action(action)?
+        driver.execute_world_action(action)?
     };
     driver.after_action()?;
     Ok(result)
@@ -227,5 +254,122 @@ mod tests {
     fn pending_resume_frame_is_next_frame_for_single_frame_wait() {
         assert_eq!(pending_resume_frame(100, 1.0), 101);
         assert_eq!(pending_resume_frame(100, 0.0), 101);
+    }
+
+    #[test]
+    fn variable_opcodes_stay_inside_the_interpreter_and_notify_after_each_action() {
+        struct World<'a> {
+            interpreter: &'a ScriptInterpreter,
+            observed: Vec<i32>,
+        }
+
+        impl ScriptProgramDriver for World<'_> {
+            fn difficulty(&self) -> ScriptDifficulty {
+                ScriptDifficulty::Normal
+            }
+
+            fn condition_team_after(&self, name: &str, after: Option<u32>) -> Option<u32> {
+                (name == "Patrol" && after.is_none()).then_some(23)
+            }
+
+            fn evaluate_world_condition(
+                &mut self,
+                condition: &mut Condition,
+            ) -> GameLogicResult<bool> {
+                panic!(
+                    "variable condition reached the world: {:?}",
+                    condition.condition_type
+                )
+            }
+
+            fn execute_world_action(
+                &mut self,
+                action: &ScriptAction,
+            ) -> GameLogicResult<ScriptActionResult> {
+                assert_eq!(action.action_type, ScriptActionType::NoOp);
+                assert_eq!(self.interpreter.condition_team(), Some(23));
+                assert_eq!(
+                    self.interpreter
+                        .frame()
+                        .variables
+                        .counter("Score")
+                        .unwrap()
+                        .value,
+                    9
+                );
+                Ok(ScriptActionResult::Success)
+            }
+
+            fn timer_random_int(&self, low: i32, high: i32) -> i32 {
+                assert_eq!((low, high), (3, 15));
+                9
+            }
+
+            fn timer_random_real(&self, _low: f32, _high: f32) -> f32 {
+                panic!("integer timer requested a real draw")
+            }
+
+            fn call_subroutine(&mut self, name: &str) -> GameLogicResult<()> {
+                assert_eq!(name, "Then");
+                self.interpreter
+                    .frame_mut()
+                    .variables
+                    .set_counter("Score", 11)
+            }
+
+            fn after_action(&mut self) -> GameLogicResult<()> {
+                self.observed.push(
+                    self.interpreter
+                        .frame()
+                        .variables
+                        .counter("Score")
+                        .unwrap()
+                        .value,
+                );
+                Ok(())
+            }
+        }
+
+        let score_name = || Parameter::with_string(ParameterType::Counter, "Score".into());
+        let number = |value| Parameter::with_int(ParameterType::Int, value);
+        let mut counter = Condition::new(ConditionType::Counter);
+        for param in [
+            score_name(),
+            Parameter::with_int(ParameterType::Comparison, 2),
+            number(0),
+        ] {
+            counter.add_parameter(param).unwrap();
+        }
+        let mut condition = OrCondition::new();
+        condition.set_first_and_condition(Some(Box::new(counter)));
+        let mut timer = ScriptAction::new(ScriptActionType::SetRandomTimer);
+        for param in [score_name(), number(3), number(15)] {
+            timer.add_parameter(param).unwrap();
+        }
+        let mut call = ScriptAction::new(ScriptActionType::CallSubroutine);
+        call.add_parameter(Parameter::with_string(
+            ParameterType::ScriptSubroutine,
+            "Then".into(),
+        ))
+        .unwrap();
+
+        let mut script = Script::new();
+        script.condition_team_name = "Patrol".into();
+        script.condition = Some(Box::new(condition));
+        for action in [timer, ScriptAction::new(ScriptActionType::NoOp), call] {
+            script.append_action(Box::new(action));
+        }
+
+        let interpreter = ScriptInterpreter::new(1);
+        interpreter.set_condition_team(Some(12));
+        let mut world = World {
+            interpreter: &interpreter,
+            observed: Vec::new(),
+        };
+        interpreter
+            .execute_script(&mut script, 0, &mut world)
+            .unwrap();
+        assert_eq!(world.observed, [9, 9, 11]);
+        assert_eq!(interpreter.condition_team(), Some(12));
     }
 }

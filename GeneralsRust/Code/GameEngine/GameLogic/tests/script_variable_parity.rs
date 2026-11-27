@@ -1,3 +1,4 @@
+use game_engine::common::random_value::{SessionRandom, with_session_random};
 use game_engine::common::system::{xfer_load::XferLoad, xfer_save::XferSave};
 use gamelogic::scripting::XferSnapshot;
 use gamelogic::scripting::engine::{ScriptEngine, ScriptExecutionDriver};
@@ -52,6 +53,48 @@ impl ScriptExecutionDriver<ScriptEngine> for Headless {
     fn initialize_named_cache(&mut self) -> Option<()> {
         Some(())
     }
+}
+
+#[test]
+fn authored_integer_timer_uses_the_original_unsigned_random_span() {
+    let services = new_world_services();
+    let engine = ScriptEngine::new_with_services(&services).unwrap();
+    let stream = SessionRandom::default();
+    stream.seed_random(37);
+    let reference = SessionRandom::from_state(stream.snapshot());
+    let reversed = 15i32.wrapping_add((reference.next_u32() % 4_294_967_288) as i32);
+    let equal = 7;
+    reference.next_u32();
+    let following = 20 + (reference.next_u32() % 11) as i32;
+
+    let cases = [
+        (15, 6, reversed),
+        (7, 6, 6),
+        (i32::MIN, i32::MAX, i32::MAX),
+        (7, 7, equal),
+        (20, 30, following),
+    ];
+    with_world_services(&services, || {
+        with_session_random(&stream, || {
+            for (low, high, expected) in cases {
+                run(
+                    &engine,
+                    ScriptActionType::SetRandomTimer,
+                    [
+                        counter_name("result"),
+                        Parameter::with_int(ParameterType::Int, low),
+                        Parameter::with_int(ParameterType::Int, high),
+                    ],
+                );
+                assert_eq!(
+                    engine.get_counter("result").unwrap().value,
+                    expected,
+                    "{low}..={high}"
+                );
+            }
+        })
+    });
+    assert_eq!(stream.seed_words(), reference.seed_words());
 }
 
 #[test]

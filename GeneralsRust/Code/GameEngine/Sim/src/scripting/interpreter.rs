@@ -267,7 +267,7 @@ impl ScriptInterpreter {
     ) -> GameLogicResult<()> {
         let condition = self.condition_team();
         let _restore = RestoreOnDrop(Some(move || self.set_condition_team(condition)));
-        program_execution::execute_script(script, frame, driver)
+        program_execution::execute_script(self, script, frame, driver)
     }
 
     pub fn advance_sequences(&self, driver: &mut impl SequentialDriver) -> GameLogicResult<()> {

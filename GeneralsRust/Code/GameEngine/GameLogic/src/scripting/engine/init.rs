@@ -265,7 +265,8 @@ impl ScriptEngine {
         let mut execution = ScriptExecution::new(&context, driver);
         self.with_active(|| {
             let mut program = ScriptProgramWorld::new(self, &mut execution);
-            program_execution::execute_action_chain(Some(action), &mut program).map(|_| ())
+            program_execution::execute_action_chain(&self.runtime, Some(action), &mut program)
+                .map(|_| ())
         })
     }
 

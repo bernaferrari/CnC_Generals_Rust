@@ -112,7 +112,7 @@ impl SequentialDriver for ScriptProgramWorld<'_, '_> {
         action: &ScriptAction,
     ) -> GameLogicResult<crate::scripting::executor::ScriptActionResult> {
         self.engine.runtime.set_condition_target(target.team_id, condition_object);
-        program_execution::dispatch_action(action, self)
+        program_execution::dispatch_action(&self.engine.runtime, action, self)
     }
 
     fn observe_after_action(
