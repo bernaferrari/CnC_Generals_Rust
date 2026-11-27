@@ -144,7 +144,7 @@ impl<'a> AreaDamage<'a> {
         // it substitutes the launcher as the damage-credit source.
         let kills_self = *radius_source_present
             && vid == *radius_source_id
-            && Projectile::warhead_kills_source(*radius_damage_affects);
+            && (*radius_damage_affects & generals_sim::weapon::WeaponAffectsMask::KILLS_SELF) != 0;
         if *radius_source_present && !is_primary && !kills_self {
             let airborne = obj.is_significantly_above_terrain();
             use game_engine::common::game_common::Relationship;

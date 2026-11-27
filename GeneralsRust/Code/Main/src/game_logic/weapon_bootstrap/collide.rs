@@ -1,15 +1,22 @@
 use super::*;
 
-/// C++ ProjectileCollideMask residual bits (Weapon.cpp TheWeaponCollideMaskNames).
-pub const PROJECTILE_COLLIDE_ALLIES: u32 = 0x0001;
-pub const PROJECTILE_COLLIDE_ENEMIES: u32 = 0x0002;
-pub const PROJECTILE_COLLIDE_STRUCTURES: u32 = 0x0004;
-pub const PROJECTILE_COLLIDE_SHRUBBERY: u32 = 0x0008;
-pub const PROJECTILE_COLLIDE_PROJECTILES: u32 = 0x0010;
-pub const PROJECTILE_COLLIDE_WALLS: u32 = 0x0020;
-pub const PROJECTILE_COLLIDE_SMALL_MISSILES: u32 = 0x0040;
-pub const PROJECTILE_COLLIDE_BALLISTIC_MISSILES: u32 = 0x0080;
-pub const PROJECTILE_COLLIDE_CONTROLLED_STRUCTURES: u32 = 0x0100;
+pub use generals_sim::combat::projectile_contact::{
+    projectile_collides_structures_or_fences, projectile_collides_with_structure_or_fence,
+    projectile_structure_same_controller,
+};
+pub use generals_sim::combat::projectile_impact::radius_damage_affects_victim;
+use generals_sim::weapon::WeaponCollideMask;
+
+/// C++ ProjectileCollideMask bits (Weapon.cpp TheWeaponCollideMaskNames).
+pub const PROJECTILE_COLLIDE_ALLIES: u32 = WeaponCollideMask::ALLIES;
+pub const PROJECTILE_COLLIDE_ENEMIES: u32 = WeaponCollideMask::ENEMIES;
+pub const PROJECTILE_COLLIDE_STRUCTURES: u32 = WeaponCollideMask::STRUCTURES;
+pub const PROJECTILE_COLLIDE_SHRUBBERY: u32 = WeaponCollideMask::SHRUBBERY;
+pub const PROJECTILE_COLLIDE_PROJECTILES: u32 = WeaponCollideMask::PROJECTILE;
+pub const PROJECTILE_COLLIDE_WALLS: u32 = WeaponCollideMask::WALLS;
+pub const PROJECTILE_COLLIDE_SMALL_MISSILES: u32 = WeaponCollideMask::SMALL_MISSILES;
+pub const PROJECTILE_COLLIDE_BALLISTIC_MISSILES: u32 = WeaponCollideMask::BALLISTIC_MISSILES;
+pub const PROJECTILE_COLLIDE_CONTROLLED_STRUCTURES: u32 = WeaponCollideMask::CONTROLLED_STRUCTURES;
 
 /// Default ballistic residual: structures + walls (most tank/missile shells).
 /// C++ Weapon.cpp:273 default is STRUCTURES only — own buildings require
@@ -69,47 +76,6 @@ pub(super) fn seed_projectile_collides_for(name: &str) -> u32 {
     PROJECTILE_COLLIDE_DEFAULT
 }
 
-/// Whether a structure or a fence can intercept the shot.
-pub fn projectile_collides_structures_or_fences(mask: u32) -> bool {
-    (mask
-        & (PROJECTILE_COLLIDE_STRUCTURES
-            | PROJECTILE_COLLIDE_WALLS
-            | PROJECTILE_COLLIDE_CONTROLLED_STRUCTURES))
-        != 0
-}
-
-/// C++ `getControllingPlayer()` equality (`Weapon.cpp:718`).
-///
-/// Live objects may omit `owner_player_id`; fall back to team so Neutral
-/// walls still intercept and same-faction skirmish slots stay distinct
-/// when both player ids are present.
-pub fn projectile_structure_same_controller(
-    projectile_owner: Option<u32>,
-    structure_owner: Option<u32>,
-    same_team: bool,
-) -> bool {
-    match (projectile_owner, structure_owner) {
-        (Some(a), Some(b)) => a == b,
-        _ => same_team,
-    }
-}
-
-/// C++ Weapon.cpp:716-730 classifies walls by FenceWidth independently
-/// of the structure kind and the controlling player.
-pub fn projectile_collides_with_structure_or_fence(
-    mask: u32,
-    is_structure: bool,
-    is_fence: bool,
-    same_controller: bool,
-) -> bool {
-    let structure_bit = if same_controller {
-        PROJECTILE_COLLIDE_CONTROLLED_STRUCTURES
-    } else {
-        PROJECTILE_COLLIDE_STRUCTURES
-    };
-    (is_structure && mask & structure_bit != 0) || (is_fence && mask & PROJECTILE_COLLIDE_WALLS != 0)
-}
-
 /// C++ Weapon.cpp:271 default `m_affectsMask` when RadiusDamageAffects is omitted.
 pub const WEAPON_AFFECTS_DEFAULT: u32 = generals_sim::weapon::WeaponAffectsMask::DEFAULT;
 
@@ -134,48 +100,6 @@ pub(super) fn seed_radius_damage_affects_for(name: &str) -> u32 {
     // C++ getAffectsMask() — leftover WeaponStore / Weapon.cpp:271 default.
     // Do not invent ALLIES / NOT_AIRBORNE from name substrings.
     host_radius_damage_affects_for_weapon_name(name)
-}
-
-/// Whether splash may affect `victim` given C++ `getRelationship` and residual mask.
-///
-/// `relationship` is `curVictim->getRelationship(source)` (Weapon.cpp:1360-1372).
-/// Leftover `should_apply_damage` uses the same ALLIES/ENEMIES/NEUTRALS bits.
-///
-/// `producer_id` is `source->getProducerID()` (Weapon.cpp:1330-1337). When
-/// `WeaponAffectsMask::SELF` is unset, C++ skips both the firer and the building
-/// that produced it (War Factory, airfield, Stinger Site).
-pub fn radius_damage_affects_victim(
-    affects: u32,
-    relationship: game_engine::common::game_common::Relationship,
-    shooter_id: crate::game_logic::ObjectId,
-    victim_id: crate::game_logic::ObjectId,
-    producer_id: Option<crate::game_logic::ObjectId>,
-    victim_airborne: bool,
-    same_template: bool,
-) -> bool {
-    use generals_sim::weapon::WeaponAffectsMask;
-    use game_engine::common::game_common::Relationship;
-
-    if (shooter_id == victim_id || producer_id == Some(victim_id))
-        && (affects & WeaponAffectsMask::SELF) == 0
-    {
-        return false;
-    }
-    if (affects & WeaponAffectsMask::DOESNT_AFFECT_AIRBORNE) != 0 && victim_airborne {
-        return false;
-    }
-    if (affects & WeaponAffectsMask::DOESNT_AFFECT_SIMILAR) != 0 && same_template {
-        // C++ source->getRelationship(curVictim) == ALLIES && equivalent template.
-        if relationship == Relationship::Allies {
-            return false;
-        }
-    }
-    let required_mask = match relationship {
-        Relationship::Allies => WeaponAffectsMask::ALLIES,
-        Relationship::Enemies => WeaponAffectsMask::ENEMIES,
-        Relationship::Neutral => WeaponAffectsMask::NEUTRALS,
-    };
-    (affects & required_mask) != 0
 }
 
 /// Compare templates in the driving match's effective content. C++ resolves

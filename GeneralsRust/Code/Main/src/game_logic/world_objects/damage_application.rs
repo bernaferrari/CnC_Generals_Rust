@@ -2274,7 +2274,7 @@ impl GameLogic {
             let definition = self.weapon_definitions.as_ref()?
                 .get(&shot.historic_weapon_key.to_ascii_lowercase())?;
             let flags = generals_sim::weapon::WeaponBonusConditionFlags::from_bits(mask);
-            let mut bonus = gamelogic::WeaponBonus::new();
+            let mut bonus = generals_sim::weapon::WeaponBonus::new();
             self.solo_weapon_bonus_set.append_bonuses(flags, &mut bonus);
             if let Some(extra) = definition.extra_bonus.as_ref() {
                 extra.append_bonuses(flags, &mut bonus);

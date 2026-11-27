@@ -229,10 +229,6 @@ impl Projectile {
         (direction != Vec3::ZERO).then(|| projectile_forward_transform(position, direction))
     }
 
-    pub(in crate::game_logic) fn warhead_kills_source(affects: u32) -> bool {
-        affects & generals_sim::weapon::WeaponAffectsMask::KILLS_SELF != 0
-    }
-
     pub fn new(
         id: ObjectId,
         start_pos: Vec3,

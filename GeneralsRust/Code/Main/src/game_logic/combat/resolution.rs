@@ -781,7 +781,7 @@ impl CombatSystem {
                         let is_primary = *primary_victim == Some(*vid);
                         let kills_self = *radius_source_present
                             && *vid == *radius_source_id
-                            && Projectile::warhead_kills_source(*radius_damage_affects);
+                            && (*radius_damage_affects & generals_sim::weapon::WeaponAffectsMask::KILLS_SELF) != 0;
                         if *radius_source_present && !is_primary && !kills_self {
                             let airborne = obj.is_significantly_above_terrain();
                             let same_tmpl =
@@ -1135,8 +1135,7 @@ fn apply_countermeasure_report_and_decoy(
     }
 }
 
-/// C++ `HUGE_DAMAGE_AMOUNT` (Damage.h) for `WEAPON_KILLS_SELF`.
-const HUGE_DAMAGE_AMOUNT: f32 = 999_999.0;
+use generals_sim::damage::HUGE_DAMAGE_AMOUNT;
 
 /// C++ `DAMAGE_RANGE_CALC_TYPE = FROM_BOUNDINGSPHERE_3D` (Weapon.cpp:70):
 /// center-to-center minus victim bounding-sphere radius, clamped at 0.

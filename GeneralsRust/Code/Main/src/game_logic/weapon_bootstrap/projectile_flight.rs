@@ -1,7 +1,8 @@
 //! Receiving catalog, actor damage, and terrain callbacks for projectile flight.
 
+use crate::game_logic::ObjectId;
 use crate::game_logic::object::Object;
-use crate::game_logic::{KindOf, ObjectId};
+use generals_sim::combat::projectile_impact::garrison_hit_casualties;
 use glam::Vec3;
 use std::collections::HashMap;
 
@@ -27,11 +28,6 @@ pub(in crate::game_logic) fn host_projectile_flight_for_object_name(
         .map(|profile| profile.flight.clone())
 }
 
-fn kindof_multi(obj: &Object, required: &[KindOf], forbidden: &[KindOf]) -> bool {
-    required.iter().all(|kind| obj.is_kind_of(*kind))
-        && forbidden.iter().all(|kind| !obj.is_kind_of(*kind))
-}
-
 fn is_garrisonable_container(obj: &Object) -> bool {
     if obj.thing().template.garrison_contain_max.is_some() {
         return true;
@@ -46,51 +42,34 @@ fn is_garrisonable_container(obj: &Object) -> bool {
 pub fn apply_garrison_hit_kill(
     objects: &mut crate::game_logic::HostObjectStore,
     container_id: ObjectId,
-    launcher_id: ObjectId,
+    _launcher_id: ObjectId,
     flight: &HostProjectileFlight,
     ownership_events: &mut crate::game_logic::host_owner_log::OwnershipEvents,
 ) -> Option<Vec3> {
-    let count = flight.garrison_hit_kill_count();
-    if count <= 0 {
-        return None;
-    }
-    let contained = {
+    let occupants = |objects: &crate::game_logic::HostObjectStore| {
         let container = objects.get(&container_id)?;
-        if !container.is_alive() || !is_garrisonable_container(container) {
+        if !container.is_alive()
+            || !is_garrisonable_container(container)
+            || container.is_immune_to_clear_building_attacks()
+        {
             return None;
         }
-        if container.is_immune_to_clear_building_attacks() {
-            return None;
-        }
-        let units = container.contained_units();
-        if units.is_empty() {
-            return None;
-        }
-        units
+        Some(container.contained_units())
     };
-
-    let required = flight.garrison_required().to_vec();
-    let forbidden = flight.garrison_forbidden().to_vec();
-    let mut num_killed = 0;
-    let mut killed = Vec::new();
-    for occupant_id in contained {
-        if num_killed >= count {
-            break;
-        }
-        let Some(occupant) = objects.get_mut(&occupant_id) else {
-            continue;
-        };
-        if !occupant.is_alive() || !kindof_multi(occupant, &required, &forbidden) {
-            continue;
-        }
-        let _ = launcher_id;
-        occupant.internal_change_health(-occupant.health.current);
-        occupant.status.destroyed = true;
-        occupant.status.effectively_dead = true;
-        killed.push(occupant_id);
-        num_killed += 1;
-    }
-    if num_killed == 0 {
+    let killed =
+        garrison_hit_casualties(flight, objects, occupants, |objects, occupant_id, hit| {
+            let Some(occupant) = objects.get_mut(&occupant_id) else {
+                return false;
+            };
+            if !hit.hits_occupant(occupant.is_alive(), |kind| occupant.is_kind_of(kind)) {
+                return false;
+            }
+            occupant.internal_change_health(-occupant.health.current);
+            occupant.status.destroyed = true;
+            occupant.status.effectively_dead = true;
+            true
+        });
+    if killed.is_empty() {
         return None;
     }
     if let Some(container) = objects.get_mut(&container_id) {
@@ -144,7 +123,10 @@ mod tests {
         ] {
             let bytes = bincode_legacy::serialize(&phase).unwrap();
             assert_eq!(bytes, encoded.to_le_bytes());
-            assert_eq!(bincode_legacy::deserialize::<HostMissilePhase>(&bytes).unwrap(), phase);
+            assert_eq!(
+                bincode_legacy::deserialize::<HostMissilePhase>(&bytes).unwrap(),
+                phase
+            );
         }
     }
 
@@ -205,7 +187,12 @@ mod tests {
             path_segments: 8,
             ..HostProjectileRuntime::default()
         };
-        assert!(adjust_flight_path_end(&mut runtime, &flight, Vec3::new(130.0, 0.0, 0.0), |_, _| Some(0.0)));
+        assert!(adjust_flight_path_end(
+            &mut runtime,
+            &flight,
+            Vec3::new(130.0, 0.0, 0.0),
+            |_, _| Some(0.0)
+        ));
         assert!((runtime.path_end.x - 105.0).abs() < 0.01);
         assert!(!runtime.path.is_empty());
     }
