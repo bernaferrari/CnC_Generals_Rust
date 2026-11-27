@@ -44,8 +44,8 @@ pub use audio_event::*;
 pub use helpers::{INVALID_OBJECT_ID, NO_MAX_SHOTS_LIMIT, ObjectId};
 pub use masks_enums::*;
 pub use store::{
-    WeaponDelayedDamageInfo, WeaponDelayedDamageSnapshotResidual, WeaponStore,
-    honesty_weapon_store_delayed_damage_residual_ok, initialize_weapon_store,
+    WeaponDelayedDamageInfo, WeaponStore,
+    initialize_weapon_store,
     shutdown_weapon_store, weapon_anti_mask_for_services, with_weapon_store, with_weapon_store_mut,
 };
 pub use template::WeaponTemplate;

@@ -56,8 +56,6 @@ pub(super) use gamelogic::system::game_logic::RadarEventType;
 pub(super) use gamelogic::system::radar_notifier;
 pub(super) use gamelogic::system::shroud_manager::get_shroud_manager;
 pub(super) use gamelogic::team::get_team_factory;
-pub(super) use gamelogic::update_game_logic;
-pub(super) use gamelogic::weapon::with_weapon_store_mut;
 pub(super) use glam::{Vec2, Vec3};
 pub(super) use std::collections::{HashMap, HashSet, VecDeque};
 pub(super) use std::path::{Path, PathBuf};

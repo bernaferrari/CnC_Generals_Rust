@@ -135,7 +135,8 @@ impl FrameWorld for LiveFrame<'_, '_> {
     }
 
     fn update_weapons(&mut self) -> GameLogicResult<()> {
-        self.logic.run_frame_weapons(&mut self.effects)
+        self.logic
+            .apply_owned_projectileless_delayed_damage_with_effects(&mut self.effects)
     }
 
     fn evaluate_victory(&mut self) -> GameLogicResult<()> {
@@ -856,27 +857,6 @@ impl GameLogic {
         // C++ BridgeBehavior/Tower onDamage/onHealing/onDie + scaffold rise tick.
         // Residual drain is same-frame after object combat/AI/repair and destroy.
         self.sync_host_bridge_rubble_and_scaffolds_with_effects(ui)?;
-        Ok(())
-    }
-
-    fn run_frame_weapons(&mut self, ui: &mut ScriptPresentationEffects<'_>) -> GameLogicResult<()> {
-        // Process delayed weapon damage that is now ready.
-        self.apply_owned_projectileless_delayed_damage_with_effects(ui)?;
-        match with_weapon_store_mut(|store| store.take_due_delayed_damage()) {
-            Ok(due) => {
-                for info in due {
-                    if let Err(e) = gamelogic::weapon::WeaponStore::apply_delayed_damage(info) {
-                        log::warn!("Delayed weapon damage failed: {}", e);
-                    }
-                }
-            }
-            Err(e) => {
-                let err_str = e.to_string();
-                if !err_str.contains("not initialized") {
-                    log::warn!("Weapon store update failed: {}", e);
-                }
-            }
-        }
         Ok(())
     }
 }

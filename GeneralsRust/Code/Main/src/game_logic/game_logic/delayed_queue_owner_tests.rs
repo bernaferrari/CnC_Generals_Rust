@@ -93,6 +93,73 @@ fn queue_authored_shot(
 }
 
 #[test]
+fn live_frame_drains_its_combat_queue_without_driving_legacy_queues() {
+    use gamelogic::common::Coord3D;
+    use gamelogic::weapon::{
+        INVALID_OBJECT_ID, WeaponTemplate, with_weapon_store, with_weapon_store_mut,
+    };
+    use generals_sim::weapon::WeaponBonus;
+
+    fn seed_legacy_queue(world: &GameLogic, entries: usize) {
+        world.with_own_services(|| {
+            with_weapon_store_mut(|store| {
+                let rule = WeaponTemplate::new("LegacyEngineOnly".into());
+                for _ in 0..entries {
+                    store.set_delayed_damage_from_template(
+                        &rule,
+                        &Coord3D::new(0.0, 0.0, 0.0),
+                        0,
+                        INVALID_OBJECT_ID,
+                        INVALID_OBJECT_ID,
+                        &WeaponBonus::new(),
+                    );
+                }
+            })
+            .unwrap();
+        });
+    }
+
+    fn legacy_count(world: &GameLogic) -> usize {
+        world.with_own_services(|| {
+            with_weapon_store(|store| store.get_delayed_damage_count()).unwrap()
+        })
+    }
+
+    let _serial = combat_test_guard();
+    let _restore = RestoreCombatInputs::install();
+    let (mut first, source, target) = projectileless_world(100);
+    queue_authored_shot(&mut first, source, target, 40.0, 10.0);
+    let (mut second, peer_source, peer_target) = projectileless_world(100);
+    queue_authored_shot(&mut second, peer_source, peer_target, 10.0, 10.0);
+    assert_eq!((source, target), (peer_source, peer_target));
+
+    seed_legacy_queue(&first, 1);
+    seed_legacy_queue(&second, 2);
+    let first_hp = first.objects[&target].health.current;
+    let second_hp = second.objects[&target].health.current;
+    // The step runs the current frame, then reports the next frame's counter.
+    for frame in 100..=103 {
+        let step = second.with_own_services(|| first.update_with_dt_budget(1.0 / 30.0, 1));
+        assert_eq!((step.steps_run, step.frame), (1, frame + 1));
+        assert_eq!((legacy_count(&first), legacy_count(&second)), (1, 2));
+        assert_eq!(second.objects[&target].health.current, second_hp);
+        let damage = if frame == 103 { 40.0 } else { 0.0 };
+        assert_eq!(first.objects[&target].health.current, first_hp - damage);
+    }
+    for frame in 100..=103 {
+        let step = first.with_own_services(|| second.update_with_dt_budget(1.0 / 30.0, 1));
+        assert_eq!((step.steps_run, step.frame), (1, frame + 1));
+        assert_eq!((legacy_count(&first), legacy_count(&second)), (1, 2));
+        assert_eq!(first.objects[&target].health.current, first_hp - 40.0);
+        let damage = if frame == 103 { 10.0 } else { 0.0 };
+        assert_eq!(second.objects[&target].health.current, second_hp - damage);
+    }
+    for world in [&first, &second] {
+        assert_eq!(live_projectileless_delayed_count_for_test(&world.combat_system), 0);
+    }
+}
+
+#[test]
 fn delayed_same_id_interleaved_consumers_cannot_steal_materialized_shots() {
     let _serial = combat_test_guard();
     let _restore = RestoreCombatInputs::install();
@@ -227,13 +294,10 @@ fn delayed_deadline_wraps_cpp_u32_and_is_due_in_current_high_frame() {
     queue_authored_shot(&mut world, source, target, 40.0, 10.0);
     // WeaponStore is per-world; observe it under this world's services (no process bag).
     let mirrored = world.with_own_services(|| {
-        gamelogic::weapon::with_weapon_store(|store| store.delayed_damage_snapshot_residual())
+        gamelogic::weapon::with_weapon_store(|store| store.get_delayed_damage_count())
             .expect("world WeaponStore remains available while services are bound")
     });
-    assert!(
-        mirrored.is_empty(),
-        "Main must not publish a Core damage mirror"
-    );
+    assert_eq!(mirrored, 0, "Main must not publish a Core damage mirror");
     assert_eq!(world.objects[&target].health.current, hp);
     assert_eq!(
         live_projectileless_delayed_count_for_test(&world.combat_system),
@@ -280,13 +344,10 @@ fn delayed_deadline_before_rollover_waits_until_normal_due_and_applies_once() {
 
     queue_authored_shot(&mut world, source, target, 40.0, 10.0);
     let mirrored = world.with_own_services(|| {
-        gamelogic::weapon::with_weapon_store(|store| store.delayed_damage_snapshot_residual())
+        gamelogic::weapon::with_weapon_store(|store| store.get_delayed_damage_count())
             .expect("world WeaponStore remains available while services are bound")
     });
-    assert!(
-        mirrored.is_empty(),
-        "Main must not publish a Core damage mirror"
-    );
+    assert_eq!(mirrored, 0, "Main must not publish a Core damage mirror");
     assert_eq!(
         crate::game_logic::combat::last_live_projectileless_delayed_identity_for_test(
             &world.combat_system

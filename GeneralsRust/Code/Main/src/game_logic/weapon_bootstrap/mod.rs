@@ -36,8 +36,6 @@ use glam::Vec3;
 
 mod names;
 pub use names::*;
-mod honesty;
-pub use honesty::*;
 mod pitch_range;
 pub use pitch_range::*;
 mod reload_aim;

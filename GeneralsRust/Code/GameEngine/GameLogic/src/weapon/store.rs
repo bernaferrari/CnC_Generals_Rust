@@ -64,59 +64,6 @@ pub struct WeaponDelayedDamageInfo {
     pub(crate) bonus: WeaponBonus,
 }
 
-/// Wave 77: save/load residual snapshot of a delayed-damage queue entry.
-///
-/// Mirrors the live `WeaponDelayedDamageInfo` identity fields so mid-flight
-/// projectile delay can be bookkept consistently without Arc template Xfer.
-/// Fail-closed: not full C++ WeaponStore::xfer (templates are not reloaded here).
-#[derive(Debug, Clone, PartialEq)]
-pub struct WeaponDelayedDamageSnapshotResidual {
-    pub weapon_name: String,
-    pub delay_damage_pos: Coord3D,
-    pub delay_damage_frame: u32,
-    pub delay_source_id: ObjectId,
-    pub delay_intended_victim_id: ObjectId,
-}
-
-impl WeaponDelayedDamageSnapshotResidual {
-    pub fn from_info(info: &WeaponDelayedDamageInfo) -> Self {
-        Self {
-            weapon_name: info.delayed_weapon.name.clone(),
-            delay_damage_pos: info.delay_damage_pos,
-            delay_damage_frame: info.delay_damage_frame,
-            delay_source_id: info.delay_source_id,
-            delay_intended_victim_id: info.delay_intended_victim_id,
-        }
-    }
-
-    pub fn honesty_ok(&self) -> bool {
-        !self.weapon_name.is_empty()
-            && self.delay_damage_pos.x.is_finite()
-            && self.delay_damage_pos.y.is_finite()
-            && self.delay_damage_pos.z.is_finite()
-    }
-}
-
-/// Honesty: delayed-damage residual snapshot pack matches live queue (Wave 77).
-pub fn honesty_weapon_store_delayed_damage_residual_ok(store: &WeaponStore) -> bool {
-    let snaps = store.delayed_damage_snapshot_residual();
-    if snaps.len() != store.get_delayed_damage_count() {
-        return false;
-    }
-    snaps.iter().all(|s| s.honesty_ok())
-        && store
-            .delayed_damage_info
-            .iter()
-            .zip(snaps.iter())
-            .all(|(info, snap)| {
-                snap.weapon_name == info.delayed_weapon.name
-                    && snap.delay_damage_frame == info.delay_damage_frame
-                    && snap.delay_source_id == info.delay_source_id
-                    && snap.delay_intended_victim_id == info.delay_intended_victim_id
-                    && snap.delay_damage_pos == info.delay_damage_pos
-            })
-}
-
 impl WeaponStore {
     pub fn new() -> Self {
         Self {
@@ -601,13 +548,6 @@ impl WeaponStore {
 
     pub fn get_delayed_damage_count(&self) -> usize {
         self.delayed_damage_info.len()
-    }
-
-    pub fn delayed_damage_snapshot_residual(&self) -> Vec<WeaponDelayedDamageSnapshotResidual> {
-        self.delayed_damage_info
-            .iter()
-            .map(WeaponDelayedDamageSnapshotResidual::from_info)
-            .collect()
     }
 
     pub fn get_template_names(&self) -> Vec<String> {

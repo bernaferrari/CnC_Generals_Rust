@@ -216,14 +216,12 @@ pub use thing::*;
 pub use units::*;
 pub use victory::*;
 pub use victory_conditions::*;
-pub use weapon_bootstrap::honesty_weapon_store_deepen_residual_wave92;
-pub use weapon_bootstrap::honesty_weapon_store_deepen_residual_wave103;
 pub use weapon_bootstrap::{
     GATTLING_BUILDING_PRIMARY_WEAPON as HOST_GATTLING_BUILDING_PRIMARY_WEAPON,
-    GLA_REBEL_PRIMARY_WEAPON, HOST_WEAPON_STORE_CORE_SEED_NAMES, HUMVEE_PRIMARY_WEAPON,
+    GLA_REBEL_PRIMARY_WEAPON, HUMVEE_PRIMARY_WEAPON,
     HUMVEE_SECONDARY_WEAPON, PATRIOT_PRIMARY_WEAPON as HOST_PATRIOT_PRIMARY_WEAPON,
     RANGER_PRIMARY_WEAPON, RANGER_SECONDARY_WEAPON, REDGUARD_PRIMARY_WEAPON,
-    ensure_host_weapon_store, honesty_weapon_store_host_seed_residual_wave77,
+    ensure_host_weapon_store,
     primary_weapon_name_for_unit, secondary_weapon_name_for_unit,
 };
 

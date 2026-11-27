@@ -20,39 +20,107 @@ fn bootstrap_seeds_ranger_with_non_default_damage() {
     assert!((w.range - 100.0).abs() < 0.01);
 }
 
-/// Wave 77 residual: core host WeaponStore seed residual pack honesty.
 #[test]
-fn weapon_store_host_seed_residual_wave77_honesty() {
-    assert!(honesty_weapon_store_host_seed_residual_wave77());
-    for name in HOST_WEAPON_STORE_CORE_SEED_NAMES {
-        assert!(store_has(name), "missing core seed residual: {name}");
-    }
-    assert!(HOST_WEAPON_STORE_CORE_SEED_NAMES.contains(&RANGER_PRIMARY_WEAPON));
-    assert!(HOST_WEAPON_STORE_CORE_SEED_NAMES.contains(&PATRIOT_PRIMARY_WEAPON));
-    assert!(HOST_WEAPON_STORE_CORE_SEED_NAMES.contains(&SCUD_GUN_EXPLOSIVE));
+fn bootstrap_registers_the_weapons_used_by_mapless_combat() {
+    ensure_host_weapon_store();
+    with_weapon_store(|store| {
+        for name in [
+            RANGER_PRIMARY_WEAPON,
+            RANGER_SECONDARY_WEAPON,
+            GLA_REBEL_PRIMARY_WEAPON,
+            REDGUARD_PRIMARY_WEAPON,
+            HUMVEE_PRIMARY_WEAPON,
+            HUMVEE_SECONDARY_WEAPON,
+            PATRIOT_PRIMARY_WEAPON,
+            PATRIOT_SECONDARY_WEAPON,
+            STINGER_PRIMARY_WEAPON,
+            GATTLING_BUILDING_PRIMARY_WEAPON,
+            CRUSADER_TANK_GUN,
+            TOMAHAWK_MISSILE_WEAPON,
+            RAPTOR_JET_MISSILE_WEAPON,
+            SCUD_GUN_EXPLOSIVE,
+            BATTLE_MASTER_TANK_GUN,
+            OVERLORD_TANK_GUN,
+        ] {
+            assert!(
+                store.find_weapon_template(name).is_some(),
+                "missing weapon {name}"
+            );
+        }
+        for name in [RANGER_PRIMARY_WEAPON, PATRIOT_PRIMARY_WEAPON] {
+            let weapon = store.find_weapon_template(name).unwrap();
+            assert_eq!(weapon.name, name);
+            assert!(
+                weapon.primary_damage > 0.0 && weapon.attack_range > 0.0,
+                "{name}"
+            );
+        }
+    })
+    .unwrap();
 }
 
 #[test]
-fn weapon_store_deepen_residual_wave92_honesty() {
-    assert!(honesty_weapon_store_deepen_residual_wave92());
-    for name in HOST_WEAPON_STORE_DEEPEN_SEED_NAMES_WAVE92 {
-        assert!(store_has(name), "missing deepen seed residual: {name}");
-    }
-    assert!(HOST_WEAPON_STORE_DEEPEN_SEED_NAMES_WAVE92.contains(&MARAUDER_TANK_GUN));
-    assert!(HOST_WEAPON_STORE_DEEPEN_SEED_NAMES_WAVE92.contains(&DRAGON_TANK_FLAME_WEAPON));
+fn bootstrap_matches_ground_vehicle_and_support_weapon_stats() {
+    ensure_host_weapon_store();
+    with_weapon_store(|store| {
+        for (name, damage, range) in [
+            (MARAUDER_TANK_GUN, 60.0, 170.0),
+            (GATTLING_TANK_GUN, 15.0, 150.0),
+            (COMANCHE_PRIMARY_WEAPON, 6.0, 200.0),
+            (DRAGON_TANK_FLAME_WEAPON, 10.0, 75.0),
+            (SCORPION_TANK_GUN, 20.0, 150.0),
+            (BUGGY_ROCKET_WEAPON, 20.0, 300.0),
+            (MISSILE_DEFENDER_MISSILE_WEAPON, 40.0, 175.0),
+            (PALADIN_TANK_GUN, 60.0, 150.0),
+            (HELIX_MINIGUN_WEAPON, 6.0, 115.0),
+            (TECHNICAL_MACHINE_GUN, 10.0, 150.0),
+            (QUAD_CANNON_GUN, 10.0, 150.0),
+            (TANK_HUNTER_PRIMARY_WEAPON, 40.0, 175.0),
+            (CRUSADER_TANK_GUN, 60.0, 150.0),
+            (TOMAHAWK_MISSILE_WEAPON, 150.0, 350.0),
+            (TOXIN_TRUCK_GUN, 10.0, 100.0),
+            (NAPALM_MISSILE_WEAPON, 75.0, 320.0),
+            (STEALTH_JET_MISSILE_WEAPON, 100.0, 220.0),
+        ] {
+            let weapon = store
+                .find_weapon_template(name)
+                .unwrap_or_else(|| panic!("missing weapon {name}"));
+            assert!((weapon.primary_damage - damage).abs() < 0.05, "{name} damage");
+            assert!((weapon.attack_range - range).abs() < 0.05, "{name} range");
+        }
+    })
+    .unwrap();
 }
 
 #[test]
-fn weapon_store_deepen_residual_pack_honesty_wave103() {
-    assert!(honesty_weapon_store_deepen_residual_wave103());
-    for name in HOST_WEAPON_STORE_DEEPEN_SEED_NAMES_WAVE103 {
-        assert!(
-            store_has(name),
-            "missing wave103 deepen seed residual: {name}"
-        );
-    }
-    assert!(HOST_WEAPON_STORE_DEEPEN_SEED_NAMES_WAVE103.contains(&NUKE_CANNON_PRIMARY_WEAPON));
-    assert!(HOST_WEAPON_STORE_DEEPEN_SEED_NAMES_WAVE103.contains(&OVERLORD_TANK_GUN));
+fn bootstrap_matches_artillery_aircraft_and_infantry_weapon_stats() {
+    ensure_host_weapon_store();
+    with_weapon_store(|store| {
+        for (name, damage, range) in [
+            (NUKE_CANNON_PRIMARY_WEAPON, 400.0, 350.0),
+            (INFERNO_CANNON_PRIMARY_WEAPON, 30.0, 300.0),
+            (AURORA_BOMB_PRIMARY_WEAPON, 400.0, 300.0),
+            (FIRE_BASE_HOWITZER_WEAPON, 75.0, 275.0),
+            (SENTRY_DRONE_GUN_WEAPON, 8.0, 150.0),
+            (HELLFIRE_MISSILE_WEAPON, 40.0, 150.0),
+            (TUNNEL_DEFENDER_ROCKET_WEAPON, 40.0, 175.0),
+            (MINIGUNNER_GUN, 10.0, 125.0),
+            (OVERLORD_TANK_GUN, 80.0, 175.0),
+            (BATTLE_MASTER_TANK_GUN, 60.0, 150.0),
+            (COMANCHE_ANTITANK_WEAPON, 50.0, 200.0),
+            (COMANCHE_ROCKET_POD_WEAPON, 30.0, 200.0),
+            (AVENGER_AIR_LASER, 10.0, 300.0),
+            (SCUD_GUN_TOXIN, 200.0, 350.0),
+            (BLACK_NAPALM_MISSILE_WEAPON, 75.0, 320.0),
+        ] {
+            let weapon = store
+                .find_weapon_template(name)
+                .unwrap_or_else(|| panic!("missing weapon {name}"));
+            assert!((weapon.primary_damage - damage).abs() < 0.05, "{name} damage");
+            assert!((weapon.attack_range - range).abs() < 0.05, "{name} range");
+        }
+    })
+    .unwrap();
 }
 
 #[test]

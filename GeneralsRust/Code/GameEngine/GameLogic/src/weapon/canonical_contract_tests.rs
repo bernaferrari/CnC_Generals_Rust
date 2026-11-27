@@ -306,10 +306,9 @@ fn canonical_store_validation_accepts_unlimited_clip_and_rejects_invalid_fields(
 }
 
 #[test]
-fn canonical_delayed_damage_snapshot_retains_queue_identity() {
+fn canonical_delayed_damage_retains_queue_identity() {
     let mut store = WeaponStore::new();
-    assert!(honesty_weapon_store_delayed_damage_residual_ok(&store));
-    assert!(store.delayed_damage_snapshot_residual().is_empty());
+    assert_eq!(store.get_delayed_damage_count(), 0);
     let template = store.add_weapon_template(WeaponTemplate::new("CanonicalDelayed".into()));
     let pos = Coord3D::new(100.0, 50.0, 25.0);
     let bonus = WeaponBonus::new();
@@ -323,21 +322,15 @@ fn canonical_delayed_damage_snapshot_retains_queue_identity() {
         &bonus,
     );
     assert_eq!(store.get_delayed_damage_count(), 2);
-    assert!(honesty_weapon_store_delayed_damage_residual_ok(&store));
-    let entries = store.delayed_damage_snapshot_residual();
-    assert_eq!(entries[0].weapon_name, "CanonicalDelayed");
+    let entries = &store.delayed_damage_info;
+    assert_eq!(entries[0].delayed_weapon.name, "CanonicalDelayed");
     assert_eq!(entries[0].delay_damage_frame, 900);
     assert_eq!(entries[0].delay_source_id, 1);
     assert_eq!(entries[0].delay_intended_victim_id, 2);
     assert_eq!(entries[0].delay_damage_pos, pos);
-    assert_eq!(entries[1].weapon_name, "CanonicalDelayedFromRef");
+    assert_eq!(entries[1].delayed_weapon.name, "CanonicalDelayedFromRef");
     assert_eq!(entries[1].delay_damage_frame, 901);
     assert_eq!(entries[1].delay_source_id, 3);
     assert_eq!(entries[1].delay_intended_victim_id, INVALID_ID);
     assert_eq!(entries[1].delay_damage_pos, Coord3D::new(0.0, 0.0, 0.0));
-    assert!(
-        entries
-            .iter()
-            .all(WeaponDelayedDamageSnapshotResidual::honesty_ok)
-    );
 }
