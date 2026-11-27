@@ -378,3 +378,5 @@ impl ScriptExecutionDriver<crate::scripting::engine::ScriptEngine> for OwnedAiAc
 }
 
 mod video_owner_tests;
+
+mod standalone_conditions;

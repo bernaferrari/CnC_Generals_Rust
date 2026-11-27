@@ -10,7 +10,6 @@ pub mod chunk_codec;
 pub mod conditions;
 pub mod core;
 pub mod engine;
-pub mod evaluator;
 pub mod events;
 pub mod executor;
 pub mod host_script_garrison;

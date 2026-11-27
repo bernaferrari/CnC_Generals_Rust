@@ -127,6 +127,62 @@ fn assert_restored(engine: &ScriptEngine) {
 }
 
 #[test]
+fn standalone_condition_uses_the_receiving_team_and_exact_calling_instance() {
+    use crate::system::engine_stores::{new_world_services, with_world_services};
+
+    let own = new_world_services();
+    let foreign = new_world_services();
+    for (world, state) in [(&own, "ready"), (&foreign, "foreign")] {
+        let mut factory = world.team_factory().lock().unwrap();
+        factory
+            .init_team_owned("SameTeam".into(), "Owner".into(), false, None, Some(1))
+            .unwrap();
+        let team = factory
+            .restore_owned_team_instance("SameTeam", 5, Some(1))
+            .unwrap();
+        team.write().unwrap().set_state(state.into());
+        let sibling = factory
+            .restore_owned_team_instance("SameTeam", 6, Some(1))
+            .unwrap();
+        sibling.write().unwrap().set_state("sibling".into());
+    }
+
+    let engine = ScriptEngine::new_with_services(&own).unwrap();
+    engine
+        .runtime
+        .set_team_call(Some(777), Some("outer".into()));
+    engine.runtime.set_condition_team(Some(6));
+    with_world_services(&foreign, || {
+        for name in [crate::scripting::core::THIS_TEAM, "SameTeam"] {
+            let mut condition = Condition::new(ConditionType::TeamStateIs);
+            condition
+                .add_parameter(Parameter::with_string(ParameterType::Team, name.into()))
+                .unwrap();
+            condition
+                .add_parameter(Parameter::with_string(
+                    ParameterType::TeamState,
+                    "ready".into(),
+                ))
+                .unwrap();
+            let mut script = with_condition(condition);
+            assert!(
+                engine
+                    .evaluate_standalone_conditions_checked(&mut script, Some(5), None, 30)
+                    .unwrap()
+            );
+            assert!(
+                !engine
+                    .evaluate_standalone_conditions_checked(&mut script, Some(6), None, 30)
+                    .unwrap()
+            );
+        }
+    });
+    assert_eq!(engine.get_calling_team_id(), Some(777));
+    assert_eq!(engine.get_condition_team_id(), Some(6));
+    assert_eq!(engine.get_current_player_name().as_deref(), Some("outer"));
+}
+
+#[test]
 fn borrowed_condition_queries_short_circuit_and_restore_the_driving_scope() {
     let engine = engine();
     let _calling_object = engine.runtime.enter_object_call(99);

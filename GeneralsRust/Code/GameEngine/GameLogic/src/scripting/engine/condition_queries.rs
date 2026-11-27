@@ -49,6 +49,36 @@ impl ScriptEngine {
                 .or_else(|| saved_player)
         };
         self.runtime.set_team_call(team_id, player);
+        self.evaluate_condition_tree(script, context, driver)
+    }
+
+    pub(crate) fn evaluate_standalone_conditions_checked(
+        &self,
+        script: &mut Script,
+        team_id: Option<TeamID>,
+        player_name: Option<&str>,
+        frame: u32,
+    ) -> Result<bool, String> {
+        let player = team_id
+            .and_then(|id| self.standalone_team_player(id))
+            .or_else(|| player_name.map(str::to_owned))
+            .or_else(|| self.get_current_player_name());
+        self.with_active(|| {
+            let _restore = self.runtime.enter_team_call(team_id, player);
+            self.evaluate_condition_tree(
+                script,
+                ScriptContext::at_frame(frame),
+                &mut CanonicalScriptExecutionDriver,
+            )
+        })
+    }
+
+    fn evaluate_condition_tree(
+        &self,
+        script: &mut Script,
+        context: ScriptContext,
+        driver: &mut dyn ScriptExecutionDriver<ScriptEngine>,
+    ) -> Result<bool, String> {
         let state = std::cell::RefCell::new(context);
         let result = if let Some(condition) = script.condition.as_deref_mut() {
             ScriptConditionEvaluator::new(self, &state)

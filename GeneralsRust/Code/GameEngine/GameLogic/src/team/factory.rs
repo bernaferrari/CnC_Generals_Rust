@@ -1538,21 +1538,6 @@ fn execute_pending_team_create_action_scripts(script_names: Vec<String>) {
     }
 }
 
-fn evaluate_generic_script_conditions(
-    script: &mut Script,
-    evaluator: &ScriptEvaluator,
-) -> Result<bool, String> {
-    // CPP Team.cpp2515 calls evaluateConditions directly, not executeScript:
-    // generic slots bypass root active/difficulty/periodic execution gates.
-    let Some(or_condition) = script.condition.as_deref_mut() else {
-        return Ok(false);
-    };
-
-    evaluator
-        .evaluate_or_condition(or_condition)
-        .map_err(|err| err.to_string())
-}
-
 fn execute_pending_team_generic_script_evals(script_evals: Vec<PendingTeamGenericScriptEval>) {
     if script_evals.is_empty() {
         return;
@@ -1564,11 +1549,12 @@ fn execute_pending_team_generic_script_evals_with_engine(
     script_evals: Vec<PendingTeamGenericScriptEval>,
     script_engine: &crate::scripting::engine::ScriptEngineHandle,
 ) {
+    use crate::scripting::engine::CanonicalScriptExecutionDriver;
+    use crate::scripting::executor::ScriptContext;
+
     if script_evals.is_empty() {
         return;
     }
-
-    let evaluator = ScriptEvaluator::new(script_engine.clone());
 
     for pending in script_evals {
         let team_id = match pending.team.read() {
@@ -1595,45 +1581,47 @@ fn execute_pending_team_generic_script_evals_with_engine(
             }
         };
 
-        let saved_context = match script_engine.write() {
-            Ok(mut engine_guard) => engine_guard.as_mut().map(|engine| {
-                engine.set_external_eval_context(pending.current_player_name.clone(), Some(team_id))
-            }),
-            Err(_) => None,
-        };
-
-        let Some(saved_context) = saved_context else {
+        // Take the runtime lease before locking the interpreter. A reentrant
+        // attempt on this slot can reject the in-flight lease without waiting
+        // on the same interpreter lock.
+        let Ok(guard) = script_engine.read() else {
             continue;
         };
-
-        let eval_result = evaluate_generic_script_conditions(&mut script, &evaluator);
-
-        if let Ok(mut engine_guard) = script_engine.write() {
-            if let Some(engine) = engine_guard.as_mut() {
-                engine.restore_external_eval_context(saved_context);
-            }
-        }
+        let Some(engine) = guard.as_ref() else {
+            continue;
+        };
+        let frame = engine
+            .owning_world_services()
+            .map_or(0, |world| world.logic_frame());
+        // Team.cpp evaluates the generic conditions directly in the calling
+        // team's scope, independent of root active/difficulty/periodic gates.
+        let eval_result = engine.evaluate_standalone_conditions_checked(
+            &mut script,
+            Some(team_id),
+            pending.current_player_name.as_deref(),
+            frame,
+        );
 
         match eval_result {
-            Ok(condition_true) => {
-                if condition_true {
-                    // CPP Team.cpp:2519 consumes this Team's one-shot before
-                    // the synchronous action can observe or revisit the slot.
-                    if script.is_one_shot() {
-                        if let Ok(mut team_guard) = pending.team.write() {
-                            team_guard.disable_generic_script_attempt(pending.script_index);
-                        }
-                    }
-                    if let Some(action) = script.get_action().cloned() {
-                        // C++ friend_executeAction(action, this) — team-scoped.
-                        if let Ok(mut eng) = script_engine.write() {
-                            if let Some(e) = eng.as_mut() {
-                                e.friend_execute_action(&action, Some(team_id));
-                            }
-                        }
+            Ok(true) => {
+                // CPP Team.cpp:2519 consumes this Team's one-shot before
+                // the synchronous action can observe or revisit the slot.
+                if script.is_one_shot() {
+                    if let Ok(mut team_guard) = pending.team.write() {
+                        team_guard.disable_generic_script_attempt(pending.script_index);
                     }
                 }
+                if let Some(action) = script.get_action() {
+                    // C++ friend_executeAction(action, this) — team-scoped.
+                    engine.friend_execute_action_with_driver(
+                        action,
+                        Some(team_id),
+                        ScriptContext::at_frame(frame),
+                        &mut CanonicalScriptExecutionDriver,
+                    );
+                }
             }
+            Ok(false) => {}
             Err(err) => {
                 log::warn!(
                     "Team generic script '{}' evaluation failed for team '{}': {}",

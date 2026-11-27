@@ -18,7 +18,6 @@ use crate::player::{PLAYER_INDEX_INVALID, player_list};
 use crate::polygon_trigger::PolygonTrigger;
 use crate::scripting::core::Script;
 use crate::scripting::engine::{get_area_tracker, get_script_engine};
-use crate::scripting::evaluator::ScriptEvaluator;
 use crate::waypoint::WaypointId;
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::system::snapshot::Snapshotable;

@@ -4,11 +4,14 @@ use crate::scripting::core::{
     Condition, ConditionType, OrCondition, Parameter, ParameterType, ScriptAction,
     ScriptActionType, ScriptList,
 };
-use crate::scripting::engine::{ScriptActionHandler, ScriptEngine, ScriptEngineHandle};
+use crate::scripting::engine::{
+    ScriptActionHandler, ScriptEngine, ScriptEngineHandle, WeakScriptEngineHandle,
+};
 use std::sync::atomic::AtomicUsize;
 
 struct ObserveEligibility {
     pending: PendingTeamGenericScriptEval,
+    engine: WeakScriptEngineHandle,
     one_shot: bool,
     calls: Arc<AtomicUsize>,
 }
@@ -25,12 +28,14 @@ impl ScriptActionHandler for ObserveEligibility {
             "C++ consumes one-shot eligibility before its action"
         );
         self.calls.fetch_add(1, Ordering::Relaxed);
-        if self.one_shot {
-            // Revisit the same actual Team through the production collector
-            // during its action. No handler -> interpreter ownership cycle.
-            let mut nested = factory_for(&self.pending);
-            nested.update(&crate::scripting::HostScriptQuery::published_for_test());
-            assert!(nested.drain_pending_generic_script_evals().is_empty());
+        // Revisit the same Team during the action while its script is leased.
+        let mut nested = factory_for(&self.pending);
+        nested.update(&crate::scripting::HostScriptQuery::published_for_test());
+        let collected = nested.drain_pending_generic_script_evals();
+        assert_eq!(collected.len(), usize::from(!self.one_shot));
+        if !self.one_shot {
+            let engine = self.engine.upgrade().expect("the receiving interpreter is live");
+            execute_pending_team_generic_script_evals_with_engine(collected, &engine);
         }
         Ok(())
     }
@@ -85,12 +90,14 @@ fn run_callback_case(one_shot: bool, condition_true: bool) {
     engine
         .set_script_list_for_player(0, Some(Box::new(list)))
         .unwrap();
+    let slot = ScriptEngineHandle::empty();
     engine.set_action_handler(Some(Arc::new(ObserveEligibility {
         pending,
+        engine: slot.downgrade(),
         one_shot,
         calls: calls.clone(),
     })));
-    let engine = ScriptEngineHandle::from_engine(engine);
+    *slot.write().unwrap() = Some(engine);
     let mut factory = TeamFactory::new();
     factory
         .prototypes
@@ -102,7 +109,7 @@ fn run_callback_case(one_shot: bool, condition_true: bool) {
     factory.update(&crate::scripting::HostScriptQuery::published_for_test());
     let collected = factory.drain_pending_generic_script_evals();
     assert_eq!(collected.len(), 2);
-    execute_pending_team_generic_script_evals_with_engine(collected, &engine);
+    execute_pending_team_generic_script_evals_with_engine(collected, &slot);
     let first_calls = if !condition_true {
         0
     } else if one_shot {
@@ -122,7 +129,7 @@ fn run_callback_case(one_shot: bool, condition_true: bool) {
     factory.update(&crate::scripting::HostScriptQuery::published_for_test());
     execute_pending_team_generic_script_evals_with_engine(
         factory.drain_pending_generic_script_evals(),
-        &engine,
+        &slot,
     );
     assert_eq!(
         calls.load(Ordering::Relaxed),
@@ -136,6 +143,13 @@ fn generic_one_shot_is_consumed_before_callback_and_duplicate_revisit() {
 }
 #[test]
 fn generic_repeatable_callback_retains_team_eligibility() {
+    #[cfg(not(target_arch = "wasm32"))]
+    if let crate::test_process::TestProcess::ParentVerified = crate::test_process::run_bounded(
+        "team::generic_script_callback_tests::generic_repeatable_callback_retains_team_eligibility",
+        "GENERALS_REPEATABLE_GENERIC_TEAM_REENTRY_CHILD",
+    ) {
+        return;
+    }
     run_callback_case(false, true);
 }
 #[test]
@@ -251,14 +265,15 @@ fn generic_local_condition_error_restores_context_and_returns_runtime() {
         .unwrap();
     cached.comment = "error runtime marker".into();
     let mut error_probe = cached.clone();
-    assert!(
-        evaluate_generic_script_conditions(
-            &mut error_probe,
-            &ScriptEvaluator::new(engine.clone()),
-        )
-        .is_err(),
-        "malformed Counter must execute the evaluator error branch"
-    );
+    {
+        let slot = engine.read().unwrap();
+        assert!(
+            slot.as_ref().unwrap().evaluate_standalone_conditions_checked(
+                &mut error_probe, Some(73), None, 0,
+            ).is_err(),
+            "malformed Counter must execute the evaluator error branch"
+        );
+    }
     drop(cached);
     engine
         .write()

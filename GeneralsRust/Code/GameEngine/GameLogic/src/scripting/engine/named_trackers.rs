@@ -1007,34 +1007,8 @@ impl ScriptEngine {
         player_name: Option<&str>,
         current_frame: u32,
     ) -> bool {
-        let _restore = self.runtime.preserve_team_call();
-        let player = team_id
-            .and_then(|id| self.standalone_team_player(id))
-            .or_else(|| player_name.map(str::to_owned))
-            .or_else(|| self.get_current_player_name());
-        self.runtime.set_team_call(team_id, player);
-
-        // C++ ScriptEngine::evaluateConditions walks OR/AND then evaluateCondition.
-        // evaluateCondition handles TRUE/FALSE/COUNTER/FLAG/TIMER locally and
-        // forwards every other type to TheScriptConditions (full switch).
-        // Leftover ScriptConditionEvaluator::evaluate_or_condition is that switch
-        // (PLAYER_HAS_CREDITS and the rest). with_active so leftover
-        // with_script_engine_ref does not re-lock the global handle while team
-        // production already holds write().
-        let result = if let Some(or_cond) = script.condition.as_deref_mut() {
-            self.with_active(|| {
-                let state = std::cell::RefCell::new(
-                    crate::scripting::executor::ScriptContext::at_frame(current_frame),
-                );
-                let mut leftover =
-                    crate::scripting::executor::ScriptConditionEvaluator::new(self, &state);
-                leftover.evaluate_or_condition(or_cond).unwrap_or(false)
-            })
-        } else {
-            false
-        };
-
-        result
+        self.evaluate_standalone_conditions_checked(script, team_id, player_name, current_frame)
+            .unwrap_or(false)
     }
 
     // PARITY_NOTE: C++ ScriptEngine::removeSequentialScript (empty body in C++)

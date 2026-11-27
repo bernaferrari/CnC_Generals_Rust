@@ -45,7 +45,6 @@ use crate::object::special_power_template::find_or_create_special_power_template
 use crate::path::PATHFIND_CELL_SIZE_F;
 use crate::player::{GameDifficulty, Player, PlayerType, player_list};
 use crate::scripting::engine::get_script_engine;
-use crate::scripting::evaluator::ScriptEvaluator;
 use crate::supply_system::BASE_VALUE_PER_SUPPLY_BOX;
 use crate::team::get_team_factory;
 use crate::upgrade::center::with_upgrade_center;

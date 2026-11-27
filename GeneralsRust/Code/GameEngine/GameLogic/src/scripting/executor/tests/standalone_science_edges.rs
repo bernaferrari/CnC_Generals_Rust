@@ -1,10 +1,9 @@
 //! Science acquisition conditions consume the injected engine event queue.
-use super::super::*;
+use super::ConditionProbe;
 use crate::player::{Player, PlayerList, player_list};
 use crate::scripting::conditions::{HostScriptPlayerCensus, HostScriptQuerySnapshot};
 use crate::scripting::core::{Condition, ConditionType, Parameter, ParameterType};
 use crate::scripting::engine::{ScriptEngine, ScriptEngineHandle};
-use crate::scripting::evaluator::ScriptEvaluator;
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::rts::science::{
     SCIENCE_INVALID, ScienceInfo, ScienceStore, get_science_store_mut, init_science_store,
@@ -65,18 +64,22 @@ impl HostScienceSnapshotRestore {
         let mut snapshot = HostScriptQuerySnapshot::default();
         snapshot.player_census.insert(SIDE.into(), census);
         let mut previous = None;
-        crate::scripting::HostScriptQuery::published_for_test().merge_host_script_query_snapshot(|current| {
-            previous = Some(std::mem::replace(current, snapshot));
-        });
+        crate::scripting::HostScriptQuery::published_for_test().merge_host_script_query_snapshot(
+            |current| {
+                previous = Some(std::mem::replace(current, snapshot));
+            },
+        );
         Self(previous)
     }
 }
 
 impl Drop for HostScienceSnapshotRestore {
     fn drop(&mut self) {
-        crate::scripting::HostScriptQuery::published_for_test().merge_host_script_query_snapshot(|current| {
-            *current = self.0.take().expect("saved host query snapshot");
-        });
+        crate::scripting::HostScriptQuery::published_for_test().merge_host_script_query_snapshot(
+            |current| {
+                *current = self.0.take().expect("saved host query snapshot");
+            },
+        );
     }
 }
 
@@ -94,7 +97,7 @@ fn acquired_science_condition(side: &str) -> Condition {
     condition
 }
 
-fn fixture(pending_events: usize) -> (ScriptEvaluator, ScriptEngineHandle, i32) {
+fn fixture(pending_events: usize) -> (ConditionProbe, ScriptEngineHandle, i32) {
     let science = {
         let store =
             game_engine::common::rts::science::get_science_store().expect("authored ScienceStore");
@@ -105,7 +108,7 @@ fn fixture(pending_events: usize) -> (ScriptEvaluator, ScriptEngineHandle, i32) 
         owner.notify_of_acquired_science(0, science);
     }
     let handle = ScriptEngineHandle::from_engine(owner);
-    let evaluator = ScriptEvaluator::new(handle.clone());
+    let evaluator = ConditionProbe::new(handle.clone());
     (evaluator, handle, science)
 }
 

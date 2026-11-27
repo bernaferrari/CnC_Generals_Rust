@@ -699,7 +699,8 @@ excludes wall height; authored Xfer remains version-only.
 
 The unused alternate mission and trigger schedulers are retired. The installed
 SCB program runs through `generals-sim` for normal and sequential scripts.
-The legacy team factory still supplies condition facts for standalone teams.
+Standalone team hooks now evaluate conditions with the receiving interpreter.
+The legacy factory still supplies team facts and stages callbacks after unlocking.
 Unused ScriptEngine VTune and skate-debug facades no longer maintain duplicate
 process-wide state. The live debug commands retain their UI-owned state; this
 does not migrate the ambient interpreter or named-object tracker.

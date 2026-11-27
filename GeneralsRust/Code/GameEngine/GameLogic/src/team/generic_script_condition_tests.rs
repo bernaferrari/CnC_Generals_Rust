@@ -127,6 +127,48 @@ fn actual_generic_conditions_ignore_root_difficulty_flags() {
     own.update();
     assert_eq!(*own.visits.0.lock().unwrap(), ["NoDifficulties"]);
 }
+
+#[test]
+fn actual_generic_conditions_read_their_interpreter_inside_a_foreign_scope() {
+    const FLAG: &str = "GenericReady";
+    let mut gated = script("OwnOnly");
+    let mut condition = Condition::new(ConditionType::Flag);
+    condition
+        .add_parameter(Parameter::with_string(ParameterType::Flag, FLAG.into()))
+        .unwrap();
+    condition
+        .add_parameter(Parameter::with_int(ParameterType::Boolean, 1))
+        .unwrap();
+    gated
+        .condition
+        .as_mut()
+        .unwrap()
+        .set_first_and_condition(Some(Box::new(condition)));
+
+    let mut own = Local::new(vec![gated]);
+    let peer = Local::new(vec![script("Peer")]);
+    own.engine
+        .read()
+        .unwrap()
+        .as_ref()
+        .unwrap()
+        .set_flag(FLAG, true)
+        .unwrap();
+    let peer_guard = peer.engine.read().unwrap();
+    let peer_engine = peer_guard.as_ref().unwrap();
+    peer_engine.set_flag(FLAG, false).unwrap();
+    assert_eq!(
+        own.team.read().unwrap().get_id(),
+        peer.team.read().unwrap().get_id()
+    );
+
+    peer_engine.with_active_for_test(|| own.update());
+    assert_eq!(*own.visits.0.lock().unwrap(), ["OwnOnly"]);
+    assert!(peer.visits.0.lock().unwrap().is_empty());
+    assert!(!own.team.read().unwrap().should_attempt_generic_script(0));
+    assert!(peer.team.read().unwrap().should_attempt_generic_script(0));
+}
+
 #[test]
 fn actual_generic_conditions_ignore_root_future_frame_without_mutating_it() {
     let mut gated = script("FutureFrame");

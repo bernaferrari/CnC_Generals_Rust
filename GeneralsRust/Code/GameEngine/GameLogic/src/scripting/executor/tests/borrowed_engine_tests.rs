@@ -1,7 +1,6 @@
 //! ScriptActions.cpp default attack priority mutation through the installed script interpreter.
 use super::*;
 use crate::scripting::engine::{CanonicalScriptExecutionDriver, ScriptEngineHandle, get_script_engine};
-use crate::scripting::evaluator::ScriptEvaluator;
 
 struct GlobalRestore(Option<ScriptEngine>);
 impl GlobalRestore {
@@ -139,16 +138,17 @@ fn evaluator_command_buttons_come_from_the_evaluating_engines_world() {
     for world in [&world_a, &world_b] {
         crate::control_bar::refresh_control_bar_bridge_for_world(world, None).unwrap();
     }
-    let eval_a = ScriptEvaluator::new(ScriptEngineHandle::from_engine(
-        ScriptEngine::new_with_services(&world_a).unwrap(),
-    ));
-    let eval_b = ScriptEvaluator::new(ScriptEngineHandle::from_engine(
-        ScriptEngine::new_with_services(&world_b).unwrap(),
-    ));
+    let a = ScriptEngine::new_with_services(&world_a).unwrap();
+    let b = ScriptEngine::new_with_services(&world_b).unwrap();
+    let state = RefCell::new(ScriptContext::at_frame(0));
+    let eval_a = ScriptConditionEvaluator::new(&a, &state);
+    let eval_b = ScriptConditionEvaluator::new(&b, &state);
+    let sees = |eval: &ScriptConditionEvaluator<'_>| eval.owning_control_bar_bridge()
+        .is_some_and(|bar| bar.find_command_button_by_name(NAME).is_some());
     for published in [&world_b, &world_a, &world_b] {
         with_world_services(published, || {
-            assert!(eval_a.evaluating_command_button(NAME).is_some(), "A finds its own button");
-            assert!(eval_b.evaluating_command_button(NAME).is_none(), "B never sees A's catalog");
+            assert!(sees(&eval_a), "A finds its own button");
+            assert!(!sees(&eval_b), "B never sees A's catalog");
         });
     }
 }

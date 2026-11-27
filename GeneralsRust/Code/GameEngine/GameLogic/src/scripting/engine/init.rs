@@ -161,17 +161,21 @@ impl ScriptEngine {
     /// Name projection for standalone Core token adapters. Production drivers
     /// receive IDs directly; names never become mutable context authority.
     pub fn get_calling_team_name(&self) -> Option<String> {
-        Self::standalone_team_name(self.get_calling_team_id())
+        self.standalone_team_name(self.get_calling_team_id())
     }
 
     pub fn get_condition_team_name(&self) -> Option<String> {
-        Self::standalone_team_name(self.get_condition_team_id())
+        self.standalone_team_name(self.get_condition_team_id())
     }
 
-    fn standalone_team_name(id: Option<TeamID>) -> Option<String> {
-        let published_team_factory = get_team_factory();
-        let team = published_team_factory.lock().ok()?.find_team_by_id(id?)?;
+    fn standalone_team_name(&self, id: Option<TeamID>) -> Option<String> {
+        let team = self.standalone_team_by_id(id?)?;
         team.read().ok().map(|team| team.get_name().to_string())
+    }
+
+    fn standalone_team_by_id(&self, id: TeamID) -> Option<Arc<RwLock<crate::team::Team>>> {
+        self.team_factory.with_read_without_flushing(|factory| factory.find_team_by_id(id))
+            .ok().flatten()
     }
 
     pub(crate) fn standalone_context_team(
@@ -179,32 +183,30 @@ impl ScriptEngine {
         raw: &str,
     ) -> Option<Arc<RwLock<crate::team::Team>>> {
         let (calling, condition) = (self.get_calling_team_id(), self.get_condition_team_id());
-        let published_team_factory = get_team_factory();
-        let factory = published_team_factory.lock().ok()?;
-        if raw == crate::scripting::core::THIS_TEAM {
-            return factory.find_team_by_id(calling.or(condition)?);
-        }
-        for id in [calling, condition].into_iter().flatten() {
-            if let Some(team) = factory.find_team_by_id(id) {
-                let matches = team.read().ok().is_some_and(|team| team.get_name() == raw);
-                if matches {
-                    return Some(team);
+        self.team_factory.with_read_without_flushing(|factory| {
+            if raw == crate::scripting::core::THIS_TEAM {
+                return factory.find_team_by_id(calling.or(condition)?);
+            }
+            for id in [calling, condition].into_iter().flatten() {
+                if let Some(team) = factory.find_team_by_id(id) {
+                    let matches = team.read().ok().is_some_and(|team| team.get_name() == raw);
+                    if matches {
+                        return Some(team);
+                    }
                 }
             }
-        }
-        let team = factory.find_team_instances(raw).into_iter().next()?;
-        if factory
-            .find_team_prototype(raw)
-            .is_some_and(|proto| proto.is_singleton())
-            && !team.read().ok().is_some_and(|team| team.is_active())
-        {
-            return None;
-        }
-        Some(team)
+            let team = factory.find_team_instances(raw).into_iter().next()?;
+            if factory.find_team_prototype(raw).is_some_and(|proto| proto.is_singleton())
+                && !team.read().ok().is_some_and(|team| team.is_active())
+            {
+                return None;
+            }
+            Some(team)
+        }).ok().flatten()
     }
 
     fn standalone_team_player(&self, id: TeamID) -> Option<String> {
-        let team = self.team_factory.lock().ok()?.find_team_by_id(id)?;
+        let team = self.standalone_team_by_id(id)?;
         let player_id = team.read().ok()?.get_controlling_player_id()?;
         let player = self.players.read().ok()?.get_player(player_id as i32).cloned()?;
         let key = player.read().ok()?.get_player_name_key();

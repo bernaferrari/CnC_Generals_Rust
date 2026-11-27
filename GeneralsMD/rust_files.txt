@@ -830,7 +830,6 @@
 ../GeneralsRust/Code/GameEngine/GameLogic/src/scripting/conditions.rs
 ../GeneralsRust/Code/GameEngine/GameLogic/src/scripting/core.rs
 ../GeneralsRust/Code/GameEngine/GameLogic/src/scripting/engine.rs
-../GeneralsRust/Code/GameEngine/GameLogic/src/scripting/evaluator.rs
 ../GeneralsRust/Code/GameEngine/GameLogic/src/scripting/events.rs
 ../GeneralsRust/Code/GameEngine/GameLogic/src/scripting/executor.rs
 ../GeneralsRust/Code/GameEngine/GameLogic/src/scripting/ini_parser.rs

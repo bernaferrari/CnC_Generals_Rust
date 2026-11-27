@@ -1,112 +1,91 @@
-use super::super::engine::{
-    CanonicalScriptExecutionDriver, ScriptActionHandler, initialize_script_engine,
-};
+//! Conditions exercised through the same dispatcher as the installed interpreter.
 use super::*;
+use crate::common::{KindOf, UnsignedInt};
+use crate::scripting::engine::{ScriptEngineHandle, with_script_engine_mut};
 
-#[test]
-fn unit_emptied_history_uses_the_evaluator_engine_under_foreign_active_scope() {
-    let first_handle = ScriptEngineHandle::from_engine(ScriptEngine::new_in_published_world().unwrap());
-    let second_handle = ScriptEngineHandle::from_engine(ScriptEngine::new_in_published_world().unwrap());
-    let first = ScriptEvaluator::new(first_handle.clone());
-    let second = ScriptEvaluator::new(second_handle.clone());
-    let object = 41;
-
-    // Both worlds contain the same object ID, but have different previous
-    // counts. The histories must not merge by ID.
-    assert!(!first.observe_receiving_unit_emptied(object, 10, 0).unwrap());
-    assert!(!second
-        .observe_receiving_unit_emptied(object, 10, 2)
-        .unwrap());
-
-    let first_guard = first_handle.read().unwrap();
-    let first_engine = first_guard.as_ref().unwrap();
-    first_engine.with_active(|| {
-        // A's lexical active scope must not steal B's query. B's handle is
-        // available, so the evaluator reads B's own ScriptEngine state.
-        assert!(second
-            .observe_receiving_unit_emptied(object, 11, 0)
-            .unwrap());
-        assert!(second
-            .observe_receiving_unit_emptied(object, 11, 0)
-            .unwrap());
-
-        // A's locked handle cannot prove which ScriptEngine it currently
-        // contains, so UnitEmptied refuses ambient TLS fallback.
-        assert!(matches!(
-            first.observe_receiving_unit_emptied(object, 11, 0),
-            Err(GameLogicError::Threading(_))
-        ));
-    });
-    drop(first_guard);
+struct ConditionProbe {
+    slot: ScriptEngineHandle,
+    triggers: Option<Arc<Mutex<crate::scripting::HostTriggerWorld>>>,
 }
 
-#[test]
-fn unit_emptied_evaluator_rejects_stale_owner_when_handle_is_replaced_under_lock() {
-    let handle = ScriptEngineHandle::from_engine(ScriptEngine::new_in_published_world().unwrap());
-    let evaluator = ScriptEvaluator::new(handle.clone());
-    let object = 17;
-    assert!(!evaluator
-        .observe_receiving_unit_emptied(object, 20, 1)
-        .unwrap());
+impl ConditionProbe {
+    fn new(slot: ScriptEngineHandle) -> Self {
+        Self {
+            slot,
+            triggers: None,
+        }
+    }
 
-    let mut guard = handle.write().unwrap();
-    let original = guard.take().unwrap();
-    *guard = Some(ScriptEngine::new_in_published_world().unwrap());
-    original.with_active(|| {
-        assert!(matches!(
-            evaluator.observe_receiving_unit_emptied(object, 21, 2),
-            Err(GameLogicError::Threading(_))
-        ));
-    });
-    assert!(
-        !original
-            .try_observe_receiving_transport_empty(object, 22, 0)
-            .expect("original engine remains independently usable"),
-        "the evaluator must not mutate the stale lexical engine's history"
-    );
-    drop(guard);
+    fn with_geometry(
+        slot: ScriptEngineHandle,
+        triggers: Arc<Mutex<crate::scripting::HostTriggerWorld>>,
+    ) -> Self {
+        Self {
+            slot,
+            triggers: Some(triggers),
+        }
+    }
 
-    // Once the replacement is accessible through its own handle, the
-    // evaluator records there and does not inherit the old engine's history.
-    assert!(!evaluator
-        .observe_receiving_unit_emptied(object, 21, 0)
-        .unwrap());
+    fn context(&self) -> RefCell<ScriptContext> {
+        match &self.triggers {
+            Some(triggers) => {
+                let frame = triggers.lock().unwrap().current_frame();
+                RefCell::new(ScriptContext::at_frame(frame).with_session_world(triggers.clone()))
+            }
+            None => RefCell::new(ScriptContext::new()),
+        }
+    }
+
+    fn evaluate_condition(&self, condition: &mut Condition) -> Result<bool, ScriptError> {
+        let slot = self.slot.read().unwrap();
+        let engine = slot.as_ref().expect("fixture script engine");
+        match ScriptConditionEvaluator::new(engine, &self.context())
+            .evaluate_condition(condition)?
+        {
+            ScriptConditionResult::True => Ok(true),
+            ScriptConditionResult::False => Ok(false),
+            ScriptConditionResult::Error(message) => Err(ScriptError::EvaluationFailed(message)),
+        }
+    }
+
+    fn evaluate_or_condition(&self, condition: &mut OrCondition) -> Result<bool, ScriptError> {
+        let slot = self.slot.read().unwrap();
+        let engine = slot.as_ref().expect("fixture script engine");
+        ScriptConditionEvaluator::new(engine, &self.context()).evaluate_or_condition(condition)
+    }
+
+    fn get_trigger_area(&self, name: &str) -> Option<crate::polygon_trigger::PolygonTrigger> {
+        let slot = self.slot.read().unwrap();
+        let engine = slot.as_ref().expect("fixture script engine");
+        ScriptConditionEvaluator::new(engine, &self.context())
+            .get_trigger_area(name)
+            .ok()
+    }
 }
 
 #[test]
 fn unit_emptied_history_is_cleared_by_reset_and_xfer_restore() {
-    let handle = ScriptEngineHandle::from_engine(ScriptEngine::new_in_published_world().unwrap());
-    let evaluator = ScriptEvaluator::new(handle.clone());
+    let mut engine = ScriptEngine::new_in_published_world().unwrap();
     let object = 29;
-
-    assert!(!evaluator
-        .observe_receiving_unit_emptied(object, 1, 3)
-        .unwrap());
-    {
-        let mut guard = handle.write().unwrap();
-        guard.as_mut().unwrap().reset();
-    }
-    assert!(
-        !evaluator
-            .observe_receiving_unit_emptied(object, 2, 0)
-            .unwrap(),
-        "reset discards the prior nonempty observation"
+    assert_eq!(
+        engine.try_observe_receiving_transport_empty(object, 1, 3),
+        Some(false)
+    );
+    engine.reset();
+    assert_eq!(
+        engine.try_observe_receiving_transport_empty(object, 2, 0),
+        Some(false)
     );
 
-    assert!(!evaluator
-        .observe_receiving_unit_emptied(object, 8, 2)
-        .unwrap());
-    {
-        let guard = handle.read().unwrap();
-        let engine = guard.as_ref().unwrap();
-        let tail = engine.snapshot_xfer_tail();
-        engine.restore_receiving_xfer_tail(&tail);
-    }
-    assert!(
-        !evaluator
-            .observe_receiving_unit_emptied(object, 9, 0)
-            .unwrap(),
-        "Xfer restore clears transient transport observations"
+    assert_eq!(
+        engine.try_observe_receiving_transport_empty(object, 8, 2),
+        Some(false)
+    );
+    let tail = engine.snapshot_xfer_tail();
+    engine.restore_receiving_xfer_tail(&tail);
+    assert_eq!(
+        engine.try_observe_receiving_transport_empty(object, 9, 0),
+        Some(false)
     );
 }
 
@@ -128,7 +107,7 @@ impl Drop for UnitEmptiedConditionFixture {
 #[test]
 fn public_unit_emptied_condition_uses_receiving_engine_during_nested_evaluation() {
     if let crate::test_process::TestProcess::ParentVerified = crate::test_process::run_bounded(
-        "scripting::evaluator::tests::public_unit_emptied_condition_uses_receiving_engine_during_nested_evaluation",
+        "scripting::executor::tests::standalone_conditions::public_unit_emptied_condition_uses_receiving_engine_during_nested_evaluation",
         "GENERALS_EVALUATOR_PUBLIC_UNIT_EMPTIED_USES_EXACT_ENGINE_CHILD",
     ) {
         return;
@@ -151,63 +130,38 @@ fn public_unit_emptied_condition_uses_receiving_engine_during_nested_evaluation(
         .register_named_object(OBJECT_NAME.to_string(), OBJECT_ID)
         .unwrap();
 
-    let first_handle = ScriptEngineHandle::from_engine(ScriptEngine::new_in_published_world().unwrap());
-    let second_handle = ScriptEngineHandle::from_engine(ScriptEngine::new_in_published_world().unwrap());
-    let first = ScriptEvaluator::new(first_handle.clone());
-    let second = ScriptEvaluator::new(second_handle.clone());
-    let frame = TheGameLogic::get_frame();
-    assert!(!first
-        .observe_receiving_unit_emptied(OBJECT_ID, frame.wrapping_sub(1), 2)
-        .unwrap());
-    assert!(!second
-        .observe_receiving_unit_emptied(OBJECT_ID, frame.wrapping_sub(1), 0)
-        .unwrap());
-
-    let make_condition = || {
+    let first = ScriptEngine::new_in_published_world().unwrap();
+    let second = ScriptEngine::new_in_published_world().unwrap();
+    assert_eq!(
+        first.try_observe_receiving_transport_empty(OBJECT_ID, 10, 2),
+        Some(false)
+    );
+    assert_eq!(
+        second.try_observe_receiving_transport_empty(OBJECT_ID, 10, 0),
+        Some(false)
+    );
+    let state = RefCell::new(ScriptContext::at_frame(11));
+    let evaluate = |engine| {
         let mut condition = Condition::new(ConditionType::UnitEmptied);
         condition
             .add_parameter(Parameter::with_string(
                 ParameterType::Unit,
-                OBJECT_NAME.to_string(),
+                OBJECT_NAME.into(),
             ))
             .unwrap();
-        condition
+        ScriptConditionEvaluator::new(engine, &state)
+            .evaluate_condition(&mut condition)
+            .unwrap()
     };
-    let mut first_condition = make_condition();
-    let mut second_condition = make_condition();
-
-    let first_guard = first_handle.read().unwrap();
-    let first_engine = first_guard.as_ref().unwrap();
-    first_engine.with_active(|| {
-        assert!(
-            matches!(
-                first.evaluate_condition(&mut first_condition),
-                Err(GameLogicError::Threading(_))
-            ),
-            "a locked receiving handle must not borrow the lexical active engine"
+    second.with_active(|| {
+        assert_eq!(evaluate(&first), ScriptConditionResult::True);
+        assert_eq!(
+            evaluate(&first),
+            ScriptConditionResult::True,
+            "same-frame edge"
         );
-        assert!(
-            !second.evaluate_condition(&mut second_condition).unwrap(),
-            "nested evaluator for the peer engine must use its own empty history"
-        );
-        assert!(
-            !second.evaluate_condition(&mut second_condition).unwrap(),
-            "the peer's repeated query remains false in this frame"
-        );
+        assert_eq!(evaluate(&second), ScriptConditionResult::False);
     });
-    drop(first_guard);
-    assert!(
-        first.evaluate_condition(&mut first_condition).unwrap(),
-        "once the receiving handle is available, its own prior nonempty state is observed"
-    );
-    assert!(
-        first.evaluate_condition(&mut first_condition).unwrap(),
-        "the true edge remains visible for repeated same-frame queries"
-    );
-    assert!(
-        !second.evaluate_condition(&mut second_condition).unwrap(),
-        "the peer's independent empty history remains false"
-    );
     drop(fixture);
 }
 
@@ -336,7 +290,7 @@ impl ScriptActionHandler for ScriptToggleRecordingHandler {
 
 #[test]
 fn standalone_evaluator_checks_the_condition_chain() {
-    let evaluator = ScriptEvaluator::new(published_world_engine());
+    let evaluator = ConditionProbe::new(published_world_engine());
     let mut branch = OrCondition::new();
     assert!(!evaluator.evaluate_or_condition(&mut branch).unwrap());
     branch.set_first_and_condition(Some(Box::new(Condition::new(ConditionType::ConditionTrue))));
@@ -347,7 +301,7 @@ fn standalone_evaluator_checks_the_condition_chain() {
 async fn test_counter_condition() {
     initialize_script_engine().unwrap();
     let engine = get_script_engine();
-    let evaluator = ScriptEvaluator::new(engine.clone());
+    let evaluator = ConditionProbe::new(engine.clone());
 
     // Set up a counter
     {
@@ -380,7 +334,7 @@ fn condition_true_evaluates_when_object_registry_empty() {
     let _test_lock = crate::test_sync::lock();
     crate::object::registry::OBJECT_REGISTRY.clear();
     assert!(crate::object::registry::OBJECT_REGISTRY.is_empty());
-    let evaluator = ScriptEvaluator::new(get_script_engine());
+    let evaluator = ConditionProbe::new(published_world_engine());
     let mut condition = Condition::new(ConditionType::ConditionTrue);
     assert!(
         evaluator.evaluate_condition(&mut condition).unwrap(),
@@ -392,20 +346,22 @@ fn condition_true_evaluates_when_object_registry_empty() {
 fn named_destroyed_uses_host_snapshot_when_registry_empty() {
     let _test_lock = crate::test_sync::lock();
     crate::object::registry::OBJECT_REGISTRY.clear();
-    crate::scripting::HostScriptQuery::published_for_test().set_host_script_query_snapshot(crate::scripting::HostScriptQuerySnapshot {
-        named: [("Hero".into(), 7)].into_iter().collect(),
-        objects: vec![crate::scripting::HostScriptQueryObject {
-            id: 7,
-            name: "Hero".into(),
-            team: 1,
-            x: 0.0,
-            z: 0.0,
-            alive: false,
+    crate::scripting::HostScriptQuery::published_for_test().set_host_script_query_snapshot(
+        crate::scripting::HostScriptQuerySnapshot {
+            named: [("Hero".into(), 7)].into_iter().collect(),
+            objects: vec![crate::scripting::HostScriptQueryObject {
+                id: 7,
+                name: "Hero".into(),
+                team: 1,
+                x: 0.0,
+                z: 0.0,
+                alive: false,
+                ..Default::default()
+            }],
             ..Default::default()
-        }],
-        ..Default::default()
-    });
-    let evaluator = ScriptEvaluator::new(published_world_engine());
+        },
+    );
+    let evaluator = ConditionProbe::new(published_world_engine());
     let mut condition = Condition::new(ConditionType::NamedDestroyed);
     condition
         .add_parameter(Parameter::with_string(ParameterType::Unit, "Hero".into()))
@@ -422,20 +378,22 @@ fn named_destroyed_false_when_name_never_existed_like_cxx() {
     // C++ ScriptConditions::evaluateNamedUnitDestroyed (ScriptConditions.cpp:285)
     let _test_lock = crate::test_sync::lock();
     crate::object::registry::OBJECT_REGISTRY.clear();
-    crate::scripting::HostScriptQuery::published_for_test().set_host_script_query_snapshot(crate::scripting::HostScriptQuerySnapshot {
-        named: [("OtherHero".into(), 8)].into_iter().collect(),
-        objects: vec![crate::scripting::HostScriptQueryObject {
-            id: 8,
-            name: "OtherHero".into(),
-            team: 1,
-            x: 0.0,
-            z: 0.0,
-            alive: true,
+    crate::scripting::HostScriptQuery::published_for_test().set_host_script_query_snapshot(
+        crate::scripting::HostScriptQuerySnapshot {
+            named: [("OtherHero".into(), 8)].into_iter().collect(),
+            objects: vec![crate::scripting::HostScriptQueryObject {
+                id: 8,
+                name: "OtherHero".into(),
+                team: 1,
+                x: 0.0,
+                z: 0.0,
+                alive: true,
+                ..Default::default()
+            }],
             ..Default::default()
-        }],
-        ..Default::default()
-    });
-    let evaluator = ScriptEvaluator::new(published_world_engine());
+        },
+    );
+    let evaluator = ConditionProbe::new(published_world_engine());
     let mut condition = Condition::new(ConditionType::NamedDestroyed);
     condition
         .add_parameter(Parameter::with_string(
@@ -451,7 +409,7 @@ fn named_destroyed_false_when_name_never_existed_like_cxx() {
 }
 
 #[test]
-fn evaluator_uses_active_engine_before_its_private_handle() {
+fn camera_music_and_counters_use_the_borrowed_engine_under_a_foreign_scope() {
     let _test_lock = crate::test_sync::lock();
     const SENTINEL_ID: u32 = 0xE7A1_3001;
     const COUNTER_NAME: &str = "EvaluatorActiveEnginePrecedence";
@@ -470,7 +428,7 @@ fn evaluator_uses_active_engine_before_its_private_handle() {
         camera_finished: true,
         music_finished: true,
     })));
-    let evaluator = ScriptEvaluator::new(ScriptEngineHandle::from_engine(private_engine));
+    let evaluator = ConditionProbe::new(ScriptEngineHandle::from_engine(private_engine));
 
     let mut private_camera = Condition::new(ConditionType::CameraMovementFinished);
     assert!(
@@ -547,16 +505,16 @@ fn evaluator_uses_active_engine_before_its_private_handle() {
     let Some((camera, music, counter)) = active_result else {
         panic!("global live engine should install an active evaluation scope");
     };
-    assert!(!camera.unwrap());
-    assert!(!music.unwrap());
-    assert!(counter.unwrap());
+    assert!(camera.unwrap());
+    assert!(music.unwrap());
+    assert!(!counter.unwrap());
 }
 
 #[tokio::test]
 async fn test_flag_condition() {
     initialize_script_engine().unwrap();
     let engine = get_script_engine();
-    let evaluator = ScriptEvaluator::new(engine.clone());
+    let evaluator = ConditionProbe::new(engine.clone());
 
     // Set up a flag
     {
@@ -584,7 +542,7 @@ async fn test_flag_condition() {
 #[test]
 fn player_science_points_resolves_local_player_token_like_cpp() {
     if let crate::test_process::TestProcess::ParentVerified = crate::test_process::run_bounded(
-        "scripting::evaluator::tests::player_science_points_resolves_local_player_token_like_cpp",
+        "scripting::executor::tests::standalone_conditions::player_science_points_resolves_local_player_token_like_cpp",
         "GENERALS_EVALUATOR_PLAYER_SCIENCE_POINTS_RESOLVES_LOCAL_PLAYER_TOKEN_LIKE_CPP_CHILD",
     ) {
         return;
@@ -620,7 +578,7 @@ fn player_science_points_resolves_local_player_token_like_cpp() {
     crate::object::registry::OBJECT_REGISTRY.register_object(SENTINEL_ID, &sentinel);
     fixture.object = Some(sentinel);
 
-    let evaluator = ScriptEvaluator::new(get_script_engine());
+    let evaluator = ConditionProbe::new(published_world_engine());
     let mut condition = Condition::new(ConditionType::PlayerHasSciencepurchasepoints);
     condition
         .add_parameter(Parameter::with_string(
@@ -641,7 +599,7 @@ fn player_science_points_resolves_local_player_token_like_cpp() {
 #[test]
 fn player_all_destroyed_resolves_local_player_token_like_cpp() {
     if let crate::test_process::TestProcess::ParentVerified = crate::test_process::run_bounded(
-        "scripting::evaluator::tests::player_all_destroyed_resolves_local_player_token_like_cpp",
+        "scripting::executor::tests::standalone_conditions::player_all_destroyed_resolves_local_player_token_like_cpp",
         "GENERALS_EVALUATOR_PLAYER_ALL_DESTROYED_RESOLVES_LOCAL_PLAYER_TOKEN_LIKE_CPP_CHILD",
     ) {
         return;
@@ -671,7 +629,7 @@ fn player_all_destroyed_resolves_local_player_token_like_cpp() {
     fixture.object = Some(unit);
     player.write().unwrap().add_owned_object(UNIT_ID);
 
-    let evaluator = ScriptEvaluator::new(get_script_engine());
+    let evaluator = ConditionProbe::new(published_world_engine());
     let mut condition = Condition::new(ConditionType::PlayerAllDestroyed);
     condition
         .add_parameter(Parameter::with_string(
@@ -689,7 +647,7 @@ fn player_all_destroyed_resolves_local_player_token_like_cpp() {
 #[test]
 fn player_credits_resolves_side_tokens_and_missing_players_fail_closed_like_cpp() {
     if let crate::test_process::TestProcess::ParentVerified = crate::test_process::run_bounded(
-        "scripting::evaluator::tests::player_credits_resolves_side_tokens_and_missing_players_fail_closed_like_cpp",
+        "scripting::executor::tests::standalone_conditions::player_credits_resolves_side_tokens_and_missing_players_fail_closed_like_cpp",
         "GENERALS_SCRIPT_CREDITS_SIDE_CHILD",
     ) {
         return;
@@ -722,7 +680,7 @@ fn player_credits_resolves_side_tokens_and_missing_players_fail_closed_like_cpp(
     crate::object::registry::OBJECT_REGISTRY.register_object(SENTINEL_ID, &sentinel);
     fixture.object = Some(sentinel);
 
-    let evaluator = ScriptEvaluator::new(get_script_engine());
+    let evaluator = ConditionProbe::new(published_world_engine());
     let mut local_player_condition = Condition::new(ConditionType::PlayerHasCredits);
     local_player_condition
         .add_parameter(Parameter::with_int(ParameterType::Int, 50))
@@ -767,7 +725,7 @@ fn player_credits_resolves_side_tokens_and_missing_players_fail_closed_like_cpp(
 #[tokio::test]
 async fn player_has_credits_compares_threshold_to_player_money_like_cxx() {
     if let crate::test_process::TestProcess::ParentVerified = crate::test_process::run_bounded(
-        "scripting::evaluator::tests::player_has_credits_compares_threshold_to_player_money_like_cxx",
+        "scripting::executor::tests::standalone_conditions::player_has_credits_compares_threshold_to_player_money_like_cxx",
         "GENERALS_SCRIPT_CREDITS_THRESHOLD_CHILD",
     ) {
         return;
@@ -783,7 +741,7 @@ async fn player_has_credits_compares_threshold_to_player_money_like_cxx() {
     player_list().write().unwrap().add_player(player);
 
     let engine = get_script_engine();
-    let evaluator = ScriptEvaluator::new(engine);
+    let evaluator = ConditionProbe::new(engine);
 
     let mut condition = Condition::new(ConditionType::PlayerHasCredits);
     condition
@@ -808,7 +766,7 @@ async fn player_has_credits_compares_threshold_to_player_money_like_cxx() {
 #[test]
 fn player_money_actions_mutate_player_money_like_cxx() {
     if let crate::test_process::TestProcess::ParentVerified = crate::test_process::run_bounded(
-        "scripting::evaluator::tests::player_money_actions_mutate_player_money_like_cxx",
+        "scripting::executor::tests::standalone_conditions::player_money_actions_mutate_player_money_like_cxx",
         "GENERALS_EVALUATOR_PLAYER_MONEY_ACTIONS_MUTATE_PLAYER_MONEY_LIKE_CXX_CHILD",
     ) {
         return;
@@ -837,9 +795,14 @@ fn player_money_actions_mutate_player_money_like_cxx() {
     set_action
         .add_parameter(Parameter::with_int(ParameterType::Int, 1200))
         .unwrap();
-    engine.friend_execute_action_with_driver_checked(
-        &set_action, None, ScriptContext::at_frame(0), &mut CanonicalScriptExecutionDriver,
-    ).unwrap();
+    engine
+        .friend_execute_action_with_driver_checked(
+            &set_action,
+            None,
+            ScriptContext::at_frame(0),
+            &mut CanonicalScriptExecutionDriver,
+        )
+        .unwrap();
     assert_eq!(player.read().unwrap().get_money().get_money(), 1200);
 
     let mut give_action = ScriptAction::new(ScriptActionType::PlayerGiveMoney);
@@ -852,32 +815,19 @@ fn player_money_actions_mutate_player_money_like_cxx() {
     give_action
         .add_parameter(Parameter::with_int(ParameterType::Int, -1500))
         .unwrap();
-    engine.friend_execute_action_with_driver_checked(
-        &give_action, None, ScriptContext::at_frame(0), &mut CanonicalScriptExecutionDriver,
-    ).unwrap();
+    engine
+        .friend_execute_action_with_driver_checked(
+            &give_action,
+            None,
+            ScriptContext::at_frame(0),
+            &mut CanonicalScriptExecutionDriver,
+        )
+        .unwrap();
     assert_eq!(
         player.read().unwrap().get_money().get_money(),
         0,
         "C++ withdraws up to available money for negative give-money actions"
     );
-}
-
-#[test]
-fn unit_type_area_condition_counts_dead_or_inert_crates_like_cxx() {
-    assert!(
-        ScriptEvaluator::counts_for_unit_type_area_condition(true, false, true),
-        "C++ includes crates even when they are effectively dead"
-    );
-    assert!(
-        ScriptEvaluator::counts_for_unit_type_area_condition(false, true, true),
-        "C++ includes crates even when they are inert"
-    );
-    assert!(!ScriptEvaluator::counts_for_unit_type_area_condition(
-        true, false, false
-    ));
-    assert!(!ScriptEvaluator::counts_for_unit_type_area_condition(
-        false, true, false
-    ));
 }
 
 #[test]
@@ -953,7 +903,7 @@ fn team_reached_waypoints_end_requires_the_requested_path_like_cpp() {
         team.write().unwrap().add_member(MEMBER_ID);
     }
 
-    let evaluator = ScriptEvaluator::new(get_script_engine());
+    let evaluator = ConditionProbe::new(published_world_engine());
     let mut condition = Condition::new(ConditionType::TeamReachedWaypointsEnd);
     condition
         .add_parameter(Parameter::with_string(
@@ -1011,7 +961,7 @@ fn team_reached_waypoints_end_requires_the_requested_path_like_cpp() {
 #[test]
 fn enemy_and_type_sighted_honor_cxx_relation_and_stealth_filters() {
     if let crate::test_process::TestProcess::ParentVerified = crate::test_process::run_bounded(
-        "scripting::evaluator::tests::enemy_and_type_sighted_honor_cxx_relation_and_stealth_filters",
+        "scripting::executor::tests::standalone_conditions::enemy_and_type_sighted_honor_cxx_relation_and_stealth_filters",
         "GENERALS_EVALUATOR_ENEMY_AND_TYPE_SIGHTED_HONOR_CXX_RELATION_AND_STEALTH_FILTERS_CHILD",
     ) {
         return;
@@ -1139,7 +1089,7 @@ fn enemy_and_type_sighted_honor_cxx_relation_and_stealth_filters() {
             .add_object(CANDIDATE_ID, (25.0, 0.0, 0.0));
     }
 
-    let evaluator = ScriptEvaluator::new(get_script_engine());
+    let evaluator = ConditionProbe::new(published_world_engine());
     let mut condition = Condition::new(ConditionType::EnemySighted);
     condition
         .add_parameter(Parameter::with_string(
@@ -1258,7 +1208,8 @@ fn enable_disable_actions_toggle_private_subroutine_group_before_following_call(
     let mut list = ScriptList::new();
     list.append_group(Box::new(group));
 
-    let mut private_engine = ScriptEngine::new_in_published_world().expect("private script engine should initialize");
+    let mut private_engine =
+        ScriptEngine::new_in_published_world().expect("private script engine should initialize");
     private_engine.set_action_handler(Some(Arc::new(ScriptToggleRecordingHandler {
         updates: Arc::clone(&updates),
     })));
@@ -1283,7 +1234,10 @@ fn enable_disable_actions_toggle_private_subroutine_group_before_following_call(
     enable.set_next_action(Some(Box::new(call_after_enable)));
     private_engine
         .friend_execute_action_with_driver_checked(
-            &enable, None, ScriptContext::at_frame(0), &mut CanonicalScriptExecutionDriver,
+            &enable,
+            None,
+            ScriptContext::at_frame(0),
+            &mut CanonicalScriptExecutionDriver,
         )
         .expect("enable then call should execute on the private engine");
 
@@ -1313,7 +1267,10 @@ fn enable_disable_actions_toggle_private_subroutine_group_before_following_call(
     disable.set_next_action(Some(Box::new(call_after_disable)));
     private_engine
         .friend_execute_action_with_driver_checked(
-            &disable, None, ScriptContext::at_frame(0), &mut CanonicalScriptExecutionDriver,
+            &disable,
+            None,
+            ScriptContext::at_frame(0),
+            &mut CanonicalScriptExecutionDriver,
         )
         .expect("disable then call should remain on the private engine");
 
@@ -1360,9 +1317,14 @@ fn test_victory_action() {
     let engine_guard = engine.read().unwrap();
     let engine = engine_guard.as_ref().unwrap();
     let action = ScriptAction::new(ScriptActionType::Victory);
-    engine.friend_execute_action_with_driver_checked(
-        &action, None, ScriptContext::at_frame(0), &mut CanonicalScriptExecutionDriver,
-    ).unwrap();
+    engine
+        .friend_execute_action_with_driver_checked(
+            &action,
+            None,
+            ScriptContext::at_frame(0),
+            &mut CanonicalScriptExecutionDriver,
+        )
+        .unwrap();
     assert!(engine.is_game_ending());
     assert!(
         engine.is_campaign_victorious(),
@@ -1412,16 +1374,19 @@ fn explicit_empty_trigger_owner_does_not_fall_back_to_other_world_terrain() {
         original
     };
 
-    let engine = get_script_engine();
-    let standalone = ScriptEvaluator::new(engine.clone());
-    assert!(standalone
-        .get_trigger_area("OwnerIsolationSentinel")
-        .is_some());
+    let engine = published_world_engine();
+    let standalone = ConditionProbe::new(engine.clone());
+    assert!(
+        standalone
+            .get_trigger_area("OwnerIsolationSentinel")
+            .is_some()
+    );
 
     let empty_owner = std::sync::Arc::new(std::sync::Mutex::new(
         crate::scripting::HostTriggerWorld::default(),
     ));
-    let owned = ScriptEvaluator::new_with_host_trigger_world(engine, empty_owner);
+    empty_owner.lock().unwrap().set_trigger_areas(&[]);
+    let owned = ConditionProbe::with_geometry(engine, empty_owner);
     assert!(
         owned.get_trigger_area("OwnerIsolationSentinel").is_none(),
         "an explicit empty Main owner is authoritative even when process TerrainLogic holds another world's polygon",
@@ -1449,22 +1414,23 @@ fn live_named_inside_uses_point_in_trigger_not_aabb() {
         .expect("trigger world")
         .set_trigger_areas(&[wave14_triangle_area()]);
 
-    crate::scripting::HostScriptQuery::published_for_test().set_host_script_query_snapshot(crate::scripting::HostScriptQuerySnapshot {
-        named: [("Scout".into(), 7)].into_iter().collect(),
-        objects: vec![crate::scripting::HostScriptQueryObject {
-            id: 7,
-            name: "Scout".into(),
-            team: 1,
-            x: 18.0,
-            z: 18.0,
-            alive: true,
+    crate::scripting::HostScriptQuery::published_for_test().set_host_script_query_snapshot(
+        crate::scripting::HostScriptQuerySnapshot {
+            named: [("Scout".into(), 7)].into_iter().collect(),
+            objects: vec![crate::scripting::HostScriptQueryObject {
+                id: 7,
+                name: "Scout".into(),
+                team: 1,
+                x: 18.0,
+                z: 18.0,
+                alive: true,
+                ..Default::default()
+            }],
             ..Default::default()
-        }],
-        ..Default::default()
-    });
+        },
+    );
 
-    let evaluator =
-        ScriptEvaluator::new_with_host_trigger_world(published_world_engine(), host_trigger_world);
+    let evaluator = ConditionProbe::with_geometry(published_world_engine(), host_trigger_world);
     let mut inside = Condition::new(ConditionType::NamedInsideArea);
     inside
         .add_parameter(Parameter::with_string(ParameterType::Unit, "Scout".into()))
@@ -1480,19 +1446,21 @@ fn live_named_inside_uses_point_in_trigger_not_aabb() {
         "AABB would include (18,18); C++ pointInTrigger must not"
     );
 
-    crate::scripting::HostScriptQuery::published_for_test().set_host_script_query_snapshot(crate::scripting::HostScriptQuerySnapshot {
-        named: [("Scout".into(), 7)].into_iter().collect(),
-        objects: vec![crate::scripting::HostScriptQueryObject {
-            id: 7,
-            name: "Scout".into(),
-            team: 1,
-            x: 2.0,
-            z: 2.0,
-            alive: true,
+    crate::scripting::HostScriptQuery::published_for_test().set_host_script_query_snapshot(
+        crate::scripting::HostScriptQuerySnapshot {
+            named: [("Scout".into(), 7)].into_iter().collect(),
+            objects: vec![crate::scripting::HostScriptQueryObject {
+                id: 7,
+                name: "Scout".into(),
+                team: 1,
+                x: 2.0,
+                z: 2.0,
+                alive: true,
+                ..Default::default()
+            }],
             ..Default::default()
-        }],
-        ..Default::default()
-    });
+        },
+    );
     assert!(
         evaluator.evaluate_condition(&mut inside).unwrap(),
         "host unit inside leftover polygon must match NAMED_INSIDE"
@@ -1532,31 +1500,33 @@ fn named_inside_uses_interleaved_owners_with_identical_trigger_ids() {
         crate::scripting::HostTriggerWorld::default(),
     ));
     first.lock().unwrap().set_trigger_areas(&[near.clone()]);
-    crate::scripting::HostScriptQuery::published_for_test().set_host_script_query_snapshot(crate::scripting::HostScriptQuerySnapshot {
-        named: [("Scout".into(), 7)].into_iter().collect(),
-        objects: vec![crate::scripting::HostScriptQueryObject {
-            id: 7,
-            name: "Scout".into(),
-            x: 2.0,
-            z: 2.0,
-            alive: true,
-            // C++ NAMED_INSIDE tests position even for inert/dead objects.
-            kind_inert: true,
-            effectively_dead: true,
+    crate::scripting::HostScriptQuery::published_for_test().set_host_script_query_snapshot(
+        crate::scripting::HostScriptQuerySnapshot {
+            named: [("Scout".into(), 7)].into_iter().collect(),
+            objects: vec![crate::scripting::HostScriptQueryObject {
+                id: 7,
+                name: "Scout".into(),
+                x: 2.0,
+                z: 2.0,
+                alive: true,
+                // C++ NAMED_INSIDE tests position even for inert/dead objects.
+                kind_inert: true,
+                effectively_dead: true,
+                ..Default::default()
+            }],
+            // An empty explicit owner must not fall back to this host AABB.
+            areas: [("Wave14PolyPad".into(), (0.0, 0.0, 20.0, 20.0))]
+                .into_iter()
+                .collect(),
             ..Default::default()
-        }],
-        // An empty explicit owner must not fall back to this host AABB.
-        areas: [("Wave14PolyPad".into(), (0.0, 0.0, 20.0, 20.0))]
-            .into_iter()
-            .collect(),
-        ..Default::default()
-    });
+        },
+    );
     let second = Arc::new(std::sync::Mutex::new(
         crate::scripting::HostTriggerWorld::default(),
     ));
     second.lock().unwrap().set_trigger_areas(&[far]);
-    let a = ScriptEvaluator::new_with_host_trigger_world(published_world_engine(), first.clone());
-    let b = ScriptEvaluator::new_with_host_trigger_world(published_world_engine(), second.clone());
+    let a = ConditionProbe::with_geometry(published_world_engine(), first.clone());
+    let b = ConditionProbe::with_geometry(published_world_engine(), second.clone());
     let mut condition = Condition::new(ConditionType::NamedInsideArea);
     condition
         .add_parameter(Parameter::with_string(ParameterType::Unit, "Scout".into()))
@@ -1602,22 +1572,24 @@ fn live_named_entered_exited_use_two_frame_host_flags() {
         world.update_object_flags(7, 18.0, 18.0, 19, false, Some("teamUSA"));
         world.update_object_flags(7, 2.0, 2.0, 20, false, Some("teamUSA"));
     }
-    crate::scripting::HostScriptQuery::published_for_test().set_host_script_query_snapshot(crate::scripting::HostScriptQuerySnapshot {
-        named: [("Scout".into(), 7)].into_iter().collect(),
-        objects: vec![crate::scripting::HostScriptQueryObject {
-            id: 7,
-            name: "Scout".into(),
-            team: 1,
-            x: 2.0,
-            z: 2.0,
-            alive: true,
+    crate::scripting::HostScriptQuery::published_for_test().set_host_script_query_snapshot(
+        crate::scripting::HostScriptQuerySnapshot {
+            named: [("Scout".into(), 7)].into_iter().collect(),
+            objects: vec![crate::scripting::HostScriptQueryObject {
+                id: 7,
+                name: "Scout".into(),
+                team: 1,
+                x: 2.0,
+                z: 2.0,
+                alive: true,
+                ..Default::default()
+            }],
+            team_instance_ids: [("teamUSA".into(), vec![7])].into_iter().collect(),
             ..Default::default()
-        }],
-        team_instance_ids: [("teamUSA".into(), vec![7])].into_iter().collect(),
-        ..Default::default()
-    });
+        },
+    );
 
-    let evaluator = ScriptEvaluator::new_with_host_trigger_world(
+    let evaluator = ConditionProbe::with_geometry(
         published_world_engine(),
         std::sync::Arc::clone(&host_trigger_world),
     );
@@ -1645,20 +1617,22 @@ fn live_named_entered_exited_use_two_frame_host_flags() {
         world.set_current_frame(21);
         world.update_object_flags(7, 18.0, 18.0, 21, false, Some("teamUSA"));
     }
-    crate::scripting::HostScriptQuery::published_for_test().set_host_script_query_snapshot(crate::scripting::HostScriptQuerySnapshot {
-        named: [("Scout".into(), 7)].into_iter().collect(),
-        objects: vec![crate::scripting::HostScriptQueryObject {
-            id: 7,
-            name: "Scout".into(),
-            team: 1,
-            x: 18.0,
-            z: 18.0,
-            alive: true,
+    crate::scripting::HostScriptQuery::published_for_test().set_host_script_query_snapshot(
+        crate::scripting::HostScriptQuerySnapshot {
+            named: [("Scout".into(), 7)].into_iter().collect(),
+            objects: vec![crate::scripting::HostScriptQueryObject {
+                id: 7,
+                name: "Scout".into(),
+                team: 1,
+                x: 18.0,
+                z: 18.0,
+                alive: true,
+                ..Default::default()
+            }],
+            team_instance_ids: [("teamUSA".into(), vec![7])].into_iter().collect(),
             ..Default::default()
-        }],
-        team_instance_ids: [("teamUSA".into(), vec![7])].into_iter().collect(),
-        ..Default::default()
-    });
+        },
+    );
     let mut exited = Condition::new(ConditionType::NamedExitedArea);
     exited
         .add_parameter(Parameter::with_string(ParameterType::Unit, "Scout".into()))
@@ -1709,7 +1683,7 @@ fn live_named_entered_exited_use_two_frame_host_flags() {
     );
 }
 
-#[path = "tests/science_edge_tests.rs"]
+#[path = "standalone_science_edges.rs"]
 mod science_edge_tests;
 
 #[test]
@@ -1721,9 +1695,13 @@ fn evaluator_host_query_is_its_engines_world_not_the_published_one() {
     snap.named.insert("Hero".to_string(), 7);
     crate::scripting::HostScriptQuery::of(&a).set_host_script_query_snapshot(snap);
     let engine = crate::scripting::engine::ScriptEngine::new_with_services(&a).unwrap();
-    let evaluator = ScriptEvaluator::new(ScriptEngineHandle::from_engine(engine));
+    let context = RefCell::new(ScriptContext::at_frame(0));
+    let evaluator = ScriptConditionEvaluator::new(&engine, &context);
     with_world_services(&b, || {
-        assert_eq!(evaluator.host_query().host_script_named_unit_id("Hero"), Some(7));
+        assert_eq!(
+            evaluator.host_query().host_script_named_unit_id("Hero"),
+            Some(7)
+        );
         assert!(!crate::scripting::HostScriptQuery::of(&b).host_script_query_has_any());
     });
 }
