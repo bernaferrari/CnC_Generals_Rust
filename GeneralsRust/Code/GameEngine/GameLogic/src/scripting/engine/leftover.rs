@@ -475,9 +475,10 @@ impl XferSnapshot for ScriptEngine {
         xfer.xfer_int(&mut inner.frame.fade.hold)?;
         xfer.xfer_int(&mut inner.frame.fade.decrease)?;
 
-        xfer_list_ascii_string(xfer, &mut inner.completed_video)?;
-        xfer_list_ascii_string_uint(xfer, &mut inner.testing_speech)?;
-        xfer_list_ascii_string_uint(xfer, &mut inner.testing_audio)?;
+        let events = self.script_events.legacy_history_mut();
+        xfer_list_ascii_string(xfer, &mut events.completed_video)?;
+        xfer_list_ascii_string_uint(xfer, &mut events.testing_speech)?;
+        xfer_list_ascii_string_uint(xfer, &mut events.testing_audio)?;
         xfer_list_ascii_string(xfer, &mut inner.frame.ui_interactions)?;
 
         let mut triggered_special_powers_size: u16 = Self::MAX_PLAYER_COUNT as u16;
@@ -486,7 +487,7 @@ impl XferSnapshot for ScriptEngine {
             return Err(XferStatus::InvalidParameters);
         }
         for i in 0..triggered_special_powers_size as usize {
-            xfer_list_ascii_string_object_id(xfer, &mut inner.triggered_special_powers[i])?;
+            xfer_list_ascii_string_object_id(xfer, &mut events.triggered_special_powers[i])?;
         }
 
         let mut midway_special_powers_size: u16 = Self::MAX_PLAYER_COUNT as u16;
@@ -495,7 +496,7 @@ impl XferSnapshot for ScriptEngine {
             return Err(XferStatus::InvalidParameters);
         }
         for i in 0..midway_special_powers_size as usize {
-            xfer_list_ascii_string_object_id(xfer, &mut inner.midway_special_powers[i])?;
+            xfer_list_ascii_string_object_id(xfer, &mut events.midway_special_powers[i])?;
         }
 
         let mut finished_special_powers_size: u16 = Self::MAX_PLAYER_COUNT as u16;
@@ -504,7 +505,7 @@ impl XferSnapshot for ScriptEngine {
             return Err(XferStatus::InvalidParameters);
         }
         for i in 0..finished_special_powers_size as usize {
-            xfer_list_ascii_string_object_id(xfer, &mut inner.finished_special_powers[i])?;
+            xfer_list_ascii_string_object_id(xfer, &mut events.finished_special_powers[i])?;
         }
 
         let mut completed_upgrades_size: u16 = Self::MAX_PLAYER_COUNT as u16;
@@ -513,7 +514,7 @@ impl XferSnapshot for ScriptEngine {
             return Err(XferStatus::InvalidParameters);
         }
         for i in 0..completed_upgrades_size as usize {
-            xfer_list_ascii_string_object_id(xfer, &mut inner.completed_upgrades[i])?;
+            xfer_list_ascii_string_object_id(xfer, &mut events.completed_upgrades[i])?;
         }
 
         let mut acquired_sciences_size: u16 = Self::MAX_PLAYER_COUNT as u16;
@@ -522,7 +523,7 @@ impl XferSnapshot for ScriptEngine {
             return Err(XferStatus::InvalidParameters);
         }
         for i in 0..acquired_sciences_size as usize {
-            xfer_science_vec(xfer, &mut inner.acquired_sciences[i])?;
+            xfer_science_vec(xfer, &mut events.acquired_sciences[i])?;
         }
 
         xfer_list_ascii_string_coord3d(xfer, &mut inner.topple_directions)?;

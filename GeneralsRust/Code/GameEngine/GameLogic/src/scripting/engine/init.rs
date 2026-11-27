@@ -128,6 +128,7 @@ impl ScriptEngine {
             control_bar_ui_hooks: Arc::clone(services.control_bar_ui_hooks()),
             side_scripts: SideScripts::new(Self::MAX_PLAYER_COUNT),
             sequential_scripts: SequentialScripts::default(),
+            script_events: ScriptEvents::new(Self::MAX_PLAYER_COUNT),
             inner: std::cell::RefCell::new(ScriptEngineInner {
                 templates: ScriptTemplateCatalog::new(names),
 
@@ -146,16 +147,6 @@ impl ScriptEngine {
                 frame_object_count_changed: 0,
                 object_counts: HashMap::new(),
                 object_types: HashMap::new(),
-
-                completed_video: Vec::new(),
-                testing_speech: Vec::new(),
-                testing_audio: Vec::new(),
-
-                triggered_special_powers: vec![Vec::new(); Self::MAX_PLAYER_COUNT],
-                midway_special_powers: vec![Vec::new(); Self::MAX_PLAYER_COUNT],
-                finished_special_powers: vec![Vec::new(); Self::MAX_PLAYER_COUNT],
-                completed_upgrades: vec![Vec::new(); Self::MAX_PLAYER_COUNT],
-                acquired_sciences: vec![Vec::new(); Self::MAX_PLAYER_COUNT],
 
                 topple_directions: Vec::new(),
                 named_reveals: NamedReveals::default(),
@@ -638,6 +629,7 @@ impl ScriptEngine {
 
     /// Reset the script engine
     pub fn reset(&mut self) {
+        self.script_events.clear();
         {
             let inner = self.inner.get_mut();
             // Clear runtime state
@@ -653,26 +645,6 @@ impl ScriptEngine {
             inner.skirmish_human_player = None;
             inner.current_track_name.clear();
 
-
-            inner.completed_video.clear();
-            inner.testing_speech.clear();
-            inner.testing_audio.clear();
-
-            for powers in &mut inner.triggered_special_powers {
-                powers.clear();
-            }
-            for powers in &mut inner.midway_special_powers {
-                powers.clear();
-            }
-            for powers in &mut inner.finished_special_powers {
-                powers.clear();
-            }
-            for upgrades in &mut inner.completed_upgrades {
-                upgrades.clear();
-            }
-            for sciences in &mut inner.acquired_sciences {
-                sciences.clear();
-            }
 
             inner.topple_directions.clear();
             inner.named_reveals.clear();
@@ -706,26 +678,8 @@ impl ScriptEngine {
     /// Resets transient counters/flags then starts the default 33-frame
     /// `FADE_MULTIPLY` fade-in from black. Does **not** clear script lists.
     pub fn new_map(&mut self) {
-        let inner = self.inner.get_mut();
-        inner.frame.new_map();
-        inner.completed_video.clear();
-        inner.testing_speech.clear();
-        inner.testing_audio.clear();
-        for powers in &mut inner.triggered_special_powers {
-            powers.clear();
-        }
-        for powers in &mut inner.midway_special_powers {
-            powers.clear();
-        }
-        for powers in &mut inner.finished_special_powers {
-            powers.clear();
-        }
-        for upgrades in &mut inner.completed_upgrades {
-            upgrades.clear();
-        }
-        for sciences in &mut inner.acquired_sciences {
-            sciences.clear();
-        }
+        self.inner.get_mut().frame.new_map();
+        self.script_events.clear();
     }
 }
 

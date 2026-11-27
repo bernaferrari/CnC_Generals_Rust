@@ -209,9 +209,11 @@ fn completion_queries_preserve_and_or_short_circuit_order() {
 #[test]
 fn speech_frames_from_length_ms_truncates_like_cpp() {
     for (length, frames) in [(0.0, 0), (5000.0, 150), (33.3, 0), (33.34, 1), (1000.0, 30)] {
+        let events = ScriptEvents::new(0);
         assert_eq!(
-            ScriptEngine::timed_audio_frames_from_length_ms(length),
-            frames
+            events.timed_media_complete(TimedMediaKind::Speech, "Speech", 10, false, || length),
+            frames == 0
         );
+        assert_eq!(events.snapshot().testing_speech, [("Speech".into(), 10 + frames)]);
     }
 }

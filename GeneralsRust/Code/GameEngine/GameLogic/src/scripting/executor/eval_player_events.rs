@@ -5,51 +5,16 @@
 use super::*;
 use crate::scripting::engine::{ScriptOwnerQuery, ScriptPlayerEventSource};
 
-#[derive(Clone, Copy)]
-enum PlayerEventKind {
-    Triggered,
-    Midway,
-    Completed,
-    Upgrade,
-}
+use generals_sim::scripting::events::PlayerEventKind;
 
-impl PlayerEventKind {
-    fn condition(condition_type: ConditionType) -> Option<(Self, bool)> {
-        use ConditionType::*;
-        Some(match condition_type {
-            PlayerTriggeredSpecialPower => (Self::Triggered, false),
-            PlayerMidwaySpecialPower => (Self::Midway, false),
-            PlayerCompletedSpecialPower => (Self::Completed, false),
-            PlayerBuiltUpgrade => (Self::Upgrade, false),
-            PlayerTriggeredSpecialPowerFromNamed => (Self::Triggered, true),
-            PlayerMidwaySpecialPowerFromNamed => (Self::Midway, true),
-            PlayerCompletedSpecialPowerFromNamed => (Self::Completed, true),
-            PlayerBuiltUpgradeFromNamed => (Self::Upgrade, true),
-            _ => return None,
-        })
-    }
-
-    fn consume(
-        self,
-        engine: &crate::scripting::engine::ScriptEngine,
-        selected: ScriptPlayerEventSource,
-        name: &str,
-    ) -> bool {
-        let ScriptPlayerEventSource {
-            player_index,
-            source_object,
-        } = selected;
-        match self {
-            Self::Triggered => {
-                engine.is_special_power_triggered(player_index, name, true, source_object)
-            }
-            Self::Midway => engine.is_special_power_midway(player_index, name, true, source_object),
-            Self::Completed => {
-                engine.is_special_power_complete(player_index, name, true, source_object)
-            }
-            Self::Upgrade => engine.is_upgrade_complete(player_index, name, true, source_object),
-        }
-    }
+fn consume_player_event(
+    kind: PlayerEventKind,
+    engine: &crate::scripting::engine::ScriptEngine,
+    selected: ScriptPlayerEventSource,
+    name: &str,
+) -> bool {
+    let source = (selected.source_object != INVALID_ID).then_some(selected.source_object);
+    engine.script_events().has_player_event(kind, selected.player_index, name, source, true)
 }
 
 impl ScriptConditionEvaluator<'_> {
@@ -94,7 +59,7 @@ impl ScriptConditionEvaluator<'_> {
         };
         // Event names are also literal in C++; do not rewrite token-looking
         // special-power/upgrade names through global player resolution.
-        let found = kind.consume(engine, selected, name);
+        let found = consume_player_event(kind, engine, selected, name);
         Ok(Some(Self::bool_result(found)))
     }
 
@@ -150,7 +115,8 @@ impl ScriptConditionEvaluator<'_> {
             player_index,
             source_object,
         };
-        Ok(Self::bool_result(kind.consume(
+        Ok(Self::bool_result(consume_player_event(
+            kind,
             self.context.borrowed_engine(),
             selected,
             &event_name,
@@ -249,16 +215,8 @@ mod tests {
     }
 
     fn notify(engine: &ScriptEngine, kind: ConditionType, event: &str, source: ObjectID) {
-        match PlayerEventKind::condition(kind).unwrap().0 {
-            PlayerEventKind::Triggered => {
-                engine.notify_of_triggered_special_power(1, event, source)
-            }
-            PlayerEventKind::Midway => engine.notify_of_midway_special_power(1, event, source),
-            PlayerEventKind::Completed => {
-                engine.notify_of_completed_special_power(1, event, source)
-            }
-            PlayerEventKind::Upgrade => engine.notify_of_completed_upgrade(1, event, source),
-        }
+        let (kind, _) = PlayerEventKind::condition(kind).unwrap();
+        engine.script_events().record_player_event(kind, 1, event, source);
     }
 
     #[test]

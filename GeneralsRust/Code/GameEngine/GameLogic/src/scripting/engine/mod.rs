@@ -29,6 +29,7 @@ use game_engine::common::thing::thing_template::ThingTemplate as EngineThingTemp
 use generals_sim::scripting::attack_priorities::AttackPriorityTable;
 pub use generals_sim::scripting::attack_priorities::{AttackPriorityInfo, MAX_ATTACK_PRIORITIES};
 use generals_sim::scripting::frame::{self, ScriptFade, ScriptFrame, ScriptFrameDriver};
+use generals_sim::scripting::events::{PlayerEventKind, ScriptEventHistory, ScriptEvents, TimedMediaKind};
 pub use generals_sim::scripting::frame::TFade;
 use generals_sim::scripting::map_reveals::NamedReveals;
 pub use generals_sim::scripting::map_reveals::{NamedReveal, NamedRevealOperation};
@@ -69,6 +70,7 @@ include!("update.rs");
 include!("program_driver.rs");
 include!("sequential_driver.rs");
 include!("named_trackers.rs");
+include!("event_queries.rs");
 include!("leftover.rs");
 
 pub use generals_sim::scripting::side_scripts::SideScriptContinuation;

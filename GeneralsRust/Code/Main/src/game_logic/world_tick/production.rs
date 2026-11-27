@@ -680,7 +680,13 @@ impl GameLogic {
             interpreter
                 .or(self.owned_script_engine.as_ref())
                 .expect("research completion requires its driving interpreter")
-                .notify_of_completed_upgrade(pid as usize, &upgrade_name, producer_id.0);
+                .script_events()
+                .record_player_event(
+                    generals_sim::scripting::events::PlayerEventKind::UpgradeCompleted,
+                    pid as usize,
+                    &upgrade_name,
+                    producer_id.0,
+                );
             if definition
                 .as_ref()
                 .is_some_and(|template| !template.get_display_name().is_empty())

@@ -15,24 +15,6 @@ fn in_child(test: &str) -> bool {
 }
 
 #[test]
-fn timer_frame_conversion_uses_cpp_milliseconds_per_frame_division() {
-    // GameCommon.h computes this in Real (f32). Reassociating to /1000*30
-    // loses a frame at this exact boundary on the old Rust implementation.
-    let one_frame_ms = game_engine::common::game_common::MSEC_PER_LOGICFRAME_REAL;
-    assert_eq!(one_frame_ms.to_bits(), 0x4205_5555);
-    assert_eq!(
-        ScriptEngine::timed_audio_frames_from_length_ms(one_frame_ms),
-        1
-    );
-    assert_eq!(
-        ScriptEngine::timed_audio_frames_from_length_ms(f32::from_bits(one_frame_ms.to_bits() - 1)),
-        0
-    );
-    assert_eq!(ScriptEngine::timed_audio_frames_from_length_ms(100.0), 3);
-    assert_eq!(ScriptEngine::timed_audio_frames_from_length_ms(1_000.0), 30);
-}
-
-#[test]
 #[cfg(not(target_arch = "wasm32"))]
 fn first_canonical_queries_insert_at_the_front_without_reordering_existing_rows() {
     if !in_child("first_canonical_queries_insert_at_the_front_without_reordering_existing_rows") {
@@ -195,14 +177,16 @@ fn canonical_timer_reset_and_new_map_clear_only_the_driving_engine() {
     let _guard = crate::test_sync::lock();
     let mut first = ScriptEngine::new_in_published_world().unwrap();
     let mut second = ScriptEngine::new_in_published_world().unwrap();
-    first.with_inner_mut(|inner| {
-        inner.testing_speech = vec![("SameName".into(), 20)];
-        inner.testing_audio = vec![("SameName".into(), 30)];
-    });
-    second.with_inner_mut(|inner| {
-        inner.testing_speech = vec![("SameName".into(), 90)];
-        inner.testing_audio = vec![("SameName".into(), 100)];
-    });
+    {
+        let history = first.script_events.legacy_history_mut();
+        history.testing_speech = vec![("SameName".into(), 20)];
+        history.testing_audio = vec![("SameName".into(), 30)];
+    }
+    {
+        let history = second.script_events.legacy_history_mut();
+        history.testing_speech = vec![("SameName".into(), 90)];
+        history.testing_audio = vec![("SameName".into(), 100)];
+    }
     first.reset();
     assert!(first.snapshot_xfer_tail().testing_speech.is_empty());
     assert!(first.snapshot_xfer_tail().testing_audio.is_empty());

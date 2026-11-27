@@ -2485,6 +2485,7 @@ pub struct ScriptEngine {
     control_bar_ui_hooks: Arc<Mutex<Option<Arc<dyn crate::control_bar::ControlBarUiHooks>>>>,
     side_scripts: SideScripts,
     sequential_scripts: SequentialScripts,
+    script_events: ScriptEvents,
     inner: std::cell::RefCell<ScriptEngineInner>,
 }
 
@@ -2516,18 +2517,6 @@ pub struct ScriptEngineInner {
     frame_object_count_changed: u32,
     object_counts: HashMap<(i32, String), i32>,
     object_types: HashMap<String, ObjectTypes>,
-
-    // Event tracking
-    completed_video: Vec<String>,
-    testing_speech: Vec<(String, u32)>,
-    testing_audio: Vec<(String, u32)>,
-
-    // Special power tracking per player
-    triggered_special_powers: Vec<Vec<(String, u32)>>,
-    midway_special_powers: Vec<Vec<(String, u32)>>,
-    finished_special_powers: Vec<Vec<(String, u32)>>,
-    completed_upgrades: Vec<Vec<(String, u32)>>,
-    acquired_sciences: Vec<Vec<ScienceType>>,
 
     // Named reveals and effects
     topple_directions: Vec<(String, Coord3D)>,

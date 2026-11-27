@@ -396,7 +396,7 @@ impl GameLogic {
         ui(game_engine::common::message_stream::ReceivingRankScienceUi::ScienceAdded);
         interpreter.or(self.owned_script_engine.as_ref())
             .expect("science callback requires the receiving script interpreter")
-            .notify_of_acquired_science(id as usize, science);
+            .script_events().record_science(id as usize, science);
         true
     }
 
@@ -484,7 +484,7 @@ impl GameLogic {
             }
             let engine = interpreter.or(self.owned_script_engine.as_ref())
                 .expect("science reset requires the receiving script interpreter");
-            for science in reset_sciences { engine.notify_of_acquired_science(id as usize, science); }
+            for science in reset_sciences { engine.script_events().record_science(id as usize, science); }
         }
         let from = self.players[&id].rank_level;
         for level in (from + 1)..=target {
@@ -573,7 +573,7 @@ impl GameLogic {
         if let (Some(science), Some(interpreter)) =
             (science, interpreter.or(self.owned_script_engine.as_ref()))
         {
-            interpreter.notify_of_acquired_science(id as usize, science);
+            interpreter.script_events().record_science(id as usize, science);
         }
         true
     }

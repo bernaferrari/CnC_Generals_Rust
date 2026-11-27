@@ -1,6 +1,7 @@
 //! Synchronous ScriptEngine special-power event visits on the receiving owner.
 use super::{GameLogic, ObjectId, ScriptPresentationEffects};
 use gamelogic::scripting::engine::ScriptEngine;
+use generals_sim::scripting::events::PlayerEventKind;
 
 /// A short loan with only event delivery and its immediate UI ending observation exposed; it owns no interpreter.
 /// The historical effects type already carries the simulation PartitionManager.
@@ -28,13 +29,12 @@ impl<'a> ScriptEventRecipient<'a> {
         world.run_owned_team_script_with_effects_checked(self.0, name, team_id, player_id, effects)
     }
     fn notify(self, player: usize, power: &str, source: u32, triggered: bool, completed: bool) {
+        let events = self.0.script_events();
         if triggered {
-            self.0
-                .notify_of_triggered_special_power(player, power, source);
+            events.record_player_event(PlayerEventKind::PowerTriggered, player, power, source);
         }
         if completed {
-            self.0
-                .notify_of_completed_special_power(player, power, source);
+            events.record_player_event(PlayerEventKind::PowerCompleted, player, power, source);
         }
     }
 }

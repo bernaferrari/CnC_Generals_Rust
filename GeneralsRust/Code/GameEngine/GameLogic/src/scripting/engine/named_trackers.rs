@@ -605,265 +605,6 @@ impl ScriptEngine {
         self.sequential_scripts.wait_for_team(team_id, frames);
     }
 
-    /// Notify of completed video
-    pub fn notify_of_completed_video(&self, video_name: &str) {
-        let mut inner = self.lock_inner_mut();
-        inner.completed_video.push(video_name.to_string());
-        log::debug!("Video completed: {}", video_name);
-    }
-
-    /// Notify the script engine that a special power was triggered.
-    pub fn notify_of_triggered_special_power(
-        &self,
-        player_index: usize,
-        power_name: &str,
-        source_obj: ObjectId,
-    ) {
-        let mut inner = self.lock_inner_mut();
-        if player_index >= Self::MAX_PLAYER_COUNT {
-            log::warn!(
-                "notify_of_triggered_special_power: player index {} out of range",
-                player_index
-            );
-            return;
-        }
-        inner.triggered_special_powers[player_index].push((power_name.to_string(), source_obj));
-    }
-
-    /// Notify the script engine that a special power reached its midway trigger.
-    pub fn notify_of_midway_special_power(
-        &self,
-        player_index: usize,
-        power_name: &str,
-        source_obj: ObjectId,
-    ) {
-        let mut inner = self.lock_inner_mut();
-        if player_index >= Self::MAX_PLAYER_COUNT {
-            log::warn!(
-                "notify_of_midway_special_power: player index {} out of range",
-                player_index
-            );
-            return;
-        }
-        inner.midway_special_powers[player_index].push((power_name.to_string(), source_obj));
-    }
-
-    /// Notify the script engine that a special power finished executing.
-    pub fn notify_of_completed_special_power(
-        &self,
-        player_index: usize,
-        power_name: &str,
-        source_obj: ObjectId,
-    ) {
-        let mut inner = self.lock_inner_mut();
-        if player_index >= Self::MAX_PLAYER_COUNT {
-            log::warn!(
-                "notify_of_completed_special_power: player index {} out of range",
-                player_index
-            );
-            return;
-        }
-        inner.finished_special_powers[player_index].push((power_name.to_string(), source_obj));
-    }
-
-    /// Notify the script engine that an upgrade completed.
-    pub fn notify_of_completed_upgrade(
-        &self,
-        player_index: usize,
-        upgrade_name: &str,
-        source_obj: ObjectId,
-    ) {
-        let mut inner = self.lock_inner_mut();
-        if player_index >= Self::MAX_PLAYER_COUNT {
-            log::warn!(
-                "notify_of_completed_upgrade: player index {} out of range",
-                player_index
-            );
-            return;
-        }
-        inner.completed_upgrades[player_index].push((upgrade_name.to_string(), source_obj));
-    }
-
-    fn is_named_event_in_list(
-        list: &mut Vec<(String, ObjectId)>,
-        event_name: &str,
-        remove_from_list: bool,
-        source_obj: ObjectId,
-    ) -> bool {
-        let matched_pos = list.iter().position(|(name, obj_id)| {
-            if name != event_name {
-                return false;
-            }
-            if source_obj == crate::common::INVALID_ID {
-                return true;
-            }
-            *obj_id == source_obj
-        });
-        if let Some(pos) = matched_pos {
-            if remove_from_list {
-                list.remove(pos);
-            }
-            return true;
-        }
-        false
-    }
-
-    pub fn is_special_power_triggered(
-        &self,
-        player_index: usize,
-        power_name: &str,
-        remove_from_list: bool,
-        source_obj: ObjectId,
-    ) -> bool {
-        let mut inner = self.lock_inner_mut();
-        let Some(list) = inner.triggered_special_powers.get_mut(player_index) else {
-            return false;
-        };
-        Self::is_named_event_in_list(list, power_name, remove_from_list, source_obj)
-    }
-
-    pub fn is_special_power_midway(
-        &self,
-        player_index: usize,
-        power_name: &str,
-        remove_from_list: bool,
-        source_obj: ObjectId,
-    ) -> bool {
-        let mut inner = self.lock_inner_mut();
-        let Some(list) = inner.midway_special_powers.get_mut(player_index) else {
-            return false;
-        };
-        Self::is_named_event_in_list(list, power_name, remove_from_list, source_obj)
-    }
-
-    pub fn is_special_power_complete(
-        &self,
-        player_index: usize,
-        power_name: &str,
-        remove_from_list: bool,
-        source_obj: ObjectId,
-    ) -> bool {
-        let mut inner = self.lock_inner_mut();
-        let Some(list) = inner.finished_special_powers.get_mut(player_index) else {
-            return false;
-        };
-        Self::is_named_event_in_list(list, power_name, remove_from_list, source_obj)
-    }
-
-    pub fn is_upgrade_complete(
-        &self,
-        player_index: usize,
-        upgrade_name: &str,
-        remove_from_list: bool,
-        source_obj: ObjectId,
-    ) -> bool {
-        let mut inner = self.lock_inner_mut();
-        let Some(list) = inner.completed_upgrades.get_mut(player_index) else {
-            return false;
-        };
-        Self::is_named_event_in_list(list, upgrade_name, remove_from_list, source_obj)
-    }
-
-    /// Check if video is complete
-    pub fn is_video_complete(&self, video_name: &str, remove_from_list: bool) -> bool {
-        let mut inner = self.lock_inner_mut();
-        if let Some(pos) = inner.completed_video.iter().position(|v| v == video_name) {
-            if remove_from_list {
-                inner.completed_video.remove(pos);
-            }
-            true
-        } else {
-            false
-        }
-    }
-
-    fn timed_audio_frames_from_length_ms(audio_length_ms: f32) -> u32 {
-        (audio_length_ms.max(0.0) / game_engine::common::game_common::MSEC_PER_LOGICFRAME_REAL)
-            as u32
-    }
-
-    fn is_timed_audio_complete(
-        audio: Option<TheAudio>,
-        list: &mut Vec<(String, u32)>,
-        event_name: &str,
-        remove_from_list: bool,
-        current_frame: u32,
-    ) -> bool {
-        if event_name.trim().is_empty() {
-            return false;
-        }
-
-        let position = if let Some(pos) = list.iter().position(|(name, _)| name == event_name) {
-            pos
-        } else {
-            let audio_length_ms = audio
-                .map(|audio| {
-                    let event = crate::common::audio::AudioEventRts::new(event_name);
-                    audio.get_audio_length_ms(&event)
-                })
-                .unwrap_or(0.0)
-                .max(0.0);
-            // C++ uses REAL_TO_UNSIGNEDINT(audioLength / MSEC_PER_LOGICFRAME_REAL): truncate.
-            let frame_count = Self::timed_audio_frames_from_length_ms(audio_length_ms);
-            let completion_frame = current_frame.wrapping_add(frame_count);
-            list.insert(0, (event_name.to_string(), completion_frame));
-            0
-        };
-
-        let completed = current_frame >= list[position].1;
-        if completed && remove_from_list {
-            list.remove(position);
-        }
-        completed
-    }
-
-    /// Standalone native adapter; the executing host passes its frame explicitly.
-    pub fn is_speech_complete(&self, speech_name: &str, remove_from_list: bool) -> bool {
-        self.is_speech_complete_at_frame(speech_name, remove_from_list, TheGameLogic::get_frame())
-    }
-
-    pub fn is_audio_complete(&self, audio_name: &str, remove_from_list: bool) -> bool {
-        self.is_audio_complete_at_frame(audio_name, remove_from_list, TheGameLogic::get_frame())
-    }
-
-    /// C++ first-query timers belong to this engine and its serialized tail.
-    /// The caller supplies the frame of the game driving this operation.
-    pub fn is_speech_complete_at_frame(
-        &self,
-        speech_name: &str,
-        remove_from_list: bool,
-        current_frame: u32,
-    ) -> bool {
-        // C++ TheAudio of this engine's own GameEngine.
-        let audio = self.owning_world_services().map(|world| TheAudio::of(&world));
-        let mut inner = self.lock_inner_mut();
-        Self::is_timed_audio_complete(
-            audio,
-            &mut inner.testing_speech,
-            speech_name,
-            remove_from_list,
-            current_frame,
-        )
-    }
-
-    pub fn is_audio_complete_at_frame(
-        &self,
-        audio_name: &str,
-        remove_from_list: bool,
-        current_frame: u32,
-    ) -> bool {
-        // C++ TheAudio of this engine's own GameEngine.
-        let audio = self.owning_world_services().map(|world| TheAudio::of(&world));
-        let mut inner = self.lock_inner_mut();
-        Self::is_timed_audio_complete(
-            audio,
-            &mut inner.testing_audio,
-            audio_name,
-            remove_from_list,
-            current_frame,
-        )
-    }
-
     /// Signal UI interaction
     pub fn signal_ui_interact(&self, hook_name: &str) {
         let mut inner = self.lock_inner_mut();
@@ -1102,36 +843,6 @@ impl ScriptEngine {
     pub fn action_handler(&self) -> Option<Arc<dyn ScriptActionHandler>> {
         self.with_inner(|inner| inner.action_handler.clone())
     }
-    pub fn notify_of_acquired_science(&self, player_index: usize, science: ScienceType) {
-        let mut inner = self.lock_inner_mut();
-        if player_index < inner.acquired_sciences.len() {
-            inner.acquired_sciences[player_index].push(science);
-            log::debug!("Player {} acquired science: {:?}", player_index, science);
-        }
-    }
-
-    /// Check if a science was acquired by a player (optionally remove the entry).
-    pub fn is_science_acquired(
-        &self,
-        player_index: usize,
-        science: ScienceType,
-        remove: bool,
-    ) -> bool {
-        let mut inner = self.lock_inner_mut();
-        let Some(list) = inner.acquired_sciences.get_mut(player_index) else {
-            return false;
-        };
-
-        if let Some(pos) = list.iter().position(|s| *s == science) {
-            if remove {
-                list.remove(pos);
-            }
-            return true;
-        }
-
-        false
-    }
-
     // =========================================================================
     // MISSING METHODS PORTED FROM C++ ScriptEngine
     // =========================================================================
@@ -1550,6 +1261,7 @@ impl ScriptEngine {
         &self,
         named_objects: Vec<(String, u32)>,
     ) -> ScriptEngineXferTail {
+        let events = self.script_events.snapshot();
         self.with_inner(|inner| {
             let attack_priorities = inner
                 .attack_priorities
@@ -1598,19 +1310,15 @@ impl ScriptEngine {
                 fade_frames_increase: inner.frame.fade.increase,
                 fade_frames_hold: inner.frame.fade.hold,
                 fade_frames_decrease: inner.frame.fade.decrease,
-                completed_video: inner.completed_video.clone(),
-                testing_speech: inner.testing_speech.clone(),
-                testing_audio: inner.testing_audio.clone(),
+                completed_video: events.completed_video,
+                testing_speech: events.testing_speech,
+                testing_audio: events.testing_audio,
                 ui_interactions: inner.frame.ui_interactions.clone(),
-                triggered_special_powers: inner.triggered_special_powers.clone(),
-                midway_special_powers: inner.midway_special_powers.clone(),
-                finished_special_powers: inner.finished_special_powers.clone(),
-                completed_upgrades: inner.completed_upgrades.clone(),
-                acquired_sciences: inner
-                    .acquired_sciences
-                    .iter()
-                    .map(|list| list.iter().map(|science| *science as i32).collect())
-                    .collect(),
+                triggered_special_powers: events.triggered_special_powers,
+                midway_special_powers: events.midway_special_powers,
+                finished_special_powers: events.finished_special_powers,
+                completed_upgrades: events.completed_upgrades,
+                acquired_sciences: events.acquired_sciences,
                 topple_directions: inner
                     .topple_directions
                     .iter()
@@ -1658,6 +1366,16 @@ impl ScriptEngine {
         self.restore_xfer_tail_with_named_tracker(tail, false)
     }
     fn restore_xfer_tail_with_named_tracker(&self, tail: &ScriptEngineXferTail, standalone: bool) {
+        self.script_events.restore(ScriptEventHistory {
+            completed_video: tail.completed_video.clone(),
+            testing_speech: tail.testing_speech.clone(),
+            testing_audio: tail.testing_audio.clone(),
+            triggered_special_powers: tail.triggered_special_powers.clone(),
+            midway_special_powers: tail.midway_special_powers.clone(),
+            finished_special_powers: tail.finished_special_powers.clone(),
+            completed_upgrades: tail.completed_upgrades.clone(),
+            acquired_sciences: tail.acquired_sciences.clone(),
+        });
         {
             let mut inner = self.lock_inner_mut();
             // Original ScriptConditions reset precedes load; this observation
@@ -1698,31 +1416,7 @@ impl ScriptEngine {
             inner.frame.fade.increase = tail.fade_frames_increase;
             inner.frame.fade.hold = tail.fade_frames_hold;
             inner.frame.fade.decrease = tail.fade_frames_decrease;
-            inner.completed_video = tail.completed_video.clone();
-            inner.testing_speech = tail.testing_speech.clone();
-            inner.testing_audio = tail.testing_audio.clone();
             inner.frame.ui_interactions = tail.ui_interactions.clone();
-            let player_count = Self::MAX_PLAYER_COUNT;
-            inner.triggered_special_powers =
-                pad_player_pairs(&tail.triggered_special_powers, player_count);
-            inner.midway_special_powers =
-                pad_player_pairs(&tail.midway_special_powers, player_count);
-            inner.finished_special_powers =
-                pad_player_pairs(&tail.finished_special_powers, player_count);
-            inner.completed_upgrades = pad_player_pairs(&tail.completed_upgrades, player_count);
-            inner.acquired_sciences = {
-                let mut lists = vec![Vec::new(); player_count];
-                for (index, sciences) in
-                    tail.acquired_sciences.iter().take(player_count).enumerate()
-                {
-                    lists[index] = sciences
-                        .iter()
-                        .copied()
-                        .map(|value| value as ScienceType)
-                        .collect();
-                }
-                lists
-            };
             inner.topple_directions = tail
                 .topple_directions
                 .iter()
@@ -1773,14 +1467,6 @@ impl ScriptEngine {
             }
         }
     }
-}
-
-fn pad_player_pairs(lists: &[Vec<(String, u32)>], player_count: usize) -> Vec<Vec<(String, u32)>> {
-    let mut padded = vec![Vec::new(); player_count];
-    for (index, list) in lists.iter().take(player_count).enumerate() {
-        padded[index] = list.clone();
-    }
-    padded
 }
 
 /// C++ `ScriptEngine::xfer` fields after counters/flags (`ScriptEngine.cpp:8812+`).
