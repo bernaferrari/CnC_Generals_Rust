@@ -251,6 +251,7 @@ path = "examples/run_exec_smoke.rs"
 
 [dev-dependencies]
 tempfile = {workspace = true}
+generals-sim = { path = "../GameEngine/Sim", features = ["test-object-roster"] }
 game_engine = { path = "../GameEngine/Common", features = ["test-ambient-services"] }
 gamelogic = { path = "../GameEngine/GameLogic", features = ["test-ambient-services"] }
 game_client = { path = "../GameEngine/GameClient", package = "game-client-rust", features = ["test-ambient-services"] }

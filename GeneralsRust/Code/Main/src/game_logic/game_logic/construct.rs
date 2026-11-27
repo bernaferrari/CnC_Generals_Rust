@@ -147,7 +147,7 @@ impl GameLogic {
             player_template_definitions: None,
             multiplayer_definitions: None,
             initial_skirmish_admission: None,
-            next_object_id: ObjectId(1), // Start at 1, 0 is invalid
+            object_ids: Default::default(),
             next_formation_id: 1,
             frame: 0,
             draw_icon_ui: true,
@@ -1052,7 +1052,7 @@ impl GameLogic {
         self.initial_skirmish_admission = None;
         self.prepared_map_sides.reset();
         self.prepared_player_controllers = Default::default();
-        self.next_object_id = ObjectId(1);
+        self.object_ids = Default::default();
         self.next_formation_id = 1;
         self.frame = 0;
         self.reset_recurring_updates();

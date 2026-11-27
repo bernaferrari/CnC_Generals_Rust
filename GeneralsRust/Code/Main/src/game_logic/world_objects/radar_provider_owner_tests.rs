@@ -46,7 +46,7 @@ fn radar_world_with_cues(online: &str, offline: &str) -> (GameLogic, ObjectId) {
         " Behavior = RadarUpgrade ModuleTag_Radar\n TriggeredBy = Upgrade_GLARadar\n DisableProof = Yes\n End\n Behavior = GrantUpgradeCreate ModuleTag_Grant\n UpgradeToGrant = Upgrade_GLARadar\n End\n",
     );
     let id = ObjectId(41);
-    world.next_object_id = id;
+    world.set_next_object_id_for_restore(id);
     assert_eq!(
         world.create_object_for_player(&template.name, 1, Vec3::ZERO),
         Some(id)
@@ -159,7 +159,7 @@ fn player_owned_research_does_not_unlock_a_same_faction_peer() {
     );
     for owner in [1, 2] {
         let id = ObjectId(owner + 80);
-        world.next_object_id = id;
+        world.set_next_object_id_for_restore(id);
         assert_eq!(
             world.create_object_for_player(&template.name, owner, Vec3::ZERO),
             Some(id)
@@ -672,7 +672,7 @@ mod bulk_retirement_order_tests {
             " Behavior = RadarUpgrade ModuleTag_Radar\n TriggeredBy = Upgrade_GLARadar\n DisableProof = Yes\n End\n Behavior = GrantUpgradeCreate ModuleTag_Grant\n UpgradeToGrant = Upgrade_GLARadar\n End\n",
         );
         let id = ObjectId(41);
-        outgoing.next_object_id = id;
+        outgoing.set_next_object_id_for_restore(id);
         assert_eq!(
             outgoing.create_object_for_player("GLAVehicleRadarVan", 1, Vec3::ZERO),
             Some(id)

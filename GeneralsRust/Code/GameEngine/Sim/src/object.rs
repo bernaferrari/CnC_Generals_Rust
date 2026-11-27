@@ -3,8 +3,14 @@
 use std::fmt;
 
 pub mod body;
+mod ids;
+mod roster;
 pub use generals_game_domain::body::BodyDamageType;
 pub use generals_game_domain::object_status::ObjectShroudStatus;
+pub use ids::ObjectIds;
+pub use roster::{
+    ConstructorLookupError, ConstructorLookupReceipt, ObjectIdentity, ObjectRoster, RosterEntry,
+};
 
 mod status_mask;
 pub use status_mask::ObjectStatusMaskType;

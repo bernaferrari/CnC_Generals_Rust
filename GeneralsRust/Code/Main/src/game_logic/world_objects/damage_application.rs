@@ -1978,7 +1978,7 @@ impl GameLogic {
             self.projectile_definitions.get(&projectile_name),
             self.projectile_definitions.geometry(&projectile_name),
             Some(&self.partition_manager),
-            &mut self.next_object_id,
+            &mut self.object_ids,
             placement,
             &self.logic_random,
         );

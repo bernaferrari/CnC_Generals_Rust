@@ -9,6 +9,9 @@ license.workspace = true
 [lints]
 workspace = true
 
+[features]
+test-object-roster = []
+
 [dependencies]
 bitflags = { workspace = true }
 generals_game_domain = { path = "../GameDomain" }
@@ -16,6 +19,7 @@ generals_map = { path = "../Map" }
 log = { workspace = true }
 glam = { workspace = true }
 math_utilities = { path = "../../Libraries/Source/WWVegas/WWMath" }
+rustc-hash = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 thiserror = { workspace = true }
 

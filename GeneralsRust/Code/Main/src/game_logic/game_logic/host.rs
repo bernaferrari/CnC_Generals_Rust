@@ -189,7 +189,7 @@ pub struct GameLogic {
         Option<Box<crate::skirmish_config::saved_admission::SavedSkirmishAdmission>>,
 
     /// Object ID counter
-    pub(super) next_object_id: ObjectId,
+    pub(super) object_ids: generals_sim::object::ObjectIds,
     /// C++ TheAI next formation id residual (starts at 1; 0 = none).
     pub(super) next_formation_id: u32,
 

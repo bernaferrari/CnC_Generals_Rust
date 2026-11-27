@@ -1,280 +1,309 @@
-//! Match-owned lookup and original Object-list registration order.
-//!
-//! C++ `GameLogic::registerObject` prepends to `m_objList` independently of its
-//! ID lookup table. Hash iteration and numerical IDs cannot represent that order.
+//! Application adapters for the receiving simulation's live Object roster.
 
 use super::prelude::*;
+#[cfg(test)]
+use generals_sim::object::{ConstructorLookupError, ConstructorLookupReceipt};
+use generals_sim::object::{ObjectIdentity, ObjectRoster, RosterEntry};
 
-mod registered_order;
-
+/// Application access to the match's roster. Membership changes stay internal.
 #[derive(Debug, Default)]
-pub struct HostObjectStore {
-    // Keep the ID table compact and retire each Object in its original allocation.
-    map: game_engine::common::fast_hash::FxHashMap<ObjectId, Box<Object>>,
-    registration_order: Vec<ObjectId>,
-    // Test instrumentation for passes that must avoid mutable Object loans.
-    #[cfg(test)]
-    mutation_count: u64,
-    // Namespace is a weak loan of the EXISTING GameLogic identity. Raw standalone
-    // stores remain usable for registered fixtures, but cannot admit constructors.
-    constructor_world: std::sync::Weak<()>,
-    // A failed destructor cannot put its Object back into the live lookup.
-    // Retain the exact owned value for diagnostics until this session is
-    // discarded with its native owner. Clearing a live roster is not an
-    // acknowledgement that failed native resource cleanup succeeded.
-    failed_retirement: Option<FailedObjectRetirement>,
-    // C++ reset clears m_objVector before destroying the still-linked Object
-    // list. Keep canonical storage/ordered visitation available to the owner,
-    // while ordinary ID lookup observes the cleared vector during that phase.
-    ordinary_lookup_hidden_ids: Option<std::collections::HashSet<ObjectId>>,
+pub struct HostObjectStore(ObjectRoster<Object>);
+
+impl RosterEntry for Object {
+    fn roster_identity(&self) -> ObjectIdentity<'_> {
+        ObjectIdentity {
+            id: self.id,
+            generation: self.visual_object_generation,
+            token: &self.visual_draw_identity_token,
+        }
+    }
 }
 
-#[derive(Debug)]
-struct FailedObjectRetirement {
-    object: Box<Object>,
-    reason: String,
+impl std::ops::Index<&ObjectId> for HostObjectStore {
+    type Output = Object;
+
+    fn index(&self, id: &ObjectId) -> &Self::Output {
+        &self.0[id]
+    }
+}
+
+impl std::ops::IndexMut<&ObjectId> for HostObjectStore {
+    fn index_mut(&mut self, id: &ObjectId) -> &mut Self::Output {
+        &mut self.0[id]
+    }
 }
 
 impl HostObjectStore {
-    #[inline]
-    fn mark_objects_mutably_accessed(&mut self) {
-        #[cfg(test)]
-        {
-            self.mutation_count = self.mutation_count.wrapping_add(1);
-        }
-    }
-
-    /// Explicit old-owner cleanup for reset/Drop, including a retained failed
-    /// native destructor. No callbacks or ambient publication occur here.
-    pub(in crate::game_logic) fn retire_owned_scalar_stamps(
-        &mut self,
-        partition: &mut crate::game_logic::partition_manager::PartitionManager,
-    ) {
-        self.mark_objects_mutably_accessed();
-        for id in &self.registration_order {
-            self.map
-                .get_mut(id)
-                .expect("registered scalar actor")
-                .unstamp_partition_value_threat_with_partition_owner(partition);
-        }
-        if let Some(failed) = self.failed_retirement.as_mut() {
-            failed
-                .object
-                .unstamp_partition_value_threat_with_partition_owner(partition);
-        }
-    }
-
     pub fn new() -> Self {
         Self::default()
     }
 
     pub(in crate::game_logic) fn new_for_world(world: &std::sync::Arc<()>) -> Self {
-        Self {
-            constructor_world: std::sync::Arc::downgrade(world),
-            ..Self::default()
-        }
+        Self(ObjectRoster::new_for_world(world))
     }
 
-    /// Stable owner storage access. Unlike `lookup`, this intentionally
-    /// ignores reset's ordinary-ID-lookup mask so internal Object lifecycle
-    /// callbacks can keep operating on the linked teardown roster.
-    pub(crate) fn get(&self, id: &ObjectId) -> Option<&Object> {
-        self.map.get(id).map(Box::as_ref)
-    }
-
-    /// Random access to the linked Object list, including during lookup reset.
-    pub(in crate::game_logic) fn get_registered(&self, id: &ObjectId) -> Option<&Object> {
-        let object = self.map.get(id)?;
-        if self.has_unregistered_lookup() && !self.registration_order.contains(id) {
-            return None;
-        }
-        Some(object.as_ref())
-    }
-
-    pub fn lookup(&self, id: &ObjectId) -> Option<&Object> {
-        if self
-            .ordinary_lookup_hidden_ids
-            .as_ref()
-            .is_some_and(|hidden| hidden.contains(id))
-        {
-            None
-        } else {
-            self.get(id)
-        }
-    }
-
-    pub(crate) fn contains_key(&self, id: &ObjectId) -> bool {
-        self.map.contains_key(id)
-    }
-
-    pub(crate) fn suspend_ordinary_lookup_for_reset(&mut self) {
-        self.mark_objects_mutably_accessed();
-        self.ordinary_lookup_hidden_ids = Some(self.registration_order.iter().copied().collect());
-    }
-
-    pub fn registered(
-        &self,
-    ) -> impl DoubleEndedIterator<Item = (&ObjectId, &Object)> + ExactSizeIterator {
-        self.read().registered()
-    }
-
-    pub fn registered_values(
-        &self,
-    ) -> impl DoubleEndedIterator<Item = &Object> + ExactSizeIterator {
-        self.read().registered_values()
-    }
-
-    pub fn registered_keys(
-        &self,
-    ) -> impl DoubleEndedIterator<Item = &ObjectId> + ExactSizeIterator {
-        self.registration_order.iter()
-    }
-
-    pub fn registered_len(&self) -> usize {
-        self.registration_order.len()
-    }
-    pub fn registered_is_empty(&self) -> bool {
-        self.registration_order.is_empty()
-    }
-
-    pub fn registered_values_mut(&mut self) -> impl Iterator<Item = &mut Object> {
-        self.registered_mut().map(|(_, object)| object)
-    }
-
-    /// Visit registered Objects in linked-list order with one mutable loan at a time.
-    pub(in crate::game_logic) fn for_each_registered_mut(&mut self, mut visit: impl FnMut(&mut Object)) {
-        self.for_each_registered_entry_mut(|_, object| visit(object));
-    }
-
-    pub(in crate::game_logic) fn for_each_registered_entry_mut(
-        &mut self,
-        mut visit: impl FnMut(ObjectId, &mut Object),
-    ) {
-        self.mark_objects_mutably_accessed();
-        for &id in &self.registration_order {
-            visit(id, self.map.get_mut(&id).expect("registered Object exists"));
-        }
-    }
-
-    /// IDs in C++ `getFirstObject` / `getNextObject` order.
-    pub fn ordered_ids(&self) -> &[ObjectId] {
-        &self.registration_order
-    }
-
-    /// Internal storage operation; callers must validate the new lifetime first.
     pub(crate) fn admit(&mut self, id: ObjectId, object: Object) {
         #[cfg(feature = "game_client")]
         assert!(
             object.jet_ai.lockon_runtime.is_none(),
             "new Object admission cannot inherit a live auxiliary Drawable receipt"
         );
-        assert!(
-            !self.map.contains_key(&id),
-            "new Object admission cannot replace a live lifetime"
-        );
-        self.mark_objects_mutably_accessed();
-        self.registration_order.insert(0, id);
-        if let Some(hidden) = self.ordinary_lookup_hidden_ids.as_mut() {
-            hidden.remove(&id);
-        }
-        self.map.insert(id, Box::new(object));
+        self.0.admit(id, object);
     }
 
-    /// Fixture-only permissive insertion; production births use checked admission.
-    /// Restoration commits only validated, already registered lifetimes in place.
+    /// Remove outgoing partition stamps from live and retained retired actors.
+    pub(in crate::game_logic) fn retire_owned_scalar_stamps(
+        &mut self,
+        partition: &mut crate::game_logic::partition_manager::PartitionManager,
+    ) {
+        self.0.for_each_registered_mut(|object| {
+            object.unstamp_partition_value_threat_with_partition_owner(partition);
+        });
+        if let Some(object) = self.0.failed_retirement_object_mut() {
+            object.unstamp_partition_value_threat_with_partition_owner(partition);
+        }
+    }
+
+    /// Borrow the receiving roster without borrowing mutable simulation state.
+    pub fn read(&self) -> HostObjectRead<'_> {
+        HostObjectRead {
+            store: &self.0,
+            players: None,
+            team_factory: None,
+        }
+    }
+
+    pub(crate) fn get(&self, id: &ObjectId) -> Option<&Object> {
+        self.0.get(id)
+    }
+
+    pub(in crate::game_logic) fn get_registered(&self, id: &ObjectId) -> Option<&Object> {
+        self.0.get_registered(id)
+    }
+
+    /// Resolve an ID using the ordinary lookup visible to callbacks.
+    pub fn lookup(&self, id: &ObjectId) -> Option<&Object> {
+        self.0.lookup(id)
+    }
+
+    pub(crate) fn contains_key(&self, id: &ObjectId) -> bool {
+        self.0.contains_key(id)
+    }
+
+    pub(crate) fn suspend_ordinary_lookup_for_reset(&mut self) {
+        self.0.suspend_ordinary_lookup_for_reset()
+    }
+
+    pub fn registered(
+        &self,
+    ) -> impl DoubleEndedIterator<Item = (&ObjectId, &Object)> + ExactSizeIterator {
+        self.0.registered()
+    }
+
+    pub fn registered_values(
+        &self,
+    ) -> impl DoubleEndedIterator<Item = &Object> + ExactSizeIterator {
+        self.0.registered_values()
+    }
+
+    pub fn registered_keys(
+        &self,
+    ) -> impl DoubleEndedIterator<Item = &ObjectId> + ExactSizeIterator {
+        self.0.registered_keys()
+    }
+
+    pub fn registered_len(&self) -> usize {
+        self.0.registered_len()
+    }
+
+    pub fn registered_is_empty(&self) -> bool {
+        self.0.registered_is_empty()
+    }
+
+    pub fn registered_values_mut(&mut self) -> impl Iterator<Item = &mut Object> {
+        self.0.registered_values_mut()
+    }
+
+    pub(in crate::game_logic) fn for_each_registered_mut(
+        &mut self,
+        visit: impl FnMut(&mut Object),
+    ) {
+        self.0.for_each_registered_mut(visit)
+    }
+
+    pub(in crate::game_logic) fn for_each_registered_entry_mut(
+        &mut self,
+        visit: impl FnMut(ObjectId, &mut Object),
+    ) {
+        self.0.for_each_registered_entry_mut(visit)
+    }
+
+    /// IDs in the original GameLogic linked-list order.
+    pub fn ordered_ids(&self) -> &[ObjectId] {
+        self.0.ordered_ids()
+    }
+
     #[cfg(test)]
     pub fn insert(&mut self, id: ObjectId, object: Object) -> Option<Object> {
-        self.mark_objects_mutably_accessed();
-        if !self.map.contains_key(&id) {
-            self.registration_order.insert(0, id);
-        }
-        self.map.insert(id, Box::new(object)).map(|object| *object)
+        self.0.insert(id, object)
     }
 
     #[cfg(test)]
     pub(crate) fn remove(&mut self, id: &ObjectId) -> Option<Object> {
-        self.remove_owned(id).map(|object| *object)
+        self.0.remove(id)
     }
 
     pub(crate) fn remove_owned(&mut self, id: &ObjectId) -> Option<Box<Object>> {
-        let object = self.map.remove(id)?;
-        self.mark_objects_mutably_accessed();
-        self.registration_order.retain(|existing| existing != id);
-        Some(object)
+        self.0.remove_owned(id)
     }
 
     pub(crate) fn clear(&mut self) {
-        self.mark_objects_mutably_accessed();
-        self.map.clear();
-        self.registration_order.clear();
-        self.ordinary_lookup_hidden_ids = None;
+        self.0.clear()
     }
 
     pub(crate) fn failed_retirement_reason(&self) -> Option<&str> {
-        self.failed_retirement
-            .as_ref()
-            .map(|failure| failure.reason.as_str())
+        self.0.failed_retirement_reason()
     }
 
     pub(crate) fn failed_retirement_object(&self) -> Option<&Object> {
-        self.failed_retirement
-            .as_ref()
-            .map(|failure| failure.object.as_ref())
+        self.0.failed_retirement_object()
     }
 
     pub(crate) fn retain_failed_retirement(&mut self, object: Box<Object>, reason: String) {
-        assert!(
-            self.failed_retirement.is_none(),
-            "a failed retirement is terminal"
-        );
-        assert!(
-            !self.map.contains_key(&object.id),
-            "a retiring Object is not live"
-        );
-        self.failed_retirement = Some(FailedObjectRetirement { object, reason });
+        self.0.retain_failed_retirement(object, reason)
     }
 
-    /// Mutable stable owner storage access; ordinary ID resolution must use
-    /// `lookup_mut` so reset callback visibility follows C++ `m_objVector`.
     pub(crate) fn get_mut(&mut self, id: &ObjectId) -> Option<&mut Object> {
-        self.mark_objects_mutably_accessed();
-        self.map.get_mut(id).map(Box::as_mut)
+        self.0.get_mut(id)
     }
 
     pub(crate) fn lookup_mut(&mut self, id: &ObjectId) -> Option<&mut Object> {
-        if self
-            .ordinary_lookup_hidden_ids
-            .as_ref()
-            .is_some_and(|hidden| hidden.contains(id))
-        {
-            None
-        } else {
-            self.get_mut(id)
-        }
+        self.0.lookup_mut(id)
     }
 
-    /// Borrow distinct object values without exposing membership mutation.
-    /// Like `HashMap::get_disjoint_mut`, duplicate keys are rejected by panic.
+    /// Borrow distinct values. Duplicate keys panic as in `HashMap::get_disjoint_mut`.
     pub fn get_disjoint_mut<const N: usize>(
         &mut self,
         keys: [&ObjectId; N],
     ) -> [Option<&mut Object>; N] {
-        self.mark_objects_mutably_accessed();
-        self.map.get_disjoint_mut(keys).map(|object| object.map(Box::as_mut))
+        self.0.get_disjoint_mut(keys)
+    }
+
+    #[cfg(test)]
+    pub(in crate::game_logic) fn admit_constructor_lookup(
+        &mut self,
+        object: Object,
+    ) -> Result<ConstructorLookupReceipt, (Object, ConstructorLookupError)> {
+        self.0.admit_constructor_lookup(object)
+    }
+
+    #[cfg(test)]
+    pub(in crate::game_logic) fn register_constructor_lookup(
+        &mut self,
+        receipt: &ConstructorLookupReceipt,
+    ) -> Result<(), ConstructorLookupError> {
+        self.0.register_constructor_lookup(receipt)
+    }
+
+    pub(in crate::game_logic) fn has_unregistered_lookup(&self) -> bool {
+        self.0.has_unregistered_lookup()
+    }
+
+    /// Visit mutable actors in registration order.
+    pub fn registered_mut(&mut self) -> impl Iterator<Item = (&ObjectId, &mut Object)> {
+        self.0.registered_mut()
     }
 }
 
-impl std::ops::Index<&ObjectId> for HostObjectStore {
+/// Explicit receiving read capability: lookup and registered visitation have
+/// different C++ meanings even while both borrow the same canonical values.
+#[derive(Clone, Copy)]
+pub struct HostObjectRead<'a> {
+    store: &'a ObjectRoster<Object>,
+    players: Option<&'a HashMap<u32, Player>>,
+    team_factory: Option<&'a gamelogic::team::TeamFactoryHandle>,
+}
+
+impl std::ops::Index<&ObjectId> for HostObjectRead<'_> {
     type Output = Object;
+
     fn index(&self, id: &ObjectId) -> &Self::Output {
-        &self.map[id]
+        self.store.lookup(id).expect("Object ID is not visible")
     }
 }
 
-impl std::ops::IndexMut<&ObjectId> for HostObjectStore {
-    fn index_mut(&mut self, id: &ObjectId) -> &mut Object {
-        self.mark_objects_mutably_accessed();
-        self.map.get_mut(id).expect("Object ID is not registered")
+impl<'a> HostObjectRead<'a> {
+    /// Borrow the controller table belonging to the same session as this store.
+    pub(crate) fn with_players(mut self, players: &'a HashMap<u32, Player>) -> Self {
+        self.players = Some(players);
+        self
+    }
+    pub(crate) fn with_team_factory(
+        mut self,
+        team_factory: &'a gamelogic::team::TeamFactoryHandle,
+    ) -> Self {
+        self.team_factory = Some(team_factory);
+        self
+    }
+
+    pub(crate) fn relationship(
+        self,
+        source: &Object,
+        target: &Object,
+    ) -> Option<game_engine::common::game_common::Relationship> {
+        Some(
+            crate::game_logic::GameLogic::object_relationship_with_world(
+                self.team_factory?,
+                self.players?,
+                source,
+                target,
+            ),
+        )
+    }
+
+    pub(crate) fn controller_is_human(self, id: u32) -> Option<bool> {
+        self.players?.get(&id).map(|player| player.is_human)
+    }
+
+    pub fn lookup(self, id: &ObjectId) -> Option<&'a Object> {
+        self.store.lookup(id)
+    }
+
+    /// Resolve an Object still on the receiving registration list, including
+    /// the interval where C++ reset hides ordinary ObjectID lookup.
+    #[cfg(feature = "game_client")]
+    pub(crate) fn lookup_registered(self, id: &ObjectId) -> Option<&'a Object> {
+        self.store.get_registered(id)
+    }
+    pub fn registered(
+        self,
+    ) -> impl DoubleEndedIterator<Item = (&'a ObjectId, &'a Object)> + ExactSizeIterator + 'a {
+        self.store.registered()
+    }
+    pub fn registered_values(
+        self,
+    ) -> impl DoubleEndedIterator<Item = &'a Object> + ExactSizeIterator + 'a {
+        self.registered().map(|(_, object)| object)
+    }
+    pub fn registered_keys(
+        self,
+    ) -> impl DoubleEndedIterator<Item = &'a ObjectId> + ExactSizeIterator + 'a {
+        self.registered_ids().iter()
+    }
+    /// Counter for verifying which passes took mutable Object loans.
+    #[cfg(test)]
+    pub(crate) fn mutation_count(self) -> u64 {
+        self.store.mutation_count()
+    }
+
+    pub(crate) fn registered_ids(self) -> &'a [ObjectId] {
+        self.store.ordered_ids()
+    }
+    pub fn registered_is_empty(self) -> bool {
+        self.store.registered_is_empty()
+    }
+    pub fn registered_len(self) -> usize {
+        self.store.registered_len()
     }
 }
 
@@ -395,195 +424,6 @@ mod tests {
         assert_eq!(owner[&ObjectId(9)].health.current, 10.0);
         assert_ne!(peer[&ObjectId(9)].health.current, 10.0);
         assert_eq!(owner.ordered_ids(), &[ObjectId(9)]);
-    }
-}
-
-/// Immutable proof of one lookup-visible, not-yet-registered lifetime.
-/// Both tokens already exist on GameLogic/Object. No additional shared owner,
-/// mutable publication slot or synchronization is introduced.
-#[derive(Debug)]
-pub(in crate::game_logic) struct ConstructorLookupReceipt {
-    id: ObjectId,
-    generation: u64,
-    world: std::sync::Weak<()>,
-    actor: std::sync::Weak<()>,
-}
-
-/// Explicit receiving read capability: lookup and registered visitation have
-/// different C++ meanings even while both borrow the same canonical values.
-#[derive(Clone, Copy)]
-pub struct HostObjectRead<'a> {
-    store: &'a HostObjectStore,
-    players: Option<&'a HashMap<u32, Player>>,
-    team_factory: Option<&'a gamelogic::team::TeamFactoryHandle>,
-}
-
-impl std::ops::Index<&ObjectId> for HostObjectRead<'_> {
-    type Output = Object;
-
-    fn index(&self, id: &ObjectId) -> &Self::Output {
-        self.store.lookup(id).expect("Object ID is not visible")
-    }
-}
-
-impl<'a> HostObjectRead<'a> {
-    /// Borrow the controller table belonging to the same session as this store.
-    pub(crate) fn with_players(mut self, players: &'a HashMap<u32, Player>) -> Self {
-        self.players = Some(players);
-        self
-    }
-    pub(crate) fn with_team_factory(mut self, team_factory: &'a gamelogic::team::TeamFactoryHandle) -> Self {
-        self.team_factory = Some(team_factory);
-        self
-    }
-
-    pub(crate) fn relationship(self, source: &Object, target: &Object) -> Option<game_engine::common::game_common::Relationship> {
-        Some(crate::game_logic::GameLogic::object_relationship_with_world(
-            self.team_factory?, self.players?, source, target,
-        ))
-    }
-
-
-    pub(crate) fn controller_is_human(self, id: u32) -> Option<bool> {
-        self.players?.get(&id).map(|player| player.is_human)
-    }
-
-    pub fn lookup(self, id: &ObjectId) -> Option<&'a Object> {
-        self.store.lookup(id)
-    }
-
-    /// Resolve an Object still on the receiving registration list, including
-    /// the interval where C++ reset hides ordinary ObjectID lookup.
-    #[cfg(feature = "game_client")]
-    pub(crate) fn lookup_registered(self, id: &ObjectId) -> Option<&'a Object> {
-        self.store.get_registered(id)
-    }
-    pub fn registered(
-        self,
-    ) -> impl DoubleEndedIterator<Item = (&'a ObjectId, &'a Object)> + ExactSizeIterator + 'a {
-        self.store.registration_order.iter().map(|id| {
-            (
-                id,
-                self.store
-                    .map
-                    .get(id)
-                    .expect("registered Object missing from lookup")
-                    .as_ref(),
-            )
-        })
-    }
-    pub fn registered_values(
-        self,
-    ) -> impl DoubleEndedIterator<Item = &'a Object> + ExactSizeIterator + 'a {
-        self.registered().map(|(_, object)| object)
-    }
-    pub fn registered_keys(
-        self,
-    ) -> impl DoubleEndedIterator<Item = &'a ObjectId> + ExactSizeIterator + 'a {
-        self.registered_ids().iter()
-    }
-    /// Counter for verifying which passes took mutable Object loans.
-    #[cfg(test)]
-    pub(crate) fn mutation_count(self) -> u64 {
-        self.store.mutation_count
-    }
-
-    pub(crate) fn registered_ids(self) -> &'a [ObjectId] {
-        self.store.ordered_ids()
-    }
-    pub fn registered_is_empty(self) -> bool {
-        self.store.registration_order.is_empty()
-    }
-    pub fn registered_len(self) -> usize {
-        self.store.registration_order.len()
-    }
-}
-
-impl HostObjectStore {
-    pub fn read(&self) -> HostObjectRead<'_> {
-        HostObjectRead {
-            store: self,
-            players: None,
-            team_factory: None,
-        }
-    }
-
-    /// Storage prerequisite only. Production constructor ordering is unchanged
-    /// until its actual callers and traversal consumers have migrated together.
-    pub(in crate::game_logic) fn admit_constructor_lookup(
-        &mut self,
-        object: Object,
-    ) -> Result<ConstructorLookupReceipt, (Object, String)> {
-        if self.constructor_world.upgrade().is_none() {
-            return Err((
-                object,
-                "constructor lookup requires its live receiving world".into(),
-            ));
-        }
-        if self.failed_retirement.is_some() || object.id.0 == 0 || self.map.contains_key(&object.id)
-        {
-            return Err((
-                object,
-                "constructor lookup admission is occupied, invalid or terminal".into(),
-            ));
-        }
-        let receipt = ConstructorLookupReceipt {
-            id: object.id,
-            generation: object.visual_object_generation,
-            world: self.constructor_world.clone(),
-            actor: std::sync::Arc::downgrade(&object.visual_draw_identity_token),
-        };
-        self.mark_objects_mutably_accessed();
-        self.map.insert(object.id, Box::new(object));
-        Ok(receipt)
-    }
-
-    /// C++ registerObject: the existing lookup lifetime joins the Object list.
-    /// Validate all proof fields before touching list order; never rebind identity.
-    pub(in crate::game_logic) fn register_constructor_lookup(
-        &mut self,
-        receipt: &ConstructorLookupReceipt,
-    ) -> Result<(), String> {
-        if self.failed_retirement.is_some() {
-            return Err("constructor registration is terminal".into());
-        }
-        if self.constructor_world.upgrade().is_none()
-            || !receipt.world.ptr_eq(&self.constructor_world)
-        {
-            return Err("constructor receipt belongs to another world".into());
-        }
-        let actor = self
-            .map
-            .get(&receipt.id)
-            .ok_or("constructor lookup lifetime is absent")?;
-        if actor.id != receipt.id
-            || actor.visual_object_generation != receipt.generation
-            || !receipt.actor.ptr_eq(&std::sync::Arc::downgrade(
-                &actor.visual_draw_identity_token,
-            ))
-        {
-            return Err("constructor lookup lifetime changed".into());
-        }
-        if self.registration_order.contains(&receipt.id) {
-            return Err("constructor lifetime already registered".into());
-        }
-        self.mark_objects_mutably_accessed();
-        self.registration_order.insert(0, receipt.id);
-        Ok(())
-    }
-
-    /// Save/reset admission can reject a live unfinished constructor, rather
-    /// than silently serializing only one of its lookup/list representations.
-    pub(in crate::game_logic) fn has_unregistered_lookup(&self) -> bool {
-        self.map.len() != self.registration_order.len()
-    }
-
-    /// Bounded mutable registered traversal without unsafe or cloning Objects.
-    /// This allocation holds references only, never competing gameplay state.
-    pub fn registered_mut(&mut self) -> impl Iterator<Item = (&ObjectId, &mut Object)> {
-        self.mark_objects_mutably_accessed();
-        registered_order::registered_mut(&mut self.map, &self.registration_order)
-            .map(|(id, object)| (id, object.as_mut()))
     }
 }
 
@@ -910,7 +750,10 @@ mod lookup_registration_tests {
         let object = actor(9);
         let identity = std::sync::Arc::downgrade(&object.visual_draw_identity_token);
         let (rejected, reason) = store.admit_constructor_lookup(object).unwrap_err();
-        assert!(reason.contains("live receiving world"));
+        assert_eq!(
+            reason,
+            generals_sim::object::ConstructorLookupError::UnboundWorld
+        );
         assert_eq!(rejected.id, ObjectId(9));
         assert!(identity.ptr_eq(&std::sync::Arc::downgrade(
             &rejected.visual_draw_identity_token

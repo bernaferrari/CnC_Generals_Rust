@@ -721,7 +721,7 @@ pub fn drain_pending_projectiles(
     frame: u32,
     definitions: &crate::game_logic::projectile_definitions::ProjectileDefinitions,
 ) {
-    let mut standalone_next = combat.next_projectile_id;
+    let mut standalone_next = generals_sim::object::ObjectIds::from_next(combat.next_projectile_id);
     drain_pending_projectiles_with_partition(
         combat,
         objects,
@@ -731,7 +731,7 @@ pub fn drain_pending_projectiles(
         &mut standalone_next,
         &game_engine::common::random_value::SessionRandom::default(),
     );
-    combat.next_projectile_id = standalone_next;
+    combat.next_projectile_id = standalone_next.next();
 }
 
 /// Actual Main admissions borrow the receiving partition for each path calculation.
@@ -741,7 +741,7 @@ pub(in crate::game_logic) fn drain_pending_projectiles_with_partition(
     frame: u32,
     definitions: &crate::game_logic::projectile_definitions::ProjectileDefinitions,
     partition: Option<&crate::game_logic::partition_manager::PartitionManager>,
-    next_object_id: &mut ObjectId,
+    object_ids: &mut generals_sim::object::ObjectIds,
     random: &game_engine::common::random_value::SessionRandom,
 ) {
     let pending = std::mem::take(&mut combat.pending_projectiles);
@@ -763,7 +763,7 @@ pub(in crate::game_logic) fn drain_pending_projectiles_with_partition(
             profile,
             geometry,
             partition,
-            next_object_id,
+            object_ids,
             ProjectilePlacement::StandaloneFlight,
             random,
         ) {
@@ -803,7 +803,7 @@ pub(in crate::game_logic) fn materialize_accepted_projectile(
     profile: Option<&crate::game_logic::projectile_definitions::ProjectileProfile>,
     geometry: Option<crate::game_logic::HostGeometryInfo>,
     partition: Option<&crate::game_logic::partition_manager::PartitionManager>,
-    next_object_id: &mut ObjectId,
+    object_ids: &mut generals_sim::object::ObjectIds,
     placement: ProjectilePlacement,
     random: &game_engine::common::random_value::SessionRandom,
 ) -> Option<MaterializedWeaponShot> {
@@ -1041,7 +1041,7 @@ pub(in crate::game_logic) fn materialize_accepted_projectile(
     let id = if let Some(id) = actor_id {
         id
     } else {
-        crate::game_logic::world_objects::allocate_live_object_id(next_object_id, objects, combat)
+        crate::game_logic::world_objects::allocate_live_object_id(object_ids, objects, combat)
     };
     let pid = combat.fire_projectile_ex_with_id(
         id,

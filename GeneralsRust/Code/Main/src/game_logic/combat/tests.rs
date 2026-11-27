@@ -31,12 +31,12 @@ pub(in crate::game_logic) mod tests {
         map.boundaries = vec![glam::IVec2::new(32, 32)];
         world.world_services.terrain().write().unwrap().try_load_map_geometry(map).unwrap();
         world.initialize_receiving_partition_grid().unwrap();
-        let mut next = combat.next_projectile_id;
+        let mut next = generals_sim::object::ObjectIds::from_next(combat.next_projectile_id);
         drain_pending_projectiles_with_partition(
             combat, objects, frame, definitions, Some(&world.partition_manager), &mut next,
             &game_engine::common::random_value::SessionRandom::default(),
         );
-        combat.next_projectile_id = next;
+        combat.next_projectile_id = next.next();
     }
 
     pub(in crate::game_logic) fn queue_delayed_impact_for_test(

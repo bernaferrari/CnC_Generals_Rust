@@ -43,7 +43,7 @@ impl GameLogic {
         self.named_script_cache.clear();
         // Playback/retry deadlines are transient; restored IDs start fresh.
         self.ambient_sound_retries.clear();
-        self.next_object_id = ObjectId(1);
+        self.object_ids = Default::default();
         self.next_formation_id = 1;
         Ok(())
     }
@@ -51,12 +51,12 @@ impl GameLogic {
     /// Read the next object ID counter for the snapshot (C++
     /// `GameLogic::getObjectIDCounter`, xferred by GameStateMap::xfer).
     pub fn next_object_id_for_snapshot(&self) -> ObjectId {
-        self.next_object_id
+        self.object_ids.next()
     }
 
     /// Set the next object ID counter (for snapshot restoration).
     pub fn set_next_object_id_for_restore(&mut self, next_object_id: ObjectId) {
-        self.next_object_id = next_object_id;
+        self.object_ids = generals_sim::object::ObjectIds::from_next(next_object_id);
     }
 
     /// C++ TheAI::getNextFormationID residual.
