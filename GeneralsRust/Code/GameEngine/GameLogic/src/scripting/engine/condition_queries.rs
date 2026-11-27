@@ -29,17 +29,14 @@ impl ScriptEngine {
         context: ScriptContext,
         driver: &mut dyn ScriptExecutionDriver<ScriptEngine>,
     ) -> Result<bool, String> {
-        let restore = self.with_inner(|inner| CallingContextRestore {
-            engine: self,
-            calling_team: inner.calling_team,
-            current_player: inner.current_player.clone(),
-        });
+        let saved_player = self.get_current_player_name();
+        let _restore = self.runtime.preserve_team_call();
         // CPP thisTeam replaces the explicit player with its controller;
         // a null controller falls back to the interpreter's current player.
         let player = if let Some(id) = team_id {
             match driver.team_current_player(id) {
                 ScriptOwnerQuery::Present(player) => {
-                    player.or_else(|| restore.current_player.clone())
+                    player.or_else(|| saved_player)
                 }
                 ScriptOwnerQuery::Missing | ScriptOwnerQuery::Unavailable => {
                     log::warn!("Condition evaluation has no driving controller for team {id}");
@@ -49,13 +46,9 @@ impl ScriptEngine {
         } else {
             player_name
                 .map(str::to_owned)
-                .or_else(|| restore.current_player.clone())
+                .or_else(|| saved_player)
         };
-        {
-            let mut inner = self.lock_inner_mut();
-            inner.calling_team = team_id;
-            inner.current_player = player;
-        }
+        self.runtime.set_team_call(team_id, player);
         let state = std::cell::RefCell::new(context);
         let result = if let Some(condition) = script.condition.as_deref_mut() {
             ScriptConditionEvaluator::new(self, &state)
@@ -64,7 +57,6 @@ impl ScriptEngine {
         } else {
             false
         };
-        drop(restore);
         Ok(result)
     }
 }

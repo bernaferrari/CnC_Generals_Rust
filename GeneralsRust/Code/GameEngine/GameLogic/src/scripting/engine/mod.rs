@@ -37,13 +37,13 @@ use generals_sim::scripting::program_execution::{
     self, ScriptDifficulty, ScriptProgramDriver,
 };
 use generals_sim::scripting::sequential_scripts::{
-    SequentialAfterAction, SequentialDriver, SequentialReadiness, SequentialScripts,
+    SequentialAfterAction, SequentialDriver, SequentialReadiness,
     SequentialTarget,
 };
 #[cfg(test)]
 use generals_sim::scripting::sequential_scripts::is_sequential_only_action;
 pub use generals_sim::scripting::sequential_scripts::{SequentialScript, SequentialScriptSnapshot};
-use generals_sim::scripting::side_scripts::SideScripts;
+use generals_sim::scripting::interpreter::{ScriptInterpreter, SideScriptDriver};
 use generals_sim::scripting::variables::NamedTrackersSnapshot;
 pub use generals_sim::scripting::variables::{
     Counter as TCounter, Flag as TFlag, MAX_COUNTERS, MAX_FLAGS,

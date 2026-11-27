@@ -82,7 +82,7 @@ fn test_script_engine_creation() {
     assert!(engine.snapshot_named_trackers().0.is_empty());
     assert_eq!(engine.allocate_flag("").unwrap(), 0);
     assert!(engine.snapshot_named_trackers().1.is_empty());
-    assert_eq!(engine.with_inner(|i| i.frame.fade.mode), TFade::None);
+    assert_eq!(engine.runtime.frame().fade.mode, TFade::None);
     assert!(!engine.is_game_ending());
 }
 
@@ -98,10 +98,10 @@ fn receiving_xfer_tail_none_fade_starts_multiply_intro() {
         engine.restore_receiving_xfer_tail(&tail);
         assert_eq!(engine.get_fade(), TFade::Multiply);
         assert_eq!(engine.get_fade_value(), 0.0);
-        assert_eq!(engine.with_inner(|i| i.frame.fade.min), 1.0);
-        assert_eq!(engine.with_inner(|i| i.frame.fade.max), 0.0);
-        assert_eq!(engine.with_inner(|i| i.frame.fade.decrease), 33);
-        assert_eq!(engine.with_inner(|i| i.frame.fade.frame), 0);
+        assert_eq!(engine.runtime.frame().fade.min, 1.0);
+        assert_eq!(engine.runtime.frame().fade.max, 0.0);
+        assert_eq!(engine.runtime.frame().fade.decrease, 33);
+        assert_eq!(engine.runtime.frame().fade.frame, 0);
         // Active non-None fade must stay unchanged.
         let mut active = ScriptEngineXferTail::default();
         active.fade = TFade::Add as i32;
@@ -110,7 +110,7 @@ fn receiving_xfer_tail_none_fade_starts_multiply_intro() {
         engine.restore_receiving_xfer_tail(&active);
         assert_eq!(engine.get_fade(), TFade::Add);
         assert_eq!(engine.get_fade_value(), 0.5);
-        assert_eq!(engine.with_inner(|i| i.frame.fade.decrease), 10);
+        assert_eq!(engine.runtime.frame().fade.decrease, 10);
     });
 }
 
@@ -118,16 +118,16 @@ fn receiving_xfer_tail_none_fade_starts_multiply_intro() {
 fn test_new_map_starts_fade_in_from_black() {
     let mut engine = ScriptEngine::new_in_published_world().unwrap();
     engine.reset();
-    assert_eq!(engine.with_inner(|i| i.frame.fade.mode), TFade::None);
+    assert_eq!(engine.runtime.frame().fade.mode, TFade::None);
     engine.new_map();
     assert_eq!(engine.get_fade(), TFade::Multiply);
     assert_eq!(engine.get_fade_value(), 0.0);
-    assert_eq!(engine.with_inner(|i| i.frame.fade.min), 1.0);
-    assert_eq!(engine.with_inner(|i| i.frame.fade.max), 0.0);
-    assert_eq!(engine.with_inner(|i| i.frame.fade.increase), 0);
-    assert_eq!(engine.with_inner(|i| i.frame.fade.hold), 0);
-    assert_eq!(engine.with_inner(|i| i.frame.fade.decrease), 33);
-    assert_eq!(engine.with_inner(|i| i.frame.fade.frame), 0);
+    assert_eq!(engine.runtime.frame().fade.min, 1.0);
+    assert_eq!(engine.runtime.frame().fade.max, 0.0);
+    assert_eq!(engine.runtime.frame().fade.increase, 0);
+    assert_eq!(engine.runtime.frame().fade.hold, 0);
+    assert_eq!(engine.runtime.frame().fade.decrease, 33);
+    assert_eq!(engine.runtime.frame().fade.frame, 0);
 }
 
 #[test]
@@ -165,13 +165,13 @@ fn test_end_game_timer() {
 
     engine.start_end_game_timer();
     assert!(engine.is_game_ending());
-    assert_eq!(engine.with_inner(|i| i.frame.mission_timers.end_game), 120);
+    assert_eq!(engine.runtime.frame().mission_timers.end_game, 120);
 
     engine.start_quick_end_game_timer();
-    assert_eq!(engine.with_inner(|i| i.frame.mission_timers.end_game), 1);
+    assert_eq!(engine.runtime.frame().mission_timers.end_game, 1);
 
     engine.start_close_window_timer();
-    assert_eq!(engine.with_inner(|i| i.frame.mission_timers.close_window), 120);
+    assert_eq!(engine.runtime.frame().mission_timers.close_window, 120);
 }
 
 #[test]
@@ -1050,7 +1050,7 @@ fn detached_script_is_reinserted_in_original_order_after_unwind() {
         .unwrap();
 
     let unwind = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        engine.side_scripts.execute_side(0, |_script| {
+        engine.runtime.sides().execute_side(0, |_script| {
             panic!("force Script execution stack unwind")
         }).unwrap();
     }));
@@ -1198,6 +1198,14 @@ fn with_active_script_engine_ref_skips_while_inner_mut_live() {
                 with_active_script_engine_ref(|e| e.get_counter("").is_some()).is_none(),
                 "shared TLS ref must skip while exclusive inner borrow is live"
             );
+        }
+        {
+            let _frame = engine.runtime.frame_mut();
+            assert!(with_active_script_engine_ref(|e| e.get_counter("")).is_none());
+        }
+        {
+            let _priorities = engine.runtime.attack_priorities_mut();
+            assert!(with_active_script_engine_ref(|e| e.get_attack_info("")).is_none());
         }
 
         assert_eq!(
@@ -1481,7 +1489,7 @@ fn sequential_scripts_snapshot_preserves_count_and_instruction() {
         script.script_name = "PersistedHunt".to_string();
         script
     }));
-    engine.sequential_scripts.restore_heads([sequence]);
+    engine.runtime.sequential().restore_heads([sequence]);
 
     let snapshot = engine.snapshot_sequential_scripts();
     assert_eq!(snapshot.len(), 1, "C++ xfer writes sequential count, not 0");

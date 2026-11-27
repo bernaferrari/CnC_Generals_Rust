@@ -61,7 +61,7 @@ impl ScriptEngine {
     /// Original first-UPDATE cache phase, shared with explicit receiving startup
     /// fixtures. No timers, team state or script actions advance in this phase.
     pub fn initialize_named_cache_on_first_update(&self, driver: &mut dyn ScriptExecutionDriver<ScriptEngine>) {
-        let first_update = self.lock_inner_mut().frame.take_first_update();
+        let first_update = self.runtime.frame_mut().take_first_update();
         if first_update {
             self.initialize_named_cache(driver);
         }
@@ -104,70 +104,9 @@ impl ScriptEngine {
     }
 
     fn execute_side_scripts(&self, execution: &mut ScriptExecution<'_>) -> GameLogicResult<()> {
-        self.side_scripts
-            .with_execution(|| self.execute_side_scripts_from_owned_lists(execution))
+        self.runtime.execute_sides(&mut ScriptProgramWorld::new(self, execution))
     }
 
-    fn execute_side_scripts_from_owned_lists(
-        &self,
-        execution: &mut ScriptExecution<'_>,
-    ) -> GameLogicResult<()> {
-        // C++ ScriptEngine.cpp:5554-5571 walks every side's ScriptList even
-        // when no Objects exist. TRUE/COUNTER/FLAG/TIMER scripts still fire.
-        // Host takes the engine out of the global RwLock before update()
-        // (scripts_camera.rs), so this walk cannot re-lock TheScriptEngine.
-
-        let mut program = ScriptProgramWorld::new(self, execution);
-
-        // Snapshot player names before dispatch.  A script action may change
-        // player state or call a subroutine; no PlayerList lock may survive
-        // into that immediate nested path. C++ iterates TheSidesList, not the
-        // live player count — walk every side slot so installed map scripts
-        // run even when leftover PlayerList is empty.
-        let mut standalone_player_names = None;
-
-        for i in 0..Self::MAX_PLAYER_COUNT {
-            // Match C++: `m_currentPlayer` is the nth player for the side index.
-            let current_player = match program.execution.driver.side_script_current_player(i) {
-                ScriptOwnerQuery::Present(name) => name,
-                ScriptOwnerQuery::Missing => None,
-                ScriptOwnerQuery::Unavailable => {
-                    let player_names = standalone_player_names.get_or_insert_with(|| {
-                        match self.players.try_read() {
-                            Ok(list_guard) => {
-                                let player_count =
-                                    list_guard.get_player_count().min(Self::MAX_PLAYER_COUNT);
-                                (0..player_count)
-                                    .map(|index| {
-                                        list_guard.get_player(index as i32).and_then(|player| {
-                                            player.read().ok().and_then(|player| {
-                                                self.common
-                                                    .name_key_namespace
-                                                    .lock()
-                                                    .unwrap_or_else(|poisoned| {
-                                                        poisoned.into_inner()
-                                                    })
-                                                    .key_to_name(player.get_player_name_key())
-                                            })
-                                        })
-                                    })
-                                    .collect::<Vec<_>>()
-                            }
-                            Err(_) => Vec::new(),
-                        }
-                    });
-                    player_names.get(i).cloned().flatten()
-                }
-            };
-            self.lock_inner_mut().current_player = current_player;
-
-            self.side_scripts
-                .execute_side(i, |script| program.run_script(script))?;
-        }
-
-        self.lock_inner_mut().current_player = None;
-        Ok(())
-    }
 }
 
 struct ScriptFrameWorld<'engine, 'context> {
@@ -177,7 +116,7 @@ struct ScriptFrameWorld<'engine, 'context> {
 
 impl ScriptFrameDriver for ScriptFrameWorld<'_, '_> {
     fn with_frame<R>(&self, edit: impl FnOnce(&mut ScriptFrame) -> R) -> R {
-        edit(&mut self.engine.lock_inner_mut().frame)
+        edit(&mut self.engine.runtime.frame_mut())
     }
 
     fn create_named_cache(&mut self) {

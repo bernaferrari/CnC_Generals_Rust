@@ -4,23 +4,12 @@ use crate::scripting::executor::{
     ScriptActionDispatcher, ScriptActionResult, ScriptConditionEvaluator,
 };
 
-/// C++ executeScript scopes the condition team across the entire live walk.
-struct ConditionContextRestore<'a> {
-    engine: &'a ScriptEngine,
-    team: Option<TeamID>,
-}
-
-impl Drop for ConditionContextRestore<'_> {
-    fn drop(&mut self) {
-        self.engine.lock_inner_mut().condition_team = self.team;
-    }
-}
-
 struct ScriptProgramWorld<'engine, 'context> {
     engine: &'engine ScriptEngine,
     execution: &'engine mut ScriptExecution<'context>,
     dispatcher: ScriptActionDispatcher<'engine>,
     evaluator: ScriptConditionEvaluator<'engine>,
+    standalone_player_names: Option<Vec<Option<String>>>,
 }
 
 impl<'engine, 'context> ScriptProgramWorld<'engine, 'context> {
@@ -33,21 +22,37 @@ impl<'engine, 'context> ScriptProgramWorld<'engine, 'context> {
             dispatcher: ScriptActionDispatcher::new(engine, execution.context),
             evaluator: ScriptConditionEvaluator::new(engine, execution.context),
             execution,
+            standalone_player_names: None,
         }
     }
 
     fn run_script(&mut self, script: &mut Script) -> GameLogicResult<()> {
-        let _restore = ConditionContextRestore {
-            engine: self.engine,
-            team: self.engine.with_inner(|inner| inner.condition_team),
-        };
-        program_execution::execute_script(script, self.execution.frame, self)
+        self.engine.runtime.execute_script(script, self.execution.frame, self)
+    }
+}
+
+impl SideScriptDriver for ScriptProgramWorld<'_, '_> {
+    fn side_player(&mut self, side: usize) -> Option<String> {
+        match self.execution.driver.side_script_current_player(side) {
+            ScriptOwnerQuery::Present(player) => player,
+            ScriptOwnerQuery::Missing => None,
+            ScriptOwnerQuery::Unavailable => self
+                .standalone_player_names
+                .get_or_insert_with(|| self.engine.standalone_side_player_names())
+                .get(side)
+                .cloned()
+                .flatten(),
+        }
+    }
+
+    fn execute_side_script(&mut self, script: &mut Script) -> GameLogicResult<()> {
+        self.run_script(script)
     }
 }
 
 impl ScriptProgramDriver for ScriptProgramWorld<'_, '_> {
     fn difficulty(&self) -> ScriptDifficulty {
-        let current_player = self.engine.with_inner(|inner| inner.current_player.clone());
+        let current_player = self.engine.get_current_player_name();
         current_player
             .as_deref()
             .and_then(|name| match self.execution.driver.current_player_ai_difficulty(name) {
@@ -74,7 +79,7 @@ impl ScriptProgramDriver for ScriptProgramWorld<'_, '_> {
     }
 
     fn set_condition_team(&mut self, team: Option<TeamID>) {
-        self.engine.lock_inner_mut().condition_team = team;
+        self.engine.runtime.set_condition_team(team);
     }
 
     fn evaluate_condition(&mut self, condition: &mut Condition) -> GameLogicResult<bool> {
@@ -114,6 +119,26 @@ fn script_difficulty(difficulty: crate::player::GameDifficulty) -> ScriptDifficu
 }
 
 impl ScriptEngine {
+    /// The standalone side walk releases its roster loans before running actions.
+    fn standalone_side_player_names(&self) -> Vec<Option<String>> {
+        let Ok(roster) = self.players.try_read() else {
+            return Vec::new();
+        };
+        let count = roster.get_player_count().min(Self::MAX_PLAYER_COUNT);
+        (0..count)
+            .map(|side| {
+                roster.get_player(side as i32).and_then(|player| {
+                    let player = player.read().ok()?;
+                    self.common
+                        .name_key_namespace
+                        .lock()
+                        .unwrap_or_else(|poisoned| poisoned.into_inner())
+                        .key_to_name(player.get_player_name_key())
+                })
+            })
+            .collect()
+    }
+
     fn standalone_player_difficulty(&self, name: &str) -> Option<crate::player::GameDifficulty> {
         let key = self.common
             .name_key_namespace

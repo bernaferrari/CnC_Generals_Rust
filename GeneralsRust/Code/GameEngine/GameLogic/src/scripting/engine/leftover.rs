@@ -267,7 +267,7 @@ impl XferSnapshot for ScriptEngine {
 
         let mut sequential_script_count: u16 =
             if matches!(xfer.get_xfer_mode(), XferMode::Save | XferMode::Crc) {
-                self.sequential_scripts.len() as u16
+                self.runtime.sequential().len() as u16
             } else {
                 0
             };
@@ -275,12 +275,12 @@ impl XferSnapshot for ScriptEngine {
 
         match xfer.get_xfer_mode() {
             XferMode::Save | XferMode::Crc => {
-                for head in self.sequential_scripts.legacy_heads_mut() {
+                for head in self.runtime.legacy_sequence_heads() {
                     xfer_sequential_head(head, xfer, None)?;
                 }
             }
             XferMode::Load => {
-                if !self.sequential_scripts.is_empty() {
+                if !self.runtime.sequential().is_empty() {
                     return Err(XferStatus::ListNotEmpty);
                 }
                 let mut loaded = Vec::with_capacity(usize::from(sequential_script_count));
@@ -289,13 +289,14 @@ impl XferSnapshot for ScriptEngine {
                     xfer_sequential_head(&mut head, xfer, Some(self))?;
                     loaded.push(head);
                 }
-                self.sequential_scripts.restore_heads(loaded);
+                self.runtime.sequential().restore_heads(loaded);
             }
             XferMode::Invalid => return Err(XferStatus::ModeUnknown),
         }
 
+        let (frame, priorities, events) = self.runtime.legacy_xfer_fields();
         let inner = self.inner.get_mut();
-        let (counters, counter_count) = inner.frame.variables.legacy_counters();
+        let (counters, counter_count) = frame.variables.legacy_counters();
         let mut counters_size: u16 =
             if matches!(xfer.get_xfer_mode(), XferMode::Save | XferMode::Crc) {
                 *counter_count as u16
@@ -324,7 +325,7 @@ impl XferSnapshot for ScriptEngine {
             *counter_count = num_counters as usize;
         }
 
-        let (flags, flag_count) = inner.frame.variables.legacy_flags();
+        let (flags, flag_count) = frame.variables.legacy_flags();
         let mut flags_size: u16 = if matches!(xfer.get_xfer_mode(), XferMode::Save | XferMode::Crc)
         {
             *flag_count as u16
@@ -352,13 +353,12 @@ impl XferSnapshot for ScriptEngine {
             *flag_count = num_flags as usize;
         }
 
-        xfer_attack_priorities(&mut inner.attack_priorities, xfer)?;
+        xfer_attack_priorities(priorities, xfer)?;
 
         if version >= 6 {
             let mut object_priority_count: u16 =
                 if matches!(xfer.get_xfer_mode(), XferMode::Save | XferMode::Crc) {
-                    inner
-                        .attack_priorities
+                    priorities
                         .assignments()
                         .len()
                         .min(u16::MAX as usize) as u16
@@ -369,32 +369,32 @@ impl XferSnapshot for ScriptEngine {
 
             match xfer.get_xfer_mode() {
                 XferMode::Save | XferMode::Crc => {
-                    for (mut object_id, set_name) in inner.attack_priorities.assignments() {
+                    for (mut object_id, set_name) in priorities.assignments() {
                         let mut set_name = set_name.to_owned();
                         xfer.xfer_object_id(&mut object_id)?;
                         xfer.xfer_ascii_string(&mut set_name)?;
                     }
                 }
                 XferMode::Load => {
-                    inner.attack_priorities.clear_assignments();
+                    priorities.clear_assignments();
                     for _ in 0..object_priority_count {
                         let mut object_id: ObjectID = crate::common::INVALID_ID;
                         let mut set_name = String::new();
                         xfer.xfer_object_id(&mut object_id)?;
                         xfer.xfer_ascii_string(&mut set_name)?;
                         if !set_name.is_empty() {
-                            inner.attack_priorities.assign(object_id, &set_name);
+                            priorities.assign(object_id, &set_name);
                         }
                     }
                 }
                 XferMode::Invalid => return Err(XferStatus::ModeUnknown),
             }
         } else if xfer.get_xfer_mode() == XferMode::Load {
-            inner.attack_priorities.clear_assignments();
+            priorities.clear_assignments();
         }
 
-        xfer.xfer_int(&mut inner.frame.mission_timers.end_game)?;
-        xfer.xfer_int(&mut inner.frame.mission_timers.close_window)?;
+        xfer.xfer_int(&mut frame.mission_timers.end_game)?;
+        xfer.xfer_int(&mut frame.mission_timers.close_window)?;
 
         let named_object_tracker = &self.named_objects;
         let named_objects: Vec<(String, ObjectID)> =
@@ -446,9 +446,9 @@ impl XferSnapshot for ScriptEngine {
             XferMode::Invalid => return Err(XferStatus::ModeUnknown),
         }
 
-        xfer.xfer_bool(&mut inner.frame.first_update)?;
+        xfer.xfer_bool(&mut frame.first_update)?;
 
-        let mut fade_value: i32 = match inner.frame.fade.mode {
+        let mut fade_value: i32 = match frame.fade.mode {
             TFade::None => 0,
             TFade::Subtract => 1,
             TFade::Add => 2,
@@ -457,7 +457,7 @@ impl XferSnapshot for ScriptEngine {
         };
         xfer.xfer_int(&mut fade_value)?;
         if xfer.get_xfer_mode() == XferMode::Load {
-            inner.frame.fade.mode = match fade_value {
+            frame.fade.mode = match fade_value {
                 0 => TFade::None,
                 1 => TFade::Subtract,
                 2 => TFade::Add,
@@ -467,19 +467,18 @@ impl XferSnapshot for ScriptEngine {
             };
         }
 
-        xfer.xfer_real(&mut inner.frame.fade.min)?;
-        xfer.xfer_real(&mut inner.frame.fade.max)?;
-        xfer.xfer_real(&mut inner.frame.fade.value)?;
-        xfer.xfer_int(&mut inner.frame.fade.frame)?;
-        xfer.xfer_int(&mut inner.frame.fade.increase)?;
-        xfer.xfer_int(&mut inner.frame.fade.hold)?;
-        xfer.xfer_int(&mut inner.frame.fade.decrease)?;
+        xfer.xfer_real(&mut frame.fade.min)?;
+        xfer.xfer_real(&mut frame.fade.max)?;
+        xfer.xfer_real(&mut frame.fade.value)?;
+        xfer.xfer_int(&mut frame.fade.frame)?;
+        xfer.xfer_int(&mut frame.fade.increase)?;
+        xfer.xfer_int(&mut frame.fade.hold)?;
+        xfer.xfer_int(&mut frame.fade.decrease)?;
 
-        let events = self.script_events.legacy_history_mut();
         xfer_list_ascii_string(xfer, &mut events.completed_video)?;
         xfer_list_ascii_string_uint(xfer, &mut events.testing_speech)?;
         xfer_list_ascii_string_uint(xfer, &mut events.testing_audio)?;
-        xfer_list_ascii_string(xfer, &mut inner.frame.ui_interactions)?;
+        xfer_list_ascii_string(xfer, &mut frame.ui_interactions)?;
 
         let mut triggered_special_powers_size: u16 = Self::MAX_PLAYER_COUNT as u16;
         xfer.xfer_unsigned_short(&mut triggered_special_powers_size)?;
@@ -673,8 +672,8 @@ impl XferSnapshot for ScriptEngine {
             inner.choose_victim_always_uses_normal = false;
         }
 
-        if xfer.get_xfer_mode() == XferMode::Load && inner.frame.fade.mode == TFade::None {
-            inner.frame.fade = ScriptFade::map_intro();
+        if xfer.get_xfer_mode() == XferMode::Load && frame.fade.mode == TFade::None {
+            frame.fade = ScriptFade::map_intro();
         }
 
         Ok(())

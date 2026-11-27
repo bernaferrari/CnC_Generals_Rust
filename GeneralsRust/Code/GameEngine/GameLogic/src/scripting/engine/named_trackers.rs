@@ -5,32 +5,32 @@
 
 impl ScriptEngine {
     pub fn allocate_counter(&self, name: &str) -> GameLogicResult<usize> {
-        self.lock_inner_mut().frame.variables.allocate_counter(name)
+        self.runtime.frame_mut().variables.allocate_counter(name)
     }
 
     pub fn allocate_flag(&self, name: &str) -> GameLogicResult<usize> {
-        self.lock_inner_mut().frame.variables.allocate_flag(name)
+        self.runtime.frame_mut().variables.allocate_flag(name)
     }
 
     pub fn get_counter(&self, name: &str) -> Option<TCounter> {
-        self.with_inner(|inner| inner.frame.variables.counter(name).cloned())
+        self.runtime.frame().variables.counter(name).cloned()
     }
 
     pub fn get_flag(&self, name: &str) -> Option<TFlag> {
-        self.with_inner(|inner| inner.frame.variables.flag(name).cloned())
+        self.runtime.frame().variables.flag(name).cloned()
     }
 
     pub fn set_counter(&self, name: &str, value: i32) -> GameLogicResult<()> {
-        self.lock_inner_mut().frame.variables.set_counter(name, value)
+        self.runtime.frame_mut().variables.set_counter(name, value)
     }
 
     pub fn set_flag(&self, name: &str, value: bool) -> GameLogicResult<()> {
-        self.lock_inner_mut().frame.variables.set_flag(name, value)
+        self.runtime.frame_mut().variables.set_flag(name, value)
     }
 
     /// C++ `ScriptEngine::xfer` counter/flag tables.
     pub fn snapshot_named_trackers(&self) -> NamedTrackersSnapshot {
-        self.with_inner(|inner| inner.frame.variables.snapshot())
+        self.runtime.frame().variables.snapshot()
     }
 
     pub fn restore_named_trackers(
@@ -38,16 +38,16 @@ impl ScriptEngine {
         counters: &[(String, i32, bool)],
         flags: &[(String, bool)],
     ) -> GameLogicResult<()> {
-        self.lock_inner_mut().frame.variables.restore(counters, flags)
+        self.runtime.frame_mut().variables.restore(counters, flags)
     }
 
     /// C++ ScriptEngine::xfer writes each sequential script head.
     pub fn snapshot_sequential_scripts(&self) -> Vec<SequentialScriptSnapshot> {
-        self.sequential_scripts.snapshot_heads()
+        self.runtime.sequential().snapshot_heads()
     }
 
     pub fn restore_sequential_scripts(&self, scripts: &[SequentialScriptSnapshot]) {
-        self.sequential_scripts.restore_heads(scripts.iter().map(|snap| {
+        self.runtime.sequential().restore_heads(scripts.iter().map(|snap| {
             let mut script = SequentialScript::new();
             script.object_id = snap.object_id;
             script.current_instruction = snap.current_instruction;
@@ -70,24 +70,21 @@ impl ScriptEngine {
     }
 
     pub fn increment_counter(&self, name: &str, amount: i32) -> GameLogicResult<()> {
-        self.lock_inner_mut()
-            .frame.variables
+        self.runtime.frame_mut().variables
             .increment_counter(name, amount)
     }
 
     pub fn decrement_counter(&self, name: &str, amount: i32) -> GameLogicResult<()> {
-        self.lock_inner_mut()
-            .frame.variables
+        self.runtime.frame_mut().variables
             .decrement_counter(name, amount)
     }
 
     pub fn set_timer(&self, name: &str, frames: i32) -> GameLogicResult<()> {
-        self.lock_inner_mut().frame.variables.set_timer(name, frames)
+        self.runtime.frame_mut().variables.set_timer(name, frames)
     }
 
     pub fn set_timer_seconds(&self, name: &str, seconds: f32) -> GameLogicResult<()> {
-        self.lock_inner_mut()
-            .frame.variables
+        self.runtime.frame_mut().variables
             .set_timer_seconds(name, seconds)
     }
 
@@ -96,17 +93,16 @@ impl ScriptEngine {
         name: &str,
         seconds: f32,
     ) -> GameLogicResult<()> {
-        self.lock_inner_mut()
-            .frame.variables
+        self.runtime.frame_mut().variables
             .set_timer_millisecond_script_seconds(name, seconds)
     }
 
     pub fn stop_timer(&self, name: &str) -> GameLogicResult<()> {
-        self.lock_inner_mut().frame.variables.stop_timer(name)
+        self.runtime.frame_mut().variables.stop_timer(name)
     }
 
     pub fn restart_timer(&self, name: &str) -> GameLogicResult<()> {
-        self.lock_inner_mut().frame.variables.restart_timer(name)
+        self.runtime.frame_mut().variables.restart_timer(name)
     }
 
     pub fn add_to_timer_millisecond_script_seconds(
@@ -114,8 +110,7 @@ impl ScriptEngine {
         name: &str,
         seconds: f32,
     ) -> GameLogicResult<()> {
-        self.lock_inner_mut()
-            .frame.variables
+        self.runtime.frame_mut().variables
             .add_to_timer_millisecond_script_seconds(name, seconds)
     }
 
@@ -124,8 +119,7 @@ impl ScriptEngine {
         name: &str,
         seconds: f32,
     ) -> GameLogicResult<()> {
-        self.lock_inner_mut()
-            .frame.variables
+        self.runtime.frame_mut().variables
             .subtract_from_timer_millisecond_script_seconds(name, seconds)
     }
 
@@ -136,19 +130,19 @@ impl ScriptEngine {
     /// engine is lexically scoped, without trying to lock the global engine
     /// again.
     pub fn start_end_game_timer(&self) {
-        self.lock_inner_mut().frame.mission_timers.start_end_game();
+        self.runtime.frame_mut().mission_timers.start_end_game();
         log::info!("End game timer started");
     }
 
     /// Start the one-frame quick-victory timer.
     pub fn start_quick_end_game_timer(&self) {
-        self.lock_inner_mut().frame.mission_timers.start_quick_end_game();
+        self.runtime.frame_mut().mission_timers.start_quick_end_game();
         log::info!("Quick end game timer started");
     }
 
     /// Start the local-defeat close-window timer.
     pub fn start_close_window_timer(&self) {
-        self.lock_inner_mut().frame.mission_timers.start_close_window();
+        self.runtime.frame_mut().mission_timers.start_close_window();
         log::info!("Close window timer started");
     }
 
@@ -330,7 +324,7 @@ impl ScriptEngine {
 
     /// Check if game is ending
     pub fn is_game_ending(&self) -> bool {
-        self.with_inner(|inner| inner.frame.mission_timers.end_game_active())
+        self.runtime.frame().mission_timers.end_game_active()
     }
 
     /// Freeze time
@@ -354,13 +348,12 @@ impl ScriptEngine {
 
     /// Set debug freeze state.
     pub fn set_time_frozen_debug(&mut self, frozen: bool) {
-        let inner = self.inner.get_mut();
-        inner.frame.freeze_by_debug = frozen;
+        self.runtime.frame_mut().freeze_by_debug = frozen;
     }
 
     /// Check if time is frozen by debug controls.
     pub fn is_time_frozen_debug(&self) -> bool {
-        self.with_inner(|inner| inner.frame.freeze_by_debug)
+        self.runtime.frame().freeze_by_debug
     }
 
     /// Check if time is frozen by any mechanism (script or debug).
@@ -370,7 +363,7 @@ impl ScriptEngine {
     ///        TheScriptEngine->isTimeFrozenDebug() ||
     ///        TheScriptEngine->isTimeFrozenScript();`
     pub fn is_time_frozen(&self) -> bool {
-        self.with_inner(|inner| inner.frame.freeze_by_debug || inner.freeze_by_script)
+        self.is_time_frozen_debug() || self.is_time_frozen_script()
     }
 
     /// Get breeze info (owned snapshot — never a borrow into `UnsafeCell`).
@@ -414,8 +407,8 @@ impl ScriptEngine {
         fade_frames_hold: i32,
         fade_frames_decrease: i32,
     ) {
-        let mut inner = self.lock_inner_mut();
-        inner.frame.fade = ScriptFade {
+        let mut frame = self.runtime.frame_mut();
+        frame.fade = ScriptFade {
             mode: fade,
             min: min_fade,
             max: max_fade,
@@ -426,23 +419,24 @@ impl ScriptEngine {
             decrease: fade_frames_decrease,
         };
         if fade_frames_increase == 0 {
-            inner.frame.fade.advance();
+            frame.fade.advance();
         }
     }
 
     /// Get fade type
     pub fn get_fade(&self) -> TFade {
-        self.with_inner(|inner| inner.frame.fade.mode)
+        self.runtime.frame().fade.mode
     }
 
     /// Completed fade observation; reading never advances the script clock.
     pub fn fade_observation(&self) -> (TFade, f32) {
-        self.with_inner(|inner| (inner.frame.fade.mode, inner.frame.fade.value))
+        let frame = self.runtime.frame();
+        (frame.fade.mode, frame.fade.value)
     }
 
     /// Get fade value
     pub fn get_fade_value(&self) -> f32 {
-        self.with_inner(|inner| inner.frame.fade.value)
+        self.runtime.frame().fade.value
     }
 
     /// Get current track name (owned snapshot — never a borrow into `UnsafeCell`).
@@ -571,51 +565,43 @@ impl ScriptEngine {
     }
 
     pub fn append_sequential_script(&self, script: SequentialScript) {
-        self.sequential_scripts.append(script);
+        self.runtime.sequential().append(script);
     }
 
     pub fn remove_all_sequential_scripts_for_object(&self, object_id: ObjectID) {
-        self.sequential_scripts.remove_object(object_id);
+        self.runtime.sequential().remove_object(object_id);
     }
 
     pub fn has_active_sequential_script_for_object(&self, object_id: ObjectID) -> bool {
-        self.sequential_scripts.has_object(object_id)
+        self.runtime.sequential().has_object(object_id)
     }
 
     pub fn has_active_sequential_script_for_team(&self, team_id: TeamID) -> bool {
-        self.sequential_scripts.has_team(team_id)
+        self.runtime.sequential().has_team(team_id)
     }
 
     pub fn remove_all_sequential_scripts_for_team(&self, team_id: TeamID) {
-        self.sequential_scripts.remove_team(team_id);
-        let mut inner = self.lock_inner_mut();
-        if inner.calling_team == Some(team_id) {
-            inner.calling_team = None;
-        }
-        if inner.condition_team == Some(team_id) {
-            inner.condition_team = None;
-        }
+        self.runtime.remove_team_sequences(team_id);
     }
 
     pub fn set_sequential_timer_for_object(&mut self, object_id: ObjectID, frames: i32) {
-        self.sequential_scripts.wait_for_object(object_id, frames);
+        self.runtime.sequential().wait_for_object(object_id, frames);
     }
 
     pub fn set_sequential_timer_for_team(&mut self, team_id: TeamID, frames: i32) {
-        self.sequential_scripts.wait_for_team(team_id, frames);
+        self.runtime.sequential().wait_for_team(team_id, frames);
     }
 
     /// Signal UI interaction
     pub fn signal_ui_interact(&self, hook_name: &str) {
-        let mut inner = self.lock_inner_mut();
-        inner.frame.ui_interactions.push(hook_name.to_string());
+        self.runtime.frame_mut().ui_interactions.push(hook_name.to_string());
         log::debug!("UI interaction: {}", hook_name);
     }
 
     /// C++ `evaluateFlag` walks `m_uiInteractions` after the stored flag miss.
     /// `signalUIInteract` pulses the hook name true for one `ScriptEngine::update`.
     pub fn has_ui_interaction(&self, hook_name: &str) -> bool {
-        self.with_inner(|inner| inner.frame.ui_interactions.iter().any(|name| name == hook_name))
+        self.runtime.frame().ui_interactions.iter().any(|name| name == hook_name)
     }
 
     pub fn create_named_map_reveal(
@@ -916,13 +902,7 @@ impl ScriptEngine {
     }
 
     fn clear_destroyed_object_references(&self, object_id: ObjectID) {
-        let mut inner = self.lock_inner_mut();
-        if inner.condition_object == Some(object_id) {
-            inner.condition_object = None;
-        }
-        if inner.calling_object == Some(object_id) {
-            inner.calling_object = None;
-        }
+        self.runtime.clear_destroyed_object(object_id);
     }
 
     // PARITY_NOTE: C++ ScriptEngine::notifyOfTeamDestruction
@@ -937,13 +917,12 @@ impl ScriptEngine {
     pub fn force_unfreeze_time(&self) {
         // Original calls the debug control's ForceAppContinue. Script and
         // tactical-camera freeze are separate owners and remain unchanged.
-        self.lock_inner_mut().frame.freeze_by_debug = false;
+        self.runtime.frame_mut().freeze_by_debug = false;
     }
 
     // PARITY_NOTE: C++ ScriptEngine::clearFlag
     pub fn clear_flag(&self, name: &str) {
-        self.lock_inner_mut()
-            .frame.variables
+        self.runtime.frame_mut().variables
             .clear_flag(name, Self::MAX_PLAYER_COUNT);
     }
 
@@ -1016,17 +995,8 @@ impl ScriptEngine {
         if script_name.is_empty() || script_name == "<none>" {
             return Ok(false);
         }
-        let _restore = self.with_inner(|inner| CallingContextRestore {
-            engine: self,
-            calling_team: inner.calling_team,
-            current_player: inner.current_player.clone(),
-        });
-        {
-            let mut inner = self.lock_inner_mut();
-            inner.condition_team = None; // C++ runScript leaves it cleared.
-            inner.calling_team = team_id;
-            inner.current_player = player_name.map(str::to_owned);
-        }
+        self.runtime.set_condition_team(None); // C++ runScript leaves it cleared.
+        let _restore = self.runtime.enter_team_call(team_id, player_name.map(str::to_owned));
         self.execute_subroutine_by_name_with_driver(script_name, context, driver)
     }
 
@@ -1036,18 +1006,8 @@ impl ScriptEngine {
             return;
         }
 
-        let saved_calling_object = {
-            let inner = self.inner.get_mut();
-            let saved = inner.calling_object;
-            inner.calling_object = Some(object_id);
-            saved
-        };
-
-        let _found = self
-            .execute_subroutine_by_name(script_name)
-            .unwrap_or(false);
-
-        self.inner.get_mut().calling_object = saved_calling_object;
+        let _restore = self.runtime.enter_object_call(object_id);
+        let _ = self.execute_subroutine_by_name(script_name);
     }
 
     /// Run an attached object's subroutine against the explicit driving owner.
@@ -1062,25 +1022,7 @@ impl ScriptEngine {
         if script_name.is_empty() || script_name == "<none>" {
             return Ok(false);
         }
-        struct Restore<'a> {
-            engine: &'a ScriptEngine,
-            saved: Option<ObjectID>,
-        }
-        impl Drop for Restore<'_> {
-            fn drop(&mut self) {
-                self.engine.lock_inner_mut().calling_object = self.saved;
-            }
-        }
-        let saved = {
-            let mut inner = self.lock_inner_mut();
-            let saved = inner.calling_object;
-            inner.calling_object = Some(object_id);
-            saved
-        };
-        let _restore = Restore {
-            engine: self,
-            saved,
-        };
+        let _restore = self.runtime.enter_object_call(object_id);
         self.execute_subroutine_by_name_with_driver(script_name, context, driver)
     }
 
@@ -1092,21 +1034,12 @@ impl ScriptEngine {
         player_name: Option<&str>,
         current_frame: u32,
     ) -> bool {
-        let restore = self.with_inner(|inner| CallingContextRestore {
-            engine: self,
-            calling_team: inner.calling_team,
-            current_player: inner.current_player.clone(),
-        });
-        let controller = team_id.and_then(|id| self.standalone_team_player(id));
-        {
-            let mut inner = self.lock_inner_mut();
-            inner.calling_team = team_id;
-            if let Some(controller) = controller {
-                inner.current_player = Some(controller);
-            } else if let Some(player) = player_name {
-                inner.current_player = Some(player.to_string());
-            }
-        }
+        let _restore = self.runtime.preserve_team_call();
+        let player = team_id
+            .and_then(|id| self.standalone_team_player(id))
+            .or_else(|| player_name.map(str::to_owned))
+            .or_else(|| self.get_current_player_name());
+        self.runtime.set_team_call(team_id, player);
 
         // C++ ScriptEngine::evaluateConditions walks OR/AND then evaluateCondition.
         // evaluateCondition handles TRUE/FALSE/COUNTER/FLAG/TIMER locally and
@@ -1128,7 +1061,6 @@ impl ScriptEngine {
             false
         };
 
-        drop(restore);
         result
     }
 
@@ -1143,9 +1075,7 @@ impl ScriptEngine {
         millisecond_timer: bool,
         add: bool,
     ) -> GameLogicResult<()> {
-        self.inner
-            .get_mut()
-            .frame.variables
+        self.runtime.frame_mut().variables
             .adjust_timer(counter_name, value, millisecond_timer, add)
     }
 
@@ -1200,9 +1130,7 @@ impl ScriptEngine {
 
     // PARITY_NOTE: C++ ScriptEngine::restartTimer (only restarts if value > 0)
     pub fn restart_timer_if_positive(&mut self, name: &str) -> GameLogicResult<()> {
-        self.inner
-            .get_mut()
-            .frame.variables
+        self.runtime.frame_mut().variables
             .restart_timer_if_positive(name)
     }
 
@@ -1215,9 +1143,7 @@ impl ScriptEngine {
         random: bool,
         random_max: Option<f32>,
     ) -> GameLogicResult<()> {
-        self.inner
-            .get_mut()
-            .frame.variables
+        self.runtime.frame_mut().variables
             .set_timer_from(name, millisecond_timer, || {
                 if random {
                     let max = random_max.unwrap_or(value);
@@ -1273,10 +1199,11 @@ impl ScriptEngine {
         &self,
         named_objects: Vec<(String, u32)>,
     ) -> ScriptEngineXferTail {
-        let events = self.script_events.snapshot();
+        let events = self.runtime.events().snapshot();
+        let frame = self.runtime.frame();
+        let priorities = self.runtime.attack_priorities();
         self.with_inner(|inner| {
-            let attack_priorities = inner
-                .attack_priorities
+            let attack_priorities = priorities
                 .entries()
                 .iter()
                 .map(|info| {
@@ -1289,8 +1216,7 @@ impl ScriptEngine {
                     (info.name.clone(), info.default_priority, entries)
                 })
                 .collect();
-            let object_attack_priority_sets = inner
-                .attack_priorities
+            let object_attack_priority_sets = priorities
                 .assignments()
                 .map(|(id, name)| (id, name.to_owned()))
                 .collect();
@@ -1310,22 +1236,22 @@ impl ScriptEngine {
             ScriptEngineXferTail {
                 attack_priorities,
                 object_attack_priority_sets,
-                end_game_timer: inner.frame.mission_timers.end_game,
-                close_window_timer: inner.frame.mission_timers.close_window,
+                end_game_timer: frame.mission_timers.end_game,
+                close_window_timer: frame.mission_timers.close_window,
                 named_objects,
-                first_update: inner.frame.first_update,
-                fade: inner.frame.fade.mode as i32,
-                min_fade: inner.frame.fade.min,
-                max_fade: inner.frame.fade.max,
-                cur_fade_value: inner.frame.fade.value,
-                cur_fade_frame: inner.frame.fade.frame,
-                fade_frames_increase: inner.frame.fade.increase,
-                fade_frames_hold: inner.frame.fade.hold,
-                fade_frames_decrease: inner.frame.fade.decrease,
+                first_update: frame.first_update,
+                fade: frame.fade.mode as i32,
+                min_fade: frame.fade.min,
+                max_fade: frame.fade.max,
+                cur_fade_value: frame.fade.value,
+                cur_fade_frame: frame.fade.frame,
+                fade_frames_increase: frame.fade.increase,
+                fade_frames_hold: frame.fade.hold,
+                fade_frames_decrease: frame.fade.decrease,
                 completed_video: events.completed_video,
                 testing_speech: events.testing_speech,
                 testing_audio: events.testing_audio,
-                ui_interactions: inner.frame.ui_interactions.clone(),
+                ui_interactions: frame.ui_interactions.clone(),
                 triggered_special_powers: events.triggered_special_powers,
                 midway_special_powers: events.midway_special_powers,
                 finished_special_powers: events.finished_special_powers,
@@ -1369,7 +1295,7 @@ impl ScriptEngine {
     pub fn reset_receiving_named_state_for_legacy_load(&self) {
         let mut inner = self.lock_inner_mut();
         inner.receiving_transport_statuses.clear();
-        inner.frame.first_update = true;
+        self.runtime.frame_mut().first_update = true;
     }
 
     /// Main owns the ordered name cache; restoring its interpreter never
@@ -1378,7 +1304,7 @@ impl ScriptEngine {
         self.restore_xfer_tail_with_named_tracker(tail, false)
     }
     fn restore_xfer_tail_with_named_tracker(&self, tail: &ScriptEngineXferTail, standalone: bool) {
-        self.script_events.restore(ScriptEventHistory {
+        self.runtime.events().restore(ScriptEventHistory {
             completed_video: tail.completed_video.clone(),
             testing_speech: tail.testing_speech.clone(),
             testing_audio: tail.testing_audio.clone(),
@@ -1389,11 +1315,13 @@ impl ScriptEngine {
             acquired_sciences: tail.acquired_sciences.clone(),
         });
         {
+            let mut frame = self.runtime.frame_mut();
+            let mut priorities = self.runtime.attack_priorities_mut();
             let mut inner = self.lock_inner_mut();
             // Original ScriptConditions reset precedes load; this observation
             // history has no Xfer payload and must not retain the donor run.
             inner.receiving_transport_statuses.clear();
-            inner.attack_priorities.restore(
+            priorities.restore(
                 tail.attack_priorities
                     .iter()
                     .map(|(name, default_priority, entries)| {
@@ -1405,30 +1333,30 @@ impl ScriptEngine {
                     })
                     .collect(),
             );
-            inner.attack_priorities.clear_assignments();
+            priorities.clear_assignments();
             for (id, name) in &tail.object_attack_priority_sets {
                 if !name.is_empty() {
-                    inner.attack_priorities.assign(*id, name);
+                    priorities.assign(*id, name);
                 }
             }
-            inner.frame.mission_timers.end_game = tail.end_game_timer;
-            inner.frame.mission_timers.close_window = tail.close_window_timer;
-            inner.frame.first_update = tail.first_update;
-            inner.frame.fade.mode = match tail.fade {
+            frame.mission_timers.end_game = tail.end_game_timer;
+            frame.mission_timers.close_window = tail.close_window_timer;
+            frame.first_update = tail.first_update;
+            frame.fade.mode = match tail.fade {
                 1 => TFade::Subtract,
                 2 => TFade::Add,
                 3 => TFade::Saturate,
                 4 => TFade::Multiply,
                 _ => TFade::None,
             };
-            inner.frame.fade.min = tail.min_fade;
-            inner.frame.fade.max = tail.max_fade;
-            inner.frame.fade.value = tail.cur_fade_value;
-            inner.frame.fade.frame = tail.cur_fade_frame;
-            inner.frame.fade.increase = tail.fade_frames_increase;
-            inner.frame.fade.hold = tail.fade_frames_hold;
-            inner.frame.fade.decrease = tail.fade_frames_decrease;
-            inner.frame.ui_interactions = tail.ui_interactions.clone();
+            frame.fade.min = tail.min_fade;
+            frame.fade.max = tail.max_fade;
+            frame.fade.value = tail.cur_fade_value;
+            frame.fade.frame = tail.cur_fade_frame;
+            frame.fade.increase = tail.fade_frames_increase;
+            frame.fade.hold = tail.fade_frames_hold;
+            frame.fade.decrease = tail.fade_frames_decrease;
+            frame.ui_interactions = tail.ui_interactions.clone();
             inner.topple_directions = tail
                 .topple_directions
                 .iter()
@@ -1463,8 +1391,8 @@ impl ScriptEngine {
             // hq-r9gaw / C++ ScriptEngine.cpp:9277-9286 — archive LOAD with
             // saved FADE_NONE starts the standard Multiply fade-in intro.
             // Core leftover Xfer already applies this; receiving restore must too.
-            if !standalone && matches!(inner.frame.fade.mode, TFade::None) {
-                inner.frame.fade = ScriptFade::map_intro();
+            if !standalone && matches!(frame.fade.mode, TFade::None) {
+                frame.fade = ScriptFade::map_intro();
             }
         }
 

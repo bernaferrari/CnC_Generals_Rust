@@ -1,17 +1,3 @@
-/// Restores only callback fields: conditionTeam has a separate lifetime.
-struct CallingContextRestore<'a> {
-    engine: &'a ScriptEngine,
-    calling_team: Option<TeamID>,
-    current_player: Option<String>,
-}
-impl Drop for CallingContextRestore<'_> {
-    fn drop(&mut self) {
-        let mut inner = self.engine.lock_inner_mut();
-        inner.calling_team = self.calling_team;
-        inner.current_player = self.current_player.clone();
-    }
-}
-
 // ScriptEngine construction, templates, script lists, and reset
 //
 // Split from `scripting/engine.rs` for module-size parity.
@@ -21,7 +7,7 @@ impl ScriptEngine {
     /// CPP ScriptEngine5975: THIS_OBJECT prefers the calling object, then the
     /// condition object. Return owned identity before crossing owner callbacks.
     pub(crate) fn script_object_id(&self) -> Option<ObjectID> {
-        self.with_inner(|inner| inner.calling_object.or(inner.condition_object))
+        self.runtime.script_object_id()
     }
 
     const MAX_PLAYER_COUNT: usize = crate::common::MAX_PLAYER_COUNT;
@@ -114,7 +100,7 @@ impl ScriptEngine {
         services: &std::sync::Arc<crate::system::engine_stores::WorldServices>,
         names: &mut game_engine::common::name_key_generator::NameKeyNamespace,
     ) -> GameLogicResult<Self> {
-        let mut engine = Self {
+        Ok(Self {
             players: Arc::clone(services.players()),
             team_factory: services.team_factory().clone(),
             common: Arc::clone(services.common()),
@@ -126,25 +112,15 @@ impl ScriptEngine {
             owner_world: Arc::downgrade(services),
             control_bar_bridge: Arc::clone(services.control_bar_bridge()),
             control_bar_ui_hooks: Arc::clone(services.control_bar_ui_hooks()),
-            side_scripts: SideScripts::new(Self::MAX_PLAYER_COUNT),
-            sequential_scripts: SequentialScripts::default(),
-            script_events: ScriptEvents::new(Self::MAX_PLAYER_COUNT),
+            runtime: ScriptInterpreter::new(Self::MAX_PLAYER_COUNT),
             inner: std::cell::RefCell::new(ScriptEngineInner {
                 templates: ScriptTemplateCatalog::new(names),
 
-                frame: ScriptFrame::default(),
-                attack_priorities: AttackPriorityTable::new(),
                 receiving_transport_statuses: HashMap::new(),
 
-                calling_team: None,
-                calling_object: None,
-                condition_team: None,
-                condition_object: None,
-                current_player: None,
                 skirmish_human_player: None,
                 current_track_name: String::new(),
 
-                frame_object_count_changed: 0,
                 object_counts: HashMap::new(),
                 object_types: HashMap::new(),
 
@@ -168,32 +144,24 @@ impl ScriptEngine {
 
                 action_handler: None,
             }),
-        };
-
-        {
-            let inner = engine.inner.get_mut();
-            inner.frame.variables.reserve_empty_slots();
-            inner.attack_priorities.ensure_default();
-        }
-
-        Ok(engine)
+        })
     }
 
     pub fn get_frame_object_count_changed(&self) -> u32 {
-        self.with_inner(|inner| inner.frame_object_count_changed)
+        self.runtime.object_count_changed_frame()
     }
 
     /// Owned snapshot — never a borrow into `UnsafeCell`.
     pub fn get_current_player_name(&self) -> Option<String> {
-        self.with_inner(|inner| inner.current_player.clone())
+        self.runtime.current_player()
     }
 
     pub fn get_calling_team_id(&self) -> Option<TeamID> {
-        self.with_inner(|inner| inner.calling_team)
+        self.runtime.calling_team()
     }
 
     pub fn get_condition_team_id(&self) -> Option<TeamID> {
-        self.with_inner(|inner| inner.condition_team)
+        self.runtime.condition_team()
     }
 
     /// Name projection for standalone Core token adapters. Production drivers
@@ -216,8 +184,7 @@ impl ScriptEngine {
         &self,
         raw: &str,
     ) -> Option<Arc<RwLock<crate::team::Team>>> {
-        let (calling, condition) =
-            self.with_inner(|inner| (inner.calling_team, inner.condition_team));
+        let (calling, condition) = (self.get_calling_team_id(), self.get_condition_team_id());
         let published_team_factory = get_team_factory();
         let factory = published_team_factory.lock().ok()?;
         if raw == crate::scripting::core::THIS_TEAM {
@@ -293,24 +260,13 @@ impl ScriptEngine {
             ScriptOwnerQuery::Missing => None,
             ScriptOwnerQuery::Unavailable => self.standalone_team_player(id),
         });
-        let restore = self.with_inner(|inner| CallingContextRestore {
-            engine: self,
-            calling_team: inner.calling_team,
-            current_player: inner.current_player.clone(),
-        });
-        {
-            let mut inner = self.lock_inner_mut();
-            inner.calling_team = team_id;
-            inner.current_player = current_player;
-        }
+        let _restore = self.runtime.enter_team_call(team_id, current_player);
         let context = std::cell::RefCell::new(context);
         let mut execution = ScriptExecution::new(&context, driver);
-        let result = self.with_active(|| {
+        self.with_active(|| {
             let mut program = ScriptProgramWorld::new(self, &mut execution);
             program_execution::execute_action_chain(Some(action), &mut program).map(|_| ())
-        });
-        drop(restore);
-        result
+        })
     }
 
     /// Set temporary runtime context used by external script evaluation helpers.
@@ -321,23 +277,16 @@ impl ScriptEngine {
         current_player: Option<String>,
         condition_team: Option<TeamID>,
     ) -> (Option<String>, Option<TeamID>) {
-        let inner = self.inner.get_mut();
-        let saved = (inner.current_player.clone(), inner.condition_team.clone());
-        inner.current_player = current_player;
-        inner.condition_team = condition_team;
-        saved
+        self.runtime.swap_evaluation_context(current_player, condition_team)
     }
 
     /// Restore runtime context previously returned by `set_external_eval_context`.
     pub fn restore_external_eval_context(&mut self, saved: (Option<String>, Option<TeamID>)) {
-        let inner = self.inner.get_mut();
-        inner.current_player = saved.0;
-        inner.condition_team = saved.1;
+        self.runtime.swap_evaluation_context(saved.0, saved.1);
     }
 
     pub fn set_frame_object_count_changed(&self, frame: u32) {
-        let mut inner = self.lock_inner_mut();
-        inner.frame_object_count_changed = frame;
+        self.runtime.set_object_count_changed_frame(frame);
     }
 
     /// Set the script list for a player index (side).
@@ -372,7 +321,7 @@ impl ScriptEngine {
         script_list: Option<Box<ScriptList>>,
         draw: impl FnMut(i32, i32) -> i32,
     ) -> GameLogicResult<()> {
-        self.side_scripts.install(player_index, script_list, |list| {
+        self.runtime.sides().install(player_index, script_list, |list| {
             generals_sim::scripting::program_install::initialize_script_list(list, draw, |name| {
                 let prototype = self.team_factory.lock().ok()?.find_team_prototype(name)?;
                 Some(prototype.is_singleton() || prototype.get_max_instances() < 2)
@@ -381,12 +330,12 @@ impl ScriptEngine {
     }
 
     pub fn clear_script_lists(&mut self) {
-        self.side_scripts.clear();
+        self.runtime.clear_script_lists();
     }
 
     /// Enable or disable matching script and group declarations in original order.
     pub fn set_script_active_by_name(&self, script_name: &str, active: bool) -> bool {
-        let updated = self.side_scripts.set_active(script_name, active);
+        let updated = self.runtime.sides().set_active(script_name, active);
         if let Some(handler) = self.with_inner(|inner| inner.action_handler.clone()) {
             let _ = handler.enable_script(script_name, active);
         }
@@ -395,7 +344,7 @@ impl ScriptEngine {
 
     /// Find a subroutine script by name and return a clone for immediate execution.
     pub fn get_subroutine_clone_by_name(&self, name: &str) -> Option<Script> {
-        self.side_scripts.find_script(name, true, Script::clone)
+        self.runtime.sides().find_script(name, true, Script::clone)
     }
 
     /// Execute a subroutine script or subroutine group by name.
@@ -432,36 +381,36 @@ impl ScriptEngine {
     ) -> GameLogicResult<bool> {
         self.with_active(|| {
             let mut program = ScriptProgramWorld::new(self, execution);
-            self.side_scripts.call_subroutine(name, |script| program.run_script(script))
+            self.runtime.sides().call_subroutine(name, |script| program.run_script(script))
         })
     }
 
     /// Find a script by name and return a clone (non-subroutine allowed).
     pub fn find_script_clone_by_name(&self, name: &str) -> Option<Script> {
-        self.side_scripts.find_script(name, false, Script::clone)
+        self.runtime.sides().find_script(name, false, Script::clone)
     }
 
     /// Initial TeamPrototype cache admission uses CPP Script::duplicate.
     pub(crate) fn find_script_duplicate_by_name(&self, name: &str) -> Option<Script> {
-        self.side_scripts.find_script(name, false, Script::duplicate_definition)
+        self.runtime.sides().find_script(name, false, Script::duplicate_definition)
     }
 
     pub fn capture_side_script_continuation(&self) -> GameLogicResult<SideScriptContinuation> {
-        self.side_scripts.capture()
+        self.runtime.sides().capture()
     }
 
     pub fn validate_side_script_continuation(
         &self,
         saved: &SideScriptContinuation,
     ) -> GameLogicResult<()> {
-        self.side_scripts.validate(saved)
+        self.runtime.sides().validate(saved)
     }
 
     pub fn restore_side_script_continuation(
         &self,
         saved: &SideScriptContinuation,
     ) -> GameLogicResult<()> {
-        self.side_scripts.restore(saved)
+        self.runtime.sides().restore(saved)
     }
 
     pub fn get_object_count(&self, player_index: i32, type_name: &str) -> i32 {
@@ -499,30 +448,29 @@ impl ScriptEngine {
         add_if_missing: bool,
         f: impl FnOnce(&mut AttackPriorityInfo) -> R,
     ) -> Option<R> {
-        self.lock_inner_mut()
-            .attack_priorities
+        self.runtime.attack_priorities_mut()
             .with_mut(name, add_if_missing, f)
     }
 
     pub fn get_attack_info(&self, name: &str) -> Option<AttackPriorityInfo> {
-        self.with_inner(|inner| inner.attack_priorities.get(name).map(|row| (**row).clone()))
+        self.runtime.attack_priorities().get(name).map(|row| (**row).clone())
     }
 
     /// Immutable row used across the combat and interpreter update boundaries.
     pub fn shared_attack_info(&self, name: &str) -> Option<Arc<AttackPriorityInfo>> {
-        self.with_inner(|inner| inner.attack_priorities.get(name).cloned())
+        self.runtime.attack_priorities().get(name).cloned()
     }
 
     pub fn set_object_attack_priority_set(&self, object_id: ObjectID, set_name: &str) {
-        self.lock_inner_mut().attack_priorities.assign(object_id, set_name);
+        self.runtime.attack_priorities_mut().assign(object_id, set_name);
     }
 
     pub fn clear_object_attack_priority_set(&self, object_id: ObjectID) {
-        self.lock_inner_mut().attack_priorities.remove_assignment(object_id);
+        self.runtime.attack_priorities_mut().remove_assignment(object_id);
     }
 
     pub fn get_object_attack_priority_set(&self, object_id: ObjectID) -> Option<String> {
-        self.with_inner(|inner| inner.attack_priorities.assigned_set(object_id).map(str::to_owned))
+        self.runtime.attack_priorities().assigned_set(object_id).map(str::to_owned)
     }
 
     fn template_matches_kind(template: &EngineThingTemplate, kind: KindOf) -> bool {
@@ -624,19 +572,11 @@ impl ScriptEngine {
 
     /// Reset the script engine
     pub fn reset(&mut self) {
-        self.script_events.clear();
+        self.runtime.reset();
         {
             let inner = self.inner.get_mut();
-            // Clear runtime state
-            inner.frame.reset();
-            inner.attack_priorities.clear();
             inner.receiving_transport_statuses.clear();
 
-            inner.calling_team = None;
-            inner.calling_object = None;
-            inner.condition_team = None;
-            inner.condition_object = None;
-            inner.current_player = None;
             inner.skirmish_human_player = None;
             inner.current_track_name.clear();
 
@@ -657,24 +597,17 @@ impl ScriptEngine {
             inner.campaign_victorious = false;
 
         }
-        self.sequential_scripts.clear();
-        self.clear_script_lists();
-        let inner = self.inner.get_mut();
-
         #[cfg(feature = "script_profiling")]
         {
-            inner.stats = ScriptStats::default();
+            self.inner.get_mut().stats = ScriptStats::default();
         }
-
-        inner.attack_priorities.ensure_default();
     }
 
     /// C++ `ScriptEngine::newMap` (`ScriptEngine.cpp:5409-5473`).
     /// Resets transient counters/flags then starts the default 33-frame
     /// `FADE_MULTIPLY` fade-in from black. Does **not** clear script lists.
     pub fn new_map(&mut self) {
-        self.inner.get_mut().frame.new_map();
-        self.script_events.clear();
+        self.runtime.new_map();
     }
 }
 
@@ -741,13 +674,11 @@ mod script_object_context_tests {
             }
         }
 
-        let mut own = ScriptEngine::new_in_published_world().unwrap();
-        own.with_inner_mut(|inner| {
-            inner.calling_object = Some(73);
-            inner.condition_object = Some(41);
-        });
-        let mut foreign = ScriptEngine::new_in_published_world().unwrap();
-        foreign.with_inner_mut(|inner| inner.calling_object = Some(13));
+        let own = ScriptEngine::new_in_published_world().unwrap();
+        own.runtime.set_condition_target(None, Some(41));
+        let _own_call = own.runtime.enter_object_call(73);
+        let foreign = ScriptEngine::new_in_published_world().unwrap();
+        let _foreign_call = foreign.runtime.enter_object_call(13);
         let context = std::cell::RefCell::new(ScriptContext::at_frame(0));
         let mut dispatcher = ScriptActionDispatcher::new(&own, &context);
         let mut action = ScriptAction::new(ScriptActionType::NamedAttackNamed);
@@ -803,15 +734,16 @@ mod script_object_context_tests {
 
     #[test]
     fn script_object_id_prefers_calling_object_then_condition_object() {
-        let mut engine = ScriptEngine::new_in_published_world().unwrap();
+        let engine = ScriptEngine::new_in_published_world().unwrap();
         assert_eq!(engine.script_object_id(), None);
-        engine.with_inner_mut(|inner| inner.condition_object = Some(41));
+        engine.runtime.set_condition_target(None, Some(41));
         assert_eq!(engine.script_object_id(), Some(41));
-        engine.with_inner_mut(|inner| inner.calling_object = Some(73));
-        assert_eq!(engine.script_object_id(), Some(73));
-        engine.with_inner_mut(|inner| inner.calling_object = None);
+        {
+            let _call = engine.runtime.enter_object_call(73);
+            assert_eq!(engine.script_object_id(), Some(73));
+        }
         assert_eq!(engine.script_object_id(), Some(41));
-        engine.with_inner_mut(|inner| inner.condition_object = None);
+        engine.runtime.set_condition_target(None, None);
         assert_eq!(engine.script_object_id(), None);
     }
 }

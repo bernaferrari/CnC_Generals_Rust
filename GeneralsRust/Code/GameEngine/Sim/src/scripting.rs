@@ -5,6 +5,7 @@ pub mod chunk_codec;
 pub mod driver;
 pub mod events;
 pub mod frame;
+pub mod interpreter;
 pub mod map_reveals;
 pub mod radar;
 pub mod named_objects;

@@ -1,21 +1,5 @@
 // World adapter for the sequential interpreter owned by generals-sim.
 
-struct SequentialContextRestore<'a> {
-    engine: &'a ScriptEngine,
-    current_player: Option<String>,
-    condition_team: Option<TeamID>,
-    condition_object: Option<u32>,
-}
-
-impl Drop for SequentialContextRestore<'_> {
-    fn drop(&mut self) {
-        let mut inner = self.engine.lock_inner_mut();
-        inner.current_player = self.current_player.take();
-        inner.condition_team = self.condition_team;
-        inner.condition_object = self.condition_object;
-    }
-}
-
 struct SequentialActors {
     object: Option<Arc<RwLock<crate::object::Object>>>,
     team: Option<Arc<RwLock<crate::team::Team>>>,
@@ -78,7 +62,7 @@ impl SequentialDriver for ScriptProgramWorld<'_, '_> {
                 .engine
                 .resolve_sequential_current_player(object.as_ref(), team.as_ref()),
         };
-        self.engine.lock_inner_mut().current_player = current_player;
+        self.engine.runtime.set_current_player(current_player);
 
         let host_object_was_dead = host_object
             .as_ref()
@@ -127,11 +111,7 @@ impl SequentialDriver for ScriptProgramWorld<'_, '_> {
         condition_object: Option<u32>,
         action: &ScriptAction,
     ) -> GameLogicResult<crate::scripting::executor::ScriptActionResult> {
-        {
-            let mut inner = self.engine.lock_inner_mut();
-            inner.condition_team = target.team_id;
-            inner.condition_object = condition_object;
-        }
+        self.engine.runtime.set_condition_target(target.team_id, condition_object);
         program_execution::dispatch_action(action, self)
     }
 
@@ -198,14 +178,7 @@ impl ScriptEngine {
         &self,
         execution: &mut ScriptExecution<'_>,
     ) -> GameLogicResult<()> {
-        let _restore = self.with_inner(|inner| SequentialContextRestore {
-            engine: self,
-            current_player: inner.current_player.clone(),
-            condition_team: inner.condition_team,
-            condition_object: inner.condition_object,
-        });
-        self.sequential_scripts
-            .tick(&mut ScriptProgramWorld::new(self, execution))
+        self.runtime.advance_sequences(&mut ScriptProgramWorld::new(self, execution))
     }
 
     #[cfg(test)]
@@ -218,7 +191,7 @@ impl ScriptEngine {
 
     #[cfg(test)]
     fn sequential_script_count(&self) -> usize {
-        self.sequential_scripts.len()
+        self.runtime.sequential().len()
     }
 
     fn object_ai_status(object_arc: &Arc<RwLock<crate::object::Object>>) -> (bool, bool, bool) {

@@ -89,7 +89,7 @@ impl ScriptExecutionDriver<ScriptEngine> for FacadeProbeDriver {
         with_script_engine_mut(|engine| {
             engine.start_quick_end_game_timer();
             engine.do_freeze_time();
-            engine.lock_inner_mut().frame.freeze_by_debug = true;
+            engine.runtime.frame_mut().freeze_by_debug = true;
         })
         .expect("active owner during update");
 

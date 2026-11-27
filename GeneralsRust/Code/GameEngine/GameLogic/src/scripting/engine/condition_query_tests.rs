@@ -115,12 +115,8 @@ fn with_condition(condition: Condition) -> Script {
 }
 fn engine() -> ScriptEngine {
     let engine = ScriptEngine::new_in_published_world().unwrap();
-    let mut inner = engine.lock_inner_mut();
-    inner.current_player = Some("outer".into());
-    inner.calling_team = Some(777);
-    inner.condition_team = Some(888);
-    inner.calling_object = Some(99);
-    drop(inner);
+    engine.runtime.set_team_call(Some(777), Some("outer".into()));
+    engine.runtime.set_condition_team(Some(888));
     engine
 }
 fn assert_restored(engine: &ScriptEngine) {
@@ -133,6 +129,7 @@ fn assert_restored(engine: &ScriptEngine) {
 #[test]
 fn borrowed_condition_queries_short_circuit_and_restore_the_driving_scope() {
     let engine = engine();
+    let _calling_object = engine.runtime.enter_object_call(99);
     let mut owner = Owner::new(&engine, 100);
     let peer_engine = ScriptEngine::new_in_published_world().unwrap();
     let mut peer = Owner::new(&peer_engine, 10);
@@ -183,6 +180,7 @@ fn borrowed_condition_queries_short_circuit_and_restore_the_driving_scope() {
 #[test]
 fn borrowed_condition_queries_keep_null_controller_fallback_and_fail_closed_on_missing_owner() {
     let engine = engine();
+    let _calling_object = engine.runtime.enter_object_call(99);
     let mut owner = Owner::new(&engine, 100);
     let mut script = with_condition(credits("cash", 100));
     assert!(engine.evaluate_conditions_with_driver(
@@ -225,6 +223,7 @@ fn borrowed_condition_queries_keep_null_controller_fallback_and_fail_closed_on_m
 #[test]
 fn borrowed_condition_queries_restore_scope_after_callback_panic() {
     let engine = engine();
+    let _calling_object = engine.runtime.enter_object_call(99);
     let mut owner = Owner::new(&engine, 100);
     owner.panic = true;
     let mut script = with_condition(credits("cash", 100));
@@ -246,6 +245,7 @@ fn borrowed_condition_queries_restore_scope_after_callback_panic() {
 #[test]
 fn borrowed_condition_queries_allow_bounded_same_interpreter_reentry() {
     let engine = engine();
+    let _calling_object = engine.runtime.enter_object_call(99);
     let mut owner = Owner::new(&engine, 100);
     owner.nested = true;
     let mut script = with_condition(credits("cash", 100));

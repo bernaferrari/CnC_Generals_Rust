@@ -57,8 +57,8 @@ impl ScriptExecutionDriver<ScriptEngine> for CanonicalScriptExecutionDriver {
 }
 
 struct ScriptExecution<'a> {
-    context: &'a std::cell::RefCell<crate::scripting::executor::ScriptContext>,
     frame: u32,
+    context: &'a std::cell::RefCell<crate::scripting::executor::ScriptContext>,
     driver: &'a mut dyn ScriptExecutionDriver<ScriptEngine>,
 }
 
@@ -713,9 +713,9 @@ pub struct ScriptStats {
     pub cur_update_time: f64,
 }
 
-/// Main Script Engine matching C++ ScriptEngine.
+/// Legacy gameplay and Xfer adapter for the receiving scripting runtime.
 ///
-/// Mutable state lives in `RefCell<ScriptEngineInner>` so nested
+/// Adapter state lives in `RefCell<ScriptEngineInner>` so nested
 /// `CALL_SUBROUTINE` (C++ runs the callee immediately) can re-enter through
 /// `&ScriptEngine` + `lock_inner_mut` without minting a second `&mut ScriptEngine`.
 /// `RefCell` enforces exclusive/shared borrows; `with_inner` cannot alias a
@@ -739,38 +739,24 @@ pub struct ScriptEngine {
     /// The resolved ControlBar catalog slot of the world that built this engine.
     control_bar_bridge: Arc<RwLock<Option<Arc<crate::control_bar::ControlBarBridge>>>>,
     control_bar_ui_hooks: Arc<Mutex<Option<Arc<dyn crate::control_bar::ControlBarUiHooks>>>>,
-    side_scripts: SideScripts,
-    sequential_scripts: SequentialScripts,
-    script_events: ScriptEvents,
+    runtime: ScriptInterpreter,
     inner: std::cell::RefCell<ScriptEngineInner>,
 }
 
-/// Mutable script-engine body. Field layout matches the previous `ScriptEngine`.
-///
-/// Accessed via:
-/// - `Deref` / `DerefMut` when the caller has exclusive `&mut ScriptEngine`
-/// - `lock_inner_mut` when only `&ScriptEngine` is live (TLS nested path)
+/// State still interpreted by the standalone and presentation adapters.
 pub struct ScriptEngineInner {
     // Template registrations
     templates: ScriptTemplateCatalog,
 
     // Runtime state
-    frame: ScriptFrame,
-    attack_priorities: AttackPriorityTable,
     // ScriptConditions::s_transportStatuses: reset/load-scoped, not original Xfer.
     receiving_transport_statuses: HashMap<ObjectID, (u32, usize)>,
 
     // Game state
-    calling_team: Option<TeamID>,   // Exact callback instance
-    calling_object: Option<u32>,    // Object ID instead of pointer
-    condition_team: Option<TeamID>, // Exact condition instance
-    condition_object: Option<u32>,  // Object ID instead of pointer
-    current_player: Option<String>, // Player name instead of pointer
     skirmish_human_player: Option<String>, // Player name instead of pointer
     current_track_name: String,
 
     // Object tracking
-    frame_object_count_changed: u32,
     object_counts: HashMap<(i32, String), i32>,
     object_types: HashMap<String, ObjectTypes>,
 
@@ -822,7 +808,7 @@ impl DerefMut for InnerMutGuard<'_> {
 impl ScriptEngine {
     /// Match active read's failure policy without selecting an ambient engine.
     pub(crate) fn with_execution_read<R>(&self, f: impl FnOnce(&Self) -> R) -> Option<R> {
-        if self.inner.try_borrow().is_err() {
+        if self.inner.try_borrow().is_err() || !self.runtime.can_read_state() {
             None
         } else {
             Some(f(self))
@@ -1018,18 +1004,12 @@ pub fn with_active_script_engine_mut<R>(f: impl FnOnce(&ScriptEngine) -> R) -> O
 
 /// Run `f` against the currently executing ScriptEngine (shared view), if any.
 ///
-/// If an exclusive `lock_inner_mut` guard is live, skip (do not alias).
+/// Skip if an exclusive adapter or runtime state borrow is active.
 pub fn with_active_script_engine_ref<R>(f: impl FnOnce(&ScriptEngine) -> R) -> Option<R> {
     if !ACTIVE_SCRIPT_ENGINE.is_set() {
         return None;
     }
-    ACTIVE_SCRIPT_ENGINE.with(|engine| {
-        if engine.inner.try_borrow().is_err() {
-            None
-        } else {
-            Some(f(engine))
-        }
-    })
+    ACTIVE_SCRIPT_ENGINE.with(|engine| engine.with_execution_read(f))
 }
 
 /// Whether the current thread is evaluating a live `ScriptEngine` scope.

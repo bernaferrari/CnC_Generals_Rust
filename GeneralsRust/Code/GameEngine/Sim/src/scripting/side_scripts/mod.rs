@@ -203,6 +203,10 @@ impl SideScripts {
         }
     }
 
+    pub(super) fn side_count(&self) -> usize {
+        self.state.borrow().lists.len()
+    }
+
     pub fn install(
         &self,
         side: usize,
