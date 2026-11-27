@@ -2226,6 +2226,14 @@ fn garrison_initial_roster_spawns_occupants_on_create() {
         3,
         "C++ GarrisonContain::onObjectCreated must add InitialRoster count"
     );
+    let actual: Vec<_> = logic.host_objects().registered_keys().copied().collect();
+    let expected = [
+        bunker_id,
+        ObjectId(bunker_id.0 + 3),
+        ObjectId(bunker_id.0 + 2),
+        ObjectId(bunker_id.0 + 1),
+    ];
+    assert_eq!(actual, expected, "the garrison registers after its payloads");
     for occupant_id in occupants {
         let occupant = logic.host_object(occupant_id).expect("roster occupant");
         assert_eq!(occupant.template_name, "AmericaRanger");

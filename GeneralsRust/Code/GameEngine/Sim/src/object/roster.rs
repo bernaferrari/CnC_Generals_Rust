@@ -335,6 +335,9 @@ impl<T: RosterEntry> ObjectRoster<T> {
             actor: Arc::downgrade(identity.token),
         };
         self.mark_objects_mutably_accessed();
+        if let Some(hidden) = self.ordinary_lookup_hidden_ids.as_mut() {
+            hidden.remove(&receipt.id);
+        }
         self.map.insert(receipt.id, Box::new(object));
         Ok(receipt)
     }
@@ -348,6 +351,23 @@ impl<T: RosterEntry> ObjectRoster<T> {
         if self.failed_retirement.is_some() {
             return Err(ConstructorLookupError::RetirementFailed);
         }
+        self.publish_constructor_lookup(receipt)
+    }
+
+    /// Settle an existing failed birth for the caller's ordinary retirement path.
+    /// A terminal error in a nested callback can stop new admissions while the
+    /// enclosing constructor still owns its allocation.
+    pub fn retain_failed_constructor_lookup(
+        &mut self,
+        receipt: &ConstructorLookupReceipt,
+    ) -> Result<(), ConstructorLookupError> {
+        self.publish_constructor_lookup(receipt)
+    }
+
+    fn publish_constructor_lookup(
+        &mut self,
+        receipt: &ConstructorLookupReceipt,
+    ) -> Result<(), ConstructorLookupError> {
         if self.constructor_world.upgrade().is_none()
             || !receipt.world.ptr_eq(&self.constructor_world)
         {

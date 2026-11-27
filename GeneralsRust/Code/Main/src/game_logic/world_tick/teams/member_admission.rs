@@ -30,8 +30,8 @@ pub(in crate::game_logic) struct PreparedHostTeamAdmission {
 }
 
 impl GameLogic {
-    /// The ordinary factory already owns a registered primary. Preserve its
-    /// exact generation across synchronous Team-created actions before commit.
+    /// Preserve the actor's lookup lifetime across synchronous Team-created
+    /// actions. A constructor can join its Team before linked registration.
     pub(crate) fn admit_team_for_host_object_with_effects_checked(
         &mut self,
         id: ObjectId,

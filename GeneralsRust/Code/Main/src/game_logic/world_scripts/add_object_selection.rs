@@ -193,8 +193,26 @@ impl GameLogic {
         &mut self,
         mut object: Object,
     ) -> generals_sim::GameLogicResult<()> {
+        self.prepare_host_object_admission(&mut object)?;
+        self.objects.admit(object.id, object);
+        Ok(())
+    }
+
+    pub(in crate::game_logic) fn begin_host_object_constructor(
+        &mut self,
+        mut object: Object,
+    ) -> generals_sim::GameLogicResult<generals_sim::object::ConstructorLookupReceipt> {
+        self.prepare_host_object_admission(&mut object)?;
+        self.objects.admit_constructor_lookup(object).map_err(|(object, reason)| {
+            generals_sim::GameLogicError::Configuration(format!(
+                "Object {} constructor lookup: {reason}", object.id,
+            ))
+        })
+    }
+
+    fn prepare_host_object_admission(&mut self, object: &mut Object) -> generals_sim::GameLogicResult<()> {
         // Validate before touching old reservations, identities or callback state.
-        self.validate_receiving_object_turrets(&object)?;
+        self.validate_receiving_object_turrets(object)?;
         self.validate_host_object_admission(object.id)?;
         // C++ allocates fresh PartitionData for every admitted Object. The
         // retired lifetime's ghost keeps its own captured cells and snapshots,
@@ -248,8 +266,6 @@ impl GameLogic {
             crate::game_logic::object::unit_ai_runtime::UnitAiRuntime::with_auto_acquire(
                 idle_bits & game_engine::common::thing::ai_update_data::AUTO_ACQUIRE_IDLE != 0,
             );
-        let id = object.id;
-        self.objects.admit(id, object);
         Ok(())
     }
 

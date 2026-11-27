@@ -1,7 +1,6 @@
 //! Application adapters for the receiving simulation's live Object roster.
 
 use super::prelude::*;
-#[cfg(test)]
 use generals_sim::object::{ConstructorLookupError, ConstructorLookupReceipt};
 use generals_sim::object::{ObjectIdentity, ObjectRoster, RosterEntry};
 
@@ -43,11 +42,7 @@ impl HostObjectStore {
     }
 
     pub(crate) fn admit(&mut self, id: ObjectId, object: Object) {
-        #[cfg(feature = "game_client")]
-        assert!(
-            object.jet_ai.lockon_runtime.is_none(),
-            "new Object admission cannot inherit a live auxiliary Drawable receipt"
-        );
+        Self::assert_detached_drawable(&object);
         self.0.admit(id, object);
     }
 
@@ -189,20 +184,34 @@ impl HostObjectStore {
         self.0.get_disjoint_mut(keys)
     }
 
-    #[cfg(test)]
     pub(in crate::game_logic) fn admit_constructor_lookup(
         &mut self,
         object: Object,
     ) -> Result<ConstructorLookupReceipt, (Object, ConstructorLookupError)> {
+        Self::assert_detached_drawable(&object);
         self.0.admit_constructor_lookup(object)
     }
 
-    #[cfg(test)]
+    fn assert_detached_drawable(_object: &Object) {
+        #[cfg(feature = "game_client")]
+        assert!(
+            _object.jet_ai.lockon_runtime.is_none(),
+            "new Object admission cannot inherit a live auxiliary Drawable receipt"
+        );
+    }
+
     pub(in crate::game_logic) fn register_constructor_lookup(
         &mut self,
         receipt: &ConstructorLookupReceipt,
     ) -> Result<(), ConstructorLookupError> {
         self.0.register_constructor_lookup(receipt)
+    }
+
+    pub(in crate::game_logic) fn retain_failed_constructor_lookup(
+        &mut self,
+        receipt: &ConstructorLookupReceipt,
+    ) -> Result<(), ConstructorLookupError> {
+        self.0.retain_failed_constructor_lookup(receipt)
     }
 
     pub(in crate::game_logic) fn has_unregistered_lookup(&self) -> bool {
