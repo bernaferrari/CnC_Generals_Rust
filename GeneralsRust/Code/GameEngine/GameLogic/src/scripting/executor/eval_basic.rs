@@ -170,7 +170,7 @@ impl ScriptConditionEvaluator<'_> {
     ) -> Result<ScriptConditionResult, ScriptError> {
         let engine = self.context.borrowed_engine();
         let frame = self.context.with_state(|state| state.current_frame);
-        if let Some(value) = engine.interpreter().try_evaluate_player_condition(
+        if let Some(value) = engine.interpreter().try_evaluate_receiving_condition(
             condition, frame, &mut engine.condition_queries(driver),
         )? {
             return Ok(bool_result(value));
@@ -221,129 +221,6 @@ impl ScriptConditionEvaluator<'_> {
             }
         }
 
-        if condition_type == ConditionType::NamedSelected {
-            use crate::scripting::engine::ScriptOwnerQuery;
-            let name = condition
-                .get_parameter(0)
-                .ok_or_else(|| ScriptError::ParameterNotFound("Parameter 0 not found".into()))?
-                .get_string();
-            match driver.named_selection(name, self.context.borrowed_engine().script_object_id()) {
-                ScriptOwnerQuery::Present(selection) => {
-                    // CPP1372: multiplayer returns before touching the condition cache.
-                    if selection.multiplayer {
-                        return Ok(bool_result(false));
-                    }
-                    if condition.custom_data == 0
-                        || condition.custom_frame != selection.changed_frame
-                    {
-                        condition.custom_data = if selection.selected { 1 } else { -1 };
-                        condition.custom_frame = selection.changed_frame;
-                    }
-                    return Ok(bool_result(condition.custom_data == 1));
-                }
-                ScriptOwnerQuery::Missing => return Ok(bool_result(false)),
-                ScriptOwnerQuery::Unavailable => {}
-            }
-        }
-
-        if matches!(
-            condition_type,
-            ConditionType::TeamCreated | ConditionType::TeamDestroyed | ConditionType::TeamHasUnits
-        ) {
-            use crate::scripting::engine::ScriptOwnerQuery;
-            // Preserve the raw contextual token until the driving factory resolves it.
-            let name = condition
-                .get_parameter(0)
-                .ok_or_else(|| ScriptError::ParameterNotFound("Parameter 0 not found".into()))?
-                .get_string();
-            let engine = self.context.borrowed_engine();
-            let calling = engine.get_calling_team_id();
-            let contextual = engine.get_condition_team_id();
-            let result = if condition_type == ConditionType::TeamHasUnits {
-                driver.team_has_units(name, calling, contextual)
-            } else {
-                match driver.team_presence(name, calling, contextual) {
-                    ScriptOwnerQuery::Present(presence) => {
-                        ScriptOwnerQuery::Present(if condition_type == ConditionType::TeamCreated {
-                            presence.created
-                        } else {
-                            !presence.has_objects
-                        })
-                    }
-                    ScriptOwnerQuery::Missing => ScriptOwnerQuery::Missing,
-                    ScriptOwnerQuery::Unavailable => ScriptOwnerQuery::Unavailable,
-                }
-            };
-            match result {
-                ScriptOwnerQuery::Present(value) => return Ok(bool_result(value)),
-                ScriptOwnerQuery::Missing => return Ok(bool_result(false)),
-                ScriptOwnerQuery::Unavailable => {}
-            }
-        }
-
-        if matches!(
-            condition_type,
-            ConditionType::TeamStateIs | ConditionType::TeamStateIsNot
-        ) {
-            use crate::scripting::engine::ScriptOwnerQuery;
-            let team = self.get_condition_string_param(condition, 0)?;
-            let expected = self.get_condition_string_param(condition, 1)?;
-            let engine = self.context.borrowed_engine();
-            match driver.team_state(
-                &team,
-                engine.get_calling_team_id(),
-                engine.get_condition_team_id(),
-            ) {
-                ScriptOwnerQuery::Present(state) => {
-                    let matches = state == expected;
-                    return Ok(bool_result(
-                        if condition_type == ConditionType::TeamStateIs {
-                            matches
-                        } else {
-                            !matches
-                        },
-                    ));
-                }
-                ScriptOwnerQuery::Missing => return Ok(bool_result(false)),
-                ScriptOwnerQuery::Unavailable => {}
-            }
-        }
-
-        if matches!(
-            condition_type,
-            ConditionType::TeamEnteredAreaEntirely
-                | ConditionType::TeamEnteredAreaPartially
-                | ConditionType::TeamExitedAreaEntirely
-                | ConditionType::TeamExitedAreaPartially
-        ) {
-            use crate::scripting::engine::{ScriptOwnerQuery, ScriptTeamAreaTransition};
-            let team = self.get_condition_string_param(condition, 0)?;
-            let area = self.get_condition_string_param(condition, 1)?;
-            let surfaces = self.get_condition_int_param(condition, 2).unwrap_or(0) as u32;
-            let engine = self.context.borrowed_engine();
-            let transition = match condition_type {
-                ConditionType::TeamEnteredAreaEntirely => ScriptTeamAreaTransition::AllEntered,
-                ConditionType::TeamEnteredAreaPartially => {
-                    ScriptTeamAreaTransition::PartiallyEntered
-                }
-                ConditionType::TeamExitedAreaEntirely => ScriptTeamAreaTransition::AllExited,
-                _ => ScriptTeamAreaTransition::PartiallyExited,
-            };
-            match driver.team_area_transition(
-                transition,
-                &team,
-                &area,
-                engine.get_current_player_name().as_deref(),
-                engine.get_calling_team_id(),
-                engine.get_condition_team_id(),
-                surfaces,
-            ) {
-                ScriptOwnerQuery::Present(value) => return Ok(bool_result(value)),
-                ScriptOwnerQuery::Missing => return Ok(bool_result(false)),
-                ScriptOwnerQuery::Unavailable => {}
-            }
-        }
-
         if let Some(result) = self.eval_standalone_player_event(condition, driver)? {
             return Ok(result);
         }
@@ -351,47 +228,6 @@ impl ScriptConditionEvaluator<'_> {
         if let Some(result) = self.eval_owned_special_power(condition, driver)? {
             return Ok(result);
         }
-        if let Some(result) = self.eval_owned_waypoint_complete(condition, driver)? {
-            return Ok(result);
-        }
-
-        if matches!(
-            condition_type,
-            ConditionType::TeamInsideAreaPartially
-                | ConditionType::TeamInsideAreaEntirely
-                | ConditionType::TeamOutsideAreaEntirely
-        ) {
-            use crate::scripting::engine::{ScriptOwnerQuery, ScriptTeamAreaMembership};
-            let team = self.get_condition_string_param(condition, 0)?;
-            let area = self.get_condition_string_param(condition, 1)?;
-            let surfaces = self.get_condition_int_param(condition, 2).unwrap_or(1) as u32;
-            let engine = self.context.borrowed_engine();
-            let current_player = engine.get_current_player_name();
-            match driver.team_area_membership(
-                &team,
-                &area,
-                current_player.as_deref(),
-                engine.get_calling_team_id(),
-                engine.get_condition_team_id(),
-                surfaces,
-            ) {
-                ScriptOwnerQuery::Present(membership) => {
-                    return Ok(bool_result(team_area_condition_result(
-                        condition_type,
-                        membership,
-                    )));
-                }
-                ScriptOwnerQuery::Missing => {
-                    // C++ TEAM_OUTSIDE_AREA_ENTIRELY negates both inside
-                    // predicates, which are false for a missing team/area.
-                    return Ok(bool_result(
-                        condition_type == ConditionType::TeamOutsideAreaEntirely,
-                    ));
-                }
-                ScriptOwnerQuery::Unavailable => {}
-            }
-        }
-
         if let Some(result) = self.eval_owned_skirmish(condition, driver)? {
             return Ok(result);
         }
@@ -416,70 +252,6 @@ impl ScriptConditionEvaluator<'_> {
                 ScriptOwnerQuery::Present(value) => return Ok(bool_result(value)),
                 ScriptOwnerQuery::Missing => return Ok(bool_result(false)),
                 ScriptOwnerQuery::Unavailable => {}
-            }
-        }
-
-        if let Some(result) = self.eval_owned_named_containment(condition, driver)? {
-            return Ok(result);
-        }
-        if let Some(result) = self.eval_owned_named_owner(condition, driver)? {
-            return Ok(result);
-        }
-        if let Some(result) = self.eval_owned_named_lifecycle(condition, driver)? {
-            return Ok(result);
-        }
-        if let Some(result) = self.eval_owned_body_census(condition, driver)? {
-            return Ok(result);
-        }
-        if let Some(result) = self.eval_receiving_named_facts(condition, driver)? {
-            return Ok(result);
-        }
-
-        if matches!(
-            condition_type,
-            ConditionType::NamedInsideArea
-                | ConditionType::NamedOutsideArea
-                | ConditionType::NamedEnteredArea
-                | ConditionType::NamedExitedArea
-        ) {
-            use crate::scripting::engine::ScriptOwnerQuery;
-            let raw = |index| {
-                condition
-                    .get_parameter(index)
-                    .map(|parameter| parameter.get_string().to_owned())
-                    .ok_or_else(|| {
-                        ScriptError::ParameterNotFound(format!("Parameter {index} not found"))
-                    })
-            };
-            let unit = raw(0)?;
-            let area = raw(1)?;
-            let engine = self.context.borrowed_engine();
-            let player = engine.get_current_player_name();
-            let query = if condition_type == ConditionType::NamedEnteredArea {
-                driver.named_entered_area(
-                    &unit,
-                    &area,
-                    player.as_deref(),
-                    engine.script_object_id(),
-                )
-            } else if condition_type == ConditionType::NamedExitedArea {
-                driver.named_exited_area(&unit, &area, player.as_deref(), engine.script_object_id())
-            } else {
-                driver.named_inside_area(&unit, &area, player.as_deref(), engine.script_object_id())
-            };
-            let inside = match query {
-                ScriptOwnerQuery::Unavailable => None,
-                ScriptOwnerQuery::Missing => Some(false),
-                ScriptOwnerQuery::Present(value) => Some(value),
-            };
-            if let Some(value) = inside {
-                return Ok(Self::bool_result(
-                    if condition_type == ConditionType::NamedOutsideArea {
-                        !value
-                    } else {
-                        value
-                    },
-                ));
             }
         }
 
@@ -2356,21 +2128,6 @@ struct TeamInsideCounts {
     any_considered: bool,
     any_inside: bool,
     any_outside: bool,
-}
-
-fn team_area_condition_result(
-    condition_type: ConditionType,
-    membership: crate::scripting::engine::ScriptTeamAreaMembership,
-) -> bool {
-    let all_inside = membership.any_considered && !membership.any_outside;
-    // C++ TEAM_INSIDE_AREA_PARTIALLY is someInsideSomeOutside || allInside.
-    let partially_inside = membership.any_considered && membership.any_inside;
-    match condition_type {
-        ConditionType::TeamInsideAreaPartially => partially_inside,
-        ConditionType::TeamInsideAreaEntirely => all_inside,
-        ConditionType::TeamOutsideAreaEntirely => !(all_inside || partially_inside),
-        _ => false,
-    }
 }
 
 fn member_counts_for_team_area(obj: &crate::object::Object, which_to_consider: u32) -> bool {

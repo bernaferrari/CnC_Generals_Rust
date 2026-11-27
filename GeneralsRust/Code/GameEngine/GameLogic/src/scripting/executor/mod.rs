@@ -1333,6 +1333,7 @@ mod dispatch;
 pub(crate) use borrowed_presentation::{apply_script_drawable_flash, script_indicator_color};
 mod eval_basic;
 mod eval_named;
+#[cfg(test)]
 mod eval_owned_body_census;
 #[cfg(test)]
 mod eval_owned_player_area;
@@ -1340,6 +1341,7 @@ mod eval_owned_player_area;
 mod eval_owned_player_census;
 mod eval_owned_skirmish;
 mod eval_player_events;
+#[cfg(test)]
 mod eval_receiving_named_facts;
 mod eval_skirmish;
 

@@ -1639,15 +1639,14 @@ impl ScriptExecutionDriver<ScriptEngine> for HostScriptExecutionDriver<'_> {
     fn named_selection(
         &self,
         literal_name: &str,
-        this_object: Option<u32>,
+        _this_object: Option<u32>,
     ) -> ScriptOwnerQuery<generals_sim::scripting::world::ScriptSelectionStatus> {
         ScriptOwnerQuery::Present(generals_sim::scripting::world::ScriptSelectionStatus {
             multiplayer: self.world.isInMultiplayerGame(),
             changed_frame: self.world.selection_changed_frame,
-            selected: self
-                .world
-                .owned_named_script_object(literal_name, this_object.map(ObjectId))
-                .is_some_and(|id| self.world.selected_objects.contains(&id)),
+            selected: self.world.selected_objects.iter().any(|id| {
+                self.world.host_object(*id).is_some_and(|object| object.name == literal_name)
+            }),
         })
     }
 

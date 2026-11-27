@@ -9,6 +9,7 @@ use super::sequential_scripts::{SequentialDriver, SequentialScript, SequentialSc
 use super::side_scripts::SideScripts;
 use crate::GameLogicResult;
 use std::cell::{Cell, Ref, RefCell, RefMut};
+use std::collections::HashMap;
 
 /// The receiving world resolves each side before the runtime walks its scripts.
 pub trait SideScriptDriver {
@@ -45,6 +46,7 @@ pub struct ScriptInterpreter {
     sides: SideScripts,
     sequential: SequentialScripts,
     events: ScriptEvents,
+    transport_observations: RefCell<HashMap<u32, (u32, usize)>>,
 }
 
 impl ScriptInterpreter {
@@ -61,11 +63,13 @@ impl ScriptInterpreter {
             sides: SideScripts::new(player_slots),
             sequential: SequentialScripts::default(),
             events: ScriptEvents::new(player_slots),
+            transport_observations: RefCell::new(HashMap::new()),
         }
     }
 
     pub fn reset(&mut self) {
         self.events.clear();
+        self.transport_observations.get_mut().clear();
         self.frame.get_mut().reset();
         self.invocation = Invocation::default();
         self.sequential.clear();
@@ -128,6 +132,23 @@ impl ScriptInterpreter {
 
     pub fn events(&self) -> &ScriptEvents {
         &self.events
+    }
+
+    /// CPP1945 leaves the previous observation visible on every successful
+    /// query in the same logic frame.
+    pub fn observe_transport_empty(&self, object: u32, frame: u32, count: usize) -> bool {
+        let mut observations = self.transport_observations.borrow_mut();
+        let status = observations.entry(object).or_insert((frame, count));
+        if status.0 == frame.wrapping_sub(1) && status.1 > 0 && count == 0 {
+            return true;
+        }
+        *status = (frame, count);
+        false
+    }
+
+    /// The original ScriptConditions transport observations have no Xfer payload.
+    pub fn clear_transport_observations(&self) {
+        self.transport_observations.borrow_mut().clear();
     }
 
     /// Direct field loans for the positional Xfer codec.

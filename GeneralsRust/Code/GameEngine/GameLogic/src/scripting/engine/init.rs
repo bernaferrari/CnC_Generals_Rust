@@ -116,8 +116,6 @@ impl ScriptEngine {
             inner: std::cell::RefCell::new(ScriptEngineInner {
                 templates: ScriptTemplateCatalog::new(names),
 
-                receiving_transport_statuses: HashMap::new(),
-
                 skirmish_human_player: None,
                 current_track_name: String::new(),
 
@@ -506,8 +504,6 @@ impl ScriptEngine {
         self.runtime.reset();
         {
             let inner = self.inner.get_mut();
-            inner.receiving_transport_statuses.clear();
-
             inner.skirmish_human_player = None;
             inner.current_track_name.clear();
 

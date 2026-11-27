@@ -90,6 +90,18 @@ fn native_selection_stamp_changes_only_at_actual_local_mutations() {
 }
 
 #[test]
+fn selected_drawable_names_are_literal_even_with_a_context_object() {
+    let (mut owner, id, _) = world();
+    owner.select_objects_no_sound(1, vec![id]);
+    let driver = HostScriptExecutionDriver::new(&mut owner);
+    let token = generals_sim::scripting::program::THIS_OBJECT;
+    let ScriptOwnerQuery::Present(selection) = driver.named_selection(token, Some(id.0)) else {
+        panic!("selection belongs to the receiving world");
+    };
+    assert!(!selection.selected);
+}
+
+#[test]
 fn actual_selection_condition_preserves_same_frame_cache_and_multiplayer_cache() {
     let (mut owner, id, _) = world();
     let engine = ScriptEngine::new_in_published_world().unwrap();

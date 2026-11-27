@@ -140,6 +140,20 @@ struct ScriptWorldConditions<'a> {
     driver: &'a mut dyn ScriptExecutionDriver<ScriptEngine>,
 }
 
+impl ScriptConditionQueries for ScriptWorldConditions<'_> {
+    type HostInterpreter = ScriptEngine;
+
+    fn receiving_world(&mut self) -> &mut dyn ScriptExecutionDriver<ScriptEngine> {
+        self.driver
+    }
+
+    fn can_observe_transport(&self) -> bool {
+        // Preserve the legacy evaluator's error for an exclusive observation
+        // requested during an existing ScriptEngineInner loan.
+        self.engine.inner.try_borrow_mut().is_ok()
+    }
+}
+
 impl ScriptMediaQueries for ScriptWorldConditions<'_> {
     fn audio_duration_ms(&self, name: &str) -> f32 {
         self.driver

@@ -2,6 +2,7 @@
 //! C++ ScriptEngine.cpp:6829–6859, 6926–7022, 7558–7650.
 
 use super::ScriptActionResult;
+use super::driver::ScriptExecutionDriver;
 use super::interpreter::ScriptInterpreter;
 use super::media_conditions::ScriptMediaQueries;
 use super::player_area_supply_conditions::ScriptAreaSupplyQueries;
@@ -71,12 +72,17 @@ pub trait ScriptProgramDriver {
 pub trait ScriptConditionQueries:
     ScriptMediaQueries + ScriptPlayerEventQueries + ScriptAreaSupplyQueries
 {
+    type HostInterpreter: ?Sized;
+
+    fn receiving_world(&mut self) -> &mut dyn ScriptExecutionDriver<Self::HostInterpreter>;
+
+    fn can_observe_transport(&self) -> bool {
+        true
+    }
 }
 
-impl<T: ScriptMediaQueries + ScriptPlayerEventQueries + ScriptAreaSupplyQueries> ScriptConditionQueries for T {}
-
 impl ScriptInterpreter {
-    pub fn try_evaluate_player_condition(
+    pub fn try_evaluate_receiving_condition(
         &self,
         condition: &mut Condition,
         frame: u32,
@@ -88,7 +94,13 @@ impl ScriptInterpreter {
         if let Some(value) = self.try_evaluate_player_census(condition, queries)? {
             return Ok(Some(value));
         }
-        self.try_evaluate_area_supply_condition(condition, frame, queries)
+        if let Some(value) = self.try_evaluate_area_supply_condition(condition, frame, queries)? {
+            return Ok(Some(value));
+        }
+        if let Some(value) = self.try_evaluate_named_condition(condition, queries)? {
+            return Ok(Some(value));
+        }
+        self.try_evaluate_team_condition(condition, queries)
     }
 }
 
@@ -154,7 +166,7 @@ fn evaluate_script(
                 {
                     return Ok(Some(value));
                 }
-                interpreter.try_evaluate_player_condition(condition, frame, &mut queries)
+                interpreter.try_evaluate_receiving_condition(condition, frame, &mut queries)
             })
             .map_err(|error| GameLogicError::Configuration(format!("Script condition error: {error}")))?;
         match local {
@@ -332,6 +344,14 @@ mod tests {
         impl ScriptPlayerEventQueries for UnusedQueries {}
         impl super::super::player_census_conditions::ScriptCensusQueries for UnusedQueries {}
         impl ScriptAreaSupplyQueries for UnusedQueries {}
+
+        impl ScriptConditionQueries for UnusedQueries {
+            type HostInterpreter = ();
+
+            fn receiving_world(&mut self) -> &mut dyn ScriptExecutionDriver<()> {
+                panic!("variable condition queried the receiving world")
+            }
+        }
 
         struct World<'a> {
             interpreter: &'a ScriptInterpreter,

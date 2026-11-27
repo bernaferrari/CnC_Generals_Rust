@@ -718,10 +718,6 @@ pub struct ScriptEngineInner {
     // Template registrations
     templates: ScriptTemplateCatalog,
 
-    // Runtime state
-    // ScriptConditions::s_transportStatuses: reset/load-scoped, not original Xfer.
-    receiving_transport_statuses: HashMap<ObjectID, (u32, usize)>,
-
     // Game state
     skirmish_human_player: Option<String>, // Player name instead of pointer
     current_track_name: String,

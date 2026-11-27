@@ -17,6 +17,7 @@ pub mod player_census_conditions;
 pub mod player_event_conditions;
 pub mod program;
 pub mod program_execution;
+mod receiving_conditions;
 pub mod program_install;
 pub mod sequential_scripts;
 pub mod side_scripts;

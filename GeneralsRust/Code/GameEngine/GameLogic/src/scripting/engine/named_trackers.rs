@@ -864,16 +864,8 @@ impl ScriptEngine {
         frame: u32,
         count: usize,
     ) -> Option<bool> {
-        let mut inner = self.inner.try_borrow_mut().ok()?;
-        let status = inner
-            .receiving_transport_statuses
-            .entry(object)
-            .or_insert((frame, count));
-        if status.0 == frame.wrapping_sub(1) && status.1 > 0 && count == 0 {
-            return Some(true);
-        }
-        *status = (frame, count);
-        Some(false)
+        let _inner = self.inner.try_borrow_mut().ok()?;
+        Some(self.runtime.observe_transport_empty(object, frame, count))
     }
 
     /// Receiving cache ownership is external to this interpreter. Preserve
@@ -1273,8 +1265,8 @@ impl ScriptEngine {
     /// enter the original reset/first-update name phase. Transport observations
     /// have no Xfer payload; they cannot survive a load into the same owner.
     pub fn reset_receiving_named_state_for_legacy_load(&self) {
-        let mut inner = self.lock_inner_mut();
-        inner.receiving_transport_statuses.clear();
+        let _inner = self.lock_inner_mut();
+        self.runtime.clear_transport_observations();
         self.runtime.frame_mut().first_update = true;
     }
 
@@ -1300,7 +1292,7 @@ impl ScriptEngine {
             let mut inner = self.lock_inner_mut();
             // Original ScriptConditions reset precedes load; this observation
             // history has no Xfer payload and must not retain the donor run.
-            inner.receiving_transport_statuses.clear();
+            self.runtime.clear_transport_observations();
             priorities.restore(
                 tail.attack_priorities
                     .iter()

@@ -378,6 +378,30 @@ fn team_set_state_action_and_conditions_share_the_receiving_team_owner() {
     )));
 }
 
+#[test]
+fn team_state_condition_compares_the_literal_authored_value() {
+    use gamelogic::scripting::engine::ScriptEngine;
+    use generals_sim::scripting::program::{OrCondition, Script, THIS_PLAYER};
+
+    let (mut world, unit, _) = world();
+    super::condition_cursor_control_tests::admit(&world, "LiteralStateTeam", 95, Some(unit));
+    let factory = world.team_factory.lock().unwrap();
+    let team = factory.find_team_instances("LiteralStateTeam").remove(0);
+    drop(factory);
+    team.write().unwrap().set_state(THIS_PLAYER.into());
+
+    let engine = ScriptEngine::new_with_services(&world.world_services).unwrap();
+    let mut branch = OrCondition::new();
+    branch.set_first_and_condition(Some(Box::new(team_state_condition(
+        ConditionType::TeamStateIs,
+        "LiteralStateTeam",
+        THIS_PLAYER,
+    ))));
+    let mut script = Script::new();
+    script.condition = Some(Box::new(branch));
+    assert!(world.evaluate_owned_script_conditions(&engine, &mut script, Some("NamedOwner")));
+}
+
 fn condition(
     kind: ConditionType,
     comparison: i32,

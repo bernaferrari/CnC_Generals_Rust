@@ -36,42 +36,6 @@ impl ScriptConditionEvaluator<'_> {
         condition.parameters[1].as_mut().unwrap().int_value = state.next_frame as i32;
         Ok(Some(Self::bool_result(false)))
     }
-    pub(super) fn eval_owned_waypoint_complete(
-        &self,
-        condition: &Condition,
-        driver: &dyn ScriptExecutionDriver<crate::scripting::engine::ScriptEngine>,
-    ) -> Result<Option<ScriptConditionResult>, ScriptError> {
-        if condition.get_condition_type() == ConditionType::NamedReachedWaypointsEnd {
-            let engine = self.context.borrowed_engine();
-            return Ok(
-                match driver.named_waypoint_complete(
-                    &self.get_condition_string_param(condition, 0)?,
-                    &self.get_condition_string_param(condition, 1)?,
-                    engine.script_object_id(),
-                ) {
-                    ScriptOwnerQuery::Unavailable => None,
-                    ScriptOwnerQuery::Missing => Some(Self::bool_result(false)),
-                    ScriptOwnerQuery::Present(value) => Some(Self::bool_result(value)),
-                },
-            );
-        }
-        if condition.get_condition_type() != ConditionType::TeamReachedWaypointsEnd {
-            return Ok(None);
-        }
-        let engine = self.context.borrowed_engine();
-        Ok(
-            match driver.team_waypoint_complete(
-                &self.get_condition_string_param(condition, 0)?,
-                &self.get_condition_string_param(condition, 1)?,
-                engine.get_calling_team_id(),
-                engine.get_condition_team_id(),
-            ) {
-                ScriptOwnerQuery::Unavailable => None,
-                ScriptOwnerQuery::Missing => Some(Self::bool_result(false)),
-                ScriptOwnerQuery::Present(value) => Some(Self::bool_result(value)),
-            },
-        )
-    }
     pub(super) fn eval_owned_skirmish(
         &self,
         condition: &Condition,
