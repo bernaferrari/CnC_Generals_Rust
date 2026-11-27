@@ -29,7 +29,7 @@ impl NativeTerrainEffects for Receiver<'_> {
     fn clear_placement_bibs(&mut self) {}
     fn add_water_velocity(&mut self, _: f32, _: f32, _: f32, _: f32) {}
     fn add_scorch(&mut self, _: [f32; 3], _: f32, _: i32) {}
-    fn accepted_height(&mut self, _: gamelogic::terrain::TerrainHeightChange) {}
+    fn accepted_height(&mut self, _: generals_sim::terrain::TerrainHeightChange) {}
     fn water_state(&mut self, _: &gamelogic::terrain_water::WaterGridState) {}
 }
 fn object(id: u32, kinds: &[KindOf]) -> Object {

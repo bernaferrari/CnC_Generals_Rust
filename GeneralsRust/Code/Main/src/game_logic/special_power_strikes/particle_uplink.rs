@@ -1541,7 +1541,7 @@ mod receiving_scorch_tests {
             self.events.borrow_mut().push("scorch");
             self.scorch.push((location.map(f32::to_bits), radius, kind));
         }
-        fn accepted_height(&mut self, _: gamelogic::terrain::TerrainHeightChange) {}
+        fn accepted_height(&mut self, _: generals_sim::terrain::TerrainHeightChange) {}
         fn water_state(&mut self, _: &gamelogic::terrain_water::WaterGridState) {}
     }
 

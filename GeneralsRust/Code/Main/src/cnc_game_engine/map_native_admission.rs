@@ -281,7 +281,7 @@ mod tests {
                     .terrain
                     .as_deref_mut()
                     .unwrap()
-                    .accepted_height(gamelogic::terrain::TerrainHeightChange {
+                    .accepted_height(generals_sim::terrain::TerrainHeightChange {
                         playable_x: 1,
                         playable_y: 1,
                         sample_x: 1,

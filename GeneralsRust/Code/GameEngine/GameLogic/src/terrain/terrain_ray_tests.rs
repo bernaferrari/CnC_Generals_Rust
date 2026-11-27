@@ -27,16 +27,6 @@ fn malformed_terrain_ray_grid_and_nonfinite_segment_are_errors_not_misses() {
 }
 
 #[test]
-fn source_fast_cell_conversion_preserves_negative_integer_and_signed_zero_cases() {
-    assert_eq!(source_floor(-1.).unwrap(), -2);
-    assert_eq!(source_ceil(1.).unwrap(), 2);
-    assert_eq!(source_floor(-0.).unwrap(), 0);
-    assert_eq!(source_ceil(0.).unwrap(), 0);
-    assert_eq!(source_floor(-1.25).unwrap(), -2);
-    assert_eq!(source_ceil(1.25).unwrap(), 2);
-}
-
-#[test]
 fn receiving_cast_reads_restored_heights_and_misses_after_its_owner_resets() {
     let loaded = |sample| {
         let mut map = crate::system::map_loader::MapData::new();

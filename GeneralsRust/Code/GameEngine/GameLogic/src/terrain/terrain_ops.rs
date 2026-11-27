@@ -3,56 +3,16 @@
 use super::*;
 
 impl TerrainLogic {
-    pub(super) fn checked_height_sample_len(
-        width: i32,
-        height: i32,
-        border: i32,
-    ) -> Result<usize, String> {
-        if width <= 0
-            || height <= 0
-            || border < 0
-            || width
-                .checked_add(border)
-                .and_then(|n| n.checked_add(border))
-                .and_then(|n| n.checked_add(132))
-                .is_none()
-            || height
-                .checked_add(border)
-                .and_then(|n| n.checked_add(border))
-                .and_then(|n| n.checked_add(132))
-                .is_none()
-        {
-            return Err("invalid terrain height dimensions/border".into());
-        }
-        let len = (width as usize)
-            .checked_mul(height as usize)
-            .ok_or("terrain height sample count overflow")?;
-        if len > isize::MAX as usize {
-            return Err("terrain height allocation exceeds addressable slice".into());
-        }
-        Ok(len)
-    }
     /// Every admitted map is either the canonical unloaded tuple or a full grid.
     pub fn validate_height_map(&self) -> Result<(), String> {
-        if self.map_dx == 0 && self.map_dy == 0 && self.border_size == 0 && self.map_data.is_empty()
-        {
-            return Ok(());
-        }
-        let expected = Self::checked_height_sample_len(self.map_dx, self.map_dy, self.border_size)?;
-        if expected != self.map_data.len() {
-            return Err("terrain height sample count disagrees with dimensions".into());
-        }
-        Ok(())
+        self.height_map.validate()
     }
 
     pub fn height_revision(&self) -> u64 {
-        self.height_revision
+        self.height_map.revision()
     }
     pub fn logic_height_map_border_size(&self) -> i32 {
-        self.border_size
-    }
-    pub(super) fn bump_height_revision(&mut self) {
-        self.height_revision = self.height_revision.wrapping_add(1);
+        self.height_map.border_size()
     }
 
     /// Get active boundary
@@ -62,12 +22,12 @@ impl TerrainLogic {
 
     /// C++ `WorldHeightMap` extent used by `W3DTerrainVisual::xfer` v>=2.
     pub fn logic_height_map_extents(&self) -> (i32, i32) {
-        (self.map_dx, self.map_dy)
+        self.height_map.extents()
     }
 
     /// Raw logic-height bytes (`m_logicHeightMap->getDataPtr()`).
     pub fn logic_height_map_bytes(&self) -> &[u8] {
-        &self.map_data
+        self.height_map.samples()
     }
 
     /// Apply C++ `W3DTerrainVisual::xfer` v>=2 height-map payload.
@@ -96,24 +56,9 @@ impl TerrainLogic {
         data: &[u8],
         effect: &mut impl FnMut(),
     ) -> Result<(), String> {
-        self.validate_height_map()?;
-        if self.map_data.is_empty() {
-            if data.is_empty() {
-                return Ok(());
-            }
-            return Err("cannot apply height bytes without an admitted receiving grid".into());
+        if self.height_map.apply_snapshot_prefix(data)? {
+            effect();
         }
-        let mut len = (self.map_dx as usize).saturating_mul(self.map_dy as usize);
-        len = len.min(self.map_data.len()).min(data.len());
-        if self.map_data[..len] != data[..len] {
-            self.bump_height_revision();
-        }
-        self.map_data[..len].copy_from_slice(&data[..len]);
-        self.cliff_state
-            .rebuild(&self.map_data, self.map_dx, self.map_dy);
-
-        effect();
-
         Ok(())
     }
 
@@ -146,31 +91,8 @@ impl TerrainLogic {
         data: &[u8],
         effect: &mut impl FnMut(),
     ) -> Result<(), String> {
-        self.validate_height_map()?;
-        let expected = Self::checked_height_sample_len(width, height, self.border_size)?;
-        // Reserve the entire replacement before touching the receiving owner.
-        let mut replacement = Vec::new();
-        replacement
-            .try_reserve_exact(expected)
-            .map_err(|_| "terrain height allocation failed")?;
-        replacement.resize(expected, 0);
-        let n = expected.min(data.len());
-        replacement[..n].copy_from_slice(&data[..n]);
-        self.bump_height_revision();
-        self.map_dx = width;
-        self.map_dy = height;
-        self.map_data = replacement;
-        if let Some((&min_height, &max_height)) =
-            self.map_data.iter().min().zip(self.map_data.iter().max())
-        {
-            self.map_min_z = min_height as f32 * MAP_HEIGHT_SCALE;
-            self.map_max_z = max_height as f32 * MAP_HEIGHT_SCALE;
-        }
-        self.cliff_state
-            .rebuild(&self.map_data, self.map_dx, self.map_dy);
-
+        self.height_map.restore_snapshot(width, height, data)?;
         effect();
-
         Ok(())
     }
 
@@ -267,119 +189,8 @@ impl TerrainLogic {
         halfsize_y: f32,
         effect: &mut impl FnMut(TerrainHeightChange),
     ) -> Result<(), String> {
-        if halfsize_x <= 0.0 && halfsize_y <= 0.0 {
-            return Ok(());
-        }
-        let c = angle.cos();
-        let s = angle.sin();
-
-        let top_left_x = x - halfsize_x * c - halfsize_y * s;
-        let top_left_y = y + halfsize_y * c - halfsize_x * s;
-        let top_right_x = x + halfsize_x * c - halfsize_y * s;
-        let top_right_y = y + halfsize_y * c + halfsize_x * s;
-        let bottom_right_x = x + halfsize_x * c + halfsize_y * s;
-        let bottom_right_y = y - halfsize_y * c + halfsize_x * s;
-        let bottom_left_x = x - halfsize_x * c + halfsize_y * s;
-        let bottom_left_y = y - halfsize_y * c - halfsize_x * s;
-
-        let min_x = top_left_x
-            .min(top_right_x)
-            .min(bottom_right_x)
-            .min(bottom_left_x);
-        let max_x = top_left_x
-            .max(top_right_x)
-            .max(bottom_right_x)
-            .max(bottom_left_x);
-        let min_y = top_left_y
-            .min(top_right_y)
-            .min(bottom_right_y)
-            .min(bottom_left_y);
-        let max_y = top_left_y
-            .max(top_right_y)
-            .max(bottom_right_y)
-            .max(bottom_left_y);
-
-        let i_min_x = super::terrain_ray::source_floor((min_x / MAP_XY_FACTOR))?;
-        let _i_min_y = super::terrain_ray::source_floor((min_y / MAP_XY_FACTOR))?;
-        let i_max_x = super::terrain_ray::source_floor((max_x / MAP_XY_FACTOR))?;
-        let i_max_y = super::terrain_ray::source_floor((max_y / MAP_XY_FACTOR))?;
-
-        let mut total_height: f32 = 0.0;
-        let mut num_samples: i32 = 0;
-        for i in i_min_x..=i_max_x {
-            // C++ bug: j starts at 0, not iMin.y — we match C++ exactly
-            for j in 0..=i_max_y {
-                let test_pt_x = i as f32 * MAP_XY_FACTOR;
-                let test_pt_y = j as f32 * MAP_XY_FACTOR;
-                let match_tri = Self::point_in_triangle_2d(
-                    top_left_x,
-                    top_left_y,
-                    top_right_x,
-                    top_right_y,
-                    bottom_left_x,
-                    bottom_left_y,
-                    test_pt_x,
-                    test_pt_y,
-                ) || Self::point_in_triangle_2d(
-                    top_right_x,
-                    top_right_y,
-                    bottom_right_x,
-                    bottom_right_y,
-                    bottom_left_x,
-                    bottom_left_y,
-                    test_pt_x,
-                    test_pt_y,
-                );
-                if match_tri {
-                    total_height += self.get_ground_height(test_pt_x, test_pt_y, None);
-                    num_samples += 1;
-                }
-            }
-        }
-        if num_samples == 0 {
-            return Ok(());
-        }
-        let avg_height = total_height / num_samples as f32;
-        let mut raw_data_height =
-            super::terrain_ray::source_floor((0.5 + avg_height / MAP_HEIGHT_SCALE))?;
-
-        let center_height = super::terrain_ray::source_floor(
-            (self.get_ground_height(x, y, None) / MAP_HEIGHT_SCALE),
-        )?;
-        if raw_data_height > center_height {
-            raw_data_height = center_height;
-        }
-
-        for i in i_min_x..=i_max_x {
-            for j in 0..=i_max_y {
-                let test_pt_x = i as f32 * MAP_XY_FACTOR;
-                let test_pt_y = j as f32 * MAP_XY_FACTOR;
-                let match_tri = Self::point_in_triangle_2d(
-                    top_left_x,
-                    top_left_y,
-                    top_right_x,
-                    top_right_y,
-                    bottom_left_x,
-                    bottom_left_y,
-                    test_pt_x,
-                    test_pt_y,
-                ) || Self::point_in_triangle_2d(
-                    top_right_x,
-                    top_right_y,
-                    bottom_right_x,
-                    bottom_right_y,
-                    bottom_left_x,
-                    bottom_left_y,
-                    test_pt_x,
-                    test_pt_y,
-                );
-                if match_tri {
-                    self.lower_footprint_cell_with_effects(i, j, raw_data_height, effect);
-                }
-            }
-        }
-
-        Ok(())
+        self.height_map
+            .flatten_terrain_box_at_with_effects(x, y, angle, halfsize_x, halfsize_y, effect)
     }
 
     /// Flatten a circular footprint at world XY (C++ ground plane).
@@ -399,52 +210,8 @@ impl TerrainLogic {
         radius: f32,
         effect: &mut impl FnMut(TerrainHeightChange),
     ) -> Result<(), String> {
-        if radius <= 0.0 {
-            return Ok(());
-        }
-        let radius_sqr = radius * radius;
-        let i_min_x = super::terrain_ray::source_floor(((x - radius) / MAP_XY_FACTOR))?;
-        let i_max_x = super::terrain_ray::source_floor(((x + radius) / MAP_XY_FACTOR))?;
-        let i_max_y = super::terrain_ray::source_floor(((y + radius) / MAP_XY_FACTOR))?;
-        let mut total_height: f32 = 0.0;
-        let mut num_samples: i32 = 0;
-        for i in i_min_x..=i_max_x {
-            for j in 0..=i_max_y {
-                let test_pt_x = i as f32 * MAP_XY_FACTOR;
-                let test_pt_y = j as f32 * MAP_XY_FACTOR;
-                let dx = test_pt_x - x;
-                let dy = test_pt_y - y;
-                if dx * dx + dy * dy < radius_sqr {
-                    total_height += self.get_ground_height(test_pt_x, test_pt_y, None);
-                    num_samples += 1;
-                }
-            }
-        }
-        if num_samples == 0 {
-            return Ok(());
-        }
-        let avg_height = total_height / num_samples as f32;
-        let raw_data_height =
-            super::terrain_ray::source_floor((0.5 + avg_height / MAP_HEIGHT_SCALE))?;
-        for i in i_min_x..=i_max_x {
-            for j in 0..=i_max_y {
-                let test_pt_x = i as f32 * MAP_XY_FACTOR;
-                let test_pt_y = j as f32 * MAP_XY_FACTOR;
-                let dx = test_pt_x - x;
-                let dy = test_pt_y - y;
-                if dx * dx + dy * dy < radius_sqr {
-                    self.lower_footprint_cell_with_effects(i, j, raw_data_height, effect);
-                }
-            }
-        }
-
-        Ok(())
-    }
-
-    /// C++ `MAX(1, getRawMapHeight(&gridPos) - displacementAmount)`:
-    /// Int promotes to Real, subtract, then truncate toward zero to Int.
-    pub(super) fn crater_raw_target_height(current_height: i32, displacement_amount: f32) -> i32 {
-        1i32.max((current_height as f32 - displacement_amount) as i32)
+        self.height_map
+            .flatten_terrain_at_with_effects(x, y, radius, effect)
     }
 
     /// Dig a deep circular gorge into the terrain beneath an object.
@@ -460,31 +227,8 @@ impl TerrainLogic {
 
         let pos = obj_guard.get_position();
         let radius = obj_guard.get_geometry_info().get_major_radius();
-        if radius <= 0.0 {
-            return;
-        }
-
-        let i_min_x = ((pos.x - radius) / MAP_XY_FACTOR).floor() as i32;
-        let _i_min_y = ((pos.y - radius) / MAP_XY_FACTOR).floor() as i32;
-        let i_max_x = ((pos.x + radius) / MAP_XY_FACTOR).floor() as i32;
-        let i_max_y = ((pos.y + radius) / MAP_XY_FACTOR).floor() as i32;
-
-        for i in i_min_x..=i_max_x {
-            // C++ bug: j starts at 0, not iMin.y — we match C++ exactly
-            for j in 0..=i_max_y {
-                let delta_x = i as f32 * MAP_XY_FACTOR - pos.x;
-                let delta_y = j as f32 * MAP_XY_FACTOR - pos.y;
-                let distance = (delta_x * delta_x + delta_y * delta_y).sqrt();
-
-                if distance < radius {
-                    let displacement_amount = radius * (1.0 - distance / radius);
-                    let current_height = self.get_raw_map_height(i, j);
-                    let target_height =
-                        Self::crater_raw_target_height(current_height, displacement_amount);
-                    self.set_raw_map_height(i, j, target_height);
-                }
-            }
-        }
+        self.height_map
+            .create_crater(pos.x, pos.y, radius, &mut compatibility_height_change);
     }
 
     /// Set raw map height at grid position — only lowers, never raises.
@@ -492,6 +236,7 @@ impl TerrainLogic {
     ///
     /// C++ adds getBorderSizeInline() to the incoming playable-grid coords
     /// before indexing the full (playable + 2*border) height buffer.
+    #[cfg(test)]
     pub(super) fn set_raw_map_height(&mut self, x: i32, y: i32, height: i32) {
         self.set_raw_map_height_with_effects(x, y, height, &mut compatibility_height_change);
     }
@@ -504,102 +249,15 @@ impl TerrainLogic {
         height: i32,
         effect: &mut impl FnMut(TerrainHeightChange),
     ) {
-        let Some(idx) = self.raw_map_height_index(x, y) else {
-            return;
-        };
-        // Original compares Int before narrowing its accepted value to u8.
-        if self.map_data[idx] as i32 > height {
-            let accepted = height as u8;
-            let changed = self.map_data[idx] != accepted;
-            self.map_data[idx] = accepted;
-            if changed {
-                self.bump_height_revision();
-            }
-            let grid_x = (idx % self.map_dx as usize) as i32;
-            let grid_y = (idx / self.map_dx as usize) as i32;
-            self.cliff_state.refresh_vertex(
-                &self.map_data,
-                self.map_dx,
-                self.map_dy,
-                grid_x,
-                grid_y,
-            );
-            effect(TerrainHeightChange {
-                playable_x: x,
-                playable_y: y,
-                sample_x: grid_x,
-                sample_y: grid_y,
-                raw_height: accepted,
-                requested_height: height,
-            });
-        }
-    }
-
-    // WorldHeightMap::getHeight/setRawHeight validate the flattened index,
-    // not X and Y independently; edge aliases are intentional source behavior.
-    fn raw_map_height_index(&self, x: i32, y: i32) -> Option<usize> {
-        if self.map_dx <= 0 {
-            return None;
-        }
-        let x = i64::from(x) + i64::from(self.border_size);
-        let y = i64::from(y) + i64::from(self.border_size);
-        let index = y.checked_mul(i64::from(self.map_dx))?.checked_add(x)?;
-        usize::try_from(index)
-            .ok()
-            .filter(|&index| index < self.map_data.len())
-    }
-
-    fn lower_footprint_cell_with_effects(
-        &mut self,
-        x: i32,
-        y: i32,
-        height: i32,
-        effect: &mut impl FnMut(TerrainHeightChange),
-    ) {
-        for (dx, dy) in [
-            (0, 0),
-            (-1, 0),
-            (1, 0),
-            (0, -1),
-            (0, 1),
-            (-1, -1),
-            (1, 1),
-            (1, -1),
-            (-1, 1),
-        ] {
-            if let Some((x, y)) = x.checked_add(dx).zip(y.checked_add(dy)) {
-                self.set_raw_map_height_with_effects(x, y, height, effect);
-            }
-        }
+        self.height_map
+            .set_raw_map_height_with_effects(x, y, height, effect);
     }
 
     /// Get raw map height at grid position.
     /// Reference: C++ W3DTerrainVisual::getRawMapHeight() in W3DTerrainVisual.cpp:941-951
+    #[cfg(test)]
     pub(super) fn get_raw_map_height(&self, x: i32, y: i32) -> i32 {
-        self.raw_map_height_index(x, y)
-            .map_or(0, |index| self.map_data[index] as i32)
-    }
-
-    /// 2D point-in-triangle test using cross products.
-    /// Reference: C++ Point_In_Triangle_2D
-    fn point_in_triangle_2d(
-        v0x: f32,
-        v0y: f32,
-        v1x: f32,
-        v1y: f32,
-        v2x: f32,
-        v2y: f32,
-        px: f32,
-        py: f32,
-    ) -> bool {
-        let d1 = (px - v1x) * (v0y - v1y) - (v0x - v1x) * (py - v1y);
-        let d2 = (px - v2x) * (v1y - v2y) - (v1x - v2x) * (py - v2y);
-        let d3 = (px - v0x) * (v2y - v0y) - (v2x - v0x) * (py - v0y);
-
-        let has_neg = (d1 < 0.0) || (d2 < 0.0) || (d3 < 0.0);
-        let has_pos = (d1 > 0.0) || (d2 > 0.0) || (d3 > 0.0);
-
-        !(has_neg && has_pos)
+        self.height_map.get_raw_map_height(x, y)
     }
 }
 

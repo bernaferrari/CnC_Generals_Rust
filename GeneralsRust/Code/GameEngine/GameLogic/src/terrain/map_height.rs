@@ -2,20 +2,14 @@
 
 use super::*;
 use crate::system::map_loader::{BridgeData, MapData};
+use generals_sim::terrain::TerrainHeightMap;
+use math_utilities::Vector3;
 
 impl TerrainLogic {
     pub fn new() -> Self {
         Self {
-            map_data: Vec::new(),
-            height_revision: 0,
-            map_dx: 0,
-            map_dy: 0,
-            map_min_z: 0.0,
-            map_max_z: 1.0,
+            height_map: TerrainHeightMap::default(),
             boundaries: Vec::new(),
-            border_size: 0,
-            cliff_state: crate::terrain_cliff::CliffBitfield::new(),
-
             active_boundary: 0,
             waypoint_list_head: None,
             bridge_list_head: None,
@@ -78,43 +72,15 @@ impl TerrainLogic {
     }
     /// Check a decoded map before a caller resets map-scoped subsystems.
     pub fn validate_map_geometry(map_data: &MapData) -> Result<(), String> {
-        Self::map_geometry_extents(map_data).map(|_| ())
+        TerrainHeightMap::map_dimensions(
+            map_data.width,
+            map_data.height,
+            map_data.border_size,
+            map_data.heightmap.len(),
+        )
+        .map(|_| ())
     }
 
-    fn map_geometry_extents(map_data: &MapData) -> Result<(i32, i32), String> {
-        let width =
-            i32::try_from(map_data.width).map_err(|_| "terrain map width exceeds index domain")?;
-        let height = i32::try_from(map_data.height)
-            .map_err(|_| "terrain map height exceeds index domain")?;
-        let border = map_data.border_size;
-        let (width, height) =
-            if width == 0 && height == 0 && border == 0 && map_data.heightmap.is_empty() {
-                (0, 0)
-            } else {
-                let twice_border = border.checked_mul(2).ok_or("terrain map border overflow")?;
-                let full = width
-                    .checked_add(twice_border)
-                    .zip(height.checked_add(twice_border));
-                let full = full.filter(|&(w, h)| {
-                    border > 0
-                        && Self::checked_height_sample_len(w, h, border).ok()
-                            == Some(map_data.heightmap.len())
-                });
-                if let Some(full) = full {
-                    full
-                } else {
-                    let expected = Self::checked_height_sample_len(width, height, border)?;
-                    if expected != map_data.heightmap.len() {
-                        return Err("terrain map bytes disagree with full/sample dimensions".into());
-                    }
-                    (width, height)
-                }
-            };
-
-        Ok((width, height))
-    }
-
-    /// Validate shape before changing any receiving bytes, metadata or revision.
     pub fn try_load_map_geometry(
         &mut self,
         map_data: MapData,
@@ -142,32 +108,14 @@ impl TerrainLogic {
     }
 
     fn install_map_terrain(&mut self, map_data: MapData) -> Result<Vec<BridgeData>, String> {
-        let (width, height) = Self::map_geometry_extents(&map_data)?;
-
+        self.height_map.admit(
+            map_data.width,
+            map_data.height,
+            map_data.border_size,
+            map_data.heightmap,
+        )?;
         self.query_load_pending = false;
-
-        // Store heightmap. MapData.width/height are playable (minus 2*border);
-        // sample buffer is C++ full extent including border. Keep map_dx/dy as
-        // full stride so indexing matches WorldHeightMap::getXExtent().
-        // The parsed map is consumed here. Keep one live logical height buffer
-        // for sampling, deformation and Xfer instead of an unused second copy.
-        self.bump_height_revision();
-        self.map_data = map_data.heightmap;
-        self.map_dx = width;
-        self.map_dy = height;
-        if let Some((&min_height, &max_height)) =
-            self.map_data.iter().min().zip(self.map_data.iter().max())
-        {
-            self.map_min_z = min_height as f32 * MAP_HEIGHT_SCALE;
-            self.map_max_z = max_height as f32 * MAP_HEIGHT_SCALE;
-        } else {
-            self.map_min_z = 0.0;
-            self.map_max_z = 1.0;
-        }
         self.boundaries = map_data.boundaries;
-        self.border_size = map_data.border_size;
-        self.cliff_state
-            .rebuild(&self.map_data, self.map_dx, self.map_dy);
 
         // Rebuild grid-water handle using C++ sentinel name and map extent.
         let grid_height = map_data
@@ -229,17 +177,20 @@ impl TerrainLogic {
 
     /// Get map extent including border in world coordinates.
     pub fn get_extent_including_border(&self) -> Region3D {
-        let border = (self.border_size.max(0) as f32) * MAP_XY_FACTOR;
-        let width = (self.map_dx.max(0) as f32) * MAP_XY_FACTOR - border;
-        let height = (self.map_dy.max(0) as f32) * MAP_XY_FACTOR - border;
+        let (samples_x, samples_y) = self.height_map.extents();
+        let (min_z, max_z) = self.height_map.vertical_range();
+        let border = (self.height_map.border_size().max(0) as f32) * MAP_XY_FACTOR;
+        let width = (samples_x.max(0) as f32) * MAP_XY_FACTOR - border;
+        let height = (samples_y.max(0) as f32) * MAP_XY_FACTOR - border;
         Region3D::new(
-            Coord3D::new(-border, -border, self.map_min_z),
-            Coord3D::new(width, height, self.map_max_z),
+            Coord3D::new(-border, -border, min_z),
+            Coord3D::new(width, height, max_z),
         )
     }
 
     /// Get largest pathfind boundary in world coordinates.
     pub fn get_maximum_pathfind_extent(&self) -> Region3D {
+        let (min_z, max_z) = self.height_map.vertical_range();
         let mut hi_x: f32 = 0.0;
         let mut hi_y: f32 = 0.0;
         for boundary in &self.boundaries {
@@ -248,8 +199,8 @@ impl TerrainLogic {
         }
 
         Region3D::new(
-            Coord3D::new(0.0, 0.0, self.map_min_z),
-            Coord3D::new(hi_x, hi_y, self.map_max_z),
+            Coord3D::new(0.0, 0.0, min_z),
+            Coord3D::new(hi_x, hi_y, max_z),
         )
     }
 
@@ -258,6 +209,7 @@ impl TerrainLogic {
     ///
     /// Returns the bounding box of the playable map area.
     pub fn get_extent(&self) -> Region3D {
+        let (min_z, max_z) = self.height_map.vertical_range();
         let active_boundary = self
             .boundaries
             .get(self.active_boundary.max(0) as usize)
@@ -265,11 +217,11 @@ impl TerrainLogic {
             .unwrap_or_else(|| ICoord2D::new(0, 0));
 
         Region3D::new(
-            Coord3D::new(0.0, 0.0, self.map_min_z),
+            Coord3D::new(0.0, 0.0, min_z),
             Coord3D::new(
                 active_boundary.x as f32 * MAP_XY_FACTOR,
                 active_boundary.y as f32 * MAP_XY_FACTOR,
-                self.map_max_z,
+                max_z,
             ),
         )
     }
@@ -283,12 +235,13 @@ impl TerrainLogic {
         if boundary.x == 0 || boundary.y == 0 {
             return None;
         }
+        let (min_z, max_z) = self.height_map.vertical_range();
         Some(Region3D::new(
-            Coord3D::new(0.0, 0.0, self.map_min_z),
+            Coord3D::new(0.0, 0.0, min_z),
             Coord3D::new(
                 boundary.x as f32 * MAP_XY_FACTOR,
                 boundary.y as f32 * MAP_XY_FACTOR,
-                self.map_max_z,
+                max_z,
             ),
         ))
     }
@@ -301,15 +254,8 @@ impl TerrainLogic {
 
     /// Reset the terrain system
     pub fn reset(&mut self) {
-        self.bump_height_revision();
-        self.map_data.clear();
-        self.map_dx = 0;
-        self.map_dy = 0;
-        self.map_min_z = 0.0;
-        self.map_max_z = 1.0;
+        self.height_map.clear();
         self.boundaries.clear();
-        self.border_size = 0;
-        self.cliff_state.clear();
 
         self.active_boundary = 0;
         self.waypoint_list_head = None;
@@ -492,145 +438,11 @@ impl TerrainLogic {
     }
 
     pub fn has_height_map(&self) -> bool {
-        !self.map_data.is_empty() && self.map_dx > 0 && self.map_dy > 0
+        self.height_map.has_height_map()
     }
     /// Get ground height at position
     pub fn get_ground_height(&self, x: f32, y: f32, normal: Option<&mut Coord3D>) -> f32 {
-        if self.map_data.is_empty() || self.map_dx <= 0 || self.map_dy <= 0 {
-            if let Some(n) = normal {
-                *n = Coord3D::new(0.0, 0.0, 1.0);
-            }
-            return 0.0;
-        }
-
-        // BaseHeightMap.cpp multiplies by the stored reciprocal, then uses
-        // FAST_REAL_FLOOR. Negative exact integers deliberately differ from
-        // mathematical floor after the source's almost-one subtraction.
-        const MAP_XY_FACTOR_INV: f32 = 1.0 / MAP_XY_FACTOR;
-        let map_x = x * MAP_XY_FACTOR_INV;
-        let map_y = y * MAP_XY_FACTOR_INV;
-        let (Ok(ixf), Ok(iyf)) = (
-            super::source_height_cell_floor(map_x),
-            super::source_height_cell_floor(map_y),
-        ) else {
-            // Original conversion is undefined outside its finite Int domain.
-            // Reject it without indexing or manufacturing a fallback cell.
-            if let Some(n) = normal {
-                *n = Coord3D::new(0.0, 0.0, 1.0);
-            }
-            return 0.0;
-        };
-        let fx = map_x - ixf as f32;
-        let fy = map_y - iyf as f32;
-
-        // Add the authored border only after the source conversion.
-        let Some((ix, iy)) = ixf
-            .checked_add(self.border_size)
-            .zip(iyf.checked_add(self.border_size))
-        else {
-            if let Some(n) = normal {
-                *n = Coord3D::new(0.0, 0.0, 1.0);
-            }
-            return 0.0;
-        };
-
-        let x_extent = self.map_dx;
-        let y_extent = self.map_dy;
-
-        let get_height_sample = |gx: i32, gy: i32| -> f32 {
-            let cx = gx.clamp(0, x_extent.saturating_sub(1).max(0));
-            let cy = gy.clamp(0, y_extent.saturating_sub(1).max(0));
-            let idx = (cy * x_extent + cx) as usize;
-            if idx < self.map_data.len() {
-                self.map_data[idx] as f32
-            } else {
-                0.0
-            }
-        };
-
-        // C++ rejects ix/iy < 1 or > extent-3 (needs neighborhood for normals).
-        if x_extent >= 3
-            && y_extent >= 3
-            && (ix > x_extent - 3 || iy > y_extent - 3 || iy < 1 || ix < 1)
-        {
-            if let Some(n) = normal {
-                *n = Coord3D::new(0.0, 0.0, 1.0);
-            }
-            return get_height_sample(ix, iy) * MAP_HEIGHT_SCALE;
-        }
-
-        let p0 = get_height_sample(ix, iy);
-        let p1 = get_height_sample(ix + 1, iy);
-        let p2 = get_height_sample(ix + 1, iy + 1);
-        let p3 = get_height_sample(ix, iy + 1);
-
-        // Triangle-based barycentric interpolation matching C++ BaseHeightMapRenderObjClass::getHeightMapHeight
-        // C++ tessellation: diagonal from (0,0) to (1,1)
-        //   3-----2
-        //   |    /|
-        //   |  /  |
-        //   |/    |
-        //   0-----1
-        let height = if fy > fx {
-            // Upper triangle: vertices p0, p2, p3
-            (p3 + (1.0 - fy) * (p0 - p3) + fx * (p2 - p3)) * MAP_HEIGHT_SCALE
-        } else {
-            // Lower triangle: vertices p0, p1, p2
-            (p1 + fy * (p2 - p1) + (1.0 - fx) * (p0 - p1)) * MAP_HEIGHT_SCALE
-        };
-
-        if let Some(n) = normal {
-            // C++ BaseHeightMapRenderObjClass::getHeightMapHeight (BaseHeightMap.cpp:914-970)
-            // bilinearly smooths deltaZ_X/deltaZ_Y over 4 samples each (12 neighbors),
-            // then builds l2r/n2f and a normalized cross product.
-            let d0 = p0;
-            let d1 = p1;
-            let d2 = p2;
-            let d3 = p3;
-            let d4 = get_height_sample(ix, iy - 1);
-            let d5 = get_height_sample(ix + 1, iy - 1);
-            let d6 = get_height_sample(ix + 2, iy);
-            let d7 = get_height_sample(ix + 2, iy + 1);
-            let d8 = get_height_sample(ix + 1, iy + 2);
-            let d9 = get_height_sample(ix, iy + 2);
-            let _d10 = get_height_sample(ix - 1, iy + 1);
-            let d11 = get_height_sample(ix - 1, iy);
-
-            let delta_z_x0 = d1 - d11;
-            let delta_z_x1 = d6 - d0;
-            let delta_z_x2 = d7 - d3;
-            let delta_z_x3 = d6 - d0;
-            let delta_z_y0 = d3 - d4;
-            let delta_z_y1 = d2 - d5;
-            let delta_z_y2 = d8 - d1;
-            let delta_z_y3 = d9 - d0;
-
-            let delta_z_x_left = delta_z_x0 * (1.0 - fx) + fx * delta_z_x3;
-            let delta_z_x_right = delta_z_x1 * (1.0 - fx) + fx * delta_z_x2;
-            let delta_z_x = delta_z_x_left * (1.0 - fy) + fy * delta_z_x_right;
-            let delta_z_y_left = delta_z_y0 * (1.0 - fx) + fx * delta_z_y3;
-            let delta_z_y_right = delta_z_y1 * (1.0 - fx) + fx * delta_z_y2;
-            let delta_z_y = delta_z_y_left * (1.0 - fy) + fy * delta_z_y_right;
-
-            let l2r_x = 2.0 * MAP_XY_FACTOR / MAP_HEIGHT_SCALE;
-            let n2f_y = 2.0 * MAP_XY_FACTOR / MAP_HEIGHT_SCALE;
-            let mut nx = 0.0 * delta_z_y - n2f_y * delta_z_x;
-            let mut ny = delta_z_x * 0.0 - l2r_x * delta_z_y;
-            let mut nz = l2r_x * n2f_y - 0.0 * 0.0;
-            let len = (nx * nx + ny * ny + nz * nz).sqrt();
-            if len > f32::EPSILON {
-                nx /= len;
-                ny /= len;
-                nz /= len;
-            } else {
-                nx = 0.0;
-                ny = 0.0;
-                nz = 1.0;
-            }
-            *n = Coord3D::new(nx, ny, nz);
-        }
-
-        height
+        self.height_map.get_ground_height(x, y, normal)
     }
 
     /// Get layer height at position
@@ -934,15 +746,12 @@ impl TerrainLogic {
 
     /// Check clear line of sight
     pub fn is_clear_line_of_sight(&self, pos1: &Coord3D, pos2: &Coord3D) -> bool {
-        crate::terrain_los::is_clear_line_of_sight(
-            pos1,
-            pos2,
-            &self.map_data,
-            self.map_dx,
-            self.map_dy,
-            self.border_size,
-            self.map_max_z,
-        )
+        self.height_map.is_clear_line_of_sight(pos1, pos2)
+    }
+
+    /// Cast against this instance's logical terrain in original XYZ space.
+    pub fn cast_terrain_ray(&self, start: Vector3, end: Vector3) -> Result<TerrainRayCast, String> {
+        self.height_map.cast_terrain_ray(start, end)
     }
 
     /// Get source filename

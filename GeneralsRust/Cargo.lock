@@ -3722,6 +3722,7 @@ dependencies = [
  "generals_map",
  "glam",
  "log",
+ "math_utilities",
  "serde",
  "serde_json",
  "thiserror 2.0.20",

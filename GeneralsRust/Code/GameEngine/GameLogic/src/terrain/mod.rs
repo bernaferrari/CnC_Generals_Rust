@@ -637,40 +637,11 @@ pub struct TerrainDynamicWaterSnapshotEntry {
     pub current_height: f32,
 }
 
-/// One accepted raw lower-write, in original playable ground-plane XY.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct TerrainHeightChange {
-    pub playable_x: i32,
-    pub playable_y: i32,
-    /// Accepted canonical sample after original flattened-index bounds checking.
-    pub sample_x: i32,
-    pub sample_y: i32,
-    pub raw_height: u8,
-    /// Original Int argument before WorldHeightMap byte narrowing.
-    pub requested_height: i32,
-}
-
 /// Main terrain logic system
 pub struct TerrainLogic {
-    /// Array of height samples
-    map_data: Vec<u8>,
-    /// Receiving height cache identity; never part of saved game wire state.
-    height_revision: u64,
-    /// Width of map samples
-    map_dx: i32,
-    /// Height of map samples
-    map_dy: i32,
-    /// Minimum loaded terrain height in world coordinates.
-    map_min_z: f32,
-    /// Maximum loaded terrain height in world coordinates.
-    map_max_z: f32,
+    height_map: generals_sim::terrain::TerrainHeightMap,
     /// Map boundaries
     boundaries: Vec<ICoord2D>,
-    /// Border size in cells (matches map loader)
-    border_size: i32,
-    /// Packed WorldHeightMap cliff bits (8 cells/byte).
-    cliff_state: crate::terrain_cliff::CliffBitfield,
-
     /// Active boundary index
     active_boundary: i32,
     /// Waypoint list head
@@ -698,7 +669,7 @@ pub struct TerrainLogic {
     water_handles: HashMap<AsciiString, WaterHandle>,
     /// Map of trigger-ID keyed handles for identity-stable water operations.
     water_handles_by_trigger_id: HashMap<Int, WaterHandle>,
-    /// Authored bridge geometry; map_data owns the live logical heights.
+    /// Authored bridge geometry; height_map owns the live logical heights.
     authored_bridges: Vec<crate::system::map_loader::BridgeData>,
     /// Polygon trigger areas for scripts
     /// Matches C++ ThePolygonTriggerListPtr from PolygonTrigger.h
@@ -717,14 +688,11 @@ mod height_owner_tests;
 mod map_height;
 mod query;
 mod terrain_ops;
+#[cfg(test)]
 mod terrain_ray;
-pub use terrain_ray::{TerrainHeightSamples, TerrainRayCast};
-
-/// Original BaseHeightMap FAST_REAL_FLOOR for receiving logical samples and
-/// their frozen presentation queries. Rejects coordinates outside checked Int.
-pub fn source_height_cell_floor(value: f32) -> Result<i32, String> {
-    terrain_ray::source_floor(value)
-}
+pub use generals_sim::terrain::{
+    TerrainHeightChange, TerrainHeightSamples, TerrainRayCast, source_height_cell_floor,
+};
 
 #[cfg(test)]
 mod tests;

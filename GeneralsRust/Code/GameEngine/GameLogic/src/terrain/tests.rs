@@ -267,11 +267,11 @@ fn w3d_reset_restores_empty_extent_state() {
 
     terrain.reset();
 
-    assert!(terrain.map_data.is_empty());
-    assert_eq!(terrain.map_dx, 0);
-    assert_eq!(terrain.map_dy, 0);
-    assert_eq!(terrain.map_min_z, 0.0);
-    assert_eq!(terrain.map_max_z, 1.0);
+    assert!(terrain.logic_height_map_bytes().is_empty());
+    assert_eq!(terrain.logic_height_map_extents().0, 0);
+    assert_eq!(terrain.logic_height_map_extents().1, 0);
+    assert_eq!(terrain.height_map.vertical_range().0, 0.0);
+    assert_eq!(terrain.height_map.vertical_range().1, 1.0);
     assert!(terrain.boundaries.is_empty());
     assert!(terrain.authored_bridges.is_empty());
     assert_eq!(terrain.get_extent().hi, Coord3D::new(0.0, 0.0, 1.0));
@@ -553,12 +553,13 @@ fn set_raw_map_height_applies_border_offset_like_cpp() {
         "playable (0,0) must read the border-offset cell"
     );
     assert_eq!(
-        terrain.map_data[1 + 1 * 6],
+        terrain.logic_height_map_bytes()[1 + 1 * 6],
         50,
         "set_raw_map_height(0,0) must write buffer (border,border)"
     );
     assert_eq!(
-        terrain.map_data[0], 200,
+        terrain.logic_height_map_bytes()[0],
+        200,
         "border cell (0,0) must stay untouched when writing playable (0,0)"
     );
 }
@@ -726,15 +727,6 @@ fn load_map_data_registers_water_polygons_and_bridges() {
         .expect("add_bridge_to_logic must run for map bridges");
     assert_eq!(bridge.get_bridge_template_name().as_str(), "TestBridge");
     assert_eq!(bridge.get_bridge_info().bridge_width, 10.0);
-}
-
-#[test]
-fn crater_subtracts_in_float_then_truncates_like_cpp() {
-    // C++ TerrainLogic.cpp:2875: MAX(1, rawHeight - displacementAmount)
-    // raw 10, displacement 2.9 → 7.1 truncates to 7, not 10-2=8.
-    assert_eq!(TerrainLogic::crater_raw_target_height(10, 2.9), 7);
-    assert_eq!(TerrainLogic::crater_raw_target_height(10, 2.0), 8);
-    assert_eq!(TerrainLogic::crater_raw_target_height(1, 2.9), 1);
 }
 
 #[test]

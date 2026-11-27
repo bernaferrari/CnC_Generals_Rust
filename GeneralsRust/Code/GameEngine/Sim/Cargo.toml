@@ -15,6 +15,7 @@ generals_game_domain = { path = "../GameDomain" }
 generals_map = { path = "../Map" }
 log = { workspace = true }
 glam = { workspace = true }
+math_utilities = { path = "../../Libraries/Source/WWVegas/WWMath" }
 serde = { workspace = true, features = ["derive"] }
 thiserror = { workspace = true }
 

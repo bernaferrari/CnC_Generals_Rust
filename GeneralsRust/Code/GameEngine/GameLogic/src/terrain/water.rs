@@ -46,14 +46,7 @@ impl TerrainLogic {
 
     /// Check if cell is cliff
     pub fn is_cliff_cell(&self, x: f32, y: f32) -> bool {
-        crate::terrain_cliff::is_cliff_cell(
-            x,
-            y,
-            &self.cliff_state,
-            self.map_dx,
-            self.map_dy,
-            self.border_size,
-        )
+        self.height_map.is_cliff_cell(x, y)
     }
 
     /// Sample the authoritative logical water height in one search.

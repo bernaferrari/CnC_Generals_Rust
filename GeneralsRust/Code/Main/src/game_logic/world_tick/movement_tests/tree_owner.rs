@@ -55,7 +55,7 @@ fn actual_movement_tick_delivers_tree_callbacks_only_to_its_receiving_world_at_o
         fn add_scorch(&mut self, _: [f32; 3], _: f32, _: i32) {
             panic!("unexpected scorch")
         }
-        fn accepted_height(&mut self, _: gamelogic::terrain::TerrainHeightChange) {
+        fn accepted_height(&mut self, _: generals_sim::terrain::TerrainHeightChange) {
             panic!("unexpected terrain height")
         }
         fn water_state(&mut self, _: &gamelogic::terrain_water::WaterGridState) {

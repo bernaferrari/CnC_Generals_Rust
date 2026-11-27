@@ -1,10 +1,23 @@
-//! Logic-side cliff bits.
+//! Logical height samples, deformation, terrain queries, and cliff bits.
 //!
 //! C++ `W3DTerrainLogic::isCliffCell` → `BaseHeightMapRenderObjClass::isCliffCell`
 //! → `WorldHeightMap::getCliffState`. Bits are packed 8 cells/byte and initialized
 //! from the four-corner world-Z range vs `PATHFIND_CLIFF_SLOPE_LIMIT_F` (9.8).
 
+pub use crate::terrain_height_map::{TerrainHeightChange, TerrainHeightMap};
+pub use crate::terrain_los::{LOS_FUDGE, is_clear_line_of_sight};
+pub use crate::terrain_ray::{TerrainHeightSamples, TerrainRayCast, source_height_cell_floor};
 pub use generals_game_domain::terrain::{MAP_HEIGHT_SCALE, MAP_XY_FACTOR};
+
+/// C++ BaseHeightMap sample interpolation along the (0,0) to (1,1) diagonal.
+#[inline]
+pub fn triangle_height(h00: f32, h10: f32, h01: f32, h11: f32, fx: f32, fy: f32) -> f32 {
+    if fy > fx {
+        h01 + (1.0 - fy) * (h00 - h01) + fx * (h11 - h01)
+    } else {
+        h10 + fy * (h11 - h10) + (1.0 - fx) * (h00 - h10)
+    }
+}
 
 /// C++ `WorldHeightMap.cpp` `PATHFIND_CLIFF_SLOPE_LIMIT_F`.
 pub const PATHFIND_CLIFF_SLOPE_LIMIT_F: f32 = 9.8;

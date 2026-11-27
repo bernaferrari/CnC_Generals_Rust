@@ -45,11 +45,7 @@ pub fn triangle_split_height_sample(
 ) -> f32 {
     let fx = fx.clamp(0.0, 1.0);
     let fy = fy.clamp(0.0, 1.0);
-    if fy > fx {
-        h01 + (1.0 - fy) * (h00 - h01) + fx * (h11 - h01)
-    } else {
-        h10 + fy * (h11 - h10) + (1.0 - fx) * (h00 - h10)
-    }
+    generals_sim::terrain::triangle_height(h00, h10, h01, h11, fx, fy)
 }
 
 /// Copied crate `TerrainLogic` water polygon (C++ `PolygonTrigger` water area).
