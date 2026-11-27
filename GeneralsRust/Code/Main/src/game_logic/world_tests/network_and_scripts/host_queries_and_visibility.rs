@@ -1,5 +1,6 @@
 //! Behavior suite extracted from `network_and_scripts`.
 use super::*;
+use generals_sim::scripting::program::{Parameter, ParameterType, ScriptAction, ScriptActionType};
 
 // Historical name: correctness must not require a process registry to be empty.
 // Both worlds use real Main objects and the production roster projection.
@@ -504,14 +505,12 @@ fn create_object_script_request_spawns_named_host_unit() {
 fn live_host_script_unmanned_radar_stealth_apply() {
     use gamelogic::object::registry::OBJECT_REGISTRY;
     use gamelogic::scripting::{
-        HostScriptRadarEventRequest, HostScriptStealthEnabledRequest, HostScriptUnmannedRequest,
-        request_host_script_radar_event, request_host_script_stealth_enabled,
+        HostScriptStealthEnabledRequest, HostScriptUnmannedRequest, request_host_script_stealth_enabled,
         request_host_script_unmanned,
     };
 
     OBJECT_REGISTRY.clear();
     let _ = gamelogic::scripting::take_host_script_unmanned_requests();
-    let _ = gamelogic::scripting::take_host_script_radar_event_requests();
     let _ = gamelogic::scripting::take_host_script_stealth_enabled_requests();
 
     let mut logic = GameLogic::new();
@@ -567,11 +566,9 @@ fn live_host_script_unmanned_radar_stealth_apply() {
     }
     assert!(!logic.selected_objects.contains(&tank_id));
 
-    request_host_script_radar_event(HostScriptRadarEventRequest::Object {
-        unit: "ColonelBurton".into(),
-        event_type: 4,
-    });
-    logic.apply_host_radar_event_script_requests();
+    let radar = script_radar_event(ScriptActionType::ObjectCreateRadarEvent,
+        Parameter::with_string(ParameterType::Unit, "ColonelBurton".into()), 4);
+    logic.execute_radar_script_for_test(&radar);
     let last = logic
         .last_the_radar_event_host_position()
         .expect("radar ping");
@@ -623,47 +620,38 @@ fn live_host_script_unmanned_radar_stealth_apply() {
 
 #[test]
 fn team_create_radar_event_uses_first_member_not_centroid() {
-    use gamelogic::object::registry::OBJECT_REGISTRY;
-    use gamelogic::scripting::{HostScriptRadarEventRequest, request_host_script_radar_event};
-
-    OBJECT_REGISTRY.clear();
-    let _ = gamelogic::scripting::take_host_script_radar_event_requests();
-
     let mut logic = GameLogic::new();
-    let mut tank = ThingTemplate::new("AmericaTankCrusader");
-    tank.set_health(400.0);
-    logic.templates.insert("AmericaTankCrusader".into(), tank);
+    logic.add_player(Player::new(1, Team::USA, "Radar Player", true));
+    let mut unit = ThingTemplate::new("RadarUnit");
+    unit.set_health(100.0).add_kind_of(KindOf::Vehicle);
+    let mut structure = ThingTemplate::new("RadarStructure");
+    structure.set_health(100.0).add_kind_of(KindOf::Structure);
+    logic.templates.insert("RadarUnit".into(), unit);
+    logic.templates.insert("RadarStructure".into(), structure);
 
-    let first = logic
-        .create_object("AmericaTankCrusader", Team::USA, Vec3::new(10.0, 0.0, 20.0))
-        .expect("first");
-    if let Some(o) = logic.host_object_mut(first) {
-        o.team_instance_name = "teamAmerica".into();
-    }
-    let second = logic
-        .create_object(
-            "AmericaTankCrusader",
-            Team::USA,
-            Vec3::new(110.0, 0.0, 220.0),
-        )
-        .expect("second");
-    if let Some(o) = logic.host_object_mut(second) {
-        o.team_instance_name = "teamAmerica".into();
-    }
-    assert!(first.0 < second.0, "first created must have the lower id");
-
-    request_host_script_radar_event(HostScriptRadarEventRequest::Team {
-        team: "teamAmerica".into(),
-        event_type: 4,
-    });
-    logic.apply_host_radar_event_script_requests();
-    let last = logic
-        .last_the_radar_event_host_position()
-        .expect("team radar ping");
-    assert!(
-        (last.x - 10.0).abs() < 0.1 && (last.z - 20.0).abs() < 0.1,
-        "TEAM_CREATE_RADAR_EVENT must ping first member, not centroid, got {last:?}"
+    let unit = logic
+        .create_object_for_player("RadarUnit", 1, Vec3::new(10.0, 2.0, 20.0))
+        .unwrap();
+    let structure_position = Vec3::new(110.0, 3.0, 220.0);
+    let structure = logic
+        .create_object_for_player("RadarStructure", 1, structure_position)
+        .unwrap();
+    let team = logic.host_object(structure).unwrap().team_instance_name.clone();
+    let radar = script_radar_event(
+        ScriptActionType::TeamCreateRadarEvent,
+        Parameter::with_string(ParameterType::Team, team),
+        4,
     );
+
+    logic.host_object_mut(unit).unwrap().status.effectively_dead = true;
+    logic.execute_radar_script_for_test(&radar);
+    assert!(logic.radar().get_active_events().is_empty());
+
+    logic.host_object_mut(unit).unwrap().status.effectively_dead = false;
+    logic.execute_radar_script_for_test(&radar);
+    let first = logic.host_object(structure).unwrap().get_position();
+    assert_eq!(logic.last_the_radar_event_host_position(), Some(first));
+    assert_eq!(logic.radar().get_active_events().len(), 1);
 }
 
 #[test]
@@ -805,29 +793,53 @@ fn radar_force_keeps_ui_radar_visible_until_reverted() {
     assert!(!ui_state.radar_forced);
 }
 
+fn script_radar_event(kind: ScriptActionType, target: Parameter, ordinal: i32) -> ScriptAction {
+    let mut action = ScriptAction::new(kind);
+    action.add_parameter(target).unwrap();
+    action.add_parameter(Parameter::with_int(ParameterType::Int, ordinal)).unwrap();
+    action
+}
+
 #[test]
 fn script_radar_event_reaches_ui_ping() {
-    let mut game_logic = GameLogic::new();
-    game_logic.scripts_loaded = true;
+    use game_engine::common::system::radar::{Coord3D, RadarEventType, get_radar_system};
 
-    game_logic
-        .mission_scripts
-        .push_radar_event_request(RadarScriptEventRequest {
-            position: Vec3::new(42.0, 7.0, 0.0),
-            event_type: 3,
+    let mut owner = GameLogic::new();
+    owner.frame = 17;
+    let peer = GameLogic::new();
+    let action = script_radar_event(
+        ScriptActionType::RadarCreateEvent,
+        Parameter::with_coord(ParameterType::Coord3D, Vec3::new(42.0, 7.0, 3.0)),
+        3,
+    );
+    peer.with_own_services(|| owner.execute_radar_script_for_test(&action));
+
+    let events = owner.radar().get_active_events();
+    assert_eq!(events.len(), 1);
+    let event = events[0];
+    assert_eq!(event.event_type, RadarEventType::UnderAttack);
+    assert_eq!(event.world_loc, Coord3D::new(42.0, 7.0, 3.0));
+    assert_eq!((event.create_frame, event.fade_frame, event.die_frame), (17, 122, 137));
+    assert_eq!(owner.last_the_radar_event_host_position(), Some(Vec3::new(42.0, 3.0, 7.0)));
+    assert!(owner.radar_notification_snapshot().is_empty());
+    assert!(peer.radar().get_active_events().is_empty());
+    for world in [&owner, &peer] {
+        world.with_own_services(|| {
+            assert!(get_radar_system().read().unwrap().get_active_events().is_empty());
         });
-    game_logic.evaluate_and_execute_scripts(0.0);
+    }
 
-    // C++ ScriptActions::doRadarCreateEvent (ScriptActions.cpp:2842) is
-    // `TheRadar->createEvent(...)` ONLY: a radar blip + last-event marker.
-    // It posts no InGameUI text message and no host radar-message entry.
-    let radar = game_logic.radar();
-    let loc = radar
-        .get_last_event_loc()
-        .expect("script radar event must reach TheRadar");
-    // host_world_to_radar_coord maps world (x, z) → radar (x, y).
-    assert!((loc.x - 42.0).abs() < 0.01, "radar event x, got {}", loc.x);
-    assert!((loc.y - 0.0).abs() < 0.01, "radar event y, got {}", loc.y);
+    let builder = crate::save_load::SnapshotBuilder::new();
+    let saved = builder.create_world_snapshot(&owner).unwrap();
+    let mut restored = GameLogic::new();
+    builder.restore_from_snapshot(&saved, &mut restored).unwrap();
+    assert_eq!(restored.last_the_radar_event_host_position(), owner.last_the_radar_event_host_position());
+    for world in [&mut owner, &mut restored] {
+        world.radar_mut().update_owned(137);
+        assert_eq!(world.radar().get_active_events().len(), 1);
+        world.radar_mut().update_owned(138);
+        assert!(world.radar().get_active_events().is_empty());
+    }
 }
 
 #[test]

@@ -66,19 +66,7 @@ impl RadarSystem {
             let mut bytes = type_bits.to_ne_bytes();
             xfer.xfer_user(&mut bytes[..RADAR_EVENT_TYPE_SIZE])?;
             type_bits = i32::from_ne_bytes(bytes);
-            event.event_type = match type_bits {
-                1 => RadarEventType::Construction,
-                2 => RadarEventType::Upgrade,
-                3 => RadarEventType::UnderAttack,
-                4 => RadarEventType::Information,
-                5 => RadarEventType::BeaconPulse,
-                6 => RadarEventType::Infiltration,
-                7 => RadarEventType::BattlePlan,
-                8 => RadarEventType::StealthDiscovered,
-                9 => RadarEventType::StealthNeutralized,
-                10 => RadarEventType::Fake,
-                _ => RadarEventType::Invalid,
-            };
+            event.event_type = RadarEventType::from_ordinal(type_bits);
 
             xfer.xfer_bool(&mut event.active)?;
             xfer.xfer_unsigned_int(&mut event.create_frame)?;

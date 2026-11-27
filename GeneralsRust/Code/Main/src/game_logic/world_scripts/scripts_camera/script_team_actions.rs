@@ -462,68 +462,6 @@ impl GameLogic {
         self.transfer_unmanned_to_neutral_team(id, effects)
     }
 
-    /// C++ `doObjectRadarCreateEvent` / `doTeamRadarCreateEvent`.
-    pub(in crate::game_logic::game_logic) fn apply_host_radar_event_script_requests(&mut self) {
-        use gamelogic::scripting::HostScriptRadarEventRequest;
-        for req in gamelogic::scripting::take_host_script_radar_event_requests() {
-            let (pos, event_type) = match req {
-                HostScriptRadarEventRequest::Object { unit, event_type } => {
-                    let Some(id) = self.host_object_id_by_script_name(&unit) else {
-                        continue;
-                    };
-                    let Some(obj) = self.objects.get(&id) else {
-                        continue;
-                    };
-                    (obj.get_position(), event_type)
-                }
-                HostScriptRadarEventRequest::Team { team, event_type } => {
-                    let Some(pos) = self.host_script_estimate_team_position(&team) else {
-                        continue;
-                    };
-                    (pos, event_type)
-                }
-            };
-            self.host_create_radar_event(pos, Self::host_script_radar_event_type(event_type));
-        }
-    }
-
-    pub(in crate::game_logic::game_logic) fn host_script_radar_event_type(
-        event_type: i32,
-    ) -> game_engine::common::system::radar::RadarEventType {
-        use game_engine::common::system::radar::RadarEventType;
-        match event_type {
-            1 => RadarEventType::Construction,
-            2 => RadarEventType::Upgrade,
-            3 => RadarEventType::UnderAttack,
-            4 => RadarEventType::Information,
-            5 => RadarEventType::BeaconPulse,
-            6 => RadarEventType::Infiltration,
-            7 => RadarEventType::BattlePlan,
-            8 => RadarEventType::StealthDiscovered,
-            9 => RadarEventType::StealthNeutralized,
-            10 => RadarEventType::Fake,
-            _ => RadarEventType::Invalid,
-        }
-    }
-
-    /// C++ `Team::getEstimateTeamPosition` — first living member, not centroid.
-    pub(super) fn host_script_estimate_team_position(&self, team_name: &str) -> Option<glam::Vec3> {
-        let ids = self.host_script_team_member_ids(team_name);
-        let mut first: Option<(u32, glam::Vec3)> = None;
-        for id in ids {
-            let Some(obj) = self.objects.get(&id) else {
-                continue;
-            };
-            if !obj.is_alive() || obj.status.destroyed {
-                continue;
-            }
-            if first.map(|(oid, _)| id.0 < oid).unwrap_or(true) {
-                first = Some((id.0, obj.get_position()));
-            }
-        }
-        first.map(|(_, pos)| pos)
-    }
-
     /// C++ `doNamedEnableStealth` / `doTeamEnableStealth`.
     pub(in crate::game_logic::game_logic) fn apply_host_stealth_enabled_script_requests(&mut self) {
         use gamelogic::scripting::HostScriptStealthEnabledRequest;

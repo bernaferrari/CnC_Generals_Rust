@@ -135,6 +135,22 @@ pub enum RadarEventType {
 }
 
 impl RadarEventType {
+    pub fn from_ordinal(value: i32) -> Self {
+        match value {
+            1 => Self::Construction,
+            2 => Self::Upgrade,
+            3 => Self::UnderAttack,
+            4 => Self::Information,
+            5 => Self::BeaconPulse,
+            6 => Self::Infiltration,
+            7 => Self::BattlePlan,
+            8 => Self::StealthDiscovered,
+            9 => Self::StealthNeutralized,
+            10 => Self::Fake,
+            _ => Self::Invalid,
+        }
+    }
+
     /// Get color pair for this event type (matches C++ radarColorLookupTable)
     pub fn get_colors(&self) -> (RGBAColorInt, RGBAColorInt) {
         match self {
@@ -2638,20 +2654,7 @@ impl Snapshotable for RadarSystem {
             let mut event_type = event.event_type as u8;
             xfer.xfer_unsigned_byte(&mut event_type)
                 .map_err(|e| format!("RadarSystem::xfer eventType error: {}", e))?;
-            event.event_type = match event_type {
-                0 => RadarEventType::Invalid,
-                1 => RadarEventType::Construction,
-                2 => RadarEventType::Upgrade,
-                3 => RadarEventType::UnderAttack,
-                4 => RadarEventType::Information,
-                5 => RadarEventType::BeaconPulse,
-                6 => RadarEventType::Infiltration,
-                7 => RadarEventType::BattlePlan,
-                8 => RadarEventType::StealthDiscovered,
-                9 => RadarEventType::StealthNeutralized,
-                10 => RadarEventType::Fake,
-                _ => RadarEventType::Invalid,
-            };
+            event.event_type = RadarEventType::from_ordinal(i32::from(event_type));
 
             xfer.xfer_bool(&mut event.active)
                 .map_err(|e| format!("RadarSystem::xfer eventActive error: {}", e))?;

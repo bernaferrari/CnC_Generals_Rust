@@ -155,7 +155,17 @@ fn offset_partition_cells_paint_the_matching_local_radar_pixels() {
             origin,
         );
         assert_eq!(radar.get_shroud_level(40, 40), CellShroudStatus::Fogged);
+        assert_eq!(radar.get_shroud_level(80, 80), CellShroudStatus::Clear);
+        radar.set_shroud_level_from_partition_cell(
+            20,
+            20,
+            CellShroudStatus::Shrouded,
+            40.0,
+            40.0,
+            origin,
+        );
         assert_eq!(radar.get_shroud_level(80, 80), CellShroudStatus::Shrouded);
+        assert_eq!(radar.get_shroud_level(40, 40), CellShroudStatus::Fogged);
         assert_eq!(
             radar.get_shroud_level_at_world(&Coord3D::new(origin[0] + 20.0, origin[1] + 20.0, 0.0)),
             CellShroudStatus::Clear,
@@ -678,7 +688,9 @@ fn test_shroud_management() {
         &[],
     );
 
-    // Initially all shrouded
+    // W3DRadar::reset clears the texture before the partition paints it.
+    assert_eq!(radar.get_shroud_level(64, 64), CellShroudStatus::Clear);
+    radar.set_shroud_level(64, 64, CellShroudStatus::Shrouded);
     assert_eq!(radar.get_shroud_level(64, 64), CellShroudStatus::Shrouded);
 
     // Set to clear
@@ -686,8 +698,10 @@ fn test_shroud_management() {
     assert_eq!(radar.get_shroud_level(64, 64), CellShroudStatus::Clear);
 
     // Clear all shroud
+    radar.set_shroud_level(65, 64, CellShroudStatus::Fogged);
     radar.clear_shroud();
     assert_eq!(radar.get_shroud_level(64, 64), CellShroudStatus::Clear);
+    assert_eq!(radar.get_shroud_level(65, 64), CellShroudStatus::Clear);
     assert!(radar.is_shroud_cleared());
     });
 }

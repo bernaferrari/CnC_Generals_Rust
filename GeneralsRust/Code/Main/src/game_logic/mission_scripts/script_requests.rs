@@ -14,12 +14,6 @@ pub struct ScriptEffectRequest {
 }
 
 #[derive(Debug, Clone)]
-pub struct RadarScriptEventRequest {
-    pub position: Vec3,
-    pub event_type: i32,
-}
-
-#[derive(Debug, Clone)]
 pub struct MilitaryCaptionRequest {
     pub text: String,
     pub duration_ms: i32,

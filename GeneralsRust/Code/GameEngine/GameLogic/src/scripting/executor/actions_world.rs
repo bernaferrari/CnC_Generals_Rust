@@ -473,30 +473,69 @@ impl ScriptActionDispatcher<'_> {
     // ADDITIONAL RADAR/MAP ACTION IMPLEMENTATIONS
     // ============================================================================
 
-    pub(crate) fn do_radar_create_event(
+    pub(crate) fn do_create_radar_event(
         &mut self,
         action: &ScriptAction,
+        driver: &mut dyn ScriptExecutionDriver,
     ) -> Result<ScriptActionResult, ScriptError> {
-        let position = self.get_coord_param(action, 0)?;
-        let event_type = self.get_int_param(action, 1)?;
-        log::debug!(
-            "Creating radar event at ({}, {}, {}) type {}",
-            position.x,
-            position.y,
-            position.z,
-            event_type
-        );
-        let radar_event = Self::radar_event_type_from_int(event_type);
-        if let Ok(mut radar) = get_radar_system().write() {
-            let radar_pos = to_radar_coord(&position);
-            radar.create_event(&radar_pos, radar_event, 4.0);
-        }
-        if let Some(handler) = self.current_script_action_handler() {
-            if let Err(err) =
-                handler.create_radar_event(position.x, position.y, position.z, event_type)
-            {
-                log::warn!("Script action handler create_radar_event failed: {}", err);
+        use generals_sim::scripting::radar::RadarEventTarget;
+
+        let name;
+        let target = match action.action_type {
+            ScriptActionType::RadarCreateEvent => {
+                RadarEventTarget::Position(self.get_coord_param(action, 0)?)
             }
+            ScriptActionType::ObjectCreateRadarEvent => {
+                name = self.get_string_param(action, 0)?;
+                RadarEventTarget::Object(&name)
+            }
+            ScriptActionType::TeamCreateRadarEvent => {
+                name = self.get_string_param(action, 0)?;
+                RadarEventTarget::Team(&name)
+            }
+            _ => unreachable!(),
+        };
+        let kind = RadarEventType::from_ordinal(self.get_int_param(action, 1)?);
+        let engine = self.context.borrowed_engine();
+        let object = engine.script_object_id();
+        if let Some(result) = driver.radar_event(
+            target, kind, object, engine.get_calling_team_id(), engine.get_condition_team_id(),
+        ) {
+            result.map_err(|error| ScriptError::ExecutionFailed(error.to_string()))?;
+            return Ok(ScriptActionResult::Success);
+        }
+
+        // Standalone Core still uses Common's snapshot-registered radar adapter.
+        let apply = || {
+            let position = match target {
+                RadarEventTarget::Position(position) => Some(position),
+                RadarEventTarget::Object(name) => {
+                    let id = if name == crate::scripting::core::THIS_OBJECT {
+                        object
+                    } else {
+                        get_named_object_tracker().get_object_id(name).ok().flatten()
+                    };
+                    id.and_then(|id| OBJECT_REGISTRY.with_object(id, |object| *object.get_position()))
+                }
+                RadarEventTarget::Team(name) => self
+                    .get_team_by_name(name)
+                    .ok()
+                    .and_then(|team| {
+                        let team = team.read().ok()?;
+                        team.has_any_units().then(|| team.get_estimate_team_position()).flatten()
+                    }),
+            };
+            if let Some(position) = position
+                && let Ok(mut radar) = get_radar_system().write()
+            {
+                radar.observe_frame(self.context.with_state(|state| state.current_frame));
+                radar.create_event(&to_radar_coord(&position), kind, 4.0);
+            }
+        };
+        if let Some(world) = engine.owning_world_services() {
+            crate::system::engine_stores::with_world_services(&world, apply);
+        } else {
+            apply();
         }
         Ok(ScriptActionResult::Success)
     }
@@ -753,47 +792,6 @@ impl ScriptActionDispatcher<'_> {
         }
         if let Ok(mut radar) = get_radar_system().write() {
             radar.refresh_terrain();
-        }
-        Ok(ScriptActionResult::Success)
-    }
-
-    pub(crate) fn do_object_create_radar_event(
-        &mut self,
-        action: &ScriptAction,
-    ) -> Result<ScriptActionResult, ScriptError> {
-        let object_name = self.get_string_param(action, 0)?;
-        let event_type = self.get_int_param(action, 1)?;
-        log::debug!(
-            "Creating radar event for object '{}' (type {})",
-            object_name,
-            event_type
-        );
-        // Wave 284: empty dual-world → live host drain.
-        if dual_world_registry_unavailable() {
-            super::request_host_script_radar_event(super::HostScriptRadarEventRequest::Object {
-                unit: object_name,
-                event_type,
-            });
-            return Ok(ScriptActionResult::Success);
-        }
-
-        let tracker = get_named_object_tracker();
-        let object_id_opt = tracker.get_object_id(&object_name).ok().flatten();
-        if let Some(object_id) = object_id_opt {
-            if let Some(pos) =
-                OBJECT_REGISTRY.with_object(object_id, |object_guard| *object_guard.get_position())
-            {
-                let radar_event = Self::radar_event_type_from_int(event_type);
-                if let Ok(mut radar) = get_radar_system().write() {
-                    let radar_pos = to_radar_coord(&pos);
-                    radar.create_event(&radar_pos, radar_event, 4.0);
-                }
-                if let Some(handler) = self.current_script_action_handler() {
-                    if let Err(err) = handler.create_radar_event(pos.x, pos.y, pos.z, event_type) {
-                        log::warn!("Script action handler create_radar_event failed: {}", err);
-                    }
-                }
-            }
         }
         Ok(ScriptActionResult::Success)
     }

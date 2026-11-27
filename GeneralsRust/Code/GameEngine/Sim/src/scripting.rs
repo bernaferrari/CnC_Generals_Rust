@@ -2,6 +2,7 @@
 
 pub mod attack_priorities;
 pub mod map_reveals;
+pub mod radar;
 pub mod named_objects;
 pub mod program;
 pub mod side_scripts;

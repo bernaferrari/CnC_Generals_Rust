@@ -290,15 +290,6 @@ pub enum HostScriptUnmannedRequest {
     DeleteAll,
 }
 
-/// Live host drain: OBJECT/TEAM CREATE_RADAR_EVENT.
-/// C++ `ScriptActions::doObjectRadarCreateEvent` / `doTeamRadarCreateEvent`
-/// (`TheRadar->createEvent` at named unit or team estimate position).
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum HostScriptRadarEventRequest {
-    Object { unit: String, event_type: i32 },
-    Team { team: String, event_type: i32 },
-}
-
 /// Live host drain: NAMED/TEAM SET_STEALTH_ENABLED.
 /// C++ `ScriptActions::doNamedEnableStealth` / `doTeamEnableStealth`
 /// (`setScriptStatus(OBJECT_STATUS_SCRIPT_UNSTEALTHED, !enabled)`).
@@ -555,7 +546,6 @@ pub struct HostScriptRequestQueues {
     pub(crate) script_player_relates_requests: Mutex<Vec<HostScriptPlayerRelatesRequest>>,
     pub(crate) script_boobytrap_requests: Mutex<Vec<HostScriptBoobytrapRequest>>,
     pub(crate) script_unmanned_requests: Mutex<Vec<HostScriptUnmannedRequest>>,
-    pub(crate) script_radar_event_requests: Mutex<Vec<HostScriptRadarEventRequest>>,
     pub(crate) script_stealth_enabled_requests: Mutex<Vec<HostScriptStealthEnabledRequest>>,
     pub(crate) script_buildable_override_requests: Mutex<Vec<HostScriptBuildableOverrideRequest>>,
     pub(crate) script_named_upgrade_requests: Mutex<Vec<HostScriptNamedUpgradeRequest>>,
@@ -606,7 +596,6 @@ impl Default for HostScriptRequestQueues {
             script_player_relates_requests: Mutex::new(Vec::new()),
             script_boobytrap_requests: Mutex::new(Vec::new()),
             script_unmanned_requests: Mutex::new(Vec::new()),
-            script_radar_event_requests: Mutex::new(Vec::new()),
             script_stealth_enabled_requests: Mutex::new(Vec::new()),
             script_buildable_override_requests: Mutex::new(Vec::new()),
             script_named_upgrade_requests: Mutex::new(Vec::new()),
@@ -964,15 +953,6 @@ pub fn request_host_script_unmanned(req: HostScriptUnmannedRequest) {
 
 pub fn take_host_script_unmanned_requests() -> Vec<HostScriptUnmannedRequest> {
     { let services = host_script_queues(); std::mem::take(&mut *services.host_script_requests().script_unmanned_requests.lock().unwrap_or_else(|p| p.into_inner())) }
-}
-
-/// Live host drain: OBJECT/TEAM CREATE_RADAR_EVENT.
-pub fn request_host_script_radar_event(req: HostScriptRadarEventRequest) {
-    { let services = host_script_queues(); services.host_script_requests().script_radar_event_requests.lock().unwrap_or_else(|p| p.into_inner()).push(req); }
-}
-
-pub fn take_host_script_radar_event_requests() -> Vec<HostScriptRadarEventRequest> {
-    { let services = host_script_queues(); std::mem::take(&mut *services.host_script_requests().script_radar_event_requests.lock().unwrap_or_else(|p| p.into_inner())) }
 }
 
 /// Live host drain: NAMED/TEAM SET_STEALTH_ENABLED.

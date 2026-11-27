@@ -766,15 +766,6 @@ impl ScriptActionHandler for MissionScriptActionHandler {
         Ok(())
     }
 
-    fn create_radar_event(&self, x: f32, y: f32, z: f32, event_type: i32) -> GameLogicResult<()> {
-        self.hooks
-            .push_radar_event_request(RadarScriptEventRequest {
-                position: Vec3::new(x, y, z),
-                event_type,
-            });
-        Ok(())
-    }
-
     fn set_weather_visible(&self, visible: bool) -> GameLogicResult<()> {
         self.hooks.push_weather_visible(visible);
         Ok(())

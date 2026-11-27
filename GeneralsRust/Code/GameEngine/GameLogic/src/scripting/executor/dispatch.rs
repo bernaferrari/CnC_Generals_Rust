@@ -813,12 +813,10 @@ impl ScriptActionDispatcher<'_> {
                 | ScriptActionType::DeleteAllUnmanned
                 | ScriptActionType::NamedSetStealthEnabled
                 | ScriptActionType::TeamSetStealthEnabled
-                | ScriptActionType::ObjectCreateRadarEvent
-                | ScriptActionType::TeamCreateRadarEvent
         ) {
             use crate::scripting::engine::ScriptObjectEffect;
             use crate::scripting::{
-                HostScriptObjectSoundRequest as Sound, HostScriptRadarEventRequest as Radar,
+                HostScriptObjectSoundRequest as Sound,
                 HostScriptStealthEnabledRequest as Stealth, HostScriptUnmannedRequest as Unmanned,
             };
             let (object, calling, condition) = self
@@ -834,7 +832,6 @@ impl ScriptActionDispatcher<'_> {
             let sound;
             let unmanned;
             let stealth;
-            let radar;
             let request = match action_type {
                 ScriptActionType::SoundPlayNamed => {
                     sound = Sound::PlayNamed {
@@ -879,20 +876,6 @@ impl ScriptActionDispatcher<'_> {
                         enabled: self.get_int_param(action, 1)? != 0,
                     };
                     ScriptObjectEffect::Stealth(&stealth)
-                }
-                ScriptActionType::ObjectCreateRadarEvent => {
-                    radar = Radar::Object {
-                        unit: self.get_string_param(action, 0)?,
-                        event_type: self.get_int_param(action, 1)?,
-                    };
-                    ScriptObjectEffect::Radar(&radar)
-                }
-                ScriptActionType::TeamCreateRadarEvent => {
-                    radar = Radar::Team {
-                        team: self.get_string_param(action, 0)?,
-                        event_type: self.get_int_param(action, 1)?,
-                    };
-                    ScriptObjectEffect::Radar(&radar)
                 }
                 _ => unreachable!(),
             };
@@ -1601,7 +1584,6 @@ impl ScriptActionDispatcher<'_> {
             ScriptActionType::TeamSetEmoticon => self.do_team_set_emoticon(action),
             ScriptActionType::TeamSetStealthEnabled => self.do_team_set_stealth_enabled(action),
             ScriptActionType::TeamSetRepulsor => self.do_team_set_repulsor(action),
-            ScriptActionType::TeamCreateRadarEvent => self.do_team_create_radar_event(action),
             ScriptActionType::TeamDeleteLiving => {
                 let name = self.get_string_param(action, 0)?;
                 let engine = self.context.borrowed_engine();
@@ -2298,7 +2280,9 @@ impl ScriptActionDispatcher<'_> {
             // ============================================================================
             // RADAR/MAP ACTIONS
             // ============================================================================
-            ScriptActionType::RadarCreateEvent => self.do_radar_create_event(action),
+            ScriptActionType::RadarCreateEvent
+            | ScriptActionType::ObjectCreateRadarEvent
+            | ScriptActionType::TeamCreateRadarEvent => self.do_create_radar_event(action, driver),
             ScriptActionType::RadarForceEnable => self.do_radar_force_enable(driver),
             ScriptActionType::RadarRevertToNormal => self.do_radar_revert_to_normal(driver),
             ScriptActionType::MapRevealAll => self.do_map_reveal_all(driver, action),
@@ -2315,7 +2299,6 @@ impl ScriptActionDispatcher<'_> {
             }
             ScriptActionType::MapSwitchBorder => self.do_map_switch_border(action, driver),
             ScriptActionType::RefreshRadar => self.do_refresh_radar(driver),
-            ScriptActionType::ObjectCreateRadarEvent => self.do_object_create_radar_event(action),
             ScriptActionType::DisableBorderShroud => self.do_disable_border_shroud(),
             ScriptActionType::EnableBorderShroud => self.do_enable_border_shroud(),
             ScriptActionType::ResizeViewGuardband => self.do_resize_view_guardband(action, driver),
@@ -2807,22 +2790,6 @@ impl ScriptActionDispatcher<'_> {
         index: usize,
     ) -> Option<bool> {
         action.get_parameter(index).map(|p| p.get_int() != 0)
-    }
-
-    pub(crate) fn radar_event_type_from_int(event_type: i32) -> RadarEventType {
-        match event_type {
-            1 => RadarEventType::Construction,
-            2 => RadarEventType::Upgrade,
-            3 => RadarEventType::UnderAttack,
-            4 => RadarEventType::Information,
-            5 => RadarEventType::BeaconPulse,
-            6 => RadarEventType::Infiltration,
-            7 => RadarEventType::BattlePlan,
-            8 => RadarEventType::StealthDiscovered,
-            9 => RadarEventType::StealthNeutralized,
-            10 => RadarEventType::Fake,
-            _ => RadarEventType::Invalid,
-        }
     }
 
     /// C++ parity helper for ScriptActions::changeObjectPanelFlagForSingleObject.

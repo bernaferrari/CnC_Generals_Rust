@@ -461,7 +461,6 @@ pub enum ScriptObjectEffect<'a> {
     Sound(&'a crate::scripting::HostScriptObjectSoundRequest),
     Unmanned(&'a crate::scripting::HostScriptUnmannedRequest),
     Stealth(&'a crate::scripting::HostScriptStealthEnabledRequest),
-    Radar(&'a crate::scripting::HostScriptRadarEventRequest),
 }
 
 /// Actual UI selection observation; the stamp is produced by selection mutation.
@@ -533,6 +532,18 @@ pub trait ScriptExecutionDriver {
         _operation: ScriptMapVisibilityOperation,
         _player_name: &str,
         _current_player: Option<&str>,
+    ) -> Option<GameLogicResult<()>> {
+        None
+    }
+
+    /// Place an authored radar event on the driving world's radar immediately.
+    fn radar_event(
+        &mut self,
+        _target: generals_sim::scripting::radar::RadarEventTarget<'_>,
+        _event_type: game_engine::common::system::radar::RadarEventType,
+        _this_object: Option<u32>,
+        _calling_team: Option<u32>,
+        _condition_team: Option<u32>,
     ) -> Option<GameLogicResult<()>> {
         None
     }
@@ -2246,16 +2257,6 @@ pub trait ScriptActionHandler: Send + Sync {
     }
 
     fn set_radar_forced(&self, _forced: bool) -> GameLogicResult<()> {
-        Ok(())
-    }
-
-    fn create_radar_event(
-        &self,
-        _x: f32,
-        _y: f32,
-        _z: f32,
-        _event_type: i32,
-    ) -> GameLogicResult<()> {
         Ok(())
     }
 

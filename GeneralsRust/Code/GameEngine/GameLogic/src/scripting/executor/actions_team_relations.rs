@@ -1412,57 +1412,6 @@ impl ScriptActionDispatcher<'_> {
         Ok(ScriptActionResult::Success)
     }
 
-    pub(crate) fn do_team_create_radar_event(
-        &mut self,
-        action: &ScriptAction,
-    ) -> Result<ScriptActionResult, ScriptError> {
-        let team_name = self.get_string_param(action, 0)?;
-        let event_type = self.get_int_param(action, 1)?;
-        log::debug!(
-            "Creating radar event for team '{}' (type {})",
-            team_name,
-            event_type
-        );
-        if super::dual_world_registry_unavailable() {
-            super::request_host_script_radar_event(super::HostScriptRadarEventRequest::Team {
-                team: team_name,
-                event_type,
-            });
-            return Ok(ScriptActionResult::Success);
-        }
-        let team_arc = self.get_team_by_name(&team_name)?;
-        let pos = {
-            let Ok(team) = team_arc.read() else {
-                return Ok(ScriptActionResult::Success);
-            };
-            if !team.has_any_units() {
-                return Ok(ScriptActionResult::Success);
-            }
-            team.get_estimate_team_position()
-        };
-        let Some(pos) = pos else {
-            return Ok(ScriptActionResult::Success);
-        };
-
-        let radar_event = Self::radar_event_type_from_int(event_type);
-        if let Ok(mut radar) = get_radar_system().write() {
-            let radar_pos = to_radar_coord(&pos);
-            radar.create_event(&radar_pos, radar_event, 4.0);
-        }
-        // The host callback can execute nested script/UI work.  Clone it
-        // first so neither the team nor ScriptEngine lock spans that call.
-        let handler = self
-            .context
-            .with_engine_ref(|script_engine| script_engine.action_handler())
-            .flatten();
-        if let Some(handler) = handler {
-            if let Err(err) = handler.create_radar_event(pos.x, pos.y, pos.z, event_type) {
-                log::warn!("Script action handler create_radar_event failed: {}", err);
-            }
-        }
-        Ok(ScriptActionResult::Success)
-    }
-
     pub(crate) fn do_team_delete_living(
         &mut self,
         action: &ScriptAction,

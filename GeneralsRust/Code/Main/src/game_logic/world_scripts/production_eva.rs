@@ -121,16 +121,6 @@ impl GameLogic {
         self.queue_radar_message_at(message, Vec3::ZERO, radar_notifications::RadarKind::Generic);
     }
 
-    pub(in super::super) fn queue_script_radar_event(&mut self, event: RadarScriptEventRequest) {
-        // C++ ScriptActions::doRadarCreateEvent — TheRadar->createEvent only.
-        // No InGameUI message, no audio. Leftover already matches; this drain
-        // is the live handler leftover calls after create_event.
-        self.host_create_radar_event(
-            event.position,
-            Self::host_script_radar_event_type(event.event_type),
-        );
-    }
-
     pub fn queue_radar_message_at<S: Into<String>>(
         &mut self,
         message: S,

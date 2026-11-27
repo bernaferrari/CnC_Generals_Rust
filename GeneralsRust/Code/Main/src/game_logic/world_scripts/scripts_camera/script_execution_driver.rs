@@ -17,6 +17,8 @@ use std::sync::{Arc, RwLock};
 mod script_player_resolution;
 #[path = "named_map_reveals.rs"]
 mod named_map_reveals;
+#[path = "script_radar_events.rs"]
+mod script_radar_events;
 
 pub(super) struct HostScriptExecutionDriver<'a> {
     world: &'a mut GameLogic,
@@ -520,7 +522,7 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
     ) -> Option<generals_sim::GameLogicResult<()>> {
         use gamelogic::scripting::engine::ScriptObjectEffect;
         use gamelogic::scripting::{
-            HostScriptObjectSoundRequest as Sound, HostScriptRadarEventRequest as Radar,
+            HostScriptObjectSoundRequest as Sound,
             HostScriptStealthEnabledRequest as Stealth,
         };
         let named = |world: &GameLogic, name: &str| {
@@ -587,35 +589,21 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
                             .host_script_set_stealth_enabled(ObjectId(id), enabled);
                     }
                 }
-                ScriptObjectEffect::Radar(request) => {
-                    let (position, kind) = match request {
-                        Radar::Object { unit, event_type } => (
-                            named(self.world, unit)
-                                .and_then(|id| self.world.host_object(id))
-                                .map(|o| o.get_position()),
-                            *event_type,
-                        ),
-                        Radar::Team { team, event_type } => (
-                            members(self.world, team)?.into_iter().find_map(|id| {
-                                self.world
-                                    .host_object(ObjectId(id))
-                                    .filter(|o| o.is_alive() && !o.status.destroyed)
-                                    .map(|o| o.get_position())
-                            }),
-                            *event_type,
-                        ),
-                    };
-                    if let Some(position) = position {
-                        self.world.host_create_radar_event(
-                            position,
-                            GameLogic::host_script_radar_event_type(kind),
-                        );
-                    }
-                }
             }
             Ok(())
         })();
         Some(result)
+    }
+
+    fn radar_event(
+        &mut self,
+        target: generals_sim::scripting::radar::RadarEventTarget<'_>,
+        kind: game_engine::common::system::radar::RadarEventType,
+        this_object: Option<u32>,
+        calling_team: Option<u32>,
+        condition_team: Option<u32>,
+    ) -> Option<generals_sim::GameLogicResult<()>> {
+        Some(self.apply_radar_event(target, kind, this_object, calling_team, condition_team))
     }
 
     fn named_containment(

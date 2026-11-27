@@ -293,21 +293,6 @@ mod tests {
     }
 
     #[test]
-    fn handler_forwards_radar_event_requests() {
-        let hooks = MissionScriptHooks::new();
-        let handler = MissionScriptActionHandler::new(hooks.clone());
-
-        handler
-            .create_radar_event(10.0, 20.0, 5.0, 3)
-            .expect("radar event request should succeed");
-
-        let requests = hooks.drain_radar_event_requests();
-        assert_eq!(requests.len(), 1);
-        assert_eq!(requests[0].position, Vec3::new(10.0, 20.0, 5.0));
-        assert_eq!(requests[0].event_type, 3);
-    }
-
-    #[test]
     fn zoom_camera_preserves_script_ease_parameters() {
         let hooks = MissionScriptHooks::new();
         let handler = MissionScriptActionHandler::new(hooks.clone());

@@ -7,7 +7,7 @@ pub(super) use super::super::mission_scripts::{
     CameraModRollingAverageRequest, CameraMotionBlurRequest, CameraMoveToRequest,
     CameraPathRequest, CameraPitchRequest, CameraRotateRequest, CameraSetDefaultRequest,
     CameraSlaveModeRequest, CameraZoomRequest, MissionScriptActionHandler, MissionScriptHooks,
-    NamedTimerMutation, RadarScriptEventRequest, ScreenShakeRequest, ScriptPopupMessageRequest,
+    NamedTimerMutation, ScreenShakeRequest, ScriptPopupMessageRequest,
     SetFpsLimitRequest, SuperweaponObjectDisplayMutation, ViewGuardbandRequest,
     VisualSpeedMultiplierRequest,
 };

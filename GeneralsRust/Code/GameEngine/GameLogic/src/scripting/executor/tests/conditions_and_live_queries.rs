@@ -2715,14 +2715,8 @@ fn named_team_unmanned_stealth_radar_use_supplied_owner() {
     assert_eq!(
         owner.radar,
         vec![
-            HostScriptRadarEventRequest::Object {
-                unit: "Hero".to_string(),
-                event_type: 4,
-            },
-            HostScriptRadarEventRequest::Team {
-                team: "teamGLA".to_string(),
-                event_type: 3,
-            },
+            ("object:Hero".to_string(), RadarEventType::Information),
+            ("team:teamGLA".to_string(), RadarEventType::UnderAttack),
         ]
     );
 }
@@ -3372,7 +3366,7 @@ struct ObjectEffectOwner {
     sound: Vec<HostScriptObjectSoundRequest>,
     unmanned: Vec<HostScriptUnmannedRequest>,
     stealth: Vec<HostScriptStealthEnabledRequest>,
-    radar: Vec<HostScriptRadarEventRequest>,
+    radar: Vec<(String, RadarEventType)>,
 }
 impl crate::scripting::engine::ScriptExecutionDriver for ObjectEffectOwner {
     fn after_action(&mut self) -> crate::GameLogicResult<()> {
@@ -3390,8 +3384,24 @@ impl crate::scripting::engine::ScriptExecutionDriver for ObjectEffectOwner {
             ScriptObjectEffect::Sound(value) => self.sound.push(value.clone()),
             ScriptObjectEffect::Unmanned(value) => self.unmanned.push(value.clone()),
             ScriptObjectEffect::Stealth(value) => self.stealth.push(value.clone()),
-            ScriptObjectEffect::Radar(value) => self.radar.push(value.clone()),
         }
+        Some(Ok(()))
+    }
+    fn radar_event(
+        &mut self,
+        target: generals_sim::scripting::radar::RadarEventTarget<'_>,
+        kind: RadarEventType,
+        _object: Option<u32>,
+        _calling: Option<u32>,
+        _condition: Option<u32>,
+    ) -> Option<crate::GameLogicResult<()>> {
+        use generals_sim::scripting::radar::RadarEventTarget;
+        let key = match target {
+            RadarEventTarget::Object(name) => format!("object:{name}"),
+            RadarEventTarget::Team(name) => format!("team:{name}"),
+            RadarEventTarget::Position(position) => format!("position:{position}"),
+        };
+        self.radar.push((key, kind));
         Some(Ok(()))
     }
 }

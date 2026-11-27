@@ -62,7 +62,6 @@ struct ScriptNotificationQueues {
     radar_movie_requests: Vec<String>,
     objective_updates: Vec<ObjectiveUpdate>,
     effect_requests: Vec<ScriptEffectRequest>,
-    radar_event_requests: Vec<RadarScriptEventRequest>,
     radar_enabled_updates: Vec<bool>,
     radar_forced_updates: Vec<bool>,
     weather_visibility_updates: Vec<bool>,
@@ -606,13 +605,6 @@ impl MissionScriptHooks {
         queue.effect_requests.push(request);
     }
 
-    pub fn push_radar_event_request(&self, request: RadarScriptEventRequest) {
-        let mut queue = self
-            .notifications
-            .lock()
-            .unwrap_or_else(|e| self.recover_notifications(e));
-        queue.radar_event_requests.push(request);
-    }
 
     pub fn push_radar_enabled(&self, enabled: bool) {
         let mut queue = self
@@ -1079,13 +1071,6 @@ impl MissionScriptHooks {
         q.effect_requests.drain(..).collect()
     }
 
-    pub fn drain_radar_event_requests(&self) -> Vec<RadarScriptEventRequest> {
-        let mut q = self
-            .notifications
-            .lock()
-            .unwrap_or_else(|e| self.recover_notifications(e));
-        q.radar_event_requests.drain(..).collect()
-    }
 
     pub fn drain_radar_enabled_updates(&self) -> Vec<bool> {
         let mut q = self

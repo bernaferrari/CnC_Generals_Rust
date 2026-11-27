@@ -357,22 +357,6 @@ impl WorldPersistV18 {
     }
 }
 
-fn radar_event_type_from_u8(value: u8) -> RadarEventType {
-    match value {
-        1 => RadarEventType::Construction,
-        2 => RadarEventType::Upgrade,
-        3 => RadarEventType::UnderAttack,
-        4 => RadarEventType::Information,
-        5 => RadarEventType::BeaconPulse,
-        6 => RadarEventType::Infiltration,
-        7 => RadarEventType::BattlePlan,
-        8 => RadarEventType::StealthDiscovered,
-        9 => RadarEventType::StealthNeutralized,
-        10 => RadarEventType::Fake,
-        _ => RadarEventType::Invalid,
-    }
-}
-
 fn persist_radar_event(event: &RadarEvent) -> RadarEventPersist {
     RadarEventPersist {
         event_type: event.event_type as u8,
@@ -400,7 +384,7 @@ fn persist_radar_event(event: &RadarEvent) -> RadarEventPersist {
 
 fn restore_radar_event(entry: &RadarEventPersist) -> RadarEvent {
     RadarEvent {
-        event_type: radar_event_type_from_u8(entry.event_type),
+        event_type: RadarEventType::from_ordinal(i32::from(entry.event_type)),
         active: entry.active,
         create_frame: entry.create_frame,
         die_frame: entry.die_frame,
