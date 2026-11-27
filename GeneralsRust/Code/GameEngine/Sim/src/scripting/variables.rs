@@ -2,6 +2,7 @@
 
 use crate::error::{GameLogicError, GameLogicResult};
 use crate::time::LOGIC_FRAMES_PER_SECOND;
+use game_engine::base_type::real_to_int_ceil;
 
 // C++ ScriptEngine.h reserves slot zero in each table.
 pub const MAX_COUNTERS: usize = 256;
@@ -117,11 +118,16 @@ impl ScriptVariables {
         self.flags.iter().flatten().find(|flag| flag.name == name)
     }
 
-    fn counter_mut(&mut self, name: &str) -> GameLogicResult<&mut Counter> {
+    pub(super) fn counter_mut(&mut self, name: &str) -> GameLogicResult<&mut Counter> {
         let index = self.allocate_counter(name)?;
         Ok(self.counters[index]
             .as_mut()
             .expect("allocated counter slot"))
+    }
+
+    pub(super) fn flag_mut(&mut self, name: &str) -> GameLogicResult<&mut Flag> {
+        let index = self.allocate_flag(name)?;
+        Ok(self.flags[index].as_mut().expect("allocated flag slot"))
     }
 
     pub fn set_counter(&mut self, name: &str, value: i32) -> GameLogicResult<()> {
@@ -130,11 +136,7 @@ impl ScriptVariables {
     }
 
     pub fn set_flag(&mut self, name: &str, value: bool) -> GameLogicResult<()> {
-        let index = self.allocate_flag(name)?;
-        self.flags[index]
-            .as_mut()
-            .expect("allocated flag slot")
-            .value = value;
+        self.flag_mut(name)?.value = value;
         Ok(())
     }
 
@@ -208,11 +210,6 @@ impl ScriptVariables {
     }
 
     pub fn restart_timer(&mut self, name: &str) -> GameLogicResult<()> {
-        self.counter_mut(name)?.is_countdown_timer = true;
-        Ok(())
-    }
-
-    pub fn restart_timer_if_positive(&mut self, name: &str) -> GameLogicResult<()> {
         let counter = self.counter_mut(name)?;
         if counter.value > 0 {
             counter.is_countdown_timer = true;
@@ -225,8 +222,7 @@ impl ScriptVariables {
         name: &str,
         seconds: f32,
     ) -> GameLogicResult<()> {
-        self.counter_mut(name)?.value += millisecond_script_frames(seconds);
-        Ok(())
+        self.add_timer_frames(name, millisecond_script_frames(seconds))
     }
 
     pub fn subtract_from_timer_millisecond_script_seconds(
@@ -234,7 +230,12 @@ impl ScriptVariables {
         name: &str,
         seconds: f32,
     ) -> GameLogicResult<()> {
-        self.counter_mut(name)?.value -= millisecond_script_frames(seconds);
+        self.add_timer_frames(name, millisecond_script_frames(-seconds))
+    }
+
+    fn add_timer_frames(&mut self, name: &str, frames: i32) -> GameLogicResult<()> {
+        let counter = self.counter_mut(name)?;
+        counter.value = counter.value.wrapping_add(frames);
         Ok(())
     }
 
@@ -245,14 +246,13 @@ impl ScriptVariables {
         millisecond_timer: bool,
         add: bool,
     ) -> GameLogicResult<()> {
-        let counter = self.counter_mut(name)?;
-        let frames = if millisecond_timer {
-            millisecond_script_frames(value as f32)
+        if millisecond_timer {
+            let seconds = value as f32;
+            let seconds = if add { seconds } else { -seconds };
+            self.add_timer_frames(name, millisecond_script_frames(seconds))
         } else {
-            value
-        };
-        counter.value += if add { frames } else { -frames };
-        Ok(())
+            self.add_timer_frames(name, if add { value } else { value.wrapping_neg() })
+        }
     }
 
     /// C++ ScriptEngine::update counts down through zero and stops at -1.
@@ -317,7 +317,8 @@ impl ScriptVariables {
 
 /// The original "millisecond" script actions specify real-valued seconds.
 fn millisecond_script_frames(seconds: f32) -> i32 {
-    (seconds.max(0.0) * LOGIC_FRAMES_PER_SECOND).ceil() as i32
+    let milliseconds = seconds * 1000.0;
+    real_to_int_ceil(milliseconds * (LOGIC_FRAMES_PER_SECOND / 1000.0))
 }
 
 /// Whole-frame deadlines from ScriptEngine::update and its Xfer tail.

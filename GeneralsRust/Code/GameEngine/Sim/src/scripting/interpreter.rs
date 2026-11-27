@@ -89,6 +89,10 @@ impl ScriptInterpreter {
         self.frame.borrow_mut()
     }
 
+    pub(super) fn try_frame_mut(&self) -> Result<RefMut<'_, ScriptFrame>, std::cell::BorrowMutError> {
+        self.frame.try_borrow_mut()
+    }
+
     /// The legacy reader skips execution while an exclusive state loan is live.
     pub fn can_read_state(&self) -> bool {
         self.frame.try_borrow().is_ok() && self.attack_priorities.try_borrow().is_ok()

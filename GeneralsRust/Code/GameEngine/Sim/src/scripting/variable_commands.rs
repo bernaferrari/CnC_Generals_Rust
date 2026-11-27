@@ -103,56 +103,47 @@ impl ScriptInterpreter {
         Ok(())
     }
 
-    pub fn evaluate_variable_condition(
-        &self,
-        condition: &Condition,
-        resolve_name: impl FnOnce(&str) -> String,
-        can_read: impl FnOnce() -> bool,
-    ) -> Result<bool, ScriptError> {
+    pub fn evaluate_variable_condition(&self, condition: &Condition) -> Result<bool, ScriptError> {
         let parameter = |index| {
             condition
                 .get_parameter(index)
                 .ok_or_else(|| ScriptError::missing_parameter(index))
         };
+        let frame = || {
+            self.try_frame_mut().map_err(|_| {
+                ScriptError::EvaluationFailed("script variables are already borrowed".into())
+            })
+        };
         let result = match condition.get_condition_type() {
             ConditionType::ConditionTrue => true,
             ConditionType::ConditionFalse => false,
             ConditionType::Counter => {
-                let name = resolve_name(parameter(0)?.get_string());
-                let comparison = ComparisonType::from_i32(parameter(1)?.get_int())
-                    .unwrap_or(ComparisonType::Equal);
+                let name = parameter(0)?.get_string();
+                let comparison = ComparisonType::from_i32(parameter(1)?.get_int());
                 let target = parameter(2)?.get_int();
-                let value = if can_read() {
-                    self.frame()
-                        .variables
-                        .counter(&name)
-                        .map_or(0, |counter| counter.value)
-                } else {
-                    0
-                };
-                comparison.compare_i32(value, target)
+                let value = frame()?
+                    .variables
+                    .counter_mut(name)
+                    .map_or(0, |counter| counter.value);
+                comparison.is_some_and(|comparison| comparison.compare_i32(value, target))
             }
             ConditionType::Flag => {
-                let name = resolve_name(parameter(0)?.get_string());
+                let name = parameter(0)?.get_string();
                 let expected = parameter(1)?.get_int() != 0;
-                can_read() && {
-                    let frame = self.frame();
-                    let value = frame.variables.flag(&name).is_some_and(|flag| flag.value);
-                    value == expected
-                        || frame
-                            .ui_interactions
-                            .iter()
-                            .any(|interaction| interaction == &name)
-                }
+                let mut frame = frame()?;
+                let value = frame.variables.flag_mut(name).is_ok_and(|flag| flag.value);
+                value == expected
+                    || frame
+                        .ui_interactions
+                        .iter()
+                        .any(|interaction| interaction == name)
             }
             ConditionType::TimerExpired => {
-                let name = resolve_name(parameter(0)?.get_string());
-                can_read()
-                    && self
-                        .frame()
-                        .variables
-                        .counter(&name)
-                        .is_some_and(|counter| counter.is_countdown_timer && counter.value <= 0)
+                let name = parameter(0)?.get_string();
+                frame()?
+                    .variables
+                    .counter_mut(name)
+                    .is_ok_and(|counter| counter.is_countdown_timer && counter.value <= 0)
             }
             other => {
                 return Err(ScriptError::EvaluationFailed(format!(

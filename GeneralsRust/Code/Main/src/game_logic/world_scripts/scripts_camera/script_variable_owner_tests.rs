@@ -73,10 +73,11 @@ fn authored_random_timers_draw_from_the_receiving_world_in_order() {
         engine.get_counter("frames").unwrap().value,
         expected.next_int(3, 90)
     );
+    let random_seconds = expected.next_real(0.1, 3.0);
     assert_eq!(
         engine.get_counter("seconds").unwrap().value,
-        (expected.next_real(0.1, 3.0) * 30.0).ceil() as i32
+        game_engine::base_type::real_to_int_ceil((random_seconds * 1000.0) * 0.03)
     );
-    assert_eq!(engine.get_counter("fixed").unwrap().value, i32::MAX);
+    assert_eq!(engine.get_counter("fixed").unwrap().value, i32::MIN);
     assert_eq!(receiving.logic_random.seed_words(), expected.seed_words());
 }

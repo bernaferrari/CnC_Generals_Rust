@@ -1130,8 +1130,7 @@ impl ScriptEngine {
 
     // PARITY_NOTE: C++ ScriptEngine::restartTimer (only restarts if value > 0)
     pub fn restart_timer_if_positive(&mut self, name: &str) -> GameLogicResult<()> {
-        self.runtime.frame_mut().variables
-            .restart_timer_if_positive(name)
+        self.restart_timer(name)
     }
 
     // PARITY_NOTE: C++ ScriptEngine::setTimer with random/msec params

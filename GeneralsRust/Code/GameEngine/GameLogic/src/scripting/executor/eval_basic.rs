@@ -501,11 +501,7 @@ impl ScriptConditionEvaluator<'_> {
                 .context
                 .borrowed_engine()
                 .interpreter()
-                .evaluate_variable_condition(
-                    condition,
-                    |name| self.resolve_string_token(name),
-                    || self.context.with_engine_ref(|_| ()).is_some(),
-                )
+                .evaluate_variable_condition(condition)
                 .map(bool_result),
 
             // ============================================================================

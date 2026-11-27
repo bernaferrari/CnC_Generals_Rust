@@ -660,7 +660,7 @@ fn subtract_millisecond_script_seconds_can_drive_timer_negative() {
     let counter = engine
         .get_counter("negative_test")
         .expect("negative counter");
-    assert_eq!(counter.value, -2);
+    assert_eq!(counter.value, -1);
 }
 
 /// C++ `ScriptEngine::executeActions` handles `CALL_SUBROUTINE` by calling
