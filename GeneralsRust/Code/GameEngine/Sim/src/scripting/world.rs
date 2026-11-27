@@ -58,6 +58,7 @@ pub enum ScriptSupplyQuery {
 pub enum ScriptPlayerCensusScope {
     MoneyAndPower,
     ObjectCounts,
+    TemplateCounts,
 }
 
 #[derive(Clone, Copy)]

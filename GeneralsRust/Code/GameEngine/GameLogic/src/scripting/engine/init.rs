@@ -121,7 +121,6 @@ impl ScriptEngine {
                 skirmish_human_player: None,
                 current_track_name: String::new(),
 
-                object_counts: HashMap::new(),
 
                 topple_directions: Vec::new(),
                 named_reveals: NamedReveals::default(),
@@ -416,20 +415,11 @@ impl ScriptEngine {
     }
 
     pub fn get_object_count(&self, player_index: i32, type_name: &str) -> i32 {
-        self.with_inner(|inner| {
-            inner
-                .object_counts
-                .get(&(player_index, type_name.to_string()))
-                .copied()
-                .unwrap_or(0)
-        })
+        self.runtime.frame().object_count(player_index, type_name)
     }
 
     pub fn set_object_count(&self, player_index: i32, type_name: &str, count: i32) {
-        let mut inner = self.lock_inner_mut();
-        inner
-            .object_counts
-            .insert((player_index, type_name.to_string()), count);
+        self.runtime.frame_mut().set_object_count(player_index, type_name, count);
     }
 
     /// Get a named ObjectTypes list (matches C++ ScriptEngine::getObjectTypes).

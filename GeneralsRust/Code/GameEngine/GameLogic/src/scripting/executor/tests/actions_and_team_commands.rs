@@ -2127,18 +2127,18 @@ fn active_skirmish_prerequisite_condition_reads_the_live_object_type_list() {
             Ok(())
         }
         fn skirmish_player_can_build_any(
-            &self,
+            &mut self,
             player: &str,
+            mask: u32,
             candidates: &[String],
             _: Option<&str>,
-        ) -> ScriptOwnerQuery<bool> {
+        ) -> ScriptOwnerQuery<(u32, bool)> {
             assert_eq!(player, "ActiveSkirmishPrerequisitePlayer");
+            assert!(matches!(mask, 0 | 1));
             self.candidates.borrow_mut().push(candidates.to_vec());
-            ScriptOwnerQuery::Present(
-                candidates
-                    .iter()
-                    .any(|candidate| candidate == "OwnedBuildableCandidate"),
-            )
+            ScriptOwnerQuery::Present((1,
+                candidates.iter().any(|candidate| candidate == "OwnedBuildableCandidate")
+            ))
         }
     }
 

@@ -656,13 +656,7 @@ impl ScriptConditionEvaluator<'_> {
     pub(crate) fn eval_skirmish_player_has_prerequisite_to_build(
         &self,
         condition: &Condition,
-        driver: &dyn ScriptExecutionDriver<crate::scripting::engine::ScriptEngine>,
     ) -> Result<ScriptConditionResult, ScriptError> {
-        use crate::scripting::engine::ScriptOwnerQuery;
-        let raw_player = condition
-            .get_parameter(0)
-            .ok_or_else(|| ScriptError::ParameterNotFound("Parameter 0 not found".to_owned()))?
-            .get_string();
         let object_type = condition
             .get_parameter(1)
             .ok_or_else(|| ScriptError::ParameterNotFound("Parameter 1 not found".to_string()))?;
@@ -679,18 +673,6 @@ impl ScriptConditionEvaluator<'_> {
             types.add_object_type(AsciiString::from(type_name));
             types
         };
-        let candidates: Vec<String> = types.iter().map(|name| name.as_str().to_owned()).collect();
-        let current_player = engine.get_current_player_name();
-        match driver.skirmish_player_can_build_any(
-            raw_player,
-            &candidates,
-            current_player.as_deref(),
-        ) {
-            ScriptOwnerQuery::Present(can_build) => return Ok(Self::bool_result(can_build)),
-            ScriptOwnerQuery::Missing => return Ok(ScriptConditionResult::False),
-            ScriptOwnerQuery::Unavailable => {}
-        }
-
         let player_name = self.get_condition_string_param(condition, 0)?;
 
         if crate::object::registry::OBJECT_REGISTRY.is_empty() {

@@ -160,6 +160,7 @@ pub struct ScriptFrame {
     pub breeze_info: BreezeInfo,
     pub choose_victim_always_uses_normal: bool,
     pub object_types: HashMap<String, ObjectTypes>,
+    object_counts: HashMap<i32, HashMap<String, i32>>,
     pub first_update: bool,
     pub freeze_by_debug: bool,
     pub ui_interactions: Vec<String>,
@@ -174,6 +175,7 @@ impl Default for ScriptFrame {
             breeze_info: BreezeInfo::default(),
             choose_victim_always_uses_normal: false,
             object_types: HashMap::new(),
+            object_counts: HashMap::new(),
             first_update: true,
             freeze_by_debug: false,
             ui_interactions: Vec::new(),
@@ -182,6 +184,22 @@ impl Default for ScriptFrame {
 }
 
 impl ScriptFrame {
+    pub fn object_count(&self, player: i32, name: &str) -> i32 {
+        self.object_counts.get(&player).and_then(|counts| counts.get(name)).copied().unwrap_or(0)
+    }
+
+    pub fn set_object_count(&mut self, player: i32, name: &str, count: i32) {
+        self.object_counts.entry(player).or_default().insert(name.to_owned(), count);
+    }
+
+    pub fn observe_object_count(&mut self, player: i32, name: &str, count: i32, active: bool) -> bool {
+        let previous = if active { self.object_count(player, name) } else { 0 };
+        if count != previous {
+            self.set_object_count(player, name, count);
+        }
+        count < previous
+    }
+
     pub fn take_first_update(&mut self) -> bool {
         std::mem::take(&mut self.first_update)
     }
@@ -195,6 +213,7 @@ impl ScriptFrame {
         self.breeze_info = BreezeInfo::default();
         self.choose_victim_always_uses_normal = false;
         self.object_types.clear();
+        self.object_counts.clear();
     }
 
     pub fn new_map(&mut self) {

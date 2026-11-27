@@ -169,11 +169,14 @@ impl ScriptConditionEvaluator<'_> {
         driver: &mut dyn ScriptExecutionDriver<crate::scripting::engine::ScriptEngine>,
     ) -> Result<ScriptConditionResult, ScriptError> {
         let engine = self.context.borrowed_engine();
-        if let Some(value) = engine.interpreter().try_evaluate_player_event(
-            condition,
-            &mut engine.condition_queries(driver),
-        )? {
-            return Ok(bool_result(value));
+        {
+            let mut queries = engine.condition_queries(driver);
+            if let Some(value) = engine.interpreter().try_evaluate_player_event(condition, &mut queries)? {
+                return Ok(bool_result(value));
+            }
+            if let Some(value) = engine.interpreter().try_evaluate_player_census(condition, &mut queries)? {
+                return Ok(bool_result(value));
+            }
         }
         self.evaluate_world_condition(condition, driver)
     }
@@ -400,9 +403,6 @@ impl ScriptConditionEvaluator<'_> {
             return Ok(result);
         }
 
-        if let Some(result) = self.eval_owned_player_census(condition, driver)? {
-            return Ok(result);
-        }
         if let Some(result) = self.eval_owned_player_supply(condition, driver)? {
             return Ok(result);
         }
@@ -728,7 +728,7 @@ impl ScriptConditionEvaluator<'_> {
                 self.eval_skirmish_unowned_faction_unit_exists(condition)
             }
             ConditionType::SkirmishPlayerHasPrerequisiteToBuild => {
-                self.eval_skirmish_player_has_prerequisite_to_build(condition, driver)
+                self.eval_skirmish_player_has_prerequisite_to_build(condition)
             }
             ConditionType::SkirmishPlayerHasComparisonGarrisoned => {
                 self.eval_skirmish_player_has_comparison_garrisoned(condition)

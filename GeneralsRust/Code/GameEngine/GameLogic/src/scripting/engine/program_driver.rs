@@ -5,7 +5,9 @@ use crate::scripting::executor::{
 };
 use game_engine::common::system::kind_of::KindOfMask;
 use generals_sim::scripting::media_conditions::ScriptMediaQueries;
+use generals_sim::scripting::player_census_conditions::ScriptCensusQueries;
 use generals_sim::scripting::player_event_conditions::ScriptPlayerEventQueries;
+use generals_sim::scripting::world::HostScriptPlayerCensus;
 
 struct ScriptProgramWorld<'engine, 'context> {
     engine: &'engine ScriptEngine,
@@ -81,7 +83,7 @@ impl ScriptProgramDriver for ScriptProgramWorld<'_, '_> {
         }
     }
 
-    fn condition_queries(&mut self) -> impl ScriptMediaQueries + ScriptPlayerEventQueries + '_ {
+    fn condition_queries(&mut self) -> impl ScriptMediaQueries + ScriptPlayerEventQueries + ScriptCensusQueries + '_ {
         self.engine.condition_queries(self.execution.driver)
     }
 
@@ -188,6 +190,37 @@ impl ScriptPlayerEventQueries for ScriptWorldConditions<'_> {
     }
 }
 
+impl ScriptCensusQueries for ScriptWorldConditions<'_> {
+    fn census(
+        &mut self, player: &str, mask: u32, current: Option<&str>, scope: ScriptPlayerCensusScope,
+    ) -> ScriptOwnerQuery<(i32, HostScriptPlayerCensus)> {
+        self.driver.player_census(player, mask, current, scope)
+    }
+
+    fn count_changed_frame(&self) -> Option<u32> {
+        match self.driver.object_count_changed_frame() {
+            ScriptOwnerQuery::Present(frame) => Some(frame),
+            ScriptOwnerQuery::Missing | ScriptOwnerQuery::Unavailable => None,
+        }
+    }
+
+    fn template_exists(&self, name: &str) -> ScriptOwnerQuery<bool> {
+        self.driver.literal_template_exists(name)
+    }
+
+    fn template_count(&self, player: i32, names: &[String], ignore_dead: bool) -> ScriptOwnerQuery<Option<i32>> {
+        self.driver.player_template_count(player, names, ignore_dead)
+    }
+
+    fn player_count_active(&self, player: i32) -> bool {
+        self.driver.player_count_active(player)
+    }
+
+    fn can_build_any(&mut self, player: &str, mask: u32, names: &[String], current: Option<&str>) -> ScriptOwnerQuery<(u32, bool)> {
+        self.driver.skirmish_player_can_build_any(player, mask, names, current)
+    }
+}
+
 fn script_priority_template_name(
     driver: &dyn ScriptExecutionDriver<ScriptEngine>,
     name: &str,
@@ -269,7 +302,7 @@ impl ScriptEngine {
     pub(crate) fn condition_queries<'a>(
         &'a self,
         driver: &'a mut dyn ScriptExecutionDriver<ScriptEngine>,
-    ) -> impl ScriptMediaQueries + ScriptPlayerEventQueries + 'a {
+    ) -> impl ScriptMediaQueries + ScriptPlayerEventQueries + ScriptCensusQueries + 'a {
         ScriptWorldConditions { engine: self, driver }
     }
 

@@ -727,7 +727,6 @@ pub struct ScriptEngineInner {
     current_track_name: String,
 
     // Object tracking
-    object_counts: HashMap<(i32, String), i32>,
 
     // Named reveals and effects
     topple_directions: Vec<(String, Coord3D)>,

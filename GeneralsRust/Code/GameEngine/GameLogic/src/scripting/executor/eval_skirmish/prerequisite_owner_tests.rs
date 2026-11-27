@@ -20,17 +20,25 @@ impl ScriptExecutionDriver<crate::scripting::engine::ScriptEngine> for Owner {
     }
 
     fn skirmish_player_can_build_any(
-        &self,
+        &mut self,
         player: &str,
+        mask: u32,
         candidates: &[String],
         current_player: Option<&str>,
-    ) -> ScriptOwnerQuery<bool> {
+    ) -> ScriptOwnerQuery<(u32, bool)> {
         self.calls.borrow_mut().push(Query {
             player: player.into(),
             candidates: candidates.to_vec(),
             current_player: current_player.map(str::to_owned),
         });
-        self.result
+        if mask != 0 && !mask.is_power_of_two() {
+            return ScriptOwnerQuery::Missing;
+        }
+        match self.result {
+            ScriptOwnerQuery::Present(value) => ScriptOwnerQuery::Present((1, value)),
+            ScriptOwnerQuery::Missing => ScriptOwnerQuery::Missing,
+            ScriptOwnerQuery::Unavailable => ScriptOwnerQuery::Unavailable,
+        }
     }
 }
 
@@ -102,6 +110,11 @@ fn missing_owner_is_authoritative_even_with_candidates() {
     );
     driver.result = ScriptOwnerQuery::Present(true);
     assert_eq!(
+        evaluator.evaluate_condition_with_driver(&mut condition, &mut driver).unwrap(),
+        ScriptConditionResult::False
+    );
+    condition.parameters[0] = Some(Parameter::with_string(ParameterType::Side, "Owned".into()));
+    assert_eq!(
         evaluator
             .evaluate_condition_with_driver(&mut condition, &mut driver)
             .unwrap(),
@@ -155,6 +168,7 @@ fn default_driver_preserves_unavailable_prerequisite_selection() {
     assert_eq!(
         CanonicalScriptExecutionDriver.skirmish_player_can_build_any(
             "Unadmitted",
+            0,
             &["Candidate".into()],
             None
         ),

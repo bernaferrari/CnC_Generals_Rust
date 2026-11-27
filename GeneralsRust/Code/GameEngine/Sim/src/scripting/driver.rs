@@ -347,11 +347,12 @@ pub trait ScriptExecutionDriver<Interpreter: ?Sized> {
     /// execution's live list, with raw player identity and borrowed context.
     /// Missing is authoritative false; Unavailable retains standalone lookup.
     fn skirmish_player_can_build_any(
-        &self,
+        &mut self,
         _player: &str,
+        _mask: u32,
         _object_types: &[String],
         _current_player: Option<&str>,
-    ) -> ScriptOwnerQuery<bool> {
+    ) -> ScriptOwnerQuery<(u32, bool)> {
         ScriptOwnerQuery::Unavailable
     }
 
@@ -1113,6 +1114,19 @@ pub trait ScriptExecutionDriver<Interpreter: ?Sized> {
         _scope: ScriptPlayerCensusScope,
     ) -> ScriptOwnerQuery<(i32, HostScriptPlayerCensus)> {
         ScriptOwnerQuery::Unavailable
+    }
+
+    fn player_template_count(
+        &self,
+        _player: i32,
+        _templates: &[String],
+        _ignore_dead: bool,
+    ) -> ScriptOwnerQuery<Option<i32>> {
+        ScriptOwnerQuery::Unavailable
+    }
+
+    fn player_count_active(&self, _player: i32) -> bool {
+        true
     }
 
     fn player_has_any_objects(

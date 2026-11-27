@@ -1847,25 +1847,27 @@ impl ScriptExecutionDriver<ScriptEngine> for HostScriptExecutionDriver<'_> {
     }
 
     fn skirmish_player_can_build_any(
-        &self,
+        &mut self,
         player: &str,
+        mask: u32,
         object_types: &[String],
         current_player: Option<&str>,
-    ) -> ScriptOwnerQuery<bool> {
-        if self.requires_prepared_player_bindings() {
+    ) -> ScriptOwnerQuery<(u32, bool)> {
+        if self.uses_legacy_network_player_bindings() {
             return ScriptOwnerQuery::Unavailable;
         }
         let Some(player) = self
-            .script_player_id(player, current_player)
+            .query_condition_player_id(player, mask, current_player)
             .and_then(|id| self.world.players.get(&id))
         else {
             return ScriptOwnerQuery::Missing;
         };
-        ScriptOwnerQuery::Present(
+        ScriptOwnerQuery::Present((
+            1u32.checked_shl(player.id).unwrap_or(0),
             object_types
                 .iter()
                 .any(|name| self.world.script_player_can_build_template(player, name)),
-        )
+        ))
     }
 
     fn player_construction(
@@ -2099,7 +2101,7 @@ impl ScriptExecutionDriver<ScriptEngine> for HostScriptExecutionDriver<'_> {
         mask: u32,
         current_player: Option<&str>,
     ) -> ScriptOwnerQuery<usize> {
-        if self.requires_prepared_player_bindings() && self.world.game_mode != GameMode::Skirmish {
+        if self.uses_legacy_network_player_bindings() {
             return ScriptOwnerQuery::Unavailable;
         }
         // The installed offline script list and its notifications both use the
@@ -3020,12 +3022,41 @@ impl ScriptExecutionDriver<ScriptEngine> for HostScriptExecutionDriver<'_> {
         };
         let census = match scope {
             ScriptPlayerCensusScope::MoneyAndPower => self.world.owned_host_player_economy_for(id),
-            ScriptPlayerCensusScope::ObjectCounts => self.world.owned_host_player_census_for(id),
+            ScriptPlayerCensusScope::ObjectCounts => self.world.owned_script_building_census_for(id),
+            ScriptPlayerCensusScope::TemplateCounts => self.world.players.get(&id).map(|_| Default::default()),
         };
         match census {
             Some(census) => ScriptOwnerQuery::Present((id as i32, census)),
             None => ScriptOwnerQuery::Missing,
         }
+    }
+
+    fn player_template_count(
+        &self,
+        player: i32,
+        templates: &[String],
+        ignore_dead: bool,
+    ) -> ScriptOwnerQuery<Option<i32>> {
+        let templates: Vec<_> = templates
+            .iter()
+            .filter_map(|name| self.world.templates.get(name))
+            .collect();
+        if templates.is_empty() {
+            return ScriptOwnerQuery::Present(None);
+        }
+        // Team.cpp:1593–1616 counts an object against its first equivalent
+        // candidate, regardless of how many entries in the list match it.
+        let count = self.world.host_objects().registered_values().filter(|object| {
+            self.world.object_owned_by_player(object, player as u32)
+                && !object.status.under_construction
+                && (!ignore_dead || !object.status.effectively_dead)
+                && templates.iter().any(|template| object.get_template().is_equivalent_to(template))
+        }).count() as i32;
+        ScriptOwnerQuery::Present(Some(count))
+    }
+
+    fn player_count_active(&self, player: i32) -> bool {
+        self.world.players.get(&(player as u32)).is_some_and(Player::is_active)
     }
 
     fn player_has_any_objects(

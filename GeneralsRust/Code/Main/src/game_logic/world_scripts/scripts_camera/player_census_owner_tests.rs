@@ -23,6 +23,57 @@ fn side(kind: ConditionType, name: &str) -> Condition {
         .unwrap();
     condition
 }
+
+#[test]
+fn unit_count_comparison_keeps_its_result_until_the_receiving_count_frame_changes() {
+    use gamelogic::scripting::engine::ScriptEngine;
+    use generals_sim::scripting::program::{OrCondition, Script};
+
+    let (mut owner, unit, _) = world();
+    let (mut peer, peer_unit, _) = world();
+    assert_eq!(unit, peer_unit);
+    let mut condition = side(ConditionType::PlayerHasObjectComparison, "NamedOwner");
+    for parameter in [
+        Parameter::with_int(ParameterType::Comparison, 4),
+        Parameter::with_int(ParameterType::Int, 0),
+        Parameter::with_string(ParameterType::ObjectType, "OwnedNamedInfantry".into()),
+    ] {
+        condition.add_parameter(parameter).unwrap();
+    }
+    let mut branch = OrCondition::new();
+    branch.set_first_and_condition(Some(Box::new(condition)));
+    let mut script = Script::new();
+    script.condition = Some(Box::new(branch));
+    let engine = ScriptEngine::new_with_services(&owner.world_services).unwrap();
+    owner.script_object_count_changed_frame = 17;
+    assert!(owner.evaluate_owned_script_conditions(&engine, &mut script, None));
+    owner.host_object_mut(unit).unwrap().status.under_construction = true;
+    peer.script_object_count_changed_frame = 18;
+    assert!(owner.evaluate_owned_script_conditions(&engine, &mut script, None));
+    owner.script_object_count_changed_frame = 19;
+    assert!(!owner.evaluate_owned_script_conditions(&engine, &mut script, None));
+}
+
+#[test]
+fn condition_template_count_accepts_equivalent_types_once() {
+    let (mut world, unit, _) = world_with(
+        &[crate::fixture_content::FixtureObject::new("OwnedEquivalentUnit").kind_of("INFANTRY")],
+        &[],
+        "",
+    );
+    assert_eq!(world.host_object(unit).unwrap().template_name, "OwnedNamedInfantry");
+    world.templates.get_mut("OwnedEquivalentUnit").unwrap()
+        .build_variations.push("OwnedNamedInfantry".into());
+    let mut query = side(ConditionType::PlayerHasObjectComparison, "NamedOwner");
+    for parameter in [
+        Parameter::with_int(ParameterType::Comparison, 2),
+        Parameter::with_int(ParameterType::Int, 1),
+        Parameter::with_string(ParameterType::ObjectType, "OwnedEquivalentUnit".into()),
+    ] {
+        query.add_parameter(parameter).unwrap();
+    }
+    assert!(world.owned_script_condition_for_test(query));
+}
 #[test]
 fn owned_player_census_conditions_ignore_same_id_peer_and_observe_live_mutation() {
     let (mut owner, unit, _) = world();
@@ -270,9 +321,9 @@ fn same_display_labels_keep_player_census_and_script_names_distinct() {
     assert!(!census.contains_key("PlyrAmerica"));
 
     // The single-player census used by script conditions matches the full one.
-    assert_eq!(world.owned_host_player_census_for(1).unwrap().money, 0);
-    assert_eq!(world.owned_host_player_census_for(2).unwrap().money, 1_000);
-    assert!(world.owned_host_player_census_for(99).is_none());
+    assert_eq!(world.owned_script_building_census_for(1).unwrap().money, 0);
+    assert_eq!(world.owned_script_building_census_for(2).unwrap().money, 1_000);
+    assert!(world.owned_script_building_census_for(99).is_none());
 }
 
 #[test]

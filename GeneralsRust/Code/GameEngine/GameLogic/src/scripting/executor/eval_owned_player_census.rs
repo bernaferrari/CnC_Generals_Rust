@@ -4,116 +4,6 @@ use crate::scripting::engine::{
     ScriptExecutionDriver, ScriptOwnerQuery, ScriptPlayerCensusScope,
 };
 
-impl ScriptConditionEvaluator<'_> {
-    pub(super) fn eval_owned_player_census(
-        &self,
-        condition: &mut Condition,
-        driver: &mut dyn ScriptExecutionDriver<crate::scripting::engine::ScriptEngine>,
-    ) -> Result<Option<ScriptConditionResult>, ScriptError> {
-        let kind = condition.get_condition_type();
-        use ScriptPlayerCensusScope::{MoneyAndPower, ObjectCounts};
-
-        let (player_index, scope) = match kind {
-            ConditionType::PlayerHasCredits => (2, MoneyAndPower),
-            ConditionType::BuiltByPlayer => (1, ObjectCounts),
-            ConditionType::PlayerHasPower | ConditionType::PlayerHasNoPower => (0, MoneyAndPower),
-            ConditionType::PlayerAllBuildfacilitiesDestroyed
-            | ConditionType::PlayerHasNOrFewerBuildings
-            | ConditionType::PlayerHasObjectComparison
-            | ConditionType::PlayerLostObjectType => (0, ObjectCounts),
-            _ => return Ok(None),
-        };
-        let count_frame = if kind == ConditionType::BuiltByPlayer {
-            match driver.object_count_changed_frame() {
-                ScriptOwnerQuery::Present(frame) => Some(frame),
-                ScriptOwnerQuery::Missing | ScriptOwnerQuery::Unavailable => None,
-            }
-        } else {
-            None
-        };
-        if condition.custom_data != 0 && count_frame == Some(condition.custom_frame) {
-            return Ok(Some(Self::bool_result(condition.custom_data == 1)));
-        }
-        let player = condition
-            .parameters
-            .get_mut(player_index)
-            .and_then(Option::as_mut)
-            .ok_or_else(|| {
-                ScriptError::ParameterNotFound(format!("Parameter {player_index} not found"))
-            })?;
-        let current_player = self.context.borrowed_engine().get_current_player_name();
-        let (id, census) = match driver.player_census(
-            player.get_string(),
-            player.get_int() as u32,
-            current_player.as_deref(),
-            scope,
-        ) {
-            ScriptOwnerQuery::Unavailable => return Ok(None),
-            ScriptOwnerQuery::Missing => {
-                player.cache_condition_player_mask(None);
-                return Ok(Some(Self::bool_result(
-                    kind == ConditionType::PlayerAllBuildfacilitiesDestroyed,
-                )));
-            }
-            ScriptOwnerQuery::Present((id, census)) => {
-                let mask = 1u32.checked_shl(id as u32).unwrap_or(0);
-                player.cache_condition_player_mask(Some(mask));
-                (id, census)
-            }
-        };
-        if kind == ConditionType::BuiltByPlayer {
-            let template = self.get_condition_string_param(condition, 0)?;
-            match driver.literal_template_exists(&template) {
-                ScriptOwnerQuery::Unavailable => return Ok(None),
-                ScriptOwnerQuery::Missing | ScriptOwnerQuery::Present(false) => {
-                    return Ok(Some(Self::bool_result(false)));
-                }
-                ScriptOwnerQuery::Present(true) => {}
-            }
-        }
-        let count = |type_name: &str, ignore_dead: bool| {
-            let types = self.resolve_object_types_param(type_name);
-            let names: Vec<String> = types.iter().map(|name| name.to_string()).collect();
-            census.count_templates(&names, ignore_dead)
-        };
-        let value = match kind {
-            ConditionType::PlayerHasCredits => Self::compare_i32(
-                self.get_condition_comparison_param(condition, 1)?,
-                self.get_condition_int_param(condition, 0)?,
-                census.money,
-            ),
-            ConditionType::PlayerHasPower => census.has_sufficient_power(),
-            ConditionType::PlayerHasNoPower => !census.has_sufficient_power(),
-            ConditionType::PlayerAllBuildfacilitiesDestroyed => !census.has_any_build_facility,
-            ConditionType::PlayerHasNOrFewerBuildings => {
-                self.get_condition_int_param(condition, 1)? >= census.building_count
-            }
-            ConditionType::BuiltByPlayer => {
-                count(&self.get_condition_string_param(condition, 0)?, false) > 0
-            }
-            ConditionType::PlayerHasObjectComparison => Self::compare_i32(
-                self.get_condition_comparison_param(condition, 1)?,
-                count(&self.get_condition_string_param(condition, 3)?, false),
-                self.get_condition_int_param(condition, 2)?,
-            ),
-            ConditionType::PlayerLostObjectType => {
-                let object_type = self.get_condition_string_param(condition, 1)?;
-                return Ok(Some(self.finish_player_lost_object_type(
-                    id,
-                    &object_type,
-                    count(&object_type, true),
-                )));
-            }
-            _ => unreachable!("selected player census condition"),
-        };
-        if let Some(frame) = count_frame {
-            condition.custom_data = if value { 1 } else { -1 };
-            condition.custom_frame = frame;
-        }
-        Ok(Some(Self::bool_result(value)))
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -140,7 +30,7 @@ mod tests {
             _: Option<&str>,
             scope: ScriptPlayerCensusScope,
         ) -> ScriptOwnerQuery<(i32, crate::scripting::HostScriptPlayerCensus)> {
-            assert_eq!(scope, ScriptPlayerCensusScope::ObjectCounts);
+            assert_eq!(scope, ScriptPlayerCensusScope::TemplateCounts);
             let mut census = crate::scripting::HostScriptPlayerCensus::default();
             census.template_counts.insert("ranger".into(), self.count);
             ScriptOwnerQuery::Present((0, census))

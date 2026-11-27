@@ -32,6 +32,10 @@ pub enum ComparisonType {
 
 impl ComparisonType {
     pub fn compare_i32(self, lhs: i32, rhs: i32) -> bool {
+        self.compare(lhs, rhs)
+    }
+
+    pub(super) fn compare<T: Ord>(self, lhs: T, rhs: T) -> bool {
         match self {
             Self::LessThan => lhs < rhs,
             Self::LessEqual => lhs <= rhs,

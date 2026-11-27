@@ -186,6 +186,24 @@ fn same_ids_different_worlds_and_foreign_reset_keep_prerequisites_separate() {
 }
 
 #[test]
+fn offline_skirmish_prerequisite_conditions_use_live_own_facilities() {
+    let mut first = world();
+    let mut peer = world();
+    first.game_mode = GameMode::Skirmish;
+    peer.game_mode = GameMode::Skirmish;
+    let first_facility = first.create_object_for_player(FACILITY, 1, Vec3::ZERO).unwrap();
+    let peer_facility = peer.create_object_for_player(FACILITY, 1, Vec3::ZERO).unwrap();
+    assert_eq!(first_facility, peer_facility);
+    peer.host_object_mut(peer_facility).unwrap().status.under_construction = true;
+    let first_engine = engine(PLAYER, CANDIDATE);
+    let peer_engine = engine(PLAYER, CANDIDATE);
+    assert_eq!(tick(&first_engine, &mut first), 1);
+    assert_eq!(tick(&peer_engine, &mut peer), 0);
+    peer.host_object_mut(peer_facility).unwrap().status.under_construction = false;
+    assert_eq!(tick(&peer_engine, &mut peer), 1);
+}
+
+#[test]
 fn missing_player_is_false_without_script_failure() {
     let mut world = world();
     let engine = engine("MissingPrerequisitePlayer", CANDIDATE);
@@ -367,35 +385,38 @@ fn prepared_bindings_and_player_tokens_are_explicit() {
         .create_object_for_player(FACILITY, 1, Vec3::ZERO)
         .unwrap();
     let candidates = vec![CANDIDATE.into()];
-    let driver = HostScriptExecutionDriver::new(&mut world);
+    let mut driver = HostScriptExecutionDriver::new(&mut world);
     assert_eq!(
         driver.skirmish_player_can_build_any(
             generals_sim::scripting::program::THIS_PLAYER,
+            0,
             &candidates,
             Some(PLAYER)
         ),
-        ScriptOwnerQuery::Present(true)
+        ScriptOwnerQuery::Present((2, true))
     );
     assert_eq!(
         driver.skirmish_player_can_build_any(
             generals_sim::scripting::program::LOCAL_PLAYER,
+            0,
             &candidates,
             None
         ),
-        ScriptOwnerQuery::Present(true)
+        ScriptOwnerQuery::Present((2, true))
     );
     assert_eq!(
-        driver.skirmish_player_can_build_any("ownedprerequisiteplayer", &candidates, None),
+        driver.skirmish_player_can_build_any("ownedprerequisiteplayer", 0, &candidates, None),
         ScriptOwnerQuery::Missing
     );
     world.game_mode = GameMode::Skirmish;
     assert_eq!(
         HostScriptExecutionDriver::new(&mut world).skirmish_player_can_build_any(
             PLAYER,
+            0,
             &candidates,
             None
         ),
-        ScriptOwnerQuery::Unavailable
+        ScriptOwnerQuery::Present((2, true))
     );
 }
 

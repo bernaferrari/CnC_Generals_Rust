@@ -4,6 +4,7 @@
 use super::ScriptActionResult;
 use super::interpreter::ScriptInterpreter;
 use super::media_conditions::ScriptMediaQueries;
+use super::player_census_conditions::ScriptCensusQueries;
 use super::player_event_conditions::ScriptPlayerEventQueries;
 use super::program::{Condition, OrCondition, Script, ScriptAction, ScriptActionType};
 use super::sequential_scripts::is_sequential_only_action;
@@ -48,7 +49,7 @@ impl From<ScriptActionError> for GameLogicError {
 pub trait ScriptProgramDriver {
     fn difficulty(&self) -> ScriptDifficulty;
     fn condition_team_after(&self, name: &str, after: Option<u32>) -> Option<u32>;
-    fn condition_queries(&mut self) -> impl ScriptMediaQueries + ScriptPlayerEventQueries + '_;
+    fn condition_queries(&mut self) -> impl ScriptMediaQueries + ScriptPlayerEventQueries + ScriptCensusQueries + '_;
     fn evaluate_world_condition(&mut self, condition: &mut Condition) -> GameLogicResult<bool>;
     fn execute_world_action(
         &mut self,
@@ -129,7 +130,10 @@ fn evaluate_script(
                 {
                     return Ok(Some(value));
                 }
-                interpreter.try_evaluate_player_event(condition, &mut queries)
+                if let Some(value) = interpreter.try_evaluate_player_event(condition, &mut queries)? {
+                    return Ok(Some(value));
+                }
+                interpreter.try_evaluate_player_census(condition, &mut queries)
             })
             .map_err(|error| GameLogicError::Configuration(format!("Script condition error: {error}")))?;
         match local {
@@ -305,6 +309,7 @@ mod tests {
         }
 
         impl ScriptPlayerEventQueries for UnusedQueries {}
+        impl ScriptCensusQueries for UnusedQueries {}
 
         struct World<'a> {
             interpreter: &'a ScriptInterpreter,
@@ -320,7 +325,7 @@ mod tests {
                 (name == "Patrol" && after.is_none()).then_some(23)
             }
 
-            fn condition_queries(&mut self) -> impl ScriptMediaQueries + ScriptPlayerEventQueries + '_ {
+            fn condition_queries(&mut self) -> impl ScriptMediaQueries + ScriptPlayerEventQueries + ScriptCensusQueries + '_ {
                 UnusedQueries
             }
 

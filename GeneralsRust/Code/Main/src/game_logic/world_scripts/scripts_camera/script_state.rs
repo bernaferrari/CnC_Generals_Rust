@@ -571,24 +571,28 @@ impl GameLogic {
         gamelogic::scripting::HostScriptQuery::of(&self.world_services).set_host_script_query_snapshot(snap);
     }
 
-    /// C++ Player::getMoney / getEnergy / hasAnyObjects for leftover conditions
-    /// when crate `OBJECT_REGISTRY` is empty (live host Player is authoritative).
-    pub(super) fn owned_host_player_census(
-        &self,
-    ) -> std::collections::HashMap<String, generals_sim::scripting::world::HostScriptPlayerCensus> {
-        self.owned_host_player_census_filtered(None)
-    }
-
-    /// One player's census. C++ answers each script condition from that
-    /// Player's own counters (Player::getMoney / countObjectsByThingTemplate),
-    /// so do not build and discard every other player's tallies per query.
-    pub(super) fn owned_host_player_census_for(
+    /// Sample the receiving player's registered buildings and build facilities.
+    pub(super) fn owned_script_building_census_for(
         &self,
         player_id: u32,
     ) -> Option<generals_sim::scripting::world::HostScriptPlayerCensus> {
-        let name = &self.players.get(&player_id)?.map_side.map_player_name;
-        self.owned_host_player_census_filtered(Some(player_id))
-            .remove(name)
+        let player = self.players.get(&player_id)?;
+        let mut census = self.script_census_money_and_power(player);
+        let facilities = self.build_facility_template_names();
+        // Team.cpp:1620–1648,2493–2502 observes the registered membership.
+        for object in self.host_objects().registered_values() {
+            if !self.object_owned_by_player(object, player_id) {
+                continue;
+            }
+            if object.is_kind_of(KindOf::Structure) {
+                census.building_count += 1;
+                if object.is_kind_of(KindOf::MpCountForVictory) {
+                    census.faction_building_count += 1;
+                }
+            }
+            census.has_any_build_facility |= facilities.contains(&object.template_name.to_ascii_lowercase());
+        }
+        Some(census)
     }
 
     pub(super) fn owned_host_player_economy_for(
@@ -596,9 +600,6 @@ impl GameLogic {
         player_id: u32,
     ) -> Option<generals_sim::scripting::world::HostScriptPlayerCensus> {
         let player = self.players.get(&player_id)?;
-        if player.map_side.map_player_name.is_empty() {
-            return None;
-        }
         Some(self.script_census_money_and_power(player))
     }
 
@@ -616,9 +617,9 @@ impl GameLogic {
         }
     }
 
-    fn owned_host_player_census_filtered(
+    /// Publish census facts for legacy conditions using the compatibility view.
+    pub(super) fn owned_host_player_census(
         &self,
-        only_player: Option<u32>,
     ) -> std::collections::HashMap<String, generals_sim::scripting::world::HostScriptPlayerCensus> {
         use crate::game_logic::KindOf;
         use generals_sim::scripting::world::HostScriptPlayerCensus;
@@ -630,9 +631,6 @@ impl GameLogic {
         let mut by_player_id: std::collections::HashMap<u32, HostScriptPlayerCensus> =
             std::collections::HashMap::new();
         for player in self.players.values() {
-            if only_player.is_some_and(|only| only != player.id) {
-                continue;
-            }
             by_player_id.insert(
                 player.id,
                 HostScriptPlayerCensus {

@@ -8,17 +8,10 @@ impl HostScriptExecutionDriver<'_> {
         &player.map_side.map_player_name
     }
 
-    pub(super) fn requires_prepared_player_bindings(&self) -> bool {
-        // These paths still consume PlayerList side ordinals. The tech query
-        // uses exact admitted Main Player names instead and does not infer IDs
-        // from a side index.
+    pub(super) fn uses_legacy_network_player_bindings(&self) -> bool {
         matches!(
             self.world.game_mode,
-            GameMode::Skirmish
-                | GameMode::Multiplayer
-                | GameMode::Lan
-                | GameMode::Internet
-                | GameMode::Replay
+            GameMode::Multiplayer | GameMode::Lan | GameMode::Internet | GameMode::Replay
         )
     }
 
