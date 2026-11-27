@@ -1,137 +1,53 @@
-//! CPP WeaponSet::updateWeaponSet: immutable receiving rows, exactly three live slots.
+//! Connect authored template data and live objects to the simulation's WeaponSets.
+use std::sync::Arc;
+
 use super::Object;
-use crate::assets::WeaponChoicePolicy;
 use crate::game_logic::{ThingTemplate, Weapon, WeaponLockType};
+pub(crate) use generals_sim::weapon::{BoundWeaponSets, WeaponRow, WeaponRowIdentity};
+use generals_sim::weapon::{
+    WeaponCatalog, WeaponChoicePolicy, WeaponDefinition, WeaponSlotDefinition,
+    weapon_condition_mask,
+};
 
-#[derive(Debug, Clone)]
-pub(crate) struct WeaponSlotDefinition {
-    prototype: Weapon,
-    suspend_delay: u32,
-    projectile_name: Option<String>,
-    native: Option<std::sync::Arc<generals_sim::weapon::WeaponDefinition>>,
-}
-impl WeaponSlotDefinition {
-    fn instantiate(&self, frame: u32) -> Weapon {
-        let mut weapon = self.prototype.clone();
-        weapon.last_fire_time = 0.0;
-        weapon.last_fire_frame = 0;
-        weapon.frame_clock_active = self.native.is_some();
-        let ready_frame = if weapon.frame_clock_active { frame } else { 0 };
-        weapon.next_fire_frame = ready_frame;
-        weapon.reload_started_frame = ready_frame;
-        weapon.frame_clock_status = Default::default();
-        weapon.reloading_clip = false;
-        weapon.last_bonus_rof = 0.0;
-        weapon.ammo = (weapon.clip_size > 0).then_some(weapon.clip_size);
-        weapon.suspend_fx_frame = frame.wrapping_add(self.suspend_delay);
-        weapon
-    }
-}
-#[derive(Debug, Clone)]
-pub(crate) struct WeaponRow {
-    slots: [Option<WeaponSlotDefinition>; 3],
-    pub(crate) names: [Option<String>; 3],
-    shared: bool,
-    condition_alternatives: Vec<u32>,
-    pub(super) choice: Option<WeaponChoicePolicy>,
-}
-
-impl WeaponRow {
-    pub(super) fn native_rule(&self, slot: u8) -> Option<&generals_sim::weapon::WeaponDefinition> {
-        self.slots.get(usize::from(slot))?.as_ref()?.native.as_deref()
-    }
-}
-
-#[derive(Debug, Clone)]
-pub(crate) struct BoundWeaponSets {
-    base: WeaponRow,
-    mine: Option<WeaponRow>,
-    conditional: Vec<WeaponRow>,
-    receiving: bool,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum WeaponRowIdentity {
-    Base,
-    Mine,
-    Conditional(usize),
-}
 impl ThingTemplate {
-    /// Factory installs the already admitted immutable base row at its frame.
-    /// Some([None;3]) is explicit no-weapon content, not missing admission.
+    /// Instantiate the admitted base row before onCreate.
     pub(in crate::game_logic) fn instantiate_base_weapon_row(
         &self,
         frame: u32,
     ) -> Option<[Option<Weapon>; 3]> {
-        let row = &self.selected_weapon_sets.as_ref()?.base;
-        Some(std::array::from_fn(|i| {
-            row.slots[i].as_ref().map(|rule| rule.instantiate(frame))
-        }))
+        Some(
+            self.selected_weapon_sets
+                .as_ref()?
+                .base()
+                .instantiate(frame),
+        )
     }
-    /// Admit receiving immutable native rules without a second catalog lookup.
+
+    /// Admit supplied immutable definitions and preserve the template's mine row.
     pub(in crate::game_logic) fn bind_native_weapon_row(
         &mut self,
-        native: [Option<&generals_sim::weapon::WeaponDefinition>; 3],
+        native: [Option<&WeaponDefinition>; 3],
     ) {
-        let names = std::array::from_fn(|i| native[i].map(|rule| rule.name.clone()));
-        let slots = std::array::from_fn(|i| {
-            native[i].and_then(|rule| {
-                Some(WeaponSlotDefinition {
-                    prototype: ThingTemplate::weapon_from_template_at(rule, 0)?,
-                    suspend_delay: rule.suspend_fx_delay,
-                    projectile_name: Some(rule.projectile_name.clone()),
-                    native: Some(std::sync::Arc::new(rule.clone())),
-                })
-            })
-        });
+        let names = native.map(|rule| rule.map(|rule| rule.name.clone()));
+        let slots = native
+            .map(|rule| rule.map(|rule| WeaponSlotDefinition::Authored(Arc::new(rule.clone()))));
         let mine = self
             .selected_weapon_sets
             .as_ref()
-            .and_then(|rows| rows.mine.clone());
-        self.selected_weapon_sets = Some(BoundWeaponSets {
-            base: WeaponRow {
-                slots,
-                names,
-                shared: self.weapon_lock_shared_across_sets,
-                condition_alternatives: Vec::new(),
-                choice: None,
-            },
-            mine,
-            conditional: Vec::new(),
-            receiving: true,
-        });
+            .and_then(BoundWeaponSets::mine)
+            .cloned();
+        let base = WeaponRow::new(
+            names,
+            self.weapon_lock_shared_across_sets,
+            Vec::new(),
+            None,
+            slots,
+        );
+        self.selected_weapon_sets = Some(BoundWeaponSets::receiving(base, mine, Vec::new()));
     }
-    /// Resolve both active three-slot modes from this match's effective content.
-    pub(crate) fn bind_receiving_weapon_sets(
-        &mut self,
-        catalog: &generals_sim::weapon::WeaponCatalog,
-    ) {
-        fn row(
-            names: [Option<String>; 3],
-            shared: bool,
-            condition_alternatives: Vec<u32>,
-            choice: Option<WeaponChoicePolicy>,
-            catalog: &generals_sim::weapon::WeaponCatalog,
-        ) -> WeaponRow {
-            let slots = std::array::from_fn(|i| {
-                let native = catalog
-                    .get(&names[i].as_ref()?.to_ascii_lowercase())?
-                    .clone();
-                Some(WeaponSlotDefinition {
-                    prototype: ThingTemplate::weapon_from_template_at(&native, 0)?,
-                    suspend_delay: native.suspend_fx_delay,
-                    projectile_name: Some(native.projectile_name.clone()),
-                    native: Some(native),
-                })
-            });
-            WeaponRow {
-                slots,
-                names,
-                shared,
-                condition_alternatives,
-                choice,
-            }
-        }
+
+    /// Resolve every authored row from this match's effective content.
+    pub(crate) fn bind_receiving_weapon_sets(&mut self, catalog: &WeaponCatalog) {
         let names = [
             self.primary_weapon_name.clone(),
             self.secondary_weapon_name.clone(),
@@ -145,7 +61,15 @@ impl ThingTemplate {
                     .as_ref()
                     .map(|name| [Some(name.clone()), None, None])
             })
-            .map(|names| row(names, self.mine_weapon_set_shared, Vec::new(), None, catalog));
+            .map(|names| {
+                WeaponRow::from_catalog(
+                    names,
+                    self.mine_weapon_set_shared,
+                    Vec::new(),
+                    None,
+                    catalog,
+                )
+            });
         let conditional = self
             .receiving_object_definition
             .as_ref()
@@ -179,7 +103,7 @@ impl ThingTemplate {
                                 .into_iter()
                                 .collect()
                         };
-                        row(
+                        WeaponRow::from_catalog(
                             [
                                 set.primary_weapon.clone(),
                                 set.secondary_weapon.clone(),
@@ -194,111 +118,56 @@ impl ThingTemplate {
                     .collect()
             })
             .unwrap_or_default();
-        self.selected_weapon_sets = Some(BoundWeaponSets {
-            base: row(
-                names,
-                self.weapon_lock_shared_across_sets,
-                Vec::new(),
-                None,
-                catalog,
-            ),
-            mine,
-            conditional,
-            receiving: true,
-        });
+        let base = WeaponRow::from_catalog(
+            names,
+            self.weapon_lock_shared_across_sets,
+            Vec::new(),
+            None,
+            catalog,
+        );
+        self.selected_weapon_sets = Some(BoundWeaponSets::receiving(base, mine, conditional));
     }
+
     pub(crate) fn bind_selected_weapon_sets(&mut self, base: [Option<Weapon>; 3]) {
         fn bind(name: Option<&str>, prototype: Option<Weapon>) -> Option<WeaponSlotDefinition> {
-            let native = name.and_then(|name| {
-                crate::game_logic::weapon_bootstrap::legacy_weapon_definition(name)
-            });
-            if let Some(native) = native {
-                let prototype = ThingTemplate::weapon_from_template_at(&native, 0)?;
-                Some(WeaponSlotDefinition {
-                    prototype,
-                    suspend_delay: native.suspend_fx_delay,
-                    projectile_name: Some(native.projectile_name.clone()),
-                    native: Some(native.clone()),
-                })
-            } else {
-                prototype.map(|prototype| WeaponSlotDefinition {
-                    prototype,
-                    suspend_delay: 0,
-                    projectile_name: None,
-                    native: None,
-                })
-            }
+            let native =
+                name.and_then(crate::game_logic::weapon_bootstrap::legacy_weapon_definition);
+            native
+                .map(WeaponSlotDefinition::Authored)
+                .or_else(|| prototype.map(WeaponSlotDefinition::Prototype))
         }
+
         let base_names = [
             self.primary_weapon_name.clone(),
             self.secondary_weapon_name.clone(),
             self.tertiary_weapon_name.clone(),
         ];
         let slots = std::array::from_fn(|i| bind(base_names[i].as_deref(), base[i].clone()));
+        let base = WeaponRow::new(
+            base_names,
+            self.weapon_lock_shared_across_sets,
+            Vec::new(),
+            None,
+            slots,
+        );
         let mine_names = self.mine_weapon_set_names.clone().or_else(|| {
             (self.mine_clearing_primary_weapon_name.is_some()
                 || self.mine_clearing_primary_weapon.is_some())
             .then(|| [self.mine_clearing_primary_weapon_name.clone(), None, None])
         });
-        let mine = mine_names.map(|names| WeaponRow {
-            slots: std::array::from_fn(|i| {
-                bind(
-                    names[i].as_deref(),
-                    (i == 0)
-                        .then(|| self.mine_clearing_primary_weapon.clone())
-                        .flatten(),
-                )
-            }),
-            names,
-            shared: self.mine_weapon_set_shared,
-            condition_alternatives: Vec::new(),
-            choice: None,
+        let mine = mine_names.map(|names| {
+            let mut prototypes = [self.mine_clearing_primary_weapon.clone(), None, None];
+            let slots = std::array::from_fn(|i| bind(names[i].as_deref(), prototypes[i].take()));
+            WeaponRow::new(names, self.mine_weapon_set_shared, Vec::new(), None, slots)
         });
-        self.selected_weapon_sets = Some(BoundWeaponSets {
-            base: WeaponRow {
-                slots,
-                names: base_names,
-                shared: self.weapon_lock_shared_across_sets,
-                condition_alternatives: Vec::new(),
-                choice: None,
-            },
-            mine,
-            conditional: Vec::new(),
-            receiving: false,
-        });
+        self.selected_weapon_sets = Some(BoundWeaponSets::compatibility(base, mine));
     }
+
     pub(crate) fn has_receiving_weapon_sets(&self) -> bool {
         self.selected_weapon_sets
             .as_ref()
-            .is_some_and(|rows| rows.receiving)
+            .is_some_and(BoundWeaponSets::is_receiving)
     }
-}
-
-fn weapon_condition_mask(condition: &str) -> Option<u32> {
-    let condition = condition.trim().trim_matches(',').to_ascii_uppercase();
-    let condition = condition.strip_prefix("WEAPONSET_").unwrap_or(&condition);
-    let bit = match condition {
-        "VETERAN" => 0,
-        "ELITE" => 1,
-        "HERO" => 2,
-        "PLAYER_UPGRADE" => 3,
-        "CRATEUPGRADE_ONE" | "CRATE_UPGRADE_ONE" => 4,
-        "CRATEUPGRADE_TWO" | "CRATE_UPGRADE_TWO" => 5,
-        "VEHICLE_HIJACK" => 6,
-        "CARBOMB" | "CAR_BOMB" => 7,
-        "MINE_CLEARING_DETAIL" => 8,
-        "WEAPON_RIDER1" | "RIDER1" => 9,
-        "WEAPON_RIDER2" | "RIDER2" => 10,
-        "WEAPON_RIDER3" | "RIDER3" => 11,
-        "WEAPON_RIDER4" | "RIDER4" => 12,
-        "WEAPON_RIDER5" | "RIDER5" => 13,
-        "WEAPON_RIDER6" | "RIDER6" => 14,
-        "WEAPON_RIDER7" | "RIDER7" => 15,
-        "WEAPON_RIDER8" | "RIDER8" => 16,
-        "NONE" | "" => return None,
-        _ => return None,
-    };
-    Some(1u32 << bit)
 }
 
 fn weapon_lock_shared(attributes: &std::collections::HashMap<String, String>) -> bool {
@@ -311,26 +180,6 @@ fn weapon_lock_shared(attributes: &std::collections::HashMap<String, String>) ->
             )
     })
 }
-fn select_conditional_weapon_row(rows: &[WeaponRow], flags: u32) -> Option<(usize, &WeaponRow)> {
-    let mut best: Option<(usize, &WeaponRow)> = None;
-    let mut best_yes = 0;
-    let mut best_extra = 999;
-    for (index, row) in rows.iter().enumerate() {
-        // WeaponTemplateSet currently exposes one mask. Keep C++'s reverse
-        // alternative iteration so multiple authored masks keep source order.
-        for &condition in row.condition_alternatives.iter().rev() {
-            let yes = (condition & flags).count_ones();
-            let extraneous = (condition & !flags).count_ones();
-            if yes > best_yes || (yes >= best_yes && extraneous < best_extra) {
-                best = Some((index, row));
-                best_yes = yes;
-                best_extra = extraneous;
-            }
-        }
-    }
-    best
-}
-
 impl Object {
     /// Native WeaponSetType bits: veterancy 0–2, player upgrade 3, crate
     /// upgrades 4–5, hijack 6, car bomb 7, mine clearing 8, riders 9–16.
@@ -411,24 +260,9 @@ impl Object {
         self.weapon_condition_flags = flags;
     }
 
-
-    fn active_weapon_condition_mask(&self) -> u32 {
-        self.weapon_condition_flags
-    }
-
     fn selected_weapon_row_binding(&self) -> Option<(WeaponRowIdentity, &WeaponRow)> {
         let rows = self.thing.template.selected_weapon_sets.as_ref()?;
-        if let Some((index, row)) =
-            select_conditional_weapon_row(&rows.conditional, self.active_weapon_condition_mask())
-        {
-            return Some((WeaponRowIdentity::Conditional(index), row));
-        }
-        if self.test_weapon_condition(8) {
-            if let Some(row) = rows.mine.as_ref() {
-                return Some((WeaponRowIdentity::Mine, row));
-            }
-        }
-        Some((WeaponRowIdentity::Base, &rows.base))
+        Some(rows.select(self.weapon_condition_flags))
     }
 
     fn selected_weapon_row(&self) -> Option<&WeaponRow> {
@@ -436,11 +270,12 @@ impl Object {
     }
 
     pub(in crate::game_logic) fn selected_authored_weapon_row(&self) -> Option<&WeaponRow> {
-        self.selected_weapon_row().filter(|row| row.choice.is_some())
+        self.selected_weapon_row()
+            .filter(|row| row.choice().is_some())
     }
 
     pub(in crate::game_logic) fn selected_weapon_choice(&self) -> Option<&WeaponChoicePolicy> {
-        self.selected_authored_weapon_row()?.choice.as_ref()
+        self.selected_authored_weapon_row()?.choice()
     }
 
     pub(crate) fn selected_weapon_row_identity(&self) -> Option<WeaponRowIdentity> {
@@ -449,14 +284,11 @@ impl Object {
     }
 
     pub(crate) fn selected_weapon_row_is_veterancy_specific(&self) -> bool {
-        self.selected_weapon_row_binding()
-            .is_some_and(|(identity, row)| {
-                matches!(identity, WeaponRowIdentity::Conditional(_))
-                    && row
-                        .condition_alternatives
-                        .iter()
-                        .any(|conditions| conditions & 0b111 != 0)
-            })
+        self.thing
+            .template
+            .selected_weapon_sets
+            .as_ref()
+            .is_some_and(|rows| rows.selects_veterancy_specific(self.weapon_condition_flags))
     }
 
     pub(crate) fn rebind_receiving_weapon_row_if_changed(
@@ -470,12 +302,8 @@ impl Object {
         if previous == Some(identity) {
             return false;
         }
-        let slots: [Option<Weapon>; 3] = std::array::from_fn(|i| {
-            row.slots[i]
-                .as_ref()
-                .map(|definition| definition.instantiate(frame))
-        });
-        if !row.shared {
+        let slots = row.instantiate(frame);
+        if !row.shares_lock() {
             self.release_weapon_lock(WeaponLockType::LockedPermanently);
             self.set_active_weapon_slot(0);
         }
@@ -498,38 +326,27 @@ impl Object {
         &self,
         slot: u8,
     ) -> Option<std::sync::Arc<generals_sim::weapon::WeaponDefinition>> {
-        let row = self.selected_weapon_row()?;
-        row.slots.get(usize::from(slot))?.as_ref()?.native.clone()
+        self.selected_weapon_row()?
+            .native_rule_handle(slot)
+            .cloned()
     }
+
     pub(in crate::game_logic) fn selected_projectile_name(&self, slot: u8) -> Option<&str> {
-        let row = self.selected_weapon_row()?;
-        row.slots
-            .get(usize::from(slot))?
-            .as_ref()?
-            .projectile_name
-            .as_deref()
+        self.borrow_selected_native_weapon_rule(slot)
+            .map(|definition| definition.projectile_name.as_str())
     }
+
     /// Authored WeaponSet row whose Conditions include PLAYER_UPGRADE (C++
     /// WeaponSetUpgrade → WEAPONSET_PLAYER_UPGRADE → updateWeaponSet); slot name.
     pub(in crate::game_logic) fn authored_player_upgrade_weapon_name(
         &self,
         slot: u8,
     ) -> Option<&str> {
-        const PLAYER_UPGRADE: u32 = 1 << 3;
         let rows = self.thing.template.selected_weapon_sets.as_ref()?;
-        let (_, row) = select_conditional_weapon_row(
-            &rows.conditional,
-            self.active_weapon_condition_mask() | PLAYER_UPGRADE,
-        )?;
-        if !row
-            .condition_alternatives
-            .iter()
-            .any(|mask| mask & PLAYER_UPGRADE != 0)
-        {
-            return None;
-        }
-        row.names.get(slot as usize)?.as_deref()
+        rows.player_upgrade_row(self.weapon_condition_flags)?
+            .name(slot)
     }
+
     /// Authored PRIMARY identities (base template + PLAYER_UPGRADE row);
     /// C++ upgrade modules key on authored data, not the template name.
     pub(in crate::game_logic) fn authored_primary_weapon_names(&self) -> [Option<&str>; 2] {
@@ -539,8 +356,7 @@ impl Object {
         ]
     }
     pub(crate) fn selected_weapon_name(&self, slot: u8) -> Option<&str> {
-        let row = self.selected_weapon_row()?;
-        row.names.get(slot as usize)?.as_deref()
+        self.selected_weapon_row()?.name(slot)
     }
     /// Set or clear the authored RiderChange weapon condition.
     pub(crate) fn set_rider_weapon_condition_at_frame(&mut self, condition: Option<&str>, frame: u32) {
@@ -581,34 +397,32 @@ mod tests {
     use crate::game_logic::{GameLogic, ObjectId, Team};
 
     fn conditional_row(name: &str, conditions: Vec<u32>) -> WeaponRow {
-        WeaponRow {
-            slots: std::array::from_fn(|_| None),
-            names: [Some(name.into()), None, None],
-            shared: false,
-            condition_alternatives: conditions,
-            choice: None,
-        }
+        WeaponRow::new(
+            [Some(name.into()), None, None],
+            false,
+            conditions,
+            None,
+            [None, None, None],
+        )
     }
 
     #[test]
     fn matching_keeps_base_at_rookie_and_first_exact_tie_then_prefers_more_yes() {
+        let fallback = conditional_row("fallback", vec![]);
         let base = conditional_row("base", vec![0]);
         let veteran = conditional_row("veteran", vec![1]);
-        let rows = [base, veteran];
-        let selected = select_conditional_weapon_row(&rows, 0);
-        assert_eq!(selected.unwrap().1.names[0].as_deref(), Some("base"));
+        let rows = BoundWeaponSets::receiving(fallback.clone(), None, vec![base, veteran]);
+        assert_eq!(rows.select(0).1.name(0), Some("base"));
 
         let first = conditional_row("first", vec![1 | 2]);
         let tied_later = conditional_row("tied-later", vec![1 | 2]);
-        let rows = [first, tied_later];
-        let selected = select_conditional_weapon_row(&rows, 1);
-        assert_eq!(selected.unwrap().1.names[0].as_deref(), Some("first"));
+        let rows = BoundWeaponSets::receiving(fallback.clone(), None, vec![first, tied_later]);
+        assert_eq!(rows.select(1).1.name(0), Some("first"));
 
         let one_yes = conditional_row("one-yes", vec![1]);
         let two_yes = conditional_row("two-yes", vec![1 | 2]);
-        let rows = [one_yes, two_yes];
-        let selected = select_conditional_weapon_row(&rows, 1 | 2);
-        assert_eq!(selected.unwrap().1.names[0].as_deref(), Some("two-yes"));
+        let rows = BoundWeaponSets::receiving(fallback, None, vec![one_yes, two_yes]);
+        assert_eq!(rows.select(1 | 2).1.name(0), Some("two-yes"));
     }
 
     #[test]
@@ -894,18 +708,15 @@ mod native_row_admission_tests {
         template.bind_native_weapon_row([Some(&native), None, None]);
         let rows = template.selected_weapon_sets.as_ref().unwrap();
         assert_eq!(
-            rows.base.slots[0]
-                .as_ref()
-                .unwrap()
-                .projectile_name
-                .as_deref(),
+            rows.base()
+                .native_rule(0)
+                .map(|rule| rule.projectile_name.as_str()),
             Some("")
         );
         assert_eq!(
-            rows.mine.as_ref().unwrap().slots[0]
+            rows.mine().unwrap().instantiate(0)[0]
                 .as_ref()
                 .unwrap()
-                .prototype
                 .damage,
             88.0
         );

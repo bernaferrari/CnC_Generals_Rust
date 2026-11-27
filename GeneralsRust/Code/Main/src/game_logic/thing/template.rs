@@ -2097,107 +2097,30 @@ impl ThingTemplate {
         template: &generals_sim::weapon::WeaponDefinition,
         frame: u32,
     ) -> Option<Weapon> {
-        let mut weapon = Self::weapon_from_template(template)?;
-        // CPP Weapon.cpp1742: initialize only an actually installed Weapon.
-        weapon.suspend_fx_frame = frame.wrapping_add(template.suspend_fx_delay);
-        Some(weapon)
+        Some(Weapon::from_definition_at(template, frame))
     }
 
     fn weapon_from_template(wt: &generals_sim::weapon::WeaponDefinition) -> Option<Weapon> {
-        use generals_sim::weapon::{WeaponAntiMask, WeaponBonus};
-        const FPS: f32 = 30.0;
-        // CPP WeaponStore::allocateNewWeapon installs a supplied definition
-        // even with zero damage/range (WeaponTemplate constructor defaults).
-        // FX-only/status/detonation rules are weapons, not missing content.
-        // CPP Weapon.cpp:475–490. Read the minimum for the installed stat.
-        // Only private fire draws a delay from the receiving world's RNG.
-        let delay_frames = wt.delay_between_shots(&WeaponBonus::new(), |min, _| min);
-        // CPP WeaponTemplate::getDelayBetweenShots returns zero for an
-        // authored zero delay; no synthetic one-second cooldown is added.
-        let reload_time = delay_frames.max(0) as f32 / FPS;
-        let pre_attack_delay = (wt.pre_attack_delay.max(0) as f32) / FPS;
-        let projectile_speed = if wt.weapon_speed >= 999_999.0 {
-            0.0
-        } else {
-            wt.weapon_speed
-        };
-        let suspend_fx_frame = 0; // Immutable stat lookup has no installed owner deadline.
-        // Keep authored range values, as WeaponTemplate does in C++.
-        // Runtime applies RANGE first, then one quarter-cell deduction
-        // (Weapon.cpp:437-462); pre-reducing here would deduct twice and
-        // multiply the first deduction by RANGE bonuses.
-        Some(Weapon {
-            damage: wt.primary_damage,
-            range: wt.get_unmodified_attack_range(),
-            min_range: wt.minimum_attack_range,
-            reload_time,
-            last_fire_time: 0.0,
-            last_fire_frame: 0,
-            next_fire_frame: 0,
-            reload_started_frame: 0,
-            frame_clock_active: false,
-            frame_clock_status: Default::default(),
-            ammo: if wt.clip_size > 0 {
-                Some(wt.clip_size as u32)
-            } else {
-                None
-            },
-            clip_size: wt.clip_size.max(0) as u32,
-            // C++ ClipReloadTime is independent of DelayBetweenShots. Store
-            // already converted msec → frames; host Weapon uses seconds.
-            // Absent/0 stays 0 — reloadWithBonus is ready the same frame.
-            clip_reload_time: if wt.clip_size > 0 {
-                (wt.clip_reload_time.max(0) as f32) / FPS
-            } else {
-                0.0
-            },
-            can_target_air: wt.anti_mask.contains(WeaponAntiMask::AIRBORNE_VEHICLE)
-                || wt.anti_mask.contains(WeaponAntiMask::AIRBORNE_INFANTRY),
-            // C++ WeaponTemplate defaults to AntiGround and accepts a ground
-            // victim only when that actual anti-mask bit is set.  Treating an
-            // arbitrary non-air mask (for example AntiProjectile) as ground
-            // let point-defense-only weapons attack ordinary units.
-            can_target_ground: wt.anti_mask.contains(WeaponAntiMask::GROUND),
-            projectile_speed,
-            pre_attack_delay,
-            splash_radius: wt.primary_damage_radius.max(0.0),
-            reloading_clip: false,
-            last_bonus_rof: 0.0,
-            suspend_fx_frame,
-        })
+        Some(Weapon::from_definition(wt))
     }
 
-    /// C++ FiringTracker thresholds copied from the live WeaponStore.
-    /// `weapon_from_store` only builds host `Weapon` fire stats; these fields
-    /// live on the Object (ContinuousFireOne/Two/Coast, AutoReloadWhenIdle).
     pub fn weapon_tracker_from_store(name: &str) -> WeaponTrackerBind {
-        use super::weapon_bootstrap::with_host_weapon_store as with_weapon_store;
-        with_weapon_store(|store| {
-            store
-                .find_weapon_template(name)
-                .map(|wt| WeaponTrackerBind {
-                    continuous_fire_one_shots: shots_needed_to_host(
-                        wt.continuous_fire_one_shots_needed,
-                    ),
-                    continuous_fire_two_shots: shots_needed_to_host(
-                        wt.continuous_fire_two_shots_needed,
-                    ),
-                    continuous_fire_coast_frames: wt.continuous_fire_coast_frames,
-                    auto_reload_when_idle_frames: wt.auto_reload_when_idle_frames,
-                })
-        })
-        .ok()
-        .flatten()
-        .unwrap_or_default()
+        super::weapon_bootstrap::legacy_weapon_definition(name)
+            .as_deref()
+            .map(WeaponTrackerBind::from_definition)
+            .unwrap_or_default()
     }
 
-    /// Resolve ContinuousFire / AutoReloadWhenIdle for this template's primary.
+    /// Resolve the create-time tracker thresholds for the primary slot.
     pub fn weapon_tracker_bind(&self) -> WeaponTrackerBind {
-        let name = self.primary_weapon_name.as_deref();
-        match name {
-            Some(name) => Self::weapon_tracker_from_store(name),
-            None => WeaponTrackerBind::default(),
+        if let Some(rows) = self.selected_weapon_sets.as_ref().filter(|rows| rows.is_receiving()) {
+            return rows.base().native_rule(0)
+                .map(WeaponTrackerBind::from_definition)
+                .unwrap_or_default();
         }
+        self.primary_weapon_name.as_deref()
+            .map(Self::weapon_tracker_from_store)
+            .unwrap_or_default()
     }
 
     /// Apply one unconditional Object INI `WeaponSet` row (PreferredAgainst +
@@ -2239,24 +2162,26 @@ impl ThingTemplate {
         }
     }
 
-    /// Fill PreferredAgainst / ShareWeaponReloadTime from the live Object INI
-    /// catalog when the template has not already authored them (tests).
-    pub fn bind_weapon_set_from_live_assets(&mut self) {
-        if !(self.preferred_against.iter().any(|kinds| !kinds.is_empty())
-            || self.share_weapon_reload_time)
-        {
-            if let Some(manager) = crate::assets::get_asset_manager() {
-                if let Ok(guard) = manager.lock() {
-                    if let Some(definition) = guard.get_object_definition(&self.name) {
-                        if let Some(set) = definition
-                            .weapon_sets
-                            .iter()
-                            .find(|set| set.is_unconditional())
-                        {
-                            self.apply_weapon_set_definition(set);
-                        }
-                    }
-                }
+    /// Fill create-time policy from the receiving Object INI. Standalone
+    /// templates may still use the legacy asset manager.
+    pub(in crate::game_logic) fn bind_weapon_set_create_policy(&mut self) {
+        if self.preferred_against.iter().all(Vec::is_empty) && !self.share_weapon_reload_time {
+            fn base_set(definition: &crate::assets::ObjectDefinition) -> Option<&crate::assets::WeaponSetDefinition> {
+                definition.weapon_sets.iter().find(|set| set.is_unconditional())
+            }
+
+            let set = if let Some(definition) = self.receiving_object_definition.as_deref() {
+                base_set(definition).cloned()
+            } else if !self.has_receiving_weapon_sets() {
+                crate::assets::get_asset_manager().and_then(|manager| {
+                    let manager = manager.lock().ok()?;
+                    base_set(manager.get_object_definition(&self.name)?).cloned()
+                })
+            } else {
+                None
+            };
+            if let Some(set) = set {
+                self.apply_weapon_set_definition(&set);
             }
         }
         self.apply_retail_button_only_auto_choose();

@@ -315,7 +315,7 @@ impl Object {
         }
 
         let mut template = template;
-        template.bind_weapon_set_from_live_assets();
+        template.bind_weapon_set_create_policy();
         let tracker = template.weapon_tracker_bind();
         let dock_starting_boxes = template.dock_starting_boxes.unwrap_or(0);
         let vision_range = template.sight_range.max(0.0);
@@ -1106,7 +1106,7 @@ impl Object {
         let mut template = ThingTemplate::new(&template_name);
         let initial_drawable_scale =
             crate::assets::mesh_asset_resolve::mesh_scale_from_template(&template);
-        template.bind_weapon_set_from_live_assets();
+        template.bind_weapon_set_create_policy();
         let tracker = template.weapon_tracker_bind();
         let team = Team::Neutral;
         let initial_health = template.body_initial_health.unwrap_or(template.max_health);

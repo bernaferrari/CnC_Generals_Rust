@@ -179,3 +179,65 @@ fn selected_pitch_limits_override_same_name_contact_inference() {
     assert!(!a.is_slot_within_target_pitch(0, &target));
     assert!(b.is_slot_within_target_pitch(0, &target));
 }
+
+#[test]
+fn factory_binds_firing_tracker_from_each_receiving_catalog() {
+    use crate::game_logic::GameLogic;
+
+    fn world(rule: WeaponTemplate, include: bool) -> GameLogic {
+        let mut world = GameLogic::new();
+        let mut template = ThingTemplate::new("TrackerCatalogOwner");
+        template.primary_weapon_name = Some(rule.name.clone());
+        world.templates.insert(template.name.clone(), template);
+        let rules = if include {
+            vec![(rule.name.clone(), rule)]
+        } else {
+            Vec::new()
+        };
+        world.admit_receiving_weapon_snapshot(rules).unwrap();
+        world
+    }
+
+    let mut first = row();
+    first.continuous_fire_one_shots_needed = 2;
+    first.continuous_fire_two_shots_needed = 5;
+    first.continuous_fire_coast_frames = 12;
+    first.auto_reload_when_idle_frames = 25;
+    let mut second = first.clone();
+    second.continuous_fire_one_shots_needed = 3;
+    second.continuous_fire_two_shots_needed = i32::MAX;
+    second.continuous_fire_coast_frames = 0;
+    second.auto_reload_when_idle_frames = 19;
+
+    let mut a = world(first, true);
+    let mut b = world(second.clone(), true);
+    let mut missing = world(second, false);
+    let spawn = |world: &mut GameLogic| {
+        world
+            .create_object("TrackerCatalogOwner", Team::USA, Vec3::ZERO)
+            .unwrap()
+    };
+    let a_id = spawn(&mut a);
+    let b_id = spawn(&mut b);
+    let missing_id = spawn(&mut missing);
+    assert_eq!(a_id, b_id);
+    assert_eq!(a_id, missing_id);
+
+    for (world, id, expected) in [
+        (&a, a_id, (2, 5, 12, 25)),
+        (&b, b_id, (3, u32::MAX, 0, 19)),
+        (&missing, missing_id, (u32::MAX, u32::MAX, 0, 0)),
+    ] {
+        let object = world.host_object(id).unwrap();
+        assert_eq!(
+            (
+                object.continuous_fire_one_shots,
+                object.continuous_fire_two_shots,
+                object.continuous_fire_coast_frames,
+                object.auto_reload_when_idle_frames,
+            ),
+            expected,
+        );
+    }
+    assert!(missing.host_object(missing_id).unwrap().weapon.is_none());
+}

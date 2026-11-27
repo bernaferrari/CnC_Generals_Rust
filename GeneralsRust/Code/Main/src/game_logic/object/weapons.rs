@@ -1157,7 +1157,7 @@ impl Object {
         command_source: u32,
         damage_multiplier: impl Fn(&generals_sim::weapon::WeaponDefinition) -> f32,
     ) -> Option<u8> {
-        let policy = row.choice.as_ref()?;
+        let policy = row.choice()?;
         let frame = (current_time * 30.0).round() as u32;
         let anti_mask = target.weapon_target_anti_mask();
         let victim_kinds = target.kind_of_cpp_mask();

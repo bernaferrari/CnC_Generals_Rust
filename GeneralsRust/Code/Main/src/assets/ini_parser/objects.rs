@@ -1,3 +1,4 @@
+use generals_sim::weapon::{WeaponChoicePolicy, WeaponSlotType};
 use super::*;
 use crate::assets::{LiveDrawPlayback, LiveDrawPlaybackIdentity, LiveDrawPlaybackKey};
 /// Represents a drawable object definition from INI files
@@ -143,42 +144,6 @@ pub struct WeaponSetDefinition {
     pub(crate) choice: WeaponChoicePolicy,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct WeaponChoicePolicy {
-    auto_choose_masks: [u32; 3],
-    preferred_against_masks: [u128; 3],
-}
-
-impl Default for WeaponChoicePolicy {
-    fn default() -> Self {
-        // WeaponTemplateSet::clear (WeaponSet.cpp:78-87).
-        Self {
-            auto_choose_masks: [u32::MAX; 3],
-            preferred_against_masks: [0; 3],
-        }
-    }
-}
-
-impl WeaponChoicePolicy {
-    pub(crate) fn allows_automatic_choice(&self, slot: u8, command_source: u32) -> bool {
-        // WeaponSet.cpp:815-823. DEFAULT_SWITCH_WEAPON admits every source.
-        use game_engine::common::game_common::CommandSourceType;
-
-        let source = 1u32.checked_shl(command_source).unwrap_or(0);
-        let default_switch = 1 << CommandSourceType::DefaultSwitchWeapon as u32;
-        self.auto_choose_masks
-            .get(usize::from(slot))
-            .is_some_and(|mask| mask & (source | default_switch) != 0)
-    }
-
-    pub(crate) fn prefers(&self, slot: u8, victim_kinds: u128) -> bool {
-        // WeaponSet.cpp:870 and BitFlags.h:223-237 require every bit.
-        self.preferred_against_masks
-            .get(usize::from(slot))
-            .is_some_and(|&required| required != 0 && victim_kinds & required == required)
-    }
-}
-
 impl WeaponSetDefinition {
     pub(super) fn record_attribute(&mut self, key: &str, value: &str) {
         let value = value.trim();
@@ -191,32 +156,16 @@ impl WeaponSetDefinition {
             return;
         };
         let slot_name = slot_name.to_ascii_uppercase();
-        use game_engine::common::rts::action_manager::WeaponSlotType;
         let slot = match slot_name.as_str() {
-            "PRIMARY" => WeaponSlotType::Primary as usize,
-            "SECONDARY" => WeaponSlotType::Secondary as usize,
-            "TERTIARY" => WeaponSlotType::Tertiary as usize,
+            "PRIMARY" => WeaponSlotType::Primary,
+            "SECONDARY" => WeaponSlotType::Secondary,
+            "TERTIARY" => WeaponSlotType::Tertiary,
             _ => return,
         };
         let field = if auto_choose { "AutoChooseSources" } else { "PreferredAgainst" };
         self.attributes.insert(format!("{field} {slot_name}"), value.to_owned());
 
-        // Each declaration updates this slot in source order, including +/-.
-        if auto_choose {
-            const SOURCE_NAMES: &[&str] = &[
-                "FROM_PLAYER", "FROM_SCRIPT", "FROM_AI", "FROM_DOZER", "DEFAULT_SWITCH_WEAPON",
-            ];
-            let mask = &mut self.choice.auto_choose_masks[slot];
-            *mask = generals_game_domain::ini::parse_bit_string_32_with_initial(
-                flags, SOURCE_NAMES, *mask,
-            ).unwrap_or(0);
-        } else {
-            use game_engine::common::system::kind_of::KindOfMask;
-            let mask = &mut self.choice.preferred_against_masks[slot];
-            *mask = KindOfMask::parse_ini(KindOfMask::from_bits_truncate(*mask), flags)
-                .map(|kind| kind.bits())
-                .unwrap_or(0);
-        }
+        self.choice.apply_ini_flags(slot, flags, auto_choose);
     }
 
     fn active_conditions(&self) -> impl Iterator<Item = &str> {

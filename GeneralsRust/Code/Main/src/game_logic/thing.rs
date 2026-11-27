@@ -68,33 +68,7 @@ fn parse_auto_choose_value(value: &str) -> Option<(u8, u32)> {
     Some((slot, mask))
 }
 
-/// C++ FiringTracker fields bound from a WeaponStore template onto a host Object.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct WeaponTrackerBind {
-    pub continuous_fire_one_shots: u32,
-    pub continuous_fire_two_shots: u32,
-    pub continuous_fire_coast_frames: u32,
-    pub auto_reload_when_idle_frames: u32,
-}
-
-impl Default for WeaponTrackerBind {
-    fn default() -> Self {
-        Self {
-            continuous_fire_one_shots: u32::MAX,
-            continuous_fire_two_shots: u32::MAX,
-            continuous_fire_coast_frames: 0,
-            auto_reload_when_idle_frames: 0,
-        }
-    }
-}
-
-fn shots_needed_to_host(value: i32) -> u32 {
-    if value <= 0 || value == i32::MAX {
-        u32::MAX
-    } else {
-        value as u32
-    }
-}
+pub use generals_sim::weapon::WeaponTrackerBind;
 
 fn parse_ini_bool(value: &str) -> bool {
     matches!(

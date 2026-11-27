@@ -8,6 +8,8 @@ mod estimate;
 mod ini;
 mod selection;
 mod set_flags;
+mod sets;
+mod slot;
 
 pub use crate::object::WeaponDamageStatus;
 pub use catalog::{WeaponCatalog, WeaponCatalogError};
@@ -22,6 +24,11 @@ pub use selection::{
     WeaponCandidate, WeaponChoiceCriteria, WeaponSelection, weapon_damage_is_eligible,
 };
 pub use set_flags::{WeaponSetFlags, WeaponSetType};
+pub use sets::{
+    BoundWeaponSets, WeaponChoicePolicy, WeaponRow, WeaponRowIdentity, WeaponSlotDefinition,
+    weapon_condition_mask,
+};
+pub use slot::{Weapon, WeaponTrackerBind};
 
 /// Sentinel for an attack order without a maximum shot count.
 pub const NO_MAX_SHOTS_LIMIT: i32 = i32::MAX;
