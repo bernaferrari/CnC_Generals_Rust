@@ -15,7 +15,7 @@ use crate::helpers::{TheAudio, TheGameLogic, TheThingFactory};
 use crate::object::object_types::ObjectTypes;
 use crate::object::registry::OBJECT_REGISTRY;
 use crate::scripting::XferSnapshot;
-use crate::team::{TEAM_ID_INVALID, TeamID, TheTeamFactory, get_team_factory};
+use crate::team::{TEAM_ID_INVALID, TeamID, get_team_factory};
 use crate::{GameLogicError, GameLogicResult};
 use futures::executor::block_on;
 use game_engine::common::name_key_generator::NameKeyGenerator;
@@ -28,6 +28,11 @@ use generals_sim::scripting::attack_priorities::AttackPriorityTable;
 pub use generals_sim::scripting::attack_priorities::{AttackPriorityInfo, MAX_ATTACK_PRIORITIES};
 use generals_sim::scripting::map_reveals::NamedReveals;
 pub use generals_sim::scripting::map_reveals::{NamedReveal, NamedRevealOperation};
+use generals_sim::scripting::sequential_scripts::{
+    SequentialAfterAction, SequentialDriver, SequentialReadiness, SequentialScripts,
+    SequentialTarget, is_sequential_only_action,
+};
+pub use generals_sim::scripting::sequential_scripts::{SequentialScript, SequentialScriptSnapshot};
 use generals_sim::scripting::side_scripts::SideScripts;
 use generals_sim::scripting::variables::{MissionTimers, NamedTrackersSnapshot, ScriptVariables};
 pub use generals_sim::scripting::variables::{
@@ -52,6 +57,7 @@ use attack_priorities::xfer_attack_priorities;
 include!("types.rs");
 include!("init.rs");
 include!("update.rs");
+include!("sequential_driver.rs");
 include!("named_trackers.rs");
 include!("leftover.rs");
 

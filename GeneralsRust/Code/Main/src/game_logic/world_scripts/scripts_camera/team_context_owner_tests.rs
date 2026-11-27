@@ -282,6 +282,67 @@ fn exact_sequence_snapshot_restore_preserves_selected_sibling_identity() {
 }
 
 #[test]
+fn native_save_resumes_a_waiting_sequence_on_the_same_frame() {
+    use crate::save_load::SnapshotBuilder;
+    use generals_sim::scripting::sequential_scripts::SequentialScript;
+
+    fn install(world: &mut GameLogic) {
+        let mut script = Script::new();
+        script.script_name = "SavedWait".into();
+        script.is_subroutine = true;
+        script.action = Some(Box::new(increment("SavedWaitCount")));
+        let mut list = ScriptList::new();
+        list.append_script(Box::new(script));
+        world
+            .with_owned_script_engine(|engine, _| {
+                engine.set_counter("SavedWaitCount", 0).unwrap();
+                engine
+                    .set_script_list_for_player(0, Some(Box::new(list)))
+                    .unwrap();
+            })
+            .unwrap();
+    }
+
+    fn tick(world: &mut GameLogic, frame: u32) -> i32 {
+        world.frame = frame;
+        world
+            .with_owned_script_engine(|engine, world| {
+                world.update_local_script_engine_with_owner(engine).unwrap();
+                engine.get_counter("SavedWaitCount").unwrap().value
+            })
+            .unwrap()
+    }
+
+    let (mut source, object, _) = world();
+    install(&mut source);
+    source
+        .with_owned_script_engine(|engine, _| {
+            let mut sequence = SequentialScript::new();
+            sequence.object_id = object.0;
+            sequence.frames_to_wait = 3;
+            sequence.script_to_execute_sequentially =
+                engine.find_script_clone_by_name("SavedWait").map(Box::new);
+            engine.append_sequential_script(sequence);
+        })
+        .unwrap();
+    assert_eq!(tick(&mut source, 100), 0);
+    let builder = SnapshotBuilder::new();
+    let saved = builder.create_world_snapshot(&source).unwrap();
+    assert_eq!(saved.persist_v18.script_sequential[0].frames_to_wait, 2);
+
+    let (mut receiver, receiving_object, _) = world();
+    assert_eq!(object, receiving_object);
+    install(&mut receiver);
+    builder
+        .restore_from_snapshot(&saved, &mut receiver)
+        .unwrap();
+    for (frame, expected) in [(101, 0), (102, 0), (103, 1), (104, 1)] {
+        assert_eq!(tick(&mut receiver, frame), expected);
+        assert_eq!(tick(&mut source, frame), expected);
+    }
+}
+
+#[test]
 fn retained_missing_team_id_rejects_before_persist_tail_mutates_receiver() {
     use crate::save_load::snapshot::persist_v18::{
         SequentialScriptPersist, WorldPersistV18, restore_persist_v18,

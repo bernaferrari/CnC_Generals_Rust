@@ -401,21 +401,21 @@ fn pending_resume_frame_is_next_frame_for_single_frame_wait() {
 fn sequential_pending_wait_conversion_matches_cxx_wait_patterns() {
     // Retry-style wait actions re-run the same instruction on the next frame.
     assert_eq!(
-        ScriptEngine::pending_to_sequential_wait_frames(1.0, true),
+        generals_sim::scripting::sequential_scripts::pending_wait_frames(1.0, true),
         0
     );
     assert_eq!(
-        ScriptEngine::pending_to_sequential_wait_frames(3.0, true),
+        generals_sim::scripting::sequential_scripts::pending_wait_frames(3.0, true),
         2
     );
 
     // Framecount actions wait before advancing to the next instruction.
     assert_eq!(
-        ScriptEngine::pending_to_sequential_wait_frames(1.0, false),
+        generals_sim::scripting::sequential_scripts::pending_wait_frames(1.0, false),
         1
     );
     assert_eq!(
-        ScriptEngine::pending_to_sequential_wait_frames(3.0, false),
+        generals_sim::scripting::sequential_scripts::pending_wait_frames(3.0, false),
         3
     );
 }
@@ -423,38 +423,38 @@ fn sequential_pending_wait_conversion_matches_cxx_wait_patterns() {
 #[test]
 fn sequential_pending_retry_action_classification_matches_cxx() {
     assert!(
-        ScriptEngine::pending_repeats_current_sequential_instruction(
+        generals_sim::scripting::sequential_scripts::repeats_instruction(
             ScriptActionType::SkirmishWaitForCommandbuttonAvailableAll
         )
     );
     assert!(
-        ScriptEngine::pending_repeats_current_sequential_instruction(
+        generals_sim::scripting::sequential_scripts::repeats_instruction(
             ScriptActionType::SkirmishWaitForCommandbuttonAvailablePartial
         )
     );
     assert!(
-        ScriptEngine::pending_repeats_current_sequential_instruction(
+        generals_sim::scripting::sequential_scripts::repeats_instruction(
             ScriptActionType::TeamWaitForNotContainedAll
         )
     );
     assert!(
-        ScriptEngine::pending_repeats_current_sequential_instruction(
+        generals_sim::scripting::sequential_scripts::repeats_instruction(
             ScriptActionType::TeamWaitForNotContainedPartial
         )
     );
     assert!(
-        !ScriptEngine::pending_repeats_current_sequential_instruction(
+        !generals_sim::scripting::sequential_scripts::repeats_instruction(
             ScriptActionType::TeamGuardForFramecount
         )
     );
 
-    assert!(ScriptEngine::pending_is_sequential_only_action(
+    assert!(is_sequential_only_action(
         ScriptActionType::TeamGuardForFramecount
     ));
-    assert!(ScriptEngine::pending_is_sequential_only_action(
+    assert!(is_sequential_only_action(
         ScriptActionType::TeamWaitForNotContainedAll
     ));
-    assert!(!ScriptEngine::pending_is_sequential_only_action(
+    assert!(!is_sequential_only_action(
         ScriptActionType::TeamGuardPosition
     ));
 }
@@ -1487,11 +1487,7 @@ fn sequential_scripts_snapshot_preserves_count_and_instruction() {
         script.script_name = "PersistedHunt".to_string();
         script
     }));
-    {
-        let mut inner = engine.lock_inner_mut();
-        sequence.runtime_token = ScriptEngine::allocate_sequential_runtime_token(&mut inner);
-        inner.sequential_scripts.push(sequence);
-    }
+    engine.sequential_scripts.restore_heads([sequence]);
 
     let snapshot = engine.snapshot_sequential_scripts();
     assert_eq!(snapshot.len(), 1, "C++ xfer writes sequential count, not 0");

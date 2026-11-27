@@ -41,38 +41,13 @@ impl ScriptEngine {
         self.lock_inner_mut().variables.restore(counters, flags)
     }
 
-    /// C++ `ScriptEngine::xfer` sequential-script heads (ScriptEngine.cpp:8821-8869).
+    /// C++ ScriptEngine::xfer writes each sequential script head.
     pub fn snapshot_sequential_scripts(&self) -> Vec<SequentialScriptSnapshot> {
-        self.with_inner(|inner| {
-            inner
-                .sequential_scripts
-                .iter()
-                .map(|script| SequentialScriptSnapshot {
-                    team_id: script.team_to_exec_on.unwrap_or(TEAM_ID_INVALID),
-                    object_id: script.object_id,
-                    script_name: script
-                        .script_to_execute_sequentially
-                        .as_ref()
-                        .map(|script| script.script_name.clone())
-                        .unwrap_or_default(),
-                    current_instruction: script.current_instruction,
-                    times_to_loop: script.times_to_loop,
-                    frames_to_wait: script.frames_to_wait,
-                    dont_advance_instruction: script.dont_advance_instruction,
-                })
-                .collect()
-        })
+        self.sequential_scripts.snapshot_heads()
     }
 
-    /// Restore sequential heads without `append_sequential_script` (that resets instruction).
     pub fn restore_sequential_scripts(&self, scripts: &[SequentialScriptSnapshot]) {
-        {
-            let mut inner = self.lock_inner_mut();
-            inner.sequential_scripts.clear();
-            inner.next_sequential_runtime_token = 1;
-        }
-
-        for snap in scripts {
+        self.sequential_scripts.restore_heads(scripts.iter().map(|snap| {
             let mut script = SequentialScript::new();
             script.object_id = snap.object_id;
             script.current_instruction = snap.current_instruction;
@@ -90,11 +65,8 @@ impl ScriptEngine {
                         }),
                 ));
             }
-
-            let mut inner = self.lock_inner_mut();
-            script.runtime_token = Self::allocate_sequential_runtime_token(&mut inner);
-            inner.sequential_scripts.push(script);
-        }
+            script
+        }));
     }
 
     pub fn increment_counter(&self, name: &str, amount: i32) -> GameLogicResult<()> {
@@ -599,81 +571,25 @@ impl ScriptEngine {
         })
     }
 
-    /// Append sequential script
-    pub fn append_sequential_script(&self, mut script: SequentialScript) {
-        script.next_script_in_sequence = None;
-        script.current_instruction = -1;
-
-        let target_object = script.object_id;
-        let target_team = script.team_to_exec_on.clone();
-
-        let mut inner = self.lock_inner_mut();
-        // `SequentialScript` is cloned when it is appended in C++. Give this
-        // Rust node a fresh process-local identity rather than retaining the
-        // source node's reconciliation token.
-        script.runtime_token = Self::allocate_sequential_runtime_token(&mut inner);
-        for existing in &mut inner.sequential_scripts {
-            let object_match = target_object != INVALID_ID && existing.object_id == target_object;
-            let team_match = target_team.is_some() && existing.team_to_exec_on == target_team;
-            if !(object_match || team_match) {
-                continue;
-            }
-
-            let mut cursor = &mut existing.next_script_in_sequence;
-            loop {
-                match cursor {
-                    Some(next) => {
-                        cursor = &mut next.next_script_in_sequence;
-                    }
-                    None => {
-                        *cursor = Some(Box::new(script));
-                        break;
-                    }
-                }
-            }
-            return;
-        }
-
-        inner.sequential_scripts.push(script);
+    pub fn append_sequential_script(&self, script: SequentialScript) {
+        self.sequential_scripts.append(script);
     }
 
-    /// Remove all sequential scripts bound to a specific object.
     pub fn remove_all_sequential_scripts_for_object(&self, object_id: ObjectID) {
-        let mut inner = self.lock_inner_mut();
-        inner
-            .sequential_scripts
-            .retain(|script| script.object_id != object_id);
+        self.sequential_scripts.remove_object(object_id);
     }
 
-    /// Check if a specific object has any active sequential scripts running.
-    /// PARITY_NOTE: C++ ScriptConditions does not have a case for UNIT_COMPLETED_SEQUENTIAL_EXECUTION
-    /// in its evaluateCondition switch (hits default DEBUG_CRASH returning false). This provides
-    /// the intended semantics: returns false if scripts are still active, true if none remain.
     pub fn has_active_sequential_script_for_object(&self, object_id: ObjectID) -> bool {
-        self.with_inner(|inner| {
-            inner
-                .sequential_scripts
-                .iter()
-                .any(|script| script.object_id == object_id)
-        })
+        self.sequential_scripts.has_object(object_id)
     }
 
-    /// Check if a specific team has any active sequential scripts running.
     pub fn has_active_sequential_script_for_team(&self, team_id: TeamID) -> bool {
-        self.with_inner(|inner| {
-            inner
-                .sequential_scripts
-                .iter()
-                .any(|script| script.team_to_exec_on == Some(team_id))
-        })
+        self.sequential_scripts.has_team(team_id)
     }
 
-    /// Remove all sequential scripts bound to a specific team.
     pub fn remove_all_sequential_scripts_for_team(&self, team_id: TeamID) {
+        self.sequential_scripts.remove_team(team_id);
         let mut inner = self.lock_inner_mut();
-        inner
-            .sequential_scripts
-            .retain(|script| script.team_to_exec_on != Some(team_id));
         if inner.calling_team == Some(team_id) {
             inner.calling_team = None;
         }
@@ -682,26 +598,12 @@ impl ScriptEngine {
         }
     }
 
-    /// Set frame wait timer for all sequential scripts running on an object.
-    pub fn set_sequential_timer_for_object(&mut self, object_id: ObjectID, frame_count: i32) {
-        let inner = self.inner.get_mut();
-        for script in &mut inner.sequential_scripts {
-            if script.object_id == object_id {
-                script.frames_to_wait = frame_count;
-                return;
-            }
-        }
+    pub fn set_sequential_timer_for_object(&mut self, object_id: ObjectID, frames: i32) {
+        self.sequential_scripts.wait_for_object(object_id, frames);
     }
 
-    /// Set frame wait timer for all sequential scripts running on a team.
-    pub fn set_sequential_timer_for_team(&mut self, team_id: TeamID, frame_count: i32) {
-        let inner = self.inner.get_mut();
-        for script in &mut inner.sequential_scripts {
-            if script.team_to_exec_on == Some(team_id) {
-                script.frames_to_wait = frame_count;
-                return;
-            }
-        }
+    pub fn set_sequential_timer_for_team(&mut self, team_id: TeamID, frames: i32) {
+        self.sequential_scripts.wait_for_team(team_id, frames);
     }
 
     /// Notify of completed video

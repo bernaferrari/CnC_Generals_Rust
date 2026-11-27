@@ -840,11 +840,11 @@ pub(super) fn restore_persist_v18_with_scale_encoding(
         .iter()
         .map(|f| (f.name.clone(), f.value))
         .collect();
-    let sequential: Vec<gamelogic::scripting::engine::SequentialScriptSnapshot> = persist
+    let sequential: Vec<generals_sim::scripting::sequential_scripts::SequentialScriptSnapshot> = persist
         .script_sequential
         .iter()
         .map(
-            |script| gamelogic::scripting::engine::SequentialScriptSnapshot {
+            |script| generals_sim::scripting::sequential_scripts::SequentialScriptSnapshot {
                 team_id: script.team_id,
                 object_id: script.object_id,
                 script_name: script.script_name.clone(),

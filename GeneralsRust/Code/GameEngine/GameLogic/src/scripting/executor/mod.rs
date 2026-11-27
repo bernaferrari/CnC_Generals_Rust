@@ -1272,16 +1272,7 @@ impl std::fmt::Display for ScriptError {
 
 impl std::error::Error for ScriptError {}
 
-/// Script action execution result
-#[derive(Debug, Clone, PartialEq)]
-pub enum ScriptActionResult {
-    /// Action completed successfully
-    Success,
-    /// Action is pending completion (frames remaining)
-    Pending(f32),
-    /// Action failed with error message
-    Failed(String),
-}
+pub use generals_sim::scripting::ScriptActionResult;
 
 /// Script condition evaluation result
 #[derive(Debug, Clone, PartialEq)]

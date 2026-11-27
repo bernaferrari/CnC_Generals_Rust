@@ -4,7 +4,6 @@
 // RefCell / TLS re-entrancy pattern stay in the parent module.
 
 const FRAMES_TO_FADE_IN_AT_START: i32 = 33;
-const MAX_SEQUENTIAL_SPIN_COUNT: i32 = 20;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 enum ActionChainExecution {
@@ -2467,121 +2466,6 @@ impl BreezeInfo {
     }
 }
 
-/// Sequential Script matching C++ SequentialScript
-#[derive(Debug, Clone)]
-pub struct SequentialScript {
-    pub team_to_exec_on: Option<TeamID>, // Exact instance identity, never a prototype name
-    pub object_id: u32,
-    pub script_to_execute_sequentially: Option<Box<Script>>,
-    pub current_instruction: i32, // Which action currently executing
-    pub times_to_loop: i32,       // 0 = once, >0 = loop till 0, <0 = infinite
-    pub frames_to_wait: i32,      // 0 = next instruction, >0 = countdown
-    pub dont_advance_instruction: bool, // Set by instruction requesting wait
-    pub next_script_in_sequence: Option<Box<SequentialScript>>,
-    /// Process-local identity for safe post-dispatch reconciliation.
-    ///
-    /// C++ keeps a stable `SequentialScript *` while an action runs. Rust must
-    /// not keep a borrow into `Vec<SequentialScript>` across that immediate
-    /// action, because the action can re-enter the engine. This token lets the
-    /// evaluator find the same logical node after it releases the borrow. It
-    /// is deliberately not serialized: save/load rebuilds runtime ownership.
-    runtime_token: u64,
-}
-
-impl SequentialScript {
-    pub fn new() -> Self {
-        Self {
-            team_to_exec_on: None,
-            object_id: 0,
-            script_to_execute_sequentially: None,
-            current_instruction: -1, // START_INSTRUCTION
-            times_to_loop: 0,
-            frames_to_wait: -1,
-            dont_advance_instruction: false,
-            next_script_in_sequence: None,
-            runtime_token: 0,
-        }
-    }
-}
-
-/// C++ `SequentialScript::xfer` payload (ScriptEngine.cpp:8127-8198).
-/// Heads only: `m_nextScriptInSequence` is not serialized.
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
-pub struct SequentialScriptSnapshot {
-    pub team_id: TeamID,
-    pub object_id: ObjectID,
-    pub script_name: String,
-    pub current_instruction: i32,
-    pub times_to_loop: i32,
-    pub frames_to_wait: i32,
-    pub dont_advance_instruction: bool,
-}
-
-impl XferSnapshot for SequentialScript {
-    fn crc(&mut self, xfer: &mut dyn Xfer) -> Result<(), XferStatus> {
-        self.xfer(xfer)
-    }
-
-    fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), XferStatus> {
-        let current_version: XferVersion = 1;
-        let mut version = current_version;
-        xfer.xfer_version(&mut version, current_version)?;
-
-        let mut team_id = self.team_to_exec_on.unwrap_or(TEAM_ID_INVALID);
-        // C++ xferUser and this unsigned scalar transfer use exactly the
-        // native TeamID bytes; the initialized scalar stays behind a safe API.
-        xfer.xfer_unsigned_int(&mut team_id)?;
-        if xfer.get_xfer_mode() == XferMode::Load {
-            if team_id != TEAM_ID_INVALID {
-                let published_team_factory = TheTeamFactory();
-                let factory = published_team_factory
-                    .lock()
-                    .map_err(|_| XferStatus::InvalidData)?;
-                if factory.find_team_by_id(team_id).is_none() {
-                    return Err(XferStatus::InvalidData);
-                }
-            }
-            self.team_to_exec_on = (team_id != TEAM_ID_INVALID).then_some(team_id);
-        }
-
-        let mut object_id = self.object_id;
-        xfer.xfer_object_id(&mut object_id)?;
-        self.object_id = object_id;
-
-        let mut script_name = String::new();
-        if xfer.get_xfer_mode() == game_engine::system::XferMode::Save {
-            if let Some(script) = self.script_to_execute_sequentially.as_ref() {
-                script_name = script.script_name.clone();
-            }
-        }
-        xfer.xfer_ascii_string(&mut script_name)?;
-        if xfer.get_xfer_mode() == game_engine::system::XferMode::Load {
-            if script_name.is_empty() {
-                self.script_to_execute_sequentially = None;
-            } else if let Ok(engine_lock) = get_script_engine().read() {
-                if let Some(engine) = engine_lock.as_ref() {
-                    if let Some(found) = engine.find_script_clone_by_name(&script_name) {
-                        self.script_to_execute_sequentially = Some(Box::new(found));
-                    } else {
-                        return Err(XferStatus::InvalidData);
-                    }
-                }
-            }
-        }
-
-        xfer.xfer_int(&mut self.current_instruction)?;
-        xfer.xfer_int(&mut self.times_to_loop)?;
-        xfer.xfer_int(&mut self.frames_to_wait)?;
-        xfer.xfer_bool(&mut self.dont_advance_instruction)?;
-
-        Ok(())
-    }
-
-    fn load_post_process(&mut self) -> Result<(), XferStatus> {
-        Ok(())
-    }
-}
-
 /// Script execution statistics
 #[derive(Debug, Clone, Default)]
 pub struct ScriptStats {
@@ -2601,10 +2485,11 @@ pub struct ScriptStats {
 pub struct ScriptEngine {
     /// Roster of the world that constructed this engine, for Core rank actions.
     players: Arc<RwLock<crate::player::PlayerList>>,
-    /// Exact world owners for Core cave-index actions.
+    /// Exact world owners for Core cave-index actions and Xfer fixups.
     cave_system: Arc<Mutex<crate::system::cave_system::CaveSystem>>,
-    cave_objects: Arc<crate::object::registry::ObjectRegistry>,
-    cave_names: Arc<NamedObjectTracker>,
+    object_registry: Arc<crate::object::registry::ObjectRegistry>,
+    /// Core's named object table, also read during legacy Xfer.
+    named_objects: Arc<NamedObjectTracker>,
     /// C++ GarrisonContain named evac dispositions of this engine's world.
     named_evac: Arc<Mutex<std::collections::HashMap<String, u32>>>,
     /// C++ TheEva of the world that built this engine (Eva.cpp setEnabled).
@@ -2615,6 +2500,7 @@ pub struct ScriptEngine {
     control_bar_bridge: Arc<RwLock<Option<Arc<crate::control_bar::ControlBarBridge>>>>,
     control_bar_ui_hooks: Arc<Mutex<Option<Arc<dyn crate::control_bar::ControlBarUiHooks>>>>,
     side_scripts: SideScripts,
+    sequential_scripts: SequentialScripts,
     inner: std::cell::RefCell<ScriptEngineInner>,
 }
 
@@ -2690,13 +2576,6 @@ pub struct ScriptEngineInner {
     suppress_new_windows: bool,
     win_lose_window_layout: Option<String>,
 
-    // Sequential scripts
-    sequential_scripts: Vec<SequentialScript>,
-    /// Next opaque identity for a live sequential-script node. Zero is
-    /// reserved for snapshots/direct test construction that has not yet been
-    /// admitted to the runtime list.
-    next_sequential_runtime_token: u64,
-
     // Statistics
     #[cfg(feature = "script_profiling")]
     stats: ScriptStats,
@@ -2756,35 +2635,6 @@ impl ScriptEngine {
         InnerMutGuard {
             inner: self.inner.borrow_mut(),
         }
-    }
-
-    /// Allocate an opaque identity for one live sequential-script node.
-    ///
-    /// This is intentionally separate from snapshot state: it exists only to
-    /// recover the same C++-style node after an immediate, re-entrant action
-    /// has run with all `RefCell` guards released.
-    fn allocate_sequential_runtime_token(inner: &mut ScriptEngineInner) -> u64 {
-        let token = inner.next_sequential_runtime_token;
-        inner.next_sequential_runtime_token = inner.next_sequential_runtime_token.wrapping_add(1);
-        if inner.next_sequential_runtime_token == 0 {
-            inner.next_sequential_runtime_token = 1;
-        }
-        token
-    }
-
-    fn ensure_sequential_runtime_token_at(
-        inner: &mut ScriptEngineInner,
-        index: usize,
-    ) -> Option<u64> {
-        let needs_token = inner
-            .sequential_scripts
-            .get(index)
-            .map(|script| script.runtime_token == 0)?;
-        if needs_token {
-            let token = Self::allocate_sequential_runtime_token(inner);
-            inner.sequential_scripts[index].runtime_token = token;
-        }
-        Some(inner.sequential_scripts[index].runtime_token)
     }
 }
 

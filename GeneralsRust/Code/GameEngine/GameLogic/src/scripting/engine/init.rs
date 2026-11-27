@@ -75,7 +75,7 @@ impl ScriptEngine {
     pub(crate) fn cave_action_owners(
         &self,
     ) -> (&NamedObjectTracker, &crate::object::registry::ObjectRegistry, &Mutex<crate::system::cave_system::CaveSystem>) {
-        (&self.cave_names, &self.cave_objects, &self.cave_system)
+        (&self.named_objects, &self.object_registry, &self.cave_system)
     }
 
     /// A script engine on a fresh private world. It never adopts the world
@@ -117,14 +117,15 @@ impl ScriptEngine {
         let mut engine = Self {
             players: Arc::clone(services.players()),
             cave_system: Arc::clone(&services.logic_managers().cave),
-            cave_objects: Arc::clone(services.object_registry()),
-            cave_names: Arc::clone(services.scripts().named_objects()),
+            object_registry: Arc::clone(services.object_registry()),
+            named_objects: Arc::clone(services.scripts().named_objects()),
             named_evac: Arc::clone(services.named_evac_disposition()),
             eva: Arc::clone(services.eva()),
             owner_world: Arc::downgrade(services),
             control_bar_bridge: Arc::clone(services.control_bar_bridge()),
             control_bar_ui_hooks: Arc::clone(services.control_bar_ui_hooks()),
             side_scripts: SideScripts::new(Self::MAX_PLAYER_COUNT),
+            sequential_scripts: SequentialScripts::default(),
             inner: std::cell::RefCell::new(ScriptEngineInner {
                 templates: ScriptTemplateCatalog::new(names),
 
@@ -180,9 +181,6 @@ impl ScriptEngine {
                 win_lose_window_layout: None,
 
                 campaign_victorious: false,
-
-                sequential_scripts: Vec::new(),
-                next_sequential_runtime_token: 1,
 
 
                 #[cfg(feature = "script_profiling")]
@@ -690,9 +688,8 @@ impl ScriptEngine {
 
             inner.campaign_victorious = false;
 
-            inner.sequential_scripts.clear();
-            inner.next_sequential_runtime_token = 1;
         }
+        self.sequential_scripts.clear();
         self.clear_script_lists();
         let inner = self.inner.get_mut();
 

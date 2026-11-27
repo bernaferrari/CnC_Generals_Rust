@@ -5,11 +5,21 @@ pub mod map_reveals;
 pub mod radar;
 pub mod named_objects;
 pub mod program;
+pub mod sequential_scripts;
 pub mod side_scripts;
 pub mod variables;
 
 pub use generals_game_domain::polygons::TriggerArea;
 use std::collections::HashMap;
+
+/// Result from one immediately dispatched script action.
+#[derive(Debug, Clone, PartialEq)]
+pub enum ScriptActionResult {
+    Success,
+    /// Frames remaining.
+    Pending(f32),
+    Failed(String),
+}
 
 pub const MY_INNER_PERIMETER: &str = "[Skirmish]MyInnerPerimeter";
 pub const MY_OUTER_PERIMETER: &str = "[Skirmish]MyOuterPerimeter";

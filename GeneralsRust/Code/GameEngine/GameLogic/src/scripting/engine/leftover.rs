@@ -211,20 +211,63 @@ fn xfer_science_vec(xfer: &mut dyn Xfer, list: &mut Vec<ScienceType>) -> Result<
     Ok(())
 }
 
+/// C++ SequentialScript::xfer v1 (ScriptEngine.cpp:8127–8198).
+fn xfer_sequential_head(
+    head: &mut SequentialScript,
+    xfer: &mut dyn Xfer,
+    receiving: Option<&ScriptEngine>,
+) -> Result<(), XferStatus> {
+    let mut version = 1;
+    xfer.xfer_version(&mut version, 1)?;
+
+    let mut team = head.team_to_exec_on.unwrap_or(TEAM_ID_INVALID);
+    xfer.xfer_unsigned_int(&mut team)?;
+    if let Some(engine) = receiving {
+        if team != TEAM_ID_INVALID {
+            let world = engine.owning_world_services().ok_or(XferStatus::InvalidData)?;
+            let exists = world.team_factory()
+                .with_read_without_flushing(|factory| factory.find_team_by_id(team).is_some())
+                .map_err(|_| XferStatus::InvalidData)?;
+            if !exists {
+                return Err(XferStatus::InvalidData);
+            }
+            head.team_to_exec_on = Some(team);
+        }
+    }
+
+    xfer.xfer_object_id(&mut head.object_id)?;
+    let mut name = if xfer.get_xfer_mode() == XferMode::Save {
+        head.script_to_execute_sequentially.as_ref().map(|script| script.script_name.clone()).unwrap_or_default()
+    } else {
+        String::new()
+    };
+    xfer.xfer_ascii_string(&mut name)?;
+    if let Some(engine) = receiving && !name.is_empty() {
+        head.script_to_execute_sequentially = Some(Box::new(
+            engine.find_script_clone_by_name(&name).ok_or(XferStatus::InvalidData)?,
+        ));
+    }
+
+    xfer.xfer_int(&mut head.current_instruction)?;
+    xfer.xfer_int(&mut head.times_to_loop)?;
+    xfer.xfer_int(&mut head.frames_to_wait)?;
+    xfer.xfer_bool(&mut head.dont_advance_instruction)?;
+    Ok(())
+}
+
 impl XferSnapshot for ScriptEngine {
     fn crc(&mut self, _xfer: &mut dyn Xfer) -> Result<(), XferStatus> {
         Ok(())
     }
 
     fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), XferStatus> {
-        let inner = self.inner.get_mut();
         let current_version: XferVersion = 6;
         let mut version = current_version;
         xfer.xfer_version(&mut version, current_version)?;
 
         let mut sequential_script_count: u16 =
             if matches!(xfer.get_xfer_mode(), XferMode::Save | XferMode::Crc) {
-                inner.sequential_scripts.len() as u16
+                self.sequential_scripts.len() as u16
             } else {
                 0
             };
@@ -232,24 +275,26 @@ impl XferSnapshot for ScriptEngine {
 
         match xfer.get_xfer_mode() {
             XferMode::Save | XferMode::Crc => {
-                for script in inner.sequential_scripts.iter_mut() {
-                    script.xfer(xfer)?;
+                for head in self.sequential_scripts.legacy_heads_mut() {
+                    xfer_sequential_head(head, xfer, None)?;
                 }
             }
             XferMode::Load => {
-                if !inner.sequential_scripts.is_empty() {
+                if !self.sequential_scripts.is_empty() {
                     return Err(XferStatus::ListNotEmpty);
                 }
-                inner.sequential_scripts.clear();
+                let mut loaded = Vec::with_capacity(usize::from(sequential_script_count));
                 for _ in 0..sequential_script_count {
-                    let mut script = SequentialScript::new();
-                    script.xfer(xfer)?;
-                    inner.sequential_scripts.push(script);
+                    let mut head = SequentialScript::new();
+                    xfer_sequential_head(&mut head, xfer, Some(self))?;
+                    loaded.push(head);
                 }
+                self.sequential_scripts.restore_heads(loaded);
             }
             XferMode::Invalid => return Err(XferStatus::ModeUnknown),
         }
 
+        let inner = self.inner.get_mut();
         let (counters, counter_count) = inner.variables.legacy_counters();
         let mut counters_size: u16 =
             if matches!(xfer.get_xfer_mode(), XferMode::Save | XferMode::Crc) {
@@ -351,7 +396,7 @@ impl XferSnapshot for ScriptEngine {
         xfer.xfer_int(&mut inner.mission_timers.end_game)?;
         xfer.xfer_int(&mut inner.mission_timers.close_window)?;
 
-        let named_object_tracker = get_named_object_tracker();
+        let named_object_tracker = &self.named_objects;
         let named_objects: Vec<(String, ObjectID)> =
             if matches!(xfer.get_xfer_mode(), XferMode::Save | XferMode::Crc) {
                 let mut entries = named_object_tracker
@@ -389,7 +434,7 @@ impl XferSnapshot for ScriptEngine {
                     xfer.xfer_ascii_string(&mut entry_name)?;
                     xfer.xfer_object_id(&mut entry_id)?;
                     if entry_id != crate::common::INVALID_ID
-                        && OBJECT_REGISTRY.with_object(entry_id, |_| ()).is_none()
+                        && self.object_registry.with_object(entry_id, |_| ()).is_none()
                     {
                         return Err(XferStatus::InvalidParameters);
                     }
