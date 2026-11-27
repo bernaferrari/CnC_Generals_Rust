@@ -1,3 +1,8 @@
+use generals_sim::combat::projectile_flight::{
+    MissileIgnition, ProjectileKinematics, ProjectileStep, VirtualFlightStep,
+    missile_fuel_expired, projectile_forward_transform,
+};
+
 /// Event-time object borrowed only for the synchronous FX invocation.
 pub(in crate::game_logic) enum ProjectileFxObject<'a> {
     Projectile(&'a Projectile),
@@ -7,15 +12,6 @@ pub(in crate::game_logic) enum ProjectileFxObject<'a> {
 struct MissileKillTarget {
     origin: Vec3,
     edge_distance_squared: f32,
-}
-
-fn projectile_forward_transform(position: Vec3, direction: Vec3) -> glam::Mat4 {
-    let basis = glam::Mat4::from_cols(glam::Vec4::X, glam::Vec4::Z, glam::Vec4::Y, glam::Vec4::W);
-    let transform = gamelogic::common::build_transform_matrix(
-        basis.transform_point3(position),
-        basis.transform_vector3(direction),
-    );
-    basis * transform * basis
 }
 
 pub(in crate::game_logic) trait ProjectilePresentationRuntime {
@@ -328,46 +324,10 @@ impl Projectile {
         speed_per_second: f32,
         partition: Option<&crate::game_logic::partition_manager::PartitionManager>,
     ) -> bool {
-        let Some(flight) = self.flight.clone() else {
-            return true;
-        };
-        self.flight_runtime.path_start = start;
-        self.flight_runtime.path_end = end;
-        self.flight_runtime.original_target_pos = end;
-        self.flight_runtime.path_speed_per_frame = if speed_per_second > 0.0 {
-            speed_per_second / gamelogic::common::LOGICFRAMES_PER_SECOND as f32
-        } else {
-            0.0
-        };
-        match &flight {
-            crate::game_logic::weapon_bootstrap::HostProjectileFlight::Dumb(dumb) => {
-                let Some(highest) = partition.and_then(|owner| owner.terrain_high_along_line(start, end)) else {
-                    return false;
-                };
-                let (path, segs) = crate::game_logic::weapon_bootstrap::build_dumb_bezier_path(
-                    start,
-                    end,
-                    dumb,
-                    speed_per_second,
-                    0,
-                    highest,
-                );
-                self.flight_runtime.path = path;
-                self.flight_runtime.path_segments = segs;
-                self.flight_runtime.step = 0;
-                self.flight_runtime.missile_armed = true;
-                self.flight_runtime.missile_phase =
-                    crate::game_logic::weapon_bootstrap::HostMissilePhase::Attack;
-            }
-            crate::game_logic::weapon_bootstrap::HostProjectileFlight::Missile(_) => {
-                // C++ always starts LAUNCH. Delay 0 still visits IGNITION on the
-                // first update so authored IgnitionFX plays (MissileAIUpdate.cpp:675-688).
-                self.flight_runtime.missile_armed = false;
-                self.flight_runtime.missile_phase =
-                    crate::game_logic::weapon_bootstrap::HostMissilePhase::Launch;
-            }
-        }
-        true
+        self.flight_runtime.bind(
+            self.flight.as_ref(), start, end, speed_per_second,
+            |start, end| partition.and_then(|owner| owner.terrain_high_along_line(start, end)),
+        )
     }
 
     pub fn is_warhead_armed(&self) -> bool {
@@ -388,23 +348,16 @@ impl Projectile {
         frame: u32,
         runtime: &mut dyn ProjectilePresentationRuntime,
     ) -> bool {
-        let Some(crate::game_logic::weapon_bootstrap::HostProjectileFlight::Missile(missile)) =
-            &self.flight
-        else {
-            return true;
-        };
-        if self.flight_runtime.missile_armed {
-            return true;
+        match self.flight_runtime.ignition(self.flight.as_ref(), frame) {
+            MissileIgnition::Waiting => false,
+            MissileIgnition::Ready => true,
+            MissileIgnition::Ignite(fx) => {
+                let fx = fx.to_owned();
+                self.play_missile_ignition(&fx, runtime);
+                self.flight_runtime.arm();
+                true
+            }
         }
-        if frame < missile.ignition_delay_frames {
-            return false;
-        }
-        let ignition_fx = missile.ignition_fx.clone();
-        self.play_missile_ignition(&ignition_fx, runtime);
-        self.flight_runtime.missile_armed = true;
-        self.flight_runtime.missile_phase =
-            crate::game_logic::weapon_bootstrap::HostMissilePhase::Attack;
-        true
     }
 
     fn missile_fx_yaw(&self) -> f32 {
@@ -481,19 +434,10 @@ impl Projectile {
 
     /// MissileAIUpdate::detonate enters KILL_SELF after emitting its impact.
     fn retain_detonated_missile(&mut self) -> bool {
-        if matches!(
-            self.projectile_lifecycle,
-            Some(crate::game_logic::weapon_bootstrap::HostProjectileLifecycle::Missile { .. })
-        ) {
-            if self.missile_kill_self_started_frame.is_none() {
-                self.missile_kill_self_started_frame = Some(self.elapsed_logic_frames());
-            }
-            self.flight_runtime.missile_phase =
-                crate::game_logic::weapon_bootstrap::HostMissilePhase::Detonated;
-            true
-        } else {
-            false
-        }
+        let frame = self.elapsed_logic_frames();
+        self.flight_runtime.retain_detonated_missile(
+            self.projectile_lifecycle, frame, &mut self.missile_kill_self_started_frame,
+        )
     }
 
     fn detonation_step(&mut self, pre_physics_pose: Option<glam::Mat4>) -> ProjectileStep {
@@ -504,75 +448,17 @@ impl Projectile {
     }
 
     fn lifecycle_step(&mut self, target_is_live: bool, defer_target_loss: bool) -> ProjectileStep {
-        use crate::game_logic::weapon_bootstrap::HostProjectileLifecycle;
-
-        let Some(lifecycle) = self.projectile_lifecycle else {
-            return ProjectileStep::Alive;
-        };
         let frame = self.elapsed_logic_frames();
-        match lifecycle {
-            HostProjectileLifecycle::DumbProjectile {
-                max_lifespan_frames, ..
-            } if frame >= max_lifespan_frames => ProjectileStep::DETONATE,
-            HostProjectileLifecycle::Missile {
-                try_to_follow_target: _,
-                fuel_lifetime_frames,
-                detonate_on_no_fuel,
-                kill_self_delay_frames,
-            } => {
-                if let Some(kill_started) = self.missile_kill_self_started_frame {
-                    return if frame >= kill_started.saturating_add(kill_self_delay_frames) {
-                        ProjectileStep::Remove
-                    } else {
-                        ProjectileStep::Hold
-                    };
-                }
-
-                // MissileAIUpdate::doAttackState checks fuel before its
-                // tracked-target-gone transition.  A missile which loses its
-                // target on precisely its authored no-fuel frame therefore
-                // still detonates when DetonateOnNoFuel is set.  `detonate()`
-                // then enters KILL_SELF so its contrail can catch up before
-                // the projectile object is destroyed.
-                let fuel_start = match &self.flight {
-                    Some(crate::game_logic::weapon_bootstrap::HostProjectileFlight::Missile(
-                        missile,
-                    )) => missile.ignition_delay_frames.max(1),
-                    _ => 0,
-                };
-                if fuel_lifetime_frames > 0
-                    && frame >= fuel_start.saturating_add(fuel_lifetime_frames)
-                {
-                    if detonate_on_no_fuel {
-                        return self.detonation_step(None);
-                    }
-                    if self.flight_runtime.missile_phase
-                        == crate::game_logic::weapon_bootstrap::HostMissilePhase::Kill
-                    {
-                        self.missile_kill_self_started_frame = Some(frame);
-                        return ProjectileStep::Hold;
-                    }
-                }
-
-                // Tracking follows the current AI goal, including a diverted
-                // flare, rather than the original designated victim.
-                if self.is_homing && self.target_id.is_some() && !target_is_live && !defer_target_loss {
-                    self.missile_kill_self_started_frame = Some(frame);
-                    return ProjectileStep::Hold;
-                }
-
-                // `FuelLifetime = 0` means infinity. With fuel exhausted but
-                // no DetonateOnNoFuel, C++ stops acceleration/turning and
-                // discards exhaust; it does not fabricate a detonation or
-                // remove the missile here.
-                ProjectileStep::Alive
-            }
-            _ => ProjectileStep::Alive,
-        }
+        self.flight_runtime.lifecycle_step(
+            self.projectile_lifecycle,
+            self.flight.as_ref(),
+            frame,
+            &mut self.missile_kill_self_started_frame,
+            self.is_homing && self.target_id.is_some() && !target_is_live && !defer_target_loss,
+        )
     }
 
-    /// Standalone mapless flight has only the ground layer; it never selects
-    /// an ambient terrain/AI runtime. Main supplies its borrowed terrain below.
+    /// Advance flight with the standalone ground layer.
     pub fn update(&mut self, dt: f32, target_is_live: bool) -> ProjectileStep {
         self.update_with_terrain(dt, target_is_live, None)
     }
@@ -643,7 +529,7 @@ impl Projectile {
         world_frame: Option<u32>,
         runtime: &mut dyn ProjectilePresentationRuntime,
     ) -> ProjectileStep {
-        use missile_motion::MissileSteering;
+        use missile_motion::{MissileMotionForObject, MissileSteering};
 
         if let Some(actor) = actor.as_deref() {
             self.position = actor.get_position();
@@ -744,15 +630,7 @@ impl Projectile {
                     goal.y += 10.0;
                 }
             }
-            let expired = match self.projectile_lifecycle {
-                Some(crate::game_logic::weapon_bootstrap::HostProjectileLifecycle::Missile { fuel_lifetime_frames, .. }) =>
-                    fuel_lifetime_frames > 0 && frame >= fuel_lifetime_frames.saturating_add(
-                        match &self.flight {
-                            Some(crate::game_logic::weapon_bootstrap::HostProjectileFlight::Missile(m)) => m.ignition_delay_frames.max(1),
-                            _ => 0,
-                        }),
-                _ => false,
-            };
+            let expired = missile_fuel_expired(self.projectile_lifecycle, self.flight.as_ref(), frame);
             let actor = actor.as_deref_mut().expect("missile motion requires its world Object");
             let mut impact = None;
             if completed_move {
@@ -778,7 +656,7 @@ impl Projectile {
                 }
             }
             if impact.is_none() {
-                motion.update_move(actor, goal);
+                motion.update_move(actor.get_position(), goal, actor.host_close_enough_dist());
             }
             let steering = if was_kill {
                 MissileSteering::Braking
@@ -812,70 +690,23 @@ impl Projectile {
             return self.finish_flight_step(terrain);
         }
 
-        if self.speed <= 0.0 {
-            self.position = self.target_position;
-            return self.finish_flight_step(terrain);
+        let mut kinematics = ProjectileKinematics {
+            position: self.position,
+            velocity: self.velocity,
+            goal: self.target_position,
+            speed: self.speed,
+            homing: self.is_homing,
+        };
+        let step = self.flight_runtime.advance_virtual(
+            self.flight.as_ref(), &mut kinematics, dt, missile_was_armed,
+        );
+        self.position = kinematics.position;
+        self.velocity = kinematics.velocity;
+        match step {
+            VirtualFlightStep::Advanced => self.finish_flight_step(terrain),
+            VirtualFlightStep::PathExhausted => ProjectileStep::DETONATE,
+            VirtualFlightStep::MissileAtGoal => self.detonation_step(None),
         }
-
-        if matches!(
-            &self.flight,
-            Some(crate::game_logic::weapon_bootstrap::HostProjectileFlight::Dumb(_))
-        ) && !self.flight_runtime.path.is_empty()
-        {
-            if self.flight_runtime.step >= self.flight_runtime.path.len() {
-                return ProjectileStep::DETONATE;
-            }
-            let next = self.flight_runtime.path[self.flight_runtime.step];
-            let tangent = next - self.position;
-            if tangent.length_squared() > 0.0001 {
-                self.velocity = tangent.normalize() * self.speed;
-            }
-            self.position = next;
-            self.flight_runtime.step += 1;
-            return self.finish_flight_step(terrain);
-        }
-
-        if let Some(crate::game_logic::weapon_bootstrap::HostProjectileFlight::Missile(missile)) =
-            &self.flight
-        {
-            let was_kill = self.flight_runtime.missile_phase
-                == crate::game_logic::weapon_bootstrap::HostMissilePhase::Kill;
-            // LAUNCH may fall through to IGNITION, but neither IGNITION nor
-            // ATTACK dispatches the next state until the following update.
-            if missile_was_armed
-                && self.flight_runtime.missile_phase
-                    != crate::game_logic::weapon_bootstrap::HostMissilePhase::Kill
-                && crate::game_logic::weapon_bootstrap::missile_inside_lock_distance(
-                    self.position,
-                    self.target_position,
-                    missile.lock_distance,
-                    self.is_homing,
-                )
-            {
-                self.flight_runtime.missile_phase =
-                    crate::game_logic::weapon_bootstrap::HostMissilePhase::Kill;
-            }
-            if was_kill
-            {
-                let goal = self.target_position;
-                let close_enough = (self.speed / 30.0).max(1.0);
-                if self.position.distance(goal) <= close_enough {
-                    self.position = goal;
-                    return self.detonation_step(None);
-                }
-                let dir = (goal - self.position).normalize_or_zero();
-                self.velocity = dir * self.speed;
-                self.position += self.velocity * dt;
-                return self.finish_flight_step(terrain);
-            }
-        }
-
-        if self.is_homing {
-            let dir = (self.target_position - self.position).normalize_or_zero();
-            self.velocity = dir * self.speed;
-        }
-        self.position += self.velocity * dt;
-        self.finish_flight_step(terrain)
     }
 
     fn finish_flight_step(
@@ -904,27 +735,6 @@ impl Projectile {
     pub fn is_instant_speed(speed: f32) -> bool {
         generals_sim::combat::is_instant_weapon_speed(speed)
     }
-}
-
-/// Result of one host projectile behavior step.  `Detonate` is deliberately
-/// distinct from `Remove`: C++ DumbProjectile expiry and missile no-fuel
-/// detonation must execute the weapon's authored impact path, whereas followed
-/// target loss enters MissileAIUpdate's quiet delayed self-destroy state.
-#[derive(Debug, Clone, Copy, PartialEq)]
-enum ProjectileStep {
-    Alive,
-    Hold,
-    Detonate {
-        /// Missiles enter KILL_SELF for the authored contrail delay.
-        retain_actor: bool,
-        /// Pose before physics when the same frame advances beyond the impact.
-        pre_physics_pose: Option<glam::Mat4>,
-    },
-    Remove,
-}
-
-impl ProjectileStep {
-    const DETONATE: Self = Self::Detonate { retain_actor: false, pre_physics_pose: None };
 }
 
 /// Projectile hit information

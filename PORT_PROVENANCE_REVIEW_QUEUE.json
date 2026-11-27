@@ -71858,7 +71858,7 @@
             },
             {
               "cargo_reachable": true,
-              "classification": "implementation",
+              "classification": "shim",
               "path": "GeneralsRust/Code/GameEngine/GameLogic/src/weapon/bezier.rs"
             },
             {
@@ -187660,7 +187660,7 @@
       ]
     }
   ],
-  "provenance_input_digest": "9cd4c1ba877d320a6cae9eaee6c944c67a60acec543dcca93f44713fa9b35646",
+  "provenance_input_digest": "0158aacbc869403249886c55af0c006b8b7809bbb6aba6db7c6d2cc07d46ef3e",
   "schema_version": 1,
   "summary": {
     "maximum_packet_size": 15,

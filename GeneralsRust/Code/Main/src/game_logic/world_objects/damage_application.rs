@@ -2049,7 +2049,7 @@ impl GameLogic {
                                 }
                                 None => MissileInitialVelocity::Existing(velocity),
                             };
-                            crate::game_logic::combat::MissileMotion::launch(
+                            crate::game_logic::combat::launch_missile_motion(
                                 actor,
                                 profile,
                                 transform,

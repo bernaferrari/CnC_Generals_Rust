@@ -32736,7 +32736,7 @@
           },
           {
             "cargo_reachable": true,
-            "classification": "implementation",
+            "classification": "shim",
             "owned_source_ranges": [],
             "owned_symbols": [],
             "path": "GeneralsRust/Code/GameEngine/GameLogic/src/weapon/bezier.rs"
@@ -73738,7 +73738,7 @@
           },
           {
             "cargo_reachable": true,
-            "classification": "implementation",
+            "classification": "shim",
             "owned_source_ranges": [],
             "owned_symbols": [],
             "path": "GeneralsRust/Code/GameEngine/GameLogic/src/weapon/bezier.rs"
@@ -153718,7 +153718,7 @@
     }
   ],
   "generator": "GeneralsRust/Code/Main/scripts/generate_port_provenance.py",
-  "input_digest": "9cd4c1ba877d320a6cae9eaee6c944c67a60acec543dcca93f44713fa9b35646",
+  "input_digest": "0158aacbc869403249886c55af0c006b8b7809bbb6aba6db7c6d2cc07d46ef3e",
   "metric_contract": {
     "behavior_requires_explicit_evidence": true,
     "candidate_mapping_is_reviewed": false,
@@ -198795,11 +198795,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 1658,
+        "end_line": 1622,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/behavior/dumb_projectile_behavior.rs",
-      "sha256": "6f832c628caa3f06a8111c5d4b7b00bd7d242faa039f975a16caaf32bd8daeea",
+      "sha256": "2801011c18ba5ac80f044775f5a070141d32b2b61c97cbe90ea4ef1ca4a38520",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -207704,13 +207704,13 @@
     },
     {
       "cargo_reachable": true,
-      "classification": "implementation",
+      "classification": "shim",
       "file_range": {
-        "end_line": 508,
+        "end_line": 3,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/weapon/bezier.rs",
-      "sha256": "a637d4aca1d5e87242d265ca11ee249e8d3df3637e0c10bb6d5d4d4b2cd27cae",
+      "sha256": "b7a33d2c63bce019d4e21ceb5f333b5c856db7dc5592406bfc43db6b13e4ab73",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },

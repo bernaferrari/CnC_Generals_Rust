@@ -9,7 +9,8 @@ use glam::Vec3;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 mod missile_motion;
-pub(crate) use missile_motion::MissileMotion;
+pub(crate) use generals_sim::combat::missile_motion::MissileMotion;
+pub(in crate::game_logic) use missile_motion::launch as launch_missile_motion;
 pub(in crate::game_logic) use missile_motion::MissileInitialVelocity;
 
 pub use generals_sim::combat::{

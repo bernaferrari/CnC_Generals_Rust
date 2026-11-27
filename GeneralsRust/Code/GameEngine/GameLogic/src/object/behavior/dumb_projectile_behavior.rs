@@ -496,43 +496,7 @@ pub struct DumbProjectileBehavior {
     has_detonated: Bool,
 }
 
-/// C++ `DumbProjectileBehavior::calcFlightPath` Bezier + segment count.
-/// `segments == 0` recalculates `ceil(arcLength / speed)`.
-pub fn calc_dumb_projectile_bezier_points(
-    start: crate::common::Coord3D,
-    end: crate::common::Coord3D,
-    first_height: Real,
-    second_height: Real,
-    first_percent_indent: Real,
-    second_percent_indent: Real,
-    highest_intervening: Real,
-    speed: Real,
-    segments: usize,
-) -> (Vec<crate::common::Coord3D>, usize) {
-    use crate::weapon::bezier::BezierSegment;
-    let bezier = BezierSegment::create_projectile_arc(
-        start,
-        end,
-        first_height,
-        second_height,
-        first_percent_indent.clamp(0.0, 1.0),
-        second_percent_indent.clamp(0.0, 1.0),
-        highest_intervening.max(start.z).max(end.z),
-    );
-    let mut segs = segments;
-    if segs == 0 {
-        // C++ DumbProjectileBehavior.cpp:428 —
-        // m_flightPathSegments = ceil(flightDistance / m_flightPathSpeed).
-        // `speed` is distance-per-frame; no floor, or one path point per
-        // frame advances at least a whole unit and slow projectiles teleport
-        // to the target before their authored MaxLifespan expiry.
-        segs = (bezier.get_approximate_length() / speed).ceil() as usize;
-        if segs == 0 {
-            segs = 1;
-        }
-    }
-    (bezier.get_segment_points(segs), segs)
-}
+pub use generals_sim::combat::bezier::calc_dumb_projectile_bezier_points;
 
 impl DumbProjectileBehavior {
     fn construct_with_object(
