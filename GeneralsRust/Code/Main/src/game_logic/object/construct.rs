@@ -764,7 +764,7 @@ impl Object {
             flash_color: 0,
 
             dock_cancel_epoch: 0,
-            unit_ai_runtime: unit_ai_runtime::UnitAiRuntime::with_auto_acquire(
+            unit_ai_runtime: generals_sim::object::ai::UnitAiRuntime::with_auto_acquire(
                 auto_acquire_when_idle,
             ),
             construction_power_admitted: false,
@@ -1599,7 +1599,7 @@ impl Object {
             flash_color: 0,
 
             dock_cancel_epoch: 0,
-            unit_ai_runtime: unit_ai_runtime::UnitAiRuntime::with_auto_acquire(
+            unit_ai_runtime: generals_sim::object::ai::UnitAiRuntime::with_auto_acquire(
                 auto_acquire_when_idle,
             ),
             construction_power_admitted: false,

@@ -86,8 +86,7 @@ fn actual_ai_diversion_retains_base_body_through_strict_deadline_and_peer_reset(
     assert_eq!(
         actor
             .capture_base_ai_continuation()
-            .temporary_move
-            .as_ref()
+            .temporary_move()
             .unwrap()
             .deadline,
         610
@@ -167,7 +166,7 @@ fn replacement_and_native_restore_keep_original_base_receipt() {
         .host_object(id)
         .unwrap()
         .capture_base_ai_continuation();
-    let temporary = control.temporary_move.as_ref().unwrap();
+    let temporary = control.temporary_move().unwrap();
     assert_eq!(temporary.deadline, 640);
     assert_eq!(
         (temporary.saved_destination, temporary.saved_path_goal),
@@ -226,7 +225,7 @@ fn actual_nested_attack_completion_resumes_existing_guard_body_and_goals() {
     // Guard's exited attack child walks back to the post (AIGuardReturnState).
     assert!(matches!(
         world.host_object(id).unwrap().unit_ai_runtime.guard_phase(),
-        Some(crate::game_logic::object::unit_ai_runtime::GuardPhase::Return { goal })
+        Some(generals_sim::object::ai::GuardPhase::Return { goal })
             if goal == Vec3::new(40., 0., 20.)
     ));
     assert_eq!(after.goals.position, before.goals.position);

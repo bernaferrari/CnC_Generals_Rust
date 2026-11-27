@@ -263,7 +263,7 @@ impl GameLogic {
             .map(|policy| policy.0)
             .unwrap_or(object.thing().template.auto_acquire_enemies_when_idle);
         object.unit_ai_runtime =
-            crate::game_logic::object::unit_ai_runtime::UnitAiRuntime::with_auto_acquire(
+            generals_sim::object::ai::UnitAiRuntime::with_auto_acquire(
                 idle_bits & game_engine::common::thing::ai_update_data::AUTO_ACQUIRE_IDLE != 0,
             );
         Ok(())

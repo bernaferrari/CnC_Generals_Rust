@@ -93,7 +93,7 @@ impl GameLogic {
                         object.ai_state(),
                         AIState::GuardingArea | AIState::GuardingObject
                     ) && object.unit_ai_runtime.guard_phase()
-                        == Some(crate::game_logic::object::unit_ai_runtime::GuardPhase::Idle));
+                        == Some(generals_sim::object::ai::GuardPhase::Idle));
             }
             if needs_enemy_sighting && !observation.enemy_sighted {
                 let position = object.get_position();

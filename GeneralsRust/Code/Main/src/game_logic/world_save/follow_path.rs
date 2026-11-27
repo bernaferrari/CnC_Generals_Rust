@@ -1,7 +1,7 @@
 //! Selected-unit AI_FOLLOW_PATH. The Object machine owns authored goals and
 //! their index; the pathfinder only receives the one currently admitted leg.
 use super::*;
-use crate::game_logic::object::unit_ai_runtime::FollowPathLeg;
+use generals_sim::object::ai::FollowPathLeg;
 
 impl GameLogic {
     pub(crate) fn uses_selected_ground_follow_path(&self, id: ObjectId) -> bool {

@@ -120,7 +120,7 @@ fn quick_exit_completion_restores_guard_before_same_tick_dispatch() {
         // The temporary exit suspends an existing nested Idle state.
         let runtime = world.unit_ai_runtime_mut(unit_id).unwrap();
         runtime.set_guard_phase(Some(
-            crate::game_logic::object::unit_ai_runtime::GuardPhase::Idle,
+            generals_sim::object::ai::GuardPhase::Idle,
         ));
         runtime.set_guard_scan_deadline(Some(frame));
 
@@ -207,7 +207,7 @@ fn quick_exit_deadline_preserves_path_at_end_frame_and_expires_next_frame() {
         .set_quick_exit_deadline(Some(10));
     let runtime = world.unit_ai_runtime_mut(unit_id).unwrap();
     runtime.set_guard_phase(Some(
-        crate::game_logic::object::unit_ai_runtime::GuardPhase::Idle,
+        generals_sim::object::ai::GuardPhase::Idle,
     ));
     runtime.set_guard_scan_deadline(Some(10));
 
@@ -321,7 +321,7 @@ fn suspended_quick_exit_does_not_bypass_invalid_sally_cleanup() {
         );
         let (unit, partition) = world.host_object_and_partition_mut(id).unwrap();
         unit.unit_ai_runtime.set_guard_phase(Some(
-            crate::game_logic::object::unit_ai_runtime::GuardPhase::Idle,
+            generals_sim::object::ai::GuardPhase::Idle,
         ));
         unit.unit_ai_runtime.set_quick_exit_deadline(Some(300));
         // AdjustsDestination belongs to the AI admission constructed.

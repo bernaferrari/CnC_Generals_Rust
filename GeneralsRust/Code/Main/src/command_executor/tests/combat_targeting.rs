@@ -1528,7 +1528,7 @@ fn selected_add_waypoint_keeps_braking_on_the_active_authored_leg() {
 
     issue(&mut world, id, 3, Vec3::new(175.0, 0.0, 175.0));
     let original = world.host_object(id).unwrap();
-    let authored = original.capture_base_ai_continuation().goals.path;
+    let authored = original.capture_base_ai_continuation().goals.path().to_vec();
     assert_eq!(authored.len(), 3);
     assert_eq!(original.unit_ai_runtime.follow_path_index(), Some(0));
     assert_eq!(original.path_extra_distance, 0.0);
@@ -1545,7 +1545,7 @@ fn selected_add_waypoint_keeps_braking_on_the_active_authored_leg() {
         .restore_game_snapshot(&snapshot, &mut restored)
         .unwrap();
     let loaded = restored.host_object(id).unwrap();
-    assert_eq!(loaded.capture_base_ai_continuation().goals.path, authored);
+    assert_eq!(loaded.capture_base_ai_continuation().goals.path(), authored);
     assert_eq!(loaded.unit_ai_runtime.follow_path_index(), Some(0));
     assert_eq!(loaded.path_extra_distance, 0.0);
 

@@ -20,11 +20,9 @@ impl GameLogic {
             self.pathfinding_height_samples.as_ref(),
             &self.pathfinding_system.grid,
         );
-        crate::game_logic::pathfinding::PathRoute::from_points(
-            points,
-            &self.pathfinding_system.grid,
-            &source,
-        )
+        crate::game_logic::pathfinding::PathRoute::from_points_with_layer(points, |point| {
+            self.pathfinding_system.grid.layer_for_destination(point, &source) as u8
+        })
     }
 
     /// Resolve coordinate-only nodes installed by an object operation using

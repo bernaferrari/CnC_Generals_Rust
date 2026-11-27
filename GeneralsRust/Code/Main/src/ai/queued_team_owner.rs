@@ -796,7 +796,7 @@ impl GameLogic {
                     self.host_object(*id)
                         .is_some_and(|o| o.has_ai_update_interface() && (o.ai_state() == AIState::Idle
                             || (matches!(o.ai_state(), AIState::GuardingArea | AIState::GuardingObject)
-                                && o.unit_ai_runtime.guard_phase() == Some(crate::game_logic::object::unit_ai_runtime::GuardPhase::Idle))))
+                                && o.unit_ai_runtime.guard_phase() == Some(generals_sim::object::ai::GuardPhase::Idle))))
                 });
                 (idle && ai.prototype_execute_actions_on_create(&team.name))
                     .then(|| (ai.prototype_production_condition(&team.name), team.team_id))
@@ -1975,7 +1975,7 @@ mod tests {
 
     #[test]
     fn queued_condition_reads_actual_team_members_and_ai_idle_without_name_heuristics() {
-        use crate::game_logic::object::unit_ai_runtime::GuardPhase;
+        use generals_sim::object::ai::GuardPhase;
         let mut world = callback_world();
         let unit =
             world.ai_manager.ai_players[&1].team_queue[0].work_orders[0].observed_unit_ids[0];

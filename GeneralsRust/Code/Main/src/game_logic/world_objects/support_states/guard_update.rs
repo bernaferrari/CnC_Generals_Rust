@@ -1,6 +1,6 @@
 //! C++ AIGuard Return/Idle updates before the locomotor pass.
 use super::super::super::*;
-use crate::game_logic::object::unit_ai_runtime::GuardPhase;
+use generals_sim::object::ai::GuardPhase;
 
 impl GameLogic {
     #[cfg(test)]

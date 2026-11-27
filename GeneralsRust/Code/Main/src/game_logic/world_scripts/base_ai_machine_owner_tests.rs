@@ -403,8 +403,8 @@ fn actual_attack_move_enters_child_idle_with_parent_goal_and_owned_deadline() {
         Some(AIState::AttackMoving)
     );
     assert_eq!(unit.unit_ai_runtime.current_leaf_state(), AIState::Idle);
-    let parent = unit.unit_ai_runtime.machine().parent.as_ref().unwrap();
-    assert_eq!(parent.goals.position, destination);
+    let parent_goals = unit.unit_ai_runtime.machine().parent_goals().unwrap();
+    assert_eq!(parent_goals.position, destination);
     assert!(unit.unit_ai_runtime.machine().idle_initialized);
     assert!(!unit.idle_mood_reset_pending);
     assert_eq!(
@@ -580,10 +580,8 @@ fn real_attack_move_child_attack_returns_to_idle_without_losing_parent_goal() {
         .unwrap()
         .unit_ai_runtime
         .machine()
-        .parent
-        .as_ref()
+        .parent_goals()
         .unwrap()
-        .goals
         .clone();
     assert_eq!(
         world

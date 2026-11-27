@@ -45,6 +45,7 @@ mod line_traversal;
 mod obstacles;
 mod open_set;
 mod passability;
+mod route;
 mod zones;
 
 pub use astar::{AStarPathfinder, SearchPathNode};
@@ -55,6 +56,7 @@ pub use cell::{
 };
 pub use find_position_sampling::find_position_around_candidates;
 pub use line_traversal::visit_cell_line;
+pub use route::{PathCursor, PathRoute, PathRouteNode};
 
 /// Crate-internal names reached by sibling modules and by `src/tests.rs`
 /// through `use super::*;` (the comparator fixtures construct `AStarNode` /

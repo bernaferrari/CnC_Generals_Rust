@@ -1,6 +1,6 @@
 //! C++ AIGuard state machine and guard-area scan behavior.
 use super::super::super::*;
-use crate::game_logic::object::unit_ai_runtime::GuardPhase;
+use generals_sim::object::ai::GuardPhase;
 /// C++ AIGuardInnerState residual.
 pub(super) const GUARD_CHASE_PHASE_INNER: GuardChasePhase = GuardChasePhase::Inner;
 /// C++ AIGuardOuterState residual.
@@ -33,7 +33,7 @@ pub(crate) fn host_guardee_moved_beyond_return_threshold(
     prev: glam::Vec3,
     now: glam::Vec3,
 ) -> bool {
-    crate::game_logic::object::unit_ai_runtime::guard_anchor_moved(prev, now)
+    generals_sim::object::ai::guard_anchor_moved(prev, now)
 }
 
 fn host_guard_area_stamp_expired(frame: u32, changed: u32, scan_rate: u32) -> bool {

@@ -415,7 +415,7 @@ fn guard_disabled_masks_reject_after_script_preparation() {
 
 #[test]
 fn guard_movement_save_and_presentation_keep_the_receiving_world() {
-    use crate::game_logic::object::unit_ai_runtime::GuardPhase;
+    use generals_sim::object::ai::GuardPhase;
     use crate::presentation_frame::PresentationFrame;
     let (mut owner, id) = super::guard_return_rate_control_tests::unfinished_return();
     let (mut peer, peer_id, _) = world();

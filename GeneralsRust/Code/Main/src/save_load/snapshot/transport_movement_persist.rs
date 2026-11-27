@@ -241,7 +241,7 @@ pub(super) fn validate_base_ai_projection_before_restore(
             }
         };
         let frame = snapshot.frame_number as u32;
-        let expected = match control.and_then(|control| control.temporary_move.as_ref()) {
+        let expected = match control.and_then(|control| control.temporary_move()) {
             Some(value) => (
                 if frame <= value.deadline {
                     (value.deadline - frame).saturating_add(1)

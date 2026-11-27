@@ -28,7 +28,7 @@ impl GameLogic {
         let guard_return = control.parent_state().is_none()
             && matches!(
                 unit.unit_ai_runtime.guard_phase(),
-                Some(crate::game_logic::object::unit_ai_runtime::GuardPhase::Return { .. })
+                Some(generals_sim::object::ai::GuardPhase::Return { .. })
             );
         let mut states = vec![control.ai_state];
         if let Some(parent) = control.parent_state() {
@@ -98,7 +98,7 @@ impl GameLogic {
             {
                 let goal = if guard_return {
                     match unit.unit_ai_runtime.guard_phase() {
-                        Some(crate::game_logic::object::unit_ai_runtime::GuardPhase::Return {
+                        Some(generals_sim::object::ai::GuardPhase::Return {
                             goal,
                         }) => Some(goal),
                         _ => control.normal_move_goal,

@@ -47,7 +47,7 @@ fn active_goals(object: &Object) -> Option<&[Vec3]> {
     }
     let runtime = &object.unit_ai_runtime;
     let index = runtime.follow_path_index()? as usize;
-    let goals = runtime.machine().goals.path.get(index..)?;
+    let goals = runtime.machine().goals.path().get(index..)?;
     (!goals.is_empty()).then_some(goals)
 }
 

@@ -2,12 +2,15 @@
 
 use std::fmt;
 
+pub mod ai;
 pub mod body;
 mod ids;
+mod movement;
 mod roster;
 pub use generals_game_domain::body::BodyDamageType;
 pub use generals_game_domain::object_status::ObjectShroudStatus;
 pub use ids::ObjectIds;
+pub use movement::Movement;
 pub use roster::{
     ConstructorLookupError, ConstructorLookupReceipt, ObjectIdentity, ObjectRoster, RosterEntry,
 };

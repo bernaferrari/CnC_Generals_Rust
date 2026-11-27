@@ -21,7 +21,7 @@ mod guard_movement_owner_tests;
 /// C++ `PATHFIND_CELL_SIZE_F`.
 const HOST_WANDER_CELL: f32 = 10.0;
 
-use crate::game_logic::object::unit_ai_runtime::{WanderInPlace, WanderPath, WanderState};
+use generals_sim::object::ai::{WanderInPlace, WanderPath, WanderState};
 
 /// Leftover `AIWanderState::update_group_offset` / `AIPanicState::update_group_offset`.
 /// C++ `m_groupOffset = GameLogicRandomValue(-delta,delta)*PATHFIND_CELL_SIZE_F`

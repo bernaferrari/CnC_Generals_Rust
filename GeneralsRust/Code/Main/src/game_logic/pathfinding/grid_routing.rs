@@ -2471,64 +2471,22 @@ impl PathfindingGrid {
         ground_path: bool,
     ) -> PathRoute {
         let len = waypoints.len();
-        let mut nodes: Vec<PathRouteNode> = waypoints.iter().enumerate().map(|(i, &position)| {
+        let points = waypoints.iter().enumerate().map(|(i, &position)| {
             let layer = if path_layers.len() == len {
                 path_layers[i]
             } else {
                 self.layer_for_destination(position, ground_source) as u8
             };
-            PathRouteNode {
-                position,
-                layer: Some(layer),
-                can_optimize: can_optimize.is_some_and(|flags| flags[i]),
-                next_optimized: if len <= 2 && i + 1 < len { Some(i + 1) } else { None },
-            }
-        }).collect();
-        if len <= 2 {
-            return PathRoute { nodes, blocked_by_ally: false, optimized_count: len };
-        }
-        // C++ Path::optimize ALLOWED_STEPS = 3 past a layer change.
-        const ALLOWED_STEPS: usize = 3;
-        let mut optimized_count = 1;
-        let mut anchor = 0usize;
-        while anchor < len - 1 {
-            let mut layer = PathfindLayerEnum::from_u32(nodes[anchor].layer.unwrap() as u32);
-            let mut cur_layer = layer;
-            let mut count = 0usize;
-            let mut node_idx = anchor + 1;
-            while node_idx + 1 < waypoints.len() {
-                count += 1;
-                if cur_layer == PathfindLayerEnum::Ground {
-                    let node_layer = PathfindLayerEnum::from_u32(nodes[node_idx].layer.unwrap() as u32);
-                    if node_layer != cur_layer {
-                        layer = node_layer;
-                        cur_layer = layer;
-                        if count > ALLOWED_STEPS {
-                            break;
-                        }
-                    }
-                } else if nodes[node_idx + 1].layer != Some(cur_layer as u8) && count > ALLOWED_STEPS {
-                    break;
-                }
-                cur_layer = PathfindLayerEnum::from_u32(nodes[node_idx].layer.unwrap() as u32);
-                if !ground_path && can_optimize.is_some_and(|flags| !flags[node_idx]) {
-                    break;
-                }
-                node_idx += 1;
-            }
-            // Path::optimize pins its first visibility check to the starting
-            // layer; optimizeGroundPath deliberately does not.
-            if !ground_path && anchor == 0 {
-                layer = PathfindLayerEnum::from_u32(nodes[0].layer.unwrap() as u32);
-            }
-            let mut found = false;
-            let mut far = node_idx;
-            while far > anchor {
+            (position, layer, can_optimize.is_some_and(|flags| flags[i]))
+        });
+        PathRoute::optimize_grid_route(
+            points,
+            ground_path.then_some(self.grid_size),
+            can_optimize.is_some(),
+            |anchor, far, layer, layers_uniform| {
                 let a = self.world_to_grid(waypoints[anchor]);
                 let b = self.world_to_grid(waypoints[far]);
-                // Uniformity uses the carried PathNode layers, not geometry.
-                let layers_uniform = (anchor..=far).all(|i| nodes[i].layer == Some(layer as u8));
-                if self.line_passable_on_layer(
+                self.line_passable_on_layer(
                     a,
                     b,
                     surfaces,
@@ -2541,43 +2499,8 @@ impl PathfindingGrid {
                 ) || (layers_uniform
                     && !self.span_crosses_solid_obstacle(waypoints, anchor, far)
                     && self.collinear_cells_force_passable(waypoints, anchor, far))
-                {
-                    if far == anchor {
-                        break;
-                    }
-                    nodes[anchor].next_optimized = Some(far);
-                    optimized_count += 1;
-                    anchor = far;
-                    found = true;
-                    break;
-                }
-                if far == 0 {
-                    break;
-                }
-                far -= 1;
-            }
-            if !found {
-                nodes[anchor].next_optimized = Some(anchor + 1);
-                optimized_count += 1;
-                anchor += 1;
-            }
-        }
-        if ground_path {
-            // optimizeGroundPath alone performs the jig/jog pass.
-            let thresh = self.grid_size * self.grid_size * 3.9;
-            let mut i = 0;
-            while let Some(next) = nodes[i].next_optimized {
-                let Some(after) = nodes[next].next_optimized else { break };
-                let dx = nodes[next].position.x - nodes[i].position.x;
-                let dz = nodes[next].position.z - nodes[i].position.z;
-                if dx * dx + dz * dz < thresh {
-                    nodes[i].next_optimized = Some(after);
-                    optimized_count -= 1;
-                }
-                i = nodes[i].next_optimized.unwrap();
-            }
-        }
-        PathRoute { nodes, blocked_by_ally: false, optimized_count }
+            },
+        )
     }
 
 

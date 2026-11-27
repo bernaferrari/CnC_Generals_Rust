@@ -17,6 +17,12 @@ fn enqueue_closest_path_node(
 }
 
 impl PathfindingSystem {
+    fn route_from_points(&self, points: Vec<Vec3>, ground: &PathfindingGround<'_>) -> PathRoute {
+        PathRoute::from_points_with_layer(points, |point| {
+            self.grid.layer_for_destination(point, ground) as u8
+        })
+    }
+
     /// AIInternalMoveToState::onEnter resolves a destination before
     /// computeQuickPath adds any tall-building detours.
     pub(crate) fn resolve_aircraft_move_destination(
@@ -265,9 +271,8 @@ impl PathfindingSystem {
             let mut start_at_dest = start;
             start_at_dest.y = goal.y;
             let direct = vec![start_at_dest, goal_adj];
-            PathRoute::from_points(
+            self.route_from_points(
                 Self::detour_path_around_tall_buildings_ignoring(&direct, objects, avoid),
-                &self.grid,
                 ground_source,
             )
         } else {
@@ -280,9 +285,8 @@ impl PathfindingSystem {
             if self.leftover_should_force_direct_path_for_off_map_start(start, goal, ground_source)
                 && self.ignored_obstacle_cells().is_none()
             {
-                PathRoute::from_points(
+                self.route_from_points(
                     Self::leftover_compute_quick_path_nodes(start, goal),
-                    &self.grid,
                     ground_source,
                 )
             } else {
@@ -441,11 +445,11 @@ impl PathfindingSystem {
     ) -> Option<PathRoute> {
         self.bind_seeker_from_mover(objects, mover);
         let original_blocked = original.blocked_by_ally;
-        let original_flags: Vec<_> = original.nodes.iter().map(|node| node.can_optimize).collect();
-        let original_layers: Vec<_> = original.nodes.iter().map(|node| {
+        let original_flags: Vec<_> = original.nodes().iter().map(|node| node.can_optimize).collect();
+        let original_layers: Vec<_> = original.nodes().iter().map(|node| {
             node.layer.unwrap_or_else(|| self.grid.layer_for_destination(node.position, ground_source) as u8)
         }).collect();
-        let original: Vec<_> = original.nodes.iter().map(|node| node.position).collect();
+        let original: Vec<_> = original.nodes().iter().map(|node| node.position).collect();
         if original.len() < 2 {
             return None;
         }
@@ -562,11 +566,11 @@ impl PathfindingSystem {
             }
         }
         let match_idx = match_idx.unwrap_or(original.len() - 1);
-        let mut points: Vec<_> = prefix.nodes.iter().map(|node| node.position).collect();
-        let mut layers: Vec<_> = prefix.nodes.iter().map(|node| {
+        let mut points: Vec<_> = prefix.nodes().iter().map(|node| node.position).collect();
+        let mut layers: Vec<_> = prefix.nodes().iter().map(|node| {
             node.layer.unwrap_or_else(|| self.grid.layer_for_destination(node.position, ground_source) as u8)
         }).collect();
-        let mut flags: Vec<_> = prefix.nodes.iter().map(|node| node.can_optimize).collect();
+        let mut flags: Vec<_> = prefix.nodes().iter().map(|node| node.can_optimize).collect();
         if let Some(last) = points.last() {
             let m = original[match_idx];
             if (last.x - m.x).abs() < 0.5 && (last.z - m.z).abs() < 0.5 {
@@ -1756,19 +1760,19 @@ impl PathfindingSystem {
         let Some(mut raw) = route.raw_index(start_ordinal) else {
             return (pos, start_ordinal, None);
         };
-        let initial_layer = route.nodes.first().and_then(|node| node.layer)
+        let initial_layer = route.nodes().first().and_then(|node| node.layer)
             .or_else(|| receiver.map(|r| r.mover.pathfind_layer));
         let mut best = None;
         let mut ordinal = start_ordinal;
-        while let Some(next) = route.nodes[raw].next_optimized {
-            let a = route.nodes[raw].position;
-            let b = route.nodes[next].position;
+        while let Some(next) = route.nodes()[raw].next_optimized {
+            let a = route.nodes()[raw].position;
+            let b = route.nodes()[next].position;
             let (sx, sz) = (b.x - a.x, b.z - a.z);
             let len2 = sx * sx + sz * sz;
             let projected = if len2 <= 1.0e-8 { 0.0 } else {
                 ((pos.x - a.x) * sx + (pos.z - a.z) * sz) / len2
             };
-            if projected > 1.0 && route.nodes[next].next_optimized.is_some() {
+            if projected > 1.0 && route.nodes()[next].next_optimized.is_some() {
                 raw = next;
                 ordinal += 1;
                 continue;
@@ -1782,12 +1786,12 @@ impl PathfindingSystem {
             ordinal += 1;
         }
         let Some((close, next_index, ordinal, t, d2)) = best else {
-            return (route.nodes[raw].position, start_ordinal, initial_layer);
+            return (route.nodes()[raw].position, start_ordinal, initial_layer);
         };
-        let a_node = &route.nodes[close];
-        let b_node = &route.nodes[next_index];
+        let a_node = &route.nodes()[close];
+        let b_node = &route.nodes()[next_index];
         let mut layer = initial_layer;
-        if close.checked_sub(1).and_then(|i| route.nodes[i].layer).is_some_and(|l| l > 1) {
+        if close.checked_sub(1).and_then(|i| route.nodes()[i].layer).is_some_and(|l| l > 1) {
             layer = a_node.layer;
         }
         if a_node.layer.is_some_and(|l| l > 1) { layer = a_node.layer; }
@@ -1810,7 +1814,7 @@ impl PathfindingSystem {
                 && receiver.is_none_or(|r| r.mover.pathfind_layer == 1);
             if remaining < 1.0 { try_ahead = true; }
             if let Some(ahead) = b_node.next_optimized.filter(|_| try_ahead) {
-                let p = route.nodes[ahead].position;
+                let p = route.nodes()[ahead].position;
                 let mid = Vec3::new((next.x + p.x) * 0.5, next.y, (next.z + p.z) * 0.5);
                 if remaining < 1.0 || line_ok(mid, b_node.layer) { mid } else { next }
             } else { next }
@@ -1827,7 +1831,7 @@ impl PathfindingSystem {
                     let fraction = if length > 1.0e-6 { forward / length } else { 0.0 };
                     let point = Vec3::new(a.x + sx * fraction, a.y, a.z + sz * fraction);
                     if (pos.x - point.x).abs() < 1.0 && (pos.z - point.z).abs() < 1.0 {
-                        b_node.next_optimized.map_or(point, |i| route.nodes[i].position)
+                        b_node.next_optimized.map_or(point, |i| route.nodes()[i].position)
                     } else { point }
                 }
             }

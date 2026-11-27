@@ -390,111 +390,109 @@ impl XferData for Movement {
     fn xfer(&mut self, xfer: &mut dyn Xfer) -> SaveLoadResult<()> {
         if xfer.get_mode() == XferMode::Load {
             let mut decoded = Movement::default();
-            decoded.xfer_movement(xfer)?;
+            xfer_movement(&mut decoded, xfer)?;
             *self = decoded;
             Ok(())
         } else {
             validate_movement_path(self)?;
-            self.xfer_movement(xfer)
+            xfer_movement(self, xfer)
         }
     }
 }
 
-impl Movement {
-    fn xfer_movement(&mut self, xfer: &mut dyn Xfer) -> SaveLoadResult<()> {
-        xfer.xfer_marker_label("Movement")?;
-        xfer.xfer_marker_label("TargetPosition")?;
-        xfer_option(xfer, &mut self.target_position, glam::Vec3::ZERO)?;
-        xfer.xfer_marker_label("Velocity")?;
-        self.velocity.xfer(xfer)?;
-        xfer.xfer_marker_label("MaxSpeed")?;
-        xfer.xfer_f32(&mut self.max_speed)?;
-        xfer.xfer_marker_label("Acceleration")?;
-        xfer.xfer_f32(&mut self.acceleration)?;
-        xfer.xfer_marker_label("TurnRate")?;
-        xfer.xfer_f32(&mut self.turn_rate)?;
-        xfer.xfer_marker_label("MaxSpeedDamaged")?;
-        xfer.xfer_f32(&mut self.max_speed_damaged)?;
-        xfer.xfer_marker_label("AccelerationDamaged")?;
-        xfer.xfer_f32(&mut self.acceleration_damaged)?;
-        xfer.xfer_marker_label("TurnRateDamaged")?;
-        xfer.xfer_f32(&mut self.turn_rate_damaged)?;
-        xfer.xfer_marker_label("Path")?;
-        // Like Path::xfer, retain the raw list and its optimized links rather
-        // than saving only the visible optimized waypoints. Unknown layers are
-        // represented explicitly; they are not equivalent to ground.
-        let mut version = 1;
-        xfer.xfer_version(&mut version, 1)?;
-        if version != 1 {
-            return Err(SaveLoadError::VersionMismatch { expected: 1, actual: version as u32 });
+fn xfer_movement(movement: &mut Movement, xfer: &mut dyn Xfer) -> SaveLoadResult<()> {
+    xfer.xfer_marker_label("Movement")?;
+    xfer.xfer_marker_label("TargetPosition")?;
+    xfer_option(xfer, &mut movement.target_position, glam::Vec3::ZERO)?;
+    xfer.xfer_marker_label("Velocity")?;
+    movement.velocity.xfer(xfer)?;
+    xfer.xfer_marker_label("MaxSpeed")?;
+    xfer.xfer_f32(&mut movement.max_speed)?;
+    xfer.xfer_marker_label("Acceleration")?;
+    xfer.xfer_f32(&mut movement.acceleration)?;
+    xfer.xfer_marker_label("TurnRate")?;
+    xfer.xfer_f32(&mut movement.turn_rate)?;
+    xfer.xfer_marker_label("MaxSpeedDamaged")?;
+    xfer.xfer_f32(&mut movement.max_speed_damaged)?;
+    xfer.xfer_marker_label("AccelerationDamaged")?;
+    xfer.xfer_f32(&mut movement.acceleration_damaged)?;
+    xfer.xfer_marker_label("TurnRateDamaged")?;
+    xfer.xfer_f32(&mut movement.turn_rate_damaged)?;
+    xfer.xfer_marker_label("Path")?;
+    // Like Path::xfer, retain the raw list and its optimized links rather
+    // than saving only the visible optimized waypoints. Unknown layers are
+    // represented explicitly; they are not equivalent to ground.
+    let mut version = 1;
+    xfer.xfer_version(&mut version, 1)?;
+    if version != 1 {
+        return Err(SaveLoadError::VersionMismatch { expected: 1, actual: version as u32 });
+    }
+    let loading = xfer.get_mode() == XferMode::Load;
+    let mut count = u32::try_from(movement.path.nodes().len())
+        .map_err(|_| SaveLoadError::Corrupted("path has too many nodes".into()))?;
+    xfer.xfer_u32(&mut count)?;
+    let mut nodes = Vec::new();
+    for index in (0..count as usize).rev() {
+        let mut node = if loading {
+            PathRouteNode { position: Vec3::ZERO, layer: None, can_optimize: false, next_optimized: None }
+        } else {
+            movement.path.nodes()[index].clone()
+        };
+        node.position.xfer(xfer)?;
+        let mut has_layer = node.layer.is_some();
+        xfer.xfer_bool(&mut has_layer)?;
+        if has_layer {
+            let mut layer = node.layer.unwrap_or(0);
+            xfer.xfer_u8(&mut layer)?;
+            node.layer = Some(layer);
+        } else {
+            node.layer = None;
         }
-        let loading = xfer.get_mode() == XferMode::Load;
-        let mut count = u32::try_from(self.path.nodes().len())
-            .map_err(|_| SaveLoadError::Corrupted("path has too many nodes".into()))?;
-        xfer.xfer_u32(&mut count)?;
-        let mut nodes = Vec::new();
-        for index in (0..count as usize).rev() {
-            let mut node = if loading {
-                PathRouteNode { position: Vec3::ZERO, layer: None, can_optimize: false, next_optimized: None }
-            } else {
-                self.path.nodes()[index].clone()
-            };
-            node.position.xfer(xfer)?;
-            let mut has_layer = node.layer.is_some();
-            xfer.xfer_bool(&mut has_layer)?;
-            if has_layer {
-                let mut layer = node.layer.unwrap_or(0);
-                xfer.xfer_u8(&mut layer)?;
-                node.layer = Some(layer);
-            } else {
-                node.layer = None;
+        xfer.xfer_bool(&mut node.can_optimize)?;
+        let mut has_next = node.next_optimized.is_some();
+        xfer.xfer_bool(&mut has_next)?;
+        if has_next {
+            let mut next = u32::try_from(node.next_optimized.unwrap_or(0))
+                .map_err(|_| SaveLoadError::Corrupted("path link is too large".into()))?;
+            xfer.xfer_u32(&mut next)?;
+            if next as usize <= index || next >= count {
+                return Err(SaveLoadError::Corrupted(format!(
+                    "invalid optimized path link {index} -> {next} ({count} raw nodes)"
+                )));
             }
-            xfer.xfer_bool(&mut node.can_optimize)?;
-            let mut has_next = node.next_optimized.is_some();
-            xfer.xfer_bool(&mut has_next)?;
-            if has_next {
-                let mut next = u32::try_from(node.next_optimized.unwrap_or(0))
-                    .map_err(|_| SaveLoadError::Corrupted("path link is too large".into()))?;
-                xfer.xfer_u32(&mut next)?;
-                if next as usize <= index || next >= count {
-                    return Err(SaveLoadError::Corrupted(format!(
-                        "invalid optimized path link {index} -> {next} ({count} raw nodes)"
-                    )));
-                }
-                node.next_optimized = Some(next as usize);
-            } else {
-                node.next_optimized = None;
-            }
-            if loading {
-                nodes.push(node);
-            }
+            node.next_optimized = Some(next as usize);
+        } else {
+            node.next_optimized = None;
         }
         if loading {
-            nodes.reverse();
-            let path = PathRoute::from_nodes(nodes, self.path.blocked_by_ally)
-                .ok_or_else(|| SaveLoadError::Corrupted("invalid optimized path links".into()))?;
-            self.path = path;
+            nodes.push(node);
         }
-        xfer.xfer_bool(&mut self.path.blocked_by_ally)?;
-        xfer.xfer_marker_label("PreviousPathNode")?;
-        let encode_index = |index: Option<usize>| -> SaveLoadResult<u32> {
-            match index {
-                None => Ok(u32::MAX),
-                Some(index) => u32::try_from(index).ok().filter(|&index| index != u32::MAX)
-                    .ok_or_else(|| SaveLoadError::Corrupted("path cursor index is too large".into())),
-            }
-        };
-        let mut previous = encode_index(self.path_cursor.previous())?;
-        let mut current = encode_index(self.path_cursor.current())?;
-        xfer.xfer_u32(&mut previous)?;
-        xfer.xfer_marker_label("CurrentPathNode")?;
-        xfer.xfer_u32(&mut current)?;
-        let previous = (previous != u32::MAX).then_some(previous as usize);
-        let current = (current != u32::MAX).then_some(current as usize);
-        self.path_cursor = self.path.cursor_from_raw(previous, current)
-            .ok_or_else(|| SaveLoadError::Corrupted("invalid movement path cursor".into()))?;
-        Ok(())
     }
+    if loading {
+        nodes.reverse();
+        let path = PathRoute::from_nodes(nodes, movement.path.blocked_by_ally)
+            .ok_or_else(|| SaveLoadError::Corrupted("invalid optimized path links".into()))?;
+        movement.path = path;
+    }
+    xfer.xfer_bool(&mut movement.path.blocked_by_ally)?;
+    xfer.xfer_marker_label("PreviousPathNode")?;
+    let encode_index = |index: Option<usize>| -> SaveLoadResult<u32> {
+        match index {
+            None => Ok(u32::MAX),
+            Some(index) => u32::try_from(index).ok().filter(|&index| index != u32::MAX)
+                .ok_or_else(|| SaveLoadError::Corrupted("path cursor index is too large".into())),
+        }
+    };
+    let mut previous = encode_index(movement.path_cursor.previous())?;
+    let mut current = encode_index(movement.path_cursor.current())?;
+    xfer.xfer_u32(&mut previous)?;
+    xfer.xfer_marker_label("CurrentPathNode")?;
+    xfer.xfer_u32(&mut current)?;
+    let previous = (previous != u32::MAX).then_some(previous as usize);
+    let current = (current != u32::MAX).then_some(current as usize);
+    movement.path_cursor = movement.path.cursor_from_raw(previous, current)
+        .ok_or_else(|| SaveLoadError::Corrupted("invalid movement path cursor".into()))?;
+    Ok(())
 }
 
 impl XferData for VeterancyLevel {

@@ -1338,7 +1338,7 @@ mod tests {
         assert_eq!(
             restored.unit_ai_runtime.guard_phase(),
             Some(
-                crate::game_logic::object::unit_ai_runtime::GuardPhase::Return {
+                generals_sim::object::ai::GuardPhase::Return {
                     goal: glam::Vec3::new(1.0, 2.0, 3.0)
                 }
             )

@@ -1,5 +1,5 @@
 use super::super::*;
-use crate::game_logic::object::unit_ai_runtime::UnitAiRuntime;
+use generals_sim::object::ai::UnitAiRuntime;
 
 impl GameLogic {
     pub(crate) fn unit_ai_runtime(&self, id: ObjectId) -> Option<&UnitAiRuntime> {

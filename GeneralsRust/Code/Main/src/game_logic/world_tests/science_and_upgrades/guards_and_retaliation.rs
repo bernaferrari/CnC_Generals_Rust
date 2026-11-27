@@ -945,7 +945,7 @@ fn host_guardee_follow_is_per_axis_two_cells_not_inner_radius() {
     let now = logic.frame;
     let runtime = logic.unit_ai_runtime_mut(gid).unwrap();
     runtime.set_guard_phase(Some(
-        crate::game_logic::object::unit_ai_runtime::GuardPhase::Idle,
+        generals_sim::object::ai::GuardPhase::Idle,
     ));
     runtime.set_guard_scan_deadline(Some(now));
     logic.update_support_states(&[gid, cid], 1.0 / 30.0);

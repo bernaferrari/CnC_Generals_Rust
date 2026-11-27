@@ -1,14 +1,14 @@
-//! Object-owned residuals of C++ AIHuntState, AIGuard and temporary quick exit.
+//! Base AI continuation and state transitions owned by each simulation actor.
 //!
 //! State lives as long as the owning Object. The existing OXOB adapter retains
 //! its three optional deadline fields; AIGuardState saves the active phase and anchor.
 
-use super::GuardChasePhase;
-use crate::game_logic::ObjectId;
+use crate::pathfinding::PATHFIND_CELL_SIZE_F;
+use generals_game_domain::ObjectId;
 use glam::Vec3;
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub(crate) struct UnitAiRuntime {
+pub struct UnitAiRuntime {
     machine: BaseAiContinuation,
     // The index is saved with its explicit FollowPath module. C++ does not
     // transfer the state's constructor-owned retry count (AIStates.cpp:3215).
@@ -35,7 +35,7 @@ impl Default for UnitAiRuntime {
 /// The guard machine owns its continuation as one value. Hunt, wander and
 /// temporary quick exit have independent lifetimes and are kept separate.
 #[derive(Debug, Clone, Default, PartialEq, serde::Serialize, serde::Deserialize)]
-pub(crate) struct GuardRuntime {
+struct GuardRuntime {
     scan: Option<u32>,
     phase: Option<GuardPhase>,
     updated_frame: Option<u32>,
@@ -49,7 +49,7 @@ pub(crate) struct GuardRuntime {
 /// Saved data of the actor's distinct C++ AIGuardRetaliateMachine.
 #[derive(Debug, Clone, Default, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
-pub(crate) struct GuardRetaliateRuntime {
+struct GuardRetaliateRuntime {
     /// C++ AIGuardRetaliateMachine::m_nemesisToAttack.
     victim: Option<ObjectId>,
     /// C++ AIGuardRetaliateMachine::m_positionToGuard.
@@ -60,81 +60,81 @@ pub(crate) struct GuardRetaliateRuntime {
 /// Return captures its movement goal at entry; Idle observes the guardee only
 /// at its scan deadline. Distance from the post does not select either state.
 #[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
-pub(crate) enum GuardPhase {
+pub enum GuardPhase {
     Return { goal: Vec3 },
     Idle,
 }
 
 /// C++ AIWander state data belongs to the admitted object's machine.
 #[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
-pub(crate) struct WanderInPlace {
-    pub(crate) origin: Vec3,
-    pub(crate) hop: Vec3,
-    pub(crate) timer: i32,
-    pub(crate) wait_frames: i32,
+pub struct WanderInPlace {
+    pub origin: Vec3,
+    pub hop: Vec3,
+    pub timer: i32,
+    pub wait_frames: i32,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub(crate) struct WanderPath {
-    pub(crate) timer: i32,
-    pub(crate) wait_frames: i32,
+pub struct WanderPath {
+    pub timer: i32,
+    pub wait_frames: i32,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
-pub(crate) enum WanderState {
+pub enum WanderState {
     InPlace(WanderInPlace),
     Path(WanderPath),
 }
 
 impl UnitAiRuntime {
-    pub(crate) fn guard_retaliate_victim(&self) -> Option<ObjectId> {
+    pub fn guard_retaliate_victim(&self) -> Option<ObjectId> {
         self.machine.retaliate.victim
     }
-    pub(crate) fn guard_retaliate_anchor(&self) -> Option<Vec3> {
+    pub fn guard_retaliate_anchor(&self) -> Option<Vec3> {
         self.machine.retaliate.anchor
     }
-    pub(crate) fn set_guard_retaliate_victim(&mut self, victim: Option<ObjectId>) {
+    pub fn set_guard_retaliate_victim(&mut self, victim: Option<ObjectId>) {
         self.machine.retaliate.victim = victim;
     }
-    pub(crate) fn set_guard_retaliate_anchor(&mut self, anchor: Option<Vec3>) {
+    pub fn set_guard_retaliate_anchor(&mut self, anchor: Option<Vec3>) {
         self.machine.retaliate.anchor = anchor;
     }
 
-    pub(crate) fn guard_chase_phase(&self) -> GuardChasePhase {
+    pub fn guard_chase_phase(&self) -> GuardChasePhase {
         self.machine.guard.chase_phase
     }
 
-    pub(crate) fn guard_chase_give_up_frame(&self) -> Option<u32> {
+    pub fn guard_chase_give_up_frame(&self) -> Option<u32> {
         self.machine.guard.chase_give_up_frame
     }
 
-    pub(crate) fn set_guard_chase_phase(&mut self, phase: GuardChasePhase) {
+    pub fn set_guard_chase_phase(&mut self, phase: GuardChasePhase) {
         self.machine.guard.chase_phase = phase;
         if phase == GuardChasePhase::None {
             self.machine.guard.chase_give_up_frame = None;
         }
     }
 
-    pub(crate) fn set_guard_chase_give_up_frame(&mut self, frame: Option<u32>) {
+    pub fn set_guard_chase_give_up_frame(&mut self, frame: Option<u32>) {
         self.machine.guard.chase_give_up_frame = frame;
     }
 
-    pub(crate) fn clear_guard_chase(&mut self) {
+    pub fn clear_guard_chase(&mut self) {
         self.machine.guard.chase_phase = GuardChasePhase::None;
         self.machine.guard.chase_give_up_frame = None;
     }
 
-    pub(crate) fn guard_phase(&self) -> Option<GuardPhase> {
+    pub fn guard_phase(&self) -> Option<GuardPhase> {
         self.machine.guard.phase
     }
 
-    pub(crate) fn set_guard_phase(&mut self, phase: Option<GuardPhase>) {
+    pub fn set_guard_phase(&mut self, phase: Option<GuardPhase>) {
         self.machine.guard.phase = phase;
     }
 
     /// Entry replaces the Return phase and its own scan deadline, while
     /// retaining the observed Idle anchor and this frame's update stamp.
-    pub(crate) fn enter_guard_return(&mut self, goal: Vec3, deadline: u32) {
+    pub fn enter_guard_return(&mut self, goal: Vec3, deadline: u32) {
         self.machine.guard.phase = Some(GuardPhase::Return { goal });
         self.machine.guard.scan = Some(deadline);
     }
@@ -142,21 +142,21 @@ impl UnitAiRuntime {
     /// Enter C++ AIGuardIdleState after movement exit. The caller performs the
     /// entry RNG draw before borrowing the object; this operation installs the
     /// resulting continuation together without resetting this frame's visit.
-    pub(crate) fn enter_guard_idle(&mut self, deadline: u32, anchor: Option<Vec3>) {
+    pub fn enter_guard_idle(&mut self, deadline: u32, anchor: Option<Vec3>) {
         self.machine.guard.phase = Some(GuardPhase::Idle);
         self.machine.guard.scan = Some(deadline);
         self.machine.guard.anchor = anchor;
     }
 
-    pub(crate) fn guard_updated_frame(&self) -> Option<u32> {
+    pub fn guard_updated_frame(&self) -> Option<u32> {
         self.machine.guard.updated_frame
     }
 
-    pub(crate) fn set_guard_updated_frame(&mut self, frame: Option<u32>) {
+    pub fn set_guard_updated_frame(&mut self, frame: Option<u32>) {
         self.machine.guard.updated_frame = frame;
     }
 
-    pub(crate) fn begin_guard_update(&mut self, frame: u32) -> bool {
+    pub fn begin_guard_update(&mut self, frame: u32) -> bool {
         if self.machine.guard.updated_frame == Some(frame) {
             return false;
         }
@@ -164,29 +164,29 @@ impl UnitAiRuntime {
         true
     }
 
-    pub(crate) fn set_guard_anchor(&mut self, anchor: Option<Vec3>) {
+    pub fn set_guard_anchor(&mut self, anchor: Option<Vec3>) {
         self.machine.guard.anchor = anchor;
     }
 
-    pub(crate) fn wander_in_place(&self) -> Option<WanderInPlace> {
+    pub fn wander_in_place(&self) -> Option<WanderInPlace> {
         match self.machine.wander {
             Some(WanderState::InPlace(state)) => Some(state),
             _ => None,
         }
     }
 
-    pub(crate) fn wander_path(&self) -> Option<WanderPath> {
+    pub fn wander_path(&self) -> Option<WanderPath> {
         match self.machine.wander {
             Some(WanderState::Path(state)) => Some(state),
             _ => None,
         }
     }
 
-    pub(crate) fn set_wander(&mut self, state: Option<WanderState>) {
+    pub fn set_wander(&mut self, state: Option<WanderState>) {
         self.machine.wander = state;
     }
 
-    pub(crate) fn set_wander_timer(&mut self, timer: i32) {
+    pub fn set_wander_timer(&mut self, timer: i32) {
         match self.machine.wander.as_mut() {
             Some(WanderState::InPlace(state)) => state.timer = timer,
             Some(WanderState::Path(state)) => state.timer = timer,
@@ -194,49 +194,49 @@ impl UnitAiRuntime {
         }
     }
 
-    pub(crate) fn guard_scan_deadline(&self) -> Option<u32> {
+    pub fn guard_scan_deadline(&self) -> Option<u32> {
         self.machine.guard.scan
     }
 
-    pub(crate) fn hunt_scan_deadline(&self) -> Option<u32> {
+    pub fn hunt_scan_deadline(&self) -> Option<u32> {
         self.machine.hunt_scan
     }
 
-    pub(crate) fn quick_exit_deadline(&self) -> Option<u32> {
+    pub fn quick_exit_deadline(&self) -> Option<u32> {
         self.machine.quick_exit
     }
 
-    pub(crate) fn guard_anchor(&self) -> Option<Vec3> {
+    pub fn guard_anchor(&self) -> Option<Vec3> {
         self.machine.guard.anchor
     }
 
-    pub(crate) fn set_guard_scan_deadline(&mut self, deadline: Option<u32>) {
+    pub fn set_guard_scan_deadline(&mut self, deadline: Option<u32>) {
         self.machine.guard.scan = deadline;
     }
 
-    pub(crate) fn set_hunt_scan_deadline(&mut self, deadline: Option<u32>) {
+    pub fn set_hunt_scan_deadline(&mut self, deadline: Option<u32>) {
         self.machine.hunt_scan = deadline;
     }
 
-    pub(crate) fn set_quick_exit_deadline(&mut self, deadline: Option<u32>) {
+    pub fn set_quick_exit_deadline(&mut self, deadline: Option<u32>) {
         self.machine.quick_exit = deadline;
     }
 
-    pub(crate) fn clear_guard(&mut self) {
+    pub fn clear_guard(&mut self) {
         self.machine.guard = GuardRuntime::default();
     }
 
-    pub(crate) fn clear_hunt(&mut self) {
+    pub fn clear_hunt(&mut self) {
         self.machine.hunt_scan = None;
     }
 
-    pub(crate) fn clear_saved_deadlines(&mut self) {
+    pub fn clear_saved_deadlines(&mut self) {
         self.machine.guard.scan = None;
         self.machine.hunt_scan = None;
         self.machine.quick_exit = None;
     }
 
-    pub(crate) fn guard_scan_due(
+    pub fn guard_scan_due(
         &mut self,
         now: u32,
         rate: u32,
@@ -257,16 +257,12 @@ impl UnitAiRuntime {
         true
     }
 
-    pub(crate) fn hunt_scan_due(
-        &mut self,
-        now: u32,
-        first_jitter: impl FnOnce(u32) -> u32,
-    ) -> bool {
+    pub fn hunt_scan_due(&mut self, now: u32, first_jitter: impl FnOnce(u32) -> u32) -> bool {
         scan_due(&mut self.machine.hunt_scan, now, 30, first_jitter)
     }
 
     /// C++ AIGuardIdleState::update tracks each ground axis independently.
-    pub(crate) fn observe_guard_anchor(&mut self, anchor: Vec3) -> bool {
+    pub fn observe_guard_anchor(&mut self, anchor: Vec3) -> bool {
         let Some(previous) = self.machine.guard.anchor else {
             self.machine.guard.anchor = Some(anchor);
             return false;
@@ -300,8 +296,8 @@ fn scan_due(
     true
 }
 
-pub(crate) fn guard_anchor_moved(previous: Vec3, current: Vec3) -> bool {
-    let cell = crate::game_logic::host_repair::PATHFIND_CELL_SIZE_F;
+pub fn guard_anchor_moved(previous: Vec3, current: Vec3) -> bool {
+    let cell = PATHFIND_CELL_SIZE_F;
     let limit_squared = 4.0 * cell * cell;
     let dx = previous.x - current.x;
     if dx * dx > limit_squared {
@@ -365,7 +361,7 @@ mod tests {
     #[test]
     fn guard_anchor_changes_only_beyond_cpp_axis_threshold() {
         let mut state = UnitAiRuntime::default();
-        let cell = crate::game_logic::host_repair::PATHFIND_CELL_SIZE_F;
+        let cell = PATHFIND_CELL_SIZE_F;
         assert!(!state.observe_guard_anchor(Vec3::ZERO));
         assert!(!state.observe_guard_anchor(Vec3::new(2.0 * cell, 500.0, 2.0 * cell)));
         assert_eq!(state.guard_anchor(), Some(Vec3::ZERO));
@@ -380,5 +376,8 @@ mod tests {
 }
 
 mod machine;
-pub(crate) use machine::FollowPathLeg;
+pub use machine::FollowPathLeg;
 pub use machine::{BaseAiContinuation, GuardTargetType, TemporaryAiMove};
+
+mod states;
+pub use states::{AIState, AttackSubState, GUARD_CHASE_PHASE_RETALIATE, GuardChasePhase};

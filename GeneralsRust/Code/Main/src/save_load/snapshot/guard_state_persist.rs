@@ -13,7 +13,7 @@
 //! missing nested phase cannot establish exact continuation.
 
 use super::{AIUpdateModuleSnapshot, ModuleSnapshot, WorldSnapshot};
-use crate::game_logic::object::unit_ai_runtime::GuardPhase;
+use generals_sim::object::ai::GuardPhase;
 use crate::game_logic::{AIState, GameLogic, Object};
 use crate::save_load::{SaveLoadError, SaveLoadResult};
 use glam::Vec3;

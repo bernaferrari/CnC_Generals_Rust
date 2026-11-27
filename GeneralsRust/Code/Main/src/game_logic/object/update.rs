@@ -144,7 +144,7 @@ impl Object {
             || self.ai_state() == AIState::Panic
             || matches!(
                 self.unit_ai_runtime.guard_phase(),
-                Some(crate::game_logic::object::unit_ai_runtime::GuardPhase::Return { .. })
+                Some(generals_sim::object::ai::GuardPhase::Return { .. })
             ) && matches!(
                 self.ai_state(),
                 AIState::GuardingArea | AIState::GuardingObject
