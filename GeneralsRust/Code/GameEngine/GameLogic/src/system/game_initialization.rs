@@ -307,7 +307,7 @@ impl GameInitializer {
         game_state: &mut GameState,
         map_path: &str,
         owner: &EngineStores,
-        deliver_water: Option<&mut dyn FnMut(&crate::terrain_water::WaterGridState)>,
+        deliver_water: Option<&mut dyn FnMut(&generals_sim::terrain::WaterGridState)>,
     ) -> io::Result<()> {
         println!("[INIT] Phase 1: Loading map from {}", map_path);
         let world = owner.services();

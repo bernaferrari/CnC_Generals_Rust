@@ -29,7 +29,7 @@ const WATER_RENDER_OBJ_VERSION: u8 = 1;
 /// while decoding or admitting a detached candidate.
 #[derive(Debug, Clone)]
 pub struct PreparedTerrainVisual {
-    grid: gamelogic::terrain_water::WaterGridState,
+    grid: generals_sim::terrain::WaterGridState,
     heights: Vec<u8>,
     height_present: bool,
     tree_records: Option<Vec<TreeSaveRecord>>,
@@ -46,7 +46,7 @@ impl PreparedTerrainVisual {
         terrain.restore_water_grid_state(self.grid.clone());
         Ok(())
     }
-    pub fn grid(&self) -> &gamelogic::terrain_water::WaterGridState {
+    pub fn grid(&self) -> &generals_sim::terrain::WaterGridState {
         &self.grid
     }
     pub fn heights(&self) -> &[u8] {
@@ -84,7 +84,7 @@ impl PreparedTerrainVisual {
     /// Transitional native adapter, used ONLY after the candidate commits.
     /// x3l7v remains open until the renderer owns these water/scorch services.
     pub fn commit_legacy_native(&self) {
-        self.grid.publish_visual();
+        gamelogic::terrain_water::publish_water_grid(&self.grid);
         if self.height_present {
             // Existing native invalidation remains explicit and post-commit.
             // Geometry itself comes from the receiving immutable height frame.
@@ -147,7 +147,7 @@ fn canonical_tree_record(record: &TreeSaveRecord) -> TreeSaveRecord {
 /// without first serializing it into a positional byte stream.
 pub fn capture_typed_terrain_visual_with_tree_records(
     terrain: &gamelogic::terrain::TerrainLogic,
-    native_water: Option<&gamelogic::terrain_water::WaterGridState>,
+    native_water: Option<&generals_sim::terrain::WaterGridState>,
     scorches: Option<&[ScorchMark]>,
     tree_records: Vec<TreeSaveRecord>,
 ) -> Result<TerrainVisualArchive, String> {
@@ -233,7 +233,7 @@ pub fn prepare_typed_terrain_visual_for_terrain(
             if cell.velocity.to_bits() != 0 || cell.status != 0 || cell.preferred_height != 0 {
                 grid.mesh_motion.insert(
                     key,
-                    gamelogic::terrain_water::WaterGridMeshMotion {
+                    generals_sim::terrain::WaterGridMeshMotion {
                         velocity: cell.velocity,
                         status: cell.status,
                         preferred_height: cell.preferred_height,
@@ -284,7 +284,7 @@ pub fn capture_owned_terrain_visual_for_terrain(
 /// archives retain their existing Core water owner and identical wire codec.
 pub fn capture_terrain_visual_with_water(
     terrain: &gamelogic::terrain::TerrainLogic,
-    native_water: Option<&gamelogic::terrain_water::WaterGridState>,
+    native_water: Option<&generals_sim::terrain::WaterGridState>,
     scorches: Option<&[ScorchMark]>,
 ) -> Result<Vec<u8>, String> {
     capture_terrain_visual_with_tree_records(terrain, native_water, scorches, Vec::new())
@@ -294,7 +294,7 @@ pub fn capture_terrain_visual_with_water(
 /// visual observations. An empty list writes the original zero-record slot.
 pub fn capture_terrain_visual_with_tree_records(
     terrain: &gamelogic::terrain::TerrainLogic,
-    native_water: Option<&gamelogic::terrain_water::WaterGridState>,
+    native_water: Option<&generals_sim::terrain::WaterGridState>,
     scorches: Option<&[ScorchMark]>,
     mut tree_records: Vec<TreeSaveRecord>,
 ) -> Result<Vec<u8>, String> {
@@ -412,7 +412,7 @@ pub fn restore_live_terrain_visual_for_terrain(
 
 fn xfer_water_grid_snapshot(
     xfer: &mut dyn CommonXfer,
-    grid: &mut gamelogic::terrain_water::WaterGridState,
+    grid: &mut generals_sim::terrain::WaterGridState,
 ) -> Result<(), String> {
     let mut version = WATER_RENDER_OBJ_VERSION;
     xfer.xfer_version(&mut version, WATER_RENDER_OBJ_VERSION)
@@ -455,7 +455,7 @@ fn xfer_water_grid_snapshot(
             if velocity.to_bits() != 0 || status != 0 || preferred != 0 {
                 grid.mesh_motion.insert(
                     key,
-                    gamelogic::terrain_water::WaterGridMeshMotion {
+                    generals_sim::terrain::WaterGridMeshMotion {
                         velocity,
                         status,
                         preferred_height: preferred,
@@ -469,7 +469,7 @@ fn xfer_water_grid_snapshot(
 
 fn xfer_live_terrain_visual(
     xfer: &mut dyn CommonXfer,
-    grid: &mut gamelogic::terrain_water::WaterGridState,
+    grid: &mut generals_sim::terrain::WaterGridState,
     height_data: &mut Vec<u8>,
     tree_records: &mut Vec<TreeSaveRecord>,
     payload_limit: Option<usize>,

@@ -684,7 +684,7 @@ pub(crate) trait NativeTerrainEffects {
     fn add_water_velocity(&mut self, x: f32, y: f32, velocity: f32, preferred_height: f32);
     fn add_scorch(&mut self, location: [f32; 3], radius: f32, kind: i32);
     fn accepted_height(&mut self, change: generals_sim::terrain::TerrainHeightChange);
-    fn water_state(&mut self, state: &gamelogic::terrain_water::WaterGridState);
+    fn water_state(&mut self, state: &generals_sim::terrain::WaterGridState);
 }
 #[cfg(feature = "game_client")]
 impl NativeTerrainEffects for game_client::terrain::terrain_visual::TerrainVisualImpl {
@@ -778,7 +778,7 @@ impl NativeTerrainEffects for game_client::terrain::terrain_visual::TerrainVisua
     fn accepted_height(&mut self, change: generals_sim::terrain::TerrainHeightChange) {
         self.apply_accepted_height(change.sample_x, change.sample_y, change.raw_height);
     }
-    fn water_state(&mut self, state: &gamelogic::terrain_water::WaterGridState) {
+    fn water_state(&mut self, state: &generals_sim::terrain::WaterGridState) {
         self.admit_water_state(state);
     }
 }

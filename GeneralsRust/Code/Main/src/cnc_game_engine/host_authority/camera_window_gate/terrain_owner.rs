@@ -36,7 +36,7 @@ struct TerrainObservation {
     logical_raw: Vec<u8>,
     native_raw: Vec<u8>,
     revision: u64,
-    water: gamelogic::terrain_water::WaterGridState,
+    water: generals_sim::terrain::WaterGridState,
     scorches: Vec<game_client::terrain::scorch_mesh::ScorchMark>,
 }
 impl PartialEq for TerrainObservation {
@@ -492,7 +492,7 @@ mod tests {
         let mut after = make();
         before.water.mesh_motion.insert(
             (1, 2),
-            gamelogic::terrain_water::WaterGridMeshMotion {
+            generals_sim::terrain::WaterGridMeshMotion {
                 velocity: -0.0,
                 status: 0x82,
                 preferred_height: 17,

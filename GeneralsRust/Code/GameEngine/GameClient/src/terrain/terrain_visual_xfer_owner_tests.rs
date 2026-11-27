@@ -315,7 +315,7 @@ fn native_water_admission_and_recapture_preserves_complete_source_status_byte() 
     let mut logical = terrain(40, true);
     logical.water_grid_state_mut().mesh_motion.insert(
         (0, 0),
-        gamelogic::terrain_water::WaterGridMeshMotion {
+        generals_sim::terrain::WaterGridMeshMotion {
             velocity: 3.0,
             status: 0x82,
             preferred_height: 17,

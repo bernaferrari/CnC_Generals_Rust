@@ -254,7 +254,7 @@ impl GameLogic {
         &mut self,
         map_name: &str,
         source: &str,
-        water_delivery: Option<&mut dyn FnMut(&gamelogic::terrain_water::WaterGridState)>,
+        water_delivery: Option<&mut dyn FnMut(&generals_sim::terrain::WaterGridState)>,
     ) -> bool {
         self.load_map_with_definition_source_and_water_delivery_and_native(
             map_name,
@@ -268,7 +268,7 @@ impl GameLogic {
         &mut self,
         map_name: &str,
         source: &str,
-        water_delivery: Option<&mut dyn FnMut(&gamelogic::terrain_water::WaterGridState)>,
+        water_delivery: Option<&mut dyn FnMut(&generals_sim::terrain::WaterGridState)>,
         native: Option<&mut dyn crate::game_logic::NativeMapAdmission>,
     ) -> bool {
         self.load_map_with_definition_source_and_water_delivery_and_native_checked(
@@ -287,7 +287,7 @@ impl GameLogic {
         &mut self,
         map_name: &str,
         source: &str,
-        water_delivery: Option<&mut dyn FnMut(&gamelogic::terrain_water::WaterGridState)>,
+        water_delivery: Option<&mut dyn FnMut(&generals_sim::terrain::WaterGridState)>,
         native: Option<&mut dyn crate::game_logic::NativeMapAdmission>,
     ) -> Result<bool, String> {
         self.load_map_with_campaign_context_and_definition_source_and_water_delivery_and_native_checked(
@@ -304,7 +304,7 @@ impl GameLogic {
         map_name: &str,
         source: &str,
         campaign_context: crate::save_load::CampaignMapContext,
-        water_delivery: Option<&mut dyn FnMut(&gamelogic::terrain_water::WaterGridState)>,
+        water_delivery: Option<&mut dyn FnMut(&generals_sim::terrain::WaterGridState)>,
         native: Option<&mut dyn crate::game_logic::NativeMapAdmission>,
     ) -> Result<bool, String> {
         let difficulty = self
@@ -329,7 +329,7 @@ impl GameLogic {
         map_name: &str,
         definition_source: Option<&str>,
         map_script_difficulty: Option<gamelogic::player::GameDifficulty>,
-        water_delivery: Option<&mut dyn FnMut(&gamelogic::terrain_water::WaterGridState)>,
+        water_delivery: Option<&mut dyn FnMut(&generals_sim::terrain::WaterGridState)>,
         mut native: Option<&mut dyn crate::game_logic::NativeMapAdmission>,
         campaign_context: crate::save_load::CampaignMapContext,
         mut report_progress: F,

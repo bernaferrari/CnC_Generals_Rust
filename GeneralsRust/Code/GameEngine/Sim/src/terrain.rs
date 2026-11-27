@@ -7,6 +7,14 @@
 pub use crate::terrain_height_map::{TerrainHeightChange, TerrainHeightMap};
 pub use crate::terrain_los::{LOS_FUDGE, is_clear_line_of_sight};
 pub use crate::terrain_ray::{TerrainHeightSamples, TerrainRayCast, source_height_cell_floor};
+pub use crate::terrain_water::{
+    WaterGridMeshMotion, WaterGridSettings, WaterGridState, WaterSurface, select_water_surface,
+    water_grid_setting_index,
+};
+pub use crate::water_transitions::{
+    MAX_DYNAMIC_WATER_ENTRIES, WATER_GRID_NAME_CPP, WaterTransition, WaterTransitionStep,
+    WaterTransitions, is_grid_water_name,
+};
 pub use generals_game_domain::terrain::{MAP_HEIGHT_SCALE, MAP_XY_FACTOR};
 
 /// C++ BaseHeightMap sample interpolation along the (0,0) to (1,1) diagonal.

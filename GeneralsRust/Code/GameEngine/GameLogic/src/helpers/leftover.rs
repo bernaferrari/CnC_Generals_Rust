@@ -785,46 +785,6 @@ impl TheTerrainVisual {
             })
             .unwrap_or_else(|_| Vec::new())
     }
-
-    /// C++ `TheTerrainVisual->enableWaterGrid`.
-    pub fn enable_water_grid(&self, enable: bool) {
-        crate::terrain_water::visual_enable_water_grid(enable);
-    }
-
-    /// C++ `TheTerrainVisual->setWaterGridHeightClamps`.
-    pub fn set_water_grid_height_clamps(&self, low: Real, high: Real) {
-        crate::terrain_water::visual_set_height_clamps(low, high);
-    }
-
-    /// C++ `TheTerrainVisual->setWaterTransform(NULL, angle, x, y, z)`.
-    pub fn set_water_transform(&self, angle: Real, x: Real, y: Real, z: Real) {
-        crate::terrain_water::visual_set_transform(angle, x, y, z);
-    }
-
-    /// C++ `TheTerrainVisual->setWaterGridResolution`.
-    pub fn set_water_grid_resolution(&self, cells_x: Real, cells_y: Real, cell_size: Real) {
-        crate::terrain_water::visual_set_resolution(cells_x, cells_y, cell_size);
-    }
-
-    /// C++ `TheTerrainVisual->setWaterAttenuationFactors`.
-    pub fn set_water_attenuation_factors(&self, a: Real, b: Real, c: Real, range: Real) {
-        crate::terrain_water::visual_set_attenuation(a, b, c, range);
-    }
-
-    /// C++ `TheTerrainVisual->getWaterGridHeight`.
-    pub fn get_water_grid_height(&self, x: Real, y: Real) -> Option<Real> {
-        crate::terrain_water::get_water_grid_height(x, y)
-    }
-
-    /// C++ `getWaterTransform` Z translation.
-    pub fn get_water_transform_z(&self) -> Real {
-        crate::terrain_water::get_transform_z()
-    }
-
-    /// C++ `transform.Set_Z_Translation` + `setWaterTransform`.
-    pub fn set_water_transform_z(&self, height: Real) {
-        crate::terrain_water::set_transform_z(height);
-    }
 }
 
 #[cfg(test)]

@@ -176,7 +176,7 @@ fn original_water_classification_observes_four_corners_and_real_structure_overri
         owner
             .try_apply_logic_height_map_bytes_with_effects(&raw, &mut || {})
             .unwrap();
-        let mut water = gamelogic::terrain_water::WaterGridState::default();
+        let mut water = generals_sim::terrain::WaterGridState::default();
         water.enabled = true;
         water.set_resolution(4., 4., 10.);
         water.set_height(number(&row, 2));

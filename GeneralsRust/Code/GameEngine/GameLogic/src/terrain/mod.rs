@@ -24,6 +24,8 @@ use crate::physics::{SurfaceType, TerrainQuery};
 use crate::polygon_trigger::{PolygonTrigger, PolygonTriggerList};
 use crate::system::map_loader::MapWaypoint;
 use game_engine::system::geometry::GeometryType as EngineGeometryType;
+use generals_sim::terrain::{WATER_GRID_NAME_CPP, WaterTransition, WaterTransitions};
+pub(crate) use generals_sim::terrain::MAX_DYNAMIC_WATER_ENTRIES;
 use lazy_static::lazy_static;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -50,9 +52,6 @@ pub enum WaveGuide1Bind {
 
 /// Maximum terrain name length
 pub const MAX_TERRAIN_NAME_LEN: usize = 64;
-const WATER_GRID_NAME_CPP: &str = "Water Grid";
-const WATER_GRID_NAME_LEGACY: &str = "GridWater";
-pub(crate) const MAX_DYNAMIC_WATER_ENTRIES: usize = 64;
 /// C++ `AIUpdate.cpp`: `enum {WAYPOINT_PATH_LIMIT=1024}`. Caps `link[0]` walks
 /// so ShellMapMD 1-link rings (Car_Path) cannot grow an unbounded Vec.
 pub const WAYPOINT_PATH_LIMIT: usize = 1024;
@@ -610,32 +609,8 @@ impl WaterHandle {
     }
 }
 
-/// Dynamic water entry for animating water height over time
-#[derive(Debug)]
-struct DynamicWaterEntry {
-    /// Polygon trigger ID associated with this water table (C++ xfer identity key).
-    trigger_id: Int,
-    /// Water table identity (name assigned from map trigger/editor).
-    water_name: AsciiString,
-    /// How much height to add each frame (negative = lowering)
-    change_per_frame: f32,
-    /// Target height we want to reach
-    target_height: f32,
-    /// Amount of damage to do to objects underwater
-    damage_amount: f32,
-    /// Current height (we track this ourselves)
-    current_height: f32,
-}
-
-#[derive(Debug, Clone)]
-pub struct TerrainDynamicWaterSnapshotEntry {
-    pub trigger_id: Int,
-    pub water_name: AsciiString,
-    pub change_per_frame: f32,
-    pub target_height: f32,
-    pub damage_amount: f32,
-    pub current_height: f32,
-}
+/// Positional save data for the receiving timed water transitions.
+pub type TerrainDynamicWaterSnapshotEntry = WaterTransition<AsciiString>;
 
 /// Main terrain logic system
 pub struct TerrainLogic {
@@ -660,11 +635,11 @@ pub struct TerrainLogic {
     query_load_pending: bool,
     /// Water grid enabled flag
     water_grid_enabled: bool,
-    water_grid: crate::terrain_water::WaterGridState,
+    water_grid: generals_sim::terrain::WaterGridState,
     /// Grid water handle
     grid_water_handle: WaterHandle,
     /// Dynamic water tables to update
-    water_to_update: Vec<DynamicWaterEntry>,
+    water_to_update: WaterTransitions<AsciiString>,
     /// Map of named water handles
     water_handles: HashMap<AsciiString, WaterHandle>,
     /// Map of trigger-ID keyed handles for identity-stable water operations.

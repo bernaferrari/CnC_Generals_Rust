@@ -153614,7 +153614,7 @@
     }
   ],
   "generator": "GeneralsRust/Code/Main/scripts/generate_port_provenance.py",
-  "input_digest": "8e9a0ad7bb67440a2e7f015df89e86a188fd183fc7f51b8fc14a124d6899d6c5",
+  "input_digest": "b44201766e8411fe7eeaf7a2abc48353ecaf68e42c9b44f4010de878da0d9996",
   "metric_contract": {
     "behavior_requires_explicit_evidence": true,
     "candidate_mapping_is_reviewed": false,
@@ -170090,11 +170090,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 344,
+        "end_line": 317,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/terrain/terrain_visual/api.rs",
-      "sha256": "0185c32fd6fb2cbb099cfad1b5af250c7eb8898b729ae340ba96c82d18edc74e",
+      "sha256": "c664ebc3df522b51ab3d3446a9652359b829d1d24a2d83a7a4747823a3960396",
       "symbol_index_status": "indexed",
       "symbols": [
         {
@@ -170144,92 +170144,92 @@
         },
         {
           "kind": "fn",
-          "line": 197,
+          "line": 170,
           "name": "rebuild_shoreline_hook"
         },
         {
           "kind": "fn",
-          "line": 205,
+          "line": 178,
           "name": "rebuild_tank_tracks_hook"
         },
         {
           "kind": "fn",
-          "line": 213,
+          "line": 186,
           "name": "register_overlay_rebuild_hooks"
         },
         {
           "kind": "fn",
-          "line": 218,
+          "line": 191,
           "name": "register_unit_moved_hook"
         },
         {
           "kind": "fn",
-          "line": 224,
+          "line": 197,
           "name": "notify_terrain_unit_moved"
         },
         {
           "kind": "fn",
-          "line": 231,
+          "line": 204,
           "name": "rebuild_shoreline"
         },
         {
           "kind": "fn",
-          "line": 235,
+          "line": 208,
           "name": "rebuild_tank_tracks"
         },
         {
           "kind": "struct",
-          "line": 241,
+          "line": 214,
           "name": "TerrainVisualGuard"
         },
         {
           "kind": "type",
-          "line": 246,
+          "line": 219,
           "name": "Target"
         },
         {
           "kind": "fn",
-          "line": 247,
+          "line": 220,
           "name": "deref"
         },
         {
           "kind": "fn",
-          "line": 253,
+          "line": 226,
           "name": "deref_mut"
         },
         {
           "kind": "fn",
-          "line": 259,
+          "line": 232,
           "name": "get_terrain_visual"
         },
         {
           "kind": "fn",
-          "line": 273,
+          "line": 246,
           "name": "ensure_radar_terrain_paint_source_registered"
         },
         {
           "kind": "struct",
-          "line": 278,
+          "line": 251,
           "name": "ClientRadarTerrainPaintSource"
         },
         {
           "kind": "fn",
-          "line": 282,
+          "line": 255,
           "name": "terrain_color_at"
         },
         {
           "kind": "fn",
-          "line": 285,
+          "line": 258,
           "name": "bridge_at"
         },
         {
           "kind": "fn",
-          "line": 295,
+          "line": 268,
           "name": "leftover_radar_terrain_color_at"
         },
         {
           "kind": "fn",
-          "line": 310,
+          "line": 283,
           "name": "leftover_radar_bridge_at"
         }
       ]
@@ -170313,7 +170313,7 @@
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/terrain/terrain_visual/impl_core.rs",
-      "sha256": "8aed89b7a283c0576382563d634a8a52417391b5e0ea2bd27a22872245afb3b3",
+      "sha256": "f32747495c48b7589b6ed638478a4c17ce05b3bd5554c79482c6a454af0fffbd",
       "symbol_index_status": "indexed",
       "symbols": [
         {
@@ -174194,7 +174194,7 @@
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/terrain/terrain_visual_xfer.rs",
-      "sha256": "25b06847a69e2ee4a905e350a0d747f8428057111734bb87838b2f3ed77be30b",
+      "sha256": "1340224b73513df37d45004c211785a079a53095e38f38f2df5fcba15d698a06",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -174206,7 +174206,7 @@
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/terrain/terrain_visual_xfer_owner_tests.rs",
-      "sha256": "0acec622dc40ed8ca62a6c821ddf229194e74df74a4f6e3ba3cd2978a7b56060",
+      "sha256": "58f35ab13e8b6c4de8995037fa6c43dd3c1c87e2d6840876d3cb6ea917f85d70",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },

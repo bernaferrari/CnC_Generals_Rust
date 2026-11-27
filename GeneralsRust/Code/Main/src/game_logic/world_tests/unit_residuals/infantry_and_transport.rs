@@ -1069,7 +1069,7 @@ fn wave_guide_pushes_add_water_velocity_onto_grid_queue() {
         }
         fn add_scorch(&mut self, _: [f32; 3], _: f32, _: i32) {}
         fn accepted_height(&mut self, _: generals_sim::terrain::TerrainHeightChange) {}
-        fn water_state(&mut self, _: &gamelogic::terrain_water::WaterGridState) {}
+        fn water_state(&mut self, _: &generals_sim::terrain::WaterGridState) {}
     }
     let mut terrain = WaterReceiver::default();
     let mut logic = GameLogic::new();

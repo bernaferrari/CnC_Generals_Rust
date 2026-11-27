@@ -1542,7 +1542,7 @@ mod receiving_scorch_tests {
             self.scorch.push((location.map(f32::to_bits), radius, kind));
         }
         fn accepted_height(&mut self, _: generals_sim::terrain::TerrainHeightChange) {}
-        fn water_state(&mut self, _: &gamelogic::terrain_water::WaterGridState) {}
+        fn water_state(&mut self, _: &generals_sim::terrain::WaterGridState) {}
     }
 
     fn apply(terrain: &mut Terrain, position: Vec3) {

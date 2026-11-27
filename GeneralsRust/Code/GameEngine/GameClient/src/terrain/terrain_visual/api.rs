@@ -143,13 +143,6 @@ fn register_logic_height_hooks() {
                     }
                 }
             }),
-            set_transform: Some(|angle, x, y, z| {
-                if let Ok(mut visual) = get_terrain_visual() {
-                    if let Some(visual) = visual.as_mut() {
-                        visual.set_water_transform(angle, x, y, z);
-                    }
-                }
-            }),
             set_transform_matrix: Some(|cols| {
                 if let Ok(mut visual) = get_terrain_visual() {
                     if let Some(visual) = visual.as_mut() {
@@ -168,26 +161,6 @@ fn register_logic_height_hooks() {
                 if let Ok(mut visual) = get_terrain_visual() {
                     if let Some(visual) = visual.as_mut() {
                         visual.set_water_attenuation_factors(a, b, c, range);
-                    }
-                }
-            }),
-            get_water_grid_height: Some(|x, y| {
-                get_terrain_visual()
-                    .ok()
-                    .and_then(|guard| guard.as_ref().and_then(|v| v.get_water_grid_height(x, y)))
-            }),
-            get_transform_z: Some(|| {
-                get_terrain_visual()
-                    .ok()
-                    .and_then(|guard| guard.as_ref().map(|v| v.water_transform().w_axis.z))
-                    .unwrap_or(0.0)
-            }),
-            set_transform_z: Some(|height| {
-                if let Ok(mut visual) = get_terrain_visual() {
-                    if let Some(visual) = visual.as_mut() {
-                        let mut transform = visual.water_transform();
-                        transform.w_axis.z = height;
-                        visual.set_water_transform_matrix(transform);
                     }
                 }
             }),

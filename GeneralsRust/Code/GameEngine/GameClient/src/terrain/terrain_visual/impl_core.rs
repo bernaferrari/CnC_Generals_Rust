@@ -552,8 +552,8 @@ impl TerrainVisualImpl {
     /// Observe the actual receiving water-render owner at the save boundary.
     /// W3DTerrainVisual::xfer snapshots m_waterRenderObject, including motion
     /// admitted by native WaveGuide callbacks after logical map configuration.
-    pub fn capture_water_state(&self) -> gamelogic::terrain_water::WaterGridState {
-        gamelogic::terrain_water::WaterGridState {
+    pub fn capture_water_state(&self) -> generals_sim::terrain::WaterGridState {
+        generals_sim::terrain::WaterGridState {
             enabled: self.water_grid_enabled,
             transform: self.water_grid.transform,
             resolution: self.water_grid.resolution,
@@ -572,7 +572,7 @@ impl TerrainVisualImpl {
                 .map(|(k, v)| {
                     (
                         *k,
-                        gamelogic::terrain_water::WaterGridMeshMotion {
+                        generals_sim::terrain::WaterGridMeshMotion {
                             velocity: v.velocity,
                             status: v.status,
                             // The native producer already stores source UnsignedByte values.
@@ -585,7 +585,7 @@ impl TerrainVisualImpl {
     }
 
     /// Receive a completed logical water value synchronously, in source order.
-    pub fn admit_water_state(&mut self, state: &gamelogic::terrain_water::WaterGridState) {
+    pub fn admit_water_state(&mut self, state: &generals_sim::terrain::WaterGridState) {
         self.set_water_grid_height_clamps(state.height_clamps.0, state.height_clamps.1);
         self.set_water_transform_matrix(state.transform);
         self.set_water_grid_resolution(state.resolution.0, state.resolution.1, state.resolution.2);
@@ -602,7 +602,7 @@ impl TerrainVisualImpl {
     /// Map disable changes only enablement, unlike a completed saved water mesh.
     pub fn admit_map_water_configuration(
         &mut self,
-        state: &gamelogic::terrain_water::WaterGridState,
+        state: &generals_sim::terrain::WaterGridState,
     ) {
         if state.enabled {
             // Original TerrainLogic::enableWaterGrid admits the authored angle and origin.
@@ -615,7 +615,7 @@ impl TerrainVisualImpl {
         }
     }
 
-    fn admit_water_mesh(&mut self, state: &gamelogic::terrain_water::WaterGridState) {
+    fn admit_water_mesh(&mut self, state: &generals_sim::terrain::WaterGridState) {
         // Presentation receives owned copies of the completed
         // logical mesh. It cannot write the terrain owner back.
         self.water_grid.height_deltas = state

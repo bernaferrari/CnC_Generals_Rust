@@ -338,7 +338,7 @@ fn water_mesh_xfer_admits_only_the_validated_owner_and_preserves_cpp_fields() {
                 grid.height_deltas.insert((1, 1), 3.5);
                 grid.mesh_motion.insert(
                     (1, 1),
-                    gamelogic::terrain_water::WaterGridMeshMotion {
+                    generals_sim::terrain::WaterGridMeshMotion {
                         velocity: 2.25,
                         status: 7,
                         preferred_height: 9,

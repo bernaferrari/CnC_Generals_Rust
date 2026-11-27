@@ -13,7 +13,7 @@ pub use game_client::terrain::terrain_visual_xfer::{PreparedTerrainVisual, Terra
 /// stream is constructed in production.
 pub fn capture_receiving_terrain_visual_archive(
     world: &crate::game_logic::GameLogic,
-    native_water: Option<&gamelogic::terrain_water::WaterGridState>,
+    native_water: Option<&generals_sim::terrain::WaterGridState>,
     scorches: Option<&[game_client::terrain::scorch_mesh::ScorchMark]>,
     tree_records: Vec<game_client::terrain::TreeSaveRecord>,
 ) -> SaveLoadResult<TerrainVisualArchive> {

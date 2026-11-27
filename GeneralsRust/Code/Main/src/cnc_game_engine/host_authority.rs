@@ -59,7 +59,7 @@ struct StagedRestoreWorld {
     /// Native terrain effects stay detached until this candidate commits.
     terrain_visual: Option<crate::save_load::snapshot::PreparedTerrainVisual>,
     /// Immutable successful source map configuration receipt; not a second owner.
-    map_water_configuration: Option<gamelogic::terrain_water::WaterGridState>,
+    map_water_configuration: Option<generals_sim::terrain::WaterGridState>,
     client_persist: crate::save_load::snapshot::WorldPersistV18,
     camera_continuation: Option<NativeCameraContinuation>,
     owns_session_camera: bool,
@@ -2976,7 +2976,7 @@ impl CnCGameEngine {
         let definition_source = save_info.pristine_map_name.as_deref().unwrap_or(saved_map);
         let preparation = (|| -> Result<_, String> {
             let mut map_water_configuration = None;
-            let mut capture_map_water = |state: &gamelogic::terrain_water::WaterGridState| {
+            let mut capture_map_water = |state: &generals_sim::terrain::WaterGridState| {
                 map_water_configuration = Some(state.clone());
             };
             if !staged.load_map_with_campaign_context_and_definition_source_and_water_delivery_and_native_checked(

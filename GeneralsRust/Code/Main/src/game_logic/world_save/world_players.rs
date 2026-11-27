@@ -165,7 +165,7 @@ impl GameLogic {
         map_path: &Path,
         chunky: &super::script_loader::ChunkyMap,
         difficulty: Option<gamelogic::player::GameDifficulty>,
-        water_delivery: Option<&mut dyn FnMut(&gamelogic::terrain_water::WaterGridState)>,
+        water_delivery: Option<&mut dyn FnMut(&generals_sim::terrain::WaterGridState)>,
         mut native: Option<&mut dyn crate::game_logic::NativeMapAdmission>,
         metadata: Option<&super::script_loader::MapMetadata>,
         mut report_progress: F,

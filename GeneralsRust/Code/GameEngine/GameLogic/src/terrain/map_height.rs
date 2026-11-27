@@ -17,13 +17,13 @@ impl TerrainLogic {
             filename_string: String::new().into(),
             query_load_pending: false,
             water_grid_enabled: false,
-            water_grid: crate::terrain_water::WaterGridState::default(),
+            water_grid: generals_sim::terrain::WaterGridState::default(),
             grid_water_handle: WaterHandle::new(
                 WATER_GRID_NAME_CPP.to_string().into(),
                 0.0,
                 Region3D::default(),
             ),
-            water_to_update: Vec::new(),
+            water_to_update: WaterTransitions::default(),
             water_handles: HashMap::new(),
             water_handles_by_trigger_id: HashMap::new(),
             authored_bridges: Vec::new(),
@@ -267,7 +267,7 @@ impl TerrainLogic {
         self.bridge_damage_states_changed = false;
         self.trigger_areas.clear();
         self.water_grid_enabled = false;
-        self.water_grid = crate::terrain_water::WaterGridState::default();
+        self.water_grid = generals_sim::terrain::WaterGridState::default();
 
         self.query_load_pending = false;
     }
@@ -400,7 +400,7 @@ impl TerrainLogic {
         _save_game: bool,
         map_name: &str,
         definitions: Option<&game_engine::common::ini::ini_game_data::GlobalData>,
-        deliver: Option<&mut dyn FnMut(&crate::terrain_water::WaterGridState)>,
+        deliver: Option<&mut dyn FnMut(&generals_sim::terrain::WaterGridState)>,
     ) {
         if self.query_load_pending {
             self.query_load_pending = false;
@@ -427,9 +427,12 @@ impl TerrainLogic {
         let wave_guide = AsciiString::from("WaveGuide1");
         let enable = self.get_waypoint_by_name(&wave_guide).is_some();
         self.water_grid_enabled = enable;
-        let configured = self
-            .water_grid
-            .configure_for_map_owned(enable, map_name, definitions);
+        let configured = crate::terrain_water::configure_map_water(
+            &mut self.water_grid,
+            enable,
+            map_name,
+            definitions,
+        );
         if configured {
             if let Some(deliver) = deliver {
                 deliver(&self.water_grid);

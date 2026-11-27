@@ -58,7 +58,7 @@ fn actual_movement_tick_delivers_tree_callbacks_only_to_its_receiving_world_at_o
         fn accepted_height(&mut self, _: generals_sim::terrain::TerrainHeightChange) {
             panic!("unexpected terrain height")
         }
-        fn water_state(&mut self, _: &gamelogic::terrain_water::WaterGridState) {
+        fn water_state(&mut self, _: &generals_sim::terrain::WaterGridState) {
             panic!("unexpected water state")
         }
     }

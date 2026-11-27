@@ -73,7 +73,7 @@ fn terrain(world: &GameLogic, raw_ground: u8, water: Option<i32>) {
     let owner = world.world_services.terrain();
     let mut terrain = owner.write().unwrap_or_else(|error| error.into_inner());
     assert!(terrain.load_map_geometry(map).is_empty());
-    let mut grid = gamelogic::terrain_water::WaterGridState::default();
+    let mut grid = generals_sim::terrain::WaterGridState::default();
     if let Some(height) = water {
         grid.enabled = true;
         grid.set_resolution(16., 16., 10.);

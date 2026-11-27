@@ -22,8 +22,10 @@ pub mod terrain;
 mod terrain_height_map;
 mod terrain_los;
 mod terrain_ray;
+mod terrain_water;
 pub mod time;
 pub mod upgrade;
+mod water_transitions;
 pub mod weapon;
 
 pub use error::{GameLogicError, GameLogicResult};
