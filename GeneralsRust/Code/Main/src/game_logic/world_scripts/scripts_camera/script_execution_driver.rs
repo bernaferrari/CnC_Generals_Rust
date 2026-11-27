@@ -8,7 +8,7 @@ use gamelogic::scripting::engine::ScriptEngine;
 use generals_sim::scripting::driver::ScriptExecutionDriver;
 use generals_sim::scripting::world::{
     ScriptAiPlayerRequest, ScriptAttacker, ScriptBridgeStatus, ScriptCameraRequest,
-    ScriptConditionTeam, ScriptDamageSource, ScriptDisplayRequest, ScriptNamedCommand,
+    ScriptCommandButton, ScriptConditionTeam, ScriptDamageSource, ScriptDisplayRequest, ScriptNamedCommand,
     ScriptObjectStatus, ScriptOwnerQuery, ScriptPlayerAreaQuery,
     ScriptPlayerConstructionRequest, ScriptPlayerRankRequest,
     ScriptSightingCandidate, ScriptSightingFilter, ScriptSightingObserver, ScriptSkirmishCensus,
@@ -23,6 +23,8 @@ mod script_player_resolution;
 mod named_map_reveals;
 #[path = "script_radar_events.rs"]
 mod script_radar_events;
+#[path = "script_command_button_readiness.rs"]
+mod script_command_button_readiness;
 
 pub(super) struct HostScriptExecutionDriver<'a> {
     world: &'a mut GameLogic,
@@ -3144,6 +3146,18 @@ impl ScriptExecutionDriver<ScriptEngine> for HostScriptExecutionDriver<'_> {
                 }))
             })
             .map_err(|error| generals_sim::GameLogicError::Threading(error.to_string()))?
+    }
+
+    fn script_command_button(&self, name: &str) -> ScriptOwnerQuery<ScriptCommandButton> {
+        self.world.script_command_button_definition(name)
+    }
+
+    fn script_command_button_power(&self, member: u32, power: &str) -> Option<bool> {
+        self.world.script_command_button_power(ObjectId(member), power)
+    }
+
+    fn script_command_button_upgrade(&self, member: u32, upgrade: &str) -> bool {
+        self.world.script_command_button_upgrade(ObjectId(member), upgrade)
     }
 
     fn script_last_damage_source(&self, member: u32) -> Option<ScriptDamageSource<'_>> {

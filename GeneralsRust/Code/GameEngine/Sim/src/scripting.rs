@@ -2,6 +2,7 @@
 
 pub mod attack_priorities;
 pub mod chunk_codec;
+mod command_button_conditions;
 mod control_commands;
 pub mod driver;
 pub mod events;

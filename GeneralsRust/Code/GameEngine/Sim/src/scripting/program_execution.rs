@@ -97,6 +97,9 @@ impl ScriptInterpreter {
         if let Some(value) = self.try_evaluate_area_supply_condition(condition, frame, queries)? {
             return Ok(Some(value));
         }
+        if let Some(value) = self.try_evaluate_command_button_condition(condition, queries)? {
+            return Ok(Some(value));
+        }
         if let Some(value) =
             self.try_evaluate_skirmish_condition(condition, frame, queries.receiving_world())?
         {
@@ -285,7 +288,11 @@ pub fn dispatch_action(
     {
         ScriptActionResult::Success
     } else {
-        driver.execute_world_action(action)?
+        let wait = interpreter.try_execute_command_button_wait(action, driver)?;
+        match wait {
+            Some(result) => result,
+            None => driver.execute_world_action(action)?,
+        }
     };
     driver.after_action()?;
     Ok(result)

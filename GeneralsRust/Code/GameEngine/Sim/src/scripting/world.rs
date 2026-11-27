@@ -14,6 +14,11 @@ pub enum ScriptOwnerQuery<T> {
     Present(T),
 }
 
+pub struct ScriptCommandButton {
+    pub special_power: Option<String>,
+    pub upgrade: Option<String>,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ScriptTeamAreaTransition {
     AllEntered,

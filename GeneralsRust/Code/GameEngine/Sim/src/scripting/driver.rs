@@ -1240,6 +1240,20 @@ pub trait ScriptExecutionDriver<Interpreter: ?Sized> {
         Ok(ScriptOwnerQuery::Unavailable)
     }
 
+    fn script_command_button(&self, _name: &str) -> ScriptOwnerQuery<ScriptCommandButton> {
+        ScriptOwnerQuery::Unavailable
+    }
+
+    /// None means the member has no power of the requested type. Some reports
+    /// whether the first module with the exact template is fully charged.
+    fn script_command_button_power(&self, _member: ObjectID, _power: &str) -> Option<bool> {
+        None
+    }
+
+    fn script_command_button_upgrade(&self, _member: ObjectID, _upgrade: &str) -> bool {
+        false
+    }
+
     fn script_last_damage_source(&self, _member: ObjectID) -> Option<ScriptDamageSource<'_>> {
         None
     }

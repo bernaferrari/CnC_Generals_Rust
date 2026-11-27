@@ -1,5 +1,6 @@
 //! Object::updateUpgradeModules / removeUpgrade and the typed UpgradeMux pass.
 use super::*;
+use crate::game_logic::thing::ReceivingClientTemplate;
 use game_engine::common::system::upgrade::{
     ArmorUpgradeModuleData, CommandSetUpgradeModuleData, MaxHealthUpgradeModuleData,
     ModelConditionUpgradeModuleData, ObjectCreationUpgradeDefinition, PassengersFireUpgradeModuleData,
@@ -154,6 +155,13 @@ enum AuthoredOrderedUpgrade {
     Weapon(AuthoredWeaponUpgrade),
 }
 
+struct UpgradeLatchCounts {
+    object_creation: usize,
+    status_bits: usize,
+    cost_modifier: usize,
+    radar: usize,
+}
+
 /// A single Object's scheduled callbacks, before any sibling can mutate its mask.
 pub(super) struct AuthoredUpgradePass<'a> {
     object_id: ObjectId,
@@ -164,6 +172,28 @@ pub(super) struct AuthoredUpgradePass<'a> {
 }
 
 impl AuthoredOrderedUpgrade {
+    fn already_executed(&self, object: &Object) -> bool {
+        match self {
+            Self::ObjectCreation(module) => object.object_creation_upgrade_executed
+                .get(module.state_index).copied().unwrap_or(false),
+            Self::StatusBits(module) => object.status_bits_upgrade_executed
+                .get(module.state_index).copied().unwrap_or(false),
+            Self::CostModifier(module) => object.cost_modifier_upgrade_executed
+                .get(module.state_index).copied().unwrap_or(false),
+            Self::Radar(module) => object.radar_upgrade_executed
+                .get(module.state_index).copied().unwrap_or(false),
+            Self::PowerPlant(module) => object.applied_upgrades.contains(&module.executed_key),
+            Self::ReplaceObject(module) => object.applied_upgrades.contains(&module.executed_key()),
+            Self::Visual(module) => object.applied_upgrades.contains(&module.executed_key()),
+            Self::Armor(module) => object.applied_upgrades.contains(&module.executed_key()),
+            Self::Stealth(module) => object.applied_upgrades.contains(&module.executed_key()),
+            Self::CommandSet(module) => object.applied_upgrades.contains(&module.executed_key()),
+            Self::PassengersFire(module) => object.applied_upgrades.contains(&module.executed_key()),
+            Self::MaxHealth(module) => object.applied_upgrades.contains(&module.executed_key()),
+            Self::Weapon(module) => object.applied_upgrades.contains(&module.executed_key()),
+        }
+    }
+
     fn with_upgrade_definition<R>(
         &self,
         f: impl FnOnce(&UpgradeMuxDefinition) -> R,
@@ -195,16 +225,26 @@ impl GameLogic {
         &mut self,
         object_id: ObjectId,
     ) -> Vec<AuthoredOrderedUpgrade> {
-        use game_engine::common::thing::module::ModuleData;
-        // The factory pins the effective module roster on the actor. A later
-        // map override can supply a newer roster for future actors of this name.
-        let Some(template) = self
-            .objects
-            .get(&object_id)
-            .and_then(|object| object.get_template().receiving_client_template.as_ref())
-        else {
+        let Some(object) = self.objects.get_mut(&object_id) else {
             return Vec::new();
         };
+        let Some(template) = object.get_template().receiving_client_template.as_ref() else {
+            return Vec::new();
+        };
+        let (modules, counts) = Self::collect_authored_ordered_upgrade_modules(template);
+        object.object_creation_upgrade_executed.resize(counts.object_creation, false);
+        object.status_bits_upgrade_executed.resize(counts.status_bits, false);
+        object.cost_modifier_upgrade_executed.resize(counts.cost_modifier, false);
+        object.radar_upgrade_executed.resize(counts.radar, false);
+        object.radar_upgrade_contributors.resize(counts.radar, Vec::new());
+        modules
+    }
+
+    fn collect_authored_ordered_upgrade_modules(
+        template: &ReceivingClientTemplate,
+    ) -> (Vec<AuthoredOrderedUpgrade>, UpgradeLatchCounts) {
+        // The factory pins the effective module roster on the actor. A later
+        // map override can supply a newer roster for future actors of this name.
         let mut object_creation_index = 0;
         let mut status_bits_index = 0;
         let mut cost_modifier_index = 0;
@@ -351,22 +391,27 @@ impl GameLogic {
                 None
             })
             .collect();
-        if let Some(object) = self.objects.get_mut(&object_id) {
-            object
-                .object_creation_upgrade_executed
-                .resize(object_creation_index, false);
-            object
-                .status_bits_upgrade_executed
-                .resize(status_bits_index, false);
-            object
-                .cost_modifier_upgrade_executed
-                .resize(cost_modifier_index, false);
-            object.radar_upgrade_executed.resize(radar_index, false);
-            object
-                .radar_upgrade_contributors
-                .resize(radar_index, Vec::new());
-        }
-        modules
+        let counts = UpgradeLatchCounts {
+            object_creation: object_creation_index,
+            status_bits: status_bits_index,
+            cost_modifier: cost_modifier_index,
+            radar: radar_index,
+        };
+        (modules, counts)
+    }
+
+    /// Object::affectedByUpgrade asks what the combined mask would activate.
+    /// Read the same module definitions and latches as the execution pass.
+    pub(crate) fn authored_object_would_upgrade(&self, object: &Object, upgrade: &str) -> bool {
+        let Some(template) = object.get_template().receiving_client_template.as_ref() else {
+            return false;
+        };
+        let key_mask = self.combined_object_and_player_upgrade_mask(object.id, Some(upgrade));
+        let (modules, _) = Self::collect_authored_ordered_upgrade_modules(template);
+        modules.iter().any(|module| {
+            !module.already_executed(object)
+                && module.with_upgrade_definition(|mux| self.upgrade_mux_would_run(mux, key_mask))
+        })
     }
 
     pub(super) fn prepare_authored_upgrade_pass<'a>(
@@ -410,77 +455,11 @@ impl GameLogic {
             if !self.object_birth_matches(object_id, &birth) {
                 return Ok(());
             }
-            let already_executed = match &module {
-                AuthoredOrderedUpgrade::ObjectCreation(module) => self
-                    .objects
-                    .get(&object_id)
-                    .and_then(|object| {
-                        object
-                            .object_creation_upgrade_executed
-                            .get(module.state_index)
-                    })
-                    .copied()
-                    .unwrap_or(false),
-                AuthoredOrderedUpgrade::StatusBits(module) => self
-                    .objects
-                    .get(&object_id)
-                    .and_then(|object| object.status_bits_upgrade_executed.get(module.state_index))
-                    .copied()
-                    .unwrap_or(false),
-                AuthoredOrderedUpgrade::CostModifier(module) => self
-                    .objects
-                    .get(&object_id)
-                    .and_then(|object| {
-                        object
-                            .cost_modifier_upgrade_executed
-                            .get(module.state_index)
-                    })
-                    .copied()
-                    .unwrap_or(false),
-                AuthoredOrderedUpgrade::PowerPlant(module) => self
-                    .objects
-                    .get(&object_id)
-                    .is_some_and(|object| object.applied_upgrades.contains(&module.executed_key)),
-                AuthoredOrderedUpgrade::Radar(module) => self
-                    .objects
-                    .get(&object_id)
-                    .and_then(|object| object.radar_upgrade_executed.get(module.state_index))
-                    .copied()
-                    .unwrap_or(false),
-                AuthoredOrderedUpgrade::ReplaceObject(module) => self
-                    .objects
-                    .get(&object_id)
-                    .is_some_and(|object| object.applied_upgrades.contains(&module.executed_key())),
-                AuthoredOrderedUpgrade::Visual(module) => self
-                    .objects
-                    .get(&object_id)
-                    .is_some_and(|object| object.applied_upgrades.contains(&module.executed_key())),
-                AuthoredOrderedUpgrade::Armor(module) => self
-                    .objects
-                    .get(&object_id)
-                    .is_some_and(|object| object.applied_upgrades.contains(&module.executed_key())),
-                AuthoredOrderedUpgrade::Stealth(module) => self
-                    .objects
-                    .get(&object_id)
-                    .is_some_and(|object| object.applied_upgrades.contains(&module.executed_key())),
-                AuthoredOrderedUpgrade::CommandSet(module) => self
-                    .objects
-                    .get(&object_id)
-                    .is_some_and(|object| object.applied_upgrades.contains(&module.executed_key())),
-                AuthoredOrderedUpgrade::PassengersFire(module) => self
-                    .objects
-                    .get(&object_id)
-                    .is_some_and(|object| object.applied_upgrades.contains(&module.executed_key())),
-                AuthoredOrderedUpgrade::MaxHealth(module) => self
-                    .objects
-                    .get(&object_id)
-                    .is_some_and(|object| object.applied_upgrades.contains(&module.executed_key())),
-                AuthoredOrderedUpgrade::Weapon(module) => self
-                    .objects
-                    .get(&object_id)
-                    .is_some_and(|object| object.applied_upgrades.contains(&module.executed_key())),
+            let Some(object) = self.objects.get(&object_id) else {
+                return Ok(());
             };
-            if already_executed || !module.with_upgrade_definition(|mux| self.upgrade_mux_would_run(mux, key_mask))
+            if module.already_executed(object)
+                || !module.with_upgrade_definition(|mux| self.upgrade_mux_would_run(mux, key_mask))
             {
                 continue;
             }
