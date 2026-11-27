@@ -523,9 +523,7 @@ impl Object {
                 crate::game_logic::host_slow_death::select_slow_death_ini(
                     modules,
                     self.status.death_type,
-                    crate::game_logic::host_fx_list_die::leftover_veterancy_from_host(
-                        self.experience.level,
-                    ),
+                    self.experience.level,
                     self.object_status_mask_for_queries(),
                     overkill_fraction,
                 )
@@ -850,11 +848,9 @@ impl Object {
         let Some(fx) = self.fx_list_die.as_mut() else {
             return;
         };
-        let leftover_vet = crate::game_logic::host_fx_list_die::leftover_veterancy_from_host(
-            self.experience.level,
+        let hits = fx.collect_applicable_mux_hits(
+            &upgrades, death_type, self.experience.level, leftover_status,
         );
-        let hits =
-            fx.collect_applicable_mux_hits(&upgrades, death_type, leftover_vet, leftover_status);
         for (i, hit) in hits.into_iter().enumerate() {
             if !hit.orient_to_object {
                 if let Some(name) = hit.death_fx {
@@ -905,9 +901,7 @@ impl Object {
         let hits = fx.collect_applicable_mux_hits(
             &upgrades,
             self.status.death_type,
-            crate::game_logic::host_fx_list_die::leftover_veterancy_from_host(
-                self.experience.level,
-            ),
+            self.experience.level,
             self.object_status_mask_for_queries(),
         );
         for hit in hits {

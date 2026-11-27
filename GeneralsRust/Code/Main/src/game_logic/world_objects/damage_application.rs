@@ -2105,11 +2105,7 @@ impl GameLogic {
         // than being discarded with an eagerly extracted batch.
         let limit = self.combat_system.historic_damage_limit();
         let mut cursor = 0;
-        while let Some(shot) = crate::game_logic::combat::next_ready_projectileless_delayed_damage(
-            &mut self.combat_system,
-            self.frame,
-            &mut cursor,
-        ) {
+        while let Some(shot) = self.combat_system.take_due_projectileless_shot(self.frame, &mut cursor) {
             let events = self.prepare_owned_projectileless_impact(&shot, limit);
             for event in events {
                 self.apply_owned_combat_damage_with_effects(&event, effects)?;

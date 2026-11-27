@@ -571,7 +571,7 @@ impl GameLogic {
             weapon_lasers: Vec::new(),
             weapon_laser_beams_spawned: 0,
             projectile_streams:
-                crate::game_logic::host_projectile_stream::ProjectileStreamRegistry::new(),
+                generals_sim::combat::projectile_stream::ProjectileStreamRegistry::new(),
             pending_patriot_assists: Vec::new(),
             stealth_detector_rate_scans: 0,
             // Inert default; match/replay setup admits its selected seed.

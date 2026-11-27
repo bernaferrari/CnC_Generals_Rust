@@ -49,7 +49,7 @@ impl CombatSystem {
             projectiles: HashMap::new(),
             pending_projectile_weapon_bonus_ids: Default::default(),
             fire_sound_loop_events: Default::default(),
-            pending_projectiles: Vec::new(),
+            shots: Default::default(),
             next_projectile_id: ObjectId(100000), // Start high to avoid conflicts with objects
             impact_fx: Vec::new(),
             pending_under_attack: Vec::new(),
@@ -57,7 +57,6 @@ impl CombatSystem {
             fire_ocl: Vec::new(),
             historic_damage_limit: 0,
             historic_bonus: Default::default(),
-            projectileless_delayed: Vec::new(),
         }
     }
 
@@ -73,7 +72,7 @@ impl CombatSystem {
 
     /// Discard accepted shots only when this owning game resets.
     pub(crate) fn reset_pending_projectiles(&mut self) {
-        self.pending_projectiles.clear();
+        self.shots.clear_accepted();
         self.fire_sound_loop_events.clear();
     }
 

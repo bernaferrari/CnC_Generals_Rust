@@ -4,6 +4,7 @@ pub mod armor;
 pub mod bridge_behavior;
 pub mod build_list;
 pub mod chinook;
+pub mod combat;
 pub mod command;
 pub mod damage;
 pub mod debris;

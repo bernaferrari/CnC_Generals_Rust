@@ -83,22 +83,16 @@ pub fn geometry_center(position: Vec3, geometry: &GeometryInfo) -> Vec3 {
     Vec3::new(position.x, position.y + height * 0.5, position.z)
 }
 
-/// C++ `Weapon.cpp:904` selects one FX list using the firing object's rank.
+/// C++ `Weapon.cpp:904` selects one FX list using the firing object's veterancy.
 pub(super) fn select_weapon_template_fx(
     rule: &WeaponTemplate,
     veterancy: VeterancyLevel,
     is_projectile_detonation: bool,
 ) -> &str {
-    let rank = match veterancy {
-        VeterancyLevel::Rookie => gamelogic::common::VeterancyLevel::Regular,
-        VeterancyLevel::Veteran => gamelogic::common::VeterancyLevel::Veteran,
-        VeterancyLevel::Elite => gamelogic::common::VeterancyLevel::Elite,
-        VeterancyLevel::Heroic => gamelogic::common::VeterancyLevel::Heroic,
-    };
     let fx = if is_projectile_detonation {
-        rule.get_projectile_detonate_fx(rank)
+        rule.get_projectile_detonate_fx(veterancy)
     } else {
-        rule.get_fire_fx(rank)
+        rule.get_fire_fx(veterancy)
     };
     fx.map_or("", |list| list.name())
 }

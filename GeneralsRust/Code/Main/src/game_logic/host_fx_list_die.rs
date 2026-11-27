@@ -20,17 +20,6 @@ fn leftover_status_mask(bits: u64) -> gamelogic::object::die::ObjectStatusMask {
     gamelogic::object::die::ObjectStatusMask::from_bits_truncate(bits)
 }
 
-pub fn leftover_veterancy_from_host(
-    level: crate::game_logic::VeterancyLevel,
-) -> gamelogic::common::VeterancyLevel {
-    match level {
-        crate::game_logic::VeterancyLevel::Rookie => gamelogic::common::VeterancyLevel::Regular,
-        crate::game_logic::VeterancyLevel::Veteran => gamelogic::common::VeterancyLevel::Veteran,
-        crate::game_logic::VeterancyLevel::Elite => gamelogic::common::VeterancyLevel::Elite,
-        crate::game_logic::VeterancyLevel::Heroic => gamelogic::common::VeterancyLevel::Heroic,
-    }
-}
-
 fn parse_leftover_flag_tokens(raw: &str) -> Vec<&str> {
     raw.split(|c: char| c == ',' || c.is_whitespace())
         .map(str::trim)

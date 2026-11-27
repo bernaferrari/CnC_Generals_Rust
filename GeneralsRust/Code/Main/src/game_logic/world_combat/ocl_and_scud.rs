@@ -858,7 +858,6 @@ impl GameLogic {
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> generals_sim::GameLogicResult<()> {
         use crate::game_logic::combat::ProjectileDetonationSource;
-        use crate::game_logic::weapon_bootstrap::game_logic_veterancy;
 
         for impact in impacts {
             if self.visual_world_epoch != epoch {
@@ -884,7 +883,7 @@ impl GameLogic {
             // before ProjectileDetonationOCL. A named weapon's empty slot
             // is authoritative, including a rank-specific None.
             let fx_name = ranked_weapon.as_ref().map_or(impact.detonation_fx_name.as_str(),
-                |(rule, rank)| rule.get_projectile_detonate_fx(game_logic_veterancy(*rank))
+                |(rule, rank)| rule.get_projectile_detonate_fx(*rank)
                     .map_or("", |fx| fx.name()),
             ).trim();
             self.dispatch_projectile_detonation_fx(
@@ -900,7 +899,7 @@ impl GameLogic {
                     if self.spawn_identity_matches(*id, *generation, *epoch) {
                         let ocl_name = ranked_weapon.as_ref().map_or(impact.detonation_ocl_name.as_str(),
                             |(rule, _)| rule.get_projectile_detonation_ocl_name(
-                                game_logic_veterancy(self.objects[id].experience.level),
+                                self.objects[id].experience.level,
                             ).unwrap_or_default(),
                         );
                         self.execute_object_ocl_with_pose(

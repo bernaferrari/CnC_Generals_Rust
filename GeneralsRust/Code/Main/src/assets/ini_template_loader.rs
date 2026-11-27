@@ -1104,7 +1104,7 @@ End
                 Some("FX_HeroicDetonate")
             );
 
-            use gamelogic::common::VeterancyLevel::{Elite, Heroic, Regular, Veteran};
+            use generals_sim::object::VeterancyLevel::{Elite, Heroic, Rookie as Regular, Veteran};
             assert_eq!(weapon.get_fire_ocl_name(Regular), Some("OCL_BaseFire"));
             assert_eq!(weapon.get_fire_ocl_name(Veteran), Some("OCL_VeteranFire"));
             assert_eq!(weapon.get_fire_ocl_name(Elite), None);

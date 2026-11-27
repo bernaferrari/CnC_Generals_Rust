@@ -12,6 +12,11 @@ mod missile_motion;
 pub(crate) use missile_motion::MissileMotion;
 pub(in crate::game_logic) use missile_motion::MissileInitialVelocity;
 
+pub use generals_sim::combat::{
+    PendingCombatSnapshot, PendingProjectile, ProjectileLaunchContext, ProjectileSpeedUnit,
+};
+pub(in crate::game_logic) use generals_sim::combat::DelayedDamage as LiveProjectilelessDelayedDamage;
+
 pub use generals_sim::damage::{ArmorType, CombatDamage as DamageType, DamageResult};
 include!("projectile.rs");
 include!("weapon_fire.rs");

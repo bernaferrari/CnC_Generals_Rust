@@ -196,14 +196,8 @@ impl GameLogic {
         let name = explicit_rule.as_ref().map(|rule| rule.name.clone())
             .or_else(|| object.weapon_name_for_slot(slot).map(str::to_owned));
         let native = explicit_rule.or_else(|| object.selected_native_weapon_rule(slot));
-        let native_rank = |rank| match rank {
-            VeterancyLevel::Rookie => gamelogic::common::VeterancyLevel::Regular,
-            VeterancyLevel::Veteran => gamelogic::common::VeterancyLevel::Veteran,
-            VeterancyLevel::Elite => gamelogic::common::VeterancyLevel::Elite,
-            VeterancyLevel::Heroic => gamelogic::common::VeterancyLevel::Heroic,
-        };
         let rank = object.experience.level;
-        let fx = native.as_ref().map(|rule| rule.get_fire_fx(native_rank(rank)).map(|fx| fx.name().to_owned()).unwrap_or_default()).unwrap_or_else(|| name.as_deref().map(|name| {
+        let fx = native.as_ref().map(|rule| rule.get_fire_fx(rank).map(|fx| fx.name().to_owned()).unwrap_or_default()).unwrap_or_else(|| name.as_deref().map(|name| {
             self.weapon_effect_definitions.fire(name, rank).map(|effects| effects.fire_fx)
                 .unwrap_or_else(|| crate::game_logic::weapon_bootstrap::host_fire_fx_for_weapon_name_at_veterancy(name, rank))
         }).unwrap_or_default());
@@ -249,7 +243,7 @@ impl GameLogic {
         if self.spawn_identity_matches(source, accepted.source_generation, source_epoch) {
             let rank = self.objects[&source].experience.level;
             let ocl = if let Some(rule) = &native {
-                rule.get_fire_ocl_name(native_rank(rank))
+                rule.get_fire_ocl_name(rank)
                     .unwrap_or_default()
                     .to_owned()
             } else if let Some(name) = name.as_deref() {

@@ -60,7 +60,7 @@ fn owned_override_preserves_base_and_repeated_rank_fields_in_source_order() {
     assert_eq!(selected.primary_damage, 25.0);
     assert_eq!(selected.attack_range, 150.0);
     assert_eq!(selected.weapon_speed, 600.0_f32 * (1.0_f32 / 30.0_f32));
-    use gamelogic::common::VeterancyLevel::*;
+    use generals_sim::object::VeterancyLevel::{Elite, Heroic, Rookie as Regular, Veteran};
     assert_eq!(selected.get_fire_fx(Regular).unwrap().name(), "BaseFX");
     assert_eq!(selected.get_fire_fx(Veteran).unwrap().name(), "VeteranFX");
     assert_eq!(selected.get_fire_fx(Elite).unwrap().name(), "EliteFX");

@@ -3139,7 +3139,7 @@ pub(in crate::game_logic) mod tests {
         // wrap, so the entry is ready before the clock returns to `when`.
         let ready_early = take_ready_projectileless_delayed_damage(&mut combat, u32::MAX - 1);
         assert_eq!(ready_early.len(), 1);
-        assert_eq!(ready_early[0].when, 2);
+        assert_eq!(ready_early[0].frame(), 2);
     }
 
     #[test]

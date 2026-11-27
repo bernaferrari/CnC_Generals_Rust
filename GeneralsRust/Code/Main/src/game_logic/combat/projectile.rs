@@ -902,7 +902,7 @@ impl Projectile {
 
     /// True when C++ weapon speed is instant-hit residual (laser / hitscan).
     pub fn is_instant_speed(speed: f32) -> bool {
-        speed <= 0.0 || speed >= 999_999.0
+        generals_sim::combat::is_instant_weapon_speed(speed)
     }
 }
 

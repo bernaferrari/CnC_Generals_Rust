@@ -16,7 +16,7 @@
 //! a load cannot insert a retarget hole or re-create the trail.
 
 use super::lifecycle_records::LifecycleRecords;
-use crate::game_logic::host_projectile_stream::ProjectileStreamRegistry;
+use generals_sim::combat::projectile_stream::ProjectileStreamRegistry;
 use crate::game_logic::GameLogic;
 use crate::save_load::{SaveLoadError, SaveLoadResult};
 use serde::{Deserialize, Serialize};
@@ -60,7 +60,7 @@ pub(super) fn apply(
         1 => {
             #[derive(Deserialize)]
             struct V1Payload {
-                registry: crate::game_logic::host_projectile_stream::ProjectileStreamRegistryV1Compat,
+                registry: generals_sim::combat::projectile_stream::ProjectileStreamRegistryV1Compat,
             }
             let payload: V1Payload = record.decode_payload()?;
             game_logic
@@ -94,7 +94,7 @@ pub(crate) fn apply_from_lifecycle_tail(bytes: &[u8], world: &mut GameLogic) -> 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::game_logic::host_projectile_stream::STREAM_HOLE;
+    use generals_sim::combat::projectile_stream::STREAM_HOLE;
     use crate::game_logic::ObjectId;
     use glam::Vec3;
 

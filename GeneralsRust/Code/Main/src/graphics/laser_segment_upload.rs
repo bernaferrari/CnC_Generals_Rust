@@ -100,8 +100,8 @@ impl LaserSegmentUpload {
                 let end = stream.points[i + 1];
                 let start_v = glam::Vec3::new(start.0, start.1, start.2);
                 let end_v = glam::Vec3::new(end.0, end.1, end.2);
-                if crate::game_logic::host_projectile_stream::is_stream_hole(start_v)
-                    || crate::game_logic::host_projectile_stream::is_stream_hole(end_v)
+                if generals_sim::combat::projectile_stream::is_stream_hole(start_v)
+                    || generals_sim::combat::projectile_stream::is_stream_hole(end_v)
                 {
                     continue;
                 }

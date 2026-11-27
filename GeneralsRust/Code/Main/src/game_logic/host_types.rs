@@ -338,13 +338,7 @@ pub struct Resources {
 }
 
 /// Experience and veterancy system
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub enum VeterancyLevel {
-    Rookie,
-    Veteran,
-    Elite,
-    Heroic,
-}
+pub use generals_sim::object::VeterancyLevel;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Experience {

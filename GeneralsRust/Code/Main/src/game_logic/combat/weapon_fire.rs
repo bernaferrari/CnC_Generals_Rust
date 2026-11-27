@@ -180,34 +180,6 @@ pub(in crate::game_logic) enum ProjectileDieEffect {
     Ocl(String),
 }
 
-/// Unit of the pending speed and `min_weapon_speed` pair. Weapon.ini stores
-/// these in distance per 30 Hz logic frame; low-level CombatSystem callers
-/// often already supply distance per second.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub enum ProjectileSpeedUnit {
-    DistancePerLogicFrame,
-    DistancePerSecond,
-}
-
-impl ProjectileSpeedUnit {
-    fn distance_per_logic_frame(self, speed: f32) -> f32 {
-        match self {
-            Self::DistancePerLogicFrame => speed,
-            Self::DistancePerSecond => speed / gamelogic::common::LOGICFRAMES_PER_SECOND as f32,
-        }
-    }
-
-    fn distance_per_second(self, speed: f32) -> f32 {
-        if Projectile::is_instant_speed(speed) {
-            return speed;
-        }
-        match self {
-            Self::DistancePerLogicFrame => speed * gamelogic::common::LOGICFRAMES_PER_SECOND as f32,
-            Self::DistancePerSecond => speed,
-        }
-    }
-}
-
 /// C++ `Weapon::fireWeaponTemplate` fire-time authored effects.  `FireFX` and
 /// `FireOCL` run when the shot is accepted, before the projectile needs a live
 /// target, so they are kept separately from projectile impact events.
@@ -232,8 +204,7 @@ pub struct CombatSystem {
     projectiles: HashMap<ObjectId, Projectile>,
     /// Materialized flights awaiting their owner's existing upgrade phase.
     pending_projectile_weapon_bonus_ids: game_engine::common::fast_hash::FxHashSet<ObjectId>,
-    /// Accepted shots awaiting this world's existing materialization phase.
-    pending_projectiles: Vec<PendingProjectile>,
+    shots: generals_sim::combat::ShotQueue,
     next_projectile_id: ObjectId,
     /// Impacts carrying ProjectileDetonationFX residual (drained by GameLogic).
     impact_fx: Vec<ProjectileImpactFx>,
@@ -247,8 +218,6 @@ pub struct CombatSystem {
     historic_damage_limit: u32,
     /// Same-template impact history and pending bonuses belong to this match.
     historic_bonus: crate::game_logic::host_historic_bonus::HostHistoricBonus,
-    /// Materialized projectileless damage belongs to the accepting match.
-    projectileless_delayed: Vec<LiveProjectilelessDelayedDamage>,
 }
 
 /// C++ `WeaponTemplate::getProjectileTemplate()==NULL` (empty / `NONE`).
@@ -259,34 +228,6 @@ pub(in crate::game_logic) fn is_projectileless_object_name(name: &str) -> bool {
 
 fn host_vec_to_leftover_coord(pos: Vec3) -> glam::Vec3 {
     glam::Vec3::new(pos.x, pos.z, pos.y)
-}
-
-/// Live-host delayed damage for projectileless finite-speed weapons.
-/// Receiving equivalent of CPP WeaponStore::m_weaponDDI. Main owns both the
-/// accepted shot and its eventual Body callback; Core receives no mirror.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub(in crate::game_logic) struct LiveProjectilelessDelayedDamage {
-    when: u32,
-    pending: PendingProjectile,
-    damage_pos: Vec3,
-    damage_id: Option<ObjectId>,
-}
-
-impl LiveProjectilelessDelayedDamage {
-    /// Authored weapon name frozen at acceptance for owner-side rule lookups.
-    pub(in crate::game_logic) fn weapon_key(&self) -> &str {
-        &self.pending.historic_weapon_key
-    }
-
-    /// Beam source, muzzle origin, and resolved shot/scatter aim for the
-    /// LaserName object born before Body damage.
-    pub(in crate::game_logic) fn laser_endpoints(&self) -> (ObjectId, Vec3, Vec3) {
-        (
-            self.pending.shooter_id,
-            self.pending.shooter_pos,
-            self.damage_pos,
-        )
-    }
 }
 
 fn leftover_weapon_is_laser(weapon_name: &str) -> bool {
@@ -306,6 +247,7 @@ fn leftover_weapon_is_laser(weapon_name: &str) -> bool {
     .unwrap_or(false)
 }
 
+#[cfg(test)]
 fn queue_live_projectileless_delayed(
     combat: &mut CombatSystem,
     when: u32,
@@ -313,14 +255,9 @@ fn queue_live_projectileless_delayed(
     damage_pos: Vec3,
     damage_id: Option<ObjectId>,
 ) {
-    combat
-        .projectileless_delayed
-        .push(LiveProjectilelessDelayedDamage {
-            when,
-            pending,
-            damage_pos,
-            damage_id,
-        });
+    combat.shots.defer(LiveProjectilelessDelayedDamage::new(
+        when, pending, damage_pos, damage_id,
+    ));
 }
 
 /// C++ `Weapon.cpp:998-1075` projectileless fire: lasers and sub-frame travel
@@ -336,13 +273,7 @@ fn handle_projectileless_pending(
     frame: u32,
 ) -> Option<MaterializedWeaponShot> {
     let source_pos = pending.self_damage_position.unwrap_or(pending.shooter_pos);
-    let speed_per_logic_frame = pending.speed_unit.distance_per_logic_frame(pending.speed);
-    let delay_in_frames =
-        if speed_per_logic_frame > 0.0 && !Projectile::is_instant_speed(pending.speed) {
-            source_pos.distance(victim_pos) / speed_per_logic_frame
-        } else {
-            0.0
-        };
+    let delay_in_frames = pending.damage_delay_frames(victim_pos);
     let laser = pending
         .selected_weapon_is_laser
         .unwrap_or_else(|| leftover_weapon_is_laser(&pending.historic_weapon_key));
@@ -366,12 +297,7 @@ fn handle_projectileless_pending(
             beam_target
         };
         return Some(MaterializedWeaponShot::Laser {
-            damage: LiveProjectilelessDelayedDamage {
-                when: frame,
-                pending,
-                damage_pos,
-                damage_id,
-            },
+            damage: LiveProjectilelessDelayedDamage::new(frame, pending, damage_pos, damage_id),
             target: beam_target,
         });
     }
@@ -387,20 +313,9 @@ fn handle_projectileless_pending(
     } else {
         victim_pos
     };
-    if delay_in_frames < 1.0 {
-        return Some(MaterializedWeaponShot::ImmediateDamage(
-            LiveProjectilelessDelayedDamage {
-                when: frame,
-                pending,
-                damage_pos,
-                damage_id,
-            },
-        ));
-    }
-    let delay_whole_frames = game_engine::base_type::real_to_int_ceil(delay_in_frames) as u32;
-    let when = frame.wrapping_add(delay_whole_frames);
-    queue_live_projectileless_delayed(combat, when, pending, damage_pos, damage_id);
-    None
+    combat.shots
+        .schedule_projectileless(frame, delay_in_frames, pending, damage_pos, damage_id)
+        .map(MaterializedWeaponShot::ImmediateDamage)
 }
 
 /// Apply leftover delayed-damage entries whose frame has arrived to live objects.
@@ -428,26 +343,6 @@ pub fn apply_ready_projectileless_delayed_damage(
     });
 }
 
-/// One step of the C++ WeaponStore::update delayed-damage scan: visit
-/// entries in insertion order, skip future ones, and remove the first due
-/// entry for its caller to apply. The cursor does not advance on removal,
-/// so entries a damage callback appends to this same list — even with an
-/// already-past deadline — are still reached before the update returns
-/// (Weapon.cpp:1589-1604).
-pub(in crate::game_logic) fn next_ready_projectileless_delayed_damage(
-    combat: &mut CombatSystem,
-    current_frame: u32,
-    cursor: &mut usize,
-) -> Option<LiveProjectilelessDelayedDamage> {
-    while let Some(shot) = combat.projectileless_delayed.get(*cursor) {
-        if shot.when <= current_frame {
-            return Some(combat.projectileless_delayed.remove(*cursor));
-        }
-        *cursor += 1;
-    }
-    None
-}
-
 /// C++ WeaponStore::update delayed-damage walk: process one due entry at a time
 /// so a dealDamageInternal callback can append another due entry and have it
 /// run before this update returns.
@@ -458,7 +353,7 @@ pub(in crate::game_logic) fn drain_ready_projectileless_delayed(
 ) {
     let mut cursor = 0;
     while let Some(shot) =
-        next_ready_projectileless_delayed_damage(combat, current_frame, &mut cursor)
+        combat.take_due_projectileless_shot(current_frame, &mut cursor)
     {
         apply(combat, shot);
     }
@@ -479,166 +374,42 @@ pub(in crate::game_logic) fn take_ready_projectileless_delayed_damage(
     ready
 }
 
-/// Data needed to spawn a projectile (enqueued by Object::fire_at).
-///
-/// C++ executes `FireOCL` synchronously while the firing object still exists.
-/// The host queues projectile creation for the combat phase, so retain the
-/// source transform/team at acceptance time instead of sampling a potentially
-/// deleted or re-owned object while draining that queue.
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
-pub struct ProjectileLaunchContext {
-    pub source_team: crate::game_logic::Team,
-    /// Exact default Team assigned to the C++ projectile object at admission.
-    /// This is projectile ownership, not the shooter's possibly custom Team.
-    #[serde(skip)]
-    pub projectile_team_id: Option<u32>,
-    /// Controlling player frozen at fire acceptance (C++ Object::getRelationship).
-    pub source_owner_player_id: Option<u32>,
-    pub source_veterancy: crate::game_logic::VeterancyLevel,
-    pub source_orientation: f32,
-    pub source_velocity: Vec3,
-    /// Exact firing barrel transform captured at acceptance, when available.
-    pub launch_transform: Option<glam::Mat4>,
-    /// Launcher Object conditions captured by projectileLaunchAtObjectOrPosition.
-    pub launcher_bonus_mask: u64,
-}
-
-/// Data needed to spawn a projectile (enqueued by Object::fire_at).
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PendingProjectile {
-    pub shooter_id: ObjectId,
-    pub shooter_pos: Vec3,
-    /// Frozen firing state used by FireOCL. Older synthetic/test callers may
-    /// omit it; drain then uses a live source only when one is available.
-    pub source_context: Option<ProjectileLaunchContext>,
-    pub target_id: Option<ObjectId>,
-    /// Target position for position-based attacks. For object-based attacks
-    /// (target_id = Some), the drain function resolves the position from the
-    /// objects map and falls back to this value if the target is gone.
-    pub target_pos: Option<Vec3>,
-    /// Source position for a self-position weapon, sampled after fire effects.
-    /// The intended target remains separate for travel-time calculation.
-    #[serde(skip)]
-    pub self_damage_position: Option<Vec3>,
-    /// Whether the accepted weapon is a laser, from its owning definition.
-    /// None is reserved for old or unbound programmatic shots.
-    #[serde(skip)]
-    pub selected_weapon_is_laser: Option<bool>,
-    pub damage: f32,
-    pub speed: f32,
-    /// Shared by `speed` and `min_weapon_speed`; both come from the same source.
-    pub speed_unit: ProjectileSpeedUnit,
-    /// C++ radius damage residual at impact (0 = direct only).
-    pub splash_radius: f32,
-    /// C++ projectile homing residual (retarget velocity toward live target).
-    pub is_homing: bool,
-    /// Host combat damage class residual for Armor.ini coefficients.
-    pub damage_type: DamageType,
-    /// C++ Weapon.ini DeathType residual applied on killing blow.
-    pub death_type: crate::game_logic::host_usa_pilot::HostDeathType,
-    /// C++ Weapon.ini ProjectileObject residual template name (empty = hitscan/no mesh).
-    pub projectile_object_name: String,
-    /// Parsed Object INI behavior frozen at fire acceptance.  This keeps
-    /// deferred/shadow projectile materialization from re-reading or guessing
-    /// the projectile template later.
-    pub projectile_lifecycle: Option<crate::game_logic::weapon_bootstrap::HostProjectileLifecycle>,
-    /// C++ Weapon.ini FireFX residual (played at the source when the shot is
-    /// accepted, before projectile flight).
-    pub fire_fx_name: String,
-    /// C++ Weapon.ini FireOCL residual (executed at the source object at fire).
-    pub fire_ocl_name: String,
-    /// C++ Weapon.ini ProjectileDetonationFX residual (empty = no impact FX name).
-    pub detonation_fx_name: String,
-    /// C++ Weapon.ini ProjectileDetonationOCL residual (empty = no impact OCL name).
-    pub detonation_ocl_name: String,
-    /// C++ Weapon.ini ProjectileExhaust residual (empty = no in-flight trail name).
-    pub exhaust_name: String,
-    /// C++ SecondaryDamage residual.
-    pub secondary_damage: f32,
-    /// C++ SecondaryDamageRadius residual.
-    pub secondary_damage_radius: f32,
-    /// C++ ShockWaveAmount residual.
-    pub shock_wave_amount: f32,
-    /// C++ ShockWaveRadius residual.
-    pub shock_wave_radius: f32,
-    /// C++ ShockWaveTaperOff residual.
-    pub shock_wave_taper_off: f32,
-    /// C++ RadiusDamageAffects residual mask.
-    pub radius_damage_affects: u32,
-    /// C++ ProjectileCollidesWith residual mask.
-    pub projectile_collides: u32,
-    /// C++ effective ScatterRadius residual at fire time (0 = no scatter).
-    pub scatter_radius: f32,
-    /// C++ ScatterTarget table offset (host XZ). When set, ScatterRadius is skipped.
-    pub scatter_table_offset: Option<glam::Vec2>,
-
-    /// C++ MinWeaponSpeed residual (used when ScaleWeaponSpeed).
-    pub min_weapon_speed: f32,
-    /// C++ ScaleWeaponSpeed residual flag.
-    pub scale_weapon_speed: bool,
-    /// C++ AttackRange residual for ScaleWeaponSpeed ratio.
-    pub attack_range: f32,
-    /// C++ MinimumAttackRange residual for ScaleWeaponSpeed ratio.
-    pub min_attack_range: f32,
-    /// C++ HistoricBonus residual peels (stamped at fire).
-    pub historic_weapon_key: String,
-    /// C++ DamageInfoInput::m_damageStatusType copied from the fired
-    /// WeaponTemplate (Weapon.cpp dealDamageInternal). Instant/laser status
-    /// weapons never persist in flight, so it is not part of the wire format.
-    #[serde(skip)]
-    pub damage_status_type: Option<generals_sim::object::ObjectStatusTypes>,
-    pub historic_bonus_time_frames: u32,
-    pub historic_bonus_count: i32,
-    pub historic_bonus_radius: f32,
-    pub historic_bonus_weapon: String,
-    /// C++ MissileCallsOnDie residual.
-    pub die_on_detonate: bool,
-}
-
 /// Queue a projectile for spawning. Called from Object::fire_at().
-pub fn queue_projectile(combat: &mut CombatSystem, mut pending: PendingProjectile) {
-    stamp_pending_projectile_lifecycle(&mut pending);
-    // Accepted shots already belong to this receiving CombatSystem.
-    combat.pending_projectiles.push(pending);
+pub fn queue_projectile(combat: &mut CombatSystem, pending: PendingProjectile) {
+    combat.shots.accept(pending);
 }
 
 impl CombatSystem {
     pub(in crate::game_logic) fn take_pending_projectiles(&mut self) -> Vec<PendingProjectile> {
-        std::mem::take(&mut self.pending_projectiles)
+        self.shots.take_accepted()
     }
 
     pub(in crate::game_logic) fn defer_projectileless_shot(
         &mut self,
         shot: LiveProjectilelessDelayedDamage,
     ) {
-        self.projectileless_delayed.push(shot);
+        self.shots.defer(shot);
     }
-}
 
-/// Normalize only the lifecycle already captured by the receiving shot.
-/// Queueing never discovers definitions or manufactures a timeout.
-fn stamp_pending_projectile_lifecycle(pending: &mut PendingProjectile) {
-    if let Some(lifecycle) = pending.projectile_lifecycle {
-        // Parsed MissileAIUpdate semantics supersede the old broad weapon
-        // target-mask heuristic. Dumb projectile paths are not homing in this
-        // lightweight bridge unless a future parsed flight-path adjustment
-        // explicitly supports it.
-        pending.is_homing = lifecycle.follows_target()
-            && pending.target_id.is_some()
-            && !Projectile::is_instant_speed(pending.speed);
+    pub(in crate::game_logic) fn take_due_projectileless_shot(
+        &mut self,
+        current_frame: u32,
+        cursor: &mut usize,
+    ) -> Option<LiveProjectilelessDelayedDamage> {
+        self.shots.take_due(current_frame, cursor)
     }
 }
 
 /// Test helper: length of one owner's pending projectile queue.
 #[cfg(test)]
 pub fn pending_projectile_queue_len_for_test(combat: &CombatSystem) -> usize {
-    combat.pending_projectiles.len()
+    combat.shots.accepted().len()
 }
 
 /// Test helper: clear one owner's pending projectile queue.
 #[cfg(test)]
 pub fn clear_pending_projectile_queue_for_test(combat: &mut CombatSystem) {
-    combat.pending_projectiles.clear();
+    combat.shots.clear_accepted();
 }
 
 /// Test helper: last queued projectile DamageType (fire_at → take_damage path).
@@ -646,7 +417,7 @@ pub fn clear_pending_projectile_queue_for_test(combat: &mut CombatSystem) {
 pub fn last_pending_projectile_identity_for_test(
     combat: &CombatSystem,
 ) -> Option<(ObjectId, Option<ObjectId>, String)> {
-    combat.pending_projectiles.last().map(|shot| {
+    combat.shots.accepted().last().map(|shot| {
         (
             shot.shooter_id,
             shot.target_id,
@@ -657,14 +428,14 @@ pub fn last_pending_projectile_identity_for_test(
 
 #[cfg(test)]
 pub fn last_pending_projectile_damage_type_for_test(combat: &CombatSystem) -> Option<DamageType> {
-    combat.pending_projectiles.last().map(|p| p.damage_type)
+    combat.shots.accepted().last().map(|p| p.damage_type)
 }
 
 /// Test helper: last queued projectile secondary-ring amount.
 #[cfg(test)]
 pub fn last_pending_projectile_secondary_damage_for_test(combat: &CombatSystem) -> Option<f32> {
     combat
-        .pending_projectiles
+        .shots.accepted()
         .last()
         .map(|p| p.secondary_damage)
 }
@@ -681,16 +452,16 @@ pub fn leftover_delayed_damage_count_for_test() -> usize {
 /// Test helper: live projectileless delayed-damage queue length.
 #[cfg(test)]
 pub fn live_projectileless_delayed_count_for_test(combat: &CombatSystem) -> usize {
-    combat.projectileless_delayed.len()
+    combat.shots.delayed().len()
 }
 
 #[cfg(test)]
 pub fn last_live_projectileless_delayed_identity_for_test(
     combat: &CombatSystem,
 ) -> Option<(u32, ObjectId, Option<ObjectId>)> {
-    combat.projectileless_delayed.last().map(|entry| {
+    combat.shots.delayed().last().map(|entry| {
         (
-            entry.when,
+            entry.frame(),
             entry.pending.shooter_id,
             entry.pending.target_id,
         )
@@ -744,7 +515,7 @@ pub(in crate::game_logic) fn drain_pending_projectiles_with_partition(
     object_ids: &mut generals_sim::object::ObjectIds,
     random: &game_engine::common::random_value::SessionRandom,
 ) {
-    let pending = std::mem::take(&mut combat.pending_projectiles);
+    let pending = combat.take_pending_projectiles();
 
     for p in pending {
         let profile = definitions.get(&p.projectile_object_name);
@@ -767,7 +538,7 @@ pub(in crate::game_logic) fn drain_pending_projectiles_with_partition(
             ProjectilePlacement::StandaloneFlight,
             random,
         ) {
-            combat.projectileless_delayed.push(immediate);
+            combat.defer_projectileless_shot(immediate);
         }
     }
 }

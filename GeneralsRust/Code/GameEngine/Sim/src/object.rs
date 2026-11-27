@@ -127,23 +127,27 @@ impl ObjectStatusTypes {
 }
 
 /// Veterancy level (matching C++ VeterancyLevel)
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize)]
 #[repr(i32)]
 pub enum VeterancyLevel {
-    Regular = 0,
+    Rookie = 0,
     Veteran = 1,
     Elite = 2,
     Heroic = 3,
 }
 
 impl VeterancyLevel {
+    /// C++ INI name for the unpromoted rank.
+    #[allow(non_upper_case_globals)]
+    pub const Regular: Self = Self::Rookie;
+
     pub fn saturating_add_levels(self, delta: i32) -> Self {
         let raw = self as i32;
-        let min = VeterancyLevel::Regular as i32;
+        let min = VeterancyLevel::Rookie as i32;
         let max = VeterancyLevel::Heroic as i32;
         let clamped = (raw + delta).clamp(min, max);
         match clamped {
-            0 => VeterancyLevel::Regular,
+            0 => VeterancyLevel::Rookie,
             1 => VeterancyLevel::Veteran,
             2 => VeterancyLevel::Elite,
             _ => VeterancyLevel::Heroic,
@@ -154,7 +158,7 @@ impl VeterancyLevel {
 impl fmt::Display for VeterancyLevel {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let label = match self {
-            VeterancyLevel::Regular => "Regular",
+            VeterancyLevel::Rookie => "Regular",
             VeterancyLevel::Veteran => "Veteran",
             VeterancyLevel::Elite => "Elite",
             VeterancyLevel::Heroic => "Heroic",

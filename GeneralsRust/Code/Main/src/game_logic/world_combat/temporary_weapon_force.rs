@@ -187,12 +187,6 @@ impl GameLogic {
         let position = object.get_position();
         let bonuses = self.receiving_weapon_bonus_fields(object, Some(rule));
         let rank = object.experience.level;
-        let native_rank = match rank {
-            VeterancyLevel::Rookie => gamelogic::common::VeterancyLevel::Regular,
-            VeterancyLevel::Veteran => gamelogic::common::VeterancyLevel::Veteran,
-            VeterancyLevel::Elite => gamelogic::common::VeterancyLevel::Elite,
-            VeterancyLevel::Heroic => gamelogic::common::VeterancyLevel::Heroic,
-        };
         let projectile_team_id = object.owner_player_id
             .and_then(|player| self.host_default_team_id(player));
         let projectile_lifecycle = self.projectile_definitions.get(&rule.projectile_name)
@@ -223,11 +217,11 @@ impl GameLogic {
             death_type: crate::game_logic::host_usa_pilot::HostDeathType::from_store(rule.death_type),
             projectile_object_name: rule.projectile_name.clone(),
             projectile_lifecycle,
-            fire_fx_name: rule.get_fire_fx(native_rank).map(|fx| fx.name().to_owned()).unwrap_or_default(),
-            fire_ocl_name: rule.get_fire_ocl_name(native_rank).unwrap_or_default().to_owned(),
-            detonation_fx_name: rule.get_projectile_detonate_fx(native_rank).map(|fx| fx.name().to_owned()).unwrap_or_default(),
-            detonation_ocl_name: rule.get_projectile_detonation_ocl_name(native_rank).unwrap_or_default().to_owned(),
-            exhaust_name: rule.get_projectile_exhaust_name(native_rank).unwrap_or_default().to_owned(),
+            fire_fx_name: rule.get_fire_fx(rank).map(|fx| fx.name().to_owned()).unwrap_or_default(),
+            fire_ocl_name: rule.get_fire_ocl_name(rank).unwrap_or_default().to_owned(),
+            detonation_fx_name: rule.get_projectile_detonate_fx(rank).map(|fx| fx.name().to_owned()).unwrap_or_default(),
+            detonation_ocl_name: rule.get_projectile_detonation_ocl_name(rank).unwrap_or_default().to_owned(),
+            exhaust_name: rule.get_projectile_exhaust_name(rank).unwrap_or_default().to_owned(),
             secondary_damage: rule.secondary_damage * bonuses.0,
             secondary_damage_radius: rule.secondary_damage_radius * bonuses.4,
             shock_wave_amount: rule.shock_wave_amount,

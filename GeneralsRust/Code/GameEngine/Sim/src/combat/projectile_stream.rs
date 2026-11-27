@@ -1,10 +1,10 @@
-//! Host residual for C++ ProjectileStreamUpdate (Weapon.ini ProjectileStreamName).
+//! Live projectile trail state keyed by shooter and weapon slot.
 //!
 //! Tracks recent projectile positions per shooter weapon slot so presentation
 //! can draw stream/trail segments (flamethrower, toxin spray, tracers) without
 //! collapsing concurrent PRIMARY/SECONDARY/TERTIARY ribbons on one unit.
 
-use super::ObjectId;
+use generals_game_domain::ObjectId;
 use glam::Vec3;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -134,7 +134,6 @@ impl ProjectileStreamKey {
     }
 }
 
-
 /// PJST v1 wire shape: one stream per shooter ObjectId.
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
 pub struct ProjectileStreamRegistryV1Compat {
@@ -228,7 +227,10 @@ impl ProjectileStreamRegistry {
     }
 
     /// Migrate PJST v1 shooter-only keys to slot 0.
-    pub fn restore_from_v1_shooter_map(&mut self, streams: HashMap<ObjectId, ProjectileStreamState>) {
+    pub fn restore_from_v1_shooter_map(
+        &mut self,
+        streams: HashMap<ObjectId, ProjectileStreamState>,
+    ) {
         self.streams = streams
             .into_iter()
             .map(|(shooter, state)| (ProjectileStreamKey::new(shooter, 0), state))
@@ -292,7 +294,6 @@ mod tests {
     }
 
     #[test]
-    #[test]
     fn concurrent_weapon_slots_keep_distinct_streams() {
         let mut reg = ProjectileStreamRegistry::new();
         let shooter = ObjectId(7);
@@ -324,6 +325,7 @@ mod tests {
         assert_eq!(snap[1].1.target_id, Some(ObjectId(2)));
     }
 
+    #[test]
     fn vehicle_roof_skim_raises_near_hull() {
         let owner = Vec3::new(0.0, 0.0, 0.0);
         let near = Vec3::new(1.0, 0.0, 0.0);

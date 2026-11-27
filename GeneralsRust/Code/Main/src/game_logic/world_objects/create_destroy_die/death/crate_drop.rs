@@ -1,6 +1,5 @@
 //! CreateCrateDie runs synchronously at its authored onDie slot.
 use super::*;
-use crate::game_logic::host_fx_list_die::leftover_veterancy_from_host;
 use game_engine::common::game_common::Relationship;
 use gamelogic::object::crate_system::CrateSystem;
 use gamelogic::object::die::CreateCrateDieModuleData;
@@ -88,7 +87,7 @@ impl GameLogic {
                 .and_then(|id| self.players.get(&id));
             if !data.passes_on_die_gates(
                 chance,
-                leftover_veterancy_from_host(victim.experience.level),
+                victim.experience.level,
                 killer.map(|object| {
                     object
                         .thing()

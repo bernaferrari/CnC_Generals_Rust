@@ -10,9 +10,7 @@ impl Object {
             None => &default,
         };
         mux.is_die_applicable_for_death(
-            crate::game_logic::host_fx_list_die::leftover_veterancy_from_host(
-                self.experience.level,
-            ),
+            self.experience.level,
             self.structure_topple_status_mask(),
             generals_sim::damage::DeathType::from_u32(self.status.death_type.ordinal() as u32),
         )

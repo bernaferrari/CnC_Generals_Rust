@@ -153718,7 +153718,7 @@
     }
   ],
   "generator": "GeneralsRust/Code/Main/scripts/generate_port_provenance.py",
-  "input_digest": "28a918f5c8483fcdd96bdd0775b123d641ea8a9a2e3e8f89887248ec216df247",
+  "input_digest": "9cd4c1ba877d320a6cae9eaee6c944c67a60acec543dcca93f44713fa9b35646",
   "metric_contract": {
     "behavior_requires_explicit_evidence": true,
     "candidate_mapping_is_reviewed": false,
@@ -210956,7 +210956,7 @@
         "start_line": 1
       },
       "path": "GeneralsRust/Code/Main/src/game_logic/native_die_definition.rs",
-      "sha256": "c7b548457469378be6d3e8727b5040de21667aa6991dec257c8d48d0de7561f8",
+      "sha256": "73e0577e9ffa71d61e33c0afe9359d25141f1b51d63564e114e193056120737d",
       "symbol_index_status": "indexed",
       "symbols": [
         {

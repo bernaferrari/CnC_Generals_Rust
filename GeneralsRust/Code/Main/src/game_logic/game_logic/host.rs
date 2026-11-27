@@ -1141,7 +1141,7 @@ pub struct GameLogic {
     pub(super) weapon_laser_beams_spawned: u32,
     /// C++ ProjectileStreamUpdate residual registry.
     pub(crate) projectile_streams:
-        crate::game_logic::host_projectile_stream::ProjectileStreamRegistry,
+        generals_sim::combat::projectile_stream::ProjectileStreamRegistry,
     /// Pending AssistingClipSize residual clips (DelayBetweenShots cadence).
     pub(super) pending_patriot_assists:
         Vec<crate::game_logic::host_base_defense::PendingPatriotAssist>,

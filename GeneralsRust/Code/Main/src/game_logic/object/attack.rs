@@ -926,18 +926,10 @@ impl Object {
                 name.map(crate::game_logic::weapon_bootstrap::host_projectile_name_for_weapon_name)
                     .unwrap_or_default()
             });
-        let native_rank = match veterancy {
-            crate::game_logic::VeterancyLevel::Rookie => gamelogic::common::VeterancyLevel::Regular,
-            crate::game_logic::VeterancyLevel::Veteran => {
-                gamelogic::common::VeterancyLevel::Veteran
-            }
-            crate::game_logic::VeterancyLevel::Elite => gamelogic::common::VeterancyLevel::Elite,
-            crate::game_logic::VeterancyLevel::Heroic => gamelogic::common::VeterancyLevel::Heroic,
-        };
         let fire_fx_name = native_rule
             .as_ref()
             .map(|rule| {
-                rule.get_fire_fx(native_rank)
+                rule.get_fire_fx(veterancy)
                     .map(|fx| fx.name().to_owned())
                     .unwrap_or_default()
             })
@@ -953,7 +945,7 @@ impl Object {
         let fire_ocl_name = native_rule
             .as_ref()
             .map(|rule| {
-                rule.get_fire_ocl_name(native_rank)
+                rule.get_fire_ocl_name(veterancy)
                     .unwrap_or_default()
                     .to_owned()
             })
@@ -966,7 +958,7 @@ impl Object {
                 })
                 .unwrap_or_default()
             });
-        let detonation_fx_name = native_rule.as_ref().map(|rule| rule.get_projectile_detonate_fx(native_rank).map(|fx| fx.name().to_owned()).unwrap_or_default()).unwrap_or_else(|| name
+        let detonation_fx_name = native_rule.as_ref().map(|rule| rule.get_projectile_detonate_fx(veterancy).map(|fx| fx.name().to_owned()).unwrap_or_default()).unwrap_or_else(|| name
             .map(|weapon_name| {
                 crate::game_logic::weapon_bootstrap::host_detonation_fx_for_weapon_name_at_veterancy(
                     weapon_name,
@@ -974,7 +966,7 @@ impl Object {
                 )
             })
             .unwrap_or_default());
-        let detonation_ocl_name = native_rule.as_ref().map(|rule| rule.get_projectile_detonation_ocl_name(native_rank).unwrap_or_default().to_owned()).unwrap_or_else(|| name
+        let detonation_ocl_name = native_rule.as_ref().map(|rule| rule.get_projectile_detonation_ocl_name(veterancy).unwrap_or_default().to_owned()).unwrap_or_else(|| name
             .map(|weapon_name| {
                 crate::game_logic::weapon_bootstrap::host_detonation_ocl_for_weapon_name_at_veterancy(
                     weapon_name,
@@ -982,7 +974,7 @@ impl Object {
                 )
             })
             .unwrap_or_default());
-        let exhaust_name = native_rule.as_ref().map(|rule| rule.get_projectile_exhaust_name(native_rank).unwrap_or_default().to_owned()).unwrap_or_else(|| name
+        let exhaust_name = native_rule.as_ref().map(|rule| rule.get_projectile_exhaust_name(veterancy).unwrap_or_default().to_owned()).unwrap_or_else(|| name
             .map(|weapon_name| {
                 crate::game_logic::weapon_bootstrap::host_projectile_exhaust_for_weapon_name_at_veterancy(
                     weapon_name,

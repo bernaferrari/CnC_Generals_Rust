@@ -2,17 +2,6 @@ use super::*;
 
 /// Convert the host world's rank enum into the canonical GameLogic enum used
 /// by the WeaponStore. Keep this exhaustive instead of casting ordinal values.
-pub(in crate::game_logic) fn game_logic_veterancy(
-    level: crate::game_logic::VeterancyLevel,
-) -> gamelogic::common::VeterancyLevel {
-    match level {
-        crate::game_logic::VeterancyLevel::Rookie => gamelogic::common::VeterancyLevel::Regular,
-        crate::game_logic::VeterancyLevel::Veteran => gamelogic::common::VeterancyLevel::Veteran,
-        crate::game_logic::VeterancyLevel::Elite => gamelogic::common::VeterancyLevel::Elite,
-        crate::game_logic::VeterancyLevel::Heroic => gamelogic::common::VeterancyLevel::Heroic,
-    }
-}
-
 /// C++ Weapon.ini `FireFX` for the firing object's actual veterancy level.
 ///
 /// This intentionally has no name-based fallback: an unloaded or absent
@@ -23,7 +12,6 @@ pub fn host_fire_fx_for_weapon_name_at_veterancy(
     level: crate::game_logic::VeterancyLevel,
 ) -> String {
     use super::with_host_weapon_store as with_weapon_store;
-    let level = game_logic_veterancy(level);
     with_weapon_store(|store| {
         store.find_weapon_template(name).and_then(|wt| {
             wt.get_fire_fx(level)
@@ -48,7 +36,6 @@ pub fn host_detonation_fx_for_weapon_name_at_veterancy(
     level: crate::game_logic::VeterancyLevel,
 ) -> String {
     use super::with_host_weapon_store as with_weapon_store;
-    let level = game_logic_veterancy(level);
     with_weapon_store(|store| {
         store.find_weapon_template(name).and_then(|wt| {
             wt.get_projectile_detonate_fx(level)
@@ -244,7 +231,6 @@ pub fn host_projectile_exhaust_for_weapon_name_at_veterancy(
     level: crate::game_logic::VeterancyLevel,
 ) -> String {
     use super::with_host_weapon_store as with_weapon_store;
-    let level = game_logic_veterancy(level);
     with_weapon_store(|store| {
         store.find_weapon_template(name).and_then(|wt| {
             wt.get_projectile_exhaust_name(level)
@@ -309,7 +295,6 @@ pub fn host_fire_ocl_for_weapon_name_at_veterancy(
     level: crate::game_logic::VeterancyLevel,
 ) -> String {
     use super::with_host_weapon_store as with_weapon_store;
-    let level = game_logic_veterancy(level);
     with_weapon_store(|store| {
         store.find_weapon_template(name).and_then(|wt| {
             wt.get_fire_ocl_name(level)
@@ -335,7 +320,6 @@ pub fn host_detonation_ocl_for_weapon_name_at_veterancy(
     level: crate::game_logic::VeterancyLevel,
 ) -> String {
     use super::with_host_weapon_store as with_weapon_store;
-    let level = game_logic_veterancy(level);
     with_weapon_store(|store| {
         store.find_weapon_template(name).and_then(|wt| {
             wt.get_projectile_detonation_ocl_name(level)

@@ -158,7 +158,7 @@ impl ContainDeathRules {
         }
         .leftover_die_mux_allows(
             death,
-            crate::game_logic::host_fx_list_die::leftover_veterancy_from_host(veterancy),
+            veterancy,
             status,
         )
     }

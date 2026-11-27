@@ -29,8 +29,7 @@ pub mod host_create_crate_die;
 #[path = "host_float_update.rs"]
 pub mod host_float_update;
 
-#[path = "host_projectile_stream.rs"]
-pub mod host_projectile_stream;
+pub use generals_sim::combat::projectile_stream as host_projectile_stream;
 
 #[path = "host_prone_update.rs"]
 pub mod host_prone_update;
