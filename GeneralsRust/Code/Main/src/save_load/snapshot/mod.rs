@@ -76,6 +76,7 @@ mod client_drawable_xfer;
 mod game_client_save;
 mod game_state;
 mod hotkey_squad_persist;
+pub mod lifecycle_envelope;
 mod lifecycle_records;
 mod lifecycle_tail;
 mod load_post_process;
@@ -172,8 +173,7 @@ pub use hotkey_squad_persist::{
 };
 pub use lifecycle_tail::{
     ContainLink, LifecycleTail, ProducerLink, apply_lifecycle_tail_to_host, capture_lifecycle_tail,
-    contain_fixups_from_tail, decode_lifecycle_tail, encode_lifecycle_tail,
-    producer_fixups_from_tail,
+    decode_lifecycle_tail, encode_lifecycle_tail,
 };
 pub use object::*;
 pub use particle_system_save::{

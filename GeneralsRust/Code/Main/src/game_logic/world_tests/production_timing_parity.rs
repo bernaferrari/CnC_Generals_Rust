@@ -404,7 +404,7 @@ fn queued_production_frames(world: &GameLogic, producer: ObjectId) -> u32 {
         .as_ref()
         .unwrap()
         .production_queue[0];
-    gamelogic::world::entities::production_total_logic_frames(item.total_time, false, 1.0)
+    generals_sim::production::production_total_logic_frames(item.total_time, false, 1.0)
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -753,7 +753,7 @@ fn queued_duration_restore_keeps_upgrade_authored_frames_without_general_or_powe
             assert_eq!(queue[0].cost.supplies, 40);
             assert_eq!(queue[0].total_time, 3.0);
             assert_eq!(
-                gamelogic::world::entities::production_total_logic_frames(
+                generals_sim::production::production_total_logic_frames(
                     queue[0].total_time,
                     true,
                     0.5
@@ -1346,7 +1346,7 @@ fn production_energy_rules_are_zero_until_authored_and_two_worlds_are_independen
         .production_queue[0];
     for head in [head_a, head_b] {
         assert_eq!(
-            gamelogic::world::entities::production_total_logic_frames(head.total_time, false, 1.0),
+            generals_sim::production::production_total_logic_frames(head.total_time, false, 1.0),
             30
         );
         assert_eq!(head.construction_frames, 10);

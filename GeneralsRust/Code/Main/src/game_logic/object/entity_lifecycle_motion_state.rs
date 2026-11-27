@@ -6,7 +6,7 @@ use super::entity_lifecycle_inventory::{decode_payload, push_present};
 use super::entity_lifecycle_tags::*;
 use super::{LocomotorAppearance, LocomotorBehaviorZ, Object, TurretSubState};
 use crate::game_logic::ObjectId;
-use gamelogic::world::entities::{EntityLifecycleCodecError, EntityModuleState};
+use crate::save_load::snapshot::lifecycle_envelope::{EntityLifecycleCodecError, EntityModuleState};
 use glam::Vec3;
 use serde::{Deserialize, Serialize};
 

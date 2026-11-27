@@ -1,7 +1,7 @@
 use super::*;
 use crate::game_logic::object::entity_lifecycle_tags::TAG_FIRING_TRACKER;
 use crate::game_logic::{ObjectId, Team, ThingTemplate};
-use gamelogic::world::entities::EntityModuleState;
+use crate::save_load::snapshot::lifecycle_envelope::EntityModuleState;
 
 #[test]
 fn prior_positional_tracker_payload_decodes_without_restoring_unsaved_idle_reload() {

@@ -255,7 +255,7 @@ pub(super) fn validate(
     Ok(runtimes)
 }
 
-fn has_legacy_timer(envelope: Option<&gamelogic::world::entities::EntityLifecycleEnvelope>) -> bool {
+fn has_legacy_timer(envelope: Option<&crate::save_load::snapshot::lifecycle_envelope::EntityLifecycleEnvelope>) -> bool {
     envelope.is_some_and(|envelope| {
         envelope.module_states.iter().any(|module| {
             matches!(module.tag.as_str(), "LifetimeUpdate" | "HeightDieUpdate")
@@ -334,7 +334,7 @@ pub(super) fn apply_transport_payload_latches(records: Option<&[Record]>, world:
 /// convert Height's relative altitude history into original absolute position.
 fn validate_legacy_admission(
     object: &ObjectSnapshot,
-    envelope: Option<&gamelogic::world::entities::EntityLifecycleEnvelope>,
+    envelope: Option<&crate::save_load::snapshot::lifecycle_envelope::EntityLifecycleEnvelope>,
     world: &GameLogic,
     predates_emp: bool,
 ) -> SaveLoadResult<()> {
@@ -449,12 +449,12 @@ mod tests {
         let mut conflict = super::super::lifecycle_tail::LifecycleTail::default();
         conflict
             .envelopes
-            .push(gamelogic::world::entities::EntityLifecycleEnvelope {
-                version: gamelogic::world::entities::ENTITY_LIFECYCLE_ENVELOPE_VERSION,
+            .push(crate::save_load::snapshot::lifecycle_envelope::EntityLifecycleEnvelope {
+                version: crate::save_load::snapshot::lifecycle_envelope::ENTITY_LIFECYCLE_ENVELOPE_VERSION,
                 entity_id: id.0,
                 destroyed: false,
                 destroyed_at_frame: 0,
-                module_states: vec![gamelogic::world::entities::EntityModuleState {
+                module_states: vec![crate::save_load::snapshot::lifecycle_envelope::EntityModuleState {
                     tag: "LifetimeUpdate".into(),
                     payload: bincode_legacy::serialize(
                         &crate::game_logic::host_lifetime_update::HostLifetimeUpdateData {

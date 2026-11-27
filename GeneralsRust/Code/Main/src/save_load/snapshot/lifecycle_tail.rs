@@ -3,10 +3,7 @@
 use crate::game_logic::object::{decode_lifecycle_snapshot_block, encode_lifecycle_snapshot_block};
 use crate::game_logic::{GameLogic, ObjectId};
 use crate::save_load::{SaveLoadError, SaveLoadResult};
-use gamelogic::world::entities::EntityId;
-use gamelogic::world::entities::EntityLifecycleEnvelope;
-use gamelogic::world::entity_fixup::{ContainFixup, ProducerFixup};
-use gamelogic::world::entity_generation::EntityHandle;
+use super::lifecycle_envelope::EntityLifecycleEnvelope;
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct LifecycleTail {
@@ -907,39 +904,6 @@ fn validate_overlord_containment_candidates(
         }
     }
     Ok(())
-}
-
-pub fn contain_fixups_from_tail(tail: &LifecycleTail) -> Vec<ContainFixup> {
-    tail.contain_links
-        .iter()
-        .map(|link| ContainFixup {
-            container: EntityHandle::new(
-                EntityId::from_raw(link.container_id),
-                link.container_generation,
-            ),
-            occupant: EntityHandle::new(
-                EntityId::from_raw(link.occupant_id),
-                link.occupant_generation,
-            ),
-        })
-        .collect()
-}
-
-pub fn producer_fixups_from_tail(tail: &LifecycleTail) -> Vec<ProducerFixup> {
-    tail.producer_links
-        .iter()
-        .map(|link| ProducerFixup {
-            entity: EntityHandle::new(EntityId::from_raw(link.entity_id), link.entity_generation),
-            producer: if link.producer_id == 0 {
-                None
-            } else {
-                Some(EntityHandle::new(
-                    EntityId::from_raw(link.producer_id),
-                    link.producer_generation,
-                ))
-            },
-        })
-        .collect()
 }
 
 fn apply_host_contain_producer_fixup(tail: &LifecycleTail, game_logic: &mut GameLogic) {

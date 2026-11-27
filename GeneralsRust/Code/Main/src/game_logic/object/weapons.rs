@@ -1163,8 +1163,7 @@ impl Object {
         let victim_kinds = target.kind_of_cpp_mask();
         let mut ready = None;
         let mut backup = None;
-        use gamelogic::world::{WEAPON_SLOT_PRIMARY, WEAPON_SLOT_TERTIARY};
-        for slot in (WEAPON_SLOT_PRIMARY..=WEAPON_SLOT_TERTIARY).rev() {
+        for slot in (WeaponSlotType::Primary as u8..=WeaponSlotType::Tertiary as u8).rev() {
             if !policy.allows_automatic_choice(slot, command_source) {
                 continue;
             }

@@ -137,7 +137,7 @@ fn enqueue(logic: &mut GameLogic, producer: ObjectId, cost: u32) -> Vec<HostEcon
     // in Main's seconds carrier, just above the lower frame boundary.
     assert_eq!(item.total_time, (900.0_f32 + 0.25) / 30.0);
     assert_eq!(
-        gamelogic::world::entities::production_total_logic_frames(
+        generals_sim::production::production_total_logic_frames(
             item.total_time,
             item.is_upgrade(),
             1.0,

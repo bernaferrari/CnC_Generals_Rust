@@ -671,9 +671,9 @@ mod tests {
             object
                 .read()
                 .unwrap()
-                .installed_module_tags()
+                .modules
                 .iter()
-                .any(|tag| tag == "ModuleTag_DestructionProbe")
+                .any(|entry| entry.tag() == "ModuleTag_DestructionProbe")
         );
         owner.process_destroy_list().unwrap();
         assert_eq!(object.read().unwrap().get_id(), INVALID_ID);
@@ -682,9 +682,9 @@ mod tests {
             !object
                 .read()
                 .unwrap()
-                .installed_module_tags()
+                .modules
                 .iter()
-                .any(|tag| tag == "ModuleTag_DestructionProbe")
+                .any(|entry| entry.tag() == "ModuleTag_DestructionProbe")
         );
         drop(object);
         assert_eq!(

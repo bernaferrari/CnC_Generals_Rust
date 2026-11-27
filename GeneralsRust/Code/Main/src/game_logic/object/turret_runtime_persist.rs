@@ -3,7 +3,7 @@
 //! overrides are saved because the Main setter API makes them observable.
 use super::entity_lifecycle_inventory::{decode_payload, encode_payload};
 use super::{Object, turret_runtime::HostTurretExtra};
-use gamelogic::world::entities::EntityLifecycleCodecError;
+use crate::save_load::snapshot::lifecycle_envelope::EntityLifecycleCodecError;
 use serde::{Deserialize, Serialize};
 const MAGIC: &[u8; 4] = b"TURT";
 const VERSION: u8 = 1;
@@ -169,7 +169,7 @@ mod tests {
         TAG_PATH_EXTRA_DISTANCE, TAG_TURRET_RUNTIME,
     };
     use crate::game_logic::{ObjectId, Team, ThingTemplate};
-    use gamelogic::world::entities::EntityModuleState;
+    use crate::save_load::snapshot::lifecycle_envelope::EntityModuleState;
 
     #[test]
     fn malformed_turret_runtime_rejects_before_any_owner_field_changes() {

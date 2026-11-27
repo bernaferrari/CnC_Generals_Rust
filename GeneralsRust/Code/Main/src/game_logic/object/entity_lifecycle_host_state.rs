@@ -8,7 +8,7 @@ use super::Object;
 use super::entity_lifecycle_inventory::{decode_payload, push_present};
 use super::entity_lifecycle_tags::*;
 use crate::game_logic::{ObjectId, SupplyTruckState};
-use gamelogic::world::entities::{EntityLifecycleCodecError, EntityModuleState};
+use crate::save_load::snapshot::lifecycle_envelope::{EntityLifecycleCodecError, EntityModuleState};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]

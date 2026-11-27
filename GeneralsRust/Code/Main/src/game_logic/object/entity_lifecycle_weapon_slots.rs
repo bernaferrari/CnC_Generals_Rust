@@ -5,7 +5,7 @@ use super::Object;
 use super::entity_lifecycle_inventory::{decode_payload, encode_payload};
 use super::entity_lifecycle_tags::TAG_WEAPON_SLOTS;
 use crate::game_logic::Weapon;
-use gamelogic::world::entities::{EntityLifecycleCodecError, EntityModuleState};
+use crate::save_load::snapshot::lifecycle_envelope::{EntityLifecycleCodecError, EntityModuleState};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]

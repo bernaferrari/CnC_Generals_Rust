@@ -12,7 +12,6 @@ use crate::game_logic::host_bone_fx_damage::HostBoneFxDamageData;
 use crate::game_logic::host_lifetime_update::HostLifetimeUpdateData;
 use crate::game_logic::host_upgrade_die::HostUpgradeDieData;
 use crate::game_logic::{KindOf, ObjectId, Team, ThingTemplate, Weapon};
-use gamelogic::world::entities::{EntityStore, TemplateRef, Transform};
 
 fn present_groups(
     object: &Object,
@@ -199,11 +198,11 @@ fn present_groups(
     out
 }
 
-fn attach_round_trip(object: &Object) {
-    attach_round_trip_with_railroad(object, None);
+fn round_trip_lifecycle_snapshot(object: &Object) {
+    round_trip_lifecycle_snapshot_with_railroad(object, None);
 }
 
-fn attach_round_trip_with_railroad(
+fn round_trip_lifecycle_snapshot_with_railroad(
     object: &Object,
     railroad: Option<&crate::game_logic::host_railroad::HostRailroadCar>,
 ) {
@@ -226,43 +225,16 @@ fn attach_round_trip_with_railroad(
         assert!(idx >= prev, "tag order must follow Object field order");
         prev = idx;
     }
-    let mut store = EntityStore::new();
-    let id = store.spawn(
-        TemplateRef::new(object.template_name.clone()),
-        None,
-        Transform::default(),
-        10.0,
-    );
-    let entity = store.get_mut(id).expect("spawned");
-    entity.attach_envelope(envelope.clone());
-    let taken = entity.take_envelope().expect("attached");
-    assert_eq!(taken, envelope);
-}
-
-fn window_fields(src: &str) -> Vec<&str> {
-    const START: &str = "pub fire_weapon_when_dead_fired";
-    const END: &str = "pub weapon_laser_beam_expires_frame";
-    let start = src.find(START).expect("gap window start");
-    let end = src.find(END).expect("gap window end") + END.len();
-    src[start..end]
-        .lines()
-        .filter_map(|line| {
-            let line = line.trim();
-            let rest = line.strip_prefix("pub ")?;
-            let name = rest.split(':').next()?.trim();
-            if name.is_empty() || name.contains('(') {
-                return None;
-            }
-            Some(name)
-        })
-        .collect()
+    let bytes = super::encode_lifecycle_snapshot_block(std::slice::from_ref(&envelope));
+    let restored = super::decode_lifecycle_snapshot_block(&bytes).expect("decode saved lifecycle");
+    assert_eq!(restored, [envelope]);
 }
 
 #[test]
 fn representative_objects_emit_present_groups_in_declaration_order() {
     let mut plain = Object::new(ThingTemplate::new("AuditRanger"), ObjectId(1), Team::USA);
     plain.upgrade_die = Some(HostUpgradeDieData::new("Upgrade_AmericaScoutDrone"));
-    attach_round_trip(&plain);
+    round_trip_lifecycle_snapshot(&plain);
 
     let mut vehicle_t = ThingTemplate::new("AuditCrusader");
     vehicle_t.add_kind_of(KindOf::Vehicle);
@@ -273,7 +245,7 @@ fn representative_objects_emit_present_groups_in_declaration_order() {
         expire_at_frame: 30,
         active: true,
     });
-    attach_round_trip(&vehicle);
+    round_trip_lifecycle_snapshot(&vehicle);
 
     let mut bunker_t = ThingTemplate::new("AuditBunker");
     bunker_t.add_kind_of(KindOf::Structure);
@@ -281,7 +253,7 @@ fn representative_objects_emit_present_groups_in_declaration_order() {
     let mut bunker = Object::new(bunker_t, ObjectId(3), Team::USA);
     bunker.keep_object_die =
         Some(crate::game_logic::host_keep_object_die::HostKeepObjectDieData::default());
-    attach_round_trip(&bunker);
+    round_trip_lifecycle_snapshot(&bunker);
 
     let mut factory_t = ThingTemplate::new("AuditBarracks");
     factory_t.add_kind_of(KindOf::Structure);
@@ -289,7 +261,7 @@ fn representative_objects_emit_present_groups_in_declaration_order() {
     let mut factory = Object::new(factory_t, ObjectId(4), Team::USA);
     factory.base_regenerate =
         Some(crate::game_logic::host_base_regenerate::HostBaseRegenerateData::default());
-    attach_round_trip(&factory);
+    round_trip_lifecycle_snapshot(&factory);
 }
 
 #[test]
@@ -359,8 +331,8 @@ fn railroad_inventory_uses_the_driving_session_conductor() {
     );
     owner.restore_railroad_car(HostRailroadCar::new_locomotive(id));
     let car = owner.railroad_car(id).unwrap();
-    attach_round_trip_with_railroad(owner.host_object(id).unwrap(), Some(&car));
-    attach_round_trip(peer.host_object(id).unwrap());
+    round_trip_lifecycle_snapshot_with_railroad(owner.host_object(id).unwrap(), Some(&car));
+    round_trip_lifecycle_snapshot(peer.host_object(id).unwrap());
     assert!(present_groups(owner.host_object(id).unwrap(), Some(&car)).contains(&TAG_RAILROAD));
     assert!(!present_groups(peer.host_object(id).unwrap(), None).contains(&TAG_RAILROAD));
     assert!(peer.railroad_car(id).is_none());

@@ -388,7 +388,7 @@ fn validate_registry(
     if registry.next_delivery_id <= max_id {
         return Err(corrupted("A10 delivery allocator behind saved IDs"));
     }
-    let envelopes: HashMap<u32, &gamelogic::world::entities::EntityLifecycleEnvelope> = lifecycle
+    let envelopes: HashMap<u32, &crate::save_load::snapshot::lifecycle_envelope::EntityLifecycleEnvelope> = lifecycle
         .envelopes
         .iter()
         .map(|e| (e.entity_id, e))

@@ -72,7 +72,6 @@ pub mod stealth;
 pub mod stealth_update;
 pub mod supply_system;
 pub mod waypoint;
-pub mod world;
 pub use player::PlayerArcExt;
 pub mod alliance;
 pub mod object_creation_list;

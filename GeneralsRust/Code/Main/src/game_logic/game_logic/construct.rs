@@ -1635,32 +1635,32 @@ mod ownership_tests {
         // Nested with_own_services: inner world wins; outer restored after.
         let a = GameLogic::new();
         let b = GameLogic::new();
-        let a_epoch = 11u32;
-        let b_epoch = 22u32;
+        let rank_a = 11;
+        let rank_b = 22;
         a.world_services
             .session_flags()
-            .world_epoch
-            .store(a_epoch, std::sync::atomic::Ordering::Relaxed);
+            .game_start_rank_points
+            .store(rank_a, std::sync::atomic::Ordering::Relaxed);
         b.world_services
             .session_flags()
-            .world_epoch
-            .store(b_epoch, std::sync::atomic::Ordering::Relaxed);
+            .game_start_rank_points
+            .store(rank_b, std::sync::atomic::Ordering::Relaxed);
 
         a.with_own_services(|| {
             assert_eq!(
                 gamelogic::system::engine_stores::active_services()
                     .session_flags()
-                    .world_epoch
+                    .game_start_rank_points
                     .load(std::sync::atomic::Ordering::Relaxed),
-                a_epoch
+                rank_a
             );
             b.with_own_services(|| {
                 assert_eq!(
                     gamelogic::system::engine_stores::active_services()
                         .session_flags()
-                        .world_epoch
+                        .game_start_rank_points
                         .load(std::sync::atomic::Ordering::Relaxed),
-                    b_epoch
+                    rank_b
                 );
                 assert!(std::sync::Arc::ptr_eq(
                     &gamelogic::system::engine_stores::active_services(),
@@ -1670,9 +1670,9 @@ mod ownership_tests {
             assert_eq!(
                 gamelogic::system::engine_stores::active_services()
                     .session_flags()
-                    .world_epoch
+                    .game_start_rank_points
                     .load(std::sync::atomic::Ordering::Relaxed),
-                a_epoch
+                rank_a
             );
             assert!(std::sync::Arc::ptr_eq(
                 &gamelogic::system::engine_stores::active_services(),

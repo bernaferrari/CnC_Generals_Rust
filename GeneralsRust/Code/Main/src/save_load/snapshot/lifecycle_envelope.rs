@@ -1,14 +1,8 @@
-//! Shared Entity↔Main Object lifecycle/state envelope.
+//! Lifecycle envelope codec for the existing Rust world snapshot.
 //!
-//! Wire format mirrors C++ `Object::xfer` v9 module blocks
-//! (`Object.cpp:4264-4356`): `UnsignedShort` count, per module a tag string,
-//! then a length-delimited payload (`beginBlock`/`dataSize`). Unknown tags are
-//! skipped by consuming `payload_len` bytes so the stream offset stays valid.
-//! Cached C++ interfaces (body/contain/AI/physics) are not in this envelope —
-//! they are reconstructed by ctor, same as retail.
-//!
-//! Destroy timing follows `GameLogic::destroyObject` (`GameLogic.cpp:3932-3967`):
-//! mark destroyed and record the frame; removal happens later on the destroy list.
+//! C++ Object::xfer v9 (Object.cpp:4264–4356) determines the module order and
+//! the tagged block contract. The Rust envelope also stores the object ID and
+//! its deferred destruction state. An absent envelope has the legacy default.
 
 use std::fmt;
 
@@ -22,7 +16,7 @@ pub struct EntityModuleState {
     pub payload: Vec<u8>,
 }
 
-/// Versioned Entity↔Main Object lifecycle envelope.
+/// Versioned object lifecycle record.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EntityLifecycleEnvelope {
     pub version: u8,

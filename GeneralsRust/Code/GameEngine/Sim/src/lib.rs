@@ -9,6 +9,7 @@ pub mod error;
 pub mod kind_of;
 pub mod object;
 pub mod pathfinding;
+pub mod production;
 pub mod recurring;
 pub mod science;
 pub mod scripting;

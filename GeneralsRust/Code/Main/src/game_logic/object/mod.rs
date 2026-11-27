@@ -3032,7 +3032,7 @@ mod death;
 mod entity_lifecycle_apply;
 pub(crate) use entity_lifecycle_apply::validate_physics_owner;
 #[cfg(test)]
-mod entity_lifecycle_audit;
+mod entity_lifecycle_wire_tests;
 mod entity_lifecycle_envelope;
 mod entity_lifecycle_flight;
 mod entity_lifecycle_inventory;

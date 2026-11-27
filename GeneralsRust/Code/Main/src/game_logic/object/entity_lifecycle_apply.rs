@@ -11,7 +11,7 @@ use super::entity_lifecycle_residuals::{
     SpecialPowerCooldownResidual, WeaponLockResidual,
 };
 use super::entity_lifecycle_tags::*;
-use gamelogic::world::entities::{EntityLifecycleCodecError, EntityModuleState};
+use crate::save_load::snapshot::lifecycle_envelope::{EntityLifecycleCodecError, EntityModuleState};
 /// Validate the same Physics payload used by lifecycle application before
 /// world replacement retires any receiving Object.
 pub(crate) fn validate_physics_owner(

@@ -189,7 +189,7 @@ fn overlord_redirection_phase_survives_owned_lifecycle_codec() {
         .entity_lifecycle_envelope()
         .expect("valid lifecycle capture");
     let bytes = saved.encode();
-    let decoded = gamelogic::world::entities::EntityLifecycleEnvelope::decode(&bytes).unwrap();
+    let decoded = crate::save_load::snapshot::lifecycle_envelope::EntityLifecycleEnvelope::decode(&bytes).unwrap();
     owner
         .host_object_mut(hull)
         .unwrap()

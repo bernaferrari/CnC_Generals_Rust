@@ -3,7 +3,7 @@
 use super::Object;
 use super::entity_lifecycle_apply::apply_module_states;
 use super::entity_lifecycle_inventory::collect_module_states;
-use gamelogic::world::entities::{
+use crate::save_load::snapshot::lifecycle_envelope::{
     ENTITY_LIFECYCLE_ENVELOPE_VERSION, EntityLifecycleCodecError, EntityLifecycleEnvelope,
 };
 
@@ -135,7 +135,7 @@ mod tests {
         HackerDisableChannelState, Object,
     };
     use crate::game_logic::{ObjectId, Team, ThingTemplate};
-    use gamelogic::world::entities::EntityModuleState;
+    use crate::save_load::snapshot::lifecycle_envelope::EntityModuleState;
 
     fn test_object() -> Object {
         Object::new(ThingTemplate::new("TestUnit"), ObjectId(7), Team::USA)
@@ -322,7 +322,7 @@ mod tests {
     fn inventory_tag_table_is_declaration_order() {
         assert_eq!(
             INVENTORY_TAGS,
-            super::super::entity_lifecycle_audit::EXPECTED_INVENTORY_TAGS
+            super::super::entity_lifecycle_wire_tests::EXPECTED_INVENTORY_TAGS
         );
         assert_eq!(INVENTORY_TAGS[0], "StatusBits");
         assert_eq!(INVENTORY_TAGS[1], "WeaponSlots");

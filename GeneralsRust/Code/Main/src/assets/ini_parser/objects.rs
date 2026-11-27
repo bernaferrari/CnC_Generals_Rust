@@ -191,10 +191,11 @@ impl WeaponSetDefinition {
             return;
         };
         let slot_name = slot_name.to_ascii_uppercase();
+        use game_engine::common::rts::action_manager::WeaponSlotType;
         let slot = match slot_name.as_str() {
-            "PRIMARY" => usize::from(gamelogic::world::WEAPON_SLOT_PRIMARY),
-            "SECONDARY" => usize::from(gamelogic::world::WEAPON_SLOT_SECONDARY),
-            "TERTIARY" => usize::from(gamelogic::world::WEAPON_SLOT_TERTIARY),
+            "PRIMARY" => WeaponSlotType::Primary as usize,
+            "SECONDARY" => WeaponSlotType::Secondary as usize,
+            "TERTIARY" => WeaponSlotType::Tertiary as usize,
             _ => return,
         };
         let field = if auto_choose { "AutoChooseSources" } else { "PreferredAgainst" };

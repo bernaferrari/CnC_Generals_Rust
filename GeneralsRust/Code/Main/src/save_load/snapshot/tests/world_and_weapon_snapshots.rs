@@ -1001,7 +1001,7 @@ fn snapshot_restore_preserves_building_production_modules_and_object_upgrades() 
     assert_eq!(item.template_name, "USA_Ranger");
     assert_eq!(item.cost.supplies, 225);
     assert_eq!(
-        gamelogic::world::entities::production_total_logic_frames(item.total_time, false, 1.0),
+        generals_sim::production::production_total_logic_frames(item.total_time, false, 1.0),
         360,
         "restored queue retains C++ integer duration through the seconds carrier"
     );

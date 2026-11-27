@@ -1561,7 +1561,7 @@ fn china_barracks_quantity_modifier_spawns_two_redguards_residual() {
         .and_then(|building| building.production_queue.first())
         .expect("admitted Red Guard batch");
     assert_eq!(
-        gamelogic::world::entities::production_total_logic_frames(queued.total_time, false, 1.0),
+        generals_sim::production::production_total_logic_frames(queued.total_time, false, 1.0),
         2,
         "queue preserves the authored two-frame integer threshold"
     );

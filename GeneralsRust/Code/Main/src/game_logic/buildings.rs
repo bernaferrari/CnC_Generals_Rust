@@ -211,7 +211,7 @@ impl ProductionItem {
     }
 
     fn total_construction_frames(&self, power_factor: f32) -> u32 {
-        gamelogic::world::entities::production_total_logic_frames(
+        generals_sim::production::production_total_logic_frames(
             self.total_time,
             self.is_upgrade(),
             power_factor,
@@ -221,7 +221,7 @@ impl ProductionItem {
     fn migrate_legacy_construction_frames(&mut self, power_factor: f32) {
         if self.construction_frames == 0 && self.progress > 0.0 {
             self.construction_frames =
-                gamelogic::world::entities::production_frames_from_legacy_progress(
+                generals_sim::production::production_frames_from_legacy_progress(
                     self.progress,
                     self.total_time,
                     self.total_construction_frames(power_factor),
@@ -237,7 +237,7 @@ impl ProductionItem {
             return;
         }
         self.construction_frames = self.construction_frames.saturating_add(1);
-        self.progress = gamelogic::world::entities::production_progress_from_logic_frames(
+        self.progress = generals_sim::production::production_progress_from_logic_frames(
             self.construction_frames,
             total_frames,
             self.total_time,

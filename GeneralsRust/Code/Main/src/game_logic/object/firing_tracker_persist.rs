@@ -3,7 +3,7 @@
 //! represented by `continuous_fire_level`. Reload/audio timers are not saved.
 use super::super::Object;
 use super::{decode_payload, encode_payload};
-use gamelogic::world::entities::EntityLifecycleCodecError;
+use crate::save_load::snapshot::lifecycle_envelope::EntityLifecycleCodecError;
 use serde::{Deserialize, Serialize};
 
 const MAGIC: &[u8; 4] = b"FTRK";

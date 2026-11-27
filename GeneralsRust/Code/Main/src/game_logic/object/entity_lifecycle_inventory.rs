@@ -10,7 +10,7 @@ use super::entity_lifecycle_residuals::{
 use super::entity_lifecycle_tags::*;
 use crate::game_logic::host_fire_weapon_when_damaged::HostFireWeaponWhenDamagedData;
 use crate::game_logic::host_temporary_weapon_behavior::TemporaryWeaponRuntimeBundle;
-use gamelogic::world::entities::{EntityLifecycleCodecError, EntityModuleState};
+use crate::save_load::snapshot::lifecycle_envelope::{EntityLifecycleCodecError, EntityModuleState};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

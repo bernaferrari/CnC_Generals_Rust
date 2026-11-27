@@ -791,7 +791,7 @@ fn pending_shell_bonus_after_load_waits_for_receiving_materialization_phase() {
     shooter.set_max_shots_to_fire(1);
     let muzzle = shooter.get_position();
     let (_, accepted) = shooter.prepare_passive_weapon_shot(
-        gamelogic::world::WEAPON_SLOT_PRIMARY,
+        game_engine::common::rts::action_manager::WeaponSlotType::Primary as u8,
         target,
         10.0,
         false,

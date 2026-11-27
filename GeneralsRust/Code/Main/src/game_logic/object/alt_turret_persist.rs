@@ -8,7 +8,7 @@ use super::Object;
 use super::entity_lifecycle_inventory::{decode_payload, encode_payload};
 use super::turret_ai_state::TurretAiState;
 use super::turret_runtime::HostTurretExtra;
-use gamelogic::world::entities::EntityLifecycleCodecError;
+use crate::save_load::snapshot::lifecycle_envelope::EntityLifecycleCodecError;
 use serde::{Deserialize, Serialize};
 
 const MAGIC: &[u8; 4] = b"ALTT";

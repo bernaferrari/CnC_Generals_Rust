@@ -53336,11 +53336,6 @@
             },
             {
               "cargo_reachable": true,
-              "classification": "implementation",
-              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/entity_module_host.rs"
-            },
-            {
-              "cargo_reachable": true,
               "classification": "test",
               "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/exit_interface_owner_tests.rs"
             },
@@ -187704,7 +187699,7 @@
       ]
     }
   ],
-  "provenance_input_digest": "b3160d2ad9a4336ccb80aa0e2a83f086e5d48ae89908e2b18d04a0d8877f1d76",
+  "provenance_input_digest": "3c26aeb42ae30bc95c7748487b4c05c856dabc23e08994b26a413b1e7c370dca",
   "schema_version": 1,
   "summary": {
     "maximum_packet_size": 15,

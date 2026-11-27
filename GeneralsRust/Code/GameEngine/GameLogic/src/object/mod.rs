@@ -2491,7 +2491,6 @@ mod command_buttons;
 mod command_weapon;
 mod die_hooks;
 mod disabled;
-mod entity_module_host;
 mod init;
 mod object_combat;
 mod object_impl_imports;

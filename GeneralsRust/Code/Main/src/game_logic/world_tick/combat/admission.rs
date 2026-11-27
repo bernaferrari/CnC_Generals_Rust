@@ -235,8 +235,8 @@ impl GameLogic {
                     // WeaponSet.cpp:785-790 picks PRIMARY for an unlocked position shot.
                     ready(0)
                 } else {
-                    use gamelogic::world::{WEAPON_SLOT_PRIMARY, WEAPON_SLOT_TERTIARY};
-                    (WEAPON_SLOT_PRIMARY..=WEAPON_SLOT_TERTIARY).any(|slot| {
+                    use game_engine::common::rts::action_manager::WeaponSlotType;
+                    (WeaponSlotType::Primary as u8..=WeaponSlotType::Tertiary as u8).any(|slot| {
                         policy.allows_automatic_choice(slot, attacker.last_command_source)
                             && ready(slot)
                     })

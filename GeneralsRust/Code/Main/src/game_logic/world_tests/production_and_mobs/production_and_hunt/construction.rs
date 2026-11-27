@@ -148,7 +148,7 @@ fn exact_player_template_production_maps_keep_cpp_name_semantics() {
     use crate::game_logic::host_upgrade_module_residuals::apply_production_cost_factor;
     use game_engine::common::game_common::VeterancyLevel as CommonVeterancyLevel;
     use game_engine::common::rts::player_template::PlayerTemplate;
-    use gamelogic::world::entities::production_total_logic_frames;
+    use generals_sim::production::production_total_logic_frames;
 
     // C++ Player::init copies these three maps from its selected
     // PlayerTemplate, and Player.cpp subsequently queries the exact interned

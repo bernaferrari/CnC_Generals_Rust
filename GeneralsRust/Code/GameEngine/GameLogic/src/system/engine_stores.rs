@@ -45,7 +45,6 @@ pub struct SessionLogicFlags {
     /// 0 = not inside GameLogic::update; else frame.saturating_add(1).
     pub in_update_frame_plus_one: AtomicU32,
     pub rogue_eva_disable_warned: AtomicBool,
-    pub world_epoch: AtomicU32,
     pub next_formation_id: AtomicU32,
     pub next_command_id: AtomicU32,
     pub object_manager_reset_count: AtomicUsize,
@@ -73,7 +72,6 @@ impl Default for SessionLogicFlags {
             script_group_name_id: AtomicU32::new(0),
             in_update_frame_plus_one: AtomicU32::new(0),
             rogue_eva_disable_warned: AtomicBool::new(false),
-            world_epoch: AtomicU32::new(0),
             next_formation_id: AtomicU32::new(1),
             next_command_id: AtomicU32::new(1),
             object_manager_reset_count: AtomicUsize::new(0),
