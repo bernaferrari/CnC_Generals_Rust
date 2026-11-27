@@ -64,14 +64,13 @@ pub enum ScriptPlayerCensusScope {
 #[derive(Clone, Copy)]
 pub enum ScriptSkirmishCensus {
     NeutralUnmanned,
-    Garrisoned,
-    Captured,
+    Garrisoned(u32),
+    Captured(u32),
 }
 
-pub struct ScriptSpecialPowerReadiness {
-    pub template_exists: bool,
-    pub ready: bool,
-    pub next_frame: u32,
+pub enum ScriptSpecialPowerReadiness {
+    Ready,
+    NotReady { earliest_ready_frame: Option<u32> },
 }
 
 /// CPP named unit pointer lifetime, distinct from alive/dead state.

@@ -2254,27 +2254,27 @@ fn live_skirmish_leftover_conditions_read_host_snapshot() {
                 membership_changed: false,
             })
         }
-        fn skirmish_census(
-            &self,
-            player: &str,
-            _: Option<&str>,
-            _: ScriptSkirmishCensus,
-        ) -> ScriptOwnerQuery<i32> {
+        fn condition_player_id(
+            &mut self, player: &str, _: u32, _: Option<&str>,
+        ) -> ScriptOwnerQuery<u32> {
             assert_eq!(player, "PlyrAmerica");
+            ScriptOwnerQuery::Present(0)
+        }
+        fn skirmish_census(&self, query: ScriptSkirmishCensus) -> ScriptOwnerQuery<i32> {
+            assert!(matches!(query, ScriptSkirmishCensus::NeutralUnmanned | ScriptSkirmishCensus::Garrisoned(0) | ScriptSkirmishCensus::Captured(0)));
             ScriptOwnerQuery::Present(1)
+        }
+        fn skirmish_special_power_exists(&self, power: &str) -> ScriptOwnerQuery<bool> {
+            assert_eq!(power, "SuperweaponDaisyCutter");
+            ScriptOwnerQuery::Present(true)
         }
         fn skirmish_special_power_readiness(
             &self,
-            player: &str,
+            player: u32,
             power: &str,
-            _: Option<&str>,
         ) -> ScriptOwnerQuery<ScriptSpecialPowerReadiness> {
-            assert_eq!((player, power), ("PlyrAmerica", "SuperweaponDaisyCutter"));
-            ScriptOwnerQuery::Present(ScriptSpecialPowerReadiness {
-                template_exists: true,
-                ready: true,
-                next_frame: 0,
-            })
+            assert_eq!((player, power), (0, "SuperweaponDaisyCutter"));
+            ScriptOwnerQuery::Present(ScriptSpecialPowerReadiness::Ready)
         }
     }
     let mut owner = Owner;
@@ -2774,13 +2774,21 @@ fn live_host_skirmish_discovered_uses_snapshot() {
         fn after_action(&mut self) -> GameLogicResult<()> {
             Ok(())
         }
+        fn condition_player_id(
+            &mut self, player: &str, _: u32, _: Option<&str>,
+        ) -> crate::scripting::engine::ScriptOwnerQuery<u32> {
+            crate::scripting::engine::ScriptOwnerQuery::Present(match player {
+                "PlyrChina" => 2,
+                "PlyrAmerica" => 1,
+                _ => panic!("unexpected player {player}"),
+            })
+        }
         fn player_discovered_by(
             &self,
-            player: &str,
-            viewer: &str,
-            _: Option<&str>,
+            player: u32,
+            viewer: u32,
         ) -> crate::scripting::engine::ScriptOwnerQuery<bool> {
-            assert_eq!((player, viewer), ("PlyrChina", "PlyrAmerica"));
+            assert_eq!((player, viewer), (2, 1));
             crate::scripting::engine::ScriptOwnerQuery::Present(true)
         }
     }

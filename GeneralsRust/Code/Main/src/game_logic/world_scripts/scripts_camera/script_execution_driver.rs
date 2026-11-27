@@ -1329,15 +1329,7 @@ impl ScriptExecutionDriver<ScriptEngine> for HostScriptExecutionDriver<'_> {
         ScriptOwnerQuery::Present(membership)
     }
 
-    fn skirmish_special_power_readiness(
-        &self,
-        player: &str,
-        power_name: &str,
-        current_player: Option<&str>,
-    ) -> ScriptOwnerQuery<ScriptSpecialPowerReadiness> {
-        let Some(owner) = self.script_player_id(player, current_player) else {
-            return ScriptOwnerQuery::Missing;
-        };
+    fn skirmish_special_power_exists(&self, power_name: &str) -> ScriptOwnerQuery<bool> {
         let template_exists = match self.world.receiving_module_content.as_ref() {
             Some(content) => content
                 .action_definitions()
@@ -1352,11 +1344,18 @@ impl ScriptExecutionDriver<ScriptEngine> for HostScriptExecutionDriver<'_> {
                 })
             }),
         };
-        let mut state = ScriptSpecialPowerReadiness {
-            template_exists,
-            ready: false,
-            next_frame: self.world.frame.wrapping_add(300),
+        ScriptOwnerQuery::Present(template_exists)
+    }
+
+    fn skirmish_special_power_readiness(
+        &self,
+        owner: u32,
+        power_name: &str,
+    ) -> ScriptOwnerQuery<ScriptSpecialPowerReadiness> {
+        let Some(player) = self.world.get_player(owner) else {
+            return ScriptOwnerQuery::Missing;
         };
+        let mut earliest_ready_frame = None;
         for object in self
             .world
             .host_objects()
@@ -1379,49 +1378,36 @@ impl ScriptExecutionDriver<ScriptEngine> for HostScriptExecutionDriver<'_> {
                     })
             {
                 if module.required_science.as_deref().is_some_and(|science| {
-                    !self
-                        .world
-                        .get_player(owner)
-                        .unwrap()
-                        .has_unlocked_science(science)
+                    !player.has_unlocked_science(science)
                 }) {
                     continue;
                 }
                 let state_for_module = object.authored_special_power_timers.get(&module.source_index).copied().unwrap_or_default();
                 let seconds = if module.shared_n_sync {
-                    self.world.get_player(owner).unwrap().authored_special_power_timers
+                    player.authored_special_power_timers
                         .get(&module.special_power_template.to_ascii_lowercase()).copied().unwrap_or(0.0)
                 } else {
                     state_for_module.0
                 };
                 if seconds <= 0.0 && state_for_module.1 == 0 && !object.is_disabled() {
-                    state.ready = true;
-                    return ScriptOwnerQuery::Present(state);
+                    return ScriptOwnerQuery::Present(ScriptSpecialPowerReadiness::Ready);
                 }
                 let ready_frame = self
                     .world
                     .frame
                     .wrapping_add((seconds.max(0.0) * 30.0) as u32);
-                state.next_frame = state.next_frame.min(ready_frame);
+                earliest_ready_frame = Some(earliest_ready_frame.map_or(ready_frame, |earliest: u32| earliest.min(ready_frame)));
             }
         }
-        ScriptOwnerQuery::Present(state)
+        ScriptOwnerQuery::Present(ScriptSpecialPowerReadiness::NotReady { earliest_ready_frame })
     }
 
-    fn skirmish_census(
-        &self,
-        player: &str,
-        current_player: Option<&str>,
-        query: ScriptSkirmishCensus,
-    ) -> ScriptOwnerQuery<i32> {
+    fn skirmish_census(&self, query: ScriptSkirmishCensus) -> ScriptOwnerQuery<i32> {
         let owner = match query {
-            ScriptSkirmishCensus::NeutralUnmanned => self
-                .world
-                .get_players()
-                .values()
+            ScriptSkirmishCensus::NeutralUnmanned => self.world.get_players().values()
                 .find(|player| player.team == Team::Neutral)
                 .map(|player| player.id),
-            _ => self.script_player_id(player, current_player),
+            ScriptSkirmishCensus::Garrisoned(owner) | ScriptSkirmishCensus::Captured(owner) => Some(owner),
         };
         let Some(owner) = owner else {
             return ScriptOwnerQuery::Missing;
@@ -1438,26 +1424,15 @@ impl ScriptExecutionDriver<ScriptEngine> for HostScriptExecutionDriver<'_> {
             })
             .filter(|object| match query {
                 ScriptSkirmishCensus::NeutralUnmanned => object.status.disabled_unmanned,
-                ScriptSkirmishCensus::Garrisoned => {
+                ScriptSkirmishCensus::Garrisoned(_) => {
                     object.is_garrison_contain() && !object.contained_units().is_empty()
                 }
-                ScriptSkirmishCensus::Captured => object.status.private_captured,
+                ScriptSkirmishCensus::Captured(_) => object.status.private_captured,
             })
             .count() as i32;
         ScriptOwnerQuery::Present(count)
     }
-    fn player_discovered_by(
-        &self,
-        player: &str,
-        viewer: &str,
-        current_player: Option<&str>,
-    ) -> ScriptOwnerQuery<bool> {
-        let (Some(owner), Some(viewer)) = (
-            self.script_player_id(player, current_player),
-            self.script_player_id(viewer, current_player),
-        ) else {
-            return ScriptOwnerQuery::Missing;
-        };
+    fn player_discovered_by(&self, owner: u32, viewer: u32) -> ScriptOwnerQuery<bool> {
         let shroud = self
             .world
             .world_services
@@ -1927,19 +1902,14 @@ impl ScriptExecutionDriver<ScriptEngine> for HostScriptExecutionDriver<'_> {
         ScriptOwnerQuery::Present((id as usize, science))
     }
 
-    fn player_can_purchase_science(
-        &mut self,
-        player: &str,
-        player_mask: u32,
-        science: &str,
-        current_player: Option<&str>,
-    ) -> ScriptOwnerQuery<bool> {
-        match self.script_science_source(player, player_mask, science, current_player) {
-            Some((player, facts, _)) => ScriptOwnerQuery::Present(
-                player.science_purchase_cost_with_facts(science, facts).is_some(),
-            ),
-            None => ScriptOwnerQuery::Missing,
-        }
+    fn player_can_purchase_science(&self, player: u32, science: &str) -> ScriptOwnerQuery<bool> {
+        let Some((player, content)) = self.world.get_player(player)
+            .zip(self.world.receiving_module_content.as_ref()) else {
+            return ScriptOwnerQuery::Missing;
+        };
+        ScriptOwnerQuery::Present(player.science_purchase_cost_with_facts(
+            science, content.science_facts_ref(),
+        ).is_some())
     }
 
     fn player_science_action(
@@ -2111,11 +2081,12 @@ impl ScriptExecutionDriver<ScriptEngine> for HostScriptExecutionDriver<'_> {
         if self.uses_legacy_network_player_bindings() {
             return ScriptOwnerQuery::Unavailable;
         }
-        // The installed offline script list and its notifications both use the
-        // admitted host player ID, including sparse lobby IDs.
-        self.query_condition_player_id(player, mask, current_player)
-            .filter(|id| self.world.players.contains_key(id))
-            .map_or(ScriptOwnerQuery::Missing, |id| ScriptOwnerQuery::Present(id as usize))
+        // The installed offline script list and notifications use the host ID.
+        match self.condition_player_id(player, mask, current_player) {
+            ScriptOwnerQuery::Present(id) => ScriptOwnerQuery::Present(id as usize),
+            ScriptOwnerQuery::Missing => ScriptOwnerQuery::Missing,
+            ScriptOwnerQuery::Unavailable => ScriptOwnerQuery::Unavailable,
+        }
     }
 
     fn team_guard(
@@ -2354,35 +2325,30 @@ impl ScriptExecutionDriver<ScriptEngine> for HostScriptExecutionDriver<'_> {
         ))
     }
 
-    fn skirmish_player_exists(
-        &self,
-        player: &str,
-        current_player: Option<&str>,
-    ) -> ScriptOwnerQuery<()> {
-        if self.script_player_id(player, current_player).is_some() {
-            ScriptOwnerQuery::Present(())
-        } else {
-            ScriptOwnerQuery::Missing
-        }
-    }
-
-    fn supplies_value_within_distance(
+    fn condition_player_id(
         &mut self,
         player: &str,
+        mask: u32,
+        current_player: Option<&str>,
+    ) -> ScriptOwnerQuery<u32> {
+        self.query_condition_player_id(player, mask, current_player)
+            .filter(|id| self.world.players.contains_key(id))
+            .map_or(ScriptOwnerQuery::Missing, ScriptOwnerQuery::Present)
+    }
+
+    fn supplies_value_in_perimeter(
+        &mut self,
+        owner: u32,
         distance: f32,
         area: &str,
-        threshold: f32,
         current_player: Option<&str>,
-    ) -> ScriptOwnerQuery<bool> {
-        let Some(owner) = self.script_player_id(player, current_player) else {
-            return ScriptOwnerQuery::Missing;
-        };
+    ) -> ScriptOwnerQuery<f32> {
         let Some(area) = self.world.qualified_script_area(area, current_player) else {
             return ScriptOwnerQuery::Missing;
         };
         let (bounds, radius) = {
             let triggers = self.world.host_trigger_world.lock().expect("owned script trigger query");
-            let Some(trigger) = triggers.trigger_area_by_name(&area) else {
+            let Some(trigger) = triggers.trigger_area_by_canonical_name(&area) else {
                 return ScriptOwnerQuery::Missing;
             };
             (trigger.get_bounds(), trigger.get_radius() + distance)
@@ -2416,33 +2382,29 @@ impl ScriptExecutionDriver<ScriptEngine> for HostScriptExecutionDriver<'_> {
             .map(|object| price.wrapping_mul(object.warehouse_boxes() as u32))
             .max()
             .unwrap_or(0);
-        ScriptOwnerQuery::Present((max_value as f32) > threshold)
+        ScriptOwnerQuery::Present(max_value as f32)
     }
 
     fn tech_building_within_distance(
         &mut self,
-        player: &str,
+        player_id: u32,
         distance: f32,
         area: &str,
         current_player: Option<&str>,
     ) -> ScriptOwnerQuery<bool> {
         use game_engine::common::game_common::Relationship;
-        let Some(player_id) = self
-            .script_player_id(player, current_player)
-            .filter(|id| self.world.players.contains_key(id))
-        else {
-            return ScriptOwnerQuery::Missing;
-        };
         let Some(area) = self.world.qualified_script_area(area, current_player) else {
             return ScriptOwnerQuery::Missing;
         };
-        let player = &self.world.players[&player_id];
+        let Some(player) = self.world.players.get(&player_id) else {
+            return ScriptOwnerQuery::Missing;
+        };
         let Some(trigger) = self
             .world
             .host_trigger_world
             .lock()
             .expect("owned script trigger query")
-            .trigger_area_by_name(&area)
+            .trigger_area_by_canonical_name(&area)
         else {
             return ScriptOwnerQuery::Missing;
         };

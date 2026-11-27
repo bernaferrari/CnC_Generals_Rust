@@ -484,8 +484,11 @@ fn owned_tech_aliases_use_explicit_current_player_and_enemy_perimeter() {
             // broader prepared-side -> host-player admission is a separate
             // migration; this fixture must not assume side index == host ID.
             let query = |world: &mut GameLogic, player: &str, area: &str, current: Option<&str>| {
-                HostScriptExecutionDriver::new(world)
-                    .tech_building_within_distance(player, 0.0, area, current)
+                let mut driver = HostScriptExecutionDriver::new(world);
+                let ScriptOwnerQuery::Present(owner) = driver.condition_player_id(player, 0, current) else {
+                    return ScriptOwnerQuery::Missing;
+                };
+                driver.tech_building_within_distance(owner, 0.0, area, current)
             };
             for player in [THIS_PLAYER, LOCAL_PLAYER] {
                 assert_eq!(
@@ -574,12 +577,12 @@ fn owned_tech_aliases_use_explicit_current_player_and_enemy_perimeter() {
                 world.game_mode = mode;
                 let mut driver = HostScriptExecutionDriver::new(&mut world);
                 assert_eq!(
-                    driver.skirmish_player_exists("AuthoredViewer", Some("AuthoredViewer")),
-                    ScriptOwnerQuery::Present(())
+                    driver.condition_player_id("AuthoredViewer", 0, Some("AuthoredViewer")),
+                    ScriptOwnerQuery::Present(3)
                 );
                 assert_eq!(
                     driver.tech_building_within_distance(
-                        "AuthoredViewer",
+                        3,
                         0.0,
                         "InnerPerimeter3",
                         Some("AuthoredViewer")

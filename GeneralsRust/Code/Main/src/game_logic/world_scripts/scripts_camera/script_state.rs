@@ -611,6 +611,7 @@ impl GameLogic {
             money: player.effective_supplies() as i32,
             energy_production: player.energy_production_at(self.frame),
             energy_consumption: player.power_consumed,
+            science_purchase_points: player.science_purchase_points,
             power_sabotaged: player.power_sabotaged_till_frame != 0
                 && self.frame < player.power_sabotaged_till_frame,
             ..Default::default()

@@ -819,38 +819,77 @@ fn skirmish_counts_use_actual_owner_and_neutral_identity() {
         .disabled_unmanned = true; // wrong owner is excluded.
     let driver = HostScriptExecutionDriver::new(&mut owner);
     assert_eq!(
-        driver.skirmish_census("NamedOwner", None, ScriptSkirmishCensus::Captured),
+        driver.skirmish_census(ScriptSkirmishCensus::Captured(1)),
         ScriptOwnerQuery::Present(1)
     );
     assert_eq!(
-        driver.skirmish_census("NamedOwner", None, ScriptSkirmishCensus::Garrisoned),
+        driver.skirmish_census(ScriptSkirmishCensus::Garrisoned(1)),
         ScriptOwnerQuery::Present(1)
     );
     assert_eq!(
-        driver.skirmish_census(
-            "MissingScriptedSide",
-            None,
-            ScriptSkirmishCensus::NeutralUnmanned
-        ),
+        driver.skirmish_census(ScriptSkirmishCensus::NeutralUnmanned),
         ScriptOwnerQuery::Present(1)
     );
     assert_eq!(
-        HostScriptExecutionDriver::new(&mut peer).skirmish_census(
-            "NamedOwner",
-            None,
-            ScriptSkirmishCensus::Captured
-        ),
+        HostScriptExecutionDriver::new(&mut peer).skirmish_census(ScriptSkirmishCensus::Captured(1)),
         ScriptOwnerQuery::Present(0)
     );
     assert_eq!(
-        HostScriptExecutionDriver::new(&mut peer).skirmish_census(
-            "MissingScriptedSide",
-            None,
-            ScriptSkirmishCensus::NeutralUnmanned
-        ),
+        HostScriptExecutionDriver::new(&mut peer).skirmish_census(ScriptSkirmishCensus::NeutralUnmanned),
         ScriptOwnerQuery::Present(0)
     );
 }
+#[test]
+fn skirmish_discovery_uses_both_cached_sides_and_receiving_visibility() {
+    use generals_sim::object::ObjectShroudStatus;
+
+    let (mut owner, unit, _) = world();
+    let (mut peer, peer_unit, _) = world();
+    assert_eq!(unit, peer_unit);
+    owner.world_services.shroud().lock().unwrap()
+        .set_host_object_shroud_status(2, unit.0, ObjectShroudStatus::PartialClear);
+    peer.world_services.shroud().lock().unwrap()
+        .set_host_object_shroud_status(2, unit.0, ObjectShroudStatus::Shrouded);
+
+    let mut condition = strings(
+        ConditionType::SkirmishPlayerHasDiscoveredPlayer,
+        &[(ParameterType::Side, "FormerOwner"), (ParameterType::Side, "FormerViewer")],
+    );
+    condition.parameters[0].as_mut().unwrap().int_value = 1 << 1;
+    condition.parameters[1].as_mut().unwrap().int_value = 1 << 2;
+    assert!(owner.owned_script_condition_for_test(condition.clone()));
+    assert!(!peer.owned_script_condition_for_test(condition));
+}
+
+#[test]
+fn script_economy_conditions_read_the_receiving_players_power_and_science_points() {
+    let (mut owner, _, _) = world();
+    let (mut peer, _, _) = world();
+    for (world, power, points) in [(&mut owner, 8, 3), (&mut peer, 2, 1)] {
+        let player = world.players.get_mut(&1).unwrap();
+        player.power_produced = power;
+        player.power_consumed = 4;
+        player.science_purchase_points = points;
+    }
+
+    for (kind, comparison, threshold) in [
+        (ConditionType::PlayerPowerComparePercent, Some(3), 150),
+        (ConditionType::PlayerExcessPowerCompareValue, Some(4), 0),
+        (ConditionType::PlayerHasSciencepurchasepoints, None, 2),
+    ] {
+        let mut condition = Condition::new(kind);
+        let mut side = Parameter::with_string(ParameterType::Side, "FormerOwner".into());
+        side.int_value = 1 << 1;
+        condition.add_parameter(side).unwrap();
+        if let Some(comparison) = comparison {
+            condition.add_parameter(Parameter::with_int(ParameterType::Comparison, comparison)).unwrap();
+        }
+        condition.add_parameter(Parameter::with_int(ParameterType::Int, threshold)).unwrap();
+        assert!(owner.owned_script_condition_for_test(condition.clone()), "{kind:?}");
+        assert!(!peer.owned_script_condition_for_test(condition), "{kind:?}");
+    }
+}
+
 #[test]
 fn special_power_readiness_uses_owned_module_and_timer() {
     use super::script_execution_driver::HostScriptExecutionDriver;
@@ -875,14 +914,14 @@ fn special_power_readiness_uses_owned_module_and_timer() {
         .host_object_mut(unit)
         .unwrap()
         .set_special_power_ready_seconds(&SpecialPowerType::SpySatellite, 2.0);
-    let ScriptOwnerQuery::Present(state) = HostScriptExecutionDriver::new(&mut owner)
-        .skirmish_special_power_readiness("NamedOwner", POWER, None)
-    else {
-        panic!("owned power")
-    };
-    assert!(state.template_exists);
-    assert!(!state.ready);
-    assert_eq!(state.next_frame, 60);
+    let driver = HostScriptExecutionDriver::new(&mut owner);
+    assert_eq!(driver.skirmish_special_power_exists(POWER), ScriptOwnerQuery::Present(true));
+    assert!(matches!(
+        driver.skirmish_special_power_readiness(1, POWER),
+        ScriptOwnerQuery::Present(generals_sim::scripting::world::ScriptSpecialPowerReadiness::NotReady {
+            earliest_ready_frame: Some(60),
+        })
+    ));
     owner
         .host_object_mut(unit)
         .unwrap()

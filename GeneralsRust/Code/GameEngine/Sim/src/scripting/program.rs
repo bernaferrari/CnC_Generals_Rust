@@ -35,7 +35,7 @@ impl ComparisonType {
         self.compare(lhs, rhs)
     }
 
-    pub(super) fn compare<T: Ord>(self, lhs: T, rhs: T) -> bool {
+    pub(super) fn compare<T: PartialOrd>(self, lhs: T, rhs: T) -> bool {
         match self {
             Self::LessThan => lhs < rhs,
             Self::LessEqual => lhs <= rhs,

@@ -1339,6 +1339,7 @@ mod eval_owned_body_census;
 mod eval_owned_player_area;
 #[cfg(test)]
 mod eval_owned_player_census;
+#[cfg(test)]
 mod eval_owned_skirmish;
 mod eval_player_events;
 #[cfg(test)]

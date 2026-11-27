@@ -289,6 +289,22 @@ fn this_player_enemy_science_condition_and_action_query_the_receiving_ai_once() 
                     SCIENCE,
                 ),
             ));
+            let mut fresh_purchase = script(
+                "purchase_after_enemy_check_is_due",
+                science_condition(
+                    ConditionType::PlayerCanPurchaseScience,
+                    THIS_PLAYER_ENEMY,
+                    0,
+                    SCIENCE,
+                ),
+                science_action(
+                    ScriptActionType::PlayerGrantScience,
+                    THIS_PLAYER_ENEMY,
+                    SCIENCE,
+                ),
+            );
+            fresh_purchase.is_active = false;
+            scripts.append_script(fresh_purchase);
             scripts.append_script(script(
                 "observe_enemy_science",
                 science_condition(
@@ -320,12 +336,21 @@ fn this_player_enemy_science_condition_and_action_query_the_receiving_ai_once() 
             assert_eq!(owner.ai_manager.ai_players[&0].frame_to_check_enemy, 150);
             assert!(!owner.players[&1].has_unlocked_science(SCIENCE));
 
-            // The due condition asks the receiving AI for its dynamic enemy;
-            // its following action uses the cached enemy for that same frame.
+            // C++ playerFromParam latches a failed lookup even for an enemy token.
             owner.frame = 150;
             owner.evaluate_and_execute_scripts(0.0);
+            assert_eq!(owner.ai_manager.ai_players[&0].enemy_player_id, None);
+            assert_eq!(owner.ai_manager.ai_players[&0].frame_to_check_enemy, 150);
+            assert!(!owner.players[&1].has_unlocked_science(SCIENCE));
+
+            // A fresh operand asks the receiving AI, then its action reuses
+            // that AI's selection in the same frame.
+            let engine = owner.owned_script_engine.as_ref().unwrap();
+            assert!(engine.set_script_active_by_name("purchase_after_enemy_check_is_due", true));
+            owner.frame = 151;
+            owner.evaluate_and_execute_scripts(0.0);
             assert_eq!(owner.ai_manager.ai_players[&0].enemy_player_id, Some(1));
-            assert_eq!(owner.ai_manager.ai_players[&0].frame_to_check_enemy, 300);
+            assert_eq!(owner.ai_manager.ai_players[&0].frame_to_check_enemy, 301);
             assert!(owner.players[&1].has_unlocked_science(SCIENCE));
             assert!(!owner.players[&0].has_unlocked_science(SCIENCE));
             assert!(!engine_flag(&owner, OBSERVER_A));
@@ -333,7 +358,7 @@ fn this_player_enemy_science_condition_and_action_query_the_receiving_ai_once() 
             assert!(engine.is_science_acquired(1, science, false));
 
             // This observer first resolves the enemy after the AI has acquired it.
-            // The original observer cached the failed lookup on frame zero.
+            // The original observer still holds its failed SIDE lookup.
             let mut fresh = ScriptList::new();
             fresh.append_script(script(
                 "observe_after_enemy_acquired",
@@ -346,7 +371,7 @@ fn this_player_enemy_science_condition_and_action_query_the_receiving_ai_once() 
                 flag_action(OBSERVER_A),
             ));
             engine.set_script_list_for_player(0, Some(Box::new(fresh))).unwrap();
-            owner.frame = 151;
+            owner.frame = 152;
             owner.evaluate_and_execute_scripts(0.0);
             assert!(engine_flag(&owner, OBSERVER_A));
             assert!(!owner.owned_script_engine.as_ref().unwrap().is_science_acquired(1, science, false));
@@ -363,7 +388,7 @@ fn this_player_enemy_science_condition_and_action_query_the_receiving_ai_once() 
             assert!(peer.players[&1].has_unlocked_science(SCIENCE));
             assert!(!owner.players[&0].has_unlocked_science(SCIENCE));
             assert!(owner.players[&1].has_unlocked_science(SCIENCE));
-            assert_eq!(owner.ai_manager.ai_players[&0].frame_to_check_enemy, 300);
+            assert_eq!(owner.ai_manager.ai_players[&0].frame_to_check_enemy, 301);
         },
     );
 }

@@ -210,31 +210,9 @@ impl ScriptConditionEvaluator<'_> {
     pub(crate) fn eval_skirmish_supplies_value_within_distance(
         &self,
         condition: &Condition,
-        driver: &mut dyn ScriptExecutionDriver<crate::scripting::engine::ScriptEngine>,
     ) -> Result<ScriptConditionResult, ScriptError> {
-        use crate::scripting::engine::ScriptOwnerQuery;
-        let raw_string = |index| {
-            condition
-                .get_parameter(index)
-                .map(|parameter| parameter.get_string())
-                .ok_or_else(|| ScriptError::ParameterNotFound(format!("Parameter {index} not found")))
-        };
-        let raw_player = raw_string(0)?;
         let distance = self.get_condition_real_param(condition, 1)?;
-        let raw_area = raw_string(2)?;
         let compare_value = self.get_condition_real_param(condition, 3)?;
-        let current_player = self
-            .context
-            .with_engine_ref(|engine| engine.get_current_player_name())
-            .flatten();
-        match driver.supplies_value_within_distance(
-            raw_player, distance, raw_area, compare_value, current_player.as_deref(),
-        ) {
-            ScriptOwnerQuery::Present(found) => return Ok(Self::bool_result(found)),
-            ScriptOwnerQuery::Missing => return Ok(ScriptConditionResult::False),
-            ScriptOwnerQuery::Unavailable => {}
-        }
-
         let player_name = self.get_condition_string_param(condition, 0)?;
         let area_name = self.get_condition_string_param(condition, 2)?;
 
@@ -342,54 +320,7 @@ impl ScriptConditionEvaluator<'_> {
     pub(crate) fn eval_skirmish_tech_building_within_distance(
         &self,
         condition: &mut Condition,
-        driver: &mut dyn ScriptExecutionDriver<crate::scripting::engine::ScriptEngine>,
     ) -> Result<ScriptConditionResult, ScriptError> {
-        use crate::scripting::engine::ScriptOwnerQuery;
-        let raw_player = condition
-            .get_parameter(0)
-            .ok_or_else(|| ScriptError::ParameterNotFound("Parameter 0 not found".into()))?
-            .get_string();
-        let current_player = self
-            .context
-            .with_engine_ref(|engine| engine.get_current_player_name())
-            .flatten();
-        match driver.skirmish_player_exists(raw_player, current_player.as_deref()) {
-            ScriptOwnerQuery::Missing => return Ok(ScriptConditionResult::False),
-            ScriptOwnerQuery::Present(()) => {
-                // CPP2233: player first, cached result next, then trigger/search.
-                if condition.custom_data == 1 {
-                    return Ok(ScriptConditionResult::True);
-                }
-                if condition.custom_data == -1 {
-                    return Ok(ScriptConditionResult::False);
-                }
-                let distance = self.get_condition_real_param(condition, 1)?;
-                // CPP passes the location string literally. Player/team token
-                // resolution would rewrite authored trigger names and consult
-                // ambient players before reaching the selected owner.
-                let area = condition
-                    .get_parameter(2)
-                    .ok_or_else(|| ScriptError::ParameterNotFound("Parameter 2 not found".into()))?
-                    .get_string();
-                return Ok(
-                    match driver.tech_building_within_distance(
-                        raw_player,
-                        distance,
-                        area,
-                        current_player.as_deref(),
-                    ) {
-                        ScriptOwnerQuery::Present(found) => {
-                            condition.custom_data = if found { 1 } else { -1 };
-                            Self::bool_result(found)
-                        }
-                        ScriptOwnerQuery::Missing | ScriptOwnerQuery::Unavailable => {
-                            ScriptConditionResult::False
-                        }
-                    },
-                );
-            }
-            ScriptOwnerQuery::Unavailable => {}
-        }
         let player_name = self.get_condition_string_param(condition, 0)?;
         let __player_list_arc = player_list();
             let leftover_player = __player_list_arc.read()
@@ -1526,10 +1457,11 @@ mod tech_building_latch_tests {
             Ok(())
         }
 
-        fn skirmish_player_exists(&self, player: &str, _: Option<&str>) -> ScriptOwnerQuery<()> {
+        fn condition_player_id(&mut self, player: &str, mask: u32, _: Option<&str>) -> ScriptOwnerQuery<u32> {
+            assert!(matches!(mask, 0 | 2));
             assert_eq!(player, "PlyrAmerica");
             if self.player_exists {
-                ScriptOwnerQuery::Present(())
+                ScriptOwnerQuery::Present(1)
             } else {
                 ScriptOwnerQuery::Missing
             }
@@ -1537,7 +1469,7 @@ mod tech_building_latch_tests {
 
         fn tech_building_within_distance(
             &mut self,
-            player: &str,
+            player: u32,
             distance: f32,
             area: &str,
             _: Option<&str>,
@@ -1546,7 +1478,7 @@ mod tech_building_latch_tests {
                 !self.forbid_search,
                 "cached or missing player must not perform search"
             );
-            assert_eq!((player, distance, area), ("PlyrAmerica", 200.0, "HomeBase"));
+            assert_eq!((player, distance, area), (1, 200.0, "HomeBase"));
             self.result
         }
     }
@@ -1662,17 +1594,18 @@ mod tech_building_latch_tests {
             fn after_action(&mut self) -> crate::GameLogicResult<()> {
                 Ok(())
             }
-            fn skirmish_player_exists(
-                &self,
+            fn condition_player_id(
+                &mut self,
                 _: &str,
+                _: u32,
                 current: Option<&str>,
-            ) -> ScriptOwnerQuery<()> {
+            ) -> ScriptOwnerQuery<u32> {
                 assert_eq!(current, Some("Viewer"));
-                ScriptOwnerQuery::Present(())
+                ScriptOwnerQuery::Present(1)
             }
             fn tech_building_within_distance(
                 &mut self,
-                _: &str,
+                _: u32,
                 _: f32,
                 area: &str,
                 _: Option<&str>,

@@ -74,7 +74,8 @@ impl ScriptInterpreter {
         }
         let (player_index, scope) = match kind {
             PlayerHasCredits => (2, MoneyAndPower),
-            PlayerHasPower | PlayerHasNoPower => (0, MoneyAndPower),
+            PlayerHasPower | PlayerHasNoPower | PlayerPowerComparePercent
+            | PlayerExcessPowerCompareValue | PlayerHasSciencepurchasepoints => (0, MoneyAndPower),
             BuiltByPlayer => (1, TemplateCounts),
             PlayerHasObjectComparison | PlayerLostObjectType => (0, TemplateCounts),
             PlayerAllBuildfacilitiesDestroyed
@@ -145,6 +146,23 @@ impl ScriptInterpreter {
             }
             PlayerHasPower => census.has_sufficient_power(),
             PlayerHasNoPower => !census.has_sufficient_power(),
+            PlayerPowerComparePercent => {
+                let threshold = parameter(2)?.get_int() as f32 / 100.0;
+                comparison(1)?.is_some_and(|op| op.compare(census.supply_ratio(), threshold))
+            }
+            PlayerExcessPowerCompareValue => {
+                let threshold = parameter(2)?.get_int();
+                comparison(1)?.is_some_and(|op| op.compare_i32(census.excess_power(), threshold))
+            }
+            PlayerHasSciencepurchasepoints => {
+                if let Some(threshold) = condition.get_parameter(2) {
+                    // Historical Rust scripts also accepted a comparison operand.
+                    comparison(1)?.unwrap_or(ComparisonType::Equal)
+                        .compare_i32(census.science_purchase_points, threshold.get_int())
+                } else {
+                    census.science_purchase_points >= parameter(1)?.get_int()
+                }
+            }
             PlayerAllBuildfacilitiesDestroyed => !census.has_any_build_facility,
             PlayerHasNOrFewerBuildings => parameter(1)?.get_int() >= census.building_count,
             PlayerHasNOrFewerFactionBuildings => {

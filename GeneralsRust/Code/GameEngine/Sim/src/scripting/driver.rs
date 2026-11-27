@@ -333,13 +333,13 @@ pub trait ScriptExecutionDriver<Interpreter: ?Sized> {
         ScriptOwnerQuery::Unavailable
     }
 
-    /// Select the tech-query owner before reading its persistent condition latch.
-    /// Player tokens are raw; current_player belongs to this script walk.
-    fn skirmish_player_exists(
-        &self,
+    /// Resolve a SIDE against this world's roster, including a cached player mask.
+    fn condition_player_id(
+        &mut self,
         _player: &str,
+        _mask: u32,
         _current_player: Option<&str>,
-    ) -> ScriptOwnerQuery<()> {
+    ) -> ScriptOwnerQuery<u32> {
         ScriptOwnerQuery::Unavailable
     }
 
@@ -357,14 +357,13 @@ pub trait ScriptExecutionDriver<Interpreter: ?Sized> {
     }
 
     /// C++ ScriptConditions::evaluateSkirmishSuppliesWithinDistancePerimeter.
-    fn supplies_value_within_distance(
+    fn supplies_value_in_perimeter(
         &mut self,
-        _player: &str,
+        _player: u32,
         _distance: f32,
         _area: &str,
-        _threshold: f32,
         _current_player: Option<&str>,
-    ) -> ScriptOwnerQuery<bool> {
+    ) -> ScriptOwnerQuery<f32> {
         ScriptOwnerQuery::Unavailable
     }
 
@@ -373,7 +372,7 @@ pub trait ScriptExecutionDriver<Interpreter: ?Sized> {
     /// neither Missing nor Unavailable permits a foreign-owner fallback.
     fn tech_building_within_distance(
         &mut self,
-        _player: &str,
+        _player: u32,
         _distance: f32,
         _area: &str,
         _current_player: Option<&str>,
@@ -1033,11 +1032,14 @@ pub trait ScriptExecutionDriver<Interpreter: ?Sized> {
     ) -> Option<GameLogicResult<()>> {
         None
     }
+    fn skirmish_special_power_exists(&self, _power: &str) -> ScriptOwnerQuery<bool> {
+        ScriptOwnerQuery::Unavailable
+    }
+
     fn skirmish_special_power_readiness(
         &self,
-        _player: &str,
+        _player: u32,
         _power: &str,
-        _current_player: Option<&str>,
     ) -> ScriptOwnerQuery<ScriptSpecialPowerReadiness> {
         ScriptOwnerQuery::Unavailable
     }
@@ -1075,19 +1077,13 @@ pub trait ScriptExecutionDriver<Interpreter: ?Sized> {
         ScriptOwnerQuery::Unavailable
     }
 
-    fn skirmish_census(
-        &self,
-        _player: &str,
-        _current_player: Option<&str>,
-        _query: ScriptSkirmishCensus,
-    ) -> ScriptOwnerQuery<i32> {
+    fn skirmish_census(&self, _query: ScriptSkirmishCensus) -> ScriptOwnerQuery<i32> {
         ScriptOwnerQuery::Unavailable
     }
     fn player_discovered_by(
         &self,
-        _player: &str,
-        _viewer: &str,
-        _current_player: Option<&str>,
+        _player: u32,
+        _viewer: u32,
     ) -> ScriptOwnerQuery<bool> {
         ScriptOwnerQuery::Unavailable
     }
@@ -1173,11 +1169,9 @@ pub trait ScriptExecutionDriver<Interpreter: ?Sized> {
     }
 
     fn player_can_purchase_science(
-        &mut self,
-        _player: &str,
-        _player_mask: u32,
+        &self,
+        _player: u32,
         _science: &str,
-        _current_player: Option<&str>,
     ) -> ScriptOwnerQuery<bool> {
         ScriptOwnerQuery::Unavailable
     }

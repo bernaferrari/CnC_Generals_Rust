@@ -225,36 +225,6 @@ impl ScriptConditionEvaluator<'_> {
             return Ok(result);
         }
 
-        if let Some(result) = self.eval_owned_special_power(condition, driver)? {
-            return Ok(result);
-        }
-        if let Some(result) = self.eval_owned_skirmish(condition, driver)? {
-            return Ok(result);
-        }
-
-        if condition_type == ConditionType::PlayerCanPurchaseScience {
-            use crate::scripting::engine::ScriptOwnerQuery;
-            let player = condition
-                .get_parameter(0)
-                .ok_or_else(|| ScriptError::ParameterNotFound("Parameter 0 not found".into()))?;
-            let science = condition
-                .get_parameter(1)
-                .ok_or_else(|| ScriptError::ParameterNotFound("Parameter 1 not found".into()))?
-                .get_string();
-            let current = self.context.borrowed_engine().get_current_player_name();
-            let query = driver.player_can_purchase_science(
-                player.get_string(),
-                player.get_int() as u32,
-                science,
-                current.as_deref(),
-            );
-            match query {
-                ScriptOwnerQuery::Present(value) => return Ok(bool_result(value)),
-                ScriptOwnerQuery::Missing => return Ok(bool_result(false)),
-                ScriptOwnerQuery::Unavailable => {}
-            }
-        }
-
         // Dispatch to the appropriate handler based on condition type
         match condition_type {
             ConditionType::ConditionTrue
@@ -474,10 +444,10 @@ impl ScriptConditionEvaluator<'_> {
             ConditionType::SkirmishValueInArea => self.eval_skirmish_value_in_area(condition),
             ConditionType::SkirmishPlayerFaction => self.eval_skirmish_player_faction(condition),
             ConditionType::SkirmishSuppliesValueWithinDistance => {
-                self.eval_skirmish_supplies_value_within_distance(condition, driver)
+                self.eval_skirmish_supplies_value_within_distance(condition)
             }
             ConditionType::SkirmishTechBuildingWithinDistance => {
-                self.eval_skirmish_tech_building_within_distance(condition, driver)
+                self.eval_skirmish_tech_building_within_distance(condition)
             }
             ConditionType::SkirmishCommandButtonReadyAll => {
                 self.eval_skirmish_command_button_ready_all(condition)

@@ -97,6 +97,11 @@ impl ScriptInterpreter {
         if let Some(value) = self.try_evaluate_area_supply_condition(condition, frame, queries)? {
             return Ok(Some(value));
         }
+        if let Some(value) =
+            self.try_evaluate_skirmish_condition(condition, frame, queries.receiving_world())?
+        {
+            return Ok(Some(value));
+        }
         if let Some(value) = self.try_evaluate_named_condition(condition, queries)? {
             return Ok(Some(value));
         }

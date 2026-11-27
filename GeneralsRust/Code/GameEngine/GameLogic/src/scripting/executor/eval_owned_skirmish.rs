@@ -1,95 +1,11 @@
-//! CPP2307/2368/2419/2624: canonical skirmish owner queries.
+//! Ready-frame latches and SIDE caching through the script condition entry.
 use super::*;
 use crate::scripting::engine::{ScriptExecutionDriver, ScriptOwnerQuery, ScriptSkirmishCensus};
-impl ScriptConditionEvaluator<'_> {
-    pub(super) fn eval_owned_special_power(
-        &self,
-        condition: &mut Condition,
-        driver: &dyn ScriptExecutionDriver<crate::scripting::engine::ScriptEngine>,
-    ) -> Result<Option<ScriptConditionResult>, ScriptError> {
-        if condition.get_condition_type() != ConditionType::SkirmishSpecialPowerReady {
-            return Ok(None);
-        }
-        let player = self.get_condition_string_param(condition, 0)?;
-        let power = self.get_condition_string_param(condition, 1)?;
-        let latch = condition.get_parameter(1).unwrap().get_int();
-        let frame = self.context.with_state(|state| state.current_frame);
-        let current = self.context.borrowed_engine().get_current_player_name();
-        // Establish that the supplied owner handles this family before applying
-        // its condition-owned latch. Missing never falls back to an ambient owner.
-        let state =
-            match driver.skirmish_special_power_readiness(&player, &power, current.as_deref()) {
-                ScriptOwnerQuery::Unavailable => return Ok(None),
-                ScriptOwnerQuery::Missing => return Ok(Some(Self::bool_result(false))),
-                ScriptOwnerQuery::Present(state) => state,
-            };
-        if latch == -1 || (latch > 0 && latch as u32 > frame) {
-            return Ok(Some(Self::bool_result(false)));
-        }
-        if !state.template_exists {
-            condition.parameters[1].as_mut().unwrap().int_value = -1;
-            return Ok(Some(Self::bool_result(false)));
-        }
-        if state.ready {
-            return Ok(Some(Self::bool_result(true)));
-        }
-        condition.parameters[1].as_mut().unwrap().int_value = state.next_frame as i32;
-        Ok(Some(Self::bool_result(false)))
-    }
-    pub(super) fn eval_owned_skirmish(
-        &self,
-        condition: &Condition,
-        driver: &dyn ScriptExecutionDriver<crate::scripting::engine::ScriptEngine>,
-    ) -> Result<Option<ScriptConditionResult>, ScriptError> {
-        let kind = condition.get_condition_type();
-        let query = match kind {
-            ConditionType::SkirmishUnownedFactionUnitExists => {
-                ScriptSkirmishCensus::NeutralUnmanned
-            }
-            ConditionType::SkirmishPlayerHasComparisonGarrisoned => {
-                ScriptSkirmishCensus::Garrisoned
-            }
-            ConditionType::SkirmishPlayerHasComparisonCapturedUnits => {
-                ScriptSkirmishCensus::Captured
-            }
-            ConditionType::SkirmishPlayerHasDiscoveredPlayer => {
-                let current = self.context.borrowed_engine().get_current_player_name();
-                return Ok(
-                    match driver.player_discovered_by(
-                        &self.get_condition_string_param(condition, 0)?,
-                        &self.get_condition_string_param(condition, 1)?,
-                        current.as_deref(),
-                    ) {
-                        ScriptOwnerQuery::Unavailable => None,
-                        ScriptOwnerQuery::Missing => Some(Self::bool_result(false)),
-                        ScriptOwnerQuery::Present(value) => Some(Self::bool_result(value)),
-                    },
-                );
-            }
-            _ => return Ok(None),
-        };
-        let current = self.context.borrowed_engine().get_current_player_name();
-        let count = match driver.skirmish_census(
-            &self.get_condition_string_param(condition, 0)?,
-            current.as_deref(),
-            query,
-        ) {
-            ScriptOwnerQuery::Unavailable => return Ok(None),
-            ScriptOwnerQuery::Missing => return Ok(Some(Self::bool_result(false))),
-            ScriptOwnerQuery::Present(count) => count,
-        };
-        Ok(Some(Self::bool_result(Self::compare_i32(
-            self.get_condition_comparison_param(condition, 1)?,
-            count,
-            self.get_condition_int_param(condition, 2)?,
-        ))))
-    }
-}
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::scripting::engine::ScriptSpecialPowerReadiness;
+    use crate::scripting::engine::{ScriptEngine, ScriptSpecialPowerReadiness};
     struct Owner {
         exists: bool,
         ready: bool,
@@ -99,19 +15,121 @@ mod tests {
         fn after_action(&mut self) -> crate::GameLogicResult<()> {
             Ok(())
         }
+        fn condition_player_id(
+            &mut self,
+            _: &str,
+            _: u32,
+            _: Option<&str>,
+        ) -> ScriptOwnerQuery<u32> {
+            ScriptOwnerQuery::Present(1)
+        }
+
+        fn skirmish_special_power_exists(&self, _: &str) -> ScriptOwnerQuery<bool> {
+            ScriptOwnerQuery::Present(self.exists)
+        }
+
         fn skirmish_special_power_readiness(
             &self,
+            _: u32,
             _: &str,
-            _: &str,
-            _: Option<&str>,
         ) -> ScriptOwnerQuery<ScriptSpecialPowerReadiness> {
-            ScriptOwnerQuery::Present(ScriptSpecialPowerReadiness {
-                template_exists: self.exists,
-                ready: self.ready,
-                next_frame: self.next_frame,
+            ScriptOwnerQuery::Present(if self.ready {
+                ScriptSpecialPowerReadiness::Ready
+            } else {
+                ScriptSpecialPowerReadiness::NotReady {
+                    earliest_ready_frame: Some(self.next_frame),
+                }
             })
         }
     }
+
+    #[test]
+    fn invalid_power_definition_latches_before_missing_side() {
+        struct MissingOwner;
+        impl ScriptExecutionDriver<ScriptEngine> for MissingOwner {
+            fn after_action(&mut self) -> GameLogicResult<()> {
+                Ok(())
+            }
+
+            fn skirmish_special_power_exists(&self, _: &str) -> ScriptOwnerQuery<bool> {
+                ScriptOwnerQuery::Present(false)
+            }
+
+            fn condition_player_id(
+                &mut self,
+                _: &str,
+                _: u32,
+                _: Option<&str>,
+            ) -> ScriptOwnerQuery<u32> {
+                panic!("invalid power must not resolve the side")
+            }
+        }
+
+        let engine = ScriptEngine::new_in_published_world().unwrap();
+        let context = RefCell::new(ScriptContext::at_frame(20));
+        let mut condition = Condition::new(ConditionType::SkirmishSpecialPowerReady);
+        condition
+            .add_parameter(Parameter::with_string(
+                ParameterType::Side,
+                "Missing".into(),
+            ))
+            .unwrap();
+        condition
+            .add_parameter(Parameter::with_string(
+                ParameterType::SpecialPower,
+                "Invalid".into(),
+            ))
+            .unwrap();
+        let result = ScriptConditionEvaluator::new(&engine, &context)
+            .evaluate_condition_with_driver(&mut condition, &mut MissingOwner)
+            .unwrap();
+        assert_eq!(result, ScriptConditionResult::False);
+        assert_eq!(condition.get_parameter(1).unwrap().get_int(), -1);
+        assert_eq!(condition.get_parameter(0).unwrap().get_int(), 0);
+    }
+
+    #[test]
+    fn invalid_census_comparison_still_caches_the_resolved_side() {
+        struct CensusOwner;
+        impl ScriptExecutionDriver<ScriptEngine> for CensusOwner {
+            fn after_action(&mut self) -> GameLogicResult<()> {
+                Ok(())
+            }
+
+            fn condition_player_id(
+                &mut self,
+                _: &str,
+                _: u32,
+                _: Option<&str>,
+            ) -> ScriptOwnerQuery<u32> {
+                ScriptOwnerQuery::Present(2)
+            }
+
+            fn skirmish_census(&self, query: ScriptSkirmishCensus) -> ScriptOwnerQuery<i32> {
+                assert!(matches!(query, ScriptSkirmishCensus::Captured(2)));
+                ScriptOwnerQuery::Present(1)
+            }
+        }
+
+        let engine = ScriptEngine::new_in_published_world().unwrap();
+        let context = RefCell::new(ScriptContext::at_frame(20));
+        let mut condition = Condition::new(ConditionType::SkirmishPlayerHasComparisonCapturedUnits);
+        condition
+            .add_parameter(Parameter::with_string(ParameterType::Side, "Owner".into()))
+            .unwrap();
+        condition
+            .add_parameter(Parameter::with_int(ParameterType::Comparison, 99))
+            .unwrap();
+        condition
+            .add_parameter(Parameter::with_int(ParameterType::Int, 1))
+            .unwrap();
+        let result = ScriptConditionEvaluator::new(&engine, &context)
+            .evaluate_condition_with_driver(&mut condition, &mut CensusOwner)
+            .unwrap();
+        assert_eq!(result, ScriptConditionResult::False);
+        assert_eq!(condition.get_parameter(0).unwrap().get_int(), 1 << 2);
+    }
+
     #[test]
     fn power_parameter_retains_cpp_future_frame_and_missing_definition_latches() {
         let engine = crate::scripting::engine::ScriptEngine::new_in_published_world().unwrap();
@@ -125,7 +143,7 @@ mod tests {
                 "Power".into(),
             ))
             .unwrap();
-        let owner = Owner {
+        let mut owner = Owner {
             exists: true,
             ready: false,
             next_frame: 60,
@@ -133,46 +151,46 @@ mod tests {
         let context = std::cell::RefCell::new(ScriptContext::at_frame(0));
         assert_eq!(
             ScriptConditionEvaluator::new(&engine, &context)
-                .eval_owned_special_power(&mut condition, &owner)
+                .evaluate_condition_with_driver(&mut condition, &mut owner)
                 .unwrap(),
-            Some(ScriptConditionResult::False)
+            ScriptConditionResult::False
         );
         assert_eq!(condition.get_parameter(1).unwrap().get_int(), 60);
-        let owner = Owner {
+        let mut owner = Owner {
             ready: true,
             ..owner
         };
         let context = std::cell::RefCell::new(ScriptContext::at_frame(59));
         assert_eq!(
             ScriptConditionEvaluator::new(&engine, &context)
-                .eval_owned_special_power(&mut condition, &owner)
+                .evaluate_condition_with_driver(&mut condition, &mut owner)
                 .unwrap(),
-            Some(ScriptConditionResult::False)
+            ScriptConditionResult::False
         );
         let context = std::cell::RefCell::new(ScriptContext::at_frame(60));
         assert_eq!(
             ScriptConditionEvaluator::new(&engine, &context)
-                .eval_owned_special_power(&mut condition, &owner)
+                .evaluate_condition_with_driver(&mut condition, &mut owner)
                 .unwrap(),
-            Some(ScriptConditionResult::True)
+            ScriptConditionResult::True
         );
         condition.parameters[1].as_mut().unwrap().int_value = 0;
-        let missing = Owner {
+        let mut missing = Owner {
             exists: false,
             ..owner
         };
         assert_eq!(
             ScriptConditionEvaluator::new(&engine, &context)
-                .eval_owned_special_power(&mut condition, &missing)
+                .evaluate_condition_with_driver(&mut condition, &mut missing)
                 .unwrap(),
-            Some(ScriptConditionResult::False)
+            ScriptConditionResult::False
         );
         assert_eq!(condition.get_parameter(1).unwrap().get_int(), -1);
         assert_eq!(
             ScriptConditionEvaluator::new(&engine, &context)
-                .eval_owned_special_power(&mut condition, &owner)
+                .evaluate_condition_with_driver(&mut condition, &mut owner)
                 .unwrap(),
-            Some(ScriptConditionResult::False)
+            ScriptConditionResult::False
         );
     }
 }
