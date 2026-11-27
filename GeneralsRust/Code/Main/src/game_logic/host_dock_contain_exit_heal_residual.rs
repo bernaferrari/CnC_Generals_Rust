@@ -476,63 +476,55 @@ pub fn auto_find_healing_should_seek(
     health_frac <= never_heal
 }
 
-/// Wave 98 honesty: heal residual deepen pack.
-pub fn honesty_heal_residual_deepen_pack_wave98() -> bool {
-    !AUTO_HEAL_DEFAULT_INITIALLY_ACTIVE
-        && !AUTO_HEAL_DEFAULT_SINGLE_BURST
-        && AUTO_HEAL_DEFAULT_HEALING_AMOUNT == 0
-        && AUTO_HEAL_DEFAULT_HEALING_DELAY_FRAMES == u32::MAX
-        && AUTO_HEAL_DEFAULT_START_HEALING_DELAY_FRAMES == 0
-        && (AUTO_HEAL_DEFAULT_RADIUS - 0.0).abs() < 0.001
-        && !AUTO_HEAL_DEFAULT_AFFECTS_WHOLE_PLAYER
-        && !AUTO_HEAL_DEFAULT_SKIP_SELF
-        && AUTO_FIND_HEALING_CTOR_SCAN_FRAMES == 0
-        && (AUTO_FIND_HEALING_CTOR_SCAN_RANGE - 0.0).abs() < 0.001
-        && (AUTO_FIND_HEALING_CTOR_NEVER_HEAL - 0.95).abs() < 0.001
-        && (AUTO_FIND_HEALING_CTOR_ALWAYS_HEAL - 0.25).abs() < 0.001
-        && AUTO_FIND_HEALING_RETAIL_SCAN_MS == 1000
-        && AUTO_FIND_HEALING_RETAIL_SCAN_FRAMES
-            == residual_ms_to_frames(AUTO_FIND_HEALING_RETAIL_SCAN_MS)
-        && (AUTO_FIND_HEALING_RETAIL_SCAN_RANGE - 300.0).abs() < 0.001
-        && (AUTO_FIND_HEALING_RETAIL_NEVER_HEAL - 0.85).abs() < 0.001
-        && (AUTO_FIND_HEALING_RETAIL_ALWAYS_HEAL - 0.25).abs() < 0.001
-        // Ctor default NeverHeal is stricter than retail infantry NeverHeal.
-        && AUTO_FIND_HEALING_CTOR_NEVER_HEAL > AUTO_FIND_HEALING_RETAIL_NEVER_HEAL
-        && (PARKING_PLACE_DEFAULT_HEAL_AMOUNT_PER_SEC - 0.0).abs() < 0.001
-        && (PARKING_PLACE_AIRFIELD_HEAL_AMOUNT_PER_SEC - 10.0).abs() < 0.001
-        && PARKING_PLACE_AIRFIELD_NUM_ROWS == 2
-        && PARKING_PLACE_AIRFIELD_NUM_COLS == 2
-        && PARKING_PLACE_AIRFIELD_HAS_RUNWAYS
-        && (PARKING_PLACE_AIRFIELD_APPROACH_HEIGHT - 50.0).abs() < 0.001
-        && (PARKING_PLACE_HELIX_HEAL_AMOUNT_PER_SEC - 20.0).abs() < 0.001
-        && HEAL_DAMAGE_TYPE_NAME_RESIDUAL == "HEALING"
-        && HEAL_DEATH_TYPE_NAME_RESIDUAL == "NONE"
-        && (parking_place_heal_per_frame(10.0) - (10.0 / 30.0)).abs() < 0.0001
-        && (parking_place_heal_per_frame(20.0) - (20.0 / 30.0)).abs() < 0.0001
-        // AutoFindHealing residual decision matrix.
-        && auto_find_healing_should_seek(0.5, 0.85, 0.25, true, true)
-        && auto_find_healing_should_seek(0.85, 0.85, 0.25, true, true)
-        && !auto_find_healing_should_seek(0.86, 0.85, 0.25, true, true)
-        && !auto_find_healing_should_seek(0.5, 0.85, 0.25, false, true)
-        && !auto_find_healing_should_seek(0.5, 0.85, 0.25, true, false)
-        // Cross-link repair-dock / heal-contain formulas from packs 1–2.
-        && (repair_dock_health_to_add_per_frame(500.0, 0.0, 150.0) - (500.0 / 150.0)).abs()
-            < 0.0001
-        && (heal_contain_sliver_amount(200.0, 60) - (200.0 / 60.0)).abs() < 0.0001
-}
-
-// ---------------------------------------------------------------------------
-// Combined Wave 98 pack
-// ---------------------------------------------------------------------------
-
-/// Combined honesty pack for Wave 98 dock / contain / exit / heal residual peels.
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn heal_residual_deepen_wave98_honesty() {
-        assert!(honesty_heal_residual_deepen_pack_wave98());
+    fn healing_defaults_rates_and_seek_thresholds() {
+        assert!({
+            !AUTO_HEAL_DEFAULT_INITIALLY_ACTIVE
+                && !AUTO_HEAL_DEFAULT_SINGLE_BURST
+                && AUTO_HEAL_DEFAULT_HEALING_AMOUNT == 0
+                && AUTO_HEAL_DEFAULT_HEALING_DELAY_FRAMES == u32::MAX
+                && AUTO_HEAL_DEFAULT_START_HEALING_DELAY_FRAMES == 0
+                && (AUTO_HEAL_DEFAULT_RADIUS - 0.0).abs() < 0.001
+                && !AUTO_HEAL_DEFAULT_AFFECTS_WHOLE_PLAYER
+                && !AUTO_HEAL_DEFAULT_SKIP_SELF
+                && AUTO_FIND_HEALING_CTOR_SCAN_FRAMES == 0
+                && (AUTO_FIND_HEALING_CTOR_SCAN_RANGE - 0.0).abs() < 0.001
+                && (AUTO_FIND_HEALING_CTOR_NEVER_HEAL - 0.95).abs() < 0.001
+                && (AUTO_FIND_HEALING_CTOR_ALWAYS_HEAL - 0.25).abs() < 0.001
+                && AUTO_FIND_HEALING_RETAIL_SCAN_MS == 1000
+                && AUTO_FIND_HEALING_RETAIL_SCAN_FRAMES
+                    == residual_ms_to_frames(AUTO_FIND_HEALING_RETAIL_SCAN_MS)
+                && (AUTO_FIND_HEALING_RETAIL_SCAN_RANGE - 300.0).abs() < 0.001
+                && (AUTO_FIND_HEALING_RETAIL_NEVER_HEAL - 0.85).abs() < 0.001
+                && (AUTO_FIND_HEALING_RETAIL_ALWAYS_HEAL - 0.25).abs() < 0.001
+                // Ctor default NeverHeal is stricter than retail infantry NeverHeal.
+                && AUTO_FIND_HEALING_CTOR_NEVER_HEAL > AUTO_FIND_HEALING_RETAIL_NEVER_HEAL
+                && (PARKING_PLACE_DEFAULT_HEAL_AMOUNT_PER_SEC - 0.0).abs() < 0.001
+                && (PARKING_PLACE_AIRFIELD_HEAL_AMOUNT_PER_SEC - 10.0).abs() < 0.001
+                && PARKING_PLACE_AIRFIELD_NUM_ROWS == 2
+                && PARKING_PLACE_AIRFIELD_NUM_COLS == 2
+                && PARKING_PLACE_AIRFIELD_HAS_RUNWAYS
+                && (PARKING_PLACE_AIRFIELD_APPROACH_HEIGHT - 50.0).abs() < 0.001
+                && (PARKING_PLACE_HELIX_HEAL_AMOUNT_PER_SEC - 20.0).abs() < 0.001
+                && HEAL_DAMAGE_TYPE_NAME_RESIDUAL == "HEALING"
+                && HEAL_DEATH_TYPE_NAME_RESIDUAL == "NONE"
+                && (parking_place_heal_per_frame(10.0) - (10.0 / 30.0)).abs() < 0.0001
+                && (parking_place_heal_per_frame(20.0) - (20.0 / 30.0)).abs() < 0.0001
+                // AutoFindHealing residual decision matrix.
+                && auto_find_healing_should_seek(0.5, 0.85, 0.25, true, true)
+                && auto_find_healing_should_seek(0.85, 0.85, 0.25, true, true)
+                && !auto_find_healing_should_seek(0.86, 0.85, 0.25, true, true)
+                && !auto_find_healing_should_seek(0.5, 0.85, 0.25, false, true)
+                && !auto_find_healing_should_seek(0.5, 0.85, 0.25, true, false)
+                // Cross-link repair-dock / heal-contain formulas from packs 1–2.
+                && (repair_dock_health_to_add_per_frame(500.0, 0.0, 150.0) - (500.0 / 150.0)).abs()
+                    < 0.0001
+                && (heal_contain_sliver_amount(200.0, 60) - (200.0 / 60.0)).abs() < 0.0001
+        });
     }
+
 }

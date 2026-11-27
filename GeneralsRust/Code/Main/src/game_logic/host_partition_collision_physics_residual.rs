@@ -204,78 +204,6 @@ pub fn partition_filter_residual_name_known(name: &str) -> bool {
         .any(|n| n.eq_ignore_ascii_case(name))
 }
 
-/// Wave 96 honesty: Partition residual peels pack.
-pub fn honesty_partition_residual_pack_wave96() -> bool {
-    HUGE_DIST_RESIDUAL == 1_000_000.0
-        && HUGE_DIST_SQR_RESIDUAL == 1_000_000.0 * 1_000_000.0
-        && (RANDOM_START_ANGLE_RESIDUAL - (-99999.9)).abs() < 0.01
-        && PARTITION_CELL_SIZE_RESIDUAL == 40.0
-        && PARTITION_CONTACT_LIST_SOCKET_COUNT_RESIDUAL == 5381
-        // DistanceCalculationType residual table.
-        && DISTANCE_CALCULATION_TYPE_COUNT == 4
-        && DISTANCE_CALCULATION_TYPE_NAME_LIST.len() == 4
-        && DISTANCE_CALCULATION_TYPE_NAME_LIST[0] == "FROM_CENTER_2D"
-        && DISTANCE_CALCULATION_TYPE_NAME_LIST[3] == "FROM_BOUNDINGSPHERE_3D"
-        && FROM_CENTER_2D == 0
-        && FROM_CENTER_3D == 1
-        && FROM_BOUNDINGSPHERE_2D == 2
-        && FROM_BOUNDINGSPHERE_3D == 3
-        && distance_calculation_type_name_index("FROM_CENTER_2D") == Some(0)
-        && distance_calculation_type_name_index("FROM_BOUNDINGSPHERE_3D") == Some(3)
-        && distance_calculation_type_name_index("FROM_EDGE").is_none()
-        // ValueOrThreat residual (1-based values + NumItems sentinel).
-        && VOT_CASH_VALUE == 1
-        && VOT_THREAT_VALUE == 2
-        && VOT_NUM_ITEMS == 3
-        // FindPositionFlags residual bits.
-        && FPF_NONE == 0
-        && FPF_IGNORE_WATER == 0x01
-        && FPF_WATER_ONLY == 0x02
-        && FPF_IGNORE_ALL_OBJECTS == 0x04
-        && FPF_IGNORE_ALLY_OR_NEUTRAL_UNITS == 0x08
-        && FPF_IGNORE_ALLY_OR_NEUTRAL_STRUCTURES == 0x10
-        && FPF_IGNORE_ENEMY_UNITS == 0x20
-        && FPF_IGNORE_ENEMY_STRUCTURES == 0x40
-        && FPF_USE_HIGHEST_LAYER == 0x80
-        && FPF_CLEAR_CELLS_ONLY == 0x100
-        && FIND_POSITION_FLAG_NAME_LIST.len() == 9
-        && find_position_flag_bit_value("FPF_IGNORE_WATER") == Some(0x01)
-        && find_position_flag_bit_value("FPF_CLEAR_CELLS_ONLY") == Some(0x100)
-        && find_position_flag_bit_value("FPF_NONE").is_none()
-        // DirtyStatus residual ordinals.
-        && DIRTY_STATUS_NOT_DIRTY == 0
-        && DIRTY_STATUS_NEED_COLLISION_CHECK == 1
-        && DIRTY_STATUS_NEED_CELL_UPDATE_AND_COLLISION_CHECK == 2
-        && DIRTY_STATUS_NAME_LIST.len() == 3
-        && DIRTY_STATUS_NAME_LIST[0] == "NOT_DIRTY"
-        && DIRTY_STATUS_NAME_LIST[2] == "NEED_CELL_UPDATE_AND_COLLISION_CHECK"
-        // RelationshipAllowTypes residual (bit = 1 << Relationship ordinal).
-        && ALLOW_ENEMIES == 0x01
-        && ALLOW_NEUTRAL == 0x02
-        && ALLOW_ALLIES == 0x04
-        // PartitionFilter residual name table.
-        && PARTITION_FILTER_RESIDUAL_NAME_LIST.len() == PARTITION_FILTER_RESIDUAL_NAME_COUNT
-        && PARTITION_FILTER_RESIDUAL_NAME_COUNT == 33
-        && PARTITION_FILTER_RESIDUAL_NAME_LIST[0] == "PartitionFilterIsFlying"
-        && PARTITION_FILTER_RESIDUAL_NAME_LIST[3] == "PartitionFilterRelationship"
-        && PARTITION_FILTER_RESIDUAL_NAME_LIST[18] == "PartitionFilterSameMapStatus"
-        && PARTITION_FILTER_RESIDUAL_NAME_LIST[26] == "PartitionFilterPlayer"
-        && PARTITION_FILTER_RESIDUAL_NAME_LIST[32]
-            == "PartitionFilterValidCommandButtonTarget"
-        && partition_filter_residual_name_known("PartitionFilterPlayer")
-        && partition_filter_residual_name_known("PartitionFilterUnmannedObject")
-        // Fail-closed: abstract base not in residual table.
-        && !partition_filter_residual_name_known("PartitionFilter")
-        && !partition_filter_residual_name_known("PartitionFilterBogus")
-        // Unique names residual.
-        && {
-            let mut seen = std::collections::HashSet::new();
-            PARTITION_FILTER_RESIDUAL_NAME_LIST
-                .iter()
-                .all(|n| seen.insert(*n))
-        }
-}
-
 // ---------------------------------------------------------------------------
 // 2. Collision residual peels (Geometry.cpp + PartitionManager collide matrix)
 // ---------------------------------------------------------------------------
@@ -401,78 +329,6 @@ pub fn geometry_footprint_area(
         GEOMETRY_BOX_RESIDUAL => Some(4.0 * major_radius * minor_radius),
         _ => None,
     }
-}
-
-/// Wave 96 honesty: Collision / GeometryInfo residual peels pack.
-pub fn honesty_collision_residual_pack_wave96() -> bool {
-    // Geometry type residual anchors (cross-link Wave 84).
-    GEOMETRY_NUM_TYPES_RESIDUAL == 3
-        && GEOMETRY_SPHERE_RESIDUAL == 0
-        && GEOMETRY_CYLINDER_RESIDUAL == 1
-        && GEOMETRY_BOX_RESIDUAL == 2
-        && GEOMETRY_FIRST_RESIDUAL == 0
-        // Collide-test matrix residual 3×3.
-        && COLLIDE_TEST_PROC_NAME_LIST.len() == 9
-        && COLLIDE_TEST_PROC_NAME_LIST[0] == "collideTest_Sphere_Sphere"
-        && COLLIDE_TEST_PROC_NAME_LIST[4] == "collideTest_Cylinder_Cylinder"
-        && COLLIDE_TEST_PROC_NAME_LIST[8] == "collideTest_Box_Box"
-        && collide_test_proc_index(GEOMETRY_SPHERE_RESIDUAL, GEOMETRY_SPHERE_RESIDUAL)
-            == Some(0)
-        && collide_test_proc_index(GEOMETRY_SPHERE_RESIDUAL, GEOMETRY_BOX_RESIDUAL) == Some(2)
-        && collide_test_proc_index(GEOMETRY_CYLINDER_RESIDUAL, GEOMETRY_SPHERE_RESIDUAL)
-            == Some(3)
-        && collide_test_proc_index(GEOMETRY_BOX_RESIDUAL, GEOMETRY_BOX_RESIDUAL) == Some(8)
-        && collide_test_proc_index(3, 0).is_none()
-        && COLLIDE_TEST_PROC_NAME_LIST
-            [collide_test_proc_index(GEOMETRY_BOX_RESIDUAL, GEOMETRY_CYLINDER_RESIDUAL).unwrap()]
-            == "collideTest_Box_Cylinder"
-        // Bounding residual formulas (sample anchors).
-        && {
-            let sphere_bc = geometry_bounding_circle_radius(GEOMETRY_SPHERE_RESIDUAL, 5.0, 0.0);
-            let sphere_bs = geometry_bounding_sphere_radius(GEOMETRY_SPHERE_RESIDUAL, 0.0, 5.0, 0.0);
-            sphere_bc == Some(5.0) && sphere_bs == Some(5.0)
-        }
-        && {
-            // Cylinder major=10 height=30 → circle 10, sphere max(15,10)=15.
-            let bc = geometry_bounding_circle_radius(GEOMETRY_CYLINDER_RESIDUAL, 10.0, 0.0);
-            let bs = geometry_bounding_sphere_radius(GEOMETRY_CYLINDER_RESIDUAL, 30.0, 10.0, 0.0);
-            bc == Some(10.0) && bs == Some(15.0)
-        }
-        && {
-            // Cylinder short: major=10 height=10 → sphere max(5,10)=10.
-            let bs = geometry_bounding_sphere_radius(GEOMETRY_CYLINDER_RESIDUAL, 10.0, 10.0, 0.0);
-            bs == Some(10.0)
-        }
-        && {
-            // Box major=3 minor=4 height=0 → circle 5, sphere 5.
-            let bc = geometry_bounding_circle_radius(GEOMETRY_BOX_RESIDUAL, 3.0, 4.0);
-            let bs = geometry_bounding_sphere_radius(GEOMETRY_BOX_RESIDUAL, 0.0, 3.0, 4.0);
-            match (bc, bs) {
-                (Some(c), Some(s)) => (c - 5.0).abs() < 1e-5 && (s - 5.0).abs() < 1e-5,
-                _ => false,
-            }
-        }
-        // Height residual formulas.
-        && geometry_max_height_above_position(GEOMETRY_SPHERE_RESIDUAL, 0.0, 7.0) == Some(7.0)
-        && geometry_max_height_above_position(GEOMETRY_CYLINDER_RESIDUAL, 12.0, 7.0) == Some(12.0)
-        && geometry_max_height_above_position(GEOMETRY_BOX_RESIDUAL, 9.0, 1.0) == Some(9.0)
-        && geometry_max_height_below_position(GEOMETRY_SPHERE_RESIDUAL, 7.0) == Some(7.0)
-        && geometry_max_height_below_position(GEOMETRY_BOX_RESIDUAL, 7.0) == Some(0.0)
-        && geometry_z_delta_to_center(GEOMETRY_SPHERE_RESIDUAL, 10.0) == Some(0.0)
-        && geometry_z_delta_to_center(GEOMETRY_BOX_RESIDUAL, 10.0) == Some(5.0)
-        // Footprint area residual.
-        && {
-            let a = geometry_footprint_area(GEOMETRY_SPHERE_RESIDUAL, 2.0, 0.0, 2.0);
-            match a {
-                Some(v) => (v - (PI * 4.0)).abs() < 1e-5,
-                None => false,
-            }
-        }
-        && geometry_footprint_area(GEOMETRY_BOX_RESIDUAL, 3.0, 4.0, 5.0) == Some(48.0)
-        // CollideModule residual: other=NULL indicates ground collision (documented residual).
-        // Fail-closed: unknown geometry types reject.
-        && geometry_bounding_circle_radius(99, 1.0, 1.0).is_none()
-        && geometry_max_height_above_position(99, 1.0, 1.0).is_none()
 }
 
 // ---------------------------------------------------------------------------
@@ -874,136 +730,6 @@ pub fn physics_friction_per_frame(fric_per_sec: f32) -> f32 {
     fric_per_sec * SECONDS_PER_LOGIC_FRAME_RESIDUAL
 }
 
-/// Wave 96 honesty: Physics residual peels pack.
-pub fn honesty_physics_residual_pack_wave96() -> bool {
-    PHYSICS_DEFAULT_MASS_RESIDUAL == 1.0
-        && (PHYSICS_DEFAULT_SHOCK_YAW_RESIDUAL - 0.05).abs() < 1e-6
-        && (PHYSICS_DEFAULT_SHOCK_PITCH_RESIDUAL - 0.025).abs() < 1e-6
-        && (PHYSICS_DEFAULT_SHOCK_ROLL_RESIDUAL - 0.025).abs() < 1e-6
-        && (PHYSICS_DEFAULT_FORWARD_FRICTION_RESIDUAL - 0.15).abs() < 1e-6
-        && (PHYSICS_DEFAULT_LATERAL_FRICTION_RESIDUAL - 0.15).abs() < 1e-6
-        && (PHYSICS_DEFAULT_Z_FRICTION_RESIDUAL - 0.8).abs() < 1e-6
-        && PHYSICS_DEFAULT_AERO_FRICTION_RESIDUAL == 0.0
-        && PHYSICS_MIN_AERO_FRICTION_RESIDUAL == 0.0
-        && (PHYSICS_MIN_NON_AERO_FRICTION_RESIDUAL - 0.01).abs() < 1e-6
-        && (PHYSICS_MAX_FRICTION_RESIDUAL - 0.99).abs() < 1e-6
-        && (PHYSICS_STUN_RELIEF_EPSILON_RESIDUAL - 0.5).abs() < 1e-6
-        && PHYSICS_MOTIVE_FRAMES_RESIDUAL == 10
-        && LOGIC_FRAMES_PER_SECOND_RESIDUAL / 3 == 10
-        && PHYSICS_INVALID_VEL_MAG_RESIDUAL == -1.0
-        && PHYSICS_PITCH_ROLL_YAW_FACTOR_RESIDUAL == 2.0
-        && PHYSICS_FALL_HEIGHT_DAMAGE_FACTOR_RESIDUAL == 1.0
-        && PHYSICS_MIN_FALL_HEIGHT_FOR_DAMAGE_RESIDUAL == 40.0
-        && !PHYSICS_ALLOW_BOUNCING_DEFAULT_RESIDUAL
-        && PHYSICS_ALLOW_COLLIDE_FORCE_DEFAULT_RESIDUAL
-        && !PHYSICS_KILL_WHEN_RESTING_ON_GROUND_DEFAULT_RESIDUAL
-        && PHYSICS_SHOCK_RESISTANCE_DEFAULT_RESIDUAL == 0.0
-        && PHYSICS_CENTER_OF_MASS_OFFSET_DEFAULT_RESIDUAL == 0.0
-        && PHYSICS_GRAVITY_RESIDUAL == -64.0
-        // Turning residual.
-        && PHYSICS_TURN_NEGATIVE == -1
-        && PHYSICS_TURN_NONE == 0
-        && PHYSICS_TURN_POSITIVE == 1
-        // Flag bits residual.
-        && PHYSICS_FLAG_NAME_LIST.len() == 12
-        && PHYSICS_FLAG_STICK_TO_GROUND == 0x0001
-        && PHYSICS_FLAG_ALLOW_BOUNCE == 0x0002
-        && PHYSICS_FLAG_ALLOW_COLLIDE_FORCE == 0x0020
-        && PHYSICS_FLAG_IS_STUNNED == 0x0800
-        && physics_flag_bit_value("STICK_TO_GROUND") == Some(0x0001)
-        && physics_flag_bit_value("IS_STUNNED") == Some(0x0800)
-        && physics_flag_bit_value("NOT_A_FLAG").is_none()
-        // heightToSpeed residual with retail gravity.
-        && {
-            let v = physics_height_to_speed(
-                PHYSICS_MIN_FALL_HEIGHT_FOR_DAMAGE_RESIDUAL,
-                PHYSICS_GRAVITY_RESIDUAL,
-            );
-            // sqrt(2 * 64 * 40) = sqrt(5120) ≈ 71.554175
-            (v - 5120f32.sqrt()).abs() < 1e-3
-        }
-        // Friction-per-sec residual: 0.15/sec → 0.005/frame at 30 FPS.
-        && {
-            let f = physics_friction_per_frame(0.15);
-            (f - 0.005).abs() < 1e-6
-        }
-        // Crash weapon residual names.
-        && PHYSICS_VEHICLE_CRASHES_INTO_BUILDING_WEAPON
-            == "VehicleCrashesIntoBuildingWeapon"
-        && PHYSICS_VEHICLE_CRASHES_INTO_NON_BUILDING_WEAPON
-            == "VehicleCrashesIntoNonBuildingWeapon"
-        && PHYSICS_DEFAULT_STRUCTURE_RUBBLE_HEIGHT_RESIDUAL == 1.0
-        && (PHYSICS_STRUCTURE_STIFFNESS_DEFAULT_RESIDUAL - 0.5).abs() < 1e-6
-        && (clamp_structure_stiffness(0.0) - 0.01).abs() < 1e-6
-        && (clamp_structure_stiffness(2.0) - 0.99).abs() < 1e-6
-        && structure_immobile_bounce_factor(0.0, 1.0, 0.5) < 0.0
-        && (parachute_bounce_out_distance(20.0) - 2.0).abs() < 1e-6
-        && vehicle_crash_into_immobile_outcome(
-            true,
-            true,
-            true,
-            true,
-            2.0,
-            PHYSICS_DEFAULT_STRUCTURE_RUBBLE_HEIGHT_RESIDUAL,
-        ) == VehicleCrashImmobileOutcome::DestroyWithBuildingWeapon
-        && vehicle_crash_into_immobile_outcome(
-            true,
-            false,
-            true,
-            true,
-            2.0,
-            PHYSICS_DEFAULT_STRUCTURE_RUBBLE_HEIGHT_RESIDUAL,
-        ) == VehicleCrashImmobileOutcome::DamageWithNonBuildingWeapon
-        && vehicle_crash_into_immobile_outcome(
-            true,
-            true,
-            true,
-            false,
-            2.0,
-            PHYSICS_DEFAULT_STRUCTURE_RUBBLE_HEIGHT_RESIDUAL,
-        ) == VehicleCrashImmobileOutcome::None
-        && vehicle_crash_weapon_name(VehicleCrashImmobileOutcome::DestroyWithBuildingWeapon)
-            == Some(PHYSICS_VEHICLE_CRASHES_INTO_BUILDING_WEAPON)
-        && vehicle_crash_destroys_vehicle(VehicleCrashImmobileOutcome::DestroyWithBuildingWeapon)
-        && vehicle_crash_destroys_vehicle(VehicleCrashImmobileOutcome::DestroyWithoutWeapon)
-        && !vehicle_crash_destroys_vehicle(VehicleCrashImmobileOutcome::DamageWithNonBuildingWeapon)
-        && vehicle_crash_weapon_name(VehicleCrashImmobileOutcome::DestroyWithoutWeapon).is_none()
-        && vehicle_crash_into_immobile_outcome(
-            false,
-            true,
-            true,
-            true,
-            2.0,
-            PHYSICS_DEFAULT_STRUCTURE_RUBBLE_HEIGHT_RESIDUAL,
-        ) == VehicleCrashImmobileOutcome::DestroyWithoutWeapon
-        && vehicle_crash_into_immobile_outcome(
-            false,
-            false,
-            true,
-            true,
-            2.0,
-            PHYSICS_DEFAULT_STRUCTURE_RUBBLE_HEIGHT_RESIDUAL,
-        ) == VehicleCrashImmobileOutcome::None
-        && can_crush_only_residual(1, 0, false, false)
-        && !can_crush_only_residual(1, 0, true, false)
-        && !can_crush_only_residual(0, 0, false, false)
-        && select_crush_target_residual(false, false) == CrushTarget::TotalCrush
-        && select_crush_target_residual(true, false) == CrushTarget::BackEndCrush
-        && perps_logically_equal(1.0, 1.1)
-        && !perps_logically_equal(1.0, 1.3)
-        && select_crush_target_by_perp_residual(
-            false,
-            false,
-            (0.0, 0.0),
-            (10.0, 0.0),
-            (1.0, 0.0),
-            (1.0, 0.0),
-            5.0,
-        ) == CrushTarget::TotalCrush
-        && past_crush_point_residual((0.0, 0.0), (-1.0, 0.0), (1.0, 0.0), 10.0)
-        && !past_crush_point_residual((0.0, 0.0), (5.0, 0.0), (1.0, 0.0), 10.0)
-}
-
 // ---------------------------------------------------------------------------
 // 4. Projectile residual deepen (DumbProjectileBehavior.h / .cpp)
 // ---------------------------------------------------------------------------
@@ -1067,80 +793,325 @@ pub fn projectile_lifespan_frame(launch_frame: u32, max_lifespan: u32) -> u32 {
     launch_frame.saturating_add(max_lifespan)
 }
 
-/// Wave 96 honesty: Projectile residual deepen pack.
-pub fn honesty_projectile_residual_deepen_pack_wave96() -> bool {
-    PROJECTILE_DEFAULT_MAX_LIFESPAN_FRAMES_RESIDUAL == 300
-        && 10 * LOGIC_FRAMES_PER_SECOND_RESIDUAL == 300
-        && PROJECTILE_ORIENT_TO_FLIGHT_PATH_DEFAULT_RESIDUAL
-        && !PROJECTILE_TUMBLE_RANDOMLY_DEFAULT_RESIDUAL
-        && !PROJECTILE_DETONATE_CALLS_KILL_DEFAULT_RESIDUAL
-        && PROJECTILE_FIRST_HEIGHT_DEFAULT_RESIDUAL == 0.0
-        && PROJECTILE_SECOND_HEIGHT_DEFAULT_RESIDUAL == 0.0
-        && PROJECTILE_FIRST_PERCENT_INDENT_DEFAULT_RESIDUAL == 0.0
-        && PROJECTILE_SECOND_PERCENT_INDENT_DEFAULT_RESIDUAL == 0.0
-        && PROJECTILE_GARRISON_HIT_KILL_COUNT_DEFAULT_RESIDUAL == 0
-        && PROJECTILE_FLIGHT_PATH_ADJUST_DIST_PER_FRAME_DEFAULT_RESIDUAL == 0.0
-        // Angle residual constants.
-        && (PROJECTILE_SHALLOW_ANGLE_RAD_RESIDUAL - (0.5 * PI / 180.0)).abs() < 1e-7
-        && (PROJECTILE_MIN_ANGLE_DIFF_RAD_RESIDUAL - (PI / (180.0 * 16.0))).abs() < 1e-7
-        && PROJECTILE_CLOSE_ENOUGH_RANGE_RESIDUAL == 5.0
-        // INI field residual table.
-        && PROJECTILE_INI_FIELD_NAME_LIST.len() == 13
-        && PROJECTILE_INI_FIELD_NAME_LIST[0] == "MaxLifespan"
-        && PROJECTILE_INI_FIELD_NAME_LIST[4] == "FirstHeight"
-        && PROJECTILE_INI_FIELD_NAME_LIST[12] == "FlightPathAdjustDistPerSecond"
-        && projectile_ini_field_name_known("OrientToFlightPath")
-        && projectile_ini_field_name_known("GarrisonHitKillCount")
-        && !projectile_ini_field_name_known("HomingStrength")
-        // Lifespan residual: launch at frame 100 + default 300 → 400.
-        && projectile_lifespan_frame(100, PROJECTILE_DEFAULT_MAX_LIFESPAN_FRAMES_RESIDUAL) == 400
-        && projectile_lifespan_frame(0, 0) == 0
-        // Unique field names.
-        && {
-            let mut seen = std::collections::HashSet::new();
-            PROJECTILE_INI_FIELD_NAME_LIST.iter().all(|n| seen.insert(*n))
-        }
-}
-
-// ---------------------------------------------------------------------------
-// Combined Wave 96 residual pack
-// ---------------------------------------------------------------------------
-
-/// Wave 96 honesty: partition + collision + physics + projectile residual peels.
-pub fn honesty_partition_collision_physics_residual_pack_wave96() -> bool {
-    honesty_partition_residual_pack_wave96()
-        && honesty_collision_residual_pack_wave96()
-        && honesty_physics_residual_pack_wave96()
-        && honesty_projectile_residual_deepen_pack_wave96()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn honesty_partition_residual_pack_wave96_ok() {
-        assert!(honesty_partition_residual_pack_wave96());
+    fn partition_filters_and_position_flags_keep_original_values() {
+        assert!({
+            HUGE_DIST_RESIDUAL == 1_000_000.0
+                && HUGE_DIST_SQR_RESIDUAL == 1_000_000.0 * 1_000_000.0
+                && (RANDOM_START_ANGLE_RESIDUAL - (-99999.9)).abs() < 0.01
+                && PARTITION_CELL_SIZE_RESIDUAL == 40.0
+                && PARTITION_CONTACT_LIST_SOCKET_COUNT_RESIDUAL == 5381
+                // DistanceCalculationType residual table.
+                && DISTANCE_CALCULATION_TYPE_COUNT == 4
+                && DISTANCE_CALCULATION_TYPE_NAME_LIST.len() == 4
+                && DISTANCE_CALCULATION_TYPE_NAME_LIST[0] == "FROM_CENTER_2D"
+                && DISTANCE_CALCULATION_TYPE_NAME_LIST[3] == "FROM_BOUNDINGSPHERE_3D"
+                && FROM_CENTER_2D == 0
+                && FROM_CENTER_3D == 1
+                && FROM_BOUNDINGSPHERE_2D == 2
+                && FROM_BOUNDINGSPHERE_3D == 3
+                && distance_calculation_type_name_index("FROM_CENTER_2D") == Some(0)
+                && distance_calculation_type_name_index("FROM_BOUNDINGSPHERE_3D") == Some(3)
+                && distance_calculation_type_name_index("FROM_EDGE").is_none()
+                // ValueOrThreat residual (1-based values + NumItems sentinel).
+                && VOT_CASH_VALUE == 1
+                && VOT_THREAT_VALUE == 2
+                && VOT_NUM_ITEMS == 3
+                // FindPositionFlags residual bits.
+                && FPF_NONE == 0
+                && FPF_IGNORE_WATER == 0x01
+                && FPF_WATER_ONLY == 0x02
+                && FPF_IGNORE_ALL_OBJECTS == 0x04
+                && FPF_IGNORE_ALLY_OR_NEUTRAL_UNITS == 0x08
+                && FPF_IGNORE_ALLY_OR_NEUTRAL_STRUCTURES == 0x10
+                && FPF_IGNORE_ENEMY_UNITS == 0x20
+                && FPF_IGNORE_ENEMY_STRUCTURES == 0x40
+                && FPF_USE_HIGHEST_LAYER == 0x80
+                && FPF_CLEAR_CELLS_ONLY == 0x100
+                && FIND_POSITION_FLAG_NAME_LIST.len() == 9
+                && find_position_flag_bit_value("FPF_IGNORE_WATER") == Some(0x01)
+                && find_position_flag_bit_value("FPF_CLEAR_CELLS_ONLY") == Some(0x100)
+                && find_position_flag_bit_value("FPF_NONE").is_none()
+                // DirtyStatus residual ordinals.
+                && DIRTY_STATUS_NOT_DIRTY == 0
+                && DIRTY_STATUS_NEED_COLLISION_CHECK == 1
+                && DIRTY_STATUS_NEED_CELL_UPDATE_AND_COLLISION_CHECK == 2
+                && DIRTY_STATUS_NAME_LIST.len() == 3
+                && DIRTY_STATUS_NAME_LIST[0] == "NOT_DIRTY"
+                && DIRTY_STATUS_NAME_LIST[2] == "NEED_CELL_UPDATE_AND_COLLISION_CHECK"
+                // RelationshipAllowTypes residual (bit = 1 << Relationship ordinal).
+                && ALLOW_ENEMIES == 0x01
+                && ALLOW_NEUTRAL == 0x02
+                && ALLOW_ALLIES == 0x04
+                // PartitionFilter residual name table.
+                && PARTITION_FILTER_RESIDUAL_NAME_LIST.len() == PARTITION_FILTER_RESIDUAL_NAME_COUNT
+                && PARTITION_FILTER_RESIDUAL_NAME_COUNT == 33
+                && PARTITION_FILTER_RESIDUAL_NAME_LIST[0] == "PartitionFilterIsFlying"
+                && PARTITION_FILTER_RESIDUAL_NAME_LIST[3] == "PartitionFilterRelationship"
+                && PARTITION_FILTER_RESIDUAL_NAME_LIST[18] == "PartitionFilterSameMapStatus"
+                && PARTITION_FILTER_RESIDUAL_NAME_LIST[26] == "PartitionFilterPlayer"
+                && PARTITION_FILTER_RESIDUAL_NAME_LIST[32]
+                    == "PartitionFilterValidCommandButtonTarget"
+                && partition_filter_residual_name_known("PartitionFilterPlayer")
+                && partition_filter_residual_name_known("PartitionFilterUnmannedObject")
+                // Fail-closed: abstract base not in residual table.
+                && !partition_filter_residual_name_known("PartitionFilter")
+                && !partition_filter_residual_name_known("PartitionFilterBogus")
+                // Unique names residual.
+                && {
+                    let mut seen = std::collections::HashSet::new();
+                    PARTITION_FILTER_RESIDUAL_NAME_LIST
+                        .iter()
+                        .all(|n| seen.insert(*n))
+                }
+        });
     }
 
     #[test]
-    fn honesty_collision_residual_pack_wave96_ok() {
-        assert!(honesty_collision_residual_pack_wave96());
+    fn collision_dispatch_and_geometry_extents() {
+        assert!({
+            // Geometry type residual anchors (cross-link Wave 84).
+            GEOMETRY_NUM_TYPES_RESIDUAL == 3
+                && GEOMETRY_SPHERE_RESIDUAL == 0
+                && GEOMETRY_CYLINDER_RESIDUAL == 1
+                && GEOMETRY_BOX_RESIDUAL == 2
+                && GEOMETRY_FIRST_RESIDUAL == 0
+                // Collide-test matrix residual 3×3.
+                && COLLIDE_TEST_PROC_NAME_LIST.len() == 9
+                && COLLIDE_TEST_PROC_NAME_LIST[0] == "collideTest_Sphere_Sphere"
+                && COLLIDE_TEST_PROC_NAME_LIST[4] == "collideTest_Cylinder_Cylinder"
+                && COLLIDE_TEST_PROC_NAME_LIST[8] == "collideTest_Box_Box"
+                && collide_test_proc_index(GEOMETRY_SPHERE_RESIDUAL, GEOMETRY_SPHERE_RESIDUAL)
+                    == Some(0)
+                && collide_test_proc_index(GEOMETRY_SPHERE_RESIDUAL, GEOMETRY_BOX_RESIDUAL) == Some(2)
+                && collide_test_proc_index(GEOMETRY_CYLINDER_RESIDUAL, GEOMETRY_SPHERE_RESIDUAL)
+                    == Some(3)
+                && collide_test_proc_index(GEOMETRY_BOX_RESIDUAL, GEOMETRY_BOX_RESIDUAL) == Some(8)
+                && collide_test_proc_index(3, 0).is_none()
+                && COLLIDE_TEST_PROC_NAME_LIST
+                    [collide_test_proc_index(GEOMETRY_BOX_RESIDUAL, GEOMETRY_CYLINDER_RESIDUAL).unwrap()]
+                    == "collideTest_Box_Cylinder"
+                // Bounding residual formulas (sample anchors).
+                && {
+                    let sphere_bc = geometry_bounding_circle_radius(GEOMETRY_SPHERE_RESIDUAL, 5.0, 0.0);
+                    let sphere_bs = geometry_bounding_sphere_radius(GEOMETRY_SPHERE_RESIDUAL, 0.0, 5.0, 0.0);
+                    sphere_bc == Some(5.0) && sphere_bs == Some(5.0)
+                }
+                && {
+                    // Cylinder major=10 height=30 → circle 10, sphere max(15,10)=15.
+                    let bc = geometry_bounding_circle_radius(GEOMETRY_CYLINDER_RESIDUAL, 10.0, 0.0);
+                    let bs = geometry_bounding_sphere_radius(GEOMETRY_CYLINDER_RESIDUAL, 30.0, 10.0, 0.0);
+                    bc == Some(10.0) && bs == Some(15.0)
+                }
+                && {
+                    // Cylinder short: major=10 height=10 → sphere max(5,10)=10.
+                    let bs = geometry_bounding_sphere_radius(GEOMETRY_CYLINDER_RESIDUAL, 10.0, 10.0, 0.0);
+                    bs == Some(10.0)
+                }
+                && {
+                    // Box major=3 minor=4 height=0 → circle 5, sphere 5.
+                    let bc = geometry_bounding_circle_radius(GEOMETRY_BOX_RESIDUAL, 3.0, 4.0);
+                    let bs = geometry_bounding_sphere_radius(GEOMETRY_BOX_RESIDUAL, 0.0, 3.0, 4.0);
+                    match (bc, bs) {
+                        (Some(c), Some(s)) => (c - 5.0).abs() < 1e-5 && (s - 5.0).abs() < 1e-5,
+                        _ => false,
+                    }
+                }
+                // Height residual formulas.
+                && geometry_max_height_above_position(GEOMETRY_SPHERE_RESIDUAL, 0.0, 7.0) == Some(7.0)
+                && geometry_max_height_above_position(GEOMETRY_CYLINDER_RESIDUAL, 12.0, 7.0) == Some(12.0)
+                && geometry_max_height_above_position(GEOMETRY_BOX_RESIDUAL, 9.0, 1.0) == Some(9.0)
+                && geometry_max_height_below_position(GEOMETRY_SPHERE_RESIDUAL, 7.0) == Some(7.0)
+                && geometry_max_height_below_position(GEOMETRY_BOX_RESIDUAL, 7.0) == Some(0.0)
+                && geometry_z_delta_to_center(GEOMETRY_SPHERE_RESIDUAL, 10.0) == Some(0.0)
+                && geometry_z_delta_to_center(GEOMETRY_BOX_RESIDUAL, 10.0) == Some(5.0)
+                // Footprint area residual.
+                && {
+                    let a = geometry_footprint_area(GEOMETRY_SPHERE_RESIDUAL, 2.0, 0.0, 2.0);
+                    match a {
+                        Some(v) => (v - (PI * 4.0)).abs() < 1e-5,
+                        None => false,
+                    }
+                }
+                && geometry_footprint_area(GEOMETRY_BOX_RESIDUAL, 3.0, 4.0, 5.0) == Some(48.0)
+                // CollideModule residual: other=NULL indicates ground collision (documented residual).
+                // Fail-closed: unknown geometry types reject.
+                && geometry_bounding_circle_radius(99, 1.0, 1.0).is_none()
+                && geometry_max_height_above_position(99, 1.0, 1.0).is_none()
+        });
     }
 
     #[test]
-    fn honesty_physics_residual_pack_wave96_ok() {
-        assert!(honesty_physics_residual_pack_wave96());
+    fn physics_flags_and_collision_response() {
+        assert!({
+            PHYSICS_DEFAULT_MASS_RESIDUAL == 1.0
+                && (PHYSICS_DEFAULT_SHOCK_YAW_RESIDUAL - 0.05).abs() < 1e-6
+                && (PHYSICS_DEFAULT_SHOCK_PITCH_RESIDUAL - 0.025).abs() < 1e-6
+                && (PHYSICS_DEFAULT_SHOCK_ROLL_RESIDUAL - 0.025).abs() < 1e-6
+                && (PHYSICS_DEFAULT_FORWARD_FRICTION_RESIDUAL - 0.15).abs() < 1e-6
+                && (PHYSICS_DEFAULT_LATERAL_FRICTION_RESIDUAL - 0.15).abs() < 1e-6
+                && (PHYSICS_DEFAULT_Z_FRICTION_RESIDUAL - 0.8).abs() < 1e-6
+                && PHYSICS_DEFAULT_AERO_FRICTION_RESIDUAL == 0.0
+                && PHYSICS_MIN_AERO_FRICTION_RESIDUAL == 0.0
+                && (PHYSICS_MIN_NON_AERO_FRICTION_RESIDUAL - 0.01).abs() < 1e-6
+                && (PHYSICS_MAX_FRICTION_RESIDUAL - 0.99).abs() < 1e-6
+                && (PHYSICS_STUN_RELIEF_EPSILON_RESIDUAL - 0.5).abs() < 1e-6
+                && PHYSICS_MOTIVE_FRAMES_RESIDUAL == 10
+                && LOGIC_FRAMES_PER_SECOND_RESIDUAL / 3 == 10
+                && PHYSICS_INVALID_VEL_MAG_RESIDUAL == -1.0
+                && PHYSICS_PITCH_ROLL_YAW_FACTOR_RESIDUAL == 2.0
+                && PHYSICS_FALL_HEIGHT_DAMAGE_FACTOR_RESIDUAL == 1.0
+                && PHYSICS_MIN_FALL_HEIGHT_FOR_DAMAGE_RESIDUAL == 40.0
+                && !PHYSICS_ALLOW_BOUNCING_DEFAULT_RESIDUAL
+                && PHYSICS_ALLOW_COLLIDE_FORCE_DEFAULT_RESIDUAL
+                && !PHYSICS_KILL_WHEN_RESTING_ON_GROUND_DEFAULT_RESIDUAL
+                && PHYSICS_SHOCK_RESISTANCE_DEFAULT_RESIDUAL == 0.0
+                && PHYSICS_CENTER_OF_MASS_OFFSET_DEFAULT_RESIDUAL == 0.0
+                && PHYSICS_GRAVITY_RESIDUAL == -64.0
+                // Turning residual.
+                && PHYSICS_TURN_NEGATIVE == -1
+                && PHYSICS_TURN_NONE == 0
+                && PHYSICS_TURN_POSITIVE == 1
+                // Flag bits residual.
+                && PHYSICS_FLAG_NAME_LIST.len() == 12
+                && PHYSICS_FLAG_STICK_TO_GROUND == 0x0001
+                && PHYSICS_FLAG_ALLOW_BOUNCE == 0x0002
+                && PHYSICS_FLAG_ALLOW_COLLIDE_FORCE == 0x0020
+                && PHYSICS_FLAG_IS_STUNNED == 0x0800
+                && physics_flag_bit_value("STICK_TO_GROUND") == Some(0x0001)
+                && physics_flag_bit_value("IS_STUNNED") == Some(0x0800)
+                && physics_flag_bit_value("NOT_A_FLAG").is_none()
+                // heightToSpeed residual with retail gravity.
+                && {
+                    let v = physics_height_to_speed(
+                        PHYSICS_MIN_FALL_HEIGHT_FOR_DAMAGE_RESIDUAL,
+                        PHYSICS_GRAVITY_RESIDUAL,
+                    );
+                    // sqrt(2 * 64 * 40) = sqrt(5120) ≈ 71.554175
+                    (v - 5120f32.sqrt()).abs() < 1e-3
+                }
+                // Friction-per-sec residual: 0.15/sec → 0.005/frame at 30 FPS.
+                && {
+                    let f = physics_friction_per_frame(0.15);
+                    (f - 0.005).abs() < 1e-6
+                }
+                // Crash weapon residual names.
+                && PHYSICS_VEHICLE_CRASHES_INTO_BUILDING_WEAPON
+                    == "VehicleCrashesIntoBuildingWeapon"
+                && PHYSICS_VEHICLE_CRASHES_INTO_NON_BUILDING_WEAPON
+                    == "VehicleCrashesIntoNonBuildingWeapon"
+                && PHYSICS_DEFAULT_STRUCTURE_RUBBLE_HEIGHT_RESIDUAL == 1.0
+                && (PHYSICS_STRUCTURE_STIFFNESS_DEFAULT_RESIDUAL - 0.5).abs() < 1e-6
+                && (clamp_structure_stiffness(0.0) - 0.01).abs() < 1e-6
+                && (clamp_structure_stiffness(2.0) - 0.99).abs() < 1e-6
+                && structure_immobile_bounce_factor(0.0, 1.0, 0.5) < 0.0
+                && (parachute_bounce_out_distance(20.0) - 2.0).abs() < 1e-6
+                && vehicle_crash_into_immobile_outcome(
+                    true,
+                    true,
+                    true,
+                    true,
+                    2.0,
+                    PHYSICS_DEFAULT_STRUCTURE_RUBBLE_HEIGHT_RESIDUAL,
+                ) == VehicleCrashImmobileOutcome::DestroyWithBuildingWeapon
+                && vehicle_crash_into_immobile_outcome(
+                    true,
+                    false,
+                    true,
+                    true,
+                    2.0,
+                    PHYSICS_DEFAULT_STRUCTURE_RUBBLE_HEIGHT_RESIDUAL,
+                ) == VehicleCrashImmobileOutcome::DamageWithNonBuildingWeapon
+                && vehicle_crash_into_immobile_outcome(
+                    true,
+                    true,
+                    true,
+                    false,
+                    2.0,
+                    PHYSICS_DEFAULT_STRUCTURE_RUBBLE_HEIGHT_RESIDUAL,
+                ) == VehicleCrashImmobileOutcome::None
+                && vehicle_crash_weapon_name(VehicleCrashImmobileOutcome::DestroyWithBuildingWeapon)
+                    == Some(PHYSICS_VEHICLE_CRASHES_INTO_BUILDING_WEAPON)
+                && vehicle_crash_destroys_vehicle(VehicleCrashImmobileOutcome::DestroyWithBuildingWeapon)
+                && vehicle_crash_destroys_vehicle(VehicleCrashImmobileOutcome::DestroyWithoutWeapon)
+                && !vehicle_crash_destroys_vehicle(VehicleCrashImmobileOutcome::DamageWithNonBuildingWeapon)
+                && vehicle_crash_weapon_name(VehicleCrashImmobileOutcome::DestroyWithoutWeapon).is_none()
+                && vehicle_crash_into_immobile_outcome(
+                    false,
+                    true,
+                    true,
+                    true,
+                    2.0,
+                    PHYSICS_DEFAULT_STRUCTURE_RUBBLE_HEIGHT_RESIDUAL,
+                ) == VehicleCrashImmobileOutcome::DestroyWithoutWeapon
+                && vehicle_crash_into_immobile_outcome(
+                    false,
+                    false,
+                    true,
+                    true,
+                    2.0,
+                    PHYSICS_DEFAULT_STRUCTURE_RUBBLE_HEIGHT_RESIDUAL,
+                ) == VehicleCrashImmobileOutcome::None
+                && can_crush_only_residual(1, 0, false, false)
+                && !can_crush_only_residual(1, 0, true, false)
+                && !can_crush_only_residual(0, 0, false, false)
+                && select_crush_target_residual(false, false) == CrushTarget::TotalCrush
+                && select_crush_target_residual(true, false) == CrushTarget::BackEndCrush
+                && perps_logically_equal(1.0, 1.1)
+                && !perps_logically_equal(1.0, 1.3)
+                && select_crush_target_by_perp_residual(
+                    false,
+                    false,
+                    (0.0, 0.0),
+                    (10.0, 0.0),
+                    (1.0, 0.0),
+                    (1.0, 0.0),
+                    5.0,
+                ) == CrushTarget::TotalCrush
+                && past_crush_point_residual((0.0, 0.0), (-1.0, 0.0), (1.0, 0.0), 10.0)
+                && !past_crush_point_residual((0.0, 0.0), (5.0, 0.0), (1.0, 0.0), 10.0)
+        });
     }
 
     #[test]
-    fn honesty_projectile_residual_deepen_pack_wave96_ok() {
-        assert!(honesty_projectile_residual_deepen_pack_wave96());
-    }
-
-    #[test]
-    fn honesty_partition_collision_physics_residual_pack_wave96_ok() {
-        assert!(honesty_partition_collision_physics_residual_pack_wave96());
+    fn projectile_fields_and_lifespan_frames() {
+        assert!({
+            PROJECTILE_DEFAULT_MAX_LIFESPAN_FRAMES_RESIDUAL == 300
+                && 10 * LOGIC_FRAMES_PER_SECOND_RESIDUAL == 300
+                && PROJECTILE_ORIENT_TO_FLIGHT_PATH_DEFAULT_RESIDUAL
+                && !PROJECTILE_TUMBLE_RANDOMLY_DEFAULT_RESIDUAL
+                && !PROJECTILE_DETONATE_CALLS_KILL_DEFAULT_RESIDUAL
+                && PROJECTILE_FIRST_HEIGHT_DEFAULT_RESIDUAL == 0.0
+                && PROJECTILE_SECOND_HEIGHT_DEFAULT_RESIDUAL == 0.0
+                && PROJECTILE_FIRST_PERCENT_INDENT_DEFAULT_RESIDUAL == 0.0
+                && PROJECTILE_SECOND_PERCENT_INDENT_DEFAULT_RESIDUAL == 0.0
+                && PROJECTILE_GARRISON_HIT_KILL_COUNT_DEFAULT_RESIDUAL == 0
+                && PROJECTILE_FLIGHT_PATH_ADJUST_DIST_PER_FRAME_DEFAULT_RESIDUAL == 0.0
+                // Angle residual constants.
+                && (PROJECTILE_SHALLOW_ANGLE_RAD_RESIDUAL - (0.5 * PI / 180.0)).abs() < 1e-7
+                && (PROJECTILE_MIN_ANGLE_DIFF_RAD_RESIDUAL - (PI / (180.0 * 16.0))).abs() < 1e-7
+                && PROJECTILE_CLOSE_ENOUGH_RANGE_RESIDUAL == 5.0
+                // INI field residual table.
+                && PROJECTILE_INI_FIELD_NAME_LIST.len() == 13
+                && PROJECTILE_INI_FIELD_NAME_LIST[0] == "MaxLifespan"
+                && PROJECTILE_INI_FIELD_NAME_LIST[4] == "FirstHeight"
+                && PROJECTILE_INI_FIELD_NAME_LIST[12] == "FlightPathAdjustDistPerSecond"
+                && projectile_ini_field_name_known("OrientToFlightPath")
+                && projectile_ini_field_name_known("GarrisonHitKillCount")
+                && !projectile_ini_field_name_known("HomingStrength")
+                // Lifespan residual: launch at frame 100 + default 300 → 400.
+                && projectile_lifespan_frame(100, PROJECTILE_DEFAULT_MAX_LIFESPAN_FRAMES_RESIDUAL) == 400
+                && projectile_lifespan_frame(0, 0) == 0
+                // Unique field names.
+                && {
+                    let mut seen = std::collections::HashSet::new();
+                    PROJECTILE_INI_FIELD_NAME_LIST.iter().all(|n| seen.insert(*n))
+                }
+        });
     }
 
     #[test]

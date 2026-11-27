@@ -86,35 +86,6 @@ pub fn damage_type_bit_name_index(name: &str) -> Option<usize> {
         .position(|&n| n.eq_ignore_ascii_case(name))
 }
 
-/// Wave 82 honesty: DamageType residual enum table pack.
-pub fn honesty_damage_type_enum_table_wave82() -> bool {
-    DAMAGE_NUM_TYPES == 38
-        && DAMAGE_TYPE_BIT_NAME_LIST.len() == 38
-        && DAMAGE_TYPE_BIT_NAME_LIST[0] == "EXPLOSION"
-        && DAMAGE_TYPE_BIT_NAME_LIST[3] == "SMALL_ARMS"
-        && DAMAGE_TYPE_BIT_NAME_LIST[6] == "FLAME"
-        && DAMAGE_TYPE_BIT_NAME_LIST[9] == "POISON"
-        && DAMAGE_TYPE_BIT_NAME_LIST[11] == "UNRESISTABLE"
-        && DAMAGE_TYPE_BIT_NAME_LIST[22] == "PARTICLE_BEAM"
-        && DAMAGE_TYPE_BIT_NAME_LIST[31] == "SUBDUAL_MISSILE"
-        && DAMAGE_TYPE_BIT_NAME_LIST[35] == "MICROWAVE"
-        && DAMAGE_TYPE_BIT_NAME_LIST[37] == "STATUS"
-        && damage_type_bit_name_index("STATUS") == Some(37)
-        && damage_type_bit_name_index("EXPLOSION") == Some(0)
-        && damage_type_bit_name_index("PARTICLE_BEAM") == Some(22)
-        // Subdual residual cluster contiguous.
-        && damage_type_bit_name_index("SUBDUAL_MISSILE") == Some(31)
-        && damage_type_bit_name_index("SUBDUAL_VEHICLE") == Some(32)
-        && damage_type_bit_name_index("SUBDUAL_BUILDING") == Some(33)
-        && damage_type_bit_name_index("SUBDUAL_UNRESISTABLE") == Some(34)
-        // Unique names.
-        && {
-            let mut names: Vec<&str> = DAMAGE_TYPE_BIT_NAME_LIST.to_vec();
-            names.sort_unstable();
-            names.windows(2).all(|w| w[0] != w[1])
-        }
-}
-
 // ---------------------------------------------------------------------------
 // DeathType residual table (Damage.h TheDeathNames)
 // ---------------------------------------------------------------------------
@@ -152,33 +123,6 @@ pub fn death_type_name_index(name: &str) -> Option<usize> {
     DEATH_TYPE_NAME_LIST
         .iter()
         .position(|&n| n.eq_ignore_ascii_case(name))
-}
-
-/// Wave 82 honesty: DeathType residual enum table pack.
-pub fn honesty_death_type_enum_table_wave82() -> bool {
-    DEATH_NUM_TYPES == 21
-        && DEATH_TYPE_NAME_LIST.len() == 21
-        && DEATH_TYPE_NAME_LIST[0] == "NORMAL"
-        && DEATH_TYPE_NAME_LIST[1] == "NONE"
-        && DEATH_TYPE_NAME_LIST[3] == "BURNED"
-        && DEATH_TYPE_NAME_LIST[4] == "EXPLODED"
-        && DEATH_TYPE_NAME_LIST[5] == "POISONED"
-        && DEATH_TYPE_NAME_LIST[8] == "SUICIDED"
-        && DEATH_TYPE_NAME_LIST[10] == "DETONATED"
-        && DEATH_TYPE_NAME_LIST[11] == "SPLATTED"
-        && DEATH_TYPE_NAME_LIST[12] == "POISONED_BETA"
-        && DEATH_TYPE_NAME_LIST[20] == "POISONED_GAMMA"
-        && death_type_name_index("NORMAL") == Some(0)
-        && death_type_name_index("EXPLODED") == Some(4)
-        && death_type_name_index("POISONED_GAMMA") == Some(20)
-        // Death names deliberately differ from damage names residual sample.
-        && DEATH_TYPE_NAME_LIST[3] != "FLAME"
-        && DEATH_TYPE_NAME_LIST[4] != "EXPLOSION"
-        && {
-            let mut names: Vec<&str> = DEATH_TYPE_NAME_LIST.to_vec();
-            names.sort_unstable();
-            names.windows(2).all(|w| w[0] != w[1])
-        }
 }
 
 // ---------------------------------------------------------------------------
@@ -992,43 +936,6 @@ pub fn model_condition_bit_name_index(name: &str) -> Option<usize> {
     })
 }
 
-/// Wave 82 honesty: ModelCondition residual flags table pack (incl. CONTINUOUS_FIRE_*).
-pub fn honesty_model_condition_enum_table_wave82() -> bool {
-    MODELCONDITION_COUNT == 117
-        && MODEL_CONDITION_BIT_NAME_LIST.len() == 117
-        && MODEL_CONDITION_BIT_NAME_LIST[0] == "TOPPLED"
-        && MODEL_CONDITION_BIT_NAME_LIST[3] == "DAMAGED"
-        && MODEL_CONDITION_BIT_NAME_LIST[4] == "REALLYDAMAGED"
-        && MODEL_CONDITION_BIT_NAME_LIST[35] == "PREATTACK_A"
-        && MODEL_CONDITION_BIT_NAME_LIST[36] == "FIRING_A"
-        && MODEL_CONDITION_BIT_NAME_LIST[49] == "MOVING"
-        && MODEL_CONDITION_BIT_NAME_LIST[79] == "SOLD"
-        && MODEL_CONDITION_BIT_NAME_LIST[80] == "RAPPELLING"
-        // No SURRENDER residual in ZH (ALLOW_SURRENDER off).
-        && !MODEL_CONDITION_BIT_NAME_LIST
-            .iter()
-            .any(|&n| n == "SURRENDER")
-        && MODEL_CONDITION_BIT_NAME_LIST[84] == "CONTINUOUS_FIRE_SLOW"
-        && MODEL_CONDITION_BIT_NAME_LIST[85] == "CONTINUOUS_FIRE_MEAN"
-        && MODEL_CONDITION_BIT_NAME_LIST[86] == "CONTINUOUS_FIRE_FAST"
-        && MODELCONDITION_CONTINUOUS_FIRE_SLOW == 84
-        && MODELCONDITION_CONTINUOUS_FIRE_MEAN == 85
-        && MODELCONDITION_CONTINUOUS_FIRE_FAST == 86
-        && model_condition_bit_name_index("CONTINUOUS_FIRE_SLOW") == Some(84)
-        && model_condition_bit_name_index("CONTINUOUS_FIRE_MEAN") == Some(85)
-        && model_condition_bit_name_index("CONTINUOUS_FIRE_FAST") == Some(86)
-        && MODEL_CONDITION_BIT_NAME_LIST[116] == "DISGUISED"
-        && model_condition_bit_name_index("DISGUISED") == Some(116)
-        // Contiguous CONTINUOUS_FIRE residual cluster.
-        && (MODELCONDITION_CONTINUOUS_FIRE_MEAN == MODELCONDITION_CONTINUOUS_FIRE_SLOW + 1)
-        && (MODELCONDITION_CONTINUOUS_FIRE_FAST == MODELCONDITION_CONTINUOUS_FIRE_MEAN + 1)
-        && {
-            let mut names: Vec<&str> = MODEL_CONDITION_BIT_NAME_LIST.to_vec();
-            names.sort_unstable();
-            names.windows(2).all(|w| w[0] != w[1])
-        }
-}
-
 // ---------------------------------------------------------------------------
 // WeaponBonus residual table (Weapon.h TheWeaponBonusNames; ALLOW_DEMORALIZE off)
 // ---------------------------------------------------------------------------
@@ -1095,51 +1002,6 @@ pub fn weapon_bonus_condition_name_index(name: &str) -> Option<usize> {
     WEAPON_BONUS_CONDITION_NAME_LIST
         .iter()
         .position(|&n| n.eq_ignore_ascii_case(name))
-}
-
-/// Wave 82 honesty: WeaponBonus residual type table pack.
-pub fn honesty_weapon_bonus_enum_table_wave82() -> bool {
-    WEAPONBONUSCONDITION_COUNT == 27
-        && WEAPON_BONUS_CONDITION_NAME_LIST.len() == 27
-        && WEAPON_BONUS_CONDITION_NAME_LIST[0] == "GARRISONED"
-        && WEAPON_BONUS_CONDITION_NAME_LIST[2] == "CONTINUOUS_FIRE_MEAN"
-        && WEAPON_BONUS_CONDITION_NAME_LIST[3] == "CONTINUOUS_FIRE_FAST"
-        && WEAPON_BONUS_CONDITION_NAME_LIST[5] == "PLAYER_UPGRADE"
-        && WEAPON_BONUS_CONDITION_NAME_LIST[7] == "DEMORALIZED_OBSOLETE"
-        && WEAPON_BONUS_CONDITION_NAME_LIST[8] == "ENTHUSIASTIC"
-        && WEAPON_BONUS_CONDITION_NAME_LIST[15] == "SUBLIMINAL"
-        && WEAPON_BONUS_CONDITION_NAME_LIST[22] == "TARGET_FAERIE_FIRE"
-        && WEAPON_BONUS_CONDITION_NAME_LIST[23] == "FANATICISM"
-        && WEAPON_BONUS_CONDITION_NAME_LIST[24] == "FRENZY_ONE"
-        && WEAPON_BONUS_CONDITION_NAME_LIST[26] == "FRENZY_THREE"
-        && WEAPON_BONUS_CONTINUOUS_FIRE_MEAN == 2
-        && WEAPON_BONUS_CONTINUOUS_FIRE_FAST == 3
-        && WEAPON_BONUS_ENTHUSIASTIC_ORDINAL == 8
-        && WEAPON_BONUS_SUBLIMINAL_ORDINAL == 15
-        && WEAPON_BONUS_FRENZY_ONE_ORDINAL == 24
-        && WEAPON_BONUS_CONDITION_NAME_LIST[16] == "SOLO_HUMAN_EASY"
-        && WEAPON_BONUS_CONDITION_NAME_LIST[21] == "SOLO_AI_HARD"
-        && WEAPON_BONUS_SOLO_HUMAN_EASY_ORDINAL == 16
-        && WEAPON_BONUS_SOLO_HUMAN_NORMAL_ORDINAL == 17
-        && WEAPON_BONUS_SOLO_HUMAN_HARD_ORDINAL == 18
-        && WEAPON_BONUS_SOLO_AI_EASY_ORDINAL == 19
-        && WEAPON_BONUS_SOLO_AI_NORMAL_ORDINAL == 20
-        && WEAPON_BONUS_SOLO_AI_HARD_ORDINAL == 21
-        && weapon_bonus_condition_name_index("SOLO_HUMAN_EASY") == Some(16)
-        && weapon_bonus_condition_name_index("SOLO_AI_HARD") == Some(21)
-
-        && weapon_bonus_condition_name_index("ENTHUSIASTIC") == Some(8)
-        && weapon_bonus_condition_name_index("SUBLIMINAL") == Some(15)
-        && weapon_bonus_condition_name_index("FRENZY_ONE") == Some(24)
-        // No live DEMORALIZED residual name under ALLOW_DEMORALIZE off.
-        && !WEAPON_BONUS_CONDITION_NAME_LIST
-            .iter()
-            .any(|&n| n == "DEMORALIZED")
-        && {
-            let mut names: Vec<&str> = WEAPON_BONUS_CONDITION_NAME_LIST.to_vec();
-            names.sort_unstable();
-            names.windows(2).all(|w| w[0] != w[1])
-        }
 }
 
 // ---------------------------------------------------------------------------
@@ -1214,52 +1076,6 @@ pub fn object_status_bit_name_index(name: &str) -> Option<usize> {
         .position(|&n| n.eq_ignore_ascii_case(name))
 }
 
-/// Wave 82 honesty: ObjectStatus / StatusBits residual table pack.
-pub fn honesty_object_status_enum_table_wave82() -> bool {
-    OBJECT_STATUS_COUNT == 45
-        && OBJECT_STATUS_BIT_NAME_LIST.len() == 45
-        && OBJECT_STATUS_BIT_NAME_LIST[0] == "NONE"
-        && OBJECT_STATUS_BIT_NAME_LIST[1] == "DESTROYED"
-        && OBJECT_STATUS_BIT_NAME_LIST[3] == "UNDER_CONSTRUCTION"
-        && OBJECT_STATUS_BIT_NAME_LIST[14] == "IS_FIRING_WEAPON"
-        && OBJECT_STATUS_BIT_NAME_LIST[16] == "STEALTHED"
-        && OBJECT_STATUS_BIT_NAME_LIST[17] == "DETECTED"
-        && OBJECT_STATUS_BIT_NAME_LIST[28] == "IS_CARBOMB"
-        && OBJECT_STATUS_BIT_NAME_LIST[38] == "FAERIE_FIRE"
-        && OBJECT_STATUS_BIT_NAME_LIST[41] == "BOOBY_TRAPPED"
-        && OBJECT_STATUS_BIT_NAME_LIST[43] == "DISGUISED"
-        && OBJECT_STATUS_BIT_NAME_LIST[44] == "DEPLOYED"
-        && OBJECT_STATUS_FAERIE_FIRE == 38
-        && OBJECT_STATUS_IS_CARBOMB == 28
-        && OBJECT_STATUS_STEALTHED == 16
-        && OBJECT_STATUS_DEPLOYED == 44
-        && object_status_bit_name_index("FAERIE_FIRE") == Some(38)
-        && object_status_bit_name_index("IS_CARBOMB") == Some(28)
-        && object_status_bit_name_index("STEALTHED") == Some(16)
-        && object_status_bit_name_index("DEPLOYED") == Some(44)
-        // Rider residual cluster contiguous STATUS_RIDER1..8.
-        && object_status_bit_name_index("STATUS_RIDER1") == Some(30)
-        && object_status_bit_name_index("STATUS_RIDER8") == Some(37)
-        && {
-            let mut names: Vec<&str> = OBJECT_STATUS_BIT_NAME_LIST.to_vec();
-            names.sort_unstable();
-            names.windows(2).all(|w| w[0] != w[1])
-        }
-}
-
-// ---------------------------------------------------------------------------
-// Combined Wave 82 residual pack
-// ---------------------------------------------------------------------------
-
-/// Wave 82 honesty: all five residual enum table peels.
-pub fn honesty_enum_table_residual_pack_wave82() -> bool {
-    honesty_damage_type_enum_table_wave82()
-        && honesty_death_type_enum_table_wave82()
-        && honesty_model_condition_enum_table_wave82()
-        && honesty_weapon_bonus_enum_table_wave82()
-        && honesty_object_status_enum_table_wave82()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1275,20 +1091,104 @@ mod tests {
     }
 
     #[test]
-    fn damage_type_enum_table_wave82_honesty() {
-        assert!(honesty_damage_type_enum_table_wave82());
+    fn damage_types_keep_original_indices() {
+        assert!({
+            DAMAGE_NUM_TYPES == 38
+                && DAMAGE_TYPE_BIT_NAME_LIST.len() == 38
+                && DAMAGE_TYPE_BIT_NAME_LIST[0] == "EXPLOSION"
+                && DAMAGE_TYPE_BIT_NAME_LIST[3] == "SMALL_ARMS"
+                && DAMAGE_TYPE_BIT_NAME_LIST[6] == "FLAME"
+                && DAMAGE_TYPE_BIT_NAME_LIST[9] == "POISON"
+                && DAMAGE_TYPE_BIT_NAME_LIST[11] == "UNRESISTABLE"
+                && DAMAGE_TYPE_BIT_NAME_LIST[22] == "PARTICLE_BEAM"
+                && DAMAGE_TYPE_BIT_NAME_LIST[31] == "SUBDUAL_MISSILE"
+                && DAMAGE_TYPE_BIT_NAME_LIST[35] == "MICROWAVE"
+                && DAMAGE_TYPE_BIT_NAME_LIST[37] == "STATUS"
+                && damage_type_bit_name_index("STATUS") == Some(37)
+                && damage_type_bit_name_index("EXPLOSION") == Some(0)
+                && damage_type_bit_name_index("PARTICLE_BEAM") == Some(22)
+                // Subdual residual cluster contiguous.
+                && damage_type_bit_name_index("SUBDUAL_MISSILE") == Some(31)
+                && damage_type_bit_name_index("SUBDUAL_VEHICLE") == Some(32)
+                && damage_type_bit_name_index("SUBDUAL_BUILDING") == Some(33)
+                && damage_type_bit_name_index("SUBDUAL_UNRESISTABLE") == Some(34)
+                // Unique names.
+                && {
+                    let mut names: Vec<&str> = DAMAGE_TYPE_BIT_NAME_LIST.to_vec();
+                    names.sort_unstable();
+                    names.windows(2).all(|w| w[0] != w[1])
+                }
+        });
         assert_eq!(damage_type_bit_name_index("STATUS"), Some(37));
     }
 
     #[test]
-    fn death_type_enum_table_wave82_honesty() {
-        assert!(honesty_death_type_enum_table_wave82());
+    fn death_types_keep_original_indices() {
+        assert!({
+            DEATH_NUM_TYPES == 21
+                && DEATH_TYPE_NAME_LIST.len() == 21
+                && DEATH_TYPE_NAME_LIST[0] == "NORMAL"
+                && DEATH_TYPE_NAME_LIST[1] == "NONE"
+                && DEATH_TYPE_NAME_LIST[3] == "BURNED"
+                && DEATH_TYPE_NAME_LIST[4] == "EXPLODED"
+                && DEATH_TYPE_NAME_LIST[5] == "POISONED"
+                && DEATH_TYPE_NAME_LIST[8] == "SUICIDED"
+                && DEATH_TYPE_NAME_LIST[10] == "DETONATED"
+                && DEATH_TYPE_NAME_LIST[11] == "SPLATTED"
+                && DEATH_TYPE_NAME_LIST[12] == "POISONED_BETA"
+                && DEATH_TYPE_NAME_LIST[20] == "POISONED_GAMMA"
+                && death_type_name_index("NORMAL") == Some(0)
+                && death_type_name_index("EXPLODED") == Some(4)
+                && death_type_name_index("POISONED_GAMMA") == Some(20)
+                // Death names deliberately differ from damage names residual sample.
+                && DEATH_TYPE_NAME_LIST[3] != "FLAME"
+                && DEATH_TYPE_NAME_LIST[4] != "EXPLOSION"
+                && {
+                    let mut names: Vec<&str> = DEATH_TYPE_NAME_LIST.to_vec();
+                    names.sort_unstable();
+                    names.windows(2).all(|w| w[0] != w[1])
+                }
+        });
         assert_eq!(death_type_name_index("POISONED_GAMMA"), Some(20));
     }
 
     #[test]
-    fn model_condition_enum_table_wave82_honesty() {
-        assert!(honesty_model_condition_enum_table_wave82());
+    fn model_conditions_keep_original_indices() {
+        assert!({
+            MODELCONDITION_COUNT == 117
+                && MODEL_CONDITION_BIT_NAME_LIST.len() == 117
+                && MODEL_CONDITION_BIT_NAME_LIST[0] == "TOPPLED"
+                && MODEL_CONDITION_BIT_NAME_LIST[3] == "DAMAGED"
+                && MODEL_CONDITION_BIT_NAME_LIST[4] == "REALLYDAMAGED"
+                && MODEL_CONDITION_BIT_NAME_LIST[35] == "PREATTACK_A"
+                && MODEL_CONDITION_BIT_NAME_LIST[36] == "FIRING_A"
+                && MODEL_CONDITION_BIT_NAME_LIST[49] == "MOVING"
+                && MODEL_CONDITION_BIT_NAME_LIST[79] == "SOLD"
+                && MODEL_CONDITION_BIT_NAME_LIST[80] == "RAPPELLING"
+                // No SURRENDER residual in ZH (ALLOW_SURRENDER off).
+                && !MODEL_CONDITION_BIT_NAME_LIST
+                    .iter()
+                    .any(|&n| n == "SURRENDER")
+                && MODEL_CONDITION_BIT_NAME_LIST[84] == "CONTINUOUS_FIRE_SLOW"
+                && MODEL_CONDITION_BIT_NAME_LIST[85] == "CONTINUOUS_FIRE_MEAN"
+                && MODEL_CONDITION_BIT_NAME_LIST[86] == "CONTINUOUS_FIRE_FAST"
+                && MODELCONDITION_CONTINUOUS_FIRE_SLOW == 84
+                && MODELCONDITION_CONTINUOUS_FIRE_MEAN == 85
+                && MODELCONDITION_CONTINUOUS_FIRE_FAST == 86
+                && model_condition_bit_name_index("CONTINUOUS_FIRE_SLOW") == Some(84)
+                && model_condition_bit_name_index("CONTINUOUS_FIRE_MEAN") == Some(85)
+                && model_condition_bit_name_index("CONTINUOUS_FIRE_FAST") == Some(86)
+                && MODEL_CONDITION_BIT_NAME_LIST[116] == "DISGUISED"
+                && model_condition_bit_name_index("DISGUISED") == Some(116)
+                // Contiguous CONTINUOUS_FIRE residual cluster.
+                && (MODELCONDITION_CONTINUOUS_FIRE_MEAN == MODELCONDITION_CONTINUOUS_FIRE_SLOW + 1)
+                && (MODELCONDITION_CONTINUOUS_FIRE_FAST == MODELCONDITION_CONTINUOUS_FIRE_MEAN + 1)
+                && {
+                    let mut names: Vec<&str> = MODEL_CONDITION_BIT_NAME_LIST.to_vec();
+                    names.sort_unstable();
+                    names.windows(2).all(|w| w[0] != w[1])
+                }
+        });
         assert_eq!(
             model_condition_bit_name_index("CONTINUOUS_FIRE_FAST"),
             Some(86)
@@ -1463,68 +1363,273 @@ mod tests {
     }
 
     #[test]
-    fn weapon_bonus_enum_table_wave82_honesty() {
-        assert!(honesty_weapon_bonus_enum_table_wave82());
+    fn weapon_bonus_conditions_keep_original_indices() {
+        assert!({
+            WEAPONBONUSCONDITION_COUNT == 27
+                && WEAPON_BONUS_CONDITION_NAME_LIST.len() == 27
+                && WEAPON_BONUS_CONDITION_NAME_LIST[0] == "GARRISONED"
+                && WEAPON_BONUS_CONDITION_NAME_LIST[2] == "CONTINUOUS_FIRE_MEAN"
+                && WEAPON_BONUS_CONDITION_NAME_LIST[3] == "CONTINUOUS_FIRE_FAST"
+                && WEAPON_BONUS_CONDITION_NAME_LIST[5] == "PLAYER_UPGRADE"
+                && WEAPON_BONUS_CONDITION_NAME_LIST[7] == "DEMORALIZED_OBSOLETE"
+                && WEAPON_BONUS_CONDITION_NAME_LIST[8] == "ENTHUSIASTIC"
+                && WEAPON_BONUS_CONDITION_NAME_LIST[15] == "SUBLIMINAL"
+                && WEAPON_BONUS_CONDITION_NAME_LIST[22] == "TARGET_FAERIE_FIRE"
+                && WEAPON_BONUS_CONDITION_NAME_LIST[23] == "FANATICISM"
+                && WEAPON_BONUS_CONDITION_NAME_LIST[24] == "FRENZY_ONE"
+                && WEAPON_BONUS_CONDITION_NAME_LIST[26] == "FRENZY_THREE"
+                && WEAPON_BONUS_CONTINUOUS_FIRE_MEAN == 2
+                && WEAPON_BONUS_CONTINUOUS_FIRE_FAST == 3
+                && WEAPON_BONUS_ENTHUSIASTIC_ORDINAL == 8
+                && WEAPON_BONUS_SUBLIMINAL_ORDINAL == 15
+                && WEAPON_BONUS_FRENZY_ONE_ORDINAL == 24
+                && WEAPON_BONUS_CONDITION_NAME_LIST[16] == "SOLO_HUMAN_EASY"
+                && WEAPON_BONUS_CONDITION_NAME_LIST[21] == "SOLO_AI_HARD"
+                && WEAPON_BONUS_SOLO_HUMAN_EASY_ORDINAL == 16
+                && WEAPON_BONUS_SOLO_HUMAN_NORMAL_ORDINAL == 17
+                && WEAPON_BONUS_SOLO_HUMAN_HARD_ORDINAL == 18
+                && WEAPON_BONUS_SOLO_AI_EASY_ORDINAL == 19
+                && WEAPON_BONUS_SOLO_AI_NORMAL_ORDINAL == 20
+                && WEAPON_BONUS_SOLO_AI_HARD_ORDINAL == 21
+                && weapon_bonus_condition_name_index("SOLO_HUMAN_EASY") == Some(16)
+                && weapon_bonus_condition_name_index("SOLO_AI_HARD") == Some(21)
+
+                && weapon_bonus_condition_name_index("ENTHUSIASTIC") == Some(8)
+                && weapon_bonus_condition_name_index("SUBLIMINAL") == Some(15)
+                && weapon_bonus_condition_name_index("FRENZY_ONE") == Some(24)
+                // No live DEMORALIZED residual name under ALLOW_DEMORALIZE off.
+                && !WEAPON_BONUS_CONDITION_NAME_LIST
+                    .iter()
+                    .any(|&n| n == "DEMORALIZED")
+                && {
+                    let mut names: Vec<&str> = WEAPON_BONUS_CONDITION_NAME_LIST.to_vec();
+                    names.sort_unstable();
+                    names.windows(2).all(|w| w[0] != w[1])
+                }
+        });
         assert_eq!(weapon_bonus_condition_name_index("FRENZY_THREE"), Some(26));
         assert_eq!(WEAPON_BONUS_ENTHUSIASTIC_ORDINAL, 8);
     }
 
     #[test]
-    fn object_status_enum_table_wave82_honesty() {
-        assert!(honesty_object_status_enum_table_wave82());
+    fn object_status_flags_keep_original_indices() {
+        assert!({
+            OBJECT_STATUS_COUNT == 45
+                && OBJECT_STATUS_BIT_NAME_LIST.len() == 45
+                && OBJECT_STATUS_BIT_NAME_LIST[0] == "NONE"
+                && OBJECT_STATUS_BIT_NAME_LIST[1] == "DESTROYED"
+                && OBJECT_STATUS_BIT_NAME_LIST[3] == "UNDER_CONSTRUCTION"
+                && OBJECT_STATUS_BIT_NAME_LIST[14] == "IS_FIRING_WEAPON"
+                && OBJECT_STATUS_BIT_NAME_LIST[16] == "STEALTHED"
+                && OBJECT_STATUS_BIT_NAME_LIST[17] == "DETECTED"
+                && OBJECT_STATUS_BIT_NAME_LIST[28] == "IS_CARBOMB"
+                && OBJECT_STATUS_BIT_NAME_LIST[38] == "FAERIE_FIRE"
+                && OBJECT_STATUS_BIT_NAME_LIST[41] == "BOOBY_TRAPPED"
+                && OBJECT_STATUS_BIT_NAME_LIST[43] == "DISGUISED"
+                && OBJECT_STATUS_BIT_NAME_LIST[44] == "DEPLOYED"
+                && OBJECT_STATUS_FAERIE_FIRE == 38
+                && OBJECT_STATUS_IS_CARBOMB == 28
+                && OBJECT_STATUS_STEALTHED == 16
+                && OBJECT_STATUS_DEPLOYED == 44
+                && object_status_bit_name_index("FAERIE_FIRE") == Some(38)
+                && object_status_bit_name_index("IS_CARBOMB") == Some(28)
+                && object_status_bit_name_index("STEALTHED") == Some(16)
+                && object_status_bit_name_index("DEPLOYED") == Some(44)
+                // Rider residual cluster contiguous STATUS_RIDER1..8.
+                && object_status_bit_name_index("STATUS_RIDER1") == Some(30)
+                && object_status_bit_name_index("STATUS_RIDER8") == Some(37)
+                && {
+                    let mut names: Vec<&str> = OBJECT_STATUS_BIT_NAME_LIST.to_vec();
+                    names.sort_unstable();
+                    names.windows(2).all(|w| w[0] != w[1])
+                }
+        });
         assert_eq!(object_status_bit_name_index("FAERIE_FIRE"), Some(38));
     }
 
     #[test]
-    fn enum_table_residual_pack_wave82_honesty() {
-        assert!(honesty_enum_table_residual_pack_wave82());
-    }
-
-    #[test]
-    fn kindof_enum_table_wave84_honesty() {
-        assert!(honesty_kindof_enum_table_wave84());
+    fn kind_of_flags_keep_original_indices() {
+        assert!({
+            KINDOF_COUNT == 116
+                && KINDOF_BIT_NAME_LIST.len() == 116
+                && KINDOF_BIT_NAME_LIST[0] == "OBSTACLE"
+                && KINDOF_BIT_NAME_LIST[1] == "SELECTABLE"
+                && KINDOF_BIT_NAME_LIST[7] == "STRUCTURE"
+                && KINDOF_BIT_NAME_LIST[8] == "INFANTRY"
+                && KINDOF_BIT_NAME_LIST[9] == "VEHICLE"
+                && KINDOF_BIT_NAME_LIST[10] == "AIRCRAFT"
+                && KINDOF_BIT_NAME_LIST[14] == "COMMANDCENTER"
+                && KINDOF_BIT_NAME_LIST[22] == "PROJECTILE"
+                && KINDOF_BIT_NAME_LIST[27] == "NO_COLLIDE"
+                && KINDOF_BIT_NAME_LIST[50] == "MINE"
+                && KINDOF_BIT_NAME_LIST[51] == "CLEANUP_HAZARD"
+                && KINDOF_BIT_NAME_LIST[57] == "FS_POWER"
+                && KINDOF_BIT_NAME_LIST[58] == "FS_FACTORY"
+                && KINDOF_BIT_NAME_LIST[85] == "HERO"
+                && KINDOF_BIT_NAME_LIST[90] == "FS_SUPERWEAPON"
+                && KINDOF_BIT_NAME_LIST[97] == "BOOBY_TRAP"
+                && KINDOF_BIT_NAME_LIST[112] == "EMP_HARDENED"
+                && KINDOF_BIT_NAME_LIST[115] == "IGNORE_DOCKING_BONES"
+                // ALLOW_SURRENDER residual absent (no PRISON between COMMANDCENTER and LINEBUILD).
+                && !KINDOF_BIT_NAME_LIST.contains(&"PRISON")
+                && !KINDOF_BIT_NAME_LIST.contains(&"CAN_SURRENDER")
+                && KINDOF_BIT_NAME_LIST[14] == "COMMANDCENTER"
+                && KINDOF_BIT_NAME_LIST[15] == "LINEBUILD"
+                // Anchor constants match ordinals.
+                && KINDOF_STRUCTURE == 7
+                && KINDOF_INFANTRY == 8
+                && KINDOF_VEHICLE == 9
+                && KINDOF_AIRCRAFT == 10
+                && KINDOF_COMMANDCENTER == 14
+                && KINDOF_PROJECTILE == 22
+                && KINDOF_NO_COLLIDE == 27
+                && KINDOF_FS_FACTORY == 58
+                && KINDOF_HERO == 85
+                && KINDOF_FS_SUPERWEAPON == 90
+                && KINDOF_BOOBY_TRAP == 97
+                && KINDOF_EMP_HARDENED == 112
+                && KINDOF_IGNORE_DOCKING_BONES == 115
+                && kindof_bit_name_index("STRUCTURE") == Some(7)
+                && kindof_bit_name_index("INFANTRY") == Some(8)
+                && kindof_bit_name_index("FS_SUPERWEAPON") == Some(90)
+                && kindof_bit_name_index("IGNORE_DOCKING_BONES") == Some(115)
+                // FS_* residual cluster sample.
+                && kindof_bit_name_index("FS_BARRACKS") == Some(104)
+                && kindof_bit_name_index("FS_WARFACTORY") == Some(105)
+                && kindof_bit_name_index("FS_AIRFIELD") == Some(106)
+                && {
+                    let mut names: Vec<&str> = KINDOF_BIT_NAME_LIST.to_vec();
+                    names.sort_unstable();
+                    names.windows(2).all(|w| w[0] != w[1])
+                }
+        });
         assert_eq!(kindof_bit_name_index("FS_SUPERWEAPON"), Some(90));
         assert_eq!(KINDOF_COUNT, 116);
         assert!(!KINDOF_BIT_NAME_LIST.contains(&"PRISON"));
     }
 
     #[test]
-    fn weapon_slot_enum_table_wave84_honesty() {
-        assert!(honesty_weapon_slot_enum_table_wave84());
+    fn weapon_slots_keep_original_indices() {
+        assert!({
+            WEAPONSLOT_COUNT == 3
+                && WEAPON_SLOT_TYPE_NAME_LIST.len() == 3
+                && WEAPON_SLOT_TYPE_NAME_LIST[0] == "PRIMARY"
+                && WEAPON_SLOT_TYPE_NAME_LIST[1] == "SECONDARY"
+                && WEAPON_SLOT_TYPE_NAME_LIST[2] == "TERTIARY"
+                && PRIMARY_WEAPON == 0
+                && SECONDARY_WEAPON == 1
+                && TERTIARY_WEAPON == 2
+                && weapon_slot_type_name_index("PRIMARY") == Some(0)
+                && weapon_slot_type_name_index("SECONDARY") == Some(1)
+                && weapon_slot_type_name_index("TERTIARY") == Some(2)
+                && weapon_slot_type_name_index("primary") == Some(0)
+                // Fail-closed: no fourth slot residual.
+                && weapon_slot_type_name_index("QUATERNARY").is_none()
+        });
         assert_eq!(weapon_slot_type_name_index("TERTIARY"), Some(2));
     }
 
     #[test]
-    fn veterancy_level_enum_table_wave84_honesty() {
-        assert!(honesty_veterancy_level_enum_table_wave84());
+    fn veterancy_levels_keep_original_indices() {
+        assert!({
+            VETERANCY_LEVEL_COUNT == 4
+                && VETERANCY_LEVEL_NAME_LIST.len() == 4
+                && VETERANCY_LEVEL_NAME_LIST[0] == "REGULAR"
+                && VETERANCY_LEVEL_NAME_LIST[1] == "VETERAN"
+                && VETERANCY_LEVEL_NAME_LIST[2] == "ELITE"
+                && VETERANCY_LEVEL_NAME_LIST[3] == "HEROIC"
+                && LEVEL_REGULAR == 0
+                && LEVEL_VETERAN == 1
+                && LEVEL_ELITE == 2
+                && LEVEL_HEROIC == 3
+                && veterancy_level_name_index("REGULAR") == Some(0)
+                && veterancy_level_name_index("VETERAN") == Some(1)
+                && veterancy_level_name_index("ELITE") == Some(2)
+                && veterancy_level_name_index("HEROIC") == Some(3)
+                // Fail-closed: ROOKIE is not a C++ name (REGULAR is level 0).
+                && veterancy_level_name_index("ROOKIE").is_none()
+        });
         assert_eq!(veterancy_level_name_index("HEROIC"), Some(3));
         assert!(veterancy_level_name_index("ROOKIE").is_none());
     }
 
     #[test]
-    fn relationship_enum_table_wave84_honesty() {
-        assert!(honesty_relationship_enum_table_wave84());
+    fn relationship_types_keep_original_indices() {
+        assert!({
+            RELATIONSHIP_COUNT == 3
+                && RELATIONSHIP_NAME_LIST.len() == 3
+                && RELATIONSHIP_NAME_LIST[0] == "ENEMIES"
+                && RELATIONSHIP_NAME_LIST[1] == "NEUTRAL"
+                && RELATIONSHIP_NAME_LIST[2] == "ALLIES"
+                && RELATIONSHIP_ENEMIES == 0
+                && RELATIONSHIP_NEUTRAL == 1
+                && RELATIONSHIP_ALLIES == 2
+                && relationship_name_index("ENEMIES") == Some(0)
+                && relationship_name_index("NEUTRAL") == Some(1)
+                && relationship_name_index("ALLIES") == Some(2)
+                // Fail-closed: NEUTRALS plural is not the C++ name (NEUTRAL singular).
+                && relationship_name_index("NEUTRALS").is_none()
+                && relationship_name_index("FRIENDLY").is_none()
+        });
         assert_eq!(relationship_name_index("ALLIES"), Some(2));
         assert_eq!(relationship_name_index("ENEMIES"), Some(0));
     }
 
     #[test]
-    fn geometry_type_enum_table_wave84_honesty() {
-        assert!(honesty_geometry_type_enum_table_wave84());
+    fn geometry_types_keep_original_indices() {
+        assert!({
+            GEOMETRY_NUM_TYPES == 3
+                && GEOMETRY_TYPE_NAME_LIST.len() == 3
+                && GEOMETRY_TYPE_NAME_LIST[0] == "SPHERE"
+                && GEOMETRY_TYPE_NAME_LIST[1] == "CYLINDER"
+                && GEOMETRY_TYPE_NAME_LIST[2] == "BOX"
+                && GEOMETRY_SPHERE == 0
+                && GEOMETRY_CYLINDER == 1
+                && GEOMETRY_BOX == 2
+                && geometry_type_name_index("SPHERE") == Some(0)
+                && geometry_type_name_index("CYLINDER") == Some(1)
+                && geometry_type_name_index("BOX") == Some(2)
+                // Fail-closed: no capsule/mesh residual geometry type.
+                && geometry_type_name_index("CAPSULE").is_none()
+        });
         assert_eq!(geometry_type_name_index("CYLINDER"), Some(1));
         assert_eq!(geometry_type_name_index("BOX"), Some(2));
     }
 
     #[test]
-    fn shadow_type_enum_table_wave84_honesty() {
-        assert!(honesty_shadow_type_enum_table_wave84());
+    fn shadow_types_keep_original_flags() {
+        assert!({
+            SHADOW_TYPE_NAME_COUNT == 7
+                && SHADOW_TYPE_NAME_LIST.len() == 7
+                && SHADOW_TYPE_NAME_LIST[0] == "SHADOW_DECAL"
+                && SHADOW_TYPE_NAME_LIST[1] == "SHADOW_VOLUME"
+                && SHADOW_TYPE_NAME_LIST[2] == "SHADOW_PROJECTION"
+                && SHADOW_TYPE_NAME_LIST[3] == "SHADOW_DYNAMIC_PROJECTION"
+                && SHADOW_TYPE_NAME_LIST[4] == "SHADOW_DIRECTIONAL_PROJECTION"
+                && SHADOW_TYPE_NAME_LIST[5] == "SHADOW_ALPHA_DECAL"
+                && SHADOW_TYPE_NAME_LIST[6] == "SHADOW_ADDITIVE_DECAL"
+                // Bit values match C++ ShadowType enum.
+                && SHADOW_NONE == 0
+                && SHADOW_DECAL == 0x01
+                && SHADOW_VOLUME == 0x02
+                && SHADOW_PROJECTION == 0x04
+                && SHADOW_DYNAMIC_PROJECTION == 0x08
+                && SHADOW_DIRECTIONAL_PROJECTION == 0x10
+                && SHADOW_ALPHA_DECAL == 0x20
+                && SHADOW_ADDITIVE_DECAL == 0x40
+                && shadow_type_bit_value("SHADOW_DECAL") == Some(0x01)
+                && shadow_type_bit_value("SHADOW_VOLUME") == Some(0x02)
+                && shadow_type_bit_value("SHADOW_ADDITIVE_DECAL") == Some(0x40)
+                // SHADOW_NONE is not a named bit residual.
+                && shadow_type_name_index("SHADOW_NONE").is_none()
+                && {
+                    let mut names: Vec<&str> = SHADOW_TYPE_NAME_LIST.to_vec();
+                    names.sort_unstable();
+                    names.windows(2).all(|w| w[0] != w[1])
+                }
+        });
         assert_eq!(shadow_type_bit_value("SHADOW_VOLUME"), Some(0x02));
         assert!(shadow_type_name_index("SHADOW_NONE").is_none());
-    }
-
-    #[test]
-    fn enum_table_residual_pack_wave84_honesty() {
-        assert!(honesty_enum_table_residual_pack_wave84());
     }
 
     /// C++ ActiveBody.cpp:81-103 + GameData.ini UnitDamagedThreshold 0.7 / 0.35.
@@ -1744,62 +1849,6 @@ pub fn kindof_bit_name_index(name: &str) -> Option<usize> {
         .position(|&n| n.eq_ignore_ascii_case(name))
 }
 
-/// Wave 84 honesty: full KindOf residual bit-name table pack.
-pub fn honesty_kindof_enum_table_wave84() -> bool {
-    KINDOF_COUNT == 116
-        && KINDOF_BIT_NAME_LIST.len() == 116
-        && KINDOF_BIT_NAME_LIST[0] == "OBSTACLE"
-        && KINDOF_BIT_NAME_LIST[1] == "SELECTABLE"
-        && KINDOF_BIT_NAME_LIST[7] == "STRUCTURE"
-        && KINDOF_BIT_NAME_LIST[8] == "INFANTRY"
-        && KINDOF_BIT_NAME_LIST[9] == "VEHICLE"
-        && KINDOF_BIT_NAME_LIST[10] == "AIRCRAFT"
-        && KINDOF_BIT_NAME_LIST[14] == "COMMANDCENTER"
-        && KINDOF_BIT_NAME_LIST[22] == "PROJECTILE"
-        && KINDOF_BIT_NAME_LIST[27] == "NO_COLLIDE"
-        && KINDOF_BIT_NAME_LIST[50] == "MINE"
-        && KINDOF_BIT_NAME_LIST[51] == "CLEANUP_HAZARD"
-        && KINDOF_BIT_NAME_LIST[57] == "FS_POWER"
-        && KINDOF_BIT_NAME_LIST[58] == "FS_FACTORY"
-        && KINDOF_BIT_NAME_LIST[85] == "HERO"
-        && KINDOF_BIT_NAME_LIST[90] == "FS_SUPERWEAPON"
-        && KINDOF_BIT_NAME_LIST[97] == "BOOBY_TRAP"
-        && KINDOF_BIT_NAME_LIST[112] == "EMP_HARDENED"
-        && KINDOF_BIT_NAME_LIST[115] == "IGNORE_DOCKING_BONES"
-        // ALLOW_SURRENDER residual absent (no PRISON between COMMANDCENTER and LINEBUILD).
-        && !KINDOF_BIT_NAME_LIST.contains(&"PRISON")
-        && !KINDOF_BIT_NAME_LIST.contains(&"CAN_SURRENDER")
-        && KINDOF_BIT_NAME_LIST[14] == "COMMANDCENTER"
-        && KINDOF_BIT_NAME_LIST[15] == "LINEBUILD"
-        // Anchor constants match ordinals.
-        && KINDOF_STRUCTURE == 7
-        && KINDOF_INFANTRY == 8
-        && KINDOF_VEHICLE == 9
-        && KINDOF_AIRCRAFT == 10
-        && KINDOF_COMMANDCENTER == 14
-        && KINDOF_PROJECTILE == 22
-        && KINDOF_NO_COLLIDE == 27
-        && KINDOF_FS_FACTORY == 58
-        && KINDOF_HERO == 85
-        && KINDOF_FS_SUPERWEAPON == 90
-        && KINDOF_BOOBY_TRAP == 97
-        && KINDOF_EMP_HARDENED == 112
-        && KINDOF_IGNORE_DOCKING_BONES == 115
-        && kindof_bit_name_index("STRUCTURE") == Some(7)
-        && kindof_bit_name_index("INFANTRY") == Some(8)
-        && kindof_bit_name_index("FS_SUPERWEAPON") == Some(90)
-        && kindof_bit_name_index("IGNORE_DOCKING_BONES") == Some(115)
-        // FS_* residual cluster sample.
-        && kindof_bit_name_index("FS_BARRACKS") == Some(104)
-        && kindof_bit_name_index("FS_WARFACTORY") == Some(105)
-        && kindof_bit_name_index("FS_AIRFIELD") == Some(106)
-        && {
-            let mut names: Vec<&str> = KINDOF_BIT_NAME_LIST.to_vec();
-            names.sort_unstable();
-            names.windows(2).all(|w| w[0] != w[1])
-        }
-}
-
 // ---------------------------------------------------------------------------
 // WeaponSlot residual table (WeaponSet.h TheWeaponSlotTypeNames)
 // ---------------------------------------------------------------------------
@@ -1822,24 +1871,6 @@ pub fn weapon_slot_type_name_index(name: &str) -> Option<usize> {
     WEAPON_SLOT_TYPE_NAME_LIST
         .iter()
         .position(|&n| n.eq_ignore_ascii_case(name))
-}
-
-/// Wave 84 honesty: WeaponSlot residual type table pack.
-pub fn honesty_weapon_slot_enum_table_wave84() -> bool {
-    WEAPONSLOT_COUNT == 3
-        && WEAPON_SLOT_TYPE_NAME_LIST.len() == 3
-        && WEAPON_SLOT_TYPE_NAME_LIST[0] == "PRIMARY"
-        && WEAPON_SLOT_TYPE_NAME_LIST[1] == "SECONDARY"
-        && WEAPON_SLOT_TYPE_NAME_LIST[2] == "TERTIARY"
-        && PRIMARY_WEAPON == 0
-        && SECONDARY_WEAPON == 1
-        && TERTIARY_WEAPON == 2
-        && weapon_slot_type_name_index("PRIMARY") == Some(0)
-        && weapon_slot_type_name_index("SECONDARY") == Some(1)
-        && weapon_slot_type_name_index("TERTIARY") == Some(2)
-        && weapon_slot_type_name_index("primary") == Some(0)
-        // Fail-closed: no fourth slot residual.
-        && weapon_slot_type_name_index("QUATERNARY").is_none()
 }
 
 // ---------------------------------------------------------------------------
@@ -1868,26 +1899,6 @@ pub fn veterancy_level_name_index(name: &str) -> Option<usize> {
         .position(|&n| n.eq_ignore_ascii_case(name))
 }
 
-/// Wave 84 honesty: Veterancy residual level table pack.
-pub fn honesty_veterancy_level_enum_table_wave84() -> bool {
-    VETERANCY_LEVEL_COUNT == 4
-        && VETERANCY_LEVEL_NAME_LIST.len() == 4
-        && VETERANCY_LEVEL_NAME_LIST[0] == "REGULAR"
-        && VETERANCY_LEVEL_NAME_LIST[1] == "VETERAN"
-        && VETERANCY_LEVEL_NAME_LIST[2] == "ELITE"
-        && VETERANCY_LEVEL_NAME_LIST[3] == "HEROIC"
-        && LEVEL_REGULAR == 0
-        && LEVEL_VETERAN == 1
-        && LEVEL_ELITE == 2
-        && LEVEL_HEROIC == 3
-        && veterancy_level_name_index("REGULAR") == Some(0)
-        && veterancy_level_name_index("VETERAN") == Some(1)
-        && veterancy_level_name_index("ELITE") == Some(2)
-        && veterancy_level_name_index("HEROIC") == Some(3)
-        // Fail-closed: ROOKIE is not a C++ name (REGULAR is level 0).
-        && veterancy_level_name_index("ROOKIE").is_none()
-}
-
 // ---------------------------------------------------------------------------
 // Relationship residual table (GameCommon.cpp TheRelationshipNames)
 // ---------------------------------------------------------------------------
@@ -1914,24 +1925,6 @@ pub fn relationship_name_index(name: &str) -> Option<usize> {
         .position(|&n| n.eq_ignore_ascii_case(name))
 }
 
-/// Wave 84 honesty: Relationship residual table pack.
-pub fn honesty_relationship_enum_table_wave84() -> bool {
-    RELATIONSHIP_COUNT == 3
-        && RELATIONSHIP_NAME_LIST.len() == 3
-        && RELATIONSHIP_NAME_LIST[0] == "ENEMIES"
-        && RELATIONSHIP_NAME_LIST[1] == "NEUTRAL"
-        && RELATIONSHIP_NAME_LIST[2] == "ALLIES"
-        && RELATIONSHIP_ENEMIES == 0
-        && RELATIONSHIP_NEUTRAL == 1
-        && RELATIONSHIP_ALLIES == 2
-        && relationship_name_index("ENEMIES") == Some(0)
-        && relationship_name_index("NEUTRAL") == Some(1)
-        && relationship_name_index("ALLIES") == Some(2)
-        // Fail-closed: NEUTRALS plural is not the C++ name (NEUTRAL singular).
-        && relationship_name_index("NEUTRALS").is_none()
-        && relationship_name_index("FRIENDLY").is_none()
-}
-
 // ---------------------------------------------------------------------------
 // Geometry residual type table (Geometry.h GeometryNames)
 // ---------------------------------------------------------------------------
@@ -1954,23 +1947,6 @@ pub fn geometry_type_name_index(name: &str) -> Option<usize> {
     GEOMETRY_TYPE_NAME_LIST
         .iter()
         .position(|&n| n.eq_ignore_ascii_case(name))
-}
-
-/// Wave 84 honesty: Geometry residual type table pack.
-pub fn honesty_geometry_type_enum_table_wave84() -> bool {
-    GEOMETRY_NUM_TYPES == 3
-        && GEOMETRY_TYPE_NAME_LIST.len() == 3
-        && GEOMETRY_TYPE_NAME_LIST[0] == "SPHERE"
-        && GEOMETRY_TYPE_NAME_LIST[1] == "CYLINDER"
-        && GEOMETRY_TYPE_NAME_LIST[2] == "BOX"
-        && GEOMETRY_SPHERE == 0
-        && GEOMETRY_CYLINDER == 1
-        && GEOMETRY_BOX == 2
-        && geometry_type_name_index("SPHERE") == Some(0)
-        && geometry_type_name_index("CYLINDER") == Some(1)
-        && geometry_type_name_index("BOX") == Some(2)
-        // Fail-closed: no capsule/mesh residual geometry type.
-        && geometry_type_name_index("CAPSULE").is_none()
 }
 
 // ---------------------------------------------------------------------------
@@ -2041,50 +2017,4 @@ pub fn parse_shadow_type_bits(s: &str) -> u32 {
         }
     }
     bits
-}
-
-/// Wave 84 honesty: Shadow residual type table pack.
-pub fn honesty_shadow_type_enum_table_wave84() -> bool {
-    SHADOW_TYPE_NAME_COUNT == 7
-        && SHADOW_TYPE_NAME_LIST.len() == 7
-        && SHADOW_TYPE_NAME_LIST[0] == "SHADOW_DECAL"
-        && SHADOW_TYPE_NAME_LIST[1] == "SHADOW_VOLUME"
-        && SHADOW_TYPE_NAME_LIST[2] == "SHADOW_PROJECTION"
-        && SHADOW_TYPE_NAME_LIST[3] == "SHADOW_DYNAMIC_PROJECTION"
-        && SHADOW_TYPE_NAME_LIST[4] == "SHADOW_DIRECTIONAL_PROJECTION"
-        && SHADOW_TYPE_NAME_LIST[5] == "SHADOW_ALPHA_DECAL"
-        && SHADOW_TYPE_NAME_LIST[6] == "SHADOW_ADDITIVE_DECAL"
-        // Bit values match C++ ShadowType enum.
-        && SHADOW_NONE == 0
-        && SHADOW_DECAL == 0x01
-        && SHADOW_VOLUME == 0x02
-        && SHADOW_PROJECTION == 0x04
-        && SHADOW_DYNAMIC_PROJECTION == 0x08
-        && SHADOW_DIRECTIONAL_PROJECTION == 0x10
-        && SHADOW_ALPHA_DECAL == 0x20
-        && SHADOW_ADDITIVE_DECAL == 0x40
-        && shadow_type_bit_value("SHADOW_DECAL") == Some(0x01)
-        && shadow_type_bit_value("SHADOW_VOLUME") == Some(0x02)
-        && shadow_type_bit_value("SHADOW_ADDITIVE_DECAL") == Some(0x40)
-        // SHADOW_NONE is not a named bit residual.
-        && shadow_type_name_index("SHADOW_NONE").is_none()
-        && {
-            let mut names: Vec<&str> = SHADOW_TYPE_NAME_LIST.to_vec();
-            names.sort_unstable();
-            names.windows(2).all(|w| w[0] != w[1])
-        }
-}
-
-// ---------------------------------------------------------------------------
-// Combined Wave 84 residual pack
-// ---------------------------------------------------------------------------
-
-/// Wave 84 honesty: all six residual type-name table peels.
-pub fn honesty_enum_table_residual_pack_wave84() -> bool {
-    honesty_kindof_enum_table_wave84()
-        && honesty_weapon_slot_enum_table_wave84()
-        && honesty_veterancy_level_enum_table_wave84()
-        && honesty_relationship_enum_table_wave84()
-        && honesty_geometry_type_enum_table_wave84()
-        && honesty_shadow_type_enum_table_wave84()
 }

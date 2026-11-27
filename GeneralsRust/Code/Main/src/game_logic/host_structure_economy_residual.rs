@@ -111,46 +111,6 @@ pub fn production_queue_can_enqueue(current_len: usize, max_entries: usize) -> b
     current_len < max_entries
 }
 
-/// Wave 83 honesty: production queue residual pack.
-pub fn honesty_production_queue_residual_pack_wave83() -> bool {
-    PRODUCTION_MAX_QUEUE_ENTRIES == 9
-        && DEFAULT_PRODUCTION_QUEUE_LIMIT == PRODUCTION_MAX_QUEUE_ENTRIES
-        && (PRODUCTION_REFUND_PERCENT - 0.5).abs() < 0.001
-        && (MIN_LOW_ENERGY_PRODUCTION_SPEED - 0.5).abs() < 0.001
-        && (MAX_LOW_ENERGY_PRODUCTION_SPEED - 0.8).abs() < 0.001
-        && (LOW_ENERGY_PENALTY_MODIFIER - 1.0).abs() < 0.001
-        && (MULTIPLE_FACTORY - 1.0).abs() < 0.001
-        && (BUILD_SPEED - 1.0).abs() < 0.001
-        && USA_CC_DOOR_OPENING_FRAMES
-            == structure_economy_ms_to_frames(USA_CC_DOOR_OPENING_MS)
-        && USA_CC_DOOR_WAIT_OPEN_FRAMES
-            == structure_economy_ms_to_frames(USA_CC_DOOR_WAIT_OPEN_MS)
-        && USA_CC_DOOR_CLOSE_FRAMES == structure_economy_ms_to_frames(USA_CC_DOOR_CLOSE_MS)
-        && USA_CC_CONSTRUCTION_COMPLETE_DURATION_FRAMES
-            == structure_economy_ms_to_frames(USA_CC_CONSTRUCTION_COMPLETE_DURATION_MS)
-        && CHINA_CC_DOOR_OPENING_FRAMES
-            == structure_economy_ms_to_frames(CHINA_CC_DOOR_OPENING_MS)
-        && CHINA_CC_DOOR_WAIT_OPEN_FRAMES
-            == structure_economy_ms_to_frames(CHINA_CC_DOOR_WAIT_OPEN_MS)
-        && CHINA_CC_DOOR_CLOSE_FRAMES == structure_economy_ms_to_frames(CHINA_CC_DOOR_CLOSE_MS)
-        && CHINA_CC_CONSTRUCTION_COMPLETE_DURATION_FRAMES
-            == structure_economy_ms_to_frames(CHINA_CC_CONSTRUCTION_COMPLETE_DURATION_MS)
-        // Full power → factor 1.0.
-        && (production_power_factor_from_energy_ratio(1.0) - 1.0).abs() < 0.001
-        // Zero energy residual clamps to MinLowEnergyProductionSpeed (0.5), then
-        // MaxLowEnergyProductionSpeed still applies (min 0.8) → 0.5.
-        && (production_power_factor_from_energy_ratio(0.0) - 0.5).abs() < 0.001
-        // Half energy: short=0.5, rate=0.5, max-cap 0.8 → 0.5.
-        && (production_power_factor_from_energy_ratio(0.5) - 0.5).abs() < 0.001
-        // 90% energy: short=0.1, rate=0.9 → capped by Max to 0.8.
-        && (production_power_factor_from_energy_ratio(0.9) - 0.8).abs() < 0.001
-        && production_cancel_refund(1000) == 500
-        && production_cancel_refund(101) == 50
-        && production_queue_can_enqueue(0, PRODUCTION_MAX_QUEUE_ENTRIES)
-        && production_queue_can_enqueue(8, PRODUCTION_MAX_QUEUE_ENTRIES)
-        && !production_queue_can_enqueue(9, PRODUCTION_MAX_QUEUE_ENTRIES)
-}
-
 // ---------------------------------------------------------------------------
 // 2. Supply warehouse residual (SupplyWarehouseDockUpdate + GameData box value)
 // ---------------------------------------------------------------------------
@@ -225,48 +185,6 @@ pub fn is_supply_warehouse_template(name: &str) -> bool {
         || n.contains("supplydock")
         || n.contains("supplypile")
         || n.contains("supply_pile")
-}
-
-/// Wave 83 honesty: supply warehouse residual pack.
-pub fn honesty_supply_warehouse_residual_pack_wave83() -> bool {
-    VALUE_PER_SUPPLY_BOX == 75
-        && SUPPLY_WAREHOUSE_STARTING_BOXES == 400
-        && SUPPLY_WAREHOUSE_APPROACH_POSITIONS == 9
-        && (SUPPLY_WAREHOUSE_MAX_HEALTH - 1000.0).abs() < 0.01
-        && SUPPLY_DOCK_STARTING_BOXES == 400
-        && SUPPLY_DOCK_APPROACH_POSITIONS == -1
-        && SUPPLY_PILE_STARTING_BOXES == 150
-        && SUPPLY_PILE_APPROACH_POSITIONS == 5
-        && SUPPLY_PILE_DELETE_WHEN_EMPTY
-        && SUPPLY_PILE_SMALL_STARTING_BOXES == 50
-        && SUPPLY_PILE_SMALL_DELETE_WHEN_EMPTY
-        && SUPPLY_WAREHOUSE_SELF_HEAL_SUPPRESSION_FRAMES
-            == structure_economy_ms_to_frames(SUPPLY_WAREHOUSE_SELF_HEAL_SUPPRESSION_MS)
-        && SUPPLY_WAREHOUSE_SELF_HEAL_DELAY_FRAMES
-            == structure_economy_ms_to_frames(SUPPLY_WAREHOUSE_SELF_HEAL_DELAY_MS)
-        && (SUPPLY_WAREHOUSE_SELF_HEAL_AMOUNT - 5.0).abs() < 0.01
-        && supply_warehouse_cash_value(400) == 30_000
-        && supply_warehouse_cash_value(150) == 11_250
-        && supply_warehouse_cash_value(50) == 3_750
-        && supply_warehouse_boxes_from_cash(75) == 1
-        && supply_warehouse_boxes_from_cash(76) == 2
-        && supply_warehouse_boxes_from_cash(0) == 0
-        && {
-            let (rem, destroy) = supply_warehouse_take_one_box(1, true);
-            rem == 0 && destroy
-        }
-        && {
-            let (rem, destroy) = supply_warehouse_take_one_box(2, true);
-            rem == 1 && !destroy
-        }
-        && {
-            let (rem, destroy) = supply_warehouse_take_one_box(1, false);
-            rem == 0 && !destroy
-        }
-        && is_supply_warehouse_template("SupplyWarehouse")
-        && is_supply_warehouse_template("SupplyPileSmall")
-        && is_supply_warehouse_template("SupplyDock")
-        && !is_supply_warehouse_template("AmericaSupplyCenter")
 }
 
 // ---------------------------------------------------------------------------
@@ -358,51 +276,6 @@ pub fn is_dozer_build_template(name: &str) -> bool {
     n.contains("dozer") && !n.contains("worker")
 }
 
-/// Wave 83 honesty: dozer build residual pack.
-pub fn honesty_dozer_build_residual_pack_wave83() -> bool {
-    DOZER_BUILD_COST == 1000
-        && (DOZER_BUILD_TIME_SEC - 5.0).abs() < 0.01
-        && DOZER_BUILD_TIME_FRAMES
-            == structure_economy_ms_to_frames((DOZER_BUILD_TIME_SEC * 1000.0) as u32)
-        && (DOZER_MAX_HEALTH - 250.0).abs() < 0.01
-        && (DOZER_VISION_RANGE - 200.0).abs() < 0.01
-        && DOZER_TRANSPORT_SLOT_COUNT == 5
-        && DOZER_COMMAND_SET == "AmericaDozerCommandSet"
-        && DOZER_LOCOMOTOR == "AmericaVehicleDozerLocomotor"
-        && (DOZER_REPAIR_HEALTH_PERCENT_PER_SEC - 0.02).abs() < 0.0001
-        && DOZER_BORED_TIME_MS == 5000
-        && DOZER_BORED_TIME_FRAMES == structure_economy_ms_to_frames(DOZER_BORED_TIME_MS)
-        && (DOZER_BORED_RANGE - 150.0).abs() < 0.01
-        && (MIN_DIST_FROM_EDGE_OF_MAP_FOR_BUILD - 30.0).abs() < 0.01
-        && (SUPPLY_BUILD_BORDER - 20.0).abs() < 0.01
-        && (ALLOWED_HEIGHT_VARIATION_FOR_BUILDING - 10.0).abs() < 0.01
-        && MAX_LINE_BUILD_OBJECTS == 50
-        && DOZER_TASK_BUILD == 0
-        && DOZER_TASK_REPAIR == 1
-        && DOZER_TASK_FORTIFY == 2
-        && DOZER_NUM_TASKS == 3
-        && DOZER_SELECT_BUILD_DOCK_LOCATION == 0
-        && DOZER_MOVING_TO_BUILD_DOCK_LOCATION == 1
-        && DOZER_DO_BUILD_AT_DOCK == 2
-        // 5s build, 1 dozer, full power, 1s dt → 0.2 progress.
-        && (dozer_construction_progress_delta(5.0, 1, 1.0, 1.0) - 0.2).abs() < 0.001
-        // C++ exclusive builder: a second dozer does not stack.
-        && (dozer_construction_progress_delta(5.0, 2, 1.0, 1.0) - 0.2).abs() < 0.001
-
-        // Low-energy residual half-rate.
-        && (dozer_construction_progress_delta(5.0, 1, 0.5, 1.0) - 0.1).abs() < 0.001
-        && dozer_construction_progress_delta(5.0, 0, 1.0, 1.0) == 0.0
-        && is_legal_build_distance_from_map_edge(30.0)
-        && !is_legal_build_distance_from_map_edge(29.9)
-        && is_legal_supply_center_distance(20.0)
-        && !is_legal_supply_center_distance(19.0)
-        && is_legal_build_height_variation(10.0)
-        && !is_legal_build_height_variation(10.1)
-        && is_dozer_build_template("USA_Dozer")
-        && is_dozer_build_template("AmericaDozer")
-        && !is_dozer_build_template("GLAWorker")
-}
-
 // ---------------------------------------------------------------------------
 // 4. Capture building residual (Ranger / InfantryCapture pack)
 // ---------------------------------------------------------------------------
@@ -474,35 +347,6 @@ pub fn capture_prep_progress(elapsed_prep_frames: u32) -> f32 {
     (elapsed_prep_frames as f32 / CAPTURE_PREP_FRAMES as f32).clamp(0.0, 1.0)
 }
 
-/// Wave 83 honesty: capture building residual pack.
-pub fn honesty_capture_building_residual_pack_wave83() -> bool {
-    CAPTURE_SPECIAL_POWER_RANGER == "SpecialAbilityRangerCaptureBuilding"
-        && CAPTURE_SPECIAL_POWER_ENUM == "SPECIAL_INFANTRY_CAPTURE_BUILDING"
-        && UPGRADE_INFANTRY_CAPTURE_BUILDING == "Upgrade_InfantryCaptureBuilding"
-        && CAPTURE_COMMAND_BUTTON == "Command_AmericaRangerCaptureBuilding"
-        && CAPTURE_CURSOR_NAME == "CaptureBuilding"
-        && CAPTURE_TEXT_LABEL == "CONTROLBAR:CaptureBuilding"
-        && CAPTURE_BUTTON_IMAGE == "SSCaptureBuilding"
-        && CAPTURE_RELOAD_MS == 15_000
-        && CAPTURE_RELOAD_FRAMES == structure_economy_ms_to_frames(CAPTURE_RELOAD_MS)
-        && (CAPTURE_START_ABILITY_RANGE - 5.0).abs() < 0.01
-        && CAPTURE_UNPACK_FRAMES == structure_economy_ms_to_frames(CAPTURE_UNPACK_MS)
-        && CAPTURE_PREP_FRAMES == structure_economy_ms_to_frames(CAPTURE_PREP_MS)
-        && CAPTURE_PACK_FRAMES == structure_economy_ms_to_frames(CAPTURE_PACK_MS)
-        && CAPTURE_AWARD_XP == 15
-        && CAPTURE_DO_FX
-        && CAPTURE_INITIATE_SOUND == "RangerVoiceCapture"
-        && CAPTURE_TOTAL_CHANNEL_FRAMES == 90 + 600 + 60
-        && (capture_prep_progress(0) - 0.0).abs() < 0.001
-        && (capture_prep_progress(300) - 0.5).abs() < 0.001
-        && (capture_prep_progress(600) - 1.0).abs() < 0.001
-        && is_legal_capture_building_target(true, true, true, true, false, true, false)
-        && is_legal_capture_building_target(true, true, true, true, false, false, true)
-        && !is_legal_capture_building_target(true, true, true, true, false, false, false)
-        && !is_legal_capture_building_target(true, true, true, true, true, true, false)
-        && !is_legal_capture_building_target(false, true, true, true, false, true, false)
-}
-
 // ---------------------------------------------------------------------------
 // 5. Power plant residual energy residual
 // ---------------------------------------------------------------------------
@@ -558,33 +402,6 @@ pub fn is_power_plant_template(name: &str) -> bool {
         || n.contains("power_plant")
         || n.contains("coldfusion")
         || n.contains("nuclearreactor")
-}
-
-/// Wave 83 honesty: power plant residual energy pack.
-pub fn honesty_power_plant_residual_pack_wave83() -> bool {
-    AMERICA_POWER_PLANT_TEMPLATE == "AmericaPowerPlant"
-        && CHINA_POWER_PLANT_TEMPLATE == "ChinaPowerPlant"
-        && UPGRADE_AMERICA_ADVANCED_CONTROL_RODS == "Upgrade_AmericaAdvancedControlRods"
-        && AMERICA_POWER_ENERGY_PRODUCTION == 5
-        && AMERICA_POWER_ENERGY_BONUS == 5
-        && AMERICA_POWER_BUILD_COST == 800
-        && (AMERICA_POWER_BUILD_TIME_SEC - 10.0).abs() < 0.01
-        && (AMERICA_POWER_MAX_HEALTH - 800.0).abs() < 0.01
-        && AMERICA_POWER_RODS_EXTEND_FRAMES
-            == structure_economy_ms_to_frames(AMERICA_POWER_RODS_EXTEND_MS)
-        && CHINA_POWER_ENERGY_PRODUCTION == 10
-        && CHINA_POWER_BUILD_COST == 1000
-        && (CHINA_POWER_BUILD_TIME_SEC - 10.0).abs() < 0.01
-        && (CHINA_POWER_MAX_HEALTH - 1500.0).abs() < 0.01
-        && CHINA_POWER_RODS_EXTEND_FRAMES
-            == structure_economy_ms_to_frames(CHINA_POWER_RODS_EXTEND_MS)
-        && power_plant_effective_energy(5, 5, false) == 5
-        && power_plant_effective_energy(5, 5, true) == 10
-        && power_plant_effective_energy(10, 5, true) == 15
-        && is_power_plant_template("AmericaPowerPlant")
-        && is_power_plant_template("ChinaPowerPlant")
-        && is_power_plant_template("USA_PowerPlant")
-        && !is_power_plant_template("AmericaCommandCenter")
 }
 
 // ---------------------------------------------------------------------------
@@ -652,50 +469,6 @@ pub fn is_command_center_template(name: &str) -> bool {
         || n == "gla_command"
 }
 
-/// Wave 83 honesty: command center residual pack.
-pub fn honesty_command_center_residual_pack_wave83() -> bool {
-    COMMAND_CENTER_BUILD_COST == 2000
-        && (COMMAND_CENTER_BUILD_TIME_SEC - 45.0).abs() < 0.01
-        && COMMAND_CENTER_BUILD_TIME_FRAMES
-            == structure_economy_ms_to_frames((COMMAND_CENTER_BUILD_TIME_SEC * 1000.0) as u32)
-        && COMMAND_CENTER_ENERGY_PRODUCTION == 0
-        && (COMMAND_CENTER_MAX_HEALTH - 5000.0).abs() < 0.01
-        && (COMMAND_CENTER_VISION_RANGE - 300.0).abs() < 0.01
-        && COMMAND_CENTER_EXPERIENCE_VALUE == 200
-        && AMERICA_COMMAND_CENTER_TEMPLATE == "AmericaCommandCenter"
-        && CHINA_COMMAND_CENTER_TEMPLATE == "ChinaCommandCenter"
-        && GLA_COMMAND_CENTER_TEMPLATE == "GLACommandCenter"
-        && AMERICA_COMMAND_CENTER_COMMAND_SET == "AmericaCommandCenterCommandSet"
-        && UPGRADE_AMERICA_RADAR == "Upgrade_AmericaRadar"
-        && (COMMAND_CENTER_HEAL_RANGE - 500.0).abs() < 0.01
-        && (COMMAND_CENTER_HEAL_AMOUNT_PER_FRAME - 0.01).abs() < 0.0001
-        && (command_center_heal_over_frames(100) - 1.0).abs() < 0.001
-        && (command_center_heal_over_frames(30) - 0.3).abs() < 0.001
-        && is_in_command_center_heal_range(500.0)
-        && !is_in_command_center_heal_range(500.1)
-        && COMMAND_CENTER_KINDOF_TOKENS.contains(&"COMMANDCENTER")
-        && COMMAND_CENTER_KINDOF_TOKENS.contains(&"FS_FACTORY")
-        && COMMAND_CENTER_KINDOF_TOKENS.contains(&"AUTO_RALLYPOINT")
-        && COMMAND_CENTER_KINDOF_TOKENS.len() == 8
-        && is_command_center_template("AmericaCommandCenter")
-        && is_command_center_template("USA_CommandCenter")
-        && is_command_center_template("GLA_Command")
-        && !is_command_center_template("AmericaPowerPlant")
-        // Production door residual already covered in production pack; re-check USA door.
-        && USA_CC_DOOR_OPENING_MS == 1500
-        && CHINA_CC_DOOR_OPENING_MS == 3000
-}
-
-/// Combined Wave 83 residual honesty pack (all six peels).
-pub fn honesty_structure_economy_residual_pack_wave83() -> bool {
-    honesty_production_queue_residual_pack_wave83()
-        && honesty_supply_warehouse_residual_pack_wave83()
-        && honesty_dozer_build_residual_pack_wave83()
-        && honesty_capture_building_residual_pack_wave83()
-        && honesty_power_plant_residual_pack_wave83()
-        && honesty_command_center_residual_pack_wave83()
-}
-
 // ---------------------------------------------------------------------------
 // SupplyWarehouseCreate / SupplyCenterCreate residuals
 // ---------------------------------------------------------------------------
@@ -738,45 +511,239 @@ mod tests {
     use super::*;
 
     #[test]
-    fn production_queue_residual_pack_wave83_honesty() {
-        assert!(honesty_production_queue_residual_pack_wave83());
+    fn production_queue_limits_refunds_and_low_power() {
+        assert!({
+            PRODUCTION_MAX_QUEUE_ENTRIES == 9
+                && DEFAULT_PRODUCTION_QUEUE_LIMIT == PRODUCTION_MAX_QUEUE_ENTRIES
+                && (PRODUCTION_REFUND_PERCENT - 0.5).abs() < 0.001
+                && (MIN_LOW_ENERGY_PRODUCTION_SPEED - 0.5).abs() < 0.001
+                && (MAX_LOW_ENERGY_PRODUCTION_SPEED - 0.8).abs() < 0.001
+                && (LOW_ENERGY_PENALTY_MODIFIER - 1.0).abs() < 0.001
+                && (MULTIPLE_FACTORY - 1.0).abs() < 0.001
+                && (BUILD_SPEED - 1.0).abs() < 0.001
+                && USA_CC_DOOR_OPENING_FRAMES
+                    == structure_economy_ms_to_frames(USA_CC_DOOR_OPENING_MS)
+                && USA_CC_DOOR_WAIT_OPEN_FRAMES
+                    == structure_economy_ms_to_frames(USA_CC_DOOR_WAIT_OPEN_MS)
+                && USA_CC_DOOR_CLOSE_FRAMES == structure_economy_ms_to_frames(USA_CC_DOOR_CLOSE_MS)
+                && USA_CC_CONSTRUCTION_COMPLETE_DURATION_FRAMES
+                    == structure_economy_ms_to_frames(USA_CC_CONSTRUCTION_COMPLETE_DURATION_MS)
+                && CHINA_CC_DOOR_OPENING_FRAMES
+                    == structure_economy_ms_to_frames(CHINA_CC_DOOR_OPENING_MS)
+                && CHINA_CC_DOOR_WAIT_OPEN_FRAMES
+                    == structure_economy_ms_to_frames(CHINA_CC_DOOR_WAIT_OPEN_MS)
+                && CHINA_CC_DOOR_CLOSE_FRAMES == structure_economy_ms_to_frames(CHINA_CC_DOOR_CLOSE_MS)
+                && CHINA_CC_CONSTRUCTION_COMPLETE_DURATION_FRAMES
+                    == structure_economy_ms_to_frames(CHINA_CC_CONSTRUCTION_COMPLETE_DURATION_MS)
+                // Full power → factor 1.0.
+                && (production_power_factor_from_energy_ratio(1.0) - 1.0).abs() < 0.001
+                // Zero energy residual clamps to MinLowEnergyProductionSpeed (0.5), then
+                // MaxLowEnergyProductionSpeed still applies (min 0.8) → 0.5.
+                && (production_power_factor_from_energy_ratio(0.0) - 0.5).abs() < 0.001
+                // Half energy: short=0.5, rate=0.5, max-cap 0.8 → 0.5.
+                && (production_power_factor_from_energy_ratio(0.5) - 0.5).abs() < 0.001
+                // 90% energy: short=0.1, rate=0.9 → capped by Max to 0.8.
+                && (production_power_factor_from_energy_ratio(0.9) - 0.8).abs() < 0.001
+                && production_cancel_refund(1000) == 500
+                && production_cancel_refund(101) == 50
+                && production_queue_can_enqueue(0, PRODUCTION_MAX_QUEUE_ENTRIES)
+                && production_queue_can_enqueue(8, PRODUCTION_MAX_QUEUE_ENTRIES)
+                && !production_queue_can_enqueue(9, PRODUCTION_MAX_QUEUE_ENTRIES)
+        });
         assert_eq!(production_cancel_refund(2000), 1000);
         assert!((production_power_factor_from_energy_ratio(0.9) - 0.8).abs() < 0.001);
     }
 
     #[test]
-    fn supply_warehouse_residual_pack_wave83_honesty() {
-        assert!(honesty_supply_warehouse_residual_pack_wave83());
+    fn warehouse_stock_and_collection_values() {
+        assert!({
+            VALUE_PER_SUPPLY_BOX == 75
+                && SUPPLY_WAREHOUSE_STARTING_BOXES == 400
+                && SUPPLY_WAREHOUSE_APPROACH_POSITIONS == 9
+                && (SUPPLY_WAREHOUSE_MAX_HEALTH - 1000.0).abs() < 0.01
+                && SUPPLY_DOCK_STARTING_BOXES == 400
+                && SUPPLY_DOCK_APPROACH_POSITIONS == -1
+                && SUPPLY_PILE_STARTING_BOXES == 150
+                && SUPPLY_PILE_APPROACH_POSITIONS == 5
+                && SUPPLY_PILE_DELETE_WHEN_EMPTY
+                && SUPPLY_PILE_SMALL_STARTING_BOXES == 50
+                && SUPPLY_PILE_SMALL_DELETE_WHEN_EMPTY
+                && SUPPLY_WAREHOUSE_SELF_HEAL_SUPPRESSION_FRAMES
+                    == structure_economy_ms_to_frames(SUPPLY_WAREHOUSE_SELF_HEAL_SUPPRESSION_MS)
+                && SUPPLY_WAREHOUSE_SELF_HEAL_DELAY_FRAMES
+                    == structure_economy_ms_to_frames(SUPPLY_WAREHOUSE_SELF_HEAL_DELAY_MS)
+                && (SUPPLY_WAREHOUSE_SELF_HEAL_AMOUNT - 5.0).abs() < 0.01
+                && supply_warehouse_cash_value(400) == 30_000
+                && supply_warehouse_cash_value(150) == 11_250
+                && supply_warehouse_cash_value(50) == 3_750
+                && supply_warehouse_boxes_from_cash(75) == 1
+                && supply_warehouse_boxes_from_cash(76) == 2
+                && supply_warehouse_boxes_from_cash(0) == 0
+                && {
+                    let (rem, destroy) = supply_warehouse_take_one_box(1, true);
+                    rem == 0 && destroy
+                }
+                && {
+                    let (rem, destroy) = supply_warehouse_take_one_box(2, true);
+                    rem == 1 && !destroy
+                }
+                && {
+                    let (rem, destroy) = supply_warehouse_take_one_box(1, false);
+                    rem == 0 && !destroy
+                }
+                && is_supply_warehouse_template("SupplyWarehouse")
+                && is_supply_warehouse_template("SupplyPileSmall")
+                && is_supply_warehouse_template("SupplyDock")
+                && !is_supply_warehouse_template("AmericaSupplyCenter")
+        });
         assert_eq!(supply_warehouse_cash_value(1), 75);
     }
 
     #[test]
-    fn dozer_build_residual_pack_wave83_honesty() {
-        assert!(honesty_dozer_build_residual_pack_wave83());
+    fn construction_progress_and_placement_limits() {
+        assert!({
+            DOZER_BUILD_COST == 1000
+                && (DOZER_BUILD_TIME_SEC - 5.0).abs() < 0.01
+                && DOZER_BUILD_TIME_FRAMES
+                    == structure_economy_ms_to_frames((DOZER_BUILD_TIME_SEC * 1000.0) as u32)
+                && (DOZER_MAX_HEALTH - 250.0).abs() < 0.01
+                && (DOZER_VISION_RANGE - 200.0).abs() < 0.01
+                && DOZER_TRANSPORT_SLOT_COUNT == 5
+                && DOZER_COMMAND_SET == "AmericaDozerCommandSet"
+                && DOZER_LOCOMOTOR == "AmericaVehicleDozerLocomotor"
+                && (DOZER_REPAIR_HEALTH_PERCENT_PER_SEC - 0.02).abs() < 0.0001
+                && DOZER_BORED_TIME_MS == 5000
+                && DOZER_BORED_TIME_FRAMES == structure_economy_ms_to_frames(DOZER_BORED_TIME_MS)
+                && (DOZER_BORED_RANGE - 150.0).abs() < 0.01
+                && (MIN_DIST_FROM_EDGE_OF_MAP_FOR_BUILD - 30.0).abs() < 0.01
+                && (SUPPLY_BUILD_BORDER - 20.0).abs() < 0.01
+                && (ALLOWED_HEIGHT_VARIATION_FOR_BUILDING - 10.0).abs() < 0.01
+                && MAX_LINE_BUILD_OBJECTS == 50
+                && DOZER_TASK_BUILD == 0
+                && DOZER_TASK_REPAIR == 1
+                && DOZER_TASK_FORTIFY == 2
+                && DOZER_NUM_TASKS == 3
+                && DOZER_SELECT_BUILD_DOCK_LOCATION == 0
+                && DOZER_MOVING_TO_BUILD_DOCK_LOCATION == 1
+                && DOZER_DO_BUILD_AT_DOCK == 2
+                // 5s build, 1 dozer, full power, 1s dt → 0.2 progress.
+                && (dozer_construction_progress_delta(5.0, 1, 1.0, 1.0) - 0.2).abs() < 0.001
+                // C++ exclusive builder: a second dozer does not stack.
+                && (dozer_construction_progress_delta(5.0, 2, 1.0, 1.0) - 0.2).abs() < 0.001
+
+                // Low-energy residual half-rate.
+                && (dozer_construction_progress_delta(5.0, 1, 0.5, 1.0) - 0.1).abs() < 0.001
+                && dozer_construction_progress_delta(5.0, 0, 1.0, 1.0) == 0.0
+                && is_legal_build_distance_from_map_edge(30.0)
+                && !is_legal_build_distance_from_map_edge(29.9)
+                && is_legal_supply_center_distance(20.0)
+                && !is_legal_supply_center_distance(19.0)
+                && is_legal_build_height_variation(10.0)
+                && !is_legal_build_height_variation(10.1)
+                && is_dozer_build_template("USA_Dozer")
+                && is_dozer_build_template("AmericaDozer")
+                && !is_dozer_build_template("GLAWorker")
+        });
         assert!((dozer_construction_progress_delta(10.0, 1, 1.0, 1.0) - 0.1).abs() < 0.001);
     }
 
     #[test]
-    fn capture_building_residual_pack_wave83_honesty() {
-        assert!(honesty_capture_building_residual_pack_wave83());
+    fn building_capture_progress_and_target_rules() {
+        assert!({
+            CAPTURE_SPECIAL_POWER_RANGER == "SpecialAbilityRangerCaptureBuilding"
+                && CAPTURE_SPECIAL_POWER_ENUM == "SPECIAL_INFANTRY_CAPTURE_BUILDING"
+                && UPGRADE_INFANTRY_CAPTURE_BUILDING == "Upgrade_InfantryCaptureBuilding"
+                && CAPTURE_COMMAND_BUTTON == "Command_AmericaRangerCaptureBuilding"
+                && CAPTURE_CURSOR_NAME == "CaptureBuilding"
+                && CAPTURE_TEXT_LABEL == "CONTROLBAR:CaptureBuilding"
+                && CAPTURE_BUTTON_IMAGE == "SSCaptureBuilding"
+                && CAPTURE_RELOAD_MS == 15_000
+                && CAPTURE_RELOAD_FRAMES == structure_economy_ms_to_frames(CAPTURE_RELOAD_MS)
+                && (CAPTURE_START_ABILITY_RANGE - 5.0).abs() < 0.01
+                && CAPTURE_UNPACK_FRAMES == structure_economy_ms_to_frames(CAPTURE_UNPACK_MS)
+                && CAPTURE_PREP_FRAMES == structure_economy_ms_to_frames(CAPTURE_PREP_MS)
+                && CAPTURE_PACK_FRAMES == structure_economy_ms_to_frames(CAPTURE_PACK_MS)
+                && CAPTURE_AWARD_XP == 15
+                && CAPTURE_DO_FX
+                && CAPTURE_INITIATE_SOUND == "RangerVoiceCapture"
+                && CAPTURE_TOTAL_CHANNEL_FRAMES == 90 + 600 + 60
+                && (capture_prep_progress(0) - 0.0).abs() < 0.001
+                && (capture_prep_progress(300) - 0.5).abs() < 0.001
+                && (capture_prep_progress(600) - 1.0).abs() < 0.001
+                && is_legal_capture_building_target(true, true, true, true, false, true, false)
+                && is_legal_capture_building_target(true, true, true, true, false, false, true)
+                && !is_legal_capture_building_target(true, true, true, true, false, false, false)
+                && !is_legal_capture_building_target(true, true, true, true, true, true, false)
+                && !is_legal_capture_building_target(false, true, true, true, false, true, false)
+        });
         assert_eq!(CAPTURE_TOTAL_CHANNEL_FRAMES, 750);
     }
 
     #[test]
-    fn power_plant_residual_pack_wave83_honesty() {
-        assert!(honesty_power_plant_residual_pack_wave83());
+    fn power_plant_output_and_upgrade_bonus() {
+        assert!({
+            AMERICA_POWER_PLANT_TEMPLATE == "AmericaPowerPlant"
+                && CHINA_POWER_PLANT_TEMPLATE == "ChinaPowerPlant"
+                && UPGRADE_AMERICA_ADVANCED_CONTROL_RODS == "Upgrade_AmericaAdvancedControlRods"
+                && AMERICA_POWER_ENERGY_PRODUCTION == 5
+                && AMERICA_POWER_ENERGY_BONUS == 5
+                && AMERICA_POWER_BUILD_COST == 800
+                && (AMERICA_POWER_BUILD_TIME_SEC - 10.0).abs() < 0.01
+                && (AMERICA_POWER_MAX_HEALTH - 800.0).abs() < 0.01
+                && AMERICA_POWER_RODS_EXTEND_FRAMES
+                    == structure_economy_ms_to_frames(AMERICA_POWER_RODS_EXTEND_MS)
+                && CHINA_POWER_ENERGY_PRODUCTION == 10
+                && CHINA_POWER_BUILD_COST == 1000
+                && (CHINA_POWER_BUILD_TIME_SEC - 10.0).abs() < 0.01
+                && (CHINA_POWER_MAX_HEALTH - 1500.0).abs() < 0.01
+                && CHINA_POWER_RODS_EXTEND_FRAMES
+                    == structure_economy_ms_to_frames(CHINA_POWER_RODS_EXTEND_MS)
+                && power_plant_effective_energy(5, 5, false) == 5
+                && power_plant_effective_energy(5, 5, true) == 10
+                && power_plant_effective_energy(10, 5, true) == 15
+                && is_power_plant_template("AmericaPowerPlant")
+                && is_power_plant_template("ChinaPowerPlant")
+                && is_power_plant_template("USA_PowerPlant")
+                && !is_power_plant_template("AmericaCommandCenter")
+        });
         assert_eq!(power_plant_effective_energy(5, 5, true), 10);
     }
 
     #[test]
-    fn command_center_residual_pack_wave83_honesty() {
-        assert!(honesty_command_center_residual_pack_wave83());
+    fn command_center_heal_range_and_rate() {
+        assert!({
+            COMMAND_CENTER_BUILD_COST == 2000
+                && (COMMAND_CENTER_BUILD_TIME_SEC - 45.0).abs() < 0.01
+                && COMMAND_CENTER_BUILD_TIME_FRAMES
+                    == structure_economy_ms_to_frames((COMMAND_CENTER_BUILD_TIME_SEC * 1000.0) as u32)
+                && COMMAND_CENTER_ENERGY_PRODUCTION == 0
+                && (COMMAND_CENTER_MAX_HEALTH - 5000.0).abs() < 0.01
+                && (COMMAND_CENTER_VISION_RANGE - 300.0).abs() < 0.01
+                && COMMAND_CENTER_EXPERIENCE_VALUE == 200
+                && AMERICA_COMMAND_CENTER_TEMPLATE == "AmericaCommandCenter"
+                && CHINA_COMMAND_CENTER_TEMPLATE == "ChinaCommandCenter"
+                && GLA_COMMAND_CENTER_TEMPLATE == "GLACommandCenter"
+                && AMERICA_COMMAND_CENTER_COMMAND_SET == "AmericaCommandCenterCommandSet"
+                && UPGRADE_AMERICA_RADAR == "Upgrade_AmericaRadar"
+                && (COMMAND_CENTER_HEAL_RANGE - 500.0).abs() < 0.01
+                && (COMMAND_CENTER_HEAL_AMOUNT_PER_FRAME - 0.01).abs() < 0.0001
+                && (command_center_heal_over_frames(100) - 1.0).abs() < 0.001
+                && (command_center_heal_over_frames(30) - 0.3).abs() < 0.001
+                && is_in_command_center_heal_range(500.0)
+                && !is_in_command_center_heal_range(500.1)
+                && COMMAND_CENTER_KINDOF_TOKENS.contains(&"COMMANDCENTER")
+                && COMMAND_CENTER_KINDOF_TOKENS.contains(&"FS_FACTORY")
+                && COMMAND_CENTER_KINDOF_TOKENS.contains(&"AUTO_RALLYPOINT")
+                && COMMAND_CENTER_KINDOF_TOKENS.len() == 8
+                && is_command_center_template("AmericaCommandCenter")
+                && is_command_center_template("USA_CommandCenter")
+                && is_command_center_template("GLA_Command")
+                && !is_command_center_template("AmericaPowerPlant")
+                // Production door residual already covered in production pack; re-check USA door.
+                && USA_CC_DOOR_OPENING_MS == 1500
+                && CHINA_CC_DOOR_OPENING_MS == 3000
+        });
         assert!((command_center_heal_over_frames(1000) - 10.0).abs() < 0.001);
-    }
-
-    #[test]
-    fn structure_economy_residual_pack_wave83_combined() {
-        assert!(honesty_structure_economy_residual_pack_wave83());
     }
 
     #[test]

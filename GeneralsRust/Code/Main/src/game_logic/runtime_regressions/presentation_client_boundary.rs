@@ -2,7 +2,7 @@
 
 fn presentation_client_boundary() -> bool {
     use crate::game_logic::{
-        DEFAULT_SKIRMISH_MAP_WAVE169, GameLogic, GameMode, LONE_EAGLE_MAP_WAVE169,
+        DEFAULT_SKIRMISH_MAP_NAME, GameLogic, GameMode, LONE_EAGLE_MAP_NAME,
         resolve_retail_map_path,
     };
     use crate::presentation_frame::PresentationFrame;
@@ -14,10 +14,10 @@ fn presentation_client_boundary() -> bool {
     }
 
     // Prefer Lone Eagle; fall back to Defcon6; soft-ok if neither (CI without MapsZH).
-    let map_name = if resolve_retail_map_path(LONE_EAGLE_MAP_WAVE169).is_some() {
-        LONE_EAGLE_MAP_WAVE169
-    } else if resolve_retail_map_path(DEFAULT_SKIRMISH_MAP_WAVE169).is_some() {
-        DEFAULT_SKIRMISH_MAP_WAVE169
+    let map_name = if resolve_retail_map_path(LONE_EAGLE_MAP_NAME).is_some() {
+        LONE_EAGLE_MAP_NAME
+    } else if resolve_retail_map_path(DEFAULT_SKIRMISH_MAP_NAME).is_some() {
+        DEFAULT_SKIRMISH_MAP_NAME
     } else {
         return true;
     };

@@ -228,44 +228,6 @@ pub fn exercise_host_rng_residual(seed: u32) -> HostRngResidualHonesty {
 
 // --- Host stream consistency checks ---
 
-/// Check default backend consistency and the existing range/index constants.
-/// The historical function name remains for existing callers.
-pub fn honesty_rng_seed_table_residual_ok() -> bool {
-    (MULT_FACTOR - (1.0 / 4_294_967_295.0)).abs() < 1e-12
-        && HostRandomState::new().seed_words() == CommonRandomState::default().seed_words()
-        && PURE_INDEX_SEED_OFFSET == 1
-}
-
-/// Check that index-seeded draws remain stable when queried again.
-pub fn honesty_rng_pure_index_residual_ok() -> bool {
-    let a = pure_logic_random_real(11, 0, 0.0, 100.0);
-    let b = pure_logic_random_real(11, 0, 0.0, 100.0);
-    let i_a = pure_logic_random_int(7, 2, 0, 90);
-    let i_b = pure_logic_random_int(7, 2, 0, 90);
-    let scatter_a = pure_client_structure_scatter(3, 50.0, 40.0, STRUCTURE_SCATTER_SCALE);
-    let scatter_b = pure_client_structure_scatter(3, 50.0, 40.0, STRUCTURE_SCATTER_SCALE);
-    (a - b).abs() < 1e-6
-        && i_a == i_b
-        && scatter_a == scatter_b
-        && (STRUCTURE_SCATTER_SCALE - 0.3).abs() < 0.001
-        && scatter_a.0.abs() <= 15.0 + 0.001
-        && scatter_a.1.abs() <= 12.0 + 0.001
-}
-
-/// Check local stream separation and backend consistency.
-///
-/// Uses a fixed seed without global state or synchronization.
-pub fn honesty_rng_stream_exercise_residual_ok() -> bool {
-    exercise_host_rng_residual(0xC0FFEE_u32).honesty_ok()
-}
-
-/// Combined Wave 72 host RNG residual honesty pack.
-pub fn honesty_rng_residual_pack_ok() -> bool {
-    honesty_rng_seed_table_residual_ok()
-        && honesty_rng_pure_index_residual_ok()
-        && honesty_rng_stream_exercise_residual_ok()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -306,14 +268,30 @@ mod tests {
         }
     }
 
-    /// Wave 72 residual pack honesty gate (only host missing residual_pack_ok).
     #[test]
-    fn rng_residual_pack_honesty_wave72() {
-        assert!(honesty_rng_seed_table_residual_ok());
-        assert!(honesty_rng_pure_index_residual_ok());
-        assert!(honesty_rng_stream_exercise_residual_ok());
-        assert!(honesty_rng_residual_pack_ok());
+    fn random_backend_defaults_and_index_draws() {
+        assert!({
+            (MULT_FACTOR - (1.0 / 4_294_967_295.0)).abs() < 1e-12
+                && HostRandomState::new().seed_words() == CommonRandomState::default().seed_words()
+                && PURE_INDEX_SEED_OFFSET == 1
+        });
+        assert!({
+            let a = pure_logic_random_real(11, 0, 0.0, 100.0);
+            let b = pure_logic_random_real(11, 0, 0.0, 100.0);
+            let i_a = pure_logic_random_int(7, 2, 0, 90);
+            let i_b = pure_logic_random_int(7, 2, 0, 90);
+            let scatter_a = pure_client_structure_scatter(3, 50.0, 40.0, STRUCTURE_SCATTER_SCALE);
+            let scatter_b = pure_client_structure_scatter(3, 50.0, 40.0, STRUCTURE_SCATTER_SCALE);
+            (a - b).abs() < 1e-6
+                && i_a == i_b
+                && scatter_a == scatter_b
+                && (STRUCTURE_SCATTER_SCALE - 0.3).abs() < 0.001
+                && scatter_a.0.abs() <= 15.0 + 0.001
+                && scatter_a.1.abs() <= 12.0 + 0.001
+        });
+        assert!(exercise_host_rng_residual(0xC0FFEE_u32).honesty_ok());
         assert!((STRUCTURE_SCATTER_SCALE - 0.3).abs() < 0.001);
         assert_eq!(PURE_INDEX_SEED_OFFSET, 1);
     }
+
 }

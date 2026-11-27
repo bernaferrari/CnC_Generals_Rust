@@ -1,12 +1,12 @@
 #[test]
 fn retail_maps_advance_and_publish_objects() {
     use crate::game_logic::{
-        DEFAULT_SKIRMISH_MAP_WAVE169, GameLogic, GameMode, LONE_EAGLE_MAP_WAVE169,
+        DEFAULT_SKIRMISH_MAP_NAME, GameLogic, GameMode, LONE_EAGLE_MAP_NAME,
         resolve_retail_map_path,
     };
     use crate::presentation_frame::PresentationFrame;
 
-    let map_names = [DEFAULT_SKIRMISH_MAP_WAVE169, LONE_EAGLE_MAP_WAVE169];
+    let map_names = [DEFAULT_SKIRMISH_MAP_NAME, LONE_EAGLE_MAP_NAME];
     let [defcon_path, lone_path] = map_names.map(resolve_retail_map_path);
     if defcon_path.is_none() && lone_path.is_none() {
         eprintln!("Retail Defcon6 and Lone Eagle maps are unavailable");
@@ -32,7 +32,7 @@ fn retail_maps_advance_and_publish_objects() {
         let frame = PresentationFrame::try_build_from_logic(&mut logic, 0).unwrap();
         assert_eq!(frame.frame.0, logic.get_frame(), "{name} frame");
 
-        if name == LONE_EAGLE_MAP_WAVE169 {
+        if name == LONE_EAGLE_MAP_NAME {
             assert!(!frame.objects.is_empty(), "{name} must publish objects");
             for row in &frame.objects {
                 let object = logic

@@ -126,7 +126,6 @@ impl CnCGameEngine {
             "click_challenge_start" => self.runtime_host_cmd_click_challenge_start(&args)?,
             "start_game" => self.runtime_host_cmd_start_game(&args)?,
             "queue_new_game" => self.runtime_host_cmd_queue_new_game(&args)?,
-            "click_start_game_loading" => self.runtime_host_cmd_click_start_game_loading(&args),
             "click_live_command_attack_log" => self.runtime_host_cmd_click_live_command_attack_log(&args),
             "click_live_command_guard_log" => self.runtime_host_cmd_click_live_command_guard_log(&args),
             "click_live_command_production_construction_log" => self.runtime_host_cmd_click_live_command_production_construction_log(&args),

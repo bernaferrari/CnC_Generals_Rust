@@ -723,84 +723,82 @@ pub fn special_power_reload_seconds(
     ms.map(|m| m as f32 / 1000.0)
 }
 
-pub fn honesty_special_power_enum_residual_pack_wave80() -> bool {
-    SPECIALPOWER_COUNT == 67
-        && SPECIAL_POWER_BIT_NAME_LIST.len() == 67
-        && SPECIAL_POWER_BIT_NAME_LIST[0] == "SPECIAL_INVALID"
-        && SPECIAL_POWER_BIT_NAME_LIST[1] == "SPECIAL_DAISY_CUTTER"
-        && SPECIAL_POWER_BIT_NAME_LIST[18] == "SPECIAL_A10_THUNDERBOLT_STRIKE"
-        && SPECIAL_POWER_BIT_NAME_LIST[36] == "SPECIAL_PARTICLE_UPLINK_CANNON"
-        && SPECIAL_POWER_BIT_NAME_LIST[42] == "SPECIAL_SPECTRE_GUNSHIP"
-        && SPECIAL_POWER_BIT_NAME_LIST[63] == "SUPR_SPECIAL_CRUISE_MISSILE"
-        && SPECIAL_POWER_BIT_NAME_LIST[66] == "SPECIAL_BATTLESHIP_BOMBARDMENT"
-        && {
-            use crate::command_system::SpecialPowerType as P;
-            special_power_is_structure_bound_public_timer(&P::ParticleCannon)
-                && special_power_is_structure_bound_public_timer(&P::ScudStorm)
-                && special_power_is_structure_bound_public_timer(&P::NuclearMissile)
-                && !special_power_uses_shared_synced_timer(&P::ParticleCannon)
-                && !special_power_uses_shared_synced_timer(&P::ScudStorm)
-                && !special_power_uses_shared_synced_timer(&P::NuclearMissile)
-                && special_power_uses_shared_synced_timer(&P::DaisyCutter)
-                && special_power_uses_shared_synced_timer(&P::Airstrike)
-                && !special_power_uses_shared_synced_timer(&P::RadarScan)
-                && special_power_reload_seconds(&P::RadarScan) == Some(30.0)
-        }
-        // Host superweapon ordinal ↔ name table residual.
-        && [
-            HostSuperweaponKind::DaisyCutter,
-            HostSuperweaponKind::A10Strike,
-            HostSuperweaponKind::ScudStorm,
-            HostSuperweaponKind::ParticleCannon,
-            HostSuperweaponKind::NuclearMissile,
-            HostSuperweaponKind::AnthraxBomb,
-            HostSuperweaponKind::SpectreGunship,
-            HostSuperweaponKind::CarpetBomb,
-            HostSuperweaponKind::ArtilleryBarrage,
-            HostSuperweaponKind::CruiseMissile,
-            HostSuperweaponKind::NapalmStrike,
-        ]
-        .iter()
-        .all(|k| {
-            let name = k.cpp_special_power_enum_name();
-            let ord = k.cpp_special_power_ordinal() as usize;
-            SPECIAL_POWER_BIT_NAME_LIST.get(ord) == Some(&name)
-                && special_power_bit_name_index(name) == Some(ord)
-        })
-        // Host command power bridge residual (sample of superweapons).
-        && host_command_power_cpp_enum_name(&HostCommandSpecialPowerType::DaisyCutter)
-            == Some("SPECIAL_DAISY_CUTTER")
-        && host_command_power_cpp_enum_name(&HostCommandSpecialPowerType::Airstrike)
-            == Some("SPECIAL_A10_THUNDERBOLT_STRIKE")
-        && host_command_power_cpp_enum_name(&HostCommandSpecialPowerType::ParticleCannon)
-            == Some("SPECIAL_PARTICLE_UPLINK_CANNON")
-        && host_command_power_cpp_enum_name(&HostCommandSpecialPowerType::CruiseMissile)
-            == Some("SUPR_SPECIAL_CRUISE_MISSILE")
-        && host_command_power_cpp_enum_name(&HostCommandSpecialPowerType::Invalid)
-            == Some("SPECIAL_INVALID")
-        && host_command_power_cpp_enum_name(&HostCommandSpecialPowerType::IonCannon).is_none()
-        && host_command_power_cpp_enum_name(
-            &HostCommandSpecialPowerType::StealthGpsScrambler,
-        ) == Some(crate::game_logic::host_gps_scrambler::GPS_SCRAMBLER_SLTH_ENUM)
-        && special_power_ini_template_name(&HostCommandSpecialPowerType::StealthGpsScrambler)
-            == crate::game_logic::host_gps_scrambler::SLTH_SUPERWEAPON_GPS_SCRAMBLER
-        && special_power_ini_template_name(&HostCommandSpecialPowerType::GpsScrambler)
-            == crate::game_logic::host_gps_scrambler::SUPERWEAPON_GPS_SCRAMBLER
-        // Unique names in table.
-        && {
-            let mut names: Vec<&str> = SPECIAL_POWER_BIT_NAME_LIST.to_vec();
-            names.sort_unstable();
-            names.windows(2).all(|w| w[0] != w[1])
-        }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn special_power_enum_residual_pack_wave80_honesty() {
-        assert!(honesty_special_power_enum_residual_pack_wave80());
+    fn special_powers_keep_original_ordinals_and_timer_rules() {
+        assert!({
+            SPECIALPOWER_COUNT == 67
+                && SPECIAL_POWER_BIT_NAME_LIST.len() == 67
+                && SPECIAL_POWER_BIT_NAME_LIST[0] == "SPECIAL_INVALID"
+                && SPECIAL_POWER_BIT_NAME_LIST[1] == "SPECIAL_DAISY_CUTTER"
+                && SPECIAL_POWER_BIT_NAME_LIST[18] == "SPECIAL_A10_THUNDERBOLT_STRIKE"
+                && SPECIAL_POWER_BIT_NAME_LIST[36] == "SPECIAL_PARTICLE_UPLINK_CANNON"
+                && SPECIAL_POWER_BIT_NAME_LIST[42] == "SPECIAL_SPECTRE_GUNSHIP"
+                && SPECIAL_POWER_BIT_NAME_LIST[63] == "SUPR_SPECIAL_CRUISE_MISSILE"
+                && SPECIAL_POWER_BIT_NAME_LIST[66] == "SPECIAL_BATTLESHIP_BOMBARDMENT"
+                && {
+                    use crate::command_system::SpecialPowerType as P;
+                    special_power_is_structure_bound_public_timer(&P::ParticleCannon)
+                        && special_power_is_structure_bound_public_timer(&P::ScudStorm)
+                        && special_power_is_structure_bound_public_timer(&P::NuclearMissile)
+                        && !special_power_uses_shared_synced_timer(&P::ParticleCannon)
+                        && !special_power_uses_shared_synced_timer(&P::ScudStorm)
+                        && !special_power_uses_shared_synced_timer(&P::NuclearMissile)
+                        && special_power_uses_shared_synced_timer(&P::DaisyCutter)
+                        && special_power_uses_shared_synced_timer(&P::Airstrike)
+                        && !special_power_uses_shared_synced_timer(&P::RadarScan)
+                        && special_power_reload_seconds(&P::RadarScan) == Some(30.0)
+                }
+                // Host superweapon ordinal ↔ name table residual.
+                && [
+                    HostSuperweaponKind::DaisyCutter,
+                    HostSuperweaponKind::A10Strike,
+                    HostSuperweaponKind::ScudStorm,
+                    HostSuperweaponKind::ParticleCannon,
+                    HostSuperweaponKind::NuclearMissile,
+                    HostSuperweaponKind::AnthraxBomb,
+                    HostSuperweaponKind::SpectreGunship,
+                    HostSuperweaponKind::CarpetBomb,
+                    HostSuperweaponKind::ArtilleryBarrage,
+                    HostSuperweaponKind::CruiseMissile,
+                    HostSuperweaponKind::NapalmStrike,
+                ]
+                .iter()
+                .all(|k| {
+                    let name = k.cpp_special_power_enum_name();
+                    let ord = k.cpp_special_power_ordinal() as usize;
+                    SPECIAL_POWER_BIT_NAME_LIST.get(ord) == Some(&name)
+                        && special_power_bit_name_index(name) == Some(ord)
+                })
+                // Host command power bridge residual (sample of superweapons).
+                && host_command_power_cpp_enum_name(&HostCommandSpecialPowerType::DaisyCutter)
+                    == Some("SPECIAL_DAISY_CUTTER")
+                && host_command_power_cpp_enum_name(&HostCommandSpecialPowerType::Airstrike)
+                    == Some("SPECIAL_A10_THUNDERBOLT_STRIKE")
+                && host_command_power_cpp_enum_name(&HostCommandSpecialPowerType::ParticleCannon)
+                    == Some("SPECIAL_PARTICLE_UPLINK_CANNON")
+                && host_command_power_cpp_enum_name(&HostCommandSpecialPowerType::CruiseMissile)
+                    == Some("SUPR_SPECIAL_CRUISE_MISSILE")
+                && host_command_power_cpp_enum_name(&HostCommandSpecialPowerType::Invalid)
+                    == Some("SPECIAL_INVALID")
+                && host_command_power_cpp_enum_name(&HostCommandSpecialPowerType::IonCannon).is_none()
+                && host_command_power_cpp_enum_name(
+                    &HostCommandSpecialPowerType::StealthGpsScrambler,
+                ) == Some(crate::game_logic::host_gps_scrambler::GPS_SCRAMBLER_SLTH_ENUM)
+                && special_power_ini_template_name(&HostCommandSpecialPowerType::StealthGpsScrambler)
+                    == crate::game_logic::host_gps_scrambler::SLTH_SUPERWEAPON_GPS_SCRAMBLER
+                && special_power_ini_template_name(&HostCommandSpecialPowerType::GpsScrambler)
+                    == crate::game_logic::host_gps_scrambler::SUPERWEAPON_GPS_SCRAMBLER
+                // Unique names in table.
+                && {
+                    let mut names: Vec<&str> = SPECIAL_POWER_BIT_NAME_LIST.to_vec();
+                    names.sort_unstable();
+                    names.windows(2).all(|w| w[0] != w[1])
+                }
+        });
         assert_eq!(
             HostSuperweaponKind::CruiseMissile.cpp_special_power_enum_name(),
             "SUPR_SPECIAL_CRUISE_MISSILE"
@@ -810,4 +808,5 @@ mod tests {
             63
         );
     }
+
 }

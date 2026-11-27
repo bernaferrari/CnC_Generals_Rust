@@ -174,56 +174,6 @@ pub fn is_old_faction_side(side: &str) -> bool {
         .unwrap_or(false)
 }
 
-/// Wave 85 honesty: faction side residual table.
-pub fn honesty_faction_side_residual_table_wave85() -> bool {
-    FACTION_SIDE_RESIDUAL_TABLE.len() == PLAYER_TEMPLATE_COUNT_RESIDUAL
-        && FACTION_SIDE_RESIDUAL_TABLE
-            .iter()
-            .filter(|&&(_, _, _, playable, _)| playable)
-            .count()
-            == PLAYABLE_FACTION_COUNT_RESIDUAL
-        && FACTION_SIDE_RESIDUAL_TABLE
-            .iter()
-            .filter(|&&(_, _, _, playable, old)| playable && old)
-            .count()
-            == OLD_PLAYABLE_FACTION_COUNT_RESIDUAL
-        && FACTION_SIDE_RESIDUAL_TABLE
-            .iter()
-            .filter(|&&(_, _, _, playable, old)| playable && !old)
-            .count()
-            == ZH_PLAYABLE_FACTION_COUNT_RESIDUAL
-        && OLD_PLAYABLE_FACTION_COUNT_RESIDUAL + ZH_PLAYABLE_FACTION_COUNT_RESIDUAL
-            == PLAYABLE_FACTION_COUNT_RESIDUAL
-        && base_side_for_display_side(SIDE_AMERICA) == Some(BASE_SIDE_USA)
-        && base_side_for_display_side(SIDE_CHINA) == Some(BASE_SIDE_CHINA)
-        && base_side_for_display_side(SIDE_GLA) == Some(BASE_SIDE_GLA)
-        && base_side_for_display_side(SIDE_AMERICA_AIRFORCE) == Some(BASE_SIDE_USA)
-        && base_side_for_display_side(SIDE_CHINA_NUKE) == Some(BASE_SIDE_CHINA)
-        && base_side_for_display_side(SIDE_GLA_STEALTH) == Some(BASE_SIDE_GLA)
-        && base_side_for_display_side(SIDE_BOSS) == Some(BASE_SIDE_CHINA)
-        && is_old_faction_side(SIDE_AMERICA)
-        && is_old_faction_side(SIDE_CHINA)
-        && is_old_faction_side(SIDE_GLA)
-        && !is_old_faction_side(SIDE_AMERICA_SUPERWEAPON)
-        && !is_old_faction_side(SIDE_BOSS)
-        && pack_preferred_color_rgb(
-            AMERICA_PREFERRED_COLOR_RGB.0,
-            AMERICA_PREFERRED_COLOR_RGB.1,
-            AMERICA_PREFERRED_COLOR_RGB.2,
-        ) == 0x0000_00FF
-        && pack_preferred_color_rgb(
-            CHINA_PREFERRED_COLOR_RGB.0,
-            CHINA_PREFERRED_COLOR_RGB.1,
-            CHINA_PREFERRED_COLOR_RGB.2,
-        ) == 0x00FF_0000
-        && pack_preferred_color_rgb(
-            GLA_PREFERRED_COLOR_RGB.0,
-            GLA_PREFERRED_COLOR_RGB.1,
-            GLA_PREFERRED_COLOR_RGB.2,
-        ) == 0x0000_FF00
-        && MAX_PLAYER_COUNT_RESIDUAL == 16
-}
-
 // ---------------------------------------------------------------------------
 // 2. Player template residual peels (starting building / unit / science / shortcut)
 // ---------------------------------------------------------------------------
@@ -477,72 +427,6 @@ pub fn find_player_template_by_side(side: &str) -> Option<&'static PlayerTemplat
         .find(|t| t.side == side)
 }
 
-/// Wave 85 honesty: player template residual peels.
-pub fn honesty_player_template_residual_pack_wave85() -> bool {
-    PLAYER_TEMPLATE_RESIDUAL_SEEDS.len() == PLAYER_TEMPLATE_COUNT_RESIDUAL
-        && FACTION_SIDE_RESIDUAL_TABLE.len() == PLAYER_TEMPLATE_RESIDUAL_SEEDS.len()
-        && PLAYER_TEMPLATE_RESIDUAL_SEEDS
-            .iter()
-            .zip(FACTION_SIDE_RESIDUAL_TABLE.iter())
-            .all(|(pt, &(name, side, base, playable, old))| {
-                pt.template_name == name
-                    && pt.side == side
-                    && pt.base_side == base
-                    && pt.playable == playable
-                    && pt.old_faction == old
-            })
-        && find_player_template_residual("FactionAmerica")
-            .map(|t| {
-                t.starting_building == "AmericaCommandCenter"
-                    && t.starting_unit0 == "AmericaVehicleDozer"
-                    && t.intrinsic_science == "SCIENCE_AMERICA"
-                    && t.shortcut_button_count == 10
-            })
-            .unwrap_or(false)
-        && find_player_template_residual("FactionChina")
-            .map(|t| {
-                t.starting_building == "ChinaCommandCenter"
-                    && t.starting_unit0 == "ChinaVehicleDozer"
-                    && t.intrinsic_science == "SCIENCE_CHINA"
-            })
-            .unwrap_or(false)
-        && find_player_template_residual("FactionGLA")
-            .map(|t| {
-                t.starting_building == "GLACommandCenter"
-                    && t.starting_unit0 == "GLAInfantryWorker"
-                    && t.intrinsic_science == "SCIENCE_GLA"
-            })
-            .unwrap_or(false)
-        // Superweapon / AirForce residual shortcut button count **11**.
-        && find_player_template_residual("FactionAmericaSuperWeaponGeneral")
-            .map(|t| t.shortcut_button_count == 11)
-            .unwrap_or(false)
-        && find_player_template_residual("FactionAmericaAirForceGeneral")
-            .map(|t| t.shortcut_button_count == 11)
-            .unwrap_or(false)
-        // Boss residual shortcut button count **9**.
-        && find_player_template_residual("FactionBossGeneral")
-            .map(|t| t.shortcut_button_count == 9 && t.base_side == BASE_SIDE_CHINA)
-            .unwrap_or(false)
-        // Prefixed starting building residual for ZH generals.
-        && find_player_template_by_side(SIDE_CHINA_TANK)
-            .map(|t| t.starting_building.starts_with("Tank_"))
-            .unwrap_or(false)
-        && find_player_template_by_side(SIDE_GLA_TOXIN)
-            .map(|t| t.starting_building.starts_with("Chem_"))
-            .unwrap_or(false)
-        && find_player_template_by_side(SIDE_GLA_STEALTH)
-            .map(|t| t.starting_building.starts_with("Slth_"))
-            .unwrap_or(false)
-        // Civilian / Observer residual: not playable, no starting building.
-        && find_player_template_residual("FactionCivilian")
-            .map(|t| !t.playable && t.starting_building.is_empty())
-            .unwrap_or(false)
-        && find_player_template_residual("FactionObserver")
-            .map(|t| !t.playable && t.starting_building.is_empty())
-            .unwrap_or(false)
-}
-
 // ---------------------------------------------------------------------------
 // 3. Starting cash residual (+ difficulty-related residual)
 // ---------------------------------------------------------------------------
@@ -610,42 +494,6 @@ pub fn effective_starting_cash(choice: Option<u32>) -> u32 {
         Some(v) if is_valid_starting_cash_choice(v) => v,
         _ => DEFAULT_STARTING_CASH,
     }
-}
-
-/// Wave 85 honesty: starting cash residual (+ difficulty health residual).
-pub fn honesty_starting_cash_residual_pack_wave85() -> bool {
-    DEFAULT_STARTING_CASH == 10_000
-        && Player::DEFAULT_STARTING_MONEY == DEFAULT_STARTING_CASH
-        && MULTIPLAYER_DEFAULT_STARTING_CASH == DEFAULT_STARTING_CASH
-        && MULTIPLAYER_STARTING_CASH_CHOICES == [5_000, 10_000, 20_000, 50_000]
-        && is_valid_starting_cash_choice(5_000)
-        && is_valid_starting_cash_choice(10_000)
-        && is_valid_starting_cash_choice(20_000)
-        && is_valid_starting_cash_choice(50_000)
-        && !is_valid_starting_cash_choice(12_500)
-        && !is_valid_starting_cash_choice(0)
-        && starting_cash_choice_index(10_000) == Some(1)
-        && starting_cash_choice_index(50_000) == Some(3)
-        && starting_cash_choice_index(7_500).is_none()
-        && PLAYER_TEMPLATE_START_MONEY == 0
-        && effective_starting_cash(None) == DEFAULT_STARTING_CASH
-        && effective_starting_cash(Some(20_000)) == 20_000
-        && effective_starting_cash(Some(999)) == DEFAULT_STARTING_CASH
-        // Difficulty residual health bonus anchors.
-        && (human_solo_health_bonus_for_difficulty(AIDifficulty::Easy) - 1.50).abs() < 0.001
-        && (human_solo_health_bonus_for_difficulty(AIDifficulty::Medium) - 1.00).abs() < 0.001
-        && (human_solo_health_bonus_for_difficulty(AIDifficulty::Hard) - 0.80).abs() < 0.001
-        && (human_solo_health_bonus_for_difficulty(AIDifficulty::Brutal) - 0.80).abs() < 0.001
-        && HUMAN_SOLO_HEALTH_BONUS_EASY > HUMAN_SOLO_HEALTH_BONUS_NORMAL
-        && HUMAN_SOLO_HEALTH_BONUS_NORMAL > HUMAN_SOLO_HEALTH_BONUS_HARD
-        && solo_weapon_bonus_condition(true, AIDifficulty::Easy) == 16
-        && solo_weapon_bonus_condition(true, AIDifficulty::Medium) == 17
-        && solo_weapon_bonus_condition(true, AIDifficulty::Hard) == 18
-        && solo_weapon_bonus_condition(true, AIDifficulty::Brutal) == 18
-        && solo_weapon_bonus_condition(false, AIDifficulty::Easy) == 19
-        && solo_weapon_bonus_condition(false, AIDifficulty::Medium) == 20
-        && solo_weapon_bonus_condition(false, AIDifficulty::Hard) == 21
-        && solo_weapon_bonus_condition(false, AIDifficulty::Brutal) == 21
 }
 
 // ---------------------------------------------------------------------------
@@ -793,67 +641,6 @@ pub fn resource_gatherers_for_side_difficulty(side: &str, diff: AIDifficulty) ->
     })
 }
 
-/// Wave 85 honesty: skirmish AI personality residual peels.
-pub fn honesty_skirmish_ai_personality_residual_pack_wave85() -> bool {
-    SKIRMISH_AI_SIDE_INFO_RESIDUAL.len() == 12
-        // Base side gatherer residual: USA/China **2**, GLA **5**.
-        && resource_gatherers_for_side_difficulty(SIDE_AMERICA, AIDifficulty::Medium) == Some(2)
-        && resource_gatherers_for_side_difficulty(SIDE_CHINA, AIDifficulty::Hard) == Some(2)
-        && resource_gatherers_for_side_difficulty(SIDE_GLA, AIDifficulty::Easy) == Some(5)
-        && resource_gatherers_for_side_difficulty(SIDE_GLA_TOXIN, AIDifficulty::Brutal) == Some(5)
-        && resource_gatherers_for_side_difficulty(SIDE_AMERICA_AIRFORCE, AIDifficulty::Easy)
-            == Some(2)
-        // Base defense residual anchors.
-        && SKIRMISH_AI_SIDE_INFO_RESIDUAL
-            .iter()
-            .find(|s| s.side == SIDE_AMERICA)
-            .map(|s| s.base_defense_structure1 == "AmericaPatriotBattery")
-            .unwrap_or(false)
-        && SKIRMISH_AI_SIDE_INFO_RESIDUAL
-            .iter()
-            .find(|s| s.side == SIDE_CHINA)
-            .map(|s| s.base_defense_structure1 == "ChinaGattlingCannon")
-            .unwrap_or(false)
-        && SKIRMISH_AI_SIDE_INFO_RESIDUAL
-            .iter()
-            .find(|s| s.side == SIDE_GLA)
-            .map(|s| s.base_defense_structure1 == "GLAStingerSite")
-            .unwrap_or(false)
-        && SKIRMISH_AI_SIDE_INFO_RESIDUAL
-            .iter()
-            .find(|s| s.side == SIDE_CHINA_TANK)
-            .map(|s| s.base_defense_structure1.starts_with("Tank_"))
-            .unwrap_or(false)
-        && SKIRMISH_AI_SIDE_INFO_RESIDUAL
-            .iter()
-            .find(|s| s.side == SIDE_GLA_STEALTH)
-            .map(|s| s.base_defense_structure1.starts_with("Slth_"))
-            .unwrap_or(false)
-        // SkillSet residual first science anchors.
-        && SKIRMISH_AI_SIDE_INFO_RESIDUAL
-            .iter()
-            .find(|s| s.side == SIDE_AMERICA)
-            .map(|s| s.skill_set1_first == "SCIENCE_PaladinTank")
-            .unwrap_or(false)
-        && SKIRMISH_AI_SIDE_INFO_RESIDUAL
-            .iter()
-            .find(|s| s.side == SIDE_CHINA)
-            .map(|s| s.skill_set1_first == "SCIENCE_NukeLauncher")
-            .unwrap_or(false)
-        && SKIRMISH_AI_SIDE_INFO_RESIDUAL
-            .iter()
-            .find(|s| s.side == SIDE_GLA)
-            .map(|s| s.skill_set1_first == "SCIENCE_ScudLauncher")
-            .unwrap_or(false)
-        // Host personality residual for base teams.
-        && host_personality_for_team(Team::USA) == AIPersonality::Aggressive
-        && host_personality_for_team(Team::China) == AIPersonality::Defensive
-        && host_personality_for_team(Team::GLA) == AIPersonality::Rush
-        && host_personality_for_team(Team::Neutral) == AIPersonality::Balanced
-        // Unknown side residual fails closed.
-        && resource_gatherers_for_side_difficulty("NotASide", AIDifficulty::Medium).is_none()
-}
-
 // ---------------------------------------------------------------------------
 // 5. Victory condition residual peels
 // ---------------------------------------------------------------------------
@@ -882,47 +669,6 @@ pub fn is_defeated_residual(
         (false, true) => !has_structures,
         (false, false) => false,
     }
-}
-
-/// Wave 85 honesty: victory condition residual peels.
-pub fn honesty_victory_condition_residual_pack_wave85() -> bool {
-    // Bit residual matches C++ VictoryType enum values.
-    VictoryType::NO_BUILDINGS.bits() == VICTORY_NO_BUILDINGS_BIT
-        && VictoryType::NO_UNITS.bits() == VICTORY_NO_UNITS_BIT
-        && VictoryType::default().bits() == VICTORY_DEFAULT_MASK
-        && VictoryType::default().requires_units()
-        && VictoryType::default().requires_buildings()
-        && VictoryType::from_requirements(true, true) == VictoryType::default()
-        && VictoryType::from_requirements(true, false) == VictoryType::NO_UNITS
-        && VictoryType::from_requirements(false, true) == VictoryType::NO_BUILDINGS
-        && VictoryType::from_requirements(false, false).is_empty()
-        // Defeat residual matrix (both flags — hasAnyObjects).
-        && is_defeated_residual(true, true, false, false, false)
-        && !is_defeated_residual(true, true, true, false, false)
-        && !is_defeated_residual(true, true, true, true, true)
-        // NOUNITS only — hasAnyUnits residual.
-        && is_defeated_residual(true, false, true, false, true)
-        && !is_defeated_residual(true, false, true, true, false)
-        // NOBUILDINGS only — hasAnyBuildings residual.
-        && is_defeated_residual(false, true, true, true, false)
-        && !is_defeated_residual(false, true, true, false, true)
-        // Neither flag: C++ falls through to return false (never auto-eliminated).
-        && !is_defeated_residual(false, false, false, false, false)
-        && !is_defeated_residual(false, false, true, false, false)
-        && MAX_PLAYER_COUNT_RESIDUAL == 16
-}
-
-// ---------------------------------------------------------------------------
-// Combined Wave 85 pack
-// ---------------------------------------------------------------------------
-
-/// Combined Wave 85 honesty pack (all five residual peels).
-pub fn honesty_faction_skirmish_residual_pack_wave85() -> bool {
-    honesty_faction_side_residual_table_wave85()
-        && honesty_player_template_residual_pack_wave85()
-        && honesty_starting_cash_residual_pack_wave85()
-        && honesty_skirmish_ai_personality_residual_pack_wave85()
-        && honesty_victory_condition_residual_pack_wave85()
 }
 
 /// Map host Team residual to retail IntrinsicSciences token.
@@ -974,32 +720,254 @@ mod tests {
     use super::*;
 
     #[test]
-    fn faction_side_residual_table_wave85_honesty() {
-        assert!(honesty_faction_side_residual_table_wave85());
+    fn factions_map_to_their_authored_base_sides() {
+        assert!({
+            FACTION_SIDE_RESIDUAL_TABLE.len() == PLAYER_TEMPLATE_COUNT_RESIDUAL
+                && FACTION_SIDE_RESIDUAL_TABLE
+                    .iter()
+                    .filter(|&&(_, _, _, playable, _)| playable)
+                    .count()
+                    == PLAYABLE_FACTION_COUNT_RESIDUAL
+                && FACTION_SIDE_RESIDUAL_TABLE
+                    .iter()
+                    .filter(|&&(_, _, _, playable, old)| playable && old)
+                    .count()
+                    == OLD_PLAYABLE_FACTION_COUNT_RESIDUAL
+                && FACTION_SIDE_RESIDUAL_TABLE
+                    .iter()
+                    .filter(|&&(_, _, _, playable, old)| playable && !old)
+                    .count()
+                    == ZH_PLAYABLE_FACTION_COUNT_RESIDUAL
+                && OLD_PLAYABLE_FACTION_COUNT_RESIDUAL + ZH_PLAYABLE_FACTION_COUNT_RESIDUAL
+                    == PLAYABLE_FACTION_COUNT_RESIDUAL
+                && base_side_for_display_side(SIDE_AMERICA) == Some(BASE_SIDE_USA)
+                && base_side_for_display_side(SIDE_CHINA) == Some(BASE_SIDE_CHINA)
+                && base_side_for_display_side(SIDE_GLA) == Some(BASE_SIDE_GLA)
+                && base_side_for_display_side(SIDE_AMERICA_AIRFORCE) == Some(BASE_SIDE_USA)
+                && base_side_for_display_side(SIDE_CHINA_NUKE) == Some(BASE_SIDE_CHINA)
+                && base_side_for_display_side(SIDE_GLA_STEALTH) == Some(BASE_SIDE_GLA)
+                && base_side_for_display_side(SIDE_BOSS) == Some(BASE_SIDE_CHINA)
+                && is_old_faction_side(SIDE_AMERICA)
+                && is_old_faction_side(SIDE_CHINA)
+                && is_old_faction_side(SIDE_GLA)
+                && !is_old_faction_side(SIDE_AMERICA_SUPERWEAPON)
+                && !is_old_faction_side(SIDE_BOSS)
+                && pack_preferred_color_rgb(
+                    AMERICA_PREFERRED_COLOR_RGB.0,
+                    AMERICA_PREFERRED_COLOR_RGB.1,
+                    AMERICA_PREFERRED_COLOR_RGB.2,
+                ) == 0x0000_00FF
+                && pack_preferred_color_rgb(
+                    CHINA_PREFERRED_COLOR_RGB.0,
+                    CHINA_PREFERRED_COLOR_RGB.1,
+                    CHINA_PREFERRED_COLOR_RGB.2,
+                ) == 0x00FF_0000
+                && pack_preferred_color_rgb(
+                    GLA_PREFERRED_COLOR_RGB.0,
+                    GLA_PREFERRED_COLOR_RGB.1,
+                    GLA_PREFERRED_COLOR_RGB.2,
+                ) == 0x0000_FF00
+                && MAX_PLAYER_COUNT_RESIDUAL == 16
+        });
     }
 
     #[test]
-    fn player_template_residual_pack_wave85_honesty() {
-        assert!(honesty_player_template_residual_pack_wave85());
+    fn player_templates_supply_authored_starting_assets() {
+        assert!({
+            PLAYER_TEMPLATE_RESIDUAL_SEEDS.len() == PLAYER_TEMPLATE_COUNT_RESIDUAL
+                && FACTION_SIDE_RESIDUAL_TABLE.len() == PLAYER_TEMPLATE_RESIDUAL_SEEDS.len()
+                && PLAYER_TEMPLATE_RESIDUAL_SEEDS
+                    .iter()
+                    .zip(FACTION_SIDE_RESIDUAL_TABLE.iter())
+                    .all(|(pt, &(name, side, base, playable, old))| {
+                        pt.template_name == name
+                            && pt.side == side
+                            && pt.base_side == base
+                            && pt.playable == playable
+                            && pt.old_faction == old
+                    })
+                && find_player_template_residual("FactionAmerica")
+                    .map(|t| {
+                        t.starting_building == "AmericaCommandCenter"
+                            && t.starting_unit0 == "AmericaVehicleDozer"
+                            && t.intrinsic_science == "SCIENCE_AMERICA"
+                            && t.shortcut_button_count == 10
+                    })
+                    .unwrap_or(false)
+                && find_player_template_residual("FactionChina")
+                    .map(|t| {
+                        t.starting_building == "ChinaCommandCenter"
+                            && t.starting_unit0 == "ChinaVehicleDozer"
+                            && t.intrinsic_science == "SCIENCE_CHINA"
+                    })
+                    .unwrap_or(false)
+                && find_player_template_residual("FactionGLA")
+                    .map(|t| {
+                        t.starting_building == "GLACommandCenter"
+                            && t.starting_unit0 == "GLAInfantryWorker"
+                            && t.intrinsic_science == "SCIENCE_GLA"
+                    })
+                    .unwrap_or(false)
+                // Superweapon / AirForce residual shortcut button count **11**.
+                && find_player_template_residual("FactionAmericaSuperWeaponGeneral")
+                    .map(|t| t.shortcut_button_count == 11)
+                    .unwrap_or(false)
+                && find_player_template_residual("FactionAmericaAirForceGeneral")
+                    .map(|t| t.shortcut_button_count == 11)
+                    .unwrap_or(false)
+                // Boss residual shortcut button count **9**.
+                && find_player_template_residual("FactionBossGeneral")
+                    .map(|t| t.shortcut_button_count == 9 && t.base_side == BASE_SIDE_CHINA)
+                    .unwrap_or(false)
+                // Prefixed starting building residual for ZH generals.
+                && find_player_template_by_side(SIDE_CHINA_TANK)
+                    .map(|t| t.starting_building.starts_with("Tank_"))
+                    .unwrap_or(false)
+                && find_player_template_by_side(SIDE_GLA_TOXIN)
+                    .map(|t| t.starting_building.starts_with("Chem_"))
+                    .unwrap_or(false)
+                && find_player_template_by_side(SIDE_GLA_STEALTH)
+                    .map(|t| t.starting_building.starts_with("Slth_"))
+                    .unwrap_or(false)
+                // Civilian / Observer residual: not playable, no starting building.
+                && find_player_template_residual("FactionCivilian")
+                    .map(|t| !t.playable && t.starting_building.is_empty())
+                    .unwrap_or(false)
+                && find_player_template_residual("FactionObserver")
+                    .map(|t| !t.playable && t.starting_building.is_empty())
+                    .unwrap_or(false)
+        });
     }
 
     #[test]
-    fn starting_cash_residual_pack_wave85_honesty() {
-        assert!(honesty_starting_cash_residual_pack_wave85());
+    fn starting_cash_choices_and_solo_bonuses() {
+        assert!({
+            DEFAULT_STARTING_CASH == 10_000
+                && Player::DEFAULT_STARTING_MONEY == DEFAULT_STARTING_CASH
+                && MULTIPLAYER_DEFAULT_STARTING_CASH == DEFAULT_STARTING_CASH
+                && MULTIPLAYER_STARTING_CASH_CHOICES == [5_000, 10_000, 20_000, 50_000]
+                && is_valid_starting_cash_choice(5_000)
+                && is_valid_starting_cash_choice(10_000)
+                && is_valid_starting_cash_choice(20_000)
+                && is_valid_starting_cash_choice(50_000)
+                && !is_valid_starting_cash_choice(12_500)
+                && !is_valid_starting_cash_choice(0)
+                && starting_cash_choice_index(10_000) == Some(1)
+                && starting_cash_choice_index(50_000) == Some(3)
+                && starting_cash_choice_index(7_500).is_none()
+                && PLAYER_TEMPLATE_START_MONEY == 0
+                && effective_starting_cash(None) == DEFAULT_STARTING_CASH
+                && effective_starting_cash(Some(20_000)) == 20_000
+                && effective_starting_cash(Some(999)) == DEFAULT_STARTING_CASH
+                // Difficulty residual health bonus anchors.
+                && (human_solo_health_bonus_for_difficulty(AIDifficulty::Easy) - 1.50).abs() < 0.001
+                && (human_solo_health_bonus_for_difficulty(AIDifficulty::Medium) - 1.00).abs() < 0.001
+                && (human_solo_health_bonus_for_difficulty(AIDifficulty::Hard) - 0.80).abs() < 0.001
+                && (human_solo_health_bonus_for_difficulty(AIDifficulty::Brutal) - 0.80).abs() < 0.001
+                && HUMAN_SOLO_HEALTH_BONUS_EASY > HUMAN_SOLO_HEALTH_BONUS_NORMAL
+                && HUMAN_SOLO_HEALTH_BONUS_NORMAL > HUMAN_SOLO_HEALTH_BONUS_HARD
+                && solo_weapon_bonus_condition(true, AIDifficulty::Easy) == 16
+                && solo_weapon_bonus_condition(true, AIDifficulty::Medium) == 17
+                && solo_weapon_bonus_condition(true, AIDifficulty::Hard) == 18
+                && solo_weapon_bonus_condition(true, AIDifficulty::Brutal) == 18
+                && solo_weapon_bonus_condition(false, AIDifficulty::Easy) == 19
+                && solo_weapon_bonus_condition(false, AIDifficulty::Medium) == 20
+                && solo_weapon_bonus_condition(false, AIDifficulty::Hard) == 21
+                && solo_weapon_bonus_condition(false, AIDifficulty::Brutal) == 21
+        });
     }
 
     #[test]
-    fn skirmish_ai_personality_residual_pack_wave85_honesty() {
-        assert!(honesty_skirmish_ai_personality_residual_pack_wave85());
+    fn skirmish_ai_personality_and_gatherers_follow_side_and_difficulty() {
+        assert!({
+            SKIRMISH_AI_SIDE_INFO_RESIDUAL.len() == 12
+                // Base side gatherer residual: USA/China **2**, GLA **5**.
+                && resource_gatherers_for_side_difficulty(SIDE_AMERICA, AIDifficulty::Medium) == Some(2)
+                && resource_gatherers_for_side_difficulty(SIDE_CHINA, AIDifficulty::Hard) == Some(2)
+                && resource_gatherers_for_side_difficulty(SIDE_GLA, AIDifficulty::Easy) == Some(5)
+                && resource_gatherers_for_side_difficulty(SIDE_GLA_TOXIN, AIDifficulty::Brutal) == Some(5)
+                && resource_gatherers_for_side_difficulty(SIDE_AMERICA_AIRFORCE, AIDifficulty::Easy)
+                    == Some(2)
+                // Base defense residual anchors.
+                && SKIRMISH_AI_SIDE_INFO_RESIDUAL
+                    .iter()
+                    .find(|s| s.side == SIDE_AMERICA)
+                    .map(|s| s.base_defense_structure1 == "AmericaPatriotBattery")
+                    .unwrap_or(false)
+                && SKIRMISH_AI_SIDE_INFO_RESIDUAL
+                    .iter()
+                    .find(|s| s.side == SIDE_CHINA)
+                    .map(|s| s.base_defense_structure1 == "ChinaGattlingCannon")
+                    .unwrap_or(false)
+                && SKIRMISH_AI_SIDE_INFO_RESIDUAL
+                    .iter()
+                    .find(|s| s.side == SIDE_GLA)
+                    .map(|s| s.base_defense_structure1 == "GLAStingerSite")
+                    .unwrap_or(false)
+                && SKIRMISH_AI_SIDE_INFO_RESIDUAL
+                    .iter()
+                    .find(|s| s.side == SIDE_CHINA_TANK)
+                    .map(|s| s.base_defense_structure1.starts_with("Tank_"))
+                    .unwrap_or(false)
+                && SKIRMISH_AI_SIDE_INFO_RESIDUAL
+                    .iter()
+                    .find(|s| s.side == SIDE_GLA_STEALTH)
+                    .map(|s| s.base_defense_structure1.starts_with("Slth_"))
+                    .unwrap_or(false)
+                // SkillSet residual first science anchors.
+                && SKIRMISH_AI_SIDE_INFO_RESIDUAL
+                    .iter()
+                    .find(|s| s.side == SIDE_AMERICA)
+                    .map(|s| s.skill_set1_first == "SCIENCE_PaladinTank")
+                    .unwrap_or(false)
+                && SKIRMISH_AI_SIDE_INFO_RESIDUAL
+                    .iter()
+                    .find(|s| s.side == SIDE_CHINA)
+                    .map(|s| s.skill_set1_first == "SCIENCE_NukeLauncher")
+                    .unwrap_or(false)
+                && SKIRMISH_AI_SIDE_INFO_RESIDUAL
+                    .iter()
+                    .find(|s| s.side == SIDE_GLA)
+                    .map(|s| s.skill_set1_first == "SCIENCE_ScudLauncher")
+                    .unwrap_or(false)
+                // Host personality residual for base teams.
+                && host_personality_for_team(Team::USA) == AIPersonality::Aggressive
+                && host_personality_for_team(Team::China) == AIPersonality::Defensive
+                && host_personality_for_team(Team::GLA) == AIPersonality::Rush
+                && host_personality_for_team(Team::Neutral) == AIPersonality::Balanced
+                // Unknown side residual fails closed.
+                && resource_gatherers_for_side_difficulty("NotASide", AIDifficulty::Medium).is_none()
+        });
     }
 
     #[test]
-    fn victory_condition_residual_pack_wave85_honesty() {
-        assert!(honesty_victory_condition_residual_pack_wave85());
+    fn defeat_checks_respect_surviving_units_and_buildings() {
+        assert!({
+            // Bit residual matches C++ VictoryType enum values.
+            VictoryType::NO_BUILDINGS.bits() == VICTORY_NO_BUILDINGS_BIT
+                && VictoryType::NO_UNITS.bits() == VICTORY_NO_UNITS_BIT
+                && VictoryType::default().bits() == VICTORY_DEFAULT_MASK
+                && VictoryType::default().requires_units()
+                && VictoryType::default().requires_buildings()
+                && VictoryType::from_requirements(true, true) == VictoryType::default()
+                && VictoryType::from_requirements(true, false) == VictoryType::NO_UNITS
+                && VictoryType::from_requirements(false, true) == VictoryType::NO_BUILDINGS
+                && VictoryType::from_requirements(false, false).is_empty()
+                // Defeat residual matrix (both flags — hasAnyObjects).
+                && is_defeated_residual(true, true, false, false, false)
+                && !is_defeated_residual(true, true, true, false, false)
+                && !is_defeated_residual(true, true, true, true, true)
+                // NOUNITS only — hasAnyUnits residual.
+                && is_defeated_residual(true, false, true, false, true)
+                && !is_defeated_residual(true, false, true, true, false)
+                // NOBUILDINGS only — hasAnyBuildings residual.
+                && is_defeated_residual(false, true, true, true, false)
+                && !is_defeated_residual(false, true, true, false, true)
+                // Neither flag: C++ falls through to return false (never auto-eliminated).
+                && !is_defeated_residual(false, false, false, false, false)
+                && !is_defeated_residual(false, false, true, false, false)
+                && MAX_PLAYER_COUNT_RESIDUAL == 16
+        });
     }
 
-    #[test]
-    fn faction_skirmish_residual_pack_wave85_honesty() {
-        assert!(honesty_faction_skirmish_residual_pack_wave85());
-    }
 }

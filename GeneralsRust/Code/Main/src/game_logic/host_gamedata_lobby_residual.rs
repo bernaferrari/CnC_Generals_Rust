@@ -47,26 +47,6 @@ pub const KEYBOARD_CAMERA_ROTATE_SPEED_RESIDUAL: f32 = 0.1;
 /// Retail GameData.ini CameraAudibleRadius residual.
 pub const CAMERA_AUDIBLE_RADIUS_RESIDUAL: f32 = 250.0;
 
-/// Wave 86 honesty: FPS + camera residual pack.
-pub fn honesty_gamedata_camera_fps_residual_pack_wave86() -> bool {
-    USE_FPS_LIMIT_RESIDUAL
-        && FRAMES_PER_SECOND_LIMIT_RESIDUAL == 30
-        && (CAMERA_PITCH_RESIDUAL - 37.5).abs() < 1e-5
-        && CAMERA_YAW_RESIDUAL == 0.0
-        && (CAMERA_HEIGHT_RESIDUAL - 232.0).abs() < 1e-5
-        && (MAX_CAMERA_HEIGHT_RESIDUAL - 310.0).abs() < 1e-5
-        && (MIN_CAMERA_HEIGHT_RESIDUAL - 120.0).abs() < 1e-5
-        && MAX_CAMERA_HEIGHT_RESIDUAL > CAMERA_HEIGHT_RESIDUAL
-        && CAMERA_HEIGHT_RESIDUAL > MIN_CAMERA_HEIGHT_RESIDUAL
-        && (CAMERA_ADJUST_SPEED_RESIDUAL - 0.3).abs() < 1e-5
-        && CAMERA_ADJUST_SPEED_RESIDUAL > 0.0
-        && CAMERA_ADJUST_SPEED_RESIDUAL < 1.0
-        && (SCROLL_AMOUNT_CUTOFF_RESIDUAL - 50.0).abs() < 1e-5
-        && !ENFORCE_MAX_CAMERA_HEIGHT_RESIDUAL
-        && (KEYBOARD_CAMERA_ROTATE_SPEED_RESIDUAL - 0.1).abs() < 1e-5
-        && (CAMERA_AUDIBLE_RADIUS_RESIDUAL - 250.0).abs() < 1e-5
-}
-
 // ---------------------------------------------------------------------------
 // 2. GameData.ini scroll / gravity / physics / economy / shroud residual
 // ---------------------------------------------------------------------------
@@ -166,53 +146,6 @@ pub fn sell_refund_residual(build_cost: u32) -> u32 {
     ((build_cost as f32) * SELL_PERCENTAGE_RESIDUAL).round() as u32
 }
 
-/// Wave 86 honesty: GameData scroll/physics/economy/shroud residual pack.
-pub fn honesty_gamedata_world_constants_residual_pack_wave86() -> bool {
-    (HORIZONTAL_SCROLL_SPEED_FACTOR_RESIDUAL - 1.6).abs() < 1e-5
-        && (VERTICAL_SCROLL_SPEED_FACTOR_RESIDUAL - 2.0).abs() < 1e-5
-        && (KEYBOARD_SCROLL_SPEED_FACTOR_RESIDUAL - 2.0).abs() < 1e-5
-        && (GRAVITY_RESIDUAL - (-64.0)).abs() < 1e-5
-        && GRAVITY_RESIDUAL < 0.0
-        && (PARTITION_CELL_SIZE_RESIDUAL - 40.0).abs() < 1e-5
-        && (TERRAIN_HEIGHT_AT_EDGE_OF_MAP_RESIDUAL - 100.0).abs() < 1e-5
-        && (DEFAULT_STRUCTURE_RUBBLE_HEIGHT_RESIDUAL - 10.0).abs() < 1e-5
-        && DEFAULT_OCCLUSION_DELAY_MS_RESIDUAL == 3000
-        && DEFAULT_OCCLUSION_DELAY_FRAMES_RESIDUAL == 90
-        && (UNIT_DAMAGED_THRESHOLD_RESIDUAL - 0.7).abs() < 1e-5
-        && (UNIT_REALLY_DAMAGED_THRESHOLD_RESIDUAL - 0.35).abs() < 1e-5
-        && UNIT_REALLY_DAMAGED_THRESHOLD_RESIDUAL < UNIT_DAMAGED_THRESHOLD_RESIDUAL
-        && MOVEMENT_PENALTY_DAMAGE_STATE_RESIDUAL == "REALLYDAMAGED"
-        && unit_damage_state_from_health_fraction(1.0) == UnitDamageStateResidual::Pristine
-        && unit_damage_state_from_health_fraction(0.71) == UnitDamageStateResidual::Pristine
-        && unit_damage_state_from_health_fraction(0.70) == UnitDamageStateResidual::Damaged
-        && unit_damage_state_from_health_fraction(0.50) == UnitDamageStateResidual::Damaged
-        && unit_damage_state_from_health_fraction(0.35) == UnitDamageStateResidual::ReallyDamaged
-        && unit_damage_state_from_health_fraction(0.10) == UnitDamageStateResidual::ReallyDamaged
-        && (MIN_DIST_FROM_EDGE_OF_MAP_FOR_BUILD_RESIDUAL - 30.0).abs() < 1e-5
-        && (SUPPLY_BUILD_BORDER_RESIDUAL - 20.0).abs() < 1e-5
-        && (ALLOWED_HEIGHT_VARIATION_FOR_BUILDING_RESIDUAL - 10.0).abs() < 1e-5
-        && (SELL_PERCENTAGE_RESIDUAL - 0.50).abs() < 1e-5
-        && sell_refund_residual(1000) == 500
-        && sell_refund_residual(2000) == 1000
-        && (STEALTH_FRIENDLY_OPACITY_RESIDUAL - 0.50).abs() < 1e-5
-        && (BASE_REGEN_HEALTH_PERCENT_PER_SECOND_RESIDUAL - 0.003).abs() < 1e-6
-        && BASE_REGEN_DELAY_MS_RESIDUAL == 3000
-        && BASE_REGEN_DELAY_FRAMES_RESIDUAL == 90
-        && UNLOOK_PERSIST_DURATION_MS_RESIDUAL == 5000
-        && UNLOOK_PERSIST_DURATION_FRAMES_RESIDUAL == 150
-        && SHROUD_COLOR_RGB_RESIDUAL == (255, 255, 255)
-        && CLEAR_ALPHA_RESIDUAL == 255
-        && FOG_ALPHA_RESIDUAL == 127
-        && SHROUD_ALPHA_RESIDUAL == 0
-        && SHROUD_ALPHA_RESIDUAL < FOG_ALPHA_RESIDUAL
-        && FOG_ALPHA_RESIDUAL < CLEAR_ALPHA_RESIDUAL
-        && MAX_PARTICLE_COUNT_RESIDUAL == 2500
-        && MAX_FIELD_PARTICLE_COUNT_RESIDUAL == 30
-        && MAX_LINE_BUILD_OBJECTS_RESIDUAL == 50
-        && (COMMAND_CENTER_HEAL_RANGE_RESIDUAL - 500.0).abs() < 1e-5
-        && (COMMAND_CENTER_HEAL_AMOUNT_RESIDUAL - 0.01).abs() < 1e-5
-}
-
 // ---------------------------------------------------------------------------
 // 3. Multiplayer options residual (host-only; not network play)
 // ---------------------------------------------------------------------------
@@ -285,37 +218,6 @@ pub fn can_place_beacon_residual(current_beacons: i32) -> bool {
     current_beacons < MP_MAX_BEACONS_PER_PLAYER_RESIDUAL
 }
 
-/// Wave 86 honesty: multiplayer options residual pack (host-only).
-pub fn honesty_multiplayer_options_residual_pack_wave86() -> bool {
-    MP_START_COUNTDOWN_TIMER_SECONDS_RESIDUAL == 5
-        && MP_MAX_BEACONS_PER_PLAYER_RESIDUAL == 3
-        && !MP_USE_SHROUD_RESIDUAL
-        && MP_SHOW_RANDOM_PLAYER_TEMPLATE_RESIDUAL
-        && MP_SHOW_RANDOM_START_POS_RESIDUAL
-        && MP_SHOW_RANDOM_COLOR_RESIDUAL
-        && MULTIPLAYER_COLOR_RESIDUAL_TABLE.len() == MULTIPLAYER_COLOR_COUNT_RESIDUAL
-        && multiplayer_color_by_name("ColorGold")
-            == Some(("ColorGold", (221, 226, 13), (221, 226, 13), "Color:Gold"))
-        && multiplayer_color_by_name("ColorRed")
-            == Some(("ColorRed", (255, 0, 0), (255, 0, 0), "Color:Red"))
-        && multiplayer_color_by_name("ColorBlue")
-            == Some(("ColorBlue", (67, 104, 254), (67, 104, 254), "Color:Blue"))
-        && multiplayer_color_by_name("ColorPurple")
-            == Some(("ColorPurple", (150, 0, 200), (223, 0, 156), "Color:Purple"))
-        // Purple is the residual entry with distinct night color.
-        && MULTIPLAYER_COLOR_RESIDUAL_TABLE
-            .iter()
-            .filter(|&&(_, day, night, _)| day != night)
-            .count()
-            == 2 // Purple + Pink have distinct night colors
-        && pack_mp_color_rgb(255, 0, 0) == 0x00FF_0000
-        && pack_mp_color_rgb(0, 255, 0) == 0x0000_FF00
-        && can_place_beacon_residual(0)
-        && can_place_beacon_residual(2)
-        && !can_place_beacon_residual(3)
-        && !can_place_beacon_residual(4)
-}
-
 // ---------------------------------------------------------------------------
 // 4. Map selection residual
 // ---------------------------------------------------------------------------
@@ -360,37 +262,6 @@ pub fn map_supports_player_count(key: &str, players: u8) -> bool {
     map_select_by_key(key)
         .map(|(_, _, n, mp)| mp && players >= 2 && players <= n)
         .unwrap_or(false)
-}
-
-/// Wave 86 honesty: map selection residual pack.
-pub fn honesty_map_selection_residual_pack_wave86() -> bool {
-    SHELL_MAP_NAME_RESIDUAL == r"Maps\ShellMapMD\ShellMapMD.map"
-        && SHELL_MAP_NAME_RESIDUAL.contains("ShellMapMD")
-        && DEFAULT_MAP_NAME_RESIDUAL == "Assault.map"
-        && DEFAULT_SKIRMISH_MAP_RESIDUAL == "Defcon6"
-        && DEFAULT_SKIRMISH_MAP_LOOKUP_TAG_RESIDUAL == "MAP:Defcon6"
-        && MAP_SELECT_RESIDUAL_TABLE.len() == MAP_SELECT_RESIDUAL_COUNT
-        && map_select_by_key("Defcon6") == Some(("Defcon6", "MAP:Defcon6", 6, true))
-        && map_select_by_key("AlpineAssault")
-            == Some(("AlpineAssault", "MAP:AlpineAssault", 2, true))
-        && map_select_by_key("ArmoredFury") == Some(("ArmoredFury", "MAP:ArmoredFury", 6, true))
-        && map_select_by_key("TournamentPlains")
-            == Some(("TournamentPlains", "MAP:TournamentPlains", 2, true))
-        && map_supports_player_count("Defcon6", 2)
-        && map_supports_player_count("Defcon6", 6)
-        && !map_supports_player_count("Defcon6", 8)
-        && map_supports_player_count("AlpineAssault", 2)
-        && !map_supports_player_count("AlpineAssault", 4)
-        && MAP_SELECT_RESIDUAL_TABLE.iter().all(|&(_, tag, n, mp)| {
-            tag.starts_with("MAP:") && mp && (2..=8).contains(&n)
-        })
-        // Default skirmish residual is present in the sample table.
-        && MAP_SELECT_RESIDUAL_TABLE
-            .iter()
-            .any(|&(k, tag, _, _)| {
-                k == DEFAULT_SKIRMISH_MAP_RESIDUAL
-                    && tag == DEFAULT_SKIRMISH_MAP_LOOKUP_TAG_RESIDUAL
-            })
 }
 
 // ---------------------------------------------------------------------------
@@ -459,87 +330,184 @@ pub fn dollar_crate_money_residual(name: &str) -> Option<u32> {
         .map(|(_, m)| *m)
 }
 
-/// Wave 86 honesty: crate residual deepen pack.
-pub fn honesty_crate_residual_deepen_pack_wave86() -> bool {
-    (SALVAGE_WEAPON_CHANCE_RESIDUAL - 1.00).abs() < 1e-5
-        && (SALVAGE_LEVEL_CHANCE_RESIDUAL - 0.25).abs() < 1e-5
-        && (SALVAGE_MONEY_CHANCE_RESIDUAL - 0.75).abs() < 1e-5
-        && (salvage_level_money_chances_sum_residual() - 1.0).abs() < 1e-5
-        && SALVAGE_MIN_MONEY_RESIDUAL == 25
-        && SALVAGE_MAX_MONEY_RESIDUAL == 75
-        && SALVAGE_MIN_MONEY_RESIDUAL < SALVAGE_MAX_MONEY_RESIDUAL
-        && salvage_money_in_range_residual(25)
-        && salvage_money_in_range_residual(50)
-        && salvage_money_in_range_residual(75)
-        && !salvage_money_in_range_residual(24)
-        && !salvage_money_in_range_residual(76)
-        && (SALVAGE_CREATION_CHANCE_RESIDUAL - 1.0).abs() < 1e-5
-        && SALVAGE_PICKUP_SCIENCE_RESIDUAL == "SCIENCE_GLA"
-        && SALVAGE_KILLED_BY_TYPE_RESIDUAL == "SALVAGER"
-        && SALVAGE_MIN_LIFETIME_MS_RESIDUAL == 30000
-        && SALVAGE_MAX_LIFETIME_MS_RESIDUAL == 35000
-        && SALVAGE_MIN_LIFETIME_MS_RESIDUAL < SALVAGE_MAX_LIFETIME_MS_RESIDUAL
-        && dollar_crate_money_residual("100DollarCrate") == Some(100)
-        && dollar_crate_money_residual("200DollarCrate") == Some(200)
-        && dollar_crate_money_residual("1000DollarCrate") == Some(1000)
-        && dollar_crate_money_residual("1500DollarCrate") == Some(1500)
-        && dollar_crate_money_residual("2500DollarCrate") == Some(2500)
-        && dollar_crate_money_residual("SupplyDropZoneCrate") == Some(250)
-        && dollar_crate_money_residual("MissingCrate").is_none()
-        && DOLLAR_CRATE_MONEY_MATRIX_RESIDUAL.len() == 6
-        && (ELITE_TANK_CRATE_CREATION_CHANCE_RESIDUAL - 0.75).abs() < 1e-5
-        && (HEROIC_TANK_CRATE_CREATION_CHANCE_RESIDUAL - 1.0).abs() < 1e-5
-        && (SMALL_LEVEL_UP_EFFECT_RANGE_RESIDUAL - 100.0).abs() < 1e-5
-        && (MEDIUM_LEVEL_UP_EFFECT_RANGE_RESIDUAL - 250.0).abs() < 1e-5
-        && MEDIUM_LEVEL_UP_EFFECT_RANGE_RESIDUAL > SMALL_LEVEL_UP_EFFECT_RANGE_RESIDUAL
-        && FREE_CRUSADERS_UNIT_COUNT_RESIDUAL == 2
-        && FREE_CRUSADERS_UNIT_NAME_RESIDUAL == "AmericaTankCrusader"
-}
-
-// ---------------------------------------------------------------------------
-// Combined Wave 86 pack
-// ---------------------------------------------------------------------------
-
-/// Combined Wave 86 honesty pack (all residual peels).
-pub fn honesty_gamedata_lobby_residual_pack_wave86() -> bool {
-    honesty_gamedata_camera_fps_residual_pack_wave86()
-        && honesty_gamedata_world_constants_residual_pack_wave86()
-        && honesty_multiplayer_options_residual_pack_wave86()
-        && honesty_map_selection_residual_pack_wave86()
-        && honesty_crate_residual_deepen_pack_wave86()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn gamedata_camera_fps_residual_pack_wave86_honesty() {
-        assert!(honesty_gamedata_camera_fps_residual_pack_wave86());
+    fn camera_and_frame_rate_defaults_match_original() {
+        assert!({
+            USE_FPS_LIMIT_RESIDUAL
+                && FRAMES_PER_SECOND_LIMIT_RESIDUAL == 30
+                && (CAMERA_PITCH_RESIDUAL - 37.5).abs() < 1e-5
+                && CAMERA_YAW_RESIDUAL == 0.0
+                && (CAMERA_HEIGHT_RESIDUAL - 232.0).abs() < 1e-5
+                && (MAX_CAMERA_HEIGHT_RESIDUAL - 310.0).abs() < 1e-5
+                && (MIN_CAMERA_HEIGHT_RESIDUAL - 120.0).abs() < 1e-5
+                && MAX_CAMERA_HEIGHT_RESIDUAL > CAMERA_HEIGHT_RESIDUAL
+                && CAMERA_HEIGHT_RESIDUAL > MIN_CAMERA_HEIGHT_RESIDUAL
+                && (CAMERA_ADJUST_SPEED_RESIDUAL - 0.3).abs() < 1e-5
+                && CAMERA_ADJUST_SPEED_RESIDUAL > 0.0
+                && CAMERA_ADJUST_SPEED_RESIDUAL < 1.0
+                && (SCROLL_AMOUNT_CUTOFF_RESIDUAL - 50.0).abs() < 1e-5
+                && !ENFORCE_MAX_CAMERA_HEIGHT_RESIDUAL
+                && (KEYBOARD_CAMERA_ROTATE_SPEED_RESIDUAL - 0.1).abs() < 1e-5
+                && (CAMERA_AUDIBLE_RADIUS_RESIDUAL - 250.0).abs() < 1e-5
+        });
     }
 
     #[test]
-    fn gamedata_world_constants_residual_pack_wave86_honesty() {
-        assert!(honesty_gamedata_world_constants_residual_pack_wave86());
+    fn world_defaults_drive_damage_states_and_sell_refunds() {
+        assert!({
+            (HORIZONTAL_SCROLL_SPEED_FACTOR_RESIDUAL - 1.6).abs() < 1e-5
+                && (VERTICAL_SCROLL_SPEED_FACTOR_RESIDUAL - 2.0).abs() < 1e-5
+                && (KEYBOARD_SCROLL_SPEED_FACTOR_RESIDUAL - 2.0).abs() < 1e-5
+                && (GRAVITY_RESIDUAL - (-64.0)).abs() < 1e-5
+                && GRAVITY_RESIDUAL < 0.0
+                && (PARTITION_CELL_SIZE_RESIDUAL - 40.0).abs() < 1e-5
+                && (TERRAIN_HEIGHT_AT_EDGE_OF_MAP_RESIDUAL - 100.0).abs() < 1e-5
+                && (DEFAULT_STRUCTURE_RUBBLE_HEIGHT_RESIDUAL - 10.0).abs() < 1e-5
+                && DEFAULT_OCCLUSION_DELAY_MS_RESIDUAL == 3000
+                && DEFAULT_OCCLUSION_DELAY_FRAMES_RESIDUAL == 90
+                && (UNIT_DAMAGED_THRESHOLD_RESIDUAL - 0.7).abs() < 1e-5
+                && (UNIT_REALLY_DAMAGED_THRESHOLD_RESIDUAL - 0.35).abs() < 1e-5
+                && UNIT_REALLY_DAMAGED_THRESHOLD_RESIDUAL < UNIT_DAMAGED_THRESHOLD_RESIDUAL
+                && MOVEMENT_PENALTY_DAMAGE_STATE_RESIDUAL == "REALLYDAMAGED"
+                && unit_damage_state_from_health_fraction(1.0) == UnitDamageStateResidual::Pristine
+                && unit_damage_state_from_health_fraction(0.71) == UnitDamageStateResidual::Pristine
+                && unit_damage_state_from_health_fraction(0.70) == UnitDamageStateResidual::Damaged
+                && unit_damage_state_from_health_fraction(0.50) == UnitDamageStateResidual::Damaged
+                && unit_damage_state_from_health_fraction(0.35) == UnitDamageStateResidual::ReallyDamaged
+                && unit_damage_state_from_health_fraction(0.10) == UnitDamageStateResidual::ReallyDamaged
+                && (MIN_DIST_FROM_EDGE_OF_MAP_FOR_BUILD_RESIDUAL - 30.0).abs() < 1e-5
+                && (SUPPLY_BUILD_BORDER_RESIDUAL - 20.0).abs() < 1e-5
+                && (ALLOWED_HEIGHT_VARIATION_FOR_BUILDING_RESIDUAL - 10.0).abs() < 1e-5
+                && (SELL_PERCENTAGE_RESIDUAL - 0.50).abs() < 1e-5
+                && sell_refund_residual(1000) == 500
+                && sell_refund_residual(2000) == 1000
+                && (STEALTH_FRIENDLY_OPACITY_RESIDUAL - 0.50).abs() < 1e-5
+                && (BASE_REGEN_HEALTH_PERCENT_PER_SECOND_RESIDUAL - 0.003).abs() < 1e-6
+                && BASE_REGEN_DELAY_MS_RESIDUAL == 3000
+                && BASE_REGEN_DELAY_FRAMES_RESIDUAL == 90
+                && UNLOOK_PERSIST_DURATION_MS_RESIDUAL == 5000
+                && UNLOOK_PERSIST_DURATION_FRAMES_RESIDUAL == 150
+                && SHROUD_COLOR_RGB_RESIDUAL == (255, 255, 255)
+                && CLEAR_ALPHA_RESIDUAL == 255
+                && FOG_ALPHA_RESIDUAL == 127
+                && SHROUD_ALPHA_RESIDUAL == 0
+                && SHROUD_ALPHA_RESIDUAL < FOG_ALPHA_RESIDUAL
+                && FOG_ALPHA_RESIDUAL < CLEAR_ALPHA_RESIDUAL
+                && MAX_PARTICLE_COUNT_RESIDUAL == 2500
+                && MAX_FIELD_PARTICLE_COUNT_RESIDUAL == 30
+                && MAX_LINE_BUILD_OBJECTS_RESIDUAL == 50
+                && (COMMAND_CENTER_HEAL_RANGE_RESIDUAL - 500.0).abs() < 1e-5
+                && (COMMAND_CENTER_HEAL_AMOUNT_RESIDUAL - 0.01).abs() < 1e-5
+        });
     }
 
     #[test]
-    fn multiplayer_options_residual_pack_wave86_honesty() {
-        assert!(honesty_multiplayer_options_residual_pack_wave86());
+    fn lobby_colors_and_beacon_permissions() {
+        assert!({
+            MP_START_COUNTDOWN_TIMER_SECONDS_RESIDUAL == 5
+                && MP_MAX_BEACONS_PER_PLAYER_RESIDUAL == 3
+                && !MP_USE_SHROUD_RESIDUAL
+                && MP_SHOW_RANDOM_PLAYER_TEMPLATE_RESIDUAL
+                && MP_SHOW_RANDOM_START_POS_RESIDUAL
+                && MP_SHOW_RANDOM_COLOR_RESIDUAL
+                && MULTIPLAYER_COLOR_RESIDUAL_TABLE.len() == MULTIPLAYER_COLOR_COUNT_RESIDUAL
+                && multiplayer_color_by_name("ColorGold")
+                    == Some(("ColorGold", (221, 226, 13), (221, 226, 13), "Color:Gold"))
+                && multiplayer_color_by_name("ColorRed")
+                    == Some(("ColorRed", (255, 0, 0), (255, 0, 0), "Color:Red"))
+                && multiplayer_color_by_name("ColorBlue")
+                    == Some(("ColorBlue", (67, 104, 254), (67, 104, 254), "Color:Blue"))
+                && multiplayer_color_by_name("ColorPurple")
+                    == Some(("ColorPurple", (150, 0, 200), (223, 0, 156), "Color:Purple"))
+                // Purple is the residual entry with distinct night color.
+                && MULTIPLAYER_COLOR_RESIDUAL_TABLE
+                    .iter()
+                    .filter(|&&(_, day, night, _)| day != night)
+                    .count()
+                    == 2 // Purple + Pink have distinct night colors
+                && pack_mp_color_rgb(255, 0, 0) == 0x00FF_0000
+                && pack_mp_color_rgb(0, 255, 0) == 0x0000_FF00
+                && can_place_beacon_residual(0)
+                && can_place_beacon_residual(2)
+                && !can_place_beacon_residual(3)
+                && !can_place_beacon_residual(4)
+        });
     }
 
     #[test]
-    fn map_selection_residual_pack_wave86_honesty() {
-        assert!(honesty_map_selection_residual_pack_wave86());
+    fn map_selection_keys_and_supported_player_counts() {
+        assert!({
+            SHELL_MAP_NAME_RESIDUAL == r"Maps\ShellMapMD\ShellMapMD.map"
+                && SHELL_MAP_NAME_RESIDUAL.contains("ShellMapMD")
+                && DEFAULT_MAP_NAME_RESIDUAL == "Assault.map"
+                && DEFAULT_SKIRMISH_MAP_RESIDUAL == "Defcon6"
+                && DEFAULT_SKIRMISH_MAP_LOOKUP_TAG_RESIDUAL == "MAP:Defcon6"
+                && MAP_SELECT_RESIDUAL_TABLE.len() == MAP_SELECT_RESIDUAL_COUNT
+                && map_select_by_key("Defcon6") == Some(("Defcon6", "MAP:Defcon6", 6, true))
+                && map_select_by_key("AlpineAssault")
+                    == Some(("AlpineAssault", "MAP:AlpineAssault", 2, true))
+                && map_select_by_key("ArmoredFury") == Some(("ArmoredFury", "MAP:ArmoredFury", 6, true))
+                && map_select_by_key("TournamentPlains")
+                    == Some(("TournamentPlains", "MAP:TournamentPlains", 2, true))
+                && map_supports_player_count("Defcon6", 2)
+                && map_supports_player_count("Defcon6", 6)
+                && !map_supports_player_count("Defcon6", 8)
+                && map_supports_player_count("AlpineAssault", 2)
+                && !map_supports_player_count("AlpineAssault", 4)
+                && MAP_SELECT_RESIDUAL_TABLE.iter().all(|&(_, tag, n, mp)| {
+                    tag.starts_with("MAP:") && mp && (2..=8).contains(&n)
+                })
+                // Default skirmish residual is present in the sample table.
+                && MAP_SELECT_RESIDUAL_TABLE
+                    .iter()
+                    .any(|&(k, tag, _, _)| {
+                        k == DEFAULT_SKIRMISH_MAP_RESIDUAL
+                            && tag == DEFAULT_SKIRMISH_MAP_LOOKUP_TAG_RESIDUAL
+                    })
+        });
     }
 
     #[test]
-    fn crate_residual_deepen_pack_wave86_honesty() {
-        assert!(honesty_crate_residual_deepen_pack_wave86());
+    fn crate_rewards_follow_money_and_salvage_rules() {
+        assert!({
+            (SALVAGE_WEAPON_CHANCE_RESIDUAL - 1.00).abs() < 1e-5
+                && (SALVAGE_LEVEL_CHANCE_RESIDUAL - 0.25).abs() < 1e-5
+                && (SALVAGE_MONEY_CHANCE_RESIDUAL - 0.75).abs() < 1e-5
+                && (salvage_level_money_chances_sum_residual() - 1.0).abs() < 1e-5
+                && SALVAGE_MIN_MONEY_RESIDUAL == 25
+                && SALVAGE_MAX_MONEY_RESIDUAL == 75
+                && SALVAGE_MIN_MONEY_RESIDUAL < SALVAGE_MAX_MONEY_RESIDUAL
+                && salvage_money_in_range_residual(25)
+                && salvage_money_in_range_residual(50)
+                && salvage_money_in_range_residual(75)
+                && !salvage_money_in_range_residual(24)
+                && !salvage_money_in_range_residual(76)
+                && (SALVAGE_CREATION_CHANCE_RESIDUAL - 1.0).abs() < 1e-5
+                && SALVAGE_PICKUP_SCIENCE_RESIDUAL == "SCIENCE_GLA"
+                && SALVAGE_KILLED_BY_TYPE_RESIDUAL == "SALVAGER"
+                && SALVAGE_MIN_LIFETIME_MS_RESIDUAL == 30000
+                && SALVAGE_MAX_LIFETIME_MS_RESIDUAL == 35000
+                && SALVAGE_MIN_LIFETIME_MS_RESIDUAL < SALVAGE_MAX_LIFETIME_MS_RESIDUAL
+                && dollar_crate_money_residual("100DollarCrate") == Some(100)
+                && dollar_crate_money_residual("200DollarCrate") == Some(200)
+                && dollar_crate_money_residual("1000DollarCrate") == Some(1000)
+                && dollar_crate_money_residual("1500DollarCrate") == Some(1500)
+                && dollar_crate_money_residual("2500DollarCrate") == Some(2500)
+                && dollar_crate_money_residual("SupplyDropZoneCrate") == Some(250)
+                && dollar_crate_money_residual("MissingCrate").is_none()
+                && DOLLAR_CRATE_MONEY_MATRIX_RESIDUAL.len() == 6
+                && (ELITE_TANK_CRATE_CREATION_CHANCE_RESIDUAL - 0.75).abs() < 1e-5
+                && (HEROIC_TANK_CRATE_CREATION_CHANCE_RESIDUAL - 1.0).abs() < 1e-5
+                && (SMALL_LEVEL_UP_EFFECT_RANGE_RESIDUAL - 100.0).abs() < 1e-5
+                && (MEDIUM_LEVEL_UP_EFFECT_RANGE_RESIDUAL - 250.0).abs() < 1e-5
+                && MEDIUM_LEVEL_UP_EFFECT_RANGE_RESIDUAL > SMALL_LEVEL_UP_EFFECT_RANGE_RESIDUAL
+                && FREE_CRUSADERS_UNIT_COUNT_RESIDUAL == 2
+                && FREE_CRUSADERS_UNIT_NAME_RESIDUAL == "AmericaTankCrusader"
+        });
     }
 
-    #[test]
-    fn gamedata_lobby_residual_pack_wave86_honesty() {
-        assert!(honesty_gamedata_lobby_residual_pack_wave86());
-    }
 }

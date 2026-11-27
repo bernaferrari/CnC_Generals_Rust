@@ -784,19 +784,6 @@ impl CnCGameEngine {
         }
         Ok(())
     }
-
-    pub(super) fn runtime_host_cmd_click_start_game_loading(
-        &mut self,
-        args: &HashMap<String, String>,
-    ) {
-        let ok = crate::game_logic::honesty_default_skirmish_map_resolves()
-            && crate::game_logic::honesty_lone_eagle_map_resolves();
-        self.runtime_host_last_gameplay_cmd = if ok {
-            "click_start_game_loading_maps_ready".into()
-        } else {
-            "click_start_game_loading_maps_missing".into()
-        };
-    }
 }
 
 #[cfg(all(test, feature = "game_client"))]

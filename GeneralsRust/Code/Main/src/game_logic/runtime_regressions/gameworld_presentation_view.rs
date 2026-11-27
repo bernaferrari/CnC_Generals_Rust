@@ -1,7 +1,7 @@
 //! Direct frame coverage for admitted objects and retail startup.
 
 use crate::game_logic::{
-    DEFAULT_SKIRMISH_MAP_WAVE169, GameLogic, GameMode, KindOf, LONE_EAGLE_MAP_WAVE169, Team,
+    DEFAULT_SKIRMISH_MAP_NAME, GameLogic, GameMode, KindOf, LONE_EAGLE_MAP_NAME, Team,
     ThingTemplate, resolve_retail_map_path,
 };
 use crate::presentation_frame::PresentationFrame;
@@ -34,7 +34,7 @@ fn receiving_frame_reports_a_created_object_by_its_id() {
 
 #[test]
 fn retail_startup_publishes_the_receiving_world_after_its_first_step() {
-    let map = [LONE_EAGLE_MAP_WAVE169, DEFAULT_SKIRMISH_MAP_WAVE169]
+    let map = [LONE_EAGLE_MAP_NAME, DEFAULT_SKIRMISH_MAP_NAME]
         .into_iter()
         .find_map(|name| resolve_retail_map_path(name).map(|path| (name, path)));
     let Some((name, path)) = map else {

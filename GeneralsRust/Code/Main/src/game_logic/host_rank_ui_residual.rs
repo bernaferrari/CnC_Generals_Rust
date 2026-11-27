@@ -338,93 +338,6 @@ pub fn skill_points_for_kill_residual(
     )
 }
 
-/// Wave 89 honesty: experience residual tables pack.
-pub fn honesty_experience_residual_tables_pack_wave89() -> bool {
-    let ranger_level = experience_level_for_points(RANGER_EXPERIENCE_REQUIRED_RESIDUAL, 40)
-        == LEVEL_VETERAN_RESIDUAL
-        && experience_level_for_points(RANGER_EXPERIENCE_REQUIRED_RESIDUAL, 39)
-            == LEVEL_REGULAR_RESIDUAL
-        && experience_level_for_points(RANGER_EXPERIENCE_REQUIRED_RESIDUAL, 60)
-            == LEVEL_ELITE_RESIDUAL
-        && experience_level_for_points(RANGER_EXPERIENCE_REQUIRED_RESIDUAL, 120)
-            == LEVEL_HEROIC_RESIDUAL
-        && experience_level_for_points(RANGER_EXPERIENCE_REQUIRED_RESIDUAL, 999)
-            == LEVEL_HEROIC_RESIDUAL;
-    let skill_from_exp = skill_point_value_residual(
-        [
-            USE_EXP_VALUE_FOR_SKILL_VALUE_RESIDUAL,
-            USE_EXP_VALUE_FOR_SKILL_VALUE_RESIDUAL,
-            USE_EXP_VALUE_FOR_SKILL_VALUE_RESIDUAL,
-            USE_EXP_VALUE_FOR_SKILL_VALUE_RESIDUAL,
-        ],
-        RANGER_EXPERIENCE_VALUE_RESIDUAL,
-        LEVEL_ELITE_RESIDUAL,
-    ) == 40
-        && skill_point_value_residual([5, 5, 5, 5], RANGER_EXPERIENCE_VALUE_RESIDUAL, 0) == 5;
-    let add_xp = {
-        let (xp, lvl) = add_experience_points_residual(
-            0,
-            40,
-            EXPERIENCE_SCALAR_DEFAULT_RESIDUAL,
-            true,
-            RANGER_EXPERIENCE_REQUIRED_RESIDUAL,
-        );
-        xp == 40 && lvl == LEVEL_VETERAN_RESIDUAL
-    };
-    let scaled = {
-        // AdvancedTraining AddXPScalar 1.0 → total scalar 2.0 residual path example.
-        let (xp, lvl) =
-            add_experience_points_residual(0, 40, 2.0, true, RANGER_EXPERIENCE_REQUIRED_RESIDUAL);
-        xp == 80 && lvl == LEVEL_ELITE_RESIDUAL
-    };
-    let no_scale = {
-        let (xp, _) =
-            add_experience_points_residual(0, 40, 2.0, false, RANGER_EXPERIENCE_REQUIRED_RESIDUAL);
-        xp == 40
-    };
-    let ally_zero = experience_value_for_kill_residual(
-        RANGER_EXPERIENCE_VALUE_RESIDUAL,
-        LEVEL_HEROIC_RESIDUAL,
-        true,
-    ) == 0
-        && experience_value_for_kill_residual(
-            RANGER_EXPERIENCE_VALUE_RESIDUAL,
-            LEVEL_REGULAR_RESIDUAL,
-            false,
-        ) == 20;
-    let ladders_monotonic = EXP_REQUIRED_LIGHT_INFANTRY_RESIDUAL
-        .windows(2)
-        .all(|w| w[0] < w[1])
-        && EXP_REQUIRED_STANDARD_RESIDUAL
-            .windows(2)
-            .all(|w| w[0] < w[1])
-        && EXP_REQUIRED_HEAVY_RESIDUAL.windows(2).all(|w| w[0] < w[1])
-        && EXP_REQUIRED_VEHICLE_ALT_RESIDUAL
-            .windows(2)
-            .all(|w| w[0] < w[1]);
-    LEVEL_COUNT_RESIDUAL == 4
-        && LEVEL_LAST_RESIDUAL == 3
-        && USE_EXP_VALUE_FOR_SKILL_VALUE_RESIDUAL == -999
-        && (EXPERIENCE_SCALAR_DEFAULT_RESIDUAL - 1.0).abs() < 1e-5
-        && (HEALTH_BONUS_REGULAR_RESIDUAL - 1.0).abs() < 1e-5
-        && (HEALTH_BONUS_VETERAN_RESIDUAL - 1.20).abs() < 1e-5
-        && (HEALTH_BONUS_ELITE_RESIDUAL - 1.30).abs() < 1e-5
-        && (HEALTH_BONUS_HEROIC_RESIDUAL - 1.50).abs() < 1e-5
-        && health_bonus_for_level_residual(LEVEL_VETERAN_RESIDUAL) == HEALTH_BONUS_VETERAN_RESIDUAL
-        && health_bonus_for_level_residual(LEVEL_HEROIC_RESIDUAL) == HEALTH_BONUS_HEROIC_RESIDUAL
-        && RANGER_EXPERIENCE_REQUIRED_RESIDUAL == EXP_REQUIRED_LIGHT_INFANTRY_RESIDUAL
-        && RANGER_EXPERIENCE_VALUE_RESIDUAL == EXP_VALUE_RANGER_RESIDUAL
-        && EXP_VALUE_STANDARD_AIR_RESIDUAL == [50, 100, 150, 200]
-        && EXP_VALUE_STRUCTURE_FLAT_RESIDUAL == [200, 200, 200, 200]
-        && ranger_level
-        && skill_from_exp
-        && add_xp
-        && scaled
-        && no_scale
-        && ally_zero
-        && ladders_monotonic
-}
-
 // ---------------------------------------------------------------------------
 // 3. Hotkey residual table (CommandMap.ini)
 // ---------------------------------------------------------------------------
@@ -521,42 +434,6 @@ pub fn command_map_anchor_residual(name: &str) -> Option<&'static CommandMapAnch
     COMMAND_MAP_ANCHORS_RESIDUAL.iter().find(|a| a.name == name)
 }
 
-/// Wave 89 honesty: hotkey residual table pack.
-pub fn honesty_hotkey_residual_table_pack_wave89() -> bool {
-    COMMAND_MAP_ACTIVE_COUNT_RESIDUAL == 96
-        && CONTROL_GROUP_COUNT_RESIDUAL == 10
-        && SAVE_VIEW_COUNT_RESIDUAL == 8
-        && COMMAND_MAP_ANCHORS_RESIDUAL.len() == 12
-        && HOTKEY_STORE_LOWERCASE_RESIDUAL
-        && HOTKEY_RAW_KEY_REQUIRES_NO_MODIFIERS_RESIDUAL
-        && CHAT_PLAYERS_COMMANDMAP_COMMENTED_RESIDUAL
-        && command_map_anchor_residual("CHAT_ALLIES")
-            .map(|a| a.key == "KEY_BACKSPACE" && a.modifiers == "NONE")
-            == Some(true)
-        && command_map_anchor_residual("CHAT_EVERYONE")
-            .map(|a| a.key == "KEY_ENTER")
-            == Some(true)
-        && command_map_anchor_residual("SELECT_MATCHING_UNITS")
-            .map(|a| a.key == "KEY_E")
-            == Some(true)
-        && command_map_anchor_residual("CREATE_TEAM0")
-            .map(|a| a.modifiers == "CTRL")
-            == Some(true)
-        && command_map_anchor_residual("SELECT_TEAM0")
-            .map(|a| a.modifiers == "NONE")
-            == Some(true)
-        && command_map_anchor_residual("PLACE_BEACON")
-            .map(|a| a.key == "KEY_B" && a.modifiers == "CTRL")
-            == Some(true)
-        && command_map_anchor_residual("TOGGLE_FAST_FORWARD_REPLAY")
-            .map(|a| a.key == "KEY_F")
-            == Some(true)
-        && command_map_anchor_residual("CHAT_PLAYERS").is_none()
-        // SAVE_VIEW1 vs VIEW_VIEW1 share KEY_F1, distinguished by modifiers.
-        && command_map_anchor_residual("SAVE_VIEW1").map(|a| a.modifiers) == Some("CTRL")
-        && command_map_anchor_residual("VIEW_VIEW1").map(|a| a.modifiers) == Some("NONE")
-}
-
 // ---------------------------------------------------------------------------
 // 4. Chat residual host peels (local UI; not network)
 // ---------------------------------------------------------------------------
@@ -617,34 +494,6 @@ pub fn can_show_ingame_chat_residual(in_replay_game: bool) -> bool {
     !in_replay_game
 }
 
-/// Wave 89 honesty: chat residual host peels pack.
-pub fn honesty_chat_residual_host_pack_wave89() -> bool {
-    InGameChatTypeResidual::Allies as i32 == 0
-        && InGameChatTypeResidual::Everyone as i32 == 1
-        && InGameChatTypeResidual::Players as i32 == 2
-        && INGAME_CHAT_TYPE_COUNT_RESIDUAL == 3
-        && INGAME_CHAT_WND_RESIDUAL == "InGameChat.wnd"
-        && INGAME_CHAT_TEXT_ENTRY_ID_RESIDUAL.ends_with("TextEntryChat")
-        && INGAME_CHAT_TYPE_STATIC_ID_RESIDUAL.ends_with("StaticTextChatType")
-        && CHAT_DEFAULT_TYPE_ON_SHOW_RESIDUAL == InGameChatTypeResidual::Everyone
-        && CHAT_BLOCKED_IN_REPLAY_RESIDUAL
-        && MAX_SLOTS_RESIDUAL == 8
-        && chat_type_label_residual(InGameChatTypeResidual::Everyone, true)
-            == "Chat:Everyone"
-        && chat_type_label_residual(InGameChatTypeResidual::Everyone, false)
-            == "Chat:Observers"
-        && chat_type_label_residual(InGameChatTypeResidual::Allies, true) == "Chat:Allies"
-        && chat_type_label_residual(InGameChatTypeResidual::Players, true) == "Chat:Players"
-        && can_show_ingame_chat_residual(false)
-        && !can_show_ingame_chat_residual(true)
-        && META_CHAT_ALLIES_RESIDUAL == "CHAT_ALLIES"
-        && META_CHAT_EVERYONE_RESIDUAL == "CHAT_EVERYONE"
-        && META_CHAT_PLAYERS_RESIDUAL == "CHAT_PLAYERS"
-        // Chat meta keys exist in CommandMap residual anchors.
-        && command_map_anchor_residual("CHAT_ALLIES").is_some()
-        && command_map_anchor_residual("CHAT_EVERYONE").is_some()
-}
-
 // ---------------------------------------------------------------------------
 // 5. Replay residual host peels (local; not network)
 // ---------------------------------------------------------------------------
@@ -675,27 +524,6 @@ pub fn replay_path_residual(user_data: &str, file_stem: &str) -> String {
         "{}{}{}{}",
         user_data, REPLAY_DIR_NAME_RESIDUAL, file_stem, REPLAY_EXTENSION_RESIDUAL
     )
-}
-
-/// Wave 89 honesty: local replay residual pack.
-pub fn honesty_replay_residual_host_pack_wave89() -> bool {
-    RecorderModeTypeResidual::Record as i32 == 0
-        && RecorderModeTypeResidual::Playback as i32 == 1
-        && RecorderModeTypeResidual::None as i32 == 2
-        && REPLAY_EXTENSION_RESIDUAL == ".rep"
-        && REPLAY_DIR_NAME_RESIDUAL == "Replays\\"
-        && LAST_REPLAY_FILE_NAME_RESIDUAL == "00000000"
-        && SAVE_CAMERA_IN_REPLAYS_DEFAULT_RESIDUAL
-        && USE_CAMERA_IN_REPLAYS_DEFAULT_RESIDUAL
-        && TOGGLE_FAST_FORWARD_REPLAY_META_RESIDUAL == "TOGGLE_FAST_FORWARD_REPLAY"
-        && command_map_anchor_residual("TOGGLE_FAST_FORWARD_REPLAY")
-            .map(|a| a.key == "KEY_F" && a.modifiers == "NONE")
-            == Some(true)
-        && replay_path_residual("UserData\\", LAST_REPLAY_FILE_NAME_RESIDUAL)
-            == "UserData\\Replays\\00000000.rep"
-        // Chat residual reuses replay block.
-        && CHAT_BLOCKED_IN_REPLAY_RESIDUAL
-        && !can_show_ingame_chat_residual(true)
 }
 
 // ---------------------------------------------------------------------------
@@ -754,84 +582,224 @@ pub fn options_default_sound_volume_residual() -> f32 {
     }
 }
 
-/// Wave 89 honesty: options residual peels pack.
-pub fn honesty_options_residual_pack_wave89() -> bool {
-    (DEFAULT_MUSIC_VOLUME_PERCENT_RESIDUAL - 55.0).abs() < 1e-5
-        && (DEFAULT_SPEECH_VOLUME_PERCENT_RESIDUAL - 70.0).abs() < 1e-5
-        && (DEFAULT_SOUND_VOLUME_PERCENT_RESIDUAL - 80.0).abs() < 1e-5
-        && (DEFAULT_3D_SOUND_VOLUME_PERCENT_RESIDUAL - 80.0).abs() < 1e-5
-        && (RELATIVE_2D_VOLUME_RESIDUAL - (-0.10)).abs() < 1e-5
-        && (OPTIONS_GAMMA_DEFAULT_RESIDUAL - 50.0).abs() < 1e-5
-        && (OPTIONS_SCROLL_FACTOR_DEFAULT_RESIDUAL - 0.5).abs() < 1e-5
-        && OPTIONS_LANGUAGE_FILTER_DEFAULT_RESIDUAL
-        && !OPTIONS_SEND_DELAY_DEFAULT_RESIDUAL
-        && OPTIONS_USE_SYSTEM_MAP_DIR_DEFAULT_RESIDUAL
-        && OPTIONS_FPS_LIMIT_DEFAULT_RESIDUAL
-        && OPTIONS_PARTICLE_CAP_MIN_RESIDUAL == 100
-        && OPTIONS_TEXTURE_REDUCTION_MAX_RESIDUAL == 2
-        && options_scroll_factor_from_percent_residual(50) == 0.5
-        && options_scroll_factor_from_percent_residual(-10) == 0.0
-        && options_scroll_factor_from_percent_residual(150) == 1.0
-        && (options_default_sound_volume_residual() - 72.0).abs() < 1e-4
-        && OPT_KEY_MUSIC_VOLUME == "MusicVolume"
-        && OPT_KEY_SFX_VOLUME == "SFXVolume"
-        && OPT_KEY_VOICE_VOLUME == "VoiceVolume"
-        && OPT_KEY_GAMMA == "Gamma"
-        && OPT_KEY_SCROLL_FACTOR == "ScrollFactor"
-        && OPT_KEY_SAVE_CAMERA_REPLAYS == "SaveCameraInReplays"
-        && OPT_KEY_USE_CAMERA_REPLAYS == "UseCameraInReplays"
-        && OPT_KEY_FPS_LIMIT == "FPSLimit"
-        && OPT_KEY_SEND_DELAY == "SendDelay"
-        && OPT_KEY_SFX3D_VOLUME == "SFX3DVolume"
-        && SAVE_CAMERA_IN_REPLAYS_DEFAULT_RESIDUAL
-        && USE_CAMERA_IN_REPLAYS_DEFAULT_RESIDUAL
-}
-
-// ---------------------------------------------------------------------------
-// Combined Wave 89 pack
-// ---------------------------------------------------------------------------
-
-/// Combined Wave 89 honesty pack (all residual peels).
-pub fn honesty_rank_ui_residual_pack_wave89() -> bool {
-    honesty_experience_residual_tables_pack_wave89()
-        && honesty_hotkey_residual_table_pack_wave89()
-        && honesty_chat_residual_host_pack_wave89()
-        && honesty_replay_residual_host_pack_wave89()
-        && honesty_options_residual_pack_wave89()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
 
     #[test]
-    fn experience_residual_tables_pack_wave89_honesty() {
-        assert!(honesty_experience_residual_tables_pack_wave89());
+    fn experience_awards_and_rank_thresholds() {
+        assert!({
+            let ranger_level = experience_level_for_points(RANGER_EXPERIENCE_REQUIRED_RESIDUAL, 40)
+                == LEVEL_VETERAN_RESIDUAL
+                && experience_level_for_points(RANGER_EXPERIENCE_REQUIRED_RESIDUAL, 39)
+                    == LEVEL_REGULAR_RESIDUAL
+                && experience_level_for_points(RANGER_EXPERIENCE_REQUIRED_RESIDUAL, 60)
+                    == LEVEL_ELITE_RESIDUAL
+                && experience_level_for_points(RANGER_EXPERIENCE_REQUIRED_RESIDUAL, 120)
+                    == LEVEL_HEROIC_RESIDUAL
+                && experience_level_for_points(RANGER_EXPERIENCE_REQUIRED_RESIDUAL, 999)
+                    == LEVEL_HEROIC_RESIDUAL;
+            let skill_from_exp = skill_point_value_residual(
+                [
+                    USE_EXP_VALUE_FOR_SKILL_VALUE_RESIDUAL,
+                    USE_EXP_VALUE_FOR_SKILL_VALUE_RESIDUAL,
+                    USE_EXP_VALUE_FOR_SKILL_VALUE_RESIDUAL,
+                    USE_EXP_VALUE_FOR_SKILL_VALUE_RESIDUAL,
+                ],
+                RANGER_EXPERIENCE_VALUE_RESIDUAL,
+                LEVEL_ELITE_RESIDUAL,
+            ) == 40
+                && skill_point_value_residual([5, 5, 5, 5], RANGER_EXPERIENCE_VALUE_RESIDUAL, 0) == 5;
+            let add_xp = {
+                let (xp, lvl) = add_experience_points_residual(
+                    0,
+                    40,
+                    EXPERIENCE_SCALAR_DEFAULT_RESIDUAL,
+                    true,
+                    RANGER_EXPERIENCE_REQUIRED_RESIDUAL,
+                );
+                xp == 40 && lvl == LEVEL_VETERAN_RESIDUAL
+            };
+            let scaled = {
+                // AdvancedTraining AddXPScalar 1.0 → total scalar 2.0 residual path example.
+                let (xp, lvl) =
+                    add_experience_points_residual(0, 40, 2.0, true, RANGER_EXPERIENCE_REQUIRED_RESIDUAL);
+                xp == 80 && lvl == LEVEL_ELITE_RESIDUAL
+            };
+            let no_scale = {
+                let (xp, _) =
+                    add_experience_points_residual(0, 40, 2.0, false, RANGER_EXPERIENCE_REQUIRED_RESIDUAL);
+                xp == 40
+            };
+            let ally_zero = experience_value_for_kill_residual(
+                RANGER_EXPERIENCE_VALUE_RESIDUAL,
+                LEVEL_HEROIC_RESIDUAL,
+                true,
+            ) == 0
+                && experience_value_for_kill_residual(
+                    RANGER_EXPERIENCE_VALUE_RESIDUAL,
+                    LEVEL_REGULAR_RESIDUAL,
+                    false,
+                ) == 20;
+            let ladders_monotonic = EXP_REQUIRED_LIGHT_INFANTRY_RESIDUAL
+                .windows(2)
+                .all(|w| w[0] < w[1])
+                && EXP_REQUIRED_STANDARD_RESIDUAL
+                    .windows(2)
+                    .all(|w| w[0] < w[1])
+                && EXP_REQUIRED_HEAVY_RESIDUAL.windows(2).all(|w| w[0] < w[1])
+                && EXP_REQUIRED_VEHICLE_ALT_RESIDUAL
+                    .windows(2)
+                    .all(|w| w[0] < w[1]);
+            LEVEL_COUNT_RESIDUAL == 4
+                && LEVEL_LAST_RESIDUAL == 3
+                && USE_EXP_VALUE_FOR_SKILL_VALUE_RESIDUAL == -999
+                && (EXPERIENCE_SCALAR_DEFAULT_RESIDUAL - 1.0).abs() < 1e-5
+                && (HEALTH_BONUS_REGULAR_RESIDUAL - 1.0).abs() < 1e-5
+                && (HEALTH_BONUS_VETERAN_RESIDUAL - 1.20).abs() < 1e-5
+                && (HEALTH_BONUS_ELITE_RESIDUAL - 1.30).abs() < 1e-5
+                && (HEALTH_BONUS_HEROIC_RESIDUAL - 1.50).abs() < 1e-5
+                && health_bonus_for_level_residual(LEVEL_VETERAN_RESIDUAL) == HEALTH_BONUS_VETERAN_RESIDUAL
+                && health_bonus_for_level_residual(LEVEL_HEROIC_RESIDUAL) == HEALTH_BONUS_HEROIC_RESIDUAL
+                && RANGER_EXPERIENCE_REQUIRED_RESIDUAL == EXP_REQUIRED_LIGHT_INFANTRY_RESIDUAL
+                && RANGER_EXPERIENCE_VALUE_RESIDUAL == EXP_VALUE_RANGER_RESIDUAL
+                && EXP_VALUE_STANDARD_AIR_RESIDUAL == [50, 100, 150, 200]
+                && EXP_VALUE_STRUCTURE_FLAT_RESIDUAL == [200, 200, 200, 200]
+                && ranger_level
+                && skill_from_exp
+                && add_xp
+                && scaled
+                && no_scale
+                && ally_zero
+                && ladders_monotonic
+        });
     }
 
     #[test]
-    fn hotkey_residual_table_pack_wave89_honesty() {
-        assert!(honesty_hotkey_residual_table_pack_wave89());
+    fn command_map_resolves_original_hotkey_anchors() {
+        assert!({
+            COMMAND_MAP_ACTIVE_COUNT_RESIDUAL == 96
+                && CONTROL_GROUP_COUNT_RESIDUAL == 10
+                && SAVE_VIEW_COUNT_RESIDUAL == 8
+                && COMMAND_MAP_ANCHORS_RESIDUAL.len() == 12
+                && HOTKEY_STORE_LOWERCASE_RESIDUAL
+                && HOTKEY_RAW_KEY_REQUIRES_NO_MODIFIERS_RESIDUAL
+                && CHAT_PLAYERS_COMMANDMAP_COMMENTED_RESIDUAL
+                && command_map_anchor_residual("CHAT_ALLIES")
+                    .map(|a| a.key == "KEY_BACKSPACE" && a.modifiers == "NONE")
+                    == Some(true)
+                && command_map_anchor_residual("CHAT_EVERYONE")
+                    .map(|a| a.key == "KEY_ENTER")
+                    == Some(true)
+                && command_map_anchor_residual("SELECT_MATCHING_UNITS")
+                    .map(|a| a.key == "KEY_E")
+                    == Some(true)
+                && command_map_anchor_residual("CREATE_TEAM0")
+                    .map(|a| a.modifiers == "CTRL")
+                    == Some(true)
+                && command_map_anchor_residual("SELECT_TEAM0")
+                    .map(|a| a.modifiers == "NONE")
+                    == Some(true)
+                && command_map_anchor_residual("PLACE_BEACON")
+                    .map(|a| a.key == "KEY_B" && a.modifiers == "CTRL")
+                    == Some(true)
+                && command_map_anchor_residual("TOGGLE_FAST_FORWARD_REPLAY")
+                    .map(|a| a.key == "KEY_F")
+                    == Some(true)
+                && command_map_anchor_residual("CHAT_PLAYERS").is_none()
+                // SAVE_VIEW1 vs VIEW_VIEW1 share KEY_F1, distinguished by modifiers.
+                && command_map_anchor_residual("SAVE_VIEW1").map(|a| a.modifiers) == Some("CTRL")
+                && command_map_anchor_residual("VIEW_VIEW1").map(|a| a.modifiers) == Some("NONE")
+        });
     }
 
     #[test]
-    fn chat_residual_host_pack_wave89_honesty() {
-        assert!(honesty_chat_residual_host_pack_wave89());
+    fn chat_label_and_visibility_follow_player_state() {
+        assert!({
+            InGameChatTypeResidual::Allies as i32 == 0
+                && InGameChatTypeResidual::Everyone as i32 == 1
+                && InGameChatTypeResidual::Players as i32 == 2
+                && INGAME_CHAT_TYPE_COUNT_RESIDUAL == 3
+                && INGAME_CHAT_WND_RESIDUAL == "InGameChat.wnd"
+                && INGAME_CHAT_TEXT_ENTRY_ID_RESIDUAL.ends_with("TextEntryChat")
+                && INGAME_CHAT_TYPE_STATIC_ID_RESIDUAL.ends_with("StaticTextChatType")
+                && CHAT_DEFAULT_TYPE_ON_SHOW_RESIDUAL == InGameChatTypeResidual::Everyone
+                && CHAT_BLOCKED_IN_REPLAY_RESIDUAL
+                && MAX_SLOTS_RESIDUAL == 8
+                && chat_type_label_residual(InGameChatTypeResidual::Everyone, true)
+                    == "Chat:Everyone"
+                && chat_type_label_residual(InGameChatTypeResidual::Everyone, false)
+                    == "Chat:Observers"
+                && chat_type_label_residual(InGameChatTypeResidual::Allies, true) == "Chat:Allies"
+                && chat_type_label_residual(InGameChatTypeResidual::Players, true) == "Chat:Players"
+                && can_show_ingame_chat_residual(false)
+                && !can_show_ingame_chat_residual(true)
+                && META_CHAT_ALLIES_RESIDUAL == "CHAT_ALLIES"
+                && META_CHAT_EVERYONE_RESIDUAL == "CHAT_EVERYONE"
+                && META_CHAT_PLAYERS_RESIDUAL == "CHAT_PLAYERS"
+                // Chat meta keys exist in CommandMap residual anchors.
+                && command_map_anchor_residual("CHAT_ALLIES").is_some()
+                && command_map_anchor_residual("CHAT_EVERYONE").is_some()
+        });
     }
 
     #[test]
-    fn replay_residual_host_pack_wave89_honesty() {
-        assert!(honesty_replay_residual_host_pack_wave89());
+    fn replay_path_defaults_and_chat_visibility() {
+        assert!({
+            RecorderModeTypeResidual::Record as i32 == 0
+                && RecorderModeTypeResidual::Playback as i32 == 1
+                && RecorderModeTypeResidual::None as i32 == 2
+                && REPLAY_EXTENSION_RESIDUAL == ".rep"
+                && REPLAY_DIR_NAME_RESIDUAL == "Replays\\"
+                && LAST_REPLAY_FILE_NAME_RESIDUAL == "00000000"
+                && SAVE_CAMERA_IN_REPLAYS_DEFAULT_RESIDUAL
+                && USE_CAMERA_IN_REPLAYS_DEFAULT_RESIDUAL
+                && TOGGLE_FAST_FORWARD_REPLAY_META_RESIDUAL == "TOGGLE_FAST_FORWARD_REPLAY"
+                && command_map_anchor_residual("TOGGLE_FAST_FORWARD_REPLAY")
+                    .map(|a| a.key == "KEY_F" && a.modifiers == "NONE")
+                    == Some(true)
+                && replay_path_residual("UserData\\", LAST_REPLAY_FILE_NAME_RESIDUAL)
+                    == "UserData\\Replays\\00000000.rep"
+                // Chat residual reuses replay block.
+                && CHAT_BLOCKED_IN_REPLAY_RESIDUAL
+                && !can_show_ingame_chat_residual(true)
+        });
     }
 
     #[test]
-    fn options_residual_pack_wave89_honesty() {
-        assert!(honesty_options_residual_pack_wave89());
+    fn option_defaults_and_scaled_values() {
+        assert!({
+            (DEFAULT_MUSIC_VOLUME_PERCENT_RESIDUAL - 55.0).abs() < 1e-5
+                && (DEFAULT_SPEECH_VOLUME_PERCENT_RESIDUAL - 70.0).abs() < 1e-5
+                && (DEFAULT_SOUND_VOLUME_PERCENT_RESIDUAL - 80.0).abs() < 1e-5
+                && (DEFAULT_3D_SOUND_VOLUME_PERCENT_RESIDUAL - 80.0).abs() < 1e-5
+                && (RELATIVE_2D_VOLUME_RESIDUAL - (-0.10)).abs() < 1e-5
+                && (OPTIONS_GAMMA_DEFAULT_RESIDUAL - 50.0).abs() < 1e-5
+                && (OPTIONS_SCROLL_FACTOR_DEFAULT_RESIDUAL - 0.5).abs() < 1e-5
+                && OPTIONS_LANGUAGE_FILTER_DEFAULT_RESIDUAL
+                && !OPTIONS_SEND_DELAY_DEFAULT_RESIDUAL
+                && OPTIONS_USE_SYSTEM_MAP_DIR_DEFAULT_RESIDUAL
+                && OPTIONS_FPS_LIMIT_DEFAULT_RESIDUAL
+                && OPTIONS_PARTICLE_CAP_MIN_RESIDUAL == 100
+                && OPTIONS_TEXTURE_REDUCTION_MAX_RESIDUAL == 2
+                && options_scroll_factor_from_percent_residual(50) == 0.5
+                && options_scroll_factor_from_percent_residual(-10) == 0.0
+                && options_scroll_factor_from_percent_residual(150) == 1.0
+                && (options_default_sound_volume_residual() - 72.0).abs() < 1e-4
+                && OPT_KEY_MUSIC_VOLUME == "MusicVolume"
+                && OPT_KEY_SFX_VOLUME == "SFXVolume"
+                && OPT_KEY_VOICE_VOLUME == "VoiceVolume"
+                && OPT_KEY_GAMMA == "Gamma"
+                && OPT_KEY_SCROLL_FACTOR == "ScrollFactor"
+                && OPT_KEY_SAVE_CAMERA_REPLAYS == "SaveCameraInReplays"
+                && OPT_KEY_USE_CAMERA_REPLAYS == "UseCameraInReplays"
+                && OPT_KEY_FPS_LIMIT == "FPSLimit"
+                && OPT_KEY_SEND_DELAY == "SendDelay"
+                && OPT_KEY_SFX3D_VOLUME == "SFX3DVolume"
+                && SAVE_CAMERA_IN_REPLAYS_DEFAULT_RESIDUAL
+                && USE_CAMERA_IN_REPLAYS_DEFAULT_RESIDUAL
+        });
     }
 
-    #[test]
-    fn rank_ui_residual_pack_wave89_combined_honesty() {
-        assert!(honesty_rank_ui_residual_pack_wave89());
-    }
 }

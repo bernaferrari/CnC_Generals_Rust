@@ -85,17 +85,31 @@ mod host_mods_special_powers;
 pub use host_mods_special_powers::*;
 mod host_mods_structures;
 pub use host_mods_structures::*;
-mod host_mods_residuals_on;
-pub use host_mods_residuals_on::presentation_command_filters::presentation_selected_sellable_structure_ids;
-pub use host_mods_residuals_on::presentation_mouse_input::mouse_game_logic_for_process_mouse_input;
-pub use host_mods_residuals_on::presentation_selection::host_ui_selected_ids_from_residuals;
-pub use host_mods_residuals_on::retail_map_resolution::{
-    DEFAULT_SKIRMISH_MAP_WAVE169, LONE_EAGLE_MAP_WAVE169, resolve_retail_map_path,
-};
-pub use host_mods_residuals_on::retail_map_resolution::{
-    honesty_default_skirmish_map_resolves, honesty_lone_eagle_map_resolves,
-};
-pub use host_mods_residuals_on::*;
+pub mod armor;
+pub mod host_dock_contain_exit_heal_residual;
+pub mod host_enum_table_residual;
+pub mod host_faction_skirmish_residual;
+pub mod host_gamedata_lobby_residual;
+pub mod presentation_command_filters;
+pub mod presentation_mouse_input;
+pub mod presentation_selection;
+pub mod host_partition_collision_physics_residual;
+pub mod host_production_buildable_command_residual;
+pub mod host_radar_stealth_vision_residual;
+pub mod host_rank_ui_residual;
+pub mod host_residual_acquire;
+pub mod host_rng_residual;
+pub mod host_special_power_enum_residual;
+pub mod retail_map_resolution;
+pub mod host_structure_economy_residual;
+pub mod host_ui_presentation_residual;
+pub(crate) mod host_upgrade_module_residuals;
+pub use presentation_command_filters::presentation_selected_sellable_structure_ids;
+pub use presentation_mouse_input::mouse_game_logic_for_process_mouse_input;
+pub use presentation_selection::host_ui_selected_ids_from_residuals;
+pub use retail_map_resolution::resolve_retail_map_path;
+#[cfg(test)]
+use retail_map_resolution::{DEFAULT_SKIRMISH_MAP_NAME, LONE_EAGLE_MAP_NAME};
 mod host_mods_units;
 pub use host_mods_units::*;
 mod host_mods_logs_a;
@@ -127,7 +141,6 @@ use host_mods_combat::host_status_damage;
 use host_mods_combat::host_transition_damage_fx;
 use host_mods_combat::host_upgrade_die;
 use host_mods_combat::host_wave_guide;
-pub(crate) use host_mods_residuals_on::host_upgrade_module_residuals;
 use host_mods_special_powers::host_baikonur_launch;
 use host_mods_special_powers::host_defector_special_power;
 use host_mods_special_powers::host_special_power_completion_die;

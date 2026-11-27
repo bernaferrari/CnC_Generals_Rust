@@ -2,22 +2,14 @@
 
 use std::path::{Path, PathBuf};
 
-/// Lookup residual name index (exact match).
+#[cfg(test)]
+pub(super) const DEFAULT_SKIRMISH_MAP_NAME: &str = "Defcon6";
 
-/// start_game Loading residual method names.
-
-/// Ordered start_game Loading residual navigation steps.
-
-/// Runtime-host command residual names.
-
-/// Engine default skirmish map residual (cnc_game_engine DEFAULT_SKIRMISH_MAP).
-pub const DEFAULT_SKIRMISH_MAP_WAVE169: &str = "Defcon6";
-
-/// Behavior-gate / retail campaign-adjacent skirmish map residual.
-pub const LONE_EAGLE_MAP_WAVE169: &str = "Lone Eagle";
+#[cfg(test)]
+pub(super) const LONE_EAGLE_MAP_NAME: &str = "Lone Eagle";
 
 /// Candidate roots for MapsZH retail trees.
-pub const MAP_ROOT_CANDIDATES_WAVE169: &[&str] = &[
+const RETAIL_MAP_ROOTS: &[&str] = &[
     "windows_game/extracted_big_files/MapsZH/Maps",
     "windows_game/extracted_big_files_v2/MapsZH/Maps",
     "../windows_game/extracted_big_files/MapsZH/Maps",
@@ -26,17 +18,9 @@ pub const MAP_ROOT_CANDIDATES_WAVE169: &[&str] = &[
     "../../windows_game/extracted_big_files_v2/MapsZH/Maps",
 ];
 
-/// Honesty: method names residual pack.
-
-/// Honesty: nav steps + runtime-host cmd residual pack.
-
-/// Wave 169 composite residual honesty pack.
-
-/// Source residual: start_game_from_ui Loading → load_map → InGame path.
-
 /// Resolve a retail map directory or .map file for `map_name`.
 ///
-/// Walks cwd + up to 6 parents so residuals work from `Code/Main`,
+/// Walks the current directory and up to six parents to support `Code/Main`,
 /// `GeneralsRust/`, or the monorepo root (matches map_frame_scenario).
 pub fn resolve_retail_map_path(map_name: &str) -> Option<PathBuf> {
     let map_name = map_name.trim();
@@ -79,7 +63,7 @@ pub fn resolve_retail_map_path(map_name: &str) -> Option<PathBuf> {
         bases.push(ancestor.to_path_buf());
     }
     for base in bases {
-        for root in MAP_ROOT_CANDIDATES_WAVE169 {
+        for root in RETAIL_MAP_ROOTS {
             let root_path = if Path::new(root).is_absolute() {
                 PathBuf::from(root)
             } else {
@@ -106,31 +90,25 @@ fn find_map_in(root: &Path, map_name: &str) -> Option<PathBuf> {
         .find(|path| path.extension().and_then(|ext| ext.to_str()) == Some("map"))
 }
 
-/// Honesty: default skirmish map (Defcon6) resolves when MapsZH is present.
-pub fn honesty_default_skirmish_map_resolves() -> bool {
-    match resolve_retail_map_path(DEFAULT_SKIRMISH_MAP_WAVE169) {
-        Some(p) => p.is_file(),
-        None => true, // assets unavailable — soft residual
-    }
-}
-
-/// Honesty: Lone Eagle resolves when MapsZH is present (behavior_gate map).
-pub fn honesty_lone_eagle_map_resolves() -> bool {
-    match resolve_retail_map_path(LONE_EAGLE_MAP_WAVE169) {
-        Some(p) => p.is_file(),
-        None => true,
-    }
-}
-
-/// Live residual: pack + source + map resolve honesty (no full match start).
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
     fn default_and_lone_eagle_map_resolve() {
-        assert!(honesty_default_skirmish_map_resolves());
-        assert!(honesty_lone_eagle_map_resolves());
+        let paths = [DEFAULT_SKIRMISH_MAP_NAME, LONE_EAGLE_MAP_NAME].map(resolve_retail_map_path);
+        if paths.iter().all(Option::is_none) {
+            eprintln!("Retail maps are unavailable");
+            return;
+        }
+        for (name, path) in [DEFAULT_SKIRMISH_MAP_NAME, LONE_EAGLE_MAP_NAME]
+            .into_iter()
+            .zip(paths)
+        {
+            assert!(
+                path.is_some_and(|path| path.is_file()),
+                "missing retail map {name}"
+            );
+        }
     }
 }

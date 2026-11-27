@@ -89,30 +89,6 @@ pub fn tooltip_effective_delay_ms_residual(ini_delay: i32, override_delay: i32) 
     }
 }
 
-/// Wave 91 honesty: tooltip residual peels pack.
-pub fn honesty_tooltip_residual_pack_wave91() -> bool {
-    TOOLTIP_FONT_NAME_RESIDUAL == "Arial"
-        && TOOLTIP_FONT_SIZE_RESIDUAL == 8
-        && !TOOLTIP_FONT_IS_BOLD_RESIDUAL
-        && !TOOLTIP_ANIMATE_BACKGROUND_RESIDUAL
-        && TOOLTIP_FILL_TIME_MS_RESIDUAL == 250
-        && TOOLTIP_DELAY_TIME_MS_RESIDUAL == 800
-        && (TOOLTIP_WIDTH_PERCENT_RESIDUAL - 20.0).abs() < 1e-5
-        && (TOOLTIP_WIDTH_FRACTION_RESIDUAL - 0.20).abs() < 1e-5
-        && TOOLTIP_WORD_WRAP_PIXELS_RESIDUAL == 120
-        && TOOLTIP_TEXT_COLOR_RESIDUAL == (220, 220, 220, 255)
-        && TOOLTIP_HIGHLIGHT_COLOR_RESIDUAL == (255, 255, 0, 255)
-        && TOOLTIP_SHADOW_COLOR_RESIDUAL == (0, 0, 0, 255)
-        && TOOLTIP_BORDER_COLOR_RESIDUAL == (60, 60, 155, 255)
-        && TOOLTIP_BACKGROUND_COLOR_RESIDUAL == (20, 20, 20, 255)
-        && !TOOLTIP_USE_ALT_TEXT_COLOR_RESIDUAL
-        && TOOLTIP_USE_ALT_BACK_COLOR_RESIDUAL
-        && TOOLTIP_ADJUST_ALT_COLOR_RESIDUAL
-        && tooltip_effective_delay_ms_residual(TOOLTIP_DELAY_TIME_MS_RESIDUAL, -1) == 800
-        && tooltip_effective_delay_ms_residual(TOOLTIP_DELAY_TIME_MS_RESIDUAL, 0) == 0
-        && tooltip_effective_delay_ms_residual(TOOLTIP_DELAY_TIME_MS_RESIDUAL, 500) == 500
-}
-
 // ---------------------------------------------------------------------------
 // 2. HelpBox residual peels (ControlBarPopupDescription / build tooltip layout)
 // ---------------------------------------------------------------------------
@@ -220,51 +196,6 @@ pub fn can_make_type_help_box_message_residual(
     )
 }
 
-/// Wave 91 honesty: HelpBox residual peels pack.
-pub fn honesty_help_box_residual_pack_wave91() -> bool {
-    HELP_BOX_LAYOUT_WND_RESIDUAL == "ControlBarPopupDescription.wnd"
-        && HELP_BOX_STATIC_TEXT_NAME_ID_RESIDUAL == "ControlBarPopupDescription.wnd:StaticTextName"
-        && HELP_BOX_STATIC_TEXT_COST_ID_RESIDUAL == "ControlBarPopupDescription.wnd:StaticTextCost"
-        && HELP_BOX_STATIC_TEXT_DESCRIPTION_ID_RESIDUAL
-            == "ControlBarPopupDescription.wnd:StaticTextDescription"
-        && HELP_BOX_MONEY_DISPLAY_ID_RESIDUAL == "ControlBar.wnd:MoneyDisplay"
-        && HELP_BOX_POWER_WINDOW_ID_RESIDUAL == "ControlBar.wnd:PowerWindow"
-        && HELP_BOX_GENERALS_EXP_ID_RESIDUAL == "ControlBar.wnd:GeneralsExp"
-        && HelpBoxSubjectResidual::CommandButton as u8 == 0
-        && HelpBoxSubjectResidual::GeneralsExp as u8 == 3
-        && help_box_can_make_status_message_residual(HelpBoxCanMakeStatusResidual::Ok, false)
-            .is_none()
-        && help_box_can_make_status_message_residual(HelpBoxCanMakeStatusResidual::NoMoney, false)
-            == Some(HELP_BOX_STATUS_NO_MONEY_RESIDUAL)
-        && help_box_can_make_status_message_residual(HelpBoxCanMakeStatusResidual::QueueFull, false)
-            == Some(HELP_BOX_STATUS_QUEUE_FULL_RESIDUAL)
-        && help_box_can_make_status_message_residual(
-            HelpBoxCanMakeStatusResidual::ParkingPlacesFull,
-            false,
-        ) == Some(HELP_BOX_STATUS_PARKING_FULL_RESIDUAL)
-        && help_box_can_make_status_message_residual(
-            HelpBoxCanMakeStatusResidual::MaxedOutForPlayer,
-            false,
-        ) == Some(HELP_BOX_STATUS_MAXED_UNIT_RESIDUAL)
-        && help_box_can_make_status_message_residual(
-            HelpBoxCanMakeStatusResidual::MaxedOutForPlayer,
-            true,
-        ) == Some(HELP_BOX_STATUS_MAXED_STRUCTURE_RESIDUAL)
-        && help_box_can_make_status_message_residual(HelpBoxCanMakeStatusResidual::NoPrereq, false)
-            .is_none()
-        && can_make_type_to_help_box_status_residual(0) == HelpBoxCanMakeStatusResidual::Ok
-        && can_make_type_to_help_box_status_residual(2) == HelpBoxCanMakeStatusResidual::NoMoney
-        && can_make_type_to_help_box_status_residual(4) == HelpBoxCanMakeStatusResidual::QueueFull
-        && can_make_type_to_help_box_status_residual(5)
-            == HelpBoxCanMakeStatusResidual::ParkingPlacesFull
-        && can_make_type_to_help_box_status_residual(6)
-            == HelpBoxCanMakeStatusResidual::MaxedOutForPlayer
-        && can_make_type_help_box_message_residual(2, false)
-            == Some(HELP_BOX_STATUS_NO_MONEY_RESIDUAL)
-        && can_make_type_help_box_message_residual(6, false)
-            == Some(HELP_BOX_STATUS_MAXED_UNIT_RESIDUAL)
-}
-
 // ---------------------------------------------------------------------------
 // 3. Message residual peels (InGameUI.ini + InGameUI.h/cpp)
 // ---------------------------------------------------------------------------
@@ -309,38 +240,6 @@ pub const FLOATING_TEXT_VANISH_RATE_SEC_RESIDUAL: f32 = 3.0;
 pub const FLOATING_TEXT_VANISH_RATE_FRAME_RESIDUAL: f32 = 0.1;
 /// Message fade amount residual scale (`age * 0.01`).
 pub const MESSAGE_FADE_AMOUNT_SCALE_RESIDUAL: f32 = 0.01;
-
-/// Wave 91 honesty: message residual peels pack.
-pub fn honesty_message_residual_pack_wave91() -> bool {
-    MAX_UI_MESSAGES_RESIDUAL == 6
-        && MESSAGE_COLOR1_RESIDUAL == (255, 255, 255, 255)
-        && MESSAGE_COLOR2_RESIDUAL == (180, 180, 255, 255)
-        && MESSAGE_POSITION_RESIDUAL == (10, 10)
-        && MESSAGE_FONT_RESIDUAL == "Arial"
-        && MESSAGE_POINT_SIZE_RESIDUAL == 10
-        && MESSAGE_BOLD_RESIDUAL
-        && MESSAGE_DELAY_MS_RESIDUAL == 75_000
-        && MESSAGE_DELAY_MS_CTOR_DEFAULT_RESIDUAL == 5_000
-        && message_timeout_frames_cpp_residual(MESSAGE_DELAY_MS_RESIDUAL) == 2
-        && message_timeout_frames_cpp_residual(MESSAGE_DELAY_MS_CTOR_DEFAULT_RESIDUAL) == 0
-        && POPUP_MESSAGE_LAYOUT_WND_RESIDUAL == "InGamePopupMessage.wnd"
-        && POPUP_MESSAGE_COLOR_RESIDUAL == (255, 255, 255, 255)
-        && FLOATING_TEXT_TIMEOUT_MS_RESIDUAL == 333
-        && duration_ms_to_frames_ceil_residual(FLOATING_TEXT_TIMEOUT_MS_RESIDUAL)
-            == FLOATING_TEXT_TIMEOUT_FRAMES_RESIDUAL
-        && FLOATING_TEXT_TIMEOUT_FRAMES_RESIDUAL == 10
-        && DEFAULT_FLOATING_TEXT_TIMEOUT_CTOR_RESIDUAL
-            == (LOGIC_FRAMES_PER_SECOND_RESIDUAL as u32) / 3
-        && (velocity_secs_to_frames_residual(FLOATING_TEXT_MOVE_UP_SPEED_SEC_RESIDUAL)
-            - FLOATING_TEXT_MOVE_UP_SPEED_FRAME_RESIDUAL)
-            .abs()
-            < 1e-5
-        && (velocity_secs_to_frames_residual(FLOATING_TEXT_VANISH_RATE_SEC_RESIDUAL)
-            - FLOATING_TEXT_VANISH_RATE_FRAME_RESIDUAL)
-            .abs()
-            < 1e-5
-        && (MESSAGE_FADE_AMOUNT_SCALE_RESIDUAL - 0.01).abs() < 1e-6
-}
 
 // ---------------------------------------------------------------------------
 // 4. EVA residual peels (Eva.h / Eva.cpp TheEvaMessageNames)
@@ -429,45 +328,6 @@ pub fn eva_message_name_index(name: &str) -> Option<usize> {
     EVA_MESSAGE_NAME_LIST
         .iter()
         .position(|&n| n.eq_ignore_ascii_case(name))
-}
-
-/// Wave 91 honesty: EVA residual peels pack.
-pub fn honesty_eva_residual_pack_wave91() -> bool {
-    EVA_COUNT_RESIDUAL == 53
-        && EVA_MESSAGE_NAME_LIST.len() == EVA_COUNT_RESIDUAL
-        && EVA_PRIORITY_DEFAULT_RESIDUAL == 1
-        && EVA_FRAMES_BETWEEN_CHECKS_DEFAULT_RESIDUAL == 900
-        && EVA_FRAMES_TO_EXPIRE_DEFAULT_RESIDUAL == 150
-        && EVA_ENABLED_DEFAULT_RESIDUAL
-        && EVA_TRIGGERED_ON_NOT_RESIDUAL == u32::MAX
-        && EVA_NEXT_CHECK_NOW_RESIDUAL == 0
-        && EVA_MESSAGE_NAME_LIST[0] == "LOWPOWER"
-        && EVA_MESSAGE_NAME_LIST[1] == "INSUFFICIENTFUNDS"
-        && EVA_MESSAGE_NAME_LIST[2] == "SUPERWEAPONDETECTED_OWN_PARTICLECANNON"
-        && EVA_MESSAGE_NAME_LIST[11] == "SUPERWEAPONLAUNCHED_OWN_PARTICLECANNON"
-        && EVA_MESSAGE_NAME_LIST[20] == "SUPERWEAPONREADY_OWN_PARTICLECANNON"
-        && EVA_MESSAGE_NAME_LIST[29] == "BUILDINGLOST"
-        && EVA_MESSAGE_NAME_LIST[39] == "UNITLOST"
-        && EVA_MESSAGE_NAME_LIST[40] == "GENERALLEVELUP"
-        && EVA_MESSAGE_NAME_LIST[46] == "BUILDINGSABOTAGED"
-        && EVA_MESSAGE_NAME_LIST[47] == "SUPERWEAPONLAUNCHED_OWN_GPS_SCRAMBLER"
-        && EVA_MESSAGE_NAME_LIST[50] == "SUPERWEAPONLAUNCHED_OWN_SNEAK_ATTACK"
-        && EVA_MESSAGE_NAME_LIST[52] == "SUPERWEAPONLAUNCHED_ENEMY_SNEAK_ATTACK"
-        && eva_message_name_index("LOWPOWER") == Some(0)
-        && eva_message_name_index("unitlost") == Some(39)
-        && eva_message_name_index("SUPERWEAPONLAUNCHED_OWN_SNEAK_ATTACK") == Some(50)
-        && eva_message_name_index("not_an_eva").is_none()
-        && EVA_INVALID_SENTINEL_NAME_RESIDUAL == "EVA_INVALID"
-        && {
-            let mut names: Vec<&str> = EVA_MESSAGE_NAME_LIST.to_vec();
-            names.sort_unstable();
-            names.windows(2).all(|w| w[0] != w[1])
-        }
-        // 900 frames = 30s; 150 frames = 5s at 30 FPS residual.
-        && EVA_FRAMES_BETWEEN_CHECKS_DEFAULT_RESIDUAL
-            == (30 * LOGIC_FRAMES_PER_SECOND_RESIDUAL) as u32
-        && EVA_FRAMES_TO_EXPIRE_DEFAULT_RESIDUAL
-            == (5 * LOGIC_FRAMES_PER_SECOND_RESIDUAL) as u32
 }
 
 // ---------------------------------------------------------------------------
@@ -670,51 +530,6 @@ pub fn video_name_residual_by_internal(name: &str) -> Option<&'static VideoNameR
         .find(|v| v.internal_name.eq_ignore_ascii_case(name))
 }
 
-/// Wave 91 honesty: video residual name table pack (names only).
-pub fn honesty_video_residual_name_table_wave91() -> bool {
-    VIDEO_BUFFER_NUM_TYPES_RESIDUAL == 5
-        && VIDEO_BUFFER_TYPE_NAME_LIST.len() == 5
-        && VIDEO_BUFFER_TYPE_NAME_LIST[0] == "TYPE_UNKNOWN"
-        && VIDEO_BUFFER_TYPE_NAME_LIST[2] == "TYPE_X8R8G8B8"
-        && VIDEO_BUFFER_TYPE_NAME_LIST[4] == "TYPE_X1R5G5B5"
-        && VIDEO_NAME_TABLE_RESIDUAL.len() == VIDEO_NAME_TABLE_COUNT_RESIDUAL
-        && VIDEO_NAME_TABLE_COUNT_RESIDUAL == 41
-        && VIDEO_NAME_TABLE_RESIDUAL[0].internal_name == "Sizzle"
-        && VIDEO_NAME_TABLE_RESIDUAL[0].filename == "sizzle_review"
-        && VIDEO_NAME_TABLE_RESIDUAL[2].internal_name == "EALogoMovie"
-        && VIDEO_NAME_TABLE_RESIDUAL[4].internal_name == "GeneralsChallengeBackground"
-        && VIDEO_NAME_TABLE_RESIDUAL[4].filename == "GC_Background"
-        && VIDEO_NAME_TABLE_RESIDUAL[26].internal_name == "MD_China01"
-        && VIDEO_NAME_TABLE_RESIDUAL[31].internal_name == "MD_GLA01"
-        && VIDEO_NAME_TABLE_RESIDUAL[36].internal_name == "MD_USA01"
-        && VIDEO_NAME_TABLE_RESIDUAL[40].internal_name == "MD_USA05"
-        && VIDEO_NAME_TABLE_RESIDUAL[40].filename == "MD_USA05_0"
-        && video_name_residual_by_internal("MD_USA01")
-            .map(|v| v.filename == "MD_USA01_0")
-            .unwrap_or(false)
-        && video_name_residual_by_internal("md_china05")
-            .map(|v| v.filename == "MD_China05_0")
-            .unwrap_or(false)
-        && video_name_residual_by_internal("GeneralsChallengeBackground")
-            .map(|v| v.filename == "GC_Background")
-            .unwrap_or(false)
-        && video_name_residual_by_internal("not_a_video").is_none()
-        && {
-            let mut names: Vec<&str> = VIDEO_NAME_TABLE_RESIDUAL
-                .iter()
-                .map(|v| v.internal_name)
-                .collect();
-            names.sort_unstable();
-            names.windows(2).all(|w| w[0] != w[1])
-        }
-        // Campaign transition movie residual cluster contiguous residual.
-        && VIDEO_NAME_TABLE_RESIDUAL
-            .iter()
-            .filter(|v| v.internal_name.starts_with("MD_"))
-            .count()
-            == 15
-}
-
 // ---------------------------------------------------------------------------
 // 6. Mission briefing residual peels (CampaignManager + Campaign.ini)
 // ---------------------------------------------------------------------------
@@ -876,119 +691,268 @@ pub fn mission_briefing_residual(
     })
 }
 
-/// Wave 91 honesty: mission briefing residual peels pack.
-pub fn honesty_mission_briefing_residual_pack_wave91() -> bool {
-    MAX_OBJECTIVE_LINES_RESIDUAL == 5
-        && MAX_DISPLAYED_UNITS_RESIDUAL == 3
-        && MAX_SUBTITLE_LINES_RESIDUAL == 4
-        && INVALID_MISSION_NUMBER_RESIDUAL == -1
-        && SINGLE_PLAYER_LOAD_SCREEN_WND_RESIDUAL == "Menus/SinglePlayerLoadScreen.wnd"
-        && MILITARY_SUBTITLES_TYPING_AUDIO_RESIDUAL == "MilitarySubtitlesTyping"
-        && MILITARY_CAPTION_POSITION_RESIDUAL == (10, 340)
-        && MILITARY_CAPTION_TITLE_FONT_RESIDUAL == "Courier New"
-        && MILITARY_CAPTION_TITLE_POINT_SIZE_RESIDUAL == 12
-        && MILITARY_CAPTION_TITLE_BOLD_RESIDUAL
-        && MILITARY_CAPTION_FONT_RESIDUAL == "Courier New"
-        && MILITARY_CAPTION_POINT_SIZE_RESIDUAL == 12
-        && !MILITARY_CAPTION_BOLD_RESIDUAL
-        && MILITARY_CAPTION_RANDOMIZE_TYPING_RESIDUAL
-        && MILITARY_CAPTION_COLOR_RESIDUAL == (255, 255, 255, 255)
-        && FACTION_CAMPAIGN_MISSION_COUNT_RESIDUAL == 5
-        && CAMPAIGN_NAME_LIST_RESIDUAL.len() == 4
-        && CAMPAIGN_NAME_LIST_RESIDUAL[0] == "TRAINING"
-        && CAMPAIGN_NAME_LIST_RESIDUAL[1] == "USA"
-        && CAMPAIGN_NAME_LIST_RESIDUAL[3] == "China"
-        && {
-            let training = mission_briefing_residual("TRAINING", "Mission01").unwrap();
-            training.map == r"Maps\Training01\Training01.map"
-                && training.intro_movie == "TrainingCampaign"
-                && training.briefing_voice == Some("BriefingUSATraining")
-                && training.objective_line0 == Some("GUI:Objectives:")
-                && training.unit_names0 == Some("OBJECT:Ranger")
-                && training.voice_length == Some(17)
-        }
-        && {
-            let usa1 = mission_briefing_residual("USA", "Mission01").unwrap();
-            usa1.intro_movie == "MD_USA01"
-                && usa1.map == r"Maps\MD_USA01\MD_USA01.map"
-                && video_name_residual_by_internal(usa1.intro_movie).is_some()
-        }
-        && {
-            let gla5 = mission_briefing_residual("GLA", "Mission05").unwrap();
-            gla5.intro_movie == "MD_GLA05"
-        }
-        && {
-            let chi1 = mission_briefing_residual("China", "Mission01").unwrap();
-            chi1.intro_movie == "MD_China01" && chi1.map == r"Maps\MD_CHI01\MD_CHI01.map"
-        }
-        && {
-            let ch0 = mission_briefing_residual("CHALLENGE_0", "Mission01").unwrap();
-            ch0.intro_movie == "GeneralsChallengeBackground"
-                && video_name_residual_by_internal(ch0.intro_movie)
-                    .map(|v| v.filename == "GC_Background")
-                    .unwrap_or(false)
-        }
-        && mission_briefing_residual("USA", "Mission99").is_none()
-        && {
-            let (x, y) = military_caption_scaled_position_residual(800.0, 600.0);
-            (x - 10.0).abs() < 1e-5 && (y - 340.0).abs() < 1e-5
-        }
-        && {
-            let (x, y) = military_caption_scaled_position_residual(1600.0, 1200.0);
-            (x - 20.0).abs() < 1e-5 && (y - 680.0).abs() < 1e-5
-        }
-}
-
-// ---------------------------------------------------------------------------
-// Combined Wave 91 pack
-// ---------------------------------------------------------------------------
-
-/// Combined Wave 91 honesty pack (all residual peels).
-pub fn honesty_ui_presentation_residual_pack_wave91() -> bool {
-    honesty_tooltip_residual_pack_wave91()
-        && honesty_help_box_residual_pack_wave91()
-        && honesty_message_residual_pack_wave91()
-        && honesty_eva_residual_pack_wave91()
-        && honesty_video_residual_name_table_wave91()
-        && honesty_mission_briefing_residual_pack_wave91()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn tooltip_residual_pack_wave91_honesty() {
-        assert!(honesty_tooltip_residual_pack_wave91());
+    fn tooltip_delay_applies_game_data_settings() {
+        assert!({
+            TOOLTIP_FONT_NAME_RESIDUAL == "Arial"
+                && TOOLTIP_FONT_SIZE_RESIDUAL == 8
+                && !TOOLTIP_FONT_IS_BOLD_RESIDUAL
+                && !TOOLTIP_ANIMATE_BACKGROUND_RESIDUAL
+                && TOOLTIP_FILL_TIME_MS_RESIDUAL == 250
+                && TOOLTIP_DELAY_TIME_MS_RESIDUAL == 800
+                && (TOOLTIP_WIDTH_PERCENT_RESIDUAL - 20.0).abs() < 1e-5
+                && (TOOLTIP_WIDTH_FRACTION_RESIDUAL - 0.20).abs() < 1e-5
+                && TOOLTIP_WORD_WRAP_PIXELS_RESIDUAL == 120
+                && TOOLTIP_TEXT_COLOR_RESIDUAL == (220, 220, 220, 255)
+                && TOOLTIP_HIGHLIGHT_COLOR_RESIDUAL == (255, 255, 0, 255)
+                && TOOLTIP_SHADOW_COLOR_RESIDUAL == (0, 0, 0, 255)
+                && TOOLTIP_BORDER_COLOR_RESIDUAL == (60, 60, 155, 255)
+                && TOOLTIP_BACKGROUND_COLOR_RESIDUAL == (20, 20, 20, 255)
+                && !TOOLTIP_USE_ALT_TEXT_COLOR_RESIDUAL
+                && TOOLTIP_USE_ALT_BACK_COLOR_RESIDUAL
+                && TOOLTIP_ADJUST_ALT_COLOR_RESIDUAL
+                && tooltip_effective_delay_ms_residual(TOOLTIP_DELAY_TIME_MS_RESIDUAL, -1) == 800
+                && tooltip_effective_delay_ms_residual(TOOLTIP_DELAY_TIME_MS_RESIDUAL, 0) == 0
+                && tooltip_effective_delay_ms_residual(TOOLTIP_DELAY_TIME_MS_RESIDUAL, 500) == 500
+        });
     }
 
     #[test]
-    fn help_box_residual_pack_wave91_honesty() {
-        assert!(honesty_help_box_residual_pack_wave91());
+    fn help_box_checks_build_status_and_message_type() {
+        assert!({
+            HELP_BOX_LAYOUT_WND_RESIDUAL == "ControlBarPopupDescription.wnd"
+                && HELP_BOX_STATIC_TEXT_NAME_ID_RESIDUAL == "ControlBarPopupDescription.wnd:StaticTextName"
+                && HELP_BOX_STATIC_TEXT_COST_ID_RESIDUAL == "ControlBarPopupDescription.wnd:StaticTextCost"
+                && HELP_BOX_STATIC_TEXT_DESCRIPTION_ID_RESIDUAL
+                    == "ControlBarPopupDescription.wnd:StaticTextDescription"
+                && HELP_BOX_MONEY_DISPLAY_ID_RESIDUAL == "ControlBar.wnd:MoneyDisplay"
+                && HELP_BOX_POWER_WINDOW_ID_RESIDUAL == "ControlBar.wnd:PowerWindow"
+                && HELP_BOX_GENERALS_EXP_ID_RESIDUAL == "ControlBar.wnd:GeneralsExp"
+                && HelpBoxSubjectResidual::CommandButton as u8 == 0
+                && HelpBoxSubjectResidual::GeneralsExp as u8 == 3
+                && help_box_can_make_status_message_residual(HelpBoxCanMakeStatusResidual::Ok, false)
+                    .is_none()
+                && help_box_can_make_status_message_residual(HelpBoxCanMakeStatusResidual::NoMoney, false)
+                    == Some(HELP_BOX_STATUS_NO_MONEY_RESIDUAL)
+                && help_box_can_make_status_message_residual(HelpBoxCanMakeStatusResidual::QueueFull, false)
+                    == Some(HELP_BOX_STATUS_QUEUE_FULL_RESIDUAL)
+                && help_box_can_make_status_message_residual(
+                    HelpBoxCanMakeStatusResidual::ParkingPlacesFull,
+                    false,
+                ) == Some(HELP_BOX_STATUS_PARKING_FULL_RESIDUAL)
+                && help_box_can_make_status_message_residual(
+                    HelpBoxCanMakeStatusResidual::MaxedOutForPlayer,
+                    false,
+                ) == Some(HELP_BOX_STATUS_MAXED_UNIT_RESIDUAL)
+                && help_box_can_make_status_message_residual(
+                    HelpBoxCanMakeStatusResidual::MaxedOutForPlayer,
+                    true,
+                ) == Some(HELP_BOX_STATUS_MAXED_STRUCTURE_RESIDUAL)
+                && help_box_can_make_status_message_residual(HelpBoxCanMakeStatusResidual::NoPrereq, false)
+                    .is_none()
+                && can_make_type_to_help_box_status_residual(0) == HelpBoxCanMakeStatusResidual::Ok
+                && can_make_type_to_help_box_status_residual(2) == HelpBoxCanMakeStatusResidual::NoMoney
+                && can_make_type_to_help_box_status_residual(4) == HelpBoxCanMakeStatusResidual::QueueFull
+                && can_make_type_to_help_box_status_residual(5)
+                    == HelpBoxCanMakeStatusResidual::ParkingPlacesFull
+                && can_make_type_to_help_box_status_residual(6)
+                    == HelpBoxCanMakeStatusResidual::MaxedOutForPlayer
+                && can_make_type_help_box_message_residual(2, false)
+                    == Some(HELP_BOX_STATUS_NO_MONEY_RESIDUAL)
+                && can_make_type_help_box_message_residual(6, false)
+                    == Some(HELP_BOX_STATUS_MAXED_UNIT_RESIDUAL)
+        });
     }
 
     #[test]
-    fn message_residual_pack_wave91_honesty() {
-        assert!(honesty_message_residual_pack_wave91());
+    fn message_timeout_and_motion_use_logic_frames() {
+        assert!({
+            MAX_UI_MESSAGES_RESIDUAL == 6
+                && MESSAGE_COLOR1_RESIDUAL == (255, 255, 255, 255)
+                && MESSAGE_COLOR2_RESIDUAL == (180, 180, 255, 255)
+                && MESSAGE_POSITION_RESIDUAL == (10, 10)
+                && MESSAGE_FONT_RESIDUAL == "Arial"
+                && MESSAGE_POINT_SIZE_RESIDUAL == 10
+                && MESSAGE_BOLD_RESIDUAL
+                && MESSAGE_DELAY_MS_RESIDUAL == 75_000
+                && MESSAGE_DELAY_MS_CTOR_DEFAULT_RESIDUAL == 5_000
+                && message_timeout_frames_cpp_residual(MESSAGE_DELAY_MS_RESIDUAL) == 2
+                && message_timeout_frames_cpp_residual(MESSAGE_DELAY_MS_CTOR_DEFAULT_RESIDUAL) == 0
+                && POPUP_MESSAGE_LAYOUT_WND_RESIDUAL == "InGamePopupMessage.wnd"
+                && POPUP_MESSAGE_COLOR_RESIDUAL == (255, 255, 255, 255)
+                && FLOATING_TEXT_TIMEOUT_MS_RESIDUAL == 333
+                && duration_ms_to_frames_ceil_residual(FLOATING_TEXT_TIMEOUT_MS_RESIDUAL)
+                    == FLOATING_TEXT_TIMEOUT_FRAMES_RESIDUAL
+                && FLOATING_TEXT_TIMEOUT_FRAMES_RESIDUAL == 10
+                && DEFAULT_FLOATING_TEXT_TIMEOUT_CTOR_RESIDUAL
+                    == (LOGIC_FRAMES_PER_SECOND_RESIDUAL as u32) / 3
+                && (velocity_secs_to_frames_residual(FLOATING_TEXT_MOVE_UP_SPEED_SEC_RESIDUAL)
+                    - FLOATING_TEXT_MOVE_UP_SPEED_FRAME_RESIDUAL)
+                    .abs()
+                    < 1e-5
+                && (velocity_secs_to_frames_residual(FLOATING_TEXT_VANISH_RATE_SEC_RESIDUAL)
+                    - FLOATING_TEXT_VANISH_RATE_FRAME_RESIDUAL)
+                    .abs()
+                    < 1e-5
+                && (MESSAGE_FADE_AMOUNT_SCALE_RESIDUAL - 0.01).abs() < 1e-6
+        });
     }
 
     #[test]
-    fn eva_residual_pack_wave91_honesty() {
-        assert!(honesty_eva_residual_pack_wave91());
+    fn eva_messages_keep_original_indices() {
+        assert!({
+            EVA_COUNT_RESIDUAL == 53
+                && EVA_MESSAGE_NAME_LIST.len() == EVA_COUNT_RESIDUAL
+                && EVA_PRIORITY_DEFAULT_RESIDUAL == 1
+                && EVA_FRAMES_BETWEEN_CHECKS_DEFAULT_RESIDUAL == 900
+                && EVA_FRAMES_TO_EXPIRE_DEFAULT_RESIDUAL == 150
+                && EVA_ENABLED_DEFAULT_RESIDUAL
+                && EVA_TRIGGERED_ON_NOT_RESIDUAL == u32::MAX
+                && EVA_NEXT_CHECK_NOW_RESIDUAL == 0
+                && EVA_MESSAGE_NAME_LIST[0] == "LOWPOWER"
+                && EVA_MESSAGE_NAME_LIST[1] == "INSUFFICIENTFUNDS"
+                && EVA_MESSAGE_NAME_LIST[2] == "SUPERWEAPONDETECTED_OWN_PARTICLECANNON"
+                && EVA_MESSAGE_NAME_LIST[11] == "SUPERWEAPONLAUNCHED_OWN_PARTICLECANNON"
+                && EVA_MESSAGE_NAME_LIST[20] == "SUPERWEAPONREADY_OWN_PARTICLECANNON"
+                && EVA_MESSAGE_NAME_LIST[29] == "BUILDINGLOST"
+                && EVA_MESSAGE_NAME_LIST[39] == "UNITLOST"
+                && EVA_MESSAGE_NAME_LIST[40] == "GENERALLEVELUP"
+                && EVA_MESSAGE_NAME_LIST[46] == "BUILDINGSABOTAGED"
+                && EVA_MESSAGE_NAME_LIST[47] == "SUPERWEAPONLAUNCHED_OWN_GPS_SCRAMBLER"
+                && EVA_MESSAGE_NAME_LIST[50] == "SUPERWEAPONLAUNCHED_OWN_SNEAK_ATTACK"
+                && EVA_MESSAGE_NAME_LIST[52] == "SUPERWEAPONLAUNCHED_ENEMY_SNEAK_ATTACK"
+                && eva_message_name_index("LOWPOWER") == Some(0)
+                && eva_message_name_index("unitlost") == Some(39)
+                && eva_message_name_index("SUPERWEAPONLAUNCHED_OWN_SNEAK_ATTACK") == Some(50)
+                && eva_message_name_index("not_an_eva").is_none()
+                && EVA_INVALID_SENTINEL_NAME_RESIDUAL == "EVA_INVALID"
+                && {
+                    let mut names: Vec<&str> = EVA_MESSAGE_NAME_LIST.to_vec();
+                    names.sort_unstable();
+                    names.windows(2).all(|w| w[0] != w[1])
+                }
+                // 900 frames = 30s; 150 frames = 5s at 30 FPS residual.
+                && EVA_FRAMES_BETWEEN_CHECKS_DEFAULT_RESIDUAL
+                    == (30 * LOGIC_FRAMES_PER_SECOND_RESIDUAL) as u32
+                && EVA_FRAMES_TO_EXPIRE_DEFAULT_RESIDUAL
+                    == (5 * LOGIC_FRAMES_PER_SECOND_RESIDUAL) as u32
+        });
     }
 
     #[test]
-    fn video_residual_name_table_wave91_honesty() {
-        assert!(honesty_video_residual_name_table_wave91());
+    fn video_lookup_preserves_authored_names() {
+        assert!({
+            VIDEO_BUFFER_NUM_TYPES_RESIDUAL == 5
+                && VIDEO_BUFFER_TYPE_NAME_LIST.len() == 5
+                && VIDEO_BUFFER_TYPE_NAME_LIST[0] == "TYPE_UNKNOWN"
+                && VIDEO_BUFFER_TYPE_NAME_LIST[2] == "TYPE_X8R8G8B8"
+                && VIDEO_BUFFER_TYPE_NAME_LIST[4] == "TYPE_X1R5G5B5"
+                && VIDEO_NAME_TABLE_RESIDUAL.len() == VIDEO_NAME_TABLE_COUNT_RESIDUAL
+                && VIDEO_NAME_TABLE_COUNT_RESIDUAL == 41
+                && VIDEO_NAME_TABLE_RESIDUAL[0].internal_name == "Sizzle"
+                && VIDEO_NAME_TABLE_RESIDUAL[0].filename == "sizzle_review"
+                && VIDEO_NAME_TABLE_RESIDUAL[2].internal_name == "EALogoMovie"
+                && VIDEO_NAME_TABLE_RESIDUAL[4].internal_name == "GeneralsChallengeBackground"
+                && VIDEO_NAME_TABLE_RESIDUAL[4].filename == "GC_Background"
+                && VIDEO_NAME_TABLE_RESIDUAL[26].internal_name == "MD_China01"
+                && VIDEO_NAME_TABLE_RESIDUAL[31].internal_name == "MD_GLA01"
+                && VIDEO_NAME_TABLE_RESIDUAL[36].internal_name == "MD_USA01"
+                && VIDEO_NAME_TABLE_RESIDUAL[40].internal_name == "MD_USA05"
+                && VIDEO_NAME_TABLE_RESIDUAL[40].filename == "MD_USA05_0"
+                && video_name_residual_by_internal("MD_USA01")
+                    .map(|v| v.filename == "MD_USA01_0")
+                    .unwrap_or(false)
+                && video_name_residual_by_internal("md_china05")
+                    .map(|v| v.filename == "MD_China05_0")
+                    .unwrap_or(false)
+                && video_name_residual_by_internal("GeneralsChallengeBackground")
+                    .map(|v| v.filename == "GC_Background")
+                    .unwrap_or(false)
+                && video_name_residual_by_internal("not_a_video").is_none()
+                && {
+                    let mut names: Vec<&str> = VIDEO_NAME_TABLE_RESIDUAL
+                        .iter()
+                        .map(|v| v.internal_name)
+                        .collect();
+                    names.sort_unstable();
+                    names.windows(2).all(|w| w[0] != w[1])
+                }
+                // Campaign transition movie residual cluster contiguous residual.
+                && VIDEO_NAME_TABLE_RESIDUAL
+                    .iter()
+                    .filter(|v| v.internal_name.starts_with("MD_"))
+                    .count()
+                    == 15
+        });
     }
 
     #[test]
-    fn mission_briefing_residual_pack_wave91_honesty() {
-        assert!(honesty_mission_briefing_residual_pack_wave91());
+    fn mission_briefing_lookup_and_caption_layout() {
+        assert!({
+            MAX_OBJECTIVE_LINES_RESIDUAL == 5
+                && MAX_DISPLAYED_UNITS_RESIDUAL == 3
+                && MAX_SUBTITLE_LINES_RESIDUAL == 4
+                && INVALID_MISSION_NUMBER_RESIDUAL == -1
+                && SINGLE_PLAYER_LOAD_SCREEN_WND_RESIDUAL == "Menus/SinglePlayerLoadScreen.wnd"
+                && MILITARY_SUBTITLES_TYPING_AUDIO_RESIDUAL == "MilitarySubtitlesTyping"
+                && MILITARY_CAPTION_POSITION_RESIDUAL == (10, 340)
+                && MILITARY_CAPTION_TITLE_FONT_RESIDUAL == "Courier New"
+                && MILITARY_CAPTION_TITLE_POINT_SIZE_RESIDUAL == 12
+                && MILITARY_CAPTION_TITLE_BOLD_RESIDUAL
+                && MILITARY_CAPTION_FONT_RESIDUAL == "Courier New"
+                && MILITARY_CAPTION_POINT_SIZE_RESIDUAL == 12
+                && !MILITARY_CAPTION_BOLD_RESIDUAL
+                && MILITARY_CAPTION_RANDOMIZE_TYPING_RESIDUAL
+                && MILITARY_CAPTION_COLOR_RESIDUAL == (255, 255, 255, 255)
+                && FACTION_CAMPAIGN_MISSION_COUNT_RESIDUAL == 5
+                && CAMPAIGN_NAME_LIST_RESIDUAL.len() == 4
+                && CAMPAIGN_NAME_LIST_RESIDUAL[0] == "TRAINING"
+                && CAMPAIGN_NAME_LIST_RESIDUAL[1] == "USA"
+                && CAMPAIGN_NAME_LIST_RESIDUAL[3] == "China"
+                && {
+                    let training = mission_briefing_residual("TRAINING", "Mission01").unwrap();
+                    training.map == r"Maps\Training01\Training01.map"
+                        && training.intro_movie == "TrainingCampaign"
+                        && training.briefing_voice == Some("BriefingUSATraining")
+                        && training.objective_line0 == Some("GUI:Objectives:")
+                        && training.unit_names0 == Some("OBJECT:Ranger")
+                        && training.voice_length == Some(17)
+                }
+                && {
+                    let usa1 = mission_briefing_residual("USA", "Mission01").unwrap();
+                    usa1.intro_movie == "MD_USA01"
+                        && usa1.map == r"Maps\MD_USA01\MD_USA01.map"
+                        && video_name_residual_by_internal(usa1.intro_movie).is_some()
+                }
+                && {
+                    let gla5 = mission_briefing_residual("GLA", "Mission05").unwrap();
+                    gla5.intro_movie == "MD_GLA05"
+                }
+                && {
+                    let chi1 = mission_briefing_residual("China", "Mission01").unwrap();
+                    chi1.intro_movie == "MD_China01" && chi1.map == r"Maps\MD_CHI01\MD_CHI01.map"
+                }
+                && {
+                    let ch0 = mission_briefing_residual("CHALLENGE_0", "Mission01").unwrap();
+                    ch0.intro_movie == "GeneralsChallengeBackground"
+                        && video_name_residual_by_internal(ch0.intro_movie)
+                            .map(|v| v.filename == "GC_Background")
+                            .unwrap_or(false)
+                }
+                && mission_briefing_residual("USA", "Mission99").is_none()
+                && {
+                    let (x, y) = military_caption_scaled_position_residual(800.0, 600.0);
+                    (x - 10.0).abs() < 1e-5 && (y - 340.0).abs() < 1e-5
+                }
+                && {
+                    let (x, y) = military_caption_scaled_position_residual(1600.0, 1200.0);
+                    (x - 20.0).abs() < 1e-5 && (y - 680.0).abs() < 1e-5
+                }
+        });
     }
 
-    #[test]
-    fn ui_presentation_residual_pack_wave91_combined_honesty() {
-        assert!(honesty_ui_presentation_residual_pack_wave91());
-    }
 }

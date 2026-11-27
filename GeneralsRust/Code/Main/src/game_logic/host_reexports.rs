@@ -114,7 +114,6 @@ pub use super::host_deliver_payload::{
     SUPPLY_DROP_PRE_OPEN_DISTANCE, SUPPLY_DROP_PUT_IN_CONTAINER, drop_delay_frames_from_ms,
     residual_allowed_delivery_distance,
 };
-pub use super::host_dock_contain_exit_heal_residual::honesty_heal_residual_deepen_pack_wave98;
 pub use super::host_dragon_tank::{
     DRAGON_PRIMARY_DAMAGE, DRAGON_RANGE, DRAGON_SECONDARY_DAMAGE, DRAGON_SECONDARY_RADIUS,
     DRAGON_TANK_FLAME_WEAPON, DRAGON_TANK_FLAME_WEAPON_UPGRADED, UPGRADE_CHINA_BLACK_NAPALM,
@@ -131,22 +130,7 @@ pub use super::host_emp_pulse::{
     EMP_PULSE_ACTIVATE_AUDIO, EMP_PULSE_DISABLED_DURATION_FRAMES, HOST_EMP_PULSE_RADIUS,
     HostEmpPulse, HostEmpPulseRegistry, is_legal_emp_disable_target,
 };
-pub use super::host_enum_table_residual::{
-    honesty_damage_type_enum_table_wave82, honesty_death_type_enum_table_wave82,
-    honesty_enum_table_residual_pack_wave82, honesty_enum_table_residual_pack_wave84,
-    honesty_geometry_type_enum_table_wave84, honesty_kindof_enum_table_wave84,
-    honesty_model_condition_enum_table_wave82, honesty_object_status_enum_table_wave82,
-    honesty_relationship_enum_table_wave84, honesty_shadow_type_enum_table_wave84,
-    honesty_veterancy_level_enum_table_wave84, honesty_weapon_bonus_enum_table_wave82,
-    honesty_weapon_slot_enum_table_wave84,
-};
 
-pub use super::host_faction_skirmish_residual::{
-    honesty_faction_side_residual_table_wave85, honesty_faction_skirmish_residual_pack_wave85,
-    honesty_player_template_residual_pack_wave85,
-    honesty_skirmish_ai_personality_residual_pack_wave85,
-    honesty_starting_cash_residual_pack_wave85, honesty_victory_condition_residual_pack_wave85,
-};
 pub use super::host_firewall::{
     FIREWALL_ACTIVATE_AUDIO, FIREWALL_DAMAGE_PER_TICK, FIREWALL_DURATION_FRAMES,
     FIREWALL_SEGMENT_RADIUS, FIREWALL_TICK_INTERVAL_FRAMES, HostFireWall, HostFireWallRegistry,
@@ -157,12 +141,6 @@ pub use super::host_frenzy::{
     is_legal_frenzy_target,
 };
 
-pub use super::host_gamedata_lobby_residual::{
-    honesty_crate_residual_deepen_pack_wave86, honesty_gamedata_camera_fps_residual_pack_wave86,
-    honesty_gamedata_lobby_residual_pack_wave86,
-    honesty_gamedata_world_constants_residual_pack_wave86,
-    honesty_map_selection_residual_pack_wave86, honesty_multiplayer_options_residual_pack_wave86,
-};
 pub use super::host_gattling_tank::{
     GATTLING_BASE_DELAY_FRAMES, GATTLING_GROUND_DAMAGE, GATTLING_GROUND_RANGE, GATTLING_TANK_GUN,
     GATTLING_TANK_GUN_AIR, GattlingFireLevel, UPGRADE_CHINA_CHAIN_GUNS, gattling_air_weapon,
@@ -294,12 +272,6 @@ pub use super::host_paradrop::{
     AMERICA_PARADROP_UNIT_COUNT, HostParadropKind, HostParadropMission, HostParadropPhase,
     HostParadropRegistry, PARADROP_DROP_SPACING, PARADROP_RESIDUAL_TEMPLATE,
 };
-pub use super::host_partition_collision_physics_residual::{
-    honesty_collision_residual_pack_wave96,
-    honesty_partition_collision_physics_residual_pack_wave96,
-    honesty_partition_residual_pack_wave96, honesty_physics_residual_pack_wave96,
-    honesty_projectile_residual_deepen_pack_wave96,
-};
 pub use super::host_point_defense::{
     AVENGER_PDL_FIRE_RANGE, PALADIN_PDL_FIRE_RANGE, PDL_INTERCEPT_AUDIO, is_missile_name_residual,
     is_point_defense_carrier, is_primary_intercept_target, pdl_damage, pdl_delay_frames,
@@ -318,7 +290,6 @@ pub use super::host_radar_scan::{
     RADAR_SCAN_STEALTH_DETECTION_RANGE, RADAR_SCAN_VISION_RANGE, RADAR_VAN_PING_TEMPLATE,
     honesty_radar_scan_dynamic_shroud_constants_ok, radar_scan_dynamic_shroud_radius_at_elapsed,
 };
-pub use super::host_radar_stealth_vision_residual::honesty_detector_residual_deepen_pack_wave97;
 pub use super::host_railed_transport::{
     RAILED_ARRIVE_DISTANCE, RAILED_INVALID_PATH, RAILED_MAX_WAYPOINT_PATHS,
     default_railed_current_path,
@@ -334,11 +305,6 @@ pub use super::host_bridge_behavior::{
     is_bridge_or_tower_template, is_bridge_span_template,
 };
 pub use super::host_cave_system::HostCaveSystem;
-pub use super::host_rank_ui_residual::{
-    honesty_chat_residual_host_pack_wave89, honesty_experience_residual_tables_pack_wave89,
-    honesty_hotkey_residual_table_pack_wave89, honesty_options_residual_pack_wave89,
-    honesty_rank_ui_residual_pack_wave89, honesty_replay_residual_host_pack_wave89,
-};
 pub use super::host_red_guard::{
     REDGUARD_DAMAGE, REDGUARD_MACHINE_GUN, REDGUARD_RANGE, is_red_guard_template, red_guard_weapon,
     is_red_guard_weapon_name, should_apply_bayonet_residual,
@@ -380,7 +346,6 @@ pub use super::host_sneak_attack::{
     SNEAK_ATTACK_SPAWN_DELAY_FRAMES, is_legal_sneak_shockwave_target,
 };
 
-pub use super::host_special_power_enum_residual::honesty_special_power_enum_residual_pack_wave80;
 pub use super::host_spy_satellite::{
     HostSpySatellite, HostSpySatelliteRegistry, SPY_SATELLITE_ACTIVATE_AUDIO,
     SPY_SATELLITE_DURATION_FRAMES, SPY_SATELLITE_GROW_TIME_FRAMES, SPY_SATELLITE_PING_TEMPLATE,
@@ -404,12 +369,7 @@ pub use super::host_strategy_center::{
     battle_plan_paralyze_frames_from_ms, battle_plan_paralyze_until_frame,
     is_legal_battle_plan_member, is_strategy_center_template,
 };
-pub use super::host_structure_economy_residual::{
-    MIN_DIST_FROM_EDGE_OF_MAP_FOR_BUILD, honesty_capture_building_residual_pack_wave83,
-    honesty_command_center_residual_pack_wave83, honesty_dozer_build_residual_pack_wave83,
-    honesty_power_plant_residual_pack_wave83, honesty_production_queue_residual_pack_wave83,
-    honesty_structure_economy_residual_pack_wave83, honesty_supply_warehouse_residual_pack_wave83,
-};
+pub use super::host_structure_economy_residual::MIN_DIST_FROM_EDGE_OF_MAP_FOR_BUILD;
 pub use super::host_superweapon_kindof::honesty_superweapon_kindof_residual_pack_wave80;
 pub use super::host_supply_drop_zone::{
     HostSupplyDropZoneRegistry, SUPPLY_DROP_ZONE_CRATE_COUNT, SUPPLY_DROP_ZONE_DELAY_MS,
@@ -448,12 +408,6 @@ pub use super::host_tunnel_network::{
     tunnel_system_key, unit_can_use_tunnel,
 };
 
-pub use super::host_ui_presentation_residual::{
-    honesty_eva_residual_pack_wave91, honesty_help_box_residual_pack_wave91,
-    honesty_message_residual_pack_wave91, honesty_mission_briefing_residual_pack_wave91,
-    honesty_tooltip_residual_pack_wave91, honesty_ui_presentation_residual_pack_wave91,
-    honesty_video_residual_name_table_wave91,
-};
 pub use super::host_unit_training::{
     HostUnitTrainingRegistry, SCIENCE_ARTILLERY_TRAINING, SCIENCE_BATTLEMASTER_TRAINING,
     SCIENCE_INFA_RED_GUARD_TRAINING, SCIENCE_RED_GUARD_TRAINING, SCIENCE_TECHNICAL_TRAINING,

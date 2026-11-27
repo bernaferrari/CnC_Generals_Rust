@@ -697,44 +697,6 @@ pub fn kind_of_set_cpp_mask(kinds: &crate::game_logic::KindOfSet) -> u128 {
 }
 
 
-/// Wave 97 detector residual deepen honesty pack.
-pub fn honesty_detector_residual_deepen_pack_wave97() -> bool {
-    DETECTOR_UPDATE_RATE_CTOR_DEFAULT_RESIDUAL == 1
-        && (DETECTOR_RANGE_CTOR_DEFAULT_RESIDUAL - 0.0).abs() < 1e-6
-        && !DETECTOR_INITIALLY_DISABLED_CTOR_DEFAULT_RESIDUAL
-        && !DETECTOR_CAN_DETECT_WHILE_GARRISONED_CTOR_DEFAULT_RESIDUAL
-        && !DETECTOR_CAN_DETECT_WHILE_TRANSPORTED_CTOR_DEFAULT_RESIDUAL
-        && DETECTOR_RATE_COMMON_MS_RESIDUAL == 500
-        && DETECTOR_RATE_COMMON_FRAMES_RESIDUAL
-            == residual_ms_to_frames(DETECTOR_RATE_COMMON_MS_RESIDUAL)
-        && DETECTOR_RATE_COMMON_FRAMES_RESIDUAL == 15
-        && DETECTOR_RATE_SLOW_MS_RESIDUAL == 900
-        && DETECTOR_RATE_SLOW_FRAMES_RESIDUAL == residual_ms_to_frames(DETECTOR_RATE_SLOW_MS_RESIDUAL)
-        && DETECTOR_RATE_SLOW_FRAMES_RESIDUAL == 27
-        && DETECTOR_UNIT_SAMPLE_TABLE_RESIDUAL.len() == 6
-        && DETECTOR_UNIT_SAMPLE_TABLE_RESIDUAL[0].template == "AmericaInfantryPathfinder"
-        && (detector_effective_range_residual(
-            DETECTOR_UNIT_SAMPLE_TABLE_RESIDUAL[0].detection_range,
-            DETECTOR_UNIT_SAMPLE_TABLE_RESIDUAL[0].vision_range_fallback,
-        ) - 200.0)
-            .abs()
-            < 1e-6
-        && (detector_effective_range_residual(
-            DETECTOR_UNIT_SAMPLE_TABLE_RESIDUAL[1].detection_range,
-            DETECTOR_UNIT_SAMPLE_TABLE_RESIDUAL[1].vision_range_fallback,
-        ) - 200.0)
-            .abs()
-            < 1e-6
-        && (detector_effective_range_residual(0.0, 150.0) - 150.0).abs() < 1e-6
-        && residual_ms_to_frames(DETECTOR_UNIT_SAMPLE_TABLE_RESIDUAL[2].rate_ms)
-            == DETECTOR_UNIT_SAMPLE_TABLE_RESIDUAL[2].rate_frames
-        && (DETECTOR_UNIT_SAMPLE_TABLE_RESIDUAL[3].detection_range - 225.0).abs() < 1e-6
-        && (DETECTOR_UNIT_SAMPLE_TABLE_RESIDUAL[4].detection_range - 150.0).abs() < 1e-6
-        // Spotter cross-link: detector scan keeps target detected until next wake.
-        && spotter_mark_detected_primary_frames_residual(DETECTOR_RATE_COMMON_FRAMES_RESIDUAL)
-            == 16
-}
-
 // ---------------------------------------------------------------------------
 // 5. Vision residual peels (VisionRange / AI vision factors / DSCRU)
 // ---------------------------------------------------------------------------
@@ -851,12 +813,6 @@ pub const VISION_UNIT_SAMPLE_TABLE_RESIDUAL: &[(&str, f32, f32)] = &[
 
 /// Wave 97 vision residual honesty pack.
 
-// ---------------------------------------------------------------------------
-// Combined Wave 97 residual pack
-// ---------------------------------------------------------------------------
-
-/// Combined Wave 97 residual honesty pack.
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -873,8 +829,43 @@ mod tests {
     }
 
     #[test]
-    fn detector_residual_deepen_wave97_honesty() {
-        assert!(honesty_detector_residual_deepen_pack_wave97());
+    fn detectors_apply_range_and_reveal_duration() {
+        assert!({
+            DETECTOR_UPDATE_RATE_CTOR_DEFAULT_RESIDUAL == 1
+                && (DETECTOR_RANGE_CTOR_DEFAULT_RESIDUAL - 0.0).abs() < 1e-6
+                && !DETECTOR_INITIALLY_DISABLED_CTOR_DEFAULT_RESIDUAL
+                && !DETECTOR_CAN_DETECT_WHILE_GARRISONED_CTOR_DEFAULT_RESIDUAL
+                && !DETECTOR_CAN_DETECT_WHILE_TRANSPORTED_CTOR_DEFAULT_RESIDUAL
+                && DETECTOR_RATE_COMMON_MS_RESIDUAL == 500
+                && DETECTOR_RATE_COMMON_FRAMES_RESIDUAL
+                    == residual_ms_to_frames(DETECTOR_RATE_COMMON_MS_RESIDUAL)
+                && DETECTOR_RATE_COMMON_FRAMES_RESIDUAL == 15
+                && DETECTOR_RATE_SLOW_MS_RESIDUAL == 900
+                && DETECTOR_RATE_SLOW_FRAMES_RESIDUAL == residual_ms_to_frames(DETECTOR_RATE_SLOW_MS_RESIDUAL)
+                && DETECTOR_RATE_SLOW_FRAMES_RESIDUAL == 27
+                && DETECTOR_UNIT_SAMPLE_TABLE_RESIDUAL.len() == 6
+                && DETECTOR_UNIT_SAMPLE_TABLE_RESIDUAL[0].template == "AmericaInfantryPathfinder"
+                && (detector_effective_range_residual(
+                    DETECTOR_UNIT_SAMPLE_TABLE_RESIDUAL[0].detection_range,
+                    DETECTOR_UNIT_SAMPLE_TABLE_RESIDUAL[0].vision_range_fallback,
+                ) - 200.0)
+                    .abs()
+                    < 1e-6
+                && (detector_effective_range_residual(
+                    DETECTOR_UNIT_SAMPLE_TABLE_RESIDUAL[1].detection_range,
+                    DETECTOR_UNIT_SAMPLE_TABLE_RESIDUAL[1].vision_range_fallback,
+                ) - 200.0)
+                    .abs()
+                    < 1e-6
+                && (detector_effective_range_residual(0.0, 150.0) - 150.0).abs() < 1e-6
+                && residual_ms_to_frames(DETECTOR_UNIT_SAMPLE_TABLE_RESIDUAL[2].rate_ms)
+                    == DETECTOR_UNIT_SAMPLE_TABLE_RESIDUAL[2].rate_frames
+                && (DETECTOR_UNIT_SAMPLE_TABLE_RESIDUAL[3].detection_range - 225.0).abs() < 1e-6
+                && (DETECTOR_UNIT_SAMPLE_TABLE_RESIDUAL[4].detection_range - 150.0).abs() < 1e-6
+                // Spotter cross-link: detector scan keeps target detected until next wake.
+                && spotter_mark_detected_primary_frames_residual(DETECTOR_RATE_COMMON_FRAMES_RESIDUAL)
+                    == 16
+        });
     }
 
     #[test]
