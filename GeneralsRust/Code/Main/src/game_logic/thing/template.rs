@@ -2084,18 +2084,12 @@ impl ThingTemplate {
     /// Explicit host admission followed by the same native-rule conversion.
     /// Ordinary resolution uses this; raw `weapon_from_store` stays a lookup.
     pub(in crate::game_logic) fn weapon_from_host_store(name: &str) -> Option<Weapon> {
-        let template = super::weapon_bootstrap::with_host_weapon_store(|store| {
-            store.find_weapon_template(name).cloned()
-        })
-        .ok()??;
+        let template = super::weapon_bootstrap::legacy_weapon_definition(name)?;
         Self::weapon_from_template(&template)
     }
 
     fn weapon_from_host_store_at(name: &str, frame: u32) -> Option<Weapon> {
-        let template = super::weapon_bootstrap::with_host_weapon_store(|store| {
-            store.find_weapon_template(name).cloned()
-        })
-        .ok()??;
+        let template = super::weapon_bootstrap::legacy_weapon_definition(name)?;
         Self::weapon_from_template_at(&template, frame)
     }
 

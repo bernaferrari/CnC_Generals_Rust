@@ -8,10 +8,9 @@ pub fn host_shows_ammo_pips_for_weapon_name(name: &str) -> bool {
     if name.is_empty() {
         return false;
     }
-    use super::with_host_weapon_store as with_weapon_store;
-    with_weapon_store(|store| {
-        store
-            .find_weapon_template(name)
+
+    read_legacy_weapon_definition(name, |rule| {
+        rule
             .map(|weapon| weapon.is_shows_ammo_pips)
     })
     .ok()
@@ -27,10 +26,9 @@ pub fn host_capable_of_following_waypoint_for_weapon_name(name: &str) -> bool {
     if name.is_empty() {
         return false;
     }
-    use super::with_host_weapon_store as with_weapon_store;
-    with_weapon_store(|store| {
-        store
-            .find_weapon_template(name)
+
+    read_legacy_weapon_definition(name, |rule| {
+        rule
             .map(|weapon| weapon.capable_of_following_waypoint)
     })
     .ok()
@@ -38,27 +36,14 @@ pub fn host_capable_of_following_waypoint_for_weapon_name(name: &str) -> bool {
     .unwrap_or(false)
 }
 
-/// A real definition may intentionally contain no stream. Absence of the
-/// definition is a separate bootstrap condition, never inferred from its value.
-enum ProjectileStreamDefinition {
-    Defined(String),
-    Missing,
-}
-
-/// C++ Weapon::newProjectileFired uses this exact WeaponTemplate's field.
-/// An empty defined stream is authoritative; only genuinely missing host rules
-/// may use the existing bootstrap seed. Store errors remain fail closed.
+/// C++ Weapon::newProjectileFired uses this exact weapon's stream name.
+/// Only a missing compatibility definition may use the existing startup seed.
 pub fn host_projectile_stream_name_for_weapon_name(name: &str) -> String {
-    match with_host_weapon_store(|store| {
-        store
-            .find_weapon_template(name)
-            .map(|definition| {
-                ProjectileStreamDefinition::Defined(definition.projectile_stream_name.clone())
-            })
-            .unwrap_or(ProjectileStreamDefinition::Missing)
+    match read_legacy_weapon_definition(name, |rule| {
+        rule.map(|definition| definition.projectile_stream_name.clone())
     }) {
-        Ok(ProjectileStreamDefinition::Defined(stream)) => stream,
-        Ok(ProjectileStreamDefinition::Missing) => seed_projectile_stream_name_for(name),
+        Ok(Some(stream)) => stream,
+        Ok(None) => seed_projectile_stream_name_for(name),
         Err(_) => String::new(),
     }
 }
@@ -86,10 +71,9 @@ pub(super) fn seed_projectile_stream_name_for(name: &str) -> String {
 /// Leftover store is source of truth. Default false when the template is
 /// missing — do not invent the flag from weapon-name substrings.
 pub fn host_die_on_detonate_for_weapon_name(name: &str) -> bool {
-    use super::with_host_weapon_store as with_weapon_store;
-    with_weapon_store(|store| {
-        store
-            .find_weapon_template(name)
+
+    read_legacy_weapon_definition(name, |rule| {
+        rule
             .map(|weapon| weapon.die_on_detonate)
     })
     .ok()
@@ -105,10 +89,9 @@ pub fn host_damage_dealt_at_self_position_for_weapon_name(name: &str) -> bool {
     if name.is_empty() {
         return false;
     }
-    use super::with_host_weapon_store as with_weapon_store;
-    with_weapon_store(|store| {
-        store
-            .find_weapon_template(name)
+
+    read_legacy_weapon_definition(name, |rule| {
+        rule
             .map(|weapon| weapon.damage_dealt_at_self_position)
     })
     .ok()
@@ -170,10 +153,9 @@ pub fn host_weapon_is_kill_garrisoned_damage(name: &str) -> bool {
     if name.is_empty() {
         return false;
     }
-    use super::with_host_weapon_store as with_weapon_store;
-    with_weapon_store(|store| {
-        store
-            .find_weapon_template(name)
+
+    read_legacy_weapon_definition(name, |rule| {
+        rule
             .map(|weapon| weapon.damage_type == generals_sim::damage::DamageType::KillGarrisoned)
     })
     .ok()
@@ -205,10 +187,9 @@ pub fn host_damage_status_type_for_weapon_name(name: &str) -> Option<&'static st
 pub(in crate::game_logic) fn host_damage_status_for_weapon_name(
     name: &str,
 ) -> Option<generals_sim::object::ObjectStatusTypes> {
-    use super::with_host_weapon_store as with_weapon_store;
-    let from_store = with_weapon_store(|store| {
-        store
-            .find_weapon_template(name)
+
+    let from_store = read_legacy_weapon_definition(name, |rule| {
+        rule
             .map(|weapon| weapon.damage_status_type.into())
     })
     .ok()

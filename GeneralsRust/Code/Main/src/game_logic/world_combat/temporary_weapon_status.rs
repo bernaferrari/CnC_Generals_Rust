@@ -43,9 +43,8 @@ impl TemporaryWeaponStoreFields {
 }
 
 pub(super) fn store_fields_for_weapon_name(name: &str) -> Option<TemporaryWeaponStoreFields> {
-    crate::game_logic::weapon_bootstrap::with_host_weapon_store(|store| {
-        store
-            .find_weapon_template(name)
+    crate::game_logic::weapon_bootstrap::read_legacy_weapon_definition(name, |rule| {
+        rule
             .map(|template| TemporaryWeaponStoreFields::from_template(template))
     })
     .ok()

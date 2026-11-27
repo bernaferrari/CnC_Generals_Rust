@@ -1,5 +1,8 @@
 //! Lexical rules shared by the original INI parsers.
 
+mod blocks;
+pub use blocks::{OrderedIniProperties, parse_ini_sections_ordered};
+
 /// Parse leading ASCII whitespace, an optional sign, and one or more decimal digits.
 ///
 /// The complete integer prefix must fit in `i32`; missing digits and overflow return `None`.

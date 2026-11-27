@@ -2289,9 +2289,8 @@ pub fn is_patriot_free_to_assist(
 /// Live Patriot assist must read the leftover store. Missing template → 0
 /// (C++ default `m_requestAssistRange`).
 pub fn leftover_request_assist_range(weapon_name: &str) -> f32 {
-    crate::game_logic::weapon_bootstrap::with_host_weapon_store(|store| {
-        store
-            .find_weapon_template(weapon_name)
+    crate::game_logic::weapon_bootstrap::read_legacy_weapon_definition(weapon_name, |rule| {
+        rule
             .map(|wt| wt.get_request_assist_range().max(0.0))
     })
     .ok()

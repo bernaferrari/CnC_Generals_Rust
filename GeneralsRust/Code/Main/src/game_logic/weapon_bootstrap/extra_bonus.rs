@@ -4,7 +4,6 @@
 //! leftover `WeaponTemplate.extra_bonus`. Live compute must append that set
 //! after the global GameData bonuses.
 
-use super::with_host_weapon_store as with_weapon_store;
 use super::*;
 use generals_sim::weapon::{WeaponBonus, WeaponBonusConditionFlags, WeaponBonusConditionType, WeaponBonusField, WeaponBonusSet};
 
@@ -14,9 +13,8 @@ pub fn append_extra_weapon_bonus(
     flags: WeaponBonusConditionFlags,
     bonus: &mut WeaponBonus,
 ) {
-    let _ = with_weapon_store(|store| {
-        if let Some(extra) = store
-            .find_weapon_template(name)
+    let _ = read_legacy_weapon_definition(name, |rule| {
+        if let Some(extra) = rule
             .and_then(|wt| wt.get_extra_bonus())
         {
             extra.append_bonuses(flags, bonus);
@@ -28,7 +26,7 @@ pub fn append_extra_weapon_bonus(
 ///
 /// Retail `RangerAdvancedCombatRifle`:
 /// `WeaponBonus = DRONE_SPOTTING RATE_OF_FIRE/RANGE/DAMAGE 200%`.
-pub fn seed_ranger_drone_spotting_extra(template: &mut WeaponTemplate) {
+pub fn seed_ranger_drone_spotting_extra(template: &mut generals_sim::weapon::WeaponDefinition) {
     if template.extra_bonus.is_some() {
         return;
     }

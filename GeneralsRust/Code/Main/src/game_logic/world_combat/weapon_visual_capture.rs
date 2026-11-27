@@ -98,11 +98,7 @@ pub(super) fn select_weapon_template_fx(
 }
 
 fn compatibility_weapon_rule(name: &str) -> Option<Arc<WeaponTemplate>> {
-    crate::game_logic::weapon_bootstrap::with_host_weapon_store(|store| {
-        store.find_weapon_template(name).map(|rule| rule.shared_definition())
-    })
-    .ok()
-    .flatten()
+    crate::game_logic::weapon_bootstrap::legacy_weapon_definition(name)
 }
 
 impl Object {

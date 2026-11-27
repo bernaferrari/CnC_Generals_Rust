@@ -8,11 +8,10 @@ pub enum HostReloadType {
 }
 
 pub fn host_reload_type_for_weapon_name(name: &str) -> HostReloadType {
-    use super::with_host_weapon_store as with_weapon_store;
+
     use generals_sim::weapon::WeaponReloadType as GlReload;
-    let from_store = with_weapon_store(|store| {
-        store
-            .find_weapon_template(name)
+    let from_store = read_legacy_weapon_definition(name, |rule| {
+        rule
             .map(|wt| match wt.reload_type {
                 GlReload::AutoReload => HostReloadType::Auto,
                 GlReload::ReturnToBaseToReload => HostReloadType::ReturnToBase,
@@ -67,11 +66,10 @@ impl HostPrefireType {
 
 /// Resolve PreAttackType for a weapon name.
 pub fn host_prefire_type_for_weapon_name(name: &str) -> HostPrefireType {
-    use super::with_host_weapon_store as with_weapon_store;
+
     use generals_sim::weapon::WeaponPrefireType;
-    let from_store = with_weapon_store(|store| {
-        store
-            .find_weapon_template(name)
+    let from_store = read_legacy_weapon_definition(name, |rule| {
+        rule
             .map(|wt| match wt.prefire_type {
                 WeaponPrefireType::PrefirePerShot => HostPrefireType::PerShot,
                 WeaponPrefireType::PrefirePerAttack => HostPrefireType::PerAttack,
@@ -163,10 +161,9 @@ fn leftover_delay_between_shots_secs_using(
     roll: bool,
     random: Option<&game_engine::common::random_value::SessionRandom>,
 ) -> Option<f32> {
-    use super::with_host_weapon_store as with_weapon_store;
     use generals_sim::weapon::{WeaponBonus, WeaponBonusField};
-    with_weapon_store(|store| {
-        store.find_weapon_template(name).and_then(|wt| {
+    read_legacy_weapon_definition(name, |rule| {
+        rule.and_then(|wt| {
             let mut bonus = WeaponBonus::new();
             bonus.set_field(WeaponBonusField::RateOfFire, rof.max(0.01));
             let frames = if roll || wt.min_delay_between_shots == wt.max_delay_between_shots {
@@ -183,10 +180,9 @@ fn leftover_delay_between_shots_secs_using(
 
 /// C++ Weapon.ini PrimaryDamage residual amount (Regular).
 pub fn host_primary_damage_for_weapon_name(name: &str) -> Option<f32> {
-    use super::with_host_weapon_store as with_weapon_store;
-    with_weapon_store(|store| {
-        store
-            .find_weapon_template(name)
+
+    read_legacy_weapon_definition(name, |rule| {
+        rule
             .map(|wt| wt.primary_damage)
             .filter(|damage| *damage > 0.0)
     })
@@ -244,9 +240,9 @@ pub fn normalize_aim_delta_radians(raw: f32) -> f32 {
 
 /// Resolve AcceptableAimDelta for a weapon name (radians, REL_THRESH floor).
 pub fn host_aim_delta_for_weapon_name(name: &str) -> f32 {
-    use super::with_host_weapon_store as with_weapon_store;
+
     let from_store =
-        with_weapon_store(|store| store.find_weapon_template(name).map(|wt| wt.aim_delta))
+        read_legacy_weapon_definition(name, |rule| rule.map(|wt| wt.aim_delta))
             .ok()
             .flatten();
     if let Some(v) = from_store {

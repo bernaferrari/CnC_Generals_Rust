@@ -100,6 +100,12 @@ mod estimate;
 pub use estimate::*;
 mod unit_map;
 pub use unit_map::*;
+mod legacy_store;
+pub use legacy_store::{register_weapons_from_ini_text, with_weapons_from_ini_text};
+pub(crate) use legacy_store::publish_archive_weapon_definitions;
+pub(in crate::game_logic) use legacy_store::{legacy_weapon_definition, read_legacy_weapon_definition};
+#[cfg(test)]
+pub(crate) use legacy_store::register_weapon_template;
 mod store;
 pub use store::*;
 mod extra_bonus;

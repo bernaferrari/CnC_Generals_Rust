@@ -314,9 +314,8 @@ fn parse_status_mask(raw: Option<&str>, bit_of: fn(&str) -> Option<u32>) -> u64 
 
 /// Primary damage for a collide weapon (WeaponStore residual; fail-closed 0).
 pub fn host_fire_weapon_collide_damage(weapon_name: &str) -> f32 {
-    crate::game_logic::weapon_bootstrap::with_host_weapon_store(|store| {
-        store
-            .find_weapon_template(weapon_name)
+    crate::game_logic::weapon_bootstrap::read_legacy_weapon_definition(weapon_name, |rule| {
+        rule
             .map(|template| template.primary_damage.max(0.0))
             .unwrap_or(0.0)
     })

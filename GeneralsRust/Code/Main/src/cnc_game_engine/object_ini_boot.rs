@@ -306,13 +306,11 @@ fn capture_standalone_startup_sources(
     let sciences = Arc::new(ScienceNameFacts::from_store(&science_store));
     let weapon_source = read("Data/INI/Weapon.ini")?
         .ok_or("Startup requires Data/INI/Weapon.ini")?;
-    let mut weapons = std::collections::HashMap::new();
-    crate::assets::ini_template_loader::parse_weapon_definitions_ini_into(
-        &mut weapons, &weapon_source,
-        crate::assets::ini_template_loader::WeaponDefinitionLoadType::Normal,
-    );
-    let weapons = generals_sim::weapon::WeaponCatalog::from_named_definitions(weapons)
-        .map_err(|error| error.to_string())?;
+    let weapons = generals_sim::weapon::WeaponCatalog::from_ini_sources([(
+        weapon_source.as_str(),
+        generals_sim::weapon::WeaponDefinitionLoadType::Normal,
+    )])
+    .map_err(|error| error.to_string())?;
     let mut actions = ReceivingActionDefinitions::default();
     for (label, paths) in [
         ("SpecialPower", ["Data/INI/Default/SpecialPower.ini", "Data/INI/SpecialPower.ini"]),

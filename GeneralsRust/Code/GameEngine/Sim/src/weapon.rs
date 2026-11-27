@@ -14,7 +14,10 @@ pub use catalog::{WeaponCatalog, WeaponCatalogError};
 pub use definition::{Coord2D, WeaponDefinition, WeaponFxName, WeaponSound};
 pub use estimate::{DamageEstimateTarget, WeaponDamageEstimate, estimate_weapon_template_damage};
 pub use generals_game_domain::weapon::{WeaponFireStatus, WeaponLockType, WeaponSlotType};
-pub use ini::{WeaponEffectOverrides, apply_weapon_ini_fields};
+pub use ini::{
+    WeaponDefinitionLoadType, WeaponEffectOverrides, apply_weapon_ini, apply_weapon_ini_fields,
+    parse_weapon_definitions_ini_into,
+};
 pub use selection::{
     WeaponCandidate, WeaponChoiceCriteria, WeaponSelection, weapon_damage_is_eligible,
 };

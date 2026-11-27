@@ -332,7 +332,7 @@ impl Object {
         // C++ Weapon::computeBonus + WeaponBonus::appendBonuses (Weapon.cpp:1797-1816,
         // 3463-3468): start at 1.0 and add (other - 1) per active condition.
         // Leftover WeaponBonus::append_bonuses already matches; do not multiply.
-        use gamelogic::WeaponBonus;
+        use generals_sim::weapon::WeaponBonus;
         use generals_sim::weapon::WeaponBonusField::{self, Damage, Range, RateOfFire};
 
         fn append_field(bonus: &mut WeaponBonus, field: WeaponBonusField, value: f32) {
@@ -1365,7 +1365,7 @@ impl Object {
 /// Append the selected SOLO condition from an explicit receiving-session set.
 /// A missing condition leaves WeaponBonus's neutral 1.0 values untouched.
 fn append_solo_bonus_from_set(
-    bonus: &mut gamelogic::WeaponBonus,
+    bonus: &mut generals_sim::weapon::WeaponBonus,
     set: &generals_sim::weapon::WeaponBonusSet,
     disc: u8,
 ) {
@@ -1387,7 +1387,7 @@ fn append_solo_bonus_from_set(
 /// C++ `TheGameLogic->getGlobalWeaponBonusSet()->appendBonuses(SOLO_*)`.
 /// Falls back to parsed GameData.ini `WeaponBonus` lines when leftover
 /// GameLogic is not initialized (live host). Missing entries stay 1.0.
-fn leftover_append_solo_weapon_bonus(bonus: &mut gamelogic::WeaponBonus, disc: u8) {
+fn leftover_append_solo_weapon_bonus(bonus: &mut generals_sim::weapon::WeaponBonus, disc: u8) {
     use generals_sim::weapon::{WeaponBonusConditionType, WeaponBonusField};
     if disc == 0 {
         return;
@@ -1420,7 +1420,7 @@ fn leftover_append_solo_weapon_bonus(bonus: &mut gamelogic::WeaponBonus, disc: u
         return;
     };
     let guard = data.read();
-    let mut other = gamelogic::WeaponBonus::new();
+    let mut other = generals_sim::weapon::WeaponBonus::new();
     let mut any = false;
     for entry in &guard.weapon_bonus_entries {
         if !entry.condition.eq_ignore_ascii_case(name) {

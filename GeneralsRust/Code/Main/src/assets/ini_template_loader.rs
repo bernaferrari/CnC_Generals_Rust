@@ -20,7 +20,10 @@
 //! receives the same parsed definitions for startup adapters. The application
 //! also owns the UpgradeCenter and ScienceStore populated here.
 
-use generals_sim::weapon::{WeaponCatalog, WeaponDefinition, apply_weapon_ini_fields};
+use generals_game_domain::ini::parse_ini_sections_ordered;
+use generals_sim::weapon::{WeaponCatalog, WeaponDefinition, apply_weapon_ini};
+pub(crate) use generals_sim::weapon::WeaponDefinitionLoadType;
+pub(crate) use generals_sim::weapon::parse_weapon_definitions_ini_into;
 use crate::assets::archive::ArchiveFileSystem;
 use log::{debug, info, warn};
 use std::collections::HashMap;
@@ -42,136 +45,6 @@ pub struct IniTemplateLoadStats {
     pub(crate) science_definitions: Option<game_engine::common::rts::science::ScienceStore>,
 }
 
-/// Parse a block of INI text into section headers and their key=value properties.
-///
-/// Handles the C&C Generals INI format:
-/// ```text
-/// BlockType BlockName
-///   Key1 = Value1
-///   Key2 = Value2
-///   ; comment
-/// End
-/// ```
-///
-/// An ordered sequence of INI assignments.
-///
-/// Most consumers only need C++'s usual last-assignment-wins behavior and can
-/// collapse this into a `HashMap`. Weapon veterancy fields are different:
-/// `VeterancyFireFX`, `VeterancyProjectileExhaust`, and their OCL/detonation
-/// equivalents may legitimately occur more than once in one block. Retaining
-/// source order is therefore necessary to reproduce `Weapon.cpp`'s parser.
-pub(crate) type OrderedIniProperties = Vec<(String, String)>;
-/// CPP WeaponStore permits an existing-name override only in CREATE_OVERRIDES.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum WeaponDefinitionLoadType {
-    Normal,
-    CreateOverrides,
-}
-
-/// Parse a block of INI text without discarding repeated assignments.
-///
-/// Returns `(block_type, block_name, ordered_properties)` tuples. Keep this as
-/// the source parser; `parse_ini_sections` below is the compatibility view for
-/// callers that intentionally use last-assignment-wins properties.
-fn parse_ini_sections_ordered(content: &str) -> Vec<(String, String, OrderedIniProperties)> {
-    let lines: Vec<&str> = content.lines().collect();
-    let mut sections: Vec<(String, String, OrderedIniProperties)> = Vec::new();
-    let mut current_type: Option<String> = None;
-    let mut current_name: Option<String> = None;
-    let mut current_props: OrderedIniProperties = Vec::new();
-    let mut depth: u32 = 0;
-
-    for line in &lines {
-        let trimmed = line.trim();
-
-        // Skip empty lines and comments
-        if trimmed.is_empty()
-            || trimmed.starts_with(';')
-            || trimmed.starts_with("//")
-            || trimmed.starts_with('#')
-        {
-            continue;
-        }
-
-        // Skip [Section] headers (e.g. [WeaponSystem], [ScienceSystem])
-        if trimmed.starts_with('[') && trimmed.ends_with(']') {
-            continue;
-        }
-
-        // Detect block headers: "Weapon", "Upgrade", "Science", "Object", etc.
-        if is_ini_block_header(trimmed) && depth == 0 {
-            // Save previous section if any
-            if let (Some(t), Some(n)) = (current_type.take(), current_name.take()) {
-                if !current_props.is_empty() {
-                    sections.push((t, n, std::mem::take(&mut current_props)));
-                }
-            }
-
-            if let Some((block_type, block_name)) = parse_block_header(trimmed) {
-                current_type = Some(block_type);
-                current_name = Some(block_name);
-                current_props.clear();
-                depth = 1;
-            }
-            continue;
-        }
-
-        // Track nested End keywords (e.g. WeaponSet blocks inside objects)
-        if trimmed.eq_ignore_ascii_case("End") {
-            if depth > 1 {
-                // Nested block terminator - just decrease depth
-                depth -= 1;
-                continue;
-            }
-            // Top-level End - finalize the current section
-            if depth == 1 {
-                if let (Some(t), Some(n)) = (current_type.take(), current_name.take()) {
-                    sections.push((t, n, std::mem::take(&mut current_props)));
-                }
-                depth = 0;
-            }
-            continue;
-        }
-
-        // Track nested block opens (Behavior, Draw, WeaponSet, etc.)
-        if depth > 0 && is_nested_block_header(trimmed) {
-            depth += 1;
-            continue;
-        }
-
-        // Parse key = value inside a block
-        if depth > 0 {
-            if let Some(eq_pos) = trimmed.find('=') {
-                let key = trimmed[..eq_pos].trim().to_string();
-                let mut value = trimmed[eq_pos + 1..].trim().to_string();
-
-                // Remove quotes
-                if (value.starts_with('"') && value.ends_with('"'))
-                    || (value.starts_with('\'') && value.ends_with('\''))
-                {
-                    value = value[1..value.len() - 1].to_string();
-                }
-
-                // Handle inline comments
-                value = strip_inline_comment(&value).to_string();
-
-                if !key.is_empty() {
-                    current_props.push((key, value));
-                }
-            }
-        }
-    }
-
-    // Handle last section if file doesn't end with End
-    if let (Some(t), Some(n)) = (current_type.take(), current_name.take()) {
-        if !current_props.is_empty() {
-            sections.push((t, n, current_props));
-        }
-    }
-
-    sections
-}
-
 /// Parse INI sections using the historical last-assignment-wins view.
 ///
 /// Existing non-weapon loaders use this API. Weapon loading uses the ordered
@@ -184,76 +57,6 @@ fn parse_ini_sections(content: &str) -> Vec<(String, String, HashMap<String, Str
             (block_type, block_name, properties)
         })
         .collect()
-}
-
-/// Check if a line is a top-level INI block header like "Weapon", "Upgrade", "Science".
-fn is_ini_block_header(line: &str) -> bool {
-    let first_word = line.split_whitespace().next().unwrap_or("");
-    matches!(
-        first_word.to_lowercase().as_str(),
-        "weapon" | "upgrade" | "science" | "object" | "childobject" | "objectreskin"
-    )
-}
-
-/// Check if a line starts a nested block (e.g., "Behavior", "Draw", "WeaponSet").
-fn is_nested_block_header(line: &str) -> bool {
-    let first_word = line.split_whitespace().next().unwrap_or("");
-    matches!(
-        first_word.to_lowercase().as_str(),
-        "behavior"
-            | "body"
-            | "draw"
-            | "weaponset"
-            | "armorset"
-            | "locomotorset"
-            | "contain"
-            | "physics"
-            | "sound"
-            | "clientupdate"
-            | "moduletag"
-            | "conditionstate"
-            | "transitionstate"
-            | "anim"
-            | "particlesystem"
-            | "fxlist"
-            | "objectcreationlist"
-            | "script"
-            | "playertemplate"
-            | "commandset"
-            | "commandbutton"
-            | "specialpower"
-    )
-}
-
-/// Parse a block header line into (type, name).
-fn parse_block_header(line: &str) -> Option<(String, String)> {
-    let mut tokens = line.split_whitespace();
-    let block_type = tokens.next()?.to_string();
-    let block_name = tokens.next()?.to_string();
-    Some((block_type, block_name))
-}
-
-/// Strip inline comments from a value string.
-fn strip_inline_comment(value: &str) -> String {
-    let bytes = value.as_bytes();
-    let mut in_single = false;
-    let mut in_double = false;
-    let mut i = 0usize;
-
-    while i < bytes.len() {
-        match bytes[i] {
-            b'\'' if !in_double => in_single = !in_single,
-            b'"' if !in_single => in_double = !in_double,
-            b';' | b'#' if !in_single && !in_double => return value[..i].trim_end().to_string(),
-            b'/' if !in_single && !in_double && i + 1 < bytes.len() && bytes[i + 1] == b'/' => {
-                return value[..i].trim_end().to_string();
-            }
-            _ => {}
-        }
-        i += 1;
-    }
-
-    value.to_string()
 }
 
 /// Normalize an archive path for discovery and lookup.
@@ -425,7 +228,7 @@ async fn load_weapon_templates_with_definitions(
     );
 
     let mut total_weapons = 0usize;
-    let mut definitions = HashMap::new();
+    let mut definitions = HashMap::<String, std::sync::Arc<WeaponDefinition>>::new();
 
     for (idx, ini_file) in weapon_files.iter().enumerate() {
         debug!(
@@ -451,20 +254,14 @@ async fn load_weapon_templates_with_definitions(
             }
         };
 
-        let rows = parse_weapon_definition_rows_into(
+        let mut rows = Vec::new();
+        let file_weapon_count = apply_weapon_ini(
             &mut definitions,
             &content,
             WeaponDefinitionLoadType::Normal,
+            |definition| rows.push(std::sync::Arc::clone(definition)),
         );
-        let file_weapon_count = rows.len();
-        // Legacy publication uses the exact same outputs in original block
-        // order; the owned catalogue never depends on registration success.
-        let _ = gamelogic::initialize_weapon_store();
-        for definition in rows {
-            let _ = publish_weapon_template(gamelogic::weapon::WeaponTemplate::from_definition(
-                std::sync::Arc::new(definition),
-            ));
-        }
+        crate::game_logic::weapon_bootstrap::publish_archive_weapon_definitions(rows);
         total_weapons += file_weapon_count;
         debug!(
             "Loaded {} weapon templates from {}",
@@ -664,181 +461,11 @@ pub async fn load_all_ini_templates(
     Ok(stats)
 }
 
-/// Register all `Weapon` blocks from raw INI text into the GameLogic WeaponStore.
-///
-/// Used by AssetManager (archive path) and host bootstrap (filesystem path).
-/// Returns the number of successfully registered templates.
-/// Existing synthetic/map adapters historically re-declared names as overrides.
-/// Shipping archive admission uses explicit Normal mode and never calls this.
-pub fn register_weapons_from_ini_text(content: &str) -> usize {
-    register_weapons_from_ini_text_with_load_type(
-        content,
-        WeaponDefinitionLoadType::CreateOverrides,
-    )
-}
-
-pub(crate) fn register_weapons_from_ini_text_with_load_type(
-    content: &str,
-    load_type: WeaponDefinitionLoadType,
-) -> usize {
-    let register = || register_weapons_from_ini_text_with_load_type_on_active(content, load_type);
-    if gamelogic::system::engine_stores::try_active_services().is_some() {
-        register()
-    } else {
-        // Free/test admission: temporary WorldServices so WeaponStore cell binds
-        // without requiring each caller to wrap.
-        let services = gamelogic::system::engine_stores::new_world_services();
-        gamelogic::system::engine_stores::with_world_services(&services, register)
-    }
-}
-
-/// Register weapons then run `f` while the admitting WorldServices stay bound.
-/// Prefer this over `register_weapons_from_ini_text` + a later free `with_weapon_store`
-/// when the caller needs to read the store it just filled.
-pub fn with_weapons_from_ini_text<R>(content: &str, f: impl FnOnce(usize) -> R) -> R {
-    let run = || {
-        let n = register_weapons_from_ini_text_with_load_type_on_active(
-            content,
-            WeaponDefinitionLoadType::CreateOverrides,
-        );
-        f(n)
-    };
-    if gamelogic::system::engine_stores::try_active_services().is_some() {
-        run()
-    } else {
-        let services = gamelogic::system::engine_stores::new_world_services();
-        gamelogic::system::engine_stores::with_world_services(&services, run)
-    }
-}
-
-fn register_weapons_from_ini_text_with_load_type_on_active(
-    content: &str,
-    load_type: WeaponDefinitionLoadType,
-) -> usize {
-    // Ensure store exists before registration attempts.
-    if let Err(e) = gamelogic::initialize_weapon_store() {
-        warn!("Cannot register weapons — WeaponStore init failed: {e}");
-        return 0;
-    }
-    // Weapon.cpp parses fields in source order. In particular, several
-    // `Veterancy*` fields are deliberately repeated in a single Weapon block,
-    // so do not pass this through the last-assignment-wins compatibility view.
-    let sections = parse_ini_sections_ordered(content);
-    let mut count = 0usize;
-    for (block_type, block_name, properties) in &sections {
-        if block_type.eq_ignore_ascii_case("Weapon") {
-            let exists = gamelogic::with_weapon_store(|store| {
-                store.find_weapon_template_ci(block_name).is_some()
-            })
-            .unwrap_or(false);
-            if load_type == WeaponDefinitionLoadType::Normal && exists {
-                warn!(
-                    "Weapon '{}' already exists, but CREATE_OVERRIDES not specified",
-                    block_name
-                );
-                continue;
-            }
-            if register_weapon_template_ordered(block_name, properties) {
-                count += 1;
-            }
-        }
-    }
-    count
-}
-
-/// Register a weapon template from the historical last-assignment-wins view.
-///
-/// This stays available for focused callers/tests. Real Weapon.ini loading uses
-/// `register_weapon_template_ordered` so repeated veterancy properties survive.
-fn register_weapon_template(name: &str, properties: &HashMap<String, String>) -> bool {
-    let ordered = properties
-        .iter()
-        .map(|(key, value)| (key.clone(), value.clone()))
-        .collect::<OrderedIniProperties>();
-    register_weapon_template_ordered(name, &ordered)
-}
-
-/// Register a Weapon block while preserving every assignment in source order.
-fn register_weapon_template_ordered(name: &str, ordered: &OrderedIniProperties) -> bool {
-    let mut template = gamelogic::with_weapon_store(|store| {
-        store
-            .find_weapon_template_ci(name)
-            .map(|old| (**old).clone())
-    })
-    .ok()
-    .flatten()
-    .unwrap_or_else(|| gamelogic::weapon::WeaponTemplate::new(name.to_owned()));
-    let changes = apply_weapon_ini_fields(&mut template, ordered);
-    if changes.clears_historic_bonus_weapon {
-        template.historic_bonus_weapon = None;
-    }
-    for index in 0..4 {
-        if changes.fire_ocl[index] {
-            template.fire_ocl[index] = None;
-        }
-        if changes.projectile_detonation_ocl[index] {
-            template.projectile_detonation_ocl[index] = None;
-        }
-        if changes.projectile_exhaust[index] {
-            template.projectile_exhaust[index] = None;
-        }
-    }
-    publish_weapon_template(template)
-}
-
-fn publish_weapon_template(template: gamelogic::weapon::WeaponTemplate) -> bool {
-    let name = template.name.clone();
-    match gamelogic::with_weapon_store_mut(|store| {
-        store.add_weapon_template(template);
-    }) {
-        Ok(()) => {
-            debug!("Registered weapon template: {}", name);
-            true
-        }
-        Err(error) => {
-            warn!("Failed to register weapon '{}': {}", name, error);
-            false
-        }
-    }
-}
-
-/// Source/file order controls effective definitions; sorting is only for export.
-pub(crate) fn parse_weapon_definitions_ini_into(
-    definitions: &mut HashMap<String, WeaponDefinition>,
-    content: &str,
-    load_type: WeaponDefinitionLoadType,
-) -> usize {
-    parse_weapon_definition_rows_into(definitions, content, load_type).len()
-}
-
-fn parse_weapon_definition_rows_into(
-    definitions: &mut HashMap<String, WeaponDefinition>,
-    content: &str,
-    load_type: WeaponDefinitionLoadType,
-) -> Vec<WeaponDefinition> {
-    let mut rows = Vec::new();
-    for (kind, name, ordered) in parse_ini_sections_ordered(content) {
-        if !kind.eq_ignore_ascii_case("Weapon") || name.trim().is_empty() {
-            continue;
-        }
-        let key = name.trim().to_ascii_lowercase();
-        if load_type == WeaponDefinitionLoadType::Normal && definitions.contains_key(&key) {
-            // CPP Weapon.cpp1689: DEBUG_CRASH then return without changing it.
-            warn!(
-                "Weapon '{}' already exists, but CREATE_OVERRIDES not specified",
-                name
-            );
-            continue;
-        }
-
-        let mut template = definitions.get(&key).cloned()
-            .unwrap_or_else(|| WeaponDefinition::new(name));
-        apply_weapon_ini_fields(&mut template, &ordered);
-        definitions.insert(key, template.clone());
-        rows.push(template);
-    }
-    rows
-}
+pub use crate::game_logic::weapon_bootstrap::{
+    register_weapons_from_ini_text, with_weapons_from_ini_text,
+};
+#[cfg(test)]
+use crate::game_logic::weapon_bootstrap::register_weapon_template;
 
 #[cfg(test)]
 mod tests {
@@ -1304,23 +931,6 @@ End
             assert_eq!(frames.0, 60, "ClipReloadTime 2000ms → 60 frames");
             assert_eq!(frames.1, 15, "PreAttackDelay 500ms → 15 frames");
         });
-    }
-
-    #[test]
-    fn test_is_ini_block_header() {
-        assert!(is_ini_block_header("Weapon TestWeapon"));
-        assert!(is_ini_block_header("Upgrade TestUpgrade"));
-        assert!(is_ini_block_header("Science TestScience"));
-        assert!(is_ini_block_header("Object TestObject"));
-        assert!(!is_ini_block_header("Behavior AIUpdate"));
-        assert!(!is_ini_block_header("WeaponSet"));
-    }
-
-    #[test]
-    fn test_strip_inline_comment() {
-        assert_eq!(strip_inline_comment("Explosion ; comment"), "Explosion");
-        assert_eq!(strip_inline_comment("100.0 // another comment"), "100.0");
-        assert_eq!(strip_inline_comment("NoComment"), "NoComment");
     }
 
     #[test]

@@ -42,10 +42,9 @@ pub fn compute_shock_wave_force(
 }
 
 pub fn host_shock_wave_amount_for_weapon_name(name: &str) -> f32 {
-    use super::with_host_weapon_store as with_weapon_store;
-    let from_store = with_weapon_store(|store| {
-        store
-            .find_weapon_template(name)
+
+    let from_store = read_legacy_weapon_definition(name, |rule| {
+        rule
             .map(|wt| wt.shock_wave_amount.max(0.0))
     })
     .ok()
@@ -60,10 +59,9 @@ pub fn host_shock_wave_amount_for_weapon_name(name: &str) -> f32 {
 
 /// C++ Weapon.ini ShockWaveRadius residual (Regular).
 pub fn host_shock_wave_radius_for_weapon_name(name: &str) -> f32 {
-    use super::with_host_weapon_store as with_weapon_store;
-    let from_store = with_weapon_store(|store| {
-        store
-            .find_weapon_template(name)
+
+    let from_store = read_legacy_weapon_definition(name, |rule| {
+        rule
             .map(|wt| wt.shock_wave_radius.max(0.0))
     })
     .ok()
@@ -78,10 +76,9 @@ pub fn host_shock_wave_radius_for_weapon_name(name: &str) -> f32 {
 
 /// C++ Weapon.ini ShockWaveTaperOff residual (Regular).
 pub fn host_shock_wave_taper_for_weapon_name(name: &str) -> f32 {
-    use super::with_host_weapon_store as with_weapon_store;
-    let from_store = with_weapon_store(|store| {
-        store
-            .find_weapon_template(name)
+
+    let from_store = read_legacy_weapon_definition(name, |rule| {
+        rule
             .map(|wt| wt.shock_wave_taper_off.max(0.0))
     })
     .ok()
@@ -167,10 +164,9 @@ pub(super) fn seed_shock_wave_taper_for(name: &str) -> f32 {
 /// Fail-closed: name peel / store lookup only — applied as outer splash ring
 /// on projectile impact (not full Affects mask / shockwave matrix).
 pub fn host_secondary_damage_for_weapon_name(name: &str) -> f32 {
-    use super::with_host_weapon_store as with_weapon_store;
-    let from_store = with_weapon_store(|store| {
-        store
-            .find_weapon_template(name)
+
+    let from_store = read_legacy_weapon_definition(name, |rule| {
+        rule
             .map(|wt| wt.secondary_damage.max(0.0))
     })
     .ok()
@@ -186,10 +182,9 @@ pub fn host_secondary_damage_for_weapon_name(name: &str) -> f32 {
 /// C++ Weapon.ini SecondaryDamageRadius residual (Regular).
 /// C++ Weapon.ini PrimaryDamageRadius residual.
 pub fn host_primary_damage_radius_for_weapon_name(name: &str) -> f32 {
-    use super::with_host_weapon_store as with_weapon_store;
-    let from_store = with_weapon_store(|store| {
-        store
-            .find_weapon_template(name)
+
+    let from_store = read_legacy_weapon_definition(name, |rule| {
+        rule
             .map(|wt| wt.primary_damage_radius.max(0.0))
     })
     .ok()
@@ -217,10 +212,9 @@ pub(crate) fn seed_primary_damage_radius_for(name: &str) -> f32 {
 }
 
 pub fn host_secondary_damage_radius_for_weapon_name(name: &str) -> f32 {
-    use super::with_host_weapon_store as with_weapon_store;
-    let from_store = with_weapon_store(|store| {
-        store
-            .find_weapon_template(name)
+
+    let from_store = read_legacy_weapon_definition(name, |rule| {
+        rule
             .map(|wt| wt.secondary_damage_radius.max(0.0))
     })
     .ok()

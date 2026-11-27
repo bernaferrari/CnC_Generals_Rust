@@ -28,9 +28,9 @@ pub use generals_sim::combat::projectile::DEFAULT_PROJECTILE_COLLISIONS as PROJE
 /// Fail-closed: gates intervening-structure intercept only — not full shrubbery /
 /// projectile-vs-projectile collide matrix.
 pub fn host_projectile_collides_for_weapon_name(name: &str) -> u32 {
-    use super::with_host_weapon_store as with_weapon_store;
-    let from_store = with_weapon_store(|store| {
-        store.find_weapon_template(name).map(|wt| {
+
+    let from_store = read_legacy_weapon_definition(name, |rule| {
+        rule.map(|wt| {
             // collide_mask bits are public u32 storage on WeaponCollideMask.
             wt.collide_mask.bits()
         })
@@ -83,10 +83,9 @@ pub const WEAPON_AFFECTS_DEFAULT: u32 = generals_sim::weapon::WeaponAffectsMask:
 /// Live fire reads the leftover WeaponStore (Weapon.cpp:1275 getAffectsMask).
 /// Missing template → C++ constructor default ALLIES|ENEMIES|NEUTRALS.
 pub fn host_radius_damage_affects_for_weapon_name(name: &str) -> u32 {
-    use super::with_host_weapon_store as with_weapon_store;
-    let from_store = with_weapon_store(|store| {
-        store
-            .find_weapon_template(name)
+
+    let from_store = read_legacy_weapon_definition(name, |rule| {
+        rule
             .map(|wt| wt.affects_mask.bits())
     })
     .ok()

@@ -1,5 +1,6 @@
 //! Ordered C++ Weapon.ini property application.
 
+use std::borrow::Borrow;
 use std::collections::HashMap;
 
 use generals_game_domain::ini::{parse_bit_string_32_with_initial, parse_decimal_integer_prefix};
@@ -11,6 +12,62 @@ use super::{
     Coord2D, WeaponAffectsMask, WeaponBonus, WeaponBonusSet, WeaponCollideMask, WeaponDamageStatus,
     WeaponDefinition, WeaponFxName, WeaponPrefireType, WeaponReloadType, WeaponSound,
 };
+
+/// Whether a source can override an already admitted named weapon.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WeaponDefinitionLoadType {
+    Normal,
+    CreateOverrides,
+}
+
+/// Apply ordered Weapon.ini blocks to the receiving definitions.
+pub fn parse_weapon_definitions_ini_into(
+    definitions: &mut HashMap<String, WeaponDefinition>,
+    content: &str,
+    load_type: WeaponDefinitionLoadType,
+) -> usize {
+    apply_weapon_ini(definitions, content, load_type, |_| {})
+}
+
+/// Admit one INI source, observing each accepted definition in source order.
+/// Owned fixtures use plain records and frozen catalogs can share Arc records.
+pub fn apply_weapon_ini<T>(
+    definitions: &mut HashMap<String, T>,
+    content: &str,
+    load_type: WeaponDefinitionLoadType,
+    mut accepted: impl FnMut(&T),
+) -> usize
+where
+    T: Borrow<WeaponDefinition> + From<WeaponDefinition>,
+{
+    use generals_game_domain::ini::parse_ini_sections_ordered;
+
+    let mut count = 0;
+    for (kind, name, ordered) in parse_ini_sections_ordered(content) {
+        if !kind.eq_ignore_ascii_case("Weapon") || name.trim().is_empty() {
+            continue;
+        }
+        let key = name.trim().to_ascii_lowercase();
+        let previous = definitions.get(&key);
+        if load_type == WeaponDefinitionLoadType::Normal && previous.is_some() {
+            // C++ Weapon.cpp:1689 rejects duplicates in a Normal source.
+            warn!(
+                "Weapon '{}' already exists, but CREATE_OVERRIDES not specified",
+                name
+            );
+            continue;
+        }
+        let mut definition = previous
+            .map(|value| value.borrow().clone())
+            .unwrap_or_else(|| WeaponDefinition::new(name));
+        apply_weapon_ini_fields(&mut definition, &ordered);
+        let definition = T::from(definition);
+        accepted(&definition);
+        definitions.insert(key, definition);
+        count += 1;
+    }
+    count
+}
 
 /// Slots whose new INI assignment supersedes any resolved legacy handle.
 /// A named reference and an explicit `None` both replace the cached handle.

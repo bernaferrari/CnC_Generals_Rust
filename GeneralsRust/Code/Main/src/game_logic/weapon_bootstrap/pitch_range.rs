@@ -61,10 +61,9 @@ pub fn is_contact_effective_range(effective_range: f32) -> bool {
 
 /// Leftover `WeaponTemplate::is_contact_weapon` from the live WeaponStore.
 pub fn host_is_contact_weapon_name(name: &str) -> bool {
-    use super::with_host_weapon_store as with_weapon_store;
-    let leftover = with_weapon_store(|store| {
-        store
-            .find_weapon_template(name)
+
+    let leftover = read_legacy_weapon_definition(name, |rule| {
+        rule
             .map(|wt| wt.is_contact_weapon())
     })
     .ok()
@@ -245,10 +244,9 @@ pub fn seed_continue_attack_range_for(name: &str) -> f32 {
 }
 
 pub fn host_target_pitch_limits_for_weapon_name(name: &str) -> HostTargetPitchLimits {
-    use super::with_host_weapon_store as with_weapon_store;
-    let from_store = with_weapon_store(|store| {
-        store
-            .find_weapon_template(name)
+
+    let from_store = read_legacy_weapon_definition(name, |rule| {
+        rule
             .map(|wt| HostTargetPitchLimits {
                 min_pitch: normalize_pitch_radians(wt.min_target_pitch),
                 max_pitch: normalize_pitch_radians(wt.max_target_pitch),

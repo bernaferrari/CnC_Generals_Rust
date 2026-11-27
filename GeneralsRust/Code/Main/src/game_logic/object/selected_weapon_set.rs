@@ -210,11 +210,7 @@ impl ThingTemplate {
     pub(crate) fn bind_selected_weapon_sets(&mut self, base: [Option<Weapon>; 3]) {
         fn bind(name: Option<&str>, prototype: Option<Weapon>) -> Option<WeaponSlotDefinition> {
             let native = name.and_then(|name| {
-                crate::game_logic::weapon_bootstrap::with_host_weapon_store(|store| {
-                    store.find_weapon_template(name).map(|rule| rule.shared_definition())
-                })
-                .ok()
-                .flatten()
+                crate::game_logic::weapon_bootstrap::legacy_weapon_definition(name)
             });
             if let Some(native) = native {
                 let prototype = ThingTemplate::weapon_from_template_at(&native, 0)?;

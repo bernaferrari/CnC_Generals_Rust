@@ -204,16 +204,7 @@ impl GameLogic {
         let Some(base) = self.weapon_definition_base.as_ref() else {
             return Ok(());
         };
-        let mut draft = base.override_draft();
-        for text in texts {
-            crate::assets::ini_template_loader::parse_weapon_definitions_ini_into(
-                &mut draft,
-                text,
-                crate::assets::ini_template_loader::WeaponDefinitionLoadType::CreateOverrides,
-            );
-        }
-        let catalog = WeaponCatalog::from_named_definitions(draft)
-            .map_err(|error| error.to_string())?;
+        let catalog = base.with_overrides(texts).map_err(|error| error.to_string())?;
         self.weapon_definitions = Some(catalog);
         Ok(())
     }

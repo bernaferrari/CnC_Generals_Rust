@@ -2,10 +2,9 @@ use super::*;
 
 /// C++ Weapon.ini ScatterRadius residual (base).
 pub fn host_scatter_radius_for_weapon_name(name: &str) -> f32 {
-    use super::with_host_weapon_store as with_weapon_store;
-    let from_store = with_weapon_store(|store| {
-        store
-            .find_weapon_template(name)
+
+    let from_store = read_legacy_weapon_definition(name, |rule| {
+        rule
             .map(|wt| wt.scatter_radius.max(0.0))
     })
     .ok()
@@ -20,9 +19,9 @@ pub fn host_scatter_radius_for_weapon_name(name: &str) -> f32 {
 
 /// C++ Weapon.ini ScatterRadiusVsInfantry residual (added for infantry targets).
 pub fn host_scatter_radius_vs_infantry_for_weapon_name(name: &str) -> f32 {
-    use super::with_host_weapon_store as with_weapon_store;
-    let from_store = with_weapon_store(|store| {
-        store.find_weapon_template(name).map(|wt| {
+
+    let from_store = read_legacy_weapon_definition(name, |rule| {
+        rule.map(|wt| {
             // field may be infantry_inaccuracy_dist on template
             wt.infantry_inaccuracy_dist.max(0.0)
         })
@@ -49,10 +48,9 @@ pub fn host_effective_scatter_radius(name: &str, target_is_infantry: bool) -> f3
 
 /// Authored `ScatterTarget` XY pairs from the live WeaponStore.
 pub fn host_scatter_targets_for_weapon_name(name: &str) -> Vec<(f32, f32)> {
-    use super::with_host_weapon_store as with_weapon_store;
-    with_weapon_store(|store| {
-        store
-            .find_weapon_template(name)
+
+    read_legacy_weapon_definition(name, |rule| {
+        rule
             .map(|wt| {
                 wt.scatter_targets
                     .iter()
@@ -66,10 +64,9 @@ pub fn host_scatter_targets_for_weapon_name(name: &str) -> Vec<(f32, f32)> {
 
 /// C++ `WeaponTemplate::m_scatterTargetScalar`.
 pub fn host_scatter_target_scalar_for_weapon_name(name: &str) -> f32 {
-    use super::with_host_weapon_store as with_weapon_store;
-    with_weapon_store(|store| {
-        store
-            .find_weapon_template(name)
+
+    read_legacy_weapon_definition(name, |rule| {
+        rule
             .map(|wt| wt.scatter_target_scalar)
     })
     .ok()
@@ -268,8 +265,8 @@ mod tests {
             template.attack_range = 100.0;
             template.scatter_target_scalar = 50.0;
             template.scatter_targets = vec![
-                gamelogic::weapon::Coord2D { x: 1.0, y: 0.0 },
-                gamelogic::weapon::Coord2D { x: 0.0, y: 1.0 },
+                generals_sim::weapon::Coord2D { x: 1.0, y: 0.0 },
+                generals_sim::weapon::Coord2D { x: 0.0, y: 1.0 },
             ];
             store.add_weapon_template(template);
         });

@@ -9,8 +9,8 @@ pub use generals_sim::weapon::{
 
 /// C++ `WeaponTemplate::getDamageType` for an admitted weapon definition.
 pub fn host_weapon_is_sniper_damage(name: &str) -> bool {
-    super::with_host_weapon_store(|store| {
-        store.find_weapon_template(name)
+    read_legacy_weapon_definition(name, |rule| {
+        rule
             .is_some_and(|weapon| weapon.damage_type == generals_sim::damage::DamageType::Sniper)
     })
     .unwrap_or(false)
@@ -43,8 +43,8 @@ pub(in crate::game_logic) fn damage_estimate_from_rule(
 pub(in crate::game_logic) fn host_estimate_named_weapon(
     name: &str,
 ) -> Option<(generals_sim::damage::DamageType, HostEstimateWeapon)> {
-    super::with_host_weapon_store(|store| {
-        let rule = store.find_weapon_template(name)?;
+    read_legacy_weapon_definition(name, |rule| {
+        let rule = rule?;
         Some((
             rule.damage_type,
             damage_estimate_from_rule(rule, rule.primary_damage),

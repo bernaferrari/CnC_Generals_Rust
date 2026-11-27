@@ -831,8 +831,8 @@ fn take_scatter_table_offset_uses_store_pattern() {
         template.attack_range = 100.0;
         template.scatter_target_scalar = 10.0;
         template.scatter_targets = vec![
-            gamelogic::weapon::Coord2D { x: 1.0, y: 0.0 },
-            gamelogic::weapon::Coord2D { x: 0.0, y: 1.0 },
+            generals_sim::weapon::Coord2D { x: 1.0, y: 0.0 },
+            generals_sim::weapon::Coord2D { x: 0.0, y: 1.0 },
         ];
         store.add_weapon_template(template);
     });
