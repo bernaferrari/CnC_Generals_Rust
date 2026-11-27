@@ -2644,47 +2644,7 @@ pub struct Object {
 
 }
 
-/// C++ `WeaponStatus` (WeaponStatus.h) residual for the active weapon slot.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[repr(u8)]
-pub enum WeaponFireStatus {
-    ReadyToFire = 0,
-    OutOfAmmo = 1,
-    BetweenFiringShots = 2,
-    ReloadingClip = 3,
-    PreAttack = 4,
-}
-
-impl WeaponFireStatus {
-    pub(crate) fn from_ordinal(value: u8) -> Option<Self> {
-        Some(match value {
-            0 => Self::ReadyToFire,
-            1 => Self::OutOfAmmo,
-            2 => Self::BetweenFiringShots,
-            3 => Self::ReloadingClip,
-            4 => Self::PreAttack,
-            _ => return None,
-        })
-    }
-}
-
-impl Default for WeaponFireStatus {
-    fn default() -> Self {
-        Self::ReadyToFire
-    }
-}
-
-/// C++ WeaponLockType (WeaponSet.h) residual.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
-#[repr(u8)]
-pub enum WeaponLockType {
-    #[default]
-    NotLocked = 0,
-    /// Locked until clip empty / attack state exits.
-    LockedTemporarily = 1,
-    /// Locked until explicitly unlocked or lock changes.
-    LockedPermanently = 2,
-}
+pub use generals_sim::weapon::{WeaponFireStatus, WeaponLockType};
 
 /// C++ `GuardMode` (GameCommon.h) residual for AIGroup::groupGuard*.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]

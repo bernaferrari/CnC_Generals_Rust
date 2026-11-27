@@ -1511,7 +1511,7 @@ impl Weapon {
                         draw.apply_weapon_recoil(recoil, recoil_angle);
                     }
                     handled = draw.handle_weapon_fire_fx(
-                        crate::common::WeaponSlotType::from(self.weapon_slot),
+                        self.weapon_slot,
                         self.current_barrel,
                         fx,
                         impact_pos,

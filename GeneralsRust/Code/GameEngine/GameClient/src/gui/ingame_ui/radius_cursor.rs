@@ -7,7 +7,7 @@ use crate::radius_decal::RadiusDecalTemplate;
 use game_engine::common::ini::get_global_data;
 
 use gamelogic::ai::guard::AIGuardMachine;
-use gamelogic::weapon::WeaponSlotType;
+use generals_sim::weapon::WeaponSlotType;
 
 const DEFAULT_RADIUS_DECAL_TEXTURE: &str = "SCCAttackDamageArea";
 

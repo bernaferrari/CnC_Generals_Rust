@@ -680,7 +680,7 @@ impl CnCGameEngine {
         }
         let slot = match self.pending_map_command.as_ref() {
             Some(PendingMapCommand::Weapon(weapon)) => weapon.weapon_slot.concrete(),
-            _ => Some(gamelogic::common::WeaponSlotType::Primary),
+            _ => Some(generals_sim::weapon::WeaponSlotType::Primary),
         };
         let radii = seed
             .zip(slot)

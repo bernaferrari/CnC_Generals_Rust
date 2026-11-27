@@ -1,7 +1,7 @@
 //! Unit command tests.
 
 use super::*;
-use gamelogic::common::WeaponSlotType;
+use generals_sim::weapon::WeaponSlotType;
 
 fn three_slot_logic() -> (GameLogic, ObjectId) {
     let mut logic = GameLogic::new();

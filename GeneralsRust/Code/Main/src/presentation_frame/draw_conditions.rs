@@ -2,7 +2,7 @@
 use super::*;
 use crate::game_logic::host_animation_steering::HostAnimSteerTurnAnim;
 use crate::game_logic::object::WeaponFireStatus;
-use gamelogic::common::WeaponSlotType;
+use generals_sim::weapon::WeaponSlotType;
 
 pub(super) struct DrawConditionFacts {
     pub active_weapon_slot: WeaponSlotType,

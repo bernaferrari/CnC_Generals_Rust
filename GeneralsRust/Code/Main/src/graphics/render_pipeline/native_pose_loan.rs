@@ -542,7 +542,7 @@ impl NativeInstalledPoseLoan<'_> {
         let identity = &source.identity;
         let (_, actor_pose) = identity.native_pose().ok_or(UnsupportedSourceControls)?;
         let modules = self.receive_current_bone_source(source, key, graphics)?;
-        let slot = gamelogic::common::WeaponSlotType::Primary as u8;
+        let slot = generals_sim::weapon::WeaponSlotType::Primary as u8;
         for module_index in modules {
             let state = self.drawable_visual_states.get_mut(&(identity.owner_id(), module_index))
                 .ok_or(UnadmittedDrawableLifecycle)?;
@@ -611,7 +611,7 @@ impl NativeInstalledPoseLoan<'_> {
         else { return };
         let kinematics = selected.recoil_kinematics.clone();
         pipeline_drawable_state::start_weapon_barrel_recoil(
-            state, &topology, &kinematics, gamelogic::common::WeaponSlotType::Primary as u8, 0,
+            state, &topology, &kinematics, generals_sim::weapon::WeaponSlotType::Primary as u8, 0,
         );
     }
 

@@ -2526,7 +2526,7 @@ impl GameLogic {
                 if let Some((slots, proximity)) = object.mine_data.as_ref().and_then(|data| {
                     Some((data.authored_demo_trap?, data.proximity_enabled))
                 }) {
-                    use gamelogic::weapon::weapon_set::WeaponSetType;
+                    use generals_sim::weapon::WeaponSetType;
                     object.set_weapon_condition_at_frame(WeaponSetType::Veteran as u8, true, self.frame);
                     let _ = object.set_weapon_lock(
                         slots.initial_slot(proximity),

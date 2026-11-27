@@ -1,6 +1,6 @@
 //! Current immutable Drawable inputs at a camera observation point. No frame/event drain.
 use super::*;
-use gamelogic::common::WeaponSlotType;
+use generals_sim::weapon::WeaponSlotType;
 
 /// Same initial condition bank used by the frozen Drawable producer.
 pub(super) fn current_base_condition_bits(

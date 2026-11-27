@@ -23,25 +23,7 @@ pub enum WeaponSetType {
     Passenger,
 }
 
-/// Weapon slot types (matching C++ WeaponSlotType)
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum WeaponSlotType {
-    Primary = 0,
-    Secondary = 1,
-    Tertiary = 2,
-}
-
-impl WeaponSlotType {
-    /// Convert from u32 value (matches C++ casting)
-    pub fn from_u32(value: u32) -> Option<Self> {
-        match value {
-            0 => Some(WeaponSlotType::Primary),
-            1 => Some(WeaponSlotType::Secondary),
-            2 => Some(WeaponSlotType::Tertiary),
-            _ => None,
-        }
-    }
-}
+pub use generals_sim::weapon::WeaponSlotType;
 
 /// Weapon lock types (matching C++ WeaponLockType)
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

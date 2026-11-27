@@ -33,65 +33,7 @@ fn dual_world_registry_unavailable() -> bool {
     crate::object::registry::OBJECT_REGISTRY.is_empty()
 }
 
-/// Weapon set type conditions
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum WeaponSetType {
-    Veteran = 0,
-    Elite,
-    Hero,
-    PlayerUpgrade,
-    CrateUpgradeOne,
-    CrateUpgradeTwo,
-    VehicleHijack,
-    CarBomb,
-    MineClearingDetail,
-    WeaponRider1,
-    WeaponRider2,
-    WeaponRider3,
-    WeaponRider4,
-    WeaponRider5,
-    WeaponRider6,
-    WeaponRider7,
-    WeaponRider8,
-}
-
-/// Weapon set flags for conditional weapon sets
-#[derive(Debug, Clone, Copy, Default)]
-pub struct WeaponSetFlags(u32);
-
-impl WeaponSetFlags {
-    pub fn new() -> Self {
-        Self(0)
-    }
-
-    pub fn set(&mut self, weapon_set_type: WeaponSetType) {
-        self.0 |= 1 << (weapon_set_type as u8);
-    }
-
-    pub fn clear(&mut self, weapon_set_type: WeaponSetType) {
-        self.0 &= !(1 << (weapon_set_type as u8));
-    }
-
-    pub fn test(&self, weapon_set_type: WeaponSetType) -> bool {
-        (self.0 & (1 << (weapon_set_type as u8))) != 0
-    }
-
-    pub fn clear_all(&mut self) {
-        self.0 = 0;
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.0 == 0
-    }
-
-    pub fn bits(&self) -> u32 {
-        self.0
-    }
-
-    pub fn from_bits(bits: u32) -> Self {
-        Self(bits)
-    }
-}
+pub use generals_sim::weapon::{WeaponChoiceCriteria, WeaponLockType, WeaponSetFlags, WeaponSetType};
 
 #[derive(Debug, Error)]
 pub enum WeaponSetConversionError {
@@ -152,7 +94,7 @@ impl WeaponTemplateSet {
         let engine_flags = engine_set.types();
         for index in 0..engine_flags.size() {
             if engine_flags.test(index) {
-                let weapon_set_type = weapon_set_type_from_index(index).ok_or_else(|| {
+                let weapon_set_type = WeaponSetType::from_index(index).ok_or_else(|| {
                     let name = engine_flags
                         .get_bit_name_if_set(index)
                         .unwrap_or("<unknown>");
@@ -251,29 +193,6 @@ impl Default for WeaponTemplateSet {
     }
 }
 
-fn weapon_set_type_from_index(index: usize) -> Option<WeaponSetType> {
-    match index {
-        0 => Some(WeaponSetType::Veteran),
-        1 => Some(WeaponSetType::Elite),
-        2 => Some(WeaponSetType::Hero),
-        3 => Some(WeaponSetType::PlayerUpgrade),
-        4 => Some(WeaponSetType::CrateUpgradeOne),
-        5 => Some(WeaponSetType::CrateUpgradeTwo),
-        6 => Some(WeaponSetType::VehicleHijack),
-        7 => Some(WeaponSetType::CarBomb),
-        8 => Some(WeaponSetType::MineClearingDetail),
-        9 => Some(WeaponSetType::WeaponRider1),
-        10 => Some(WeaponSetType::WeaponRider2),
-        11 => Some(WeaponSetType::WeaponRider3),
-        12 => Some(WeaponSetType::WeaponRider4),
-        13 => Some(WeaponSetType::WeaponRider5),
-        14 => Some(WeaponSetType::WeaponRider6),
-        15 => Some(WeaponSetType::WeaponRider7),
-        16 => Some(WeaponSetType::WeaponRider8),
-        _ => None,
-    }
-}
-
 /// Weapon set condition types for state tracking
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
@@ -283,26 +202,6 @@ pub enum WeaponSetConditionType {
     Between,
     Reloading,
     PreAttack,
-}
-
-/// Weapon choice criteria for target selection
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum WeaponChoiceCriteria {
-    /// Choose weapon that will do the most damage
-    PreferMostDamage,
-    /// Choose weapon with the longest range that can do damage
-    PreferLongestRange,
-}
-
-/// Weapon lock type
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum WeaponLockType {
-    /// Weapon is not locked
-    NotLocked,
-    /// Weapon is locked until clip is empty or current attack state exits
-    LockedTemporarily,
-    /// Weapon is locked until explicitly unlocked
-    LockedPermanently,
 }
 
 fn weapon_slot_to_u32(slot: WeaponSlotType) -> u32 {
@@ -1288,49 +1187,6 @@ impl WeaponSet {
     }
 }
 
-/// C++ WeaponSet.cpp:853-856 — skip a slot that would do no damage unless
-/// the authored type is DAMAGE_UNRESISTABLE.
-#[inline]
-pub fn choose_best_eliminates_zero_damage(
-    damage: f32,
-    damage_type: crate::damage::DamageType,
-) -> bool {
-    damage <= 0.0 && damage_type != crate::damage::DamageType::Unresistable
-}
-
-/// C++ WeaponSet.cpp:847-851 — an aiming turret slot is demoted to backup.
-#[inline]
-pub fn choose_best_ready_after_turret_aim(
-    status_ready: bool,
-    turret_aiming_at_target: bool,
-) -> bool {
-    status_ready && !turret_aiming_at_target
-}
-
-/// C++ WeaponSet.cpp:928-937 — unready-but-valid backup wins when no slot is READY.
-#[inline]
-pub fn choose_best_uses_backup(found_ready: bool, found_backup: bool) -> bool {
-    !found_ready && found_backup
-}
-
-/// C++ WeaponSet.cpp:782-783 — locked current slot wins immediately.
-#[inline]
-pub fn choose_best_locked_slot(is_locked: bool, locked_slot: u8) -> Option<u8> {
-    is_locked.then_some(locked_slot)
-}
-
-/// C++ WeaponSet.cpp:785-790 — unlocked no-victim chooseBest resets PRIMARY.
-#[inline]
-pub fn choose_best_resets_primary_for_ground(is_locked: bool) -> bool {
-    !is_locked
-}
-
-/// C++ WeaponSet.cpp:782-790 — lock keeps slot; unlocked ground is PRIMARY.
-#[inline]
-pub fn choose_best_ground_attack_slot(is_locked: bool, locked_slot: u8) -> u8 {
-    if is_locked { locked_slot } else { 0 }
-}
-
 impl Default for WeaponSet {
     fn default() -> Self {
         Self::new()
@@ -1756,51 +1612,5 @@ mod tests {
             WeaponLockType::NotLocked
         );
         assert!(!weapon_set.is_current_weapon_locked());
-    }
-
-    #[test]
-    fn choose_best_zero_damage_gate_keeps_unresistable() {
-        assert!(choose_best_eliminates_zero_damage(
-            0.0,
-            crate::damage::DamageType::Explosion
-        ));
-        assert!(!choose_best_eliminates_zero_damage(
-            0.0,
-            crate::damage::DamageType::Unresistable
-        ));
-        assert!(!choose_best_eliminates_zero_damage(
-            1.0,
-            crate::damage::DamageType::Explosion
-        ));
-    }
-
-    #[test]
-    fn choose_best_turret_aim_demotes_ready() {
-        assert!(choose_best_ready_after_turret_aim(true, false));
-        assert!(!choose_best_ready_after_turret_aim(true, true));
-        assert!(!choose_best_ready_after_turret_aim(false, false));
-    }
-
-    #[test]
-    fn choose_best_backup_tier_when_no_ready() {
-        assert!(choose_best_uses_backup(false, true));
-        assert!(!choose_best_uses_backup(true, true));
-        assert!(!choose_best_uses_backup(false, false));
-    }
-
-    #[test]
-    fn choose_best_lock_keeps_current_slot() {
-        assert_eq!(choose_best_locked_slot(true, 1), Some(1));
-        assert_eq!(choose_best_locked_slot(true, 2), Some(2));
-        assert_eq!(choose_best_locked_slot(false, 1), None);
-    }
-
-    #[test]
-    fn choose_best_ground_resets_primary_unless_locked() {
-        assert!(choose_best_resets_primary_for_ground(false));
-        assert!(!choose_best_resets_primary_for_ground(true));
-        assert_eq!(choose_best_ground_attack_slot(false, 1), 0);
-        assert_eq!(choose_best_ground_attack_slot(true, 1), 1);
-        assert_eq!(choose_best_ground_attack_slot(true, 2), 2);
     }
 }

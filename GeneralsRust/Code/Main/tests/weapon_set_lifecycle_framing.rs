@@ -1,4 +1,4 @@
-use gamelogic::weapon::weapon_set::WeaponSetType;
+use generals_sim::weapon::WeaponSetType;
 use generals_main::game_logic::{GameLogic, ObjectId, Player, Team, ThingTemplate};
 use generals_main::save_load::snapshot::SnapshotBuilder;
 use glam::Vec3;

@@ -4,6 +4,7 @@ use super::weapon_set_able::{get_victim_anti_mask, get_victim_anti_mask_for_obje
 use super::{WeaponChoiceCriteria, WeaponSet, WeaponSlotType, WeaponStatus};
 use crate::common::{CommandSourceType, ObjectID};
 use crate::object::Object;
+use generals_sim::weapon::{WeaponCandidate, WeaponSelection, weapon_damage_is_eligible};
 
 impl WeaponSet {
     /// Select against Objects the caller already owns. The result is separate
@@ -103,22 +104,8 @@ impl WeaponSet {
         let world = ai.and_then(|ai| ai.world());
         let frame = world.map_or_else(crate::helpers::TheGameLogic::get_frame, |w| w.frame());
 
-        let mut found = false;
-        let mut found_backup = false;
-        let mut longest_range = 0.0_f32;
-        let mut best_damage = 0.0_f32;
-        let mut longest_range_backup = 0.0_f32;
-        let mut best_damage_backup = 0.0_f32;
-        let mut current_decision = WeaponSlotType::Primary;
-        let mut current_decision_backup = WeaponSlotType::Primary;
-
-        // C++ iterates backward, so Primary wins ties under the >= damage rule.
-        for slot_idx in (0..=2).rev() {
-            let slot = match slot_idx {
-                0 => WeaponSlotType::Primary,
-                1 => WeaponSlotType::Secondary,
-                _ => WeaponSlotType::Tertiary,
-            };
+        let mut selection = WeaponSelection::new(criteria);
+        for slot in WeaponSlotType::DESCENDING {
             let Some(weapon) = self.get_weapon_in_slot(slot) else {
                 continue;
             };
@@ -147,7 +134,7 @@ impl WeaponSet {
                 continue;
             }
 
-            let (damage, mut attack_range) = if let Some(world) = world {
+            let (damage, attack_range) = if let Some(world) = world {
                 let (source, target) =
                     objects.ok_or("supplied weapon selection requires borrowed objects")?;
                 let estimate_status = status();
@@ -176,7 +163,7 @@ impl WeaponSet {
                 )
             };
 
-            let mut weapon_is_ready = status() == WeaponStatus::ReadyToFire;
+            let fire_status = status();
             let turret_aiming = if objects.is_some() {
                 ai.is_some_and(|ai| {
                     ai.is_weapon_slot_on_turret_and_aiming_at_target(slot, target_obj)
@@ -192,15 +179,9 @@ impl WeaponSet {
                     })
                     .unwrap_or(false)
             };
-            if turret_aiming {
-                weapon_is_ready = false;
-            }
-            if damage <= 0.0 && weapon.get_damage_type() != crate::damage::DamageType::Unresistable
-            {
+            if !weapon_damage_is_eligible(damage, weapon.get_damage_type()) {
                 continue;
             }
-
-            let mut damage = damage;
             let preferred = self
                 .current_weapon_template_set
                 .as_ref()
@@ -217,48 +198,21 @@ impl WeaponSet {
                     })
                     .unwrap_or(false)
             };
-            if preferred_matches {
-                damage = 1.0e10;
-                attack_range = 1.0e10;
-                weapon_is_ready = status() != WeaponStatus::OutOfAmmo;
-            }
-
-            match criteria {
-                WeaponChoiceCriteria::PreferMostDamage => {
-                    if !weapon_is_ready {
-                        if damage >= best_damage_backup {
-                            best_damage_backup = damage;
-                            current_decision_backup = slot;
-                            found_backup = true;
-                        }
-                    } else if damage >= best_damage {
-                        best_damage = damage;
-                        current_decision = slot;
-                        found = true;
-                    }
-                }
-                WeaponChoiceCriteria::PreferLongestRange => {
-                    if !weapon_is_ready {
-                        if attack_range > longest_range_backup {
-                            longest_range_backup = attack_range;
-                            current_decision_backup = slot;
-                            found_backup = true;
-                        }
-                    } else if attack_range > longest_range {
-                        longest_range = attack_range;
-                        current_decision = slot;
-                        found = true;
-                    }
-                }
-            }
+            let score = match criteria {
+                WeaponChoiceCriteria::PreferMostDamage => damage,
+                WeaponChoiceCriteria::PreferLongestRange => attack_range,
+            };
+            selection.consider(WeaponCandidate {
+                slot,
+                score,
+                status: fire_status,
+                preferred: preferred_matches,
+                turret_aiming,
+            });
         }
 
-        if found {
-            Ok((current_decision, true))
-        } else if found_backup {
-            Ok((current_decision_backup, true))
-        } else {
-            Ok((WeaponSlotType::Primary, false))
-        }
+        Ok(selection
+            .selected_slot()
+            .map_or((WeaponSlotType::Primary, false), |slot| (slot, true)))
     }
 }

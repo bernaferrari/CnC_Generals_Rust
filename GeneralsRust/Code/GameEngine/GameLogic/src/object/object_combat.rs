@@ -2601,12 +2601,7 @@ impl Object {
             let remaining_ammo = weapon.get_remaining_ammo_at(now);
             let clip_size = weapon.get_template().clip_size as u32;
             if let Ok(mut draw_guard) = drawable.write() {
-                let common_slot = match slot {
-                    WeaponSlotType::Primary => crate::common::WeaponSlotType::Primary,
-                    WeaponSlotType::Secondary => crate::common::WeaponSlotType::Secondary,
-                    WeaponSlotType::Tertiary => crate::common::WeaponSlotType::Tertiary,
-                };
-                draw_guard.update_drawable_clip_status(remaining_ammo, clip_size, common_slot);
+                draw_guard.update_drawable_clip_status(remaining_ammo, clip_size, slot);
             }
 
             let last_condition = self.last_weapon_condition[slot_index];

@@ -755,7 +755,7 @@ impl BasicDrawable {
         };
 
         // C++ WEAPONSET_CARBOMB && controllingPlayer == localPlayer.
-        if obj_guard.test_weapon_set_flag(gamelogic::weapon::WeaponSetType::CarBomb)
+        if obj_guard.test_weapon_set_flag(generals_sim::weapon::WeaponSetType::CarBomb)
             && obj_guard.is_locally_controlled()
         {
             self.overlay_data.show_bombed = true;

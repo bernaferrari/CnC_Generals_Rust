@@ -6,12 +6,19 @@ mod catalog;
 mod definition;
 mod estimate;
 mod ini;
+mod selection;
+mod set_flags;
 
 pub use crate::object::WeaponDamageStatus;
 pub use catalog::{WeaponCatalog, WeaponCatalogError};
 pub use definition::{Coord2D, WeaponDefinition, WeaponFxName, WeaponSound};
 pub use estimate::{DamageEstimateTarget, WeaponDamageEstimate, estimate_weapon_template_damage};
+pub use generals_game_domain::weapon::{WeaponFireStatus, WeaponLockType, WeaponSlotType};
 pub use ini::{WeaponEffectOverrides, apply_weapon_ini_fields};
+pub use selection::{
+    WeaponCandidate, WeaponChoiceCriteria, WeaponSelection, weapon_damage_is_eligible,
+};
+pub use set_flags::{WeaponSetFlags, WeaponSetType};
 
 /// Sentinel for an attack order without a maximum shot count.
 pub const NO_MAX_SHOTS_LIMIT: i32 = i32::MAX;

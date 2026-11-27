@@ -133,7 +133,7 @@ fn explicit_secondary_target_selection_uses_receiving_bonus() {
         assert!(world.choose_best_weapon_for_target(attacker, Some(target), 10.0));
         assert_eq!(
             world.host_object(attacker).unwrap().selected_weapon_slot(),
-            Some(gamelogic::common::WeaponSlotType::Secondary as u8),
+            Some(generals_sim::weapon::WeaponSlotType::Secondary as u8),
         );
     }
     assert!(boosted.attack_can_fire_at(boosted_attacker, boosted_target, 10.0, false));

@@ -533,7 +533,7 @@ impl GameLogic {
                 continue;
             };
             if let Some(slot) =
-                gamelogic::common::WeaponSlotType::from_u32(attack.weapon_slot as u32)
+                generals_sim::weapon::WeaponSlotType::from_u32(attack.weapon_slot as u32)
             {
                 self.order_ocl_attack_position(
                     source_id,

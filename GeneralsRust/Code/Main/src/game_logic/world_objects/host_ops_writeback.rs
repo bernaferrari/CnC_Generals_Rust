@@ -1458,7 +1458,7 @@ impl GameLogic {
         target_id: Option<ObjectId>,
         specialty_weapon: bool,
         at_location: bool,
-        forced_slot: Option<gamelogic::common::WeaponSlotType>,
+        forced_slot: Option<generals_sim::weapon::WeaponSlotType>,
     ) -> crate::game_logic::audio_dispatch_impl::UnitVoiceSlot {
         use crate::game_logic::audio_dispatch_impl::{
             AttackVoiceWeapon, UnitVoiceSlot, pick_specialty_attack_voice,
@@ -1487,7 +1487,7 @@ impl GameLogic {
                 }
                 let slot = forced_slot.or_else(|| {
                     let ordinal = obj.selected_weapon_slot().unwrap_or(obj.active_weapon_slot);
-                    gamelogic::common::WeaponSlotType::from_u32(u32::from(ordinal))
+                    generals_sim::weapon::WeaponSlotType::from_u32(u32::from(ordinal))
                 })?;
                 let weapon = obj.borrow_selected_native_weapon_rule(slot as u8)?;
                 Some(AttackVoiceWeapon {

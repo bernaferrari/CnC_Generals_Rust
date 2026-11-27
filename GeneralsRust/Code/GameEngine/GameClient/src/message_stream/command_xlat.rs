@@ -57,13 +57,7 @@ pub struct PickAndPlayInfo {
     pub special_power_type: Option<u32>,
 }
 
-/// Legacy weapon slot type retained for API compatibility.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum WeaponSlotType {
-    Primary,
-    Secondary,
-    Tertiary,
-}
+pub use generals_sim::weapon::WeaponSlotType;
 
 /// KINDOF flags from the legacy command-xlat surface.
 pub const KINDOF_IMMOBILE: u32 = 0x0000_0100;

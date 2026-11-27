@@ -6,7 +6,7 @@
 
 use super::super::*;
 use crate::presentation_frame::FrozenWeaponVisualSourceGate;
-use gamelogic::common::WeaponSlotType;
+use generals_sim::weapon::WeaponSlotType;
 use generals_sim::weapon::WeaponDefinition as WeaponTemplate;
 use std::sync::Arc;
 

@@ -600,7 +600,7 @@ fn do_weapon_uses_the_real_tertiary_slot_without_secondary_aliasing() {
     let result = CommandExecutor::new(&mut logic, 0)
         .execute_weapon(
             &[unit_id],
-            &WeaponSlot::Slot(gamelogic::common::WeaponSlotType::Tertiary as u32),
+            &WeaponSlot::Slot(generals_sim::weapon::WeaponSlotType::Tertiary as u32),
             -1,
             &WeaponTarget::Object(target),
         )

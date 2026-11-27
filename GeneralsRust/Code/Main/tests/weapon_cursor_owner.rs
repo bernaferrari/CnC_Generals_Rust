@@ -1,4 +1,4 @@
-use gamelogic::common::WeaponSlotType::{self, Primary, Secondary, Tertiary};
+use generals_sim::weapon::WeaponSlotType::{self, Primary, Secondary, Tertiary};
 use generals_sim::weapon::WeaponDefinition as WeaponTemplate;
 use generals_main::game_logic::{GameLogic, ObjectId, Player, Team};
 

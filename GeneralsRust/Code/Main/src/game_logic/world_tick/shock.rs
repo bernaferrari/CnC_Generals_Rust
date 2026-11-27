@@ -1816,7 +1816,7 @@ impl GameLogic {
     pub fn weapon_cursor_radii(
         &self,
         id: ObjectId,
-        slot: gamelogic::common::WeaponSlotType,
+        slot: generals_sim::weapon::WeaponSlotType,
     ) -> Option<crate::game_logic::weapon_bootstrap::WeaponCursorRadii> {
         use crate::game_logic::weapon_bootstrap::{ReceivingWeaponRadii, WeaponCursorRadii};
         let object = self.host_object(id)?;

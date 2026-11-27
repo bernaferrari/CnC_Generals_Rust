@@ -619,7 +619,7 @@ impl GameLogic {
     pub(in crate::game_logic) fn order_ocl_attack_position(
         &mut self,
         id: ObjectId,
-        slot: gamelogic::common::WeaponSlotType,
+        slot: generals_sim::weapon::WeaponSlotType,
         location: Vec3,
         shots: i32,
     ) -> bool {

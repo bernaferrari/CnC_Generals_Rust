@@ -1916,7 +1916,7 @@ fn draw_bombed_carbomb_icon_requires_local_player_not_status() {
     crate::test_support::ensure_ambient_host();
     use gamelogic::common::{ObjectStatusMaskType, ObjectStatusTypes};
     use gamelogic::object::Object;
-    use gamelogic::weapon::WeaponSetType;
+    use generals_sim::weapon::WeaponSetType;
     use std::sync::{Arc, RwLock};
 
     let object_id = 900_002;

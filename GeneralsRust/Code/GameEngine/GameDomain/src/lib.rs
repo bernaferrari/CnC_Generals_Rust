@@ -9,6 +9,7 @@ pub mod ini;
 pub mod object_status;
 pub mod polygons;
 pub mod script_opcodes;
+pub mod weapon;
 pub use difficulty::AIDifficulty;
 
 /// Unique identifier for Main host game objects.

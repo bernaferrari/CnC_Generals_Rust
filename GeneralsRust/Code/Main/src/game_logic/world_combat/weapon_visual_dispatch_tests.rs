@@ -7,7 +7,7 @@ use crate::presentation_frame::{
     FrozenWeaponVisualFxRoute, FrozenWeaponVisualModuleProbe,
     build_frozen_weapon_visual_dispatch_plan,
 };
-use gamelogic::common::WeaponSlotType;
+use generals_sim::weapon::WeaponSlotType;
 
 fn test_object(id: u32) -> Object {
     let mut object = Object::new(

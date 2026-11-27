@@ -8,7 +8,7 @@
 //! or guesses from a template/model suffix.
 
 use super::super::*;
-use gamelogic::common::WeaponSlotType;
+use generals_sim::weapon::WeaponSlotType;
 
 impl GameLogic {
     /// Apply cache-resident C++ `Drawable::getBarrelCount` answers to one

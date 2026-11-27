@@ -78,13 +78,7 @@ pub enum PlayerType {
     Computer = 1,
 }
 
-/// Weapon slot types
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum WeaponSlotType {
-    Primary = 0,
-    Secondary = 1,
-    Tertiary = 2,
-}
+pub use generals_game_domain::weapon::WeaponSlotType;
 
 /// Special power types
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

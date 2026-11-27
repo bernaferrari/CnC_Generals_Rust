@@ -1,7 +1,7 @@
 use super::*;
 use crate::game_logic::host_animation_steering::HostAnimSteerTurnAnim;
 use crate::game_logic::object::WeaponFireStatus;
-use gamelogic::common::WeaponSlotType;
+use generals_sim::weapon::WeaponSlotType;
 
 #[cfg(feature = "game_client")]
 #[path = "physics_visual_host_inputs.rs"]

@@ -1,7 +1,7 @@
 //! Order target, capture, supply, contain, weapon-set and upgrade-queue orders.
 
 use super::*;
-use gamelogic::common::WeaponSlotType;
+use generals_sim::weapon::WeaponSlotType;
 
 impl GameLogic {
     /// Wave 233: set order target (records host attack/order log residual).

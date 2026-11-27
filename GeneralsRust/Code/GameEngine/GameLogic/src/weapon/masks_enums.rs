@@ -40,13 +40,7 @@ impl HistoricWeaponDamageInfo {
     }
 }
 
-/// Weapon slot types
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum WeaponSlotType {
-    Primary,
-    Secondary,
-    Tertiary,
-}
+pub use generals_sim::weapon::WeaponSlotType;
 
 /// Veterancy levels
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -60,38 +54,8 @@ pub enum VeterancyLevel {
 // damage_system now re-exports canonical types from crate::damage,
 // so no From<> conversion impls needed between the two.
 
-impl From<WeaponSlotType> for crate::common::WeaponSlotType {
-    fn from(value: WeaponSlotType) -> Self {
-        match value {
-            WeaponSlotType::Primary => crate::common::WeaponSlotType::Primary,
-            WeaponSlotType::Secondary => crate::common::WeaponSlotType::Secondary,
-            WeaponSlotType::Tertiary => crate::common::WeaponSlotType::Tertiary,
-        }
-    }
-}
-
-impl From<crate::common::WeaponSlotType> for WeaponSlotType {
-    fn from(value: crate::common::WeaponSlotType) -> Self {
-        match value {
-            crate::common::WeaponSlotType::Primary => WeaponSlotType::Primary,
-            crate::common::WeaponSlotType::Secondary => WeaponSlotType::Secondary,
-            crate::common::WeaponSlotType::Tertiary => WeaponSlotType::Tertiary,
-        }
-    }
-}
-
-/// Weapon status — discriminants must match C++ WeaponStatus enum (WeaponStatus.h)
-#[repr(u8)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum WeaponStatus {
-    ReadyToFire,        // C++ = 0
-    OutOfAmmo,          // C++ = 1
-    BetweenFiringShots, // C++ = 2
-    ReloadingClip,      // C++ = 3
-    PreAttack,          // C++ = 4
-}
-
 pub use generals_sim::error::WeaponError;
+pub use generals_sim::weapon::WeaponFireStatus as WeaponStatus;
 
 /// Fire mode for different weapon types
 #[derive(Debug, Clone, Copy, PartialEq)]

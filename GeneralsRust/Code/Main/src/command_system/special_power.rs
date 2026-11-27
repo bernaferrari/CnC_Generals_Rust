@@ -365,8 +365,8 @@ pub enum WeaponSlot {
 
 impl WeaponSlot {
     /// Resolve a command slot to one of the original Object weapon-set slots.
-    pub(crate) fn concrete(&self) -> Option<gamelogic::common::WeaponSlotType> {
-        use gamelogic::common::WeaponSlotType;
+    pub(crate) fn concrete(&self) -> Option<generals_sim::weapon::WeaponSlotType> {
+        use generals_sim::weapon::WeaponSlotType;
 
         match *self {
             Self::Primary => Some(WeaponSlotType::Primary),

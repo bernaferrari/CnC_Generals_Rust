@@ -6,7 +6,7 @@
 //! `Weapon::fireWeaponTemplate` equivalent.
 
 use super::super::*;
-use gamelogic::common::WeaponSlotType;
+use generals_sim::weapon::WeaponSlotType;
 
 /// Owned continuation across fire effects and damage callbacks. The captured
 /// barrel and source generation survive without retaining a mutable object loan.

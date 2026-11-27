@@ -270,7 +270,7 @@ impl GameLogic {
             let shot = self.receiving_temporary_weapon_shot(object, &rule, target, target_position);
             let Some(object) = self.objects.get_mut(&source) else { return Ok(None); };
             let slot = spec.weapon_slot as u8;
-            let capture = gamelogic::common::WeaponSlotType::from_u32(u32::from(slot))
+            let capture = generals_sim::weapon::WeaponSlotType::from_u32(u32::from(slot))
                 .and_then(|weapon_slot| {
                     object.capture_pending_temporary_weapon_visual_dispatch(
                         &spec.weapon_template_name,

@@ -796,7 +796,7 @@ impl Object {
 
     /// C++ SalvageCrateCollide::doWeaponSet residual.
     pub fn apply_salvage_weapon_upgrade(&mut self, frame: u32) {
-        use gamelogic::weapon::weapon_set::WeaponSetType;
+        use generals_sim::weapon::WeaponSetType;
 
         let first = WeaponSetType::CrateUpgradeOne as u8;
         let second = WeaponSetType::CrateUpgradeTwo as u8;

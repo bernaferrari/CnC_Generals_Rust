@@ -67,7 +67,7 @@ pub(in crate::message_stream::translators) use gamelogic::player::player_list;
 pub(in crate::message_stream::translators) use gamelogic::system::shroud_manager::{
     ShroudState, get_shroud_manager,
 };
-pub(in crate::message_stream::translators) use gamelogic::weapon::WeaponSlotType;
+pub(in crate::message_stream::translators) use generals_sim::weapon::WeaponSlotType;
 pub(in crate::message_stream::translators) use log::{debug, info, warn};
 pub(in crate::message_stream::translators) use std::collections::{HashMap, HashSet};
 pub(in crate::message_stream::translators) use std::sync::{Arc, RwLock};

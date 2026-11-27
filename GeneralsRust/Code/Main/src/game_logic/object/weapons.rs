@@ -1,6 +1,9 @@
 use super::*;
 use game_engine::common::bit_flags::WeaponSetFlags;
-use gamelogic::common::{TurretType, WeaponSlotType};
+use gamelogic::common::TurretType;
+use generals_sim::weapon::{
+    WeaponCandidate, WeaponChoiceCriteria, WeaponSelection, WeaponSlotType, weapon_damage_is_eligible,
+};
 
 impl Object {
     /// Loan each same-owner damaged module's live state and immutable rules
@@ -953,11 +956,8 @@ impl Object {
         // C++ WeaponSet.cpp:782-783 / leftover weapon_set.rs:683-685 —
         // locked current slot stays until someone unlocks. A reloading
         // FireWeapon/flashbang/snipe waits; it does not auto-choose PRIMARY.
-        if let Some(slot) = gamelogic::weapon::choose_best_locked_slot(
-            self.weapon_lock_type != WeaponLockType::NotLocked,
-            self.weapon_lock_slot,
-        ) {
-            return Some(slot);
+        if self.weapon_lock_type != WeaponLockType::NotLocked {
+            return Some(self.weapon_lock_slot);
         }
         if let Some(row) = self.selected_authored_weapon_row() {
             return self.select_authored_combat_weapon_slot(
@@ -1019,7 +1019,7 @@ impl Object {
         }
 
         if !primary_ok && !secondary_ok {
-            if gamelogic::weapon::choose_best_uses_backup(false, primary_valid || secondary_valid) {
+            if primary_valid || secondary_valid {
                 return self.leftover_choose_best_backup_slot(
                     target,
                     primary_valid,
@@ -1161,9 +1161,9 @@ impl Object {
         let frame = (current_time * 30.0).round() as u32;
         let anti_mask = target.weapon_target_anti_mask();
         let victim_kinds = target.kind_of_cpp_mask();
-        let mut ready = None;
-        let mut backup = None;
-        for slot in (WeaponSlotType::Primary as u8..=WeaponSlotType::Tertiary as u8).rev() {
+        let mut selection = WeaponSelection::new(WeaponChoiceCriteria::PreferMostDamage);
+        for candidate_slot in WeaponSlotType::DESCENDING {
+            let slot = candidate_slot as u8;
             if !policy.allows_automatic_choice(slot, command_source) {
                 continue;
             }
@@ -1191,23 +1191,22 @@ impl Object {
                 target,
                 rule.primary_damage * damage_multiplier(rule),
             );
-            if gamelogic::weapon::choose_best_eliminates_zero_damage(damage, rule.damage_type) {
+            if !weapon_damage_is_eligible(damage, rule.damage_type) {
                 continue;
             }
             let preferred = policy.prefers(slot, victim_kinds);
-            let score = if preferred { 1e10 } else { damage };
-            let is_ready = if preferred {
-                status != WeaponFireStatus::OutOfAmmo
-            } else {
-                status == WeaponFireStatus::ReadyToFire
-                    && !self.is_weapon_slot_on_turret_and_aiming_at_target(slot, target)
-            };
-            let best = if is_ready { &mut ready } else { &mut backup };
-            if score >= best.map_or(0.0, |(_, best_score)| best_score) {
-                *best = Some((slot, score));
-            }
+            let turret_aiming = !preferred
+                && status == WeaponFireStatus::ReadyToFire
+                && self.is_weapon_slot_on_turret_and_aiming_at_target(slot, target);
+            selection.consider(WeaponCandidate {
+                slot: candidate_slot,
+                score: damage,
+                status,
+                preferred,
+                turret_aiming,
+            });
         }
-        ready.or(backup).map(|(slot, _)| slot)
+        selection.selected_slot().map(|slot| slot as u8)
     }
 
     /// Leftover chooseBest fitness: AutoChoose + OUT_OF_AMMO+!autoReload
@@ -1286,10 +1285,8 @@ impl Object {
                 )
             },
         );
-        gamelogic::weapon::choose_best_ready_after_turret_aim(
-            status_ready,
-            self.is_weapon_slot_on_turret_and_aiming_at_target(slot, target),
-        )
+        let turret_aiming = self.is_weapon_slot_on_turret_and_aiming_at_target(slot, target);
+        status_ready && !turret_aiming
     }
 
     fn leftover_choose_best_eliminates_zero_damage(&self, slot: u8, target: &Object) -> bool {
@@ -1297,7 +1294,7 @@ impl Object {
         let damage_type = self
             .leftover_slot_damage_type(slot)
             .unwrap_or(gamelogic::damage::DamageType::Explosion);
-        gamelogic::weapon::choose_best_eliminates_zero_damage(damage, damage_type)
+        !weapon_damage_is_eligible(damage, damage_type)
     }
 
     fn leftover_slot_damage_type(&self, slot: u8) -> Option<gamelogic::damage::DamageType> {
@@ -1349,18 +1346,17 @@ impl Object {
 
     /// Leftover chooseBest no-victim: lock keeps slot, else PRIMARY.
     pub fn leftover_choose_best_ground_slot(&self) -> u8 {
-        gamelogic::weapon::choose_best_ground_attack_slot(
-            self.weapon_lock_type != WeaponLockType::NotLocked,
-            self.weapon_lock_slot,
-        )
+        if self.weapon_lock_type != WeaponLockType::NotLocked {
+            self.weapon_lock_slot
+        } else {
+            WeaponSlotType::Primary as u8
+        }
     }
 
     /// Leftover chooseBest no-victim: unlocked units reset PRIMARY.
     pub fn leftover_choose_best_reset_primary_for_ground(&mut self) {
-        if gamelogic::weapon::choose_best_resets_primary_for_ground(
-            self.weapon_lock_type != WeaponLockType::NotLocked,
-        ) {
-            self.set_active_weapon_slot(0);
+        if self.weapon_lock_type == WeaponLockType::NotLocked {
+            self.set_active_weapon_slot(WeaponSlotType::Primary as u8);
         }
     }
 

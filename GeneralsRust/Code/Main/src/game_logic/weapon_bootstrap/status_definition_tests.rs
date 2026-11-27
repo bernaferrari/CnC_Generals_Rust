@@ -58,7 +58,7 @@ End
                         &AttackVoiceWeapon {
                             name: name.to_owned(),
                             damage,
-                            slot: gamelogic::common::WeaponSlotType::Primary,
+                            slot: generals_sim::weapon::WeaponSlotType::Primary,
                         },
                         false,
                         true,

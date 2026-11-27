@@ -492,7 +492,7 @@ fn mounted_stock_scorpion_collects_authored_salvage_at_partition_contact() {
     use game_engine::common::system::{
         archive_file_system::ArchiveFileSystem, install_layout::find_file_case_insensitive,
     };
-    use gamelogic::weapon::weapon_set::WeaponSetType;
+    use generals_sim::weapon::WeaponSetType;
     use std::io::Read;
 
     crate::game_logic::game_logic::pose_owner_tests::isolated_at(

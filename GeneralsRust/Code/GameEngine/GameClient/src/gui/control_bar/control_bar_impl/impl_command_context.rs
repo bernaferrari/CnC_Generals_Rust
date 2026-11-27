@@ -602,14 +602,6 @@ impl ControlBar {
         leftover_presentation_clock_availability(self, command, entry)
     }
 
-    fn logic_weapon_slot(slot: WeaponSlotType) -> gamelogic::weapon::WeaponSlotType {
-        match slot {
-            WeaponSlotType::Primary => gamelogic::weapon::WeaponSlotType::Primary,
-            WeaponSlotType::Secondary => gamelogic::weapon::WeaponSlotType::Secondary,
-            WeaponSlotType::Tertiary => gamelogic::weapon::WeaponSlotType::Tertiary,
-        }
-    }
-
     fn fire_weapon_availability(
         &self,
         obj: &gamelogic::object::Object,
@@ -619,7 +611,7 @@ impl ControlBar {
         if obj.get_ai_update_interface().is_none() {
             return (CommandAvailability::Restricted, None);
         }
-        let slot = Self::logic_weapon_slot(command.weapon_slot);
+        let slot = command.weapon_slot;
         let weapon = obj.get_weapon_in_weapon_slot(slot);
         if let Some(weapon) = weapon {
             if weapon.get_clip_reload_time(obj.get_id()) == 0 {
@@ -628,11 +620,11 @@ impl ControlBar {
             let now = TheGameLogic::get_frame();
             let next = weapon.get_possible_next_shot_frame();
             let status = weapon.get_status();
-            if status != gamelogic::weapon::WeaponStatus::ReadyToFire
+            if status != generals_sim::weapon::WeaponFireStatus::ReadyToFire
                 || next == now
                 || next == now.saturating_sub(1)
             {
-                let clock = if status == gamelogic::weapon::WeaponStatus::ReloadingClip {
+                let clock = if status == generals_sim::weapon::WeaponFireStatus::ReloadingClip {
                     Some((weapon.get_percent_ready_to_fire() * 100.0).clamp(0.0, 100.0) as u8)
                 } else {
                     None
@@ -641,7 +633,7 @@ impl ControlBar {
             }
             (CommandAvailability::Available, None)
         } else if (command.options & CommandOption::UsesMineClearingWeaponSet as u32) != 0
-            && !obj.test_weapon_set_flag(gamelogic::weapon::WeaponSetType::MineClearingDetail)
+            && !obj.test_weapon_set_flag(generals_sim::weapon::WeaponSetType::MineClearingDetail)
         {
             (CommandAvailability::Available, None)
         } else {
@@ -695,7 +687,7 @@ impl ControlBar {
     ) -> CommandAvailability {
         // C++ ControlBarCommand.cpp:1448-1471: missing slot is restricted;
         // ACTIVE when every locally-controlled selected unit already uses the slot.
-        let slot = Self::logic_weapon_slot(command.weapon_slot);
+        let slot = command.weapon_slot;
         if obj.get_weapon_in_weapon_slot(slot).is_none() {
             return CommandAvailability::Restricted;
         }

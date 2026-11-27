@@ -384,7 +384,7 @@ pub fn enter_voice_slot(
 pub struct AttackVoiceWeapon {
     pub name: String,
     pub damage: crate::game_logic::combat::DamageType,
-    pub slot: gamelogic::common::WeaponSlotType,
+    pub slot: generals_sim::weapon::WeaponSlotType,
 }
 
 /// C++ `CommandXlat.cpp:511-627` — upgrade VoiceAttack / VoiceAttackAir from the
@@ -399,7 +399,7 @@ pub fn specialty_attack_voice_upgrade(
     at_location: bool,
 ) -> Option<(UnitVoiceSlot, bool)> {
     use crate::game_logic::combat::DamageType;
-    use gamelogic::common::WeaponSlotType::Primary;
+    use generals_sim::weapon::WeaponSlotType::Primary;
 
     if at_location {
         return match weapon.damage {
@@ -941,7 +941,7 @@ mod tests {
     #[test]
     fn specialty_attack_voice_upgrades_from_weapon() {
         use crate::game_logic::combat::DamageType as D;
-        use gamelogic::common::WeaponSlotType::{Primary, Secondary, Tertiary};
+        use generals_sim::weapon::WeaponSlotType::{Primary, Secondary, Tertiary};
         let w = |name: &str, damage: D, slot| AttackVoiceWeapon {
             name: name.to_owned(),
             damage,
