@@ -28,27 +28,27 @@ impl Snapshotable for Team {
         xfer.xfer_ascii_string(&mut state)
             .map_err(|e| e.to_string())?;
 
-        let mut entered_or_exited = self.entered_or_exited;
+        let mut entered_or_exited = self.script_state.entered_or_exited;
         xfer.xfer_bool(&mut entered_or_exited)
             .map_err(|e| e.to_string())?;
-        let mut active = self.active;
+        let mut active = self.script_state.active;
         xfer.xfer_bool(&mut active).map_err(|e| e.to_string())?;
-        let mut created = self.created;
+        let mut created = self.script_state.created;
         xfer.xfer_bool(&mut created).map_err(|e| e.to_string())?;
-        let mut check_enemy_sighted = self.check_enemy_sighted;
+        let mut check_enemy_sighted = self.script_state.check_enemy_sighted;
         xfer.xfer_bool(&mut check_enemy_sighted)
             .map_err(|e| e.to_string())?;
-        let mut see_enemy = self.see_enemy;
+        let mut see_enemy = self.script_state.see_enemy;
         xfer.xfer_bool(&mut see_enemy).map_err(|e| e.to_string())?;
-        let mut prev_see_enemy = self.prev_see_enemy;
+        let mut prev_see_enemy = self.script_state.prev_see_enemy;
         xfer.xfer_bool(&mut prev_see_enemy)
             .map_err(|e| e.to_string())?;
-        let mut was_idle = self.was_idle;
+        let mut was_idle = self.script_state.was_idle;
         xfer.xfer_bool(&mut was_idle).map_err(|e| e.to_string())?;
-        let mut destroy_threshold = self.destroy_threshold;
+        let mut destroy_threshold = self.script_state.destroy_threshold;
         xfer.xfer_int(&mut destroy_threshold)
             .map_err(|e| e.to_string())?;
-        let mut cur_units = self.cur_units;
+        let mut cur_units = self.script_state.cur_units;
         xfer.xfer_int(&mut cur_units).map_err(|e| e.to_string())?;
 
         let mut waypoint_id = self.current_waypoint_id.unwrap_or(0);
@@ -162,25 +162,25 @@ impl Snapshotable for Team {
         }
 
         // Status flags
-        xfer.xfer_bool(&mut self.entered_or_exited)
+        xfer.xfer_bool(&mut self.script_state.entered_or_exited)
             .map_err(|e| e.to_string())?;
-        xfer.xfer_bool(&mut self.active)
+        xfer.xfer_bool(&mut self.script_state.active)
             .map_err(|e| e.to_string())?;
-        xfer.xfer_bool(&mut self.created)
+        xfer.xfer_bool(&mut self.script_state.created)
             .map_err(|e| e.to_string())?;
-        xfer.xfer_bool(&mut self.check_enemy_sighted)
+        xfer.xfer_bool(&mut self.script_state.check_enemy_sighted)
             .map_err(|e| e.to_string())?;
-        xfer.xfer_bool(&mut self.see_enemy)
+        xfer.xfer_bool(&mut self.script_state.see_enemy)
             .map_err(|e| e.to_string())?;
-        xfer.xfer_bool(&mut self.prev_see_enemy)
+        xfer.xfer_bool(&mut self.script_state.prev_see_enemy)
             .map_err(|e| e.to_string())?;
-        xfer.xfer_bool(&mut self.was_idle)
+        xfer.xfer_bool(&mut self.script_state.was_idle)
             .map_err(|e| e.to_string())?;
 
         // Destruction tracking
-        xfer.xfer_int(&mut self.destroy_threshold)
+        xfer.xfer_int(&mut self.script_state.destroy_threshold)
             .map_err(|e| e.to_string())?;
-        xfer.xfer_int(&mut self.cur_units)
+        xfer.xfer_int(&mut self.script_state.cur_units)
             .map_err(|e| e.to_string())?;
 
         // Current waypoint ID
@@ -364,9 +364,9 @@ mod creation_xfer_admission_tests {
         let mut source = Team::new("WireReady".into(), 42);
         source.state = "Attacking".into();
         source.members = vec![7, 9];
-        source.active = true;
-        source.created = true;
-        source.entered_or_exited = true;
+        source.script_state.active = true;
+        source.script_state.created = true;
+        source.script_state.entered_or_exited = true;
         source.current_waypoint_id = Some(91);
         let mut bytes = Cursor::new(Vec::new());
         source.xfer(&mut XferSave::new(&mut bytes, 1)).unwrap();
@@ -376,9 +376,9 @@ mod creation_xfer_admission_tests {
     fn rejects_before_read(mut target: Team, expected: &str) {
         let wire = ready_bytes();
         target.members = vec![100, 200];
-        target.active = false;
-        target.created = false;
-        target.entered_or_exited = false;
+        target.script_state.active = false;
+        target.script_state.created = false;
+        target.script_state.entered_or_exited = false;
         target.current_waypoint_id = Some(3);
         let before = format!("{target:?}");
         let mut input = Cursor::new(wire);
@@ -440,7 +440,7 @@ mod creation_xfer_admission_tests {
         );
         assert_eq!(target.members, [1234], "wire IDs leave the live roster alone");
         assert_eq!(target.saved_member_ids, [7, 9]);
-        assert!(target.active && target.created && target.entered_or_exited);
+        assert!(target.script_state.active && target.script_state.created && target.script_state.entered_or_exited);
         assert_eq!(target.current_waypoint_id, Some(91));
         assert!(!target.creation_is_running());
         assert!(target.creation_failure().is_none());

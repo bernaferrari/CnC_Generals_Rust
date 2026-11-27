@@ -31,26 +31,11 @@ pub struct Team {
     // AI state
     state: AsciiString,
 
-    // Status flags
-    entered_or_exited: Bool,
-    active: Bool,
-    created: Bool,
+    // Team script phases and activation flags.
+    script_state: TeamScriptState,
     creation_phase: TeamCreationPhase,
     recruitable: Bool,
     recruitability_set: Bool,
-
-    // Enemy sighting and awareness
-    check_enemy_sighted: Bool,
-    see_enemy: Bool,
-    prev_see_enemy: Bool,
-
-    // Idle detection
-    was_idle: Bool,
-
-    // Destruction tracking
-    destroy_threshold: Int,
-    cur_units: Int,
-    destroyed_threshold_ratio: Real,
 
     // Script hooks copied from TeamTemplateInfo.
     script_on_create: AsciiString,

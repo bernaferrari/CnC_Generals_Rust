@@ -124,7 +124,7 @@ impl Team {
         if !moved_to_neutral.is_empty() {
             let moved_set: HashSet<ObjectID> = moved_to_neutral.iter().copied().collect();
             self.members.retain(|id| !moved_set.contains(id));
-            self.cur_units = self.members.len() as Int;
+            self.script_state.cur_units = self.members.len() as Int;
 
             if let Some(neutral_team) = neutral_default_team {
                 if let Ok(mut neutral_guard) = neutral_team.write() {

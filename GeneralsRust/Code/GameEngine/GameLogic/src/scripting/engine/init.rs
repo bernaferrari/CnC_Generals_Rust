@@ -242,19 +242,14 @@ impl ScriptEngine {
         Some(team)
     }
 
-    fn standalone_team_player(id: TeamID) -> Option<String> {
-        let published_team_factory = get_team_factory();
-        let team = published_team_factory.lock().ok()?.find_team_by_id(id)?;
+    fn standalone_team_player(&self, id: TeamID) -> Option<String> {
+        let team = self.team_factory.lock().ok()?.find_team_by_id(id)?;
         let player_id = team.read().ok()?.get_controlling_player_id()?;
-        let __player_list_arc = crate::player::player_list();
-            let player = __player_list_arc.read()
-            .ok()?
-            .get_player(player_id as i32)
-            .cloned()?;
-        player
-            .read()
-            .ok()
-            .and_then(|player| NameKeyGenerator::key_to_name(player.get_player_name_key()))
+        let player = self.players.read().ok()?.get_player(player_id as i32).cloned()?;
+        let key = player.read().ok()?.get_player_name_key();
+        self.common.name_key_namespace.lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .key_to_name(key)
     }
 
     /// C++ friend_executeAction scopes the actual team and its controller,
@@ -296,7 +291,7 @@ impl ScriptEngine {
         let current_player = team_id.and_then(|id| match driver.team_current_player(id) {
             ScriptOwnerQuery::Present(player) => player,
             ScriptOwnerQuery::Missing => None,
-            ScriptOwnerQuery::Unavailable => Self::standalone_team_player(id),
+            ScriptOwnerQuery::Unavailable => self.standalone_team_player(id),
         });
         let restore = self.with_inner(|inner| CallingContextRestore {
             engine: self,

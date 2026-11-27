@@ -40,7 +40,7 @@ fn member_admission_prepends_without_reordering_duplicates() {
     team.add_member(22);
     assert_eq!(team.get_members(), &[33, 22, 11]);
     assert_eq!(
-        team.cur_units, 0,
+        team.script_state.cur_units, 0,
         "admission does not perform updateState recount"
     );
     team.remove_member(22);

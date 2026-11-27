@@ -1,121 +1,29 @@
-//! CPP Team.cpp1783: bounded borrows around immediate script callbacks.
+//! Bind the simulation's Team phases to the legacy team data.
+
 use super::*;
 
-/// A synchronous visit cursor, never serialized or retained between frames.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum TeamStateStep {
-    #[default]
-    Start,
-    AfterCreate,
-    Sighted,
-    Destroyed,
-    AfterDestroyed,
-    Idle,
-    AfterIdle(bool),
-    Done,
-}
-
-/// Fresh observations from the driving world, sampled again after each effect.
-#[derive(Debug, Clone, Copy, Default)]
-pub struct TeamStateObservation {
-    pub member_count: i32,
-    pub live_count: i32,
-    pub enemy_sighted: bool,
-    pub any_live_member: bool,
-    pub all_ai_idle: bool,
-    pub any_live_ai: bool,
-}
-
 impl Team {
-    /// C++ Team::updateState observes enemies only in its enabled sighting phase.
     pub fn needs_enemy_sighting_observation(&self, step: &TeamStateStep) -> bool {
-        *step == TeamStateStep::Sighted && self.check_enemy_sighted
+        self.script_state.needs_enemy_sighting_observation(step)
     }
 
-    /// Advances one original phase, returning at most its immediate runScript.
-    /// The caller releases both team and factory guards before executing it,
-    /// then validates the same team identity and samples the next phase anew.
+    /// Step the original update and return an owned name for synchronous dispatch
+    /// after the world driver releases its team and factory guards.
     pub fn advance_owned_state(
         &mut self,
         step: &mut TeamStateStep,
         observation: TeamStateObservation,
     ) -> Option<String> {
-        use TeamStateStep::*;
-        match *step {
-            Start => {
-                self.entered_or_exited = false;
-                if !self.active {
-                    *step = Done;
-                    return None;
-                }
-                if self.created {
-                    self.created = false;
-                    *step = AfterCreate;
-                    return (!self.script_on_create.is_empty())
-                        .then(|| self.script_on_create.to_string());
-                }
-                *step = Sighted;
-            }
-            AfterCreate => {
-                if !self.script_on_destroyed.is_empty() {
-                    // CPP adds the roster visible AFTER OnCreate, then casts
-                    // the whole floating subtraction to the integer threshold.
-                    self.cur_units += observation.member_count;
-                    self.destroy_threshold = (self.cur_units as Real
-                        - self.cur_units as Real * self.destroyed_threshold_ratio)
-                        as Int;
-                    self.destroy_threshold = self.destroy_threshold.min(self.cur_units - 1).max(0);
-                }
-                *step = Sighted;
-            }
-            Sighted => {
-                *step = Destroyed;
-                if self.check_enemy_sighted {
-                    self.prev_see_enemy = self.see_enemy;
-                    self.see_enemy = observation.enemy_sighted;
-                    if observation.any_live_member && self.prev_see_enemy != self.see_enemy {
-                        let name = if self.see_enemy {
-                            &self.script_on_enemy_sighted
-                        } else {
-                            &self.script_on_all_clear
-                        };
-                        return (!name.is_empty()).then(|| name.to_string());
-                    }
-                }
-            }
-            Destroyed => {
-                *step = Idle;
-                if !self.script_on_destroyed.is_empty() {
-                    let previous = self.cur_units;
-                    self.cur_units = observation.live_count;
-                    if self.cur_units != previous && self.cur_units <= self.destroy_threshold {
-                        // CPP marks the one-shot threshold AFTER the callback.
-                        *step = AfterDestroyed;
-                        return Some(self.script_on_destroyed.to_string());
-                    }
-                }
-            }
-            AfterDestroyed => {
-                self.destroy_threshold = -1;
-                *step = Idle;
-            }
-            Idle => {
-                *step = Done;
-                if !self.script_on_idle.is_empty() {
-                    if observation.any_live_ai && observation.all_ai_idle && self.was_idle {
-                        *step = AfterIdle(observation.all_ai_idle);
-                        return Some(self.script_on_idle.to_string());
-                    }
-                    self.was_idle = observation.all_ai_idle;
-                }
-            }
-            AfterIdle(idle) => {
-                self.was_idle = idle;
-                *step = Done;
-            }
-            Done => {}
-        }
-        None
+        let hooks = TeamScriptHooks {
+            on_create: self.script_on_create.as_str(),
+            on_enemy_sighted: self.script_on_enemy_sighted.as_str(),
+            on_all_clear: self.script_on_all_clear.as_str(),
+            on_destroyed: self.script_on_destroyed.as_str(),
+            on_idle: self.script_on_idle.as_str(),
+        };
+        self.script_state
+            .advance(step, observation, hooks)
+            .map(str::to_owned)
     }
 }
 
@@ -133,7 +41,7 @@ mod tests {
     fn owned_enemy_observation_requires_exact_phase_and_receiving_flag() {
         let mut team = active_team();
         for enabled in [false, true] {
-            team.check_enemy_sighted = enabled;
+            team.script_state.check_enemy_sighted = enabled;
             for step in [
                 TeamStateStep::Start,
                 TeamStateStep::AfterCreate,
@@ -161,7 +69,7 @@ mod tests {
         let mut team = active_team();
         team.script_on_create = "Create".into();
         team.script_on_destroyed = "Destroyed".into();
-        team.destroyed_threshold_ratio = 0.3;
+        team.script_state.destroyed_threshold_ratio = 0.3;
         let mut step = TeamStateStep::default();
         assert_eq!(
             team.advance_owned_state(&mut step, TeamStateObservation::default()),
@@ -180,9 +88,9 @@ mod tests {
                 ..Default::default()
             },
         );
-        assert_eq!(team.cur_units, 2);
+        assert_eq!(team.script_state.cur_units, 2);
         assert_eq!(
-            team.destroy_threshold, 1,
+            team.script_state.destroy_threshold, 1,
             "CPP casts the entire float subtraction"
         );
         team.advance_owned_state(&mut step, TeamStateObservation::default());
@@ -196,12 +104,12 @@ mod tests {
         );
         assert_eq!(effect, Some("Destroyed".into()));
         assert_eq!(
-            team.destroy_threshold, 1,
+            team.script_state.destroy_threshold, 1,
             "callback still observes the old threshold"
         );
-        team.destroy_threshold = 900; // Callback write is followed by the original one-shot write.
+        team.script_state.destroy_threshold = 900; // Callback write is followed by the original one-shot write.
         team.advance_owned_state(&mut step, TeamStateObservation::default());
-        assert_eq!(team.destroy_threshold, -1);
+        assert_eq!(team.script_state.destroy_threshold, -1);
         assert_eq!(step, TeamStateStep::Idle);
     }
 
@@ -215,18 +123,18 @@ mod tests {
             ..Default::default()
         };
         let mut step = TeamStateStep::Idle;
-        team.was_idle = false;
+        team.script_state.was_idle = false;
         assert!(team.advance_owned_state(&mut step, observation).is_none());
-        assert!(team.was_idle);
+        assert!(team.script_state.was_idle);
         step = TeamStateStep::Idle;
         assert_eq!(
             team.advance_owned_state(&mut step, observation),
             Some("Idle".into())
         );
         assert_eq!(step, TeamStateStep::AfterIdle(true));
-        team.was_idle = false;
+        team.script_state.was_idle = false;
         team.advance_owned_state(&mut step, TeamStateObservation::default());
-        assert!(team.was_idle);
+        assert!(team.script_state.was_idle);
         assert_eq!(step, TeamStateStep::Done);
     }
 
@@ -236,7 +144,7 @@ mod tests {
         let mut peer = Team::new("OwnedPhaseTeam".into(), 9771);
         first.script_on_create = "FirstCreate".into();
         peer.script_on_create = "PeerCreate".into();
-        peer.entered_or_exited = true;
+        peer.script_state.entered_or_exited = true;
         let mut first_step = TeamStateStep::Start;
         let mut peer_step = TeamStateStep::Start;
         assert_eq!(
@@ -259,5 +167,86 @@ mod tests {
             peer.advance_owned_state(&mut peer_step, Default::default()),
             Some("PeerCreate".into())
         );
+    }
+
+    #[test]
+    fn standalone_destruction_threshold_uses_the_original_float_subtraction() {
+        use crate::scripting::HostScriptQuery;
+        use crate::system::engine_stores::WorldServices;
+
+        let world = Arc::new(WorldServices::new_for_world());
+        let mut team = active_team();
+        team.script_on_destroyed = "Destroyed".into();
+        team.script_state.destroyed_threshold_ratio = 0.3;
+        for member in 1..=4 {
+            team.add_member(member);
+        }
+        team.update_state(&HostScriptQuery::of(&world));
+        assert_eq!(team.script_state.cur_units, 4);
+        assert_eq!(team.script_state.destroy_threshold, 2);
+    }
+
+    #[test]
+    fn queued_team_update_uses_the_receiving_interpreter_during_a_foreign_scope() {
+        use crate::GameLogicResult;
+        use crate::scripting::HostScriptQuery;
+        use crate::scripting::core::{
+            Condition, ConditionType, OrCondition, Parameter, ParameterType, ScriptAction,
+            ScriptActionType, ScriptList,
+        };
+        use crate::scripting::engine::{ScriptEngine, ScriptExecutionDriver};
+        use crate::scripting::executor::ScriptContext;
+        use crate::system::engine_stores::{WorldServices, with_world_services};
+
+        struct Driver;
+        impl ScriptExecutionDriver for Driver {
+            fn after_action(&mut self) -> GameLogicResult<()> {
+                Ok(())
+            }
+        }
+
+        fn interpreter(world: &Arc<WorldServices>, flag: &str) -> ScriptEngine {
+            let mut condition = OrCondition::new();
+            condition.first_and = Some(Box::new(Condition::new(ConditionType::ConditionTrue)));
+            let mut action = ScriptAction::new(ScriptActionType::SetFlag);
+            action
+                .add_parameter(Parameter::with_string(ParameterType::Flag, flag.into()))
+                .unwrap();
+            action
+                .add_parameter(Parameter::with_int(ParameterType::Boolean, 1))
+                .unwrap();
+            let mut script = Script::new();
+            script.script_name = "TeamCreated".into();
+            script.is_subroutine = true;
+            script.condition = Some(Box::new(condition));
+            script.action = Some(Box::new(action));
+            let mut list = ScriptList::new();
+            list.append_script(Box::new(script));
+            let engine = ScriptEngine::new_with_services(world).unwrap();
+            engine
+                .set_script_list_for_player(0, Some(Box::new(list)))
+                .unwrap();
+            engine
+        }
+
+        let owner = Arc::new(WorldServices::new_for_world());
+        let peer = Arc::new(WorldServices::new_for_world());
+        let receiving = interpreter(&owner, "Receiving");
+        *peer.scripts().engine().write().unwrap() = Some(interpreter(&peer, "Foreign"));
+        let mut team = active_team();
+        team.script_on_create = "TeamCreated".into();
+        with_world_services(&peer, || {
+            team.update_state(&HostScriptQuery::of(&owner));
+            receiving
+                .update_with_driver(ScriptContext::at_frame(42), &mut Driver)
+                .unwrap();
+        });
+        assert!(
+            receiving
+                .get_flag("Receiving")
+                .is_some_and(|flag| flag.value)
+        );
+        let peer_engine = peer.scripts().engine().read().unwrap();
+        assert!(peer_engine.as_ref().unwrap().get_flag("Foreign").is_none());
     }
 }

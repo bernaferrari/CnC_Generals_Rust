@@ -11,6 +11,7 @@ pub mod program_execution;
 pub mod program_install;
 pub mod sequential_scripts;
 pub mod side_scripts;
+pub mod team_scripts;
 pub mod variables;
 
 pub use generals_game_domain::polygons::TriggerArea;

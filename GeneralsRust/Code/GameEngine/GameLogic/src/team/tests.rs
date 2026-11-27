@@ -544,7 +544,7 @@ mod tests {
         {
             let mut guard = team.write().expect("team write lock");
             guard.update_state(&crate::scripting::HostScriptQuery::published_for_test());
-            guard.notify_team_of_object_death();
+            guard.notify_team_of_object_death(&crate::system::engine_stores::active_services());
         }
 
         let queued = drain_pending_team_script_events();

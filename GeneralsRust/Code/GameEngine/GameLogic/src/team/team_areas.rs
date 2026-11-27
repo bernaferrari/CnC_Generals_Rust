@@ -161,7 +161,7 @@ impl Team {
             return false;
         }
 
-        if !self.entered_or_exited {
+        if !self.script_state.entered_or_exited {
             return false;
         }
 
@@ -212,7 +212,7 @@ impl Team {
             return false;
         }
 
-        if !self.entered_or_exited {
+        if !self.script_state.entered_or_exited {
             return false;
         }
 
@@ -251,7 +251,7 @@ impl Team {
             return false;
         }
 
-        if !self.entered_or_exited {
+        if !self.script_state.entered_or_exited {
             return false;
         }
 
@@ -290,7 +290,7 @@ impl Team {
             return false;
         }
 
-        if !self.entered_or_exited {
+        if !self.script_state.entered_or_exited {
             return false;
         }
 

@@ -600,7 +600,9 @@ impl GameLogic {
         }
         // Team::updateState runs from ScriptEngine after executeScripts
         // (C++ ScriptEngine.cpp:5573). Flush leftover events only.
-        flush_pending_team_script_events();
+        if let Some(world) = self.owning_world_services() {
+            flush_pending_team_script_events(&world, self.frame);
+        }
 
         // -----------------------------------------------------------------------
         // Phase 16: Frame Increment (C++ lines 3799-3802)

@@ -65,59 +65,67 @@ struct PendingTeamGenericScriptEval {
     current_player_name: Option<String>,
 }
 
-fn queue_team_script_event(team_id: TeamID, script_name: &str) {
+fn queue_team_script_event(
+    world: &crate::system::engine_stores::WorldServices,
+    team_id: TeamID,
+    script_name: &str,
+) {
     if team_id == TEAM_ID_INVALID || script_name.is_empty() {
         return;
     }
-
-    let services = crate::system::engine_stores::active_services();
-    if let Ok(mut pending) = services.pending_team_script_events().lock() {
+    if let Ok(mut pending) = world.pending_team_script_events().lock() {
         pending.push(PendingTeamScriptEvent {
             team_id,
-            script_name: script_name.to_string(),
+            script_name: script_name.to_owned(),
         });
     }
 }
 
+#[cfg(test)]
 fn drain_pending_team_script_events() -> Vec<PendingTeamScriptEvent> {
-    let services = crate::system::engine_stores::active_services();
-    services
-        .pending_team_script_events()
-        .lock()
+    take_team_script_events(&crate::system::engine_stores::active_services())
+}
+
+fn take_team_script_events(
+    world: &crate::system::engine_stores::WorldServices,
+) -> Vec<PendingTeamScriptEvent> {
+    world.pending_team_script_events().lock()
         .map(|mut pending| std::mem::take(&mut *pending))
         .unwrap_or_default()
 }
 
-pub fn flush_pending_team_script_events() {
-    // Keep a detached save candidate's script events queued until admission.
-    if crate::runtime_world_transaction::world_runtime_staging_active() {
+/// The end-of-frame adapter can deliver only when this world's slot is free.
+pub(crate) fn flush_pending_team_script_events(
+    world: &Arc<crate::system::engine_stores::WorldServices>,
+    frame: u32,
+) {
+    let Ok(engine) = world.scripts().engine().try_write() else {
+        return;
+    };
+    if let Some(engine) = engine.as_ref() {
+        dispatch_pending_team_script_events(world, engine, frame);
+    }
+}
+
+/// The script-phase adapter already has its interpreter, even during a slot loan.
+pub(crate) fn dispatch_pending_team_script_events(
+    world: &Arc<crate::system::engine_stores::WorldServices>,
+    engine: &crate::scripting::engine::ScriptEngine,
+    frame: u32,
+) {
+    // Detached save candidates hold callbacks until admission.
+    if crate::runtime_world_transaction::world_runtime_staging_active_in(world) {
         return;
     }
-    let pending = drain_pending_team_script_events();
+    let pending = take_team_script_events(world);
     if pending.is_empty() {
         return;
     }
-
-    // C++ Team::updateState: TheScriptEngine->runScript(scriptName, this).
-    let script_engine = get_script_engine();
-    let Ok(mut engine_guard) = script_engine.write() else {
-        let services = crate::system::engine_stores::active_services();
-        if let Ok(mut queue) = services.pending_team_script_events().lock() {
-            queue.splice(0..0, pending);
+    crate::system::engine_stores::with_world_services(world, || {
+        for event in pending {
+            engine.run_standalone_team_script_at_frame(&event.script_name, Some(event.team_id), frame);
         }
-        return;
-    };
-    let Some(engine) = engine_guard.as_mut() else {
-        let services = crate::system::engine_stores::active_services();
-        if let Ok(mut queue) = services.pending_team_script_events().lock() {
-            queue.splice(0..0, pending);
-        }
-        return;
-    };
-
-    for event in pending {
-        engine.run_script(&event.script_name, Some(event.team_id));
-    }
+    });
 }
 
 /// Unit creation info (matching C++ TCreateUnitsInfo)

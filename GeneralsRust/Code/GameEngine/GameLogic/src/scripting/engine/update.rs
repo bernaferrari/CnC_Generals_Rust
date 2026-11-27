@@ -206,10 +206,17 @@ impl ScriptFrameDriver for ScriptFrameWorld<'_, '_> {
         if let Some(result) = self.execution.driver.update_team_states(self.engine) {
             return result;
         }
-        if let Ok(mut factory) = self.engine.team_factory.lock() {
-            factory.update(&self.engine.host_query());
+        let query = self.engine.host_query();
+        if let Some(world) = query.world() {
+            // The standalone factory still has generic-script callbacks that
+            // read its local compatibility scope when the guard is released.
+            crate::system::engine_stores::with_world_services(world, || {
+                if let Ok(mut factory) = self.engine.team_factory.lock() {
+                    factory.update(&query);
+                }
+            });
+            crate::team::dispatch_pending_team_script_events(world, self.engine, self.execution.frame);
         }
-        crate::team::flush_pending_team_script_events();
         Ok(())
     }
 

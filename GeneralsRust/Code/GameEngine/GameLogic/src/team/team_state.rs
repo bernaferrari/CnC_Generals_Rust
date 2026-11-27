@@ -160,138 +160,87 @@ impl Team {
 
     /// Check if team was just created
     pub fn is_created(&self) -> Bool {
-        self.created
+        self.script_state.created
     }
 
     /// Note that a team member entered/exited trigger area
     pub fn set_entered_exited(&mut self) {
-        self.entered_or_exited = true;
+        self.script_state.entered_or_exited = true;
     }
 
     /// Check if member entered/exited trigger area
     pub fn did_enter_or_exit(&self) -> Bool {
-        self.entered_or_exited
+        self.script_state.entered_or_exited
     }
 
-    /// Update team state (called each frame)
-    /// `q`: the host facts of the world whose teams are updating.
+    /// Standalone update adapter. The factory is borrowed here, so the caller
+    /// delivers collected effects after its team and factory guards end.
     pub fn update_state(&mut self, q: &crate::scripting::HostScriptQuery) {
-        // C++ Team.cpp:1785 — no dual-world registry skip.
-        self.entered_or_exited = false;
-        if !self.active {
+        let Some(world) = q.world() else {
             return;
-        }
-
-        let host_census =
-            OBJECT_REGISTRY.is_empty() && q.host_script_query_has_any();
-
-        if self.created {
-            self.created = false;
-
-            if !self.script_on_create.is_empty() {
-                queue_team_script_event(self.id, self.script_on_create.as_str());
-            }
-
-            if !self.script_on_destroyed.is_empty() {
-                self.cur_units = if host_census {
-                    host_hook_member_count(q, self.name.as_str())
-                } else {
-                    self.members.len() as Int
-                };
-                self.destroy_threshold = self.cur_units
-                    - (self.cur_units as Real * self.destroyed_threshold_ratio) as Int;
-
-                if self.destroy_threshold > self.cur_units - 1 {
-                    self.destroy_threshold = self.cur_units - 1;
-                }
-                if self.destroy_threshold < 0 {
-                    self.destroy_threshold = 0;
-                }
-            }
-        }
-
-        if self.check_enemy_sighted {
-            self.prev_see_enemy = self.see_enemy;
-            let (see_enemy_now, any_alive_in_team) = if host_census {
-                host_hook_enemy_sighted(q, self.name.as_str())
-            } else {
-                self.compute_enemy_sighted_state()
-            };
-            self.see_enemy = see_enemy_now;
-
-            if any_alive_in_team && self.prev_see_enemy != self.see_enemy {
-                if self.see_enemy {
-                    queue_team_script_event(self.id, self.script_on_enemy_sighted.as_str());
-                } else {
-                    queue_team_script_event(self.id, self.script_on_all_clear.as_str());
-                }
-            }
-        }
-
-        if !self.script_on_destroyed.is_empty() {
-            let prev_units = self.cur_units;
-            self.cur_units = if host_census {
-                host_hook_live_count(q, self.name.as_str())
-            } else if OBJECT_REGISTRY.is_empty() {
-                // No host snapshot: listed members stay counted so OnDestroyed
-                // does not fire at activation (C++ only drops live units).
-                self.members.len() as Int
-            } else {
-                let mut live = 0;
-                for &object_id in &self.members {
-                    let alive = OBJECT_REGISTRY
-                        .with_object(object_id, |object_guard| {
-                            !object_guard.is_effectively_dead()
-                        })
-                        .unwrap_or(false);
-                    if alive {
-                        live += 1;
-                    }
-                }
-                live
-            };
-
-            if self.cur_units != prev_units && self.cur_units <= self.destroy_threshold {
-                queue_team_script_event(self.id, self.script_on_destroyed.as_str());
-                self.destroy_threshold = -1;
-            }
-        }
-
-        if !self.script_on_idle.is_empty() {
-            let (is_idle, any_alive_in_team) = if host_census {
-                host_hook_idle_state(q, self.name.as_str())
-            } else {
-                let mut is_idle = true;
-                let mut any_alive_in_team = false;
-
-                for &object_id in &self.members {
-                    let Some(idle) = OBJECT_REGISTRY
-                        .with_object(object_id, |object_guard| {
-                            if object_guard.is_effectively_dead() {
-                                return None;
-                            }
-                            if object_guard.get_ai_update_interface().is_none() {
-                                return None;
-                            }
-                            Some(object_guard.is_idle())
-                        })
-                        .flatten()
-                    else {
-                        continue;
+        };
+        let registry = world.object_registry();
+        let registry_empty = registry.is_empty();
+        let host_census = registry_empty && q.host_script_query_has_any();
+        let mut step = TeamStateStep::Start;
+        while step != TeamStateStep::Done {
+            let mut observation = TeamStateObservation::default();
+            match step {
+                TeamStateStep::AfterCreate if !self.script_on_destroyed.is_empty() => {
+                    observation.member_count = if host_census {
+                        host_hook_member_count(q, self.name.as_str())
+                    } else {
+                        self.members.len() as Int
                     };
-
-                    any_alive_in_team = true;
-                    if !idle {
-                        is_idle = false;
-                    }
                 }
-                (is_idle, any_alive_in_team)
-            };
-
-            if any_alive_in_team && is_idle && self.was_idle {
-                queue_team_script_event(self.id, self.script_on_idle.as_str());
+                TeamStateStep::Sighted if self.needs_enemy_sighting_observation(&step) => {
+                    (observation.enemy_sighted, observation.any_live_member) = if host_census {
+                        host_hook_enemy_sighted(q, self.name.as_str())
+                    } else {
+                        crate::system::engine_stores::with_world_services(world, || {
+                            self.compute_enemy_sighted_state()
+                        })
+                    };
+                }
+                TeamStateStep::Destroyed if !self.script_on_destroyed.is_empty() => {
+                    observation.live_count = if host_census {
+                        host_hook_live_count(q, self.name.as_str())
+                    } else if registry_empty {
+                        // Preserve standalone behavior for lists without a registry or host census.
+                        self.members.len() as Int
+                    } else {
+                        self.members
+                            .iter()
+                            .filter(|&&id| {
+                                registry.with_object(id, |object| !object.is_effectively_dead())
+                                    == Some(true)
+                            })
+                            .count() as Int
+                    };
+                }
+                TeamStateStep::Idle if !self.script_on_idle.is_empty() => {
+                    (observation.all_ai_idle, observation.any_live_ai) = if host_census {
+                        host_hook_idle_state(q, self.name.as_str())
+                    } else {
+                        let statuses = self.members.iter().filter_map(|&id| {
+                            registry
+                                .with_object(id, |object| {
+                                    (!object.is_effectively_dead()
+                                        && object.get_ai_update_interface().is_some())
+                                    .then(|| object.is_idle())
+                                })
+                                .flatten()
+                        });
+                        statuses.fold((true, false), |(all_idle, _), idle| {
+                            (all_idle && idle, true)
+                        })
+                    };
+                }
+                _ => {}
             }
-            self.was_idle = is_idle;
+            if let Some(script) = self.advance_owned_state(&mut step, observation) {
+                queue_team_script_event(world, self.id, &script);
+            }
         }
     }
 
@@ -306,13 +255,11 @@ impl Team {
         (!name.is_empty() && name != "<none>").then_some(name)
     }
 
-    /// Notify team of object death
-    pub fn notify_team_of_object_death(&mut self) {
-        if self.script_on_unit_destroyed.is_empty() {
-            return;
-        }
-
-        queue_team_script_event(self.id, self.script_on_unit_destroyed.as_str());
+    pub(crate) fn notify_team_of_object_death(
+        &self,
+        world: &crate::system::engine_stores::WorldServices,
+    ) {
+        queue_team_script_event(world, self.id, self.script_on_unit_destroyed.as_str());
     }
 
     /// Get relationship with another team
@@ -341,7 +288,7 @@ impl Team {
         // Fall back to controlling player's relationship with that team.
         if let Some(my_player_id) = self.get_controlling_player_id() {
             let __player_list_arc = player_list();
-        if let Ok(players) = __player_list_arc.read() {
+            if let Ok(players) = __player_list_arc.read() {
                 if let Some(my_player_arc) = players.get_player(my_player_id as Int).cloned() {
                     if let Ok(my_player) = my_player_arc.read() {
                         return my_player.get_relationship_with_team(that_team);
@@ -364,7 +311,7 @@ impl Team {
 
         if let Some(my_player_id) = self.get_controlling_player_id() {
             let __player_list_arc = player_list();
-        if let Ok(players) = __player_list_arc.read() {
+            if let Ok(players) = __player_list_arc.read() {
                 if let (Some(my_player_arc), Some(that_player_arc)) = (
                     players.get_player(my_player_id as Int).cloned(),
                     players.get_player(player_index).cloned(),
@@ -516,7 +463,10 @@ mod host_query_team_tests {
         crate::scripting::HostScriptQuery::of(&a).set_host_script_query_snapshot(snap);
         let engine = crate::scripting::engine::ScriptEngine::new_with_services(&a).unwrap();
         with_world_services(&b, || {
-            assert_eq!(host_hook_member_count(&engine.host_query(), "HostQueryTeamTwoWorld"), 2);
+            assert_eq!(
+                host_hook_member_count(&engine.host_query(), "HostQueryTeamTwoWorld"),
+                2
+            );
             assert_eq!(
                 host_hook_member_count(
                     &crate::scripting::HostScriptQuery::of(&b),

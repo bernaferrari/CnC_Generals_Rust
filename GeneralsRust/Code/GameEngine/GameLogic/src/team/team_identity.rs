@@ -13,19 +13,10 @@ impl Team {
             saved_member_ids: Vec::new(),
             controlling_player_id: None,
             state: String::new().into(),
-            entered_or_exited: false,
-            active: false,
-            created: false,
+            script_state: TeamScriptState::default(),
             creation_phase: TeamCreationPhase::Ready,
             recruitable: false,
             recruitability_set: false,
-            check_enemy_sighted: false,
-            see_enemy: false,
-            prev_see_enemy: false,
-            was_idle: false,
-            destroy_threshold: 0,
-            cur_units: 0,
-            destroyed_threshold_ratio: 0.0,
             script_on_create: String::new().into(),
             script_on_idle: String::new().into(),
             script_on_enemy_sighted: String::new().into(),
@@ -248,35 +239,35 @@ impl Team {
     /// Access team member list (read-only).
     /// Set team as active
     pub fn set_active(&mut self) {
-        if !self.active {
-            self.created = true;
-            self.active = true;
+        if !self.script_state.active {
+            self.script_state.created = true;
+            self.script_state.active = true;
         }
     }
 
     /// Check if team is active
     pub fn is_active(&self) -> Bool {
-        self.active
+        self.script_state.active
     }
 
     pub fn get_see_enemy(&self) -> Bool {
-        self.see_enemy
+        self.script_state.see_enemy
     }
 
     pub fn get_prev_see_enemy(&self) -> Bool {
-        self.prev_see_enemy
+        self.script_state.prev_see_enemy
     }
 
     pub fn get_was_idle(&self) -> Bool {
-        self.was_idle
+        self.script_state.was_idle
     }
 
     pub fn get_destroy_threshold(&self) -> Int {
-        self.destroy_threshold
+        self.script_state.destroy_threshold
     }
 
     pub fn get_cur_units_count(&self) -> Int {
-        self.cur_units
+        self.script_state.cur_units
     }
 
     /// C++ `Team::xfer` script latches. Must not go through `set_active`
@@ -296,13 +287,13 @@ impl Team {
         recruitable: Bool,
         state: &str,
     ) {
-        self.created = created;
-        self.active = active;
-        self.see_enemy = see_enemy;
-        self.prev_see_enemy = prev_see_enemy;
-        self.was_idle = was_idle;
-        self.destroy_threshold = destroy_threshold;
-        self.cur_units = cur_units;
+        self.script_state.created = created;
+        self.script_state.active = active;
+        self.script_state.see_enemy = see_enemy;
+        self.script_state.prev_see_enemy = prev_see_enemy;
+        self.script_state.was_idle = was_idle;
+        self.script_state.destroy_threshold = destroy_threshold;
+        self.script_state.cur_units = cur_units;
         self.current_waypoint_id = waypoint_id;
         for (i, &flag) in generic_attempts
             .iter()
@@ -319,12 +310,12 @@ impl Team {
     /// C++ `Team::xfer` `m_enteredOrExited` + `m_checkEnemySighted`.
     /// Restore writes the two flags only; does not re-run update/OnCreate.
     pub fn restore_save_edge_flags(&mut self, entered_or_exited: Bool, check_enemy_sighted: Bool) {
-        self.entered_or_exited = entered_or_exited;
-        self.check_enemy_sighted = check_enemy_sighted;
+        self.script_state.entered_or_exited = entered_or_exited;
+        self.script_state.check_enemy_sighted = check_enemy_sighted;
     }
 
     pub fn get_check_enemy_sighted(&self) -> Bool {
-        self.check_enemy_sighted
+        self.script_state.check_enemy_sighted
     }
 
     /// Check if this team can be recruited by AI/team-building logic.
@@ -358,8 +349,8 @@ impl Team {
         self.script_on_all_clear = prototype.get_script_on_all_clear().clone();
         self.script_on_destroyed = prototype.get_script_on_destroyed().clone();
         self.script_on_unit_destroyed = prototype.get_script_on_unit_destroyed().clone();
-        self.destroyed_threshold_ratio = prototype.get_destroyed_threshold();
-        self.check_enemy_sighted =
+        self.script_state.destroyed_threshold_ratio = prototype.get_destroyed_threshold();
+        self.script_state.check_enemy_sighted =
             !self.script_on_enemy_sighted.is_empty() || !self.script_on_all_clear.is_empty();
     }
 

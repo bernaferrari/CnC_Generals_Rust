@@ -1,7 +1,7 @@
 //! CPP ScriptEngine5573 -> Player::updateTeamStates -> Team::updateState.
 use super::*;
 use gamelogic::scripting::engine::ScriptEngine;
-use gamelogic::team::{TeamStateObservation, TeamStateStep};
+use generals_sim::scripting::team_scripts::{TeamStateObservation, TeamStateStep};
 
 impl GameLogic {
     /// Execute one Player::update generic Team-script phase with this match's
@@ -196,19 +196,9 @@ impl GameLogic {
                             let player_name = owner
                                 .and_then(|player| self.get_player(player))
                                 .map(|player| player.name.clone());
-                            let context = gamelogic::scripting::executor::ScriptContext {
-                                game_logic_id: 0,
-                                object_manager_id: 0,
-                                player_manager_id: 0,
-                                event_system_id: 0,
-                                camera_system_id: 0,
-                                audio_system_id: 0,
-                                partition_manager_id: 0,
-                                special_powers_id: 0,
-                                current_frame: self.frame,
-                                suppress_new_windows: false,
-                                host_trigger_world: Arc::clone(&self.host_trigger_world),
-                            };
+                            let context =
+                                gamelogic::scripting::executor::ScriptContext::at_frame(self.frame)
+                                    .with_session_world(Arc::clone(&self.host_trigger_world));
                             let mut driver =
                                 super::script_execution_driver::HostScriptExecutionDriver::with_effects(
                                     self,

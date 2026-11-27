@@ -1836,8 +1836,15 @@ impl Object {
 
         // Notify team of object death. The script stays queued for the normal
         // flush so a busy script engine does not drop every pending team script.
-        if let Some(team_id) = self.get_team() {
-            let _ = crate::team::with_team_mut(team_id, |team| team.notify_team_of_object_death());
+        if let Some(world) = self.owning_world_services() {
+            let team = self.team_pin.clone().or_else(|| {
+                world.team_factory().lock().ok()?.find_team_by_id(self.team_id?)
+            });
+            if let Some(team) = team
+                && let Ok(team) = team.read()
+            {
+                team.notify_team_of_object_death(&world);
+            }
         }
 
         // Play EVA notifications for locally controlled units

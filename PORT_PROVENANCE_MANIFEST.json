@@ -153628,7 +153628,7 @@
     }
   ],
   "generator": "GeneralsRust/Code/Main/scripts/generate_port_provenance.py",
-  "input_digest": "acc0df1a6a8ec8f50aca031679b9c9cd3edd46238ee7748024a2837ae01cf79a",
+  "input_digest": "b3160d2ad9a4336ccb80aa0e2a83f086e5d48ae89908e2b18d04a0d8877f1d76",
   "metric_contract": {
     "behavior_requires_explicit_evidence": true,
     "candidate_mapping_is_reviewed": false,
@@ -202712,11 +202712,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 2141,
+        "end_line": 2148,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/object_lifecycle.rs",
-      "sha256": "409ddcd290fe36c417cd6069e0b28d6ba0cbb2831556bdb03417f146db8bbb1c",
+      "sha256": "07bfc17bc22caa97a53a6a11fac99ac21c5c3e87d6f5f8b872b6233f99d3bcc1",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -207296,11 +207296,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 170,
+        "end_line": 178,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/team/ids.rs",
-      "sha256": "5e8b2ba99e18f643a52601bdd29431d7e8a80d1ba646f65cc4f499a65d8dfb37",
+      "sha256": "9e1aed078ce65391265016079e63fb9bf55b717c3686717057e817ee47839aa4",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -207308,11 +207308,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 87,
+        "end_line": 88,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/team/mod.rs",
-      "sha256": "7b2516e2735b236a4d6a8f28c6019584fe7b9e39d8b549a4a2fcfeeebf02a48e",
+      "sha256": "d6448b7f7ff591bef0d2c9d4a7add729356a76fc4b146a6e39629efbaf5b46d7",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -207372,7 +207372,7 @@
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/team/script_guard_roster_tests.rs",
-      "sha256": "b35c650dd95a8e0f5f735df002bd87873d5b9a71209ab71c1d2ed11d2b58edf1",
+      "sha256": "f98be9310a6adaef02ca84dbc346d5c70be134511270313fc32c978e2d831105",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -207384,7 +207384,7 @@
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/team/snapshot.rs",
-      "sha256": "4e47ca4f97696665f5aa06d26e28748efd75965a866b620cbd058825130034b0",
+      "sha256": "6055128956aad892f0a96fe4eee7dc5edd96ed65cebafc715da5218d7d7aaede",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -207392,11 +207392,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 264,
+        "end_line": 253,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/team/state_owned.rs",
-      "sha256": "95f3085626e8a56db8190328132ced1f3e4ebb29bbab20eff4450f5a6eb5304a",
+      "sha256": "d70b4a33fc2d54a50f93bc8bd8d06d8412acea996fdd6311c03445c6268cce50",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -207408,7 +207408,7 @@
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/team/team_actions.rs",
-      "sha256": "bc59670a4e2a10a25bcdea5a072902fd39d84b7a529e572b634631658849c749",
+      "sha256": "54a54bf9679a24fca2a58ffbcbff9124c7c02c83e63f5a1c6afc266992b5acf4",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -207420,7 +207420,7 @@
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/team/team_areas.rs",
-      "sha256": "a6d380520b10a674e738c5b87cb4cd36c993fa2ffb21a0c91fecdf7e26c252f7",
+      "sha256": "7362fd6f09f38ee0cabc1dd32c455adfbfe3faf3b44cc8bdab01136c3d96c12c",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -207428,11 +207428,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 431,
+        "end_line": 422,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/team/team_identity.rs",
-      "sha256": "caf7314ee1bd253bb1855c29d6d8bd4726bbbb187493000f7de1efe0405d27de",
+      "sha256": "885b0dce81d3e40de7d972554efc652907aafb0886718a603911a891a021a425",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -207452,11 +207452,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 530,
+        "end_line": 480,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/team/team_state.rs",
-      "sha256": "145340a5100f1a48c9d8fb5630228c3d3167b97bb2725a50c88bf2914f85b949",
+      "sha256": "46d8f102870d69c2dfe11290422dba4a37c6c80abf2cd3c3fd3ccaee0e284746",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -207464,11 +207464,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 79,
+        "end_line": 64,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/team/team_struct.rs",
-      "sha256": "0bcf342feb36d47ce2216db1c883ee7eea4f7059cae5b936a939c52e7fdf71e8",
+      "sha256": "40be24cbfc988da4ed98dd394a1d860b522ef05f125efc280341616060d3fcbf",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -207480,7 +207480,7 @@
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/team/tests.rs",
-      "sha256": "7fedca25499b58c549302d7952ab0261675294b58a96ce044ed80170cd7df2fe",
+      "sha256": "166dc741bac90997254e6a6d1da0321c2d508fc393f5430a578597b79f66e760",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
