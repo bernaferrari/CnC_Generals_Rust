@@ -167,7 +167,7 @@ impl ScriptEngine {
                 acquired_sciences: vec![Vec::new(); Self::MAX_PLAYER_COUNT],
 
                 topple_directions: Vec::new(),
-                named_reveals: Vec::new(),
+                named_reveals: NamedReveals::default(),
                 breeze_info: BreezeInfo::new(),
                 game_difficulty: crate::player::GameDifficulty::Normal,
 

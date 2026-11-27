@@ -976,7 +976,6 @@ impl ScriptEngine {
         self.with_inner(|inner| inner.ui_interactions.iter().any(|name| name == hook_name))
     }
 
-    /// Create named map reveal
     pub fn create_named_map_reveal(
         &self,
         reveal_name: &str,
@@ -984,170 +983,104 @@ impl ScriptEngine {
         radius: f32,
         player_name: &str,
     ) {
-        let mut inner = self.lock_inner_mut();
-        if inner
-            .named_reveals
-            .iter()
-            .any(|reveal| reveal.reveal_name == reveal_name)
-        {
-            log::warn!(
-                "create_named_map_reveal: attempted to redefine named reveal '{}'",
-                reveal_name
-            );
+        if !self.lock_inner_mut().named_reveals.register(reveal_name, waypoint_name, radius, player_name) {
+            log::warn!("Attempted to redefine named reveal '{reveal_name}'");
             return;
         }
-
-        let reveal = NamedReveal {
-            reveal_name: reveal_name.to_string(),
-            waypoint_name: waypoint_name.to_string(),
-            radius_to_reveal: radius,
-            player_name: player_name.to_string(),
-        };
-        inner.named_reveals.push(reveal);
-        log::debug!("Created named map reveal: {}", reveal_name);
+        log::debug!("Created named map reveal: {reveal_name}");
     }
 
-    /// Apply a named map reveal (matches C++ ScriptEngine::doNamedMapReveal).
     pub fn do_named_map_reveal(&self, reveal_name: &str) {
-        let reveal = self.with_inner(|inner| {
-            inner
-                .named_reveals
-                .iter()
-                .find(|entry| entry.reveal_name == reveal_name)
-                .cloned()
-        });
-        let Some(reveal) = reveal else {
-            return;
-        };
-
-        let waypoint_ascii = AsciiString::from(reveal.waypoint_name.as_str());
-        let terrain_owner_handle = crate::terrain::get_terrain_logic();
-        let target = terrain_owner_handle.read().ok().and_then(|terrain| {
-            terrain
-                .get_waypoint_by_name(&waypoint_ascii)
-                .map(|w| *w.get_location())
-        });
-        let Some(target) = target else {
-            return;
-        };
-
-        let __player_list_arc = crate::player::player_list();
-        let Ok(players) = __player_list_arc.read() else {
-            return;
-        };
-        let Some(player_arc) = players.find_player_by_name(&reveal.player_name) else {
-            return;
-        };
-        let Ok(player) = player_arc.read() else {
-            return;
-        };
-        let player_mask = player.get_player_mask().bits();
-
-        let shroud_mgr = crate::system::shroud_manager::get_shroud_manager();
-        if let Ok(mut shroud_mgr) = shroud_mgr.lock() {
-            shroud_mgr.do_shroud_reveal(&target, reveal.radius_to_reveal, player_mask);
+        if let Some(reveal) = self.with_inner(|inner| inner.named_reveals.find(reveal_name).cloned()) {
+            self.apply_named_reveal_in_core(NamedRevealOperation::Reveal, &reveal);
         }
     }
 
-    /// Undo a named map reveal (matches C++ ScriptEngine::undoNamedMapReveal).
     pub fn undo_named_map_reveal(&self, reveal_name: &str) {
-        let reveal = self.with_inner(|inner| {
-            inner
-                .named_reveals
-                .iter()
-                .find(|entry| entry.reveal_name == reveal_name)
-                .cloned()
-        });
-        let Some(reveal) = reveal else {
-            return;
-        };
-
-        let waypoint_ascii = AsciiString::from(reveal.waypoint_name.as_str());
-        let terrain_owner_handle = crate::terrain::get_terrain_logic();
-        let target = terrain_owner_handle.read().ok().and_then(|terrain| {
-            terrain
-                .get_waypoint_by_name(&waypoint_ascii)
-                .map(|w| *w.get_location())
-        });
-        let Some(target) = target else {
-            return;
-        };
-
-        let __player_list_arc = crate::player::player_list();
-        let Ok(players) = __player_list_arc.read() else {
-            return;
-        };
-        let Some(player_arc) = players.find_player_by_name(&reveal.player_name) else {
-            return;
-        };
-        let Ok(player) = player_arc.read() else {
-            return;
-        };
-        let player_mask = player.get_player_mask().bits();
-
-        let shroud_mgr = crate::system::shroud_manager::get_shroud_manager();
-        if let Ok(mut shroud_mgr) = shroud_mgr.lock() {
-            shroud_mgr.undo_shroud_reveal(&target, reveal.radius_to_reveal, player_mask);
+        if let Some(reveal) = self.with_inner(|inner| inner.named_reveals.find(reveal_name).cloned()) {
+            self.apply_named_reveal_in_core(NamedRevealOperation::Undo, &reveal);
         }
     }
 
-    /// Remove a named map reveal (matches C++ ScriptEngine::removeNamedMapReveal).
+    pub(crate) fn apply_named_reveal_with_driver(
+        &self,
+        operation: NamedRevealOperation,
+        name: &str,
+        driver: &mut dyn ScriptExecutionDriver,
+    ) -> GameLogicResult<()> {
+        let Some(reveal) = self.with_inner(|inner| inner.named_reveals.find(name).cloned()) else {
+            return Ok(());
+        };
+        if let Some(result) = driver.named_map_visibility(
+            operation,
+            &reveal,
+            self.get_current_player_name().as_deref(),
+        ) {
+            return result;
+        }
+        self.apply_named_reveal_in_core(operation, &reveal);
+        Ok(())
+    }
+
+    fn apply_named_reveal_in_core(&self, operation: NamedRevealOperation, reveal: &NamedReveal) {
+        let Some(world) = self.owner_world.upgrade() else {
+            return;
+        };
+        let waypoint = AsciiString::from(reveal.waypoint_name.as_str());
+        let position = world.terrain().read().ok().and_then(|terrain| {
+            terrain.get_waypoint_by_name(&waypoint).map(|waypoint| *waypoint.get_location())
+        });
+        let Some(position) = position else {
+            return;
+        };
+        let Ok(mut names) = world.common().name_key_namespace.lock() else {
+            return;
+        };
+        let key = names.name_to_key(&reveal.player_name);
+        drop(names);
+        let Ok(players) = self.players.read() else {
+            return;
+        };
+        let mask = players.iter().find_map(|player| {
+            let player = player.read().ok()?;
+            (player.get_player_name_key() == key).then(|| player.get_player_mask().bits())
+        });
+        let Some(mask) = mask else {
+            return;
+        };
+        drop(players);
+        if let Ok(mut shroud) = world.shroud().lock() {
+            match operation {
+                NamedRevealOperation::Reveal => shroud.do_shroud_reveal(&position, reveal.radius_to_reveal, mask),
+                NamedRevealOperation::Undo => shroud.undo_shroud_reveal(&position, reveal.radius_to_reveal, mask),
+            }
+        }
+    }
+
     pub fn remove_named_map_reveal(&self, reveal_name: &str) {
-        let mut inner = self.lock_inner_mut();
-        if let Some(index) = inner
-            .named_reveals
-            .iter()
-            .position(|entry| entry.reveal_name == reveal_name)
-        {
-            inner.named_reveals.remove(index);
-        }
+        self.lock_inner_mut().named_reveals.remove(reveal_name);
     }
 
-    /// C++ `ScriptEngine::xfer` v2+ `m_namedReveals` table.
     pub fn snapshot_named_reveals(&self) -> Vec<(String, String, f32, String)> {
-        self.with_inner(|inner| {
-            inner
-                .named_reveals
-                .iter()
-                .map(|reveal| {
-                    (
-                        reveal.reveal_name.clone(),
-                        reveal.waypoint_name.clone(),
-                        reveal.radius_to_reveal,
-                        reveal.player_name.clone(),
-                    )
-                })
-                .collect()
-        })
+        self.with_inner(|inner| inner.named_reveals.snapshot())
     }
 
-    /// Replace the named-reveal list. C++ load requires the vector empty first.
     pub fn restore_named_reveals(&self, reveals: &[(String, String, f32, String)]) {
-        let mut inner = self.lock_inner_mut();
-        inner.named_reveals.clear();
-        inner.named_reveals.extend(reveals.iter().map(
-            |(reveal_name, waypoint_name, radius_to_reveal, player_name)| NamedReveal {
-                reveal_name: reveal_name.clone(),
-                waypoint_name: waypoint_name.clone(),
-                radius_to_reveal: *radius_to_reveal,
-                player_name: player_name.clone(),
-            },
-        ));
+        self.lock_inner_mut().named_reveals.restore(reveals);
     }
 
-    /// Re-apply every stored named reveal after load so waypoint lookers return.
-    /// C++ partition xfer keeps looker counts; live host restamps object lookers only.
-    pub fn reapply_named_map_reveals(&self) {
+    /// Recover lookers only for a historical archive without the shroud grid.
+    pub fn reapply_named_reveals_with_driver(
+        &self,
+        driver: &mut dyn ScriptExecutionDriver,
+    ) -> GameLogicResult<()> {
         let names: Vec<String> = self.with_inner(|inner| {
-            inner
-                .named_reveals
-                .iter()
-                .map(|reveal| reveal.reveal_name.clone())
-                .collect()
+            inner.named_reveals.entries().iter().map(|entry| entry.reveal_name.clone()).collect()
         });
         for name in names {
-            self.do_named_map_reveal(&name);
+            self.apply_named_reveal_with_driver(NamedRevealOperation::Reveal, &name, driver)?;
         }
+        Ok(())
     }
 
     /// Set or clear a named topple direction for scripted objects.

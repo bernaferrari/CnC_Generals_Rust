@@ -511,16 +511,17 @@ impl XferSnapshot for ScriptEngine {
         xfer.xfer_bool(&mut inner.freeze_by_script)?;
 
         if version >= 2 {
+            let rows = inner.named_reveals.legacy_entries_mut();
             let mut named_reveal_count: u16 =
                 if matches!(xfer.get_xfer_mode(), XferMode::Save | XferMode::Crc) {
-                    inner.named_reveals.len() as u16
+                    rows.len() as u16
                 } else {
                     0
                 };
             xfer.xfer_unsigned_short(&mut named_reveal_count)?;
             match xfer.get_xfer_mode() {
                 XferMode::Save | XferMode::Crc => {
-                    for reveal in inner.named_reveals.iter_mut() {
+                    for reveal in rows.iter_mut() {
                         xfer.xfer_ascii_string(&mut reveal.reveal_name)?;
                         xfer.xfer_ascii_string(&mut reveal.waypoint_name)?;
                         xfer.xfer_real(&mut reveal.radius_to_reveal)?;
@@ -528,10 +529,9 @@ impl XferSnapshot for ScriptEngine {
                     }
                 }
                 XferMode::Load => {
-                    if !inner.named_reveals.is_empty() {
+                    if !rows.is_empty() {
                         return Err(XferStatus::ListNotEmpty);
                     }
-                    inner.named_reveals.clear();
                     for _ in 0..named_reveal_count {
                         let mut reveal = NamedReveal {
                             reveal_name: String::new(),
@@ -543,7 +543,7 @@ impl XferSnapshot for ScriptEngine {
                         xfer.xfer_ascii_string(&mut reveal.waypoint_name)?;
                         xfer.xfer_real(&mut reveal.radius_to_reveal)?;
                         xfer.xfer_ascii_string(&mut reveal.player_name)?;
-                        inner.named_reveals.push(reveal);
+                        rows.push(reveal);
                     }
                 }
                 XferMode::Invalid => return Err(XferStatus::ModeUnknown),

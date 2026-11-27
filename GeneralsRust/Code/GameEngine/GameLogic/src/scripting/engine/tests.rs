@@ -764,6 +764,7 @@ fn active_script_campaign_scene_actions_do_not_relock_the_global_engine() {
         assert!(
             engine.with_inner(|inner| inner
                 .named_reveals
+                .entries()
                 .iter()
                 .any(|entry| entry.reveal_name == reveal_name)),
             "C++ creates the named reveal before trying to reveal its waypoint"
@@ -821,6 +822,7 @@ fn active_script_campaign_scene_actions_do_not_relock_the_global_engine() {
         assert!(engine.with_inner(|inner| {
             inner
                 .named_reveals
+                .entries()
                 .iter()
                 .all(|entry| entry.reveal_name != reveal_name)
         }));

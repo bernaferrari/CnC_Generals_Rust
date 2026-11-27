@@ -537,6 +537,16 @@ pub trait ScriptExecutionDriver {
         None
     }
 
+    /// Apply the selected waypoint reveal to the driving world.
+    fn named_map_visibility(
+        &mut self,
+        _operation: NamedRevealOperation,
+        _reveal: &NamedReveal,
+        _current_player: Option<&str>,
+    ) -> Option<GameLogicResult<()>> {
+        None
+    }
+
     /// Native host applies this window operation immediately when it can lend
     /// the receiving UI; standalone handlers retain their existing path.
     fn create_win_lose_window(&mut self, _layout_filename: &str) -> Option<GameLogicResult<()>> {
@@ -2456,15 +2466,6 @@ impl BreezeInfo {
     }
 }
 
-/// Named reveal structure matching C++ NamedReveal
-#[derive(Debug, Clone)]
-pub struct NamedReveal {
-    pub reveal_name: String,
-    pub waypoint_name: String,
-    pub radius_to_reveal: f32,
-    pub player_name: String,
-}
-
 /// Sequential Script matching C++ SequentialScript
 #[derive(Debug, Clone)]
 pub struct SequentialScript {
@@ -2672,7 +2673,7 @@ pub struct ScriptEngineInner {
 
     // Named reveals and effects
     topple_directions: Vec<(String, Coord3D)>,
-    named_reveals: Vec<NamedReveal>,
+    named_reveals: NamedReveals,
     breeze_info: BreezeInfo,
     game_difficulty: crate::player::GameDifficulty,
 

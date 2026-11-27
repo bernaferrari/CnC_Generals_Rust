@@ -748,7 +748,10 @@ pub fn restore_persist_v18(
         persist.script_engine_tail.as_ref(),
         game_logic,
         false,
-    )
+    )?;
+    game_logic
+        .recover_legacy_named_reveal_lookers()
+        .map_err(|error| SaveLoadError::Corrupted(error.to_string()))
 }
 
 /// Historical Rust world envelopes stored a multiplier; new/native Drawable
@@ -892,7 +895,6 @@ pub(super) fn restore_persist_v18_with_scale_encoding(
         } else {
             engine.reset_receiving_named_state_for_legacy_load();
         }
-        engine.reapply_named_map_reveals();
     }
 
     if let Some(cache) = restored_named_cache {

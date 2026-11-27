@@ -668,6 +668,7 @@ impl ScriptActionDispatcher<'_> {
     pub(crate) fn do_map_reveal_permanently_at_waypoint(
         &mut self,
         action: &ScriptAction,
+        driver: &mut dyn ScriptExecutionDriver,
     ) -> Result<ScriptActionResult, ScriptError> {
         let waypoint = self.get_string_param(action, 0)?;
         let radius = self.get_real_param(action, 1)?;
@@ -682,24 +683,34 @@ impl ScriptActionDispatcher<'_> {
             player_name
         );
 
-        let _ = self.context.with_engine_mut(|engine| {
+        if let Some(result) = self.context.with_engine_mut(|engine| {
             engine.create_named_map_reveal(&reveal_name, &waypoint, radius, &player_name);
-            engine.do_named_map_reveal(&reveal_name);
-        });
+            engine.apply_named_reveal_with_driver(
+                crate::scripting::engine::NamedRevealOperation::Reveal, &reveal_name, driver,
+            )
+        }) {
+            result.map_err(|error| ScriptError::ExecutionFailed(error.to_string()))?;
+        }
         Ok(ScriptActionResult::Success)
     }
 
     pub(crate) fn do_map_undo_reveal_permanently_at_waypoint(
         &mut self,
         action: &ScriptAction,
+        driver: &mut dyn ScriptExecutionDriver,
     ) -> Result<ScriptActionResult, ScriptError> {
         let reveal_name = self.get_string_param(action, 0)?;
         log::debug!("Undoing permanent reveal '{}'", reveal_name);
 
-        let _ = self.context.with_engine_mut(|engine| {
-            engine.undo_named_map_reveal(&reveal_name);
+        if let Some(result) = self.context.with_engine_mut(|engine| {
+            engine.apply_named_reveal_with_driver(
+                crate::scripting::engine::NamedRevealOperation::Undo, &reveal_name, driver,
+            )?;
             engine.remove_named_map_reveal(&reveal_name);
-        });
+            Ok::<(), crate::GameLogicError>(())
+        }) {
+            result.map_err(|error| ScriptError::ExecutionFailed(error.to_string()))?;
+        }
         Ok(ScriptActionResult::Success)
     }
 

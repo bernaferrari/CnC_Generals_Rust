@@ -15,6 +15,8 @@ use std::sync::{Arc, RwLock};
 
 #[path = "script_player_resolution.rs"]
 mod script_player_resolution;
+#[path = "named_map_reveals.rs"]
+mod named_map_reveals;
 
 pub(super) struct HostScriptExecutionDriver<'a> {
     world: &'a mut GameLogic,
@@ -2569,6 +2571,15 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
             self.world
                 .apply_owned_script_water_with_effects(request, &mut self.ui),
         )
+    }
+
+    fn named_map_visibility(
+        &mut self,
+        operation: generals_sim::scripting::map_reveals::NamedRevealOperation,
+        reveal: &generals_sim::scripting::map_reveals::NamedReveal,
+        current_player: Option<&str>,
+    ) -> Option<generals_sim::GameLogicResult<()>> {
+        Some(self.apply_receiving_named_reveal(operation, reveal, current_player))
     }
 
     fn map_visibility_all(

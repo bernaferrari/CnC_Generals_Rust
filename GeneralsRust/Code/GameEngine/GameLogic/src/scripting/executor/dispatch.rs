@@ -2308,10 +2308,10 @@ impl ScriptActionDispatcher<'_> {
             }
             ScriptActionType::MapShroudAll => self.do_map_shroud_all(driver, action),
             ScriptActionType::MapRevealPermanentlyAtWaypoint => {
-                self.do_map_reveal_permanently_at_waypoint(action)
+                self.do_map_reveal_permanently_at_waypoint(action, driver)
             }
             ScriptActionType::MapUndoRevealPermanentlyAtWaypoint => {
-                self.do_map_undo_reveal_permanently_at_waypoint(action)
+                self.do_map_undo_reveal_permanently_at_waypoint(action, driver)
             }
             ScriptActionType::MapSwitchBorder => self.do_map_switch_border(action, driver),
             ScriptActionType::RefreshRadar => self.do_refresh_radar(driver),

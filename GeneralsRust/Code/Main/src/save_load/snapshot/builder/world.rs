@@ -1173,6 +1173,12 @@ impl SnapshotBuilder {
             game_logic,
             snapshot.version < 30,
         )?;
+        // The saved PartitionCell counters already include authored lookers.
+        if snapshot.shroud.grid.is_none() {
+            game_logic
+                .recover_legacy_named_reveal_lookers()
+                .map_err(|error| SaveLoadError::Corrupted(error.to_string()))?;
+        }
         if let Some(saved) = &side_scripts {
             super::super::script_lists_persist::restore(saved, game_logic)?;
         }

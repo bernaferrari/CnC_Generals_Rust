@@ -26,6 +26,8 @@ use game_engine::common::thing::thing_factory::get_thing_factory;
 use game_engine::common::thing::thing_template::ThingTemplate as EngineThingTemplate;
 use generals_sim::scripting::attack_priorities::AttackPriorityTable;
 pub use generals_sim::scripting::attack_priorities::{AttackPriorityInfo, MAX_ATTACK_PRIORITIES};
+use generals_sim::scripting::map_reveals::NamedReveals;
+pub use generals_sim::scripting::map_reveals::{NamedReveal, NamedRevealOperation};
 use generals_sim::scripting::side_scripts::SideScripts;
 use generals_sim::scripting::variables::{MissionTimers, NamedTrackersSnapshot, ScriptVariables};
 pub use generals_sim::scripting::variables::{
