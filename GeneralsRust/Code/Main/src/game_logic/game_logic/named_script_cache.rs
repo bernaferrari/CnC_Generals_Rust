@@ -1,179 +1,10 @@
-//! ScriptEngine.cpp5975–6003,7068–7168,7693: one ordered named request vector.
-//! Runtime targets retain the existing Object birth identity, never a second ID ledger.
+//! Bind simulation name receipts to the receiving world's actual objects.
 use super::ObjectId;
+#[cfg(test)]
+use generals_sim::scripting::named_objects::NamedScriptCache;
+use generals_sim::scripting::named_objects::NamedScriptTarget;
 use std::collections::HashMap;
-use std::sync::{Arc, Weak};
-#[derive(Clone, Debug)]
-pub(crate) struct NamedScriptTarget {
-    pub id: ObjectId,
-    birth: Weak<()>,
-}
-impl NamedScriptTarget {
-    pub fn matches(&self, id: ObjectId, birth: &Arc<()>) -> bool {
-        self.id == id && self.birth.ptr_eq(&Arc::downgrade(birth))
-    }
-}
-#[derive(Clone, Debug)]
-struct NamedRequest {
-    name: String,
-    target: Option<NamedScriptTarget>,
-}
-#[derive(Clone, Debug, Default)]
-pub(crate) struct NamedScriptCache {
-    entries: Vec<NamedRequest>,
-}
-impl NamedScriptCache {
-    /// Initial traversal appends every named actor, including duplicate names.
-    pub fn seed(&mut self, objects: impl IntoIterator<Item = (String, ObjectId, Arc<()>)>) {
-        self.entries = objects
-            .into_iter()
-            .filter(|(name, _, _)| !name.is_empty())
-            .map(|(name, id, birth)| NamedRequest {
-                name,
-                target: Some(NamedScriptTarget {
-                    id,
-                    birth: Arc::downgrade(&birth),
-                }),
-            })
-            .collect();
-    }
-    /// The name comparison precedes pointer comparison in each original visit.
-    pub fn add(&mut self, name: &str, id: ObjectId, birth: &Arc<()>) -> bool {
-        if name.is_empty() {
-            return false;
-        }
-        for row in &mut self.entries {
-            if row.name == name {
-                if row.target.is_none() {
-                    row.target = Some(NamedScriptTarget {
-                        id,
-                        birth: Arc::downgrade(birth),
-                    });
-                    return true;
-                }
-                return false;
-            }
-            if row
-                .target
-                .as_ref()
-                .is_some_and(|target| target.matches(id, birth))
-            {
-                row.name = name.into();
-                return true;
-            }
-        }
-        self.entries.push(NamedRequest {
-            name: name.into(),
-            target: Some(NamedScriptTarget {
-                id,
-                birth: Arc::downgrade(birth),
-            }),
-        });
-        true
-    }
-    /// Physical destruction and transfer's target-old-name removal null one row.
-    pub fn remove(&mut self, id: ObjectId, birth: &Arc<()>) {
-        if let Some(row) = self.entries.iter_mut().find(|row| {
-            row.target
-                .as_ref()
-                .is_some_and(|target| target.matches(id, birth))
-        }) {
-            row.target = None;
-        }
-    }
-    /// Caller sets target.name even when no cache row matches. Donor name remains.
-    /// Return the previous target receipt for the source custom-indicator transfer.
-    pub fn transfer(
-        &mut self,
-        name: &str,
-        id: ObjectId,
-        birth: &Arc<()>,
-        target_named: bool,
-    ) -> Option<NamedScriptTarget> {
-        if target_named {
-            self.remove(id, birth);
-        }
-        let row = self.entries.iter_mut().find(|row| row.name == name)?;
-        row.target.replace(NamedScriptTarget {
-            id,
-            birth: Arc::downgrade(birth),
-        })
-    }
-    pub fn lookup(&self, name: &str) -> Option<&NamedScriptTarget> {
-        self.entries
-            .iter()
-            .find(|row| row.name == name)
-            .and_then(|row| row.target.as_ref())
-    }
-    /// CPP didUnitExist means the FIRST matching cache row is NULL.
-    pub fn did_exist(&self, name: &str) -> bool {
-        self.entries
-            .iter()
-            .find(|row| row.name == name)
-            .is_some_and(|row| row.target.is_none())
-    }
-    pub fn clear(&mut self) {
-        self.entries.clear();
-    }
-    pub fn iter(&self) -> impl Iterator<Item = &String> {
-        self.entries.iter().map(|row| &row.name)
-    }
-    #[cfg(test)]
-    pub fn insert(&mut self, name: String) -> bool {
-        if self.entries.iter().any(|row| row.name == name) {
-            return false;
-        }
-        self.entries.push(NamedRequest { name, target: None });
-        true
-    }
-    #[cfg(test)]
-    pub fn contains(&self, name: &str) -> bool {
-        self.entries.iter().any(|row| row.name == name)
-    }
-    pub fn wire(&self) -> Vec<(String, u32)> {
-        self.entries
-            .iter()
-            .map(|row| {
-                (
-                    row.name.clone(),
-                    row.target.as_ref().map_or(0, |target| target.id.0),
-                )
-            })
-            .collect()
-    }
-    /// Validate and bind ALL nonzero IDs before replacing the running vector.
-    /// Duplicate names and NULL rows are source-valid history, not malformed maps.
-    pub fn from_wire(
-        rows: &[(String, u32)],
-        mut birth: impl FnMut(ObjectId) -> Option<Arc<()>>,
-    ) -> Result<Self, String> {
-        if rows.len() > u16::MAX as usize {
-            return Err("named cache exceeds original u16 count".into());
-        }
-        let mut entries = Vec::with_capacity(rows.len());
-        for (name, raw) in rows {
-            if name.contains('\0') {
-                return Err("invalid named cache name".into());
-            }
-            let target = if *raw == 0 {
-                None
-            } else {
-                let id = ObjectId(*raw);
-                let token =
-                    birth(id).ok_or_else(|| format!("named cache object {raw} is absent"))?;
-                Some(NamedScriptTarget {
-                    id,
-                    birth: Arc::downgrade(&token),
-                })
-            };
-            entries.push(NamedRequest {
-                name: name.clone(),
-                target,
-            });
-        }
-        Ok(Self { entries })
-    }
-}
+use std::sync::Arc;
 
 impl super::GameLogic {
     /// Resolve a cache receipt only while its original Object birth is live.
@@ -188,18 +19,14 @@ impl super::GameLogic {
 
     /// Project each first literal name and its live birth for script queries.
     pub fn host_named_unit_id_map(&self) -> HashMap<String, u32> {
-        let mut names = HashMap::with_capacity(self.named_script_cache.entries.len());
-        for row in &self.named_script_cache.entries {
-            names.entry(row.name.clone()).or_insert_with(|| {
-                row.target
-                    .as_ref()
-                    .and_then(|target| self.resolve_named_script_target(target))
-                    .map_or(0, |object| object.id.0)
-            });
-        }
-        // A first tombstone or stale receipt must hide any later duplicate.
-        names.retain(|_, id| *id != 0);
-        names
+        self.named_script_cache
+            .project_live_ids(|target| self.resolve_named_script_target(target).is_some())
+    }
+
+    #[cfg(test)]
+    pub(crate) fn seed_named_tombstone_fixture(&mut self, name: &str) {
+        self.named_script_cache =
+            NamedScriptCache::from_wire(&[(name.to_owned(), 0)], |_| None).unwrap();
     }
 
     pub(crate) fn initialize_receiving_named_script_cache(&mut self) {
@@ -247,13 +74,6 @@ impl super::GameLogic {
         true
     }
 }
-
-impl PartialEq for NamedScriptCache {
-    fn eq(&self, other: &Self) -> bool {
-        self.wire() == other.wire()
-    }
-}
-impl Eq for NamedScriptCache {}
 
 #[cfg(test)]
 #[path = "named_script_cache_tests.rs"]

@@ -151,6 +151,13 @@ impl SnapshotBuilder {
             )));
         }
 
+        if game_logic.owned_script_engine.is_some() {
+            game_logic
+                .named_script_cache
+                .validate_for_save(|target| game_logic.resolve_named_script_target(target).is_some())
+                .map_err(|error| SaveLoadError::Serialization(error.to_string()))?;
+        }
+
         log::info!("Creating world snapshot from game state");
 
         // Snapshot all objects from game state

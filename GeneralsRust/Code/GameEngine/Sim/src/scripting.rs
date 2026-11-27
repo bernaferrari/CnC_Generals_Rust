@@ -1,6 +1,7 @@
 //! Per-world script trigger history and the geometry contract it uses.
 
 pub mod attack_priorities;
+pub mod named_objects;
 pub mod program;
 pub mod side_scripts;
 pub mod variables;

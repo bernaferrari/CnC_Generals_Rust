@@ -761,7 +761,7 @@ pub(super) fn restore_persist_v18_with_scale_encoding(
 ) -> SaveLoadResult<()> {
     let restored_named_cache = script_tail
         .map(|tail| {
-            crate::game_logic::game_logic::named_script_cache::NamedScriptCache::from_wire(
+            generals_sim::scripting::named_objects::NamedScriptCache::from_wire(
                 &tail.named_objects,
                 |id| {
                     game_logic
@@ -769,7 +769,7 @@ pub(super) fn restore_persist_v18_with_scale_encoding(
                         .map(|object| std::sync::Arc::clone(&object.visual_draw_identity_token))
                 },
             )
-            .map_err(SaveLoadError::Corrupted)
+            .map_err(|error| SaveLoadError::Corrupted(error.to_string()))
         })
         .transpose()?;
     // Reject invalid ring references before mutating this candidate or any adapter.

@@ -69,7 +69,7 @@ fn owned_control_groups_failed_candidate_does_not_change_valid_owner() {
 #[test]
 fn control_groups_ignore_magic_inside_actual_named_history_and_keep_terminal_capsules() {
     let mut source = GameLogic::new();
-    source.named_script_cache.insert("ValidHSQDUnitName".into());
+    source.seed_named_tombstone_fixture("ValidHSQDUnitName");
     let mut snapshot = super::super::SnapshotBuilder::new()
         .create_world_snapshot(&source)
         .unwrap();

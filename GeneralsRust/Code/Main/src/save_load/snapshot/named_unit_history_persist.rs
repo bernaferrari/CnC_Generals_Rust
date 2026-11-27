@@ -6,7 +6,12 @@ const MAGIC: &[u8; 4] = b"NMLF";
 
 #[cfg(test)]
 pub(super) fn append_to_lifecycle_tail(bytes: &mut Vec<u8>, world: &GameLogic) {
-    let names: BTreeSet<_> = world.named_script_cache.iter().cloned().collect();
+    let names: BTreeSet<_> = world
+        .named_script_cache
+        .wire()
+        .into_iter()
+        .map(|(name, _)| name)
+        .collect();
     let start = bytes.len();
     bytes.extend_from_slice(&(names.len() as u32).to_le_bytes());
     for name in names {
@@ -99,7 +104,7 @@ mod tests {
     #[test]
     fn legacy_projection_parses_structurally_but_never_mutates_named_cache() {
         let mut source = GameLogic::new();
-        source.named_script_cache.insert("Hero".into());
+        source.seed_named_tombstone_fixture("Hero");
         let mut bytes = b"opaque earlier owner".to_vec();
         append_to_lifecycle_tail(&mut bytes, &source);
         super::super::ai_player_queue_persist::append_to_lifecycle_tail(&mut bytes, &source);
@@ -112,7 +117,7 @@ mod tests {
             BTreeSet::from(["Hero".into()])
         );
         let mut receiving = GameLogic::new();
-        receiving.named_script_cache.insert("Existing".into());
+        receiving.seed_named_tombstone_fixture("Existing");
         let before = receiving.named_script_cache.wire();
         apply_from_lifecycle_tail(&bytes, &mut receiving).unwrap();
         assert_eq!(receiving.named_script_cache.wire(), before);
@@ -120,7 +125,7 @@ mod tests {
     #[test]
     fn new_world_snapshot_uses_existing_exact_script_tail_without_emitting_nmlf() {
         let mut source = GameLogic::new();
-        source.named_script_cache.insert("DeadHero".into());
+        source.seed_named_tombstone_fixture("DeadHero");
         let snapshot = super::super::SnapshotBuilder::new()
             .create_world_snapshot(&source)
             .unwrap();
@@ -155,7 +160,7 @@ mod tests {
         let n = bytes.len();
         bytes[n - 8..n - 4].copy_from_slice(&u32::MAX.to_le_bytes());
         let mut receiving = GameLogic::new();
-        receiving.named_script_cache.insert("Existing".into());
+        receiving.seed_named_tombstone_fixture("Existing");
         let before = receiving.named_script_cache.wire();
         assert!(apply_from_lifecycle_tail(&bytes, &mut receiving).is_err());
         assert_eq!(receiving.named_script_cache.wire(), before);

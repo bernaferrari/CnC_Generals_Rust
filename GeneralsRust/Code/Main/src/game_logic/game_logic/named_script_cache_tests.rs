@@ -1,67 +1,6 @@
 //! Source cache kernel plus actual receiving update/save/event/stage witnesses.
 use super::*;
 #[cfg(test)]
-mod tests {
-    use super::*;
-    #[test]
-    fn original_tail_empty_name_row_and_first_null_are_retained() {
-        let birth = Arc::new(());
-        let rows = vec![(String::new(), 0), (String::new(), 7)];
-        let cache =
-            NamedScriptCache::from_wire(&rows, |id| (id == ObjectId(7)).then(|| birth.clone()))
-                .unwrap();
-        assert_eq!(cache.wire(), rows);
-        assert!(cache.did_exist(""));
-        assert!(cache.lookup("").is_none());
-    }
-    #[test]
-    fn first_null_duplicate_reuse_and_pointer_before_later_name_match_follow_source_visits() {
-        let a = Arc::new(());
-        let b = Arc::new(());
-        let c = Arc::new(());
-        let mut cache = NamedScriptCache::default();
-        cache.seed([
-            ("same".into(), ObjectId(1), a.clone()),
-            ("same".into(), ObjectId(2), b.clone()),
-        ]);
-        cache.remove(ObjectId(1), &a);
-        assert!(cache.did_exist("same"));
-        assert!(cache.lookup("same").is_none());
-        assert!(cache.add("same", ObjectId(3), &c));
-        assert!(cache.lookup("same").unwrap().matches(ObjectId(3), &c));
-        assert!(!cache.add("same", ObjectId(2), &b));
-        cache.seed([
-            ("old".into(), ObjectId(1), a.clone()),
-            ("new".into(), ObjectId(2), b.clone()),
-        ]);
-        assert!(cache.add("new", ObjectId(1), &a));
-        assert_eq!(cache.wire(), [("new".into(), 1), ("new".into(), 2)]);
-    }
-    #[test]
-    fn transfer_preserves_target_old_tombstone_and_existing_birth_not_reused_id() {
-        let a = Arc::new(());
-        let b = Arc::new(());
-        let replacement = Arc::new(());
-        let mut cache = NamedScriptCache::default();
-        cache.seed([
-            ("donor".into(), ObjectId(1), a.clone()),
-            ("target".into(), ObjectId(2), b.clone()),
-        ]);
-        assert!(
-            cache
-                .transfer("donor", ObjectId(2), &b, true)
-                .unwrap()
-                .matches(ObjectId(1), &a)
-        );
-        assert_eq!(cache.wire(), [("donor".into(), 2), ("target".into(), 0)]);
-        cache.remove(ObjectId(2), &replacement);
-        assert!(cache.lookup("donor").unwrap().matches(ObjectId(2), &b));
-        cache.remove(ObjectId(2), &b);
-        assert!(cache.did_exist("donor"));
-    }
-}
-
-#[cfg(test)]
 mod receiving_tests {
     use super::*;
     use crate::game_logic::{GameLogic, Player, Team, ThingTemplate};
@@ -91,7 +30,6 @@ mod receiving_tests {
             ("Stale".into(), id, Arc::clone(&live_birth)),
             ("stale".into(), id, Arc::clone(&live_birth)),
         ]);
-        drop(stale_birth);
 
         let expected = std::collections::HashMap::from([("stale".to_owned(), id.0)]);
         assert_eq!(world.host_object_id_by_script_name("Stale"), None);
@@ -101,9 +39,58 @@ mod receiving_tests {
             [("Stale".into(), id.0), ("Stale".into(), id.0), ("stale".into(), id.0)]
         );
 
-        world.named_script_cache.entries[0].target = None;
+        world.named_script_cache.remove(id, &stale_birth);
         assert!(world.named_script_cache.did_exist("Stale"));
         assert_eq!(world.host_named_unit_id_map(), expected);
+    }
+
+    #[test]
+    fn snapshot_rejects_a_cached_name_whose_object_id_was_reused() {
+        use crate::game_logic::Object;
+        use crate::save_load::{SaveLoadError, SnapshotBuilder};
+
+        let (mut owner, donor) = world("Donor");
+        let target = owner
+            .create_object_for_player("NamedCacheProbe", 1, glam::Vec3::X)
+            .unwrap();
+        assert!(owner.set_host_object_name(target, "Original"));
+        first_update(&mut owner);
+        owner.host_object_mut(target).unwrap().name.clear();
+        assert!(owner.transfer_script_object_name(donor, target));
+        assert_eq!(owner.host_object_id_by_script_name("Donor"), Some(target));
+        assert_eq!(owner.host_object_id_by_script_name("Original"), Some(target));
+        owner.destroy_object(target).unwrap();
+        owner.process_destroy_list();
+
+        let template = owner.templates["NamedCacheProbe"].clone();
+        assert_eq!(
+            owner
+                .try_add_object(Object::new(template, target, Team::USA))
+                .unwrap(),
+            target
+        );
+        assert_eq!(owner.host_object_id_by_script_name("Donor"), None);
+        assert_eq!(owner.host_object_id_by_script_name("Original"), None);
+        let builder = SnapshotBuilder::new();
+        let Err(SaveLoadError::Serialization(error)) = builder.create_world_snapshot(&owner) else {
+            panic!("snapshot must refuse a stale named binding");
+        };
+        assert!(
+            error.contains(&format!("stale named cache object {target}")),
+            "{error}"
+        );
+
+        let (mut peer, _) = world("PeerDonor");
+        let peer_target = peer
+            .create_object_for_player("NamedCacheProbe", 1, glam::Vec3::X)
+            .unwrap();
+        assert_eq!(peer_target, target);
+        assert!(peer.set_host_object_name(peer_target, "Original"));
+        first_update(&mut peer);
+        let saved = builder.create_world_snapshot(&peer).unwrap();
+        let (mut receiver, _) = world("Other");
+        builder.restore_from_snapshot(&saved, &mut receiver).unwrap();
+        assert_eq!(receiver.host_object_id_by_script_name("Original"), Some(target));
     }
 
     #[test]

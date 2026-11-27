@@ -122,7 +122,7 @@ fn owned_control_groups_new_record_preserves_terminal_player_team_capsule() {
             player.resources.supplies = 17;
             player.academy_stats.record_control_groups_used();
             source.add_player(player);
-            source.named_script_cache.insert("PreviouslySeen".into());
+            source.seed_named_tombstone_fixture("PreviouslySeen");
             let builder = SnapshotBuilder::new();
             let before = builder.create_world_snapshot(&source).unwrap();
             assert!(
