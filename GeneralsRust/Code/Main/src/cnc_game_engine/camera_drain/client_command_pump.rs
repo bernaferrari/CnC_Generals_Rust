@@ -96,17 +96,9 @@ impl CnCGameEngine {
         client: &mut game_client::core::GameClient,
         pending: &mut crate::command_system::ReplayPendingState,
     ) -> Result<(), String> {
+        let (recorder, mut receive) = pending.client_message_receiver();
         client
-            .pump_message_stream_to_receiving_owner(
-                pending.recorder_owned(),
-                &mut |messages| {
-                    pending
-                        .receive_client_messages(messages)
-                        .map_err(game_client::core::GameClientError::InvalidOperation)
-                },
-                0,
-                0,
-            )
+            .pump_message_stream_to_receiving_owner(recorder, &mut receive, 0, 0)
             .map_err(|error| error.to_string())
     }
 
@@ -281,14 +273,11 @@ impl CnCGameEngine {
                     // translated message. Drain their typed LOD effect at the
                     // same completed-client boundary as emitted commands.
                     self.host_tick_options_bridge();
-                    let result = self
-                        .game_logic
-                        .replay_pending
-                        .receive_client_messages(messages);
+                    self.game_logic.replay_pending.receive_client_messages(messages);
                     for step in steps {
                         step.complete(self)?;
                     }
-                    return result;
+                    return Ok(());
                 }
                 PropagationProgress::HostBoundary(next) => {
                     for step in steps {

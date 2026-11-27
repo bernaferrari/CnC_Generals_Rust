@@ -60,7 +60,7 @@ impl ReplayPendingState {
     ) -> std::io::Result<bool> {
         let admitted = self.recorder.playback_file_owned(filename, in_game);
         let output = self.recorder.drain_pending_commands();
-        apply_replay_messages(self, &output, false);
+        apply_replay_messages(self, &output);
         admitted
     }
 
@@ -85,7 +85,7 @@ impl ReplayPendingState {
     ) -> std::io::Result<bool> {
         let result = self.recorder.admit_prepared_playback_owned(admission);
         let output = self.recorder.drain_pending_commands();
-        apply_replay_messages(self, &output, false);
+        apply_replay_messages(self, &output);
         result
     }
 
@@ -124,7 +124,7 @@ impl ReplayPendingState {
     pub(crate) fn stop_playback_owned(&mut self) {
         self.recorder.stop_playback();
         let output = self.recorder.drain_pending_commands();
-        apply_replay_messages(self, &output, false);
+        apply_replay_messages(self, &output);
     }
 
     pub(crate) fn record_command_owned(&mut self, command: &GameCommand) {
@@ -197,7 +197,7 @@ impl ReplayPendingState {
             match command {
                 AdmittedCommand::Queued(command) => host_queue.push_back(command),
                 AdmittedCommand::Message(message) => {
-                    apply_replay_messages(self, std::slice::from_ref(&message), false);
+                    apply_replay_messages(self, std::slice::from_ref(&message));
                 }
             }
         }
@@ -216,7 +216,7 @@ impl ReplayPendingState {
             ),
             "lifecycle requires the driving Engine command boundary"
         );
-        apply_replay_messages(self, std::slice::from_ref(message), false);
+        apply_replay_messages(self, std::slice::from_ref(message));
         std::mem::take(&mut self.commands)
     }
 
@@ -300,6 +300,6 @@ impl ReplayPendingState {
         self.recorder.set_current_frame(frame);
         self.recorder.update();
         let output = self.recorder.drain_pending_commands();
-        apply_replay_messages(self, &output, false);
+        apply_replay_messages(self, &output);
     }
 }

@@ -1414,9 +1414,6 @@ fn menu_client_survivors_use_actual_receiving_command_owner_without_core_queue()
         module_path!(),
         "menu_client_survivors_use_actual_receiving_command_owner_without_core_queue",
         || {
-            use crate::command_system::{
-                flush_recorder_and_replay_authority, stamp_host_logic_frame,
-            };
             use game_engine::common::message_stream::{
                 Coord3D, GameMessage, GameMessageType,
             };
@@ -1435,10 +1432,6 @@ fn menu_client_survivors_use_actual_receiving_command_owner_without_core_queue()
             let mut client = game_client::core::GameClient::new().unwrap();
             let mut owner = crate::game_logic::GameLogic::new();
             let mut peer = crate::game_logic::GameLogic::new();
-            game_client::message_stream::command_list::get_command_list()
-                .write()
-                .unwrap()
-                .retain_messages(|_| false);
             {
                 // The receiving client's own message stream (C++ the client
                 // owns TheMessageStream's producer side for its GameClient).
@@ -1456,18 +1449,8 @@ fn menu_client_survivors_use_actual_receiving_command_owner_without_core_queue()
             CnCGameEngine::pump_receiving_client_commands(&mut client, &mut owner.replay_pending)
                 .unwrap();
             assert_eq!(calls.load(Ordering::SeqCst), 0);
-            stamp_host_logic_frame(&mut owner.replay_pending, 7);
-            stamp_host_logic_frame(&mut peer.replay_pending, 7);
-            flush_recorder_and_replay_authority(
-                &mut owner.replay_pending,
-                &mut owner.command_queue,
-                0,
-            );
-            flush_recorder_and_replay_authority(
-                &mut peer.replay_pending,
-                &mut peer.command_queue,
-                0,
-            );
+            owner.replay_pending.flush_owned(7, &mut owner.command_queue, 0, 0, None);
+            peer.replay_pending.flush_owned(7, &mut peer.command_queue, 0, 0, None);
             assert_eq!(owner.command_queue.len(), 2);
             assert_eq!(owner.command_queue[0].player_id, 0);
             assert!(matches!(
@@ -1482,11 +1465,7 @@ fn menu_client_survivors_use_actual_receiving_command_owner_without_core_queue()
             assert!(peer.command_queue.is_empty());
             CnCGameEngine::pump_receiving_client_commands(&mut client, &mut owner.replay_pending)
                 .unwrap();
-            flush_recorder_and_replay_authority(
-                &mut owner.replay_pending,
-                &mut owner.command_queue,
-                0,
-            );
+            owner.replay_pending.flush_owned(8, &mut owner.command_queue, 0, 0, None);
             assert_eq!(
                 owner.command_queue.len(),
                 2,

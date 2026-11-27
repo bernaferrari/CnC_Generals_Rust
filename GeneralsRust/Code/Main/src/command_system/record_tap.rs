@@ -1,21 +1,11 @@
-//! Live-path recorder tap: host orders enter `TheCommandList` so
-//! `RecorderClass::updateRecord` (Recorder.cpp:455) can see them, and
-//! playback sink messages become Main `GameCommand`s.
-//!
-//! C++ writes every network message from `TheCommandList`. Main previously
-//! queued `GameCommand`s only on `GameLogic.command_queue`, so
-//! `update_record` saw an empty GameClient list.
+//! Translate command and replay messages for the match-owned Recorder.
 
 use super::*;
 use crate::game_logic::GameMode;
-use crossbeam::channel::{self, Receiver, Sender};
 use game_engine::common::message_stream::{
     Coord3D, GameMessage, GameMessageArgumentType, GameMessageType, ICoord2D, ObjectID,
     is_network_command_message,
 };
-use game_engine::common::recorder::{init_recorder, with_recorder, with_recorder_mut};
-use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 
 mod admitted_batch;
 pub(crate) use admitted_batch::{AdmittedCommand, AdmittedCommandBatch};
@@ -123,50 +113,17 @@ fn weapon_slot_from_id(id: u32) -> WeaponSlot {
     }
 }
 
-fn append_game_message_to_stream(msg: &GameMessage) {
-    use game_engine::common::message_stream::get_message_stream;
-    let stream_lock = get_message_stream();
-    let Ok(mut stream) = stream_lock.write() else {
-        return;
-    };
-    let dest = stream.append_message(msg.get_type().clone());
-    dest.set_player_index(msg.get_player_index());
-    for arg in msg.get_arguments() {
-        match &arg.data {
-            GameMessageArgumentType::Integer(v) => dest.append_integer_argument(*v),
-            GameMessageArgumentType::Real(v) => dest.append_real_argument(*v),
-            GameMessageArgumentType::Boolean(v) => dest.append_boolean_argument(*v),
-            GameMessageArgumentType::ObjectID(v) => dest.append_object_id_argument(*v),
-            GameMessageArgumentType::DrawableID(v) => dest.append_drawable_id_argument(*v),
-            GameMessageArgumentType::TeamID(v) | GameMessageArgumentType::SquadID(v) => {
-                dest.append_team_id_argument(*v)
-            }
-            GameMessageArgumentType::Location(v) => dest.append_location_argument(v.clone()),
-            GameMessageArgumentType::Pixel(v) => dest.append_pixel_argument(v.clone()),
-            GameMessageArgumentType::PixelRegion(v) => dest.append_pixel_region_argument(v.clone()),
-            GameMessageArgumentType::Timestamp(v) => dest.append_timestamp_argument(*v),
-            GameMessageArgumentType::WideChar(v) => dest.append_wide_char_argument(*v),
-            GameMessageArgumentType::String(v) => dest.append_string_argument(v.clone()),
-        }
-    }
-}
-
-/// Transient command and replay handoff for one logical game. C++ propagates
-/// client messages before `RecorderClass::update`, which appends playback
-/// messages before `GameLogic::processCommandList`. The callback channel
-/// crosses the client/logic boundary; decoded state stays on the game instance.
+/// Ordered input and replay messages for the receiving world. Client
+/// propagation completes before Recorder update and command dispatch.
 pub struct ReplayPendingState {
     recorder: game_engine::common::recorder::Recorder,
     recorded_messages: Vec<GameMessage>,
     lifecycle_messages: Vec<GameMessage>,
-    incoming: Receiver<Vec<GameMessage>>,
-    admitted_incoming: Vec<GameMessage>,
-    sender: Sender<Vec<GameMessage>>,
+    incoming: Vec<GameMessage>,
     commands: Vec<GameCommand>,
     camera: Option<ReplayCameraPose>,
     teams: Vec<ReplayTeamOp>,
     remirror: Vec<i32>,
-    host_logic_frame: Arc<AtomicU32>,
     last_recorder_update_frame: Option<u32>,
     last_logic_crc: u32,
     last_logic_crc_frame: u32,
@@ -174,7 +131,6 @@ pub struct ReplayPendingState {
 
 impl Default for ReplayPendingState {
     fn default() -> Self {
-        let (sender, incoming) = channel::unbounded();
         Self {
             // Detached worlds do not resolve directories, map names or seeds
             // from another live application. Admission supplies these explicitly.
@@ -191,14 +147,11 @@ impl Default for ReplayPendingState {
             ),
             recorded_messages: Vec::new(),
             lifecycle_messages: Vec::new(),
-            incoming,
-            admitted_incoming: Vec::new(),
-            sender,
+            incoming: Vec::new(),
             commands: Vec::new(),
             camera: None,
             teams: Vec::new(),
             remirror: Vec::new(),
-            host_logic_frame: Arc::new(AtomicU32::new(0)),
             last_recorder_update_frame: None,
             last_logic_crc: 0,
             last_logic_crc_frame: u32::MAX,
@@ -207,26 +160,35 @@ impl Default for ReplayPendingState {
 }
 
 impl ReplayPendingState {
-    /// Client stream handoff into this receiving world; reset disconnects old loans.
-    pub(crate) fn receive_client_messages(&self, messages: Vec<GameMessage>) -> Result<(), String> {
-        self.sender
-            .send(messages)
-            .map_err(|error| format!("receiving command handoff disconnected: {error}"))
+    /// Lend the Recorder observation and the receiving input buffer for a
+    /// synchronous client propagation. The callback cannot outlive the loan.
+    #[cfg(feature = "game_client")]
+    pub(crate) fn client_message_receiver(
+        &mut self,
+    ) -> (
+        &game_engine::common::recorder::Recorder,
+        impl FnMut(Vec<GameMessage>) -> Result<(), game_client::core::GameClientError> + '_,
+    ) {
+        let incoming = &mut self.incoming;
+        (&self.recorder, move |messages| {
+            incoming.extend(messages);
+            Ok(())
+        })
     }
+
+    pub(crate) fn receive_client_messages(&mut self, messages: Vec<GameMessage>) {
+        self.incoming.extend(messages);
+    }
+
     pub fn clear(&mut self) {
-        // Disconnect a callback that captured the previous world/session's
-        // sender, so a late delivery cannot enter the reset game.
-        (self.sender, self.incoming) = channel::unbounded();
-        // GameLogic::reset does not reset C++ TheRecorder. Preserve the
-        // admitted open reader while clearing this world's transient handoff.
-        self.admitted_incoming.clear();
+        // GameLogic reset retains the admitted replay reader.
+        self.incoming.clear();
         self.recorded_messages.clear();
         self.lifecycle_messages.clear();
         self.commands.clear();
         self.camera = None;
         self.teams.clear();
         self.remirror.clear();
-        self.host_logic_frame.store(0, Ordering::Relaxed);
         self.last_recorder_update_frame = None;
         self.last_logic_crc = 0;
         self.last_logic_crc_frame = u32::MAX;
@@ -250,28 +212,17 @@ impl ReplayPendingState {
         std::mem::take(&mut self.remirror)
     }
 
-    /// Admit the receiving client's completed CommandList handoff without ticking
-    /// Recorder or executing commands. A frozen step retains this same batch;
-    /// its original command phase consumes it after the freeze escape decision.
-    fn admit_incoming(&mut self) {
-        while let Ok(messages) = self.incoming.try_recv() {
-            self.admitted_incoming.extend(messages);
-        }
-    }
-
-    pub(crate) fn receiving_clear_command_pending(&mut self) -> bool {
-        self.admit_incoming();
-        self.admitted_incoming
+    /// A frozen step can inspect the input without taking the batch.
+    pub(crate) fn receiving_clear_command_pending(&self) -> bool {
+        self.incoming
             .iter()
             .any(|message| matches!(message.get_type(), GameMessageType::ClearGameData))
     }
 
     fn take_incoming(&mut self) -> Vec<GameMessage> {
-        self.admit_incoming();
-        std::mem::take(&mut self.admitted_incoming)
+        std::mem::take(&mut self.incoming)
     }
 }
-
 
 /// C++ `GameLogic.cpp` / `MessageStream.h` game-mode integers.
 fn game_mode_to_new_game_code(mode: GameMode) -> i32 {
@@ -302,174 +253,9 @@ fn vec3_from_coord(coord: &Coord3D) -> Vec3 {
     Vec3::new(coord.x, coord.y, coord.z)
 }
 
-fn append_to_command_list(message: GameMessage) {
-    #[cfg(feature = "game_client")]
-    {
-        let _ = game_client::message_stream::command_list::append_command(message);
-    }
-    #[cfg(not(feature = "game_client"))]
-    {
-        let _ = message;
-    }
-}
-
-fn snapshot_command_list() -> Vec<GameMessage> {
-    #[cfg(feature = "game_client")]
-    {
-        game_client::message_stream::command_list::get_command_list()
-            .read()
-            .map(|list| list.snapshot_messages())
-            .unwrap_or_default()
-    }
-    #[cfg(not(feature = "game_client"))]
-    {
-        Vec::new()
-    }
-}
-
-/// GameClient routes a completed stream batch to Main before GameLogic runs.
-/// Direct taps already waiting from an earlier UI operation retain their
-/// place; the new stream batch precedes this logic frame's MSG_LOGIC_CRC.
-fn merge_routed_messages_into_command_list(messages: &[GameMessage]) {
-    #[cfg(feature = "game_client")]
-    {
-        if messages.is_empty() {
-            return;
-        }
-        if let Ok(mut list) = game_client::message_stream::command_list::get_command_list().write()
-        {
-            let (crc_taps, direct_taps): (Vec<_>, Vec<_>) = list
-                .snapshot_messages()
-                .into_iter()
-                .partition(|message| matches!(message.get_type(), GameMessageType::LogicCRC(_)));
-            list.retain_messages(|_| false);
-            list.append_message_list(direct_taps);
-            list.append_message_list(messages.to_vec());
-            list.append_message_list(crc_taps);
-        }
-    }
-    #[cfg(not(feature = "game_client"))]
-    let _ = messages;
-}
-
-fn take_command_list_messages() -> Vec<GameMessage> {
-    #[cfg(feature = "game_client")]
-    {
-        let list = game_client::message_stream::command_list::get_command_list();
-        match list.write() {
-            Ok(mut guard) => {
-                guard.reset_frame_counter();
-                guard.get_all_commands()
-            }
-            Err(_) => Vec::new(),
-        }
-    }
-    #[cfg(not(feature = "game_client"))]
-    {
-        Vec::new()
-    }
-}
-
-fn clear_command_list() {
-    #[cfg(feature = "game_client")]
-    {
-        if let Ok(mut guard) = game_client::message_stream::command_list::get_command_list().write()
-        {
-            guard.clear_all_commands();
-            guard.reset_frame_counter();
-        }
-    }
-}
-
 fn keep_command_during_playback(msg: &GameMessage) -> bool {
     let ty = msg.get_type();
     !(is_network_command_message(ty) && !matches!(ty, GameMessageType::LogicCRC(_)))
-}
-
-fn host_logic_frame(state: &ReplayPendingState) -> u32 {
-    state.host_logic_frame.load(Ordering::Relaxed)
-}
-
-fn cull_host_command_list() {
-    #[cfg(feature = "game_client")]
-    {
-        if let Ok(mut list) = game_client::message_stream::command_list::get_command_list().write()
-        {
-            list.retain_messages(keep_command_during_playback);
-        }
-    }
-}
-
-/// Install CommandList source/sink + command_router host authority.
-/// Safe to call repeatedly.
-pub fn install_host_replay_bridges() {
-    if crate::main_services::main_services().bridges_installed.swap(true, Ordering::SeqCst) {
-        return;
-    }
-
-    init_recorder();
-
-    let command_source: Arc<dyn Fn() -> Vec<GameMessage> + Send + Sync> =
-        Arc::new(snapshot_command_list);
-    let command_sink: Arc<dyn Fn(GameMessage) + Send + Sync> = Arc::new(|msg| {
-        // C++ playbackFile/stopPlayback use TheMessageStream for these two.
-        match msg.get_type() {
-            GameMessageType::NewGame | GameMessageType::ClearGameData => {
-                append_game_message_to_stream(&msg);
-            }
-            _ => append_to_command_list(msg),
-        }
-    });
-    let command_cull: Arc<dyn Fn() + Send + Sync> = Arc::new(cull_host_command_list);
-    let _ = with_recorder_mut(|recorder| {
-        recorder.set_command_source(Some(command_source));
-        recorder.set_command_sink(Some(command_sink));
-        recorder.set_command_cull(Some(command_cull));
-    });
-}
-
-/// Bind Recorder frame observation to the receiving world's logical clock.
-/// Native client commands use an explicit operation loan, never Core's callback.
-pub fn bind_host_replay_authority(state: &ReplayPendingState) {
-    install_host_replay_bridges();
-    let host_frame = Arc::clone(&state.host_logic_frame);
-    let _ = with_recorder_mut(|recorder| {
-        recorder.set_frame_provider(Some(Arc::new(move || host_frame.load(Ordering::Relaxed))));
-    });
-}
-
-/// Convert a live host order into a `GameMessage` and append it to
-/// `TheCommandList` so `RecorderClass::updateRecord` can write it.
-pub fn tap_host_command_for_recorder(command: &GameCommand) {
-    install_host_replay_bridges();
-    if let Some(message) = game_command_to_message(command) {
-        append_to_command_list(message);
-    }
-}
-
-/// C++ `RecorderClass::updateRecord` starts a file when `MSG_NEW_GAME` is
-/// not `GAME_SHELL` / `GAME_SINGLE_PLAYER` / `GAME_NONE`.
-pub fn tap_host_new_game_for_recorder(mode: GameMode, selected_seed: u32) {
-    install_host_replay_bridges();
-    let _ = with_recorder_mut(|recorder| recorder.set_recording_seed(selected_seed));
-    let difficulty = gamelogic::helpers::TheScriptEngine::get_global_difficulty();
-    let rank = gamelogic::helpers::TheGameLogic::get_rank_points_to_add_at_game_start();
-    let max_fps = game_engine::common::global_data::read()
-        .writable
-        .frames_per_second_limit;
-    let mut message = GameMessage::new(GameMessageType::NewGame);
-    message.append_integer_argument(game_mode_to_new_game_code(mode));
-    message.append_integer_argument(difficulty);
-    message.append_integer_argument(rank);
-    message.append_integer_argument(if max_fps != 0 { max_fps } else { 30 });
-    append_to_command_list(message);
-}
-
-/// C++ `LookAtXlat.cpp:459-469`: emit `MSG_SET_REPLAY_CAMERA` onto the list
-/// the recorder snapshots (loc, angle, pitch, zoom, cursor, pixel).
-pub fn tap_replay_camera_for_recorder(pose: ReplayCameraPose) {
-    install_host_replay_bridges();
-    append_to_command_list(replay_camera_to_message(pose));
 }
 
 fn replay_camera_to_message(pose: ReplayCameraPose) -> GameMessage {
@@ -490,159 +276,6 @@ fn replay_camera_to_message(pose: ReplayCameraPose) -> GameMessage {
     message
 }
 
-/// Stamp live `TheGameLogic->getFrame()` for the next recorder write/playback.
-pub fn stamp_host_logic_frame(state: &mut ReplayPendingState, frame: u32) {
-    state.host_logic_frame.store(frame, Ordering::Relaxed);
-}
-
-pub(crate) fn logic_crc_due(frame: u32) -> bool {
-    let interval = game_engine::common::crc_debug::replay_crc_interval();
-    // C++ GameLogic.cpp:3634 — m_frame > 0 && m_frame % REPLAY_CRC_INTERVAL == 0.
-    interval > 0 && frame > 0 && frame % (interval as u32) == 0
-}
-
-/// C++ `GameLogic.cpp:3625-3654`: append the driving simulation's checksum
-/// unchanged before recorder update. Main supplies its owned Rust checksum;
-/// numeric equivalence to the original full `getCRC` is not established.
-pub fn post_host_logic_crc_if_due(
-    state: &mut ReplayPendingState,
-    frame: u32,
-    state_crc: u32,
-) -> Option<u32> {
-    if !logic_crc_due(frame) {
-        return None;
-    }
-    if state.last_logic_crc_frame == frame {
-        return Some(state.last_logic_crc);
-    }
-
-    let crc = state_crc;
-    log::trace!("MSG_LOGIC_CRC frame={} state_crc=0x{:08X}", frame, crc);
-
-    let playback = host_recorder_is_playback();
-    // C++ GameLogicDispatch.cpp:1904-1946 threads the local player index.
-    let mut message =
-        GameMessage::with_player(GameMessageType::LogicCRC(crc), host_local_player_index());
-    message.append_boolean_argument(playback);
-    append_to_command_list(message);
-
-    state.last_logic_crc = crc;
-    state.last_logic_crc_frame = frame;
-    Some(crc)
-}
-
-/// True when the live recorder is in `RECORDERMODETYPE_PLAYBACK`.
-pub fn host_recorder_is_playback() -> bool {
-    install_host_replay_bridges();
-    with_recorder(|recorder| recorder.is_playback()).unwrap_or(false)
-}
-
-/// C++ SelectionXlat.cpp:1047 MSG_CREATE/SELECT/ADD_TEAM0+group.
-pub fn tap_host_team_slot_for_recorder(slot: u8, action: TeamSlotAction<'_>) {
-    install_host_replay_bridges();
-    if with_recorder(|recorder| recorder.is_playback()).unwrap_or(false) {
-        return;
-    }
-    append_to_command_list(team_slot_message(host_local_player_index(), slot, action));
-}
-
-fn host_local_player_index() -> i32 {
-    let __arc_bind = gamelogic::player::ThePlayerList();
-
-    let Ok(list) = __arc_bind.read() else {
-        // Unresolvable (no player list yet): fall back to C++ player index 0.
-        return 0;
-    };
-    let index = list.get_local_player_index();
-    if index == gamelogic::player::PLAYER_INDEX_INVALID {
-        // Unresolvable (no local player bound yet): fall back to 0.
-        0
-    } else {
-        index
-    }
-}
-
-/// C++ `GameLogic::update` resets `TheCommandList` after recorder update and
-/// command dispatch (GameLogic.cpp:3765). Main has already queued live orders
-/// in `host_queue`, so the recorded snapshot must be discarded before a
-/// second host command pass or the next logic frame. Retaining `MSG_NEW_GAME`
-/// starts the same replay again; retaining CRCs or orders writes them twice.
-fn reset_recorded_command_list() {
-    #[cfg(feature = "game_client")]
-    {
-        if let Ok(mut list) = game_client::message_stream::command_list::get_command_list().write()
-        {
-            list.retain_messages(|_| false);
-            list.reset_frame_counter();
-        }
-    }
-}
-
-/// C++ GameState::loadGame calls GameEngine::reset, which resets Recorder and
-/// CommandList before loading an ordinary save. The Rust host commits a
-/// staged world atomically, so close the old replay only after commit succeeds.
-pub(crate) fn reset_host_recorder_after_successful_load(state: &mut ReplayPendingState) {
-    let _ = with_recorder_mut(|recorder| recorder.reset());
-    reset_recorded_command_list();
-    state.clear();
-}
-
-/// C++ `GameLogic::update` ticks `TheRecorder` then `processCommandList`.
-/// Recording: write CommandList then drop it (host already queued the order).
-/// Playback: playback sink fills CommandList; convert into the live host queue.
-pub fn flush_recorder_and_replay_authority(
-    state: &mut ReplayPendingState,
-    host_queue: &mut VecDeque<GameCommand>,
-    state_crc: u32,
-) {
-    install_host_replay_bridges();
-    let frame = host_logic_frame(state);
-    if state.last_recorder_update_frame == Some(frame) {
-        // GameLogic has a second post-AI command pass in this logic frame.
-        // Its orders still drain through process_commands. A synchronous UI
-        // command may also arrive after the first pass; keep its direct tap
-        // for the next recorder frame instead of dropping it here.
-        return;
-    }
-
-    let routed = state.take_incoming();
-    merge_routed_messages_into_command_list(&routed);
-    let playback = host_recorder_is_playback();
-    // C++ posts MSG_LOGIC_CRC onto the stream before TheRecorder->update().
-    let posted = post_host_logic_crc_if_due(state, frame, state_crc);
-    let _ = with_recorder_mut(|recorder| {
-        recorder.set_current_frame(frame);
-        recorder.update();
-        if playback {
-            if let Some(crc) = posted {
-                // C++ GameLogicDispatch.cpp:1940-1946 — compare only in
-                // playback, attributed to the local player.
-                recorder.notify_logic_crc(crc, host_local_player_index());
-            }
-        }
-    });
-    state.last_recorder_update_frame = Some(frame);
-
-    if playback {
-        // C++ cullBadCommands drops user network orders before processCommandList.
-        host_queue.retain(|cmd| game_command_to_message(cmd).is_none());
-        let messages = take_command_list_messages();
-        apply_replay_messages_to_host(state, &messages);
-    } else {
-        // The client delivered this batch to its legacy queue already. Main
-        // executes each translated host order once after Recorder snapshots it.
-        apply_replay_messages_to_host(state, &routed);
-        // C++ clears all messages at the end of the logic frame. Main already
-        // owns the executable orders in `host_queue`; leaving lifecycle
-        // messages here makes a second pass call startRecording again.
-        reset_recorded_command_list();
-    }
-
-    for command in std::mem::take(&mut state.commands) {
-        host_queue.push_back(command);
-    }
-}
-
 pub(crate) fn object_ids_from_message(message: &GameMessage) -> Vec<ObjectId> {
     (0..message.get_argument_count())
         .filter_map(|index| match message.get_argument(index) {
@@ -652,16 +285,7 @@ pub(crate) fn object_ids_from_message(message: &GameMessage) -> Vec<ObjectId> {
         .collect()
 }
 
-fn apply_replay_messages_to_host(state: &mut ReplayPendingState, messages: &[GameMessage]) {
-    apply_replay_messages(state, messages, true);
-}
-
-// Fixed receiving caller choice, never an ambient active-world selector.
-fn apply_replay_messages(
-    state: &mut ReplayPendingState,
-    messages: &[GameMessage],
-    core_delivery: bool,
-) {
+fn apply_replay_messages(state: &mut ReplayPendingState, messages: &[GameMessage]) {
     for message in messages {
         let player_index = message.get_player_index();
         match message.get_type() {
@@ -698,11 +322,7 @@ fn apply_replay_messages(
             }
             GameMessageType::NewGame | GameMessageType::ClearGameData => {
                 // C++ GameLogicDispatch.cpp:396-440 prepareNewGame/clearGameData.
-                if core_delivery {
-                    append_game_message_to_stream(message);
-                } else {
-                    state.lifecycle_messages.push(message.clone());
-                }
+                state.lifecycle_messages.push(message.clone());
             }
             GameMessageType::CreateTeamSlot(slot) => {
                 let ids = object_ids_from_message(message);

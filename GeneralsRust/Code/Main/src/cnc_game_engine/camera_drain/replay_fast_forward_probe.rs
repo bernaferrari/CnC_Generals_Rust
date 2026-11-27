@@ -341,8 +341,7 @@ fn source_command_phase_engine_witness(engine: &mut CnCGameEngine) {
     engine
         .game_logic
         .replay_pending
-        .receive_client_messages(vec![rejected])
-        .unwrap();
+        .receive_client_messages(vec![rejected]);
     direct_probe_frame(engine, 4. * (1. / 30.)).expect("complete rejected replay frame");
     assert_eq!(
         engine.game_logic.frame, 41,
@@ -384,8 +383,7 @@ fn source_command_phase_engine_witness(engine: &mut CnCGameEngine) {
     engine
         .game_logic
         .replay_pending
-        .receive_client_messages(vec![GameMessage::new(GameMessageType::ClearGameData)])
-        .unwrap();
+        .receive_client_messages(vec![GameMessage::new(GameMessageType::ClearGameData)]);
     direct_probe_frame(engine, 1. / 30.).expect("complete clear-game frame");
     let mut score_frame = None;
     engine.game_client.window_manager_owner().with_manager(|manager| {
@@ -429,8 +427,7 @@ fn source_command_phase_engine_witness(engine: &mut CnCGameEngine) {
         .receive_client_messages(vec![
             GameMessage::new(GameMessageType::ClearGameData),
             newgame,
-        ])
-        .unwrap();
+        ]);
     direct_probe_frame(engine, 1. / 30.).expect("complete shell-start frame");
     assert_eq!(
         engine.game_logic.frame, 0,
@@ -510,8 +507,7 @@ fn source_command_phase_engine_witness(engine: &mut CnCGameEngine) {
     engine
         .game_logic
         .replay_pending
-        .receive_client_messages(vec![unavailable])
-        .unwrap();
+        .receive_client_messages(vec![unavailable]);
     direct_probe_frame(engine, 1. / 30.).expect("complete rejected-background frame");
     assert_eq!(engine.game_logic.frame, 38);
     assert_eq!(engine.game_logic.game_mode(), GameMode::Skirmish);
@@ -708,8 +704,7 @@ fn source_shell_load_engine_witness(
         .receive_client_messages(vec![
             GameMessage::new(GameMessageType::ClearGameData),
             newgame,
-        ])
-        .map_err(anyhow::Error::msg)?;
+        ]);
     longevity_frame(engine)?;
     assert_eq!(engine.current_state, GameState::Loading);
     assert_eq!(engine.game_logic.game_mode(), GameMode::Shell);

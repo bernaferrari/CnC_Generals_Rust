@@ -1,6 +1,6 @@
 use crate::command_system::{
-    CommandMode, CommandType, GuardTarget, ModifierKeys, MouseButton, MouseCommandContext,
-    PresentationSelectedUnitHint, PresentationTargetHint, get_command_system, init_command_system,
+    CommandMode, CommandResult, CommandSystem, CommandType, GuardTarget, ModifierKeys, MouseButton,
+    MouseCommandContext, PresentationSelectedUnitHint, PresentationTargetHint,
 };
 use crate::game_logic::{GameLogic, ObjectId, ObjectType, Team};
 use crate::presentation_frame::{PresentationFrame, PresentationObjectType};
@@ -12,6 +12,8 @@ use winit::event::MouseButton as WinitMouseButton;
 
 /// Input command processor that bridges raw input and command system
 pub struct InputCommandProcessor {
+    command_system: CommandSystem,
+
     /// Current mouse position in screen coordinates
     mouse_screen_pos: Vec2,
 
@@ -61,6 +63,7 @@ impl InputCommandProcessor {
     /// Create new input command processor
     pub fn new() -> Self {
         Self {
+            command_system: CommandSystem::new(),
             mouse_screen_pos: Vec2::ZERO,
             mouse_world_pos: Vec3::ZERO,
             viewport_size: Vec2::new(800.0, 600.0),
@@ -455,19 +458,14 @@ impl InputCommandProcessor {
         };
 
         // Process mouse input through command system
-        let command_system = get_command_system();
-        if let Ok(mut system) = command_system.lock() {
-            if let Some(command) = system.process_mouse_input(
-                &context,
-                &selected_units,
-                self.current_player_id,
-                gl_for_classify,
-            ) {
-                system.queue_command(command);
-                log::trace!("Command queued from mouse input");
-            }
-        } else {
-            log::warn!("Failed to acquire command system lock for mouse input processing");
+        if let Some(command) = self.command_system.process_mouse_input(
+            &context,
+            &selected_units,
+            self.current_player_id,
+            gl_for_classify,
+        ) {
+            self.command_system.queue_command(command);
+            log::trace!("Command queued from mouse input");
         }
 
         // Reset drag state
@@ -490,8 +488,6 @@ impl InputCommandProcessor {
 
     /// Handle key down events
     fn handle_key_down(&mut self, key: VirtualKeyCode, game_logic: &mut GameLogic) {
-        let command_system = get_command_system();
-
         match key {
             // Modifier keys
             VirtualKeyCode::LShift | VirtualKeyCode::RShift => {
@@ -500,30 +496,18 @@ impl InputCommandProcessor {
             VirtualKeyCode::LControl | VirtualKeyCode::RControl => {
                 if !self.modifier_keys.ctrl {
                     self.modifier_keys.ctrl = true;
-                    if let Ok(mut system) = command_system.lock() {
-                        system.set_mode(CommandMode::ForceAttack);
-                    } else {
-                        log::warn!("Failed to acquire command system lock for force attack begin");
-                    }
+                    self.command_system.set_mode(CommandMode::ForceAttack);
                 }
             }
             VirtualKeyCode::LAlt | VirtualKeyCode::RAlt => {
                 self.modifier_keys.alt = true;
-                if let Ok(mut system) = command_system.lock() {
-                    system.set_waypoint_mode_for_player(self.current_player_id, true);
-                } else {
-                    log::warn!("Failed to acquire command system lock for waypoint begin");
-                }
+                self.command_system.set_waypoint_mode_for_player(self.current_player_id, true);
             }
 
             // Command mode keys
             VirtualKeyCode::A => {
                 if self.modifier_keys.ctrl {
-                    if let Ok(mut system) = command_system.lock() {
-                        system.set_mode(CommandMode::ForceAttack);
-                    } else {
-                        log::warn!("Failed to acquire command system lock for mode change");
-                    }
+                    self.command_system.set_mode(CommandMode::ForceAttack);
                 } else {
                     // Plain A = Attack Move (standard C&C Generals hotkey)
                     if self.issue_immediate_command(
@@ -603,9 +587,8 @@ impl InputCommandProcessor {
                 }
             }
             VirtualKeyCode::Space => {
-                if self.issue_global_command(CommandType::ViewLastRadarEvent) {
-                    log::debug!("Queued ViewLastRadarEvent command");
-                }
+                self.issue_global_command(CommandType::ViewLastRadarEvent);
+                log::debug!("Queued ViewLastRadarEvent command");
             }
             VirtualKeyCode::F => {
                 if self.modifier_keys.ctrl
@@ -626,18 +609,15 @@ impl InputCommandProcessor {
                     if self.select_hero_unit(game_logic) {
                         log::debug!("Selected hero unit");
                     }
-                } else if self.issue_global_command(CommandType::ViewCommandCenter) {
-                    log::debug!("Centered camera on command center");
+                } else {
+                    self.issue_global_command(CommandType::ViewCommandCenter);
+                    log::debug!("Queued ViewCommandCenter command");
                 }
             }
 
             VirtualKeyCode::Escape => {
                 // ESC = Cancel current mode
-                if let Ok(mut system) = command_system.lock() {
-                    system.set_mode(CommandMode::Normal);
-                } else {
-                    log::warn!("Failed to acquire command system lock for mode reset");
-                }
+                self.command_system.set_mode(CommandMode::Normal);
             }
 
             _ => {}
@@ -646,7 +626,6 @@ impl InputCommandProcessor {
 
     /// Handle key up events
     fn handle_key_up(&mut self, key: VirtualKeyCode, _game_logic: &mut GameLogic) {
-        let command_system = get_command_system();
         match key {
             // Modifier keys
             VirtualKeyCode::LShift | VirtualKeyCode::RShift => {
@@ -654,21 +633,13 @@ impl InputCommandProcessor {
             }
             VirtualKeyCode::LControl | VirtualKeyCode::RControl => {
                 self.modifier_keys.ctrl = false;
-                if let Ok(mut system) = command_system.lock() {
-                    if matches!(system.current_mode, CommandMode::ForceAttack) {
-                        system.set_mode(CommandMode::Normal);
-                    }
-                } else {
-                    log::warn!("Failed to acquire command system lock for force attack end");
+                if matches!(self.command_system.current_mode, CommandMode::ForceAttack) {
+                    self.command_system.set_mode(CommandMode::Normal);
                 }
             }
             VirtualKeyCode::LAlt | VirtualKeyCode::RAlt => {
                 self.modifier_keys.alt = false;
-                if let Ok(mut system) = command_system.lock() {
-                    system.set_waypoint_mode_for_player(self.current_player_id, false);
-                } else {
-                    log::warn!("Failed to acquire command system lock for waypoint end");
-                }
+                self.command_system.set_waypoint_mode_for_player(self.current_player_id, false);
             }
             _ => {}
         }
@@ -684,41 +655,22 @@ impl InputCommandProcessor {
             return false;
         }
 
-        let command_system = get_command_system();
-        match command_system.lock() {
-            Ok(mut system) => {
-                system.queue_immediate_command(
-                    command_type,
-                    &selected_units,
-                    self.current_player_id,
-                    self.modifier_keys,
-                );
-                true
-            }
-            Err(_) => {
-                log::warn!("Failed to acquire command system lock for immediate command");
-                false
-            }
-        }
+        self.command_system.queue_immediate_command(
+            command_type,
+            &selected_units,
+            self.current_player_id,
+            self.modifier_keys,
+        );
+        true
     }
 
-    fn issue_global_command(&mut self, command_type: CommandType) -> bool {
-        let command_system = get_command_system();
-        match command_system.lock() {
-            Ok(mut system) => {
-                system.queue_immediate_command(
-                    command_type,
-                    &[],
-                    self.current_player_id,
-                    ModifierKeys::default(),
-                );
-                true
-            }
-            Err(_) => {
-                log::warn!("Failed to acquire command system lock for global command");
-                false
-            }
-        }
+    fn issue_global_command(&mut self, command_type: CommandType) {
+        self.command_system.queue_immediate_command(
+            command_type,
+            &[],
+            self.current_player_id,
+            ModifierKeys::default(),
+        );
     }
 
     fn selection_modifier_state(&self) -> ModifierKeys {
@@ -738,19 +690,12 @@ impl InputCommandProcessor {
         F: FnMut(crate::game_logic::ObjectId) -> bool,
     {
         // Wave 245: ObjectId predicates (no &Object dual-read).
-        let command_system = get_command_system();
-        match command_system.lock() {
-            Ok(mut system) => system.select_units_by_predicate(
-                self.current_player_id,
-                modifiers,
-                game_logic,
-                predicate,
-            ),
-            Err(_) => {
-                log::warn!("Failed to acquire command system lock for selection command");
-                false
-            }
-        }
+        self.command_system.select_units_by_predicate(
+            self.current_player_id,
+            modifiers,
+            game_logic,
+            predicate,
+        )
     }
 
     /// Find object at current mouse position
@@ -990,6 +935,11 @@ impl InputCommandProcessor {
         self.modifier_keys = ModifierKeys::default();
     }
 
+    /// Execute the input owned by this processor against the receiving world.
+    pub fn process_commands(&mut self, game_logic: &mut GameLogic) -> Vec<CommandResult> {
+        self.command_system.process_commands(game_logic)
+    }
+
     /// Set current player ID
     pub fn set_current_player(&mut self, player_id: u32) {
         self.current_player_id = player_id;
@@ -999,42 +949,6 @@ impl InputCommandProcessor {
     /// Get current player ID
     pub fn get_current_player(&self) -> u32 {
         self.current_player_id
-    }
-}
-
-/// Initialize command integration system
-pub fn init_command_integration() {
-    init_command_system();
-    log::info!("Command integration system initialized");
-}
-
-/// Process queued commands
-pub fn process_command_queue(game_logic: &mut GameLogic) {
-    let command_system = get_command_system();
-    if let Ok(mut system) = command_system.lock() {
-        let results = system.process_commands(game_logic);
-
-        for result in results {
-            match result {
-                crate::command_system::CommandResult::Success => {
-                    // Command executed successfully
-                }
-                crate::command_system::CommandResult::InvalidTarget => {
-                    log::debug!("Command failed: Invalid target");
-                }
-                crate::command_system::CommandResult::OutOfRange => {
-                    log::debug!("Command failed: Out of range");
-                }
-                crate::command_system::CommandResult::InsufficientResources => {
-                    log::debug!("Command failed: Insufficient resources");
-                }
-                _ => {
-                    log::debug!("Command failed: {:?}", result);
-                }
-            }
-        }
-    } else {
-        log::warn!("Failed to acquire command system lock for command processing");
     }
 }
 

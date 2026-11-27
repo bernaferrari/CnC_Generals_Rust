@@ -32,9 +32,8 @@ mod tests {
     }
 
     #[test]
-    fn owned_admitted_tail_survives_actual_reset_and_disconnects_future_loan() {
+    fn owned_admitted_tail_survives_actual_reset() {
         let (_directory, mut state) = fixture();
-        let old_sender = state.sender.clone();
         let mut start = GameMessage::new(GameMessageType::NewGame);
         for argument in [2, 1, 0, 30] {
             start.append_integer_argument(argument);
@@ -45,8 +44,7 @@ mod tests {
                 GameMessage::new(GameMessageType::ClearGameData),
                 start,
                 GameMessage::new(GameMessageType::LogicCRC(2)),
-            ])
-            .unwrap();
+            ]);
         assert!(state.receiving_clear_command_pending());
         assert!(state.receiving_clear_command_pending());
         let mut batch = state
@@ -65,11 +63,6 @@ mod tests {
             GameMessageType::ClearGameData
         ));
         state.reset_recorder_for_match_owned(String::new(), 19);
-        assert!(
-            old_sender
-                .send(vec![GameMessage::new(GameMessageType::ClearGameData)])
-                .is_err()
-        );
         assert!(!state.receiving_clear_command_pending());
         match batch.pop_front().expect("source NewGame survives reset") {
             AdmittedCommand::Message(message) => {
@@ -96,14 +89,12 @@ mod tests {
     fn repeated_freeze_peek_and_recorder_offer_preserve_one_ordered_admission() {
         let (_directory, mut state) = fixture();
         state
-            .receive_client_messages(vec![GameMessage::new(GameMessageType::LogicCRC(11))])
-            .unwrap();
+            .receive_client_messages(vec![GameMessage::new(GameMessageType::LogicCRC(11))]);
         state
             .receive_client_messages(vec![
                 GameMessage::new(GameMessageType::ClearGameData),
                 GameMessage::new(GameMessageType::LogicCRC(22)),
-            ])
-            .unwrap();
+            ]);
         assert!(state.receiving_clear_command_pending());
         assert!(state.receiving_clear_command_pending());
         let mut queue = VecDeque::new();

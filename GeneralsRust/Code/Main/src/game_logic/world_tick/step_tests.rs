@@ -161,8 +161,7 @@ fn frozen_with_pending_clear_game_data_falls_through() {
         .replay_pending
         .receive_client_messages(vec![game_engine::common::message_stream::GameMessage::new(
             GameMessageType::ClearGameData,
-        )])
-        .unwrap();
+        )]);
 
     logic.step_simulation_with_budget(LOGIC_FRAME_TIMESTEP, Some(1));
     assert_eq!(
@@ -203,8 +202,7 @@ fn receiving_tick_debug_freeze_and_foreign_clear_are_instance_isolated() {
     peer.replay_pending
         .receive_client_messages(vec![game_engine::common::message_stream::GameMessage::new(
             GameMessageType::ClearGameData,
-        )])
-        .unwrap();
+        )]);
     assert!(peer.replay_pending.receiving_clear_command_pending());
     logic.step_simulation_with_budget(LOGIC_FRAME_TIMESTEP, Some(1));
     assert_eq!(logic.frame, 0, "debug-only freeze stops the actual tick");

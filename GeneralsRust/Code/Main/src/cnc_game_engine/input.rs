@@ -1621,13 +1621,7 @@ impl CnCGameEngine {
                     Ok(crate::subsystem_manager::ReceivingClientUpdateProgress::Complete(
                         messages,
                     )) => {
-                        if let Err(error) = self
-                            .game_logic
-                            .replay_pending
-                            .receive_client_messages(messages)
-                        {
-                            return Err(format!("Receiving command admission failed: {error}"));
-                        }
+                        self.game_logic.replay_pending.receive_client_messages(messages);
                         for step in steps {
                             step.complete(self)?;
                         }

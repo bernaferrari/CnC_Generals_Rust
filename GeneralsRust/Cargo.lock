@@ -3769,7 +3769,6 @@ dependencies = [
  "bitflags 2.13.2",
  "bytemuck",
  "crc32fast",
- "crossbeam",
  "env_logger",
  "flate2",
  "font8x8",

@@ -106,7 +106,6 @@ bytemuck = {workspace = true, features = ["derive"]}
 image = {workspace = true}
 
 # Crossbeam for concurrent data structures
-crossbeam = {workspace = true}
 
 # Futures for async utilities
 futures = {workspace = true}

@@ -617,7 +617,6 @@ impl CommandSystem {
     /// Queue command for execution
     pub fn queue_command(&mut self, command: GameCommand) {
         log::debug!("Queuing command: {:?}", command.command_type);
-        tap_host_command_for_recorder(&command);
         self.command_queue.push_back(command);
     }
 
@@ -638,6 +637,7 @@ impl CommandSystem {
         let mut results = Vec::new();
 
         while let Some(command) = self.command_queue.pop_front() {
+            game_logic.replay_pending.record_command_owned(&command);
             let result = self.execute_command(&command, game_logic);
             results.push(result);
 

@@ -48,11 +48,6 @@ impl FrameWorld for LiveFrame<'_, '_> {
         Ok(())
     }
 
-    fn stamp_command_frame(&mut self) {
-        let world = &mut self.logic;
-        crate::command_system::stamp_host_logic_frame(&mut world.replay_pending, world.frame);
-    }
-
     fn collect_object_ids(&self) -> Vec<ObjectId> {
         self.logic.objects.registered_keys().copied().collect()
     }

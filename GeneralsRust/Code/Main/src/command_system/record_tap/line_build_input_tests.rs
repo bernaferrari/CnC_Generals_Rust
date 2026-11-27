@@ -59,7 +59,7 @@ fn explicit_line_facing_survives_message_conversion_and_owned_admission() {
                 if *facing == orientation && start.x == 10.0 && start.y == 2.0 && start.z == 20.0
                     && end.x == 10.0 && end.y == 2.0 && end.z == 40.0));
         let mut pending = ReplayPendingState::default();
-        apply_replay_messages_to_host(&mut pending, &[transported]);
+        apply_replay_messages(&mut pending, &[transported]);
         assert_eq!(pending.commands.len(), 1);
         let admitted = &pending.commands[0];
         assert_eq!(admitted.player_id, 7);

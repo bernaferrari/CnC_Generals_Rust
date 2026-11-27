@@ -47,27 +47,3 @@ impl Default for CommandSystem {
         Self::new()
     }
 }
-
-fn command_system_arc() -> Arc<Mutex<CommandSystem>> {
-    let services = crate::main_services::main_services();
-    let mut slot = services
-        .command_system
-        .lock()
-        .unwrap_or_else(|p| p.into_inner());
-    if slot.is_none() {
-        log::info!("Command system initialized");
-        *slot = Some(Arc::new(Mutex::new(CommandSystem::new())));
-    }
-    slot.as_ref().expect("command_system").clone()
-}
-
-/// Initialize the global command system
-pub fn init_command_system() {
-    let _ = command_system_arc();
-    super::install_host_replay_bridges();
-}
-
-/// Get the global command system instance
-pub fn get_command_system() -> Arc<Mutex<CommandSystem>> {
-    command_system_arc()
-}

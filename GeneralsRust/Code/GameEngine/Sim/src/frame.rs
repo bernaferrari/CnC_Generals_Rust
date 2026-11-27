@@ -38,7 +38,6 @@ pub trait FrameWorld {
     fn has_admitted_clear(&mut self) -> bool;
     fn continue_from_debug_freeze(&mut self);
     fn update_terrain(&mut self) -> GameLogicResult<()>;
-    fn stamp_command_frame(&mut self);
     fn collect_object_ids(&self) -> Vec<ObjectId>;
     fn dispatch_commands(
         &mut self,
@@ -91,7 +90,6 @@ impl LogicFrame {
         if let Err(error) = world.update_terrain() {
             return FixedStepOutcome::Failed(error);
         }
-        world.stamp_command_frame();
         let roster = FrameObjectRoster::BeforeCommands(world.collect_object_ids());
         match world.dispatch_commands(mode, self, roster) {
             Ok(roster) => self.run_after_commands(world, roster),

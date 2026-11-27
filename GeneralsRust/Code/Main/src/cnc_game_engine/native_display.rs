@@ -240,11 +240,7 @@ impl CnCGameEngine {
             // clock, Sync, device poll, camera update or GPU attempt.
             let menu_world = self.receiving_menu_world_facts();
             let pending_commands = &mut self.game_logic.replay_pending;
-            let mut receive = |messages| {
-                pending_commands
-                    .receive_client_messages(messages)
-                    .map_err(game_client::core::GameClientError::InvalidOperation)
-            };
+            let (recorder, mut receive) = pending_commands.client_message_receiver();
             return self
                 .game_client
                 .finish_presentation_shell_with_receiving_commands(
@@ -255,7 +251,7 @@ impl CnCGameEngine {
                         draw_drawables: false,
                         update_particles: false,
                     },
-                    pending_commands.recorder_owned(),
+                    recorder,
                     &mut receive,
                     menu_world,
                 )
@@ -385,17 +381,13 @@ impl CnCGameEngine {
             if let Some(pending) = pending {
                 self.with_native_display_draw_services(
                     |client, lifecycle, pending_commands, content, physics| {
-                        let mut receive = |messages| {
-                            pending_commands
-                                .receive_client_messages(messages)
-                                .map_err(game_client::core::GameClientError::InvalidOperation)
-                        };
+                        let (recorder, mut receive) = pending_commands.client_message_receiver();
                         client.finish_presentation_shell_with_receiving_draw(
                             pending.step,
                             &pending.facts,
                             &views,
                             phase,
-                            pending_commands.recorder_owned(),
+                            recorder,
                             &mut receive,
                             lifecycle,
                             content,

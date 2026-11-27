@@ -100,8 +100,7 @@ fn verify_command_tail_survives_reset(private_root: &std::path::Path) -> anyhow:
         .receive_client_messages(vec![
             GameMessage::new(GameMessageType::ClearGameData),
             next_game,
-        ])
-        .map_err(anyhow::Error::msg)?;
+        ]);
     let NativeTickProgress::CommandBoundary(mut pending) = world.begin_native_logic_tick(
         1.0 / 30.0,
         None,

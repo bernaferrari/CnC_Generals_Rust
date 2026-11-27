@@ -32,8 +32,7 @@ fn boundary(progress: NativeTickProgress) -> NativeTickContinuation {
 fn begin(world: &mut GameLogic, messages: Vec<GameMessage>) -> NativeTickContinuation {
     world
         .replay_pending
-        .receive_client_messages(messages)
-        .unwrap();
+        .receive_client_messages(messages);
     boundary(world.begin_native_logic_tick(
         LOGIC_FRAME_TIMESTEP,
         None,
@@ -318,8 +317,7 @@ fn budget_receipt(
         if let Some(message) = message.take() {
             world
                 .replay_pending
-                .receive_client_messages(vec![message])
-                .unwrap();
+                .receive_client_messages(vec![message]);
         }
     }
     let timing = absolute.map(|total| FrameTiming {
@@ -346,8 +344,7 @@ fn budget_receipt(
             if let Some(message) = message.take() {
                 receiving
                     .replay_pending
-                    .receive_client_messages(vec![message])
-                    .unwrap();
+                    .receive_client_messages(vec![message]);
             }
         };
         let mut progress = world.begin_native_logic_tick(

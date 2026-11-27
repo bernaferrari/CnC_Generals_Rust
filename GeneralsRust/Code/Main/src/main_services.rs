@@ -6,7 +6,6 @@
 use crate::assets::archive::{ArchiveFileSystem, BigArchiveFileReader};
 use crate::assets::manager::AssetManager;
 use crate::command_line::CommandLineArgs;
-use crate::command_system::CommandSystem;
 use crate::debug_system::DebugSystem;
 use crate::localization::LocalizationManager;
 use crate::network::NetworkInterface;
@@ -29,7 +28,6 @@ pub struct MainServices {
     pub message_time: AtomicU32,
     pub launcher_shutdown_requested: AtomicBool,
     pub asset_manager: Mutex<Option<Arc<Mutex<AssetManager>>>>,
-    pub command_system: Mutex<Option<Arc<Mutex<CommandSystem>>>>,
     pub localization: Mutex<Option<Arc<ParkingRwLock<LocalizationManager>>>>,
     pub network: Mutex<Option<Arc<RwLock<NetworkInterface>>>>,
     pub save_load_manager: Mutex<Option<Arc<Mutex<SaveLoadManager>>>>,
@@ -50,7 +48,6 @@ pub struct MainServices {
     pub startup_model_trace_count: AtomicUsize,
     pub drive_frame_count: AtomicU32,
     pub command_line_args: Mutex<Option<CommandLineArgs>>,
-    pub bridges_installed: AtomicBool,
     pub debug_system: Mutex<Option<Arc<DebugSystem>>>,
     pub fow_test_lock: Arc<parking_lot::Mutex<()>>,
     pub resource_asset_manager: Mutex<Option<Arc<ResourceAssetManager>>>,
@@ -73,7 +70,6 @@ impl MainServices {
             message_time: AtomicU32::new(0),
             launcher_shutdown_requested: AtomicBool::new(false),
             asset_manager: Mutex::new(None),
-            command_system: Mutex::new(None),
             localization: Mutex::new(None),
             network: Mutex::new(None),
             save_load_manager: Mutex::new(None),
@@ -93,7 +89,6 @@ impl MainServices {
             startup_model_trace_count: AtomicUsize::new(0),
             drive_frame_count: AtomicU32::new(0),
             command_line_args: Mutex::new(None),
-            bridges_installed: AtomicBool::new(false),
             debug_system: Mutex::new(None),
             fow_test_lock: Arc::new(parking_lot::Mutex::new(())),
             resource_asset_manager: Mutex::new(None),  // Option<Arc<ResourceAssetManager>>
