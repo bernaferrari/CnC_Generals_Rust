@@ -3,18 +3,15 @@ use crate::game_logic::{HostObjectRead, HostObjectStore};
 use glam::Vec3;
 use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;
-use std::collections::{BinaryHeap, HashMap, HashSet, VecDeque};
+use std::collections::{BinaryHeap, HashMap, HashSet};
 
 use generals_sim::pathfinding::{
-    AStarPathfinder, COST_DIAGONAL, GridCoord, PathfindCellType, PathfindLayerEnum,
-};
-use gamelogic::ai::pathfind_complete::{
-    LAYER_Z_CLOSE_ENOUGH_F, MAX_PATH_ITERATIONS, PATHFIND_QUEUE_LEN, SURFACE_AIR, SURFACE_CLIFF,
-    SURFACE_GROUND, SURFACE_RUBBLE, SURFACE_WATER,
+    AStarPathfinder, COST_DIAGONAL, GridCoord, LAYER_Z_CLOSE_ENOUGH_F, MAX_PATH_ITERATIONS,
+    PathfindCellType, PathfindLayerEnum, SURFACE_AIR, SURFACE_CLIFF, SURFACE_GROUND, SURFACE_RUBBLE,
+    SURFACE_WATER,
 };
 
-/// C++ reserves one ring slot to distinguish an empty queue from a full one.
-pub(crate) const MAX_PENDING_PATH_REQUESTS: usize = PATHFIND_QUEUE_LEN - 1;
+pub(crate) use generals_sim::pathfinding::MAX_PENDING_PATH_REQUESTS;
 
 pub use generals_sim::pathfinding::{PathCursor, PathRoute, PathRouteNode};
 
@@ -32,45 +29,7 @@ impl std::fmt::Debug for HostCrateAStar {
     }
 }
 
-/// Detached path request view used at admission, dispatch, and save/load.
-/// The live queue retains only its ID and transitional route continuation.
-#[derive(Debug, Clone)]
-pub struct PendingHostPath {
-    pub unit_id: ObjectId,
-    pub start: Vec3,
-    pub destination: Vec3,
-    pub waypoints: Vec<Vec3>,
-    /// FollowPath orders admitted while this first search is still pending.
-    /// They are handed to the actor after the search finishes, in order.
-    pub follow_path_appends: Vec<Vec3>,
-    pub aircraft: bool,
-    pub surfaces: u32,
-    /// C++ `obj->getCrusherLevel() > 0` (AIPathfind.cpp:8170).
-    pub is_crusher: bool,
-    /// C++ `AIUpdateInterface::ignoreObstacle` (DozerAIUpdate.cpp:210).
-    pub ignore_obstacle: Option<ObjectId>,
-    /// Actor's destination-adjustment setting at observation time.
-    pub adjust_destinations: bool,
-}
-
-/// Queue-owned ordering and transitional route data. Search inputs belong to
-/// the actor and are observed when its ID is dispatched.
-#[derive(Debug, Clone)]
-pub struct QueuedHostPath {
-    pub unit_id: ObjectId,
-    pub waypoints: Vec<Vec3>,
-    pub follow_path_appends: Vec<Vec3>,
-}
-
-impl From<PendingHostPath> for QueuedHostPath {
-    fn from(request: PendingHostPath) -> Self {
-        Self {
-            unit_id: request.unit_id,
-            waypoints: request.waypoints,
-            follow_path_appends: request.follow_path_appends,
-        }
-    }
-}
+pub use generals_sim::pathfinding::{PathRequest as PendingHostPath, QueuedPath as QueuedHostPath};
 
 /// Grid-based pathfinding node
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
@@ -440,8 +399,6 @@ struct PossibleDestinationReceiver<'a> {
 const LAYER_WALL_ID: u8 = 15;
 /// C++ `MAX_WALL_PIECES` (AIPathfind.h:181).
 const MAX_WALL_PIECES: usize = 128;
-/// C++ `PATHFIND_CELLS_PER_FRAME` (AIPathfind.cpp:1079).
-const PATHFIND_CELLS_PER_FRAME: i32 = 5000;
 
 /// Registered `KINDOF_WALK_ON_TOP_OF_WALL` piece (C++ `m_wallPieces`).
 #[derive(Debug, Clone)]
@@ -897,16 +854,10 @@ pub struct PathfindingSystem {
     pub grid: PathfindingGrid,
     /// C++ `Pathfinder::m_isMapReady`; constructors leave it false.
     pub(crate) map_ready: bool,
-    /// Active host logic frame (set via note_logic_frame).
-    logic_frame: u64,
-    /// C++ `PathfindZoneManager::m_nextFrameToCalculateZones`: footprint
-    /// changes only mark zones dirty; processPathfindQueue recalculates them
-    /// once this frame arrives (AIPathfind.cpp:2245-2256, 5881-5884).
-    next_frame_to_calculate_zones: u64,
     /// Live crate A* (AIPathfind.cpp internalFindPath).
     crate_astar: Option<HostCrateAStar>,
-    /// C++ Pathfinder::queueForPath residual (AIPathfind.h:418).
-    pending_paths: VecDeque<QueuedHostPath>,
+    /// Ordered requests, search work and zone rebuild timing for this world.
+    path_schedule: generals_sim::pathfinding::PathSchedule,
     /// Seeker controlling player for occupancy costs this query.
     seeker_player: Option<u32>,
     /// Seeker is infantry (INFANTRY_MOVES_THROUGH_INFANTRY).
@@ -936,10 +887,6 @@ pub struct PathfindingSystem {
     seeker_downhill_only: bool,
     /// C++ `AIUpdateInterface::canPathThroughUnits` for findClosestPath goal accept.
     seeker_can_path_through_units: bool,
-    /// C++ `m_cumulativeCellsAllocated` this processPathfindQueue call.
-    cumulative_cells_allocated: i32,
-    /// C++ `PATHFIND_CELLS_PER_FRAME` (test-overridable).
-    pathfind_cells_per_frame: i32,
 }
 
 #[cfg(test)]

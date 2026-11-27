@@ -1,4 +1,4 @@
-use gamelogic::ai::pathfind_complete::SURFACE_GROUND;
+use generals_sim::pathfinding::SURFACE_GROUND;
 use generals_main::game_logic::pathfinding::{PathfindingGround, PathfindingSystem};
 use generals_main::game_logic::{GameLogic, KindOf, ObjectId, Player, Team, ThingTemplate};
 use glam::Vec3;
@@ -426,7 +426,7 @@ fn ordinary_path_reads_current_player_type_without_frame_refresh() {
 fn closest_search_tunnels_from_an_invalid_surface_until_goal_or_valid_exit() {
     use generals_sim::pathfinding::PathfindCellType;
     let (mut world, mut finder, mover, _) = make_world();
-    let surfaces = gamelogic::ai::pathfind_complete::SURFACE_WATER;
+    let surfaces = generals_sim::pathfinding::SURFACE_WATER;
     world.host_object_mut(mover).unwrap().locomotor_surfaces = surfaces;
     let from = Vec3::new(25.0, 0.0, 55.0);
     let goal = Vec3::new(75.0, 0.0, 55.0);

@@ -749,7 +749,7 @@ impl AIPlayer {
         let surfaces = if unit.locomotor_surfaces != 0 {
             unit.locomotor_surfaces
         } else {
-            gamelogic::ai::pathfind_complete::SURFACE_GROUND
+            generals_sim::pathfinding::SURFACE_GROUND
         };
         let hop_targets = game_logic.owned_waypoint_hops(start_waypoint_id);
 

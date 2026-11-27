@@ -388,7 +388,7 @@ fn native_bridge_death_world() -> (GameLogic, ObjectId, ObjectId, ObjectId) {
         .prepend_bridge_on_layer(
             info,
             "ReceivingDeathSpan".into(),
-            gamelogic::path::PathfindLayerEnum::from_u32(layer as u32),
+            generals_sim::pathfinding::PathfindLayerEnum::from_u32(layer as u32),
         );
     for id in [physics, no_physics] {
         let object = world.host_object_mut(id).unwrap();
@@ -447,7 +447,7 @@ fn actual_authored_bridge_death_retains_physics_survivor_and_native_receiving_id
     assert!(owner.host_object(span).unwrap().status.on_die_started);
     assert_eq!(
         owner.host_object(physics).unwrap().pathfind_layer,
-        gamelogic::path::PathfindLayerEnum::Ground as u8
+        generals_sim::pathfinding::PathfindLayerEnum::Ground as u8
     );
     assert!(owner.host_object(physics).unwrap().allow_to_fall);
     assert_eq!(owner.host_object(physics).unwrap().health.current, 100.);
@@ -465,7 +465,7 @@ fn actual_authored_bridge_death_retains_physics_survivor_and_native_receiving_id
     assert!(!view.0.iter().any(|entry| entry.0.object_id() == physics.0));
     assert_ne!(
         peer.host_object(peer_physics).unwrap().pathfind_layer,
-        gamelogic::path::PathfindLayerEnum::Ground as u8
+        generals_sim::pathfinding::PathfindLayerEnum::Ground as u8
     );
     assert!(!peer.host_object(peer_physics).unwrap().allow_to_fall);
     assert_eq!(

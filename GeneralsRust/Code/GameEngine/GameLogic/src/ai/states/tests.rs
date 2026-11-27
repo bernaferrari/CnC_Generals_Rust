@@ -269,7 +269,7 @@ fn repulsor_escape_xfer_writes_the_cpp_inherited_movement_block() {
     let machine = StateMachine::new(None, "repulsor-state-xfer");
     let mut state = AIMoveAwayFromRepulsorsState::new(&machine);
     state.base.goal_position = Coord3D::new(1.0, -2.0, 3.0);
-    state.base.goal_layer = generals_sim::pathfinding::PathfindLayerEnum::Layer4 as u32;
+    state.base.goal_layer = generals_sim::pathfinding::PathfindLayerEnum::Bridge2 as u32;
     state.base.waiting_for_path = true;
     state.base.path_goal_position = Coord3D::new(-6.0, 7.0, 8.0);
     state.base.path_timestamp = 131;

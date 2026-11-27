@@ -79,7 +79,7 @@ fn negative_previous_cell_does_not_remove_edge_claims() {
 #[test]
 fn bridge_position_updates_remove_the_old_ground_and_layer_claims() {
     use generals_sim::pathfinding::PathfindLayerEnum;
-    use gamelogic::ai::pathfind_complete::SURFACE_GROUND;
+    use generals_sim::pathfinding::SURFACE_GROUND;
     use generals_main::game_logic::pathfinding::{PathGoalUpdate, PathfindingGround};
 
     let ground = PathfindingGround::Flat(0.0);

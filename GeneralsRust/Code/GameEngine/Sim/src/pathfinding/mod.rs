@@ -46,23 +46,28 @@ mod obstacles;
 mod open_set;
 mod passability;
 mod route;
+mod schedule;
 mod zones;
 
 pub use astar::{AStarPathfinder, SearchPathNode};
 pub use cell::{
-    COST_DIAGONAL, COST_ORTHOGONAL, CellFlags, GridCoord, MAX_FRAMES_AHEAD, PATHFIND_CELL_SIZE,
-    PATHFIND_CELL_SIZE_F, PATHFIND_CLOSE_ENOUGH, PathfindCell, PathfindCellType, PathfindLayerEnum,
-    ZONE_IMPASSABLE_COST,
+    COST_DIAGONAL, COST_ORTHOGONAL, CellFlags, GridCoord, LAYER_LAST, LAYER_WALL,
+    LAYER_Z_CLOSE_ENOUGH_F, LocomotorSurfaceTypeMask, MAX_FRAMES_AHEAD, MAX_PATH_ITERATIONS,
+    MAX_WALL_PIECES, PATHFIND_CELL_SIZE, PATHFIND_CELL_SIZE_F, PATHFIND_CLOSE_ENOUGH, PathfindCell,
+    PathfindCellType, PathfindLayerEnum, SURFACE_AIR, SURFACE_CLIFF, SURFACE_GROUND, SURFACE_RUBBLE,
+    SURFACE_WATER, ZONE_IMPASSABLE_COST,
 };
 pub use find_position_sampling::find_position_around_candidates;
 pub use line_traversal::visit_cell_line;
 pub use route::{PathCursor, PathRoute, PathRouteNode};
+pub use schedule::{
+    MAX_PENDING_PATH_REQUESTS, PATHFIND_CELLS_PER_FRAME, PATHFIND_QUEUE_LEN, PathRequest,
+    PathSchedule, QueuedPath,
+};
 
 /// Crate-internal names reached by sibling modules and by `src/tests.rs`
 /// through `use super::*;` (the comparator fixtures construct `AStarNode` /
 /// `OpenSet` directly).
-#[cfg(test)]
-pub(crate) use cell::{SURFACE_AIR, SURFACE_CLIFF, SURFACE_GROUND};
 #[cfg(test)]
 use glam::Vec3 as Coord3D;
 #[cfg(test)]

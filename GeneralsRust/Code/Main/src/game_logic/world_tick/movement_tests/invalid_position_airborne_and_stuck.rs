@@ -19,7 +19,7 @@ fn fix_invalid_position_3x3_shoves_off_water() {
     );
     let id = ObjectId(9711);
     let mut unit = ranger_at(9711, Vec3::new(50.0, 0.0, 50.0));
-    unit.locomotor_surfaces = gamelogic::ai::pathfind_complete::SURFACE_GROUND;
+    unit.locomotor_surfaces = generals_sim::pathfinding::SURFACE_GROUND;
     unit.movement.target_position = Some(Vec3::new(80.0, 0.0, 50.0));
     unit.movement.velocity = Vec3::ZERO;
     logic.objects.insert(id, unit);
@@ -59,7 +59,7 @@ fn allow_invalid_position_skips_3x3_shove() {
     );
     let id = ObjectId(9721);
     let mut unit = ranger_at(9721, Vec3::new(50.0, 0.0, 50.0));
-    unit.locomotor_surfaces = gamelogic::ai::pathfind_complete::SURFACE_GROUND;
+    unit.locomotor_surfaces = generals_sim::pathfinding::SURFACE_GROUND;
     unit.movement.target_position = Some(Vec3::new(80.0, 0.0, 50.0));
     unit.movement.velocity = Vec3::ZERO;
     unit.set_allow_invalid_position(true);

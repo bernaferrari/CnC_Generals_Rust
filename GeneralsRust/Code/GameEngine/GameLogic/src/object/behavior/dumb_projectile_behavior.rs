@@ -47,7 +47,7 @@ fn dual_world_registry_unavailable() -> bool {
 
 fn terrain_layer_to_logic_layer(layer: crate::path::PathfindLayerEnum) -> PathfindLayerEnum {
     match layer {
-        crate::path::PathfindLayerEnum::Invalid | crate::path::PathfindLayerEnum::Last => {
+        crate::path::PathfindLayerEnum::Invalid => {
             PathfindLayerEnum::Ground
         }
         other => PathfindLayerEnum::from_u32(other as u32),

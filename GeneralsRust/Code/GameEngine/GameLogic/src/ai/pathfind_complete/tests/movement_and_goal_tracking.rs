@@ -397,7 +397,7 @@ fn bridge_cell_reads_and_writes_use_exact_layer_slot() {
     let first = system.add_bridge((GridCoord::new(2, 2), GridCoord::new(5, 5)));
     let second = system.add_bridge((GridCoord::new(8, 8), GridCoord::new(11, 11)));
     assert_eq!(first, PathfindLayerEnum::Top as u32);
-    assert_eq!(second, PathfindLayerEnum::Layer3 as u32);
+    assert_eq!(second, PathfindLayerEnum::Bridge1 as u32);
     let ground_pos = Coord3D::new(95.0, 95.0, 0.0);
     system.set_cell_type(&ground_pos, PathfindCellType::Water);
 
@@ -407,7 +407,7 @@ fn bridge_cell_reads_and_writes_use_exact_layer_slot() {
         "slot 2 misses must fall back to the ground cell, not slot 3"
     );
     assert_eq!(
-        system.get_cell_type_at_cell(PathfindLayerEnum::Layer3, 9, 9),
+        system.get_cell_type_at_cell(PathfindLayerEnum::Bridge1, 9, 9),
         Some(PathfindCellType::Clear)
     );
 
@@ -417,7 +417,7 @@ fn bridge_cell_reads_and_writes_use_exact_layer_slot() {
         PathfindCellType::Obstacle,
     );
     assert_eq!(
-        system.get_cell_type_at_cell(PathfindLayerEnum::Layer3, 9, 9),
+        system.get_cell_type_at_cell(PathfindLayerEnum::Bridge1, 9, 9),
         Some(PathfindCellType::Clear),
         "writing slot 2 must leave slot 3 untouched"
     );

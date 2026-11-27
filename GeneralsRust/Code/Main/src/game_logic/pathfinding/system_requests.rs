@@ -13,10 +13,8 @@ impl PathfindingSystem {
             ai_definitions: std::sync::Arc::new(game_engine::common::ini::AIData::default()),
             grid: PathfindingGrid::new_with_origin(origin, world_width, world_height, GRID_SIZE),
             map_ready: false,
-            logic_frame: 0,
-            next_frame_to_calculate_zones: u64::MAX,
             crate_astar: None,
-            pending_paths: VecDeque::new(),
+            path_schedule: Default::default(),
             seeker_player: None,
             seeker_is_infantry: false,
             seeker_wings: false,
@@ -31,8 +29,6 @@ impl PathfindingSystem {
             seeker_is_dozer: false,
             seeker_downhill_only: false,
             seeker_can_path_through_units: false,
-            cumulative_cells_allocated: 0,
-            pathfind_cells_per_frame: PATHFIND_CELLS_PER_FRAME,
         }
     }
 
@@ -210,32 +206,19 @@ impl PathfindingSystem {
     /// Mark the active host logic frame for scheduled zone recalculations.
     #[inline]
     pub fn note_logic_frame(&mut self, frame: u64) {
-        self.logic_frame = frame;
+        self.path_schedule.note_logic_frame(frame);
     }
 
     /// C++ `PathfindZoneManager::markZonesDirty` (AIPathfind.cpp:2245-2256).
     pub(crate) fn mark_zones_dirty(&mut self) {
-        const ZONE_UPDATE_FREQUENCY: u64 = 300;
-        if self.logic_frame < 2 {
-            self.next_frame_to_calculate_zones = 2;
-            return;
-        }
-        self.next_frame_to_calculate_zones = self
-            .next_frame_to_calculate_zones
-            .min(self.logic_frame + ZONE_UPDATE_FREQUENCY);
+        self.path_schedule.mark_zones_dirty();
     }
 
     /// C++ processPathfindQueue head (AIPathfind.cpp:5881-5884): when
     /// `needToCalculateZones`, calculateZones and report that this frame's
     /// queue is skipped.
     pub(crate) fn calculate_zones_if_due(&mut self) -> bool {
-        if self.next_frame_to_calculate_zones > self.logic_frame {
-            return false;
-        }
-        self.grid.rebuild_path_zones();
-        // C++ calculateZones ends with m_nextFrameToCalculateZones = 0xffffffff.
-        self.next_frame_to_calculate_zones = u64::MAX;
-        true
+        self.path_schedule.calculate_zones_if_due(|| self.grid.rebuild_path_zones())
     }
 
     /// C++ `AIUpdateInterface::ignoreObstacle` for the next `find_path_ex_*`.
@@ -284,31 +267,29 @@ impl PathfindingSystem {
 
     /// C++ `processPathfindQueue` reset of `m_cumulativeCellsAllocated` + extent.
     pub fn begin_pathfind_queue_frame(&mut self) {
-        self.cumulative_cells_allocated = 0;
+        self.path_schedule.begin_frame();
     }
 
     pub fn pathfind_budget_remaining(&self) -> bool {
-        self.cumulative_cells_allocated < self.pathfind_cells_per_frame
+        self.path_schedule.budget_remaining()
     }
 
     pub fn pop_pending_path(&mut self) -> Option<QueuedHostPath> {
-        self.pending_paths.pop_front()
+        self.path_schedule.pop()
     }
 
     pub(super) fn note_cells_allocated(&mut self, n: usize) {
-        self.cumulative_cells_allocated = self
-            .cumulative_cells_allocated
-            .saturating_add(n.min(i32::MAX as usize) as i32);
+        self.path_schedule.charge(n);
     }
 
     #[cfg(test)]
     pub fn set_pathfind_cells_per_frame(&mut self, n: i32) {
-        self.pathfind_cells_per_frame = n.max(1);
+        self.path_schedule.set_cell_budget(n);
     }
 
     #[cfg(test)]
     pub fn cumulative_cells_allocated(&self) -> i32 {
-        self.cumulative_cells_allocated
+        self.path_schedule.cells_allocated()
     }
 
     pub(super) fn sync_crate_astar(&mut self) {
@@ -874,58 +855,35 @@ impl PathfindingSystem {
     /// Queue an actor ID and its transitional route for later resolution.
     /// A replacement order keeps the queue position; a full queue refuses it.
     pub fn queue_path(&mut self, req: PendingHostPath) -> bool {
-        if let Some(existing) = self
-            .pending_paths
-            .iter_mut()
-            .find(|p| p.unit_id == req.unit_id)
-        {
-            *existing = req.into();
-            return true;
-        }
-        if self.pending_paths.len() >= MAX_PENDING_PATH_REQUESTS {
-            return false;
-        }
-        self.pending_paths.push_back(req.into());
-        true
+        self.path_schedule.queue(req)
     }
 
     /// C++ keeps an existing queued ID in place when the same actor retries.
     pub(crate) fn queue_path_retry(&mut self, req: PendingHostPath) -> bool {
-        if self.pending_paths.iter().any(|p| p.unit_id == req.unit_id) {
-            return true;
-        }
-        self.queue_path(req)
+        self.path_schedule.queue_retry(req)
     }
 
     pub(crate) fn append_to_pending_follow_path(&mut self, unit: ObjectId, goal: Vec3) -> bool {
-        let Some(request) = self
-            .pending_paths
-            .iter_mut()
-            .find(|request| request.unit_id == unit)
-        else {
-            return false;
-        };
-        request.follow_path_appends.push(goal);
-        true
+        self.path_schedule.append_follow_path(unit, goal)
     }
 
     pub fn take_pending_paths(&mut self) -> Vec<QueuedHostPath> {
-        self.pending_paths.drain(..).collect()
+        self.path_schedule.drain().collect()
     }
 
     pub(crate) fn reset_for_new_timeline(&mut self) {
         self.map_ready = false;
-        self.pending_paths.clear();
+        self.path_schedule.clear_requests();
         self.ignore_obstacle_id = None;
         self.grid.clear_dynamic_blocks();
     }
 
     pub fn pending_path_count(&self) -> usize {
-        self.pending_paths.len()
+        self.path_schedule.request_count()
     }
 
     pub fn pending_paths(&self) -> impl Iterator<Item = &QueuedHostPath> {
-        self.pending_paths.iter()
+        self.path_schedule.iter()
     }
 
     pub fn stamp_rubble_at_world(&mut self, world: Vec3, radius_cells: i32) {
@@ -1287,7 +1245,7 @@ impl PathfindingSystem {
         }
         // C++ newMap/classifyMap: calculateZones now, clearing any pending recalculation.
         self.grid.rebuild_path_zones();
-        self.next_frame_to_calculate_zones = u64::MAX;
+        self.path_schedule.clear_zone_deadline();
         self.sync_wall_pieces_from_objects(objects, wall_height);
     }
 

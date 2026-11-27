@@ -92,7 +92,7 @@ fn batched_repaths_install_each_units_own_searched_layers() {
         let id = ObjectId(id);
         let mut unit = ranger_at(id.0, Vec3::new(45.0, height, z));
         unit.pathfind_layer = layer;
-        unit.locomotor_surfaces = gamelogic::ai::pathfind_complete::SURFACE_GROUND;
+        unit.locomotor_surfaces = generals_sim::pathfinding::SURFACE_GROUND;
         unit.requested_destination = Some(Vec3::new(115.0, height, z));
         unit.is_final_goal = true;
         unit.set_status_moving(true);
@@ -128,7 +128,7 @@ fn appended_waypoint_keeps_existing_and_searched_bridge_layers() {
     let waypoint = Vec3::new(115.0, 20.0, 55.0);
     let mut unit = ranger_at(id.0, start);
     unit.pathfind_layer = 2;
-    unit.locomotor_surfaces = gamelogic::ai::pathfind_complete::SURFACE_GROUND;
+    unit.locomotor_surfaces = generals_sim::pathfinding::SURFACE_GROUND;
     unit.movement.set_path_with_layers(vec![start, prior_goal], vec![2, 2]);
     unit.movement.target_position = Some(prior_goal);
     unit.set_status_moving(true);

@@ -40,7 +40,7 @@ fn registered_movement_updates_only_its_receiving_session_position_cells() {
             .unwrap();
         let actor = world.host_object_mut(id).unwrap();
         actor.cur_locomotor_name = Some("RetryWalk".into());
-        actor.locomotor_surfaces = gamelogic::ai::pathfind_complete::SURFACE_GROUND;
+        actor.locomotor_surfaces = generals_sim::pathfinding::SURFACE_GROUND;
         ids.push(id);
     }
     assert_eq!(ids[0], ids[1]);
@@ -122,7 +122,7 @@ fn small_boundary_crossing_waits_for_qualifying_position_reaction_in_each_world(
         ).unwrap();
         let object = world.host_object_mut(id).unwrap();
         object.cur_locomotor_name = Some("RetryWalk".into());
-        object.locomotor_surfaces = gamelogic::ai::pathfind_complete::SURFACE_GROUND;
+        object.locomotor_surfaces = generals_sim::pathfinding::SURFACE_GROUND;
         assert!(world.set_registered_object_position(id, Vec3::new(99.997, 0.0, 100.0)));
         id
     }).collect();
@@ -1699,7 +1699,7 @@ fn queued_search_uses_the_current_owners_locomotor_surfaces() {
     }
     assert_eq!(ids[0], ids[1]);
     changed.host_object_mut(ids[1]).unwrap().locomotor_surfaces =
-        gamelogic::ai::pathfind_complete::SURFACE_WATER;
+        generals_sim::pathfinding::SURFACE_WATER;
     // C++ findPath fails on the invalid surface, then findClosestPath enters
     // tunneling from the invalid start and may reach the requested goal.
     let builder = generals_main::save_load::SnapshotBuilder::new();
@@ -1717,7 +1717,7 @@ fn queued_search_uses_the_current_owners_locomotor_surfaces() {
         .unwrap();
     assert_eq!(
         restored.host_object(ids[1]).unwrap().locomotor_surfaces,
-        gamelogic::ai::pathfind_complete::SURFACE_WATER
+        generals_sim::pathfinding::SURFACE_WATER
     );
     ground.update_with_dt(1.0 / 30.0);
     changed.update_with_dt(1.0 / 30.0);
@@ -1746,7 +1746,7 @@ fn queued_search_uses_the_current_owners_locomotor_surfaces() {
     assert_eq!(restored_unit.retry_path, water_unit.retry_path);
     assert_eq!(
         water_unit.locomotor_surfaces,
-        gamelogic::ai::pathfind_complete::SURFACE_WATER
+        generals_sim::pathfinding::SURFACE_WATER
     );
 }
 
@@ -1843,7 +1843,7 @@ fn tighten_continuation_is_actor_owned_and_survives_pending_save() {
         .unwrap();
     let aircraft = flying.host_object_mut(flying_id).unwrap();
     aircraft.object_type = generals_main::game_logic::ObjectType::Aircraft;
-    aircraft.locomotor_surfaces = gamelogic::ai::pathfind_complete::SURFACE_AIR;
+    aircraft.locomotor_surfaces = generals_sim::pathfinding::SURFACE_AIR;
     assert!(flying.unit_command_tighten_to(flying_id, Vec3::new(100.0, 0.0, 150.0)));
     let aircraft = flying.host_object(flying_id).unwrap();
     assert!(aircraft.waiting_for_path && aircraft.is_approach_path);

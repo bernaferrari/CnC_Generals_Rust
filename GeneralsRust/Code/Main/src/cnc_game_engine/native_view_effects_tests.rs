@@ -906,7 +906,7 @@ fn actual_tank_track_retires_with_its_own_drawable_and_keeps_the_peer() {
                 Some(world.world_services.terrain().read().unwrap())
             },
             Vec3::new(20.0, 20.0, 10.0),
-            gamelogic::path::PathfindLayerEnum::Ground,
+            generals_sim::pathfinding::PathfindLayerEnum::Ground,
             false,
             1234,
             world.host_object(actor).unwrap().physics_gravity(),

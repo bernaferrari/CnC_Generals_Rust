@@ -130,7 +130,7 @@ End
     assert!((transport_object.speed_limit_z - 30.0 / 30.0).abs() < 0.0001);
     assert!(transport_object.allow_motive_force_while_airborne);
     assert_ne!(
-        transport_object.locomotor_surfaces & gamelogic::ai::pathfind_complete::SURFACE_AIR,
+        transport_object.locomotor_surfaces & generals_sim::pathfinding::SURFACE_AIR,
         0
     );
     assert!(transport_object.add_occupant(passenger));

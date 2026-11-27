@@ -1,7 +1,7 @@
 //! Receiving coarse site selection for C++ AIPlayer::buildBySupplies.
 use super::*;
 
-const SUPPLY_CENTER_CLOSE_DIST: f32 = 20.0 * gamelogic::path::PATHFIND_CELL_SIZE_F;
+const SUPPLY_CENTER_CLOSE_DIST: f32 = 20.0 * generals_sim::pathfinding::PATHFIND_CELL_SIZE_F;
 
 impl GameLogic {
     pub(in super::super) fn prepare_ordinary_script_supply_build(
@@ -49,7 +49,7 @@ impl GameLogic {
                 warehouse.geometry_info().bounding_circle_radius(),
             )
         } else {
-            (ai.base_center, 3.0 * gamelogic::path::PATHFIND_CELL_SIZE_F)
+            (ai.base_center, 3.0 * generals_sim::pathfinding::PATHFIND_CELL_SIZE_F)
         };
         let mut position = warehouse.get_position();
         let offset = (horizontal(position) - horizontal(anchor)).normalize_or_zero() * radius;

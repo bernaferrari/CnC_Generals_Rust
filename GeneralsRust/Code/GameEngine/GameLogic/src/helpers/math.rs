@@ -80,10 +80,7 @@ impl TheTerrainLogic {
         let Ok(guard) = terrain.try_read() else {
             return PathfindLayerEnum::Ground;
         };
-        match guard.get_highest_layer_for_destination(pos) {
-            crate::path::PathfindLayerEnum::Last => PathfindLayerEnum::Last,
-            other => PathfindLayerEnum::from_u32(other as u32),
-        }
+        PathfindLayerEnum::from_u32(guard.get_highest_layer_for_destination(pos) as u32)
     }
 
     /// Get destination layer (bridges to TerrainLogic::get_layer_for_destination).
@@ -92,10 +89,7 @@ impl TheTerrainLogic {
         let Ok(guard) = terrain.try_read() else {
             return PathfindLayerEnum::Ground;
         };
-        match guard.get_layer_for_destination(pos) {
-            crate::path::PathfindLayerEnum::Last => PathfindLayerEnum::Last,
-            other => PathfindLayerEnum::from_u32(other as u32),
-        }
+        PathfindLayerEnum::from_u32(guard.get_layer_for_destination(pos) as u32)
     }
 
     /// Bridge interaction helper for locomotor/path layers.

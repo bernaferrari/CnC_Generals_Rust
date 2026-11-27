@@ -12,10 +12,10 @@ fn searched_bridge_layers_survive_the_installed_path_snapshot() {
         Coord3D::new(25.0, 35.0, 6.0),
         Coord3D::new(65.0, 35.0, 11.0),
     ];
-    let layers = [ClassicPathLayer::Ground, ClassicPathLayer::Layer4];
+    let layers = [ClassicPathLayer::Ground, ClassicPathLayer::Bridge2];
     let mut live = UnitAiData::default();
     live.set_current_path_snapshot(&positions, &layers, None);
-    assert_eq!(live.installed_path_last_layer(), Some(ClassicPathLayer::Layer4 as u8));
+    assert_eq!(live.installed_path_last_layer(), Some(ClassicPathLayer::Bridge2 as u8));
     let mut bytes = Vec::new();
     live.current_path_snapshot
         .as_mut()
@@ -34,7 +34,7 @@ fn searched_bridge_layers_survive_the_installed_path_snapshot() {
     restored.current_path_snapshot = Some(loaded);
     assert_eq!(
         restored.installed_path_last_layer(),
-        Some(ClassicPathLayer::Layer4 as u8),
+        Some(ClassicPathLayer::Bridge2 as u8),
         "the receiving AI must read the original bridge layer from the restored Path",
     );
 }

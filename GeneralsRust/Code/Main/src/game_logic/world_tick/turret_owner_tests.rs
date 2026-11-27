@@ -59,7 +59,7 @@ fn turret_containment_pose_updates_only_receiving_world_path_cells() {
         {
             let rider = world.host_object_mut(passenger).unwrap();
             rider.cur_locomotor_name = Some("ground".into());
-            rider.locomotor_surfaces = gamelogic::ai::pathfind_complete::SURFACE_GROUND;
+            rider.locomotor_surfaces = generals_sim::pathfinding::SURFACE_GROUND;
         }
         assert!(world.set_registered_object_position(carrier, Vec3::new(100.0, 0.0, 100.0)));
         assert!(world.set_registered_object_position(passenger, Vec3::new(40.0, 0.0, 100.0)));

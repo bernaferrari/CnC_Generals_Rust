@@ -192,12 +192,7 @@ impl TerrainLogicContext for LiveTerrainLogicContext {
         crate::terrain::get_terrain_logic()
             .read()
             .ok()
-            .map(
-                |terrain| match terrain.get_highest_layer_for_destination(pos) {
-                    crate::path::PathfindLayerEnum::Last => PathfindLayerEnum::Last,
-                    other => PathfindLayerEnum::from_u32(other as u32),
-                },
-            )
+            .map(|terrain| PathfindLayerEnum::from_u32(terrain.get_highest_layer_for_destination(pos) as u32))
             .unwrap_or(PathfindLayerEnum::Ground)
     }
 

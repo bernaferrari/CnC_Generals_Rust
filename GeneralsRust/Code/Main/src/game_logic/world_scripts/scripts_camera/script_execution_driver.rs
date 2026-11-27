@@ -1285,7 +1285,7 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
             let surfaces = if object.has_ai_update_interface() {
                 object.locomotor_surfaces
             } else {
-                gamelogic::path::SURFACE_GROUND
+                generals_sim::pathfinding::SURFACE_GROUND
             };
             if (surfaces & considered) == 0
                 || Self::status(object).effectively_dead
@@ -3395,7 +3395,7 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
             let object_surfaces = if object.has_ai_update_interface() {
                 object.locomotor_surfaces
             } else {
-                gamelogic::path::SURFACE_GROUND
+                generals_sim::pathfinding::SURFACE_GROUND
             };
             if (object_surfaces & surfaces) == 0
                 || Self::status(object).effectively_dead

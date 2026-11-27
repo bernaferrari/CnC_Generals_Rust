@@ -7,7 +7,7 @@ use crate::game_logic::object::{BridgeBodyCallbacks, DamageHitContext};
 use gamelogic::common::Region2D;
 use generals_sim::object::BodyDamageType;
 use glam::Vec3 as Coord3D;
-use gamelogic::path::{LAYER_Z_CLOSE_ENOUGH_F, PATHFIND_CELL_SIZE_F};
+use generals_sim::pathfinding::{LAYER_Z_CLOSE_ENOUGH_F, PATHFIND_CELL_SIZE_F};
 
 impl GameLogic {
     pub(in crate::game_logic) fn complete_owned_bridge_body_callbacks(
@@ -281,13 +281,13 @@ impl GameLogic {
     pub(in crate::game_logic) fn visit_owned_bridge_splat_recipients(
         &mut self,
         bridge_id: u32,
-        layer: gamelogic::path::PathfindLayerEnum,
+        layer: generals_sim::pathfinding::PathfindLayerEnum,
         mut deliver: impl FnMut(&mut Self, ObjectId),
     ) {
         let mut cursor = self.objects.ordered_ids().first().copied();
         while let Some(id) = cursor {
             let qualifies = self.objects.get(&id).is_some_and(|object| {
-                if layer == gamelogic::path::PathfindLayerEnum::Ground
+                if layer == generals_sim::pathfinding::PathfindLayerEnum::Ground
                     || object.pathfind_layer != layer as u8
                 {
                     return false;
@@ -390,7 +390,7 @@ impl GameLogic {
     ) {
         self.visit_owned_bridge_on_die_recipients(bridge_id, |owner, id, physics| {
             // setLayer precedes getPhysics/kill in the original callback.
-            owner.set_owned_pathfinder_layer(id, gamelogic::path::PathfindLayerEnum::Ground as u8);
+            owner.set_owned_pathfinder_layer(id, generals_sim::pathfinding::PathfindLayerEnum::Ground as u8);
             if let Some(object) = owner.objects.get_mut(&id) {
                 if physics {
                     object.allow_to_fall = true;

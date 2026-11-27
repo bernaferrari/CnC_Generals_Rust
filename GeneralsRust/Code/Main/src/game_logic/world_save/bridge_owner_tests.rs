@@ -1217,7 +1217,7 @@ fn placed_landmark_identity_survives_coincident_spans_and_changed_object_ids() {
             for ((_, layer, id, towers), expected_id) in
                 overflow_rows.iter().zip([north_id, east_id])
             {
-                assert_eq!(*layer, gamelogic::path::PathfindLayerEnum::Ground);
+                assert_eq!(*layer, generals_sim::pathfinding::PathfindLayerEnum::Ground);
                 assert_eq!(*id, expected_id);
                 assert_eq!(
                     *towers,

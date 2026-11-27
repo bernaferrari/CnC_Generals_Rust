@@ -33,7 +33,7 @@ fn shadow_layer_height(
     object: &Object,
     unit: &RenderableObject,
 ) -> Option<Option<f32>> {
-    use gamelogic::path::PathfindLayerEnum;
+    use generals_sim::pathfinding::PathfindLayerEnum;
 
     let layer = PathfindLayerEnum::from_u32(object.pathfind_layer.into());
     if layer == PathfindLayerEnum::Ground {

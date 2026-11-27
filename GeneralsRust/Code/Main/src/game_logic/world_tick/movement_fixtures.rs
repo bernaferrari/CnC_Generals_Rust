@@ -110,7 +110,7 @@ pub(super) fn assert_reachable_side_of_wall(logic: &GameLogic, unit: &Object, wa
     // The request normalizes an unspecified surface mask to ground. An
     // adjusted goal may be reachable without attempting findClosestPath.
     let surfaces = if unit.locomotor_surfaces == 0 {
-        gamelogic::ai::pathfind_complete::SURFACE_GROUND
+        generals_sim::pathfinding::SURFACE_GROUND
     } else {
         unit.locomotor_surfaces
     };

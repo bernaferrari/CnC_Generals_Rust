@@ -77,7 +77,7 @@ fn original_layer_selection_reads_receiving_ground_and_preserves_strict_tie() {
         info.from_right = glam::Vec3::new(20., 80., deck);
         info.to_left = glam::Vec3::new(90., 20., deck);
         info.to_right = glam::Vec3::new(90., 80., deck);
-        owner.prepend_bridge_on_layer(info, "GroundOracleBridge".into(), gamelogic::path::PathfindLayerEnum::from_u32(2));
+        owner.prepend_bridge_on_layer(info, "GroundOracleBridge".into(), generals_sim::pathfinding::PathfindLayerEnum::from_u32(2));
         let ground = PathfindingGround::receiving(&owner);
         let mut grid = PathfindingGrid::new(160., 160., 10.);
         assert_eq!(bridge(&mut grid, number(&row, 4)), 2);

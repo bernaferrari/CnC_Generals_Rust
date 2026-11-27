@@ -1326,7 +1326,7 @@ impl GameLogic {
                 .and_then(|id| self.players.get(&id))
                 .is_some_and(|player| player.map_side.is_skirmish_ai)
             {
-                let minimum = 3.0 * gamelogic::path::PATHFIND_CELL_SIZE_F;
+                let minimum = 3.0 * generals_sim::pathfinding::PATHFIND_CELL_SIZE_F;
                 if my_extra < minimum {
                     my_extra = minimum;
                     my_exit_width = (my_exit_width - my_extra).max(0.0);

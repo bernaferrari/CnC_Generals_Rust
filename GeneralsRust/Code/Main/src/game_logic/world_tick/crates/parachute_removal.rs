@@ -98,7 +98,7 @@ impl GameLogic {
         }
         let rider = self.objects.get(&rider_id).unwrap();
         let position = rider.get_position();
-        if rider.pathfind_layer == gamelogic::path::PathfindLayerEnum::Ground as u8
+        if rider.pathfind_layer == generals_sim::pathfinding::PathfindLayerEnum::Ground as u8
             && self.water_surface_at(position).is_some_and(|water| {
                 self.is_underwater_at(position)
                     && position.y <= water + data.kill_when_landing_in_water_slop
@@ -132,7 +132,7 @@ impl GameLogic {
         use generals_sim::pathfinding::PathfindCellType;
         let kind = if !grid.is_valid_pos(cell) {
             PathfindCellType::Impassable
-        } else if rider.pathfind_layer == gamelogic::path::PathfindLayerEnum::Ground as u8 {
+        } else if rider.pathfind_layer == generals_sim::pathfinding::PathfindLayerEnum::Ground as u8 {
             grid.cell_type(cell)
         } else {
             grid.layer_cell_type(rider.pathfind_layer, cell)

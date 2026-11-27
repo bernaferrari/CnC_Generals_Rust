@@ -377,7 +377,7 @@ fn actual_construction_changes_receiving_group_ground_and_layer_without_peer_wri
                     .prepend_bridge_on_layer(
                         info,
                         "OwnedGroupDeck".into(),
-                        gamelogic::path::PathfindLayerEnum::from_u32(layer as u32),
+                        generals_sim::pathfinding::PathfindLayerEnum::from_u32(layer as u32),
                     );
                 layer
             };

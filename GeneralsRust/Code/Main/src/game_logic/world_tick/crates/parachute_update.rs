@@ -301,7 +301,7 @@ impl GameLogic {
         let object = self.objects.get(&id).unwrap();
         let position = object.get_position();
         if object.is_alive()
-            && object.pathfind_layer == gamelogic::path::PathfindLayerEnum::Ground as u8
+            && object.pathfind_layer == generals_sim::pathfinding::PathfindLayerEnum::Ground as u8
             && self.water_surface_at(position).is_some_and(|water| {
                 self.is_underwater_at(position)
                     && position.y - water < data.kill_when_landing_in_water_slop

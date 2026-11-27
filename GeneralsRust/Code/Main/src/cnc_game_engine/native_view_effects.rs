@@ -346,7 +346,7 @@ impl<'a> NativeRendererViewEffects<'a> {
                 Some(logic.read().unwrap_or_else(|poisoned| poisoned.into_inner()))
             },
             Vec3::new(position.x, position.z, position.y),
-            gamelogic::path::PathfindLayerEnum::from_u32(u32::from(object.pathfind_layer)),
+            generals_sim::pathfinding::PathfindLayerEnum::from_u32(u32::from(object.pathfind_layer)),
             force_cap || object.status.stealthed,
             self.poses.current_animation_sync_ms() as i32,
             object.physics_gravity(),

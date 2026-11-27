@@ -2593,7 +2593,7 @@ impl GameLogic {
         let surfaces = if u.locomotor_surfaces != 0 {
             u.locomotor_surfaces
         } else {
-            gamelogic::ai::pathfind_complete::SURFACE_GROUND
+            generals_sim::pathfinding::SURFACE_GROUND
         };
         let crusher = u.crusher_level > 0;
         let radius = u.selection_radius;
@@ -3247,7 +3247,7 @@ impl GameLogic {
         let loco = if surfaces != 0 {
             surfaces
         } else {
-            gamelogic::ai::pathfind_complete::SURFACE_GROUND
+            generals_sim::pathfinding::SURFACE_GROUND
         };
         let mut dest = destination;
         let waypoints = if !is_aircraft

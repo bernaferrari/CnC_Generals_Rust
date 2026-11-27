@@ -575,7 +575,7 @@ impl TerrainVisualImpl {
         binding: &gamelogic::object::draw::client_visual::NativeTerrainTrackBinding,
         logic: &gamelogic::terrain::TerrainLogic,
         position: Vec3,
-        layer: gamelogic::path::PathfindLayerEnum,
+        layer: generals_sim::pathfinding::PathfindLayerEnum,
         stamp: i32,
         cap: bool,
         gravity: f32,
@@ -587,7 +587,7 @@ impl TerrainVisualImpl {
         let x = position.x;
         let y = position.y;
         let start = self.terrain_tracks.track_mut(binding.slot()).unwrap();
-        start.set_owner_layer(if layer == gamelogic::path::PathfindLayerEnum::Ground {
+        start.set_owner_layer(if layer == generals_sim::pathfinding::PathfindLayerEnum::Ground {
             TerrainTrackLayer::Ground
         } else {
             TerrainTrackLayer::Other
@@ -1672,7 +1672,7 @@ impl TerrainTrackHeightProvider for TrackGround<'_> {
 
 struct LogicalTrackGround<'a> {
     logic: &'a gamelogic::terrain::TerrainLogic,
-    layer: gamelogic::path::PathfindLayerEnum,
+    layer: generals_sim::pathfinding::PathfindLayerEnum,
 }
 
 impl TerrainTrackHeightProvider for LogicalTrackGround<'_> {

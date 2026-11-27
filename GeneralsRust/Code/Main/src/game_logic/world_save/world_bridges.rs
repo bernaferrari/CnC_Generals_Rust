@@ -88,7 +88,7 @@ impl GameLogic {
             terrain.prepend_bridge_on_layer(
                 info,
                 template,
-                gamelogic::path::PathfindLayerEnum::from_u32(layer as u32),
+                generals_sim::pathfinding::PathfindLayerEnum::from_u32(layer as u32),
             );
         }
         Ok(())
@@ -152,7 +152,7 @@ impl GameLogic {
                 .prepend_bridge_on_layer(
                     info,
                     template,
-                    gamelogic::path::PathfindLayerEnum::from_u32(layer as u32),
+                    generals_sim::pathfinding::PathfindLayerEnum::from_u32(layer as u32),
                 );
         }
         Ok(())

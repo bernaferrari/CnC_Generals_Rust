@@ -1371,9 +1371,9 @@ impl GameLogic {
             || obj.is_kind_of(KindOf::Aircraft)
             || obj.object_type == crate::game_logic::ObjectType::Aircraft;
         let surfaces = if airborne {
-            gamelogic::ai::pathfind_complete::SURFACE_AIR
+            generals_sim::pathfinding::SURFACE_AIR
         } else {
-            gamelogic::ai::pathfind_complete::SURFACE_GROUND
+            generals_sim::pathfinding::SURFACE_GROUND
         };
         let ground_owner = self.world_services.terrain();
         let ground_loan = ground_owner

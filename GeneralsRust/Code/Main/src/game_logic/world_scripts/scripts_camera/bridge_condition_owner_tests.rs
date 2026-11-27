@@ -4,7 +4,7 @@ use super::*;
 use crate::save_load::SnapshotBuilder;
 use generals_sim::object::BodyDamageType;
 use glam::Vec3 as Coord3D;
-use gamelogic::path::PathfindLayerEnum;
+use generals_sim::pathfinding::PathfindLayerEnum;
 use generals_sim::terrain::BridgeInfo;
 
 fn isolated(name: &str, run: impl FnOnce()) {

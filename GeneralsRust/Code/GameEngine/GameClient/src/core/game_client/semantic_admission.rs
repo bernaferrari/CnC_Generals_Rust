@@ -379,7 +379,7 @@ impl NativeDrawableOwner<'_> {
         terrain: &mut crate::terrain::terrain_visual::TerrainVisualImpl,
         read_logic: impl FnOnce(PresentationDirectDrawableBindingKey) -> Option<L>,
         position: glam::Vec3,
-        layer: gamelogic::path::PathfindLayerEnum,
+        layer: generals_sim::pathfinding::PathfindLayerEnum,
         stealthed: bool,
         stamp: i32,
         gravity: f32,

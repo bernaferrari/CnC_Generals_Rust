@@ -76,7 +76,7 @@ impl GameLogic {
                 .and_then(|id| self.host_object(id))
                 .map(|object| object.locomotor_surfaces)
                 .filter(|surfaces| *surfaces != 0)
-                .unwrap_or(gamelogic::ai::pathfind_complete::SURFACE_GROUND);
+                .unwrap_or(generals_sim::pathfinding::SURFACE_GROUND);
             self.quick_path_exists_in_world(from, to, surfaces)
         };
         snap(

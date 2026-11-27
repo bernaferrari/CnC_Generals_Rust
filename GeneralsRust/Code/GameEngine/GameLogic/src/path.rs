@@ -22,91 +22,20 @@ pub use zone_block::*;
 pub use zone_manager::*;
 
 use crate::common::*;
-pub use crate::locomotor::SURFACE_AIR;
-
 pub use crate::waypoint::Waypoint;
+pub use generals_sim::pathfinding::{
+    LAYER_LAST, LAYER_WALL, LAYER_Z_CLOSE_ENOUGH_F, LocomotorSurfaceTypeMask, MAX_WALL_PIECES,
+    PATHFIND_CELL_SIZE, PATHFIND_CELL_SIZE_F, PATHFIND_CLOSE_ENOUGH, PATHFIND_QUEUE_LEN,
+    PathfindLayerEnum, SURFACE_AIR, SURFACE_CLIFF, SURFACE_GROUND, SURFACE_RUBBLE, SURFACE_WATER,
+};
 
-// Constants matching C++ implementation
-pub use generals_sim::pathfinding::{PATHFIND_CELL_SIZE, PATHFIND_CELL_SIZE_F, PATHFIND_CLOSE_ENOUGH};
 pub const PATH_MAX_PRIORITY: i32 = 0x7FFFFFFF;
-pub const PATHFIND_QUEUE_LEN: usize = 512;
-pub const MAX_WALL_PIECES: usize = 128;
-pub const LAYER_Z_CLOSE_ENOUGH_F: f32 = 10.0;
 
 /// Path identifier
 pub type PathId = u32;
 
 /// Zone storage type matching C++ implementation
 pub type ZoneStorageType = u16;
-
-/// Path layer enumeration matching C++ PathfindLayerEnum
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
-#[repr(u8)]
-pub enum PathfindLayerEnum {
-    Invalid = 0,
-    Ground = 1,
-    /// C++ first unnamed bridge slot (`LAYER_GROUND + 1`).
-    Top = 2,
-    Bridge1 = 3,
-    Bridge2 = 4,
-    Bridge3 = 5,
-    Bridge4 = 6,
-    Bridge5 = 7,
-    Bridge6 = 8,
-    Bridge7 = 9,
-    Bridge8 = 10,
-    Bridge9 = 11,
-    Bridge10 = 12,
-    Bridge11 = 13,
-    Bridge12 = 14,
-    /// C++ `LAYER_WALL = LAYER_LAST = 15`. Unnamed bridge slots are 2–14.
-    Wall = 15,
-    /// Leftover-only sentinel; C++ `LAYER_LAST` aliases `LAYER_WALL` (15).
-    Last = 16,
-}
-
-/// C++ `LAYER_LAST` / `LAYER_WALL`.
-pub const LAYER_LAST: u8 = 15;
-pub const LAYER_WALL: u8 = 15;
-
-impl PathfindLayerEnum {
-    pub fn from_u32(value: u32) -> Self {
-        match value {
-            0 => PathfindLayerEnum::Invalid,
-            1 => PathfindLayerEnum::Ground,
-            2 => PathfindLayerEnum::Top,
-            3 => PathfindLayerEnum::Bridge1,
-            4 => PathfindLayerEnum::Bridge2,
-            5 => PathfindLayerEnum::Bridge3,
-            6 => PathfindLayerEnum::Bridge4,
-            7 => PathfindLayerEnum::Bridge5,
-            8 => PathfindLayerEnum::Bridge6,
-            9 => PathfindLayerEnum::Bridge7,
-            10 => PathfindLayerEnum::Bridge8,
-            11 => PathfindLayerEnum::Bridge9,
-            12 => PathfindLayerEnum::Bridge10,
-            13 => PathfindLayerEnum::Bridge11,
-            14 => PathfindLayerEnum::Bridge12,
-            15 => PathfindLayerEnum::Wall,
-            _ => PathfindLayerEnum::Invalid,
-        }
-    }
-}
-
-impl Default for PathfindLayerEnum {
-    fn default() -> Self {
-        PathfindLayerEnum::Invalid
-    }
-}
-
-/// Locomotor surface type mask for terrain compatibility
-pub type LocomotorSurfaceTypeMask = u32;
-
-/// Surface type constants
-pub const SURFACE_GROUND: LocomotorSurfaceTypeMask = 0x01;
-pub const SURFACE_WATER: LocomotorSurfaceTypeMask = 0x02;
-pub const SURFACE_CLIFF: LocomotorSurfaceTypeMask = 0x04;
-pub const SURFACE_RUBBLE: LocomotorSurfaceTypeMask = 0x10;
 
 /// Locomotor set representing movement capabilities
 #[derive(Debug, Clone)]
@@ -161,10 +90,7 @@ pub fn grid_to_world(cell: &ICoord2D, layer: PathfindLayerEnum) -> Coord3D {
     );
 
     if let Some(terrain) = crate::helpers::TheTerrainLogic::get() {
-        let common_layer = match layer {
-            PathfindLayerEnum::Last => crate::common::PathfindLayerEnum::Last,
-            other => crate::common::PathfindLayerEnum::from_u32(other as u32),
-        };
+        let common_layer = crate::common::PathfindLayerEnum::from_u32(layer as u32);
         pos.z = terrain.get_layer_height(pos.x, pos.y, common_layer);
     } else {
         match layer {

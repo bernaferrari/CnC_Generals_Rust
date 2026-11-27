@@ -6,7 +6,7 @@ use crate::game_logic::native_die_definition::{
     NativeDieKind, NativeJetSlowDeath, NativeSlowFamily,
 };
 use glam::Vec3 as Coord3D;
-use gamelogic::path::PathfindLayerEnum;
+use generals_sim::pathfinding::PathfindLayerEnum;
 
 impl GameLogic {
     pub(super) fn authored_jet_dies_on_ground(&self, object: &Object) -> bool {

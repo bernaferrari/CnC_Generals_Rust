@@ -1,5 +1,5 @@
 use generals_sim::pathfinding::{AStarPathfinder, GridCoord, PathfindCellType};
-use gamelogic::ai::pathfind_complete::{SURFACE_AIR, SURFACE_GROUND, SURFACE_RUBBLE};
+use generals_sim::pathfinding::{SURFACE_AIR, SURFACE_GROUND, SURFACE_RUBBLE};
 use generals_main::game_logic::pathfinding::{GridPos, PathfindingGrid};
 
 #[test]

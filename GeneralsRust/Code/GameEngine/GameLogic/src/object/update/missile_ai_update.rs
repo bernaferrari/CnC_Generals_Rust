@@ -50,7 +50,7 @@ const INVALID_PARTICLE_SYSTEM_ID: UnsignedInt = 0;
 
 fn terrain_layer_to_logic_layer(layer: crate::path::PathfindLayerEnum) -> PathfindLayerEnum {
     match layer {
-        crate::path::PathfindLayerEnum::Invalid | crate::path::PathfindLayerEnum::Last => {
+        crate::path::PathfindLayerEnum::Invalid => {
             PathfindLayerEnum::Ground
         }
         other => PathfindLayerEnum::from_u32(other as u32),

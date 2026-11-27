@@ -1,6 +1,6 @@
 use game_engine::common::ini::ini_locomotor::LocomotorStore;
 use game_engine::common::system::DataChunkOutput;
-use gamelogic::ai::pathfind_complete::SURFACE_GROUND;
+use generals_sim::pathfinding::SURFACE_GROUND;
 use generals_main::game_logic::pathfinding::PendingHostPath;
 use generals_main::game_logic::{GameLogic, GameMode, ObjectId, Player, Team};
 use glam::Vec3;

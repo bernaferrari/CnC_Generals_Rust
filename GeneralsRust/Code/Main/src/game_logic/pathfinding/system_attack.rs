@@ -792,7 +792,7 @@ impl PathfindingSystem {
         let mask = if surfaces != 0 {
             surfaces
         } else {
-            gamelogic::ai::pathfind_complete::SURFACE_GROUND
+            generals_sim::pathfinding::SURFACE_GROUND
         };
         let a = self.grid.world_to_grid(from);
         let b = self.grid.world_to_grid(to);

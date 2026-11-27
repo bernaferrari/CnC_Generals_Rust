@@ -17,14 +17,22 @@ pub const ZONE_IMPASSABLE_COST: u32 = 100 * COST_ORTHOGONAL;
 pub const PATHFIND_CELL_SIZE: i32 = 10;
 pub const PATHFIND_CELL_SIZE_F: f32 = PATHFIND_CELL_SIZE as f32;
 pub const PATHFIND_CLOSE_ENOUGH: f32 = 1.0;
+/// C++ height tolerance when resolving a pathfinding layer.
+pub const LAYER_Z_CLOSE_ENOUGH_F: f32 = 10.0;
+/// C++ number of wall pieces accepted by the pathfinder.
+pub const MAX_WALL_PIECES: usize = 128;
+/// Search iteration cap used by the admitted path requests.
+pub const MAX_PATH_ITERATIONS: usize = 10_000;
 
 /// Maximum frames ahead for synchronization matching C++ Connection.cpp
 pub const MAX_FRAMES_AHEAD: u32 = 300;
-pub(crate) const SURFACE_GROUND: u32 = 0x01;
-pub(crate) const SURFACE_WATER: u32 = 0x02;
-pub(crate) const SURFACE_CLIFF: u32 = 0x04;
-pub(crate) const SURFACE_AIR: u32 = 0x08;
-pub(crate) const SURFACE_RUBBLE: u32 = 0x10;
+/// Saved locomotor surface bits from LocomotorSet.h.
+pub type LocomotorSurfaceTypeMask = u32;
+pub const SURFACE_GROUND: u32 = 0x01;
+pub const SURFACE_WATER: u32 = 0x02;
+pub const SURFACE_CLIFF: u32 = 0x04;
+pub const SURFACE_AIR: u32 = 0x08;
+pub const SURFACE_RUBBLE: u32 = 0x10;
 
 /// Cell type matching C++ AIPathfind.h:233-242
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -51,28 +59,32 @@ pub enum CellFlags {
 }
 
 /// Pathfinding layer enum matching C++ GameType.h
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 #[repr(u8)]
 pub enum PathfindLayerEnum {
+    #[default]
     Invalid = 0,
     Ground = 1,
     /// C++ first unnamed bridge slot (`LAYER_GROUND + 1`).
     Top = 2,
-    Layer3 = 3,
-    Layer4 = 4,
-    Layer5 = 5,
-    Layer6 = 6,
-    Layer7 = 7,
-    Layer8 = 8,
-    Layer9 = 9,
-    Layer10 = 10,
-    Layer11 = 11,
-    Layer12 = 12,
-    Layer13 = 13,
-    Layer14 = 14,
+    Bridge1 = 3,
+    Bridge2 = 4,
+    Bridge3 = 5,
+    Bridge4 = 6,
+    Bridge5 = 7,
+    Bridge6 = 8,
+    Bridge7 = 9,
+    Bridge8 = 10,
+    Bridge9 = 11,
+    Bridge10 = 12,
+    Bridge11 = 13,
+    Bridge12 = 14,
     /// C++ `LAYER_WALL = LAYER_LAST = 15`.
     Wall = 15,
 }
+
+pub const LAYER_WALL: u8 = PathfindLayerEnum::Wall as u8;
+pub const LAYER_LAST: u8 = LAYER_WALL;
 
 impl PathfindLayerEnum {
     pub const LAST: Self = Self::Wall;
@@ -82,18 +94,18 @@ impl PathfindLayerEnum {
             0 => Self::Invalid,
             1 => Self::Ground,
             2 => Self::Top,
-            3 => Self::Layer3,
-            4 => Self::Layer4,
-            5 => Self::Layer5,
-            6 => Self::Layer6,
-            7 => Self::Layer7,
-            8 => Self::Layer8,
-            9 => Self::Layer9,
-            10 => Self::Layer10,
-            11 => Self::Layer11,
-            12 => Self::Layer12,
-            13 => Self::Layer13,
-            14 => Self::Layer14,
+            3 => Self::Bridge1,
+            4 => Self::Bridge2,
+            5 => Self::Bridge3,
+            6 => Self::Bridge4,
+            7 => Self::Bridge5,
+            8 => Self::Bridge6,
+            9 => Self::Bridge7,
+            10 => Self::Bridge8,
+            11 => Self::Bridge9,
+            12 => Self::Bridge10,
+            13 => Self::Bridge11,
+            14 => Self::Bridge12,
             15 => Self::Wall,
             _ => Self::Invalid,
         }

@@ -1,4 +1,4 @@
-use gamelogic::ai::pathfind_complete::SURFACE_GROUND;
+use generals_sim::pathfinding::SURFACE_GROUND;
 use generals_main::game_logic::pathfinding::{PathfindingGround, PathfindingSystem};
 use generals_main::game_logic::{GameLogic, HostGeometryType, KindOf, Player, Team, ThingTemplate};
 use glam::Vec3;

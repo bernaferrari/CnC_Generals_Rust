@@ -144,7 +144,7 @@ impl GameLogic {
         &self,
         victim: &Object,
     ) -> generals_sim::GameLogicResult<Option<Vec3>> {
-        use gamelogic::path::PathfindLayerEnum;
+        use generals_sim::pathfinding::PathfindLayerEnum;
 
         let center = victim.get_position();
         if victim.pathfind_layer != PathfindLayerEnum::Ground as u8 {
@@ -286,7 +286,7 @@ impl GameLogic {
         let start_pos = source.get_position();
         let ai = source.has_ai_update_interface();
         let surfaces = if source.locomotor_surfaces == 0 {
-            gamelogic::ai::pathfind_complete::SURFACE_GROUND
+            generals_sim::pathfinding::SURFACE_GROUND
         } else {
             source.locomotor_surfaces
         };
@@ -311,7 +311,7 @@ impl GameLogic {
         };
         let start_pos = source.get_position();
         let surfaces = if source.locomotor_surfaces == 0 {
-            gamelogic::ai::pathfind_complete::SURFACE_GROUND
+            generals_sim::pathfinding::SURFACE_GROUND
         } else {
             source.locomotor_surfaces
         };

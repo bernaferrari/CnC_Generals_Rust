@@ -124,7 +124,7 @@ impl GameLogic {
         };
         let start = actor.get_position();
         let surfaces = if actor.locomotor_surfaces == 0 {
-            gamelogic::ai::pathfind_complete::SURFACE_GROUND
+            generals_sim::pathfinding::SURFACE_GROUND
         } else {
             actor.locomotor_surfaces
         };
@@ -299,7 +299,7 @@ fn wiggle_ordinary_build_position(
     rings: i32,
     mut legal: impl FnMut(Vec3) -> bool,
 ) -> Option<Vec3> {
-    let cell = gamelogic::path::PATHFIND_CELL_SIZE_F;
+    let cell = generals_sim::pathfinding::PATHFIND_CELL_SIZE_F;
     for ring in 0..rings {
         let offset = ring as f32 * cell;
         for step in -ring..=ring {

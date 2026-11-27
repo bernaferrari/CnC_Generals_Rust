@@ -37,7 +37,7 @@ fn rappel_garrison_holds_rider_before_center_pose_in_each_world() {
         ).unwrap();
         let actor = world.host_object_mut(rider).unwrap();
         actor.cur_locomotor_name = Some("ground".into());
-        actor.locomotor_surfaces = gamelogic::ai::pathfind_complete::SURFACE_GROUND;
+        actor.locomotor_surfaces = generals_sim::pathfinding::SURFACE_GROUND;
         assert!(world.set_registered_object_position(rider, Vec3::new(40.0, 0.0, 100.0)));
         (world, building, rider)
     };

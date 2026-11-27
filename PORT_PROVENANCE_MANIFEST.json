@@ -153614,7 +153614,7 @@
     }
   ],
   "generator": "GeneralsRust/Code/Main/scripts/generate_port_provenance.py",
-  "input_digest": "a7a7f141719384e084251475442fb091d08f96a02b96356c717a6199b2d0fffd",
+  "input_digest": "349299b75fccbeb5d9421c58630aeacae02fd9537d83454b9892b1b555d1015d",
   "metric_contract": {
     "behavior_requires_explicit_evidence": true,
     "candidate_mapping_is_reviewed": false,
@@ -161412,7 +161412,7 @@
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/core/game_client/semantic_admission.rs",
-      "sha256": "d109ff82f3032c82e35427383879d583f4ea690f1cc112c2b6b374578c6022f1",
+      "sha256": "a4ffe079cbb19aeb837ed7b66622c78bc5c6e21e2fe4083ca00feab0774a5a7e",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -171648,7 +171648,7 @@
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/terrain/terrain_visual/impl_world.rs",
-      "sha256": "dda69f49b09f5606dff2edd8d854ac6890a71e67b9209d9744420719e102d227",
+      "sha256": "1ed275a71eb82f0c49d33d8e401548f005a449f0f4c4a82f01389741c985491d",
       "symbol_index_status": "indexed",
       "symbols": [
         {
@@ -184316,11 +184316,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 2216,
+        "end_line": 2167,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/ai/pathfind.rs",
-      "sha256": "f35a4fb0f9181520d3fbed03d79996173d804bde0b1992025ae78e9eabcdad15",
+      "sha256": "4b225f2042e27afe16c1df255327d1571f5faf9124ea337511ab4b103b82e5c3",
       "symbol_index_status": "indexed",
       "symbols": [
         {
@@ -184664,183 +184664,168 @@
           "name": "set_pinched"
         },
         {
-          "kind": "enum",
-          "line": 1282,
-          "name": "PathfindLayerEnum"
-        },
-        {
           "kind": "fn",
-          "line": 1302,
-          "name": "from_u32"
-        },
-        {
-          "kind": "fn",
-          "line": 1326,
-          "name": "from"
-        },
-        {
-          "kind": "fn",
-          "line": 1332,
+          "line": 1283,
           "name": "from"
         },
         {
           "kind": "struct",
-          "line": 1342,
+          "line": 1293,
           "name": "Pathfinder"
         },
         {
           "kind": "fn",
-          "line": 1355,
+          "line": 1306,
           "name": "new"
         },
         {
           "kind": "fn",
-          "line": 1375,
+          "line": 1326,
           "name": "world_to_grid"
         },
         {
           "kind": "fn",
-          "line": 1383,
+          "line": 1334,
           "name": "grid_to_world"
         },
         {
           "kind": "fn",
-          "line": 1397,
+          "line": 1348,
           "name": "create_wall_from_object"
         },
         {
           "kind": "fn",
-          "line": 1438,
+          "line": 1389,
           "name": "remove_wall_from_object"
         },
         {
           "kind": "fn",
-          "line": 1474,
+          "line": 1425,
           "name": "stamp_box_wall"
         },
         {
           "kind": "fn",
-          "line": 1531,
+          "line": 1482,
           "name": "get_cell"
         },
         {
           "kind": "fn",
-          "line": 1540,
+          "line": 1491,
           "name": "get_cell_mut"
         },
         {
           "kind": "fn",
-          "line": 1550,
+          "line": 1501,
           "name": "is_attack_view_blocked_by_obstacle"
         },
         {
           "kind": "fn",
-          "line": 1638,
+          "line": 1589,
           "name": "distance_sq_point_to_segment_2d"
         },
         {
           "kind": "fn",
-          "line": 1662,
+          "line": 1613,
           "name": "find_path"
         },
         {
           "kind": "fn",
-          "line": 1683,
+          "line": 1634,
           "name": "find_path_astar"
         },
         {
           "kind": "struct",
-          "line": 1695,
+          "line": 1646,
           "name": "AStarNode"
         },
         {
           "kind": "fn",
-          "line": 1703,
+          "line": 1654,
           "name": "f_cost"
         },
         {
           "kind": "fn",
-          "line": 1709,
+          "line": 1660,
           "name": "eq"
         },
         {
           "kind": "fn",
-          "line": 1717,
+          "line": 1668,
           "name": "partial_cmp"
         },
         {
           "kind": "fn",
-          "line": 1723,
+          "line": 1674,
           "name": "cmp"
         },
         {
           "kind": "fn",
-          "line": 1873,
+          "line": 1824,
           "name": "adjust_destination_for_object"
         },
         {
           "kind": "const",
-          "line": 1909,
+          "line": 1860,
           "name": "MAX_OFFSET"
         },
         {
           "kind": "fn",
-          "line": 1922,
+          "line": 1873,
           "name": "update_goal_for_object"
         },
         {
           "kind": "fn",
-          "line": 1990,
+          "line": 1941,
           "name": "goal_position"
         },
         {
           "kind": "fn",
-          "line": 2018,
+          "line": 1969,
           "name": "find_path"
         },
         {
           "kind": "fn",
-          "line": 2082,
+          "line": 2033,
           "name": "points"
         },
         {
           "kind": "fn",
-          "line": 2091,
+          "line": 2042,
           "name": "path_nodes_keep_cxx_head_to_tail_links"
         },
         {
           "kind": "fn",
-          "line": 2109,
+          "line": 2060,
           "name": "path_closest_point_uses_later_live_path_segments"
         },
         {
           "kind": "fn",
-          "line": 2129,
+          "line": 2080,
           "name": "path_xfer_round_trip_preserves_head_to_tail_order"
         },
         {
           "kind": "fn",
-          "line": 2165,
+          "line": 2116,
           "name": "path_xfer_invalid_blocks_leave_the_installed_path_untouched"
         },
         {
           "kind": "const",
-          "line": 2166,
+          "line": 2117,
           "name": "FIRST_NODE_ID"
         },
         {
           "kind": "const",
-          "line": 2167,
+          "line": 2118,
           "name": "FIRST_NODE_LAYER"
         },
         {
           "kind": "const",
-          "line": 2168,
+          "line": 2119,
           "name": "FIRST_OPTIMIZED_ID"
         },
         {
           "kind": "fn",
-          "line": 2203,
+          "line": 2154,
           "name": "a_star_path_keeps_every_waypoint_for_movement"
         }
       ]
@@ -187300,7 +187285,7 @@
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/ai/pathfind_complete/tests/destination_ownership.rs",
-      "sha256": "2727bbb0bb99b3c7e1776da2088a73a4c5a6f24809da4957eca165792cc2c2a9",
+      "sha256": "c2d607995302f3bb6ba760ee30bb89244befa43f84feeb93028cb08d7bfa10a6",
       "symbol_index_status": "indexed",
       "symbols": [
         {
@@ -187513,7 +187498,7 @@
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/ai/pathfind_complete/tests/movement_and_goal_tracking.rs",
-      "sha256": "61eaccaba5c0fe30ec0dcd03e10e9e946ee0627cabfbb79771bd3a55ec243e4e",
+      "sha256": "a191c659db6699e56e1c52a2930891c5df615a016126d0b26313be6681479d4c",
       "symbol_index_status": "indexed",
       "symbols": [
         {
@@ -187972,276 +187957,221 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 590,
+        "end_line": 574,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/ai/pathfind_complete/types.rs",
-      "sha256": "d8901882b3483d92f209edbf304b34e92e29b7f802077f61e7d2b3a942d7db3f",
+      "sha256": "b430f86a7736c4f4db952ffa92dd5cd2d31b58f469a7e194a8ac7048907fa146",
       "symbol_index_status": "indexed",
       "symbols": [
         {
           "kind": "const",
-          "line": 8,
-          "name": "PATHFIND_QUEUE_LEN"
-        },
-        {
-          "kind": "const",
-          "line": 11,
-          "name": "LAYER_Z_CLOSE_ENOUGH_F"
-        },
-        {
-          "kind": "const",
           "line": 13,
-          "name": "PATHFIND_CELLS_PER_FRAME"
-        },
-        {
-          "kind": "const",
-          "line": 15,
-          "name": "MAX_WALL_PIECES"
-        },
-        {
-          "kind": "const",
-          "line": 17,
           "name": "ZONE_BLOCK_SIZE"
         },
         {
           "kind": "const",
-          "line": 19,
+          "line": 15,
           "name": "UNINITIALIZED_ZONE"
         },
         {
-          "kind": "const",
-          "line": 22,
-          "name": "MAX_PATH_ITERATIONS"
-        },
-        {
-          "kind": "type",
-          "line": 25,
-          "name": "LocomotorSurfaceTypeMask"
-        },
-        {
-          "kind": "const",
-          "line": 26,
-          "name": "SURFACE_GROUND"
-        },
-        {
-          "kind": "const",
-          "line": 28,
-          "name": "SURFACE_WATER"
-        },
-        {
-          "kind": "const",
-          "line": 29,
-          "name": "SURFACE_CLIFF"
-        },
-        {
-          "kind": "const",
-          "line": 30,
-          "name": "SURFACE_AIR"
-        },
-        {
-          "kind": "const",
-          "line": 31,
-          "name": "SURFACE_RUBBLE"
-        },
-        {
           "kind": "fn",
-          "line": 35,
+          "line": 19,
           "name": "dual_world_registry_unavailable"
         },
         {
           "kind": "fn",
-          "line": 42,
+          "line": 26,
           "name": "compute_point_on_path_from_waypoints"
         },
         {
           "kind": "fn",
-          "line": 99,
+          "line": 83,
           "name": "peek_point_on_path_from_waypoints"
         },
         {
           "kind": "struct",
-          "line": 105,
+          "line": 89,
           "name": "PathRequest"
         },
         {
           "kind": "fn",
-          "line": 120,
+          "line": 104,
           "name": "new"
         },
         {
           "kind": "struct",
-          "line": 138,
+          "line": 122,
           "name": "PathResult"
         },
         {
           "kind": "fn",
-          "line": 149,
+          "line": 133,
           "name": "none"
         },
         {
           "kind": "struct",
-          "line": 162,
+          "line": 146,
           "name": "GoalCell"
         },
         {
           "kind": "fn",
-          "line": 170,
+          "line": 154,
           "name": "new"
         },
         {
           "kind": "fn",
-          "line": 177,
+          "line": 161,
           "name": "layer_index"
         },
         {
           "kind": "fn",
-          "line": 182,
+          "line": 166,
           "name": "get_goal_unit"
         },
         {
           "kind": "fn",
-          "line": 188,
+          "line": 172,
           "name": "set_goal_unit"
         },
         {
           "kind": "fn",
-          "line": 194,
+          "line": 178,
           "name": "clear_goal_unit"
         },
         {
           "kind": "fn",
-          "line": 202,
+          "line": 186,
           "name": "get_pos_unit"
         },
         {
           "kind": "fn",
-          "line": 208,
+          "line": 192,
           "name": "set_pos_unit"
         },
         {
           "kind": "fn",
-          "line": 214,
+          "line": 198,
           "name": "clear_pos_unit"
         },
         {
           "kind": "fn",
-          "line": 222,
+          "line": 206,
           "name": "set_goal_aircraft"
         },
         {
           "kind": "fn",
-          "line": 226,
+          "line": 210,
           "name": "clear_goal_aircraft"
         },
         {
           "kind": "fn",
-          "line": 232,
+          "line": 216,
           "name": "has_aircraft_goal"
         },
         {
           "kind": "struct",
-          "line": 241,
+          "line": 225,
           "name": "BridgeLayer"
         },
         {
           "kind": "fn",
-          "line": 260,
+          "line": 244,
           "name": "new"
         },
         {
           "kind": "fn",
-          "line": 263,
+          "line": 247,
           "name": "with_meta"
         },
         {
           "kind": "fn",
-          "line": 281,
+          "line": 265,
           "name": "with_geometry"
         },
         {
           "kind": "fn",
-          "line": 302,
+          "line": 286,
           "name": "contains"
         },
         {
           "kind": "fn",
-          "line": 311,
+          "line": 295,
           "name": "reclassify_cells"
         },
         {
           "kind": "fn",
-          "line": 334,
+          "line": 318,
           "name": "cell_type_at"
         },
         {
           "kind": "fn",
-          "line": 346,
+          "line": 330,
           "name": "set_ground_connect_cells"
         },
         {
           "kind": "fn",
-          "line": 354,
+          "line": 338,
           "name": "connects_zones"
         },
         {
           "kind": "fn",
-          "line": 388,
+          "line": 372,
           "name": "astar_cell_type"
         },
         {
           "kind": "fn",
-          "line": 402,
+          "line": 386,
           "name": "clip_line_cells"
         },
         {
           "kind": "struct",
-          "line": 485,
+          "line": 469,
           "name": "CheckMovementInfo"
         },
         {
           "kind": "fn",
-          "line": 499,
+          "line": 483,
           "name": "default"
         },
         {
           "kind": "struct",
-          "line": 516,
+          "line": 500,
           "name": "ObjectPathQueue"
         },
         {
           "kind": "fn",
-          "line": 523,
+          "line": 507,
           "name": "new"
         },
         {
           "kind": "fn",
-          "line": 530,
+          "line": 514,
           "name": "is_empty"
         },
         {
           "kind": "fn",
-          "line": 536,
+          "line": 520,
           "name": "queue"
         },
         {
           "kind": "fn",
-          "line": 561,
+          "line": 545,
           "name": "begin_front"
         },
         {
           "kind": "fn",
-          "line": 569,
+          "line": 553,
           "name": "finish_front"
         },
         {
           "kind": "fn",
-          "line": 575,
+          "line": 559,
           "name": "restore_front"
         },
         {
           "kind": "fn",
-          "line": 579,
+          "line": 563,
           "name": "pop_front"
         }
       ]
@@ -194476,7 +194406,7 @@
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/ai/states/tests.rs",
-      "sha256": "1d0f5805d13101e4f4a7e10fd75c9693c4e9ace0140c8bca8630c898f96e963d",
+      "sha256": "273f802724baa5d299a2f6bc8b41413cffdf12e5bbd5e2b5be601e2fb12fc6e0",
       "symbol_index_status": "indexed",
       "symbols": [
         {
@@ -198215,11 +198145,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 129,
+        "end_line": 127,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/locomotor/core_impl/types.rs",
-      "sha256": "9750ce10b24b6debe06c991e352f49b83e084adc60b676a691a1f82bd1b0afcd",
+      "sha256": "cba7ce469250407e880e02f17c15f708cc8ced38d4b1240bf2cce986b3bdfcbc",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -198495,7 +198425,7 @@
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/behavior/bridge_behavior.rs",
-      "sha256": "fed1970084e16fc295527f81fe5ddacc90ecce1f121a35eaf12f754df0984f8d",
+      "sha256": "f5b86a978e0e940d3b8c53014b8e58bc3c943d7b1469d46a7e9ea879ecf616ce",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -198651,7 +198581,7 @@
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/behavior/dumb_projectile_behavior.rs",
-      "sha256": "42d12f17acc4fbb4e7a572df19fbd2609a36930ff122b4bdb91f270891c07e92",
+      "sha256": "6f832c628caa3f06a8111c5d4b7b00bd7d242faa039f975a16caaf32bd8daeea",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -203818,7 +203748,7 @@
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/unit/ai_data_path.rs",
-      "sha256": "a8cc339a3c00034bbe34c2a93055be97a3d66a84c5b9722a2bd679b204bf8ea5",
+      "sha256": "7b88e9ae94be384e44b7cbdb7a7ff26998cc8974fb00ae9eaa01ad739d1179c2",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -205342,7 +205272,7 @@
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/update/missile_ai_update.rs",
-      "sha256": "b1ab85ab4b1cdb0a184040c0c1e8893d8dd7a558ab78ad15a099a1b2a5b07e0b",
+      "sha256": "e5c20e9eaacb58473bd46d565b9ace1492859ab7b99559a4aa97f2320c5119b3",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -206334,11 +206264,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 295,
+        "end_line": 290,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object_creation_list/mod.rs",
-      "sha256": "f1a38aaa98c02cfa7aa9f822e5f22e6f90d7766e53e300aa46f8503d26592ab8",
+      "sha256": "667152852a9f240088394524c6f7ed75f8310716592340998bc95b305d250b81",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -210514,7 +210444,7 @@
         "start_line": 1
       },
       "path": "GeneralsRust/Code/Main/src/game_logic/world_objects/create_destroy_die/death/jet_slow_death.rs",
-      "sha256": "90c1778d16961eae87ec8803d39be74aa3f28e4d54b08b2a1743c23b70ee6774",
+      "sha256": "a1652229bc530c6d68b22e1051f9f974ffac7eb8652b0100e2b69881d2e5f55e",
       "symbol_index_status": "indexed",
       "symbols": [
         {

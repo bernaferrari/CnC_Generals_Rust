@@ -59,11 +59,9 @@ fn loco_gravity() -> Real {
 pub type LocomotorSurfaceTypeMask = u32;
 
 // Surface type constants matching C++ implementation
-pub const SURFACE_GROUND: u32 = 0x01;
-pub const SURFACE_WATER: u32 = 0x02;
-pub const SURFACE_CLIFF: u32 = 0x04;
-pub const SURFACE_AIR: u32 = 0x08;
-pub const SURFACE_RUBBLE: u32 = 0x10;
+pub use generals_sim::pathfinding::{
+    SURFACE_AIR, SURFACE_CLIFF, SURFACE_GROUND, SURFACE_RUBBLE, SURFACE_WATER,
+};
 
 /// Locomotor appearance/type - matches C++ LocomotorAppearance (Locomotor.h)
 ///

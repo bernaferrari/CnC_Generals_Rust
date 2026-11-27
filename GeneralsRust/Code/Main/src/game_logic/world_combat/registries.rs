@@ -73,7 +73,7 @@ fn garrison_evac_cliff_start(
     major: f32,
     grid: &super::super::pathfinding::PathfindingGrid,
 ) -> glam::Vec3 {
-    use gamelogic::ai::pathfind_complete::SURFACE_GROUND;
+    use generals_sim::pathfinding::SURFACE_GROUND;
     if grid.width() <= 0 || grid.height() <= 0 {
         return origin;
     }
@@ -108,7 +108,7 @@ fn garrison_evac_burst_end(
     grid: &super::super::pathfinding::PathfindingGrid,
     ground: &PathfindingGround<'_>,
 ) -> glam::Vec3 {
-    use gamelogic::ai::pathfind_complete::SURFACE_GROUND;
+    use generals_sim::pathfinding::SURFACE_GROUND;
     let cell_size = grid.grid_size().max(1.0);
     if grid.width() > 0 && grid.height() > 0 {
         let seed = grid.world_to_grid(start);

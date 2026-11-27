@@ -2,7 +2,7 @@ use super::*;
 use gamelogic::common::AsciiString;
 use generals_sim::object::BodyDamageType;
 use glam::Vec3 as Coord3D;
-use gamelogic::path::PathfindLayerEnum;
+use generals_sim::pathfinding::PathfindLayerEnum;
 use gamelogic::terrain::TerrainLogic;
 use generals_sim::terrain::BridgeInfo;
 

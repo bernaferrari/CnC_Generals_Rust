@@ -60,7 +60,7 @@ fn bridge(world: &mut GameLogic, position: Vec3) -> (ObjectId, ObjectId, ObjectI
         .prepend_bridge_on_layer(
             info,
             "OwnerSpan".into(),
-            gamelogic::path::PathfindLayerEnum::from_u32(layer as u32),
+            generals_sim::pathfinding::PathfindLayerEnum::from_u32(layer as u32),
         );
     (span, first, second, layer)
 }
@@ -456,7 +456,7 @@ fn bridge_scan_identity_does_not_depend_on_a_unique_pathfinder_layer() {
                 .write()
                 .unwrap()
                 .for_each_bridge_mut(|record| {
-                    record.set_layer(gamelogic::path::PathfindLayerEnum::Ground)
+                    record.set_layer(generals_sim::pathfinding::PathfindLayerEnum::Ground)
                 });
             hit(&mut world, first, 200.0, DamageType::Unresistable);
             let terrain = world.world_services.terrain().read().unwrap();
@@ -1087,7 +1087,7 @@ fn bridge_splat_rechecks_later_live_pose_layer_and_shape_and_skips_prepend_birth
             let mut born = None;
             world.visit_owned_bridge_splat_recipients(
                 span.0,
-                gamelogic::path::PathfindLayerEnum::from_u32(layer as u32),
+                generals_sim::pathfinding::PathfindLayerEnum::from_u32(layer as u32),
                 |owner, id| {
                     visits.push(id);
                     hit(owner, id, 1., DamageType::Falling);
@@ -1185,13 +1185,13 @@ fn bridge_on_die_moves_physics_survivor_and_kills_without_physics_in_original_or
             world.apply_owned_bridge_death_links(span);
             assert_eq!(
                 world.objects[&physics].pathfind_layer,
-                gamelogic::path::PathfindLayerEnum::Ground as u8
+                generals_sim::pathfinding::PathfindLayerEnum::Ground as u8
             );
             assert!(world.objects[&physics].allow_to_fall);
             assert_eq!(world.objects[&physics].health.current, 100.);
             assert_eq!(
                 world.objects[&no_physics].pathfind_layer,
-                gamelogic::path::PathfindLayerEnum::Ground as u8
+                generals_sim::pathfinding::PathfindLayerEnum::Ground as u8
             );
             assert!(world.objects[&no_physics].status.on_die_started);
             assert_eq!(world.objects[&no_physics].last_damage_source, None);

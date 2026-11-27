@@ -2698,12 +2698,11 @@ fn default_shock_up_z() -> f32 {
     1.0
 }
 
-/// C++ LOCOMOTORSURFACE_* residual bits (LocomotorSet.h).
-pub const LOCO_SURFACE_GROUND: u32 = 1 << 0;
-pub const LOCO_SURFACE_WATER: u32 = 1 << 1;
-pub const LOCO_SURFACE_CLIFF: u32 = 1 << 2;
-pub const LOCO_SURFACE_AIR: u32 = 1 << 3;
-pub const LOCO_SURFACE_RUBBLE: u32 = 1 << 4;
+pub use generals_sim::pathfinding::{
+    SURFACE_AIR as LOCO_SURFACE_AIR, SURFACE_CLIFF as LOCO_SURFACE_CLIFF,
+    SURFACE_GROUND as LOCO_SURFACE_GROUND, SURFACE_RUBBLE as LOCO_SURFACE_RUBBLE,
+    SURFACE_WATER as LOCO_SURFACE_WATER,
+};
 /// C++ PhysicsBehavior default friction residuals (per-frame).
 /// C++ MOTIVE_FRAMES = LOGICFRAMES_PER_SECOND/3 residual.
 pub const MOTIVE_FRAMES_RESIDUAL: u32 = 10;

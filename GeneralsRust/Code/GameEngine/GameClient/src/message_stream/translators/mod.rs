@@ -62,7 +62,7 @@ pub(in crate::message_stream::translators) use gamelogic::object::registry::OBJE
 pub(in crate::message_stream::translators) use gamelogic::object::special_power_template::{
     SpecialPowerTemplate, get_special_power_store,
 };
-pub(in crate::message_stream::translators) use gamelogic::path::SURFACE_CLIFF;
+pub(in crate::message_stream::translators) use generals_sim::pathfinding::SURFACE_CLIFF;
 pub(in crate::message_stream::translators) use gamelogic::player::player_list;
 pub(in crate::message_stream::translators) use gamelogic::system::shroud_manager::{
     ShroudState, get_shroud_manager,

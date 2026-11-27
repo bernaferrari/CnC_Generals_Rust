@@ -297,7 +297,7 @@ fn cell_center_height_samples_the_requested_bridge_slot() {
             top_height
         );
         assert_eq!(
-            PathfindingSystem::cell_center_with_height(cell, PathfindLayerEnum::Layer3, sample).z,
+            PathfindingSystem::cell_center_with_height(cell, PathfindLayerEnum::Bridge1, sample).z,
             other_height
         );
         assert_eq!(

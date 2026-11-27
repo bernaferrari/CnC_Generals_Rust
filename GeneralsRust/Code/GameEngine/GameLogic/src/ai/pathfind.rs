@@ -1277,56 +1277,7 @@ impl PathfindCell {
     }
 }
 
-/// Pathfinding layer enumeration
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum PathfindLayerEnum {
-    Invalid = 0,
-    Ground = 1,
-    Top = 2,
-    Bridge1 = 3,
-    Bridge2 = 4,
-    Bridge3 = 5,
-    Bridge4 = 6,
-    Bridge5 = 7,
-    Bridge6 = 8,
-    Bridge7 = 9,
-    Bridge8 = 10,
-    Bridge9 = 11,
-    Bridge10 = 12,
-    Bridge11 = 13,
-    Bridge12 = 14,
-    Wall = 15,
-}
-
-impl PathfindLayerEnum {
-    pub fn from_u32(value: u32) -> Self {
-        match value {
-            0 => Self::Invalid,
-            1 => Self::Ground,
-            2 => Self::Top,
-            3 => Self::Bridge1,
-            4 => Self::Bridge2,
-            5 => Self::Bridge3,
-            6 => Self::Bridge4,
-            7 => Self::Bridge5,
-            8 => Self::Bridge6,
-            9 => Self::Bridge7,
-            10 => Self::Bridge8,
-            11 => Self::Bridge9,
-            12 => Self::Bridge10,
-            13 => Self::Bridge11,
-            14 => Self::Bridge12,
-            15 => Self::Wall,
-            _ => Self::Invalid,
-        }
-    }
-}
-
-impl From<crate::path::PathfindLayerEnum> for PathfindLayerEnum {
-    fn from(layer: crate::path::PathfindLayerEnum) -> Self {
-        Self::from_u32(layer as u32)
-    }
-}
+pub use generals_sim::pathfinding::PathfindLayerEnum;
 
 impl From<crate::ai::pathfinding_system::PathfindLayerEnum> for PathfindLayerEnum {
     fn from(layer: crate::ai::pathfinding_system::PathfindLayerEnum) -> Self {

@@ -422,7 +422,7 @@ fn team_area_conditions_observe_receiving_tracked_slots() {
     let (mut peer, peer_unit) = world(&peer_map);
     assert_eq!(owner_unit, peer_unit);
     for (logic, id) in [(&mut owner, owner_unit), (&mut peer, peer_unit)] {
-        logic.host_object_mut(id).unwrap().locomotor_surfaces = gamelogic::path::SURFACE_GROUND;
+        logic.host_object_mut(id).unwrap().locomotor_surfaces = generals_sim::pathfinding::SURFACE_GROUND;
         // The production script phase projects the receiving trigger slots.
         logic.update();
     }

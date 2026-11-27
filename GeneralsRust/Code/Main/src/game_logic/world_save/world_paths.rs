@@ -808,7 +808,7 @@ impl GameLogic {
         let loco = if surfaces != 0 {
             surfaces
         } else {
-            gamelogic::ai::pathfind_complete::SURFACE_GROUND
+            generals_sim::pathfinding::SURFACE_GROUND
         };
         let request_is_final = self
             .objects
@@ -836,7 +836,7 @@ impl GameLogic {
 
             // C++ computePath leftover-install: dest-off+start-off or
             // !isFinalGoal && isLinePassable → computeQuickPath two-node.
-            let flying = is_aircraft && (loco & gamelogic::ai::pathfind_complete::SURFACE_AIR) != 0;
+            let flying = is_aircraft && (loco & generals_sim::pathfinding::SURFACE_AIR) != 0;
             let hop_is_final = request_is_final && hop_i + 1 == goal_count;
             let leftover_quick = !flying
                 && (({
@@ -1845,7 +1845,7 @@ impl GameLogic {
         let loco = if surfaces != 0 {
             surfaces
         } else {
-            gamelogic::ai::pathfind_complete::SURFACE_GROUND
+            generals_sim::pathfinding::SURFACE_GROUND
         };
         let found = ({
             let ground_owner = self.world_services.terrain();

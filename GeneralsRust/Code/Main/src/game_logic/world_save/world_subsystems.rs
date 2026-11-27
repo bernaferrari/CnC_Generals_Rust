@@ -1588,7 +1588,7 @@ if let Ok(mut list) = __arc_bind.write() {
             .prepend_bridge_on_layer(
                 info.clone(),
                 gamelogic::common::AsciiString::from(template_name),
-                gamelogic::path::PathfindLayerEnum::from_u32(layer as u32),
+                generals_sim::pathfinding::PathfindLayerEnum::from_u32(layer as u32),
             );
         self.bridge_behavior.register_span(
             id,
@@ -1689,7 +1689,7 @@ if let Ok(mut list) = __arc_bind.write() {
                 .templates
                 .get(name)
                 .map(|template| template.geometry_info.major_radius)
-                .unwrap_or(gamelogic::path::PATHFIND_CELL_SIZE_F * 0.5);
+                .unwrap_or(generals_sim::pathfinding::PATHFIND_CELL_SIZE_F * 0.5);
             let sign = if index == 0 || index == 2 { 1.0 } else { -1.0 };
             let leftover_pos = glam::Vec3::new(
                 corner.x + width.x * offset * sign,

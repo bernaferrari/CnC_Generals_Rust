@@ -77,7 +77,7 @@ impl GameLogic {
         let loco = if surfaces != 0 {
             surfaces
         } else {
-            gamelogic::ai::pathfind_complete::SURFACE_GROUND
+            generals_sim::pathfinding::SURFACE_GROUND
         };
         let saved_adjust = self.pathfinding_system.adjusts_goal();
         if let Some(unit) = self.objects.get(&object_id) {
@@ -312,7 +312,7 @@ impl GameLogic {
                 let surfaces = if obj.locomotor_surfaces != 0 {
                     obj.locomotor_surfaces
                 } else {
-                    gamelogic::ai::pathfind_complete::SURFACE_GROUND
+                    generals_sim::pathfinding::SURFACE_GROUND
                 };
                 if (surfaces & crate::game_logic::object::LOCO_SURFACE_AIR) == 0
                     || crate::game_logic::PathfindingGrid::is_doing_ground_movement_full(obj)
@@ -354,7 +354,7 @@ impl GameLogic {
                 let surfaces = if obj.locomotor_surfaces != 0 {
                     obj.locomotor_surfaces
                 } else {
-                    gamelogic::ai::pathfind_complete::SURFACE_GROUND
+                    generals_sim::pathfinding::SURFACE_GROUND
                 };
                 if obj.is_kind_of(crate::game_logic::KindOf::Projectile)
                     && (surfaces & crate::game_logic::object::LOCO_SURFACE_AIR) != 0
@@ -427,7 +427,7 @@ impl GameLogic {
             let surfaces = if obj.locomotor_surfaces != 0 {
                 obj.locomotor_surfaces
             } else {
-                gamelogic::ai::pathfind_complete::SURFACE_GROUND
+                generals_sim::pathfinding::SURFACE_GROUND
             };
             let is_crusher = obj.crusher_level > 0;
             if obj.is_safe_path {
@@ -1345,7 +1345,7 @@ impl GameLogic {
                             let surfaces = if mover.locomotor_surfaces != 0 {
                                 mover.locomotor_surfaces
                             } else {
-                                gamelogic::ai::pathfind_complete::SURFACE_GROUND
+                                generals_sim::pathfinding::SURFACE_GROUND
                             };
                             let (lead, _, requested) = crate::game_logic::PathfindingSystem::compute_point_on_route_for(
                                 mover.get_position(), &mover.movement.path, 0,
@@ -1418,9 +1418,9 @@ impl GameLogic {
                         let surfaces = if obj.locomotor_surfaces != 0 {
                             obj.locomotor_surfaces
                         } else {
-                            gamelogic::ai::pathfind_complete::SURFACE_GROUND
+                            generals_sim::pathfinding::SURFACE_GROUND
                         };
-                        let air = (surfaces & gamelogic::ai::pathfind_complete::SURFACE_AIR) != 0;
+                        let air = (surfaces & generals_sim::pathfinding::SURFACE_AIR) != 0;
                         if !air && !obj.allow_invalid_position {
                             let pos = obj.get_position();
                             if !valid_movement_terrain_at(
@@ -1816,7 +1816,7 @@ impl GameLogic {
                                     loco_blocked = false;
                                 }
                                 let air = (obj.locomotor_surfaces
-                                    & gamelogic::ai::pathfind_complete::SURFACE_AIR)
+                                    & generals_sim::pathfinding::SURFACE_AIR)
                                     != 0;
                                 if air
                                     && obj.height_treats_as_airborne(
@@ -2367,7 +2367,7 @@ impl GameLogic {
                                 let surfaces = if obj.locomotor_surfaces != 0 {
                                     obj.locomotor_surfaces
                                 } else {
-                                    gamelogic::ai::pathfind_complete::SURFACE_GROUND
+                                    generals_sim::pathfinding::SURFACE_GROUND
                                 };
                                 let grid = &self.pathfinding_system.grid;
                                 if gamelogic::locomotor::Locomotor::wheels_look_ahead_blocked(

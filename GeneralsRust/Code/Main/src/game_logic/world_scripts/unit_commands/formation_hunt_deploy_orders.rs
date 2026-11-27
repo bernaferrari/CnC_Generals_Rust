@@ -1030,7 +1030,7 @@ impl GameLogic {
         let surfaces = if obj.locomotor_surfaces != 0 {
             obj.locomotor_surfaces
         } else {
-            gamelogic::ai::pathfind_complete::SURFACE_GROUND
+            generals_sim::pathfinding::SURFACE_GROUND
         };
 
         let is_crusher = obj.crusher_level > 0;
