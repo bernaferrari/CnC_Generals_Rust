@@ -4,6 +4,7 @@ use super::*;
 use game_client::fx_list::{
     FxObservation, FxRayRequest, FxSource, FxTracerRequest, GameClientFxRuntime,
 };
+use generals_presentation::fx::HostFxObjectPose;
 use std::{
     collections::{HashMap, HashSet},
     sync::Arc,
@@ -281,7 +282,7 @@ impl ObjectFxServices<'_, '_> {
         &mut self,
         name: &str,
         object: &crate::game_logic::Object,
-        secondary: Option<&gamelogic::helpers::HostFxObjectPose>,
+        secondary: Option<&HostFxObjectPose>,
     ) -> bool {
         self.execute(
             name,
@@ -312,7 +313,7 @@ impl ObjectFxServices<'_, '_> {
         &mut self,
         name: &str,
         primary: Option<BorrowedFxPrimary<'_>>,
-        secondary: Option<gamelogic::helpers::HostFxObjectPose>,
+        secondary: Option<HostFxObjectPose>,
         source: FxSource,
     ) -> bool {
         match game_client::fx_list::execute_fx_with_runtime(
@@ -342,7 +343,7 @@ impl crate::game_logic::GameLogic {
         projectile: &crate::game_logic::combat::Projectile,
         player: Option<u32>,
         shroud: &std::sync::Mutex<gamelogic::system::shroud_manager::ShroudManager>,
-    ) -> gamelogic::helpers::HostFxObjectPose {
+    ) -> HostFxObjectPose {
         use generals_sim::object::ObjectShroudStatus;
         let is_shrouded = match (player, shroud.lock()) {
             (Some(player), Ok(shroud)) => shroud
@@ -351,7 +352,7 @@ impl crate::game_logic::GameLogic {
             _ => true,
         };
         let p = projectile.position;
-        gamelogic::helpers::HostFxObjectPose {
+        HostFxObjectPose {
             id: projectile.id.0,
             position: glam::Vec3::new(p.x, p.z, p.y),
             transform: glam::Mat4::from_translation(Vec3::new(p.x, p.z, p.y))
@@ -378,7 +379,7 @@ impl BorrowedFxPrimary<'_> {
         self,
         player: Option<u32>,
         shroud: &std::sync::Mutex<gamelogic::system::shroud_manager::ShroudManager>,
-    ) -> gamelogic::helpers::HostFxObjectPose {
+    ) -> HostFxObjectPose {
         match self {
             Self::Object(object) => {
                 crate::game_logic::GameLogic::observe_host_fx_object(object, player, shroud)
@@ -392,7 +393,7 @@ impl BorrowedFxPrimary<'_> {
 struct ObjectFxRuntime<'a, 'b, 's, 'o> {
     services: &'a mut ObjectFxServices<'b, 's>,
     primary: Option<BorrowedFxPrimary<'o>>,
-    secondary: Option<gamelogic::helpers::HostFxObjectPose>,
+    secondary: Option<HostFxObjectPose>,
 }
 impl GameClientFxRuntime for ObjectFxRuntime<'_, '_, '_, '_> {
     fn find_list(&mut self, name: &str) -> Option<std::sync::Arc<game_client::fx_list::FXList>> {

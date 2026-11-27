@@ -24,7 +24,7 @@ pub struct FxInvocation {
     secondary: Option<Coord3D>,
     primary_speed: f32,
     override_radius: f32,
-    object: Option<gamelogic::helpers::HostFxObjectPose>,
+    object: Option<generals_presentation::fx::HostFxObjectPose>,
     visible: bool,
 }
 
@@ -49,8 +49,8 @@ impl FxInvocation {
     }
     /// All redundant pose fields derive from the single driving observation.
     pub fn on_object(
-        primary: Option<gamelogic::helpers::HostFxObjectPose>,
-        secondary: Option<gamelogic::helpers::HostFxObjectPose>,
+        primary: Option<generals_presentation::fx::HostFxObjectPose>,
+        secondary: Option<generals_presentation::fx::HostFxObjectPose>,
     ) -> Self {
         Self {
             primary: primary.map(|object| object.position),

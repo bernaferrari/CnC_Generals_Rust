@@ -153718,7 +153718,7 @@
     }
   ],
   "generator": "GeneralsRust/Code/Main/scripts/generate_port_provenance.py",
-  "input_digest": "9061a53f112bfc74b103981a7926d106e7beeb6a996ae05125e3387f64991d86",
+  "input_digest": "696d9ba1ee86e50bc8627e6b00f51f918168bb426ecc6b18f71627f197009a17",
   "metric_contract": {
     "behavior_requires_explicit_evidence": true,
     "candidate_mapping_is_reviewed": false,
@@ -166574,7 +166574,7 @@
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/fx_owned_execution.rs",
-      "sha256": "6a95324ac57d43144c7b24fc42bb68f295e35184e7ac53d90a05c188f61a653b",
+      "sha256": "49be4fa3f1d737e48faedfb4b37fedcc76afa10cf0b98c008edbb6c297602807",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -166622,7 +166622,7 @@
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/fx_runtime.rs",
-      "sha256": "d12309edff8b3aae7e3a12b6c6e1cee060e5fc18c528ce267087e0ac3efd2257",
+      "sha256": "8ddcca0592cfe691df9336fb36cc6e48d9d23fafd568f93d5090a880a61ec967",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -166634,7 +166634,7 @@
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/fx_view_services.rs",
-      "sha256": "685979845bb1581ae6b5701f87397e853e78430948c7312f6b6e283b549a0620",
+      "sha256": "f61e28789022279851a97737555b9411cb2919a375d0f401cef0402748d9cdb5",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },

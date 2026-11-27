@@ -8,6 +8,7 @@
 //! C++ `FXList.cpp:79-100,782-805`: a Sound nugget plays its audio-event name,
 //! never the FXList template name.
 
+use generals_presentation::fx::HostFxObjectPose;
 use glam::Vec3;
 #[cfg(feature = "game_client")]
 #[path = "host_fx_runtime.rs"]
@@ -221,25 +222,12 @@ fn host_fx_object_pose(
     player_index: i32,
     bounding_circle_radius: f32,
     is_shrouded: bool,
-) -> gamelogic::helpers::HostFxObjectPose {
-    host_fx_pose_sample(
-        id, pos, orientation, player_index, bounding_circle_radius, is_shrouded,
-    )
-    .into_pose()
-}
-
-fn host_fx_pose_sample(
-    id: u32,
-    pos: Vec3,
-    orientation: f32,
-    player_index: i32,
-    bounding_circle_radius: f32,
-    is_shrouded: bool,
-) -> gamelogic::helpers::HostFxObjectPoseSample {
-    gamelogic::helpers::HostFxObjectPoseSample {
+) -> HostFxObjectPose {
+    let position = host_to_leftover_coord(pos);
+    HostFxObjectPose {
         id,
-        position: host_to_leftover_coord(pos),
-        orientation,
+        position,
+        transform: glam::Mat4::from_translation(position) * glam::Mat4::from_rotation_z(orientation),
         player_index,
         bounding_circle_radius,
         is_shrouded,
@@ -270,45 +258,6 @@ pub(crate) fn host_object_is_shrouded_for_local(id: u32) -> bool {
         Some(status) => (status as u8) >= (ObjectShroudStatus::Fogged as u8),
         None => false,
     }
-}
-
-/// Keep leftover attached systems following live host IDs.
-///
-/// `ParticleSystem::resolve_attached_parent` cannot see leftover
-/// OBJECT_REGISTRY on the production host path. Upsert current poses
-/// (including dying wrecks still in the frame) and drop IDs that left
-/// so the next leftover tick follows or dies.
-pub fn refresh_host_fx_object_poses_from_presentation(
-    frame: &crate::presentation_frame::PresentationFrame,
-) {
-    // Transitional: ambient active WorldServices. Prefer *_on with an owner.
-    let Some(services) = gamelogic::system::engine_stores::try_active_services() else {
-        return;
-    };
-    refresh_host_fx_object_poses_from_presentation_on(&services, frame);
-}
-
-/// hq-spb88j: publish presentation FX poses into the owning WorldServices.
-pub fn refresh_host_fx_object_poses_from_presentation_on(
-    services: &gamelogic::system::engine_stores::WorldServices,
-    frame: &crate::presentation_frame::PresentationFrame,
-) {
-    let poses = frame.objects.iter().map(|object| {
-        let is_shrouded = (object.drawable_shroud.raw_status as u8)
-            >= (crate::presentation_frame::PresentationObjectShroudStatus::Fogged as u8);
-        host_fx_pose_sample(
-            object.id.0,
-            object.position,
-            object.orientation,
-            object
-                .owner_player_id
-                .map(|player| player as i32)
-                .unwrap_or(-1),
-            0.0,
-            is_shrouded,
-        )
-    });
-    gamelogic::helpers::replace_host_fx_object_pose_samples_for_frame_on(services, poses);
 }
 
 fn host_object_fx_radius(obj: &crate::game_logic::Object) -> f32 {
@@ -479,7 +428,7 @@ impl crate::game_logic::GameLogic {
     pub(crate) fn dispatch_fx_list_at_object_with_view(
         name: &str,
         primary: &crate::game_logic::Object,
-        secondary: Option<&gamelogic::helpers::HostFxObjectPose>,
+        secondary: Option<&HostFxObjectPose>,
         view: &mut ObjectFxServices<'_, '_>,
     ) -> bool {
         let name = strip_fx_list_prefix(name);
@@ -631,24 +580,15 @@ impl crate::game_logic::GameLogic {
         object: &crate::game_logic::Object,
         player: Option<u32>,
         shroud: &std::sync::Mutex<gamelogic::system::shroud_manager::ShroudManager>,
-    ) -> gamelogic::helpers::HostFxObjectPose {
-        use generals_sim::object::ObjectShroudStatus;
-        let is_shrouded = match (player, shroud.lock()) {
-            (Some(player), Ok(shroud)) => shroud
-                .get_host_object_shroud_status(player, object.id.0)
-                .is_some_and(|status| (status as u8) >= ObjectShroudStatus::Fogged as u8),
-            _ => true,
-        };
-        let mut pose = host_fx_object_pose(
-            object.id.0,
-            object.get_position(),
-            object.get_orientation(),
-            object.owner_player_id.map(|p| p as i32).unwrap_or(-1),
-            host_object_fx_radius(object),
-            is_shrouded,
-        );
-        pose.transform = host_to_leftover_mat4(object.get_transform_matrix());
-        pose
+    ) -> HostFxObjectPose {
+        HostFxObjectPose {
+            id: object.id.0,
+            position: host_to_leftover_coord(object.get_position()),
+            transform: host_to_leftover_mat4(object.get_transform_matrix()),
+            player_index: object.owner_player_id.map(|p| p as i32).unwrap_or(-1),
+            bounding_circle_radius: host_object_fx_radius(object),
+            is_shrouded: Self::host_fx_visibility_for(player, shroud, object.id.0),
+        }
     }
 
     /// C++ `FXList::doFXObj` using the live host object, not leftover registry.
@@ -994,6 +934,13 @@ mod emission_player_owner_tests {
                 let (mut source, id) = world(ObjectShroudStatus::Clear, position);
                 let (mut peer, peer_id) = world(ObjectShroudStatus::Fogged, Vec3::new(31., 4., 42.));
                 assert_eq!(id, peer_id);
+                // Leave a stale standalone event pose under the same ID in both owners.
+                for world in [&source, &peer] {
+                    gamelogic::helpers::set_host_fx_object_pose_on(
+                        &world.world_services,
+                        host_fx_object_pose(id.0, Vec3::splat(90.), 0.5, 1, 0., false),
+                    );
+                }
                 let mut source_particles = particles();
                 let mut peer_particles = particles();
                 let (client, offset) = emit(&mut source, &mut source_particles, id);

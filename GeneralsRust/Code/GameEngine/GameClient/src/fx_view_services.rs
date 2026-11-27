@@ -121,8 +121,8 @@ impl FXList {
     /// resolving an ObjectId in a foreign object registry.
     pub fn do_fx_obj_host_with_view(
         &self,
-        primary: &gamelogic::helpers::HostFxObjectPose,
-        secondary: Option<&gamelogic::helpers::HostFxObjectPose>,
+        primary: &generals_presentation::fx::HostFxObjectPose,
+        secondary: Option<&generals_presentation::fx::HostFxObjectPose>,
         view: &mut FxViewServices<'_>,
     ) {
         if primary.is_shrouded {

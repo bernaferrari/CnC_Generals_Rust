@@ -1433,7 +1433,7 @@ impl ParticleSystem {
         current_frame: u32,
         drawable_pose: Option<&dyn Fn(DrawableId) -> Option<DrawableParticlePose>>,
         object_is_live: Option<&dyn Fn(u32) -> bool>,
-        object_pose: Option<&dyn Fn(u32) -> Option<gamelogic::helpers::HostFxObjectPose>>,
+        object_pose: Option<&dyn Fn(u32) -> Option<generals_presentation::fx::HostFxObjectPose>>,
     ) -> FrameEmitPhase {
         // C++ ParticleSys.cpp: initial delay also delays lifetime (early return).
         if self.delay_left > 0 {
@@ -2594,7 +2594,7 @@ mod tests {
         let template = Arc::new(ParticleSystemTemplate::new("HostAttach".to_string()));
         let mut system = ParticleSystem::new(template, 1, false);
         system.attach_to_object(4242);
-        gamelogic::helpers::set_host_fx_object_pose(gamelogic::helpers::HostFxObjectPose {
+        gamelogic::helpers::set_host_fx_object_pose(generals_presentation::fx::HostFxObjectPose {
             id: 4242,
             position: glam::Vec3::new(10.0, 20.0, 30.0),
             transform: glam::Mat4::from_cols_array(&[
@@ -2622,7 +2622,7 @@ mod tests {
         let template = Arc::new(ParticleSystemTemplate::new("HostFog".to_string()));
         let mut system = ParticleSystem::new(template, 1, false);
         system.attach_to_object(4243);
-        gamelogic::helpers::set_host_fx_object_pose(gamelogic::helpers::HostFxObjectPose {
+        gamelogic::helpers::set_host_fx_object_pose(generals_presentation::fx::HostFxObjectPose {
             id: 4243,
             position: glam::Vec3::new(1.0, 2.0, 3.0),
             transform: glam::Mat4::from_cols_array(&[

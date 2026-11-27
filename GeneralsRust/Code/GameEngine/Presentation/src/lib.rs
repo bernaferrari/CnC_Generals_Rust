@@ -5,6 +5,7 @@
 
 pub mod command;
 pub mod events;
+pub mod fx;
 pub mod hud;
 pub mod objective;
 pub mod shroud;

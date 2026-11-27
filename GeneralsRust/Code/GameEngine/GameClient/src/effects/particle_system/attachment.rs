@@ -33,7 +33,7 @@ impl ParticleSystem {
         local_player_index: i32,
         drawable_pose: Option<&dyn Fn(DrawableId) -> Option<DrawableParticlePose>>,
         object_is_live: Option<&dyn Fn(u32) -> bool>,
-        object_pose: Option<&dyn Fn(u32) -> Option<gamelogic::helpers::HostFxObjectPose>>,
+        object_pose: Option<&dyn Fn(u32) -> Option<generals_presentation::fx::HostFxObjectPose>>,
     ) {
         if self.attached_drawable_id.is_valid() {
             if let Some(resolve) = drawable_pose {
@@ -102,10 +102,7 @@ impl ParticleSystem {
                 self.destroy();
                 return;
             }
-            // Live host IDs are not leftover OBJECT_REGISTRY entries.
-            // C++ ParticleSys.cpp:1880-1905 follows TheGameLogic object; on
-            // the production host path that is the published host pose / live
-            // drawable, not leftover find_object.
+            // Standalone effects can resolve an event-time pose or a registered object.
             if let Some(pose) = gamelogic::helpers::host_fx_object_pose(self.attached_object_id)
             {
                 self.apply_host_fx_object_pose(&pose);
@@ -154,7 +151,7 @@ impl ParticleSystem {
         ]));
     }
 
-    fn apply_host_fx_object_pose(&mut self, pose: &gamelogic::helpers::HostFxObjectPose) {
+    fn apply_host_fx_object_pose(&mut self, pose: &generals_presentation::fx::HostFxObjectPose) {
         self.last_position = self.position;
         let (rot, trans) = affine_from_glam_cols(pose.transform.to_cols_array());
         self.parent_transform = Some(rot);

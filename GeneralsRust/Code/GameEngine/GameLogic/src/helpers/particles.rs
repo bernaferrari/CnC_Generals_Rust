@@ -93,87 +93,9 @@ impl TheFXList {
     }
 }
 
-/// Live-host object pose for leftover `FXList::doFXObj` when `OBJECT_REGISTRY`
-/// is empty. C++ `doFXObj` uses the live `Object*`; production never fills the
-/// leftover registry, so death/TransitionDamage/DamageFX publish host pose here.
-#[derive(Clone, Copy, Debug)]
-pub struct HostFxObjectPose {
-    pub id: ObjectID,
-    pub position: Coord3D,
-    pub transform: Matrix3D,
-    pub player_index: i32,
-    /// C++ `Object::getGeometryInfo().getBoundingCircleRadius()` for LightPulse.
-    pub bounding_circle_radius: f32,
-    /// C++ object-attach `getShroudedStatus(local) >= OBJECTSHROUD_FOGGED`.
-    pub is_shrouded: bool,
-}
+pub use generals_presentation::fx::HostFxObjectPose;
 
-/// Upright pose captured for an installed host Object. Most captured Objects
-/// have no attached effect that needs their transform on this frame.
-#[derive(Clone, Copy, Debug)]
-pub struct HostFxObjectPoseSample {
-    pub id: ObjectID,
-    pub position: Coord3D,
-    pub orientation: f32,
-    pub player_index: i32,
-    pub bounding_circle_radius: f32,
-    pub is_shrouded: bool,
-}
-
-impl HostFxObjectPoseSample {
-    /// Materialize in the source FX coordinate system and rotation order.
-    pub fn into_pose(self) -> HostFxObjectPose {
-        let position = glam::Vec3::new(self.position.x, self.position.y, self.position.z);
-        HostFxObjectPose {
-            id: self.id,
-            position: self.position,
-            transform: Matrix3D::from_translation(position)
-                * Matrix3D::from_rotation_z(self.orientation),
-            player_index: self.player_index,
-            bounding_circle_radius: self.bounding_circle_radius,
-            is_shrouded: self.is_shrouded,
-        }
-    }
-}
-
-pub(crate) enum StoredHostFxPose {
-    Sample(HostFxObjectPoseSample),
-    Resolved(HostFxObjectPose),
-}
-
-impl From<HostFxObjectPose> for StoredHostFxPose {
-    fn from(pose: HostFxObjectPose) -> Self {
-        Self::Resolved(pose)
-    }
-}
-
-impl From<HostFxObjectPoseSample> for StoredHostFxPose {
-    fn from(sample: HostFxObjectPoseSample) -> Self {
-        Self::Sample(sample)
-    }
-}
-
-impl StoredHostFxPose {
-    fn id(&self) -> ObjectID {
-        match self {
-            Self::Sample(sample) => sample.id,
-            Self::Resolved(pose) => pose.id,
-        }
-    }
-
-    fn resolve(&mut self) -> HostFxObjectPose {
-        match self {
-            Self::Resolved(pose) => *pose,
-            Self::Sample(sample) => {
-                let pose = sample.into_pose();
-                *self = Self::Resolved(pose);
-                pose
-            }
-        }
-    }
-}
-
-pub(crate) type HostFxPoseMap = game_engine::common::fast_hash::FxHashMap<ObjectID, StoredHostFxPose>;
+pub(crate) type HostFxPoseMap = game_engine::common::fast_hash::FxHashMap<ObjectID, HostFxObjectPose>;
 
 fn with_host_fx_poses_mut_on<R>(
     services: &crate::system::engine_stores::WorldServices,
@@ -188,7 +110,7 @@ fn with_host_fx_poses_mut_on<R>(
 }
 
 fn with_host_fx_poses_mut<R>(f: impl FnOnce(&mut HostFxPoseMap) -> R) -> Option<R> {
-    // Transitional ambient: prefer set_host_fx_object_pose_on / replace_*_on.
+    // The standalone adapter reads poses from its current world scope.
     let services = crate::system::engine_stores::try_active_services()?;
     Some(with_host_fx_poses_mut_on(&services, f))
 }
@@ -196,7 +118,7 @@ fn with_host_fx_poses_mut<R>(f: impl FnOnce(&mut HostFxPoseMap) -> R) -> Option<
 /// Stamp a live host object's leftover-space pose for object-form FX.
 /// Prefer [`set_host_fx_object_pose_on`] with the driving WorldServices.
 pub fn set_host_fx_object_pose(pose: HostFxObjectPose) {
-    let _ = with_host_fx_poses_mut(|map| insert_host_fx_object_pose(map, pose));
+    let _ = with_host_fx_poses_mut(|map| map.insert(pose.id, pose));
 }
 
 /// hq-spb88j: write host-FX pose into the owning WorldServices without
@@ -205,19 +127,14 @@ pub fn set_host_fx_object_pose_on(
     services: &crate::system::engine_stores::WorldServices,
     pose: HostFxObjectPose,
 ) {
-    with_host_fx_poses_mut_on(services, |map| insert_host_fx_object_pose(map, pose));
-}
-
-fn insert_host_fx_object_pose(
-    poses: &mut HostFxPoseMap,
-    pose: HostFxObjectPose,
-) {
-    poses.insert(pose.id, pose.into());
+    with_host_fx_poses_mut_on(services, |map| {
+        map.insert(pose.id, pose);
+    });
 }
 
 /// Look up a host object pose published by the live host.
 pub fn host_fx_object_pose(id: ObjectID) -> Option<HostFxObjectPose> {
-    with_host_fx_poses_mut(|map| map.get_mut(&id).map(StoredHostFxPose::resolve)).flatten()
+    with_host_fx_poses_mut(|map| map.get(&id).copied()).flatten()
 }
 
 /// Drop a published host pose when the live object is gone.
@@ -227,19 +144,10 @@ pub fn remove_host_fx_object_pose(id: ObjectID) {
     });
 }
 
-/// Keep poses for live host IDs still present (including dying wrecks).
-pub fn retain_host_fx_object_poses(keep: impl Fn(ObjectID) -> bool) {
-    let _ = with_host_fx_poses_mut(|map| {
-        map.retain(|&id, _| keep(id));
-    });
-}
-
 #[cfg(test)]
 mod host_fx_pose_publication_tests {
     use super::{
-        HostFxObjectPose, HostFxObjectPoseSample, HostFxPoseMap, StoredHostFxPose,
-        apply_host_fx_pose_frame, host_fx_object_pose,
-        insert_host_fx_object_pose, set_host_fx_object_pose,
+        HostFxObjectPose, host_fx_object_pose, remove_host_fx_object_pose, set_host_fx_object_pose,
         set_host_fx_object_pose_on,
     };
     use crate::common::{Matrix3D, ObjectID};
@@ -256,62 +164,6 @@ mod host_fx_pose_publication_tests {
     }
 
     #[test]
-    fn frame_publication_replaces_live_values_and_drops_absent_ids() {
-        let mut poses = HostFxPoseMap::default();
-        insert_host_fx_object_pose(&mut poses, pose(91_001, 1.0));
-        insert_host_fx_object_pose(&mut poses, pose(91_002, 2.0));
-
-        apply_host_fx_pose_frame(&mut poses, [pose(91_001, 7.0)]);
-
-        assert_eq!(poses.len(), 1);
-        assert_eq!(poses.get_mut(&91_001).unwrap().resolve().position.x, 7.0);
-        assert!(!poses.contains_key(&91_002));
-    }
-
-    #[test]
-    fn event_time_insert_is_visible_until_the_next_frame_retains_ids() {
-        let mut poses = HostFxPoseMap::default();
-        apply_host_fx_pose_frame(&mut poses, [pose(91_003, 3.0)]);
-
-        // The setter and frame publisher share this insertion helper.
-        insert_host_fx_object_pose(&mut poses, pose(91_004, 4.0));
-        assert_eq!(poses.get_mut(&91_004).unwrap().resolve().position.x, 4.0);
-
-        apply_host_fx_pose_frame(&mut poses, [pose(91_003, 5.0)]);
-        assert!(!poses.contains_key(&91_004));
-        assert_eq!(poses.get_mut(&91_003).unwrap().resolve().position.x, 5.0);
-    }
-
-    #[test]
-    fn only_queried_frame_poses_resolve_their_authored_matrix() {
-        let mut poses = HostFxPoseMap::default();
-        let sample = HostFxObjectPoseSample {
-            id: 12,
-            position: crate::common::Coord3D::new(-9.0, 11.0, 4.0),
-            orientation: 0.45,
-            player_index: 1,
-            bounding_circle_radius: 8.0,
-            is_shrouded: true,
-        };
-        apply_host_fx_pose_frame(&mut poses, [sample, HostFxObjectPoseSample { id: 13, ..sample }]);
-        assert!(matches!(poses.get(&12), Some(StoredHostFxPose::Sample(_))));
-        let expected = Matrix3D::from_translation(glam::vec3(-9.0, 11.0, 4.0))
-            * Matrix3D::from_rotation_z(0.45);
-        for _ in 0..2 {
-            let pose = poses.get_mut(&12).unwrap().resolve();
-            assert_eq!(
-                pose.transform.to_cols_array().map(f32::to_bits),
-                expected.to_cols_array().map(f32::to_bits),
-            );
-            assert_eq!(pose.bounding_circle_radius, 8.0);
-            assert!(pose.is_shrouded);
-        }
-        assert!(matches!(poses.get(&12), Some(StoredHostFxPose::Resolved(_))));
-        assert!(matches!(poses.get(&13), Some(StoredHostFxPose::Sample(_))));
-    }
-
-    #[test]
-    #[test]
     fn set_on_ignores_foreign_active_world_services() {
         use crate::system::engine_stores::{new_world_services, with_world_services};
 
@@ -327,6 +179,7 @@ mod host_fx_pose_publication_tests {
         });
     }
 
+    #[test]
     fn parallel_worlds_keep_independent_host_fx_poses() {
         use crate::system::engine_stores::{new_world_services, with_world_services};
         use std::sync::{Arc, Barrier, Mutex};
@@ -346,6 +199,8 @@ mod host_fx_pose_publication_tests {
                     barrier.wait();
                     let got = host_fx_object_pose(1).map(|p| p.position.x);
                     results.lock().unwrap().push((seed, got));
+                    remove_host_fx_object_pose(1);
+                    assert!(host_fx_object_pose(1).is_none());
                 });
             }));
         }
@@ -357,51 +212,6 @@ mod host_fx_pose_publication_tests {
         assert_eq!(got[0].1, Some(11.0));
         assert_eq!(got[1].1, Some(22.0));
     }
-}
-
-/// Publish a complete presentation-frame pose set with one write-lock
-/// transaction. Event-time `set_host_fx_object_pose` inserts remain available
-/// between frame publications; the next frame retains exactly its live IDs,
-/// matching the former upsert-then-retain sequence.
-pub fn replace_host_fx_object_poses_for_frame(poses: impl IntoIterator<Item = HostFxObjectPose>) {
-    let _ = with_host_fx_poses_mut(|current| {
-        apply_host_fx_pose_frame(current, poses);
-    });
-}
-
-/// hq-spb88j: frame pose replace on an explicit WorldServices owner.
-pub fn replace_host_fx_object_poses_for_frame_on(
-    services: &crate::system::engine_stores::WorldServices,
-    poses: impl IntoIterator<Item = HostFxObjectPose>,
-) {
-    with_host_fx_poses_mut_on(services, |current| {
-        apply_host_fx_pose_frame(current, poses);
-    });
-}
-
-/// Publish the receiving frame's poses without generating unused transforms.
-/// A parent lookup resolves and retains its matrix until the next publication.
-pub fn replace_host_fx_object_pose_samples_for_frame_on(
-    services: &crate::system::engine_stores::WorldServices,
-    poses: impl IntoIterator<Item = HostFxObjectPoseSample>,
-) {
-    with_host_fx_poses_mut_on(services, |current| {
-        apply_host_fx_pose_frame(current, poses);
-    });
-}
-
-fn apply_host_fx_pose_frame(
-    current: &mut HostFxPoseMap,
-    poses: impl IntoIterator<Item = impl Into<StoredHostFxPose>>,
-) {
-    // Every retained ID receives a fresh pose. Rebuild in the existing map to
-    // preserve that result without a temporary pose Vec or live-ID HashSet.
-    // Clear retains allocation capacity; duplicate IDs still use the last pose.
-    current.clear();
-    current.extend(poses.into_iter().map(|pose| {
-        let pose = pose.into();
-        (pose.id(), pose)
-    }));
 }
 
 /// Particle system manager bridge to the client-side implementation.

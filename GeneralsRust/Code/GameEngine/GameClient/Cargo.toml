@@ -31,6 +31,7 @@ ww3d-renderer-3d = { path = "../../Libraries/Source/WWVegas/WW3D2/crates/ww3d-re
 wwmath.workspace = true
 game_network_crate = { package = "game_network", path = "../GameNetwork", optional = true }
 gamelogic = { path = "../GameLogic" }
+generals_presentation = { path = "../Presentation" }
 generals-sim = { path = "../Sim" }
 game_engine = { path = "../Common" }
 

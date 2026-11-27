@@ -1,5 +1,7 @@
 use super::Object;
 use crate::game_logic::host_transition_damage_fx::HostTransitionDamageFxEvent;
+#[cfg(feature = "game_client")]
+use generals_presentation::fx::HostFxObjectPose;
 
 /// Effects emitted at the original Body callback observation point. This is
 /// synchronous operation data, never a stored world queue or saved mirror.
@@ -362,7 +364,7 @@ impl crate::game_logic::GameLogic {
         object: &mut Object,
         effect: BodyStateFx,
         source: Option<&crate::game_logic::host_transition_damage_fx::HostDamageFxVictim>,
-        secondary: Option<&gamelogic::helpers::HostFxObjectPose>,
+        secondary: Option<&HostFxObjectPose>,
         player: Option<u32>,
         shroud: &std::sync::Mutex<gamelogic::system::shroud_manager::ShroudManager>,
         particles: &mut crate::game_logic::combat_particles::CombatParticleRegistry,
@@ -445,7 +447,7 @@ impl crate::game_logic::GameLogic {
         actual_damage: f32,
         frame: u32,
         source: Option<&crate::game_logic::host_transition_damage_fx::HostDamageFxVictim>,
-        secondary: Option<&gamelogic::helpers::HostFxObjectPose>,
+        secondary: Option<&HostFxObjectPose>,
         player: Option<u32>,
         shroud: &std::sync::Mutex<gamelogic::system::shroud_manager::ShroudManager>,
         damage_fx: &game_engine::common::ini::ini_damage_fx::DamageFXStore,
@@ -476,7 +478,7 @@ impl crate::game_logic::GameLogic {
     pub(crate) fn observe_fx_list_die_secondary(
         &self,
         id: crate::game_logic::ObjectId,
-    ) -> Option<gamelogic::helpers::HostFxObjectPose> {
+    ) -> Option<HostFxObjectPose> {
         let killer = self.objects.get(&id)?.last_damage_source?;
         self.objects.get(&killer).map(|object| {
             Self::observe_host_fx_object(
@@ -492,7 +494,7 @@ impl crate::game_logic::GameLogic {
         name: &str,
         object: &Object,
         at_object: bool,
-        secondary: Option<&gamelogic::helpers::HostFxObjectPose>,
+        secondary: Option<&HostFxObjectPose>,
         player: Option<u32>,
         shroud: &std::sync::Mutex<gamelogic::system::shroud_manager::ShroudManager>,
         view: &mut crate::game_logic::host_fx_list_dispatch::ObjectFxServices<'_, '_>,

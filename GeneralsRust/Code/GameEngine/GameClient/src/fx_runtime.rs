@@ -22,9 +22,9 @@ pub struct FxObservation {
     pub secondary: Option<Coord3D>,
     pub speed: f32,
     pub radius: f32,
-    pub object: Option<gamelogic::helpers::HostFxObjectPose>,
+    pub object: Option<generals_presentation::fx::HostFxObjectPose>,
     /// Full secondary host pose for extension / test FXNuggets (`do_fx_obj_host`).
-    pub secondary_object: Option<gamelogic::helpers::HostFxObjectPose>,
+    pub secondary_object: Option<generals_presentation::fx::HostFxObjectPose>,
 }
 /// The driving world implements this facade. Each call ends its service borrow
 /// before the next nugget (or nested list) observes the world again.

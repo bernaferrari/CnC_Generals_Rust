@@ -26,7 +26,7 @@ use std::io::Cursor;
 /// existing host registry. The actual manager retains destruction/drain clocks.
 pub struct NativeParticleObjectLifecycle<'a> {
     pub object_is_live: &'a dyn Fn(u32) -> bool,
-    pub object_pose: &'a dyn Fn(u32) -> Option<gamelogic::helpers::HostFxObjectPose>,
+    pub object_pose: &'a dyn Fn(u32) -> Option<generals_presentation::fx::HostFxObjectPose>,
     pub ground_height: &'a dyn Fn(Vec3) -> Option<f32>,
     pub attached_object_lost: &'a mut dyn FnMut(&ParticleSystemOwner, u32, u32),
 }
