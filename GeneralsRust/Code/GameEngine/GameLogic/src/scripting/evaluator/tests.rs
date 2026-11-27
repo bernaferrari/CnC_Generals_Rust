@@ -1,4 +1,6 @@
-use super::super::engine::initialize_script_engine;
+use super::super::engine::{
+    CanonicalScriptExecutionDriver, ScriptActionHandler, initialize_script_engine,
+};
 use super::*;
 
 #[test]
@@ -332,19 +334,13 @@ impl ScriptActionHandler for ScriptToggleRecordingHandler {
     }
 }
 
-#[tokio::test]
-async fn test_script_evaluator_creation() {
-    initialize_script_engine().unwrap();
-    let engine = get_script_engine();
-    let evaluator = ScriptEvaluator::new(engine);
-
-    // Create a simple script to test
-    let mut script = Script::new();
-    script.set_name("test_script".to_string());
-
-    // Should evaluate to true with no conditions
-    let result = evaluator.evaluate_script(&mut script).unwrap();
-    assert!(result);
+#[test]
+fn standalone_evaluator_checks_the_condition_chain() {
+    let evaluator = ScriptEvaluator::new(published_world_engine());
+    let mut branch = OrCondition::new();
+    assert!(!evaluator.evaluate_or_condition(&mut branch).unwrap());
+    branch.set_first_and_condition(Some(Box::new(Condition::new(ConditionType::ConditionTrue))));
+    assert!(evaluator.evaluate_or_condition(&mut branch).unwrap());
 }
 
 #[tokio::test]
@@ -828,7 +824,8 @@ fn player_money_actions_mutate_player_money_like_cxx() {
     player_list().write().unwrap().add_player(player.clone());
 
     let engine = get_script_engine();
-    let evaluator = ScriptEvaluator::new(engine);
+    let guard = engine.read().unwrap();
+    let engine = guard.as_ref().unwrap();
 
     let mut set_action = ScriptAction::new(ScriptActionType::PlayerSetMoney);
     set_action
@@ -840,7 +837,9 @@ fn player_money_actions_mutate_player_money_like_cxx() {
     set_action
         .add_parameter(Parameter::with_int(ParameterType::Int, 1200))
         .unwrap();
-    evaluator.execute_action(&set_action).unwrap();
+    engine.friend_execute_action_with_driver_checked(
+        &set_action, None, ScriptContext::at_frame(0), &mut CanonicalScriptExecutionDriver,
+    ).unwrap();
     assert_eq!(player.read().unwrap().get_money().get_money(), 1200);
 
     let mut give_action = ScriptAction::new(ScriptActionType::PlayerGiveMoney);
@@ -853,7 +852,9 @@ fn player_money_actions_mutate_player_money_like_cxx() {
     give_action
         .add_parameter(Parameter::with_int(ParameterType::Int, -1500))
         .unwrap();
-    evaluator.execute_action(&give_action).unwrap();
+    engine.friend_execute_action_with_driver_checked(
+        &give_action, None, ScriptContext::at_frame(0), &mut CanonicalScriptExecutionDriver,
+    ).unwrap();
     assert_eq!(
         player.read().unwrap().get_money().get_money(),
         0,
@@ -1225,9 +1226,7 @@ fn enemy_and_type_sighted_honor_cxx_relation_and_stealth_filters() {
 #[test]
 fn enable_disable_actions_toggle_private_subroutine_group_before_following_call() {
     // C++ ScriptEngine::enableScript/disableScript mutates group state
-    // before the next action in the same chain.  MissionScriptRuntime uses
-    // a private evaluator engine, so this must not fall through to the
-    // unrelated global engine or merely defer the state change to a hook.
+    // before the next action in the same chain, even on a private engine.
     const GROUP_NAME: &str = "Deferred Until Explicitly Enabled";
     const FLAG_NAME: &str = "private_group_call_completed";
 
@@ -1266,8 +1265,6 @@ fn enable_disable_actions_toggle_private_subroutine_group_before_following_call(
     private_engine
         .set_script_list_for_player(0, Some(Box::new(list)))
         .expect("private script list should install");
-    let private_engine = ScriptEngineHandle::from_engine(private_engine);
-    let evaluator = ScriptEvaluator::new(private_engine.clone());
 
     let mut enable = ScriptAction::new(ScriptActionType::EnableScript);
     enable
@@ -1284,32 +1281,20 @@ fn enable_disable_actions_toggle_private_subroutine_group_before_following_call(
         ))
         .expect("call parameter should fit");
     enable.set_next_action(Some(Box::new(call_after_enable)));
-    evaluator
-        .execute_action_sequence(&enable)
+    private_engine
+        .friend_execute_action_with_driver_checked(
+            &enable, None, ScriptContext::at_frame(0), &mut CanonicalScriptExecutionDriver,
+        )
         .expect("enable then call should execute on the private engine");
 
-    {
-        let engine = private_engine.read().expect("private engine lock");
-        let engine = engine
-            .as_ref()
-            .expect("private engine should remain installed");
-        assert!(
-            engine
-                .get_flag(FLAG_NAME)
-                .expect("enabled group member should set its flag")
-                .value,
-            "ENABLE_SCRIPT must make an inactive subroutine group callable immediately"
-        );
-    }
-
-    {
-        let engine = private_engine.write().expect("private engine lock");
-        engine
-            .as_ref()
-            .expect("private engine should remain installed")
-            .set_flag(FLAG_NAME, false)
-            .expect("flag reset should succeed");
-    }
+    assert!(
+        private_engine
+            .get_flag(FLAG_NAME)
+            .expect("enabled group member should set its flag")
+            .value,
+        "ENABLE_SCRIPT must make an inactive subroutine group callable immediately"
+    );
+    private_engine.set_flag(FLAG_NAME, false).unwrap();
 
     let mut disable = ScriptAction::new(ScriptActionType::DisableScript);
     disable
@@ -1326,16 +1311,14 @@ fn enable_disable_actions_toggle_private_subroutine_group_before_following_call(
         ))
         .expect("call parameter should fit");
     disable.set_next_action(Some(Box::new(call_after_disable)));
-    evaluator
-        .execute_action_sequence(&disable)
+    private_engine
+        .friend_execute_action_with_driver_checked(
+            &disable, None, ScriptContext::at_frame(0), &mut CanonicalScriptExecutionDriver,
+        )
         .expect("disable then call should remain on the private engine");
 
-    let engine = private_engine.read().expect("private engine lock");
-    let engine = engine
-        .as_ref()
-        .expect("private engine should remain installed");
     assert!(
-        !engine
+        !private_engine
             .get_flag(FLAG_NAME)
             .expect("flag should remain allocated")
             .value,
@@ -1350,15 +1333,13 @@ fn enable_disable_actions_toggle_private_subroutine_group_before_following_call(
             (GROUP_NAME.to_string(), true),
             (GROUP_NAME.to_string(), false)
         ],
-        "the private engine must forward each toggle to MissionScriptRuntime exactly once"
+        "the private engine must notify its handler once per toggle"
     );
 }
 
 #[test]
 fn test_victory_action() {
-    // Live MissionScriptRuntime uses ScriptEvaluator, not ScriptActionDispatcher
-    // directly. C++ ScriptActions.cpp:191-210 doVictory must run: disable
-    // input, Victorious.wnd, SetVictorious, startEndGameTimer.
+    // C++ ScriptActions.cpp:191-210 applies the victory effects before starting the end-game timer.
     let _test_lock = crate::test_sync::lock();
     initialize_script_engine().unwrap();
     let prior_input = crate::helpers::TheGameLogic::is_input_enabled();
@@ -1376,12 +1357,12 @@ fn test_victory_action() {
         engine.set_campaign_victorious(false);
     }
 
-    let evaluator = ScriptEvaluator::new(engine.clone());
-    let action = ScriptAction::new(ScriptActionType::Victory);
-    evaluator.execute_action(&action).unwrap();
-
     let engine_guard = engine.read().unwrap();
     let engine = engine_guard.as_ref().unwrap();
+    let action = ScriptAction::new(ScriptActionType::Victory);
+    engine.friend_execute_action_with_driver_checked(
+        &action, None, ScriptContext::at_frame(0), &mut CanonicalScriptExecutionDriver,
+    ).unwrap();
     assert!(engine.is_game_ending());
     assert!(
         engine.is_campaign_victorious(),
@@ -1390,7 +1371,7 @@ fn test_victory_action() {
     assert_eq!(
         engine.current_win_lose_window().as_deref(),
         Some("Menus/Victorious.wnd"),
-        "live evaluator must create Victorious.wnd via do_victory"
+        "the script walk must create Victorious.wnd"
     );
     assert!(
         !crate::helpers::TheGameLogic::is_input_enabled(),

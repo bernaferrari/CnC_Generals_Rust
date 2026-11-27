@@ -172,7 +172,7 @@ pub use system::network_bridge_stub::{BridgeStatistics, NetworkCommandBridge};
 
 pub use scripting::{
     EventFilter, EventManager, GameEvent, GameEventType,
-    GameStateContext, ScriptContext, ScriptPriority, ScriptResult, ScriptValue, get_script_engine,
+    ScriptContext, ScriptPriority, ScriptValue, get_script_engine,
 };
 
 pub use team::get_team_factory;

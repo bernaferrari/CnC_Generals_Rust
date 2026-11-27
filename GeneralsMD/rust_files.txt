@@ -837,7 +837,6 @@
 ../GeneralsRust/Code/GameEngine/GameLogic/src/scripting/map_scripts.rs
 ../GeneralsRust/Code/GameEngine/GameLogic/src/scripting/mod.rs
 ../GeneralsRust/Code/GameEngine/GameLogic/src/scripting/rhai_bridge.rs
-../GeneralsRust/Code/GameEngine/GameLogic/src/scripting/triggers.rs
 ../GeneralsRust/Code/GameEngine/GameLogic/src/scripting/variables.rs
 ../GeneralsRust/Code/GameEngine/GameLogic/src/scripting/victory.rs
 ../GeneralsRust/Code/GameEngine/GameLogic/src/special_power_module/a10_strike_power.rs

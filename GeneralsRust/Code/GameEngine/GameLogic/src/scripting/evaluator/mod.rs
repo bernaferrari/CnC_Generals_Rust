@@ -1,15 +1,10 @@
-//! Script Evaluation System
-//!
-//! This module provides script evaluation logic that matches the C++ ScriptEngine evaluation,
-//! including condition evaluation, action execution, and script state management.
-//!
-//! Split into focused submodules by condition/action family.
+//! Condition queries for the standalone team factory.
 
 use crate::object::types::LegacyObjectTypes;
 use super::core::*;
-use super::engine::{get_area_tracker, get_named_object_tracker, ScriptActionHandler, *};
+use super::engine::{get_area_tracker, get_named_object_tracker, *};
 use super::executor::{
-    ScriptActionDispatcher, ScriptActionResult, ScriptConditionEvaluator, ScriptConditionResult,
+    ScriptConditionEvaluator, ScriptConditionResult,
     ScriptContext,
 };
 use crate::commands::get_selection_manager;
@@ -55,7 +50,7 @@ include!("eval_lifecycle.rs");
 include!("eval_combat.rs");
 include!("eval_player.rs");
 include!("eval_unit.rs");
-include!("actions.rs");
+include!("eval_power_and_upgrade.rs");
 
 #[cfg(test)]
 mod tests;

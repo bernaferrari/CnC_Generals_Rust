@@ -209,7 +209,13 @@ fn actual_main_dense_scripts_keep_immediate_activation_case_and_entered_group_or
             // this frame, including all roots after that obsolete threshold.
             for index in 0..60 {
                 let name = format!("root-{index}");
-                list.append_script(script(&name, vec![message(&name)], true));
+                let authored_name = match index {
+                    0 => "Spawn Bikes And Attack",
+                    1 => "Generate Random Number",
+                    2 => "Cinematic Camera",
+                    _ => &name,
+                };
+                list.append_script(script(authored_name, vec![message(&name)], true));
             }
             let mut sub = gamelogic::scripting::core::new_script_group();
             sub.set_name("Sub".into());

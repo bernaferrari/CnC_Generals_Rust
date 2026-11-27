@@ -697,12 +697,9 @@ defaults correct scan intervals to 15/30 logic frames, defense extra distance to
 zero and rebuild delay to ten seconds. CRC follows the original field order and
 excludes wall height; authored Xfer remains version-only.
 
-`GameLogic::scripting::mission_runtime` is the existing auxiliary mission walker
-moved out of Main, not a replacement interpreter. Its constructor receives the
-evaluator and callback queue rather than publishing an engine. Main retains
-platform callbacks and startup wiring. Root/group order, immediate enable changes,
-entered-group gating and exact authored names are preserved. The shared callback
-queue and live ScriptEngine ambient services still require ownership migration.
+The unused alternate mission and trigger schedulers are retired. The installed
+SCB program runs through `generals-sim` for normal and sequential scripts.
+The legacy team factory still supplies condition facts for standalone teams.
 Unused ScriptEngine VTune and skate-debug facades no longer maintain duplicate
 process-wide state. The live debug commands retain their UI-owned state; this
 does not migrate the ambient interpreter or named-object tracker.

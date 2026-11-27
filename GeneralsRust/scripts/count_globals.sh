@@ -623,7 +623,6 @@ ALLOW_OPAQUE_WRAPPERS = {
     "MessageInterceptHandlerSlot",
     "MetaMapSlot",
     "MiscAudioSlot",
-    "MissionScriptRuntime",
     "ModelManagerSlot",
     "ModelessDialogsSlot",
     "ModuleFactorySlot",

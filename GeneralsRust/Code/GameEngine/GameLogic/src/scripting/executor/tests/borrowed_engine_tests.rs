@@ -1,6 +1,6 @@
-//! ScriptActions.cpp default attack priority mutation through actual ScriptEvaluator.
+//! ScriptActions.cpp default attack priority mutation through the installed script interpreter.
 use super::*;
-use crate::scripting::engine::{ScriptEngineHandle, get_script_engine};
+use crate::scripting::engine::{CanonicalScriptExecutionDriver, ScriptEngineHandle, get_script_engine};
 use crate::scripting::evaluator::ScriptEvaluator;
 
 struct GlobalRestore(Option<ScriptEngine>);
@@ -47,20 +47,27 @@ fn priority(handle: &ScriptEngineHandle) -> i32 {
         .default_priority
 }
 
+fn apply_priority(handle: &ScriptEngineHandle, name: &str, value: i32) {
+    handle.read().unwrap().as_ref().unwrap().friend_execute_action_with_driver_checked(
+        &default_action(name, value),
+        None,
+        ScriptContext::at_frame(0),
+        &mut CanonicalScriptExecutionDriver,
+    ).unwrap();
+}
+
 #[test]
-fn injected_evaluator_priority_action_mutates_its_engine() {
+fn injected_engine_priority_action_mutates_its_row() {
     let _serial = crate::test_sync::lock();
     let ambient = ScriptEngine::new_in_published_world().unwrap();
     ambient.set_priority_default("Shared", 19);
     let _restore = GlobalRestore::install(Some(ambient));
     let own = own_engine(4);
-    ScriptEvaluator::new(own.clone())
-        .execute_action(&default_action("Shared", 13))
-        .unwrap();
+    apply_priority(&own, "Shared", 13);
     assert_eq!(
         priority(&own),
         13,
-        "action must mutate the evaluator's injected engine"
+        "action must mutate the receiving interpreter"
     );
     assert_eq!(
         priority(&get_script_engine()),
@@ -70,49 +77,36 @@ fn injected_evaluator_priority_action_mutates_its_engine() {
 }
 
 #[test]
-fn injected_evaluator_with_no_global_engine_keeps_live_mutations() {
+fn injected_engine_with_no_global_engine_keeps_live_mutations() {
     let _serial = crate::test_sync::lock();
     let _restore = GlobalRestore::install(None);
     let own = own_engine(4);
-    let evaluator = ScriptEvaluator::new(own.clone());
-    evaluator
-        .execute_action(&default_action("Shared", 8))
-        .unwrap();
-    evaluator
-        .execute_action(&default_action("Shared", 12))
-        .unwrap();
+    apply_priority(&own, "Shared", 8);
+    apply_priority(&own, "Shared", 12);
     assert_eq!(priority(&own), 12);
     assert!(get_script_engine().read().unwrap().is_none());
 }
 
 #[test]
-fn two_injected_evaluators_keep_same_named_rows_independent() {
+fn two_injected_engines_keep_same_named_rows_independent() {
     let _serial = crate::test_sync::lock();
     let _restore = GlobalRestore::install(Some(ScriptEngine::new_in_published_world().unwrap()));
     let a = own_engine(4);
     let b = own_engine(19);
-    let eval_a = ScriptEvaluator::new(a.clone());
-    let eval_b = ScriptEvaluator::new(b.clone());
-    eval_a.execute_action(&default_action("Shared", 8)).unwrap();
-    eval_b
-        .execute_action(&default_action("Shared", 23))
-        .unwrap();
-    eval_a
-        .execute_action(&default_action("Shared", 12))
-        .unwrap();
+    apply_priority(&a, "Shared", 8);
+    apply_priority(&b, "Shared", 23);
+    apply_priority(&a, "Shared", 12);
     assert_eq!(priority(&a), 12);
     assert_eq!(priority(&b), 23);
     assert_eq!(priority(&get_script_engine()), 1);
 }
 
 #[test]
-fn injected_evaluator_preserves_default_and_empty_named_row_identity() {
+fn injected_engine_preserves_default_and_empty_named_row_identity() {
     let _serial = crate::test_sync::lock();
     let _restore = GlobalRestore::install(Some(ScriptEngine::new_in_published_world().unwrap()));
     let own = own_engine(4);
-    ScriptEvaluator::new(own.clone())
-        .execute_action(&default_action("", 77))
-        .unwrap();
+    apply_priority(&own, "", 77);
     let guard = own.read().unwrap();
     let engine = guard.as_ref().unwrap();
     assert_eq!(engine.get_attack_info("").unwrap().default_priority, 77);

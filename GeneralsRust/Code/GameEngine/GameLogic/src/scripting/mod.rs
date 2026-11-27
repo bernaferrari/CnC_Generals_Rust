@@ -1,16 +1,8 @@
 //! Script data, execution, and match-owned query interfaces.
 #![allow(ambiguous_glob_reexports)]
 
-#[allow(hidden_glob_reexports)]
-use crate::common::Coord3D;
-use crate::{GameLogicError, GameLogicResult};
-
 use std::collections::HashMap;
 use std::fmt;
-use std::sync::{Arc, Mutex};
-use std::time::Duration;
-
-use async_trait::async_trait;
 use game_engine::common::system::{Xfer, XferStatus};
 use serde::{Deserialize, Serialize};
 
@@ -24,8 +16,6 @@ pub mod executor;
 pub mod host_script_garrison;
 pub mod ini_parser;
 pub mod map_scripts;
-pub mod mission_runtime;
-pub mod triggers;
 
 pub use conditions::*;
 pub use conditions::{
@@ -61,68 +51,6 @@ pub enum ScriptPriority {
     Critical = 3,
     /// Emergency/debug scripts
     Emergency = 4,
-}
-
-/// Script execution context
-#[derive(Debug, Clone)]
-pub struct ScriptContext {
-    /// Current game time
-    pub game_time: Duration,
-    /// Active player
-    pub active_player: Option<u32>,
-    /// Script-specific variables
-    pub variables: HashMap<String, ScriptValue>,
-    /// Global game state
-    pub game_state: GameStateContext,
-    /// Trigger edge state owned by the script execution world.
-    pub host_trigger_world: Arc<Mutex<HostTriggerWorld>>,
-    /// C++ the evaluating engine's host facts (its own world's snapshot).
-    pub host_query: HostScriptQuery,
-}
-
-impl ScriptContext {
-    pub fn is_generals_challenge_campaign(&self) -> bool {
-        self.host_trigger_world
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .is_generals_challenge_campaign()
-    }
-}
-
-/// Game state context for scripts
-#[derive(Debug, Clone)]
-pub struct GameStateContext {
-    /// Current map name
-    pub map_name: String,
-    /// Game mode
-    pub game_mode: String,
-    /// Player information
-    pub players: Vec<PlayerInfo>,
-    /// Current objectives
-    pub objectives: Vec<Objective>,
-}
-
-/// Player information for scripts
-#[derive(Debug, Clone)]
-pub struct PlayerInfo {
-    pub id: u32,
-    pub name: String,
-    pub team: u32,
-    pub color: String,
-    pub is_human: bool,
-    pub is_alive: bool,
-    pub score: i32,
-}
-
-/// Game objective
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Objective {
-    pub id: String,
-    pub name: String,
-    pub description: String,
-    pub completed: bool,
-    pub hidden: bool,
-    pub priority: i32,
 }
 
 /// Script value types
@@ -182,21 +110,6 @@ impl ScriptValue {
             _ => None,
         }
     }
-}
-
-/// Script execution result
-#[derive(Debug, Clone)]
-pub enum ScriptResult {
-    /// Script executed successfully
-    Success(Option<ScriptValue>),
-    /// Script failed with error
-    Failed(String),
-    /// Script was skipped due to conditions
-    Skipped,
-    /// Script is waiting for condition
-    Waiting,
-    /// Script was cancelled
-    Cancelled,
 }
 
 impl fmt::Display for ScriptValue {

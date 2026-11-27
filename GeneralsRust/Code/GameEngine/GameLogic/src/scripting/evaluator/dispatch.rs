@@ -1,7 +1,4 @@
-// Script evaluate_script / OR / AND / evaluate_condition dispatch
-//
-// Split from `scripting/evaluator.rs` for module-size parity.
-// Observable behavior is unchanged.
+// Standalone script condition dispatch.
 
 impl ScriptEvaluator {
     pub fn new(engine: ScriptEngineHandle) -> Self {
@@ -83,7 +80,7 @@ impl ScriptEvaluator {
     /// Normal game-script execution has a lexical active engine installed by
     /// `ScriptEngine::update`; using it first avoids re-locking the global
     /// handle during an immediate nested action.  Evaluators are also used by
-    /// triggers and tests with a private `ScriptEngineHandle`, where no active
+    /// standalone teams and tests with a private `ScriptEngineHandle`, where no active
     /// scope exists, so retain that exact injected handle as the fallback.
     /// An active-but-currently-borrowed engine deliberately does not fall back:
     /// retrying the global handle there could deadlock the live update thread.
@@ -127,73 +124,17 @@ impl ScriptEvaluator {
         guard.as_ref().map(f)
     }
 
-    /// Evaluate a complete script matching C++ EvaluateScripts
-    pub fn evaluate_script(&self, script: &mut Script) -> GameLogicResult<bool> {
-        log::debug!("Evaluating script: {}", script.get_name());
-
-        // Check if script is active
-        if !script.is_active() {
-            return Ok(false);
-        }
-
-        // Evaluate conditions
-        let condition_result = if let Some(or_condition) = script.condition.as_deref_mut() {
-            self.evaluate_or_condition(or_condition)?
-        } else {
-            true // No conditions means always true
-        };
-
-        log::debug!(
-            "Script '{}' condition result: {}",
-            script.get_name(),
-            condition_result
-        );
-
-        // Execute actions based on condition result
-        if condition_result {
-            if let Some(action) = script.get_action() {
-                self.execute_action_sequence(action)?;
-            }
-        } else {
-            if let Some(false_action) = script.get_false_action() {
-                self.execute_action_sequence(false_action)?;
-            }
-        }
-
-        Ok(condition_result)
-    }
-
-    /// Evaluate OR condition matching C++ EvaluateConditions
     pub fn evaluate_or_condition(&self, or_condition: &mut OrCondition) -> GameLogicResult<bool> {
-        let mut current_or = Some(or_condition);
-
-        while let Some(or_cond) = current_or {
-            // Evaluate all AND conditions in this OR clause
-            if let Some(and_condition) = or_cond.first_and.as_deref_mut() {
-                if self.evaluate_and_condition(and_condition)? {
-                    return Ok(true); // Short-circuit on first true OR
-                }
-            }
-
-            current_or = or_cond.next_or.as_deref_mut();
-        }
-
-        Ok(false) // All OR conditions were false
+        generals_sim::scripting::program_execution::evaluate_conditions(
+            Some(or_condition),
+            |condition| self.evaluate_condition(condition),
+        )
     }
 
-    /// Evaluate AND condition chain
-    pub fn evaluate_and_condition(&self, and_condition: &mut Condition) -> GameLogicResult<bool> {
-        let mut current_and = Some(and_condition);
-
-        while let Some(and_cond) = current_and {
-            if !self.evaluate_condition(and_cond)? {
-                return Ok(false); // Short-circuit on first false AND
-            }
-
-            current_and = and_cond.next_and_condition.as_deref_mut();
-        }
-
-        Ok(true) // All AND conditions were true
+    fn make_script_context(&self) -> std::cell::RefCell<ScriptContext> {
+        let mut context = ScriptContext::new();
+        context.current_frame = TheGameLogic::get_frame();
+        std::cell::RefCell::new(context)
     }
 
     /// Evaluate a single condition matching C++ EvaluateCondition
@@ -201,8 +142,7 @@ impl ScriptEvaluator {
         // C++ EvaluateCondition never fail-closes the whole evaluator because
         // OBJECT_REGISTRY is empty. Engine-local conditions and host-aware
         // object-world handlers (ScriptConditionEvaluator / host snapshot)
-        // must run on the live host so MissionScriptRuntime and team production
-        // conditions can evaluate.
+        // must run when team production conditions are evaluated.
 
         const SLOW_SCRIPT_CONDITION_WARN_MS: u64 = 40;
         let condition_type = condition.get_condition_type();
