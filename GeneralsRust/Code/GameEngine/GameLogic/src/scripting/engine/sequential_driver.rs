@@ -24,13 +24,7 @@ struct SequentialActors {
     host_object_was_dead: bool,
 }
 
-struct SequentialWorldDriver<'engine, 'execution> {
-    engine: &'engine ScriptEngine,
-    execution: &'engine mut ScriptExecution<'execution>,
-    dispatcher: crate::scripting::executor::ScriptActionDispatcher<'engine>,
-}
-
-impl SequentialDriver for SequentialWorldDriver<'_, '_> {
+impl SequentialDriver for ScriptProgramWorld<'_, '_> {
     type Actors = SequentialActors;
 
     fn observe_actors(
@@ -138,8 +132,7 @@ impl SequentialDriver for SequentialWorldDriver<'_, '_> {
             inner.condition_team = target.team_id;
             inner.condition_object = condition_object;
         }
-        self.engine
-            .dispatch_action_with_driver(action, &mut self.dispatcher, self.execution)
+        program_execution::dispatch_action(action, self)
     }
 
     fn observe_after_action(
@@ -211,13 +204,8 @@ impl ScriptEngine {
             condition_team: inner.condition_team,
             condition_object: inner.condition_object,
         });
-        let dispatcher =
-            crate::scripting::executor::ScriptActionDispatcher::new(self, execution.context);
-        self.sequential_scripts.tick(&mut SequentialWorldDriver {
-            engine: self,
-            execution,
-            dispatcher,
-        })
+        self.sequential_scripts
+            .tick(&mut ScriptProgramWorld::new(self, execution))
     }
 
     #[cfg(test)]

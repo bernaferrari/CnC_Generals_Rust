@@ -331,10 +331,8 @@ impl ScriptEngine {
         let context = std::cell::RefCell::new(context);
         let mut execution = ScriptExecution::new(&context, driver);
         let result = self.with_active(|| {
-            let mut dispatcher =
-                crate::scripting::executor::ScriptActionDispatcher::new(self, &context);
-            self.execute_action_chain(action, &mut dispatcher, &mut execution)
-                .map(|_| ())
+            let mut program = ScriptProgramWorld::new(self, &mut execution);
+            program_execution::execute_action_chain(Some(action), &mut program).map(|_| ())
         });
         drop(restore);
         result
@@ -432,13 +430,8 @@ impl ScriptEngine {
         execution: &mut ScriptExecution<'_>,
     ) -> GameLogicResult<bool> {
         self.with_active(|| {
-            let mut dispatcher =
-                crate::scripting::executor::ScriptActionDispatcher::new(self, execution.context);
-            let mut evaluator =
-                crate::scripting::executor::ScriptConditionEvaluator::new(self, execution.context);
-            self.side_scripts.call_subroutine(name, |script| {
-                self.execute_script(script, &mut evaluator, &mut dispatcher, execution)
-            })
+            let mut program = ScriptProgramWorld::new(self, execution);
+            self.side_scripts.call_subroutine(name, |script| program.run_script(script))
         })
     }
 

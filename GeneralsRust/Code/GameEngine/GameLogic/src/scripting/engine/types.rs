@@ -5,12 +5,6 @@
 
 const FRAMES_TO_FADE_IN_AT_START: i32 = 33;
 
-#[derive(Debug, Clone, Copy, PartialEq)]
-enum ActionChainExecution {
-    Completed,
-    Pending(f32),
-}
-
 /// Live owner query supplied by the world driving this execution.
 /// Unavailable is reserved for the standalone canonical adapter; Missing is
 /// authoritative absence and must never fall back to a frozen host snapshot.

@@ -3,17 +3,6 @@
 // Split from `scripting/engine.rs` for module-size parity.
 // Observable behavior is unchanged.
 
-/// executeScript only scopes conditionTeam, not player/object mutations.
-struct ConditionContextRestore<'a> {
-    engine: &'a ScriptEngine,
-    team: Option<TeamID>,
-}
-impl Drop for ConditionContextRestore<'_> {
-    fn drop(&mut self) {
-        self.engine.lock_inner_mut().condition_team = self.team;
-    }
-}
-
 impl ScriptEngine {
     pub(super) fn observe_object_count_changed_frame(&self, driver: &dyn ScriptExecutionDriver) {
         match driver.object_count_changed_frame() {
@@ -196,10 +185,7 @@ impl ScriptEngine {
         // Host takes the engine out of the global RwLock before update()
         // (scripts_camera.rs), so this walk cannot re-lock TheScriptEngine.
 
-        let mut action_dispatcher =
-            crate::scripting::executor::ScriptActionDispatcher::new(self, execution.context);
-        let mut condition_evaluator =
-            crate::scripting::executor::ScriptConditionEvaluator::new(self, execution.context);
+        let mut program = ScriptProgramWorld::new(self, execution);
 
         // Snapshot player names before dispatch.  A script action may change
         // player state or call a subroutine; no PlayerList lock may survive
@@ -210,7 +196,7 @@ impl ScriptEngine {
 
         for i in 0..Self::MAX_PLAYER_COUNT {
             // Match C++: `m_currentPlayer` is the nth player for the side index.
-            let current_player = match execution.driver.side_script_current_player(i) {
+            let current_player = match program.execution.driver.side_script_current_player(i) {
                 ScriptOwnerQuery::Present(name) => name,
                 ScriptOwnerQuery::Missing => None,
                 ScriptOwnerQuery::Unavailable => {
@@ -240,14 +226,7 @@ impl ScriptEngine {
             };
             self.lock_inner_mut().current_player = current_player;
 
-            self.side_scripts.execute_side(i, |script| {
-                self.execute_script(
-                    script,
-                    &mut condition_evaluator,
-                    &mut action_dispatcher,
-                    execution,
-                )
-            })?;
+            self.side_scripts.execute_side(i, |script| program.run_script(script))?;
         }
 
         self.lock_inner_mut().current_player = None;
@@ -347,227 +326,6 @@ impl ScriptEngine {
         } else if !singleton_team_name.is_empty() {
             script.condition_team_name = singleton_team_name;
         }
-    }
-
-    /// Execute a single script, matching C++ `ScriptEngine::executeScript`.
-    fn execute_script(
-        &self,
-        script: &mut Script,
-        condition_evaluator: &mut crate::scripting::executor::ScriptConditionEvaluator<'_>,
-        action_dispatcher: &mut crate::scripting::executor::ScriptActionDispatcher<'_>,
-        execution: &mut ScriptExecution<'_>,
-    ) -> GameLogicResult<()> {
-        // If script is not active, return.
-        if !script.is_active {
-            return Ok(());
-        }
-
-        // Difficulty gating (C++ uses `m_currentPlayer->getPlayerDifficulty()` when available).
-        let difficulty = self
-            .with_inner(|inner| inner.current_player.clone())
-            .as_deref()
-            .and_then(|name| {
-                crate::player::player_list()
-                    .read()
-                    .ok()
-                    .and_then(|list| list.find_player_by_name(name))
-                    .and_then(|p| p.read().ok().map(|p| p.get_player_difficulty()))
-            })
-            .unwrap_or(crate::player::GameDifficulty::Normal);
-
-        match difficulty {
-            crate::player::GameDifficulty::Easy if !script.easy => return Ok(()),
-            crate::player::GameDifficulty::Normal if !script.normal => return Ok(()),
-            crate::player::GameDifficulty::Hard | crate::player::GameDifficulty::Brutal
-                if !script.hard =>
-            {
-                return Ok(());
-            }
-            _ => {}
-        }
-
-        // Periodic evaluation uses the driving logic frame, not an ambient world.
-        let current_frame = execution.frame;
-        if current_frame < script.frame_to_evaluate_at {
-            return Ok(());
-        }
-
-        // If delay is configured, schedule the next evaluation time.
-        if script.delay_evaluation_seconds > 0 {
-            script.frame_to_evaluate_at = current_frame
-                + (script.delay_evaluation_seconds as u32) * (LOGICFRAMES_PER_SECOND as u32);
-        }
-
-        // Team-scoped condition evaluation (C++ uses `conditionTeamName` to iterate instances).
-        let restore = self.with_inner(|inner| ConditionContextRestore {
-            engine: self,
-            team: inner.condition_team,
-        });
-        let condition_team_name = script.condition_team_name.trim().to_string();
-        if !condition_team_name.is_empty() {
-            let next = |after, driver: &dyn ScriptExecutionDriver| match driver
-                .condition_team_after(&condition_team_name, after)
-            {
-                ScriptOwnerQuery::Present(id) => id,
-                ScriptOwnerQuery::Missing => None,
-                ScriptOwnerQuery::Unavailable => get_team_factory()
-                    .lock()
-                    .ok()
-                    .and_then(|factory| factory.condition_team_after(&condition_team_name, after)),
-            };
-            if let Some(mut id) = next(None, execution.driver) {
-                loop {
-                    self.lock_inner_mut().condition_team = Some(id);
-                    self.evaluate_and_execute_script(
-                        script,
-                        condition_evaluator,
-                        action_dispatcher,
-                        execution,
-                        false,
-                    )?;
-                    // CPP DLINK_ITERATOR::advance observes mutations made by
-                    // this instance's conditions and immediate action chain.
-                    let Some(following) = next(Some(id), execution.driver) else {
-                        break;
-                    };
-                    id = following;
-                }
-                return Ok(());
-            }
-        }
-
-        self.lock_inner_mut().condition_team = None;
-        self.evaluate_and_execute_script(
-            script,
-            condition_evaluator,
-            action_dispatcher,
-            execution,
-            true,
-        )?;
-        drop(restore);
-        Ok(())
-    }
-
-    fn evaluate_and_execute_script(
-        &self,
-        script: &mut Script,
-        condition_evaluator: &mut crate::scripting::executor::ScriptConditionEvaluator<'_>,
-        action_dispatcher: &mut crate::scripting::executor::ScriptActionDispatcher<'_>,
-        execution: &mut ScriptExecution<'_>,
-        deactivate_one_shot_on_false_action: bool,
-    ) -> GameLogicResult<()> {
-        // If no conditions, C++ treats as false (no AND chain).
-        let mut condition_true = false;
-        if let Some(or_cond) = script.condition.as_deref_mut() {
-            condition_true = condition_evaluator
-                .evaluate_or_condition_with_driver(or_cond, execution.driver)
-                .map_err(|e| {
-                    GameLogicError::Configuration(format!("Script condition error: {}", e))
-                })?;
-        }
-
-        if condition_true {
-            let mut action_state = ActionChainExecution::Completed;
-            if let Some(action_head) = script.action.as_deref() {
-                action_state =
-                    self.execute_action_chain(action_head, action_dispatcher, execution)?;
-            }
-            match action_state {
-                ActionChainExecution::Completed => {
-                    if script.is_one_shot {
-                        script.is_active = false;
-                    }
-                }
-                ActionChainExecution::Pending(frames) => {
-                    self.schedule_script_pending_frames(script, frames, execution.frame);
-                }
-            }
-        } else if let Some(false_action) = script.action_false.as_deref() {
-            match self.execute_action_chain(false_action, action_dispatcher, execution)? {
-                ActionChainExecution::Completed => {
-                    if script.is_one_shot && deactivate_one_shot_on_false_action {
-                        script.is_active = false;
-                    }
-                }
-                ActionChainExecution::Pending(frames) => {
-                    self.schedule_script_pending_frames(script, frames, execution.frame);
-                }
-            }
-        }
-
-        Ok(())
-    }
-
-    fn execute_action_chain(
-        &self,
-        action_head: &ScriptAction,
-        dispatcher: &mut crate::scripting::executor::ScriptActionDispatcher<'_>,
-        execution: &mut ScriptExecution<'_>,
-    ) -> GameLogicResult<ActionChainExecution> {
-        let mut cur: Option<&ScriptAction> = Some(action_head);
-        while let Some(action) = cur {
-            let result = self.dispatch_action_with_driver(action, dispatcher, execution)?;
-            match result {
-                crate::scripting::executor::ScriptActionResult::Success => {}
-                crate::scripting::executor::ScriptActionResult::Pending(frames) => {
-                    if is_sequential_only_action(action.action_type) {
-                        // C++ parity: these actions are implemented as sequential timers/checks and
-                        // should not pause standard script action chains.
-                        cur = action.next_action.as_deref();
-                        continue;
-                    }
-                    return Ok(ActionChainExecution::Pending(frames));
-                }
-                crate::scripting::executor::ScriptActionResult::Failed(msg) => {
-                    return Err(GameLogicError::Configuration(format!(
-                        "Script action failed: {}",
-                        msg
-                    )));
-                }
-            }
-            cur = action.next_action.as_deref();
-        }
-        Ok(ActionChainExecution::Completed)
-    }
-
-    fn dispatch_action_with_driver(
-        &self,
-        action: &ScriptAction,
-        dispatcher: &mut crate::scripting::executor::ScriptActionDispatcher<'_>,
-        execution: &mut ScriptExecution<'_>,
-    ) -> GameLogicResult<crate::scripting::executor::ScriptActionResult> {
-        let result = if action.action_type == ScriptActionType::CallSubroutine {
-            let name = dispatcher.get_string_param(action, 0).map_err(|error| {
-                GameLogicError::Configuration(format!("Script action error: {}", error))
-            })?;
-            // CPP ScriptEngine.cpp:7631: subroutine executes immediately in
-            // this engine before the following action, using the same driver.
-            self.execute_subroutine_with_execution(&name, execution)?;
-            crate::scripting::executor::ScriptActionResult::Success
-        } else {
-            dispatcher
-                .execute_action_with_driver(action, execution.driver)
-                .map_err(|e| GameLogicError::Configuration(format!("Script action error: {}", e)))?
-        };
-        // All engine/list guards and dispatcher context guards ended above.
-        execution.driver.after_action()?;
-        self.observe_object_count_changed_frame(execution.driver);
-        Ok(result)
-    }
-
-    fn schedule_script_pending_frames(
-        &self,
-        script: &mut Script,
-        pending_frames: f32,
-        current_frame: u32,
-    ) {
-        let pending_resume_frame = Self::pending_resume_frame(current_frame, pending_frames);
-        script.frame_to_evaluate_at = script.frame_to_evaluate_at.max(pending_resume_frame);
-    }
-
-    fn pending_resume_frame(current_frame: u32, pending_frames: f32) -> u32 {
-        let wait_frames = pending_frames.max(1.0).ceil() as u32;
-        current_frame.saturating_add(wait_frames)
     }
 
     /// Update fade effects

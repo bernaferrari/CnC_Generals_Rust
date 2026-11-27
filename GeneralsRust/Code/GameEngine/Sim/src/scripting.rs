@@ -5,6 +5,7 @@ pub mod map_reveals;
 pub mod radar;
 pub mod named_objects;
 pub mod program;
+pub mod program_execution;
 pub mod sequential_scripts;
 pub mod side_scripts;
 pub mod variables;

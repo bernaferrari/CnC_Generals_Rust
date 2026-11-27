@@ -392,12 +392,6 @@ fn qualify_my_inner_perimeter_rewrites_to_player_start_index() {
 }
 
 #[test]
-fn pending_resume_frame_is_next_frame_for_single_frame_wait() {
-    assert_eq!(ScriptEngine::pending_resume_frame(100, 1.0), 101);
-    assert_eq!(ScriptEngine::pending_resume_frame(100, 0.0), 101);
-}
-
-#[test]
 fn sequential_pending_wait_conversion_matches_cxx_wait_patterns() {
     // Retry-style wait actions re-run the same instruction on the next frame.
     assert_eq!(

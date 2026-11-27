@@ -28,10 +28,15 @@ use generals_sim::scripting::attack_priorities::AttackPriorityTable;
 pub use generals_sim::scripting::attack_priorities::{AttackPriorityInfo, MAX_ATTACK_PRIORITIES};
 use generals_sim::scripting::map_reveals::NamedReveals;
 pub use generals_sim::scripting::map_reveals::{NamedReveal, NamedRevealOperation};
+use generals_sim::scripting::program_execution::{
+    self, ScriptDifficulty, ScriptProgramDriver,
+};
 use generals_sim::scripting::sequential_scripts::{
     SequentialAfterAction, SequentialDriver, SequentialReadiness, SequentialScripts,
-    SequentialTarget, is_sequential_only_action,
+    SequentialTarget,
 };
+#[cfg(test)]
+use generals_sim::scripting::sequential_scripts::is_sequential_only_action;
 pub use generals_sim::scripting::sequential_scripts::{SequentialScript, SequentialScriptSnapshot};
 use generals_sim::scripting::side_scripts::SideScripts;
 use generals_sim::scripting::variables::{MissionTimers, NamedTrackersSnapshot, ScriptVariables};
@@ -57,6 +62,7 @@ use attack_priorities::xfer_attack_priorities;
 include!("types.rs");
 include!("init.rs");
 include!("update.rs");
+include!("program_driver.rs");
 include!("sequential_driver.rs");
 include!("named_trackers.rs");
 include!("leftover.rs");

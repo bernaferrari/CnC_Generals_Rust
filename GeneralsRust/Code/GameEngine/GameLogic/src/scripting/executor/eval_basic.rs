@@ -771,44 +771,22 @@ impl ScriptConditionEvaluator<'_> {
         or_condition: &mut OrCondition,
         driver: &mut dyn ScriptExecutionDriver,
     ) -> Result<bool, ScriptError> {
-        // Iterate through all OR branches
-        let mut current_or = Some(or_condition);
-        while let Some(or_cond) = current_or {
-            // Evaluate the AND chain for this OR branch
-            if let Some(and_cond) = or_cond.first_and.as_deref_mut() {
-                if self.evaluate_and_chain(and_cond, driver)? {
-                    return Ok(true);
-                }
-            }
-            current_or = or_cond.next_or.as_deref_mut();
-        }
-        Ok(false)
+        generals_sim::scripting::program_execution::evaluate_conditions(
+            Some(or_condition),
+            |condition| self.evaluate_condition_truth_with_driver(condition, driver),
+        )
     }
 
-    /// Evaluate an AND chain of conditions
-    pub(crate) fn evaluate_and_chain(
+    pub(crate) fn evaluate_condition_truth_with_driver(
         &mut self,
         condition: &mut Condition,
         driver: &mut dyn ScriptExecutionDriver,
     ) -> Result<bool, ScriptError> {
-        let mut current = Some(condition);
-        while let Some(cond) = current {
-            match self.evaluate_condition_with_driver(cond, driver)? {
-                ScriptConditionResult::True => {
-                    // Continue to next AND condition
-                    current = cond.next_and_condition.as_deref_mut();
-                }
-                ScriptConditionResult::False => {
-                    // AND chain failed
-                    return Ok(false);
-                }
-                ScriptConditionResult::Error(msg) => {
-                    return Err(ScriptError::EvaluationFailed(msg));
-                }
-            }
+        match self.evaluate_condition_with_driver(condition, driver)? {
+            ScriptConditionResult::True => Ok(true),
+            ScriptConditionResult::False => Ok(false),
+            ScriptConditionResult::Error(message) => Err(ScriptError::EvaluationFailed(message)),
         }
-        // All conditions in the AND chain passed
-        Ok(true)
     }
 
     // ============================================================================
