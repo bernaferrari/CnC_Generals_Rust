@@ -169,21 +169,9 @@ impl GameLogic {
                         pending_stump = Some((name, stump_pos, stump_ori, td.burned_at_topple));
                     }
                 }
-                // Wave 761: under coupled GameWorld shadow, status timer expire
-                // (faerie/repulsor/frenzy/continuous-fire/selection flash)
-                // is owned by `tick_status_timer_expirations` + writeback. Host must
-                // not dual-expire mid-frame. Eject-invulnerable stays host-only
-                // (no GW until_frame field yet).
-                let peel_status_timers = false;
-                if !peel_status_timers {
-                    obj.tick_selection_flash();
-                    obj.tick_faerie_fire(self.frame);
-                }
-                // Wave 762: under coupled shadow, eject-invulnerable expire is
-                // owned by GW tick_status_timer_expirations + writeback.
-                {
-                    obj.tick_eject_invulnerable(self.frame);
-                }
+                obj.tick_selection_flash();
+                obj.tick_faerie_fire(self.frame);
+                obj.tick_eject_invulnerable(self.frame);
                 let defection_flash = obj.tick_defection_helper(self.frame, defection_fx_available);
                 // Snapshot FireWeaponPower residual before further mut uses.
                 let fwp_shot = obj.fire_weapon_power.as_ref().and_then(|req| {

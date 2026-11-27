@@ -50,7 +50,7 @@ impl RiderChangeRosters {
     }
 }
 
-/// Keep the host visibility decision identical in direct and shadow-backed frames.
+/// Visibility of the receiving world from this local player.
 pub(super) fn hide_garrison_from_local(
     logic: &GameLogic,
     object: &crate::game_logic::Object,

@@ -205,37 +205,30 @@ impl ForwardPass {
         })
     }
 
-    /// Upload packed laser SegLine vertices with `Queue::write_buffer`.
-    ///
-    /// Creates/resizes the vertex buffer when needed. Empty packs return false
-    /// and do not claim a live write.
+    /// Upload the packed line vertices and retain their draw count.
     pub(super) fn upload_laser_segments(
         &mut self,
-        upload: &mut crate::graphics::laser_segment_upload::LaserSegmentUpload,
+        upload: &crate::graphics::laser_segment_upload::LaserSegmentUpload,
     ) -> bool {
-        if !upload.vertex_bytes.is_empty() && upload.honesty.cpu_pack_ok {
-            let needed = upload.vertex_bytes.len().max(16);
-            let need_new = self
-                .laser_vertex_buffer
-                .as_ref()
-                .map(|_| needed > self.laser_vertex_capacity)
-                .unwrap_or(true);
-            if need_new {
-                let buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
-                    label: Some("laser_segliner_vertex"),
-                    size: needed as u64,
-                    usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
-                    mapped_at_creation: false,
-                });
-                self.laser_vertex_buffer = Some(Arc::new(buffer));
-                self.laser_vertex_capacity = needed;
-            }
+        if upload.vertex_bytes.is_empty() {
+            self.laser_vertices_uploaded = 0;
+            return false;
         }
-        // Sole writer of gpu_write_buffer_submitted is write_to_queue.
-        if let Some((bytes, buffer)) =
-            upload.write_to_queue(self.laser_vertex_buffer.as_ref().map(|b| b.as_ref()))
-        {
-            self.queue.write_buffer(buffer, 0, &bytes);
+
+        let needed = upload.vertex_bytes.len().max(16);
+        if self.laser_vertex_buffer.is_none() || needed > self.laser_vertex_capacity {
+            let buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some("laser_segliner_vertex"),
+                size: needed as u64,
+                usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+                mapped_at_creation: false,
+            });
+            self.laser_vertex_buffer = Some(Arc::new(buffer));
+            self.laser_vertex_capacity = needed;
+        }
+
+        if let Some(buffer) = self.laser_vertex_buffer.as_ref() {
+            self.queue.write_buffer(buffer, 0, &upload.vertex_bytes);
             self.laser_vertices_uploaded = upload.vertex_count();
             true
         } else {

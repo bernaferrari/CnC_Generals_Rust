@@ -60,94 +60,9 @@ fn assert_core(r: &ShellSmokeResult) {
     );
 }
 
-fn assert_presentation(r: &ShellSmokeResult) {
-    assert!(
-        r.minimap_fow_presentation_ok,
-        "minimap FOW presentation residual: {}",
-        r.detail
-    );
-    assert!(
-        r.laser_segment_upload_ok,
-        "laser segment CPU upload residual: {}",
-        r.detail
-    );
-    assert!(
-        r.multi_beam_soft_edge_ok,
-        "multi-beam soft-edge residual: {}",
-        r.detail
-    );
-    assert!(
-        r.laser_presentation_residual_ok,
-        "laser presentation residual: {}",
-        r.detail
-    );
-    assert!(
-        r.floating_text_layout_ok,
-        "floating text CPU layout residual: {}",
-        r.detail
-    );
-    assert!(
-        r.floating_text_vanish_ok,
-        "floating text vanish-rate residual: {}",
-        r.detail
-    );
-    assert!(
-        r.game_text_caption_ok,
-        "GUI:AddCash caption residual: {}",
-        r.detail
-    );
-    assert!(
-        r.game_text_csf_str_ok,
-        "CSF/STR GameText residual: {}",
-        r.detail
-    );
-    assert!(
-        r.display_string_measure_ok,
-        "DisplayString measure residual: {}",
-        r.detail
-    );
-    assert!(
-        r.translate_copy_residual_ok,
-        "translate_copy residual: {}",
-        r.detail
-    );
-    assert!(
-        r.world_anim_layout_ok,
-        "world anim CPU layout residual: {}",
-        r.detail
-    );
-    assert!(
-        r.world_anim_fade_ok,
-        "world anim fade residual: {}",
-        r.detail
-    );
-    assert!(
-        r.anim2d_frame_ok,
-        "Anim2D frame advance residual: {}",
-        r.detail
-    );
-    assert!(
-        r.anim2d_collection_residual_ok,
-        "Anim2DCollection residual: {}",
-        r.detail
-    );
-    assert!(
-        r.rng_stream_residual_ok,
-        "RNG stream residual: {}",
-        r.detail
-    );
-
-    assert!(
-        r.world_anim_presentation_ok,
-        "world anim presentation residual: {}",
-        r.detail
-    );
-}
-
 #[test]
 fn skirmish_session_advances_and_updates_presentation_consumers() {
     let result = run_shell_smoke(8).unwrap();
     assert_eq!(result.frames_advanced, 8, "{}", result.detail);
     assert_core(&result);
-    assert_presentation(&result);
 }

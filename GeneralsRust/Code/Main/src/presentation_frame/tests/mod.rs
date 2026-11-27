@@ -7,7 +7,7 @@ pub use crate::game_logic::{GameLogic, GameMode, KindOf, ObjectId, Player, Team,
 pub use crate::skirmish_config::{apply_skirmish_config, golden_skirmish_config};
 pub use glam::Vec3;
 
-mod apply_honesty;
+mod client_updates;
 mod dual_tick_registry;
 mod fow_own_team;
 mod freeze_queries;

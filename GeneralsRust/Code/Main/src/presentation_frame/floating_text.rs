@@ -134,58 +134,6 @@ impl PresentationFloatingText {
         let (r, g, b, a) = self.color_rgba;
         (r, g, b, self.vanish_color_alpha_u8_at(logic_frame, a))
     }
-
-    /// Honesty: retail vanish-rate / move-up / timeout presentation fields.
-    pub fn honesty_vanish_rate_residual_ok() -> bool {
-        (PRESENTATION_FLOATING_TEXT_VANISH_RATE - 0.1).abs() < 0.001
-            && PRESENTATION_FLOATING_TEXT_TIMEOUT_FRAMES == 10
-            && (PRESENTATION_FLOATING_TEXT_MOVE_UP_SPEED - 1.0).abs() < 0.001
-            && {
-                let t = PresentationFloatingText::synthetic_cash(50, 0);
-                (t.vanish_alpha_at(0) - 1.0).abs() < 0.001
-                    && (t.vanish_alpha_at(9) - 1.0).abs() < 0.001
-                    && (t.vanish_alpha_at(10) - 1.0).abs() < 0.001
-                    && (t.vanish_alpha_at(15) - 0.5).abs() < 0.001
-                    && (t.vanish_alpha_at(20) - 0.0).abs() < 0.001
-                    && (t.lift_y_at(5) - 5.0).abs() < 0.001
-            }
-    }
-
-    /// Wave 76 residual honesty: C++ integer color-alpha vanish path residual.
-    ///
-    /// Matches `InGameUI::updateFloatingText` REAL_TO_INT amount subtract on A.
-    /// With default vanish rate **0.1**, past=10 → amount **1** (255→254);
-    /// past=5 → amount **0** (truncation). Fail-closed vs live Display surface.
-    pub fn honesty_vanish_color_alpha_residual_ok() -> bool {
-        let t = PresentationFloatingText::synthetic_cash(50, 0);
-        // Synthetic cash uses green (0,255,0,255).
-        t.color_rgba == (0, 255, 0, 255)
-            && t.vanish_color_alpha_u8_at(0, 255) == 255
-            && t.vanish_color_alpha_u8_at(10, 255) == 255
-            && t.vanish_color_alpha_u8_at(15, 255) == 255 // past=5 → amount=0
-            && t.vanish_color_alpha_u8_at(20, 255) == 254 // past=10 → amount=1
-            && t.vanish_color_alpha_u8_at(30, 255) == 253 // past=20 → amount=2
-            && t.vanish_color_alpha_u8_at(20, 1) == 0 // saturating subtract residual
-            && {
-                let c = t.color_with_vanish_alpha_at(20);
-                c == (0, 255, 0, 254)
-            }
-            && Self::honesty_vanish_rate_residual_ok()
-    }
-
-    /// Synthetic cash residual for host-testable floating-text pack honesty.
-    pub fn synthetic_cash(amount: u32, spawn_frame: u32) -> Self {
-        Self::from_parts(
-            PresentationFloatingTextKind::MoneyCrate,
-            format!("+${amount}"),
-            "GUI:AddCash".into(),
-            Vec3::new(10.0, 20.0, 5.0),
-            (0, 255, 0, 255),
-            amount,
-            spawn_frame,
-            ObjectId(7001),
-        )
-    }
 }
 
 /// Snapshot-owned InGameUI::addWorldAnimation residual (MoneyPickUp Anim2D family).
@@ -241,24 +189,6 @@ impl PresentationWorldAnim {
         }
     }
 
-    /// Synthetic MoneyPickUp residual for host-testable world-anim pack honesty.
-    pub fn synthetic_money_pickup(spawn_frame: u32) -> Self {
-        Self {
-            identity: 0,
-            initial_frame: 0,
-            template: crate::game_logic::host_money_crate::MONEY_PICKUP_ANIM_TEMPLATE.to_string(),
-            position: Vec3::new(12.0, 0.0, 8.0),
-            display_time_seconds:
-                crate::game_logic::host_money_crate::MONEY_PICKUP_ANIM_DISPLAY_TIME_SECONDS,
-            z_rise_per_second:
-                crate::game_logic::host_money_crate::MONEY_PICKUP_ANIM_Z_RISE_PER_SECOND,
-            fades: crate::game_logic::host_money_crate::MONEY_PICKUP_ANIM_FADES,
-            spawn_frame,
-            crate_id: ObjectId(8001),
-            picker_id: ObjectId(8002),
-        }
-    }
-
     /// Unpaused C++ UI lifetime; conversion occurs after the floating addition.
     pub fn display_frames(&self) -> u32 {
         (self.display_time_seconds * PRESENTATION_LOGIC_FPS) as u32
@@ -290,29 +220,6 @@ impl PresentationWorldAnim {
         } else {
             1.0
         }
-    }
-    /// Check the retail MoneyPickUp defaults against the C++ pre-expiry fade.
-    pub fn honesty_money_pickup_fade_params_ok() -> bool {
-        let animation = Self::synthetic_money_pickup(0);
-        animation.fades
-            && (animation.display_time_seconds - 4.0).abs() < 0.01
-            && (animation.z_rise_per_second - 15.0).abs() < 0.01
-            && animation.honesty_fade_residual_ok()
-    }
-
-    pub fn honesty_fade_residual_ok(&self) -> bool {
-        let Some(expiry) = game_engine::common::world_animation::expiry_frame(
-            self.spawn_frame,
-            self.display_time_seconds,
-        ) else {
-            return false;
-        };
-        self.fade_alpha_at(expiry) == 0.0
-            && if self.fades && expiry > 0 {
-                (self.fade_alpha_at(expiry - 1) - (1.0 / 30.0)).abs() < 0.0001
-            } else {
-                true
-            }
     }
 }
 
@@ -410,7 +317,16 @@ mod vanish_window_tests {
 
     #[test]
     fn vanish_window_ends_when_fade_alpha_hits_zero() {
-        let t = PresentationFloatingText::synthetic_cash(50, 0);
+        let t = PresentationFloatingText::from_parts(
+            PresentationFloatingTextKind::MoneyCrate,
+            "+$50".into(),
+            "GUI:AddCash".into(),
+            Vec3::ZERO,
+            (0, 255, 0, 255),
+            50,
+            0,
+            ObjectId(1),
+        );
         // timeout=10. Linear vanish_alpha_at stays >0 through frame 19 and
         // reaches 0 exactly on frame 20; visibility flips on that frame.
         assert!(t.is_active_at(0));

@@ -92,10 +92,8 @@ pub struct PresentationFrame {
     /// a presentation copy, never a second writable simulation transform.
     #[serde(skip)]
     pub(crate) structure_topple_transforms: std::collections::HashMap<ObjectId, glam::Mat4>,
-    /// Transient direct Object→Drawable source roster.  This survives a
-    /// GameWorld-primary replacement of `objects` so deferred death/rubble
-    /// visuals retain their C++ Object lifetime.  It is deliberately not part
-    /// of serialized presentation/save state; GameClient owns binding state.
+    /// Direct Object-to-Drawable sources for deferred death and rubble visuals.
+    /// GameClient owns the transient bindings.
     #[serde(skip)]
     pub direct_host_drawables: Vec<PresentationDirectHostDrawable>,
     #[cfg(feature = "game_client")]
@@ -420,4 +418,116 @@ impl PresentationFrame {
             pending_popup_messages: &self.pending_popup_messages,
         }
     }
+}
+
+impl PresentationFrame {
+    /// Lookup snapshot FOW for an object (local player). None if not on the frame.
+    pub fn fow_for_object(&self, id: ObjectId) -> Option<ObjectVisibility> {
+        self.objects
+            .iter()
+            .find(|o| o.id == id)
+            .map(|o| o.fow_visibility)
+    }
+
+    /// Local-player cell-grid FOW frozen on this frame (terrain / minimap).
+    #[inline]
+    pub fn fow_grid(&self) -> &PresentationFowGrid {
+        &self.fow_grid
+    }
+
+    /// Source-shaped W3D shroud projection input frozen for this presentation
+    /// frame.  This is the only shroud texture source that renderer material
+    /// passes may consume.
+    #[inline]
+    pub fn projected_shroud(&self) -> &ProjectedShroudSnapshot {
+        &self.projected_shroud
+    }
+
+    /// Projection input eligible for terrain/object shroud material passes.
+    /// Shell maps and inactive/corrupt snapshots fail open exactly like the
+    /// existing terrain overlay path; callers must not retain a prior texture.
+    #[inline]
+    pub fn terrain_projected_shroud(&self) -> Option<&ProjectedShroudSnapshot> {
+        (self.terrain_fow_overlay_active() && self.projected_shroud.is_uploadable())
+            .then_some(&self.projected_shroud)
+    }
+
+    /// R8 terrain FOW texture from the snapshot only (no live shroud lock).
+    ///
+    /// Returns `None` when the grid is inactive (fail-open: skip overlay upload)
+    /// or when shell bypass already forces fully visible cells that need no darkening.
+    /// Callers that always want bytes can use `fow_grid().to_r8_texture()` directly.
+    pub fn terrain_fow_r8(&self) -> Option<Vec<u8>> {
+        if !self.fow_grid.active {
+            return None;
+        }
+        let r8 = self.fow_grid.to_r8_texture();
+        if r8.is_empty() { None } else { Some(r8) }
+    }
+
+    /// True when terrain FOW overlay should darken from the presentation grid.
+    ///
+    /// Shell bypass and inactive grids are fail-open (no overlay).
+    pub fn terrain_fow_overlay_active(&self) -> bool {
+        self.fow_grid.active && !self.fow_shell_bypass
+    }
+
+    /// Objects still present for presentation.
+    pub fn alive_renderables(&self) -> impl Iterator<Item = &RenderableObject> {
+        self.objects.iter().filter(|o| !o.destroyed && !o.sold)
+    }
+
+    /// Active combat particle systems on this frame (host registry snapshot).
+    pub fn active_particle_systems(&self) -> impl Iterator<Item = &PresentationParticleSystem> {
+        self.particle_systems.iter().filter(|p| p.active)
+    }
+
+    /// True when at least one combat particle system is registered and active.
+    pub fn has_active_particles(&self) -> bool {
+        self.particle_systems.iter().any(|p| p.active)
+    }
+
+    /// Laser beams frozen on this frame.
+    pub fn laser_beams(&self) -> &[PresentationLaserBeam] {
+        &self.laser_beams
+    }
+
+    /// Total Line3D segments across all frozen laser beams.
+    pub fn laser_segment_count(&self) -> usize {
+        self.laser_beams.iter().map(|b| b.segments.len()).sum()
+    }
+
+    /// True when the frame contains laser beams.
+    pub fn has_active_lasers(&self) -> bool {
+        !self.laser_beams.is_empty()
+    }
+
+    /// Floating texts frozen on this frame.
+    pub fn floating_texts(&self) -> &[PresentationFloatingText] {
+        &self.floating_texts
+    }
+
+    /// Floating texts still visible at the requested logic frame.
+    pub fn active_floating_texts_at(&self, logic_frame: u32) -> Vec<&PresentationFloatingText> {
+        self.floating_texts
+            .iter()
+            .filter(|t| t.is_active_at(logic_frame))
+            .collect()
+    }
+
+    /// True when at least one floating text is frozen on this frame.
+    pub fn has_floating_texts(&self) -> bool {
+        !self.floating_texts.is_empty()
+    }
+
+    /// World animations frozen on this frame.
+    pub fn world_anims(&self) -> &[PresentationWorldAnim] {
+        &self.world_anims
+    }
+
+    /// True when at least one world anim is frozen on this frame.
+    pub fn has_world_anims(&self) -> bool {
+        !self.world_anims.is_empty()
+    }
+
 }

@@ -34,7 +34,6 @@ mod follow_facts;
 mod frame;
 #[cfg(feature = "game_client")]
 mod ghosts;
-mod honesty;
 mod kind_facts;
 mod lasers;
 #[cfg(feature = "game_client")]
@@ -59,7 +58,6 @@ mod restrict_a;
 mod science_purchase;
 #[cfg(feature = "game_client")]
 mod shortcuts;
-mod spectre;
 mod terrain_motion;
 mod types;
 mod unit_render;
@@ -81,7 +79,6 @@ pub use lasers::*;
 pub use particles::*;
 pub use projectile::*;
 pub use restrict_a::PresentationRestrictA;
-pub use spectre::*;
 pub use types::*;
 pub use unit_render::*;
 pub use weapon_visual_dispatch::*;

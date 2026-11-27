@@ -1,592 +1,27 @@
-//! W3DLaserDraw / SegLineRenderer residual: pack presentation laser Line3D segments
-//! into a CPU vertex buffer ready for WGPU upload.
-//!
-//! Host residual closed here (fail-closed vs full retail SegLineRenderer GPU draw):
-//! - Interleaved vertex bytes from `PresentationFrame.laser_beams` / Line3D segments
-//! - Honesty counters for beams / segments / bytes packed
-//! - Deterministic pack order for dual-tick presentation consumers
-//! - Multi-beam soft-edge CPU residual (OrbitalLaser NumBeams width/color lerp)
-//! - ScrollRate UV + TilingScalar tile factor residual on multi-beam layers
-//!
-//! Host residual also closed (fail-closed vs live GPU):
-//! - ShaderClass::_PresetAdditiveShader residual name honesty
-//! - SegLineRenderer TILED_TEXTURE_MAP residual when Tile=Yes
-//! - UV_Offset_Rate residual (0, ScrollRate) V-scroll component
-//! - Soft-edge RGB innerAlpha premultiply residual in multi-beam layer pack
-//!   (C++ W3DLaserDraw: `red = inner + scale*(outer-inner)*innerAlpha`)
-//! - Connector W3DLaserDraw defaults residual (MaxIntensity/Fade = 0, Tile=No,
-//!   Segments=1, ArcHeight=0) for Medium/Intense connector lasers
-//!
-//! Wave 50 residual closed (host-testable, fail-closed vs GPU):
-//! - EXNoise02.tga / EXBinaryStream32.tga / EXLaser.tga texture bind name pack
-//! - MaxIntensityLifetime / FadeLifetime residual defaults (0 = no hold/fade)
-//! - SoftnessDepth / SoftnessDistance residual honesty: W3DLaserDraw has no
-//!   such INI fields — soft edge is multi-beam width/alpha lerp only
-//! - `gpu_upload_ready` is a host flag only (does NOT claim live write_buffer)
-//!
-//! Wave 65 residual closed (host-testable, fail-closed vs GPU):
-//! - OuterBeamWidth multi-beam residual pack honesty (NumBeams 12 / Outer 26 /
-//!   Inner 0.6 / ScrollRate -1.75 / TilingScalar 0.15 / Tile Yes / colors)
-//!
-//! Wave 68 residual closed (host-testable, fail-closed vs GPU):
-//! - MaxIntensityLifetime parseDuration residual: omitted → **0** frames;
-//!   retail commented sample **2000**ms → **60**f when field is set
-//! - FadeLifetime sample residual: commented **0** / **250**ms peel honesty
-//!
-//! Wave 74 residual closed (host-testable, fail-closed vs GPU):
-//! - Soft-edge multi-beam UV residual deepen: per-layer scroll_uv + tile_factor
-//!   + UV_Offset_Rate (U=0, V=ScrollRate×elapsed) honesty on packed layers
-//! - Fail-closed vs wgpu `Queue::write_buffer` (ready flag is bookkeeping only)
-//!
-//! Wave 102 residual closed (host-testable, fail-closed vs GPU):
-//! - Soft-edge UV atlas residual texture bind expand (TextureMapMode table
-//!   UNIFORM_WIDTH **0** / TILED **2**, UVOffsetDeltaPerMS = rate×0.001,
-//!   CurrentUVOffset advance residual, atlas bind name pack expanded)
-//! - Multi-beam soft-edge residual fields retained + UV atlas honesty cross-link
-//!
-//! Live path (this module):
-//! - `write_laser_segment_bytes` is the single copy used by `Queue::write_buffer`
-//! - `LaserSegmentUpload::write_to_queue` submits when a live buffer exists
-//!
-//! Still residual:
-//! - Texture atlas GPU sample bind / sampler state
-//! - Full soft-edge additive shader blend on live W3D scene graph
+//! Interleaved line vertices for the renderer's additive laser pass.
 
-use crate::game_logic::host_base_defense::{
-    HostLaserLine3DSegment, PATRIOT_LASER_INNER_COLOR, PATRIOT_LASER_TEXTURE,
-};
+use crate::game_logic::host_base_defense::HostLaserLine3DSegment;
 use crate::presentation_frame::{PresentationFrame, PresentationLaserBeam};
 
-// ---------------------------------------------------------------------------
-// ParticleUplinkCannon_OrbitalLaser multi-beam soft-edge residual (W3DLaserDraw)
-// ---------------------------------------------------------------------------
-
-/// Retail OrbitalLaser NumBeams (overlapping cylinders).
-pub const ORBITAL_LASER_NUM_BEAMS: u32 = 12;
-/// Retail InnerBeamWidth.
-pub const ORBITAL_LASER_INNER_BEAM_WIDTH: f32 = 0.6;
-/// Retail OuterBeamWidth.
-pub const ORBITAL_LASER_OUTER_BEAM_WIDTH: f32 = 26.0;
-/// Retail ScrollRate (toward muzzle negative).
-pub const ORBITAL_LASER_SCROLL_RATE: f32 = -1.75;
-/// Retail TilingScalar.
-pub const ORBITAL_LASER_TILING_SCALAR: f32 = 0.15;
-/// Retail OrbitalLaser texture residual (`ParticleUplinkCannon_OrbitalLaser`).
-pub const ORBITAL_LASER_TEXTURE: &str = "EXNoise02.tga";
-/// Retail BinaryDataStream / PatriotBinaryDataStream texture residual.
-pub const BINARY_STREAM_LASER_TEXTURE: &str = "EXBinaryStream32.tga";
-/// Retail connector laser texture residual (`ParticleUplinkCannon_*ConnectorLaser`).
-pub const CONNECTOR_LASER_TEXTURE: &str = "EXLaser.tga";
-/// Retail InnerColor R:255 G:255 B:255 A:250 → normalized.
-pub const ORBITAL_LASER_INNER_COLOR: (f32, f32, f32, f32) = (1.0, 1.0, 1.0, 250.0 / 255.0);
-/// Retail OuterColor R:0 G:0 B:255 A:150 → normalized.
-pub const ORBITAL_LASER_OUTER_COLOR: (f32, f32, f32, f32) = (0.0, 0.0, 1.0, 150.0 / 255.0);
-/// Retail W3DLaserDraw additive shader residual (`ShaderClass::_PresetAdditiveShader`).
-pub const ORBITAL_LASER_SHADER: &str = "_PresetAdditiveShader";
-/// Retail SegLineRenderer texture mapping residual when Tile=Yes.
-pub const ORBITAL_LASER_TEXTURE_MAPPING: &str = "TILED_TEXTURE_MAP";
-/// Retail Tile residual (Yes for OrbitalLaser).
-pub const ORBITAL_LASER_TILE: bool = true;
-/// Retail UV offset rate residual: Vector2(0, ScrollRate) — V component only.
-pub const ORBITAL_LASER_UV_OFFSET_U: f32 = 0.0;
-/// Retail W3DLaserDraw MaxIntensityLifetime residual default (0 = no hold).
-pub const ORBITAL_LASER_MAX_INTENSITY_FRAMES: u32 = 0;
-/// Retail W3DLaserDraw FadeLifetime residual default (0 = no fade-delete).
-pub const ORBITAL_LASER_FADE_FRAMES: u32 = 0;
-/// Retail connector MaxIntensityLifetime residual default (omitted → 0).
-pub const CONNECTOR_LASER_MAX_INTENSITY_FRAMES: u32 = 0;
-/// Retail connector FadeLifetime residual default (omitted → 0).
-pub const CONNECTOR_LASER_FADE_FRAMES: u32 = 0;
-/// Logic frames per second residual for MaxIntensityLifetime parseDuration.
-pub const LASER_LOGIC_FPS: f32 = 30.0;
-/// Retail commented MaxIntensityLifetime sample residual (msec) seen in INI.
-pub const LASER_COMMENTED_MAX_INTENSITY_LIFETIME_MS: u32 = 2000;
-/// Commented MaxIntensityLifetime 2000ms → 60 frames @ 30 FPS.
-pub const LASER_COMMENTED_MAX_INTENSITY_LIFETIME_FRAMES: u32 = 60;
-/// Retail commented FadeLifetime sample residual (msec) for some laser draws.
-pub const LASER_COMMENTED_FADE_LIFETIME_MS: u32 = 250;
-/// Commented FadeLifetime 250ms → 8 frames @ 30 FPS (round residual).
-pub const LASER_COMMENTED_FADE_LIFETIME_FRAMES: u32 = 8;
-/// Retail commented FadeLifetime alternate sample residual (0 = no fade).
-pub const LASER_COMMENTED_FADE_LIFETIME_ZERO_MS: u32 = 0;
-/// Retail connector Tile residual (omitted → No).
-pub const CONNECTOR_LASER_TILE: bool = false;
-/// Retail connector Segments residual default (omitted → 1).
-pub const CONNECTOR_LASER_SEGMENTS: u32 = 1;
-/// Retail connector ArcHeight residual default (omitted → 0).
-pub const CONNECTOR_LASER_ARC_HEIGHT: f32 = 0.0;
-/// Retail W3DLaserDraw has **no** SoftnessDepth INI field residual.
-/// Soft edge is multi-beam width/alpha lerp only (not a depth-fade scalar).
-pub const ORBITAL_LASER_SOFTNESS_DEPTH: f32 = 0.0;
-/// Retail W3DLaserDraw has **no** SoftnessDistance INI field residual.
-pub const ORBITAL_LASER_SOFTNESS_DISTANCE: f32 = 0.0;
-/// Honesty: SoftnessDepth/Distance are not W3DLaserDraw fields (always absent).
-pub const ORBITAL_LASER_HAS_SOFTNESS_DEPTH_FIELD: bool = false;
-/// Honesty: SoftnessDistance is not a W3DLaserDraw field (always absent).
-pub const ORBITAL_LASER_HAS_SOFTNESS_DISTANCE_FIELD: bool = false;
-
-// ---------------------------------------------------------------------------
-// Wave 102: SegLine soft-edge UV atlas residual texture bind expand
-// ---------------------------------------------------------------------------
-
-/// C++ `SegLineRendererClass::TextureMapMode` residual (seglinerenderer.h).
-/// UNIFORM_WIDTH_TEXTURE_MAP = 0x00000000
-pub const SEGLINE_TEXTURE_MAP_UNIFORM_WIDTH: u32 = 0x00000000;
-/// C++ TILED_TEXTURE_MAP residual = 0x00000002
-pub const SEGLINE_TEXTURE_MAP_TILED: u32 = 0x00000002;
-/// Residual TextureMapMode name table (OrbitalLaser uses TILED when Tile=Yes).
-pub const SEGLINE_TEXTURE_MAP_MODE_NAMES: [&str; 2] =
-    ["UNIFORM_WIDTH_TEXTURE_MAP", "TILED_TEXTURE_MAP"];
-/// Residual TextureMapMode discriminant table matching names order.
-pub const SEGLINE_TEXTURE_MAP_MODE_VALUES: [u32; 2] =
-    [SEGLINE_TEXTURE_MAP_UNIFORM_WIDTH, SEGLINE_TEXTURE_MAP_TILED];
-/// Retail OrbitalLaser atlas residual texture bind name (EXNoise02.tga).
-pub const SEGLINE_SOFT_EDGE_ATLAS_TEXTURE: &str = "EXNoise02.tga";
-/// Binary stream atlas residual texture bind name.
-pub const SEGLINE_BINARY_STREAM_ATLAS_TEXTURE: &str = "EXBinaryStream32.tga";
-/// Connector atlas residual texture bind name.
-pub const SEGLINE_CONNECTOR_ATLAS_TEXTURE: &str = "EXLaser.tga";
-/// Soft-edge atlas residual bind table (name order for host honesty pack).
-pub const SEGLINE_SOFT_EDGE_ATLAS_BIND_TABLE: [&str; 3] = [
-    SEGLINE_SOFT_EDGE_ATLAS_TEXTURE,
-    SEGLINE_BINARY_STREAM_ATLAS_TEXTURE,
-    SEGLINE_CONNECTOR_ATLAS_TEXTURE,
-];
-
-/// C++ `Set_UV_Offset_Rate`: `UVOffsetDeltaPerMS = rate * 0.001`.
-#[inline]
-pub fn segliner_uv_offset_delta_per_ms_residual(rate_u: f32, rate_v: f32) -> (f32, f32) {
-    (rate_u * 0.001, rate_v * 0.001)
-}
-
-/// C++ Render residual UV advance: `CurrentUVOffset + UVOffsetDeltaPerMS * del_ms`.
-///
-/// Fail-closed vs live SegLineRenderer vertex UV write / texture sample.
-#[inline]
-pub fn segliner_advance_current_uv_offset_residual(
-    current_u: f32,
-    current_v: f32,
-    rate_u: f32,
-    rate_v: f32,
-    del_ms: f32,
-) -> (f32, f32) {
-    let (du, dv) = segliner_uv_offset_delta_per_ms_residual(rate_u, rate_v);
-    (current_u + du * del_ms, current_v + dv * del_ms)
-}
-
-/// Host residual soft-edge UV atlas texture bind expand pack (Wave 102).
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct SoftEdgeUvAtlasBindResidual {
-    pub texture_name: &'static str,
-    pub map_mode_value: u32,
-    pub map_mode_name: &'static str,
-    pub tile: bool,
-    pub uv_rate_u: f32,
-    pub uv_rate_v: f32,
-    pub current_uv_u: f32,
-    pub current_uv_v: f32,
-    /// Always false — host never claims live atlas sampler bind.
-    pub gpu_atlas_bound: bool,
-}
-
-/// OrbitalLaser soft-edge UV atlas residual after `elapsed_sec` of scroll.
-pub fn orbital_soft_edge_uv_atlas_bind_residual(elapsed_sec: f32) -> SoftEdgeUvAtlasBindResidual {
-    let rate_u = ORBITAL_LASER_UV_OFFSET_U;
-    let rate_v = ORBITAL_LASER_SCROLL_RATE;
-    let del_ms = elapsed_sec * 1000.0;
-    let (cu, cv) = segliner_advance_current_uv_offset_residual(0.0, 0.0, rate_u, rate_v, del_ms);
-    SoftEdgeUvAtlasBindResidual {
-        texture_name: SEGLINE_SOFT_EDGE_ATLAS_TEXTURE,
-        map_mode_value: SEGLINE_TEXTURE_MAP_TILED,
-        map_mode_name: "TILED_TEXTURE_MAP",
-        tile: ORBITAL_LASER_TILE,
-        uv_rate_u: rate_u,
-        uv_rate_v: rate_v,
-        current_uv_u: cu,
-        current_uv_v: cv,
-        gpu_atlas_bound: false,
-    }
-}
-
-/// Honesty: soft-edge UV atlas residual texture bind expand (Wave 102).
-pub fn honesty_soft_edge_uv_atlas_texture_bind_expand_wave102() -> bool {
-    // TextureMapMode residual table.
-    if SEGLINE_TEXTURE_MAP_UNIFORM_WIDTH != 0 {
-        return false;
-    }
-    if SEGLINE_TEXTURE_MAP_TILED != 2 {
-        return false;
-    }
-    if SEGLINE_TEXTURE_MAP_MODE_NAMES.len() != 2 || SEGLINE_TEXTURE_MAP_MODE_VALUES.len() != 2 {
-        return false;
-    }
-    if SEGLINE_TEXTURE_MAP_MODE_VALUES[0] != SEGLINE_TEXTURE_MAP_UNIFORM_WIDTH {
-        return false;
-    }
-    if SEGLINE_TEXTURE_MAP_MODE_VALUES[1] != SEGLINE_TEXTURE_MAP_TILED {
-        return false;
-    }
-    if SEGLINE_TEXTURE_MAP_MODE_NAMES[1] != "TILED_TEXTURE_MAP" {
-        return false;
-    }
-    // Atlas bind table residual expand.
-    if SEGLINE_SOFT_EDGE_ATLAS_BIND_TABLE.len() != 3 {
-        return false;
-    }
-    if SEGLINE_SOFT_EDGE_ATLAS_TEXTURE != "EXNoise02.tga" {
-        return false;
-    }
-    if SEGLINE_BINARY_STREAM_ATLAS_TEXTURE != "EXBinaryStream32.tga" {
-        return false;
-    }
-    if SEGLINE_CONNECTOR_ATLAS_TEXTURE != "EXLaser.tga" {
-        return false;
-    }
-    // Cross-link existing texture bind pack.
-    if !honesty_laser_texture_bind_pack() {
-        return false;
-    }
-    // UVOffsetDeltaPerMS residual: rate * 0.001.
-    let (du, dv) = segliner_uv_offset_delta_per_ms_residual(0.0, -1.75);
-    if du.abs() >= 1e-9 {
-        return false;
-    }
-    if (dv - (-1.75 * 0.001)).abs() >= 1e-9 {
-        return false;
-    }
-    // Advance residual: 1000ms × delta = full rate.
-    let (cu, cv) = segliner_advance_current_uv_offset_residual(0.0, 0.0, 0.0, -1.75, 1000.0);
-    if cu.abs() >= 1e-6 {
-        return false;
-    }
-    if (cv - (-1.75)).abs() >= 1e-4 {
-        return false;
-    }
-    // Orbital soft-edge atlas residual after 1s.
-    let bind = orbital_soft_edge_uv_atlas_bind_residual(1.0);
-    if bind.texture_name != ORBITAL_LASER_TEXTURE {
-        return false;
-    }
-    if bind.map_mode_value != SEGLINE_TEXTURE_MAP_TILED {
-        return false;
-    }
-    if bind.map_mode_name != ORBITAL_LASER_TEXTURE_MAPPING {
-        return false;
-    }
-    if !bind.tile || bind.gpu_atlas_bound {
-        return false;
-    }
-    if (bind.uv_rate_v - ORBITAL_LASER_SCROLL_RATE).abs() >= 0.001 {
-        return false;
-    }
-    if (bind.current_uv_v - ORBITAL_LASER_SCROLL_RATE).abs() >= 0.01 {
-        return false;
-    }
-    // Multi-beam soft-edge residual field pack still honest.
-    if !honesty_soft_edge_multi_beam_uv_residual_pack() {
-        return false;
-    }
-    // Multi-beam layers carry scroll_uv = rate * elapsed matching atlas V residual.
-    let pack = LaserSegmentUpload::pack_orbital_multi_beam_soft_edge(
-        (0.0, 0.0, 0.0),
-        (0.0, 0.0, 200.0),
-        1.0,
-        1.0,
-    );
-    pack.honesty.honesty_multi_beam_soft_edge_ok()
-        && pack.honesty.honesty_additive_tiled_ok()
-        && pack.honesty.texture_name == SEGLINE_SOFT_EDGE_ATLAS_TEXTURE
-        && (pack.honesty.multi_beam_scroll_uv - bind.current_uv_v).abs() < 0.01
-        && !bind.gpu_atlas_bound
-}
-
-/// Combined Wave 102 laser SegLine residual honesty pack.
-pub fn honesty_laser_segliner_residual_deepen_pack_wave102() -> bool {
-    honesty_soft_edge_uv_atlas_texture_bind_expand_wave102()
-        && honesty_outer_beam_width_multi_beam_pack()
-        && honesty_soft_edge_multi_beam_uv_residual_pack()
-}
-
-/// Convert residual MaxIntensityLifetime / FadeLifetime milliseconds → frames.
-pub fn laser_duration_ms_to_frames(ms: u32) -> u32 {
-    if ms == 0 {
-        return 0;
-    }
-    ((ms as f32) / (1000.0 / LASER_LOGIC_FPS)).round() as u32
-}
-
-/// Wave 68 residual honesty: MaxIntensityLifetime parseDuration residual.
-pub fn honesty_laser_max_intensity_duration_residual() -> bool {
-    ORBITAL_LASER_MAX_INTENSITY_FRAMES == 0
-        && ORBITAL_LASER_FADE_FRAMES == 0
-        && CONNECTOR_LASER_MAX_INTENSITY_FRAMES == 0
-        && CONNECTOR_LASER_FADE_FRAMES == 0
-        && laser_duration_ms_to_frames(0) == 0
-        && LASER_COMMENTED_MAX_INTENSITY_LIFETIME_MS == 2000
-        && LASER_COMMENTED_MAX_INTENSITY_LIFETIME_FRAMES
-            == laser_duration_ms_to_frames(LASER_COMMENTED_MAX_INTENSITY_LIFETIME_MS)
-        && LASER_COMMENTED_MAX_INTENSITY_LIFETIME_FRAMES == 60
-        && LASER_COMMENTED_FADE_LIFETIME_MS == 250
-        && LASER_COMMENTED_FADE_LIFETIME_FRAMES
-            == laser_duration_ms_to_frames(LASER_COMMENTED_FADE_LIFETIME_MS)
-        && LASER_COMMENTED_FADE_LIFETIME_ZERO_MS == 0
-        && laser_duration_ms_to_frames(LASER_COMMENTED_FADE_LIFETIME_ZERO_MS) == 0
-        && honesty_connector_laser_defaults()
-}
-
-/// Honesty: connector W3DLaserDraw omitted-field defaults residual.
-///
-/// Medium/Intense connector lasers omit MaxIntensityLifetime / FadeLifetime /
-/// Tile / Segments / ArcHeight → C++ module defaults. Fail-closed: not full
-/// LaserUpdate drawable lifetime / fade-delete path.
-pub fn honesty_connector_laser_defaults() -> bool {
-    CONNECTOR_LASER_MAX_INTENSITY_FRAMES == 0
-        && CONNECTOR_LASER_FADE_FRAMES == 0
-        && !CONNECTOR_LASER_TILE
-        && CONNECTOR_LASER_SEGMENTS == 1
-        && (CONNECTOR_LASER_ARC_HEIGHT - 0.0).abs() < 0.01
-        && ORBITAL_LASER_MAX_INTENSITY_FRAMES == 0
-        && ORBITAL_LASER_FADE_FRAMES == 0
-}
-
-/// Honesty: laser soft-edge texture bind name residual pack.
-///
-/// Tracks OrbitalLaser EXNoise02.tga, BinaryDataStream EXBinaryStream32.tga,
-/// connector EXLaser.tga, MaxIntensity/Fade defaults, and the absence of
-/// SoftnessDepth/SoftnessDistance on W3DLaserDraw. Fail-closed: not live
-/// wgpu texture atlas sample / sampler bind group.
-pub fn honesty_laser_texture_bind_pack() -> bool {
-    ORBITAL_LASER_TEXTURE == "EXNoise02.tga"
-        && BINARY_STREAM_LASER_TEXTURE == "EXBinaryStream32.tga"
-        && CONNECTOR_LASER_TEXTURE == "EXLaser.tga"
-        && ORBITAL_LASER_MAX_INTENSITY_FRAMES == 0
-        && ORBITAL_LASER_FADE_FRAMES == 0
-        && CONNECTOR_LASER_MAX_INTENSITY_FRAMES == 0
-        && CONNECTOR_LASER_FADE_FRAMES == 0
-        && !ORBITAL_LASER_HAS_SOFTNESS_DEPTH_FIELD
-        && !ORBITAL_LASER_HAS_SOFTNESS_DISTANCE_FIELD
-        && (ORBITAL_LASER_SOFTNESS_DEPTH - 0.0).abs() < 0.001
-        && (ORBITAL_LASER_SOFTNESS_DISTANCE - 0.0).abs() < 0.001
-        && ORBITAL_LASER_TEXTURE_MAPPING == "TILED_TEXTURE_MAP"
-        && ORBITAL_LASER_TILE
-        && honesty_connector_laser_defaults()
-}
-
-/// Wave 74 residual honesty: soft-edge multi-beam UV residual pack.
-///
-/// Deepens UV residual for OrbitalLaser soft-edge layers:
-/// - `UV_Offset_Rate` residual Vector2(**0**, ScrollRate) — U always 0
-/// - Per-layer `scroll_uv` = ScrollRate × elapsed (shared across layers)
-/// - Per-layer `tile_factor` = (length / width) × TilingScalar (aspect=1)
-/// - Packed vertices carry U = tile_factor, V = scroll residual
-/// - Fail-closed: `gpu_upload_ready` never claims live `write_buffer`
-pub fn honesty_soft_edge_multi_beam_uv_residual_pack() -> bool {
-    // UV offset rate residual constants.
-    if (ORBITAL_LASER_UV_OFFSET_U - 0.0).abs() >= 0.001 {
-        return false;
-    }
-    if (ORBITAL_LASER_SCROLL_RATE + 1.75).abs() >= 0.01 {
-        return false;
-    }
-    if (ORBITAL_LASER_TILING_SCALAR - 0.15).abs() >= 0.001 {
-        return false;
-    }
-    if !ORBITAL_LASER_TILE {
-        return false;
-    }
-    if ORBITAL_LASER_TEXTURE_MAPPING != "TILED_TEXTURE_MAP" {
-        return false;
-    }
-
-    let elapsed = 1.0f32;
-    let length = 200.0f32;
-    let scroll_uv = ORBITAL_LASER_SCROLL_RATE * elapsed;
-    let layers = multi_beam_layer_residuals(
-        ORBITAL_LASER_NUM_BEAMS,
-        ORBITAL_LASER_INNER_BEAM_WIDTH,
-        ORBITAL_LASER_OUTER_BEAM_WIDTH,
-        ORBITAL_LASER_INNER_COLOR,
-        ORBITAL_LASER_OUTER_COLOR,
-        length,
-        ORBITAL_LASER_TILING_SCALAR,
-        scroll_uv,
-        1.0,
-    );
-    if layers.len() != ORBITAL_LASER_NUM_BEAMS as usize {
-        return false;
-    }
-    // Every soft-edge layer shares the same scroll UV residual.
-    for layer in &layers {
-        if (layer.scroll_uv - scroll_uv).abs() >= 0.001 {
-            return false;
-        }
-        // Tile factor residual: length/width * tiling_scalar.
-        let expected_tile = if layer.width > 1e-6 {
-            (length / layer.width) * ORBITAL_LASER_TILING_SCALAR
-        } else {
-            0.0
-        };
-        if (layer.tile_factor - expected_tile).abs() >= 0.01 {
-            return false;
-        }
-    }
-    // Outer edge tile factor residual honesty.
-    let outer_tile = (length / ORBITAL_LASER_OUTER_BEAM_WIDTH) * ORBITAL_LASER_TILING_SCALAR;
-    if (layers.last().map(|l| l.tile_factor).unwrap_or(0.0) - outer_tile).abs() >= 0.01 {
-        return false;
-    }
-    // Inner edge tile factor residual honesty (narrower → larger tile factor).
-    let inner_tile = (length / ORBITAL_LASER_INNER_BEAM_WIDTH) * ORBITAL_LASER_TILING_SCALAR;
-    if (layers.first().map(|l| l.tile_factor).unwrap_or(0.0) - inner_tile).abs() >= 0.01 {
-        return false;
-    }
-    if layers.first().map(|l| l.tile_factor).unwrap_or(0.0)
-        <= layers.last().map(|l| l.tile_factor).unwrap_or(0.0)
-    {
-        // Narrower inner beam must tile more densely than outer.
-        return false;
-    }
-
-    // Packed multi-beam soft-edge residual: UV honesty on upload pack.
-    let pack = LaserSegmentUpload::pack_orbital_multi_beam_soft_edge(
-        (0.0, 0.0, 0.0),
-        (0.0, 0.0, length),
-        elapsed,
-        1.0,
-    );
-    if !pack.honesty.honesty_multi_beam_soft_edge_ok() {
-        return false;
-    }
-    if !pack.honesty.honesty_additive_tiled_ok() {
-        return false;
-    }
-    if (pack.honesty.uv_offset_u - ORBITAL_LASER_UV_OFFSET_U).abs() >= 0.001 {
-        return false;
-    }
-    if (pack.honesty.uv_offset_v - scroll_uv).abs() >= 0.001 {
-        return false;
-    }
-    if (pack.honesty.multi_beam_scroll_uv - scroll_uv).abs() >= 0.001 {
-        return false;
-    }
-    if (pack.honesty.multi_beam_tiling_scalar - ORBITAL_LASER_TILING_SCALAR).abs() >= 0.001 {
-        return false;
-    }
-    // Fail-closed: ready flag is bookkeeping only (never live write_buffer).
-    let mut marked = pack;
-    marked.mark_gpu_upload_ready();
-    if !marked.honesty.honesty_upload_ready_ok() {
-        return false;
-    }
-    if !marked.honesty.honesty_no_live_gpu_write_buffer() {
-        return false;
-    }
-    if !honesty_gpu_write_buffer_not_claimed(&marked) {
-        return false;
-    }
-    // SoftnessDepth/Distance remain absent (soft edge is multi-beam UV/width only).
-    !ORBITAL_LASER_HAS_SOFTNESS_DEPTH_FIELD
-        && !ORBITAL_LASER_HAS_SOFTNESS_DISTANCE_FIELD
-        && honesty_orbital_multi_beam_layers(&layers)
-}
-
-/// Honesty: OuterBeamWidth multi-beam residual pack (Wave 65).
-///
-/// Consolidates ParticleUplinkCannon_OrbitalLaser W3DLaserDraw INI residual:
-/// NumBeams **12**, OuterBeamWidth **26**, InnerBeamWidth **0.6**, ScrollRate
-/// **-1.75**, TilingScalar **0.15**, Tile **Yes**, Inner/Outer colors, texture
-/// EXNoise02.tga, additive shader + TILED_TEXTURE_MAP. SoftnessDepth/Distance
-/// remain absent (not W3DLaserDraw fields). Fail-closed: not full GPU soft-edge
-/// texture atlas sample / SegLineRenderer write_buffer submit.
-pub fn honesty_outer_beam_width_multi_beam_pack() -> bool {
-    ORBITAL_LASER_NUM_BEAMS == 12
-        && (ORBITAL_LASER_OUTER_BEAM_WIDTH - 26.0).abs() < 0.01
-        && (ORBITAL_LASER_INNER_BEAM_WIDTH - 0.6).abs() < 0.01
-        && (ORBITAL_LASER_SCROLL_RATE + 1.75).abs() < 0.01
-        && (ORBITAL_LASER_TILING_SCALAR - 0.15).abs() < 0.001
-        && ORBITAL_LASER_TILE
-        && ORBITAL_LASER_TEXTURE == "EXNoise02.tga"
-        && ORBITAL_LASER_TEXTURE_MAPPING == "TILED_TEXTURE_MAP"
-        && ORBITAL_LASER_SHADER == "_PresetAdditiveShader"
-        && (ORBITAL_LASER_UV_OFFSET_U - 0.0).abs() < 0.001
-        && {
-            let (r, g, b, a) = ORBITAL_LASER_INNER_COLOR;
-            (r - 1.0).abs() < 0.01
-                && (g - 1.0).abs() < 0.01
-                && (b - 1.0).abs() < 0.01
-                && (a - 250.0 / 255.0).abs() < 0.01
-        }
-        && {
-            let (r, g, b, a) = ORBITAL_LASER_OUTER_COLOR;
-            (r - 0.0).abs() < 0.01
-                && (g - 0.0).abs() < 0.01
-                && (b - 1.0).abs() < 0.01
-                && (a - 150.0 / 255.0).abs() < 0.01
-        }
-        && ORBITAL_LASER_MAX_INTENSITY_FRAMES == 0
-        && ORBITAL_LASER_FADE_FRAMES == 0
-        && !ORBITAL_LASER_HAS_SOFTNESS_DEPTH_FIELD
-        && !ORBITAL_LASER_HAS_SOFTNESS_DISTANCE_FIELD
-        && honesty_laser_texture_bind_pack()
-        && {
-            // Multi-beam layer residual: outer edge width = OuterBeamWidth at scale 1.
-            let layers = multi_beam_layer_residuals(
-                ORBITAL_LASER_NUM_BEAMS,
-                ORBITAL_LASER_INNER_BEAM_WIDTH,
-                ORBITAL_LASER_OUTER_BEAM_WIDTH,
-                ORBITAL_LASER_INNER_COLOR,
-                ORBITAL_LASER_OUTER_COLOR,
-                200.0, // residual segment length honesty
-                ORBITAL_LASER_TILING_SCALAR,
-                ORBITAL_LASER_SCROLL_RATE,
-                1.0, // full width_scalar residual
-            );
-            honesty_orbital_multi_beam_layers(&layers)
-                && layers.len() == ORBITAL_LASER_NUM_BEAMS as usize
-                && (layers.last().map(|l| l.width).unwrap_or(0.0) - ORBITAL_LASER_OUTER_BEAM_WIDTH)
-                    .abs()
-                    < 0.01
-        }
-}
-
-/// Copy packed laser vertex bytes into `dest` (live upload payload).
-///
-/// This is the single memcpy used by [`LaserSegmentUpload::write_to_queue`].
-pub fn write_laser_segment_bytes(dest: &mut [u8], src: &[u8]) -> usize {
-    let n = dest.len().min(src.len());
-    if n == 0 {
-        return 0;
-    }
-    dest[..n].copy_from_slice(&src[..n]);
-    n
-}
-
-/// Honesty: pack-only / ready-flag path has not submitted `Queue::write_buffer`.
-///
-/// Single source of truth: [`LaserSegmentUploadHonesty::gpu_write_buffer_submitted`].
-pub fn honesty_gpu_write_buffer_not_claimed(upload: &LaserSegmentUpload) -> bool {
-    honesty_gpu_write_buffer_not_claimed_flag(upload.honesty.gpu_write_buffer_submitted)
-}
-
-/// Bytes per packed laser segment vertex (pos.xyz + uv.xy + color.rgba = 9 × f32).
+/// Floats per packed laser vertex (pos.xyz + uv.xy + color.rgba = 9 × f32).
 pub const LASER_VERTEX_FLOATS: usize = 9;
 /// Two vertices (start + end) per Line3D segment.
 pub const LASER_VERTS_PER_SEGMENT: usize = 2;
-/// Bytes per Line3D segment in the residual upload buffer.
+/// Bytes per Line3D segment in the upload buffer.
 pub const LASER_BYTES_PER_SEGMENT: usize =
     LASER_VERTEX_FLOATS * LASER_VERTS_PER_SEGMENT * std::mem::size_of::<f32>();
 
-/// One interleaved residual laser vertex (CPU-side SegLine point).
+/// One interleaved line vertex.
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub struct LaserSegmentVertex {
+struct LaserSegmentVertex {
     pub position: [f32; 3],
-    /// U = tile factor along beam, V = scroll residual.
+    /// U = tile factor along beam, V = scroll offset.
     pub uv: [f32; 2],
     pub color: [f32; 4],
 }
 
 impl LaserSegmentVertex {
-    pub fn to_floats(self) -> [f32; LASER_VERTEX_FLOATS] {
+    fn to_floats(self) -> [f32; LASER_VERTEX_FLOATS] {
         [
             self.position[0],
             self.position[1],
@@ -601,412 +36,31 @@ impl LaserSegmentVertex {
     }
 }
 
-/// Honesty bookkeeping for the residual laser segment upload path.
-#[derive(Debug, Clone, Default, PartialEq)]
-pub struct LaserSegmentUploadHonesty {
-    pub beams_packed: u32,
-    pub segments_packed: u32,
-    pub vertices_packed: u32,
-    pub bytes_packed: u32,
-    /// True when pack completed without panic (empty is honest success).
-    pub cpu_pack_ok: bool,
-    /// True when at least one segment was packed (non-empty residual exercise).
-    pub has_geometry: bool,
-    /// Texture name residual for presentation consumers (not GPU-bound here).
-    pub texture_name: String,
-    /// True after a host called `mark_gpu_upload_ready` (still not a live queue write).
-    pub gpu_upload_ready: bool,
-    /// Sole write-submit flag. Set only by [`LaserSegmentUpload::write_to_queue`]
-    /// after `Queue::write_buffer` (or the test double that calls the same copy).
-    pub gpu_write_buffer_submitted: bool,
-    /// Multi-beam soft-edge residual: overlapping cylinder layers packed.
-    pub multi_beam_layers: u32,
-    /// Peak layer width residual (OuterBeamWidth × width_scalar at outer edge).
-    pub multi_beam_peak_width: f32,
-    /// Inner layer width residual.
-    pub multi_beam_inner_width: f32,
-    /// ScrollRate UV residual sampled for soft-edge pack.
-    pub multi_beam_scroll_uv: f32,
-    /// TilingScalar residual honesty.
-    pub multi_beam_tiling_scalar: f32,
-    /// True when multi-beam soft-edge residual was exercised honestly.
-    pub multi_beam_soft_edge_ok: bool,
-    /// True when additive shader residual is armed.
-    pub additive_shader_ok: bool,
-    /// True when TILED_TEXTURE_MAP residual is armed (Tile=Yes).
-    pub tiled_texture_map_ok: bool,
-    /// UV offset U residual (always 0 for OrbitalLaser).
-    pub uv_offset_u: f32,
-    /// UV offset V residual (= ScrollRate * elapsed).
-    pub uv_offset_v: f32,
-}
-
-impl LaserSegmentUploadHonesty {
-    pub fn honesty_cpu_pack_ok(&self) -> bool {
-        self.cpu_pack_ok
-    }
-
-    pub fn honesty_geometry_ok(&self) -> bool {
-        self.cpu_pack_ok && self.has_geometry && self.segments_packed > 0
-    }
-
-    pub fn honesty_upload_ready_ok(&self) -> bool {
-        self.gpu_upload_ready && self.cpu_pack_ok
-    }
-
-    pub fn honesty_multi_beam_soft_edge_ok(&self) -> bool {
-        self.multi_beam_soft_edge_ok
-            && self.multi_beam_layers == ORBITAL_LASER_NUM_BEAMS
-            && (self.multi_beam_peak_width - ORBITAL_LASER_OUTER_BEAM_WIDTH).abs() < 0.01
-            && (self.multi_beam_inner_width - ORBITAL_LASER_INNER_BEAM_WIDTH).abs() < 0.01
-            && (self.multi_beam_tiling_scalar - ORBITAL_LASER_TILING_SCALAR).abs() < 0.001
-    }
-
-    /// Residual honesty: additive shader + TILED_TEXTURE_MAP + UV_Offset_Rate.
-    pub fn honesty_additive_tiled_ok(&self) -> bool {
-        self.additive_shader_ok
-            && self.tiled_texture_map_ok
-            && ORBITAL_LASER_SHADER == "_PresetAdditiveShader"
-            && ORBITAL_LASER_TEXTURE_MAPPING == "TILED_TEXTURE_MAP"
-            && ORBITAL_LASER_TILE
-            && (self.uv_offset_u - ORBITAL_LASER_UV_OFFSET_U).abs() < 0.001
-    }
-
-    /// Residual honesty: texture bind name pack + MaxIntensity/Fade defaults.
-    ///
-    /// Fail-closed: does not claim live wgpu texture sample or write_buffer.
-    pub fn honesty_texture_bind_pack_ok(&self) -> bool {
-        honesty_laser_texture_bind_pack()
-            && (self.texture_name.is_empty()
-                || self.texture_name == ORBITAL_LASER_TEXTURE
-                || self.texture_name == BINARY_STREAM_LASER_TEXTURE
-                || self.texture_name == CONNECTOR_LASER_TEXTURE
-                || self.texture_name == PATRIOT_LASER_TEXTURE)
-    }
-
-    /// Residual honesty: pack-only path has not submitted `Queue::write_buffer`.
-    ///
-    /// Delegates to [`honesty_gpu_write_buffer_not_claimed`] — one helper.
-    pub fn honesty_no_live_gpu_write_buffer(&self) -> bool {
-        // Built from the same submitted flag as the public helper (no second counter).
-        honesty_gpu_write_buffer_not_claimed_flag(self.gpu_write_buffer_submitted)
-    }
-}
-
-fn honesty_gpu_write_buffer_not_claimed_flag(submitted: bool) -> bool {
-    !submitted
-}
-
-/// One multi-beam soft-edge layer residual (width + color lerp).
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct MultiBeamLayerResidual {
-    pub layer_index: u32,
-    pub scale: f32,
-    pub width: f32,
-    pub color: (f32, f32, f32, f32),
-    pub tile_factor: f32,
-    pub scroll_uv: f32,
-}
-
-/// Retail W3DLaserDraw multi-beam soft-edge width/color residual with innerAlpha premul.
-///
-/// C++ (`W3DLaserDraw` constructor):
-/// - `scale = i / (numBeams - 1)`
-/// - `width = inner + scale * (outer - inner)`
-/// - multi-beam RGB: `inner + scale * (outer - inner) * innerAlpha`
-/// - multi-beam alpha: `innerAlpha + scale * (outerAlpha - innerAlpha)`
-/// - single beam RGB: `inner * innerAlpha` (full premultiply)
-/// Fail-closed vs full additive GPU cylinders / live texture atlas sample.
-pub fn multi_beam_layer_residuals(
-    num_beams: u32,
-    inner_width: f32,
-    outer_width: f32,
-    inner_color: (f32, f32, f32, f32),
-    outer_color: (f32, f32, f32, f32),
-    segment_length: f32,
-    tiling_scalar: f32,
-    scroll_uv: f32,
-    width_scalar: f32,
-) -> Vec<MultiBeamLayerResidual> {
-    let n = num_beams.max(1);
-    let mut layers = Vec::with_capacity(n as usize);
-    let ia = inner_color.3;
-    for i in 0..n {
-        let (scale, width, color) = if n == 1 {
-            // C++ numBeams==1: red/green/blue = inner * innerAlpha.
-            (
-                0.0,
-                inner_width * width_scalar,
-                (
-                    inner_color.0 * ia,
-                    inner_color.1 * ia,
-                    inner_color.2 * ia,
-                    ia,
-                ),
-            )
-        } else {
-            let scale = i as f32 / (n as f32 - 1.0);
-            let width = (inner_width + scale * (outer_width - inner_width)) * width_scalar;
-            // C++ channel-delta × innerAlpha on RGB; alpha lerps without extra premul.
-            let color = (
-                inner_color.0 + scale * (outer_color.0 - inner_color.0) * ia,
-                inner_color.1 + scale * (outer_color.1 - inner_color.1) * ia,
-                inner_color.2 + scale * (outer_color.2 - inner_color.2) * ia,
-                inner_color.3 + scale * (outer_color.3 - inner_color.3),
-            );
-            (scale, width, color)
-        };
-        // C++ tileFactor = length/width * textureAspect * tilingScalar (aspect=1 residual).
-        let tile_factor = if width > 1e-6 {
-            (segment_length / width) * 1.0 * tiling_scalar
-        } else {
-            0.0
-        };
-        layers.push(MultiBeamLayerResidual {
-            layer_index: i,
-            scale,
-            width,
-            color,
-            tile_factor,
-            scroll_uv,
-        });
-    }
-    layers
-}
-
-/// Honesty: OrbitalLaser multi-beam soft-edge residual params (premul RGB).
-pub fn honesty_orbital_multi_beam_layers(layers: &[MultiBeamLayerResidual]) -> bool {
-    if layers.len() != ORBITAL_LASER_NUM_BEAMS as usize {
-        return false;
-    }
-    let inner = layers.first().unwrap();
-    let outer = layers.last().unwrap();
-    let ia = ORBITAL_LASER_INNER_COLOR.3;
-    // Outer red premul residual: ir + (or - ir) * ia = 1 + (0 - 1) * ia = 1 - ia.
-    let expected_outer_r = ORBITAL_LASER_INNER_COLOR.0
-        + (ORBITAL_LASER_OUTER_COLOR.0 - ORBITAL_LASER_INNER_COLOR.0) * ia;
-    (inner.width - ORBITAL_LASER_INNER_BEAM_WIDTH).abs() < 0.01
-        && (outer.width - ORBITAL_LASER_OUTER_BEAM_WIDTH).abs() < 0.01
-        && (inner.scale - 0.0).abs() < 0.001
-        && (outer.scale - 1.0).abs() < 0.001
-        && (inner.color.0 - ORBITAL_LASER_INNER_COLOR.0).abs() < 0.01
-        && (outer.color.2 - ORBITAL_LASER_OUTER_COLOR.2).abs() < 0.01
-        && (outer.color.0 - expected_outer_r).abs() < 0.01
-        && honesty_soft_edge_premul_pack_ok(layers)
-}
-
-/// Honesty: multi-beam pack RGB uses C++ innerAlpha premultiply residual.
-pub fn honesty_soft_edge_premul_pack_ok(layers: &[MultiBeamLayerResidual]) -> bool {
-    if layers.is_empty() {
-        return false;
-    }
-    let ia = ORBITAL_LASER_INNER_COLOR.3;
-    let outer = layers.last().unwrap();
-    let expected_outer_r = ORBITAL_LASER_INNER_COLOR.0
-        + (ORBITAL_LASER_OUTER_COLOR.0 - ORBITAL_LASER_INNER_COLOR.0) * ia;
-    // Premul outer red is greater than linear outer red (0.0) when ia < 1.
-    let linear_outer_r = ORBITAL_LASER_OUTER_COLOR.0;
-    (outer.color.0 - expected_outer_r).abs() < 0.01
-        && outer.color.0 > linear_outer_r - 0.001
-        && (ia - 250.0 / 255.0).abs() < 0.001
-}
-
-/// Packed laser segment payload ready for WGPU buffer write.
+/// Packed line vertices ready for `Queue::write_buffer`.
 #[derive(Debug, Clone, PartialEq)]
 pub struct LaserSegmentUpload {
-    /// Interleaved f32 vertex payload (see `LaserSegmentVertex`).
     pub vertex_bytes: Vec<u8>,
-    pub honesty: LaserSegmentUploadHonesty,
 }
 
 impl LaserSegmentUpload {
-    /// Empty pack — honest residual when no beams are active.
     pub fn empty() -> Self {
         Self {
             vertex_bytes: Vec::new(),
-            honesty: LaserSegmentUploadHonesty {
-                cpu_pack_ok: true,
-                texture_name: PATRIOT_LASER_TEXTURE.to_string(),
-                multi_beam_soft_edge_ok: true, // empty is honest (no multi-beam claim)
-                ..Default::default()
-            },
         }
-    }
-
-    pub fn segment_count(&self) -> u32 {
-        self.honesty.segments_packed
     }
 
     pub fn vertex_count(&self) -> u32 {
-        self.honesty.vertices_packed
+        let count = self.vertex_bytes.len() / (LASER_BYTES_PER_SEGMENT / LASER_VERTS_PER_SEGMENT);
+        u32::try_from(count).unwrap_or(u32::MAX)
     }
 
-    /// Mark residual as ready for a live queue write (host-testable flag only).
-    /// Does **not** set [`LaserSegmentUploadHonesty::gpu_write_buffer_submitted`].
-    pub fn mark_gpu_upload_ready(&mut self) {
-        self.honesty.gpu_upload_ready = self.honesty.cpu_pack_ok;
-    }
-
-    /// Copy packed vertices into `dest` (same bytes `Queue::write_buffer` submits).
-    pub fn copy_vertex_bytes_into(&self, dest: &mut [u8]) -> usize {
-        write_laser_segment_bytes(dest, &self.vertex_bytes)
-    }
-
-    /// Prepare packed vertices for a live `Queue::write_buffer`.
-    ///
-    /// **Sole writer** of `gpu_write_buffer_submitted`. Returns staging bytes +
-    /// buffer for `ForwardPass` to submit. Empty / missing buffer do not claim.
-    pub fn write_to_queue<'a>(
-        &mut self,
-        buffer: Option<&'a wgpu::Buffer>,
-    ) -> Option<(Vec<u8>, &'a wgpu::Buffer)> {
-        if self.vertex_bytes.is_empty() || !self.honesty.cpu_pack_ok {
-            self.honesty.gpu_write_buffer_submitted = false;
-            return None;
-        }
-        let Some(buffer) = buffer else {
-            self.honesty.gpu_write_buffer_submitted = false;
-            return None;
-        };
-        let mut staging = vec![0u8; self.vertex_bytes.len()];
-        let n = write_laser_segment_bytes(&mut staging, &self.vertex_bytes);
-        if n == 0 {
-            self.honesty.gpu_write_buffer_submitted = false;
-            return None;
-        }
-        staging.truncate(n);
-        self.honesty.gpu_write_buffer_submitted = true;
-        Some((staging, buffer))
-    }
-
-    /// Pack OrbitalLaser multi-beam soft-edge residual for a single vertical segment.
-    ///
-    /// Emits `NumBeams` overlapping Line3D cylinders with retail width/color lerp.
-    /// Fail-closed: not live WGPU texture atlas / additive soft-edge shader submit.
-    pub fn pack_orbital_multi_beam_soft_edge(
-        start: (f32, f32, f32),
-        end: (f32, f32, f32),
-        elapsed_seconds: f32,
-        width_scalar: f32,
-    ) -> Self {
-        let dx = end.0 - start.0;
-        let dy = end.1 - start.1;
-        let dz = end.2 - start.2;
-        let length = (dx * dx + dy * dy + dz * dz).sqrt();
-        let scroll_uv = ORBITAL_LASER_SCROLL_RATE * elapsed_seconds;
-        let layers = multi_beam_layer_residuals(
-            ORBITAL_LASER_NUM_BEAMS,
-            ORBITAL_LASER_INNER_BEAM_WIDTH,
-            ORBITAL_LASER_OUTER_BEAM_WIDTH,
-            ORBITAL_LASER_INNER_COLOR,
-            ORBITAL_LASER_OUTER_COLOR,
-            length,
-            ORBITAL_LASER_TILING_SCALAR,
-            scroll_uv,
-            width_scalar,
-        );
-        let soft_ok = honesty_orbital_multi_beam_layers(&layers) && width_scalar > 0.0;
-
-        let mut floats =
-            Vec::with_capacity(layers.len() * LASER_VERTS_PER_SEGMENT * LASER_VERTEX_FLOATS);
-        for layer in &layers {
-            let host = HostLaserLine3DSegment {
-                start,
-                end,
-                width: layer.width,
-                tile_factor: layer.tile_factor,
-                scroll_offset: layer.scroll_uv,
-            };
-            let verts = segment_to_vertices(&host, layer.color, layer.layer_index as f32);
-            for v in verts {
-                floats.extend_from_slice(&v.to_floats());
-            }
-        }
-        let vertex_bytes = f32_slice_to_bytes(&floats);
-        let bytes_packed = vertex_bytes.len() as u32;
-        let segments_packed = layers.len() as u32;
-        let vertices_packed = segments_packed.saturating_mul(LASER_VERTS_PER_SEGMENT as u32);
-        let peak_width = layers.last().map(|l| l.width).unwrap_or(0.0);
-        let inner_width = layers.first().map(|l| l.width).unwrap_or(0.0);
-        Self {
-            vertex_bytes,
-            honesty: LaserSegmentUploadHonesty {
-                beams_packed: 1,
-                segments_packed,
-                vertices_packed,
-                bytes_packed,
-                cpu_pack_ok: true,
-                has_geometry: segments_packed > 0,
-                texture_name: ORBITAL_LASER_TEXTURE.to_string(),
-                gpu_upload_ready: false,
-                multi_beam_layers: ORBITAL_LASER_NUM_BEAMS,
-                multi_beam_peak_width: peak_width,
-                multi_beam_inner_width: inner_width,
-                multi_beam_scroll_uv: scroll_uv,
-                multi_beam_tiling_scalar: ORBITAL_LASER_TILING_SCALAR,
-                multi_beam_soft_edge_ok: soft_ok,
-                additive_shader_ok: ORBITAL_LASER_SHADER == "_PresetAdditiveShader",
-                tiled_texture_map_ok: ORBITAL_LASER_TILE
-                    && ORBITAL_LASER_TEXTURE_MAPPING == "TILED_TEXTURE_MAP",
-                uv_offset_u: ORBITAL_LASER_UV_OFFSET_U,
-                uv_offset_v: scroll_uv,
-                gpu_write_buffer_submitted: false,
-            },
-        }
-    }
-
-    /// Pack Line3D segment descriptors into interleaved vertex bytes.
-    pub fn pack_line3d_segments(segments: &[HostLaserLine3DSegment]) -> Self {
-        Self::pack_line3d_segments_with_color(segments, PATRIOT_LASER_INNER_COLOR)
-    }
-
-    pub fn pack_line3d_segments_with_color(
-        segments: &[HostLaserLine3DSegment],
-        color: (f32, f32, f32, f32),
-    ) -> Self {
-        let mut floats =
-            Vec::with_capacity(segments.len() * LASER_VERTS_PER_SEGMENT * LASER_VERTEX_FLOATS);
-        for (i, seg) in segments.iter().enumerate() {
-            let verts = segment_to_vertices(seg, color, i as f32);
-            for v in verts {
-                floats.extend_from_slice(&v.to_floats());
-            }
-        }
-        let vertex_bytes = f32_slice_to_bytes(&floats);
-        let segments_packed = segments.len() as u32;
-        let vertices_packed = segments_packed.saturating_mul(LASER_VERTS_PER_SEGMENT as u32);
-        let bytes_packed = vertex_bytes.len() as u32;
-        Self {
-            vertex_bytes,
-            honesty: LaserSegmentUploadHonesty {
-                beams_packed: if segments_packed > 0 { 1 } else { 0 },
-                segments_packed,
-                vertices_packed,
-                bytes_packed,
-                cpu_pack_ok: true,
-                has_geometry: segments_packed > 0,
-                texture_name: PATRIOT_LASER_TEXTURE.to_string(),
-                gpu_upload_ready: false,
-                ..Default::default()
-            },
-        }
-    }
-
-    /// Pack all beams from a presentation snapshot (preferred production path).
+    /// Pack all beams from a presentation snapshot (including projectile trails and client scene lines).
     pub fn pack_from_presentation(frame: &PresentationFrame) -> Self {
         Self::pack_beams_streams_and_scene_lines(
             &frame.laser_beams,
             &frame.projectile_streams,
             &frame.scene_lines,
         )
-    }
-
-    /// Pack laser beams and C++ ProjectileStreamUpdate residual point trails.
-    pub fn pack_beams_with_projectile_streams(
-        beams: &[PresentationLaserBeam],
-        streams: &[crate::presentation_frame::PresentationProjectileStream],
-    ) -> Self {
-        Self::pack_beams_streams_and_scene_lines(beams, streams, &[])
     }
 
     /// Pack host lasers, projectile streams, and client scene lines (tracer/rope/W3DLaser).
@@ -1020,9 +74,8 @@ impl LaserSegmentUpload {
             return Self::empty();
         }
         let mut floats = Vec::new();
-        let mut segments_packed = 0u32;
         for beam in beams {
-            for (i, seg) in beam.segments.iter().enumerate() {
+            for seg in &beam.segments {
                 let host = HostLaserLine3DSegment {
                     start: seg.start,
                     end: seg.end,
@@ -1031,11 +84,10 @@ impl LaserSegmentUpload {
                     scroll_offset: seg.scroll_offset,
                 };
                 let color = beam.inner_color;
-                let verts = segment_to_vertices(&host, color, i as f32);
+                let verts = segment_to_vertices(&host, color);
                 for v in verts {
                     floats.extend_from_slice(&v.to_floats());
                 }
-                segments_packed = segments_packed.saturating_add(1);
             }
         }
         for stream in streams {
@@ -1060,11 +112,10 @@ impl LaserSegmentUpload {
                     tile_factor: 1.0,
                     scroll_offset: (i as f32) * 0.05,
                 };
-                let verts = segment_to_vertices(&host, color, i as f32);
+                let verts = segment_to_vertices(&host, color);
                 for v in verts {
                     floats.extend_from_slice(&v.to_floats());
                 }
-                segments_packed = segments_packed.saturating_add(1);
             }
         }
         for line in scene_lines {
@@ -1075,96 +126,18 @@ impl LaserSegmentUpload {
                 tile_factor: line.tile_factor.max(0.001),
                 scroll_offset: line.scroll_rate,
             };
-            let verts = segment_to_vertices(&host, line.color, 0.0);
+            let verts = segment_to_vertices(&host, line.color);
             for v in verts {
                 floats.extend_from_slice(&v.to_floats());
             }
-            segments_packed = segments_packed.saturating_add(1);
         }
-        if floats.is_empty() {
-            return Self::empty();
-        }
-        let vertex_bytes = f32_slice_to_bytes(&floats);
-        let vertices_packed = segments_packed.saturating_mul(LASER_VERTS_PER_SEGMENT as u32);
-        let bytes_packed = vertex_bytes.len() as u32;
-        let texture_name = beams
-            .first()
-            .map(|b| b.texture_name.clone())
-            .or_else(|| {
-                streams.first().map(|s| {
-                    if s.stream_name.to_ascii_lowercase().contains("flame") {
-                        "EXFlameStream".to_string()
-                    } else {
-                        PATRIOT_LASER_TEXTURE.to_string()
-                    }
-                })
-            })
-            .or_else(|| scene_lines.first().map(|l| l.texture_name.clone()))
-            .unwrap_or_else(|| PATRIOT_LASER_TEXTURE.to_string());
         Self {
-            vertex_bytes,
-            honesty: LaserSegmentUploadHonesty {
-                beams_packed: beams.len() as u32 + scene_lines.len() as u32,
-                segments_packed,
-                vertices_packed,
-                bytes_packed,
-                cpu_pack_ok: true,
-                has_geometry: segments_packed > 0,
-                texture_name,
-                gpu_upload_ready: false,
-                ..Default::default()
-            },
-        }
-    }
-
-    /// Pack presentation laser beams into one interleaved buffer.
-    pub fn pack_beams(beams: &[PresentationLaserBeam]) -> Self {
-        if beams.is_empty() {
-            return Self::empty();
-        }
-        let mut floats = Vec::new();
-        let mut segments_packed = 0u32;
-        for beam in beams {
-            for (i, seg) in beam.segments.iter().enumerate() {
-                let host = HostLaserLine3DSegment {
-                    start: seg.start,
-                    end: seg.end,
-                    width: seg.width,
-                    tile_factor: seg.tile_factor,
-                    scroll_offset: seg.scroll_offset,
-                };
-                let color = beam.inner_color;
-                let verts = segment_to_vertices(&host, color, i as f32);
-                for v in verts {
-                    floats.extend_from_slice(&v.to_floats());
-                }
-                segments_packed = segments_packed.saturating_add(1);
-            }
-        }
-        let vertex_bytes = f32_slice_to_bytes(&floats);
-        let vertices_packed = segments_packed.saturating_mul(LASER_VERTS_PER_SEGMENT as u32);
-        let bytes_packed = vertex_bytes.len() as u32;
-        Self {
-            vertex_bytes,
-            honesty: LaserSegmentUploadHonesty {
-                beams_packed: beams.len() as u32,
-                segments_packed,
-                vertices_packed,
-                bytes_packed,
-                cpu_pack_ok: true,
-                has_geometry: segments_packed > 0,
-                texture_name: beams
-                    .first()
-                    .map(|b| b.texture_name.clone())
-                    .unwrap_or_else(|| PATRIOT_LASER_TEXTURE.to_string()),
-                gpu_upload_ready: false,
-                ..Default::default()
-            },
+            vertex_bytes: f32_slice_to_bytes(&floats),
         }
     }
 }
 
-/// Presentation color/width peel for projectile stream trails.
+/// Color and width for projectile stream trails.
 fn projectile_stream_draw_style(stream_name: &str) -> ((f32, f32, f32, f32), f32) {
     let n = stream_name.to_ascii_lowercase();
     if n.contains("flame") || n.contains("dragon") {
@@ -1185,12 +158,10 @@ fn projectile_stream_draw_style(stream_name: &str) -> ((f32, f32, f32, f32), f32
 fn segment_to_vertices(
     seg: &HostLaserLine3DSegment,
     color: (f32, f32, f32, f32),
-    segment_index: f32,
 ) -> [LaserSegmentVertex; 2] {
-    // V carries scroll residual; U carries tile residual along the beam.
-    // Start U=0, end U=tile_factor (SegLine tile factor residual).
+    // U spans the tile factor along the beam. V carries the scroll offset.
     let c = [color.0, color.1, color.2, color.3];
-    let scroll = seg.scroll_offset + segment_index * 0.0;
+    let scroll = seg.scroll_offset + 0.0;
     [
         LaserSegmentVertex {
             position: [seg.start.0, seg.start.1, seg.start.2],
@@ -1213,45 +184,13 @@ fn f32_slice_to_bytes(floats: &[f32]) -> Vec<u8> {
     out
 }
 
-/// Host-testable residual: pack + mark upload-ready without a live WGPU device.
-pub fn pack_and_mark_upload_ready(frame: &PresentationFrame) -> LaserSegmentUpload {
-    let mut pack = LaserSegmentUpload::pack_from_presentation(frame);
-    pack.mark_gpu_upload_ready();
-    pack
-}
-
-/// Pack OrbitalLaser multi-beam soft-edge residual using spawn/current frame residual.
-///
-/// Bridges special_power_strikes WidthGrow scalar + ScrollRate UV into the
-/// presentation multi-beam soft-edge pack path.
-pub fn pack_orbital_soft_edge_from_frames(
-    start: (f32, f32, f32),
-    end: (f32, f32, f32),
-    spawn_frame: u32,
-    current_frame: u32,
-) -> LaserSegmentUpload {
-    use crate::game_logic::special_power_strikes::{
-        particle_orbital_laser_scroll_uv, particle_width_scalar,
-    };
-    let elapsed_sec = if current_frame <= spawn_frame {
-        0.0
-    } else {
-        (current_frame - spawn_frame) as f32 / 30.0
-    };
-    let width_scalar = particle_width_scalar(spawn_frame, current_frame);
-    let _scroll = particle_orbital_laser_scroll_uv(spawn_frame, current_frame);
-    LaserSegmentUpload::pack_orbital_multi_beam_soft_edge(start, end, elapsed_sec, width_scalar)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::game_logic::ObjectId;
     use crate::game_logic::host_base_defense::{
-        PATRIOT_LASER_ARC_HEIGHT, PATRIOT_LASER_SEGMENTS, build_patriot_laser_line3d_segments,
-        make_patriot_assist_lasers,
+        PATRIOT_LASER_SEGMENTS, make_patriot_assist_lasers,
     };
-    use crate::presentation_frame::PresentationLaserBeam;
 
     #[test]
     fn cpp_scene_line_freezes_height_once_and_reaches_actual_vertex_upload() {
@@ -1284,21 +223,18 @@ mod tests {
             })
             .collect::<Vec<_>>();
         assert_eq!(position, [13.0, 47.0, 29.0]);
-        assert_eq!(upload.honesty.beams_packed, 1);
+        assert_eq!(upload.vertex_count(), 2);
     }
 
     #[test]
-    fn empty_pack_is_honest_cpu_success() {
+    fn empty_frame_upload_contains_no_vertices() {
         let pack = LaserSegmentUpload::empty();
-        assert!(pack.honesty.honesty_cpu_pack_ok());
-        assert!(!pack.honesty.honesty_geometry_ok());
         assert!(pack.vertex_bytes.is_empty());
-        assert_eq!(pack.honesty.texture_name, PATRIOT_LASER_TEXTURE);
+        assert_eq!(pack.vertex_count(), 0);
     }
 
     #[test]
     fn packs_projectile_stream_trail_segments() {
-        use crate::game_logic::ObjectId;
         use crate::presentation_frame::PresentationProjectileStream;
         let streams = vec![PresentationProjectileStream {
             shooter_id: ObjectId(1),
@@ -1306,16 +242,13 @@ mod tests {
             points: vec![(1.0, 0.0, 0.0), (10.0, 0.0, 0.0), (20.0, 0.0, 5.0)],
             target_id: None,
         }];
-        let pack = LaserSegmentUpload::pack_beams_with_projectile_streams(&[], &streams);
-        assert!(pack.honesty.cpu_pack_ok);
-        assert_eq!(pack.honesty.segments_packed, 2);
-        assert!(pack.honesty.has_geometry);
+        let pack = LaserSegmentUpload::pack_beams_streams_and_scene_lines(&[], &streams, &[]);
+        assert_eq!(pack.vertex_count(), 4);
         assert!(!pack.vertex_bytes.is_empty());
     }
 
     #[test]
     fn stream_hole_breaks_ribbon_segments() {
-        use crate::game_logic::ObjectId;
         use crate::presentation_frame::PresentationProjectileStream;
         let streams = vec![PresentationProjectileStream {
             shooter_id: ObjectId(1),
@@ -1329,26 +262,28 @@ mod tests {
             ],
             target_id: None,
         }];
-        let pack = LaserSegmentUpload::pack_beams_with_projectile_streams(&[], &streams);
+        let pack = LaserSegmentUpload::pack_beams_streams_and_scene_lines(&[], &streams, &[]);
         // Two live spans (1-2 and 8-9); hole-adjacent segments are skipped.
-        assert_eq!(pack.honesty.segments_packed, 2);
+        assert_eq!(pack.vertex_count(), 4);
     }
     #[test]
     fn packs_line3d_segments_with_expected_byte_layout() {
-        let segs = build_patriot_laser_line3d_segments(
-            (0.0, 0.0, 0.0),
-            (100.0, 0.0, 0.0),
-            PATRIOT_LASER_ARC_HEIGHT,
-            -0.25,
+        let beam = PresentationLaserBeam::from_host_laser(
+            &make_patriot_assist_lasers(
+                ObjectId(1),
+                ObjectId(2),
+                ObjectId(3),
+                (0.0, 0.0, 0.0),
+                (50.0, 0.0, 0.0),
+                (100.0, 0.0, 0.0),
+                0,
+            )[0],
+            0,
             0.0,
         );
-        assert_eq!(segs.len(), PATRIOT_LASER_SEGMENTS as usize);
-        let pack = LaserSegmentUpload::pack_line3d_segments(&segs);
-        assert!(pack.honesty.honesty_cpu_pack_ok());
-        assert!(pack.honesty.honesty_geometry_ok());
-        assert_eq!(pack.honesty.segments_packed, PATRIOT_LASER_SEGMENTS);
+        let pack = LaserSegmentUpload::pack_beams_streams_and_scene_lines(&[beam], &[], &[]);
         assert_eq!(
-            pack.honesty.vertices_packed,
+            pack.vertex_count(),
             PATRIOT_LASER_SEGMENTS * LASER_VERTS_PER_SEGMENT as u32
         );
         assert_eq!(
@@ -1378,291 +313,7 @@ mod tests {
             .collect();
         assert_eq!(beams.len(), 2);
         assert_eq!(beams[0].segments.len(), PATRIOT_LASER_SEGMENTS as usize);
-        let pack = LaserSegmentUpload::pack_beams(&beams);
-        assert!(pack.honesty.honesty_geometry_ok());
-        assert_eq!(pack.honesty.beams_packed, 2);
-        assert_eq!(pack.honesty.segments_packed, PATRIOT_LASER_SEGMENTS * 2);
-        let mut marked = pack;
-        marked.mark_gpu_upload_ready();
-        assert!(marked.honesty.honesty_upload_ready_ok());
-    }
-
-    #[test]
-    fn pack_from_empty_presentation_is_honest() {
-        // No GameLogic: construct empty frame-like via pack_beams([]).
-        let pack = LaserSegmentUpload::pack_beams(&[]);
-        assert!(pack.honesty.honesty_cpu_pack_ok());
-        assert!(!pack.honesty.has_geometry);
-    }
-
-    #[test]
-    fn orbital_multi_beam_soft_edge_residual_honesty() {
-        let pack = LaserSegmentUpload::pack_orbital_multi_beam_soft_edge(
-            (0.0, 0.0, 0.0),
-            (0.0, 0.0, 200.0),
-            1.0, // 1 second → ScrollRate UV = -1.75
-            1.0,
-        );
-        assert!(pack.honesty.honesty_cpu_pack_ok());
-        assert!(pack.honesty.honesty_geometry_ok());
-        assert!(
-            pack.honesty.honesty_multi_beam_soft_edge_ok(),
-            "layers={} peak={} inner={} scroll={} tile={}",
-            pack.honesty.multi_beam_layers,
-            pack.honesty.multi_beam_peak_width,
-            pack.honesty.multi_beam_inner_width,
-            pack.honesty.multi_beam_scroll_uv,
-            pack.honesty.multi_beam_tiling_scalar
-        );
-        assert_eq!(pack.honesty.segments_packed, ORBITAL_LASER_NUM_BEAMS);
-        assert_eq!(pack.honesty.texture_name, ORBITAL_LASER_TEXTURE);
-        assert!((pack.honesty.multi_beam_scroll_uv - ORBITAL_LASER_SCROLL_RATE).abs() < 0.001);
-        // Outer layer tile factor residual: length/outer * tiling
-        let expected_tile = (200.0 / ORBITAL_LASER_OUTER_BEAM_WIDTH) * ORBITAL_LASER_TILING_SCALAR;
-        let layers = multi_beam_layer_residuals(
-            ORBITAL_LASER_NUM_BEAMS,
-            ORBITAL_LASER_INNER_BEAM_WIDTH,
-            ORBITAL_LASER_OUTER_BEAM_WIDTH,
-            ORBITAL_LASER_INNER_COLOR,
-            ORBITAL_LASER_OUTER_COLOR,
-            200.0,
-            ORBITAL_LASER_TILING_SCALAR,
-            ORBITAL_LASER_SCROLL_RATE,
-            1.0,
-        );
-        assert!((layers.last().unwrap().tile_factor - expected_tile).abs() < 0.01);
-        assert!(honesty_orbital_multi_beam_layers(&layers));
-    }
-
-    #[test]
-    fn orbital_additive_tiled_texture_residual_honesty() {
-        assert_eq!(ORBITAL_LASER_SHADER, "_PresetAdditiveShader");
-        assert_eq!(ORBITAL_LASER_TEXTURE_MAPPING, "TILED_TEXTURE_MAP");
-        assert!(ORBITAL_LASER_TILE);
-        assert!((ORBITAL_LASER_UV_OFFSET_U - 0.0).abs() < 0.001);
-        let pack = LaserSegmentUpload::pack_orbital_multi_beam_soft_edge(
-            (0.0, 0.0, 0.0),
-            (0.0, 100.0, 0.0),
-            1.0,
-            1.0,
-        );
-        assert!(pack.honesty.honesty_multi_beam_soft_edge_ok());
-        assert!(pack.honesty.honesty_additive_tiled_ok());
-        assert!((pack.honesty.uv_offset_v - ORBITAL_LASER_SCROLL_RATE * 1.0).abs() < 0.01);
-        assert_eq!(pack.honesty.texture_name, ORBITAL_LASER_TEXTURE);
-    }
-
-    #[test]
-    fn orbital_soft_edge_premul_pack_residual_honesty() {
-        let ia = ORBITAL_LASER_INNER_COLOR.3;
-        let layers = multi_beam_layer_residuals(
-            ORBITAL_LASER_NUM_BEAMS,
-            ORBITAL_LASER_INNER_BEAM_WIDTH,
-            ORBITAL_LASER_OUTER_BEAM_WIDTH,
-            ORBITAL_LASER_INNER_COLOR,
-            ORBITAL_LASER_OUTER_COLOR,
-            200.0,
-            ORBITAL_LASER_TILING_SCALAR,
-            ORBITAL_LASER_SCROLL_RATE,
-            1.0,
-        );
-        let outer = layers.last().unwrap();
-        let expected_r = 1.0 - ia; // ir=1, or=0 → 1 + (0-1)*ia
-        assert!((outer.color.0 - expected_r).abs() < 0.01);
-        assert!(outer.color.0 > 0.0); // premul > linear outer red (0)
-        assert!(honesty_soft_edge_premul_pack_ok(&layers));
-        assert!(honesty_orbital_multi_beam_layers(&layers));
-        // Single-beam full premultiply residual: RGB = inner * innerAlpha.
-        let single = multi_beam_layer_residuals(
-            1,
-            ORBITAL_LASER_INNER_BEAM_WIDTH,
-            ORBITAL_LASER_OUTER_BEAM_WIDTH,
-            ORBITAL_LASER_INNER_COLOR,
-            ORBITAL_LASER_OUTER_COLOR,
-            100.0,
-            ORBITAL_LASER_TILING_SCALAR,
-            0.0,
-            1.0,
-        );
-        assert_eq!(single.len(), 1);
-        assert!((single[0].color.0 - ia).abs() < 0.01);
-        assert!((single[0].color.3 - ia).abs() < 0.01);
-    }
-
-    #[test]
-    fn connector_laser_defaults_residual_honesty() {
-        assert!(honesty_connector_laser_defaults());
-        assert_eq!(CONNECTOR_LASER_MAX_INTENSITY_FRAMES, 0);
-        assert_eq!(CONNECTOR_LASER_FADE_FRAMES, 0);
-        assert!(!CONNECTOR_LASER_TILE);
-        assert_eq!(CONNECTOR_LASER_SEGMENTS, 1);
-        assert!((CONNECTOR_LASER_ARC_HEIGHT - 0.0).abs() < 0.01);
-        // Orbital also omits MaxIntensity/Fade → defaults 0.
-        assert_eq!(ORBITAL_LASER_MAX_INTENSITY_FRAMES, 0);
-        assert_eq!(ORBITAL_LASER_FADE_FRAMES, 0);
-    }
-
-    #[test]
-    fn laser_soft_edge_texture_bind_pack_residual_honesty() {
-        assert!(honesty_laser_texture_bind_pack());
-        assert_eq!(ORBITAL_LASER_TEXTURE, "EXNoise02.tga");
-        assert_eq!(BINARY_STREAM_LASER_TEXTURE, "EXBinaryStream32.tga");
-        assert_eq!(CONNECTOR_LASER_TEXTURE, "EXLaser.tga");
-        // SoftnessDepth / SoftnessDistance are not W3DLaserDraw INI fields.
-        assert!(!ORBITAL_LASER_HAS_SOFTNESS_DEPTH_FIELD);
-        assert!(!ORBITAL_LASER_HAS_SOFTNESS_DISTANCE_FIELD);
-        assert!((ORBITAL_LASER_SOFTNESS_DEPTH - 0.0).abs() < 0.001);
-        assert!((ORBITAL_LASER_SOFTNESS_DISTANCE - 0.0).abs() < 0.001);
-        // Max intensity lifetime residual default (omitted → 0, no hold).
-        assert_eq!(ORBITAL_LASER_MAX_INTENSITY_FRAMES, 0);
-        assert_eq!(ORBITAL_LASER_FADE_FRAMES, 0);
-
-        let pack = LaserSegmentUpload::pack_orbital_multi_beam_soft_edge(
-            (0.0, 500.0, 0.0),
-            (0.0, 0.0, 0.0),
-            1.0,
-            1.0,
-        );
-        assert_eq!(pack.honesty.texture_name, ORBITAL_LASER_TEXTURE);
-        assert!(pack.honesty.honesty_texture_bind_pack_ok());
-        assert!(pack.honesty.honesty_multi_beam_soft_edge_ok());
-        // Fail-closed: mark ready for consumers but never claim live write_buffer.
-        let mut marked = pack.clone();
-        marked.mark_gpu_upload_ready();
-        assert!(marked.honesty.honesty_upload_ready_ok());
-        assert!(marked.honesty.honesty_no_live_gpu_write_buffer());
-        assert!(honesty_gpu_write_buffer_not_claimed(&marked));
-        // Ready flag must not be misread as GPU submit residual.
-        assert!(marked.honesty.gpu_upload_ready);
-    }
-
-    #[test]
-    fn outer_beam_width_multi_beam_pack_wave65_honesty() {
-        assert!(honesty_outer_beam_width_multi_beam_pack());
-        assert_eq!(ORBITAL_LASER_NUM_BEAMS, 12);
-        assert!((ORBITAL_LASER_OUTER_BEAM_WIDTH - 26.0).abs() < 0.01);
-        assert!((ORBITAL_LASER_INNER_BEAM_WIDTH - 0.6).abs() < 0.01);
-        assert!((ORBITAL_LASER_SCROLL_RATE + 1.75).abs() < 0.01);
-        assert!((ORBITAL_LASER_TILING_SCALAR - 0.15).abs() < 0.001);
-        assert!(ORBITAL_LASER_TILE);
-        assert_eq!(ORBITAL_LASER_TEXTURE, "EXNoise02.tga");
-        assert_eq!(ORBITAL_LASER_SHADER, "_PresetAdditiveShader");
-        assert_eq!(ORBITAL_LASER_TEXTURE_MAPPING, "TILED_TEXTURE_MAP");
-        // Soft edge is multi-beam width/alpha lerp only — no SoftnessDepth field.
-        assert!(!ORBITAL_LASER_HAS_SOFTNESS_DEPTH_FIELD);
-        assert!(!ORBITAL_LASER_HAS_SOFTNESS_DISTANCE_FIELD);
-        let layers = multi_beam_layer_residuals(
-            ORBITAL_LASER_NUM_BEAMS,
-            ORBITAL_LASER_INNER_BEAM_WIDTH,
-            ORBITAL_LASER_OUTER_BEAM_WIDTH,
-            ORBITAL_LASER_INNER_COLOR,
-            ORBITAL_LASER_OUTER_COLOR,
-            200.0,
-            ORBITAL_LASER_TILING_SCALAR,
-            ORBITAL_LASER_SCROLL_RATE,
-            1.0,
-        );
-        assert_eq!(layers.len(), 12);
-        assert!((layers[0].width - ORBITAL_LASER_INNER_BEAM_WIDTH).abs() < 0.01);
-        assert!((layers[11].width - ORBITAL_LASER_OUTER_BEAM_WIDTH).abs() < 0.01);
-        assert!(honesty_orbital_multi_beam_layers(&layers));
-    }
-
-    #[test]
-    fn laser_max_intensity_duration_residual_honesty() {
-        assert!(honesty_laser_max_intensity_duration_residual());
-        assert_eq!(laser_duration_ms_to_frames(0), 0);
-        assert_eq!(laser_duration_ms_to_frames(2000), 60);
-        assert_eq!(laser_duration_ms_to_frames(250), 8);
-        assert_eq!(LASER_COMMENTED_MAX_INTENSITY_LIFETIME_MS, 2000);
-        assert_eq!(LASER_COMMENTED_MAX_INTENSITY_LIFETIME_FRAMES, 60);
-        assert_eq!(LASER_COMMENTED_FADE_LIFETIME_MS, 250);
-        assert_eq!(LASER_COMMENTED_FADE_LIFETIME_FRAMES, 8);
-        assert_eq!(ORBITAL_LASER_MAX_INTENSITY_FRAMES, 0);
-        assert_eq!(CONNECTOR_LASER_MAX_INTENSITY_FRAMES, 0);
-    }
-
-    #[test]
-    fn soft_edge_multi_beam_uv_residual_wave74_honesty() {
-        assert!(honesty_soft_edge_multi_beam_uv_residual_pack());
-        // UV_Offset_Rate residual: U=0, V=ScrollRate×elapsed.
-        assert!((ORBITAL_LASER_UV_OFFSET_U - 0.0).abs() < 0.001);
-        let pack = LaserSegmentUpload::pack_orbital_multi_beam_soft_edge(
-            (0.0, 500.0, 0.0),
-            (0.0, 0.0, 0.0),
-            2.0, // 2s → scroll V = -3.5
-            1.0,
-        );
-        assert!((pack.honesty.uv_offset_u - 0.0).abs() < 0.001);
-        assert!((pack.honesty.uv_offset_v - ORBITAL_LASER_SCROLL_RATE * 2.0).abs() < 0.01);
-        assert!((pack.honesty.multi_beam_scroll_uv - (-3.5)).abs() < 0.01);
-        assert!((pack.honesty.multi_beam_tiling_scalar - 0.15).abs() < 0.001);
-        assert!(pack.honesty.honesty_additive_tiled_ok());
-        // Fail-closed vs live write_buffer.
-        let mut marked = pack;
-        marked.mark_gpu_upload_ready();
-        assert!(marked.honesty.gpu_upload_ready);
-        assert!(honesty_gpu_write_buffer_not_claimed(&marked));
-        // Per-layer tile_factor residual: inner denser than outer.
-        let layers = multi_beam_layer_residuals(
-            ORBITAL_LASER_NUM_BEAMS,
-            ORBITAL_LASER_INNER_BEAM_WIDTH,
-            ORBITAL_LASER_OUTER_BEAM_WIDTH,
-            ORBITAL_LASER_INNER_COLOR,
-            ORBITAL_LASER_OUTER_COLOR,
-            200.0,
-            ORBITAL_LASER_TILING_SCALAR,
-            ORBITAL_LASER_SCROLL_RATE * 2.0,
-            1.0,
-        );
-        assert!(layers[0].tile_factor > layers[11].tile_factor);
-        assert!((layers[0].scroll_uv - layers[11].scroll_uv).abs() < 0.001);
-    }
-
-    #[test]
-    fn live_laser_write_path_copies_same_bytes_queue_would_submit() {
-        let mut pack = LaserSegmentUpload::pack_orbital_multi_beam_soft_edge(
-            (0.0, 500.0, 0.0),
-            (0.0, 0.0, 0.0),
-            1.0,
-            1.0,
-        );
-        assert!(!pack.vertex_bytes.is_empty());
-        pack.mark_gpu_upload_ready();
-        assert!(pack.honesty.gpu_upload_ready);
-        assert!(
-            !pack.honesty.gpu_write_buffer_submitted,
-            "ready flag must not claim write_buffer"
-        );
-        assert!(honesty_gpu_write_buffer_not_claimed(&pack));
-        let mut dest = vec![0u8; pack.vertex_bytes.len()];
-        let n = pack.copy_vertex_bytes_into(&mut dest);
-        assert_eq!(n, pack.vertex_bytes.len());
-        assert_eq!(dest, pack.vertex_bytes);
-        // Same helper Queue::write_buffer uses.
-        let mut dest2 = vec![0u8; pack.vertex_bytes.len()];
-        assert_eq!(
-            write_laser_segment_bytes(&mut dest2, &pack.vertex_bytes),
-            dest.len()
-        );
-        assert_eq!(dest2, dest);
-    }
-
-    /// Wave 102 residual: soft-edge UV atlas texture bind expand + multi-beam fields.
-    #[test]
-    fn laser_segliner_residual_deepen_wave102_honesty() {
-        assert!(honesty_soft_edge_uv_atlas_texture_bind_expand_wave102());
-        assert!(honesty_laser_segliner_residual_deepen_pack_wave102());
-        assert_eq!(SEGLINE_TEXTURE_MAP_UNIFORM_WIDTH, 0);
-        assert_eq!(SEGLINE_TEXTURE_MAP_TILED, 2);
-        assert_eq!(SEGLINE_SOFT_EDGE_ATLAS_BIND_TABLE.len(), 3);
-        let (du, dv) = segliner_uv_offset_delta_per_ms_residual(0.0, -1.75);
-        assert!((dv - (-0.00175)).abs() < 1e-9);
-        assert!(du.abs() < 1e-12);
-        let bind = orbital_soft_edge_uv_atlas_bind_residual(1.0);
-        assert_eq!(bind.texture_name, "EXNoise02.tga");
-        assert_eq!(bind.map_mode_value, SEGLINE_TEXTURE_MAP_TILED);
-        assert!(!bind.gpu_atlas_bound);
-        assert!((bind.current_uv_v - (-1.75)).abs() < 0.01);
+        let pack = LaserSegmentUpload::pack_beams_streams_and_scene_lines(&beams, &[], &[]);
+        assert_eq!(pack.vertex_count(), PATRIOT_LASER_SEGMENTS * 4);
     }
 }

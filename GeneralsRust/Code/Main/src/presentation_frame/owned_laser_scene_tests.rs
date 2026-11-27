@@ -73,6 +73,6 @@ fn receiving_authored_laser_geometry_freezes_once_and_packs_gpu_vertices() {
         })
         .collect();
     assert_eq!(first_vertex, [13.0, 47.0, 29.0]);
-    assert_eq!(upload.honesty.beams_packed as usize, lines.len());
+    assert_eq!(upload.vertex_count() as usize, lines.len() * 2);
     assert_eq!(peer.find_drawable_by_id(id).unwrap().get_position().x, 58.5);
 }

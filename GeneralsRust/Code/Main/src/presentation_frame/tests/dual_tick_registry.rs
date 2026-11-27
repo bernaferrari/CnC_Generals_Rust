@@ -342,12 +342,10 @@ fn usa_ranger_presentation_model_key_non_empty_for_mesh_resolve() {
         ro.mesh_scale
     );
     assert!((unit.mesh_scale - 1.0).abs() < 0.001);
-    assert!(snap.mesh_scale_presentation_residual_ok());
 }
 
 #[test]
 fn mesh_scale_presentation_residual_wave75() {
-    assert!(crate::assets::mesh_asset_resolve::honesty_mesh_scale_residual_ok());
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("MeshScalePres");
     logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object USA_Humvee\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
@@ -363,7 +361,6 @@ fn mesh_scale_presentation_residual_wave75() {
         .create_object("USA_Humvee", Team::USA, glam::Vec3::new(5.0, 0.0, 5.0))
         .expect("humvee");
     let snap = PresentationFrame::try_build_from_logic(&mut logic, 0).unwrap();
-    assert!(snap.mesh_scale_presentation_residual_ok());
     let ro = snap.objects.iter().find(|o| o.id == id).expect("in snap");
     assert!((ro.mesh_scale - 1.0).abs() < 0.001);
     let unit = snap
@@ -377,10 +374,6 @@ fn mesh_scale_presentation_residual_wave75() {
 /// Wave 77 residual: unit/structure ground-height frozen on presentation objects.
 #[test]
 fn ground_height_presentation_residual_wave77() {
-    assert!(honesty_ground_height_residual_ok(
-        PRESENTATION_DEFAULT_GROUND_HEIGHT,
-        false
-    ));
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("GroundHeightPres");
     logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object USA_Ranger\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
@@ -396,18 +389,9 @@ fn ground_height_presentation_residual_wave77() {
         .create_object("USA_Ranger", Team::USA, glam::Vec3::new(7.0, 0.0, 9.0))
         .expect("ranger");
     let snap = PresentationFrame::try_build_from_logic(&mut logic, 0).unwrap();
-    assert!(snap.ground_height_presentation_residual_ok());
     let ro = snap.objects.iter().find(|o| o.id == id).expect("in snap");
-    assert!(
-        honesty_ground_height_residual_ok(ro.ground_height, ro.ground_height_from_terrain),
-        "object ground_height residual inconsistent: h={} from_terrain={}",
-        ro.ground_height,
-        ro.ground_height_from_terrain
-    );
-    // Without map terrain, residual defaults to 0 and from_terrain=false.
-    if !ro.ground_height_from_terrain {
-        assert!((ro.ground_height - PRESENTATION_DEFAULT_GROUND_HEIGHT).abs() < 0.001);
-    }
+    assert!(!ro.ground_height_from_terrain);
+    assert_eq!(ro.ground_height, PRESENTATION_DEFAULT_GROUND_HEIGHT);
 }
 
 #[test]

@@ -1339,8 +1339,6 @@ fn presentation_frame_freezes_floating_text_and_world_anim() {
     let empty = PresentationFrame::try_build_from_logic(&mut logic, 0).unwrap();
     assert!(!empty.has_floating_texts());
     assert!(!empty.has_world_anims());
-    assert!(empty.floating_text_presentation_ok());
-    assert!(empty.world_anim_presentation_ok());
 
     let frame = logic.get_frame();
     let oil_ft = HostAutoDepositFloatingText::new(
@@ -1377,8 +1375,6 @@ fn presentation_frame_freezes_floating_text_and_world_anim() {
         snap.has_world_anims(),
         "presentation must freeze MoneyPickUp world anim"
     );
-    assert!(snap.floating_text_presentation_ok());
-    assert!(snap.world_anim_presentation_ok());
     assert_eq!(snap.floating_texts.len(), 2);
     assert_eq!(snap.world_anims.len(), 1);
     assert_eq!(snap.world_anims[0].template, MONEY_PICKUP_ANIM_TEMPLATE);
@@ -1417,28 +1413,25 @@ fn presentation_frame_freezes_floating_text_and_world_anim() {
     assert!(!after.has_floating_texts());
     assert!(!after.has_world_anims());
 
-    // Synthetic residual for host-testable pack without combat/deposit path.
-    let synth = PresentationFloatingText::synthetic_cash(50, 0);
-    assert_eq!(synth.text_key, "GUI:AddCash");
+    let cash = snap
+        .floating_texts()
+        .iter()
+        .find(|text| text.kind == PresentationFloatingTextKind::MoneyCrate)
+        .expect("published money crate caption");
+    assert_eq!(cash.text_key, "GUI:AddCash");
     assert_eq!(
-        synth.timeout_frame,
-        PRESENTATION_FLOATING_TEXT_TIMEOUT_FRAMES
+        cash.timeout_frame,
+        frame + PRESENTATION_FLOATING_TEXT_TIMEOUT_FRAMES
     );
-    assert!(PresentationFloatingText::honesty_vanish_rate_residual_ok());
-    assert!(PresentationFloatingText::honesty_vanish_color_alpha_residual_ok());
-    assert!((synth.vanish_alpha_at(0) - 1.0).abs() < 0.001);
-    assert!((synth.vanish_alpha_at(15) - 0.5).abs() < 0.001);
-    assert_eq!(synth.vanish_color_alpha_u8_at(20, 255), 254);
-    assert_eq!(synth.color_with_vanish_alpha_at(20), (0, 255, 0, 254));
-    assert!((synth.lift_y_at(3) - 3.0).abs() < 0.001);
-    let wa = PresentationWorldAnim::synthetic_money_pickup(0);
-    assert_eq!(wa.template, MONEY_PICKUP_ANIM_TEMPLATE);
-    assert!((wa.z_rise_per_second - 15.0).abs() < 0.01);
-    assert!(wa.honesty_fade_residual_ok());
-    assert!(PresentationWorldAnim::honesty_money_pickup_fade_params_ok());
-    assert!((wa.fade_alpha_at(0) - 1.0).abs() < 0.01);
-    assert!(snap.floating_text_vanish_residual_ok());
-    assert!(snap.world_anim_fade_residual_ok());
+    assert_eq!(cash.vanish_alpha_at(frame), 1.0);
+    assert_eq!(cash.vanish_alpha_at(frame + 15), 0.5);
+    assert_eq!(cash.color_with_vanish_alpha_at(frame + 20), (0, 255, 0, 254));
+    assert_eq!(cash.lift_y_at(frame + 3), 3.0);
+    let anim = &snap.world_anims()[0];
+    assert_eq!(anim.z_rise_per_second, 15.0);
+    assert_eq!(anim.fade_alpha_at(frame), 1.0);
+    assert_eq!(anim.fade_alpha_at(frame + 119), 1.0 / 30.0);
+    assert_eq!(anim.fade_alpha_at(frame + 120), 0.0);
     assert_eq!(snap.floating_texts().len(), 2);
     assert_eq!(snap.world_anims().len(), 1);
 }
@@ -1459,7 +1452,6 @@ fn presentation_frame_freezes_laser_line3d_segments() {
     let empty = PresentationFrame::try_build_from_logic(&mut logic, 0).unwrap();
     assert!(!empty.has_active_lasers());
     assert_eq!(empty.laser_segment_count(), 0);
-    assert!(empty.minimap_fow_presentation_ok());
 
     // Inject residual assist lasers via public host slice mutation path:
     // push through make + internal list via active endpoint track simulation.
@@ -1498,59 +1490,6 @@ fn presentation_frame_freezes_laser_line3d_segments() {
     assert_eq!(snap.laser_segment_count(), frozen_count);
     let after = PresentationFrame::try_build_from_logic(&mut logic, 0).unwrap();
     assert!(!after.has_active_lasers());
-
-    // Synthetic assist pair residual for host-testable pack without combat.
-    let pair = PresentationLaserBeam::synthetic_assist_pair(0);
-    assert_eq!(pair[0].segments.len(), PATRIOT_LASER_SEGMENTS as usize);
-    assert_eq!(pair[1].segments.len(), PATRIOT_LASER_SEGMENTS as usize);
-    assert!(pair[0].honesty_ground_height_ok());
-    assert!((pair[0].ground_height - PRESENTATION_DEFAULT_GROUND_HEIGHT).abs() < 0.001);
-    assert!(!pair[0].ground_height_from_terrain);
-    assert!(!pair[0].has_soft_edge());
-    assert!(pair[0].honesty_soft_edge_presentation_ok());
-
-    // Optional ground-height override residual path.
-    let pair_gh = PresentationLaserBeam::synthetic_assist_pair_with_ground(0, 12.5);
-    assert!((pair_gh[0].ground_height - 12.5).abs() < 0.001);
-    assert!(honesty_ground_height_residual_ok(12.5, true));
-
-    // Orbital multi-beam soft-edge presentation residual → pack wiring fields.
-    let orbital = PresentationLaserBeam::synthetic_orbital_soft_edge(0);
-    assert!(orbital.has_soft_edge());
-    assert!(orbital.honesty_soft_edge_presentation_ok());
-    let se = orbital.soft_edge.expect("soft edge");
-    assert!(se.honesty_orbital_residual_ok());
-    assert_eq!(se.num_beams, 12);
-    let (s, e, elapsed, width_scalar) = se.pack_endpoints(orbital.from, orbital.to, 1.0);
-    assert_eq!(s, orbital.from);
-    assert_eq!(e, orbital.to);
-    assert!((elapsed - 1.0).abs() < 0.001);
-    assert!((width_scalar - 1.0).abs() < 0.001);
-    assert!(snap.laser_presentation_residual_ok() || empty.laser_presentation_residual_ok());
-}
-
-/// Wave 73: Spectre AttackAreaDecal / TargetingReticleDecal presentation residual.
-#[test]
-fn spectre_orbit_decal_presentation_residual_wave73() {
-    assert!(honesty_spectre_orbit_decal_presentation_ok());
-    let decal = PresentationSpectreOrbitDecal::RETAIL;
-    assert!(decal.honesty_residual_ok());
-    assert_eq!(decal.attack_area_texture, "SCCSpecTarg");
-    assert_eq!(decal.reticle_texture, "SCCSpecRet");
-    assert!((decal.attack_area_radius - 200.0).abs() < 0.01);
-    assert!((decal.reticle_radius - 25.0).abs() < 0.01);
-    assert_eq!(decal.attack_area_throb_ms, 1500);
-    assert_eq!(decal.reticle_throb_ms, 300);
-    assert_eq!(decal.style, "SHADOW_ALPHA_DECAL");
-    assert!(decal.only_visible_to_owning_player);
-    assert!(decal.reticle_radius < decal.attack_area_radius);
-
-    let mut logic = GameLogic::new();
-    let cfg = golden_skirmish_config("SpectreDecalPres");
-    logic.admit_object_ini_sources(std::iter::empty()).expect("fixture Object content admitted before NewGame");
-    crate::skirmish_config::lobby_definition_tests::start_slot_skirmish(&mut logic, &cfg).expect("config");
-    let snap = PresentationFrame::try_build_from_logic(&mut logic, 0).unwrap();
-    assert!(snap.spectre_orbit_decal_presentation_residual_ok());
 }
 
 #[test]

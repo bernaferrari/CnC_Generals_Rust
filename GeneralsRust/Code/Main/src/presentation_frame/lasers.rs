@@ -106,22 +106,7 @@ pub fn sample_presentation_ground_height(logic: &GameLogic, world_pos: Vec3) -> 
     }
 }
 
-/// Honesty: default-0 residual + optional terrain / override path.
-///
-/// Any finite height is honest (default-0 when map height missing, terrain
-/// sample when available, or host-testable override via synthetic path).
-pub fn honesty_ground_height_residual_ok(height: f32, from_terrain: bool) -> bool {
-    let _ = from_terrain;
-    height.is_finite()
-        && (from_terrain
-            || (height - PRESENTATION_DEFAULT_GROUND_HEIGHT).abs() < 0.001
-            || height.abs() > 0.0)
-}
-
-/// OrbitalLaser multi-beam soft-edge presentation residual (W3DLaserDraw NumBeams).
-///
-/// Host-testable fields that wire to `LaserSegmentUpload::pack_orbital_multi_beam_soft_edge`.
-/// Fail-closed: not full additive GPU cylinder soft edge.
+/// Optional multi-beam fields in serialized presentation snapshots.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct PresentationLaserSoftEdge {
     pub num_beams: u32,
@@ -130,43 +115,6 @@ pub struct PresentationLaserSoftEdge {
     pub outer_color: (f32, f32, f32, f32),
     pub tiling_scalar: f32,
     pub scroll_rate: f32,
-}
-
-/// Retail OrbitalLaser texture residual name (`ParticleUplinkCannon_OrbitalLaser`).
-pub const PRESENTATION_ORBITAL_LASER_TEXTURE: &str = "EXNoise02.tga";
-
-/// Retail ParticleUplinkCannon_OrbitalLaser soft-edge residual defaults.
-pub const PRESENTATION_ORBITAL_SOFT_EDGE: PresentationLaserSoftEdge = PresentationLaserSoftEdge {
-    num_beams: 12,
-    inner_width: 0.6,
-    outer_width: 26.0,
-    outer_color: (0.0, 0.0, 1.0, 150.0 / 255.0),
-    tiling_scalar: 0.15,
-    scroll_rate: -1.75,
-};
-
-impl PresentationLaserSoftEdge {
-    /// Honesty: retail OrbitalLaser NumBeams soft-edge presentation fields.
-    pub fn honesty_orbital_residual_ok(self) -> bool {
-        self.num_beams == 12
-            && (self.inner_width - 0.6).abs() < 0.01
-            && (self.outer_width - 26.0).abs() < 0.01
-            && (self.tiling_scalar - 0.15).abs() < 0.001
-            && (self.scroll_rate - (-1.75)).abs() < 0.001
-            && PRESENTATION_ORBITAL_LASER_TEXTURE == "EXNoise02.tga"
-            && (self.outer_color.2 - 1.0).abs() < 0.01
-    }
-
-    /// Endpoints + elapsed for `LaserSegmentUpload::pack_orbital_multi_beam_soft_edge`.
-    pub fn pack_endpoints(
-        &self,
-        start: (f32, f32, f32),
-        end: (f32, f32, f32),
-        elapsed_seconds: f32,
-    ) -> ((f32, f32, f32), (f32, f32, f32), f32, f32) {
-        let _ = self;
-        (start, end, elapsed_seconds, 1.0)
-    }
 }
 
 /// Snapshot-owned PatriotBinaryDataStream / assist laser beam for client draw.
@@ -326,83 +274,7 @@ impl PresentationLaserBeam {
         }
     }
 
-    /// Synthetic assist-pair residual for host-testable laser pack honesty.
-    ///
-    /// Produces LaserFromAssisted + LaserToTarget with retail Segments=20 each.
-    pub fn synthetic_assist_pair(start_frame: u32) -> [Self; 2] {
-        Self::synthetic_assist_pair_with_ground(start_frame, PRESENTATION_DEFAULT_GROUND_HEIGHT)
-    }
-
-    /// Synthetic assist pair with explicit ground-height residual override.
-    pub fn synthetic_assist_pair_with_ground(start_frame: u32, ground_height: f32) -> [Self; 2] {
-        let beams = crate::game_logic::host_base_defense::make_patriot_assist_lasers(
-            ObjectId(9001),
-            ObjectId(9002),
-            ObjectId(9003),
-            (0.0, 0.0, 5.0),
-            (40.0, 0.0, 5.0),
-            (80.0, 0.0, 5.0),
-            start_frame,
-        );
-        [
-            Self::from_host_laser_with_terrain(&beams[0], 0, ground_height, false),
-            Self::from_host_laser_with_terrain(&beams[1], 1, ground_height, false),
-        ]
-    }
-
-    /// Synthetic OrbitalLaser multi-beam soft-edge residual for pack honesty.
-    ///
-    /// Vertical beam from origin; soft-edge fields wire to laser_segment_upload pack.
-    pub fn synthetic_orbital_soft_edge(start_frame: u32) -> Self {
-        let soft = PRESENTATION_ORBITAL_SOFT_EDGE;
-        let start = (0.0, 0.0, 0.0);
-        let end = (0.0, 0.0, 200.0);
-        Self {
-            beam_index: 0,
-            kind: PresentationLaserKind::ToTarget,
-            from_id: ObjectId(9101),
-            to_id: ObjectId(9102),
-            from: start,
-            to: end,
-            arc_mid: (0.0, 0.0, 100.0),
-            scroll_offset: soft.scroll_rate * (start_frame as f32 / 30.0),
-            expires_frame: start_frame.saturating_add(30),
-            template_name: "ParticleUplinkCannon_OrbitalLaser".into(),
-            texture_name: PRESENTATION_ORBITAL_LASER_TEXTURE.to_string(),
-            laser_bone_name: String::new(),
-            inner_color: (1.0, 1.0, 1.0, 250.0 / 255.0),
-            segments: vec![PresentationLaserSegment {
-                start,
-                end,
-                width: soft.inner_width,
-                tile_factor: soft.tiling_scalar,
-                scroll_offset: soft.scroll_rate * (start_frame as f32 / 30.0),
-            }],
-            ground_height: PRESENTATION_DEFAULT_GROUND_HEIGHT,
-            ground_height_from_terrain: false,
-            soft_edge: Some(soft),
-        }
-    }
-
     pub fn segment_count(&self) -> usize {
         self.segments.len()
-    }
-
-    /// True when multi-beam soft-edge presentation residual is armed.
-    pub fn has_soft_edge(&self) -> bool {
-        self.soft_edge.is_some()
-    }
-
-    /// Honesty: ground-height residual on this beam is consistent.
-    pub fn honesty_ground_height_ok(&self) -> bool {
-        honesty_ground_height_residual_ok(self.ground_height, self.ground_height_from_terrain)
-    }
-
-    /// Honesty: soft-edge residual fields (or honest single-beam absence).
-    pub fn honesty_soft_edge_presentation_ok(&self) -> bool {
-        match self.soft_edge {
-            Some(se) => se.honesty_orbital_residual_ok(),
-            None => true, // single-beam Patriot residual is honest without soft edge
-        }
     }
 }

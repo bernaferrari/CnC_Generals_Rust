@@ -181,11 +181,11 @@ impl RenderPipeline {
         }
         graphics_system.begin_frame();
 
-        let mut laser = self.presentation_frame.as_ref().map_or_else(
+        let laser = self.presentation_frame.as_ref().map_or_else(
             LaserSegmentUpload::empty,
             |frame| LaserSegmentUpload::pack_from_presentation(frame),
         );
-        if self.forward_pass.upload_laser_segments(&mut laser) {
+        if self.forward_pass.upload_laser_segments(&laser) {
             let _ = self
                 .forward_pass
                 .enqueue_laser_additive_draw(view_matrix, projection_matrix);

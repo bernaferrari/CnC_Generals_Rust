@@ -146,14 +146,20 @@ pub(super) fn run_host_session(
         if let Some(p) = logic.get_player_mut(0) {
             p.selected_objects = vec![id];
         }
-        if let Some(o) = logic./* Wave 950 */ host_object_mut(id) {
+        if let Some(o) = logic.host_object_mut(id) {
             o.selected = true;
             o.status.selected = true;
         }
     }
 
     let pres = publish(logic, true)?;
+    let grid = pres.fow_grid();
+    let fog_grid_ok = !grid.active
+        || (grid.width > 0
+            && grid.height > 0
+            && grid.cell_count() == (grid.width as usize).saturating_mul(grid.height as usize));
     let presentation_ok = seed_ok
+        && fog_grid_ok
         && step_frames_ok
         && pres.frame.0 == logic.get_frame()
         && (pres.alive_object_count() > 0 || !map_loaded)

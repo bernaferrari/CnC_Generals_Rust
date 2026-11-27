@@ -144,98 +144,30 @@ fn structure_scatter(
     (dx, dz)
 }
 
-/// Draw polar weapon scatter from the explicitly supplied stream.
-fn error_radius_offset(random: &mut HostRandomState, error_radius: f32) -> (f32, f32) {
-    if error_radius <= 1.0 {
-        return (0.0, 0.0);
-    }
-    let radius = random.next_real(0.0, error_radius);
-    let angle = random.next_real(0.0, std::f32::consts::TAU);
-    (radius * angle.cos(), radius * angle.sin())
-}
-
-/// Exercise stream separation and consistency between owned and live draws.
-#[derive(Debug, Clone, Default, PartialEq)]
-pub struct HostRngResidualHonesty {
-    pub logic_draws: u32,
-    pub client_draws: u32,
-    pub audio_draws: u32,
-    pub owned_stream_consistency_ok: bool,
-    pub stream_separation_ok: bool,
-    pub seed_crc_ok: bool,
-    pub structure_scatter_stream_ok: bool,
-    pub error_radius_stream_ok: bool,
-}
-
-impl HostRngResidualHonesty {
-    pub fn honesty_ok(&self) -> bool {
-        self.logic_draws > 0
-            && self.client_draws > 0
-            && self.audio_draws > 0
-            && self.owned_stream_consistency_ok
-            && self.stream_separation_ok
-            && self.seed_crc_ok
-            && self.structure_scatter_stream_ok
-            && self.error_radius_stream_ok
-    }
-}
-
-/// Exercise the existing backend without touching any live match or service.
-pub fn exercise_host_rng_residual(seed: u32) -> HostRngResidualHonesty {
-    let mut logic = HostRandomState::seeded(seed);
-    let mut client = HostRandomState::seeded(seed);
-    let mut audio = HostRandomState::seeded(seed);
-    let mut honesty = HostRngResidualHonesty::default();
-    let _ = (logic.next_int(0, 1000), logic.next_real(0.0, 1.0));
-    honesty.logic_draws = 2;
-    let _ = (client.next_int(-10, 10), client.next_real(0.0, 5.0));
-    honesty.client_draws = 2;
-    let _ = audio.next_int(1, 4);
-    honesty.audio_draws = 1;
-
-    logic.seed_random(seed);
-    let mut reference = HostRandomState::seeded(seed);
-    honesty.owned_stream_consistency_ok = logic.next_real(0.0, 50.0)
-        == reference.next_real(0.0, 50.0)
-        && logic.next_int(0, 90) == reference.next_int(0, 90);
-
-    client.seed_random(seed);
-    let client_only = client.next_int(0, 999);
-    client.seed_random(seed);
-    let _ = logic.next_int(0, 999);
-    honesty.stream_separation_ok = client_only == client.next_int(0, 999);
-
-    let state_crc = |state: &HostRandomState| {
-        let mut crc = game_engine::common::crc::Crc::new();
-        for word in state.seed_words() {
-            crc.compute_single(&word);
-        }
-        crc.get()
-    };
-    logic.seed_random(seed);
-    let crc_before = state_crc(&logic);
-    logic.seed_random(seed);
-    honesty.seed_crc_ok = crc_before == state_crc(&logic);
-
-    client.seed_random(seed);
-    let (dx, dz) = structure_scatter(&mut client, 50.0, 40.0, STRUCTURE_SCATTER_SCALE);
-    honesty.structure_scatter_stream_ok = dx.abs() <= 15.0 + 0.001 && dz.abs() <= 12.0 + 0.001;
-    logic.seed_random(seed);
-    let (ox, oz) = error_radius_offset(&mut logic, 100.0);
-    honesty.error_radius_stream_ok = (ox * ox + oz * oz).sqrt() <= 100.0 + 0.001;
-    honesty
-}
-
-// --- Host stream consistency checks ---
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
     fn owned_rng_diagnostics_preserve_independent_streams() {
-        let h = exercise_host_rng_residual(0xC0FFEE);
-        assert!(h.honesty_ok(), "{h:?}");
+        let seed = 0xC0FFEE;
+        let mut logic = HostRandomState::seeded(seed);
+        let mut client = HostRandomState::seeded(seed);
+        let mut audio = HostRandomState::seeded(seed);
+        let initial = logic.seed_words();
+
+        let first = logic.next_u32();
+        let second = logic.next_u32();
+        assert_eq!(client.seed_words(), initial);
+        assert_eq!(audio.seed_words(), initial);
+        assert_eq!(audio.next_u32(), first);
+        assert_eq!(client.next_u32(), first);
+        assert_eq!(client.next_u32(), second);
+
+        logic.seed_random(seed);
+        assert_eq!(logic.seed_words(), initial);
+        assert_eq!(logic.next_u32(), first);
+        assert_eq!(logic.next_u32(), second);
     }
 
     #[test]
@@ -289,7 +221,6 @@ mod tests {
                 && scatter_a.0.abs() <= 15.0 + 0.001
                 && scatter_a.1.abs() <= 12.0 + 0.001
         });
-        assert!(exercise_host_rng_residual(0xC0FFEE_u32).honesty_ok());
         assert!((STRUCTURE_SCATTER_SCALE - 0.3).abs() < 0.001);
         assert_eq!(PURE_INDEX_SEED_OFFSET, 1);
     }
