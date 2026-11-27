@@ -13,7 +13,7 @@ pub(crate) struct StructureToppleDefinition {
     pub decay: f32,
     pub fx: AuthoredStructureTopplePeel,
     pub die_mux: gamelogic::object::die::DieMuxData,
-    pub damage_fx_types: gamelogic::damage::DamageTypeFlags,
+    pub damage_fx_types: generals_sim::damage::DamageTypeFlags,
 }
 impl Default for StructureToppleDefinition {
     fn default() -> Self {
@@ -24,7 +24,7 @@ impl Default for StructureToppleDefinition {
             decay: 0.0,
             fx: AuthoredStructureTopplePeel::default(),
             die_mux: gamelogic::object::die::DieMuxData::default(),
-            damage_fx_types: gamelogic::damage::DamageTypeFlags::all_flags(),
+            damage_fx_types: generals_sim::damage::DamageTypeFlags::all_flags(),
         }
     }
 }
@@ -116,8 +116,8 @@ impl StructureToppleDefinition {
         let damage_fx_types = flags(
             module,
             "DamageFXTypes",
-            gamelogic::damage::DamageTypeFlags::all_flags(),
-            gamelogic::damage::flag_parsing::parse_damage_type_flags_tokens,
+            generals_sim::damage::DamageTypeFlags::all_flags(),
+            generals_sim::damage::flag_parsing::parse_damage_type_flags_tokens,
         )?;
         let angle_fx = match module.attribute("AngleFX") {
             None => Vec::new(),

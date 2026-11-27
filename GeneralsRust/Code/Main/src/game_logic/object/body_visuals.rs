@@ -2,15 +2,7 @@
 //! CPP ActiveBody.cpp internalChangeHealth / setCorrectDamageState / evaluateVisualCondition.
 use super::*;
 
-/// CPP BodyModuleInterface::MaxHealthChangeType; gameplay callers select the
-/// actual health operation instead of writing maximum and current independently.
-#[derive(Clone, Copy)]
-pub(crate) enum MaxHealthChange {
-    PreserveRatio,
-    AddToCurrent,
-    KeepCurrent,
-    FullyHeal,
-}
+pub(crate) use generals_sim::object::body::MaxHealthChange;
 
 impl Object {
     pub(crate) fn body_damage_policy(
@@ -55,20 +47,7 @@ impl Object {
         if self.is_inactive_body() {
             return old_state;
         }
-        // ImmortalBody overrides internalChangeHealth itself, not just damage.
-        let delta = if self.uses_immortal_body() {
-            delta.max(-self.health.current + 1.0)
-        } else {
-            delta
-        };
-        self.previous_health = self.health.current;
-        self.health.current += delta;
-        if self.health.current > self.health.maximum {
-            self.health.current = self.health.maximum;
-        }
-        if self.health.current < 0.0 {
-            self.health.current = 0.0;
-        }
+        self.previous_health = self.health.apply_delta(delta, self.uses_immortal_body());
         self.recalculate_body_damage_state();
         // CPP ActiveBody1213–1228: the native Drawable sees canonical HP/state
         // before effectivelyDead is overwritten, and before any onDamage walk.
@@ -121,22 +100,11 @@ impl Object {
         if self.is_inactive_body() {
             return;
         }
-        let old_maximum = self.health.maximum;
-        self.health.maximum = maximum;
+        let delta = self.health.set_maximum(maximum, mode);
         self.max_health = maximum;
         self.initial_health = maximum;
-        match mode {
-            MaxHealthChange::PreserveRatio => {
-                let target = maximum * (self.health.current / old_maximum);
-                self.internal_change_health_with_body_fx(target - self.health.current, body_fx);
-            }
-            MaxHealthChange::AddToCurrent => {
-                self.internal_change_health_with_body_fx(maximum - old_maximum, body_fx);
-            }
-            MaxHealthChange::KeepCurrent => {}
-            MaxHealthChange::FullyHeal => {
-                self.internal_change_health_with_body_fx(maximum - self.health.current, body_fx);
-            }
+        if let Some(delta) = delta {
+            self.internal_change_health_with_body_fx(delta, body_fx);
         }
         if self.health.current > maximum {
             self.internal_change_health_with_body_fx(maximum - self.health.current, body_fx);

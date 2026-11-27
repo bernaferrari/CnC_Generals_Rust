@@ -1668,7 +1668,7 @@ mod tests {
 
     fn coeff_armor(
         name: &str,
-        dt: gamelogic::damage::DamageType,
+        dt: generals_sim::damage::DamageType,
         coeff: f32,
     ) -> std::sync::Arc<generals_sim::armor::ArmorDefinitions> {
         let mut row = generals_sim::armor::ArmorTemplate::new();
@@ -1687,7 +1687,7 @@ mod tests {
 
         // C++ ActiveBody::attemptHealing (ActiveBody.cpp:801) + Armor.cpp:43-55.
         let armor_definitions =
-            coeff_armor("HealHalfArmor", gamelogic::damage::DamageType::Healing, 0.5);
+            coeff_armor("HealHalfArmor", generals_sim::damage::DamageType::Healing, 0.5);
         let mut tmpl = ThingTemplate::new("HealHalf");
         tmpl.armor_definitions = Some(armor_definitions);
         tmpl.set_health(100.0);
@@ -1774,7 +1774,7 @@ mod tests {
         // on the armor-adjusted msec.
         let armor_definitions = coeff_armor(
             "StatusHalfArmor",
-            gamelogic::damage::DamageType::Status,
+            generals_sim::damage::DamageType::Status,
             0.5,
         );
         let mut tmpl = ThingTemplate::new("StatusHalf");
@@ -1827,7 +1827,7 @@ mod tests {
         // C++ NukeRadiationFieldWeapon DamageType RADIATION + NOT_AIRBORNE.
         let armor_definitions = coeff_armor(
             "RadTankArmor",
-            gamelogic::damage::DamageType::Radiation,
+            generals_sim::damage::DamageType::Radiation,
             0.5,
         );
         let mut tank = vehicle("RadTank", 47, 100.0);
@@ -1850,7 +1850,7 @@ mod tests {
         let mut jet = vehicle("RadJet", 48, 100.0);
         jet.thing.template.armor_definitions = Some(coeff_armor(
             "GroundedAircraftRadiationArmor",
-            gamelogic::damage::DamageType::Radiation,
+            generals_sim::damage::DamageType::Radiation,
             1.0,
         ));
         jet.thing.template.armor_sets = vec![crate::game_logic::HostArmorSet {
@@ -2452,7 +2452,7 @@ mod tests {
         // the damaged→healthy recomputation rather than an already-healthy bus.
         let armor_definitions = coeff_armor(
             "BusSecondLifeStateArmor",
-            gamelogic::damage::DamageType::Explosion,
+            generals_sim::damage::DamageType::Explosion,
             1.0,
         );
         let mut bus = vehicle("GLAVehicleBattleBus", 96, 50.0);
@@ -2532,7 +2532,7 @@ mod tests {
         // C++ UndeadBody.cpp:58-64 compares damageInfo->in.m_amount PRE-armor.
         // Flame 0.1 vs 50 HP: raw 200 intercepts even though 20 post-armor would not kill.
         let armor_definitions =
-            coeff_armor("BusFlameArmor", gamelogic::damage::DamageType::Flame, 0.1);
+            coeff_armor("BusFlameArmor", generals_sim::damage::DamageType::Flame, 0.1);
         let mut bus = vehicle("GLAVehicleBattleBus", 91, 50.0);
         bus.thing.template.armor_definitions = Some(armor_definitions);
         bus.install_battle_bus_transport();
@@ -2561,7 +2561,7 @@ mod tests {
         // >100% coefficient: raw 40 < 50, post-armor 80 would kill — C++ does not intercept.
         let armor_definitions = coeff_armor(
             "BusVulnArmor",
-            gamelogic::damage::DamageType::Explosion,
+            generals_sim::damage::DamageType::Explosion,
             2.0,
         );
         let mut bus = vehicle("GLAVehicleBattleBus", 92, 50.0);
@@ -2593,7 +2593,7 @@ mod tests {
         // C++ HighlanderBody.cpp:33-36: min(raw, health-1) then ActiveBody armor.
         // 999 raw → 49, * 0.25 flame = 12.25, HP 37.75. Post-armor clamp would leave 1.
         let armor_definitions =
-            coeff_armor("TreeFlameArmor", gamelogic::damage::DamageType::Flame, 0.25);
+            coeff_armor("TreeFlameArmor", generals_sim::damage::DamageType::Flame, 0.25);
         let mut tree = vehicle("Tree01", 93, 50.0);
         tree.thing.template.armor_definitions = Some(armor_definitions);
         tree.install_highlander_body();
@@ -2627,7 +2627,7 @@ mod tests {
         // C++ clamps raw only: 40 < 49 so no clamp, *2.0 = 80 kills.
         let armor_definitions = coeff_armor(
             "TreeVulnArmor",
-            gamelogic::damage::DamageType::Explosion,
+            generals_sim::damage::DamageType::Explosion,
             2.0,
         );
         let mut tree = vehicle("Tree01", 94, 50.0);

@@ -1842,8 +1842,8 @@ impl GameLogic {
                     && !rule.leech_range_weapon
                     && !matches!(
                         rule.damage_type,
-                        gamelogic::damage::DamageType::Disarm
-                            | gamelogic::damage::DamageType::Deploy
+                        generals_sim::damage::DamageType::Disarm
+                            | generals_sim::damage::DamageType::Deploy
                     )
                     && obj
                         .weapon_slot(slot)

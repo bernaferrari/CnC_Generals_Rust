@@ -421,7 +421,7 @@ fn leftover_choose_best_skips_zero_damage_unless_unresistable() {
     let _ = gamelogic::weapon::with_weapon_store_mut(|store| {
         let mut template = generals_sim::weapon::WeaponDefinition::new(UNRES.to_string());
         template.primary_damage = 0.0;
-        template.damage_type = gamelogic::damage::DamageType::Unresistable;
+        template.damage_type = generals_sim::damage::DamageType::Unresistable;
         template.attack_range = 200.0;
         store.add_weapon_template(template);
     });

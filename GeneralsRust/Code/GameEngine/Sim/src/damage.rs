@@ -2,6 +2,15 @@
 
 use std::str::FromStr;
 
+mod combat;
+mod death_outcome;
+pub mod flag_parsing;
+mod masks;
+
+pub use combat::{ArmorType, CombatDamage, DamageResult};
+pub use death_outcome::DeathOutcome;
+pub use masks::*;
+
 /// Number of concrete damage types.
 pub const DAMAGE_TYPE_COUNT: usize = DamageType::DamageNumTypes as usize;
 
@@ -151,49 +160,41 @@ impl FromStr for DamageType {
     type Err = ();
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s.to_ascii_uppercase().as_str() {
-            "EXPLOSION" => Ok(DamageType::Explosion),
-            "CRUSH" => Ok(DamageType::Crush),
-            "ARMOR_PIERCING" => Ok(DamageType::ArmorPiercing),
-            "SMALL_ARMS" => Ok(DamageType::SmallArms),
-            "GATTLING" => Ok(DamageType::Gattling),
-            "RADIATION" => Ok(DamageType::Radiation),
-            "FLAME" => Ok(DamageType::Flame),
-            "LASER" => Ok(DamageType::Laser),
-            "SNIPER" => Ok(DamageType::Sniper),
-            "POISON" => Ok(DamageType::Poison),
-            "HEALING" => Ok(DamageType::Healing),
-            "UNRESISTABLE" => Ok(DamageType::Unresistable),
-            "WATER" => Ok(DamageType::Water),
-            "DEPLOY" => Ok(DamageType::Deploy),
-            "SURRENDER" => Ok(DamageType::Surrender),
-            "HACK" => Ok(DamageType::Hack),
-            "KILL_PILOT" => Ok(DamageType::KillPilot),
-            "PENALTY" => Ok(DamageType::Penalty),
-            "FALLING" => Ok(DamageType::Falling),
-            "MELEE" => Ok(DamageType::Melee),
-            "DISARM" => Ok(DamageType::Disarm),
-            "HAZARD_CLEANUP" => Ok(DamageType::HazardCleanup),
-            "PARTICLE_BEAM" => Ok(DamageType::ParticleBeam),
-            "TOPPLING" => Ok(DamageType::Toppling),
-            "INFANTRY_MISSILE" => Ok(DamageType::InfantryMissile),
-            "AURORA_BOMB" => Ok(DamageType::AuroraBomb),
-            "LAND_MINE" => Ok(DamageType::LandMine),
-            "JET_MISSILES" => Ok(DamageType::JetMissiles),
-            "STEALTHJET_MISSILES" => Ok(DamageType::StealthJetMissiles),
-            "MOLOTOV_COCKTAIL" => Ok(DamageType::MolotovCocktail),
-            "COMANCHE_VULCAN" => Ok(DamageType::ComancheVulcan),
-            "SUBDUAL_MISSILE" => Ok(DamageType::SubdualMissile),
-            "SUBDUAL_VEHICLE" => Ok(DamageType::SubdualVehicle),
-            "SUBDUAL_BUILDING" => Ok(DamageType::SubdualBuilding),
-            "SUBDUAL_UNRESISTABLE" => Ok(DamageType::SubdualUnresistable),
-            "MICROWAVE" => Ok(DamageType::Microwave),
-            "KILL_GARRISONED" => Ok(DamageType::KillGarrisoned),
-            "STATUS" => Ok(DamageType::Status),
-            _ => Err(()),
-        }
+        DAMAGE_TYPE_FLAG_NAMES
+            .iter()
+            .position(|name| name.eq_ignore_ascii_case(s))
+            .map(|ordinal| Self::from_u32(ordinal as u32))
+            .ok_or(())
     }
 }
+
+/// Number of concrete death types.
+pub const DEATH_TYPE_COUNT: usize = DeathType::DeathNumTypes as usize;
+
+/// Original `TheDeathNames` table (Damage.h).
+pub const DEATH_TYPE_NAMES: [&str; DEATH_TYPE_COUNT] = [
+    "NORMAL",
+    "NONE",
+    "CRUSHED",
+    "BURNED",
+    "EXPLODED",
+    "POISONED",
+    "TOPPLED",
+    "FLOODED",
+    "SUICIDED",
+    "LASERED",
+    "DETONATED",
+    "SPLATTED",
+    "POISONED_BETA",
+    "EXTRA_2",
+    "EXTRA_3",
+    "EXTRA_4",
+    "EXTRA_5",
+    "EXTRA_6",
+    "EXTRA_7",
+    "EXTRA_8",
+    "POISONED_GAMMA",
+];
 
 /// Death types (`DeathType` in the C++ sources).
 #[allow(missing_docs)]

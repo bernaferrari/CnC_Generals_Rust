@@ -116,7 +116,7 @@ fn all_veterancy_levels() -> u32 {
 }
 
 fn all_death_types() -> u32 {
-    gamelogic::damage::DEATH_TYPE_FLAGS_ALL
+    generals_sim::damage::DEATH_TYPE_FLAGS_ALL
 }
 
 fn default_probability_modifier() -> i32 {

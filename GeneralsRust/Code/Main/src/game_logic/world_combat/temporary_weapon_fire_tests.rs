@@ -596,15 +596,15 @@ fn retail_he_bio_death_fires_one_blast_and_one_poison_field() {
     let mut poison = generals_sim::weapon::WeaponDefinition::new("MediumPoisonFieldWeapon".into());
     poison.primary_damage = 2.0;
     poison.primary_damage_radius = 80.0;
-    poison.damage_type = gamelogic::damage::DamageType::Poison;
-    poison.death_type = gamelogic::damage::DeathType::Poisoned;
+    poison.damage_type = generals_sim::damage::DamageType::Poison;
+    poison.death_type = generals_sim::damage::DeathType::Poisoned;
     poison.affects_mask.insert(generals_sim::weapon::WeaponAffectsMask::DOESNT_AFFECT_AIRBORNE);
     poison.min_delay_between_shots = 15;
     poison.max_delay_between_shots = 15;
     let mut core = generals_sim::weapon::WeaponDefinition::new("HazardFieldCoreWeapon".into());
     core.primary_damage = 200.0;
     core.primary_damage_radius = 10.0;
-    core.damage_type = gamelogic::damage::DamageType::HazardCleanup;
+    core.damage_type = generals_sim::damage::DamageType::HazardCleanup;
     core.clip_size = 1;
     core.clip_reload_time = 3000;
     logic.weapon_definitions = Some(generals_sim::weapon::WeaponCatalog::from_named_definitions([

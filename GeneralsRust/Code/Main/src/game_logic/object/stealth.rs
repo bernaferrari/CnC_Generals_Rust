@@ -524,7 +524,7 @@ impl Object {
         if target.is_kind_of(KindOf::Structure) && target.status.under_construction {
             let sniper = slot.is_some_and(|slot| {
                 self.selected_native_weapon_rule(slot)
-                    .map(|rule| rule.damage_type == gamelogic::damage::DamageType::Sniper)
+                    .map(|rule| rule.damage_type == generals_sim::damage::DamageType::Sniper)
                     .unwrap_or_else(|| {
                         self.weapon_name_for_slot(slot).is_some_and(
                             crate::game_logic::weapon_bootstrap::host_weapon_is_sniper_damage,
@@ -596,7 +596,7 @@ impl Object {
                     crate::game_logic::weapon_bootstrap::host_weapon_is_disarm_damage,
                 )
             },
-            |rule| rule.damage_type == gamelogic::damage::DamageType::Disarm,
+            |rule| rule.damage_type == generals_sim::damage::DamageType::Disarm,
         )
     }
 

@@ -160,7 +160,7 @@ fn default_autoheal_bypasses_indestructible_and_delivers_healing_filtered_state_
     assert_eq!(object.body_damage_state, BodyDamageType::Damaged);
     object.set_indestructible(true);
     let mut authored = HostBoneFxAuthored::default();
-    authored.damage_fx_types = gamelogic::damage::DamageTypeFlags::HEALING.bits();
+    authored.damage_fx_types = generals_sim::damage::DamageTypeFlags::HEALING.bits();
     authored.fx[BodyDamageType::Pristine.ordinal() as usize][0] = Some(HostBoneFxSlot {
         bone: "Body".into(),
         only_once: true,

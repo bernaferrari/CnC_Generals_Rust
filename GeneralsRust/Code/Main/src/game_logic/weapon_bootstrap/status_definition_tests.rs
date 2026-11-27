@@ -18,7 +18,7 @@ fn parsed_rule(name: &str, status: &str, expected: generals_sim::object::ObjectS
             actual, expected,
             "verify author admission before regression assertion"
         );
-        assert_eq!(rule.damage_type, gamelogic::damage::DamageType::Status);
+        assert_eq!(rule.damage_type, generals_sim::damage::DamageType::Status);
     })
     .unwrap();
     // This small actual catalog is intentionally complete. No disk loading or
@@ -169,7 +169,7 @@ fn avenger_fallback_seed_contains_retail_faerie_fire_metadata() {
             gamelogic::weapon::with_weapon_store(|store| {
             let rule = store.find_weapon_template(AVENGER_TARGET_DESIGNATOR).expect("actual seed rule");
             let status: generals_sim::object::ObjectStatusTypes = rule.damage_status_type.into();
-            assert_eq!(rule.damage_type, gamelogic::damage::DamageType::Status);
+            assert_eq!(rule.damage_type, generals_sim::damage::DamageType::Status);
             assert_eq!(rule.primary_damage, 200.0,
                 "ActiveBody DAMAGE_STATUS scalar is authored duration milliseconds, not zero HP damage");
             assert_eq!(status, generals_sim::object::ObjectStatusTypes::FaerieFire,
@@ -440,8 +440,8 @@ fn avenger_air_laser_fallback_metadata_admits_aircraft_not_infantry() {
                     // Weapon.ini exact One/Two rules; the laser name is visual,
                     // not permission to use LASER damage or LASERED death.
                     assert_eq!(rule.primary_damage, 10.0);
-                    assert_eq!(rule.damage_type, gamelogic::damage::DamageType::SmallArms);
-                    assert_eq!(rule.death_type, gamelogic::damage::DeathType::Normal);
+                    assert_eq!(rule.damage_type, generals_sim::damage::DamageType::SmallArms);
+                    assert_eq!(rule.death_type, generals_sim::damage::DeathType::Normal);
                     assert_eq!(rule.get_anti_mask(), WeaponAntiMask::AIRBORNE_VEHICLE);
                 })
                 .unwrap();
@@ -490,7 +490,7 @@ fn avenger_air_laser_fallback_metadata_admits_aircraft_not_infantry() {
                     "AvengerPointDefenseLaserOne",
                     999999.0
                 ),
-                gamelogic::damage::DamageType::Laser,
+                generals_sim::damage::DamageType::Laser,
                 "the independent point-defense weapon retains LASER damage"
             );
         },
@@ -518,14 +518,14 @@ fn missile_defender_fallback_types_admit_temporary_locked_guided_vehicle_attack(
                     .unwrap();
                 assert_eq!(
                     primary.damage_type,
-                    gamelogic::damage::DamageType::InfantryMissile
+                    generals_sim::damage::DamageType::InfantryMissile
                 );
-                assert_eq!(primary.death_type, gamelogic::damage::DeathType::Normal);
+                assert_eq!(primary.death_type, generals_sim::damage::DeathType::Normal);
                 assert_eq!(
                     guided.damage_type,
-                    gamelogic::damage::DamageType::ArmorPiercing
+                    generals_sim::damage::DamageType::ArmorPiercing
                 );
-                assert_eq!(guided.death_type, gamelogic::damage::DeathType::Normal);
+                assert_eq!(guided.death_type, generals_sim::damage::DeathType::Normal);
                 assert_eq!(guided.primary_damage, 40.0);
             })
             .unwrap();
@@ -580,7 +580,7 @@ fn missile_defender_seed_does_not_replace_parsed_guided_damage_type() {
                 let rule = store
                     .find_weapon_template(MISSILE_DEFENDER_LASER_GUIDED_WEAPON)
                     .unwrap();
-                assert_eq!(rule.damage_type, gamelogic::damage::DamageType::Status);
+                assert_eq!(rule.damage_type, generals_sim::damage::DamageType::Status);
                 assert_eq!(rule.primary_damage, 200.0);
                 let status: generals_sim::object::ObjectStatusTypes = rule.damage_status_type.into();
                 assert_eq!(status, generals_sim::object::ObjectStatusTypes::None);

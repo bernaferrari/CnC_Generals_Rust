@@ -68,7 +68,7 @@ End
                 let mut weapon = generals_sim::weapon::WeaponDefinition::new(name.into());
                 weapon.primary_damage = damage;
                 weapon.primary_damage_radius = 5.0;
-                weapon.damage_type = gamelogic::damage::DamageType::Unresistable;
+                weapon.damage_type = generals_sim::damage::DamageType::Unresistable;
                 (name.to_ascii_lowercase(), std::sync::Arc::new(weapon))
             });
         world.weapon_definitions = Some(generals_sim::weapon::WeaponCatalog::from_named_definitions(weapons).unwrap());
@@ -156,7 +156,7 @@ End
         generals_sim::weapon::WeaponDefinition::new("DelayedTransitionRetaliation".into());
     weapon.primary_damage = 10.0;
     weapon.primary_damage_radius = 5.0;
-    weapon.damage_type = gamelogic::damage::DamageType::Unresistable;
+    weapon.damage_type = generals_sim::damage::DamageType::Unresistable;
     weapon.weapon_speed = 10.0;
     world.weapon_definitions = Some(
         generals_sim::weapon::WeaponCatalog::from_named_definitions([
@@ -296,7 +296,7 @@ fn original_cpp_callback_matches_slot_selection_cleanup_and_effect_order() {
             &data,
             old,
             new,
-            (a[9] != 0).then_some(gamelogic::damage::DamageType::Flame),
+            (a[9] != 0).then_some(generals_sim::damage::DamageType::Flame),
         )
         .unwrap();
         let mut ids = [0; 12];

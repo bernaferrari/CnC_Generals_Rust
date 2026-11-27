@@ -75554,10 +75554,10 @@
         ],
         "review_input": "PORT_PROVENANCE_REVIEWED.json"
       },
-      "id": "game_engine-gamelogic-system-b36547547160",
+      "id": "game_engine-gamelogic-system-62b87505770b",
       "scope": "game_engine",
       "subsystem": "GameLogic/System",
-      "unit_count": 6,
+      "unit_count": 5,
       "units": [
         {
           "blockers": [
@@ -75688,50 +75688,6 @@
               {
                 "line": 187,
                 "name": "CrateTemplate::parseCrateCreationEntry"
-              }
-            ]
-          }
-        },
-        {
-          "blockers": [
-            "unreviewed_mapping",
-            "unreviewed_symbol_ownership",
-            "unreviewed_source_range_ownership"
-          ],
-          "candidate_destinations": [
-            {
-              "cargo_reachable": true,
-              "classification": "implementation",
-              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/damage.rs"
-            },
-            {
-              "cargo_reachable": true,
-              "classification": "implementation",
-              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/damage/flag_parsing.rs"
-            }
-          ],
-          "entry_id": "game_engine:Source/GameLogic/System/Damage.cpp",
-          "source": {
-            "path": "GeneralsMD/Code/GameEngine/Source/GameLogic/System/Damage.cpp",
-            "sha256": "b61ed744624533e260bf11c9cde69fde8c70909a502754c76574e19bcaa9eb94",
-            "symbol_extraction_diagnostics": [],
-            "symbol_extraction_status": "parsed",
-            "symbols": [
-              {
-                "line": 65,
-                "name": "initDamageTypeFlags"
-              },
-              {
-                "line": 75,
-                "name": "DamageInfo::xfer"
-              },
-              {
-                "line": 98,
-                "name": "DamageInfoInput::xfer"
-              },
-              {
-                "line": 155,
-                "name": "DamageInfoOutput::xfer"
               }
             ]
           }
@@ -187704,12 +187660,12 @@
       ]
     }
   ],
-  "provenance_input_digest": "18380fc9eb5ca0f45bf38733939bf45719e0155c936a4292c81188598ca00f73",
+  "provenance_input_digest": "28a918f5c8483fcdd96bdd0775b123d641ea8a9a2e3e8f89887248ec216df247",
   "schema_version": 1,
   "summary": {
     "maximum_packet_size": 15,
     "packets": 141,
-    "unique_units": 1379,
-    "unreviewed_required_translation_units": 1379
+    "unique_units": 1378,
+    "unreviewed_required_translation_units": 1378
   }
 }

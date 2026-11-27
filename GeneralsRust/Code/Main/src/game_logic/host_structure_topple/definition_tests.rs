@@ -14,7 +14,7 @@ fn authored_filter_defaults_and_original_flag_operations_are_retained() {
     let parsed = StructureToppleDefinition::from_module(&default.behavior_modules[0]).unwrap();
     assert_eq!(
         parsed.die_mux.death_types,
-        gamelogic::damage::DEATH_TYPE_FLAGS_ALL
+        generals_sim::damage::DEATH_TYPE_FLAGS_ALL
     );
     assert_eq!(
         parsed.die_mux.veterancy_levels,
@@ -22,29 +22,29 @@ fn authored_filter_defaults_and_original_flag_operations_are_retained() {
     );
     assert_eq!(
         parsed.damage_fx_types,
-        gamelogic::damage::DamageTypeFlags::all_flags()
+        generals_sim::damage::DamageTypeFlags::all_flags()
     );
     let authored = definition(
         "DeathTypes = NONE +NORMAL +CRUSHED -NORMAL\nVeterancyLevels = ALL -REGULAR\nDamageFXTypes = -FLAME\nRequiredStatus = HIJACKED\nExemptStatus = BOOBY_TRAPPED",
     );
     let parsed = StructureToppleDefinition::from_module(&authored.behavior_modules[0]).unwrap();
-    assert!(!gamelogic::damage::get_death_type_flag(
+    assert!(!generals_sim::damage::get_death_type_flag(
         parsed.die_mux.death_types,
-        gamelogic::damage::DeathType::Normal
+        generals_sim::damage::DeathType::Normal
     ));
-    assert!(gamelogic::damage::get_death_type_flag(
+    assert!(generals_sim::damage::get_death_type_flag(
         parsed.die_mux.death_types,
-        gamelogic::damage::DeathType::Crushed
+        generals_sim::damage::DeathType::Crushed
     ));
     assert!(
         !parsed
             .damage_fx_types
-            .contains_damage_type(gamelogic::damage::DamageType::Flame)
+            .contains_damage_type(generals_sim::damage::DamageType::Flame)
     );
     assert!(
         parsed
             .damage_fx_types
-            .contains_damage_type(gamelogic::damage::DamageType::Explosion)
+            .contains_damage_type(generals_sim::damage::DamageType::Explosion)
     );
 }
 

@@ -1617,7 +1617,6 @@ impl CnCGameEngine {
     pub(super) fn initialize_cpp_startup_masks() {
         game_engine::common::system::kind_of::init_kind_of_masks();
         Self::init_disabled_masks();
-        gamelogic::damage::init_damage_type_flags();
     }
 
     pub(super) fn init_disabled_masks() {

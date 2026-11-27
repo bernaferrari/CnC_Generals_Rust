@@ -20,9 +20,9 @@ fn assert_finite_weapon(world: &GameLogic, name: &str, damage_type: &str) {
     assert_eq!(
         rules.damage_type,
         if damage_type == "HEALING" {
-            gamelogic::damage::DamageType::Healing
+            generals_sim::damage::DamageType::Healing
         } else {
-            gamelogic::damage::DamageType::SmallArms
+            generals_sim::damage::DamageType::SmallArms
         }
     );
 }

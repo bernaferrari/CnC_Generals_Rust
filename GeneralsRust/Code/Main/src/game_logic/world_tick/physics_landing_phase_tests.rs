@@ -82,7 +82,7 @@ End
     .unwrap();
     let mut armor = generals_sim::armor::ArmorTemplate::new();
     armor.set_default(1.);
-    armor.set_coefficient(gamelogic::damage::DamageType::Unresistable, 0.);
+    armor.set_coefficient(generals_sim::damage::DamageType::Unresistable, 0.);
     let mut definitions = generals_sim::armor::ArmorDefinitions::new();
     definitions.register_template(ZERO_ARMOR, armor);
     let mut world = GameLogic::new();

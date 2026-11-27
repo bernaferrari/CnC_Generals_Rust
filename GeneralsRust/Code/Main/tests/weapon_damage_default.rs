@@ -2,7 +2,7 @@
 //! The target armor coefficients are the current Rust residuals, not retail
 //! Armor.ini or full original-game shot parity. Frame CRCs are diagnostic only.
 
-use gamelogic::damage::{DamageType as NativeDamageType, DeathType as NativeDeathType};
+use generals_sim::damage::{DamageType as NativeDamageType, DeathType as NativeDeathType};
 use generals_main::assets::ini_template_loader::register_weapons_from_ini_text;
 use generals_main::command_system::{CommandType, GameCommand, ModifierKeys};
 use generals_main::deterministic_trace::FrameTrace;

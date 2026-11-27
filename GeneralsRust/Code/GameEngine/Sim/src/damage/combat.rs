@@ -1,10 +1,11 @@
-// C++ ownership: Damage.h damage/armor identity and host conversion semantics.
+use serde::{Deserialize, Serialize};
 
-/// C++ `DamageType` (Damage.h:26-70) on the live host fire_at → take_damage path.
-/// Legacy host names stay as real variants (match-pattern compatible). Missing
-/// C++ types are first-class so `map_store_damage_type` no longer collapses them.
+/// Damage carried by the live simulation and native saves.
+/// The variant order and aliases are part of the native save format.
+/// Authored INI identities use the C++ ordinals in `DamageType`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
-pub enum DamageType {
+#[serde(rename = "DamageType")]
+pub enum CombatDamage {
     #[default]
     Bullet,
     Explosive,
@@ -64,11 +65,11 @@ pub enum DamageType {
     SubdualUnresistable,
 }
 
-impl DamageType {
+impl CombatDamage {
     /// Crate / C++ ordinal identity. `DamageNumTypes` is the count, not a payload.
     #[inline]
-    pub fn from_store(dt: gamelogic::damage::DamageType) -> Self {
-        use gamelogic::damage::DamageType as G;
+    pub fn from_store(dt: super::DamageType) -> Self {
+        use super::DamageType as G;
         match dt {
             G::Explosion => Self::Explosive,
             G::Crush => Self::Crush,
@@ -113,8 +114,8 @@ impl DamageType {
     }
 
     #[inline]
-    pub fn to_store(self) -> gamelogic::damage::DamageType {
-        use gamelogic::damage::DamageType as G;
+    pub fn to_store(self) -> super::DamageType {
+        use super::DamageType as G;
         match self {
             Self::Bullet => G::SmallArms,
             Self::Explosive => G::Explosion,
@@ -157,31 +158,14 @@ impl DamageType {
         }
     }
 
-    /// C++ `IsSubdualDamage` (Damage.h:95-107).
-    #[inline]
+    /// C++ `IsSubdualDamage` (Damage.h).
     pub fn is_subdual(self) -> bool {
-        matches!(
-            self,
-            Self::SubdualMissile
-                | Self::SubdualVehicle
-                | Self::SubdualBuilding
-                | Self::SubdualUnresistable
-        )
+        super::is_subdual_damage(self.to_store())
     }
 
-    /// C++ `IsHealthDamagingDamage` (Damage.h:110-127).
-    #[inline]
+    /// C++ `IsHealthDamagingDamage` (Damage.h).
     pub fn is_health_damaging(self) -> bool {
-        !matches!(
-            self,
-            Self::Status
-                | Self::SubdualMissile
-                | Self::SubdualVehicle
-                | Self::SubdualBuilding
-                | Self::SubdualUnresistable
-                | Self::KillPilot
-                | Self::KillGarrisoned
-        )
+        super::is_health_damaging_damage(self.to_store())
     }
 }
 
@@ -200,7 +184,7 @@ pub enum ArmorType {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DamageResult {
     pub final_damage: f32,
-    pub damage_type: DamageType,
+    pub damage_type: CombatDamage,
     pub was_critical: bool,
     pub armor_reduction: f32,
 }

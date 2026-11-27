@@ -15837,14 +15837,42 @@
             "classification": "implementation",
             "owned_source_ranges": [],
             "owned_symbols": [],
-            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/damage/flag_parsing.rs"
+            "path": "GeneralsRust/Code/GameEngine/Sim/src/damage.rs"
+          },
+          {
+            "cargo_reachable": true,
+            "classification": "implementation",
+            "owned_source_ranges": [],
+            "owned_symbols": [],
+            "path": "GeneralsRust/Code/GameEngine/Sim/src/damage/combat.rs"
+          },
+          {
+            "cargo_reachable": true,
+            "classification": "implementation",
+            "owned_source_ranges": [],
+            "owned_symbols": [],
+            "path": "GeneralsRust/Code/GameEngine/Sim/src/damage/death_outcome.rs"
+          },
+          {
+            "cargo_reachable": true,
+            "classification": "implementation",
+            "owned_source_ranges": [],
+            "owned_symbols": [],
+            "path": "GeneralsRust/Code/GameEngine/Sim/src/damage/flag_parsing.rs"
+          },
+          {
+            "cargo_reachable": true,
+            "classification": "implementation",
+            "owned_source_ranges": [],
+            "owned_symbols": [],
+            "path": "GeneralsRust/Code/GameEngine/Sim/src/damage/masks.rs"
           }
         ],
-        "mode": "split_inferred",
+        "mode": "explicit",
         "ownership_diagnostics": [],
         "range_validation": "not_required",
-        "review_state": "unreviewed",
-        "reviewed_path_implementation": false,
+        "review_state": "reviewed",
+        "reviewed_path_implementation": true,
         "stale_reviewed_destinations": [],
         "symbol_validation": "unreviewed"
       },
@@ -74300,11 +74328,7 @@
         "scopes": [],
         "status": "not_verified"
       },
-      "blockers": [
-        "unreviewed_mapping",
-        "unreviewed_symbol_ownership",
-        "unreviewed_source_range_ownership"
-      ],
+      "blockers": [],
       "id": "game_engine:Source/GameLogic/System/Damage.cpp",
       "inventory_class": "required_runtime",
       "mapping": {
@@ -74313,25 +74337,74 @@
           {
             "cargo_reachable": true,
             "classification": "implementation",
-            "owned_source_ranges": [],
-            "owned_symbols": [],
+            "owned_source_ranges": [
+              {
+                "end_line": 173,
+                "start_line": 70
+              }
+            ],
+            "owned_symbols": [
+              "DamageInfo::xfer",
+              "DamageInfoInput::xfer",
+              "DamageInfoOutput::xfer"
+            ],
             "path": "GeneralsRust/Code/GameEngine/GameLogic/src/damage.rs"
+          },
+          {
+            "cargo_reachable": true,
+            "classification": "implementation",
+            "owned_source_ranges": [
+              {
+                "end_line": 61,
+                "start_line": 1
+              }
+            ],
+            "owned_symbols": [],
+            "path": "GeneralsRust/Code/GameEngine/Sim/src/damage.rs"
           },
           {
             "cargo_reachable": true,
             "classification": "implementation",
             "owned_source_ranges": [],
             "owned_symbols": [],
-            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/damage/flag_parsing.rs"
+            "path": "GeneralsRust/Code/GameEngine/Sim/src/damage/combat.rs"
+          },
+          {
+            "cargo_reachable": true,
+            "classification": "implementation",
+            "owned_source_ranges": [],
+            "owned_symbols": [],
+            "path": "GeneralsRust/Code/GameEngine/Sim/src/damage/death_outcome.rs"
+          },
+          {
+            "cargo_reachable": true,
+            "classification": "implementation",
+            "owned_source_ranges": [],
+            "owned_symbols": [],
+            "path": "GeneralsRust/Code/GameEngine/Sim/src/damage/flag_parsing.rs"
+          },
+          {
+            "cargo_reachable": true,
+            "classification": "implementation",
+            "owned_source_ranges": [
+              {
+                "end_line": 69,
+                "start_line": 62
+              }
+            ],
+            "owned_symbols": [
+              "initDamageTypeFlags"
+            ],
+            "path": "GeneralsRust/Code/GameEngine/Sim/src/damage/masks.rs"
           }
         ],
-        "mode": "split_inferred",
+        "mode": "explicit",
         "ownership_diagnostics": [],
-        "range_validation": "unreviewed",
-        "review_state": "unreviewed",
-        "reviewed_path_implementation": false,
+        "range_validation": "reviewed",
+        "review_state": "reviewed",
+        "reviewed_path_implementation": true,
         "stale_reviewed_destinations": [],
-        "symbol_validation": "unreviewed"
+        "symbol_validation": "reviewed"
       },
       "scope": "game_engine",
       "source": {
@@ -74342,8 +74415,25 @@
         "path": "GeneralsMD/Code/GameEngine/Source/GameLogic/System/Damage.cpp",
         "sha256": "b61ed744624533e260bf11c9cde69fde8c70909a502754c76574e19bcaa9eb94",
         "symbol_extraction_diagnostics": [],
-        "symbol_extraction_status": "not_requested",
-        "symbols": []
+        "symbol_extraction_status": "parsed",
+        "symbols": [
+          {
+            "line": 65,
+            "name": "initDamageTypeFlags"
+          },
+          {
+            "line": 75,
+            "name": "DamageInfo::xfer"
+          },
+          {
+            "line": 98,
+            "name": "DamageInfoInput::xfer"
+          },
+          {
+            "line": 155,
+            "name": "DamageInfoOutput::xfer"
+          }
+        ]
       },
       "unit_kind": "translation_unit"
     },
@@ -153628,7 +153718,7 @@
     }
   ],
   "generator": "GeneralsRust/Code/Main/scripts/generate_port_provenance.py",
-  "input_digest": "18380fc9eb5ca0f45bf38733939bf45719e0155c936a4292c81188598ca00f73",
+  "input_digest": "28a918f5c8483fcdd96bdd0775b123d641ea8a9a2e3e8f89887248ec216df247",
   "metric_contract": {
     "behavior_requires_explicit_evidence": true,
     "candidate_mapping_is_reviewed": false,
@@ -153644,13 +153734,13 @@
       "GeneralsMD/Code/GameEngine/Source/GameLogic/AI/AI.cpp"
     ],
     "orphan_sources": [],
-    "record_count": 3
+    "record_count": 4
   },
   "reviewed_mapping_input": {
-    "mapping_count": 13,
-    "ownership_record_count": 3,
+    "mapping_count": 15,
+    "ownership_record_count": 4,
     "path": "PORT_PROVENANCE_REVIEWED.json",
-    "sha256": "418113765f0e438d11ed5650142da0e3a1b004a7a6811e02e24b26114ace46f8"
+    "sha256": "ea0622d3b9f08d1dcf69fc32ed41cf66beebc2ef2087927454357a4987256ea0"
   },
   "rust_file_index": [
     {
@@ -197907,25 +197997,139 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 68,
-        "start_line": 1
-      },
-      "path": "GeneralsRust/Code/GameEngine/GameLogic/src/damage/flag_parsing.rs",
-      "sha256": "12cfab5a7a1f74420e1de024eb7ed23d4e4655d51f58c45b5483337958ec5ec9",
-      "symbol_index_status": "awaiting_mapping_review",
-      "symbols": []
-    },
-    {
-      "cargo_reachable": true,
-      "classification": "implementation",
-      "file_range": {
-        "end_line": 456,
+        "end_line": 273,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/damage.rs",
-      "sha256": "ea5f60c18990147ca037596e30d600132ba81a73d1a8416fd9d545b302c43eb4",
-      "symbol_index_status": "awaiting_mapping_review",
-      "symbols": []
+      "sha256": "29d8775e028ff1c05d7e528f3673899eb9c8d884e5ec3617c0992472f590a0d0",
+      "symbol_index_status": "indexed",
+      "symbols": [
+        {
+          "kind": "const",
+          "line": 22,
+          "name": "BODY_PRISTINE"
+        },
+        {
+          "kind": "const",
+          "line": 23,
+          "name": "BODY_DAMAGED"
+        },
+        {
+          "kind": "const",
+          "line": 24,
+          "name": "BODY_REALLYDAMAGED"
+        },
+        {
+          "kind": "const",
+          "line": 25,
+          "name": "BODY_RUBBLE"
+        },
+        {
+          "kind": "struct",
+          "line": 29,
+          "name": "DamageInfoInput"
+        },
+        {
+          "kind": "fn",
+          "line": 46,
+          "name": "default"
+        },
+        {
+          "kind": "fn",
+          "line": 66,
+          "name": "crc"
+        },
+        {
+          "kind": "fn",
+          "line": 69,
+          "name": "xfer"
+        },
+        {
+          "kind": "const",
+          "line": 71,
+          "name": "CURRENT_VERSION"
+        },
+        {
+          "kind": "fn",
+          "line": 138,
+          "name": "load_post_process"
+        },
+        {
+          "kind": "struct",
+          "line": 144,
+          "name": "DamageInfoOutput"
+        },
+        {
+          "kind": "fn",
+          "line": 155,
+          "name": "default"
+        },
+        {
+          "kind": "fn",
+          "line": 167,
+          "name": "crc"
+        },
+        {
+          "kind": "fn",
+          "line": 168,
+          "name": "xfer"
+        },
+        {
+          "kind": "const",
+          "line": 170,
+          "name": "CURRENT_VERSION"
+        },
+        {
+          "kind": "fn",
+          "line": 191,
+          "name": "load_post_process"
+        },
+        {
+          "kind": "struct",
+          "line": 197,
+          "name": "DamageInfo"
+        },
+        {
+          "kind": "fn",
+          "line": 211,
+          "name": "crc"
+        },
+        {
+          "kind": "fn",
+          "line": 212,
+          "name": "xfer"
+        },
+        {
+          "kind": "const",
+          "line": 214,
+          "name": "CURRENT_VERSION"
+        },
+        {
+          "kind": "fn",
+          "line": 224,
+          "name": "load_post_process"
+        },
+        {
+          "kind": "fn",
+          "line": 233,
+          "name": "new"
+        },
+        {
+          "kind": "fn",
+          "line": 238,
+          "name": "with_simple"
+        },
+        {
+          "kind": "fn",
+          "line": 258,
+          "name": "sync_from_input"
+        },
+        {
+          "kind": "fn",
+          "line": 266,
+          "name": "sync_to_input"
+        }
+      ]
     },
     {
       "cargo_reachable": true,
@@ -208870,6 +209074,516 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
+        "end_line": 191,
+        "start_line": 1
+      },
+      "path": "GeneralsRust/Code/GameEngine/Sim/src/damage/combat.rs",
+      "sha256": "062b5bb56736bdba1b0b077dd6a33d54634341a8a07ca7ee68320a493bed9873",
+      "symbol_index_status": "indexed",
+      "symbols": [
+        {
+          "kind": "enum",
+          "line": 8,
+          "name": "CombatDamage"
+        },
+        {
+          "kind": "fn",
+          "line": 71,
+          "name": "from_store"
+        },
+        {
+          "kind": "fn",
+          "line": 117,
+          "name": "to_store"
+        },
+        {
+          "kind": "fn",
+          "line": 162,
+          "name": "is_subdual"
+        },
+        {
+          "kind": "fn",
+          "line": 167,
+          "name": "is_health_damaging"
+        },
+        {
+          "kind": "enum",
+          "line": 174,
+          "name": "ArmorType"
+        },
+        {
+          "kind": "struct",
+          "line": 185,
+          "name": "DamageResult"
+        }
+      ]
+    },
+    {
+      "cargo_reachable": true,
+      "classification": "implementation",
+      "file_range": {
+        "end_line": 113,
+        "start_line": 1
+      },
+      "path": "GeneralsRust/Code/GameEngine/Sim/src/damage/death_outcome.rs",
+      "sha256": "4c71812bdb78ab9e4e7c83d3cb87db3cdd715c6bbb59b259541b871a634ac548",
+      "symbol_index_status": "indexed",
+      "symbols": [
+        {
+          "kind": "enum",
+          "line": 8,
+          "name": "DeathOutcome"
+        },
+        {
+          "kind": "fn",
+          "line": 44,
+          "name": "from_store"
+        },
+        {
+          "kind": "fn",
+          "line": 67,
+          "name": "from_host_damage_type"
+        },
+        {
+          "kind": "fn",
+          "line": 81,
+          "name": "as_name"
+        },
+        {
+          "kind": "fn",
+          "line": 87,
+          "name": "ordinal"
+        },
+        {
+          "kind": "fn",
+          "line": 109,
+          "name": "from_ordinal"
+        }
+      ]
+    },
+    {
+      "cargo_reachable": true,
+      "classification": "implementation",
+      "file_range": {
+        "end_line": 68,
+        "start_line": 1
+      },
+      "path": "GeneralsRust/Code/GameEngine/Sim/src/damage/flag_parsing.rs",
+      "sha256": "72e96ce151e93c8e19e9dc872c50800fb5a5531c8c74fcb045d2891cc2a59afb",
+      "symbol_index_status": "indexed",
+      "symbols": [
+        {
+          "kind": "fn",
+          "line": 5,
+          "name": "parse_damage_type_flags_tokens"
+        },
+        {
+          "kind": "fn",
+          "line": 43,
+          "name": "damage_flags_start_from_all_and_apply_operations_in_cpp_order"
+        },
+        {
+          "kind": "fn",
+          "line": 57,
+          "name": "original_damage_flags_reject_missing_bare_and_unknown_tokens"
+        }
+      ]
+    },
+    {
+      "cargo_reachable": true,
+      "classification": "implementation",
+      "file_range": {
+        "end_line": 183,
+        "start_line": 1
+      },
+      "path": "GeneralsRust/Code/GameEngine/Sim/src/damage/masks.rs",
+      "sha256": "f9a8518f59d612ad84a6e7464e1fe4277b09183e8948c1b48dc33bbe8c8b81c7",
+      "symbol_index_status": "indexed",
+      "symbols": [
+        {
+          "kind": "struct",
+          "line": 7,
+          "name": "DamageTypeFlags"
+        },
+        {
+          "kind": "const",
+          "line": 8,
+          "name": "EXPLOSION"
+        },
+        {
+          "kind": "const",
+          "line": 9,
+          "name": "CRUSH"
+        },
+        {
+          "kind": "const",
+          "line": 10,
+          "name": "ARMOR_PIERCING"
+        },
+        {
+          "kind": "const",
+          "line": 11,
+          "name": "SMALL_ARMS"
+        },
+        {
+          "kind": "const",
+          "line": 12,
+          "name": "GATTLING"
+        },
+        {
+          "kind": "const",
+          "line": 13,
+          "name": "RADIATION"
+        },
+        {
+          "kind": "const",
+          "line": 14,
+          "name": "FLAME"
+        },
+        {
+          "kind": "const",
+          "line": 15,
+          "name": "LASER"
+        },
+        {
+          "kind": "const",
+          "line": 16,
+          "name": "SNIPER"
+        },
+        {
+          "kind": "const",
+          "line": 17,
+          "name": "POISON"
+        },
+        {
+          "kind": "const",
+          "line": 18,
+          "name": "HEALING"
+        },
+        {
+          "kind": "const",
+          "line": 19,
+          "name": "UNRESISTABLE"
+        },
+        {
+          "kind": "const",
+          "line": 20,
+          "name": "WATER"
+        },
+        {
+          "kind": "const",
+          "line": 21,
+          "name": "DEPLOY"
+        },
+        {
+          "kind": "const",
+          "line": 22,
+          "name": "SURRENDER"
+        },
+        {
+          "kind": "const",
+          "line": 23,
+          "name": "HACK"
+        },
+        {
+          "kind": "const",
+          "line": 24,
+          "name": "KILL_PILOT"
+        },
+        {
+          "kind": "const",
+          "line": 25,
+          "name": "PENALTY"
+        },
+        {
+          "kind": "const",
+          "line": 26,
+          "name": "FALLING"
+        },
+        {
+          "kind": "const",
+          "line": 27,
+          "name": "MELEE"
+        },
+        {
+          "kind": "const",
+          "line": 28,
+          "name": "DISARM"
+        },
+        {
+          "kind": "const",
+          "line": 29,
+          "name": "HAZARD_CLEANUP"
+        },
+        {
+          "kind": "const",
+          "line": 30,
+          "name": "PARTICLE_BEAM"
+        },
+        {
+          "kind": "const",
+          "line": 31,
+          "name": "TOPPLING"
+        },
+        {
+          "kind": "const",
+          "line": 32,
+          "name": "INFANTRY_MISSILE"
+        },
+        {
+          "kind": "const",
+          "line": 33,
+          "name": "AURORA_BOMB"
+        },
+        {
+          "kind": "const",
+          "line": 34,
+          "name": "LAND_MINE"
+        },
+        {
+          "kind": "const",
+          "line": 35,
+          "name": "JET_MISSILES"
+        },
+        {
+          "kind": "const",
+          "line": 36,
+          "name": "STEALTHJET_MISSILES"
+        },
+        {
+          "kind": "const",
+          "line": 37,
+          "name": "MOLOTOV_COCKTAIL"
+        },
+        {
+          "kind": "const",
+          "line": 38,
+          "name": "COMANCHE_VULCAN"
+        },
+        {
+          "kind": "const",
+          "line": 39,
+          "name": "SUBDUAL_MISSILE"
+        },
+        {
+          "kind": "const",
+          "line": 40,
+          "name": "SUBDUAL_VEHICLE"
+        },
+        {
+          "kind": "const",
+          "line": 41,
+          "name": "SUBDUAL_BUILDING"
+        },
+        {
+          "kind": "const",
+          "line": 42,
+          "name": "SUBDUAL_UNRESISTABLE"
+        },
+        {
+          "kind": "const",
+          "line": 43,
+          "name": "MICROWAVE"
+        },
+        {
+          "kind": "const",
+          "line": 44,
+          "name": "KILL_GARRISONED"
+        },
+        {
+          "kind": "const",
+          "line": 45,
+          "name": "STATUS"
+        },
+        {
+          "kind": "const",
+          "line": 51,
+          "name": "fn"
+        },
+        {
+          "kind": "fn",
+          "line": 57,
+          "name": "contains_damage_type"
+        },
+        {
+          "kind": "fn",
+          "line": 63,
+          "name": "test"
+        },
+        {
+          "kind": "fn",
+          "line": 68,
+          "name": "test_damage_type"
+        },
+        {
+          "kind": "fn",
+          "line": 73,
+          "name": "count"
+        },
+        {
+          "kind": "fn",
+          "line": 78,
+          "name": "clear_all"
+        },
+        {
+          "kind": "fn",
+          "line": 83,
+          "name": "set_damage_type"
+        },
+        {
+          "kind": "fn",
+          "line": 88,
+          "name": "clear_damage_type"
+        },
+        {
+          "kind": "const",
+          "line": 94,
+          "name": "DAMAGE_TYPE_FLAGS_NONE"
+        },
+        {
+          "kind": "const",
+          "line": 96,
+          "name": "DAMAGE_TYPE_FLAGS_ALL"
+        },
+        {
+          "kind": "fn",
+          "line": 99,
+          "name": "get_damage_type_flag"
+        },
+        {
+          "kind": "fn",
+          "line": 107,
+          "name": "set_damage_type_flag"
+        },
+        {
+          "kind": "fn",
+          "line": 116,
+          "name": "clear_damage_type_flag"
+        },
+        {
+          "kind": "fn",
+          "line": 125,
+          "name": "is_subdual_damage"
+        },
+        {
+          "kind": "fn",
+          "line": 136,
+          "name": "is_health_damaging_damage"
+        },
+        {
+          "kind": "fn",
+          "line": 150,
+          "name": "set_all_damage_type_bits"
+        },
+        {
+          "kind": "type",
+          "line": 155,
+          "name": "DeathTypeFlags"
+        },
+        {
+          "kind": "const",
+          "line": 158,
+          "name": "DEATH_TYPE_FLAGS_ALL"
+        },
+        {
+          "kind": "const",
+          "line": 160,
+          "name": "DEATH_TYPE_FLAGS_NONE"
+        },
+        {
+          "kind": "fn",
+          "line": 163,
+          "name": "get_death_type_flag"
+        },
+        {
+          "kind": "fn",
+          "line": 170,
+          "name": "set_death_type_flag"
+        },
+        {
+          "kind": "fn",
+          "line": 176,
+          "name": "clear_death_type_flag"
+        },
+        {
+          "kind": "const",
+          "line": 182,
+          "name": "HUGE_DAMAGE_AMOUNT"
+        }
+      ]
+    },
+    {
+      "cargo_reachable": true,
+      "classification": "implementation",
+      "file_range": {
+        "end_line": 258,
+        "start_line": 1
+      },
+      "path": "GeneralsRust/Code/GameEngine/Sim/src/damage.rs",
+      "sha256": "0c64fd1915d3fa68ebaa7507ec1e10a5ad1183246f8acac6ae2ad60db5ffdbdf",
+      "symbol_index_status": "indexed",
+      "symbols": [
+        {
+          "kind": "const",
+          "line": 15,
+          "name": "DAMAGE_TYPE_COUNT"
+        },
+        {
+          "kind": "const",
+          "line": 18,
+          "name": "DAMAGE_TYPE_FLAG_NAMES"
+        },
+        {
+          "kind": "enum",
+          "line": 63,
+          "name": "DamageType"
+        },
+        {
+          "kind": "fn",
+          "line": 106,
+          "name": "default"
+        },
+        {
+          "kind": "fn",
+          "line": 114,
+          "name": "from_u32"
+        },
+        {
+          "kind": "type",
+          "line": 160,
+          "name": "Err"
+        },
+        {
+          "kind": "fn",
+          "line": 161,
+          "name": "from_str"
+        },
+        {
+          "kind": "const",
+          "line": 172,
+          "name": "DEATH_TYPE_COUNT"
+        },
+        {
+          "kind": "const",
+          "line": 175,
+          "name": "DEATH_TYPE_NAMES"
+        },
+        {
+          "kind": "enum",
+          "line": 203,
+          "name": "DeathType"
+        },
+        {
+          "kind": "fn",
+          "line": 231,
+          "name": "from_u32"
+        }
+      ]
+    },
+    {
+      "cargo_reachable": true,
+      "classification": "implementation",
+      "file_range": {
         "end_line": 671,
         "start_line": 1
       },
@@ -213124,9 +213838,9 @@
       "no_reachable_implementation": 806,
       "ownership_range": 1,
       "ownership_symbol": 6,
-      "unreviewed_mapping": 1379,
-      "unreviewed_source_range_ownership": 68,
-      "unreviewed_symbol_ownership": 1388
+      "unreviewed_mapping": 1378,
+      "unreviewed_source_range_ownership": 67,
+      "unreviewed_symbol_ownership": 1387
     },
     "by_scope": {
       "game_engine": {
@@ -213135,9 +213849,9 @@
         "deferred_network": 47,
         "reachable_implementation_candidates": 486,
         "required": 539,
-        "reviewed_path_implementations": 10,
-        "source_range_ownership_reviewed": 2,
-        "symbol_ownership_reviewed": 1,
+        "reviewed_path_implementations": 11,
+        "source_range_ownership_reviewed": 3,
+        "symbol_ownership_reviewed": 2,
         "translation_units": 586
       },
       "game_engine_device": {
@@ -213190,10 +213904,10 @@
     "orphan_ownership_records": 0,
     "reachable_implementation_candidates": 583,
     "required_translation_units": 1389,
-    "reviewed_path_implementations": 10,
-    "source_range_ownership_reviewed": 2,
-    "strict_blockers": 4994,
-    "symbol_ownership_reviewed": 1,
+    "reviewed_path_implementations": 11,
+    "source_range_ownership_reviewed": 3,
+    "strict_blockers": 4991,
+    "symbol_ownership_reviewed": 2,
     "translation_units": 1436
   }
 }

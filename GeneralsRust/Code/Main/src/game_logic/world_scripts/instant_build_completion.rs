@@ -213,7 +213,7 @@ impl GameLogic {
             if splats {
                 self.apply_residual_damage_owned_with_effects(
                     id,
-                    gamelogic::damage::HUGE_DAMAGE_AMOUNT,
+                    generals_sim::damage::HUGE_DAMAGE_AMOUNT,
                     Some(id), // AIPathfind.cpp:4146 uses the falling occupant's ID.
                     crate::game_logic::combat::DamageType::Falling,
                     crate::game_logic::host_usa_pilot::HostDeathType::Splatted,

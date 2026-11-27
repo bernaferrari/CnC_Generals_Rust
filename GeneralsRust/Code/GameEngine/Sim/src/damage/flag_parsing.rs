@@ -1,4 +1,4 @@
-//! Original INI.cpp1780-1812: begin with all bits, then ALL/NONE/+name/-name.
+//! Original INI.cpp:1780–1812: begin with all bits, then ALL/NONE/+name/-name.
 use super::{DamageType, DamageTypeFlags};
 use game_engine::common::ini::INIError;
 use std::str::FromStr;

@@ -327,46 +327,7 @@ impl Default for GeometryInfo {
     }
 }
 
-/// Health and damage system
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Health {
-    pub current: f32,
-    pub maximum: f32,
-}
-
-impl Health {
-    pub fn new(max_health: f32) -> Self {
-        Self {
-            current: max_health,
-            maximum: max_health,
-        }
-    }
-
-    pub fn is_alive(&self) -> bool {
-        self.current > 0.0
-    }
-
-    pub fn is_full(&self) -> bool {
-        self.current >= self.maximum
-    }
-
-    pub fn percentage(&self) -> f32 {
-        if self.maximum > 0.0 {
-            self.current / self.maximum
-        } else {
-            0.0
-        }
-    }
-
-    pub fn damage(&mut self, amount: f32) {
-        self.current = (self.current - amount).max(0.0);
-    }
-
-    pub fn heal(&mut self, amount: f32) {
-        self.current = (self.current + amount).min(self.maximum);
-    }
-}
-
+pub use generals_sim::object::body::Health;
 pub use generals_sim::object::Movement;
 
 /// Economic resources

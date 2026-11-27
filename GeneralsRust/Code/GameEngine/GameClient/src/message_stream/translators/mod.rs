@@ -54,7 +54,7 @@ pub(in crate::message_stream::translators) use gamelogic::common::{
     CommandSourceType, KindOf, ObjectShroudStatus,
     ObjectStatusMaskType as LogicObjectStatusMaskType, Relationship,
 };
-pub(in crate::message_stream::translators) use gamelogic::damage::DamageType;
+pub(in crate::message_stream::translators) use generals_sim::damage::DamageType;
 pub(in crate::message_stream::translators) use gamelogic::helpers::{
     TheGameLogic, TheTerrainLogic,
 };

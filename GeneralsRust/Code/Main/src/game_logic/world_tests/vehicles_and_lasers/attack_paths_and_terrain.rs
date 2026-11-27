@@ -351,7 +351,7 @@ fn generic_object_fire_uses_weapon_ini_damage_type() {
         .expect("atk");
     assert_eq!(
         logic.host_object(atk).unwrap().selected_native_weapon_rule(0).unwrap().damage_type,
-        gamelogic::damage::DamageType::Sniper,
+        generals_sim::damage::DamageType::Sniper,
     );
     let tgt = logic
         .create_object("HqSzqaTank", Team::GLA, glam::Vec3::new(30.0, 0.0, 0.0))

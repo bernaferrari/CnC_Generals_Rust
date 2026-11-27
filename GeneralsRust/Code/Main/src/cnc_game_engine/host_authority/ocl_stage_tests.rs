@@ -342,7 +342,7 @@ fn actual_saved_map_ocl_candidate_uses_own_base_and_solo_without_mutating_active
                                 .unwrap()
                                 .find_template("SharedArmor")
                                 .unwrap()
-                                .adjust_damage(gamelogic::damage::DamageType::Explosion, 100.0),
+                                .adjust_damage(generals_sim::damage::DamageType::Explosion, 100.0),
                             25.0
                         );
                         Err("after actual map admission".into())

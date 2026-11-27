@@ -118,7 +118,7 @@ End
     object.last_damage_source = Some(ObjectId(9999));
     object.last_damage_info_type = Some(DamageType::Bullet);
     let mut authored = HostBoneFxAuthored::default();
-    authored.damage_fx_types = gamelogic::damage::DamageTypeFlags::HEALING.bits();
+    authored.damage_fx_types = generals_sim::damage::DamageTypeFlags::HEALING.bits();
     authored.fx[BodyDamageType::Pristine.ordinal() as usize][0] = Some(HostBoneFxSlot {
         bone: "Body".into(),
         only_once: true,
@@ -448,7 +448,7 @@ fn containment_amounts_preserve_authored_negative_maximum_before_armor() {
     // The original methods submit these amounts to Body::attemptHealing;
     // armor adjustment happens there, not in the containment calculator.
     let mut armor = generals_sim::armor::ArmorTemplate::new();
-    armor.set_coefficient(gamelogic::damage::DamageType::Healing, -1.0);
+    armor.set_coefficient(generals_sim::damage::DamageType::Healing, -1.0);
     for (elapsed, duration, expected) in [(0, 6, -20.0), (6, 6, -120.0), (0, 0, -120.0)] {
         assert_eq!(
             tunnel_tracker_heal_amount(-120.0, elapsed, duration),
@@ -459,7 +459,7 @@ fn containment_amounts_preserve_authored_negative_maximum_before_armor() {
             expected
         );
         assert_eq!(
-            armor.adjust_damage(gamelogic::damage::DamageType::Healing, expected),
+            armor.adjust_damage(generals_sim::damage::DamageType::Healing, expected),
             -expected,
             "negative input must reach armor before its resulting amount is clamped"
         );

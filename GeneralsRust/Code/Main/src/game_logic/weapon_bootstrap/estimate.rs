@@ -11,7 +11,7 @@ pub use generals_sim::weapon::{
 pub fn host_weapon_is_sniper_damage(name: &str) -> bool {
     super::with_host_weapon_store(|store| {
         store.find_weapon_template(name)
-            .is_some_and(|weapon| weapon.damage_type == gamelogic::damage::DamageType::Sniper)
+            .is_some_and(|weapon| weapon.damage_type == generals_sim::damage::DamageType::Sniper)
     })
     .unwrap_or(false)
 }
@@ -25,7 +25,7 @@ pub(in crate::game_logic) fn damage_estimate_from_rule(
     rule: &generals_sim::weapon::WeaponDefinition,
     primary_damage: f32,
 ) -> HostEstimateWeapon {
-    use gamelogic::damage::{DamageType, DeathType};
+    use generals_sim::damage::{DamageType, DeathType};
 
     HostEstimateWeapon {
         damage_type_sniper: rule.damage_type == DamageType::Sniper,
@@ -42,7 +42,7 @@ pub(in crate::game_logic) fn damage_estimate_from_rule(
 /// Read all estimate inputs for a mapless slot in one compatibility catalog lookup.
 pub(in crate::game_logic) fn host_estimate_named_weapon(
     name: &str,
-) -> Option<(gamelogic::damage::DamageType, HostEstimateWeapon)> {
+) -> Option<(generals_sim::damage::DamageType, HostEstimateWeapon)> {
     super::with_host_weapon_store(|store| {
         let rule = store.find_weapon_template(name)?;
         Some((

@@ -363,7 +363,7 @@ pub fn adjust_damage(
 /// Keeps all 38 C++ types (Damage.h:26-70); no SUBDUAL_*/Toppling/HazardCleanup
 /// → Unresistable and no Gattling/Sniper/AP/Melee/missile collapse to Bullet.
 pub fn map_store_damage_type(
-    dt: gamelogic::damage::DamageType,
+    dt: generals_sim::damage::DamageType,
 ) -> crate::game_logic::combat::DamageType {
     crate::game_logic::combat::DamageType::from_store(dt)
 }
@@ -374,7 +374,7 @@ pub fn damage_type_from_legacy_name(name: &str) -> crate::game_logic::combat::Da
     use crate::game_logic::host_enum_table_residual::damage_type_bit_name_index;
     if let Some(idx) = damage_type_bit_name_index(name) {
         return crate::game_logic::combat::DamageType::from_store(
-            gamelogic::damage::DamageType::from_u32(idx as u32),
+            generals_sim::damage::DamageType::from_u32(idx as u32),
         );
     }
     crate::game_logic::combat::DamageType::Explosive
@@ -385,7 +385,7 @@ pub fn death_type_from_legacy_name(name: &str) -> crate::game_logic::host_usa_pi
     use crate::game_logic::host_enum_table_residual::death_type_name_index;
     if let Some(idx) = death_type_name_index(name) {
         return crate::game_logic::host_usa_pilot::HostDeathType::from_store(
-            gamelogic::damage::DeathType::from_u32(idx as u32),
+            generals_sim::damage::DeathType::from_u32(idx as u32),
         );
     }
     crate::game_logic::host_usa_pilot::HostDeathType::Normal
@@ -476,7 +476,7 @@ mod tests {
 
     #[test]
     fn store_damage_type_maps_explosion_and_laser() {
-        use gamelogic::damage::DamageType as G;
+        use generals_sim::damage::DamageType as G;
         assert_eq!(
             map_store_damage_type(G::Explosion),
             crate::game_logic::combat::DamageType::Explosive
@@ -497,7 +497,7 @@ mod tests {
         // must not collapse SUBDUAL_* / Toppling / HazardCleanup to Unresistable,
         // or Gattling / Sniper / AP / Melee / missiles to Bullet.
         use crate::game_logic::combat::DamageType as H;
-        use gamelogic::damage::DamageType as G;
+        use generals_sim::damage::DamageType as G;
         assert_eq!(map_store_damage_type(G::SubdualMissile), H::SubdualMissile);
         assert_eq!(map_store_damage_type(G::SubdualVehicle), H::SubdualVehicle);
         assert_eq!(

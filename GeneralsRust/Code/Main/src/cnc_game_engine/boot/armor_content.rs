@@ -93,7 +93,7 @@ mod tests {
             selected
                 .find_template("Selected")
                 .unwrap()
-                .adjust_damage(gamelogic::damage::DamageType::Explosion, 100.0),
+                .adjust_damage(generals_sim::damage::DamageType::Explosion, 100.0),
             25.0
         );
         assert_eq!(
@@ -111,7 +111,7 @@ mod tests {
             selected
                 .find_template("Selected")
                 .unwrap()
-                .adjust_damage(gamelogic::damage::DamageType::Explosion, 100.0),
+                .adjust_damage(generals_sim::damage::DamageType::Explosion, 100.0),
             50.0
         );
         assert_eq!(requested, vec![ARMOR_PATHS[0], ARMOR_PATHS[1]]);

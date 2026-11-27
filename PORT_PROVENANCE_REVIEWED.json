@@ -87,6 +87,20 @@
       "destinations": [
         "GeneralsRust/Code/GameEngine/Common/src/common/dict.rs"
       ]
+    },
+    {
+      "source": "GeneralsMD/Code/GameEngine/Include/GameLogic/Damage.h",
+      "destinations": [
+        "GeneralsRust/Code/GameEngine/GameLogic/src/damage.rs",
+        "GeneralsRust/Code/GameEngine/Sim/src/damage.rs"
+      ]
+    },
+    {
+      "source": "GeneralsMD/Code/GameEngine/Source/GameLogic/System/Damage.cpp",
+      "destinations": [
+        "GeneralsRust/Code/GameEngine/GameLogic/src/damage.rs",
+        "GeneralsRust/Code/GameEngine/Sim/src/damage.rs"
+      ]
     }
   ],
   "ownership": [
@@ -579,6 +593,92 @@
           "end_line": 518,
           "path": "GeneralsRust/Code/GameEngine/Common/src/common/dict.rs",
           "sha256": "dac2f5cf21f8951b8f95c84f1593fc30c11befe2b9a95cd849762c235aea0298"
+        }
+      ]
+    },
+    {
+      "source": "GeneralsMD/Code/GameEngine/Source/GameLogic/System/Damage.cpp",
+      "source_sha256": "b61ed744624533e260bf11c9cde69fde8c70909a502754c76574e19bcaa9eb94",
+      "symbols": [
+        {
+          "name": "initDamageTypeFlags",
+          "line": 65,
+          "assignments": [
+            {
+              "path": "GeneralsRust/Code/GameEngine/Sim/src/damage/masks.rs",
+              "sha256": "f9a8518f59d612ad84a6e7464e1fe4277b09183e8948c1b48dc33bbe8c8b81c7",
+              "symbols": [
+                "DAMAGE_TYPE_FLAGS_ALL",
+                "DAMAGE_TYPE_FLAGS_NONE"
+              ],
+              "deviation": null
+            }
+          ]
+        },
+        {
+          "name": "DamageInfo::xfer",
+          "line": 75,
+          "assignments": [
+            {
+              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/damage.rs",
+              "sha256": "29d8775e028ff1c05d7e528f3673899eb9c8d884e5ec3617c0992472f590a0d0",
+              "symbols": [
+                "DamageInfo",
+                "xfer"
+              ],
+              "deviation": null
+            }
+          ]
+        },
+        {
+          "name": "DamageInfoInput::xfer",
+          "line": 98,
+          "assignments": [
+            {
+              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/damage.rs",
+              "sha256": "29d8775e028ff1c05d7e528f3673899eb9c8d884e5ec3617c0992472f590a0d0",
+              "symbols": [
+                "DamageInfoInput",
+                "xfer"
+              ],
+              "deviation": null
+            }
+          ]
+        },
+        {
+          "name": "DamageInfoOutput::xfer",
+          "line": 155,
+          "assignments": [
+            {
+              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/damage.rs",
+              "sha256": "29d8775e028ff1c05d7e528f3673899eb9c8d884e5ec3617c0992472f590a0d0",
+              "symbols": [
+                "DamageInfoOutput",
+                "xfer"
+              ],
+              "deviation": null
+            }
+          ]
+        }
+      ],
+      "source_ranges": [
+        {
+          "start_line": 1,
+          "end_line": 61,
+          "path": "GeneralsRust/Code/GameEngine/Sim/src/damage.rs",
+          "sha256": "0c64fd1915d3fa68ebaa7507ec1e10a5ad1183246f8acac6ae2ad60db5ffdbdf"
+        },
+        {
+          "start_line": 62,
+          "end_line": 69,
+          "path": "GeneralsRust/Code/GameEngine/Sim/src/damage/masks.rs",
+          "sha256": "f9a8518f59d612ad84a6e7464e1fe4277b09183e8948c1b48dc33bbe8c8b81c7"
+        },
+        {
+          "start_line": 70,
+          "end_line": 173,
+          "path": "GeneralsRust/Code/GameEngine/GameLogic/src/damage.rs",
+          "sha256": "29d8775e028ff1c05d7e528f3673899eb9c8d884e5ec3617c0992472f590a0d0"
         }
       ]
     }

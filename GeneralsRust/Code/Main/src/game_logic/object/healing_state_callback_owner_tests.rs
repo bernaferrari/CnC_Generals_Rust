@@ -33,7 +33,7 @@ fn body() -> Object {
     object.last_damage_info_type = Some(DamageType::Bullet);
     object.last_damage_timestamp = Some(10);
     let mut authored = HostBoneFxAuthored::default();
-    authored.damage_fx_types = gamelogic::damage::DamageTypeFlags::HEALING.bits();
+    authored.damage_fx_types = generals_sim::damage::DamageTypeFlags::HEALING.bits();
     for state in [BodyDamageType::Damaged, BodyDamageType::Pristine] {
         authored.fx[state.ordinal() as usize][0] = Some(HostBoneFxSlot {
             bone: "Body".into(),

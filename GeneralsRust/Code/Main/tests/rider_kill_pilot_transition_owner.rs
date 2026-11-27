@@ -1,6 +1,6 @@
 //! A real attack command drives KillPilot damage through RiderChange's
 //! TransitionDamageFX callback against each receiving world's OCL catalog.
-use gamelogic::damage::DamageType as NativeDamageType;
+use generals_sim::damage::DamageType as NativeDamageType;
 use generals_main::command_system::{CommandType, GameCommand, ModifierKeys};
 use generals_main::game_logic::{AIState, GameLogic, ObjectAudio, ObjectId, Player, SessionAudio, Team};
 use glam::Vec3;

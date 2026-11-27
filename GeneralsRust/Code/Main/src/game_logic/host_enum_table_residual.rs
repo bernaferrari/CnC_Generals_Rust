@@ -34,50 +34,9 @@ use std::sync::OnceLock;
 // DamageType residual table (Damage.cpp s_bitNameList)
 // ---------------------------------------------------------------------------
 
-/// C++ `DAMAGE_NUM_TYPES` residual (Damage.h).
-pub const DAMAGE_NUM_TYPES: u32 = 38;
+pub const DAMAGE_TYPE_BIT_NAME_LIST: &[&str] = &generals_sim::damage::DAMAGE_TYPE_FLAG_NAMES;
 
-/// Ordered C++ `DamageTypeFlags::s_bitNameList` residual (excluding trailing NULL).
-pub const DAMAGE_TYPE_BIT_NAME_LIST: &[&str] = &[
-    "EXPLOSION",
-    "CRUSH",
-    "ARMOR_PIERCING",
-    "SMALL_ARMS",
-    "GATTLING",
-    "RADIATION",
-    "FLAME",
-    "LASER",
-    "SNIPER",
-    "POISON",
-    "HEALING",
-    "UNRESISTABLE",
-    "WATER",
-    "DEPLOY",
-    "SURRENDER",
-    "HACK",
-    "KILL_PILOT",
-    "PENALTY",
-    "FALLING",
-    "MELEE",
-    "DISARM",
-    "HAZARD_CLEANUP",
-    "PARTICLE_BEAM",
-    "TOPPLING",
-    "INFANTRY_MISSILE",
-    "AURORA_BOMB",
-    "LAND_MINE",
-    "JET_MISSILES",
-    "STEALTHJET_MISSILES",
-    "MOLOTOV_COCKTAIL",
-    "COMANCHE_VULCAN",
-    "SUBDUAL_MISSILE",
-    "SUBDUAL_VEHICLE",
-    "SUBDUAL_BUILDING",
-    "SUBDUAL_UNRESISTABLE",
-    "MICROWAVE",
-    "KILL_GARRISONED",
-    "STATUS",
-];
+pub const DAMAGE_NUM_TYPES: u32 = generals_sim::damage::DAMAGE_TYPE_COUNT as u32;
 
 /// Lookup DamageType bit-name index residual.
 pub fn damage_type_bit_name_index(name: &str) -> Option<usize> {
@@ -90,33 +49,9 @@ pub fn damage_type_bit_name_index(name: &str) -> Option<usize> {
 // DeathType residual table (Damage.h TheDeathNames)
 // ---------------------------------------------------------------------------
 
-/// C++ `DEATH_NUM_TYPES` residual (Damage.h).
-pub const DEATH_NUM_TYPES: u32 = 21;
+pub const DEATH_TYPE_NAME_LIST: &[&str] = &generals_sim::damage::DEATH_TYPE_NAMES;
 
-/// Ordered C++ `TheDeathNames` residual (DEFINE_DEATH_NAMES), excluding NULL.
-pub const DEATH_TYPE_NAME_LIST: &[&str] = &[
-    "NORMAL",
-    "NONE",
-    "CRUSHED",
-    "BURNED",
-    "EXPLODED",
-    "POISONED",
-    "TOPPLED",
-    "FLOODED",
-    "SUICIDED",
-    "LASERED",
-    "DETONATED",
-    "SPLATTED",
-    "POISONED_BETA",
-    "EXTRA_2",
-    "EXTRA_3",
-    "EXTRA_4",
-    "EXTRA_5",
-    "EXTRA_6",
-    "EXTRA_7",
-    "EXTRA_8",
-    "POISONED_GAMMA",
-];
+pub const DEATH_NUM_TYPES: u32 = generals_sim::damage::DEATH_TYPE_COUNT as u32;
 
 /// Lookup DeathType name index residual.
 pub fn death_type_name_index(name: &str) -> Option<usize> {

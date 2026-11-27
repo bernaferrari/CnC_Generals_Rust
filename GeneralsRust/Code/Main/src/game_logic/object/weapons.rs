@@ -1293,11 +1293,11 @@ impl Object {
         let damage = self.estimated_slot_damage_vs(slot, target);
         let damage_type = self
             .leftover_slot_damage_type(slot)
-            .unwrap_or(gamelogic::damage::DamageType::Explosion);
+            .unwrap_or(generals_sim::damage::DamageType::Explosion);
         !weapon_damage_is_eligible(damage, damage_type)
     }
 
-    fn leftover_slot_damage_type(&self, slot: u8) -> Option<gamelogic::damage::DamageType> {
+    fn leftover_slot_damage_type(&self, slot: u8) -> Option<generals_sim::damage::DamageType> {
         if let Some(rule) = self.selected_native_weapon_rule(slot) {
             return Some(rule.damage_type);
         }

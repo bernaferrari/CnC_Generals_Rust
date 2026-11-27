@@ -1397,7 +1397,7 @@ fn leftover_puc_authored_types(
         }
         let data = entry.data.read();
         let ini_damage = data.get_ini_field("DamageType")
-            .and_then(|raw| gamelogic::damage::DamageType::from_str(raw.trim()).ok())
+            .and_then(|raw| generals_sim::damage::DamageType::from_str(raw.trim()).ok())
             .map(crate::game_logic::combat::DamageType::from_store);
         let ini_death = data.get_ini_field("DeathType")
             .map(|raw| parse_puc_death_type(raw.trim()));

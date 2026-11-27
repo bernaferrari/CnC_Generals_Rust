@@ -1644,7 +1644,7 @@ fn nearer_bridge_end_is_not_span_center() {
 #[test]
 fn aurora_seed_damage_type_is_aurora_bomb_not_explosion() {
     use super::store::seed_damage_type_for;
-    use gamelogic::damage::DamageType;
+    use generals_sim::damage::DamageType;
     for name in [
         "AuroraBombWeapon",
         "AirF_AuroraBombWeapon",

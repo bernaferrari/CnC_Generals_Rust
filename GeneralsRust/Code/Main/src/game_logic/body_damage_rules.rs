@@ -2,30 +2,7 @@
 use generals_sim::object::BodyDamageType;
 pub(crate) use game_engine::common::ini::ini_game_data::BodyDamageRules;
 
-/// Standalone compatibility cannot masquerade as admitted application content.
-/// This is immutable definition data, not a second writable Body state.
-#[derive(Debug, Clone, Copy, PartialEq, Default)]
-pub(crate) enum BodyDamagePolicy {
-    #[default]
-    StandaloneRetail,
-    Receiving(BodyDamageRules),
-}
-impl BodyDamagePolicy {
-    pub(crate) fn health_for_state(self, maximum: f32, state: BodyDamageType) -> f32 {
-        let rules = match self {
-            Self::StandaloneRetail => BodyDamageRules::standalone_retail(),
-            Self::Receiving(rules) => rules,
-        };
-        generals_sim::object::body::health_for_body_damage_state(maximum, state, rules.thresholds())
-    }
-    pub(crate) fn classify(self, health: f32, maximum: f32) -> BodyDamageType {
-        let rules = match self {
-            Self::StandaloneRetail => BodyDamageRules::standalone_retail(),
-            Self::Receiving(rules) => rules,
-        };
-        generals_sim::object::body::classify_body_damage(health, maximum, rules.thresholds())
-    }
-}
+pub(crate) use generals_sim::object::body::BodyDamagePolicy;
 
 #[derive(Debug, Clone, Copy, Default)]
 pub(crate) struct BodyDamageDefinitions {

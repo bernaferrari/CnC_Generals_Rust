@@ -63,7 +63,7 @@ pub struct HostBoneFxAuthored {
 }
 
 fn all_damage_type_bits() -> u64 {
-    gamelogic::damage::DamageTypeFlags::all_flags().bits()
+    generals_sim::damage::DamageTypeFlags::all_flags().bits()
 }
 
 impl Default for HostBoneFxAuthored {
@@ -531,8 +531,8 @@ impl HostBoneFxDamageData {
         let Some(ordinal) = self.last_damage_type else {
             return true;
         };
-        let mask = gamelogic::damage::DamageTypeFlags::from_bits_truncate(flags);
-        mask.contains_damage_type(gamelogic::damage::DamageType::from_u32(ordinal))
+        let mask = generals_sim::damage::DamageTypeFlags::from_bits_truncate(flags);
+        mask.contains_damage_type(generals_sim::damage::DamageType::from_u32(ordinal))
     }
 
     fn init_times(&mut self, now: i32) {
@@ -881,8 +881,8 @@ fn authored_from_object_definition(
 }
 
 /// Leftover `parse_damage_type_flags` (BoneFXUpdate.cpp INI Damage*Types).
-fn parse_damage_type_flags_attr(raw: &str) -> gamelogic::damage::DamageTypeFlags {
-    use gamelogic::damage::{DamageType, DamageTypeFlags};
+fn parse_damage_type_flags_attr(raw: &str) -> generals_sim::damage::DamageTypeFlags {
+    use generals_sim::damage::{DamageType, DamageTypeFlags};
     use std::str::FromStr;
     let mut flags = DamageTypeFlags::empty();
     let mut any = false;
@@ -1523,7 +1523,7 @@ mod tests {
 
     #[test]
     fn damage_type_flags_parse_all_minus() {
-        use gamelogic::damage::DamageType;
+        use generals_sim::damage::DamageType;
         let flags = parse_damage_type_flags_attr("ALL -HEALING");
         assert!(flags.contains_damage_type(DamageType::Flame));
         assert!(!flags.contains_damage_type(DamageType::Healing));

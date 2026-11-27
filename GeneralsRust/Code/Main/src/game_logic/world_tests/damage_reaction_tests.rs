@@ -88,7 +88,7 @@ fn install_reaction_target(logic: &mut GameLogic) -> ObjectId {
         .unwrap();
     assert_eq!(
         crate::game_logic::armor::armor_for_object(logic.host_object(id).unwrap())
-            .adjust_damage(gamelogic::damage::DamageType::Poison, 1.0),
+            .adjust_damage(generals_sim::damage::DamageType::Poison, 1.0),
         0.25
     );
     // C++ ThingFactory registers with the partition, but cell coverage only

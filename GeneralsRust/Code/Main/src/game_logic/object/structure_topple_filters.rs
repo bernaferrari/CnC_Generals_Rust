@@ -14,7 +14,7 @@ impl Object {
                 self.experience.level,
             ),
             self.structure_topple_status_mask(),
-            gamelogic::damage::DeathType::from_u32(self.status.death_type.ordinal() as u32),
+            generals_sim::damage::DeathType::from_u32(self.status.death_type.ordinal() as u32),
         )
     }
 
@@ -22,14 +22,14 @@ impl Object {
         let flags = match &self.thing.template.structure_topple_definition {
             Some(Ok(definition)) => definition.damage_fx_types,
             Some(Err(_)) => return false,
-            None => gamelogic::damage::DamageTypeFlags::all_flags(),
+            None => generals_sim::damage::DamageTypeFlags::all_flags(),
         };
         // CPP ActiveBody.h:68 returns a record even before the first hit;
         // DamageInfoInput (Damage.h:243–247) initializes its type to EXPLOSION.
         // A missing timestamp/type in Main is not BodyModule's NULL record.
         // InactiveBody inherits that NULL getter and permits the FX instead.
         self.is_inactive_body()
-            || gamelogic::damage::get_damage_type_flag(
+            || generals_sim::damage::get_damage_type_flag(
                 flags,
                 self.last_damage_info_type
                     .unwrap_or(crate::game_logic::combat::DamageType::Explosive)

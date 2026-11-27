@@ -2478,7 +2478,6 @@ impl SubsystemManager {
             // subsystem init and before the first reset/game start.
             game_engine::common::system::kind_of::init_kind_of_masks();
             game_engine::common::system::disabled_types::init_disabled_masks();
-            gamelogic::damage::init_damage_type_flags();
         }
         Ok(())
     }

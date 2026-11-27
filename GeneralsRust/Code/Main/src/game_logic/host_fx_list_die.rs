@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use crate::game_logic::host_usa_pilot::HostDeathType;
 
 fn default_death_types() -> u32 {
-    gamelogic::damage::DEATH_TYPE_FLAGS_ALL
+    generals_sim::damage::DEATH_TYPE_FLAGS_ALL
 }
 
 fn default_veterancy_levels() -> u32 {

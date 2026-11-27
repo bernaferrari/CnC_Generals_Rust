@@ -17,7 +17,7 @@ fn coefficient(world: &GameLogic) -> f32 {
         .unwrap()
         .find_template("SharedArmor")
         .unwrap()
-        .adjust_damage(gamelogic::damage::DamageType::Explosion, 100.0)
+        .adjust_damage(generals_sim::damage::DamageType::Explosion, 100.0)
 }
 fn map_at(directory: &std::path::Path) -> std::path::PathBuf {
     let mut data = game_engine::common::system::DataChunkOutput::new();

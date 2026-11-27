@@ -30,21 +30,21 @@ mod transition_slots;
 use transition_slots::{TransitionSlotEffect, for_each_transition_slot};
 
 fn default_leftover_damage_type_flags() -> u64 {
-    gamelogic::damage::DAMAGE_TYPE_FLAGS_ALL.bits()
+    generals_sim::damage::DAMAGE_TYPE_FLAGS_ALL.bits()
 }
 
-fn leftover_damage_type_flags(bits: u64) -> gamelogic::damage::DamageTypeFlags {
-    gamelogic::damage::DamageTypeFlags::from_bits_truncate(bits)
+fn leftover_damage_type_flags(bits: u64) -> generals_sim::damage::DamageTypeFlags {
+    generals_sim::damage::DamageTypeFlags::from_bits_truncate(bits)
 }
 
 /// C++ `lastDamageInfo == NULL || getDamageTypeFlag(mask, lastDamage)`.
 pub fn leftover_should_play_for_damage_type(
     mask_bits: u64,
-    last_damage: Option<gamelogic::damage::DamageType>,
+    last_damage: Option<generals_sim::damage::DamageType>,
 ) -> bool {
     match last_damage {
         Some(info) => {
-            gamelogic::damage::get_damage_type_flag(leftover_damage_type_flags(mask_bits), info)
+            generals_sim::damage::get_damage_type_flag(leftover_damage_type_flags(mask_bits), info)
         }
         None => true,
     }
@@ -61,15 +61,15 @@ fn parse_leftover_damage_type_flags(raw: &str) -> Option<u64> {
     if tokens.is_empty() {
         return None;
     }
-    let mut flags = gamelogic::damage::DamageTypeFlags::empty();
+    let mut flags = generals_sim::damage::DamageTypeFlags::empty();
     for token in tokens {
         for entry in token.split(',').map(str::trim).filter(|t| !t.is_empty()) {
             if entry.eq_ignore_ascii_case("ALL") {
-                flags = gamelogic::damage::DamageTypeFlags::all_flags();
+                flags = generals_sim::damage::DamageTypeFlags::all_flags();
                 continue;
             }
             if entry.eq_ignore_ascii_case("NONE") {
-                flags = gamelogic::damage::DamageTypeFlags::empty();
+                flags = generals_sim::damage::DamageTypeFlags::empty();
                 continue;
             }
             let (remove, name) = if let Some(stripped) = entry.strip_prefix('-') {
@@ -79,9 +79,9 @@ fn parse_leftover_damage_type_flags(raw: &str) -> Option<u64> {
             } else {
                 (false, entry)
             };
-            if let Ok(damage_type) = gamelogic::damage::DamageType::from_str(name) {
+            if let Ok(damage_type) = generals_sim::damage::DamageType::from_str(name) {
                 let flag =
-                    gamelogic::damage::DamageTypeFlags::from_bits_truncate(1 << damage_type as u64);
+                    generals_sim::damage::DamageTypeFlags::from_bits_truncate(1 << damage_type as u64);
                 if remove {
                     flags.remove(flag);
                 } else {
@@ -297,7 +297,7 @@ pub fn transition_event_for_damage(
     data: &HostTransitionDamageFxData,
     old_state: BodyDamageType,
     new_state: BodyDamageType,
-    last_damage: Option<gamelogic::damage::DamageType>,
+    last_damage: Option<generals_sim::damage::DamageType>,
 ) -> Option<HostTransitionDamageFxEvent> {
     on_body_damage_state_change_for_damage(data, old_state, new_state, last_damage).and_then(|ev| {
         if ev.fx_name.is_none()
@@ -327,7 +327,7 @@ pub fn on_body_damage_state_change_for_damage(
     data: &HostTransitionDamageFxData,
     old_state: BodyDamageType,
     new_state: BodyDamageType,
-    last_damage: Option<gamelogic::damage::DamageType>,
+    last_damage: Option<generals_sim::damage::DamageType>,
 ) -> Option<HostTransitionDamageFxEvent> {
     if !data.enabled {
         return None;
@@ -1180,45 +1180,45 @@ fn host_to_ini_damage_type(
 ) -> game_engine::common::ini::ini_damage_fx::DamageType {
     use game_engine::common::ini::ini_damage_fx::DamageType as I;
     match host.to_store() {
-        gamelogic::damage::DamageType::Explosion => I::Explosion,
-        gamelogic::damage::DamageType::Crush => I::Crush,
-        gamelogic::damage::DamageType::ArmorPiercing => I::ArmorPiercing,
-        gamelogic::damage::DamageType::SmallArms => I::SmallArms,
-        gamelogic::damage::DamageType::Gattling => I::Gattling,
-        gamelogic::damage::DamageType::Radiation => I::Radiation,
-        gamelogic::damage::DamageType::Flame => I::Flame,
-        gamelogic::damage::DamageType::Laser => I::Laser,
-        gamelogic::damage::DamageType::Sniper => I::Sniper,
-        gamelogic::damage::DamageType::Poison => I::Poison,
-        gamelogic::damage::DamageType::Healing => I::Healing,
-        gamelogic::damage::DamageType::Unresistable => I::Unresistable,
-        gamelogic::damage::DamageType::Water => I::Water,
-        gamelogic::damage::DamageType::Deploy => I::Deploy,
-        gamelogic::damage::DamageType::Surrender => I::Surrender,
-        gamelogic::damage::DamageType::Hack => I::Hack,
-        gamelogic::damage::DamageType::KillPilot => I::KillPilot,
-        gamelogic::damage::DamageType::Penalty => I::Penalty,
-        gamelogic::damage::DamageType::Falling => I::Falling,
-        gamelogic::damage::DamageType::Melee => I::Melee,
-        gamelogic::damage::DamageType::Disarm => I::Disarm,
-        gamelogic::damage::DamageType::HazardCleanup => I::HazardCleanup,
-        gamelogic::damage::DamageType::ParticleBeam => I::ParticleBeam,
-        gamelogic::damage::DamageType::Toppling => I::Toppling,
-        gamelogic::damage::DamageType::InfantryMissile => I::InfantryMissile,
-        gamelogic::damage::DamageType::AuroraBomb => I::AuroraBomb,
-        gamelogic::damage::DamageType::LandMine => I::LandMine,
-        gamelogic::damage::DamageType::JetMissiles => I::JetMissiles,
-        gamelogic::damage::DamageType::StealthJetMissiles => I::StealthJetMissiles,
-        gamelogic::damage::DamageType::MolotovCocktail => I::MolotovCocktail,
-        gamelogic::damage::DamageType::ComancheVulcan => I::ComancheVulcan,
-        gamelogic::damage::DamageType::SubdualMissile => I::SubdualMissile,
-        gamelogic::damage::DamageType::SubdualVehicle => I::SubdualVehicle,
-        gamelogic::damage::DamageType::SubdualBuilding => I::SubdualBuilding,
-        gamelogic::damage::DamageType::SubdualUnresistable => I::SubdualUnresistable,
-        gamelogic::damage::DamageType::Microwave => I::Microwave,
-        gamelogic::damage::DamageType::KillGarrisoned => I::KillGarrisoned,
-        gamelogic::damage::DamageType::Status => I::Status,
-        gamelogic::damage::DamageType::DamageNumTypes => I::Unresistable,
+        generals_sim::damage::DamageType::Explosion => I::Explosion,
+        generals_sim::damage::DamageType::Crush => I::Crush,
+        generals_sim::damage::DamageType::ArmorPiercing => I::ArmorPiercing,
+        generals_sim::damage::DamageType::SmallArms => I::SmallArms,
+        generals_sim::damage::DamageType::Gattling => I::Gattling,
+        generals_sim::damage::DamageType::Radiation => I::Radiation,
+        generals_sim::damage::DamageType::Flame => I::Flame,
+        generals_sim::damage::DamageType::Laser => I::Laser,
+        generals_sim::damage::DamageType::Sniper => I::Sniper,
+        generals_sim::damage::DamageType::Poison => I::Poison,
+        generals_sim::damage::DamageType::Healing => I::Healing,
+        generals_sim::damage::DamageType::Unresistable => I::Unresistable,
+        generals_sim::damage::DamageType::Water => I::Water,
+        generals_sim::damage::DamageType::Deploy => I::Deploy,
+        generals_sim::damage::DamageType::Surrender => I::Surrender,
+        generals_sim::damage::DamageType::Hack => I::Hack,
+        generals_sim::damage::DamageType::KillPilot => I::KillPilot,
+        generals_sim::damage::DamageType::Penalty => I::Penalty,
+        generals_sim::damage::DamageType::Falling => I::Falling,
+        generals_sim::damage::DamageType::Melee => I::Melee,
+        generals_sim::damage::DamageType::Disarm => I::Disarm,
+        generals_sim::damage::DamageType::HazardCleanup => I::HazardCleanup,
+        generals_sim::damage::DamageType::ParticleBeam => I::ParticleBeam,
+        generals_sim::damage::DamageType::Toppling => I::Toppling,
+        generals_sim::damage::DamageType::InfantryMissile => I::InfantryMissile,
+        generals_sim::damage::DamageType::AuroraBomb => I::AuroraBomb,
+        generals_sim::damage::DamageType::LandMine => I::LandMine,
+        generals_sim::damage::DamageType::JetMissiles => I::JetMissiles,
+        generals_sim::damage::DamageType::StealthJetMissiles => I::StealthJetMissiles,
+        generals_sim::damage::DamageType::MolotovCocktail => I::MolotovCocktail,
+        generals_sim::damage::DamageType::ComancheVulcan => I::ComancheVulcan,
+        generals_sim::damage::DamageType::SubdualMissile => I::SubdualMissile,
+        generals_sim::damage::DamageType::SubdualVehicle => I::SubdualVehicle,
+        generals_sim::damage::DamageType::SubdualBuilding => I::SubdualBuilding,
+        generals_sim::damage::DamageType::SubdualUnresistable => I::SubdualUnresistable,
+        generals_sim::damage::DamageType::Microwave => I::Microwave,
+        generals_sim::damage::DamageType::KillGarrisoned => I::KillGarrisoned,
+        generals_sim::damage::DamageType::Status => I::Status,
+        generals_sim::damage::DamageType::DamageNumTypes => I::Unresistable,
     }
 }
 
@@ -1598,7 +1598,7 @@ mod tests {
             &d,
             BodyDamageType::Pristine,
             BodyDamageType::Damaged,
-            Some(gamelogic::damage::DamageType::Explosion),
+            Some(generals_sim::damage::DamageType::Explosion),
         )
         .expect("ocl still plays");
         assert!(explosion.fx_name.is_none());
@@ -1608,7 +1608,7 @@ mod tests {
             &d,
             BodyDamageType::Pristine,
             BodyDamageType::Damaged,
-            Some(gamelogic::damage::DamageType::Flame),
+            Some(generals_sim::damage::DamageType::Flame),
         )
         .expect("flame plays fx");
         assert_eq!(flame.fx_name.as_deref(), Some("FX_AuthoredDamaged"));

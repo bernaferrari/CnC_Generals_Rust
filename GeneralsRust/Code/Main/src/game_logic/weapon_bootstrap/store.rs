@@ -94,9 +94,9 @@ pub(super) fn try_load_weapon_ini_from_disk() -> usize {
 
 pub(super) fn seed_death_type_for(
     name: &str,
-    damage_type: gamelogic::damage::DamageType,
-) -> gamelogic::damage::DeathType {
-    use gamelogic::damage::{DamageType as Dmg, DeathType as Dth};
+    damage_type: generals_sim::damage::DamageType,
+) -> generals_sim::damage::DeathType {
+    use generals_sim::damage::{DamageType as Dmg, DeathType as Dth};
     let n = name.to_ascii_lowercase();
     // Weapon.ini AvengerAirLaserOne/Two use SMALL_ARMS / NORMAL despite
     // their names. Preserve authored death semantics before name heuristics.
@@ -143,8 +143,8 @@ pub(super) fn seed_death_type_for(
     }
 }
 
-pub(super) fn seed_damage_type_for(name: &str, weapon_speed: f32) -> gamelogic::damage::DamageType {
-    use gamelogic::damage::DamageType as D;
+pub(super) fn seed_damage_type_for(name: &str, weapon_speed: f32) -> generals_sim::damage::DamageType {
+    use generals_sim::damage::DamageType as D;
     let n = name.to_ascii_lowercase();
     // WeaponSet.cpp:845-855 estimates armor-adjusted damage before choosing
     // a slot. LASER would incorrectly make these SMALL_ARMS shots harmless
@@ -1138,7 +1138,7 @@ pub(super) fn seed_known_host_weapons() -> usize {
         // Retail Weapon.ini's exact Avenger rule declares FAERIE_FIRE.
         // Parsed definitions bypass seeding; their default/explicit NONE stays NONE.
         if seed.name == AVENGER_TARGET_DESIGNATOR {
-            t.damage_type = gamelogic::damage::DamageType::Status;
+            t.damage_type = generals_sim::damage::DamageType::Status;
             t.damage_status_type = generals_sim::object::ObjectStatusTypes::FaerieFire.into();
         }
         t.death_type = seed_death_type_for(seed.name, t.damage_type);

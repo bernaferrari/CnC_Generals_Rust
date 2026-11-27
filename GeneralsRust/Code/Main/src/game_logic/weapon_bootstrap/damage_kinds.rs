@@ -174,7 +174,7 @@ pub fn host_weapon_is_kill_garrisoned_damage(name: &str) -> bool {
     with_weapon_store(|store| {
         store
             .find_weapon_template(name)
-            .map(|weapon| weapon.damage_type == gamelogic::damage::DamageType::KillGarrisoned)
+            .map(|weapon| weapon.damage_type == generals_sim::damage::DamageType::KillGarrisoned)
     })
     .ok()
     .flatten()

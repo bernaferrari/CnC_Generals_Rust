@@ -300,7 +300,7 @@ fn forced_penalty_kill_overrides_scalar_and_keeps_cpp_extra4_ordinal() {
     );
     assert_eq!(
         crate::game_logic::host_usa_pilot::HostDeathType::from_store(
-            gamelogic::damage::DeathType::Extra4
+            generals_sim::damage::DeathType::Extra4
         ),
         object.status.death_type
     );

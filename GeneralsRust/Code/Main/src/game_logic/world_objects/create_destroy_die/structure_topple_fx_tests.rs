@@ -502,8 +502,8 @@ fn crushing_weapon(name: &str, damage: f32) -> generals_sim::weapon::WeaponDefin
     let mut weapon = generals_sim::weapon::WeaponDefinition::new(name.into());
     weapon.primary_damage = damage;
     weapon.primary_damage_radius = 20.0;
-    weapon.damage_type = gamelogic::damage::DamageType::Explosion;
-    weapon.death_type = gamelogic::damage::DeathType::Exploded;
+    weapon.damage_type = generals_sim::damage::DamageType::Explosion;
+    weapon.death_type = generals_sim::damage::DeathType::Exploded;
     weapon
 }
 fn crushing_point(

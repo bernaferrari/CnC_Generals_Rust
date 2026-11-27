@@ -12,7 +12,7 @@ mod missile_motion;
 pub(crate) use missile_motion::MissileMotion;
 pub(in crate::game_logic) use missile_motion::MissileInitialVelocity;
 
-include!("damage.rs");
+pub use generals_sim::damage::{ArmorType, CombatDamage as DamageType, DamageResult};
 include!("projectile.rs");
 include!("weapon_fire.rs");
 include!("resolution.rs");

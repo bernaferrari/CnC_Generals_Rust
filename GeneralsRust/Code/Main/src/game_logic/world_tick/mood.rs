@@ -1306,7 +1306,7 @@ impl GameLogic {
                     let Some((damage_type, est)) = estimate else {
                         return false;
                     };
-                    if skip_hero_kill_pilot && damage_type == gamelogic::damage::DamageType::KillPilot {
+                    if skip_hero_kill_pilot && damage_type == generals_sim::damage::DamageType::KillPilot {
                         return false;
                     }
                     let dt = crate::game_logic::armor::map_store_damage_type(damage_type);
