@@ -7,8 +7,9 @@ use gamelogic::scripting::ScriptSurfacesAllowed;
 use gamelogic::scripting::engine::ScriptEngine;
 use generals_sim::scripting::driver::ScriptExecutionDriver;
 use generals_sim::scripting::world::{
-    ScriptAiPlayerRequest, ScriptBridgeStatus, ScriptCameraRequest, ScriptDisplayRequest,
-    ScriptNamedCommand, ScriptObjectStatus, ScriptOwnerQuery, ScriptPlayerAreaQuery,
+    ScriptAiPlayerRequest, ScriptAttacker, ScriptBridgeStatus, ScriptCameraRequest,
+    ScriptConditionTeam, ScriptDamageSource, ScriptDisplayRequest, ScriptNamedCommand,
+    ScriptObjectStatus, ScriptOwnerQuery, ScriptPlayerAreaQuery,
     ScriptPlayerConstructionRequest, ScriptPlayerRankRequest,
     ScriptSightingCandidate, ScriptSightingFilter, ScriptSightingObserver, ScriptSkirmishCensus,
     ScriptSpecialPowerReadiness, ScriptSupplyQuery,
@@ -191,7 +192,7 @@ impl HostScriptExecutionDriver<'_> {
 
     /// CPP OpenContain::addOrRemoveObjFromWorld removes enclosed riders and
     /// their descendants from the partition. Non-enclosing riders stay visible.
-    fn sighting_candidate_is_in_partition(&self, candidate: &Object) -> bool {
+    fn is_in_script_partition(&self, candidate: &Object) -> bool {
         let mut rider = candidate;
         // A valid containment chain cannot visit more objects than this world
         // owns. Broken references and cycles cannot supply a visible candidate.
@@ -1457,6 +1458,12 @@ impl ScriptExecutionDriver<ScriptEngine> for HostScriptExecutionDriver<'_> {
         ScriptOwnerQuery::Present(found)
     }
 
+    fn player_was_attacked(&self, player: u32, attacker: u32) -> bool {
+        self.world
+            .get_player(player)
+            .is_some_and(|player| player.get_attacked_by(attacker as i32))
+    }
+
     fn player_outside_area_preflight(
         &mut self,
         player: &str,
@@ -1794,7 +1801,7 @@ impl ScriptExecutionDriver<ScriptEngine> for HostScriptExecutionDriver<'_> {
         self.world.host_objects().registered_values().any(|candidate| {
             candidate.id != looker.id
                 && !candidate.status.effectively_dead
-                && self.sighting_candidate_is_in_partition(candidate)
+                && self.is_in_script_partition(candidate)
                 && filter.accepts(
                     observer,
                     ScriptSightingCandidate {
@@ -3112,6 +3119,78 @@ impl ScriptExecutionDriver<ScriptEngine> for HostScriptExecutionDriver<'_> {
             .unwrap_or(ScriptOwnerQuery::Missing)
     }
 
+    fn condition_team_roster(
+        &self,
+        name: &str,
+        calling: Option<u32>,
+        contextual: Option<u32>,
+    ) -> generals_sim::GameLogicResult<ScriptOwnerQuery<ScriptConditionTeam>> {
+        let Some((id, members)) = self.world.resolve_owned_script_team(name, calling, contextual)?
+        else {
+            return Ok(ScriptOwnerQuery::Missing);
+        };
+        self.world
+            .team_factory
+            .with_read_without_flushing(|factory| {
+                let Some(team) = factory.find_team_by_id(id) else {
+                    return Ok(ScriptOwnerQuery::Missing);
+                };
+                let team = team.read().map_err(|error| {
+                    generals_sim::GameLogicError::Threading(error.to_string())
+                })?;
+                Ok(ScriptOwnerQuery::Present(ScriptConditionTeam {
+                    controller: team.get_controlling_player_id(),
+                    members,
+                }))
+            })
+            .map_err(|error| generals_sim::GameLogicError::Threading(error.to_string()))?
+    }
+
+    fn script_last_damage_source(&self, member: u32) -> Option<ScriptDamageSource<'_>> {
+        let object = self.world.host_object(ObjectId(member))?;
+        let recorded = object.last_damage_source_template.as_str();
+        let attacker = object
+            .last_damage_source
+            .and_then(|id| self.world.host_object(id));
+        Some(ScriptDamageSource {
+            recorded_template: (!recorded.is_empty()).then_some(recorded),
+            live_attacker: attacker.map(|object| ScriptAttacker {
+                template: &object.template_name,
+                controller: self.world.player_owner_for_host_object(object),
+            }),
+        })
+    }
+
+    fn script_object_status_bits(&self, member: u32) -> Option<u64> {
+        self.world
+            .host_object(ObjectId(member))
+            .map(host_query_object_status_bits)
+    }
+
+    fn script_discovery_candidate(&self, member: u32) -> bool {
+        self.world.host_object(ObjectId(member)).is_some_and(|object| {
+            !object.status.disabled_held && !object.is_effectively_stealthed()
+        })
+    }
+
+    fn script_object_shroud(
+        &self,
+        member: u32,
+        viewer: u32,
+    ) -> Option<generals_sim::object::ObjectShroudStatus> {
+        use generals_sim::object::ObjectShroudStatus;
+
+        let object = self.world.host_object(ObjectId(member))?;
+        // Object.cpp:1778 bypasses the partition for these objects.
+        if object.get_template().always_visible || !self.is_in_script_partition(object) {
+            return Some(ObjectShroudStatus::Clear);
+        }
+        let shroud = self.world.world_services.shroud().lock().ok()?;
+        shroud.get_host_object_shroud_status(viewer, member).or_else(|| {
+            (object.owner_player_id == Some(viewer)).then_some(ObjectShroudStatus::Clear)
+        })
+    }
+
     fn team_instances(&self, name: &str) -> ScriptOwnerQuery<Vec<u32>> {
         let factory = self
             .world
@@ -3520,241 +3599,8 @@ impl ScriptExecutionDriver<ScriptEngine> for HostScriptExecutionDriver<'_> {
 }
 
 #[cfg(test)]
-mod map_visibility_owner_tests {
-    use super::*;
-
-    fn world() -> GameLogic {
-        let mut world = GameLogic::new();
-        world.add_player(
-            crate::game_logic::Player::new(1, crate::game_logic::Team::USA, "Human", true)
-                .with_script_identity("AuthoredPlayer"),
-        );
-        world
-    }
-
-    fn queue_permanent_reveal(world: &GameLogic, player: u32) {
-        world
-            .world_services
-            .shroud()
-            .lock()
-            .unwrap()
-            .reveal_map_for_player_permanently(player)
-            .unwrap();
-    }
-
-    #[test]
-    fn named_map_shroud_mutates_only_the_receiving_world() {
-        let mut owner = world();
-        let peer = world();
-        queue_permanent_reveal(&owner, 1);
-        queue_permanent_reveal(&peer, 1);
-
-        {
-            let mut driver = HostScriptExecutionDriver::new(&mut owner);
-            assert!(
-                driver
-                    .map_visibility_all(
-                        generals_sim::scripting::world::ScriptMapVisibilityOperation::Shroud,
-                        "AuthoredPlayer",
-                        None,
-                    )
-                    .is_some()
-            );
-        }
-
-        assert!(
-            owner
-                .world_services
-                .shroud()
-                .lock()
-                .unwrap()
-                .snapshot_state()
-                .pending_permanent_reveal_players
-                .is_empty()
-        );
-        assert_eq!(
-            peer.world_services
-                .shroud()
-                .lock()
-                .unwrap()
-                .snapshot_state()
-                .pending_permanent_reveal_players,
-            vec![1]
-        );
-    }
-
-    #[test]
-    fn unnamed_map_shroud_targets_human_players_only() {
-        let mut owner = world();
-        owner.add_player(crate::game_logic::Player::new(
-            2,
-            crate::game_logic::Team::China,
-            "AI",
-            false,
-        ));
-        queue_permanent_reveal(&owner, 1);
-        queue_permanent_reveal(&owner, 2);
-
-        {
-            let mut driver = HostScriptExecutionDriver::new(&mut owner);
-            assert!(
-                driver
-                    .map_visibility_all(
-                        generals_sim::scripting::world::ScriptMapVisibilityOperation::Shroud,
-                        "",
-                        None,
-                    )
-                    .is_some()
-            );
-        }
-
-        let pending = owner
-            .world_services
-            .shroud()
-            .lock()
-            .unwrap()
-            .snapshot_state()
-            .pending_permanent_reveal_players;
-        assert_eq!(pending, vec![2]);
-    }
-
-    #[test]
-    fn map_reveal_operations_mutate_only_the_receiving_world() {
-        use generals_sim::scripting::world::ScriptMapVisibilityOperation as Op;
-
-        for operation in [Op::Reveal, Op::RevealPermanently, Op::UndoPermanentReveal] {
-            let mut owner = world();
-            let peer = world();
-            if matches!(operation, Op::UndoPermanentReveal) {
-                queue_permanent_reveal(&owner, 1);
-                queue_permanent_reveal(&peer, 1);
-            }
-
-            assert!(
-                HostScriptExecutionDriver::new(&mut owner)
-                    .map_visibility_all(operation, "AuthoredPlayer", None)
-                    .is_some()
-            );
-
-            let owner_state = owner
-                .world_services
-                .shroud()
-                .lock()
-                .unwrap()
-                .snapshot_state();
-            let peer_state = peer
-                .world_services
-                .shroud()
-                .lock()
-                .unwrap()
-                .snapshot_state();
-            match operation {
-                Op::Reveal => {
-                    assert_eq!(owner_state.pending_full_reveal_players, vec![1]);
-                    assert!(peer_state.pending_full_reveal_players.is_empty());
-                }
-                Op::RevealPermanently => {
-                    assert_eq!(owner_state.pending_permanent_reveal_players, vec![1]);
-                    assert!(peer_state.pending_permanent_reveal_players.is_empty());
-                }
-                Op::UndoPermanentReveal => {
-                    assert!(owner_state.pending_permanent_reveal_players.is_empty());
-                    assert_eq!(peer_state.pending_permanent_reveal_players, vec![1]);
-                }
-                Op::Shroud => unreachable!(),
-            }
-        }
-    }
-
-    #[test]
-    fn map_shroud_resolves_script_player_aliases_in_the_receiving_world() {
-        use generals_sim::scripting::program::{
-            LOCAL_PLAYER, THE_PLAYER, THIS_PLAYER, THIS_PLAYER_ENEMY,
-        };
-
-        let mut owner = world();
-        owner.add_player(
-            crate::game_logic::Player::new(2, crate::game_logic::Team::China, "Current AI", false)
-                .with_script_identity("CurrentAI"),
-        );
-        owner.add_player(
-            crate::game_logic::Player::new(3, crate::game_logic::Team::GLA, "Enemy", true)
-                .with_script_identity("Enemy"),
-        );
-        owner.add_player(
-            crate::game_logic::Player::new(4, crate::game_logic::Team::USA, "ThePlayer", true)
-                .with_script_identity(THE_PLAYER),
-        );
-        owner.ai_manager.add_ai_player(
-            2,
-            crate::game_logic::Team::China,
-            crate::ai::AIDifficulty::Medium,
-        );
-        owner
-            .ai_manager
-            .ai_players
-            .get_mut(&2)
-            .unwrap()
-            .enemy_player_id = Some(3);
-        owner.admit_challenge_session(true);
-
-        for id in [1, 2, 3, 4] {
-            queue_permanent_reveal(&owner, id);
-        }
-        assert!(
-            HostScriptExecutionDriver::new(&mut owner)
-                .map_visibility_all(
-                    generals_sim::scripting::world::ScriptMapVisibilityOperation::Shroud,
-                    LOCAL_PLAYER,
-                    None,
-                )
-                .is_some()
-        );
-        assert_eq!(pending_reveals(&owner), vec![2, 3, 4]);
-        assert!(
-            HostScriptExecutionDriver::new(&mut owner)
-                .map_visibility_all(
-                    generals_sim::scripting::world::ScriptMapVisibilityOperation::Shroud,
-                    THIS_PLAYER,
-                    Some("CurrentAI"),
-                )
-                .is_some()
-        );
-        assert_eq!(pending_reveals(&owner), vec![3, 4]);
-        assert!(
-            HostScriptExecutionDriver::new(&mut owner)
-                .map_visibility_all(
-                    generals_sim::scripting::world::ScriptMapVisibilityOperation::Shroud,
-                    THIS_PLAYER_ENEMY,
-                    Some("CurrentAI"),
-                )
-                .is_some()
-        );
-        assert_eq!(pending_reveals(&owner), vec![4]);
-        queue_permanent_reveal(&owner, 1);
-        assert!(
-            HostScriptExecutionDriver::new(&mut owner)
-                .map_visibility_all(
-                    generals_sim::scripting::world::ScriptMapVisibilityOperation::Shroud,
-                    THE_PLAYER,
-                    Some("CurrentAI"),
-                )
-                .is_some()
-        );
-
-        assert_eq!(pending_reveals(&owner), vec![4]);
-    }
-
-    fn pending_reveals(world: &GameLogic) -> Vec<u32> {
-        world
-            .world_services
-            .shroud()
-            .lock()
-            .unwrap()
-            .snapshot_state()
-            .pending_permanent_reveal_players
-    }
-}
+#[path = "map_visibility_owner_tests.rs"]
+mod map_visibility_owner_tests;
 
 #[cfg(test)]
 #[path = "water_owner_tests.rs"]

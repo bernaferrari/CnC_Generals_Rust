@@ -27,11 +27,24 @@ impl ScriptInterpreter {
                 driver.skirmish_census(ScriptSkirmishCensus::NeutralUnmanned),
             );
         }
+        if kind == PlayerDestroyedNBuildingsPlayer {
+            // CPP1929 resolves both SIDE operands even when the first fails.
+            // The original unfinished condition then returns false.
+            let current = self.current_player();
+            if let ScriptOwnerQuery::Unavailable =
+                resolve_side(condition, 0, current.as_deref(), driver)?
+            {
+                return Ok(None);
+            }
+            resolve_side(condition, 2, current.as_deref(), driver)?;
+            return Ok(Some(false));
+        }
         if !matches!(
             kind,
             SkirmishPlayerHasComparisonGarrisoned
                 | SkirmishPlayerHasComparisonCapturedUnits
                 | SkirmishPlayerHasDiscoveredPlayer
+                | SkirmishPlayerHasBeenAttackedByPlayer
                 | SkirmishSuppliesValueWithinDistance
                 | SkirmishTechBuildingWithinDistance
                 | PlayerCanPurchaseScience
@@ -56,17 +69,21 @@ impl ScriptInterpreter {
                 let result = compare_census(condition, driver.skirmish_census(query))?;
                 Ok(Some(result.unwrap_or(false)))
             }
-            SkirmishPlayerHasDiscoveredPlayer => {
-                let viewer = match resolve_side(condition, 1, current, driver)? {
-                    ScriptOwnerQuery::Present(viewer) => viewer,
+            SkirmishPlayerHasDiscoveredPlayer | SkirmishPlayerHasBeenAttackedByPlayer => {
+                let other = match resolve_side(condition, 1, current, driver)? {
+                    ScriptOwnerQuery::Present(other) => other,
                     ScriptOwnerQuery::Missing | ScriptOwnerQuery::Unavailable => {
                         return Ok(Some(false));
                     }
                 };
-                Ok(Some(matches!(
-                    driver.player_discovered_by(owner, viewer),
-                    ScriptOwnerQuery::Present(true)
-                )))
+                Ok(Some(if kind == SkirmishPlayerHasDiscoveredPlayer {
+                    matches!(
+                        driver.player_discovered_by(owner, other),
+                        ScriptOwnerQuery::Present(true)
+                    )
+                } else {
+                    driver.player_was_attacked(owner, other)
+                }))
             }
             SkirmishSuppliesValueWithinDistance => {
                 let distance = parameter(condition, 1)?.get_real();

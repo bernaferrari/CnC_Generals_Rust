@@ -1341,12 +1341,6 @@ impl ScriptConditionEvaluator<'_> {
         );
 
         let types = self.resolve_object_types_param(&types_param);
-        if crate::object::registry::OBJECT_REGISTRY.is_empty() {
-            return Ok(bool_result(host_team_attacked_by_object_types(&self.host_query(), 
-                &team_name, &types,
-            )));
-        }
-
         let Some(team_arc) = self.lookup_condition_team(&team_name) else {
             return Ok(ScriptConditionResult::False);
         };
@@ -1374,13 +1368,6 @@ impl ScriptConditionEvaluator<'_> {
             team_name,
             player_name
         );
-
-        if crate::object::registry::OBJECT_REGISTRY.is_empty() {
-            return Ok(bool_result(host_team_attacked_by_player(&self.host_query(), 
-                &team_name,
-                &player_name,
-            )));
-        }
 
         let __player_list_arc = player_list();
         let Ok(players) = __player_list_arc.read() else {
@@ -1472,13 +1459,6 @@ impl ScriptConditionEvaluator<'_> {
             team_name,
             player_name
         );
-
-        if crate::object::registry::OBJECT_REGISTRY.is_empty() {
-            return Ok(bool_result(host_team_discovered_by_player(&self.host_query(), 
-                &team_name,
-                &player_name,
-            )));
-        }
 
         let __player_list_arc = player_list();
         let Ok(players) = __player_list_arc.read() else {
@@ -1802,17 +1782,6 @@ impl ScriptConditionEvaluator<'_> {
             team_name
         );
 
-        if crate::object::registry::OBJECT_REGISTRY.is_empty() {
-            return Ok(bool_result(
-                self.host_query().host_eval_team_has_object_status(
-                    &team_name,
-                    status_mask.bits(),
-                    true,
-                )
-                .unwrap_or(false),
-            ));
-        }
-
         let published_team_factory = get_team_factory();
         let Ok(mut factory) = published_team_factory.lock() else {
             return Ok(ScriptConditionResult::False);
@@ -1852,17 +1821,6 @@ impl ScriptConditionEvaluator<'_> {
             "Evaluating if some of team '{}' have object status",
             team_name
         );
-
-        if crate::object::registry::OBJECT_REGISTRY.is_empty() {
-            return Ok(bool_result(
-                self.host_query().host_eval_team_has_object_status(
-                    &team_name,
-                    status_mask.bits(),
-                    false,
-                )
-                .unwrap_or(false),
-            ));
-        }
 
         let published_team_factory = get_team_factory();
         let Ok(mut factory) = published_team_factory.lock() else {
@@ -2172,63 +2130,4 @@ fn object_is_discovered_by_player(obj: &crate::object::Object, player_index: i32
         obj.get_shrouded_status(player_index),
         crate::common::ObjectShroudStatus::Clear | crate::common::ObjectShroudStatus::PartialClear
     )
-}
-
-/// C++ evaluateTeamAttackedByType over host team_instance_ids + last_damage_*.
-fn host_team_attacked_by_object_types(q: &crate::scripting::HostScriptQuery, 
-    team_name: &str,
-    types: &crate::object::object_types::ObjectTypes,
-) -> bool {
-    for id in q.host_script_team_member_ids(team_name) {
-        let Some(obj) = q.host_script_query_object_by_id(id) else {
-            continue;
-        };
-        if !obj.last_damage_template.is_empty() {
-            if types.is_in_set(&crate::common::AsciiString::from(
-                obj.last_damage_template.as_str(),
-            )) {
-                return true;
-            }
-            continue;
-        }
-        if obj.last_damage_source_id == 0 {
-            continue;
-        }
-        let Some(src) = q.host_script_query_object_by_id(obj.last_damage_source_id)
-        else {
-            continue;
-        };
-        if types.is_in_set(&crate::common::AsciiString::from(
-            src.template_name.as_str(),
-        )) {
-            return true;
-        }
-    }
-    false
-}
-
-/// C++ evaluateTeamAttackedByPlayer over host last_damage_player (live attacker owner).
-fn host_team_attacked_by_player(q: &crate::scripting::HostScriptQuery, team_name: &str, player_name: &str) -> bool {
-    q.host_script_team_member_ids(team_name)
-        .into_iter()
-        .filter_map(|id| q.host_script_query_object_by_id(id))
-        .any(|obj| {
-            !obj.last_damage_player.is_empty()
-                && obj.last_damage_player.eq_ignore_ascii_case(player_name)
-        })
-}
-
-/// C++ evaluateTeamDiscovered over host discovered_by (CLEAR|PARTIAL_CLEAR census).
-fn host_team_discovered_by_player(q: &crate::scripting::HostScriptQuery, team_name: &str, player_name: &str) -> bool {
-    q.host_script_team_member_ids(team_name)
-        .into_iter()
-        .filter_map(|id| q.host_script_query_object_by_id(id))
-        .any(|obj| {
-            if obj.held || obj.stealthed_hidden {
-                return false;
-            }
-            obj.discovered_by
-                .iter()
-                .any(|name| name.eq_ignore_ascii_case(player_name))
-        })
 }

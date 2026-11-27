@@ -23,6 +23,7 @@ mod skirmish_conditions;
 pub mod program_install;
 pub mod sequential_scripts;
 pub mod side_scripts;
+mod team_combat_conditions;
 pub mod team_scripts;
 mod variable_commands;
 pub mod variables;

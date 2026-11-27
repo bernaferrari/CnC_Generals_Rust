@@ -309,6 +309,9 @@ mod sighting_owner_tests;
 mod map_condition_owner_tests;
 
 #[cfg(test)]
+mod team_combat_condition_owner_tests;
+
+#[cfg(test)]
 mod condition_body_census_tests;
 
 #[cfg(test)]

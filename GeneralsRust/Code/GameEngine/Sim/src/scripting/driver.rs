@@ -1231,6 +1231,40 @@ pub trait ScriptExecutionDriver<Interpreter: ?Sized> {
         ScriptOwnerQuery::Unavailable
     }
 
+    fn condition_team_roster(
+        &self,
+        _name: &str,
+        _calling: Option<TeamID>,
+        _contextual: Option<TeamID>,
+    ) -> GameLogicResult<ScriptOwnerQuery<ScriptConditionTeam>> {
+        Ok(ScriptOwnerQuery::Unavailable)
+    }
+
+    fn script_last_damage_source(&self, _member: ObjectID) -> Option<ScriptDamageSource<'_>> {
+        None
+    }
+
+    fn script_object_status_bits(&self, _member: ObjectID) -> Option<u64> {
+        None
+    }
+
+    /// A missing object, held object, or undetected stealth cannot be discovered.
+    fn script_discovery_candidate(&self, _member: ObjectID) -> bool {
+        false
+    }
+
+    fn script_object_shroud(
+        &self,
+        _member: ObjectID,
+        _viewer: u32,
+    ) -> Option<crate::object::ObjectShroudStatus> {
+        None
+    }
+
+    fn player_was_attacked(&self, _player: u32, _attacker: u32) -> bool {
+        false
+    }
+
     /// Ordered instances belonging to the driving session. Missing means an
     /// absent prototype; an empty Present list is authoritative too.
     fn team_instances(&self, _name: &str) -> ScriptOwnerQuery<Vec<TeamID>> {

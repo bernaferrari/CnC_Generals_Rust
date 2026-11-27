@@ -877,39 +877,6 @@ impl HostScriptQuery {
         Some(host_object_has_status_bits(&obj, status_mask))
     }
 
-    /// C++ ScriptConditions::evaluateTeamHasObjectStatus over the host snapshot.
-    /// `None` when no snapshot is injected (leftover OBJECT_REGISTRY path).
-    pub fn host_eval_team_has_object_status(&self, team_name: &str,
-        status_mask: u64,
-        entire_team: bool,) -> Option<bool> {
-        if !self.host_script_query_has_any() {
-            return None;
-        }
-        if team_name.is_empty() {
-            return Some(false);
-        }
-        let ids = self.host_script_team_member_ids(team_name);
-        if ids.is_empty() {
-            if self.host_team_name_known(team_name) || leftover_named_team_exists(team_name) {
-                return Some(entire_team);
-            }
-            return Some(false);
-        }
-        for id in ids {
-            let Some(obj) = self.host_script_query_object_by_id(id) else {
-                return Some(false);
-            };
-            let has = host_object_has_status_bits(&obj, status_mask);
-            if entire_team && !has {
-                return Some(false);
-            }
-            if !entire_team && has {
-                return Some(true);
-            }
-        }
-        Some(entire_team)
-    }
-
     fn host_team_name_known(&self, team_name: &str) -> bool {
         self.with_mut(|slot| {
             slot
@@ -1396,14 +1363,6 @@ fn host_allow_non_ally_tech_affiliation(player_name: &str, owner_player: &str) -
 
 fn host_object_has_status_bits(obj: &HostScriptQueryObject, mask: u64) -> bool {
     mask != 0 && (obj.status_bits & mask) != 0
-}
-
-fn leftover_named_team_exists(team_name: &str) -> bool {
-    crate::team::get_team_factory()
-        .lock()
-        .ok()
-        .and_then(|mut factory| factory.find_team(team_name))
-        .is_some()
 }
 
 enum LeftoverCommandButtonKind {

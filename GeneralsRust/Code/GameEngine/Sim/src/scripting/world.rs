@@ -95,6 +95,22 @@ pub struct ScriptTeamStatus {
     pub dead: bool,
 }
 
+/// The exact Team selected by the script's calling and condition context.
+pub struct ScriptConditionTeam {
+    pub controller: Option<u32>,
+    pub members: Vec<u32>,
+}
+
+pub struct ScriptDamageSource<'a> {
+    pub recorded_template: Option<&'a str>,
+    pub live_attacker: Option<ScriptAttacker<'a>>,
+}
+
+pub struct ScriptAttacker<'a> {
+    pub template: &'a str,
+    pub controller: Option<u32>,
+}
+
 /// The actual contain interface's counts, independent of Enter admission.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ScriptContainmentStatus {
