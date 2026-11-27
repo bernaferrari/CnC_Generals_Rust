@@ -17,7 +17,7 @@ impl<'a> HostScriptExecutionDriver<'a> {
         let interpreter = self
             .interpreter
             .expect("live priority action retains its interpreter");
-        let info = interpreter.get_attack_info(set);
+        let info = interpreter.shared_attack_info(set);
         let resolved = info
             .as_ref()
             .map(|info| info.get_name().to_string())
@@ -30,12 +30,7 @@ impl<'a> HostScriptExecutionDriver<'a> {
         self.world
             .set_unit_attack_priority_set(id, resolved.as_deref());
         if let Some(info) = info.filter(|_| resolved.is_some()) {
-            let mut receiving = AttackPriorityInfo::new(info.get_name());
-            receiving.default_priority = info.default_priority;
-            for (template, priority) in &info.priority_map {
-                receiving.set_priority_template(template, *priority);
-            }
-            self.world.register_attack_priority_set(receiving);
+            self.world.publish_attack_priority(info);
         }
         Some(Ok(()))
     }

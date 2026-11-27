@@ -132,8 +132,9 @@ pub struct GameLogic {
     pub(crate) prepared_map_sides: gamelogic::sides_list::SidesList,
     pub(crate) prepared_player_controllers:
         crate::game_logic::player_controllers::PreparedControllers,
-    /// Named AttackPriorityInfo residual map (script sets).
-    pub attack_priority_sets: std::collections::HashMap<String, AttackPriorityInfo>,
+    /// Immutable attack priority rows used by combat at the frame boundary.
+    pub(crate) combat_priorities:
+        std::collections::HashMap<String, std::sync::Arc<AttackPriorityInfo>>,
     /// C++ `Team::m_commonAttackTarget` residual, keyed by team instance name.
     /// C++ TAiData::m_enableRepulsors residual (AI.ini EnableRepulsors).
     pub enable_repulsors: bool,

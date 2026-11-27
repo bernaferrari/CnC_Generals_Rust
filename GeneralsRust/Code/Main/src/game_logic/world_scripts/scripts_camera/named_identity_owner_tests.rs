@@ -78,6 +78,24 @@ fn host_name_transfer_and_priority_use_receiving_object_ids() {
                     .default_priority,
                 83
             );
+            owner
+                .with_owned_script_engine(|engine, world| {
+                    let published = &world.combat_priorities["receivingpriority"];
+                    let source = engine.shared_attack_info("ReceivingPriority").unwrap();
+                    assert!(std::sync::Arc::ptr_eq(published, &source));
+                    assert!(engine.set_priority_default("ReceivingPriority", 41));
+                    assert_eq!(published.default_priority, 37);
+                })
+                .unwrap();
+            owner.sync_attack_priority_from_script_engine();
+            assert_eq!(
+                owner.attack_priority_info_for(target).unwrap().default_priority,
+                41
+            );
+            assert_eq!(
+                peer.attack_priority_info_for(peer_target).unwrap().default_priority,
+                83
+            );
             assert!(
                 owner
                     .host_object(donor)

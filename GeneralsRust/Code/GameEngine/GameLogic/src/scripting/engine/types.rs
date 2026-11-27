@@ -3,7 +3,6 @@
 // Included into `engine/mod.rs` so private fields and the current
 // RefCell / TLS re-entrancy pattern stay in the parent module.
 
-pub const MAX_ATTACK_PRIORITIES: usize = 256;
 const FRAMES_TO_FADE_IN_AT_START: i32 = 33;
 const MAX_SEQUENTIAL_SPIN_COUNT: i32 = 20;
 
@@ -2466,95 +2465,6 @@ pub struct NamedReveal {
     pub player_name: String,
 }
 
-/// Attack Priority Info matching C++ AttackPriorityInfo
-#[derive(Debug, Clone)]
-pub struct AttackPriorityInfo {
-    pub name: String,
-    pub default_priority: i32,
-    pub priority_map: HashMap<String, i32>, // ThingTemplate name -> priority
-}
-
-impl AttackPriorityInfo {
-    pub fn new() -> Self {
-        Self {
-            name: String::new(),
-            default_priority: 1,
-            priority_map: HashMap::new(),
-        }
-    }
-
-    pub fn set_priority(&mut self, thing_template: &str, priority: i32) {
-        self.priority_map
-            .insert(thing_template.to_string(), priority);
-    }
-
-    pub fn get_priority(&self, thing_template: &str) -> i32 {
-        self.priority_map
-            .get(thing_template)
-            .copied()
-            .unwrap_or(self.default_priority)
-    }
-
-    pub fn get_name(&self) -> &str {
-        &self.name
-    }
-}
-
-impl XferSnapshot for AttackPriorityInfo {
-    fn crc(&mut self, xfer: &mut dyn Xfer) -> Result<(), XferStatus> {
-        self.xfer(xfer)
-    }
-
-    fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), XferStatus> {
-        let current_version: XferVersion = 1;
-        let mut version = current_version;
-        xfer.xfer_version(&mut version, current_version)?;
-
-        xfer.xfer_ascii_string(&mut self.name)?;
-        xfer.xfer_int(&mut self.default_priority)?;
-
-        let mut priority_map_count: u16 =
-            if xfer.get_xfer_mode() == game_engine::system::XferMode::Save {
-                self.priority_map.len().min(u16::MAX as usize) as u16
-            } else {
-                0
-            };
-        xfer.xfer_unsigned_short(&mut priority_map_count)?;
-
-        if xfer.get_xfer_mode() == game_engine::system::XferMode::Save {
-            let mut count_written: u16 = 0;
-            for (template_name, priority) in self.priority_map.iter() {
-                count_written = count_written.saturating_add(1);
-                let mut name = template_name.clone();
-                xfer.xfer_ascii_string(&mut name)?;
-                let mut value = *priority;
-                xfer.xfer_int(&mut value)?;
-            }
-            if count_written != priority_map_count {
-                return Err(XferStatus::InvalidData);
-            }
-        } else {
-            self.priority_map.clear();
-            for _ in 0..priority_map_count {
-                let mut name = String::new();
-                xfer.xfer_ascii_string(&mut name)?;
-                if TheThingFactory::find_template(name.as_str()).is_none() {
-                    return Err(XferStatus::InvalidData);
-                }
-                let mut priority = 0;
-                xfer.xfer_int(&mut priority)?;
-                self.priority_map.insert(name, priority);
-            }
-        }
-
-        Ok(())
-    }
-
-    fn load_post_process(&mut self) -> Result<(), XferStatus> {
-        Ok(())
-    }
-}
-
 /// Sequential Script matching C++ SequentialScript
 #[derive(Debug, Clone)]
 pub struct SequentialScript {
@@ -2746,7 +2656,6 @@ pub struct ScriptEngineInner {
     frame_object_count_changed: u32,
     object_counts: HashMap<(i32, String), i32>,
     object_types: HashMap<String, ObjectTypes>,
-    object_attack_priority_sets: HashMap<ObjectID, String>,
 
     // Event tracking
     completed_video: Vec<String>,

@@ -218,7 +218,7 @@ fn saved_table(names: &[&str]) -> (AttackPriorityTable, Vec<u8>) {
         table.with_mut(name, true, |info| info.default_priority = i as i32 + 5);
     }
     let mut out = Cursor::new(Vec::new());
-    table.xfer(&mut XferSave::new(&mut out, 1)).unwrap();
+    xfer_attack_priorities(&mut table, &mut XferSave::new(&mut out, 1)).unwrap();
     (table, out.into_inner())
 }
 
@@ -253,7 +253,7 @@ fn malformed_attack_priority_count_load_rejects_and_preserves_table() {
     for (label, bad) in cases {
         let (mut target, _) = saved_table(&["Keep"]);
         let before = table_rows(&target);
-        let result = target.xfer(&mut XferLoad::new(Cursor::new(bad), 1));
+        let result = xfer_attack_priorities(&mut target, &mut XferLoad::new(Cursor::new(bad), 1));
         assert!(result.is_err(), "{label}: malformed count accepted");
         if label != "truncated" {
             assert_eq!(result.err(), Some(XferStatus::InvalidData), "{label}");
@@ -261,7 +261,7 @@ fn malformed_attack_priority_count_load_rejects_and_preserves_table() {
         assert_eq!(table_rows(&target), before, "{label}: table not preserved");
     }
     let (mut ok, _) = saved_table(&["Keep"]);
-    ok.xfer(&mut XferLoad::new(Cursor::new(wire), 1)).unwrap();
+    xfer_attack_priorities(&mut ok, &mut XferLoad::new(Cursor::new(wire), 1)).unwrap();
     assert_eq!(table_rows(&ok).len(), 3);
 }
 
@@ -271,7 +271,7 @@ fn excessive_row_prefix_is_invalid_data_and_preserves_table() {
     let (mut table, _) = saved_table(&["Keep"]);
     let before = table_rows(&table);
     let wire = ((MAX_ATTACK_PRIORITIES + 1) as u16).to_le_bytes();
-    let result = table.xfer(&mut XferLoad::new(Cursor::new(wire), 1));
+    let result = xfer_attack_priorities(&mut table, &mut XferLoad::new(Cursor::new(wire), 1));
     assert_eq!(result.err(), Some(XferStatus::InvalidData));
     assert_eq!(table_rows(&table), before);
 }
@@ -298,7 +298,7 @@ fn oversized_host_restore_cannot_be_serialized_even_after_u16_wrap() {
     let mut table = AttackPriorityTable::new();
     table.restore(vec![AttackPriorityInfo::new(); MAX_ATTACK_PRIORITIES + 1]);
     assert_eq!(
-        table.xfer(&mut XferSave::new(&mut out, 1)).err(),
+        xfer_attack_priorities(&mut table, &mut XferSave::new(&mut out, 1)).err(),
         Some(XferStatus::InvalidData)
     );
     assert!(out.into_inner().is_empty());
@@ -306,7 +306,7 @@ fn oversized_host_restore_cannot_be_serialized_even_after_u16_wrap() {
     table.restore(vec![AttackPriorityInfo::new(); u16::MAX as usize + 1]);
     let mut out = Cursor::new(Vec::new());
     assert_eq!(
-        table.xfer(&mut XferSave::new(&mut out, 1)).err(),
+        xfer_attack_priorities(&mut table, &mut XferSave::new(&mut out, 1)).err(),
         Some(XferStatus::InvalidData)
     );
     assert!(out.into_inner().is_empty());

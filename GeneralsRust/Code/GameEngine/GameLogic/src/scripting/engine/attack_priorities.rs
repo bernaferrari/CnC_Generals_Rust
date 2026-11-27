@@ -1,149 +1,112 @@
-//! ScriptEngine.cpp:6483-6639,8923-8941: ordered, live attack-priority rows.
-//! The ScriptEngine owns this table. Callers borrow it through the existing
-//! engine operation; this module adds no synchronization or ambient selection.
-//!
-//! Malformed snapshots with inconsistent or zero row counts are rejected
-//! atomically. C++ accepts those counts, potentially exposing stale rows or
-//! accessing outside its fixed array. Host-tail restore can supply more rows
-//! than that array; such a table remains readable but cannot be serialized.
-use super::{AttackPriorityInfo, MAX_ATTACK_PRIORITIES, Xfer, XferMode, XferSnapshot, XferStatus};
+//! Legacy Xfer encoding for simulation attack priorities.
+use super::{
+    Arc, AttackPriorityInfo, AttackPriorityTable, MAX_ATTACK_PRIORITIES, TheThingFactory, Xfer,
+    XferMode, XferSnapshot, XferStatus, XferVersion,
+};
 
-pub(super) struct AttackPriorityTable {
-    rows: Vec<AttackPriorityInfo>,
-    count: usize,
-}
-
-impl AttackPriorityTable {
-    pub(super) fn new() -> Self {
-        Self {
-            rows: Vec::with_capacity(MAX_ATTACK_PRIORITIES),
-            count: 1,
-        }
+/// Keep the original ushort rows, row snapshots, then int count wire order.
+pub(super) fn xfer_attack_priorities(
+    table: &mut AttackPriorityTable,
+    xfer: &mut dyn Xfer,
+) -> Result<(), XferStatus> {
+    // Host-tail restore is not constrained by C++'s fixed array. Check
+    // before narrowing to ushort, including counts that would wrap.
+    if matches!(xfer.get_xfer_mode(), XferMode::Save | XferMode::Crc)
+        && table.entries().len() > MAX_ATTACK_PRIORITIES
+    {
+        return Err(XferStatus::InvalidData);
     }
-
-    pub(super) fn ensure_default(&mut self) {
-        if self.rows.is_empty() {
-            self.rows.push(AttackPriorityInfo::new());
-        }
+    let mut attack_priority_size: u16 =
+        if matches!(xfer.get_xfer_mode(), XferMode::Save | XferMode::Crc) {
+            table.entries().len() as u16
+        } else {
+            0
+        };
+    xfer.xfer_unsigned_short(&mut attack_priority_size)?;
+    if attack_priority_size as usize > MAX_ATTACK_PRIORITIES {
+        return Err(XferStatus::InvalidData);
     }
-
-    pub(super) fn clear(&mut self) {
-        self.rows.clear();
-        self.count = 1;
-    }
-
-    /// C++ searches named rows from 1; an empty named row is not the default.
-    pub(super) fn get(&self, name: &str) -> Option<&AttackPriorityInfo> {
-        if self.rows.is_empty() {
-            return None;
+    if xfer.get_xfer_mode() == XferMode::Load {
+        // Stage rows so a malformed load leaves the live table untouched.
+        let size = attack_priority_size as usize;
+        let mut rows = Vec::with_capacity(size);
+        rows.resize_with(size, AttackPriorityInfo::new);
+        for row in rows.iter_mut() {
+            row.xfer(xfer)?;
         }
-        for i in 1..self.count {
-            if let Some(info) = self.rows.get(i) {
-                if info.name == name {
-                    return Some(info);
-                }
-            }
-        }
-        self.rows.first()
-    }
-
-    /// Keep the row live and release its borrow before template lookup or AI dispatch.
-    pub(super) fn with_mut<R>(
-        &mut self,
-        name: &str,
-        add_if_missing: bool,
-        f: impl FnOnce(&mut AttackPriorityInfo) -> R,
-    ) -> Option<R> {
-        if self.rows.is_empty() {
-            self.rows.push(AttackPriorityInfo::new());
-        }
-        if self.count == 0 {
-            self.count = 1;
-        }
-
-        let existing_index = (1..self.count).find(|&i| {
-            self.rows
-                .get(i)
-                .map(|info| info.name == name)
-                .unwrap_or(false)
-        });
-        if let Some(index) = existing_index {
-            return self.rows.get_mut(index).map(f);
-        }
-
-        if add_if_missing && self.count < MAX_ATTACK_PRIORITIES {
-            let mut info = AttackPriorityInfo::new();
-            info.name = name.to_string();
-            let index = self.count;
-            if self.rows.len() <= index {
-                self.rows.push(info);
-            } else {
-                self.rows[index] = info;
-            }
-            self.count += 1;
-            return self.rows.get_mut(index).map(f);
-        }
-
-        None
-    }
-
-    pub(super) fn entries(&self) -> &[AttackPriorityInfo] {
-        &self.rows[..self.count.min(self.rows.len())]
-    }
-
-    pub(super) fn restore(&mut self, rows: Vec<AttackPriorityInfo>) {
-        self.rows = rows;
-        self.ensure_default();
-        self.count = self.rows.len();
-    }
-
-    /// Keep the original ushort rows, row snapshots, then int count wire order.
-    pub(super) fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), XferStatus> {
-        // Host-tail restore is not constrained by C++'s fixed array. Check
-        // before narrowing to ushort, including counts that would wrap.
-        if matches!(xfer.get_xfer_mode(), XferMode::Save | XferMode::Crc)
-            && self.count > MAX_ATTACK_PRIORITIES
+        let mut num_attack_info: i32 = 0;
+        xfer.xfer_int(&mut num_attack_info)?;
+        // Unlike C++, reject inconsistent counts before publishing rows.
+        if num_attack_info < 1
+            || num_attack_info as usize > MAX_ATTACK_PRIORITIES
+            || num_attack_info as usize != size
         {
             return Err(XferStatus::InvalidData);
         }
-        let mut attack_priority_size: u16 =
-            if matches!(xfer.get_xfer_mode(), XferMode::Save | XferMode::Crc) {
-                self.count as u16
+        table.restore(rows);
+        return Ok(());
+    }
+    for row in &mut table.legacy_rows_mut()[..attack_priority_size as usize] {
+        Arc::make_mut(row).xfer(xfer)?;
+    }
+
+    let mut num_attack_info = table.entries().len() as i32;
+    xfer.xfer_int(&mut num_attack_info)?;
+
+    Ok(())
+}
+
+impl XferSnapshot for AttackPriorityInfo {
+    fn crc(&mut self, xfer: &mut dyn Xfer) -> Result<(), XferStatus> {
+        self.xfer(xfer)
+    }
+
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), XferStatus> {
+        let current_version: XferVersion = 1;
+        let mut version = current_version;
+        xfer.xfer_version(&mut version, current_version)?;
+
+        xfer.xfer_ascii_string(&mut self.name)?;
+        xfer.xfer_int(&mut self.default_priority)?;
+
+        let mut priority_map_count: u16 =
+            if xfer.get_xfer_mode() == game_engine::system::XferMode::Save {
+                self.priority_map.len().min(u16::MAX as usize) as u16
             } else {
                 0
             };
-        xfer.xfer_unsigned_short(&mut attack_priority_size)?;
-        if attack_priority_size as usize > MAX_ATTACK_PRIORITIES {
-            return Err(XferStatus::InvalidData);
-        }
-        if xfer.get_xfer_mode() == XferMode::Load {
-            // Stage rows so a malformed load leaves the live table untouched.
-            let size = attack_priority_size as usize;
-            let mut rows = Vec::with_capacity(size);
-            rows.resize_with(size, AttackPriorityInfo::new);
-            for row in rows.iter_mut() {
-                row.xfer(xfer)?;
+        xfer.xfer_unsigned_short(&mut priority_map_count)?;
+
+        if xfer.get_xfer_mode() == game_engine::system::XferMode::Save {
+            let mut count_written: u16 = 0;
+            for (template_name, priority) in self.priority_map.iter() {
+                count_written = count_written.saturating_add(1);
+                let mut name = template_name.clone();
+                xfer.xfer_ascii_string(&mut name)?;
+                let mut value = *priority;
+                xfer.xfer_int(&mut value)?;
             }
-            let mut num_attack_info: i32 = 0;
-            xfer.xfer_int(&mut num_attack_info)?;
-            // Unlike C++, reject inconsistent counts before publishing rows.
-            if num_attack_info < 1
-                || num_attack_info as usize > MAX_ATTACK_PRIORITIES
-                || num_attack_info as usize != size
-            {
+            if count_written != priority_map_count {
                 return Err(XferStatus::InvalidData);
             }
-            self.rows = rows;
-            self.count = size;
-            return Ok(());
-        }
-        for i in 0..attack_priority_size as usize {
-            self.rows[i].xfer(xfer)?;
+        } else {
+            self.priority_map.clear();
+            for _ in 0..priority_map_count {
+                let mut name = String::new();
+                xfer.xfer_ascii_string(&mut name)?;
+                if TheThingFactory::find_template(name.as_str()).is_none() {
+                    return Err(XferStatus::InvalidData);
+                }
+                let mut priority = 0;
+                xfer.xfer_int(&mut priority)?;
+                self.priority_map.insert(name, priority);
+            }
         }
 
-        let mut num_attack_info = self.count as i32;
-        xfer.xfer_int(&mut num_attack_info)?;
+        Ok(())
+    }
 
+    fn load_post_process(&mut self) -> Result<(), XferStatus> {
         Ok(())
     }
 }

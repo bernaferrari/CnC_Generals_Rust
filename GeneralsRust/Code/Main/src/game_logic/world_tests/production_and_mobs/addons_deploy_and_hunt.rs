@@ -3138,10 +3138,10 @@ fn command_button_hunt_special_skips_ally_mine_and_uses_priority() {
     }
 
     // Priority: farther Dozer outranks nearer Tank (on-map).
-    let mut info = AttackPriorityInfo::new("HuntPrio");
+    let mut info = AttackPriorityInfo::named("HuntPrio");
     info.default_priority = 1;
-    info.set_priority_template("TestTank", 5);
-    info.set_priority_template("TestDozer", 80);
+    info.set_priority("TestTank", 5);
+    info.set_priority("TestDozer", 80);
     logic.register_attack_priority_set(info);
     ensure_test_dozer_template(&mut logic);
     let prio_hunter = logic

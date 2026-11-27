@@ -154,7 +154,6 @@ impl ScriptEngine {
                 frame_object_count_changed: 0,
                 object_counts: HashMap::new(),
                 object_types: HashMap::new(),
-                object_attack_priority_sets: HashMap::new(),
 
                 completed_video: Vec::new(),
                 testing_speech: Vec::new(),
@@ -513,35 +512,25 @@ impl ScriptEngine {
             .with_mut(name, add_if_missing, f)
     }
 
-    /// Owned snapshot; native reference ownership is tracked separately.
     pub fn get_attack_info(&self, name: &str) -> Option<AttackPriorityInfo> {
+        self.with_inner(|inner| inner.attack_priorities.get(name).map(|row| (**row).clone()))
+    }
+
+    /// Immutable row used across the combat and interpreter update boundaries.
+    pub fn shared_attack_info(&self, name: &str) -> Option<Arc<AttackPriorityInfo>> {
         self.with_inner(|inner| inner.attack_priorities.get(name).cloned())
     }
 
     pub fn set_object_attack_priority_set(&self, object_id: ObjectID, set_name: &str) {
-        let mut inner = self.lock_inner_mut();
-        if object_id == INVALID_ID {
-            return;
-        }
-
-        if set_name.is_empty() {
-            inner.object_attack_priority_sets.remove(&object_id);
-            return;
-        }
-
-        inner
-            .object_attack_priority_sets
-            .insert(object_id, set_name.to_string());
+        self.lock_inner_mut().attack_priorities.assign(object_id, set_name);
     }
 
     pub fn clear_object_attack_priority_set(&self, object_id: ObjectID) {
-        let mut inner = self.lock_inner_mut();
-        inner.object_attack_priority_sets.remove(&object_id);
+        self.lock_inner_mut().attack_priorities.remove_assignment(object_id);
     }
 
-    /// Owned snapshot — never a borrow into `UnsafeCell`.
     pub fn get_object_attack_priority_set(&self, object_id: ObjectID) -> Option<String> {
-        self.with_inner(|inner| inner.object_attack_priority_sets.get(&object_id).cloned())
+        self.with_inner(|inner| inner.attack_priorities.assigned_set(object_id).map(str::to_owned))
     }
 
     fn template_matches_kind(template: &EngineThingTemplate, kind: KindOf) -> bool {
@@ -688,7 +677,6 @@ impl ScriptEngine {
             inner.topple_directions.clear();
             inner.named_reveals.clear();
             inner.object_types.clear();
-            inner.object_attack_priority_sets.clear();
             inner.breeze_info = BreezeInfo::new();
             inner.game_difficulty = crate::player::GameDifficulty::Normal;
 

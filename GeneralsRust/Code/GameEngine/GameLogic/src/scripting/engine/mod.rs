@@ -24,6 +24,8 @@ use game_engine::common::script_templates::ScriptTemplateCatalog;
 use game_engine::common::system::{Xfer, XferMode, XferStatus, XferVersion};
 use game_engine::common::thing::thing_factory::get_thing_factory;
 use game_engine::common::thing::thing_template::ThingTemplate as EngineThingTemplate;
+use generals_sim::scripting::attack_priorities::AttackPriorityTable;
+pub use generals_sim::scripting::attack_priorities::{AttackPriorityInfo, MAX_ATTACK_PRIORITIES};
 use generals_sim::scripting::side_scripts::SideScripts;
 use generals_sim::scripting::variables::{MissionTimers, NamedTrackersSnapshot, ScriptVariables};
 pub use generals_sim::scripting::variables::{
@@ -43,7 +45,7 @@ fn dual_world_registry_unavailable() -> bool {
 mod attack_priorities;
 mod condition_queries;
 mod template_labels;
-use attack_priorities::AttackPriorityTable;
+use attack_priorities::xfer_attack_priorities;
 
 include!("types.rs");
 include!("init.rs");

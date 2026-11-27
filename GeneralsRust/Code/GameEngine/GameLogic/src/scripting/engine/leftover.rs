@@ -307,13 +307,14 @@ impl XferSnapshot for ScriptEngine {
             *flag_count = num_flags as usize;
         }
 
-        inner.attack_priorities.xfer(xfer)?;
+        xfer_attack_priorities(&mut inner.attack_priorities, xfer)?;
 
         if version >= 6 {
             let mut object_priority_count: u16 =
                 if matches!(xfer.get_xfer_mode(), XferMode::Save | XferMode::Crc) {
                     inner
-                        .object_attack_priority_sets
+                        .attack_priorities
+                        .assignments()
                         .len()
                         .min(u16::MAX as usize) as u16
                 } else {
@@ -323,37 +324,28 @@ impl XferSnapshot for ScriptEngine {
 
             match xfer.get_xfer_mode() {
                 XferMode::Save | XferMode::Crc => {
-                    let mut entries: Vec<(ObjectID, String)> = inner
-                        .object_attack_priority_sets
-                        .iter()
-                        .map(|(object_id, set_name)| (*object_id, set_name.clone()))
-                        .collect();
-                    entries.sort_by_key(|(object_id, _)| *object_id);
-                    for (object_id, mut set_name) in entries {
-                        let mut object_id = object_id;
+                    for (mut object_id, set_name) in inner.attack_priorities.assignments() {
+                        let mut set_name = set_name.to_owned();
                         xfer.xfer_object_id(&mut object_id)?;
                         xfer.xfer_ascii_string(&mut set_name)?;
                     }
                 }
                 XferMode::Load => {
-                    inner.object_attack_priority_sets.clear();
+                    inner.attack_priorities.clear_assignments();
                     for _ in 0..object_priority_count {
                         let mut object_id: ObjectID = crate::common::INVALID_ID;
                         let mut set_name = String::new();
                         xfer.xfer_object_id(&mut object_id)?;
                         xfer.xfer_ascii_string(&mut set_name)?;
-                        if object_id == crate::common::INVALID_ID || set_name.is_empty() {
-                            continue;
+                        if !set_name.is_empty() {
+                            inner.attack_priorities.assign(object_id, &set_name);
                         }
-                        inner
-                            .object_attack_priority_sets
-                            .insert(object_id, set_name);
                     }
                 }
                 XferMode::Invalid => return Err(XferStatus::ModeUnknown),
             }
         } else if xfer.get_xfer_mode() == XferMode::Load {
-            inner.object_attack_priority_sets.clear();
+            inner.attack_priorities.clear_assignments();
         }
 
         xfer.xfer_int(&mut inner.mission_timers.end_game)?;

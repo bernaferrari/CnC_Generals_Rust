@@ -1731,12 +1731,11 @@ impl ScriptEngine {
                     (info.name.clone(), info.default_priority, entries)
                 })
                 .collect();
-            let mut object_attack_priority_sets: Vec<(ObjectID, String)> = inner
-                .object_attack_priority_sets
-                .iter()
-                .map(|(id, name)| (*id, name.clone()))
+            let object_attack_priority_sets = inner
+                .attack_priorities
+                .assignments()
+                .map(|(id, name)| (id, name.to_owned()))
                 .collect();
-            object_attack_priority_sets.sort_by_key(|(id, _)| *id);
             let mut object_types: Vec<(String, Vec<String>)> = inner
                 .object_types
                 .iter()
@@ -1842,12 +1841,12 @@ impl ScriptEngine {
                     })
                     .collect(),
             );
-            inner.object_attack_priority_sets = tail
-                .object_attack_priority_sets
-                .iter()
-                .filter(|(id, name)| *id != crate::common::INVALID_ID && !name.is_empty())
-                .cloned()
-                .collect();
+            inner.attack_priorities.clear_assignments();
+            for (id, name) in &tail.object_attack_priority_sets {
+                if !name.is_empty() {
+                    inner.attack_priorities.assign(*id, name);
+                }
+            }
             inner.mission_timers.end_game = tail.end_game_timer;
             inner.mission_timers.close_window = tail.close_window_timer;
             inner.first_update = tail.first_update;

@@ -361,7 +361,7 @@ impl GameLogic {
         let object = self.objects.get_mut(&id).expect("receiving Team member");
         if object.has_ai_update_interface() {
             object.set_ai_attitude_i8(attitude);
-            if !priority.is_empty() && self.attack_priority_sets.contains_key(&priority) {
+            if !priority.is_empty() && self.combat_priorities.contains_key(&priority) {
                 object.attack_priority_set = Some(priority);
             }
         }

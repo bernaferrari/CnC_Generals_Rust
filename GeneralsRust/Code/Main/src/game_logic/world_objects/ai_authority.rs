@@ -1797,10 +1797,10 @@ mod hq_m6gcj_tests {
     #[test]
     fn hunt_scan_prefers_higher_priority_over_team_victim() {
         let mut logic = GameLogic::new();
-        let mut info = AttackPriorityInfo::new("HuntPrio");
+        let mut info = AttackPriorityInfo::named("HuntPrio");
         info.default_priority = 1;
-        info.set_priority_template("Dozer", 5);
-        info.set_priority_template("Tank", 80);
+        info.set_priority("Dozer", 5);
+        info.set_priority("Tank", 80);
         logic.register_attack_priority_set(info);
 
         // 2026-09-07 re-pin: the team-common-target surface is

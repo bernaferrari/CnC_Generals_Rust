@@ -476,7 +476,7 @@ fn create_inherits_authored_team_attack_priority_profile() {
             "AuthoredHuntPrio",
         ));
     }
-    logic.register_attack_priority_set(AttackPriorityInfo::new("AuthoredHuntPrio"));
+    logic.register_attack_priority_set(AttackPriorityInfo::named("AuthoredHuntPrio"));
 
     let mut t = ThingTemplate::new("AmericaRangerPrioInherit");
     t.add_kind_of(KindOf::Infantry);
@@ -525,7 +525,7 @@ fn set_unit_attitude_affects_mood_matrix() {
 fn apply_attack_priority_set_to_team_members() {
     use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate};
     let mut logic = GameLogic::new();
-    let mut info = AttackPriorityInfo::new("TeamHunt");
+    let mut info = AttackPriorityInfo::named("TeamHunt");
     logic.register_attack_priority_set(info);
     for i in 0..3u32 {
         let name = format!("Mem{i}");
@@ -566,9 +566,9 @@ fn script_priority_set_applies_to_unit_via_host_api() {
     use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate, Weapon};
     use glam::Vec3;
     let mut logic = GameLogic::new();
-    let mut info = AttackPriorityInfo::new("ScriptHunt");
+    let mut info = AttackPriorityInfo::named("ScriptHunt");
     info.default_priority = 1;
-    info.set_priority_template("PriorityTarget", 80);
+    info.set_priority("PriorityTarget", 80);
     logic.register_attack_priority_set(info);
 
     let mut at = ThingTemplate::new("ScriptHunter");
@@ -628,33 +628,57 @@ fn script_priority_set_applies_to_unit_via_host_api() {
 
 #[test]
 fn set_default_and_kind_priority_residual() {
-    let mut info = AttackPriorityInfo::new("KindSet");
-    info.default_priority = 2;
-    info.set_priority_kind("vehicle", 40);
-    info.set_priority_template("SpecInf", 10);
-    assert_eq!(info.get_priority_for_template("Unknown"), 2);
-    assert_eq!(info.get_priority_for_template("SpecInf"), 10);
-    // kind priority applied in attack_priority_for_target
     use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate};
+    use game_engine::common::thing::thing_factory::get_thing_factory;
+
+    let content = crate::assets::ReceivingObjectContent::from_sources([(
+        "attack_priority_fixture.ini".to_owned(),
+        "Object TankX\n KindOf = VEHICLE\nEnd\nObject SpecInf\n KindOf = INFANTRY\nEnd\n"
+            .to_owned(),
+    )])
+    .unwrap();
+    let factory = content.module_content().compatibility_template_view();
     let mut logic = GameLogic::new();
-    logic.register_attack_priority_set(info);
+    logic.with_own_services_mut(|world| {
+        *get_thing_factory().unwrap() = Some(factory);
+        world
+            .with_owned_script_engine(|engine, world| {
+                assert!(engine.set_priority_default("KindSet", 2));
+                assert!(engine.set_priority_thing("KindSet", "SpecInf", 10));
+                assert!(engine.set_priority_kind(
+                    "KindSet",
+                    gamelogic::common::KindOf::Vehicle,
+                    40,
+                ));
+                let row = engine.shared_attack_info("KindSet").unwrap();
+                assert_eq!(row.get_priority_for_template("Unknown"), 2);
+                assert_eq!(row.get_priority_for_template("SpecInf"), 10);
+                world.publish_attack_priority(row);
+            })
+            .unwrap();
+    });
     let mut vt = ThingTemplate::new("TankX");
     vt.add_kind_of(KindOf::Vehicle);
     vt.add_kind_of(KindOf::Attackable);
     let vid = ObjectId(2810);
     let v = Object::new(vt, vid, Team::GLA);
-    let pinfo = logic.attack_priority_sets.get("kindset").unwrap();
+    let pinfo = logic.combat_priorities.get("kindset").unwrap();
     assert_eq!(logic.attack_priority_for_target(pinfo, &v), 40);
 }
 
 #[test]
 fn attack_priority_info_template_lookup() {
-    let mut info = AttackPriorityInfo::new("TestSet");
+    let mut info = AttackPriorityInfo::named("TestSet");
     info.default_priority = 1;
-    info.set_priority_template("AmericaRanger", 50);
+    info.set_priority("AmericaRanger", 50);
     assert_eq!(info.get_priority_for_template("AmericaRanger"), 50);
     assert_eq!(info.get_priority_for_template("Other"), 1);
     assert_eq!(info.get_priority_for_template("americaranger"), 50);
+
+    info.set_priority("americaranger", -8);
+    assert_eq!(info.get_priority_for_template("AmericaRanger"), 50);
+    assert_eq!(info.get_priority_for_template("americaranger"), -8);
+    assert_eq!(info.get_priority_for_template("AMERICARANGER"), 50);
 }
 
 #[test]
@@ -662,10 +686,10 @@ fn find_closest_enemy_uses_attack_priority() {
     use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate, Weapon};
     use glam::Vec3;
     let mut logic = GameLogic::new();
-    let mut info = AttackPriorityInfo::new("Hunt");
+    let mut info = AttackPriorityInfo::named("Hunt");
     info.default_priority = 1;
-    info.set_priority_template("HighValue", 100);
-    info.set_priority_template("LowValue", 5);
+    info.set_priority("HighValue", 100);
+    info.set_priority("LowValue", 5);
     logic.register_attack_priority_set(info);
 
     let mut at = ThingTemplate::new("Hunter");
@@ -720,9 +744,9 @@ fn find_closest_enemy_skips_zero_priority() {
     use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate, Weapon};
     use glam::Vec3;
     let mut logic = GameLogic::new();
-    let mut info = AttackPriorityInfo::new("Zero");
+    let mut info = AttackPriorityInfo::named("Zero");
     info.default_priority = 0; // never attack default
-    info.set_priority_template("Allowed", 10);
+    info.set_priority("Allowed", 10);
     logic.register_attack_priority_set(info);
 
     let mut at = ThingTemplate::new("Hunter2");

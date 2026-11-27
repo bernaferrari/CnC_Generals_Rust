@@ -26,7 +26,6 @@ pub mod ini_parser;
 pub mod map_scripts;
 pub mod mission_runtime;
 pub mod triggers;
-pub mod variables;
 
 pub use conditions::*;
 pub use conditions::{
@@ -41,7 +40,6 @@ pub use events::*;
 pub use executor::*;
 pub use host_script_garrison::*;
 pub use map_scripts::{MapMetadata, MapScriptLoader};
-pub use variables::{VariableScope, VariableScopeManager};
 
 /// Snapshot serialization trait for scripting data.
 pub trait XferSnapshot {

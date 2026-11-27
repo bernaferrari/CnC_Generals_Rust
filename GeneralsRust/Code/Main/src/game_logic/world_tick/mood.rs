@@ -13,46 +13,21 @@ impl GameLogic {
         &mut self,
         engine: &gamelogic::scripting::engine::ScriptEngine,
     ) {
-        // Import all named attack priority sets from script engine.
-        // Engine stores Vec with index 0 default; named entries from 1..
-        // Public API: get_attack_info by name; also iterate via reflection if available.
-        // Fail-closed: pull known sets from object_attack_priority_sets values + common names.
-        let mut names: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
-        // Collect set names referenced by objects.
-        // We need access to object_attack_priority_sets - use public get if exists.
-        // Engine may only expose get_object_attack_priority_set per id.
-
-        // Sync host objects: host ObjectId is the script-engine key.
-        let object_ids: Vec<(ObjectId, Option<u32>)> = self
-            .objects
-            .registered()
-            .map(|(id, _o)| (*id, Some(id.0)))
-            .collect();
-
-        for (host_id, eng_opt) in object_ids {
-            let Some(eng_id) = eng_opt else {
-                continue;
-            };
-            let set_name = engine
-                .get_object_attack_priority_set(eng_id)
-                .map(|s| s.to_string());
-            if let Some(ref name) = set_name {
+        let mut names = std::collections::BTreeSet::new();
+        let ids: Vec<_> = self.objects.registered().map(|(&id, _)| id).collect();
+        for id in ids {
+            let set_name = engine.get_object_attack_priority_set(id.0);
+            if let Some(name) = &set_name {
                 names.insert(name.clone());
             }
-            if let Some(u) = self.objects.get_mut(&host_id) {
-                u.attack_priority_set = set_name.filter(|s| !s.is_empty());
+            if let Some(unit) = self.objects.get_mut(&id) {
+                unit.attack_priority_set = set_name.filter(|name| !name.is_empty());
             }
         }
 
-        // Also import any set already registered on host (no-op) and pull definitions.
         for name in names {
-            if let Some(info) = engine.get_attack_info(&name) {
-                let mut host = AttackPriorityInfo::new(info.get_name());
-                host.default_priority = info.default_priority;
-                for (tmpl, pri) in &info.priority_map {
-                    host.set_priority_template(tmpl, *pri);
-                }
-                self.register_attack_priority_set(host);
+            if let Some(info) = engine.shared_attack_info(&name) {
+                self.publish_attack_priority(info);
             }
         }
         let need_inherit: Vec<ObjectId> = self
@@ -75,9 +50,17 @@ impl GameLogic {
             .get_choose_victim_always_uses_normal()
     }
 
-    pub fn register_attack_priority_set(&mut self, info: AttackPriorityInfo) {
-        let key = info.name.to_ascii_lowercase();
-        self.attack_priority_sets.insert(key, info);
+    pub(in crate::game_logic) fn publish_attack_priority(
+        &mut self,
+        info: std::sync::Arc<AttackPriorityInfo>,
+    ) {
+        self.combat_priorities
+            .insert(info.name.to_ascii_lowercase(), info);
+    }
+
+    #[cfg(test)]
+    pub(in crate::game_logic) fn register_attack_priority_set(&mut self, info: AttackPriorityInfo) {
+        self.publish_attack_priority(std::sync::Arc::new(info));
     }
 
     /// C++ AIUpdateInterface::setAttackInfo residual (by set name).
@@ -90,31 +73,18 @@ impl GameLogic {
     /// Resolve AttackPriorityInfo for a unit (None = default closest-only).
     pub fn attack_priority_info_for(&self, unit_id: ObjectId) -> Option<&AttackPriorityInfo> {
         let name = self.objects.get(&unit_id)?.attack_priority_set.as_ref()?;
-        self.attack_priority_sets.get(&name.to_ascii_lowercase())
+        self.combat_priorities
+            .get(&name.to_ascii_lowercase())
+            .map(std::sync::Arc::as_ref)
     }
 
-    /// Priority for a candidate target under optional info (includes kind residual).
+    /// Select the maximum template priority across the target and its occupants.
     pub fn attack_priority_for_target(
         &self,
         info: &AttackPriorityInfo,
         target: &crate::game_logic::object::Object,
     ) -> i32 {
         let mut pri = info.get_priority_for_template(&target.thing().template.name);
-        for (kind, &kp) in &info.kind_priorities {
-            let hit = match kind.as_str() {
-                "infantry" => target.is_kind_of(crate::game_logic::KindOf::Infantry),
-                "vehicle" => target.is_kind_of(crate::game_logic::KindOf::Vehicle),
-                "structure" | "building" => {
-                    target.is_kind_of(crate::game_logic::KindOf::Structure)
-                        || target.object_type == crate::game_logic::ObjectType::Building
-                }
-                "aircraft" => target.is_kind_of(crate::game_logic::KindOf::Aircraft),
-                _ => false,
-            };
-            if hit && kp > pri {
-                pri = kp;
-            }
-        }
         if !target.contained_units().is_empty() {
             for cid in target.contained_units() {
                 if let Some(c) = self.objects.get(&cid) {

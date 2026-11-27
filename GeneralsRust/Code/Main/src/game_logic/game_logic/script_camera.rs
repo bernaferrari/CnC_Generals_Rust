@@ -74,56 +74,7 @@ pub(super) fn mission_objective_to_display(
     }
 }
 
-/// C++ AI::findClosestEnemy qualifier flags residual.
-/// C++ AttackPriorityInfo residual (ScriptEngine).
-#[derive(Debug, Clone)]
-pub struct AttackPriorityInfo {
-    pub name: String,
-    pub default_priority: i32,
-    /// Template name → priority (case-insensitive keys stored lowercased).
-    pub priorities: std::collections::HashMap<String, i32>,
-    /// KindOf name token → priority residual (SetAttackPriorityKindOf).
-    pub kind_priorities: std::collections::HashMap<String, i32>,
-}
-
-impl Default for AttackPriorityInfo {
-    fn default() -> Self {
-        Self {
-            name: String::new(),
-            default_priority: 1, // ATTACK_PRIORITY_DEFAULT
-            priorities: std::collections::HashMap::new(),
-            kind_priorities: std::collections::HashMap::new(),
-        }
-    }
-}
-
-impl AttackPriorityInfo {
-    pub fn new(name: impl Into<String>) -> Self {
-        Self {
-            name: name.into(),
-            ..Default::default()
-        }
-    }
-
-    pub fn set_priority_template(&mut self, template_name: &str, priority: i32) {
-        self.priorities
-            .insert(template_name.to_ascii_lowercase(), priority);
-    }
-
-    pub fn set_priority_kind(&mut self, kind_name: &str, priority: i32) {
-        self.kind_priorities
-            .insert(kind_name.to_ascii_lowercase(), priority);
-    }
-
-    /// C++ AttackPriorityInfo::getPriority residual.
-    pub fn get_priority_for_template(&self, template_name: &str) -> i32 {
-        let key = template_name.to_ascii_lowercase();
-        self.priorities
-            .get(&key)
-            .copied()
-            .unwrap_or(self.default_priority)
-    }
-}
+pub use generals_sim::scripting::attack_priorities::AttackPriorityInfo;
 
 /// C++ AIData::m_attackPriorityDistanceModifier residual (world units per priority step).
 pub const ATTACK_PRIORITY_DISTANCE_MODIFIER: f32 = 50.0;

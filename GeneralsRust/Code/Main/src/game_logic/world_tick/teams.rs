@@ -376,18 +376,6 @@ impl GameLogic {
     ///
     /// Returns a candidate enemy to auto-acquire, or None.
 
-    /// C++ AI::findClosestEnemy residual (host simplified partition filters).
-    ///
-    /// Qualifiers: see `find_enemy_flags`. When the hunter has an AttackPriorityInfo
-    /// set, uses priority-distance scoring (C++ modPriority = pri - dist/modifier).
-
-    /// Register/replace a named AttackPriorityInfo set.
-
-    /// Bridge C++ ScriptEngine AttackPriorityInfo / object sets into host GameLogic.
-    ///
-    /// Copies named priority sets and applies per-object set names so
-    /// `find_closest_enemy` priority scoring matches script actions.
-
     /// Parse C++ AttitudeType name/ordinal residual to host i8.
     pub fn parse_attitude_token(token: &str) -> i8 {
         use crate::game_logic::host_strategy_center::HostAiAttitude;
