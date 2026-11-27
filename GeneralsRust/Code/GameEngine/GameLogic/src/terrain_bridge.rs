@@ -64,13 +64,7 @@ pub(crate) fn observe_damage(
     let actor = actor.read().ok()?;
     let body = actor.get_body_module()?;
     let state = body.lock().ok()?.get_damage_state();
-    let previous = info.cur_damage_state;
-    if previous == state {
-        return None;
-    }
-
-    info.cur_damage_state = state;
-    info.damage_state_changed = previous == BodyDamageType::Rubble || state == BodyDamageType::Rubble;
+    let previous = info.set_damage_state(state)?;
     if state == BodyDamageType::Rubble {
         Some(BridgeDamage::Collapsed)
     } else if previous == BodyDamageType::Rubble && !bridge_has_scaffold(&actor) {

@@ -300,7 +300,7 @@ pub use super::host_railroad::{
     is_railroad_locomotive_template, is_railroad_template,
 };
 
-pub use super::host_bridge_behavior::{
+pub use generals_sim::bridge_behavior::{
     BRIDGE_SCAFFOLD_TEMPLATE, BRIDGE_SPLAT_DAMAGE, HostBridgeBehaviorRegistry,
     is_bridge_or_tower_template, is_bridge_span_template,
 };

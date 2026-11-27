@@ -433,7 +433,7 @@ pub struct GameLogic {
     pub(crate) railed_waypoints: Vec<crate::game_logic::host_railroad::HostWaypointSnap>,
 
     /// C++ BridgeBehavior scaffolding + rubble restamp/splat.
-    pub(crate) bridge_behavior: crate::game_logic::host_bridge_behavior::HostBridgeBehaviorRegistry,
+    pub(crate) bridge_behavior: generals_sim::bridge_behavior::HostBridgeBehaviorRegistry,
 
     /// Host AirF Combat Chinook residual honesty counters
     /// (load / unload / passenger fire / armed-riders weapon-set).

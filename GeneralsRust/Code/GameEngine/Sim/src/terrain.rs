@@ -4,6 +4,9 @@
 //! → `WorldHeightMap::getCliffState`. Bits are packed 8 cells/byte and initialized
 //! from the four-corner world-Z range vs `PATHFIND_CLIFF_SLOPE_LIMIT_F` (9.8).
 
+pub use crate::terrain_bridge::{
+    BRIDGE_MAX_TOWERS, Bridge, BridgeAttackInfo, BridgeInfo, BridgeList, BridgeTowerType, Region2D,
+};
 pub use crate::terrain_height_map::{TerrainHeightChange, TerrainHeightMap};
 pub use crate::terrain_los::{LOS_FUDGE, is_clear_line_of_sight};
 pub use crate::terrain_ray::{TerrainHeightSamples, TerrainRayCast, source_height_cell_floor};

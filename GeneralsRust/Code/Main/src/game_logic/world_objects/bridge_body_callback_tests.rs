@@ -5,7 +5,7 @@ use crate::game_logic::host_usa_pilot::HostDeathType;
 use crate::game_logic::object::DamageHitContext;
 use generals_sim::object::BodyDamageType;
 use glam::Vec3 as Coord3D;
-use gamelogic::terrain::BridgeInfo;
+use generals_sim::terrain::BridgeInfo;
 
 fn isolated(name: &str, run: impl FnOnce()) {
     crate::game_logic::game_logic::pose_owner_tests::isolated_at(module_path!(), name, run);

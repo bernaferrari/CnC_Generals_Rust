@@ -27,7 +27,7 @@ impl GameLogic {
                     .map(|template| template.transition_effects_height)
             })
             .unwrap_or(0.0);
-        Some(span.random_surface_position(&self.logic_random, height))
+        Some(span.random_surface_position(|lo, hi| self.logic_random.next_real(lo, hi), height))
     }
 
     /// Residual Tunnel Network honesty: enter count.
@@ -412,7 +412,7 @@ impl GameLogic {
         self.objects
             .registered_values()
             .filter(|o| {
-                crate::game_logic::host_bridge_behavior::is_bridge_span_template(&o.template_name)
+                generals_sim::bridge_behavior::is_bridge_span_template(&o.template_name)
                     || o.is_kind_of(crate::game_logic::KindOf::Bridge)
             })
             .min_by(|a, b| {
@@ -454,9 +454,9 @@ impl GameLogic {
         let mut anims = Vec::new();
         for tile in tiles {
             let template = if tile.is_support {
-                crate::game_logic::host_bridge_behavior::BRIDGE_SCAFFOLD_SUPPORT_TEMPLATE
+                generals_sim::bridge_behavior::BRIDGE_SCAFFOLD_SUPPORT_TEMPLATE
             } else {
-                crate::game_logic::host_bridge_behavior::BRIDGE_SCAFFOLD_TEMPLATE
+                generals_sim::bridge_behavior::BRIDGE_SCAFFOLD_TEMPLATE
             };
             if let Some(sid) = self.create_object_with_script_effects(
                 template,
@@ -473,7 +473,7 @@ impl GameLogic {
                 }
                 ids.push(sid);
                 anims.push(
-                    crate::game_logic::host_bridge_behavior::HostScaffoldAnim::from_tile(
+                    generals_sim::bridge_behavior::HostScaffoldAnim::from_tile(
                         sid, &tile, center,
                     ),
                 );
@@ -555,14 +555,14 @@ impl GameLogic {
             .or_else(|| self.objects.get(&span_id).map(|o| o.get_position()))
             .unwrap_or(glam::Vec3::ZERO);
         let _ = self.dispatch_fx_list_at_host_position_with_effects(
-            crate::game_logic::host_bridge_behavior::BRIDGE_DIE_FX_NAME,
+            generals_sim::bridge_behavior::BRIDGE_DIE_FX_NAME,
             pos,
             presentation_effects,
         );
         if let Some(obj) = self.objects.get_mut(&span_id) {
             if obj.pending_death_fx.is_none() {
                 obj.pending_death_fx =
-                    Some(crate::game_logic::host_bridge_behavior::BRIDGE_DIE_FX_NAME.to_string());
+                    Some(generals_sim::bridge_behavior::BRIDGE_DIE_FX_NAME.to_string());
             }
         }
         self.fire_owned_fx_list_die_with_effects(span_id, presentation_effects);
@@ -578,7 +578,7 @@ impl GameLogic {
             .or_else(|| self.objects.get(&span_id).map(|o| o.get_position()))
             .unwrap_or(glam::Vec3::ZERO);
         self.execute_bridge_ocl_at_with_effects(
-            crate::game_logic::host_bridge_behavior::BRIDGE_DIE_OCL_NAME,
+            generals_sim::bridge_behavior::BRIDGE_DIE_OCL_NAME,
             span_id,
             pos,
             presentation_effects,
@@ -645,9 +645,7 @@ impl GameLogic {
         new_state: u8,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> generals_sim::GameLogicResult<()> {
-        let cue = self
-            .bridge_behavior
-            .body_transition_cues(old_state, new_state);
+        let cue = crate::game_logic::host_bridge_behavior::body_transition_cues_for(old_state, new_state);
         if let Some(sound) = cue.sound.as_deref() {
             let pos = self
                 .objects
@@ -732,7 +730,7 @@ impl GameLogic {
             .objects
             .registered_values()
             .filter(|o| {
-                crate::game_logic::host_bridge_behavior::is_bridge_span_template(&o.template_name)
+                generals_sim::bridge_behavior::is_bridge_span_template(&o.template_name)
                     || o.is_kind_of(crate::game_logic::KindOf::Bridge)
             })
             .map(|o| o.id)
@@ -796,7 +794,7 @@ impl GameLogic {
                     .filter(|(oid, o)| {
                         **oid != id
                             && o.is_alive()
-                            && !crate::game_logic::host_bridge_behavior::is_bridge_or_tower_template(
+                            && !generals_sim::bridge_behavior::is_bridge_or_tower_template(
                                 &o.template_name,
                             )
                     })
@@ -834,7 +832,7 @@ impl GameLogic {
                             let receiving_damage_target_id = unit.id;
                             self.apply_residual_damage_owned_with_effects(
                                 receiving_damage_target_id,
-                                crate::game_logic::host_bridge_behavior::BRIDGE_SPLAT_DAMAGE,
+                                generals_sim::bridge_behavior::BRIDGE_SPLAT_DAMAGE,
                                 Some(id),
                                 crate::game_logic::combat::DamageType::Falling,
                                 crate::game_logic::host_usa_pilot::HostDeathType::Splatted,

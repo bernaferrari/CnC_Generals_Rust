@@ -1,6 +1,7 @@
 //! Simulation components shared by the native game and its tools.
 
 pub mod armor;
+pub mod bridge_behavior;
 pub mod chinook;
 pub mod command;
 pub mod damage;
@@ -19,6 +20,7 @@ mod special_power_targeting;
 mod special_power_type;
 pub mod step;
 pub mod terrain;
+mod terrain_bridge;
 mod terrain_height_map;
 mod terrain_los;
 mod terrain_ray;

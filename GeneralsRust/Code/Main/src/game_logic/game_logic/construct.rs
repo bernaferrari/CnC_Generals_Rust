@@ -244,7 +244,7 @@ impl GameLogic {
             railroad: crate::game_logic::host_railroad::HostRailroadRegistry::default(),
             railed_waypoints: Vec::new(),
             bridge_behavior:
-                crate::game_logic::host_bridge_behavior::HostBridgeBehaviorRegistry::new(),
+                generals_sim::bridge_behavior::HostBridgeBehaviorRegistry::new(),
             combat_chinook: crate::game_logic::host_combat_chinook::HostCombatChinookRegistry::new(
             ),
             listening_outpost:

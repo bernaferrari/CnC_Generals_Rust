@@ -1785,7 +1785,7 @@ fn native_adjust_uses_bridge_layer_for_quick_path_gate() {
     let bounds = (GridCoord::new(2, 2), GridCoord::new(6, 6));
     let layer = game.pathfinder.add_bridge(bounds);
     assert_ne!(layer, crate::path::PathfindLayerEnum::Ground);
-    let info = crate::terrain::TerrainLogic::bridge_info_from_parts(
+    let info = generals_sim::terrain::BridgeInfo::from_landmark(
         bridge_center,
         0.0,
         25.0,

@@ -1138,7 +1138,7 @@ impl Object {
     fn is_host_bridge_member(&self) -> bool {
         self.is_kind_of(KindOf::Bridge)
             || self.is_kind_of(KindOf::BridgeTower)
-            || crate::game_logic::host_bridge_behavior::is_bridge_or_tower_template(
+            || generals_sim::bridge_behavior::is_bridge_or_tower_template(
                 &self.template_name,
             )
     }

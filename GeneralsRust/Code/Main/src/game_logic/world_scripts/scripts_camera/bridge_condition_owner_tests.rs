@@ -5,7 +5,7 @@ use crate::save_load::SnapshotBuilder;
 use generals_sim::object::BodyDamageType;
 use glam::Vec3 as Coord3D;
 use gamelogic::path::PathfindLayerEnum;
-use gamelogic::terrain::BridgeInfo;
+use generals_sim::terrain::BridgeInfo;
 
 fn isolated(name: &str, run: impl FnOnce()) {
     super::sequential_actor_tests::isolated(module_path!(), name, run);

@@ -64,7 +64,7 @@ impl GameLogic {
         let is_bridge = if let Some(obj) = self.objects.get_mut(&id) {
             obj.set_indestructible(indestructible);
             obj.is_kind_of(crate::game_logic::KindOf::Bridge)
-                || crate::game_logic::host_bridge_behavior::is_bridge_span_template(
+                || generals_sim::bridge_behavior::is_bridge_span_template(
                     &obj.template_name,
                 )
         } else {

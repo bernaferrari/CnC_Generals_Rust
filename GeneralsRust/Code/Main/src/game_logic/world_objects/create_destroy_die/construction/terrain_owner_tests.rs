@@ -363,7 +363,7 @@ fn actual_construction_changes_receiving_group_ground_and_layer_without_peer_wri
             // (TerrainLogic::addBridgeToLogic), not a pathfinder-only layer.
             let bridge = |world: &mut GameLogic| {
                 let coord = |p: Vec3| glam::Vec3::new(p.x, p.z, p.y);
-                let mut info = gamelogic::terrain::BridgeInfo::new();
+                let mut info = generals_sim::terrain::BridgeInfo::new();
                 info.from_left = coord(Vec3::new(40., 55., 20.));
                 info.from_right = coord(Vec3::new(70., 55., 20.));
                 info.to_left = coord(Vec3::new(40., 55., 40.));

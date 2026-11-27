@@ -1,15 +1,17 @@
 //! Original bridge admission/deletion order with Main-owned objects and slots.
 use super::*;
-use crate::game_logic::host_bridge_behavior::{MapBridgeSource, bridge_deck_corners};
+use crate::game_logic::host_bridge_behavior::bridge_deck_corners;
+use generals_sim::bridge_behavior::MapBridgeSource;
 
 use gamelogic::common::AsciiString;
 use game_engine::map_data::{BridgeData, BridgeEndpoints, BridgeModels, MAX_AUTHORED_BRIDGES, MapData, read_mounted_bridge_model};
-use gamelogic::terrain::{BridgeInfo, TerrainLogic};
+use gamelogic::terrain::TerrainLogic;
+use generals_sim::terrain::BridgeInfo;
 
 impl GameLogic {
     pub(in super::super) fn reserve_owned_bridge(
         &mut self,
-        info: &gamelogic::terrain::BridgeInfo,
+        info: &generals_sim::terrain::BridgeInfo,
     ) -> u8 {
         let [from_left, from_right, to_left, to_right] = bridge_deck_corners(info);
         let layer = self
@@ -198,7 +200,7 @@ impl GameLogic {
                     .bind_reserved_bridge_object(layer, id.0);
                 bridge.set_bridge_object_id(id.0);
                 for (index, tower) in towers.into_iter().enumerate() {
-                    if let Some(kind) = gamelogic::common::BridgeTowerType::from_index(index) {
+                    if let Some(kind) = generals_sim::terrain::BridgeTowerType::from_index(index) {
                         bridge.set_tower_object_id(tower.0, kind);
                     }
                 }
@@ -333,7 +335,7 @@ impl GameLogic {
 fn refresh_grid_bridge_states(
     grid: &mut PathfindingGrid,
     objects: crate::game_logic::HostObjectRead<'_>,
-    bridges: &crate::game_logic::host_bridge_behavior::HostBridgeBehaviorRegistry,
+    bridges: &generals_sim::bridge_behavior::HostBridgeBehaviorRegistry,
     ground: &PathfindingGround<'_>,
 ) {
     for (layer, id, old_destroyed, unclassified) in grid.admitted_bridge_states() {

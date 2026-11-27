@@ -263,7 +263,7 @@ fn terrain_snapshot_post_process_checks_bridge_objects_in_the_recipient_only() {
         (9192, PathfindLayerEnum::Bridge2),
     ] {
         let info =
-            TerrainLogic::bridge_info_from_parts(Coord3D::new(30.0, 30.0, 0.0), 0.0, 6.0, 2.0, id);
+            generals_sim::terrain::BridgeInfo::from_landmark(Coord3D::new(30.0, 30.0, 0.0), 0.0, 6.0, 2.0, id);
         bridge.terrain.write().unwrap().prepend_bridge_on_layer(
             info,
             AsciiString::from("TestBridge"),

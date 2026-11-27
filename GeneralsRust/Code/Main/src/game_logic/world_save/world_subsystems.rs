@@ -1572,7 +1572,7 @@ if let Ok(mut list) = __arc_bind.write() {
         let geometry = obj.geometry_info();
         let (half_x, half_y) = (geometry.major_radius, geometry.minor_radius);
         let team = obj.team;
-        let mut info = gamelogic::terrain::TerrainLogic::bridge_info_from_parts(
+        let mut info = generals_sim::terrain::BridgeInfo::from_landmark(
             glam::Vec3::new(pos.x, pos.z, pos.y),
             angle,
             half_x,
@@ -1608,7 +1608,7 @@ if let Ok(mut list) = __arc_bind.write() {
         bridge_id: ObjectId,
         team: Team,
         bridge_angle: f32,
-        info: &gamelogic::terrain::BridgeInfo,
+        info: &generals_sim::terrain::BridgeInfo,
     ) {
         self.create_landmark_bridge_towers_with_effects(
             bridge_id,
@@ -1624,7 +1624,7 @@ if let Ok(mut list) = __arc_bind.write() {
         bridge_id: ObjectId,
         team: Team,
         bridge_angle: f32,
-        info: &gamelogic::terrain::BridgeInfo,
+        info: &generals_sim::terrain::BridgeInfo,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) {
         // Independent callers retain the existing nonfallible surface until their
@@ -1645,7 +1645,7 @@ if let Ok(mut list) = __arc_bind.write() {
         bridge_id: ObjectId,
         team: Team,
         bridge_angle: f32,
-        info: &gamelogic::terrain::BridgeInfo,
+        info: &generals_sim::terrain::BridgeInfo,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> generals_sim::GameLogicResult<()> {
         let Some(bridge_tmpl) = self
@@ -1729,7 +1729,7 @@ if let Ok(mut list) = __arc_bind.write() {
                     if tower_id == 0 {
                         continue;
                     }
-                    if let Some(which) = gamelogic::common::BridgeTowerType::from_index(index) {
+                    if let Some(which) = generals_sim::terrain::BridgeTowerType::from_index(index) {
                         bridge.set_tower_object_id(tower_id, which);
                     }
                 }

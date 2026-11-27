@@ -5,25 +5,17 @@ use super::*;
 impl TerrainLogic {
     /// Get first bridge
     pub fn get_first_bridge(&self) -> Option<&Bridge> {
-        self.bridge_list_head.as_ref().map(|b| b.as_ref())
+        self.bridges.first()
     }
 
     /// Visit every live bridge (C++ TerrainLogic bridge list walk).
-    pub fn for_each_bridge<F: FnMut(&Bridge)>(&self, mut f: F) {
-        let mut current = self.bridge_list_head.as_deref();
-        while let Some(bridge) = current {
-            f(bridge);
-            current = bridge.next.as_deref();
-        }
+    pub fn for_each_bridge<F: FnMut(&Bridge)>(&self, f: F) {
+        self.bridges.iter().for_each(f);
     }
 
     /// Visit every live bridge mutably.
-    pub fn for_each_bridge_mut<F: FnMut(&mut Bridge)>(&mut self, mut f: F) {
-        let mut current = self.bridge_list_head.as_deref_mut();
-        while let Some(bridge) = current {
-            f(bridge);
-            current = bridge.next.as_deref_mut();
-        }
+    pub fn for_each_bridge_mut<F: FnMut(&mut Bridge)>(&mut self, f: F) {
+        self.bridges.for_each_mut(f);
     }
 
     /// Store a live GenericBridge object id on the leftover span matching `from_left`.
@@ -42,34 +34,7 @@ impl TerrainLogic {
         object_id: ObjectID,
         state: BodyDamageType,
     ) {
-        if object_id == crate::common::INVALID_ID {
-            return;
-        }
-        let mut changed = false;
-        self.for_each_bridge(|bridge| {
-            let info = bridge.get_bridge_info();
-            changed |= info.bridge_object_id == object_id && info.cur_damage_state != state;
-        });
-        if !changed {
-            return;
-        }
-        // CPP Bridge::updateDamageState marks only entering/leaving rubble
-        // as broken or repaired. This target write must not erase another
-        // bridge's transition in the host's completed bridge phase.
-        self.for_each_bridge_mut(|bridge| {
-            if bridge.get_bridge_info().bridge_object_id == object_id {
-                let info = bridge.bridge_info_mut();
-                if info.cur_damage_state != state {
-                    let old_state = info.cur_damage_state;
-                    info.cur_damage_state = state;
-                    info.damage_state_changed =
-                        old_state == BodyDamageType::Rubble || state == BodyDamageType::Rubble;
-                    changed = true;
-                }
-            }
-        });
-        if changed {
-            self.bridge_damage_states_changed = true;
+        if self.bridges.write_damage_state(object_id, state) {
             if let Some(radar) = crate::helpers::TheRadar::get() {
                 radar.queue_terrain_refresh();
             }
@@ -79,7 +44,7 @@ impl TerrainLogic {
     /// CPP TerrainLogic::update clears this gate after the early script pass.
     /// Querying a named bridge does not consume the previous frame's event.
     pub fn begin_host_bridge_frame(&mut self) {
-        self.bridge_damage_states_changed = false;
+        self.bridges.begin_damage_frame();
     }
 
     /// One original Bridge::updateDamageState observation. Effects run after
@@ -89,34 +54,12 @@ impl TerrainLogic {
         object_id: ObjectID,
         state: Option<BodyDamageType>,
     ) -> Option<(ObjectID, BodyDamageType, BodyDamageType)> {
-        let mut transition = None;
-        self.for_each_bridge_mut(|bridge| {
-            if bridge.get_bridge_info().bridge_object_id != object_id {
-                return;
-            }
-            let info = bridge.bridge_info_mut();
-            info.damage_state_changed = false;
-            if info.bridge_object_id == crate::common::INVALID_ID {
-                return;
-            }
-            let Some(state) = state else {
-                info.bridge_object_id = crate::common::INVALID_ID;
-                return;
-            };
-            let old = info.cur_damage_state;
-            if old != state {
-                info.cur_damage_state = state;
-                info.damage_state_changed =
-                    old == BodyDamageType::Rubble || state == BodyDamageType::Rubble;
-                transition = Some((info.bridge_object_id, old, state));
-            }
-        });
-        transition
+        self.bridges.observe_body(object_id, state)
     }
 
     /// CPP updateBridgeDamageStates sets the gate even on an unchanged scan.
     pub fn finish_host_bridge_damage_scan(&mut self) {
-        self.bridge_damage_states_changed = true;
+        self.bridges.finish_damage_scan();
     }
 
     /// Deck Z for a live host XZ sample (C++ XY). None when not on a live span.
@@ -159,31 +102,20 @@ impl TerrainLogic {
     }
 
     pub fn bridge_damage_states_changed(&self) -> bool {
-        self.bridge_damage_states_changed
+        self.bridges.damage_states_changed()
     }
 
     /// Find bridge at location
     pub fn find_bridge_at(&self, location: &Coord3D) -> Option<&Bridge> {
-        let mut current = self.bridge_list_head.as_deref();
-        while let Some(bridge) = current {
-            if bridge.is_point_on_bridge(location) {
-                return Some(bridge);
-            }
-            current = bridge.next.as_deref();
-        }
-        None
+        self.bridges
+            .iter()
+            .find(|bridge| bridge.is_point_on_bridge(location))
     }
 
     /// Find bridge at location (mutable)
     pub fn find_bridge_at_mut(&mut self, location: &Coord3D) -> Option<&mut Bridge> {
-        let mut current = self.bridge_list_head.as_deref_mut();
-        while let Some(bridge) = current {
-            if bridge.is_point_on_bridge(location) {
-                return Some(bridge);
-            }
-            current = bridge.next.as_deref_mut();
-        }
-        None
+        self.bridges
+            .find_mut(|bridge| bridge.is_point_on_bridge(location))
     }
 
     /// Delete the first bridge that contains the given location.
@@ -209,60 +141,27 @@ impl TerrainLogic {
     /// Unlink first, before the caller disables its layer and destroys its
     /// object (CPP TerrainLogic.cpp:1981-2031). No registry or AI selection.
     pub fn detach_bridge_at(&mut self, location: &Coord3D) -> Option<Box<Bridge>> {
-        let mut link = &mut self.bridge_list_head;
-        loop {
-            if link.as_ref()?.is_point_on_bridge(location) {
-                let mut removed = link.take()?;
-                *link = removed.next.take();
-                self.bridge_damage_states_changed = true;
-                return Some(removed);
-            }
-            link = &mut link.as_mut()?.next;
-        }
+        self.bridges
+            .detach_first(|bridge| bridge.is_point_on_bridge(location))
     }
 
     /// Same exact identity unlink for post-load orphan cleanup.
     pub fn detach_bridge_by_object_id(&mut self, id: ObjectID) -> Option<Box<Bridge>> {
-        let mut link = &mut self.bridge_list_head;
-        loop {
-            if link.as_ref()?.get_bridge_info().bridge_object_id == id {
-                let mut removed = link.take()?;
-                *link = removed.next.take();
-                self.bridge_damage_states_changed = true;
-                return Some(removed);
-            }
-            link = &mut link.as_mut()?.next;
-        }
+        self.bridges
+            .detach_first(|bridge| bridge.get_bridge_info().bridge_object_id == id)
     }
     /// Unlink the particular drawable bridge, including when several spans
     /// share both a pathfinder layer and an object position.
     pub fn detach_bridge_by_index(&mut self, index: i32) -> Option<Box<Bridge>> {
-        let mut link = &mut self.bridge_list_head;
-        loop {
-            if link.as_ref()?.get_bridge_info().bridge_index == index {
-                let mut removed = link.take()?;
-                *link = removed.next.take();
-                self.bridge_damage_states_changed = true;
-                return Some(removed);
-            }
-            link = &mut link.as_mut()?.next;
-        }
+        self.bridges
+            .detach_first(|bridge| bridge.get_bridge_info().bridge_index == index)
     }
 
     /// Unlink a landmark by its original placed-map-object index.
     pub fn detach_bridge_by_map_object_index(&mut self, index: usize) -> Option<Box<Bridge>> {
-        let mut link = &mut self.bridge_list_head;
-        loop {
-            if link.as_ref()?.get_bridge_info().source_map_object_index == Some(index) {
-                let mut removed = link.take()?;
-                *link = removed.next.take();
-                self.bridge_damage_states_changed = true;
-                return Some(removed);
-            }
-            link = &mut link.as_mut()?.next;
-        }
+        self.bridges
+            .detach_first(|bridge| bridge.get_bridge_info().source_map_object_index == Some(index))
     }
-
 
     /// Find bridge at layer
     pub fn find_bridge_layer_at(
@@ -275,12 +174,10 @@ impl TerrainLogic {
             return None;
         }
 
-        let mut current = self.bridge_list_head.as_deref();
-        while let Some(bridge) = current {
+        for bridge in self.bridges.iter() {
             if bridge.get_layer() == layer && (!clip || bridge.is_point_on_bridge(location)) {
                 return Some(bridge);
             }
-            current = bridge.next.as_deref();
         }
         None
     }
@@ -302,8 +199,7 @@ impl TerrainLogic {
             return self.is_point_on_wall(obj.get_position());
         }
 
-        let mut current = self.bridge_list_head.as_deref();
-        while let Some(bridge) = current {
+        for bridge in self.bridges.iter() {
             if bridge.get_layer() == layer {
                 let mut matches = false;
                 if bridge.is_point_on_bridge(obj.get_position()) {
@@ -337,7 +233,6 @@ impl TerrainLogic {
                 }
                 return false;
             }
-            current = bridge.next.as_deref();
         }
         false
     }
@@ -348,8 +243,7 @@ impl TerrainLogic {
             return false;
         }
 
-        let mut current = self.bridge_list_head.as_deref();
-        while let Some(bridge) = current {
+        for bridge in self.bridges.iter() {
             if bridge.get_layer() == layer {
                 let mut radius = obj.get_geometry_info().get_minor_radius();
                 radius += PATHFIND_CELL_SIZE_F * 0.5;
@@ -369,7 +263,6 @@ impl TerrainLogic {
                 }
                 return false;
             }
-            current = bridge.next.as_deref();
         }
         false
     }
@@ -388,11 +281,11 @@ impl TerrainLogic {
         info: BridgeInfo,
         template: AsciiString,
     ) {
-        let bridge = Box::new(Bridge::new(info, template));
+        let bridge = Box::new(Bridge::new(info, template, PathfindLayerEnum::Ground));
         let layer = pathfinder
             .map(|pathfinder| pathfinder.add_terrain_bridge(&bridge, self))
             .unwrap_or(PathfindLayerEnum::Ground);
-        self.prepend_bridge(bridge, layer);
+        self.bridges.prepend(bridge, layer);
     }
 
     /// The admission owner assigns the one canonical layer; no Core pathfinder.
@@ -402,13 +295,8 @@ impl TerrainLogic {
         template: AsciiString,
         layer: PathfindLayerEnum,
     ) {
-        self.prepend_bridge(Box::new(Bridge::new(info, template)), layer);
-    }
-
-    fn prepend_bridge(&mut self, mut bridge: Box<Bridge>, layer: PathfindLayerEnum) {
-        bridge.set_layer(layer);
-        bridge.next = self.bridge_list_head.take();
-        self.bridge_list_head = Some(bridge);
+        self.bridges
+            .prepend(Box::new(Bridge::new(info, template, layer)), layer);
     }
 
     /// Add a landmark bridge from object geometry (live host + leftover Object).
@@ -437,7 +325,7 @@ impl TerrainLogic {
             }
         }
         let bridge_info =
-            Self::bridge_info_from_parts(position, angle, halfsize_x, halfsize_y, bridge_object_id);
+            BridgeInfo::from_landmark(position, angle, halfsize_x, halfsize_y, bridge_object_id);
         self.add_bridge_to_logic(bridge_info, template_name);
     }
 
@@ -471,25 +359,14 @@ impl TerrainLogic {
     /// The restoring GameLogic answers whether the bridge object still exists.
     pub(crate) fn remove_orphaned_bridges(
         &mut self,
-        mut has_object: impl FnMut(ObjectID) -> bool,
+        has_object: impl FnMut(ObjectID) -> bool,
     ) -> Vec<PathfindLayerEnum> {
-        let mut layers = Vec::new();
-        let mut link = &mut self.bridge_list_head;
-        while let Some(bridge) = link.as_ref() {
-            if has_object(bridge.get_bridge_info().bridge_object_id) {
-                link = &mut link.as_mut().expect("bridge present").next;
-            } else {
-                layers.push(bridge.get_layer());
-                *link = link.take().expect("bridge present").next.take();
-            }
-        }
-        self.bridge_damage_states_changed |= !layers.is_empty();
-        layers
+        self.bridges.remove_orphans(has_object)
     }
 
     /// Update bridge damage states
     pub fn update_bridge_damage_states(&mut self) {
-        self.bridge_damage_states_changed = false;
+        self.bridges.begin_damage_frame();
         if dual_world_registry_unavailable() {
             return;
         }
@@ -517,22 +394,9 @@ impl TerrainLogic {
     fn next_bridge_damage(
         &mut self,
         visited: &mut usize,
-        mut observe: impl FnMut(&mut Bridge) -> Option<crate::terrain_bridge::BridgeDamage>,
+        observe: impl FnMut(&mut Bridge) -> Option<crate::terrain_bridge::BridgeDamage>,
     ) -> Option<(crate::terrain_bridge::BridgeDamage, Bridge)> {
-        let mut current = self.bridge_list_head.as_deref_mut();
-        for _ in 0..*visited {
-            current = current.and_then(|bridge| bridge.next.as_deref_mut());
-        }
-        while let Some(bridge) = current {
-            *visited += 1;
-            let damage = observe(bridge);
-            self.bridge_damage_states_changed |= bridge.get_bridge_info().damage_state_changed;
-            if let Some(damage) = damage {
-                return Some((damage, bridge.clone()));
-            }
-            current = bridge.next.as_deref_mut();
-        }
-        None
+        self.bridges.next_damage(visited, observe)
     }
 
     /// Checks if the specified bridge object has just been repaired.
@@ -540,14 +404,12 @@ impl TerrainLogic {
         if bridge_id == crate::common::INVALID_ID {
             return false;
         }
-        let mut current = self.bridge_list_head.as_deref();
-        while let Some(bridge) = current {
+        for bridge in self.bridges.iter() {
             let info = bridge.get_bridge_info();
             if info.bridge_object_id == bridge_id {
                 return info.damage_state_changed
                     && info.cur_damage_state != BodyDamageType::Rubble;
             }
-            current = bridge.next.as_deref();
         }
         false
     }
@@ -557,14 +419,12 @@ impl TerrainLogic {
         if bridge_id == crate::common::INVALID_ID {
             return false;
         }
-        let mut current = self.bridge_list_head.as_deref();
-        while let Some(bridge) = current {
+        for bridge in self.bridges.iter() {
             let info = bridge.get_bridge_info();
             if info.bridge_object_id == bridge_id {
                 return info.damage_state_changed
                     && info.cur_damage_state == BodyDamageType::Rubble;
             }
-            current = bridge.next.as_deref();
         }
         false
     }
@@ -580,47 +440,13 @@ impl TerrainLogic {
         bridge_id: ObjectID,
         attack_info: &mut BridgeAttackInfo,
     ) {
-        let mut current = self.bridge_list_head.as_deref();
-        while let Some(bridge) = current {
-            let info = bridge.get_bridge_info();
-            if info.bridge_object_id == bridge_id {
-                // Found the right bridge - calculate attack points
-                // C++ lines 1914-1926
-
-                // Calculate direction vector from 'from' to 'to' (normalized)
-                let mut delta = Coord3D::new(
-                    info.to.x - info.from.x,
-                    info.to.y - info.from.y,
-                    info.to.z - info.from.z,
-                );
-                let delta_len = delta.length();
-                if delta_len > f32::EPSILON {
-                    delta.x /= delta_len;
-                    delta.y /= delta_len;
-                    delta.z /= delta_len;
-                }
-
-                // Calculate width vector to get half-width offset
-                let width = Coord3D::new(
-                    info.from_right.x - info.from_left.x,
-                    info.from_right.y - info.from_left.y,
-                    info.from_right.z - info.from_left.z,
-                );
-                let half_width = width.length() / 2.0;
-
-                // Attack point 1: at 'from' end, offset by half-width along bridge direction
-                attack_info.attack_point1.x = info.from.x + delta.x * half_width;
-                attack_info.attack_point1.y = info.from.y + delta.y * half_width;
-                attack_info.attack_point1.z = info.from.z + delta.z * half_width;
-
-                // Attack point 2: at 'to' end, offset by half-width back along bridge direction
-                attack_info.attack_point2.x = info.to.x - delta.x * half_width;
-                attack_info.attack_point2.y = info.to.y - delta.y * half_width;
-                attack_info.attack_point2.z = info.to.z - delta.z * half_width;
-
-                return;
-            }
-            current = bridge.next.as_deref();
+        if let Some(bridge) = self
+            .bridges
+            .iter()
+            .find(|bridge| bridge.get_bridge_info().bridge_object_id == bridge_id)
+        {
+            bridge.get_bridge_info().attack_points(attack_info);
+            return;
         }
 
         // Fallback: C++ TerrainLogic.cpp:1936-1937 uses the bridge OBJECT position,

@@ -1,7 +1,7 @@
 //! CaveSystem, bridge lifecycle, and internal scaffold helper tests.
 
 use super::*;
-use crate::game_logic::host_bridge_behavior::BRIDGE_SCAFFOLD_TEMPLATE;
+use generals_sim::bridge_behavior::BRIDGE_SCAFFOLD_TEMPLATE;
 use crate::game_logic::host_usa_pilot::HostDeathType;
 use crate::game_logic::{ContainModuleKind, KindOf, Team, ThingTemplate};
 
@@ -426,7 +426,7 @@ fn bridge_rubble_restamps_and_splat_kills() {
     let unit = logic.host_object(uid).expect("unit");
     assert!(unit.health.current <= 0.0 || unit.status.destroyed);
     assert_eq!(unit.status.death_type, HostDeathType::Splatted);
-    assert!(logic.bridge_behavior.honesty_rubble_ok());
+    assert!(logic.bridge_behavior.rubble_restamps > 0 && logic.bridge_behavior.splat_kills > 0);
 }
 
 #[test]

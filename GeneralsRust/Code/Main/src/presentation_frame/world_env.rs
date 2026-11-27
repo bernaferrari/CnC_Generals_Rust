@@ -656,7 +656,7 @@ struct CoarseBridgeDeck {
 }
 
 impl CoarseBridgeDeck {
-    fn from_bridge(bridge: &gamelogic::terrain::Bridge) -> Self {
+    fn from_bridge<Name, Layer: Copy>(bridge: &generals_sim::terrain::Bridge<Name, Layer>) -> Self {
         let bounds = bridge.get_bounds();
         let info = bridge.get_bridge_info();
         Self {

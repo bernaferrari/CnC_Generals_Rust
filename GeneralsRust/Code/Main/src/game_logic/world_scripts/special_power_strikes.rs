@@ -1292,7 +1292,7 @@ impl GameLogic {
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> generals_sim::GameLogicResult<()> {
         let tree_move_frame = self.frame;
-        use crate::game_logic::host_bridge_behavior::is_bridge_span_template;
+        use generals_sim::bridge_behavior::is_bridge_span_template;
         use crate::game_logic::host_topple::{
             HostToppleData, TOPPLE_OPTIONS_NO_BOUNCE, TOPPLE_OPTIONS_NO_FX,
         };

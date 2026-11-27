@@ -16,61 +16,7 @@ pub const INVALID_WAYPOINT_ID: WaypointID = 0x7FFFFFFF;
 
 pub use generals_sim::object::BodyDamageType;
 
-/// Bridge tower type (matching C++ BridgeTowerType / TerrainRoads.h)
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum BridgeTowerType {
-    FromLeft = 0,
-    FromRight = 1,
-    ToLeft = 2,
-    ToRight = 3,
-}
-
-impl BridgeTowerType {
-    pub fn from_index(index: usize) -> Option<Self> {
-        match index {
-            0 => Some(Self::FromLeft),
-            1 => Some(Self::FromRight),
-            2 => Some(Self::ToLeft),
-            3 => Some(Self::ToRight),
-            _ => None,
-        }
-    }
-}
-
-/// Maximum number of bridge towers (C++ BRIDGE_MAX_TOWERS)
-pub const BRIDGE_MAX_TOWERS: usize = 4;
-
-/// 2D region (matching C++ Region2D)
-#[derive(Debug, Clone, Copy)]
-pub struct Region2D {
-    pub lo: Coord2D,
-    pub hi: Coord2D,
-}
-
-impl Default for Region2D {
-    fn default() -> Self {
-        Self {
-            lo: Coord2D::ZERO,
-            hi: Coord2D::ZERO,
-        }
-    }
-}
-
-impl Region2D {
-    pub fn new(lo: Coord2D, hi: Coord2D) -> Self {
-        Self { lo, hi }
-    }
-
-    /// C++ `Region2D::width`.
-    pub fn width(&self) -> f32 {
-        self.hi.x - self.lo.x
-    }
-
-    /// C++ `Region2D::height`.
-    pub fn height(&self) -> f32 {
-        self.hi.y - self.lo.y
-    }
-}
+pub use generals_sim::terrain::{BRIDGE_MAX_TOWERS, BridgeTowerType, Region2D};
 
 /// Integer 2D region (matching C++ IRegion2D)  
 #[derive(Debug, Clone, Copy)]

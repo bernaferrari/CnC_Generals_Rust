@@ -3,7 +3,8 @@ use gamelogic::common::AsciiString;
 use generals_sim::object::BodyDamageType;
 use glam::Vec3 as Coord3D;
 use gamelogic::path::PathfindLayerEnum;
-use gamelogic::terrain::{BridgeInfo, TerrainLogic};
+use gamelogic::terrain::TerrainLogic;
+use generals_sim::terrain::BridgeInfo;
 
 fn publish(logic: &mut GameLogic) -> PresentationFrame {
     PresentationFrame::try_publish(logic, 0, None, false)

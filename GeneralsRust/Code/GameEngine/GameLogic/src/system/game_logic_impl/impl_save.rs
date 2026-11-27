@@ -305,7 +305,7 @@ mod map_object_load_cleanup_tests {
         let wall = 91_230;
         let unrelated = 91_240;
         let add_bridge = |world: &EngineStores, position, bridge, tower| {
-            let mut info = TerrainLogic::bridge_info_from_parts(position, 0.0, 50.0, 20.0, bridge);
+            let mut info = generals_sim::terrain::BridgeInfo::from_landmark(position, 0.0, 50.0, 20.0, bridge);
             info.tower_object_id[0] = tower;
             world
                 .services()

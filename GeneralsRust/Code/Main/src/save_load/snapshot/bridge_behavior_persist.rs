@@ -19,9 +19,8 @@
 //! Restore replaces the live registry and never calls `create_scaffolding`.
 
 use super::lifecycle_records::LifecycleRecords;
-use crate::game_logic::host_bridge_behavior::{
-    HostBridgeBehaviorRegistry, MapBridgeSource, bridge_deck_corners,
-};
+use crate::game_logic::host_bridge_behavior::bridge_deck_corners;
+use generals_sim::bridge_behavior::{HostBridgeBehaviorRegistry, MapBridgeSource};
 use crate::game_logic::{GameLogic, KindOf, ObjectId};
 use crate::save_load::{SaveLoadError, SaveLoadResult};
 use serde::{Deserialize, Serialize};
@@ -217,7 +216,7 @@ pub(crate) fn mutate_saved_bridge_bindings_for_test(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::game_logic::host_bridge_behavior::{
+    use generals_sim::bridge_behavior::{
         HostScaffoldAnim, HostScaffoldMotion, BRIDGE_SCAFFOLD_LATERAL_SPEED,
         BRIDGE_SCAFFOLD_VERTICAL_SPEED,
     };

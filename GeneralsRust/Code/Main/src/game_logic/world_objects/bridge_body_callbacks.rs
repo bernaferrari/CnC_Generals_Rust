@@ -231,7 +231,7 @@ impl GameLogic {
                     );
                     let _ = owner.apply_owned_damage_with_effects(
                         occupant,
-                        crate::game_logic::host_bridge_behavior::BRIDGE_SPLAT_DAMAGE,
+                        generals_sim::bridge_behavior::BRIDGE_SPLAT_DAMAGE,
                         Some(occupant),
                         DamageType::Falling,
                         HostDeathType::Splatted,

@@ -177,7 +177,7 @@ mod tests {
 
         const ID: u32 = 81;
         let span = |height: f32| {
-            let mut bridge = TerrainLogic::bridge_info_from_parts(
+            let mut bridge = generals_sim::terrain::BridgeInfo::from_landmark(
                 Coord3D::new(75.0, 75.0, height),
                 FRAC_PI_4,
                 48.0,

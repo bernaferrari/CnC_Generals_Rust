@@ -546,7 +546,7 @@ impl GameLogic {
         let is_bridge_member = self.objects.get(&id).is_some_and(|obj| {
             obj.is_kind_of(KindOf::Bridge)
                 || obj.is_kind_of(KindOf::BridgeTower)
-                || crate::game_logic::host_bridge_behavior::is_bridge_or_tower_template(
+                || generals_sim::bridge_behavior::is_bridge_or_tower_template(
                     &obj.template_name,
                 )
         });

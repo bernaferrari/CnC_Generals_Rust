@@ -373,7 +373,7 @@ fn native_bridge_death_world() -> (GameLogic, ObjectId, ObjectId, ObjectId) {
         .bridge_behavior
         .register_span(span, corners[0], corners[1], corners[2], corners[3]);
     let coord = |p: glam::Vec3| glam::Vec3::new(p.x, p.z, p.y);
-    let mut info = gamelogic::terrain::BridgeInfo::new();
+    let mut info = generals_sim::terrain::BridgeInfo::new();
     info.bridge_object_id = span.0;
     info.from_left = coord(corners[0]);
     info.from_right = coord(corners[1]);

@@ -2790,7 +2790,7 @@ impl GameLogic {
             verify_factory_birth!();
             self.host_radar_observe_object_position(id);
             if creation_purpose != FactoryCreationPurpose::TerrainBridge
-                && crate::game_logic::host_bridge_behavior::is_bridge_span_template(template_name)
+                && generals_sim::bridge_behavior::is_bridge_span_template(template_name)
             {
                 let object = self
                     .objects

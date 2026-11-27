@@ -76,7 +76,7 @@ fn add_landmark_bridge_from_geometry_registers_deck() {
 
 #[test]
 fn bridge_info_from_parts_matches_expected_rectangle() {
-    let bridge_info = TerrainLogic::bridge_info_from_parts(
+    let bridge_info = BridgeInfo::from_landmark(
         Coord3D::new(10.0, 20.0, 3.0),
         0.0,
         6.0,
@@ -93,7 +93,7 @@ fn bridge_info_from_parts_matches_expected_rectangle() {
 
 #[test]
 fn delete_bridge_at_removes_bridge_from_list() {
-    let bridge_info = TerrainLogic::bridge_info_from_parts(
+    let bridge_info = BridgeInfo::from_landmark(
         Coord3D::new(10.0, 20.0, 0.0),
         0.0,
         6.0,
@@ -102,9 +102,8 @@ fn delete_bridge_at_removes_bridge_from_list() {
     );
 
     let mut terrain = TerrainLogic::new();
-    let mut bridge = Box::new(Bridge::new(bridge_info, AsciiString::from("TestBridge")));
-    bridge.set_layer(PathfindLayerEnum::Bridge1);
-    terrain.bridge_list_head = Some(bridge);
+    let bridge = Box::new(Bridge::new(bridge_info, AsciiString::from("TestBridge"), PathfindLayerEnum::Ground));
+    terrain.bridges.prepend(bridge, PathfindLayerEnum::Bridge1);
 
     let hit_point = Coord3D::new(10.0, 20.0, 0.0);
     assert!(terrain.delete_bridge_at(&hit_point));
@@ -119,7 +118,7 @@ fn bridge_point_test_rejects_bounds_only_false_positive() {
     info.to_right = Coord3D::new(0.0, 4.0, 0.0);
     info.to_left = Coord3D::new(-2.0, 2.0, 0.0);
 
-    let bridge = Bridge::new(info, AsciiString::from("TestBridge"));
+    let bridge = Bridge::new(info, AsciiString::from("TestBridge"), PathfindLayerEnum::Ground);
     let false_positive = Coord3D::new(2.0, 0.0, 0.0); // inside AABB, outside rotated bridge quad
     let inside = Coord3D::new(0.0, 2.0, 0.0);
 
@@ -283,16 +282,15 @@ fn layer_height_ignores_bridge_below_ground() {
     terrain.load_map_data(map_data_with_heightmap(2, 2, vec![20, 20, 20, 20]));
 
     let ground_height = 20.0 * MAP_HEIGHT_SCALE;
-    let bridge_info = TerrainLogic::bridge_info_from_parts(
+    let bridge_info = BridgeInfo::from_landmark(
         Coord3D::new(5.0, 5.0, ground_height - 5.0),
         0.0,
         5.0,
         5.0,
         crate::object::INVALID_ID,
     );
-    let mut bridge = Box::new(Bridge::new(bridge_info, AsciiString::from("BuriedBridge")));
-    bridge.set_layer(PathfindLayerEnum::Bridge1);
-    terrain.bridge_list_head = Some(bridge);
+    let bridge = Box::new(Bridge::new(bridge_info, AsciiString::from("BuriedBridge"), PathfindLayerEnum::Ground));
+    terrain.bridges.prepend(bridge, PathfindLayerEnum::Bridge1);
 
     let height = terrain.get_layer_height(5.0, 5.0, PathfindLayerEnum::Bridge1, None, true);
     assert_eq!(height, ground_height);
@@ -599,11 +597,10 @@ fn set_raw_map_height_notifies_visual_static_lighting_like_cpp() {
 fn load_post_process_deletes_bridges_whose_object_id_is_gone() {
     // C++ TerrainLogic::loadPostProcess (TerrainLogic.cpp:2994-3009)
     let bridge_info =
-        TerrainLogic::bridge_info_from_parts(Coord3D::new(10.0, 20.0, 0.0), 0.0, 6.0, 2.0, 42);
+        BridgeInfo::from_landmark(Coord3D::new(10.0, 20.0, 0.0), 0.0, 6.0, 2.0, 42);
     let mut terrain = TerrainLogic::new();
-    let mut bridge = Box::new(Bridge::new(bridge_info, AsciiString::from("OrphanBridge")));
-    bridge.set_layer(PathfindLayerEnum::Bridge1);
-    terrain.bridge_list_head = Some(bridge);
+    let bridge = Box::new(Bridge::new(bridge_info, AsciiString::from("OrphanBridge"), PathfindLayerEnum::Ground));
+    terrain.bridges.prepend(bridge, PathfindLayerEnum::Bridge1);
 
     assert!(terrain.get_first_bridge().is_some());
     assert_eq!(terrain.remove_orphaned_bridges(|_| false), [PathfindLayerEnum::Bridge1]);

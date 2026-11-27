@@ -12,8 +12,7 @@ impl TerrainLogic {
             boundaries: Vec::new(),
             active_boundary: 0,
             waypoint_list_head: None,
-            bridge_list_head: None,
-            bridge_damage_states_changed: false,
+            bridges: BridgeList::default(),
             filename_string: String::new().into(),
             query_load_pending: false,
             water_grid_enabled: false,
@@ -147,7 +146,7 @@ impl TerrainLogic {
         bridges: Vec<BridgeData>,
     ) -> Vec<(BridgeInfo, AsciiString)> {
         // C++ reserves layers in authored order; the terrain list prepends.
-        self.bridge_list_head = None;
+        self.bridges.clear();
         self.authored_bridges = bridges;
         self.authored_bridges
             .iter()
@@ -259,12 +258,12 @@ impl TerrainLogic {
 
         self.active_boundary = 0;
         self.waypoint_list_head = None;
-        self.bridge_list_head = None;
+        self.bridges.clear();
         self.water_to_update.clear();
         self.water_handles.clear();
         self.water_handles_by_trigger_id.clear();
         self.authored_bridges.clear();
-        self.bridge_damage_states_changed = false;
+        self.bridges.begin_damage_frame();
         self.trigger_areas.clear();
         self.water_grid_enabled = false;
         self.water_grid = generals_sim::terrain::WaterGridState::default();
@@ -606,11 +605,9 @@ impl TerrainLogic {
             }
         }
 
-        let mut current = self.bridge_list_head.as_deref();
-        while let Some(bridge) = current {
+        for bridge in self.bridges.iter() {
             let info = bridge.get_bridge_info();
             if only_healthy_bridges && info.cur_damage_state == BodyDamageType::Rubble {
-                current = bridge.next.as_deref();
                 continue;
             }
             if bridge.is_point_on_bridge(pos) {
@@ -621,7 +618,6 @@ impl TerrainLogic {
                     best_distance = delta;
                 }
             }
-            current = bridge.next.as_deref();
         }
 
         best_layer
@@ -660,8 +656,7 @@ impl TerrainLogic {
             }
         }
 
-        let mut current = self.bridge_list_head.as_deref();
-        while let Some(bridge) = current {
+        for bridge in self.bridges.iter() {
             if bridge.is_point_on_bridge(pos) {
                 let bridge_z = bridge.get_bridge_height(pos, None);
                 let delta = (pos.z - bridge_z).abs();
@@ -670,7 +665,6 @@ impl TerrainLogic {
                     best_distance = delta;
                 }
             }
-            current = bridge.next.as_deref();
         }
 
         best_layer
