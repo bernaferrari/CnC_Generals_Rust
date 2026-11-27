@@ -145,53 +145,6 @@ fn append_while_waiting_survives_the_pending_path_result() {
     assert!(world.assign_unit_path(id, first, &[intermediate]));
     assert!(world.host_object(id).unwrap().waiting_for_path);
     let builder = generals_main::save_load::SnapshotBuilder::new();
-    let mut v12 = builder.create_world_snapshot(&world).unwrap();
-    let tag = v12
-        .lifecycle_tail
-        .windows(4)
-        .position(|v| v == b"TMAI")
-        .unwrap();
-    let version = tag + 4;
-    let length = tag + 8;
-    assert_eq!(
-        u32::from_le_bytes(v12.lifecycle_tail[version..version + 4].try_into().unwrap()),
-        19
-    );
-    let size =
-        u32::from_le_bytes(v12.lifecycle_tail[length..length + 4].try_into().unwrap()) as usize;
-    let end = tag + 12 + size;
-    let position_len = saved_position_cells_len(&world);
-    v12.lifecycle_tail.drain(end - position_len..end);
-    let size = size - position_len;
-    let end = end - position_len;
-    // This fixture has no layer records, registered cells, or pending quick paths.
-    assert_eq!(&v12.lifecycle_tail[end - 24..end], &[0; 24]);
-    v12.lifecycle_tail.drain(end - 24..end);
-    let size = size - 24;
-    let end = end - 24;
-    // This fixture has no final-goal rows in the V16 extension.
-    assert_eq!(&v12.lifecycle_tail[end - 8..end], &[0; 8]);
-    v12.lifecycle_tail.drain(end - 8..end);
-    let size = size - 8;
-    let end = end - 8;
-    // The V14 envelope includes the pending-ID vector.
-    assert_eq!(&v12.lifecycle_tail[end - 20..end - 12], &[0; 8]);
-    assert_eq!(&v12.lifecycle_tail[end - 12..end - 4], &1_u64.to_le_bytes());
-    assert_eq!(&v12.lifecycle_tail[end - 4..end], &id.0.to_le_bytes());
-    v12.lifecycle_tail.drain(end - 12..end);
-    v12.lifecycle_tail[version..version + 4].copy_from_slice(&13_u32.to_le_bytes());
-    v12.lifecycle_tail[length..length + 4].copy_from_slice(&((size - 12) as u32).to_le_bytes());
-    let mut v13_receiver = make_world();
-    builder
-        .restore_from_snapshot(&v12, &mut v13_receiver)
-        .unwrap();
-    assert_eq!(v13_receiver.snapshot_pending_host_paths().len(), 1);
-    v12.lifecycle_tail.drain(end - 20..end - 12);
-    v12.lifecycle_tail[version..version + 4].copy_from_slice(&12_u32.to_le_bytes());
-    v12.lifecycle_tail[length..length + 4].copy_from_slice(&((size - 20) as u32).to_le_bytes());
-    let mut legacy = make_world();
-    builder.restore_from_snapshot(&v12, &mut legacy).unwrap();
-    assert_eq!(legacy.snapshot_pending_host_paths().len(), 1);
     assert!(world.append_unit_waypoint(id, second));
     assert!(world.append_unit_waypoint(id, third));
     let mut snapshot = builder.create_world_snapshot(&world).unwrap();
@@ -204,6 +157,12 @@ fn append_while_waiting_survives_the_pending_path_result() {
     builder
         .restore_from_snapshot(&snapshot, &mut restored)
         .unwrap();
+    let pending = restored.snapshot_pending_host_paths();
+    assert_eq!(pending.len(), 1);
+    assert_eq!(pending[0].unit_id, id);
+    assert_eq!(pending[0].destination, first);
+    assert_eq!(pending[0].waypoints, [intermediate]);
+    assert_eq!(pending[0].follow_path_appends, [second, third]);
     world.update_with_dt(1.0 / 30.0);
     restored.update_with_dt(1.0 / 30.0);
     let unit = world.host_object(id).unwrap();

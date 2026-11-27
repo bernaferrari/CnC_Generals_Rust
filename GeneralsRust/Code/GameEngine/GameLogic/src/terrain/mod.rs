@@ -38,146 +38,14 @@ fn dual_world_registry_unavailable() -> bool {
     OBJECT_REGISTRY.is_empty()
 }
 
-/// C++ WaveGuideUpdate::startMoving WaveGuide1 bind result.
-#[derive(Debug, Clone, Copy)]
-pub enum WaveGuide1Bind {
-    Follow {
-        first: Coord3D,
-        last: Coord3D,
-        angle: f32,
-    },
-    MissingWaypoint,
-    InvalidPath,
-}
-
 /// Maximum terrain name length
 pub const MAX_TERRAIN_NAME_LEN: usize = 64;
-/// C++ `AIUpdate.cpp`: `enum {WAYPOINT_PATH_LIMIT=1024}`. Caps `link[0]` walks
-/// so ShellMapMD 1-link rings (Car_Path) cannot grow an unbounded Vec.
-pub const WAYPOINT_PATH_LIMIT: usize = 1024;
-/// C++ `W3DView.h`: `enum {MAX_WAYPOINTS=25}` for camera path collection.
-pub const CAMERA_WAYPOINT_PATH_LIMIT: usize = 25;
 
-/// Waypoint helper class for waypoint info in terrain logic
-#[derive(Debug)]
-pub struct Waypoint {
-    /// Unique integer identifier
-    id: WaypointID,
-    /// Name
-    name: AsciiString,
-    /// Location
-    location: Coord3D,
-    /// Next waypoint in linked list
-    next: Option<Box<Waypoint>>,
-    /// Directed graph of waypoints (up to 8 links)
-    links: Vec<WaypointID>,
-    /// Path labels for waypoint classification
-    path_label1: AsciiString,
-    path_label2: AsciiString,
-    path_label3: AsciiString,
-    /// Whether path is bidirectional
-    bi_directional: bool,
-}
+pub use generals_sim::terrain::{CAMERA_WAYPOINT_PATH_LIMIT, WAYPOINT_PATH_LIMIT, WaveGuide1Bind};
+use generals_sim::terrain::{TerrainBoundaries, WaypointGraph};
 
-impl Waypoint {
-    const MAX_LINKS: usize = 8;
-
-    pub fn new(
-        id: WaypointID,
-        name: AsciiString,
-        location: &Coord3D,
-        label1: AsciiString,
-        label2: AsciiString,
-        label3: AsciiString,
-        bi_directional: bool,
-    ) -> Self {
-        Self {
-            id,
-            name,
-            location: *location,
-            next: None,
-            links: Vec::with_capacity(Self::MAX_LINKS),
-            path_label1: label1,
-            path_label2: label2,
-            path_label3: label3,
-            bi_directional,
-        }
-    }
-
-    /// Get the next waypoint in the linked list
-    pub fn get_next(&self) -> Option<&Waypoint> {
-        self.next.as_ref().map(|w| w.as_ref())
-    }
-
-    /// Get number of links from this waypoint
-    pub fn get_num_links(&self) -> usize {
-        self.links.len()
-    }
-
-    /// Get the nth directed link
-    pub fn get_link(&self, index: usize) -> Option<WaypointID> {
-        if index < self.links.len() {
-            Some(self.links[index])
-        } else {
-            None
-        }
-    }
-
-    /// Get the waypoint's name
-    pub fn get_name(&self) -> &AsciiString {
-        &self.name
-    }
-
-    /// Get the waypoint ID
-    pub fn get_id(&self) -> WaypointID {
-        self.id
-    }
-
-    /// Get the waypoint location
-    pub fn get_location(&self) -> &Coord3D {
-        &self.location
-    }
-
-    /// Get path labels
-    pub fn get_path_label1(&self) -> &AsciiString {
-        &self.path_label1
-    }
-
-    pub fn get_path_label2(&self) -> &AsciiString {
-        &self.path_label2
-    }
-
-    pub fn get_path_label3(&self) -> &AsciiString {
-        &self.path_label3
-    }
-
-    /// Get bidirectional flag
-    pub fn get_bi_directional(&self) -> bool {
-        self.bi_directional
-    }
-
-    /// Add a link to another waypoint
-    pub fn add_link(&mut self, waypoint: WaypointID) {
-        if self.links.len() < Self::MAX_LINKS {
-            self.links.push(waypoint);
-        }
-    }
-
-    pub fn has_link(&self, waypoint: WaypointID) -> bool {
-        self.links.iter().any(|id| *id == waypoint)
-    }
-
-    /// Set location Z coordinate
-    pub fn set_location_z(&mut self, z: f32) {
-        self.location.z = z;
-    }
-
-    pub fn matches_path_label(&self, label: &str) -> bool {
-        self.path_label1.as_str().eq_ignore_ascii_case(label)
-            || self.path_label2.as_str().eq_ignore_ascii_case(label)
-            || self.path_label3.as_str().eq_ignore_ascii_case(label)
-    }
-}
+/// Retain the original string representation at the legacy API boundary.
+pub type Waypoint = generals_sim::terrain::Waypoint<AsciiString>;
 
 pub use generals_sim::terrain::{BridgeAttackInfo, BridgeInfo};
 use generals_sim::terrain::BridgeList;
@@ -227,12 +95,8 @@ pub type TerrainDynamicWaterSnapshotEntry = WaterTransition<AsciiString>;
 /// Main terrain logic system
 pub struct TerrainLogic {
     height_map: generals_sim::terrain::TerrainHeightMap,
-    /// Map boundaries
-    boundaries: Vec<ICoord2D>,
-    /// Active boundary index
-    active_boundary: i32,
-    /// Waypoint list head
-    waypoint_list_head: Option<Box<Waypoint>>,
+    boundaries: TerrainBoundaries,
+    waypoints: WaypointGraph<AsciiString>,
     bridges: BridgeList<AsciiString, PathfindLayerEnum>,
     /// Filename for terrain data
     filename_string: AsciiString,

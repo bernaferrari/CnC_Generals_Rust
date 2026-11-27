@@ -1187,32 +1187,16 @@ impl GameLogic {
         path_label: &str,
         from: glam::Vec3,
     ) -> Option<Vec<glam::Vec3>> {
-        let leftover_pos = glam::Vec3::new(from.x, from.z, from.y);
-        let terrain_owner_handle = self.world_services.terrain();
-        let terrain = terrain_owner_handle
-            .read()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        let start = terrain.get_closest_waypoint_on_path(&leftover_pos, path_label)?;
-        let chain = terrain.walk_link0_chain(start, gamelogic::terrain::WAYPOINT_PATH_LIMIT);
+        let pos = glam::Vec3::new(from.x, from.z, from.y);
+        let owner = self.world_services.terrain();
+        let terrain = owner.read().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let graph = terrain.waypoints();
+        let start = graph.closest_on_path(&pos, path_label)?;
+        let chain = graph.walk_link0_chain(start, generals_sim::terrain::WAYPOINT_PATH_LIMIT);
         if chain.is_empty() {
             return None;
         }
-        Some(
-            chain
-                .into_iter()
-                .map(|wp| {
-                    let loc = *wp.get_location();
-                    let mut pos = glam::Vec3::new(loc.x, loc.z, loc.y);
-                    if let Some(h) = self.terrain_height_at_with_terrain_logic(
-                        glam::Vec3::new(pos.x, 0.0, pos.z),
-                        Some(&terrain),
-                    ) {
-                        pos.y = h;
-                    }
-                    pos
-                })
-                .collect(),
-        )
+        Some(chain.into_iter().map(|node| self.project_waypoint_to_host(*node.get_location(), &terrain)).collect())
     }
 
     /// C++ `aiWander` / `aiPanic` follow the waypoint path as individuals.

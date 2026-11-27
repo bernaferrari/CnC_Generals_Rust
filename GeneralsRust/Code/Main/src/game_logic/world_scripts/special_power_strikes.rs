@@ -1405,14 +1405,14 @@ impl GameLogic {
                 .map(|_| {
                     let owner = self.world_services.terrain();
                     let terrain = owner.read().unwrap_or_else(|error| error.into_inner());
-                    terrain.bind_wave_guide1()
+                    terrain.waypoints().bind_wave_guide1()
                 });
             if let Some(obj) = self.objects.get_mut(&gid) {
                 let cur = obj.get_position();
                 if let Some(wg) = obj.wave_guide_data.as_mut() {
                     if !wg.initialized {
                         match binding {
-                            Some(gamelogic::terrain::WaveGuide1Bind::Follow {
+                            Some(generals_sim::terrain::WaveGuide1Bind::Follow {
                                 first,
                                 last,
                                 angle,
@@ -1422,10 +1422,10 @@ impl GameLogic {
                                 apply_ori = Some(angle);
                                 apply_pos = Some(glam::Vec3::new(first.x, first.z, first.y));
                             }
-                            Some(gamelogic::terrain::WaveGuide1Bind::InvalidPath) => {
+                            Some(generals_sim::terrain::WaveGuide1Bind::InvalidPath) => {
                                 wg.mark_done();
                             }
-                            Some(gamelogic::terrain::WaveGuide1Bind::MissingWaypoint) | None => {
+                            Some(generals_sim::terrain::WaveGuide1Bind::MissingWaypoint) | None => {
                                 // C++ WaveGuideUpdate.cpp:795-822 compares the wave
                                 // against the LAST WaveGuide1 waypoint. With no
                                 // authored path there is no destination to reach —

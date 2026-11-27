@@ -72,35 +72,6 @@ impl TerrainLogic {
         Some(bridge.get_bridge_height(&loc, None))
     }
 
-    /// C++ WaveGuideUpdate::startMoving WaveGuide1 walk.
-    pub fn bind_wave_guide1(&self) -> WaveGuide1Bind {
-        let Some(waypoint) = self.get_waypoint_by_name(&AsciiString::from("WaveGuide1")) else {
-            return WaveGuide1Bind::MissingWaypoint;
-        };
-        let mut last = *waypoint.get_location();
-        let mut verify = Some(waypoint);
-        while let Some(node) = verify {
-            if node.get_num_links() > 1 {
-                return WaveGuide1Bind::InvalidPath;
-            }
-            last = *node.get_location();
-            verify = node.get_link(0).and_then(|id| self.get_waypoint_by_id(id));
-        }
-        let Some(next_id) = waypoint.get_link(0) else {
-            return WaveGuide1Bind::InvalidPath;
-        };
-        let Some(next) = self.get_waypoint_by_id(next_id) else {
-            return WaveGuide1Bind::InvalidPath;
-        };
-        let angle = (next.get_location().y - waypoint.get_location().y)
-            .atan2(next.get_location().x - waypoint.get_location().x);
-        WaveGuide1Bind::Follow {
-            first: *waypoint.get_location(),
-            last,
-            angle,
-        }
-    }
-
     pub fn bridge_damage_states_changed(&self) -> bool {
         self.bridges.damage_states_changed()
     }

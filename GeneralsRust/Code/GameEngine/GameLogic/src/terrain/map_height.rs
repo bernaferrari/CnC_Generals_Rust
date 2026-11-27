@@ -9,9 +9,8 @@ impl TerrainLogic {
     pub fn new() -> Self {
         Self {
             height_map: TerrainHeightMap::default(),
-            boundaries: Vec::new(),
-            active_boundary: 0,
-            waypoint_list_head: None,
+            boundaries: TerrainBoundaries::default(),
+            waypoints: WaypointGraph::default(),
             bridges: BridgeList::default(),
             filename_string: String::new().into(),
             query_load_pending: false,
@@ -114,7 +113,7 @@ impl TerrainLogic {
             map_data.heightmap,
         )?;
         self.query_load_pending = false;
-        self.boundaries = map_data.boundaries;
+        self.boundaries.replace(map_data.boundaries);
 
         // Rebuild grid-water handle using C++ sentinel name and map extent.
         let grid_height = map_data
@@ -130,7 +129,7 @@ impl TerrainLogic {
         self.replace_trigger_areas(map_data.polygon_triggers);
 
         // Load waypoints and links
-        self.waypoint_list_head = None;
+        self.waypoints.clear();
         for waypoint in &map_data.waypoints {
             self.add_waypoint_from_map(waypoint);
         }
@@ -189,18 +188,7 @@ impl TerrainLogic {
 
     /// Get largest pathfind boundary in world coordinates.
     pub fn get_maximum_pathfind_extent(&self) -> Region3D {
-        let (min_z, max_z) = self.height_map.vertical_range();
-        let mut hi_x: f32 = 0.0;
-        let mut hi_y: f32 = 0.0;
-        for boundary in &self.boundaries {
-            hi_x = hi_x.max(boundary.x as f32 * MAP_XY_FACTOR);
-            hi_y = hi_y.max(boundary.y as f32 * MAP_XY_FACTOR);
-        }
-
-        Region3D::new(
-            Coord3D::new(0.0, 0.0, min_z),
-            Coord3D::new(hi_x, hi_y, max_z),
-        )
+        self.extent_from_xy(self.boundaries.maximum_extent())
     }
 
     /// Get the map extent in world coordinates.
@@ -208,41 +196,17 @@ impl TerrainLogic {
     ///
     /// Returns the bounding box of the playable map area.
     pub fn get_extent(&self) -> Region3D {
-        let (min_z, max_z) = self.height_map.vertical_range();
-        let active_boundary = self
-            .boundaries
-            .get(self.active_boundary.max(0) as usize)
-            .copied()
-            .unwrap_or_else(|| ICoord2D::new(0, 0));
-
-        Region3D::new(
-            Coord3D::new(0.0, 0.0, min_z),
-            Coord3D::new(
-                active_boundary.x as f32 * MAP_XY_FACTOR,
-                active_boundary.y as f32 * MAP_XY_FACTOR,
-                max_z,
-            ),
-        )
+        self.extent_from_xy(self.boundaries.extent())
     }
 
     /// Resolve a saved boundary without selecting it or mutating a session.
     pub fn extent_for_saved_boundary(&self, index: i32) -> Option<Region3D> {
-        if index == self.active_boundary {
-            return Some(self.get_extent());
-        }
-        let boundary = self.boundaries.get(usize::try_from(index).ok()?)?;
-        if boundary.x == 0 || boundary.y == 0 {
-            return None;
-        }
+        Some(self.extent_from_xy(self.boundaries.extent_for_saved_boundary(index)?))
+    }
+
+    fn extent_from_xy(&self, extent: Coord2D) -> Region3D {
         let (min_z, max_z) = self.height_map.vertical_range();
-        Some(Region3D::new(
-            Coord3D::new(0.0, 0.0, min_z),
-            Coord3D::new(
-                boundary.x as f32 * MAP_XY_FACTOR,
-                boundary.y as f32 * MAP_XY_FACTOR,
-                max_z,
-            ),
-        ))
+        Region3D::new(Coord3D::new(0.0, 0.0, min_z), Coord3D::new(extent.x, extent.y, max_z))
     }
 
     /// Initialize the terrain system
@@ -256,8 +220,7 @@ impl TerrainLogic {
         self.height_map.clear();
         self.boundaries.clear();
 
-        self.active_boundary = 0;
-        self.waypoint_list_head = None;
+        self.waypoints.clear();
         self.bridges.clear();
         self.water_to_update.clear();
         self.water_handles.clear();
@@ -406,25 +369,10 @@ impl TerrainLogic {
             return;
         }
 
-        let mut waypoint_heights = Vec::new();
-        let mut current = self.waypoint_list_head.as_deref();
-        while let Some(waypoint) = current {
-            let loc = waypoint.get_location();
-            waypoint_heights.push((
-                waypoint.get_id(),
-                self.get_ground_height(loc.x, loc.y, None),
-            ));
-            current = waypoint.get_next();
-        }
+        let heights = &self.height_map;
+        self.waypoints.resample_ground(|x, y| heights.get_ground_height(x, y, None));
 
-        for (id, z) in waypoint_heights {
-            if let Some(waypoint) = self.get_waypoint_by_id_mut(id) {
-                waypoint.set_location_z(z);
-            }
-        }
-
-        let wave_guide = AsciiString::from("WaveGuide1");
-        let enable = self.get_waypoint_by_name(&wave_guide).is_some();
+        let enable = self.waypoints.by_name("WaveGuide1").is_some();
         self.water_grid_enabled = enable;
         let configured = crate::terrain_water::configure_map_water(
             &mut self.water_grid,

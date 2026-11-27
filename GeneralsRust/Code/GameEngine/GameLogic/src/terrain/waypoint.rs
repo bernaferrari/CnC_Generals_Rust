@@ -1,97 +1,39 @@
-//! TerrainLogic waypoint behavior.
+//! Terrain waypoint and trigger admission adapters.
 
 use super::*;
 
 impl TerrainLogic {
-    /// Get first waypoint
+    pub fn waypoints(&self) -> &WaypointGraph<AsciiString> {
+        &self.waypoints
+    }
+
     pub fn get_first_waypoint(&self) -> Option<&Waypoint> {
-        self.waypoint_list_head.as_ref().map(|w| w.as_ref())
+        self.waypoints.first()
     }
 
-    /// Get waypoint by name
     pub fn get_waypoint_by_name(&self, name: &AsciiString) -> Option<&Waypoint> {
-        let mut current = self.waypoint_list_head.as_deref();
-        while let Some(waypoint) = current {
-            if waypoint.get_name() == name {
-                return Some(waypoint);
-            }
-            current = waypoint.next.as_deref();
-        }
-        None
+        self.waypoints.by_name(name.as_str())
     }
 
-    /// Get waypoint by ID
     pub fn get_waypoint_by_id(&self, id: WaypointID) -> Option<&Waypoint> {
-        let mut current = self.waypoint_list_head.as_deref();
-        while let Some(waypoint) = current {
-            if waypoint.get_id() == id {
-                return Some(waypoint);
-            }
-            current = waypoint.next.as_deref();
-        }
-        None
+        self.waypoints.by_id(id)
     }
 
-    /// Walk `get_link(0)` from `start` with a visited-set and hop cap.
-    ///
-    /// C++ camera (`W3DView::moveCameraAlongWaypointPath`) stops at
-    /// `MAX_WAYPOINTS`; C++ `AIUpdateInterface::setPathFromWaypoint` stops at
-    /// `WAYPOINT_PATH_LIMIT`. A 1-link ring (ShellMapMD `Car_Path`) revisits
-    /// an id and must not hang the Menu ScriptEngine frame.
-    pub fn walk_link0_chain<'a>(
-        &'a self,
-        start: &'a Waypoint,
-        max_hops: usize,
-    ) -> Vec<&'a Waypoint> {
-        let mut out = Vec::new();
-        let mut visited = HashSet::new();
-        let mut current = Some(start);
-        let limit = max_hops.max(1);
-        while let Some(node) = current {
-            if out.len() >= limit || !visited.insert(node.get_id()) {
-                break;
-            }
-            out.push(node);
-            current = node.get_link(0).and_then(|id| self.get_waypoint_by_id(id));
-        }
-        out
+    pub fn walk_link0_chain<'a>(&'a self, start: &'a Waypoint, max_hops: usize) -> Vec<&'a Waypoint> {
+        self.waypoints.walk_link0_chain(start, max_hops)
     }
 
-    /// Get closest waypoint that matches a path label
     pub fn get_closest_waypoint_on_path(&self, pos: &Coord3D, label: &str) -> Option<&Waypoint> {
-        if label.is_empty() {
-            return None;
-        }
-
-        let mut current = self.waypoint_list_head.as_deref();
-        let mut best: Option<&Waypoint> = None;
-        let mut best_dist_sqr = 0.0;
-
-        while let Some(waypoint) = current {
-            if waypoint.matches_path_label(label) {
-                let dx = waypoint.location.x - pos.x;
-                let dy = waypoint.location.y - pos.y;
-                let dist_sqr = dx * dx + dy * dy;
-                if best.is_none() || dist_sqr < best_dist_sqr {
-                    best_dist_sqr = dist_sqr;
-                    best = Some(waypoint);
-                }
-            }
-            current = waypoint.next.as_deref();
-        }
-
-        best
+        self.waypoints.closest_on_path(pos, label)
     }
 
+    pub fn bind_wave_guide1(&self) -> WaveGuide1Bind {
+        self.waypoints.bind_wave_guide1()
+    }
+
+    #[cfg(test)]
     pub(super) fn get_waypoint_by_id_mut(&mut self, id: WaypointID) -> Option<&mut Waypoint> {
-        let mut current = self.waypoint_list_head.as_deref_mut();
-        while let Some(waypoint) = current {
-            if waypoint.get_id() == id {
-                return Some(waypoint);
-            }
-            current = waypoint.next.as_deref_mut();
-        }
-        None
+        self.waypoints.by_id_mut(id)
     }
 
     pub(super) fn add_waypoint_from_map(&mut self, waypoint: &MapWaypoint) {
@@ -111,33 +53,11 @@ impl TerrainLogic {
             waypoint.bi_directional,
         );
 
-        let mut boxed = Box::new(new_waypoint);
-        boxed.next = self.waypoint_list_head.take();
-        self.waypoint_list_head = Some(boxed);
+        self.waypoints.prepend(new_waypoint);
     }
 
-    pub(super) fn add_waypoint_link(&mut self, id1: WaypointID, id2: WaypointID) {
-        if id1 == id2 {
-            return;
-        }
-
-        let should_link_back = {
-            let Some(way1) = self.get_waypoint_by_id_mut(id1) else {
-                return;
-            };
-            if !way1.has_link(id2) {
-                way1.add_link(id2);
-            }
-            way1.get_bi_directional()
-        };
-
-        if should_link_back {
-            if let Some(way2) = self.get_waypoint_by_id_mut(id2) {
-                if !way2.has_link(id1) {
-                    way2.add_link(id1);
-                }
-            }
-        }
+    pub(super) fn add_waypoint_link(&mut self, from: WaypointID, to: WaypointID) {
+        self.waypoints.add_link(from, to);
     }
 
     // ============================================================================

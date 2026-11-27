@@ -166,7 +166,7 @@ impl<'a> AiWorldView<'a> {
             .read()
             .expect("owned AI waypoint chain");
         let mut result = Vec::new();
-        let mut current = terrain.get_waypoint_by_id(start);
+        let mut current = terrain.waypoints().by_id(start);
         while let Some(way) = current {
             result.push(*way.get_location());
             current = way.get_next();

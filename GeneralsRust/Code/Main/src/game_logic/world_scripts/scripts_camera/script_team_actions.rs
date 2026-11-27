@@ -2144,11 +2144,11 @@ impl GameLogic {
         &self,
         waypoint_name: &str,
     ) -> Option<(u32, glam::Vec3)> {
-        let name = gamelogic::common::AsciiString::from(waypoint_name);
         let terrain_owner_handle = self.world_services.terrain();
         let (wid, loc) = terrain_owner_handle.read().ok().and_then(|terrain| {
             terrain
-                .get_waypoint_by_name(&name)
+                .waypoints()
+                .by_name(waypoint_name)
                 .map(|wp| (wp.get_id(), *wp.get_location()))
         })?;
         let mut pos = glam::Vec3::new(loc.x, loc.z, loc.y);
@@ -2172,7 +2172,7 @@ impl GameLogic {
         let leftover_pos = glam::Vec3::new(from.x, from.z, from.y);
         let terrain_owner_handle = self.world_services.terrain();
         let terrain = terrain_owner_handle.read().ok()?;
-        let start = terrain.get_closest_waypoint_on_path(&leftover_pos, path_label)?;
+        let start = terrain.waypoints().closest_on_path(&leftover_pos, path_label)?;
         Some(start.get_id())
     }
 
@@ -2183,7 +2183,7 @@ impl GameLogic {
         waypoints: &[glam::Vec3],
         exact: bool,
         as_team: bool,
-        completion: Option<&super::waypoint_routes::HostWaypointIdentity>,
+        completion: Option<&generals_sim::terrain::WaypointIdentity>,
     ) {
         if waypoints.is_empty() {
             return;

@@ -53,7 +53,7 @@ fn walk_link0_positions(snaps: &[HostWaypointSnap], start_id: u32) -> Vec<Vec3> 
     let mut visited = HashSet::new();
     let mut current = Some(start_id);
     while let Some(id) = current {
-        if out.len() >= gamelogic::terrain::WAYPOINT_PATH_LIMIT || !visited.insert(id) {
+        if out.len() >= generals_sim::terrain::WAYPOINT_PATH_LIMIT || !visited.insert(id) {
             break;
         }
         let Some(wp) = by_id.get(&id) else {

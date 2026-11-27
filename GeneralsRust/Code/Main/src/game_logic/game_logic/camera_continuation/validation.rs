@@ -307,7 +307,7 @@ impl ValidateCamera for V1Path {
             self.cur_shutter,
         )?;
         if self.points.len() < 4
-            || self.points.len() > gamelogic::terrain::CAMERA_WAYPOINT_PATH_LIMIT + 3
+            || self.points.len() > generals_sim::terrain::CAMERA_WAYPOINT_PATH_LIMIT + 3
             || self.segment_length.len() != self.points.len()
             || self.cur_segment == 0
             || self.cur_segment > self.points.len() - 2

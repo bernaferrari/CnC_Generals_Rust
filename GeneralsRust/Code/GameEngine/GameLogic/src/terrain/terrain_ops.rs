@@ -17,7 +17,7 @@ impl TerrainLogic {
 
     /// Get active boundary
     pub fn get_active_boundary(&self) -> i32 {
-        self.active_boundary
+        self.boundaries.active()
     }
 
     /// C++ `WorldHeightMap` extent used by `W3DTerrainVisual::xfer` v>=2.
@@ -100,14 +100,7 @@ impl TerrainLogic {
     /// caller must restore that candidate's partition, shroud and objects
     /// from the same snapshot; no ambient world is notified here.
     pub fn restore_active_boundary_from_snapshot(&mut self, boundary: i32) {
-        if boundary < 0 {
-            return;
-        }
-        if let Some(candidate) = self.boundaries.get(boundary as usize) {
-            if candidate.x != 0 && candidate.y != 0 {
-                self.active_boundary = boundary;
-            }
-        }
+        self.boundaries.restore(boundary);
     }
 
     /// Flatten terrain under a building/object.

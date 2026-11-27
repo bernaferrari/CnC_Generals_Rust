@@ -4,6 +4,7 @@
 //! → `WorldHeightMap::getCliffState`. Bits are packed 8 cells/byte and initialized
 //! from the four-corner world-Z range vs `PATHFIND_CLIFF_SLOPE_LIMIT_F` (9.8).
 
+pub use crate::terrain_boundaries::TerrainBoundaries;
 pub use crate::terrain_bridge::{
     BRIDGE_MAX_TOWERS, Bridge, BridgeAttackInfo, BridgeInfo, BridgeList, BridgeTowerType, Region2D,
 };
@@ -13,6 +14,10 @@ pub use crate::terrain_ray::{TerrainHeightSamples, TerrainRayCast, source_height
 pub use crate::terrain_water::{
     WaterGridMeshMotion, WaterGridSettings, WaterGridState, WaterSurface, select_water_surface,
     water_grid_setting_index,
+};
+pub use crate::terrain_waypoints::{
+    CAMERA_WAYPOINT_PATH_LIMIT, CameraWaypointError, CameraWaypointPath, WAYPOINT_PATH_LIMIT,
+    WaveGuide1Bind, Waypoint, WaypointGraph, WaypointID, WaypointIdentity, WaypointRoute,
 };
 pub use crate::water_transitions::{
     MAX_DYNAMIC_WATER_ENTRIES, WATER_GRID_NAME_CPP, WaterTransition, WaterTransitionStep,
