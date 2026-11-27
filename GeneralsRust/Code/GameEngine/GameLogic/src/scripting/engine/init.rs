@@ -122,16 +122,13 @@ impl ScriptEngine {
                 current_track_name: String::new(),
 
                 object_counts: HashMap::new(),
-                object_types: HashMap::new(),
 
                 topple_directions: Vec::new(),
                 named_reveals: NamedReveals::default(),
-                breeze_info: BreezeInfo::new(),
                 game_difficulty: crate::player::GameDifficulty::Normal,
 
                 freeze_by_script: false,
                 objects_should_receive_difficulty_bonus: true,
-                choose_victim_always_uses_normal: false,
                 shown_mp_local_defeat_window: false,
                 suppress_new_windows: false,
                 win_lose_window_layout: None,
@@ -337,10 +334,14 @@ impl ScriptEngine {
     /// Enable or disable matching script and group declarations in original order.
     pub fn set_script_active_by_name(&self, script_name: &str, active: bool) -> bool {
         let updated = self.runtime.sides().set_active(script_name, active);
+        self.notify_script_activation(script_name, active);
+        updated
+    }
+
+    fn notify_script_activation(&self, script_name: &str, active: bool) {
         if let Some(handler) = self.with_inner(|inner| inner.action_handler.clone()) {
             let _ = handler.enable_script(script_name, active);
         }
-        updated
     }
 
     /// Find a subroutine script by name and return a clone for immediate execution.
@@ -433,13 +434,12 @@ impl ScriptEngine {
 
     /// Get a named ObjectTypes list (matches C++ ScriptEngine::getObjectTypes).
     pub fn get_object_types(&self, name: &str) -> Option<ObjectTypes> {
-        self.with_inner(|inner| inner.object_types.get(name).cloned())
+        self.runtime.frame().object_types.get(name).cloned()
     }
 
     /// Register or replace a named ObjectTypes list.
     pub fn set_object_types(&self, name: String, types: ObjectTypes) {
-        let mut inner = self.lock_inner_mut();
-        inner.object_types.insert(name, types);
+        self.runtime.frame_mut().object_types.insert(name, types);
     }
 
     /// Mutate one live row without retaining the engine borrow across dispatch.
@@ -496,79 +496,19 @@ impl ScriptEngine {
         set_name: &str,
         type_or_list: &str,
         priority: i32,
-        mut template_name: impl FnMut(&str) -> Option<String>,
+        template_name: impl FnMut(&str) -> Option<String>,
     ) -> bool {
-        if let Some(list) = self.get_object_types(type_or_list) {
-            for type_name in list.iter() {
-                let Some(resolved_name) = template_name(type_name.as_str()) else {
-                    return false;
-                };
-                let template_name = resolved_name;
-                if self
-                    .with_attack_info_mut(set_name, true, |info| {
-                        info.set_priority(&template_name, priority);
-                    })
-                    .is_none()
-                {
-                    return false;
-                }
-            }
-            return true;
-        }
-
-        let Some(resolved_name) = template_name(type_or_list) else {
-            return false;
-        };
-        let template_name = resolved_name;
-        self.with_attack_info_mut(set_name, true, |info| {
-            info.set_priority(&template_name, priority);
-        })
-        .is_some()
+        self.runtime.set_priority_thing(set_name, type_or_list, priority, template_name)
     }
 
     pub fn set_priority_kind(&self, set_name: &str, kind: KindOf, priority: i32) -> bool {
-        // C++ allocates the set before iterating all templates, including when
-        // no template ultimately matches the requested KindOf mask.
-        if self.with_attack_info_mut(set_name, true, |_| ()).is_none() {
-            return false;
-        }
-
-        let Ok(factory_guard) = get_thing_factory() else {
-            return false;
-        };
-        let Some(factory) = factory_guard.as_ref() else {
-            return false;
-        };
-
-        let mut matching_template_names = Vec::new();
-        let mut current = factory.first_template().cloned();
-        while let Some(template) = current {
-            if Self::template_matches_kind(&template, kind) {
-                matching_template_names.push(template.get_name().to_string());
-            }
-            current = template.get_next_template().as_ref().cloned();
-        }
-
-        drop(factory_guard);
-        for template_name in matching_template_names {
-            if self
-                .with_attack_info_mut(set_name, true, |info| {
-                    info.set_priority(&template_name, priority);
-                })
-                .is_none()
-            {
-                return false;
-            }
-        }
-
-        true
+        self.runtime.set_priority_for_templates(set_name, priority, || {
+            legacy_priority_template_names(|template| Self::template_matches_kind(template, kind))
+        })
     }
 
     pub fn set_priority_default(&self, set_name: &str, priority: i32) -> bool {
-        self.with_attack_info_mut(set_name, true, |info| {
-            info.default_priority = priority;
-        })
-        .is_some()
+        self.runtime.set_priority_default(set_name, priority)
     }
 
     /// Reset the script engine
@@ -584,13 +524,10 @@ impl ScriptEngine {
 
             inner.topple_directions.clear();
             inner.named_reveals.clear();
-            inner.object_types.clear();
-            inner.breeze_info = BreezeInfo::new();
             inner.game_difficulty = crate::player::GameDifficulty::Normal;
 
             inner.freeze_by_script = false;
             inner.objects_should_receive_difficulty_bonus = true;
-            inner.choose_victim_always_uses_normal = false;
             inner.shown_mp_local_defeat_window = false;
             inner.suppress_new_windows = false;
             inner.win_lose_window_layout = None;

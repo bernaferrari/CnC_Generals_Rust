@@ -497,11 +497,12 @@ impl ScriptConditionEvaluator<'_> {
             | ConditionType::ConditionFalse
             | ConditionType::Counter
             | ConditionType::Flag
-            | ConditionType::TimerExpired => self
+            | ConditionType::TimerExpired
+            | ConditionType::HasFinishedVideo => self
                 .context
                 .borrowed_engine()
                 .interpreter()
-                .try_evaluate_variable_condition(condition)
+                .try_evaluate_local_condition(condition)
                 .and_then(|value| {
                     value.map(bool_result).ok_or_else(|| {
                         ScriptError::EvaluationFailed(format!(
@@ -673,7 +674,6 @@ impl ScriptConditionEvaluator<'_> {
             // ============================================================================
             // MEDIA CONDITIONS
             // ============================================================================
-            ConditionType::HasFinishedVideo => self.eval_has_finished_video(condition),
             ConditionType::HasFinishedSpeech => self.eval_has_finished_speech(condition, driver),
             ConditionType::HasFinishedAudio => self.eval_has_finished_audio(condition, driver),
             ConditionType::MusicTrackHasCompleted => {

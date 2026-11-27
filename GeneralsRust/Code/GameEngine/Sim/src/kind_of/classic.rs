@@ -1,5 +1,7 @@
 //! Legacy object classifications and script asset ordinals.
 
+pub use super::classic_indices::kind_of_indices;
+
 /// Kind of classifications for objects
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum KindOf {

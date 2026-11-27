@@ -527,14 +527,14 @@ impl XferSnapshot for ScriptEngine {
 
         xfer_list_ascii_string_coord3d(xfer, &mut inner.topple_directions)?;
 
-        xfer.xfer_real(&mut inner.breeze_info.direction)?;
-        xfer.xfer_real(&mut inner.breeze_info.direction_vec[0])?;
-        xfer.xfer_real(&mut inner.breeze_info.direction_vec[1])?;
-        xfer.xfer_real(&mut inner.breeze_info.intensity)?;
-        xfer.xfer_real(&mut inner.breeze_info.lean)?;
-        xfer.xfer_real(&mut inner.breeze_info.randomness)?;
-        xfer.xfer_short(&mut inner.breeze_info.breeze_period)?;
-        xfer.xfer_short(&mut inner.breeze_info.breeze_version)?;
+        xfer.xfer_real(&mut frame.breeze_info.direction)?;
+        xfer.xfer_real(&mut frame.breeze_info.direction_vec[0])?;
+        xfer.xfer_real(&mut frame.breeze_info.direction_vec[1])?;
+        xfer.xfer_real(&mut frame.breeze_info.intensity)?;
+        xfer.xfer_real(&mut frame.breeze_info.lean)?;
+        xfer.xfer_real(&mut frame.breeze_info.randomness)?;
+        xfer.xfer_short(&mut frame.breeze_info.breeze_period)?;
+        xfer.xfer_short(&mut frame.breeze_info.breeze_version)?;
 
         let mut difficulty_value: i32 = match inner.game_difficulty {
             crate::player::GameDifficulty::Easy => 0,
@@ -596,7 +596,7 @@ impl XferSnapshot for ScriptEngine {
 
             let mut all_object_types_count: u16 =
                 if matches!(xfer.get_xfer_mode(), XferMode::Save | XferMode::Crc) {
-                    inner.object_types.len() as u16
+                    frame.object_types.len() as u16
                 } else {
                     0
                 };
@@ -605,7 +605,7 @@ impl XferSnapshot for ScriptEngine {
             match xfer.get_xfer_mode() {
                 XferMode::Save | XferMode::Crc => {
                     let mut ordered_lists: Vec<&ObjectTypes> =
-                        inner.object_types.values().collect();
+                        frame.object_types.values().collect();
                     ordered_lists
                         .sort_by(|a, b| a.list_name().as_str().cmp(b.list_name().as_str()));
                     for entry in ordered_lists.iter() {
@@ -625,10 +625,10 @@ impl XferSnapshot for ScriptEngine {
                     }
                 }
                 XferMode::Load => {
-                    if !inner.object_types.is_empty() {
+                    if !frame.object_types.is_empty() {
                         return Err(XferStatus::ListNotEmpty);
                     }
-                    inner.object_types.clear();
+                    frame.object_types.clear();
                     for _ in 0..all_object_types_count {
                         let current_version: XferVersion = 1;
                         let mut obj_version = current_version;
@@ -649,7 +649,7 @@ impl XferSnapshot for ScriptEngine {
                         }
 
                         let key = list.list_name().as_str().to_string();
-                        inner.object_types.insert(key, list);
+                        frame.object_types.insert(key, list);
                     }
                 }
                 XferMode::Invalid => return Err(XferStatus::ModeUnknown),
@@ -667,9 +667,9 @@ impl XferSnapshot for ScriptEngine {
         }
 
         if version >= 5 {
-            xfer.xfer_bool(&mut inner.choose_victim_always_uses_normal)?;
+            xfer.xfer_bool(&mut frame.choose_victim_always_uses_normal)?;
         } else {
-            inner.choose_victim_always_uses_normal = false;
+            frame.choose_victim_always_uses_normal = false;
         }
 
         if xfer.get_xfer_mode() == XferMode::Load && frame.fade.mode == TFade::None {

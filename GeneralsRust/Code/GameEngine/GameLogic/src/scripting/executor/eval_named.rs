@@ -1327,24 +1327,6 @@ impl ScriptConditionEvaluator<'_> {
     // MEDIA CONDITION HANDLERS
     // ============================================================================
 
-    pub(crate) fn eval_has_finished_video(
-        &self,
-        _condition: &Condition,
-    ) -> Result<ScriptConditionResult, ScriptError> {
-        let name = self.get_condition_string_param(_condition, 0)?;
-        log::debug!("Evaluating if video '{}' finished", name);
-        // C++ ScriptConditions.cpp1421 consumes this interpreter's completion list.
-        let finished = self
-            .context
-            .with_engine_ref(|engine| engine.is_video_complete(&name, true))
-            .unwrap_or(false);
-        Ok(if finished {
-            ScriptConditionResult::True
-        } else {
-            ScriptConditionResult::False
-        })
-    }
-
     pub(crate) fn eval_has_finished_speech(
         &self,
         condition: &Condition,

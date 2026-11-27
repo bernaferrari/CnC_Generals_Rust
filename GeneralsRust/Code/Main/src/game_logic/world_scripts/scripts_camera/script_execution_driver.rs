@@ -2993,6 +2993,18 @@ impl ScriptExecutionDriver<ScriptEngine> for HostScriptExecutionDriver<'_> {
         )
     }
 
+    fn priority_templates_with_kind(
+        &self,
+        kind: game_engine::common::system::kind_of::KindOfMask,
+    ) -> ScriptOwnerQuery<Vec<String>> {
+        use crate::game_logic::host_radar_stealth_vision_residual::kind_of_set_cpp_mask;
+
+        ScriptOwnerQuery::Present(self.world.templates.values()
+            .filter(|template| kind_of_set_cpp_mask(&template.kind_of) & kind.bits() != 0)
+            .map(|template| template.name.clone())
+            .collect())
+    }
+
     fn unit_health_percent(&self, name: &str, this_object: Option<u32>) -> ScriptOwnerQuery<i32> {
         let Some(object) = self
             .world

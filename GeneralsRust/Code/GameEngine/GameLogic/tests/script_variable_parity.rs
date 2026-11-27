@@ -56,6 +56,27 @@ impl ScriptExecutionDriver<ScriptEngine> for Headless {
 }
 
 #[test]
+fn authored_video_condition_consumes_the_literal_movie_name() {
+    let mut engine = ScriptEngine::new_with_services(&new_world_services()).unwrap();
+    engine.set_external_eval_context(Some("OtherMovie".into()), None);
+    engine.notify_of_completed_video(THIS_PLAYER);
+    let test = || {
+        [Parameter::with_string(
+            ParameterType::Movie,
+            THIS_PLAYER.into(),
+        )]
+    };
+    assert_eq!(
+        evaluate(&engine, ConditionType::HasFinishedVideo, test()),
+        ScriptConditionResult::True
+    );
+    assert_eq!(
+        evaluate(&engine, ConditionType::HasFinishedVideo, test()),
+        ScriptConditionResult::False
+    );
+}
+
+#[test]
 fn authored_integer_timer_uses_the_original_unsigned_random_span() {
     let services = new_world_services();
     let engine = ScriptEngine::new_with_services(&services).unwrap();

@@ -368,13 +368,12 @@ impl ScriptEngine {
 
     /// Get breeze info (owned snapshot — never a borrow into `UnsafeCell`).
     pub fn get_breeze_info(&self) -> BreezeInfo {
-        self.with_inner(|inner| inner.breeze_info.clone())
+        self.runtime.frame().breeze_info.clone()
     }
 
     /// Turn off breeze
     pub fn turn_breeze_off(&mut self) {
-        let inner = self.inner.get_mut();
-        inner.breeze_info.intensity = 0.0;
+        self.runtime.frame_mut().breeze_info.intensity = 0.0;
     }
 
     /// Mirrors C++ ScriptEngine::setSway.
@@ -386,15 +385,9 @@ impl ScriptEngine {
         breeze_period: i32,
         randomness: f32,
     ) {
-        let mut inner = self.lock_inner_mut();
-        inner.breeze_info.breeze_version = inner.breeze_info.breeze_version.wrapping_add(1);
-        inner.breeze_info.direction = direction;
-        inner.breeze_info.direction_vec[0] = direction.sin();
-        inner.breeze_info.direction_vec[1] = direction.cos();
-        inner.breeze_info.intensity = intensity;
-        inner.breeze_info.lean = lean;
-        inner.breeze_info.breeze_period = breeze_period.max(1).clamp(1, i16::MAX as i32) as i16;
-        inner.breeze_info.randomness = randomness;
+        self.runtime.frame_mut().breeze_info.set_sway(
+            direction, intensity, lean, breeze_period, randomness,
+        );
     }
 
     /// Mirrors C++ ScriptEngine::setFade.
@@ -407,20 +400,9 @@ impl ScriptEngine {
         fade_frames_hold: i32,
         fade_frames_decrease: i32,
     ) {
-        let mut frame = self.runtime.frame_mut();
-        frame.fade = ScriptFade {
-            mode: fade,
-            min: min_fade,
-            max: max_fade,
-            value: min_fade,
-            frame: 0,
-            increase: fade_frames_increase,
-            hold: fade_frames_hold,
-            decrease: fade_frames_decrease,
-        };
-        if fade_frames_increase == 0 {
-            frame.fade.advance();
-        }
+        self.runtime.frame_mut().fade = ScriptFade::start(
+            fade, min_fade, max_fade, fade_frames_increase, fade_frames_hold, fade_frames_decrease,
+        );
     }
 
     /// Get fade type
@@ -490,12 +472,11 @@ impl ScriptEngine {
     }
 
     pub fn set_choose_victim_always_uses_normal(&self, enable: bool) {
-        let mut inner = self.lock_inner_mut();
-        inner.choose_victim_always_uses_normal = enable;
+        self.runtime.frame_mut().choose_victim_always_uses_normal = enable;
     }
 
     pub fn get_choose_victim_always_uses_normal(&self) -> bool {
-        self.with_inner(|inner| inner.choose_victim_always_uses_normal)
+        self.runtime.frame().choose_victim_always_uses_normal
     }
 
     /// Freeze only definition keys for one script read/write operation, in C++ enum order.
@@ -1219,7 +1200,7 @@ impl ScriptEngine {
                 .assignments()
                 .map(|(id, name)| (id, name.to_owned()))
                 .collect();
-            let mut object_types: Vec<(String, Vec<String>)> = inner
+            let mut object_types: Vec<(String, Vec<String>)> = frame
                 .object_types
                 .iter()
                 .map(|(name, list)| {
@@ -1261,13 +1242,13 @@ impl ScriptEngine {
                     .iter()
                     .map(|(name, coord)| (name.clone(), [coord.x, coord.y, coord.z]))
                     .collect(),
-                breeze_direction: inner.breeze_info.direction,
-                breeze_direction_vec: inner.breeze_info.direction_vec,
-                breeze_intensity: inner.breeze_info.intensity,
-                breeze_lean: inner.breeze_info.lean,
-                breeze_randomness: inner.breeze_info.randomness,
-                breeze_period: inner.breeze_info.breeze_period,
-                breeze_version: inner.breeze_info.breeze_version,
+                breeze_direction: frame.breeze_info.direction,
+                breeze_direction_vec: frame.breeze_info.direction_vec,
+                breeze_intensity: frame.breeze_info.intensity,
+                breeze_lean: frame.breeze_info.lean,
+                breeze_randomness: frame.breeze_info.randomness,
+                breeze_period: frame.breeze_info.breeze_period,
+                breeze_version: frame.breeze_info.breeze_version,
                 game_difficulty: match inner.game_difficulty {
                     crate::player::GameDifficulty::Easy => 0,
                     crate::player::GameDifficulty::Normal => 1,
@@ -1279,7 +1260,7 @@ impl ScriptEngine {
                 objects_should_receive_difficulty_bonus: inner
                     .objects_should_receive_difficulty_bonus,
                 current_track_name: inner.current_track_name.clone(),
-                choose_victim_always_uses_normal: inner.choose_victim_always_uses_normal,
+                choose_victim_always_uses_normal: frame.choose_victim_always_uses_normal,
             }
         })
     }
@@ -1361,13 +1342,13 @@ impl ScriptEngine {
                 .iter()
                 .map(|(name, xyz)| (name.clone(), Coord3D::new(xyz[0], xyz[1], xyz[2])))
                 .collect();
-            inner.breeze_info.direction = tail.breeze_direction;
-            inner.breeze_info.direction_vec = tail.breeze_direction_vec;
-            inner.breeze_info.intensity = tail.breeze_intensity;
-            inner.breeze_info.lean = tail.breeze_lean;
-            inner.breeze_info.randomness = tail.breeze_randomness;
-            inner.breeze_info.breeze_period = tail.breeze_period;
-            inner.breeze_info.breeze_version = tail.breeze_version;
+            frame.breeze_info.direction = tail.breeze_direction;
+            frame.breeze_info.direction_vec = tail.breeze_direction_vec;
+            frame.breeze_info.intensity = tail.breeze_intensity;
+            frame.breeze_info.lean = tail.breeze_lean;
+            frame.breeze_info.randomness = tail.breeze_randomness;
+            frame.breeze_info.breeze_period = tail.breeze_period;
+            frame.breeze_info.breeze_version = tail.breeze_version;
             inner.game_difficulty = match tail.game_difficulty {
                 0 => crate::player::GameDifficulty::Easy,
                 2 => crate::player::GameDifficulty::Hard,
@@ -1375,18 +1356,18 @@ impl ScriptEngine {
                 _ => crate::player::GameDifficulty::Normal,
             };
             inner.freeze_by_script = tail.freeze_by_script;
-            inner.object_types.clear();
+            frame.object_types.clear();
             for (list_name, types) in &tail.object_types {
                 let mut list = ObjectTypes::with_list_name(AsciiString::from(list_name.as_str()));
                 for object_type in types {
                     list.add_object_type(AsciiString::from(object_type.as_str()));
                 }
-                inner.object_types.insert(list_name.clone(), list);
+                frame.object_types.insert(list_name.clone(), list);
             }
             inner.objects_should_receive_difficulty_bonus =
                 tail.objects_should_receive_difficulty_bonus;
             inner.current_track_name = tail.current_track_name.clone();
-            inner.choose_victim_always_uses_normal = tail.choose_victim_always_uses_normal;
+            frame.choose_victim_always_uses_normal = tail.choose_victim_always_uses_normal;
             // hq-r9gaw / C++ ScriptEngine.cpp:9277-9286 — archive LOAD with
             // saved FADE_NONE starts the standard Multiply fade-in intro.
             // Core leftover Xfer already applies this; receiving restore must too.

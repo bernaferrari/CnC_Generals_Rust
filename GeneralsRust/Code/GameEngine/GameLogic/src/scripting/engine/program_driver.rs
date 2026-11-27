@@ -1,8 +1,9 @@
 // Bind the script interpreter to the world receiving its queries and effects.
 
 use crate::scripting::executor::{
-    ScriptActionDispatcher, ScriptActionResult, ScriptConditionEvaluator,
+    ScriptActionDispatcher, ScriptActionResult, ScriptConditionEvaluator, ScriptError,
 };
+use game_engine::common::system::kind_of::KindOfMask;
 
 struct ScriptProgramWorld<'engine, 'context> {
     engine: &'engine ScriptEngine,
@@ -98,6 +99,18 @@ impl ScriptProgramDriver for ScriptProgramWorld<'_, '_> {
         script_timer_random_real(self.execution.driver, low, high)
     }
 
+    fn script_activation_changed(&self, name: &str, active: bool) {
+        self.engine.notify_script_activation(name, active);
+    }
+
+    fn priority_template_name(&self, name: &str) -> Option<String> {
+        script_priority_template_name(self.execution.driver, name)
+    }
+
+    fn priority_templates_with_kind(&self, kind: KindOfMask) -> Option<Vec<String>> {
+        script_priority_templates_with_kind(self.execution.driver, kind)
+    }
+
     fn call_subroutine(&mut self, name: &str) -> GameLogicResult<()> {
         self.engine
             .execute_subroutine_with_execution(name, self.execution)
@@ -110,6 +123,47 @@ impl ScriptProgramDriver for ScriptProgramWorld<'_, '_> {
             .observe_object_count_changed_frame(self.execution.driver);
         Ok(())
     }
+}
+
+fn script_priority_template_name(
+    driver: &dyn ScriptExecutionDriver<ScriptEngine>,
+    name: &str,
+) -> Option<String> {
+    match driver.literal_template_exists(name) {
+        ScriptOwnerQuery::Present(true) => Some(name.to_owned()),
+        ScriptOwnerQuery::Present(false) | ScriptOwnerQuery::Missing => None,
+        ScriptOwnerQuery::Unavailable => {
+            TheThingFactory::find_template(name).map(|template| template.get_name().to_string())
+        }
+    }
+}
+
+fn script_priority_templates_with_kind(
+    driver: &dyn ScriptExecutionDriver<ScriptEngine>,
+    kind: KindOfMask,
+) -> Option<Vec<String>> {
+    match driver.priority_templates_with_kind(kind) {
+        ScriptOwnerQuery::Present(names) => Some(names),
+        ScriptOwnerQuery::Missing => None,
+        ScriptOwnerQuery::Unavailable => {
+            legacy_priority_template_names(|template| template.is_any_kind_of_bits(kind.bits()))
+        }
+    }
+}
+
+fn legacy_priority_template_names(
+    matches_kind: impl Fn(&EngineThingTemplate) -> bool,
+) -> Option<Vec<String>> {
+    let factory = get_thing_factory().ok()?;
+    let mut current = factory.as_ref()?.first_template().cloned();
+    let mut names = Vec::new();
+    while let Some(template) = current {
+        if matches_kind(&template) {
+            names.push(template.get_name().to_string());
+        }
+        current = template.get_next_template().as_ref().cloned();
+    }
+    Some(names)
 }
 
 pub(crate) fn script_timer_random_int(
@@ -149,6 +203,26 @@ fn script_difficulty(difficulty: crate::player::GameDifficulty) -> ScriptDifficu
 }
 
 impl ScriptEngine {
+    pub(crate) fn execute_local_control_action(
+        &self,
+        action: &ScriptAction,
+        driver: &dyn ScriptExecutionDriver<ScriptEngine>,
+    ) -> Result<ScriptActionResult, ScriptError> {
+        let handled = self.runtime.try_execute_control_action(
+            action,
+            |name, active| self.notify_script_activation(name, active),
+            |name| script_priority_template_name(driver, name),
+            |kind| script_priority_templates_with_kind(driver, kind),
+        )?;
+        if handled {
+            Ok(ScriptActionResult::Success)
+        } else {
+            Err(ScriptError::ExecutionFailed(format!(
+                "Expected interpreter control, got {:?}", action.action_type,
+            )))
+        }
+    }
+
     /// The standalone side walk releases its roster loans before running actions.
     fn standalone_side_player_names(&self) -> Vec<Option<String>> {
         let Ok(roster) = self.players.try_read() else {

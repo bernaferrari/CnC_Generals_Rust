@@ -971,6 +971,13 @@ pub trait ScriptExecutionDriver<Interpreter: ?Sized> {
         None
     }
 
+    fn priority_templates_with_kind(
+        &self,
+        _kind: game_engine::common::system::kind_of::KindOfMask,
+    ) -> ScriptOwnerQuery<Vec<String>> {
+        ScriptOwnerQuery::Unavailable
+    }
+
     fn literal_template_exists(&self, _name: &str) -> ScriptOwnerQuery<bool> {
         ScriptOwnerQuery::Unavailable
     }

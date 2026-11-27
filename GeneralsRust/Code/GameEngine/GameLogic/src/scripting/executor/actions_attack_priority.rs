@@ -10,76 +10,6 @@ impl ScriptActionDispatcher<'_> {
     // ATTACK PRIORITY ACTION IMPLEMENTATIONS
     // ============================================================================
 
-    pub(crate) fn do_set_attack_priority_thing(
-        &mut self,
-        action: &ScriptAction,
-        driver: &mut dyn ScriptExecutionDriver<crate::scripting::engine::ScriptEngine>,
-    ) -> Result<ScriptActionResult, ScriptError> {
-        let priority_set = self.get_string_param(action, 0)?;
-        let type_or_list = self.get_string_param(action, 1)?;
-        let priority = self.get_int_param(action, 2)?;
-        let _ = self.context.with_engine_mut(|engine| {
-            engine.set_priority_thing_with_lookup(&priority_set, &type_or_list, priority, |name| {
-                match driver.literal_template_exists(name) {
-                    crate::scripting::engine::ScriptOwnerQuery::Present(true) => {
-                        Some(name.to_string())
-                    }
-                    crate::scripting::engine::ScriptOwnerQuery::Present(false)
-                    | crate::scripting::engine::ScriptOwnerQuery::Missing => None,
-                    crate::scripting::engine::ScriptOwnerQuery::Unavailable => {
-                        crate::helpers::TheThingFactory::find_template(name)
-                            .map(|template| template.get_name().to_string())
-                    }
-                }
-            })
-        });
-        log::debug!(
-            "Setting attack priority '{}' on '{}' to {}",
-            priority_set,
-            type_or_list,
-            priority
-        );
-        Ok(ScriptActionResult::Success)
-    }
-
-    pub(crate) fn do_set_attack_priority_kindof(
-        &mut self,
-        action: &ScriptAction,
-    ) -> Result<ScriptActionResult, ScriptError> {
-        let priority_set = self.get_string_param(action, 0)?;
-        let kind_name = self.get_string_param(action, 1)?;
-        let priority = self.get_int_param(action, 2)?;
-        if let Some(kind) = parse_kind_of(&kind_name) {
-            let _ = self
-                .context
-                .with_engine_mut(|engine| engine.set_priority_kind(&priority_set, kind, priority));
-        }
-        log::debug!(
-            "Setting attack priority '{}' for kindof '{}' to {}",
-            priority_set,
-            kind_name,
-            priority
-        );
-        Ok(ScriptActionResult::Success)
-    }
-
-    pub(crate) fn do_set_default_attack_priority(
-        &mut self,
-        action: &ScriptAction,
-    ) -> Result<ScriptActionResult, ScriptError> {
-        let priority_set = self.get_string_param(action, 0)?;
-        let priority = self.get_int_param(action, 1)?;
-        let _ = self
-            .context
-            .with_engine_mut(|engine| engine.set_priority_default(&priority_set, priority));
-        log::debug!(
-            "Setting default attack priority '{}' to {}",
-            priority_set,
-            priority
-        );
-        Ok(ScriptActionResult::Success)
-    }
-
     pub(crate) fn do_set_stopping_distance(
         &mut self,
         action: &ScriptAction,
@@ -231,18 +161,6 @@ impl ScriptActionDispatcher<'_> {
             }
         }
         log::debug!("Deleting all unmanned");
-        Ok(ScriptActionResult::Success)
-    }
-
-    pub(crate) fn do_choose_victim_always_uses_normal(
-        &mut self,
-        action: &ScriptAction,
-    ) -> Result<ScriptActionResult, ScriptError> {
-        let use_normal = self.get_int_param(action, 0)? != 0;
-        let _ = self.context.with_engine_mut(|engine| {
-            engine.set_choose_victim_always_uses_normal(use_normal);
-        });
-        log::debug!("Choose victim always uses normal: {}", use_normal);
         Ok(ScriptActionResult::Success)
     }
 

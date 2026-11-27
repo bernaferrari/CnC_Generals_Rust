@@ -2855,6 +2855,13 @@
             "classification": "implementation",
             "owned_source_ranges": [],
             "owned_symbols": [],
+            "path": "GeneralsRust/Code/GameEngine/Sim/src/kind_of/classic_indices.rs"
+          },
+          {
+            "cargo_reachable": true,
+            "classification": "implementation",
+            "owned_source_ranges": [],
+            "owned_symbols": [],
             "path": "GeneralsRust/Code/GameEngine/Sim/src/kind_of/mod.rs"
           },
           {
@@ -41780,6 +41787,13 @@
             "owned_source_ranges": [],
             "owned_symbols": [],
             "path": "GeneralsRust/Code/GameEngine/Sim/src/kind_of/classic.rs"
+          },
+          {
+            "cargo_reachable": true,
+            "classification": "implementation",
+            "owned_source_ranges": [],
+            "owned_symbols": [],
+            "path": "GeneralsRust/Code/GameEngine/Sim/src/kind_of/classic_indices.rs"
           },
           {
             "cargo_reachable": true,
@@ -153718,7 +153732,7 @@
     }
   ],
   "generator": "GeneralsRust/Code/Main/scripts/generate_port_provenance.py",
-  "input_digest": "d243f5fdf93fdf9f01f3908e9bde43a5c8ccd830194e36098637cd092230bd13",
+  "input_digest": "1fc70ce814e5d5739c0681ca399e621575ced9a5671b7de621691284174a764a",
   "metric_contract": {
     "behavior_requires_explicit_evidence": true,
     "candidate_mapping_is_reviewed": false,
@@ -209584,11 +209598,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 671,
+        "end_line": 673,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/Sim/src/kind_of/classic.rs",
-      "sha256": "3a6a3985c87e74a1ad125f7d6ce83e3668f33450285ea4e19e1372729d12e0b9",
+      "sha256": "f920114da8bb263f728cda4d32f7e678415cd0fc8658dd04806b98ca9b10f74d",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -209596,11 +209610,23 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 501,
+        "end_line": 164,
+        "start_line": 1
+      },
+      "path": "GeneralsRust/Code/GameEngine/Sim/src/kind_of/classic_indices.rs",
+      "sha256": "428a03c8369f13311b18b96201d9413eee1fd27610168756c56e3d3454bb77ee",
+      "symbol_index_status": "awaiting_mapping_review",
+      "symbols": []
+    },
+    {
+      "cargo_reachable": true,
+      "classification": "implementation",
+      "file_range": {
+        "end_line": 502,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/Sim/src/kind_of/mod.rs",
-      "sha256": "1aefea74113a67f2e5ebda2d1a9335cc86c1d5ce7391cf03cbf56abc6cd551a1",
+      "sha256": "fc8629745cbe0786dbcf88adcb725def1ca4052f74621f1d6aad111b1fe2cc99",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },

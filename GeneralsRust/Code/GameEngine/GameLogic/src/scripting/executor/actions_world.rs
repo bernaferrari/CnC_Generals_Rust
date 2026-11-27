@@ -1269,31 +1269,6 @@ impl ScriptActionDispatcher<'_> {
     // ENVIRONMENT/WORLD ACTION IMPLEMENTATIONS
     // ============================================================================
 
-    pub(crate) fn do_set_tree_sway(
-        &mut self,
-        action: &ScriptAction,
-    ) -> Result<ScriptActionResult, ScriptError> {
-        let direction = self.get_real_param(action, 0)?;
-        let intensity = self.get_real_param(action, 1)?;
-        let lean = self.get_real_param(action, 2)?;
-        let breeze_period = self.get_int_param(action, 3)?;
-        let randomness = self.get_real_param(action, 4)?;
-        log::debug!(
-            "Setting tree sway direction {} intensity {} lean {} period {} randomness {}",
-            direction,
-            intensity,
-            lean,
-            breeze_period,
-            randomness
-        );
-
-        let _ = self.context.with_engine_mut(|script_engine| {
-            script_engine.set_breeze_info(direction, intensity, lean, breeze_period, randomness);
-        });
-
-        Ok(ScriptActionResult::Success)
-    }
-
     pub(crate) fn do_water_change_height(
         &mut self,
         action: &ScriptAction,

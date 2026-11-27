@@ -762,32 +762,6 @@ impl ScriptActionDispatcher<'_> {
     // SCRIPT CONTROL ACTION IMPLEMENTATIONS
     // ============================================================================
 
-    pub(crate) fn do_enable_script(
-        &mut self,
-        action: &ScriptAction,
-    ) -> Result<ScriptActionResult, ScriptError> {
-        let script_name = self.get_string_param(action, 0)?;
-        log::debug!("Enabling script '{}'", script_name);
-        // ScriptEngine.cpp enables whichever targets exist and silently
-        // accepts a name absent from both the script and group lists.
-        let _ = self
-            .context
-            .with_engine_mut(|engine| engine.set_script_active_by_name(&script_name, true));
-        Ok(ScriptActionResult::Success)
-    }
-
-    pub(crate) fn do_disable_script(
-        &mut self,
-        action: &ScriptAction,
-    ) -> Result<ScriptActionResult, ScriptError> {
-        let script_name = self.get_string_param(action, 0)?;
-        log::debug!("Disabling script '{}'", script_name);
-        let _ = self
-            .context
-            .with_engine_mut(|engine| engine.set_script_active_by_name(&script_name, false));
-        Ok(ScriptActionResult::Success)
-    }
-
     pub(crate) fn do_call_subroutine(
         &mut self,
         action: &ScriptAction,

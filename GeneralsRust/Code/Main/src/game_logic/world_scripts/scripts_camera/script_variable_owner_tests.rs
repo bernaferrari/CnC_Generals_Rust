@@ -150,3 +150,64 @@ fn reversed_timer_draw_continues_after_world_snapshot_restore() {
     }
     assert_eq!(peer.logic_random.seed_words(), peer_before);
 }
+
+#[test]
+fn kind_priority_matches_the_receiving_worlds_templates() {
+    use crate::game_logic::{KindOf, ThingTemplate};
+
+    let make_world = |kind| {
+        let mut world = GameLogic::new();
+        let mut template = ThingTemplate::new("SharedUnit");
+        template.add_kind_of(kind);
+        world.templates.insert("SharedUnit".into(), template);
+        world
+    };
+    let mut owner = make_world(KindOf::Infantry);
+    let mut peer = make_world(KindOf::Vehicle);
+    let action_for = |set: &str, kind: &str| {
+        let mut action = ScriptAction::new(ScriptActionType::SetAttackPriorityKindOf);
+        for parameter in [
+            Parameter::with_string(ParameterType::AttackPrioritySet, set.into()),
+            Parameter::with_string(ParameterType::KindOfParam, kind.into()),
+            Parameter::with_int(ParameterType::Int, 29),
+        ] {
+            action.add_parameter(parameter).unwrap();
+        }
+        action
+    };
+    let actions = [
+        action_for("Priority", "INFANTRY"),
+        action_for("Legacy unit", "UNIT"),
+    ];
+    for world in [&mut owner, &mut peer] {
+        world
+            .with_owned_script_engine(|engine, receiving| {
+                let mut driver = HostScriptExecutionDriver::with_interpreter(receiving, engine);
+                for action in &actions {
+                    engine
+                        .friend_execute_action_with_driver_checked(
+                            action,
+                            None,
+                            ScriptContext::at_frame(0),
+                            &mut driver,
+                        )
+                        .unwrap();
+                }
+            })
+            .unwrap();
+    }
+    let priority = |world: &GameLogic, set: &str| {
+        let entry = world
+            .owned_script_engine
+            .as_ref()
+            .unwrap()
+            .get_attack_info(set)
+            .unwrap();
+        assert_eq!(entry.name, set);
+        entry.get_priority("SharedUnit")
+    };
+    assert_eq!(priority(&owner, "Priority"), 29);
+    assert_eq!(priority(&peer, "Priority"), 1);
+    assert_eq!(priority(&owner, "Legacy unit"), 29);
+    assert_eq!(priority(&peer, "Legacy unit"), 29);
+}

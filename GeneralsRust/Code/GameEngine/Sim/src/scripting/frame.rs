@@ -1,7 +1,11 @@
 //! Per-interpreter frame state and update order (ScriptEngine.cpp:5480–5582).
 
-use super::variables::{MissionTimers, ScriptVariables};
-use crate::GameLogicResult;
+use super::{
+    object_types::ObjectTypes,
+    variables::{MissionTimers, ScriptVariables},
+};
+use crate::{GameLogicResult, time::LOGIC_HZ};
+use std::collections::HashMap;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TFade {
@@ -40,6 +44,23 @@ impl Default for ScriptFade {
 }
 
 impl ScriptFade {
+    pub fn start(mode: TFade, min: f32, max: f32, increase: i32, hold: i32, decrease: i32) -> Self {
+        let mut fade = Self {
+            mode,
+            min,
+            max,
+            value: min,
+            frame: 0,
+            increase,
+            hold,
+            decrease,
+        };
+        if increase == 0 {
+            fade.advance();
+        }
+        fade
+    }
+
     pub fn map_intro() -> Self {
         Self {
             mode: TFade::Multiply,
@@ -79,11 +100,66 @@ impl ScriptFade {
     }
 }
 
+/// Script-controlled tree sway. The existing wire form stores both direction
+/// components and the signed period and version independently.
+#[derive(Debug, Clone)]
+pub struct BreezeInfo {
+    pub direction: f32,
+    pub direction_vec: [f32; 2],
+    pub intensity: f32,
+    pub lean: f32,
+    pub randomness: f32,
+    pub breeze_period: i16,
+    pub breeze_version: i16,
+}
+
+impl Default for BreezeInfo {
+    fn default() -> Self {
+        let direction = std::f32::consts::PI / 3.0;
+        let amplitude = 0.07 * std::f32::consts::PI / 4.0;
+        Self {
+            direction,
+            direction_vec: [direction.sin(), direction.cos()],
+            intensity: amplitude,
+            lean: amplitude,
+            randomness: 0.2,
+            breeze_period: (LOGIC_HZ * 5) as i16,
+            breeze_version: 0,
+        }
+    }
+}
+
+impl BreezeInfo {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn set_sway(
+        &mut self,
+        direction: f32,
+        intensity: f32,
+        lean: f32,
+        period: i32,
+        randomness: f32,
+    ) {
+        self.breeze_version = self.breeze_version.wrapping_add(1);
+        self.direction = direction;
+        self.direction_vec = [direction.sin(), direction.cos()];
+        self.intensity = intensity;
+        self.lean = lean;
+        self.breeze_period = period.clamp(1, i16::MAX as i32) as i16;
+        self.randomness = randomness;
+    }
+}
+
 /// Mutable state used and persisted by one script interpreter.
 pub struct ScriptFrame {
     pub variables: ScriptVariables,
     pub mission_timers: MissionTimers,
     pub fade: ScriptFade,
+    pub breeze_info: BreezeInfo,
+    pub choose_victim_always_uses_normal: bool,
+    pub object_types: HashMap<String, ObjectTypes>,
     pub first_update: bool,
     pub freeze_by_debug: bool,
     pub ui_interactions: Vec<String>,
@@ -95,6 +171,9 @@ impl Default for ScriptFrame {
             variables: ScriptVariables::default(),
             mission_timers: MissionTimers::default(),
             fade: ScriptFade::default(),
+            breeze_info: BreezeInfo::default(),
+            choose_victim_always_uses_normal: false,
+            object_types: HashMap::new(),
             first_update: true,
             freeze_by_debug: false,
             ui_interactions: Vec::new(),
@@ -113,6 +192,9 @@ impl ScriptFrame {
         self.fade.value = 0.0;
         self.fade.frame = 0;
         self.freeze_by_debug = false;
+        self.breeze_info = BreezeInfo::default();
+        self.choose_victim_always_uses_normal = false;
+        self.object_types.clear();
     }
 
     pub fn new_map(&mut self) {

@@ -675,35 +675,6 @@ pub(crate) fn qualify_trigger_area_name(
     Some(area_name.to_string())
 }
 
-/// Breeze info structure matching C++ BreezeInfo
-#[derive(Debug, Clone)]
-pub struct BreezeInfo {
-    pub direction: f32,          // Direction in radians, 0 == +x direction
-    pub direction_vec: [f32; 2], // sin/cos of direction for efficiency
-    pub intensity: f32,          // How far to sway back & forth in radians
-    pub lean: f32,               // How far to lean with the wind in radians
-    pub randomness: f32,         // Randomness 0=perfectly uniform, 1 = +- up to 50%
-    pub breeze_period: i16,      // Frames to sway forward & back
-    pub breeze_version: i16,     // Incremented when settings updated
-}
-
-impl BreezeInfo {
-    /// C++ `ScriptEngine` reset defaults (`ScriptEngine.cpp` ~5291-5298).
-    pub fn new() -> Self {
-        let direction = std::f32::consts::PI / 3.0;
-        let amplitude = 0.07 * std::f32::consts::PI / 4.0;
-        Self {
-            direction,
-            direction_vec: [direction.sin(), direction.cos()],
-            intensity: amplitude,
-            lean: amplitude,
-            randomness: 0.2,
-            breeze_period: (crate::common::LOGICFRAMES_PER_SECOND * 5) as i16,
-            breeze_version: 0,
-        }
-    }
-}
-
 /// Script execution statistics
 #[derive(Debug, Clone, Default)]
 pub struct ScriptStats {
@@ -758,12 +729,10 @@ pub struct ScriptEngineInner {
 
     // Object tracking
     object_counts: HashMap<(i32, String), i32>,
-    object_types: HashMap<String, ObjectTypes>,
 
     // Named reveals and effects
     topple_directions: Vec<(String, Coord3D)>,
     named_reveals: NamedReveals,
-    breeze_info: BreezeInfo,
     game_difficulty: crate::player::GameDifficulty,
 
     // System state
@@ -771,7 +740,6 @@ pub struct ScriptEngineInner {
 
     freeze_by_script: bool,
     objects_should_receive_difficulty_bonus: bool,
-    choose_victim_always_uses_normal: bool,
     shown_mp_local_defeat_window: bool,
     /// C++ ScriptActions.cpp m_suppressNewWindows / m_messageWindow.
     suppress_new_windows: bool,

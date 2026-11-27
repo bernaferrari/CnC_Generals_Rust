@@ -1350,8 +1350,20 @@ impl ScriptActionDispatcher<'_> {
             // SCRIPT CONTROL ACTIONS
             // ============================================================================
             ScriptActionType::NoOp => Ok(ScriptActionResult::Success),
-            ScriptActionType::EnableScript => self.do_enable_script(action),
-            ScriptActionType::DisableScript => self.do_disable_script(action),
+            ScriptActionType::EnableScript
+            | ScriptActionType::DisableScript
+            | ScriptActionType::CameraFadeAdd
+            | ScriptActionType::CameraFadeSubtract
+            | ScriptActionType::CameraFadeSaturate
+            | ScriptActionType::CameraFadeMultiply
+            | ScriptActionType::SetTreeSway
+            | ScriptActionType::ChooseVictimAlwaysUsesNormal
+            | ScriptActionType::SetAttackPriorityThing
+            | ScriptActionType::SetAttackPriorityKindOf
+            | ScriptActionType::SetDefaultAttackPriority => self
+                .context
+                .borrowed_engine()
+                .execute_local_control_action(action, driver),
             ScriptActionType::CallSubroutine => self.do_call_subroutine(action),
             ScriptActionType::DebugMessageBox => self.do_debug_message_box(action),
             ScriptActionType::DebugString => self.do_debug_string(action),
@@ -2206,10 +2218,6 @@ impl ScriptActionDispatcher<'_> {
             ScriptActionType::ZoomCamera => self.do_zoom_camera(action, driver),
             ScriptActionType::PitchCamera => self.do_pitch_camera(action, driver),
             ScriptActionType::OversizeTerrain => self.do_oversize_terrain(action),
-            ScriptActionType::CameraFadeAdd => self.do_camera_fade_add(action),
-            ScriptActionType::CameraFadeSubtract => self.do_camera_fade_subtract(action),
-            ScriptActionType::CameraFadeSaturate => self.do_camera_fade_saturate(action),
-            ScriptActionType::CameraFadeMultiply => self.do_camera_fade_multiply(action),
             ScriptActionType::CameraBwModeBegin => self.do_camera_bw_mode_begin(action, driver),
             ScriptActionType::CameraBwModeEnd => self.do_camera_bw_mode_end(action, driver),
             ScriptActionType::DrawSkyboxBegin => self.do_draw_skybox_begin(driver),
@@ -2351,7 +2359,6 @@ impl ScriptActionDispatcher<'_> {
             // ============================================================================
             // ENVIRONMENT/WORLD ACTIONS
             // ============================================================================
-            ScriptActionType::SetTreeSway => self.do_set_tree_sway(action),
             ScriptActionType::WaterChangeHeight => self.do_water_change_height(action, driver),
             ScriptActionType::WaterChangeHeightOverTime => {
                 self.do_water_change_height_over_time(action, driver)
@@ -2406,13 +2413,6 @@ impl ScriptActionDispatcher<'_> {
             // ============================================================================
             // ATTACK PRIORITY ACTIONS
             // ============================================================================
-            ScriptActionType::SetAttackPriorityThing => {
-                self.do_set_attack_priority_thing(action, driver)
-            }
-            ScriptActionType::SetAttackPriorityKindOf => self.do_set_attack_priority_kindof(action),
-            ScriptActionType::SetDefaultAttackPriority => {
-                self.do_set_default_attack_priority(action)
-            }
             ScriptActionType::SetStoppingDistance => self.do_set_stopping_distance(action),
 
             // ============================================================================
@@ -2433,9 +2433,6 @@ impl ScriptActionDispatcher<'_> {
                 }
             }
             ScriptActionType::DeleteAllUnmanned => self.do_delete_all_unmanned(action),
-            ScriptActionType::ChooseVictimAlwaysUsesNormal => {
-                self.do_choose_victim_always_uses_normal(action)
-            }
             ScriptActionType::ScriptingOverrideHulkLifetime => {
                 self.do_scripting_override_hulk_lifetime(action, driver)
             }

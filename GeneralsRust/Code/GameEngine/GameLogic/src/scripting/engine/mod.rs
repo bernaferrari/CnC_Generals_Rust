@@ -29,6 +29,7 @@ use game_engine::common::thing::thing_template::ThingTemplate as EngineThingTemp
 use generals_sim::scripting::attack_priorities::AttackPriorityTable;
 pub use generals_sim::scripting::attack_priorities::{AttackPriorityInfo, MAX_ATTACK_PRIORITIES};
 use generals_sim::scripting::frame::{self, ScriptFade, ScriptFrame, ScriptFrameDriver};
+pub use generals_sim::scripting::frame::BreezeInfo;
 use generals_sim::scripting::events::{PlayerEventKind, ScriptEventHistory, ScriptEvents, TimedMediaKind};
 pub use generals_sim::scripting::frame::TFade;
 use generals_sim::scripting::map_reveals::NamedReveals;

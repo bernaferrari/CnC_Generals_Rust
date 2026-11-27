@@ -7,6 +7,7 @@ use super::program::{Condition, OrCondition, Script, ScriptAction, ScriptActionT
 use super::sequential_scripts::is_sequential_only_action;
 use crate::time::LOGIC_HZ;
 use crate::{GameLogicError, GameLogicResult};
+use game_engine::common::system::kind_of::KindOfMask;
 
 #[derive(Clone, Copy)]
 pub enum ScriptDifficulty {
@@ -52,6 +53,13 @@ pub trait ScriptProgramDriver {
     ) -> GameLogicResult<ScriptActionResult>;
     fn timer_random_int(&self, low: i32, high: i32) -> i32;
     fn timer_random_real(&self, low: f32, high: f32) -> f32;
+    fn script_activation_changed(&self, _name: &str, _active: bool) {}
+    fn priority_template_name(&self, _name: &str) -> Option<String> {
+        None
+    }
+    fn priority_templates_with_kind(&self, _kind: KindOfMask) -> Option<Vec<String>> {
+        None
+    }
     fn call_subroutine(&mut self, name: &str) -> GameLogicResult<()>;
     fn after_action(&mut self) -> GameLogicResult<()>;
 }
@@ -109,7 +117,7 @@ fn evaluate_script(
         evaluate_conditions(
             script.condition.as_deref_mut(),
             |condition| match interpreter
-                .try_evaluate_variable_condition(condition)
+                .try_evaluate_local_condition(condition)
                 .map_err(|error| {
                     GameLogicError::Configuration(format!("Script condition error: {error}"))
                 })? {
@@ -200,6 +208,16 @@ pub fn dispatch_action(
             |low, high| driver.timer_random_real(low, high),
         )
         .map_err(|error| GameLogicError::Configuration(format!("Script action error: {error}")))?
+        || interpreter
+            .try_execute_control_action(
+                action,
+                |name, active| driver.script_activation_changed(name, active),
+                |name| driver.priority_template_name(name),
+                |kind| driver.priority_templates_with_kind(kind),
+            )
+            .map_err(|error| {
+                GameLogicError::Configuration(format!("Script action error: {error}"))
+            })?
     {
         ScriptActionResult::Success
     } else {
@@ -286,7 +304,7 @@ mod tests {
                 &mut self,
                 action: &ScriptAction,
             ) -> GameLogicResult<ScriptActionResult> {
-                assert_eq!(action.action_type, ScriptActionType::NoOp);
+                assert_eq!(action.action_type, ScriptActionType::DebugMessageBox);
                 assert_eq!(self.interpreter.condition_team(), Some(23));
                 assert_eq!(
                     self.interpreter
@@ -356,7 +374,11 @@ mod tests {
         let mut script = Script::new();
         script.condition_team_name = "Patrol".into();
         script.condition = Some(Box::new(condition));
-        for action in [timer, ScriptAction::new(ScriptActionType::NoOp), call] {
+        for action in [
+            timer,
+            ScriptAction::new(ScriptActionType::DebugMessageBox),
+            call,
+        ] {
             script.append_action(Box::new(action));
         }
 

@@ -97,7 +97,7 @@ impl ScriptInterpreter {
         Ok(true)
     }
 
-    pub fn try_evaluate_variable_condition(
+    pub fn try_evaluate_local_condition(
         &self,
         condition: &Condition,
     ) -> Result<Option<bool>, ScriptError> {
@@ -141,6 +141,10 @@ impl ScriptInterpreter {
                     .variables
                     .counter_mut(name)
                     .is_ok_and(|counter| counter.is_countdown_timer && counter.value <= 0)
+            }
+            // ScriptConditions.cpp:1421 consumes one exact movie completion.
+            ConditionType::HasFinishedVideo => {
+                self.events().has_video(parameter(0)?.get_string(), true)
             }
             _ => return Ok(None),
         };
