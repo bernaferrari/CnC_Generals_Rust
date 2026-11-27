@@ -384,13 +384,16 @@ mod ye145_source_generation_tests {
         let mut native = generals_sim::weapon::WeaponDefinition::new("Ye145Weapon".into());
         native.fire_ocl_names[0] = Some("Ye145FireOCL".into());
         world.admit_weapon_fire_definition("Ye145Weapon", &native).unwrap();
-        let mut ocl = gamelogic::effects::ObjectCreationList::new();
-        ocl.add_nugget(std::sync::Arc::new(
-            gamelogic::object_creation_list::GenericObjectCreationNugget {
+        use generals_sim::object_creation_list::{
+            GenericObjectCreationNugget, ObjectCreationList, ObjectCreationNugget,
+        };
+
+        let ocl = ObjectCreationList::new(vec![ObjectCreationNugget::Generic(
+            GenericObjectCreationNugget {
                 names: vec!["Ye145Child".into()],
                 ..Default::default()
             },
-        ));
+        )]);
         world.admit_weapon_ocl_definition("Ye145FireOCL", ocl).unwrap();
         world
             .templates

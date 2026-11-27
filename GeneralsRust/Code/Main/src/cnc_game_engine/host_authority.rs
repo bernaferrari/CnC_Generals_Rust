@@ -2285,9 +2285,7 @@ impl CnCGameEngine {
         template_catalog: RestoreTemplateCatalog<'_>,
         weapon_catalog: &Option<generals_sim::weapon::WeaponCatalog>,
         projectile_definitions: &crate::game_logic::projectile_definitions::ProjectileDefinitions,
-        ocl_application_base: &Arc<
-            std::collections::HashMap<String, gamelogic::effects::ObjectCreationList>,
-        >,
+        ocl_application_base: &Arc<generals_sim::object_creation_list::ObjectCreationListDefinitions>,
         ai_definition_base: &game_engine::common::ini::AIData,
         production_energy_base: game_engine::common::ini::ini_game_data::ProductionEnergyRules,
         historic_damage_limit: u32,
@@ -2335,9 +2333,7 @@ impl CnCGameEngine {
         template_catalog: RestoreTemplateCatalog<'_>,
         weapon_catalog: &Option<generals_sim::weapon::WeaponCatalog>,
         projectile_definitions: &crate::game_logic::projectile_definitions::ProjectileDefinitions,
-        ocl_application_base: &Arc<
-            std::collections::HashMap<String, gamelogic::effects::ObjectCreationList>,
-        >,
+        ocl_application_base: &Arc<generals_sim::object_creation_list::ObjectCreationListDefinitions>,
         ai_definition_base: &game_engine::common::ini::AIData,
         production_energy_base: game_engine::common::ini::ini_game_data::ProductionEnergyRules,
         historic_damage_limit: u32,
@@ -2710,9 +2706,7 @@ impl CnCGameEngine {
         template_catalog: RestoreTemplateCatalog<'_>,
         weapon_catalog: &Option<generals_sim::weapon::WeaponCatalog>,
         projectile_definitions: &crate::game_logic::projectile_definitions::ProjectileDefinitions,
-        ocl_application_base: &Arc<
-            std::collections::HashMap<String, gamelogic::effects::ObjectCreationList>,
-        >,
+        ocl_application_base: &Arc<generals_sim::object_creation_list::ObjectCreationListDefinitions>,
         ai_definition_base: &game_engine::common::ini::AIData,
         production_energy_base: game_engine::common::ini::ini_game_data::ProductionEnergyRules,
         historic_damage_limit: u32,
@@ -2777,9 +2771,7 @@ impl CnCGameEngine {
         template_catalog: RestoreTemplateCatalog<'_>,
         weapon_catalog: &Option<generals_sim::weapon::WeaponCatalog>,
         projectile_definitions: &crate::game_logic::projectile_definitions::ProjectileDefinitions,
-        ocl_application_base: &Arc<
-            std::collections::HashMap<String, gamelogic::effects::ObjectCreationList>,
-        >,
+        ocl_application_base: &Arc<generals_sim::object_creation_list::ObjectCreationListDefinitions>,
         ai_definition_base: &game_engine::common::ini::AIData,
         production_energy_base: game_engine::common::ini::ini_game_data::ProductionEnergyRules,
         historic_damage_limit: u32,

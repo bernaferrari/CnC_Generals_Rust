@@ -506,7 +506,7 @@ impl GameLogic {
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) {
         use crate::game_logic::host_radius_decal_update::HostRadiusDecalTemplate;
-        use gamelogic::object_creation_list::advanced_nuggets::AttackNugget;
+        use generals_sim::object_creation_list::ObjectCreationNugget;
 
         let Some(source) = self.objects.get(&source_id) else {
             return;
@@ -529,7 +529,7 @@ impl GameLogic {
         let players = self.radius_decal_player_view(owner_player_id);
         let frame = self.frame;
         for nugget in list.nuggets() {
-            let Some(attack) = nugget.as_any().downcast_ref::<AttackNugget>() else {
+            let ObjectCreationNugget::Attack(attack) = nugget else {
                 continue;
             };
             if let Some(slot) =

@@ -423,7 +423,7 @@ impl GameLogic {
         &mut self,
         transport: ObjectId,
         target: Vec3,
-        data: &gamelogic::object::update::DeliverPayloadData,
+        data: &generals_sim::object_creation_list::DeliverPayloadData,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) {
         use crate::game_logic::host_radius_decal_update::HostRadiusDecalTemplate;
@@ -999,7 +999,7 @@ impl GameLogic {
                 guard.do_special_power_at_location(
                     "SpecialPowerBattleshipBombardment",
                     &loc,
-                    gamelogic::object_creation_list::nuggets::INVALID_ANGLE,
+                    generals_sim::object_creation_list::INVALID_ANGLE,
                     gamelogic::object::special_power_module::SpecialPowerCommandOptions::NONE,
                     false,
                 );

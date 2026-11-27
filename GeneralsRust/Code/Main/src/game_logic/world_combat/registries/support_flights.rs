@@ -747,13 +747,12 @@ impl GameLogic {
             AnthraxBombPayloadTier,
         };
         use crate::game_logic::host_ocl_special_power::ANTHRAX_BOMB_SPECIAL_POWER;
-        use gamelogic::object_creation_list::DeliverPayloadNugget;
+        use generals_sim::object_creation_list::ObjectCreationNugget;
 
         let list = self.receiving_special_power_ocl(source, ANTHRAX_BOMB_SPECIAL_POWER)?;
-        let [nugget] = list.nuggets() else {
+        let [ObjectCreationNugget::DeliverPayload(deliver)] = list.nuggets() else {
             return None;
         };
-        let deliver = nugget.as_any().downcast_ref::<DeliverPayloadNugget>()?;
         if !deliver.transport_name.eq_ignore_ascii_case(ANTHRAX_TRANSPORT)
             || deliver.formation_size != 1
         {

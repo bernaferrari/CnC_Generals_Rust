@@ -7,12 +7,12 @@ fn text(model: &str) -> String {
 }
 fn model(world: &GameLogic) -> String {
     let list = world.weapon_effect_definitions.ocl("SameOCL").unwrap();
-    list.nuggets()[0]
-        .as_any()
-        .downcast_ref::<gamelogic::object_creation_list::nuggets::GenericObjectCreationNugget>()
-        .unwrap()
-        .names[0]
-        .clone()
+    let generals_sim::object_creation_list::ObjectCreationNugget::Generic(nugget) =
+        &list.nuggets()[0]
+    else {
+        panic!("expected a generic OCL nugget");
+    };
+    nugget.names[0].clone()
 }
 #[test]
 fn application_map_solo_reset_are_receiving_and_failed_parse_is_transactional() {

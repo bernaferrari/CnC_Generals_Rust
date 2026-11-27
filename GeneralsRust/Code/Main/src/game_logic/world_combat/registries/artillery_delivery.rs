@@ -17,7 +17,7 @@ use crate::game_logic::special_power_strikes::{
 };
 use game_engine::common::game_common::SECONDS_PER_LOGICFRAME_REAL;
 use game_engine::common::thing::deliver_payload_ai_data::DeliverPayloadAIUpdateModuleData;
-use gamelogic::object_creation_list::DeliverPayloadNugget;
+use generals_sim::object_creation_list::{DeliverPayloadNugget, ObjectCreationNugget};
 
 use crate::game_logic::host_enum_table_residual::{
     door_1_closing_model_bit, door_1_opening_model_bit,
@@ -70,10 +70,10 @@ impl GameLogic {
             None
         };
         let definition = if let Some(list) = &list {
-            let [nugget] = list.nuggets() else {
+            let [ObjectCreationNugget::DeliverPayload(delivery)] = list.nuggets() else {
                 return None;
             };
-            Some(nugget.as_any().downcast_ref::<DeliverPayloadNugget>()?)
+            Some(delivery)
         } else {
             None
         };
@@ -82,13 +82,12 @@ impl GameLogic {
             if data.visible_num_bones != 1
                 || data.visible_items_dropped_per_interval != 1
                 || data.visible_payload_template_name.as_str().is_empty()
-                || nugget.visible_payload_weapon_name.is_empty()
             {
                 return None;
             }
             ArtilleryPayload::Visible(VisibleArtilleryPayload {
                 object: data.visible_payload_template_name.as_str().to_owned(),
-                weapon: nugget.visible_payload_weapon_name.clone(),
+                weapon: data.visible_payload_weapon_template.clone()?,
                 bone: data.visible_drop_bone_name.as_str().to_owned(),
                 subobject: data.visible_sub_object_name.as_str().to_owned(),
                 inherit_velocity: data.inherit_transport_velocity,

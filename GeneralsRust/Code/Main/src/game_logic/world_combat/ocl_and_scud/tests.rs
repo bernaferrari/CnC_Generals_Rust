@@ -8,7 +8,7 @@ fn receiving_ocl_puts_a_child_in_its_new_parachute_before_setting_the_final_pose
     use crate::assets::pristine_bones::{PristineBoneAssets, PristineBoneSource};
     use crate::game_logic::{Player, ScriptPresentationEffects};
     use game_engine::common::random_value::SessionRandom;
-    use gamelogic::object_creation_list::GenericObjectCreationNugget;
+    use generals_sim::object_creation_list::ObjectCreationNugget;
 
     struct NoBones;
     impl PristineBoneAssets for NoBones {
@@ -84,10 +84,9 @@ End"
     assert_eq!(source, peer_source);
     let random = SessionRandom::from_state(owner.logic_random.snapshot());
     let list = owner.object_creation_list_definition(OCL).unwrap();
-    let nugget = list.nuggets()[0]
-        .as_any()
-        .downcast_ref::<GenericObjectCreationNugget>()
-        .unwrap();
+    let ObjectCreationNugget::Generic(nugget) = &list.nuggets()[0] else {
+        panic!("expected a generic OCL nugget");
+    };
     let execute = |world: &mut GameLogic, source| {
         world.execute_receiving_object_ocl_with_births(
             OCL,

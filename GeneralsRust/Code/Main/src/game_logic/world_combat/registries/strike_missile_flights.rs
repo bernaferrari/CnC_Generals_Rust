@@ -781,7 +781,7 @@ impl GameLogic {
             A10_FORMATIONION_SPACING, A10_STRIKE_SPECIAL_POWER, A10_TRANSPORT,
         };
         use crate::game_logic::{KindOf, ThingTemplate};
-        use gamelogic::object_creation_list::DeliverPayloadNugget;
+        use generals_sim::object_creation_list::{DeliverPayloadNugget, ObjectCreationNugget};
 
         let source = self.objects.get(&source_id).filter(|source| source.is_alive())?;
         let owner = source.owner_player_id?;
@@ -793,8 +793,8 @@ impl GameLogic {
             None
         };
         let definition = if let Some(list) = &authored_list {
-            let [nugget] = list.nuggets() else { return None };
-            Some(nugget.as_any().downcast_ref::<DeliverPayloadNugget>()?)
+            let [ObjectCreationNugget::DeliverPayload(delivery)] = list.nuggets() else { return None };
+            Some(delivery)
         } else {
             None
         };

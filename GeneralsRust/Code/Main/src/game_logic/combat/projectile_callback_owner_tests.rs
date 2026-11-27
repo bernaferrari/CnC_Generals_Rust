@@ -649,18 +649,18 @@ fn detonation_fx_uses_projectile_pose_and_only_gates_the_visual_effect() {
 
 #[test]
 fn impact_callback_error_cannot_replay_retired_shells() {
-    use gamelogic::effects::ObjectCreationList;
-    use gamelogic::object_creation_list::GenericObjectCreationNugget;
-    use std::sync::Arc;
+    use generals_sim::object_creation_list::{
+        GenericObjectCreationNugget, ObjectCreationList, ObjectCreationNugget,
+    };
 
     const IMPACT_OCL: &str = "TestImpactSequence";
     const FIRST_CHILD: &str = "TestImpactChild";
     const REJECTED_CHILD: &str = "TestInvalidImpactChild";
     let (mut owner, source, target) = world();
-    let mut list = ObjectCreationList::new();
+    let mut nuggets = Vec::new();
     for name in [FIRST_CHILD, REJECTED_CHILD] {
         owner.templates.insert(name.into(), ThingTemplate::new(name));
-        list.add_nugget(Arc::new(GenericObjectCreationNugget {
+        nuggets.push(ObjectCreationNugget::Generic(GenericObjectCreationNugget {
             names: vec![name.into()],
             ..Default::default()
         }));
@@ -670,7 +670,9 @@ fn impact_callback_error_cannot_replay_retired_shells() {
         .get_mut(REJECTED_CHILD)
         .unwrap()
         .body_definition_error = Some("injected impact OCL factory failure".into());
-    owner.admit_weapon_ocl_definition(IMPACT_OCL, list).unwrap();
+    owner
+        .admit_weapon_ocl_definition(IMPACT_OCL, ObjectCreationList::new(nuggets))
+        .unwrap();
     for id in [ObjectId(9001), ObjectId(9002)] {
         let mut projectile = shell(id, source);
         projectile.target_position = Vec3::ZERO;

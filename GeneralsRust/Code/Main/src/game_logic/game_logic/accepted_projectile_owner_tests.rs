@@ -178,17 +178,20 @@ fn new_owned_world() -> GameLogic {
         ("OCL_AcceptedQueueFirst", "AcceptedFireFirstChild"),
         ("OCL_AcceptedQueueSecond", "AcceptedFireSecondChild"),
     ] {
-        let mut definition = gamelogic::effects::ObjectCreationList::new();
-        definition.add_nugget(std::sync::Arc::new(
-            gamelogic::object_creation_list::GenericObjectCreationNugget {
+        use generals_sim::debris::DebrisDisposition;
+        use generals_sim::object_creation_list::{
+            GenericObjectCreationNugget, ObjectCreationList, ObjectCreationNugget,
+        };
+
+        let definition = ObjectCreationList::new(vec![ObjectCreationNugget::Generic(
+            GenericObjectCreationNugget {
                 names: vec![child.into()],
-                disposition: gamelogic::object_creation_list::DebrisDisposition::new(
-                    gamelogic::object_creation_list::DebrisDisposition::LIKE_EXISTING
-                        | gamelogic::object_creation_list::DebrisDisposition::INHERIT_VELOCITY,
+                disposition: DebrisDisposition::new(
+                    DebrisDisposition::LIKE_EXISTING | DebrisDisposition::INHERIT_VELOCITY,
                 ),
                 ..Default::default()
             },
-        ));
+        )]);
         world
             .admit_weapon_ocl_definition(ocl_name, definition)
             .unwrap();

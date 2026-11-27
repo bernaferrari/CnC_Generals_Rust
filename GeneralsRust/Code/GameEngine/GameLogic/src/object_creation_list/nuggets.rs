@@ -19,6 +19,9 @@
 // - ApplyRandomForceNugget (C++ lines 595-670)
 
 pub use generals_sim::debris::DebrisDisposition;
+pub use generals_sim::object_creation_list::{
+    AnimSet, GenericObjectCreationNugget, INVALID_ANGLE, calc_random_force_xyz,
+};
 
 use super::{CreationContext, CreationResult};
 use crate::common::*;
@@ -36,9 +39,6 @@ use std::f32::consts::PI;
 use std::sync::{Arc, RwLock};
 
 pub use game_engine::common::ini::StaticGameLODLevel;
-
-/// Invalid angle constant (matches C++ INVALID_ANGLE)
-pub const INVALID_ANGLE: Real = -999999.0;
 
 /// Base trait for all object creation nuggets
 /// Matches C++ ObjectCreationNugget abstract base class
@@ -172,146 +172,6 @@ pub trait ObjectCreationNugget: Send + Sync {
     fn as_any(&self) -> &dyn Any;
 }
 
-/// Animation set for debris (initial, flying, final)
-/// Matches C++ AnimSet struct (ObjectCreationList.cpp:1423-1428)
-#[derive(Debug, Clone)]
-pub struct AnimSet {
-    pub anim_initial: String,
-    pub anim_flying: String,
-    pub anim_final: String,
-}
-
-/// Generic object/debris creation nugget
-/// Matches C++ GenericObjectCreationNugget (ObjectCreationList.cpp:711-1475)
-#[derive(Debug, Clone)]
-pub struct GenericObjectCreationNugget {
-    // Object names or model names to create
-    pub names: Vec<String>,
-    pub name_are_objects: bool, // true = object templates, false = debris models
-
-    // Basic creation parameters
-    pub debris_to_generate: Int,
-    pub offset: Coord3D,
-    pub disposition: DebrisDisposition,
-    pub disposition_intensity: Real,
-
-    // Physics parameters (for debris)
-    pub mass: Real,
-    pub extra_bounciness: Real,
-    pub extra_friction: Real,
-
-    // Force parameters (for RANDOM_FORCE disposition)
-    pub min_mag: Real,
-    pub max_mag: Real,
-    pub min_pitch: Real,
-    pub max_pitch: Real,
-
-    // Spin rates (angular velocity)
-    pub spin_rate: Real,  // -1.0 = calculate from intensity
-    pub yaw_rate: Real,   // -1.0 = use spin_rate
-    pub roll_rate: Real,  // -1.0 = use spin_rate
-    pub pitch_rate: Real, // -1.0 = use spin_rate
-
-    // Lifetime
-    pub min_frames: UnsignedInt,
-    pub max_frames: UnsignedInt,
-
-    // Health range
-    pub min_health: Real, // 0.0-1.0 (percentage)
-    pub max_health: Real,
-
-    // Advanced options
-    pub inherit_veterancy: bool,
-    pub ignore_primary_obstacle: bool,
-    pub skip_if_significantly_airborne: bool,
-    pub invulnerable_time: UnsignedInt,
-    pub contain_inside_source_object: bool,
-    pub dies_on_bad_land: bool,
-    pub requires_live_player: bool,
-    pub preserve_layer: bool,
-    pub orient_in_force_direction: bool,
-
-    // Spread formation
-    pub spread_formation: bool,
-    pub min_distance_a_formation: Real,
-    pub min_distance_b_formation: Real,
-    pub max_distance_formation: Real,
-
-    // Fade in/out
-    pub fade_in: bool,
-    pub fade_out: bool,
-    pub fade_frames: UnsignedInt,
-    pub fade_sound_name: String,
-
-    // Container
-    pub put_in_container: String,
-
-    // Particle system attachment
-    pub particle_sys_name: String,
-
-    // Debris-specific (when name_are_objects = false)
-    pub anim_sets: Vec<AnimSet>,
-    pub fx_final: Option<String>,
-    pub ok_to_change_model_color: bool,
-    pub min_lod_required: StaticGameLODLevel,
-    /// C++ ShadowType bitfield (`TheShadowNames` / SHADOW_* flags).
-    pub shadow_type: u32,
-    pub bounce_sound: String,
-}
-
-impl Default for GenericObjectCreationNugget {
-    fn default() -> Self {
-        Self {
-            names: Vec::new(),
-            name_are_objects: true,
-            debris_to_generate: 1,
-            offset: Coord3D::new(0.0, 0.0, 0.0),
-            disposition: DebrisDisposition::new(DebrisDisposition::ON_GROUND_ALIGNED),
-            disposition_intensity: 0.0,
-            mass: 0.0,
-            extra_bounciness: 0.0,
-            extra_friction: 0.0,
-            min_mag: 0.0,
-            max_mag: 0.0,
-            min_pitch: 0.0,
-            max_pitch: 0.0,
-            spin_rate: -1.0,
-            yaw_rate: -1.0,
-            roll_rate: -1.0,
-            pitch_rate: -1.0,
-            min_frames: 0,
-            max_frames: 0,
-            min_health: 1.0,
-            max_health: 1.0,
-            inherit_veterancy: false,
-            ignore_primary_obstacle: false,
-            skip_if_significantly_airborne: false,
-            invulnerable_time: 0,
-            contain_inside_source_object: false,
-            dies_on_bad_land: false,
-            requires_live_player: false,
-            preserve_layer: true,
-            orient_in_force_direction: false,
-            spread_formation: false,
-            min_distance_a_formation: 0.0,
-            min_distance_b_formation: 0.0,
-            max_distance_formation: 0.0,
-            fade_in: false,
-            fade_out: false,
-            fade_frames: 0,
-            fade_sound_name: String::new(),
-            put_in_container: String::new(),
-            particle_sys_name: String::new(),
-            anim_sets: Vec::new(),
-            fx_final: None,
-            ok_to_change_model_color: false,
-            min_lod_required: StaticGameLODLevel::Low,
-            shadow_type: 0,
-            bounce_sound: String::new(),
-        }
-    }
-}
-
 /// The original source stays available throughout each nugget. A mounted
 /// death callback can also lend the parent for the exact prior-head backlink.
 enum CreationSource<'a> {
@@ -344,7 +204,37 @@ fn spawn_with_source(
     }
 }
 
-impl GenericObjectCreationNugget {
+trait LegacyGenericObjectCreation {
+    fn really_create(
+        &self,
+        ctx: &CreationContext<'_>,
+        pos: &Coord3D,
+        mtx: Option<&Matrix3D>,
+        orientation: Real,
+        source_obj: Option<CreationSource<'_>>,
+        lifetime_frames: UnsignedInt,
+    ) -> CreationResult;
+    fn apply_properties_to_object(
+        &self,
+        ctx: &CreationContext<'_>,
+        obj: &Arc<RwLock<Object>>,
+        model_name: &str,
+        pos: &Coord3D,
+        mtx: Option<&Matrix3D>,
+        orientation: Real,
+        source_obj: Option<&Object>,
+        lifetime_frames: UnsignedInt,
+    );
+    fn apply_fade_to_object(&self, debris: &Arc<RwLock<Object>>, source_obj: Option<&Object>);
+    fn create_from_object(
+        &self,
+        ctx: &CreationContext<'_>,
+        primary: CreationSource<'_>,
+        lifetime_frames: UnsignedInt,
+    ) -> CreationResult;
+}
+
+impl LegacyGenericObjectCreation for GenericObjectCreationNugget {
     /// Create the object and apply all configured properties
     /// Matches C++ GenericObjectCreationNugget::reallyCreate (ObjectCreationList.cpp:1291-1408)
     fn really_create(
@@ -917,66 +807,6 @@ impl GenericObjectCreationNugget {
         drop(obj_read);
     }
 
-    /// Draw yaw, roll, and pitch rates, then the launch force
-    /// (`ObjectCreationList.cpp:1129-1175`).
-    pub fn draw_flight(&self, mut draw: impl FnMut(Real, Real) -> Real) -> (Coord3D, [Real; 3]) {
-        // Calculate spin rates
-        let spin_rate = if self.spin_rate >= 0.0 {
-            self.spin_rate
-        } else {
-            (PI / 32.0) * self.disposition_intensity
-        };
-
-        let yaw_rate = if self.yaw_rate >= 0.0 {
-            self.yaw_rate
-        } else {
-            spin_rate
-        };
-        let roll_rate = if self.roll_rate >= 0.0 {
-            self.roll_rate
-        } else {
-            spin_rate
-        };
-        let pitch_rate = if self.pitch_rate >= 0.0 {
-            self.pitch_rate
-        } else {
-            spin_rate
-        };
-
-        let yaw = draw(-yaw_rate, yaw_rate);
-        let roll = draw(-roll_rate, roll_rate);
-        let pitch = draw(-pitch_rate, pitch_rate);
-
-        // Calculate force based on disposition
-        let force = if self.disposition.has(DebrisDisposition::SEND_IT_FLYING) {
-            let horiz_force = 4.0 * self.disposition_intensity;
-            let vert_force = 3.0 * self.disposition_intensity;
-            Coord3D::new(
-                draw(-horiz_force, horiz_force),
-                draw(-horiz_force, horiz_force),
-                draw(vert_force * 0.33, vert_force),
-            )
-        } else if self.disposition.has(DebrisDisposition::SEND_IT_UP) {
-            let horiz_force = 2.0 * self.disposition_intensity;
-            let vert_force = 4.0 * self.disposition_intensity;
-            Coord3D::new(
-                draw(-horiz_force, horiz_force),
-                draw(-horiz_force, horiz_force),
-                draw(vert_force * 0.75, vert_force),
-            )
-        } else {
-            calc_random_force_with(
-                draw,
-                self.min_mag,
-                self.max_mag,
-                self.min_pitch,
-                self.max_pitch,
-            )
-        };
-
-        (force, [yaw, roll, pitch])
-    }
-
     /// ObjectCreationList.cpp:1387-1401
     fn apply_fade_to_object(&self, debris: &Arc<RwLock<Object>>, source_obj: Option<&Object>) {
         if self.fade_in {
@@ -1288,28 +1118,6 @@ fn adjust_vector(vec: &Coord3D, mtx: &Matrix3D) -> Coord3D {
     // glam Mat4 uses transform_vector3() instead of rotate_vector()
     let rotated = mtx.transform_vector3(vectmp);
     Coord3D::new(rotated.x, rotated.y, rotated.z)
-}
-
-/// Matrix result of C++ `calcRandomForce`:
-/// `Scale(mag) * Rotate_Z(angle) * Rotate_Y(-pitch)` then `Get_X_Vector()`.
-pub fn calc_random_force_xyz(angle: Real, pitch: Real, mag: Real) -> Coord3D {
-    let horiz = mag * pitch.cos();
-    let vert = mag * pitch.sin();
-    Coord3D::new(horiz * angle.cos(), horiz * angle.sin(), vert)
-}
-
-/// C++ ObjectCreationList.cpp:575-591 draws angle, pitch, and magnitude.
-pub(super) fn calc_random_force_with(
-    mut draw: impl FnMut(Real, Real) -> Real,
-    min_mag: Real,
-    max_mag: Real,
-    min_pitch: Real,
-    max_pitch: Real,
-) -> Coord3D {
-    let angle = draw(0.0, 2.0 * PI);
-    let pitch = draw(min_pitch, max_pitch);
-    let mag = draw(min_mag, max_mag);
-    calc_random_force_xyz(angle, pitch, mag)
 }
 
 #[cfg(test)]

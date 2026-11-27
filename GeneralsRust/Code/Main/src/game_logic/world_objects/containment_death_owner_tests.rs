@@ -23,13 +23,6 @@ fn parsed_world_with_contain_attributes(
         )
     });
     owner.admit_ocl_application_sources(&ocl_sources).unwrap();
-    // The existing native immutable module parser resolves OCL references here.
-    // Register the same parsed products; runtime execution uses this world's
-    // separately admitted definitions, not a guessed OCL-name object spawn.
-    for name in ["OwnedRiderDeathWitness", "OwnedContainerDeathWitness"] {
-        let list = owner.object_creation_list_definition(name).unwrap();
-        gamelogic::helpers::TheObjectCreationListStore::register_object_creation_list(name, list);
-    }
     // CaveContain inherits OpenContain's ContainMax; Slots belongs to
     // TransportContain and is not a valid CaveContain field.
     let capacity_field = if container_module == "CaveContain" {

@@ -263,18 +263,6 @@ fn overlord_on_die_deactivates_then_completes_installed_payload_before_removal()
 
 #[test]
 fn authored_payload_contain_death_precedes_instant_death_creation_callback() {
-    // Admit actual immutable OCLs before binding receiving Die definitions.
-    for name in ["RiderDeathWitness", "PayloadDeathWitness"] {
-        let mut list = gamelogic::object_creation_list::store::ObjectCreationList::new();
-        list.add_nugget(std::sync::Arc::new(
-            gamelogic::object_creation_list::GenericObjectCreationNugget {
-                names: vec![name.into()],
-                name_are_objects: true,
-                ..Default::default()
-            },
-        ));
-        gamelogic::helpers::TheObjectCreationListStore::register_object_creation_list(name, list);
-    }
     let authored_source = r#"
 Object PhysicalBunkerInfantry
   KindOf = INFANTRY SELECTABLE CAN_ATTACK

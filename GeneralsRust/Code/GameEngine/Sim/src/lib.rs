@@ -13,6 +13,7 @@ pub mod error;
 pub mod frame;
 pub mod kind_of;
 pub mod object;
+pub mod object_creation_list;
 pub mod pathfinding;
 pub mod production;
 pub mod recurring;

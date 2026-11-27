@@ -153718,7 +153718,7 @@
     }
   ],
   "generator": "GeneralsRust/Code/Main/scripts/generate_port_provenance.py",
-  "input_digest": "696d9ba1ee86e50bc8627e6b00f51f918168bb426ecc6b18f71627f197009a17",
+  "input_digest": "5b527d0c318342c8fb8374c79f5e535de8808fdcb408984093e7543318c932c0",
   "metric_contract": {
     "behavior_requires_explicit_evidence": true,
     "candidate_mapping_is_reviewed": false,
@@ -204742,11 +204742,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 424,
+        "end_line": 346,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/deliver_payload_data.rs",
-      "sha256": "68a115fd20fb2f3e96a124f65ca1ff0ae828960a21d5441fa7f069f5942fd31b",
+      "sha256": "fb216005de5103539ae2fd29764b8adfa73a418c4c21633faa7c2dcfd11e1a1e",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -206458,11 +206458,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 1442,
+        "end_line": 1194,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object_creation_list/advanced_nuggets.rs",
-      "sha256": "fca2023c799964a6d67430d6fc0ddd7d268bc52890a43b8ebd65282e6609bc0c",
+      "sha256": "4cab62350183f9a27f144baff883668993325dea041452c8e166ab317d57900f",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -206506,11 +206506,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 2615,
+        "end_line": 2423,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object_creation_list/nuggets.rs",
-      "sha256": "86c388df4bdfd1143ccfcda675d2eca80773f9c5f84919cc7cd41a48aa87a570",
+      "sha256": "80d556a95295850640682cad3927aa039f1e22280a0b6037298253a75c2f7c28",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -206518,11 +206518,11 @@
       "cargo_reachable": true,
       "classification": "test",
       "file_range": {
-        "end_line": 53,
+        "end_line": 54,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object_creation_list/owned_content_tests.rs",
-      "sha256": "faa956ce2751290d1290c94cd3864ce2eef9a2cfecea6161ebc9fa34bd1a4def",
+      "sha256": "7e3886429ee5ee1d34d39acae5d1352a0dcef4620c584801b5a2c2aea05df3b0",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -206530,11 +206530,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 2182,
+        "end_line": 1144,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object_creation_list/store.rs",
-      "sha256": "a81ed52d1dee0ec9967f4ea1b2bcf1d82592bbddb3032cb1fdc593d48a675852",
+      "sha256": "cff9049ab5be4fcf7ffcd75c6d1d52953910d8c18de8c1fd3d99ae64092f804e",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -211217,7 +211217,7 @@
         "start_line": 1
       },
       "path": "GeneralsRust/Code/Main/src/game_logic/world_objects/create_destroy_die/death/slow_death.rs",
-      "sha256": "7a2aea396aa6349b8c7d0439b72770cefb6499a0ef1800b39a29e07955e73ea2",
+      "sha256": "c15bd52b19c8b6ff375b677b67e2966a14924591e4820a8c0f83d02415a0abc5",
       "symbol_index_status": "indexed",
       "symbols": [
         {

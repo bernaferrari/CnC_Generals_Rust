@@ -2,7 +2,9 @@
 //! CPP Weapon::fireWeaponTemplate889–949 selects exact source veterancy rows;
 //! OCL definitions admit once and remain content across session resets.
 use crate::game_logic::{GameLogic, VeterancyLevel};
-use gamelogic::effects::ObjectCreationList;
+use generals_sim::object_creation_list::{
+    ObjectCreationList, ObjectCreationListDefinitions, ObjectCreationLists,
+};
 use std::collections::HashMap;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -14,12 +16,11 @@ pub(in crate::game_logic) struct ResolvedWeaponFireEffects {
 #[derive(Debug, Default)]
 pub(in crate::game_logic) struct WeaponEffectDefinitions {
     fire: HashMap<String, [ResolvedWeaponFireEffects; 4]>,
-    ocls: HashMap<String, ObjectCreationList>,
-    application_ocls: std::sync::Arc<HashMap<String, ObjectCreationList>>,
+    ocls: ObjectCreationLists,
 }
 impl WeaponEffectDefinitions {
     pub(in crate::game_logic) fn has_ocl(&self, name: &str) -> bool {
-        self.ocls.contains_key(name.trim())
+        self.ocls.get(name).is_some()
     }
 
     pub(in crate::game_logic) fn fire(
@@ -36,7 +37,7 @@ impl WeaponEffectDefinitions {
         self.fire.get(name.trim()).map(|rows| rows[index].clone())
     }
     pub(in crate::game_logic) fn ocl(&self, name: &str) -> Option<ObjectCreationList> {
-        self.ocls.get(name.trim()).cloned()
+        self.ocls.get(name).cloned()
     }
 }
 impl GameLogic {
@@ -46,7 +47,7 @@ impl GameLogic {
     }
 
     pub(in crate::game_logic) fn has_object_creation_list(&self, name: &str) -> bool {
-        self.weapon_effect_definitions.ocls.contains_key(name.trim())
+        self.weapon_effect_definitions.has_ocl(name)
     }
 
     /// C++ OCLSpecialPower::findOCL — first owned UpgradeOCL else the OCL
@@ -106,19 +107,7 @@ impl GameLogic {
         &mut self,
         sources: &[String],
     ) -> Result<(), String> {
-        let mut definitions = HashMap::new();
-        for source in sources {
-            for (name, list) in
-                gamelogic::object_creation_list::store::parse_object_creation_lists_from_ini(
-                    source,
-                )?
-            {
-                definitions.insert(name, list);
-            }
-        }
-        self.weapon_effect_definitions.application_ocls = std::sync::Arc::new(definitions.clone());
-        self.weapon_effect_definitions.ocls = definitions;
-        Ok(())
+        self.weapon_effect_definitions.ocls.admit_application_sources(sources)
     }
 
     /// Admit the immutable OCL application catalog owned by this session.
@@ -136,37 +125,28 @@ impl GameLogic {
     }
     pub(crate) fn ocl_application_definitions(
         &self,
-    ) -> std::sync::Arc<HashMap<String, ObjectCreationList>> {
-        std::sync::Arc::clone(&self.weapon_effect_definitions.application_ocls)
+    ) -> std::sync::Arc<ObjectCreationListDefinitions> {
+        self.weapon_effect_definitions.ocls.application_definitions()
     }
+
     pub(crate) fn seed_ocl_application_definitions(
         &mut self,
-        base: std::sync::Arc<HashMap<String, ObjectCreationList>>,
+        base: std::sync::Arc<ObjectCreationListDefinitions>,
     ) {
-        self.weapon_effect_definitions.ocls = (*base).clone();
-        self.weapon_effect_definitions.application_ocls = base;
+        self.weapon_effect_definitions.ocls.seed_application_definitions(base);
     }
+
     pub(crate) fn reset_ocl_map_definitions(&mut self) {
-        self.weapon_effect_definitions.ocls =
-            (*self.weapon_effect_definitions.application_ocls).clone();
+        self.weapon_effect_definitions.ocls.reset_to_application();
     }
+
     pub(crate) fn apply_receiving_ocl_overrides(
         &mut self,
         sources: &[String],
     ) -> Result<(), String> {
-        let mut candidate = self.weapon_effect_definitions.ocls.clone();
-        for source in sources {
-            for (name, list) in
-                gamelogic::object_creation_list::store::parse_object_creation_lists_from_ini(
-                    source,
-                )?
-            {
-                candidate.insert(name, list);
-            }
-        }
-        self.weapon_effect_definitions.ocls = candidate;
-        Ok(())
+        self.weapon_effect_definitions.ocls.apply_map_overrides(sources)
     }
+
     pub(crate) fn admit_weapon_fire_definition(
         &mut self,
         name: &str,
@@ -209,19 +189,7 @@ impl GameLogic {
         name: &str,
         ocl: ObjectCreationList,
     ) -> Result<(), String> {
-        let name = name.trim();
-        if name.is_empty() {
-            return Err("weapon OCL definition name is blank".into());
-        }
-        if self.weapon_effect_definitions.ocls.contains_key(name) {
-            return Err(format!("weapon OCL definition already admitted: {name}"));
-        }
-        std::sync::Arc::make_mut(&mut self.weapon_effect_definitions.application_ocls)
-            .insert(name.to_owned(), ocl.clone());
-        self.weapon_effect_definitions
-            .ocls
-            .insert(name.to_owned(), ocl);
-        Ok(())
+        self.weapon_effect_definitions.ocls.admit_definition(name, ocl)
     }
 }
 #[cfg(test)]
@@ -261,7 +229,7 @@ mod tests {
         peer.admit_weapon_fire_definition("SameWeapon", &native("Peer"))
             .unwrap();
         owner
-            .admit_weapon_ocl_definition("OwnerOCL0", ObjectCreationList::new())
+            .admit_weapon_ocl_definition("OwnerOCL0", ObjectCreationList::default())
             .unwrap();
         admitted.fire_ocl_names[0] = Some("AfterAdmissionMutation".into());
         peer.reset();
@@ -298,7 +266,7 @@ mod tests {
         );
         assert!(
             owner
-                .admit_weapon_ocl_definition("OwnerOCL0", ObjectCreationList::new())
+                .admit_weapon_ocl_definition("OwnerOCL0", ObjectCreationList::default())
                 .is_err()
         );
         assert!(
@@ -308,7 +276,7 @@ mod tests {
         );
         assert!(
             owner
-                .admit_weapon_ocl_definition(" ", ObjectCreationList::new())
+                .admit_weapon_ocl_definition(" ", ObjectCreationList::default())
                 .is_err()
         );
         assert_eq!(

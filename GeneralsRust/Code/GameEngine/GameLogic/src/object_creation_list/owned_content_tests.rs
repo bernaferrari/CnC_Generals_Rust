@@ -1,5 +1,6 @@
-//! Pure receiving content parsing: no global store, factory, frame or RNG access.
+//! Standalone callbacks retain authored nugget types, defaults, and order.
 use super::*;
+use crate::object_creation_list::{DeliverPayloadNugget, GenericObjectCreationNugget};
 fn generic(list: &ObjectCreationList, index: usize) -> &GenericObjectCreationNugget {
     ObjectCreationNugget::as_any(list.nuggets()[index].as_ref())
         .downcast_ref()

@@ -228,7 +228,7 @@ impl GameLogic {
             .logic_random
             .next_real(fling.min_force, fling.max_force);
         let force =
-            gamelogic::object_creation_list::calc_random_force_xyz(azimuth, pitch, magnitude);
+            generals_sim::object_creation_list::calc_random_force_xyz(azimuth, pitch, magnitude);
         let object = self.objects.get_mut(&id).unwrap();
         object.allow_to_fall = true;
         object.apply_physics_force(Vec3::new(force.x, force.z, force.y), self.frame);

@@ -2,6 +2,7 @@
 //! Child of `world_combat` (itself a child of `game_logic.rs`).
 #![allow(unused_imports, non_snake_case)]
 use super::super::*;
+use generals_sim::object_creation_list::{GenericObjectCreationNugget, ObjectCreationNugget};
 
 #[cfg(test)]
 mod receiving_debris_ocl_owner_tests;
@@ -46,24 +47,6 @@ impl OclExecutionOutcome {
             created,
             error: Some(error),
         }
-    }
-}
-
-fn unsupported_host_ocl_nugget_name(
-    nugget: &dyn gamelogic::object_creation_list::ObjectCreationNugget,
-) -> &'static str {
-    let nugget = nugget.as_any();
-    use gamelogic::object_creation_list::advanced_nuggets::{
-        AttackNugget, DeliverPayloadNugget, FireWeaponNugget,
-    };
-    if nugget.is::<FireWeaponNugget>() {
-        "FireWeapon"
-    } else if nugget.is::<DeliverPayloadNugget>() {
-        "DeliverPayload"
-    } else if nugget.is::<AttackNugget>() {
-        "Attack"
-    } else {
-        "other"
     }
 }
 
@@ -354,9 +337,7 @@ impl GameLogic {
         interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> OclExecutionOutcome {
-        use gamelogic::object_creation_list::{
-            DebrisDisposition, GenericObjectCreationNugget, ObjectCreationNugget,
-        };
+        use generals_sim::debris::DebrisDisposition;
 
         let ocl_name = ocl_name.trim();
         if ocl_name.is_empty() || ocl_name.eq_ignore_ascii_case("None") || !actor.is_current(self) {
@@ -379,52 +360,49 @@ impl GameLogic {
             if !actor.is_current(self) {
                 break;
             }
-            if let Some(force) = nugget.as_any().downcast_ref::<
-                gamelogic::object_creation_list::advanced_nuggets::ApplyRandomForceNugget,
-            >() {
-                if matches!(primary, OclPrimary::Object { .. })
-                    && let Some(object) = source_id.and_then(|id| self.objects.get_mut(&id))
-                    && object.authors_behavior_module("PhysicsBehavior")
-                {
-                    let applied = force.draw_force(|lo, hi| self.logic_random.next_real(lo, hi));
-                    object.apply_physics_force(
-                        Vec3::new(applied.x, applied.z, applied.y),
-                        self.frame,
-                    );
-                    let [yaw, roll, pitch] =
-                        force.draw_spin(|lo, hi| self.logic_random.next_real(lo, hi));
-                    object.shock_yaw_rate = yaw;
-                    object.shock_roll_rate = roll;
-                    object.shock_pitch_rate = pitch;
-                }
-                continue;
-            }
-            if let Some(fire) = nugget.as_any().downcast_ref::<
-                gamelogic::object_creation_list::advanced_nuggets::FireWeaponNugget,
-            >() {
-                let position = secondary.as_ref().and_then(|(id, identity)| {
-                    self.objects.get(id)
-                        .filter(|object| self.live_draw_playback_identity(object) == **identity)
-                        .map(|object| object.get_position())
-                });
-                if let (Some(source), Some(position), Some(weapon)) =
-                    (source_id, position, fire.weapon.as_deref())
-                {
-                    if let Err(error) = self.fire_owned_temporary_weapon_at(source, weapon, position, presentation_effects) {
-                        return OclExecutionOutcome::failure(created, error);
+            let generic = match nugget {
+                ObjectCreationNugget::Generic(generic) => generic,
+                ObjectCreationNugget::ApplyRandomForce(force) => {
+                    if matches!(primary, OclPrimary::Object { .. })
+                        && let Some(object) = source_id.and_then(|id| self.objects.get_mut(&id))
+                        && object.authors_behavior_module("PhysicsBehavior")
+                    {
+                        let applied = force.draw_force(|lo, hi| self.logic_random.next_real(lo, hi));
+                        object.apply_physics_force(
+                            Vec3::new(applied.x, applied.z, applied.y),
+                            self.frame,
+                        );
+                        let [yaw, roll, pitch] =
+                            force.draw_spin(|lo, hi| self.logic_random.next_real(lo, hi));
+                        object.shock_yaw_rate = yaw;
+                        object.shock_roll_rate = roll;
+                        object.shock_pitch_rate = pitch;
                     }
+                    continue;
                 }
-                continue;
-            }
-            let Some(generic) = nugget
-                .as_any()
-                .downcast_ref::<GenericObjectCreationNugget>()
-            else {
-                log::warn!(
-                    "receiving OCL `{ocl_name}` skipped unsupported {} nugget; no Core OCL fallback was used",
-                    unsupported_host_ocl_nugget_name(nugget.as_ref())
-                );
-                continue;
+                ObjectCreationNugget::FireWeapon(fire) => {
+                    let position = secondary.as_ref().and_then(|(id, identity)| {
+                        self.objects.get(id)
+                            .filter(|object| self.live_draw_playback_identity(object) == **identity)
+                            .map(|object| object.get_position())
+                    });
+                    if let (Some(source), Some(position), Some(weapon)) =
+                        (source_id, position, fire.weapon.as_deref())
+                    {
+                        if let Err(error) = self.fire_owned_temporary_weapon_at(source, weapon, position, presentation_effects) {
+                            return OclExecutionOutcome::failure(created, error);
+                        }
+                    }
+                    continue;
+                }
+                ObjectCreationNugget::DeliverPayload(_) => {
+                    log::warn!("receiving OCL `{ocl_name}` skipped unsupported DeliverPayload nugget");
+                    continue;
+                }
+                ObjectCreationNugget::Attack(_) => {
+                    log::warn!("receiving OCL `{ocl_name}` skipped unsupported Attack nugget");
+                    continue;
+                }
             };
             if !generic.name_are_objects && generic.debris_to_generate == 0 {
                 continue;
@@ -553,7 +531,7 @@ impl GameLogic {
     /// model template or fallback geometry.
     fn execute_receiving_create_debris(
         &mut self,
-        generic: &gamelogic::object_creation_list::GenericObjectCreationNugget,
+        generic: &GenericObjectCreationNugget,
         actor: OclActor,
         owner_player_id: Option<u32>,
         flight_orientation: f32,
@@ -564,8 +542,8 @@ impl GameLogic {
         lifetime_frames: u32,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> OclExecutionOutcome {
-        use gamelogic::object_creation_list::DebrisDisposition as D;
-        use gamelogic::object_creation_list::StaticGameLODLevel;
+        use generals_sim::debris::DebrisDisposition as D;
+        use game_engine::common::ini::StaticGameLODLevel;
 
         let supported = generic.debris_to_generate > 0
             && !generic.names.is_empty()

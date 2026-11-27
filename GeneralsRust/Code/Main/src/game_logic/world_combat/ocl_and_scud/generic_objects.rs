@@ -1,7 +1,8 @@
 //! Receiving GenericObjectCreationNugget::reallyCreate for ObjectNames.
 use super::{GameLogic, OclPrimary, usable_ocl_particle_sys_name};
 use crate::game_logic::{ObjectId, ScriptPresentationEffects, Team, VeterancyLevel};
-use gamelogic::object_creation_list::{DebrisDisposition, GenericObjectCreationNugget};
+use generals_sim::debris::DebrisDisposition;
+use generals_sim::object_creation_list::GenericObjectCreationNugget;
 use glam::{Mat4, Vec3};
 
 #[derive(Clone, Copy)]

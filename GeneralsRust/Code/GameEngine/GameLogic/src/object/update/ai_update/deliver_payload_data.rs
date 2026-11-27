@@ -4,7 +4,6 @@
 
 use std::sync::Arc;
 
-use crate::common::RadiusDecalTemplate;
 use crate::common::{
     AsciiString, Bool, Coord3D, Int, Real, UnsignedInt, WeaponSlotType,
 };
@@ -15,87 +14,10 @@ use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::thing::deliver_payload_ai_data::parse_delivery_coordinate;
 use game_engine::common::thing::radius_decal_data::RADIUS_DECAL_TEMPLATE_FIELDS;
 
-/// Delivery data passed to DeliverPayloadAIUpdate.
-#[derive(Debug, Clone)]
-pub struct DeliverPayloadData {
-    pub visible_drop_bone_name: AsciiString,
-    pub visible_sub_object_name: AsciiString,
-    pub visible_payload_template_name: AsciiString,
-    pub dist_to_target: Real,
-    pub pre_open_distance: Real,
-    pub max_attempts: Int,
-    pub drop_offset: Coord3D,
-    pub drop_variance: Coord3D,
-    pub drop_delay: UnsignedInt,
-    pub fire_weapon: Bool,
-    pub self_destruct_object: Bool,
-    pub visible_num_bones: Int,
-    pub dive_start_distance: Real,
-    pub dive_end_distance: Real,
-    pub strafing_weapon_slot: Option<WeaponSlotType>,
-    pub visible_items_dropped_per_interval: Int,
-    pub inherit_transport_velocity: Bool,
-    pub is_parachute_directly: Bool,
-    pub exit_pitch_rate: Real,
-    pub strafe_fx: Option<FXList>,
-    pub strafe_length: Real,
-    pub visible_payload_weapon_template: Option<Arc<WeaponTemplate>>,
-    pub delivery_decal_template: RadiusDecalTemplate,
-    pub delivery_decal_radius: Real,
-}
-
-impl DeliverPayloadData {
-    /// C++ drop world pose: current item pos + variance sample + dropOffset.
-    /// `variance_sample` is already in [-drop_variance, +drop_variance] per axis
-    /// (or zero when that axis has no variance).
-    pub fn drop_world_pos(&self, base: Coord3D, variance_sample: Coord3D) -> Coord3D {
-        let mut pos = base;
-        if self.drop_variance.x > 0.0 {
-            pos.x += variance_sample.x;
-        }
-        if self.drop_variance.y > 0.0 {
-            pos.y += variance_sample.y;
-        }
-        if self.drop_variance.z > 0.0 {
-            pos.z += variance_sample.z;
-        }
-        pos.x += self.drop_offset.x;
-        pos.y += self.drop_offset.y;
-        pos.z += self.drop_offset.z;
-        pos
-    }
-}
-
-impl Default for DeliverPayloadData {
-    fn default() -> Self {
-        Self {
-            visible_drop_bone_name: AsciiString::new(),
-            visible_sub_object_name: AsciiString::new(),
-            visible_payload_template_name: AsciiString::new(),
-            dist_to_target: 0.0,
-            pre_open_distance: 0.0,
-            max_attempts: 1,
-            drop_offset: Coord3D::ZERO,
-            drop_variance: Coord3D::ZERO,
-            drop_delay: 0,
-            fire_weapon: false,
-            self_destruct_object: false,
-            visible_num_bones: 0,
-            dive_start_distance: 0.0,
-            dive_end_distance: 0.0,
-            strafing_weapon_slot: None,
-            visible_items_dropped_per_interval: 0,
-            inherit_transport_velocity: false,
-            is_parachute_directly: false,
-            exit_pitch_rate: 0.0,
-            strafe_fx: None,
-            strafe_length: 0.0,
-            visible_payload_weapon_template: None,
-            delivery_decal_template: RadiusDecalTemplate::default(),
-            delivery_decal_radius: 0.0,
-        }
-    }
-}
+pub type DeliverPayloadData = generals_sim::object_creation_list::DeliverPayloadData<
+    FXList,
+    Arc<WeaponTemplate>,
+>;
 
 fn required_value<'a>(tokens: &'a [&'a str]) -> Result<&'a str, INIError> {
     tokens

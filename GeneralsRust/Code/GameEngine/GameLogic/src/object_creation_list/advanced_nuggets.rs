@@ -9,7 +9,7 @@
 // - AttackNugget: Make object attack a position
 // - ApplyRandomForceNugget: Apply random physical forces
 
-use super::nuggets::{ObjectCreationNugget, calc_random_force_with};
+use super::nuggets::ObjectCreationNugget;
 use super::{CreationContext, CreationResult};
 use crate::common::*;
 use crate::modules::{AIUpdateInterfaceExt, ContainModuleInterfaceExt, PhysicsBehaviorExt};
@@ -34,73 +34,12 @@ fn set_special_power_creator(object: &Arc<RwLock<Object>>, creator_id: ObjectID)
     }
 }
 
-/// Payload information for delivery
-/// Matches C++ Payload struct (ObjectCreationList.cpp:551-555)
-#[derive(Debug, Clone)]
-pub struct Payload {
-    pub payload_name: String,
-    pub payload_count: Int,
-}
+pub use generals_sim::object_creation_list::{
+    ApplyRandomForceNugget, AttackNugget, DeliverPayloadFormationPose, FireWeaponNugget, Payload,
+};
 
-/// DeliverPayloadNugget - spawns transport aircraft with payload
-/// Matches C++ DeliverPayloadNugget (ObjectCreationList.cpp:225-572)
-///
-/// Used for:
-/// - A-10 Thunderbolt strikes
-/// - Carpet bombing runs
-/// - Paratroop drops
-/// - Napalm strikes
-/// - Fuel Air Bomb delivery
-#[derive(Debug, Clone)]
-pub struct DeliverPayloadNugget {
-    // Transport that carries payload
-    pub transport_name: String,
-    pub start_at_preferred_height: bool,
-    pub start_at_max_speed: bool,
-
-    // Formation parameters (for multiple transports)
-    pub formation_size: UnsignedInt,
-    pub formation_spacing: Real,
-    pub convergence_factor: Real, // 0.0 = spread, 1.0 = converge to same point
-    pub error_radius: Real,       // Random targeting error
-    pub delay_delivery_frames_max: UnsignedInt,
-
-    // Payload objects to deliver
-    pub payload: Vec<Payload>,
-    pub put_in_container_name: String,
-    pub visible_payload_weapon_name: String,
-
-    // AI delivery parameters
-    pub data: DeliverPayloadData,
-}
-
-impl Default for DeliverPayloadNugget {
-    fn default() -> Self {
-        Self {
-            transport_name: String::new(),
-            start_at_preferred_height: true,
-            start_at_max_speed: false,
-            formation_size: 1,
-            formation_spacing: 25.0,
-            convergence_factor: 0.0,
-            error_radius: 0.0,
-            delay_delivery_frames_max: 0,
-            payload: Vec::new(),
-            put_in_container_name: String::new(),
-            visible_payload_weapon_name: String::new(),
-            data: DeliverPayloadData::default(),
-        }
-    }
-}
-
-/// C++ DeliverPayloadNugget formation flight poses (start / moveTo / target / yaw).
-#[derive(Debug, Clone, PartialEq)]
-pub struct DeliverPayloadFormationPose {
-    pub start_pos: Coord3D,
-    pub move_to_pos: Coord3D,
-    pub target_pos: Coord3D,
-    pub orient: Real,
-}
+pub type DeliverPayloadNugget =
+    generals_sim::object_creation_list::DeliveryNugget<DeliverPayloadData>;
 
 enum DeliverySource<'a> {
     Borrowed(&'a Object),
@@ -116,130 +55,18 @@ impl DeliverySource<'_> {
     }
 }
 
-impl DeliverPayloadNugget {
-    /// Calculate formation offset vectors (CCW and CW perpendicular to approach)
-    /// Matches C++ ObjectCreationList.cpp:271-298
-    pub fn calculate_formation_vectors(
+trait LegacyDelivery {
+    fn create_delivery(
+        &self,
+        ctx: &CreationContext<'_>,
+        source: DeliverySource<'_>,
         primary: &Coord3D,
         secondary: &Coord3D,
-    ) -> (Real, Real, Real, Real) {
-        let dx = primary.x - secondary.x;
-        let dy = primary.y - secondary.y;
+        create_owner: Bool,
+    ) -> CreationResult;
+}
 
-        let length = (dx * dx + dy * dy).sqrt();
-        if length < 0.001 {
-            return (0.0, 0.0, 0.0, 0.0);
-        }
-
-        let dx_norm = dx / length;
-        let dy_norm = dy / length;
-
-        // Rotate 90 degrees CCW
-        let radians = 90.0 * PI / 180.0;
-        let s = radians.sin();
-        let c = radians.cos();
-        let ccw_x = dx_norm * c + dy_norm * -s + dx_norm;
-        let ccw_y = dx_norm * s + dy_norm * c + dy_norm;
-
-        // Rotate 90 degrees CW
-        let s = (-radians).sin();
-        let c = (-radians).cos();
-        let cw_x = dx_norm * c + dy_norm * -s + dx_norm;
-        let cw_y = dx_norm * s + dy_norm * c + dy_norm;
-
-        (ccw_x, ccw_y, cw_x, cw_y)
-    }
-
-    /// Calculate offset for formation member
-    /// Matches C++ ObjectCreationList.cpp:303-319
-    pub fn calculate_formation_offset(
-        formation_index: Int,
-        formation_size: Int,
-        formation_spacing: Real,
-        ccw_x: Real,
-        ccw_y: Real,
-        cw_x: Real,
-        cw_y: Real,
-    ) -> Coord3D {
-        if formation_size <= 1 {
-            return Coord3D::new(0.0, 0.0, 0.0);
-        }
-
-        // ObjectCreationList.cpp assigns the product to Int after the
-        // member pair index is multiplied by authored spacing.
-        let offset_multiplier = (((formation_index + 1) / 2) as Real * formation_spacing) as Int as Real;
-
-        if formation_index % 2 == 1 {
-            // Odd - use CCW
-            Coord3D::new(ccw_x * offset_multiplier, ccw_y * offset_multiplier, 0.0)
-        } else {
-            // Even - use CW
-            Coord3D::new(cw_x * offset_multiplier, cw_y * offset_multiplier, 0.0)
-        }
-    }
-
-    /// Full C++ formation flight matrix for one transport:
-    /// offset → start/moveTo/target, optional error radius, distToTarget slop.
-    pub fn formation_flight_pose(
-        primary: &Coord3D,
-        secondary: &Coord3D,
-        formation_index: Int,
-        formation_size: Int,
-        formation_spacing: Real,
-        convergence_factor: Real,
-        dist_to_target: Real,
-        error_sample: Option<(Real, Real)>,
-    ) -> DeliverPayloadFormationPose {
-        let (ccw_x, ccw_y, cw_x, cw_y) = if formation_size > 1 {
-            Self::calculate_formation_vectors(primary, secondary)
-        } else {
-            (0.0, 0.0, 0.0, 0.0)
-        };
-        let offset = Self::calculate_formation_offset(
-            formation_index,
-            formation_size,
-            formation_spacing,
-            ccw_x,
-            ccw_y,
-            cw_x,
-            cw_y,
-        );
-
-        let mut start_pos = *primary;
-        start_pos.x += offset.x;
-        start_pos.y += offset.y;
-
-        let mut move_to_pos = *secondary;
-        move_to_pos.x += offset.x;
-        move_to_pos.y += offset.y;
-
-        let mut target_pos = *secondary;
-        target_pos.x += offset.x * (1.0 - convergence_factor);
-        target_pos.y += offset.y * (1.0 - convergence_factor);
-
-        // First guy is always spot-on; later members may scatter by error radius.
-        if formation_index > 0 {
-            if let Some((random_radius, random_angle)) = error_sample {
-                target_pos.x += random_radius * random_angle.cos();
-                target_pos.y += random_radius * random_angle.sin();
-            }
-        }
-
-        let orient = (move_to_pos.y - start_pos.y).atan2(move_to_pos.x - start_pos.x);
-        if dist_to_target > 0.0 {
-            const SLOP: Real = 1.5;
-            start_pos.x -= orient.cos() * dist_to_target * SLOP;
-            start_pos.y -= orient.sin() * dist_to_target * SLOP;
-        }
-
-        DeliverPayloadFormationPose {
-            start_pos,
-            move_to_pos,
-            target_pos,
-            orient,
-        }
-    }
-
+impl LegacyDelivery for DeliverPayloadNugget {
     fn create_delivery(
         &self,
         ctx: &CreationContext<'_>,
@@ -600,21 +427,6 @@ impl ObjectCreationNugget for DeliverPayloadNugget {
     }
 }
 
-/// FireWeaponNugget - fires a temporary weapon
-/// Matches C++ FireWeaponNugget (ObjectCreationList.cpp:105-148)
-///
-/// Used for effects that need to fire weapons without permanent objects
-#[derive(Debug, Clone)]
-pub struct FireWeaponNugget {
-    pub weapon: Option<String>, // Weapon template name
-}
-
-impl Default for FireWeaponNugget {
-    fn default() -> Self {
-        Self { weapon: None }
-    }
-}
-
 impl ObjectCreationNugget for FireWeaponNugget {
     fn as_any(&self) -> &dyn Any {
         self
@@ -654,29 +466,6 @@ impl ObjectCreationNugget for FireWeaponNugget {
         _lifetime_frames: UnsignedInt,
     ) -> CreationResult {
         None
-    }
-}
-
-/// AttackNugget - makes object attack a position
-/// Matches C++ AttackNugget (ObjectCreationList.cpp:151-221)
-///
-/// Used for scripted attacks and special power targeting
-#[derive(Debug, Clone)]
-pub struct AttackNugget {
-    pub number_of_shots: Int,
-    pub weapon_slot: WeaponSlotType,
-    pub delivery_decal_template: RadiusDecalTemplate,
-    pub delivery_decal_radius: Real,
-}
-
-impl Default for AttackNugget {
-    fn default() -> Self {
-        Self {
-            number_of_shots: 1,
-            weapon_slot: WeaponSlotType::Primary,
-            delivery_decal_template: RadiusDecalTemplate::default(),
-            delivery_decal_radius: 0.0,
-        }
     }
 }
 
@@ -740,43 +529,6 @@ impl ObjectCreationNugget for AttackNugget {
         _lifetime_frames: UnsignedInt,
     ) -> CreationResult {
         None
-    }
-}
-
-/// ApplyRandomForceNugget - applies random forces to an object
-/// Matches C++ ApplyRandomForceNugget (ObjectCreationList.cpp:595-670)
-///
-/// Used for creating visual variety in explosions and impacts
-#[derive(Debug, Clone)]
-pub struct ApplyRandomForceNugget {
-    pub spin_rate: Real,
-    pub min_mag: Real,
-    pub max_mag: Real,
-    pub min_pitch: Real,
-    pub max_pitch: Real,
-}
-
-impl Default for ApplyRandomForceNugget {
-    fn default() -> Self {
-        Self {
-            spin_rate: 0.0,
-            min_mag: 0.0,
-            max_mag: 0.0,
-            min_pitch: 0.0,
-            max_pitch: 0.0,
-        }
-    }
-}
-
-impl ApplyRandomForceNugget {
-    /// Draw the force in C++ Z-up coordinates with the caller's logic RNG.
-    pub fn draw_force(&self, draw: impl FnMut(Real, Real) -> Real) -> Coord3D {
-        calc_random_force_with(draw, self.min_mag, self.max_mag, self.min_pitch, self.max_pitch)
-    }
-
-    /// Draw yaw, roll, and pitch in assignment order after applying the force.
-    pub fn draw_spin(&self, mut draw: impl FnMut(Real, Real) -> Real) -> [Real; 3] {
-        std::array::from_fn(|_| draw(-self.spin_rate, self.spin_rate))
     }
 }
 

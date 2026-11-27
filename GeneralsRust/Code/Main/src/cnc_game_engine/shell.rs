@@ -1273,9 +1273,7 @@ impl CnCGameEngine {
         camera_shake_base: game_engine::common::ini::ini_game_data::CameraShakeRules,
         camera_movement_base: game_engine::common::ini::ini_game_data::CameraMovementRules,
         camera_input_base: game_engine::common::ini::ini_game_data::CameraInputRules,
-        ocl_application_base: Arc<
-            std::collections::HashMap<String, gamelogic::effects::ObjectCreationList>,
-        >,
+        ocl_application_base: Arc<generals_sim::object_creation_list::ObjectCreationListDefinitions>,
         terrain_definition_seed: Arc<game_engine::common::ini::ini_terrain::TerrainTypes>,
         armor_definition_seed: Arc<generals_sim::armor::ArmorDefinitions>,
         mut recorder_inputs: game_engine::common::recorder::RecorderOwnerInputs,
@@ -1530,43 +1528,6 @@ impl CnCGameEngine {
                     }
 
                     game_engine::common::system::build_assistant::init_build_assistant();
-
-                    // C++ parity: bootstrap OCL/Armor from archive-backed INI content, not just
-                    // extracted-file paths, so startup behavior matches original archive loading.
-                    {
-                        gamelogic::object_creation_list::init_object_creation_list_store();
-                        let mut loaded_any_ocl = false;
-                        for ocl_path in [
-                            "Data/INI/Default/ObjectCreationList.ini",
-                            "Data/INI/ObjectCreationList.ini",
-                        ] {
-                            if let Some(content) = extract_ini_text_from_archives(ocl_path)? {
-                                match gamelogic::object_creation_list::store::load_object_creation_lists_from_str(&content) {
-                                    Ok(count) => {
-                                        loaded_any_ocl |= count > 0;
-                                    }
-                                    Err(load_err) => {
-                                        warn!(
-                                            "Failed parsing OCL definitions from '{}': {}",
-                                            ocl_path, load_err
-                                        );
-                                    }
-                                }
-                            }
-                        }
-                        if !loaded_any_ocl {
-                            gamelogic::object_creation_list::store::ensure_default_object_creation_lists_loaded();
-                        }
-                        let ocl_cell = gamelogic::object_creation_list::get_object_creation_list_store();
-                        let ocl_count = ocl_cell
-                            .read()
-                            .ok()
-                            .and_then(|guard| guard.as_ref().map(|store| store.get_ocl_count()))
-                            .unwrap_or(0);
-                        if ocl_count == 0 {
-                            warn!("ObjectCreationListStore bootstrap loaded 0 templates — continuing without OCL data");
-                        }
-                    }
 
                     // Armor.ini was parsed into the driving application's immutable
                     // receiving catalog before worker admission. Never seed a global store.

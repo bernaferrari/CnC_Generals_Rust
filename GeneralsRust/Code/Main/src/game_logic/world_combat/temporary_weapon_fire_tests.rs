@@ -579,8 +579,9 @@ fn authored_death_callbacks_fire_each_applicable_module_before_removal() {
 fn retail_he_bio_death_fires_one_blast_and_one_poison_field() {
     use crate::assets::ini_parser::BehaviorModuleDefinition;
     use crate::game_logic::object::OnDieInput;
-    use gamelogic::effects::ObjectCreationList;
-    use gamelogic::object_creation_list::GenericObjectCreationNugget;
+    use generals_sim::object_creation_list::{
+        GenericObjectCreationNugget, ObjectCreationList, ObjectCreationNugget,
+    };
     use std::sync::Arc;
 
     let mut logic = GameLogic::new();
@@ -614,11 +615,12 @@ fn retail_he_bio_death_fires_one_blast_and_one_poison_field() {
         ("hazardfieldcoreweapon".into(), Arc::new(core)),
     ]).unwrap());
     logic.admit_weapon_fire_definition("BombTruckHighExplosiveBioBombEffect", &weapon).unwrap();
-    let mut ocl = ObjectCreationList::new();
-    ocl.add_nugget(Arc::new(GenericObjectCreationNugget {
-        names: vec!["PoisonFieldMedium".into()],
-        ..Default::default()
-    }));
+    let ocl = ObjectCreationList::new(vec![ObjectCreationNugget::Generic(
+        GenericObjectCreationNugget {
+            names: vec!["PoisonFieldMedium".into()],
+            ..Default::default()
+        },
+    )]);
     logic.admit_weapon_ocl_definition("OCL_PoisonFieldMedium", ocl).unwrap();
     let field_modules = [
         BehaviorModuleDefinition {
