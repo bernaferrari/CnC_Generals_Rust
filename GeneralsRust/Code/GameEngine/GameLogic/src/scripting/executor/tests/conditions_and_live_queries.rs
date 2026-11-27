@@ -2810,26 +2810,30 @@ fn live_host_skirmish_discovered_uses_snapshot() {
 
 #[test]
 fn live_host_from_named_special_power_uses_host_id() {
-    use crate::scripting::engine::{ScriptOwnerQuery, ScriptPlayerEventSource};
+    use crate::scripting::engine::ScriptOwnerQuery;
 
     struct EventOwner;
     impl ScriptExecutionDriver<crate::scripting::engine::ScriptEngine> for EventOwner {
         fn after_action(&mut self) -> GameLogicResult<()> {
             Ok(())
         }
-        fn player_event_source(
-            &self,
+        fn script_event_player_slot(
+            &mut self,
             player: &str,
-            source: Option<&str>,
+            mask: u32,
             _: Option<&str>,
-            _: Option<ObjectID>,
-        ) -> ScriptOwnerQuery<ScriptPlayerEventSource> {
+        ) -> ScriptOwnerQuery<usize> {
             assert_eq!(player, "PlyrAmerica");
-            assert_eq!(source, Some("ParticleCannon"));
-            ScriptOwnerQuery::Present(ScriptPlayerEventSource {
-                player_index: 1,
-                source_object: 42,
-            })
+            assert!(matches!(mask, 0 | 2));
+            ScriptOwnerQuery::Present(1)
+        }
+        fn named_object_id(
+            &self,
+            source: &str,
+            _: Option<ObjectID>,
+        ) -> ScriptOwnerQuery<ObjectID> {
+            assert_eq!(source, "ParticleCannon");
+            ScriptOwnerQuery::Present(42)
         }
     }
 

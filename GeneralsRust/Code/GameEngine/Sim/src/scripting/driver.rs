@@ -323,16 +323,13 @@ pub trait ScriptExecutionDriver<Interpreter: ?Sized> {
         ScriptOwnerQuery::Unavailable
     }
 
-    /// Resolve raw player/source literals before any standalone token or
-    /// registry lookup. Present consumes only this execution's engine event;
-    /// Missing must not consume, and Unavailable retains the standalone path.
-    fn player_event_source(
-        &self,
+    /// Resolve an authored SIDE or its cached mask to this world's event slot.
+    fn script_event_player_slot(
+        &mut self,
         _player: &str,
-        _source: Option<&str>,
+        _mask: u32,
         _current_player: Option<&str>,
-        _this_object: Option<ObjectID>,
-    ) -> ScriptOwnerQuery<ScriptPlayerEventSource> {
+    ) -> ScriptOwnerQuery<usize> {
         ScriptOwnerQuery::Unavailable
     }
 
@@ -1138,15 +1135,15 @@ pub trait ScriptExecutionDriver<Interpreter: ?Sized> {
         ScriptOwnerQuery::Unavailable
     }
 
-    /// Resolve the receiving Player and ScienceType for the interpreter's
-    /// consumable acquisition receipt (ScriptConditions.cpp:1543–1554).
+    /// Resolve the receiving player slot and, if defined, the science type.
+    /// A missing definition still leaves a cacheable player selection.
     fn player_acquired_science_source(
         &mut self,
         _player: &str,
         _player_mask: u32,
         _science: &str,
         _current_player: Option<&str>,
-    ) -> ScriptOwnerQuery<(usize, game_engine::common::rts::science::ScienceType)> {
+    ) -> ScriptOwnerQuery<(usize, Option<ScienceType>)> {
         ScriptOwnerQuery::Unavailable
     }
 

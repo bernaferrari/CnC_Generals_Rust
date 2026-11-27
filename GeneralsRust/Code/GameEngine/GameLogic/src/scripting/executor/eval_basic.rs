@@ -14,6 +14,14 @@ fn bool_result(value: bool) -> ScriptConditionResult {
     }
 }
 
+fn condition_truth(result: ScriptConditionResult) -> Result<bool, ScriptError> {
+    match result {
+        ScriptConditionResult::True => Ok(true),
+        ScriptConditionResult::False => Ok(false),
+        ScriptConditionResult::Error(message) => Err(ScriptError::EvaluationFailed(message)),
+    }
+}
+
 impl ScriptConditionEvaluator<'_> {
     pub(crate) fn resolve_string_token(&self, raw: &str) -> String {
         match raw {
@@ -156,6 +164,21 @@ impl ScriptConditionEvaluator<'_> {
     }
 
     pub(crate) fn evaluate_condition_with_driver(
+        &mut self,
+        condition: &mut Condition,
+        driver: &mut dyn ScriptExecutionDriver<crate::scripting::engine::ScriptEngine>,
+    ) -> Result<ScriptConditionResult, ScriptError> {
+        let engine = self.context.borrowed_engine();
+        if let Some(value) = engine.interpreter().try_evaluate_player_event(
+            condition,
+            &mut engine.condition_queries(driver),
+        )? {
+            return Ok(bool_result(value));
+        }
+        self.evaluate_world_condition(condition, driver)
+    }
+
+    fn evaluate_world_condition(
         &mut self,
         condition: &mut Condition,
         driver: &mut dyn ScriptExecutionDriver<crate::scripting::engine::ScriptEngine>,
@@ -321,9 +344,7 @@ impl ScriptConditionEvaluator<'_> {
             }
         }
 
-        // These edge-triggered events select their player/source owner before
-        // standalone token resolution or ambient player/object discovery.
-        if let Some(result) = self.eval_player_event(condition, driver)? {
+        if let Some(result) = self.eval_standalone_player_event(condition, driver)? {
             return Ok(result);
         }
 
@@ -386,10 +407,7 @@ impl ScriptConditionEvaluator<'_> {
             return Ok(result);
         }
 
-        if matches!(
-            condition_type,
-            ConditionType::PlayerAcquiredScience | ConditionType::PlayerCanPurchaseScience
-        ) {
+        if condition_type == ConditionType::PlayerCanPurchaseScience {
             use crate::scripting::engine::ScriptOwnerQuery;
             let player = condition
                 .get_parameter(0)
@@ -398,28 +416,13 @@ impl ScriptConditionEvaluator<'_> {
                 .get_parameter(1)
                 .ok_or_else(|| ScriptError::ParameterNotFound("Parameter 1 not found".into()))?
                 .get_string();
-            let engine = self.context.borrowed_engine();
-            let current = engine.get_current_player_name();
-            let query = match condition_type {
-                ConditionType::PlayerAcquiredScience => match driver.player_acquired_science_source(
-                    player.get_string(),
-                    player.get_int() as u32,
-                    science,
-                    current.as_deref(),
-                ) {
-                    ScriptOwnerQuery::Present((index, science)) => {
-                        ScriptOwnerQuery::Present(engine.is_science_acquired(index, science, true))
-                    }
-                    ScriptOwnerQuery::Missing => ScriptOwnerQuery::Missing,
-                    ScriptOwnerQuery::Unavailable => ScriptOwnerQuery::Unavailable,
-                },
-                _ => driver.player_can_purchase_science(
-                    player.get_string(),
-                    player.get_int() as u32,
-                    science,
-                    current.as_deref(),
-                ),
-            };
+            let current = self.context.borrowed_engine().get_current_player_name();
+            let query = driver.player_can_purchase_science(
+                player.get_string(),
+                player.get_int() as u32,
+                science,
+                current.as_deref(),
+            );
             match query {
                 ScriptOwnerQuery::Present(value) => return Ok(bool_result(value)),
                 ScriptOwnerQuery::Missing => return Ok(bool_result(false)),
@@ -682,7 +685,7 @@ impl ScriptConditionEvaluator<'_> {
                 let value = engine.interpreter().try_evaluate_media_condition(
                     condition,
                     frame,
-                    &mut engine.media_queries(driver),
+                    &mut engine.condition_queries(driver),
                 )?;
                 value.map(bool_result).ok_or_else(|| {
                     ScriptError::EvaluationFailed(format!(
@@ -801,11 +804,17 @@ impl ScriptConditionEvaluator<'_> {
         condition: &mut Condition,
         driver: &mut dyn ScriptExecutionDriver<crate::scripting::engine::ScriptEngine>,
     ) -> Result<bool, ScriptError> {
-        match self.evaluate_condition_with_driver(condition, driver)? {
-            ScriptConditionResult::True => Ok(true),
-            ScriptConditionResult::False => Ok(false),
-            ScriptConditionResult::Error(message) => Err(ScriptError::EvaluationFailed(message)),
-        }
+        self.evaluate_condition_with_driver(condition, driver)
+            .and_then(condition_truth)
+    }
+
+    /// The program walk already ran the simulation predicates for this condition.
+    pub(crate) fn evaluate_world_condition_truth_with_driver(
+        &mut self,
+        condition: &mut Condition,
+        driver: &mut dyn ScriptExecutionDriver<crate::scripting::engine::ScriptEngine>,
+    ) -> Result<bool, ScriptError> {
+        self.evaluate_world_condition(condition, driver).and_then(condition_truth)
     }
 
     // ============================================================================

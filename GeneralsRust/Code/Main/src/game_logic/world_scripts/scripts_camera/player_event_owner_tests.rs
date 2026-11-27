@@ -198,13 +198,18 @@ fn player_events_select_driving_world_and_engine_with_identical_ids() {
 fn missing_player_does_not_consume_event() {
     let (mut world, id) = world();
     let kind = ConditionType::PlayerBuiltUpgrade;
-    let engine = engine(condition(kind, "AbsentPlayer", EVENT, None));
-    notify(&engine, kind, 1, EVENT, id);
-    assert_eq!(tick(&engine, &mut world), 0);
-    assert!(engine.is_upgrade_complete(1, EVENT, false, id.0));
+    let original = engine(condition(kind, "AbsentPlayer", EVENT, None));
+    notify(&original, kind, 1, EVENT, id);
+    assert_eq!(tick(&original, &mut world), 0);
+    assert!(original.is_upgrade_complete(1, EVENT, false, id.0));
     world.players.get_mut(&1).unwrap().map_side.map_player_name = "AbsentPlayer".into();
-    assert_eq!(tick(&engine, &mut world), 1);
-    assert_eq!(tick(&engine, &mut world), 1);
+    // C++ caches the failed lookup in this condition's SIDE parameter.
+    assert_eq!(tick(&original, &mut world), 0);
+    assert!(original.is_upgrade_complete(1, EVENT, false, id.0));
+    let fresh = engine(condition(kind, "AbsentPlayer", EVENT, None));
+    fresh.restore_xfer_tail(&original.snapshot_xfer_tail());
+    assert_eq!(tick(&fresh, &mut world), 1);
+    assert_eq!(tick(&fresh, &mut world), 1);
 }
 
 #[test]
@@ -307,44 +312,53 @@ fn pending_player_event_tail_restores_future_consumption() {
 }
 
 #[test]
+fn cached_condition_player_mask_selects_the_named_event_slot() {
+    let (mut world, id) = world();
+    world.add_player(Player::new(3, Team::USA, "Other", true).with_script_identity("Other"));
+    let kind = ConditionType::PlayerCompletedSpecialPowerFromNamed;
+    let mut predicate = condition(kind, "Other", EVENT, Some(SOURCE));
+    predicate.parameters[0]
+        .as_mut()
+        .unwrap()
+        .cache_condition_player_mask(Some(1 << 1));
+    let engine = engine(predicate);
+    notify(&engine, kind, 1, EVENT, id);
+    notify(&engine, kind, 3, EVENT, id);
+    assert_eq!(tick(&engine, &mut world), 1);
+    assert_eq!(tick(&engine, &mut world), 1);
+    assert!(engine.is_special_power_complete(3, EVENT, false, id.0));
+    assert!(!engine.is_special_power_complete(1, EVENT, false, id.0));
+}
+
+#[test]
 fn this_object_identity_and_prepared_binding_admission_are_explicit() {
     use gamelogic::scripting::engine::ScriptExecutionDriver;
     use generals_sim::scripting::world::ScriptOwnerQuery;
     let (mut world, id) = world();
     {
-        let driver = HostScriptExecutionDriver::new(&mut world);
-        let selected = driver.player_event_source(
-            PLAYER,
-            Some(generals_sim::scripting::program::THIS_OBJECT),
-            None,
-            Some(id.0),
-        );
-        assert!(
-            matches!(selected, ScriptOwnerQuery::Present(source) if source.source_object == id.0 && source.player_index == 1)
+        let mut driver = HostScriptExecutionDriver::new(&mut world);
+        let this_object = generals_sim::scripting::program::THIS_OBJECT;
+        assert_eq!(
+            driver.script_event_player_slot(PLAYER, 0, None),
+            ScriptOwnerQuery::Present(1)
         );
         assert_eq!(
-            driver.player_event_source(
-                PLAYER,
-                Some(generals_sim::scripting::program::THIS_OBJECT),
-                None,
-                Some(99999)
-            ),
+            driver.named_object_id(this_object, Some(id.0)),
+            ScriptOwnerQuery::Present(id.0)
+        );
+        assert_eq!(
+            driver.named_object_id(this_object, Some(99999)),
             ScriptOwnerQuery::Missing
         );
         assert_eq!(
-            driver.player_event_source(PLAYER, Some(""), None, None),
+            driver.named_object_id("", None),
             ScriptOwnerQuery::Missing
         );
     }
     world.game_mode = GameMode::Skirmish;
     assert_eq!(
-        HostScriptExecutionDriver::new(&mut world).player_event_source(
-            PLAYER,
-            Some(SOURCE),
-            None,
-            None
-        ),
-        ScriptOwnerQuery::Unavailable
+        HostScriptExecutionDriver::new(&mut world).script_event_player_slot(PLAYER, 0, None),
+        ScriptOwnerQuery::Present(1)
     );
 }
 

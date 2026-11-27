@@ -112,6 +112,64 @@ fn typed_lobby_admission_retains_exact_script_names_without_display_rename() {
 }
 
 #[test]
+fn prepared_skirmish_player_events_use_the_receiving_sparse_slot() {
+    isolated("prepared_skirmish_player_events_use_the_receiving_sparse_slot", || {
+        use gamelogic::scripting::engine::ScriptEngine;
+        use generals_sim::scripting::program::{
+            Condition, ConditionType, OrCondition, Parameter, ParameterType, Script, ScriptAction,
+            ScriptActionType, THIS_PLAYER,
+        };
+
+        const EVENT: &str = "PreparedPlayerPower";
+        fn engine(world: &GameLogic) -> ScriptEngine {
+            let mut condition = Condition::new(ConditionType::PlayerCompletedSpecialPower);
+            for (kind, name) in [(ParameterType::Side, THIS_PLAYER), (ParameterType::SpecialPower, EVENT)] {
+                condition.add_parameter(Parameter::with_string(kind, name.into())).unwrap();
+            }
+            let mut branch = OrCondition::new();
+            branch.set_first_and_condition(Some(Box::new(condition)));
+            let mut action = ScriptAction::new(ScriptActionType::IncrementCounter);
+            action.add_parameter(Parameter::with_int(ParameterType::Int, 1)).unwrap();
+            action.add_parameter(Parameter::with_string(ParameterType::Counter, "Observed".into())).unwrap();
+            let mut script = Script::new();
+            script.script_name = "ObservePreparedPlayerPower".into();
+            script.is_one_shot = false;
+            script.condition = Some(Box::new(branch));
+            script.action = Some(Box::new(action));
+            let mut list = ScriptList::new();
+            list.append_script(Box::new(script));
+            let engine = ScriptEngine::new_with_services(&world.world_services).unwrap();
+            engine.set_counter("Observed", 0).unwrap();
+            engine.set_script_list_for_player(3, Some(Box::new(list))).unwrap();
+            engine
+        }
+
+        let mut first = configured(3);
+        let mut peer = configured(3);
+        first.prepared_map_sides = prepared(&first);
+        peer.prepared_map_sides = prepared(&peer);
+        assert_eq!(first.game_mode, GameMode::Skirmish);
+        assert_eq!(first.players[&3].script_identity(), Some("player3"));
+        assert_eq!(peer.players[&3].script_identity(), Some("player3"));
+        let first_engine = engine(&first);
+        let peer_engine = engine(&peer);
+        first_engine.notify_of_completed_special_power(3, EVENT, 42);
+        peer_engine.notify_of_completed_special_power(0, EVENT, 42);
+
+        first.update_local_script_engine_with_owner(&first_engine).unwrap();
+        peer.update_local_script_engine_with_owner(&peer_engine).unwrap();
+        assert_eq!(first_engine.get_counter("Observed").unwrap().value, 1);
+        assert_eq!(peer_engine.get_counter("Observed").unwrap().value, 0);
+        assert!(peer_engine.is_special_power_complete(0, EVENT, false, 42));
+        peer_engine.notify_of_completed_special_power(3, EVENT, 42);
+        peer.update_local_script_engine_with_owner(&peer_engine).unwrap();
+        first.update_local_script_engine_with_owner(&first_engine).unwrap();
+        assert_eq!(peer_engine.get_counter("Observed").unwrap().value, 1);
+        assert_eq!(first_engine.get_counter("Observed").unwrap().value, 1);
+    });
+}
+
+#[test]
 fn sparse_slots_author_matching_sides_and_singleton_teams() {
     isolated(
         "sparse_slots_author_matching_sides_and_singleton_teams",

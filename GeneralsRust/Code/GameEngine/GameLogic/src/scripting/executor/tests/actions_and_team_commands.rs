@@ -2475,26 +2475,22 @@ fn active_team_sequential_actions_keep_cxx_lookup_idle_append_order() {
 
 #[test]
 fn active_script_special_power_and_upgrade_events_are_immediate_and_one_shot_like_cpp() {
-    use crate::scripting::engine::{ScriptOwnerQuery, ScriptPlayerEventSource};
+    use crate::scripting::engine::ScriptOwnerQuery;
 
     struct EventOwner;
     impl ScriptExecutionDriver<crate::scripting::engine::ScriptEngine> for EventOwner {
         fn after_action(&mut self) -> GameLogicResult<()> {
             Ok(())
         }
-        fn player_event_source(
-            &self,
+        fn script_event_player_slot(
+            &mut self,
             player: &str,
-            source: Option<&str>,
+            mask: u32,
             _: Option<&str>,
-            _: Option<ObjectID>,
-        ) -> ScriptOwnerQuery<ScriptPlayerEventSource> {
+        ) -> ScriptOwnerQuery<usize> {
             assert_eq!(player, "ActiveExecutorEventPlayer");
-            assert_eq!(source, None);
-            ScriptOwnerQuery::Present(ScriptPlayerEventSource {
-                player_index: 0,
-                source_object: INVALID_ID,
-            })
+            assert!(matches!(mask, 0 | 1));
+            ScriptOwnerQuery::Present(0)
         }
     }
 

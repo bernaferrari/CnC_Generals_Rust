@@ -3,24 +3,12 @@
 //! event list with remove=true. Missing source/player cannot consume an edge.
 
 use super::*;
-use crate::scripting::engine::{ScriptOwnerQuery, ScriptPlayerEventSource};
-
+use crate::scripting::engine::ScriptOwnerQuery;
 use generals_sim::scripting::events::PlayerEventKind;
 
-fn consume_player_event(
-    kind: PlayerEventKind,
-    engine: &crate::scripting::engine::ScriptEngine,
-    selected: ScriptPlayerEventSource,
-    name: &str,
-) -> bool {
-    let source = (selected.source_object != INVALID_ID).then_some(selected.source_object);
-    engine.script_events().has_player_event(kind, selected.player_index, name, source, true)
-}
-
 impl ScriptConditionEvaluator<'_> {
-    /// None means another condition family. This family resolves one owner,
-    /// then consumes through its selected or retained standalone path.
-    pub(super) fn eval_player_event(
+    /// Legacy worlds that supply no owned event-slot query use their existing roster.
+    pub(super) fn eval_standalone_player_event(
         &self,
         condition: &Condition,
         driver: &dyn ScriptExecutionDriver<crate::scripting::engine::ScriptEngine>,
@@ -29,49 +17,6 @@ impl ScriptConditionEvaluator<'_> {
         else {
             return Ok(None);
         };
-        let raw = |index| {
-            condition
-                .get_parameter(index)
-                .map(|parameter| parameter.get_string())
-                .ok_or_else(|| {
-                    ScriptError::ParameterNotFound(format!("Parameter {index} not found"))
-                })
-        };
-        let player = raw(0)?;
-        let name = raw(1)?;
-        let source = if from_named { Some(raw(2)?) } else { None };
-        let engine = self.context.borrowed_engine();
-        let current_player = engine.get_current_player_name();
-        let this_object = engine.script_object_id();
-        let selected = match driver.player_event_source(
-            player,
-            source,
-            current_player.as_deref(),
-            this_object,
-        ) {
-            ScriptOwnerQuery::Unavailable => {
-                return self
-                    .eval_standalone_player_event(condition, kind, from_named, driver)
-                    .map(Some);
-            }
-            ScriptOwnerQuery::Missing => return Ok(Some(ScriptConditionResult::False)),
-            ScriptOwnerQuery::Present(selected) => selected,
-        };
-        // Event names are also literal in C++; do not rewrite token-looking
-        // special-power/upgrade names through global player resolution.
-        let found = consume_player_event(kind, engine, selected, name);
-        Ok(Some(Self::bool_result(found)))
-    }
-
-    /// Retained standalone adapter: preserve token resolution, named-source
-    /// lookup before player admission, and the existing player-index mapping.
-    fn eval_standalone_player_event(
-        &self,
-        condition: &Condition,
-        kind: PlayerEventKind,
-        from_named: bool,
-        driver: &dyn ScriptExecutionDriver<crate::scripting::engine::ScriptEngine>,
-    ) -> Result<ScriptConditionResult, ScriptError> {
         let player_name = self.get_condition_string_param(condition, 0)?;
         let event_name = self.get_condition_string_param(condition, 1)?;
         let source_object = if from_named {
@@ -86,11 +31,11 @@ impl ScriptConditionEvaluator<'_> {
                 .named_object_id(raw_name, self.context.borrowed_engine().script_object_id())
             {
                 ScriptOwnerQuery::Present(source) => source,
-                ScriptOwnerQuery::Missing => return Ok(ScriptConditionResult::False),
+                ScriptOwnerQuery::Missing => return Ok(Some(ScriptConditionResult::False)),
                 ScriptOwnerQuery::Unavailable => {
                     let source_name = self.get_condition_string_param(condition, 2)?;
                     let Some(source) = leftover_named_source_id(&self.host_query(), &source_name) else {
-                        return Ok(ScriptConditionResult::False);
+                        return Ok(Some(ScriptConditionResult::False));
                     };
                     source
                 }
@@ -100,27 +45,22 @@ impl ScriptConditionEvaluator<'_> {
         };
         let player_index = {
             let __player_list_arc = player_list();
-        let Ok(players) = __player_list_arc.read() else {
-                return Ok(ScriptConditionResult::False);
+            let Ok(players) = __player_list_arc.read() else {
+                return Ok(Some(ScriptConditionResult::False));
             };
             let Some(player) = players.find_player_by_name(&player_name) else {
-                return Ok(ScriptConditionResult::False);
+                return Ok(Some(ScriptConditionResult::False));
             };
             let Ok(player) = player.read() else {
-                return Ok(ScriptConditionResult::False);
+                return Ok(Some(ScriptConditionResult::False));
             };
             player.get_player_index() as usize
         };
-        let selected = ScriptPlayerEventSource {
-            player_index,
-            source_object,
-        };
-        Ok(Self::bool_result(consume_player_event(
-            kind,
-            self.context.borrowed_engine(),
-            selected,
-            &event_name,
-        )))
+        let source = (source_object != INVALID_ID).then_some(source_object);
+        let found = self.context.borrowed_engine().script_events().has_player_event(
+            kind, player_index, &event_name, source, true,
+        );
+        Ok(Some(Self::bool_result(found)))
     }
 }
 
@@ -151,38 +91,45 @@ mod tests {
     use crate::scripting::engine::ScriptEngine;
 
     struct EventOwner {
-        selected: ScriptOwnerQuery<ScriptPlayerEventSource>,
-        calls: RefCell<Vec<(String, Option<String>, Option<String>, Option<ObjectID>)>>,
+        selected: ScriptOwnerQuery<usize>,
+        source: ObjectID,
+        player_calls: Vec<(String, u32, Option<String>)>,
+        source_calls: RefCell<Vec<(String, Option<ObjectID>)>>,
     }
 
     impl ScriptExecutionDriver<crate::scripting::engine::ScriptEngine> for EventOwner {
         fn after_action(&mut self) -> GameLogicResult<()> {
             Ok(())
         }
-        fn player_event_source(
-            &self,
+        fn script_event_player_slot(
+            &mut self,
             player: &str,
-            source: Option<&str>,
+            mask: u32,
             current: Option<&str>,
-            object: Option<ObjectID>,
-        ) -> ScriptOwnerQuery<ScriptPlayerEventSource> {
-            self.calls.borrow_mut().push((
-                player.into(),
-                source.map(str::to_owned),
-                current.map(str::to_owned),
-                object,
-            ));
+        ) -> ScriptOwnerQuery<usize> {
+            self.player_calls.push((player.into(), mask, current.map(str::to_owned)));
+            if mask != 0 && !mask.is_power_of_two() {
+                return ScriptOwnerQuery::Missing;
+            }
             self.selected
+        }
+
+        fn named_object_id(
+            &self,
+            unit: &str,
+            object: Option<ObjectID>,
+        ) -> ScriptOwnerQuery<ObjectID> {
+            self.source_calls.borrow_mut().push((unit.into(), object));
+            ScriptOwnerQuery::Present(self.source)
         }
     }
 
     fn owner(source_object: ObjectID) -> EventOwner {
         EventOwner {
-            selected: ScriptOwnerQuery::Present(ScriptPlayerEventSource {
-                player_index: 1,
-                source_object,
-            }),
-            calls: RefCell::new(Vec::new()),
+            selected: ScriptOwnerQuery::Present(1),
+            source: source_object,
+            player_calls: Vec::new(),
+            source_calls: RefCell::new(Vec::new()),
         }
     }
 
@@ -312,7 +259,15 @@ mod tests {
             ScriptConditionResult::False
         );
         assert!(engine.is_upgrade_complete(1, "Upgrade", false, 42));
+        assert_eq!(condition.get_parameter(0).unwrap().get_int() as u32, 0xffff_0000);
         driver.selected = owner(42).selected;
+        assert_eq!(
+            evaluator
+                .evaluate_condition_with_driver(&mut condition, &mut driver)
+                .unwrap(),
+            ScriptConditionResult::False
+        );
+        condition.parameters[0] = Some(Parameter::with_string(ParameterType::Side, "Owned".into()));
         assert_eq!(
             evaluator
                 .evaluate_condition_with_driver(&mut condition, &mut driver)
@@ -347,14 +302,10 @@ mod tests {
             );
         });
         assert_eq!(
-            *driver.calls.borrow(),
-            vec![(
-                THIS_PLAYER.into(),
-                Some(THIS_OBJECT.into()),
-                Some("OwnedCurrent".into()),
-                None
-            )]
+            driver.player_calls,
+            [(THIS_PLAYER.into(), 0, Some("OwnedCurrent".into()))]
         );
+        assert_eq!(*driver.source_calls.borrow(), [(THIS_OBJECT.into(), None)]);
         assert!(!own.is_special_power_complete(1, LOCAL_PLAYER, false, 42));
         assert!(foreign.is_special_power_complete(1, LOCAL_PLAYER, false, 42));
     }
@@ -362,7 +313,7 @@ mod tests {
     #[test]
     fn default_driver_leaves_player_event_owner_selection_unavailable() {
         assert_eq!(
-            CanonicalScriptExecutionDriver.player_event_source("Unadmitted", None, None, None),
+            CanonicalScriptExecutionDriver.script_event_player_slot("Unadmitted", 0, None),
             ScriptOwnerQuery::Unavailable
         );
     }
@@ -385,6 +336,7 @@ mod tests {
             evaluator.evaluate_condition_with_driver(&mut condition, &mut driver),
             Err(ScriptError::ParameterNotFound(_))
         ));
-        assert!(driver.calls.borrow().is_empty());
+        assert!(driver.player_calls.is_empty());
+        assert!(driver.source_calls.borrow().is_empty());
     }
 }

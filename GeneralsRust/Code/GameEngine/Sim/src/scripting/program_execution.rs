@@ -4,6 +4,7 @@
 use super::ScriptActionResult;
 use super::interpreter::ScriptInterpreter;
 use super::media_conditions::ScriptMediaQueries;
+use super::player_event_conditions::ScriptPlayerEventQueries;
 use super::program::{Condition, OrCondition, Script, ScriptAction, ScriptActionType};
 use super::sequential_scripts::is_sequential_only_action;
 use crate::time::LOGIC_HZ;
@@ -47,7 +48,7 @@ impl From<ScriptActionError> for GameLogicError {
 pub trait ScriptProgramDriver {
     fn difficulty(&self) -> ScriptDifficulty;
     fn condition_team_after(&self, name: &str, after: Option<u32>) -> Option<u32>;
-    fn media_queries(&mut self) -> impl ScriptMediaQueries + '_;
+    fn condition_queries(&mut self) -> impl ScriptMediaQueries + ScriptPlayerEventQueries + '_;
     fn evaluate_world_condition(&mut self, condition: &mut Condition) -> GameLogicResult<bool>;
     fn execute_world_action(
         &mut self,
@@ -118,11 +119,17 @@ fn evaluate_script(
     let condition_true = evaluate_conditions(script.condition.as_deref_mut(), |condition| {
         let local = interpreter
             .try_evaluate_local_condition(condition)
-            .and_then(|value| match value {
-                Some(_) => Ok(value),
-                None => interpreter.try_evaluate_media_condition(
-                    condition, frame, &mut driver.media_queries(),
-                ),
+            .and_then(|value| {
+                if value.is_some() {
+                    return Ok(value);
+                }
+                let mut queries = driver.condition_queries();
+                if let Some(value) =
+                    interpreter.try_evaluate_media_condition(condition, frame, &mut queries)?
+                {
+                    return Ok(Some(value));
+                }
+                interpreter.try_evaluate_player_event(condition, &mut queries)
             })
             .map_err(|error| GameLogicError::Configuration(format!("Script condition error: {error}")))?;
         match local {
@@ -281,9 +288,9 @@ mod tests {
 
     #[test]
     fn variable_opcodes_stay_inside_the_interpreter_and_notify_after_each_action() {
-        struct UnusedAudio;
+        struct UnusedQueries;
 
-        impl ScriptMediaQueries for UnusedAudio {
+        impl ScriptMediaQueries for UnusedQueries {
             fn audio_duration_ms(&self, _name: &str) -> f32 {
                 panic!("variable condition requested an audio duration")
             }
@@ -296,6 +303,8 @@ mod tests {
                 panic!("variable condition queried music playback")
             }
         }
+
+        impl ScriptPlayerEventQueries for UnusedQueries {}
 
         struct World<'a> {
             interpreter: &'a ScriptInterpreter,
@@ -311,8 +320,8 @@ mod tests {
                 (name == "Patrol" && after.is_none()).then_some(23)
             }
 
-            fn media_queries(&mut self) -> impl ScriptMediaQueries + '_ {
-                UnusedAudio
+            fn condition_queries(&mut self) -> impl ScriptMediaQueries + ScriptPlayerEventQueries + '_ {
+                UnusedQueries
             }
 
             fn evaluate_world_condition(

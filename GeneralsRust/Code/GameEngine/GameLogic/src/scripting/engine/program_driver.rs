@@ -5,6 +5,7 @@ use crate::scripting::executor::{
 };
 use game_engine::common::system::kind_of::KindOfMask;
 use generals_sim::scripting::media_conditions::ScriptMediaQueries;
+use generals_sim::scripting::player_event_conditions::ScriptPlayerEventQueries;
 
 struct ScriptProgramWorld<'engine, 'context> {
     engine: &'engine ScriptEngine,
@@ -80,13 +81,13 @@ impl ScriptProgramDriver for ScriptProgramWorld<'_, '_> {
         }
     }
 
-    fn media_queries(&mut self) -> impl ScriptMediaQueries + '_ {
-        self.engine.media_queries(self.execution.driver)
+    fn condition_queries(&mut self) -> impl ScriptMediaQueries + ScriptPlayerEventQueries + '_ {
+        self.engine.condition_queries(self.execution.driver)
     }
 
     fn evaluate_world_condition(&mut self, condition: &mut Condition) -> GameLogicResult<bool> {
         self.evaluator
-            .evaluate_condition_truth_with_driver(condition, self.execution.driver)
+            .evaluate_world_condition_truth_with_driver(condition, self.execution.driver)
             .map_err(|e| GameLogicError::Configuration(format!("Script condition error: {e}")))
     }
 
@@ -130,12 +131,12 @@ impl ScriptProgramDriver for ScriptProgramWorld<'_, '_> {
     }
 }
 
-struct ScriptWorldMedia<'a> {
+struct ScriptWorldConditions<'a> {
     engine: &'a ScriptEngine,
     driver: &'a mut dyn ScriptExecutionDriver<ScriptEngine>,
 }
 
-impl ScriptMediaQueries for ScriptWorldMedia<'_> {
+impl ScriptMediaQueries for ScriptWorldConditions<'_> {
     fn audio_duration_ms(&self, name: &str) -> f32 {
         self.driver
             .script_audio_duration_ms(name)
@@ -156,6 +157,34 @@ impl ScriptMediaQueries for ScriptWorldMedia<'_> {
         Ok(self.engine.owning_world_services().is_some_and(|world| {
             TheAudio::of(&world).has_music_track_completed(name, times)
         }))
+    }
+}
+
+impl ScriptPlayerEventQueries for ScriptWorldConditions<'_> {
+    fn player_slot(
+        &mut self,
+        player: &str,
+        mask: u32,
+        current_player: Option<&str>,
+    ) -> ScriptOwnerQuery<usize> {
+        self.driver.script_event_player_slot(player, mask, current_player)
+    }
+
+    fn named_source(&self, unit: &str, this_object: Option<u32>) -> Option<u32> {
+        match self.driver.named_object_id(unit, this_object) {
+            ScriptOwnerQuery::Present(id) => Some(id),
+            ScriptOwnerQuery::Missing | ScriptOwnerQuery::Unavailable => None,
+        }
+    }
+
+    fn science_source(
+        &mut self,
+        player: &str,
+        mask: u32,
+        science: &str,
+        current_player: Option<&str>,
+    ) -> ScriptOwnerQuery<(usize, Option<ScienceType>)> {
+        self.driver.player_acquired_science_source(player, mask, science, current_player)
     }
 }
 
@@ -237,11 +266,11 @@ fn script_difficulty(difficulty: crate::player::GameDifficulty) -> ScriptDifficu
 }
 
 impl ScriptEngine {
-    pub(crate) fn media_queries<'a>(
+    pub(crate) fn condition_queries<'a>(
         &'a self,
         driver: &'a mut dyn ScriptExecutionDriver<ScriptEngine>,
-    ) -> impl ScriptMediaQueries + 'a {
-        ScriptWorldMedia { engine: self, driver }
+    ) -> impl ScriptMediaQueries + ScriptPlayerEventQueries + 'a {
+        ScriptWorldConditions { engine: self, driver }
     }
 
     pub(crate) fn execute_local_control_action(

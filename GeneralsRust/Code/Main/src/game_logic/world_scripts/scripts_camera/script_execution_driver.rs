@@ -9,7 +9,7 @@ use generals_sim::scripting::driver::ScriptExecutionDriver;
 use generals_sim::scripting::world::{
     ScriptAiPlayerRequest, ScriptBridgeStatus, ScriptCameraRequest, ScriptDisplayRequest,
     ScriptNamedCommand, ScriptObjectStatus, ScriptOwnerQuery, ScriptPlayerAreaQuery,
-    ScriptPlayerConstructionRequest, ScriptPlayerEventSource, ScriptPlayerRankRequest,
+    ScriptPlayerConstructionRequest, ScriptPlayerRankRequest,
     ScriptSightingFilter, ScriptSkirmishCensus, ScriptSpecialPowerReadiness, ScriptSupplyQuery,
     ScriptTeamPresence, ScriptTeamStatus, ScriptWaterRequest,
 };
@@ -1908,11 +1908,14 @@ impl ScriptExecutionDriver<ScriptEngine> for HostScriptExecutionDriver<'_> {
         player_mask: u32,
         science: &str,
         current_player: Option<&str>,
-    ) -> ScriptOwnerQuery<(usize, ScienceType)> {
-        match self.script_science_source(player, player_mask, science, current_player) {
-            Some((player, _, science)) => ScriptOwnerQuery::Present((player.id as usize, science)),
-            None => ScriptOwnerQuery::Missing,
-        }
+    ) -> ScriptOwnerQuery<(usize, Option<ScienceType>)> {
+        let Some(id) = self.query_condition_player_id(player, player_mask, current_player)
+            .filter(|id| self.world.players.contains_key(id)) else {
+            return ScriptOwnerQuery::Missing;
+        };
+        let science = self.world.receiving_module_content.as_ref()
+            .and_then(|content| content.science_facts_ref().science(science));
+        ScriptOwnerQuery::Present((id as usize, science))
     }
 
     fn player_can_purchase_science(
@@ -2090,46 +2093,20 @@ impl ScriptExecutionDriver<ScriptEngine> for HostScriptExecutionDriver<'_> {
         )
     }
 
-    fn player_event_source(
-        &self,
+    fn script_event_player_slot(
+        &mut self,
         player: &str,
-        source: Option<&str>,
+        mask: u32,
         current_player: Option<&str>,
-        this_object: Option<gamelogic::common::ObjectID>,
-    ) -> ScriptOwnerQuery<ScriptPlayerEventSource> {
-        // Prepared map-side indices still require explicit admission (hq-fxwkm).
-        // Ordinary Main notifications use the controlling host player ID.
-        if self.requires_prepared_player_bindings() {
+    ) -> ScriptOwnerQuery<usize> {
+        if self.requires_prepared_player_bindings() && self.world.game_mode != GameMode::Skirmish {
             return ScriptOwnerQuery::Unavailable;
         }
-        let Some(player_index) = self.script_player_id(player, current_player) else {
-            return ScriptOwnerQuery::Missing;
-        };
-        let source_object = match source {
-            None => gamelogic::common::INVALID_ID,
-            Some(generals_sim::scripting::program::THIS_OBJECT) => {
-                let Some(id) =
-                    this_object.filter(|id| self.world.host_object(ObjectId(*id)).is_some())
-                else {
-                    return ScriptOwnerQuery::Missing;
-                };
-                id
-            }
-            Some(name) => {
-                let Some(id) = self
-                    .world
-                    .host_object_id_by_script_name(name)
-                    .map(|id| id.0)
-                else {
-                    return ScriptOwnerQuery::Missing;
-                };
-                id
-            }
-        };
-        ScriptOwnerQuery::Present(ScriptPlayerEventSource {
-            player_index: player_index as usize,
-            source_object,
-        })
+        // The installed offline script list and its notifications both use the
+        // admitted host player ID, including sparse lobby IDs.
+        self.query_condition_player_id(player, mask, current_player)
+            .filter(|id| self.world.players.contains_key(id))
+            .map_or(ScriptOwnerQuery::Missing, |id| ScriptOwnerQuery::Present(id as usize))
     }
 
     fn team_guard(

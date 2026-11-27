@@ -73,15 +73,6 @@ pub struct ScriptSpecialPowerReadiness {
     pub next_frame: u32,
 }
 
-/// CPP ScriptConditions1443–1540: the selected player's event-list slot and
-/// optional named source, resolved by the world driving this condition.
-/// The invalid object ID is the wildcard for a condition without a source parameter.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct ScriptPlayerEventSource {
-    pub player_index: usize,
-    pub source_object: u32,
-}
-
 /// CPP named unit pointer lifetime, distinct from alive/dead state.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ScriptNamedLifecycle {

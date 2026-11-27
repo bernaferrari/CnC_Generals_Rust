@@ -272,7 +272,7 @@ fn this_player_enemy_science_condition_and_action_query_the_receiving_ai_once() 
         module_path!(),
         "this_player_enemy_science_condition_and_action_query_the_receiving_ai_once",
         || {
-            let (mut owner, _) = enemy_science_world(2);
+            let (mut owner, science) = enemy_science_world(2);
             let (mut peer, _) = enemy_science_world(2);
             let mut scripts = ScriptList::new();
             scripts.append_script(script(
@@ -328,7 +328,28 @@ fn this_player_enemy_science_condition_and_action_query_the_receiving_ai_once() 
             assert_eq!(owner.ai_manager.ai_players[&0].frame_to_check_enemy, 300);
             assert!(owner.players[&1].has_unlocked_science(SCIENCE));
             assert!(!owner.players[&0].has_unlocked_science(SCIENCE));
+            assert!(!engine_flag(&owner, OBSERVER_A));
+            let engine = owner.owned_script_engine.as_ref().unwrap();
+            assert!(engine.is_science_acquired(1, science, false));
+
+            // This observer first resolves the enemy after the AI has acquired it.
+            // The original observer cached the failed lookup on frame zero.
+            let mut fresh = ScriptList::new();
+            fresh.append_script(script(
+                "observe_after_enemy_acquired",
+                science_condition(
+                    ConditionType::PlayerAcquiredScience,
+                    THIS_PLAYER_ENEMY,
+                    0,
+                    SCIENCE,
+                ),
+                flag_action(OBSERVER_A),
+            ));
+            engine.set_script_list_for_player(0, Some(Box::new(fresh))).unwrap();
+            owner.frame = 151;
+            owner.evaluate_and_execute_scripts(0.0);
             assert!(engine_flag(&owner, OBSERVER_A));
+            assert!(!owner.owned_script_engine.as_ref().unwrap().is_science_acquired(1, science, false));
             assert_eq!(peer.ai_manager.ai_players[&0].enemy_player_id, None);
             assert_eq!(peer.ai_manager.ai_players[&0].frame_to_check_enemy, 150);
             assert!(!peer.players[&1].has_unlocked_science(SCIENCE));
