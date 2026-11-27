@@ -366,7 +366,7 @@ impl ScriptConditionEvaluator<'_> {
             // CAMERA CONDITIONS
             // ============================================================================
             ConditionType::CameraMovementFinished => {
-                self.eval_camera_movement_finished(condition, driver)
+                self.eval_camera_movement_finished(condition)
             }
 
             // ============================================================================
@@ -376,8 +376,8 @@ impl ScriptConditionEvaluator<'_> {
             ConditionType::BuildingEnteredByPlayer => {
                 self.eval_building_entered_by_player(condition)
             }
-            ConditionType::BridgeRepaired => self.eval_bridge_repaired(condition, driver),
-            ConditionType::BridgeBroken => self.eval_bridge_broken(condition, driver),
+            ConditionType::BridgeRepaired => self.eval_bridge_repaired(condition),
+            ConditionType::BridgeBroken => self.eval_bridge_broken(condition),
 
             // Handled before dispatch; retain exhaustive enum coverage here.
             ConditionType::PlayerTriggeredSpecialPower
@@ -428,9 +428,9 @@ impl ScriptConditionEvaluator<'_> {
             // ============================================================================
             // MISCELLANEOUS CONDITIONS
             // ============================================================================
-            ConditionType::EnemySighted => self.eval_enemy_sighted(condition, driver),
-            ConditionType::TypeSighted => self.eval_type_sighted(condition, driver),
-            ConditionType::MissionAttempts => self.eval_mission_attempts(condition),
+            ConditionType::EnemySighted => self.eval_enemy_sighted(condition),
+            ConditionType::TypeSighted => self.eval_type_sighted(condition),
+            ConditionType::MissionAttempts => Ok(ScriptConditionResult::False),
             ConditionType::SupplySourceSafe => self.eval_supply_source_safe(condition),
             ConditionType::SupplySourceAttacked => self.eval_supply_source_attacked(condition),
             ConditionType::StartPositionIs => self.eval_start_position_is(condition),

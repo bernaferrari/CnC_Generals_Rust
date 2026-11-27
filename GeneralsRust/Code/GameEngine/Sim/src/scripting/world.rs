@@ -135,8 +135,7 @@ pub struct ScriptTeamAreaMembership {
     pub any_outside: bool,
 }
 
-/// CPP ScriptConditions244–272: the aggregate terrain gate is already
-/// applied by the driving owner; a named query never consumes its transition.
+/// A named bridge's terrain edges after the interpreter checks the aggregate edge.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ScriptBridgeStatus {
     pub broken: bool,
@@ -146,8 +145,24 @@ pub struct ScriptBridgeStatus {
 /// CPP ScriptConditions1029/1086: only the enemy family filters relationships.
 #[derive(Debug, Clone, Copy)]
 pub enum ScriptSightingFilter<'a> {
-    Relationship(i32),
+    Relationship(Relationship),
     Types(&'a [String]),
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct ScriptSightingObserver {
+    pub position: glam::Vec3,
+    pub vision_range: f32,
+    pub off_map: bool,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct ScriptSightingCandidate<'a> {
+    pub position: glam::Vec3,
+    pub off_map: bool,
+    pub effectively_stealthed: bool,
+    pub owner: Option<u32>,
+    pub template: &'a str,
 }
 
 /// Parsed display effect for the game driving this action. Borrowed text is

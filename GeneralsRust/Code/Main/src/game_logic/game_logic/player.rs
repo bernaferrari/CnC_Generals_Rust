@@ -1700,6 +1700,15 @@ impl Player {
         }
         self.apply_map_side_identity_from_dict(dict);
 
+        // Player.cpp:859 reads the authored index, defaulting to zero for a
+        // map side without one. Keep the already assigned participant index
+        // when a map-side overlay has no slot field.
+        if dict.get_type(key_multiplayer_start_index()).is_some()
+            || self.map_side.role == PlayerSideRole::Authored
+        {
+            self.start_position = dict.get_int(key_multiplayer_start_index());
+        }
+
         if dict.get_type(key_player_color()).is_some() {
             let color = dict.get_int(key_player_color()) as u32;
             self.color_rgb = (

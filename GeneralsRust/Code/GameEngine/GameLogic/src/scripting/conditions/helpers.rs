@@ -26,13 +26,6 @@ pub struct HostScriptQuerySnapshot {
     pub player_census: HashMap<String, HostScriptPlayerCensus>,
     /// World tech-building census for SKIRMISH_TECH_BUILDING_WITHIN_DISTANCE.
     pub tech_buildings: Vec<HostTechBuildingCensus>,
-
-    /// C++ TerrainLogic::anyBridgesDamageStatesChanged one-frame latch.
-    pub any_bridges_damage_states_changed: bool,
-    /// Named bridge isBridgeBroken keyed by script unit name.
-    pub named_bridge_broken: HashMap<String, bool>,
-    /// Named bridge isBridgeRepaired keyed by script unit name.
-    pub named_bridge_repaired: HashMap<String, bool>,
 }
 
 /// C++ KINDOF_TECH_BUILDING row for host leftover eval (pose + owner only).
@@ -105,32 +98,6 @@ impl HostScriptQuery {
 
     pub fn clear_host_script_query_snapshot(&self) {
         self.with_mut(|slot| *slot = HostScriptQuerySnapshot::default());
-    }
-
-    pub fn host_bridge_broken(&self, bridge_name: &str) -> bool {
-        self.with_mut(|slot| {
-            let snap = slot;
-            snap.any_bridges_damage_states_changed
-                && snap
-                    .named_bridge_broken
-                    .iter()
-                    .find(|(n, _)| n.eq_ignore_ascii_case(bridge_name))
-                    .map(|(_, v)| *v)
-                    .unwrap_or(false)
-        })
-    }
-
-    pub fn host_bridge_repaired(&self, bridge_name: &str) -> bool {
-        self.with_mut(|slot| {
-            let snap = slot;
-            snap.any_bridges_damage_states_changed
-                && snap
-                    .named_bridge_repaired
-                    .iter()
-                    .find(|(n, _)| n.eq_ignore_ascii_case(bridge_name))
-                    .map(|(_, v)| *v)
-                    .unwrap_or(false)
-        })
     }
 
     pub fn host_script_named_unit_id(&self, name: &str) -> Option<u32> {

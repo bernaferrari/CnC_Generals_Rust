@@ -478,7 +478,6 @@ fn sighting_default_team_uses_authored_player_name() {
     });
 }
 
-// New-capability witness, separate from the unchanged-API OLD script walks.
 #[test]
 fn sighting_supplied_this_object_and_current_player_are_owned_identities() {
     isolated(|| {
@@ -491,51 +490,64 @@ fn sighting_supplied_this_object_and_current_player_are_owned_identities() {
         foreign.set_fixture_object_position(foreign_target, Vec3::splat(900.0));
         foreign.inject_host_script_query_snapshot();
         let names = [TYPE.into()];
-        let driver = HostScriptExecutionDriver::new(&mut first);
+        let mut driver = HostScriptExecutionDriver::new(&mut first);
         assert_eq!(
-            driver.sighted(
-                THIS_OBJECT,
-                THIS_PLAYER,
-                ScriptSightingFilter::Types(&names),
-                Some("Opponent"),
-                Some(observer.0)
-            ),
-            ScriptOwnerQuery::Present(true)
+            driver.sighting_observer(THIS_OBJECT, Some(observer.0)),
+            ScriptOwnerQuery::Present(observer.0)
         );
-        assert_eq!(
-            driver.sighted(
-                THIS_OBJECT,
-                THIS_PLAYER,
-                ScriptSightingFilter::Types(&names),
-                Some("Viewer"),
-                Some(observer.0)
-            ),
-            ScriptOwnerQuery::Present(false)
-        );
+        for (player, expected) in [("Opponent", true), ("Viewer", false)] {
+            let ScriptOwnerQuery::Present(id) =
+                driver.condition_player_id(THIS_PLAYER, 0, Some(player))
+            else {
+                panic!("missing player {player}");
+            };
+            assert_eq!(
+                driver.any_sighted_object(observer.0, id, ScriptSightingFilter::Types(&names)),
+                expected
+            );
+        }
         for id in [None, Some(u32::MAX)] {
             assert_eq!(
-                driver.sighted(
-                    THIS_OBJECT,
-                    THIS_PLAYER,
-                    ScriptSightingFilter::Types(&names),
-                    Some("Opponent"),
-                    id
-                ),
+                driver.sighting_observer(THIS_OBJECT, id),
                 ScriptOwnerQuery::Missing
             );
         }
         assert_eq!(
-            driver.sighted(
-                THIS_OBJECT,
-                THIS_PLAYER,
-                ScriptSightingFilter::Types(&names),
-                None,
-                Some(observer.0)
-            ),
+            driver.condition_player_id(THIS_PLAYER, 0, None),
             ScriptOwnerQuery::Missing
         );
-        // This verifies supplied context. Root side admission and Challenge
-        // classification retain their own owner debts (hq-fxwkm/hq-9bqdm).
+    });
+}
+
+#[test]
+fn sighting_caches_side_only_after_resolving_the_observer() {
+    isolated(|| {
+        let (mut session, observer, _) = world();
+        let judge = engine(enemy(OBSERVER, 0, "Later"));
+        let mut before_observer = judge.find_script_clone_by_name("ObserveSighting").unwrap();
+        let mut absent_player = before_observer.clone();
+
+        session.named_script_cache.clear();
+        assert!(!session.evaluate_owned_script_conditions(&judge, &mut before_observer, None));
+        let side_mask = |script: &Script| {
+            script.condition.as_ref().unwrap().first_and.as_ref().unwrap()
+                .get_parameter(2).unwrap().get_int() as u32
+        };
+        assert_eq!(side_mask(&before_observer), 0, "no observer leaves SIDE untouched");
+
+        assert!(session.add_receiving_named_script_object(observer));
+        assert!(!session.evaluate_owned_script_conditions(&judge, &mut absent_player, None));
+
+        session.players.get_mut(&2).unwrap().map_side.map_player_name = "Later".into();
+        assert!(!session.evaluate_owned_script_conditions(&judge, &mut absent_player, None),
+            "an already-failed SIDE is inert even after its player is admitted");
+        assert_eq!(side_mask(&absent_player), 0xffff_0000);
+
+        assert!(session.evaluate_owned_script_conditions(&judge, &mut before_observer, None));
+        assert_eq!(side_mask(&before_observer), 1 << 2);
+        session.players.get_mut(&2).unwrap().map_side.map_player_name = "Renamed".into();
+        assert!(session.evaluate_owned_script_conditions(&judge, &mut before_observer, None),
+            "the cached SIDE still selects the exact player slot");
     });
 }
 

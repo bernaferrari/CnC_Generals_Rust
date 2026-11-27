@@ -308,19 +308,23 @@ pub trait ScriptExecutionDriver<Interpreter: ?Sized> {
         ScriptOwnerQuery::Unavailable
     }
 
-    /// Resolve literal object/player identities against this execution's world.
-    /// Types are the driving engine's current ObjectTypes contents. Missing
-    /// and Present(false) are authoritative; only Unavailable uses Core's
-    /// standalone adapter. No registry presence selects a live Main owner.
-    fn sighted(
+    /// Resolve the literal observer before resolving or caching the SIDE operand.
+    fn sighting_observer(
         &self,
         _unit: &str,
-        _player: &str,
-        _filter: ScriptSightingFilter<'_>,
-        _current_player: Option<&str>,
         _this_object: Option<ObjectID>,
-    ) -> ScriptOwnerQuery<bool> {
+    ) -> ScriptOwnerQuery<ObjectID> {
         ScriptOwnerQuery::Unavailable
+    }
+
+    /// Search the receiving partition with the interpreter's selected filter.
+    fn any_sighted_object(
+        &self,
+        _observer: ObjectID,
+        _player: u32,
+        _filter: ScriptSightingFilter<'_>,
+    ) -> bool {
+        false
     }
 
     /// Resolve an authored SIDE or its cached mask to this world's event slot.
@@ -1176,6 +1180,22 @@ pub trait ScriptExecutionDriver<Interpreter: ?Sized> {
         ScriptOwnerQuery::Unavailable
     }
 
+    fn player_faction(&self, _player: u32) -> Option<&str> {
+        None
+    }
+
+    fn player_start_index(&self, _player: u32) -> Option<i32> {
+        None
+    }
+
+    fn script_area_exists(
+        &mut self,
+        _area: &str,
+        _current_player: Option<&str>,
+    ) -> Option<bool> {
+        None
+    }
+
     fn player_science_action(
         &mut self,
         _player: &str,
@@ -1338,14 +1358,17 @@ pub trait ScriptExecutionDriver<Interpreter: ?Sized> {
         ScriptOwnerQuery::Unavailable
     }
 
-    /// Missing is authoritative absence. Unavailable selects only the
-    /// standalone adapter, never another world during a live Main execution.
+    /// The aggregate C++ terrain edge is checked before looking up a bridge.
+    fn bridge_damage_states_changed(&self) -> Option<bool> {
+        None
+    }
+
     fn bridge_status(
         &self,
         _name: &str,
         _this_object: Option<ObjectID>,
-    ) -> ScriptOwnerQuery<ScriptBridgeStatus> {
-        ScriptOwnerQuery::Unavailable
+    ) -> Option<ScriptBridgeStatus> {
+        None
     }
 
     /// CPP ScriptEngine.cpp:7888–7910: select the controlling player only

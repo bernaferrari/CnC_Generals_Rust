@@ -145,7 +145,7 @@ impl ScriptInterpreter {
     }
 }
 
-fn resolve_side<T: ?Sized>(
+pub(super) fn resolve_side<T: ?Sized>(
     condition: &mut Condition,
     index: usize,
     current: Option<&str>,

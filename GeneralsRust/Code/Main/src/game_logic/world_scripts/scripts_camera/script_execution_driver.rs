@@ -10,7 +10,8 @@ use generals_sim::scripting::world::{
     ScriptAiPlayerRequest, ScriptBridgeStatus, ScriptCameraRequest, ScriptDisplayRequest,
     ScriptNamedCommand, ScriptObjectStatus, ScriptOwnerQuery, ScriptPlayerAreaQuery,
     ScriptPlayerConstructionRequest, ScriptPlayerRankRequest,
-    ScriptSightingFilter, ScriptSkirmishCensus, ScriptSpecialPowerReadiness, ScriptSupplyQuery,
+    ScriptSightingCandidate, ScriptSightingFilter, ScriptSightingObserver, ScriptSkirmishCensus,
+    ScriptSpecialPowerReadiness, ScriptSupplyQuery,
     ScriptTeamPresence, ScriptTeamStatus, ScriptWaterRequest,
 };
 use std::sync::{Arc, RwLock};
@@ -1763,69 +1764,50 @@ impl ScriptExecutionDriver<ScriptEngine> for HostScriptExecutionDriver<'_> {
         ScriptOwnerQuery::Present(object.player_who_entered == Some(player_id))
     }
 
-    fn sighted(
+    fn sighting_observer(
         &self,
         unit: &str,
-        player: &str,
-        filter: ScriptSightingFilter<'_>,
-        current_player: Option<&str>,
         this_object: Option<gamelogic::common::ObjectID>,
-    ) -> ScriptOwnerQuery<bool> {
-        let Some(looker) = self
-            .world
+    ) -> ScriptOwnerQuery<u32> {
+        self.world
             .owned_named_script_object(unit, this_object.map(ObjectId))
-            .and_then(|id| self.world.host_object(id))
+            .filter(|id| self.world.host_object(*id).is_some())
+            .map_or(ScriptOwnerQuery::Missing, |id| ScriptOwnerQuery::Present(id.0))
+    }
+
+    fn any_sighted_object(
+        &self,
+        observer: u32,
+        player: u32,
+        filter: ScriptSightingFilter<'_>,
+    ) -> bool {
+        let Some(looker) = self.world.host_object(ObjectId(observer))
         else {
-            return ScriptOwnerQuery::Missing;
+            return false;
         };
-        let Some(player) = self
-            .script_player_id(player, current_player)
-            .filter(|id| self.world.players.contains_key(id))
-        else {
-            return ScriptOwnerQuery::Missing;
+        let observer = ScriptSightingObserver {
+            position: looker.get_position(),
+            vision_range: looker.vision_range,
+            off_map: looker.status.off_map,
         };
-        // C++ PartitionFilterSameMapStatus compares the objects' stored flags.
-        let source = looker.get_position();
-        let source_off_map = looker.status.off_map;
-        let found = self
-            .world
-            .host_objects()
-            .registered_values()
-            .any(|candidate| {
-                if candidate.id == looker.id
-                    || candidate.status.effectively_dead
-                    || !self.sighting_candidate_is_in_partition(candidate)
-                    || candidate.is_effectively_stealthed()
-                    || candidate.status.off_map != source_off_map
-                    || candidate.owner_player_id != Some(player)
-                {
-                    return false;
-                }
-                let position = candidate.get_position();
-                let dx = position.x - source.x;
-                let dz = position.z - source.z;
-                // CPP FROM_CENTER_2D rejects equality; altitude is irrelevant.
-                if !(dx * dx + dz * dz < looker.vision_range * looker.vision_range) {
-                    return false;
-                }
-                match filter {
-                    ScriptSightingFilter::Types(names) => {
-                        names.iter().any(|name| *name == candidate.template_name)
-                    }
-                    ScriptSightingFilter::Relationship(alliance) => {
-                        let relationship =
-                            self.world.script_sighting_relationship(looker, candidate);
-                        match alliance {
-                            0 => relationship == Relationship::Enemies,
-                            1 => relationship == Relationship::Neutral,
-                            2 => relationship == Relationship::Allies,
-                            _ => false,
-                        }
-                    }
-                }
-            });
         // CPP filters candidate life, not the looking object's life.
-        ScriptOwnerQuery::Present(found)
+        self.world.host_objects().registered_values().any(|candidate| {
+            candidate.id != looker.id
+                && !candidate.status.effectively_dead
+                && self.sighting_candidate_is_in_partition(candidate)
+                && filter.accepts(
+                    observer,
+                    ScriptSightingCandidate {
+                        position: candidate.get_position(),
+                        off_map: candidate.status.off_map,
+                        effectively_stealthed: candidate.is_effectively_stealthed(),
+                        owner: candidate.owner_player_id,
+                        template: &candidate.template_name,
+                    },
+                    player,
+                    || self.world.script_sighting_relationship(looker, candidate),
+                )
+        })
     }
 
     fn skirmish_player_can_build_any(
@@ -2334,6 +2316,40 @@ impl ScriptExecutionDriver<ScriptEngine> for HostScriptExecutionDriver<'_> {
         self.query_condition_player_id(player, mask, current_player)
             .filter(|id| self.world.players.contains_key(id))
             .map_or(ScriptOwnerQuery::Missing, ScriptOwnerQuery::Present)
+    }
+
+    fn player_faction(&self, player_id: u32) -> Option<&str> {
+        use crate::game_logic::host_faction_skirmish_residual::{
+            SIDE_AMERICA, SIDE_CHINA, SIDE_CIVILIAN, SIDE_GLA, SIDE_OBSERVER,
+        };
+
+        let player = self.world.get_player(player_id)?;
+        if let Some(identity) = self.world.player_template_identity(player_id) {
+            let template = identity.resolve_in(self.world.player_template_definitions.as_ref()?)?;
+            return Some(template.get_side());
+        }
+        Some(if player.is_observer {
+            SIDE_OBSERVER
+        } else {
+            match player.team {
+                Team::USA => SIDE_AMERICA,
+                Team::China => SIDE_CHINA,
+                Team::GLA => SIDE_GLA,
+                Team::Neutral => SIDE_CIVILIAN,
+            }
+        })
+    }
+
+    fn player_start_index(&self, player: u32) -> Option<i32> {
+        self.world.get_player(player).map(|player| player.start_position)
+    }
+
+    fn script_area_exists(&mut self, area: &str, current_player: Option<&str>) -> Option<bool> {
+        Some(
+            self.world
+                .qualified_script_area(area, current_player)
+                .is_some_and(|name| self.world.has_qualified_script_area(&name)),
+        )
     }
 
     fn supplies_value_in_perimeter(
@@ -3440,30 +3456,36 @@ impl ScriptExecutionDriver<ScriptEngine> for HostScriptExecutionDriver<'_> {
         })
     }
 
+    fn bridge_damage_states_changed(&self) -> Option<bool> {
+        Some(
+            self.world
+                .world_services
+                .terrain()
+                .read()
+                .is_ok_and(|terrain| terrain.bridge_damage_states_changed()),
+        )
+    }
+
     fn bridge_status(
         &self,
         name: &str,
         this_object: Option<u32>,
-    ) -> ScriptOwnerQuery<ScriptBridgeStatus> {
+    ) -> Option<ScriptBridgeStatus> {
         // Resolve only this world's name/ID pair. The shared named tracker may
         // contain the same ID from a foreign world and is not an owner.
-        let Some(object) = self
+        let bridge = self
             .world
             .owned_named_script_object(name, this_object.map(ObjectId))
-            .and_then(|id| self.world.host_object(id))
-        else {
-            return ScriptOwnerQuery::Missing;
-        };
+            .filter(|id| self.world.host_object(*id).is_some())?;
         let terrain = self
             .world
             .world_services
             .terrain()
             .read()
-            .expect("owned script bridge query");
-        let changed = terrain.bridge_damage_states_changed();
-        ScriptOwnerQuery::Present(ScriptBridgeStatus {
-            broken: changed && terrain.is_bridge_broken(object.id.0),
-            repaired: changed && terrain.is_bridge_repaired(object.id.0),
+            .ok()?;
+        Some(ScriptBridgeStatus {
+            broken: terrain.is_bridge_broken(bridge.0),
+            repaired: terrain.is_bridge_repaired(bridge.0),
         })
     }
 

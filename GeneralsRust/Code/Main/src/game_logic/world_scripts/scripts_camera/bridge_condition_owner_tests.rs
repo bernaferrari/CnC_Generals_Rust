@@ -52,13 +52,10 @@ fn change(world: &mut GameLogic, id: ObjectId, state: BodyDamageType) {
     world.sync_owned_bridge_body_state(id, state);
 }
 
-fn query(world: &GameLogic) -> (bool, bool) {
-    // Exercise the actual production snapshot admission plus condition reads,
-    // through the same world-owned services the snapshot was published to.
-    world.inject_host_script_query_snapshot();
+fn query(world: &mut GameLogic) -> (bool, bool) {
     (
-        gamelogic::scripting::HostScriptQuery::of(&world.world_services).host_bridge_broken("Crossing"),
-        gamelogic::scripting::HostScriptQuery::of(&world.world_services).host_bridge_repaired("Crossing"),
+        execute_bridge_condition(world, "Crossing", false),
+        execute_bridge_condition(world, "Crossing", true),
     )
 }
 
@@ -70,25 +67,25 @@ fn bridge_queries_are_instance_owned_and_do_not_consume_transitions() {
             let (mut first, id) = world();
             let (mut second, other_id) = world();
             assert_eq!(id, other_id);
-            assert_eq!(query(&first), (false, false));
+            assert_eq!(query(&mut first), (false, false));
             change(&mut second, other_id, BodyDamageType::Rubble);
-            assert_eq!(query(&second), (true, false));
+            assert_eq!(query(&mut second), (true, false));
             assert_eq!(
-                query(&first),
+                query(&mut first),
                 (false, false),
                 "foreign same-name bridge is not a repair"
             );
             change(&mut first, id, BodyDamageType::Rubble);
-            assert_eq!(query(&first), (true, false));
+            assert_eq!(query(&mut first), (true, false));
             assert_eq!(
-                query(&first),
+                query(&mut first),
                 (true, false),
                 "script queries do not consume a terrain event"
             );
             second.update_owned_water().unwrap();
-            assert_eq!(query(&second), (false, false));
+            assert_eq!(query(&mut second), (false, false));
             assert_eq!(
-                query(&first),
+                query(&mut first),
                 (true, false),
                 "foreign terrain phase cannot clear our event"
             );
@@ -104,25 +101,25 @@ fn bridge_conditions_require_rubble_transition_and_clear_in_terrain_phase() {
             let (mut world, id) = world();
             change(&mut world, id, BodyDamageType::Damaged);
             assert_eq!(
-                query(&world),
+                query(&mut world),
                 (false, false),
                 "ordinary damage is not repair"
             );
             change(&mut world, id, BodyDamageType::Rubble);
-            assert_eq!(query(&world), (true, false));
+            assert_eq!(query(&mut world), (true, false));
             world.update_owned_water().unwrap();
-            assert_eq!(query(&world), (false, false));
+            assert_eq!(query(&mut world), (false, false));
             change(&mut world, id, BodyDamageType::Rubble);
             assert_eq!(
-                query(&world),
+                query(&mut world),
                 (false, false),
                 "no-op sync cannot relatch break"
             );
             change(&mut world, id, BodyDamageType::Pristine);
-            assert_eq!(query(&world), (false, true));
-            assert_eq!(query(&world), (false, true));
+            assert_eq!(query(&mut world), (false, true));
+            assert_eq!(query(&mut world), (false, true));
             world.update_owned_water().unwrap();
-            assert_eq!(query(&world), (false, false));
+            assert_eq!(query(&mut world), (false, false));
         },
     );
 }
@@ -138,15 +135,16 @@ fn one_bridge_damage_update_does_not_erase_another_bridge_break() {
                 .unwrap();
             world.host_object_mut(second_id).unwrap().name = "OtherCrossing".into();
             attach_bridge(&mut world, second_id, BodyDamageType::Pristine);
+            world.initialize_receiving_named_cache_for_fixture();
             change(&mut world, first_id, BodyDamageType::Rubble);
             change(&mut world, second_id, BodyDamageType::Damaged);
-            assert_eq!(query(&world), (true, false));
-            assert!(!gamelogic::scripting::HostScriptQuery::of(&world.world_services).host_bridge_broken("OtherCrossing"));
-            assert!(!gamelogic::scripting::HostScriptQuery::of(&world.world_services).host_bridge_repaired("OtherCrossing"));
+            assert_eq!(query(&mut world), (true, false));
+            assert!(!execute_bridge_condition(&mut world, "OtherCrossing", false));
+            assert!(!execute_bridge_condition(&mut world, "OtherCrossing", true));
             world.update_owned_water().unwrap();
-            assert_eq!(query(&world), (false, false));
-            assert!(!gamelogic::scripting::HostScriptQuery::of(&world.world_services).host_bridge_broken("OtherCrossing"));
-            assert!(!gamelogic::scripting::HostScriptQuery::of(&world.world_services).host_bridge_repaired("OtherCrossing"));
+            assert_eq!(query(&mut world), (false, false));
+            assert!(!execute_bridge_condition(&mut world, "OtherCrossing", false));
+            assert!(!execute_bridge_condition(&mut world, "OtherCrossing", true));
         },
     );
 }
@@ -158,7 +156,7 @@ fn bridge_query_history_does_not_leak_through_reset_or_detached_restore() {
         || {
             let (mut running, id) = world();
             change(&mut running, id, BodyDamageType::Rubble);
-            assert_eq!(query(&running), (true, false));
+            assert_eq!(query(&mut running), (true, false));
             let builder = SnapshotBuilder::new();
             let snapshot = builder.create_world_snapshot(&running).unwrap();
             let mut candidate = GameLogic::new();
@@ -171,19 +169,19 @@ fn bridge_query_history_does_not_leak_through_reset_or_detached_restore() {
             // Map geometry admission/restoration supplies canonical bridge records;
             // a read cannot invent a transition from the restored health value.
             attach_bridge(&mut candidate, id, BodyDamageType::Rubble);
-            assert_eq!(query(&candidate), (false, false));
+            assert_eq!(query(&mut candidate), (false, false));
             assert_eq!(
-                query(&running),
+                query(&mut running),
                 (true, false),
                 "load candidate never replaces the running latch"
             );
             candidate.reset();
-            assert_eq!(query(&candidate), (false, false));
-            assert_eq!(query(&running), (true, false));
+            assert_eq!(query(&mut candidate), (false, false));
+            assert_eq!(query(&mut running), (true, false));
             drop(candidate);
-            assert_eq!(query(&running), (true, false));
+            assert_eq!(query(&mut running), (true, false));
             running.reset();
-            assert_eq!(query(&running), (false, false));
+            assert_eq!(query(&mut running), (false, false));
             assert!(
                 !running
                     .world_services
@@ -254,13 +252,11 @@ fn real_engine_bridge_conditions_read_the_driving_world_instead_of_foreign_snaps
             assert_eq!(id, other_id);
             change(&mut second, other_id, BodyDamageType::Rubble);
             second.inject_host_script_query_snapshot();
-            assert!(gamelogic::scripting::HostScriptQuery::of(&second.world_services).host_bridge_broken("Crossing"));
             assert!(!execute_bridge_condition(&mut first, "Crossing", false));
             assert!(execute_bridge_condition(&mut second, "Crossing", false));
 
-            // A published false is equally stale when this owner has changed.
+            // Publish the peer's same-name object before reading the live edge.
             first.inject_host_script_query_snapshot();
-            assert!(!gamelogic::scripting::HostScriptQuery::of(&first.world_services).host_bridge_broken("Crossing"));
             assert!(execute_bridge_condition(&mut second, "Crossing", false));
             change(&mut second, other_id, BodyDamageType::Pristine);
             assert!(execute_bridge_condition(&mut second, "Crossing", true));
@@ -281,13 +277,16 @@ fn real_engine_missing_bridge_is_authoritative_even_when_snapshot_has_same_id() 
             let (mut second, other_id) = world();
             assert_eq!(id, other_id);
             first.host_object_mut(id).unwrap().name = "LocalCrossing".into();
+            first.initialize_receiving_named_cache_for_fixture();
+            change(&mut first, id, BodyDamageType::Rubble);
             change(&mut second, other_id, BodyDamageType::Rubble);
             second.inject_host_script_query_snapshot();
-            assert!(gamelogic::scripting::HostScriptQuery::of(&second.world_services).host_bridge_broken("Crossing"));
+            assert!(execute_bridge_condition(&mut first, "LocalCrossing", false));
             assert!(!execute_bridge_condition(&mut first, "Crossing", false));
+            change(&mut first, id, BodyDamageType::Pristine);
             change(&mut second, other_id, BodyDamageType::Pristine);
             second.inject_host_script_query_snapshot();
-            assert!(gamelogic::scripting::HostScriptQuery::of(&second.world_services).host_bridge_repaired("Crossing"));
+            assert!(execute_bridge_condition(&mut first, "LocalCrossing", true));
             assert!(!execute_bridge_condition(&mut first, "Crossing", true));
         },
     );

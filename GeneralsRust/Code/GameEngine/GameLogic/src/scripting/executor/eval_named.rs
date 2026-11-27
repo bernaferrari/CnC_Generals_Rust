@@ -4,7 +4,6 @@
 //! Observable script behavior is unchanged.
 
 use super::*;
-use crate::scripting::engine::{ScriptOwnerQuery, ScriptSightingFilter};
 
 impl ScriptConditionEvaluator<'_> {
     // ============================================================================
@@ -1034,16 +1033,8 @@ impl ScriptConditionEvaluator<'_> {
     pub(crate) fn eval_camera_movement_finished(
         &self,
         _condition: &Condition,
-        driver: &mut dyn ScriptExecutionDriver<crate::scripting::engine::ScriptEngine>,
     ) -> Result<ScriptConditionResult, ScriptError> {
         log::debug!("Evaluating if camera movement finished");
-        if let Some(finished) = driver.camera_movement_finished() {
-            return Ok(if finished {
-                ScriptConditionResult::True
-            } else {
-                ScriptConditionResult::False
-            });
-        }
         if let Some(Some(finished)) = self.context.with_engine_ref(|script_engine| {
             script_engine
                 .action_handler()
@@ -1203,7 +1194,6 @@ impl ScriptConditionEvaluator<'_> {
     pub(crate) fn eval_bridge_repaired(
         &self,
         condition: &Condition,
-        driver: &mut dyn ScriptExecutionDriver<crate::scripting::engine::ScriptEngine>,
     ) -> Result<ScriptConditionResult, ScriptError> {
         let bridge_name = condition
             .get_parameter(0)
@@ -1211,19 +1201,6 @@ impl ScriptConditionEvaluator<'_> {
             .get_string()
             .to_owned();
         log::debug!("Evaluating if bridge '{}' repaired", bridge_name);
-        match driver.bridge_status(
-            &bridge_name,
-            self.context.borrowed_engine().script_object_id(),
-        ) {
-            ScriptOwnerQuery::Present(status) => return Ok(Self::bool_result(status.repaired)),
-            ScriptOwnerQuery::Missing => return Ok(ScriptConditionResult::False),
-            ScriptOwnerQuery::Unavailable => {}
-        }
-        if crate::object::registry::OBJECT_REGISTRY.is_empty() {
-            return Ok(Self::bool_result(self.host_query().host_bridge_repaired(
-                &bridge_name,
-            )));
-        }
         let tracker = get_named_object_tracker();
         let Ok(Some(bridge_id)) = tracker.get_object_id(&bridge_name) else {
             return Ok(ScriptConditionResult::False);
@@ -1242,7 +1219,6 @@ impl ScriptConditionEvaluator<'_> {
     pub(crate) fn eval_bridge_broken(
         &self,
         condition: &Condition,
-        driver: &mut dyn ScriptExecutionDriver<crate::scripting::engine::ScriptEngine>,
     ) -> Result<ScriptConditionResult, ScriptError> {
         let bridge_name = condition
             .get_parameter(0)
@@ -1250,19 +1226,6 @@ impl ScriptConditionEvaluator<'_> {
             .get_string()
             .to_owned();
         log::debug!("Evaluating if bridge '{}' broken", bridge_name);
-        match driver.bridge_status(
-            &bridge_name,
-            self.context.borrowed_engine().script_object_id(),
-        ) {
-            ScriptOwnerQuery::Present(status) => return Ok(Self::bool_result(status.broken)),
-            ScriptOwnerQuery::Missing => return Ok(ScriptConditionResult::False),
-            ScriptOwnerQuery::Unavailable => {}
-        }
-        if crate::object::registry::OBJECT_REGISTRY.is_empty() {
-            return Ok(Self::bool_result(self.host_query().host_bridge_broken(
-                &bridge_name,
-            )));
-        }
         let tracker = get_named_object_tracker();
         let Ok(Some(bridge_id)) = tracker.get_object_id(&bridge_name) else {
             return Ok(ScriptConditionResult::False);
@@ -1330,32 +1293,7 @@ impl ScriptConditionEvaluator<'_> {
     pub(crate) fn eval_enemy_sighted(
         &self,
         condition: &Condition,
-        driver: &dyn ScriptExecutionDriver<crate::scripting::engine::ScriptEngine>,
     ) -> Result<ScriptConditionResult, ScriptError> {
-        // Choose the borrowed owner before any standalone token, registry,
-        // or frozen-host lookup. CPP object/player parameters are literals.
-        let raw = |index| {
-            condition
-                .get_parameter(index)
-                .map(|p| p.get_string())
-                .ok_or_else(|| {
-                    ScriptError::ParameterNotFound(format!("Parameter {index} not found"))
-                })
-        };
-        let engine = self.context.borrowed_engine();
-        let current_player = engine.get_current_player_name();
-        match driver.sighted(
-            raw(0)?,
-            raw(2)?,
-            ScriptSightingFilter::Relationship(self.get_condition_int_param(condition, 1)?),
-            current_player.as_deref(),
-            engine.script_object_id(),
-        ) {
-            ScriptOwnerQuery::Present(found) => return Ok(Self::bool_result(found)),
-            ScriptOwnerQuery::Missing => return Ok(ScriptConditionResult::False),
-            ScriptOwnerQuery::Unavailable => {}
-        }
-
         let unit_name = self.get_condition_string_param(condition, 0)?;
         let alliance = self.get_condition_int_param(condition, 1)?;
         let player_name = self.get_condition_string_param(condition, 2)?;
@@ -1449,34 +1387,7 @@ impl ScriptConditionEvaluator<'_> {
     pub(crate) fn eval_type_sighted(
         &self,
         condition: &Condition,
-        driver: &dyn ScriptExecutionDriver<crate::scripting::engine::ScriptEngine>,
     ) -> Result<ScriptConditionResult, ScriptError> {
-        // Choose the borrowed owner before any standalone token, registry,
-        // or frozen-host lookup. CPP object/player parameters are literals.
-        let raw = |index| {
-            condition
-                .get_parameter(index)
-                .map(|p| p.get_string())
-                .ok_or_else(|| {
-                    ScriptError::ParameterNotFound(format!("Parameter {index} not found"))
-                })
-        };
-        let engine = self.context.borrowed_engine();
-        let current_player = engine.get_current_player_name();
-        let types = self.resolve_object_types_param(raw(1)?);
-        let type_names: Vec<String> = types.iter().map(|t| t.as_str().to_owned()).collect();
-        match driver.sighted(
-            raw(0)?,
-            raw(2)?,
-            ScriptSightingFilter::Types(&type_names),
-            current_player.as_deref(),
-            engine.script_object_id(),
-        ) {
-            ScriptOwnerQuery::Present(found) => return Ok(Self::bool_result(found)),
-            ScriptOwnerQuery::Missing => return Ok(ScriptConditionResult::False),
-            ScriptOwnerQuery::Unavailable => {}
-        }
-
         let unit_name = self.get_condition_string_param(condition, 0)?;
         let type_or_list_name = self.get_condition_string_param(condition, 1)?;
         let player_name = self.get_condition_string_param(condition, 2)?;
@@ -1568,16 +1479,6 @@ impl ScriptConditionEvaluator<'_> {
             return Ok(ScriptConditionResult::True);
         }
 
-        Ok(ScriptConditionResult::False)
-    }
-
-    pub(crate) fn eval_mission_attempts(
-        &self,
-        _condition: &Condition,
-    ) -> Result<ScriptConditionResult, ScriptError> {
-        // C++ evaluateMissionAttempts has the [SIDE, COMPARISON, INT] template, but the
-        // implementation does not read any parameters and always returns false.
-        log::debug!("Evaluating unimplemented C++ mission-attempts condition");
         Ok(ScriptConditionResult::False)
     }
 

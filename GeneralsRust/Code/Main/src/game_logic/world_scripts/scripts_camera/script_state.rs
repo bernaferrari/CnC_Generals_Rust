@@ -555,17 +555,6 @@ impl GameLogic {
                         bounds.hi.y as f32,
                     ));
             }
-            // C++ ScriptConditions.cpp:244–272 checks the latch before resolving
-            // a bridge. Reuse the already captured registration order when it fires.
-            snap.any_bridges_damage_states_changed = terrain.bridge_damage_states_changed();
-            if snap.any_bridges_damage_states_changed {
-                for object in snap.objects.iter().filter(|object| !object.name.is_empty()) {
-                    snap.named_bridge_broken
-                        .insert(object.name.clone(), terrain.is_bridge_broken(object.id));
-                    snap.named_bridge_repaired
-                        .insert(object.name.clone(), terrain.is_bridge_repaired(object.id));
-                }
-            }
         }
         self.capture_host_player_and_tech_census(&mut snap);
         gamelogic::scripting::HostScriptQuery::of(&self.world_services).set_host_script_query_snapshot(snap);

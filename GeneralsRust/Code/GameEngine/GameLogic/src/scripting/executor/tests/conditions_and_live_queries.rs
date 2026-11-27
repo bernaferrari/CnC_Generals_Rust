@@ -1532,7 +1532,10 @@ fn live_named_created_true_from_host_snapshot() {
 
 #[test]
 fn enemy_and_type_sighted_dispatch_to_the_owned_query() {
-    use crate::scripting::engine::{ScriptExecutionDriver, ScriptOwnerQuery, ScriptSightingFilter};
+    use crate::scripting::engine::{ScriptExecutionDriver, ScriptOwnerQuery};
+    use game_engine::common::game_common::Relationship;
+    use generals_sim::scripting::world::ScriptSightingFilter;
+
     struct SightingOwner {
         visible: bool,
     }
@@ -1540,23 +1543,43 @@ fn enemy_and_type_sighted_dispatch_to_the_owned_query() {
         fn after_action(&mut self) -> crate::GameLogicResult<()> {
             Ok(())
         }
-        fn sighted(
+
+        fn sighting_observer(
             &self,
             unit: &str,
-            player: &str,
-            filter: ScriptSightingFilter<'_>,
-            current_player: Option<&str>,
             this_object: Option<u32>,
-        ) -> ScriptOwnerQuery<bool> {
+        ) -> ScriptOwnerQuery<u32> {
             assert_eq!(unit, "LookerScout");
-            assert_eq!(player, "PlyrGLA");
-            assert_eq!(current_player, None);
             assert_eq!(this_object, None);
+            ScriptOwnerQuery::Present(7)
+        }
+
+        fn condition_player_id(
+            &mut self,
+            player: &str,
+            cached: u32,
+            current_player: Option<&str>,
+        ) -> ScriptOwnerQuery<u32> {
+            assert_eq!(player, "PlyrGLA");
+            assert!(matches!(cached, 0 | 4));
+            assert_eq!(current_player, None);
+            ScriptOwnerQuery::Present(2)
+        }
+
+        fn any_sighted_object(
+            &self,
+            observer: u32,
+            player: u32,
+            filter: ScriptSightingFilter<'_>,
+        ) -> bool {
+            assert_eq!((observer, player), (7, 2));
             match filter {
-                ScriptSightingFilter::Relationship(alliance) => assert_eq!(alliance, 0),
+                ScriptSightingFilter::Relationship(alliance) => {
+                    assert_eq!(alliance, Relationship::Enemies);
+                }
                 ScriptSightingFilter::Types(names) => assert_eq!(names, &["AmericaRanger"]),
             }
-            ScriptOwnerQuery::Present(self.visible)
+            self.visible
         }
     }
     let dispatch_engine = crate::scripting::engine::ScriptEngine::new_in_published_world().unwrap();
@@ -2416,19 +2439,22 @@ fn live_skirmish_leftover_conditions_read_host_snapshot() {
 
 #[test]
 fn bridge_broken_reads_host_named_state_only_on_damage_edge() {
-    use crate::scripting::engine::{ScriptBridgeStatus, ScriptExecutionDriver, ScriptOwnerQuery};
+    use crate::scripting::engine::{ScriptBridgeStatus, ScriptExecutionDriver};
     // Dispatch contract; Main bridge_condition_owner_tests exercises actual
     // terrain state edges, frame gates, save/load and nonconsuming queries.
-    struct BridgeOwner(ScriptOwnerQuery<ScriptBridgeStatus>);
+    struct BridgeOwner(Option<ScriptBridgeStatus>);
     impl ScriptExecutionDriver<crate::scripting::engine::ScriptEngine> for BridgeOwner {
         fn after_action(&mut self) -> GameLogicResult<()> {
             Ok(())
+        }
+        fn bridge_damage_states_changed(&self) -> Option<bool> {
+            Some(self.0.is_some())
         }
         fn bridge_status(
             &self,
             name: &str,
             _this_object: Option<u32>,
-        ) -> ScriptOwnerQuery<ScriptBridgeStatus> {
+        ) -> Option<ScriptBridgeStatus> {
             assert_eq!(name, "ConvoyBridge");
             self.0
         }
@@ -2450,10 +2476,10 @@ fn bridge_broken_reads_host_named_state_only_on_damage_edge() {
             "ConvoyBridge".into(),
         ))
         .unwrap();
-    let mut owner = BridgeOwner(ScriptOwnerQuery::Missing);
+    let mut owner = BridgeOwner(None);
     assert_eq!(
         evaluator
-            .evaluate_condition_with_driver(&mut broken, &mut owner)
+            .evaluate_condition_with_driver(&mut Condition::new(ConditionType::BridgeBroken), &mut owner)
             .unwrap(),
         ScriptConditionResult::False
     );
@@ -2483,7 +2509,7 @@ fn bridge_broken_reads_host_named_state_only_on_damage_edge() {
             ScriptConditionResult::True,
         ),
     ] {
-        owner.0 = ScriptOwnerQuery::Present(status);
+        owner.0 = Some(status);
         assert_eq!(
             evaluator
                 .evaluate_condition_with_driver(&mut broken, &mut owner)

@@ -32,7 +32,6 @@ pub use generals_sim::scripting::world::{
     ScriptPlayerRankRequest,
     ScriptPlayerTeamRelationship,
     ScriptSelectionStatus,
-    ScriptSightingFilter,
     ScriptSkirmishCensus,
     ScriptSpecialPowerReadiness,
     ScriptSupplyQuery,

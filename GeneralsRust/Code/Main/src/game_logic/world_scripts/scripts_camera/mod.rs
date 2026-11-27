@@ -306,6 +306,9 @@ mod condition_cursor_owner_tests;
 mod sighting_owner_tests;
 
 #[cfg(test)]
+mod map_condition_owner_tests;
+
+#[cfg(test)]
 mod condition_body_census_tests;
 
 #[cfg(test)]

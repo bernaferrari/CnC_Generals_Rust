@@ -650,9 +650,6 @@ impl ScriptEvaluator {
                     )
                 })?;
                 let bridge_name = bridge_param.get_string();
-                if crate::object::registry::OBJECT_REGISTRY.is_empty() {
-                    return Ok(self.host_query().host_bridge_repaired(bridge_name));
-                }
                 let tracker = get_named_object_tracker();
                 let Some(object_id) = tracker.get_object_id(bridge_name).ok().flatten() else {
                     return Ok(false);
@@ -674,9 +671,6 @@ impl ScriptEvaluator {
                     )
                 })?;
                 let bridge_name = bridge_param.get_string();
-                if crate::object::registry::OBJECT_REGISTRY.is_empty() {
-                    return Ok(self.host_query().host_bridge_broken(bridge_name));
-                }
                 let tracker = get_named_object_tracker();
                 let Some(object_id) = tracker.get_object_id(bridge_name).ok().flatten() else {
                     return Ok(false);

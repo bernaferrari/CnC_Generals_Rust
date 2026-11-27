@@ -102,6 +102,11 @@ impl ScriptInterpreter {
         {
             return Ok(Some(value));
         }
+        if let Some(value) =
+            self.try_evaluate_map_condition(condition, queries.receiving_world())?
+        {
+            return Ok(Some(value));
+        }
         if let Some(value) = self.try_evaluate_named_condition(condition, queries)? {
             return Ok(Some(value));
         }
