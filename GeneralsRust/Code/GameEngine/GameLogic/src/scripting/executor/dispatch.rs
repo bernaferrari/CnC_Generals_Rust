@@ -1311,21 +1311,33 @@ impl ScriptActionDispatcher<'_> {
             ScriptActionType::DisableInput => self.do_disable_input(driver),
             ScriptActionType::EnableInput => self.do_enable_input(driver),
 
-            // ============================================================================
-            // COUNTER/FLAG/TIMER ACTIONS - Core scripting state
-            // ============================================================================
-            ScriptActionType::SetFlag => self.do_set_flag(action),
-            ScriptActionType::SetCounter => self.do_set_counter(action),
-            ScriptActionType::IncrementCounter => self.do_increment_counter(action),
-            ScriptActionType::DecrementCounter => self.do_decrement_counter(action),
-            ScriptActionType::SetTimer => self.do_set_timer(action),
-            ScriptActionType::SetMillisecondTimer => self.do_set_millisecond_timer(action),
-            ScriptActionType::SetRandomTimer => self.do_set_random_timer(action),
-            ScriptActionType::SetRandomMsecTimer => self.do_set_random_msec_timer(action),
-            ScriptActionType::StopTimer => self.do_stop_timer(action),
-            ScriptActionType::RestartTimer => self.do_restart_timer(action),
-            ScriptActionType::AddToMsecTimer => self.do_add_to_msec_timer(action),
-            ScriptActionType::SubFromMsecTimer => self.do_sub_from_msec_timer(action),
+            ScriptActionType::SetFlag
+            | ScriptActionType::SetCounter
+            | ScriptActionType::IncrementCounter
+            | ScriptActionType::DecrementCounter
+            | ScriptActionType::SetTimer
+            | ScriptActionType::SetMillisecondTimer
+            | ScriptActionType::SetRandomTimer
+            | ScriptActionType::SetRandomMsecTimer
+            | ScriptActionType::StopTimer
+            | ScriptActionType::RestartTimer
+            | ScriptActionType::AddToMsecTimer
+            | ScriptActionType::SubFromMsecTimer => self
+                .context
+                .borrowed_engine()
+                .interpreter()
+                .execute_variable_action(
+                    action,
+                    |low, high| match driver.logic_random() {
+                        Some(random) => random.next_int(low, high),
+                        None => get_game_logic_random_value(low, high),
+                    },
+                    |low, high| match driver.logic_random() {
+                        Some(random) => random.next_real(low, high),
+                        None => get_game_logic_random_value_real(low, high),
+                    },
+                )
+                .map(|()| ScriptActionResult::Success),
 
             // ============================================================================
             // SCRIPT CONTROL ACTIONS

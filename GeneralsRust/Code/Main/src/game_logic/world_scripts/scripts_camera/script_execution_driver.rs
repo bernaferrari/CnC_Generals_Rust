@@ -1,5 +1,6 @@
 //! Live synchronous Main owner for one ScriptEngine action walk.
 use super::*;
+use game_engine::common::random_value::SessionRandom;
 use game_engine::common::rts::science::ScienceType;
 use game_engine::common::game_common::Relationship;
 use gamelogic::scripting::ScriptSurfacesAllowed;
@@ -210,6 +211,10 @@ impl HostScriptExecutionDriver<'_> {
 }
 
 impl ScriptExecutionDriver<ScriptEngine> for HostScriptExecutionDriver<'_> {
+    fn logic_random(&self) -> Option<&SessionRandom> {
+        Some(&self.world.logic_random)
+    }
+
     fn script_player_name_token(
         &mut self,
         raw: &str,

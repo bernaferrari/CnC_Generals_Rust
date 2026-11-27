@@ -815,6 +815,10 @@ impl ScriptEngine {
         }
     }
 
+    pub(crate) fn interpreter(&self) -> &ScriptInterpreter {
+        &self.runtime
+    }
+
     /// Scoped shared read of inner state. The `&ScriptEngineInner` cannot escape `f`.
     ///
     /// Panics if an `InnerMutGuard` is live (`RefCell` already borrowed).

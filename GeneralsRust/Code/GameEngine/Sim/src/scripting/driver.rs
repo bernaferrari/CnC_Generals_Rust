@@ -8,6 +8,7 @@ use super::world::*;
 use crate::{GameLogicResult, science::ScienceAvailabilityType};
 use game_engine::common::{
     message_stream::ObjectID,
+    random_value::SessionRandom,
     rts::{ScienceType, team::TeamID},
 };
 use glam::Vec3;
@@ -17,6 +18,11 @@ use glam::Vec3;
 /// The interpreter argument is used at the two team callbacks that may re-enter
 /// the same script walk. It is supplied by the running interpreter.
 pub trait ScriptExecutionDriver<Interpreter: ?Sized> {
+    /// The receiving world's logic stream for authored random timers.
+    fn logic_random(&self) -> Option<&SessionRandom> {
+        None
+    }
+
     fn music_track_completed(
         &mut self,
         _track: &str,

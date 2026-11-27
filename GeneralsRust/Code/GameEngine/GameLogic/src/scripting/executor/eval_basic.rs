@@ -1,4 +1,4 @@
-//! Condition dispatch plus OR/AND, counter, flag, timer, player, and team evaluators
+//! Condition dispatch plus OR/AND, player, and team evaluators
 //!
 //! Split from `scripting/executor.rs` for module-size parity.
 //! Observable script behavior is unchanged.
@@ -493,14 +493,20 @@ impl ScriptConditionEvaluator<'_> {
 
         // Dispatch to the appropriate handler based on condition type
         match condition_type {
-            // ============================================================================
-            // BASIC CONDITIONS
-            // ============================================================================
-            ConditionType::ConditionFalse => Ok(ScriptConditionResult::False),
-            ConditionType::ConditionTrue => Ok(ScriptConditionResult::True),
-            ConditionType::Counter => self.eval_counter(condition),
-            ConditionType::Flag => self.eval_flag(condition),
-            ConditionType::TimerExpired => self.eval_timer_expired(condition),
+            ConditionType::ConditionTrue
+            | ConditionType::ConditionFalse
+            | ConditionType::Counter
+            | ConditionType::Flag
+            | ConditionType::TimerExpired => self
+                .context
+                .borrowed_engine()
+                .interpreter()
+                .evaluate_variable_condition(
+                    condition,
+                    |name| self.resolve_string_token(name),
+                    || self.context.with_engine_ref(|_| ()).is_some(),
+                )
+                .map(bool_result),
 
             // ============================================================================
             // PLAYER CONDITIONS
@@ -787,111 +793,6 @@ impl ScriptConditionEvaluator<'_> {
             ScriptConditionResult::False => Ok(false),
             ScriptConditionResult::Error(message) => Err(ScriptError::EvaluationFailed(message)),
         }
-    }
-
-    // ============================================================================
-    // BASIC CONDITION HANDLERS
-    // ============================================================================
-
-    /// C++ Reference: ScriptEngine::evaluateCounter() line 6319-6332
-    pub(crate) fn eval_counter(
-        &self,
-        condition: &Condition,
-    ) -> Result<ScriptConditionResult, ScriptError> {
-        let counter_name = self.get_condition_string_param(condition, 0)?;
-        let comparison = self.get_condition_comparison_param(condition, 1)?;
-        let target_value = self.get_condition_int_param(condition, 2)?;
-        log::debug!(
-            "Evaluating counter '{}' {:?} {}",
-            counter_name,
-            comparison,
-            target_value
-        );
-
-        // Get counter value from script engine
-        let counter_value = self
-            .context
-            .with_engine_ref(|engine| {
-                engine
-                    .get_counter(&counter_name)
-                    .map(|counter| counter.value)
-                    .unwrap_or(0)
-            })
-            .unwrap_or(0);
-
-        // Perform comparison matching C++ ScriptEngine::evaluateCounter()
-        let result = match comparison {
-            ComparisonType::LessThan => counter_value < target_value,
-            ComparisonType::LessEqual => counter_value <= target_value,
-            ComparisonType::Equal => counter_value == target_value,
-            ComparisonType::GreaterEqual => counter_value >= target_value,
-            ComparisonType::Greater => counter_value > target_value,
-            ComparisonType::NotEqual => counter_value != target_value,
-        };
-
-        Ok(if result {
-            ScriptConditionResult::True
-        } else {
-            ScriptConditionResult::False
-        })
-    }
-
-    /// C++ Reference: ScriptEngine::evaluateFlag() line 6442-6460
-    pub(crate) fn eval_flag(
-        &self,
-        condition: &Condition,
-    ) -> Result<ScriptConditionResult, ScriptError> {
-        let flag_name = self.get_condition_string_param(condition, 0)?;
-        let expected = self.get_condition_bool_param(condition, 1)?;
-        log::debug!("Evaluating flag '{}' == {}", flag_name, expected);
-
-        // Re-entrant: nested under CALL_SUBROUTINE may hold the engine write lock.
-        // C++: stored flag == expected, else any matching `m_uiInteractions` name
-        // is true for this frame (cleared at the end of ScriptEngine::update).
-        let matched = self
-            .context
-            .with_engine_ref(|engine| {
-                let flag_value = engine
-                    .get_flag(&flag_name)
-                    .map(|f| f.value)
-                    .unwrap_or(false);
-                flag_value == expected || engine.has_ui_interaction(&flag_name)
-            })
-            .unwrap_or(false);
-
-        Ok(if matched {
-            ScriptConditionResult::True
-        } else {
-            ScriptConditionResult::False
-        })
-    }
-
-    /// C++ Reference: ScriptEngine::evaluateTimerExpired() line 6700-6710
-    /// Timers are counters with is_countdown_timer=true. Expired when value <= 0.
-    pub(crate) fn eval_timer_expired(
-        &self,
-        condition: &Condition,
-    ) -> Result<ScriptConditionResult, ScriptError> {
-        let timer_name = self.get_condition_string_param(condition, 0)?;
-        log::debug!("Evaluating if timer '{}' expired", timer_name);
-
-        // Re-entrant: nested under CALL_SUBROUTINE may hold the engine write lock.
-        // Timers are counters with is_countdown_timer; expired when value <= 0.
-        let is_expired = self
-            .context
-            .with_engine_ref(|engine| {
-                engine
-                    .get_counter(&timer_name)
-                    .map(|counter| counter.is_countdown_timer && counter.value <= 0)
-                    .unwrap_or(false)
-            })
-            .unwrap_or(false);
-
-        Ok(if is_expired {
-            ScriptConditionResult::True
-        } else {
-            ScriptConditionResult::False
-        })
     }
 
     // ============================================================================
@@ -2314,17 +2215,6 @@ impl ScriptConditionEvaluator<'_> {
             .map(|p| p.get_real())
     }
 
-    pub(crate) fn get_condition_bool_param(
-        &self,
-        condition: &Condition,
-        index: usize,
-    ) -> Result<bool, ScriptError> {
-        condition
-            .get_parameter(index)
-            .ok_or_else(|| ScriptError::ParameterNotFound(format!("Parameter {} not found", index)))
-            .map(|p| p.get_int() != 0)
-    }
-
     pub(crate) fn get_condition_comparison_param(
         &self,
         condition: &Condition,
@@ -2340,14 +2230,7 @@ impl ScriptConditionEvaluator<'_> {
     }
 
     pub(crate) fn compare_i32(comparison: ComparisonType, lhs: i32, rhs: i32) -> bool {
-        match comparison {
-            ComparisonType::LessThan => lhs < rhs,
-            ComparisonType::LessEqual => lhs <= rhs,
-            ComparisonType::Equal => lhs == rhs,
-            ComparisonType::GreaterEqual => lhs >= rhs,
-            ComparisonType::Greater => lhs > rhs,
-            ComparisonType::NotEqual => lhs != rhs,
-        }
+        comparison.compare_i32(lhs, rhs)
     }
 
     pub(crate) fn compare_f32(comparison: ComparisonType, lhs: f32, rhs: f32) -> bool {

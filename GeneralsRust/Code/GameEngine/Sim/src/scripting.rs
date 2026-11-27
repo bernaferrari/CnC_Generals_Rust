@@ -16,6 +16,7 @@ pub mod program_install;
 pub mod sequential_scripts;
 pub mod side_scripts;
 pub mod team_scripts;
+mod variable_commands;
 pub mod variables;
 pub mod world;
 
@@ -29,6 +30,31 @@ pub enum ScriptActionResult {
     /// Frames remaining.
     Pending(f32),
     Failed(String),
+}
+
+/// Failure to decode or execute an authored script operation.
+#[derive(Debug, Clone, thiserror::Error)]
+pub enum ScriptError {
+    #[error("Parameter not found: {0}")]
+    ParameterNotFound(String),
+    #[error("Invalid parameter type: {0}")]
+    InvalidParameterType(String),
+    #[error("Team not found: {0}")]
+    TeamNotFound(String),
+    #[error("Player not found: {0}")]
+    PlayerNotFound(String),
+    #[error("Object not found: {0}")]
+    ObjectNotFound(String),
+    #[error("Execution failed: {0}")]
+    ExecutionFailed(String),
+    #[error("Evaluation failed: {0}")]
+    EvaluationFailed(String),
+}
+
+impl ScriptError {
+    pub(crate) fn missing_parameter(index: usize) -> Self {
+        Self::ParameterNotFound(format!("Parameter {index} not found"))
+    }
 }
 
 pub const MY_INNER_PERIMETER: &str = "[Skirmish]MyInnerPerimeter";

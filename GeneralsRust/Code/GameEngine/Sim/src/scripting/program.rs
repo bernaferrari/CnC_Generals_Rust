@@ -31,6 +31,17 @@ pub enum ComparisonType {
 }
 
 impl ComparisonType {
+    pub fn compare_i32(self, lhs: i32, rhs: i32) -> bool {
+        match self {
+            Self::LessThan => lhs < rhs,
+            Self::LessEqual => lhs <= rhs,
+            Self::Equal => lhs == rhs,
+            Self::GreaterEqual => lhs >= rhs,
+            Self::Greater => lhs > rhs,
+            Self::NotEqual => lhs != rhs,
+        }
+    }
+
     /// Decode the comparison ordinal authored in a script parameter.
     pub fn from_i32(value: i32) -> Option<Self> {
         Some(match value {

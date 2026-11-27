@@ -1092,42 +1092,7 @@ mod host_script_queue_ownership_tests {
 }
 
 
-/// Script execution error
-#[derive(Debug, Clone)]
-pub enum ScriptError {
-    /// Parameter not found
-    ParameterNotFound(String),
-    /// Invalid parameter type
-    InvalidParameterType(String),
-    /// Team not found
-    TeamNotFound(String),
-    /// Player not found
-    PlayerNotFound(String),
-    /// Object not found
-    ObjectNotFound(String),
-    /// Action execution failed
-    ExecutionFailed(String),
-    /// Condition evaluation failed
-    EvaluationFailed(String),
-}
-
-impl std::fmt::Display for ScriptError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            ScriptError::ParameterNotFound(s) => write!(f, "Parameter not found: {}", s),
-            ScriptError::InvalidParameterType(s) => write!(f, "Invalid parameter type: {}", s),
-            ScriptError::TeamNotFound(s) => write!(f, "Team not found: {}", s),
-            ScriptError::PlayerNotFound(s) => write!(f, "Player not found: {}", s),
-            ScriptError::ObjectNotFound(s) => write!(f, "Object not found: {}", s),
-            ScriptError::ExecutionFailed(s) => write!(f, "Execution failed: {}", s),
-            ScriptError::EvaluationFailed(s) => write!(f, "Evaluation failed: {}", s),
-        }
-    }
-}
-
-impl std::error::Error for ScriptError {}
-
-pub use generals_sim::scripting::ScriptActionResult;
+pub use generals_sim::scripting::{ScriptActionResult, ScriptError};
 
 /// Script condition evaluation result
 #[derive(Debug, Clone, PartialEq)]
