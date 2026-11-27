@@ -1272,15 +1272,6 @@ pub struct ScriptConditionEvaluator<'engine> {
 }
 
 impl<'engine> ScriptConditionEvaluator<'engine> {
-    /// C++ `TheAudio` of the engine running this script, never the one
-    /// published on the thread.
-    fn the_audio(&self) -> Option<crate::helpers::TheAudio> {
-        self.context
-            .borrowed_engine()
-            .owning_world_services()
-            .map(|world| crate::helpers::TheAudio::of(&world))
-    }
-
     /// C++ the host facts of the engine running this script (its own
     /// world's snapshot), never the world published on the thread.
     fn host_query(&self) -> crate::scripting::HostScriptQuery {

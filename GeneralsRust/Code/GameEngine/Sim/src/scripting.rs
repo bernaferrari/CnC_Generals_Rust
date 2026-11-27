@@ -8,6 +8,7 @@ pub mod events;
 pub mod frame;
 pub mod interpreter;
 pub mod map_reveals;
+pub mod media_conditions;
 pub mod radar;
 pub mod named_objects;
 pub mod object_types;

@@ -4,6 +4,7 @@ use crate::scripting::executor::{
     ScriptActionDispatcher, ScriptActionResult, ScriptConditionEvaluator, ScriptError,
 };
 use game_engine::common::system::kind_of::KindOfMask;
+use generals_sim::scripting::media_conditions::ScriptMediaQueries;
 
 struct ScriptProgramWorld<'engine, 'context> {
     engine: &'engine ScriptEngine,
@@ -79,6 +80,10 @@ impl ScriptProgramDriver for ScriptProgramWorld<'_, '_> {
         }
     }
 
+    fn media_queries(&mut self) -> impl ScriptMediaQueries + '_ {
+        self.engine.media_queries(self.execution.driver)
+    }
+
     fn evaluate_world_condition(&mut self, condition: &mut Condition) -> GameLogicResult<bool> {
         self.evaluator
             .evaluate_condition_truth_with_driver(condition, self.execution.driver)
@@ -122,6 +127,35 @@ impl ScriptProgramDriver for ScriptProgramWorld<'_, '_> {
         self.engine
             .observe_object_count_changed_frame(self.execution.driver);
         Ok(())
+    }
+}
+
+struct ScriptWorldMedia<'a> {
+    engine: &'a ScriptEngine,
+    driver: &'a mut dyn ScriptExecutionDriver<ScriptEngine>,
+}
+
+impl ScriptMediaQueries for ScriptWorldMedia<'_> {
+    fn audio_duration_ms(&self, name: &str) -> f32 {
+        self.driver
+            .script_audio_duration_ms(name)
+            .unwrap_or_else(|| self.engine.standalone_audio_duration_ms(name))
+    }
+
+    fn music_track_completed(&mut self, name: &str, times: i32) -> Result<bool, ScriptError> {
+        if let Some(result) = self.driver.music_track_completed(name, times) {
+            return result.map_err(|error| ScriptError::ExecutionFailed(error.to_string()));
+        }
+        if let Some(Some(finished)) = self.engine.with_execution_read(|engine| {
+            engine
+                .action_handler()
+                .map(|handler| handler.has_music_track_completed(name, times))
+        }) {
+            return Ok(finished);
+        }
+        Ok(self.engine.owning_world_services().is_some_and(|world| {
+            TheAudio::of(&world).has_music_track_completed(name, times)
+        }))
     }
 }
 
@@ -203,6 +237,13 @@ fn script_difficulty(difficulty: crate::player::GameDifficulty) -> ScriptDifficu
 }
 
 impl ScriptEngine {
+    pub(crate) fn media_queries<'a>(
+        &'a self,
+        driver: &'a mut dyn ScriptExecutionDriver<ScriptEngine>,
+    ) -> impl ScriptMediaQueries + 'a {
+        ScriptWorldMedia { engine: self, driver }
+    }
+
     pub(crate) fn execute_local_control_action(
         &self,
         action: &ScriptAction,

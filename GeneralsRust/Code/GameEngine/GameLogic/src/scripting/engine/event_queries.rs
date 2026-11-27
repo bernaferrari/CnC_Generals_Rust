@@ -150,10 +150,14 @@ impl ScriptEngine {
     ) -> bool {
         self.runtime.events()
             .timed_media_complete(kind, name, frame, remove, || {
-                self.owning_world_services().map_or(0.0, |world| {
-                    let event = crate::common::audio::AudioEventRts::new(name);
-                    TheAudio::of(&world).get_audio_length_ms(&event)
-                })
+                self.standalone_audio_duration_ms(name)
             })
+    }
+
+    pub(super) fn standalone_audio_duration_ms(&self, name: &str) -> f32 {
+        self.owning_world_services().map_or(0.0, |world| {
+            let event = crate::common::audio::AudioEventRts::new(name);
+            TheAudio::of(&world).get_audio_length_ms(&event)
+        })
     }
 }

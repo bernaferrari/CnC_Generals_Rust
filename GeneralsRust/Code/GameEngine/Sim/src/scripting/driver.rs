@@ -23,6 +23,11 @@ pub trait ScriptExecutionDriver<Interpreter: ?Sized> {
         None
     }
 
+    /// A supplied duration, including zero, is authoritative for this world.
+    fn script_audio_duration_ms(&self, _name: &str) -> Option<f32> {
+        None
+    }
+
     fn music_track_completed(
         &mut self,
         _track: &str,

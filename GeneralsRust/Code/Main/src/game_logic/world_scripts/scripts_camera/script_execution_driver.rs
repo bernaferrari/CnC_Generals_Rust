@@ -215,6 +215,11 @@ impl ScriptExecutionDriver<ScriptEngine> for HostScriptExecutionDriver<'_> {
         Some(&self.world.logic_random)
     }
 
+    fn script_audio_duration_ms(&self, name: &str) -> Option<f32> {
+        let event = gamelogic::common::audio::AudioEventRts::new(name);
+        Some(gamelogic::helpers::TheAudio::of(&self.world.world_services).get_audio_length_ms(&event))
+    }
+
     fn script_player_name_token(
         &mut self,
         raw: &str,

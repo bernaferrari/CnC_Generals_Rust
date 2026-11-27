@@ -203,9 +203,6 @@ impl ScriptEvents {
         consume: bool,
         duration_ms: impl FnOnce() -> f32,
     ) -> bool {
-        if name.trim().is_empty() {
-            return false;
-        }
         let mut history = self.history.borrow_mut();
         let list = history.media_list_mut(kind);
         let position = list

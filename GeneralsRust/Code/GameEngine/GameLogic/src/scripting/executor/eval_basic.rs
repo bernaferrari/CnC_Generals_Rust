@@ -497,8 +497,7 @@ impl ScriptConditionEvaluator<'_> {
             | ConditionType::ConditionFalse
             | ConditionType::Counter
             | ConditionType::Flag
-            | ConditionType::TimerExpired
-            | ConditionType::HasFinishedVideo => self
+            | ConditionType::TimerExpired => self
                 .context
                 .borrowed_engine()
                 .interpreter()
@@ -674,10 +673,22 @@ impl ScriptConditionEvaluator<'_> {
             // ============================================================================
             // MEDIA CONDITIONS
             // ============================================================================
-            ConditionType::HasFinishedSpeech => self.eval_has_finished_speech(condition, driver),
-            ConditionType::HasFinishedAudio => self.eval_has_finished_audio(condition, driver),
-            ConditionType::MusicTrackHasCompleted => {
-                self.eval_music_track_has_completed(condition, driver)
+            ConditionType::HasFinishedVideo
+            | ConditionType::HasFinishedSpeech
+            | ConditionType::HasFinishedAudio
+            | ConditionType::MusicTrackHasCompleted => {
+                let frame = self.context.with_state(|state| state.current_frame);
+                let engine = self.context.borrowed_engine();
+                let value = engine.interpreter().try_evaluate_media_condition(
+                    condition,
+                    frame,
+                    &mut engine.media_queries(driver),
+                )?;
+                value.map(bool_result).ok_or_else(|| {
+                    ScriptError::EvaluationFailed(format!(
+                        "Expected media condition, got {condition_type:?}"
+                    ))
+                })
             }
 
             // ============================================================================

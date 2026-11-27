@@ -228,8 +228,12 @@ mod tests {
     #[test]
     fn has_finished_speech_uses_audio_length_not_one_frame() {
         let engine = gamelogic::scripting::engine::ScriptEngine::new_in_published_world().unwrap();
-        assert!(!engine.is_speech_complete_at_frame("", false, 10));
+        // The C++ lookup returns zero for the missing audio event, so it is due now.
+        assert!(engine.is_speech_complete_at_frame("", false, 10));
         let mut tail = engine.snapshot_xfer_tail();
+        assert_eq!(tail.testing_speech, [(String::new(), 10)]);
+        assert!(engine.is_speech_complete_at_frame("", true, 10));
+        assert!(engine.snapshot_xfer_tail().testing_speech.is_empty());
         // C++ 5-second audio length at30 logic FPS completes150 frames later.
         tail.testing_speech = vec![("Briefing".into(), 160)];
         engine.restore_xfer_tail(&tail);
@@ -246,8 +250,11 @@ mod tests {
     #[test]
     fn has_finished_audio_uses_the_audio_length_not_one_frame() {
         let engine = gamelogic::scripting::engine::ScriptEngine::new_in_published_world().unwrap();
-        assert!(!engine.is_audio_complete_at_frame("", false, 10));
+        assert!(engine.is_audio_complete_at_frame("", false, 10));
         let mut tail = engine.snapshot_xfer_tail();
+        assert_eq!(tail.testing_audio, [(String::new(), 10)]);
+        assert!(engine.is_audio_complete_at_frame("", true, 10));
+        assert!(engine.snapshot_xfer_tail().testing_audio.is_empty());
         tail.testing_audio = vec![("Boom".into(), 160)];
         engine.restore_xfer_tail(&tail);
         for frame in [10, 11, 159] {

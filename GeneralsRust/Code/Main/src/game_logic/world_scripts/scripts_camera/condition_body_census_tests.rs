@@ -110,6 +110,7 @@ fn scripted_music_completion_uses_receiving_device_receipts_and_reset() {
     use crate::subsystem_manager::{AudioManagerSubsystem, SubsystemManager};
     use game_engine::common::audio::{AudioEventInfo, AudioEventRts, AudioManager, AudioType};
     use game_engine::common::audio::game_audio::SoundPlaybackHook;
+    use generals_sim::scripting::program::THIS_TEAM;
     use std::sync::{Arc, Mutex};
 
     struct Playback;
@@ -125,7 +126,9 @@ fn scripted_music_completion_uses_receiving_device_receipts_and_reset() {
     }
     fn evaluate(world: &mut GameLogic, owner: &mut SubsystemManager, times: i32) -> bool {
         let mut condition = Condition::new(ConditionType::MusicTrackHasCompleted);
-        condition.add_parameter(Parameter::with_string(ParameterType::Music, "SharedMusic".into())).unwrap();
+        condition
+            .add_parameter(Parameter::with_string(ParameterType::Music, THIS_TEAM.into()))
+            .unwrap();
         condition.add_parameter(Parameter::with_int(ParameterType::Int, times)).unwrap();
         let mut branch = OrCondition::new();
         branch.set_first_and_condition(Some(Box::new(condition)));
@@ -157,10 +160,10 @@ fn scripted_music_completion_uses_receiving_device_receipts_and_reset() {
     let mut owners = [SubsystemManager::new(), SubsystemManager::new()];
     for (index, owner) in owners.iter_mut().enumerate() {
         let handle = 1001 + index as u32;
-        let mut event = AudioEventRts::with_event_name("SharedMusic");
+        let mut event = AudioEventRts::with_event_name(THIS_TEAM);
         event.set_playing_handle(handle);
         event.set_audio_event_info(Arc::new(AudioEventInfo {
-            audio_name: "SharedMusic".into(),
+            audio_name: THIS_TEAM.into(),
             sound_type: AudioType::Music,
             ..Default::default()
         }));

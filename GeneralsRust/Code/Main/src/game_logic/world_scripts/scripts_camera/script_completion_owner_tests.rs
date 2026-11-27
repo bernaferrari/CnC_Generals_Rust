@@ -1,10 +1,10 @@
 //! C++ ScriptConditions.cpp1427–1438 queries and flushes the driving engine.
 use super::*;
+use gamelogic::scripting::engine::{ScriptEngine, get_script_engine};
 use generals_sim::scripting::program::{
     Condition, ConditionType, OrCondition, Parameter, ParameterType, Script, ScriptAction,
     ScriptActionType, ScriptList,
 };
-use gamelogic::scripting::engine::{ScriptEngine, get_script_engine};
 
 const NAME: &str = "SameCompletionProbe";
 
@@ -20,6 +20,15 @@ fn message(text: &str) -> Box<ScriptAction> {
 }
 
 fn authored(retained: Option<Arc<MissionScriptHooks>>) -> ScriptEngine {
+    let mut engine = ScriptEngine::new_in_published_world().unwrap();
+    if let Some(hooks) = retained {
+        engine.set_action_handler(Some(Arc::new(MissionScriptActionHandler::new(hooks))));
+    }
+    install_completion_scripts(&mut engine, NAME);
+    engine
+}
+
+fn install_completion_scripts(engine: &mut ScriptEngine, name: &str) {
     let mut list = ScriptList::new();
     for (kind, label) in [
         (ConditionType::HasFinishedSpeech, "speech"),
@@ -33,7 +42,7 @@ fn authored(retained: Option<Arc<MissionScriptHooks>>) -> ScriptEngine {
                 } else {
                     ParameterType::Sound
                 },
-                NAME.into(),
+                name.into(),
             ))
             .unwrap();
         let mut or_condition = OrCondition::new();
@@ -46,14 +55,9 @@ fn authored(retained: Option<Arc<MissionScriptHooks>>) -> ScriptEngine {
         script.action_false = Some(message(&format!("{label}:waiting")));
         list.append_script(Box::new(script));
     }
-    let mut engine = ScriptEngine::new_in_published_world().unwrap();
-    if let Some(hooks) = retained {
-        engine.set_action_handler(Some(Arc::new(MissionScriptActionHandler::new(hooks))));
-    }
     engine
         .set_script_list_for_player(0, Some(Box::new(list)))
         .unwrap();
-    engine
 }
 
 fn walk(world: &mut GameLogic, engine: ScriptEngine) -> ScriptEngine {
@@ -79,6 +83,152 @@ fn completion_frame(engine: &ScriptEngine, speech: bool, name: &str) -> Option<u
         .into_iter()
         .find(|(n, _)| n == name)
         .map(|(_, frame)| frame)
+}
+
+#[test]
+#[cfg(not(target_arch = "wasm32"))]
+fn first_completion_query_measures_the_receiving_worlds_audio() {
+    super::sequential_actor_tests::isolated(
+        module_path!(),
+        "first_completion_query_measures_the_receiving_worlds_audio",
+        || {
+            use game_engine::common::audio::game_audio::initialize_global_audio_manager;
+            use game_engine::common::audio::{AudioEventInfo, AudioEventRts, AudioType};
+            use game_engine::common::common_services::with_common_services;
+
+            // An exact-test child has its own working directory and file system.
+            let files = tempfile::tempdir().unwrap();
+            let original_dir = std::env::current_dir().unwrap();
+            std::env::set_current_dir(files.path()).unwrap();
+            let mut first = GameLogic::new();
+            let mut second = GameLogic::new();
+            let first_random = first.logic_random.seed_words();
+            let second_random = second.logic_random.seed_words();
+            for (world, filename, samples) in [
+                (&first, "first.wav", 800_u32),
+                (&second, "second.wav", 1_600),
+            ] {
+                let info = AudioEventInfo {
+                    audio_name: NAME.into(),
+                    sound_type: AudioType::Music,
+                    sound_type_field: AudioType::Music,
+                    filename: filename.into(),
+                    ..Default::default()
+                };
+                with_common_services(world.world_services.common(), || {
+                    let manager = initialize_global_audio_manager();
+                    manager
+                        .lock()
+                        .unwrap()
+                        .register_audio_event_info(info.clone());
+                    let mut event = AudioEventRts::with_event_name(NAME);
+                    event.set_audio_event_info(Arc::new(info));
+                    event.generate_filename(&mut Default::default());
+                    let path = std::path::PathBuf::from(event.get_filename().replace('\\', "/"));
+                    assert!(!path.is_absolute());
+                    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+                    let data_bytes = 2 * samples;
+                    let mut wav = Vec::new();
+                    wav.extend_from_slice(b"RIFF");
+                    wav.extend_from_slice(&(36 + data_bytes).to_le_bytes());
+                    wav.extend_from_slice(b"WAVEfmt \x10\0\0\0\x01\0\x01\0");
+                    wav.extend_from_slice(&8_000_u32.to_le_bytes());
+                    wav.extend_from_slice(&16_000_u32.to_le_bytes());
+                    wav.extend_from_slice(b"\x02\0\x10\0data");
+                    wav.extend_from_slice(&data_bytes.to_le_bytes());
+                    wav.resize((44 + data_bytes) as usize, 0);
+                    std::fs::write(path, wav).unwrap();
+                    assert_eq!(
+                        manager.lock().unwrap().get_audio_length_ms(&event),
+                        samples as f32 / 8.0
+                    );
+                });
+            }
+
+            // Swapping unstarted interpreters crosses their legacy service handles.
+            let mut first_engine = ScriptEngine::new_with_services(&second.world_services).unwrap();
+            let mut second_engine = ScriptEngine::new_with_services(&first.world_services).unwrap();
+            install_completion_scripts(&mut first_engine, NAME);
+            install_completion_scripts(&mut second_engine, NAME);
+            first.frame = 10;
+            second.frame = 10;
+            let first_engine = walk(&mut first, first_engine);
+            let second_engine = walk(&mut second, second_engine);
+            for speech in [true, false] {
+                assert_eq!(completion_frame(&first_engine, speech, NAME), Some(13));
+                assert_eq!(completion_frame(&second_engine, speech, NAME), Some(16));
+            }
+            first.frame = 13;
+            second.frame = 13;
+            let first_engine = walk(&mut first, first_engine);
+            let second_engine = walk(&mut second, second_engine);
+            assert_eq!(
+                &first.new_script_messages[2..],
+                ["Transmission: speech:done", "Transmission: audio:done"]
+            );
+            assert_eq!(
+                &second.new_script_messages[2..],
+                [
+                    "Transmission: speech:waiting",
+                    "Transmission: audio:waiting"
+                ]
+            );
+            second.frame = 16;
+            let second_engine = walk(&mut second, second_engine);
+            assert_eq!(
+                &second.new_script_messages[4..],
+                ["Transmission: speech:done", "Transmission: audio:done"]
+            );
+            for speech in [true, false] {
+                assert_eq!(completion_frame(&first_engine, speech, NAME), None);
+                assert_eq!(completion_frame(&second_engine, speech, NAME), None);
+            }
+            assert_eq!(first.logic_random.seed_words(), first_random);
+            assert_eq!(second.logic_random.seed_words(), second_random);
+            std::env::set_current_dir(original_dir).unwrap();
+        },
+    );
+}
+
+#[test]
+#[cfg(not(target_arch = "wasm32"))]
+fn completion_queries_use_authored_names_including_empty_strings() {
+    super::sequential_actor_tests::isolated(
+        module_path!(),
+        "completion_queries_use_authored_names_including_empty_strings",
+        || {
+            use generals_sim::scripting::program::THIS_TEAM;
+            for name in [THIS_TEAM, "", " "] {
+                let mut world = GameLogic::new();
+                world.frame = 10;
+                let mut engine = ScriptEngine::new_in_published_world().unwrap();
+                install_completion_scripts(&mut engine, name);
+                let mut tail = engine.snapshot_xfer_tail();
+                tail.testing_speech = vec![(name.into(), 11)];
+                tail.testing_audio = vec![(name.into(), 11)];
+                engine.restore_xfer_tail(&tail);
+                let engine = walk(&mut world, engine);
+                assert_eq!(
+                    &world.new_script_messages[..],
+                    [
+                        "Transmission: speech:waiting",
+                        "Transmission: audio:waiting"
+                    ],
+                    "{name:?}"
+                );
+                world.frame = 11;
+                let engine = walk(&mut world, engine);
+                assert_eq!(
+                    &world.new_script_messages[2..],
+                    ["Transmission: speech:done", "Transmission: audio:done"],
+                    "{name:?}"
+                );
+                for speech in [true, false] {
+                    assert_eq!(completion_frame(&engine, speech, name), None, "{name:?}");
+                }
+            }
+        },
+    );
 }
 
 #[test]
