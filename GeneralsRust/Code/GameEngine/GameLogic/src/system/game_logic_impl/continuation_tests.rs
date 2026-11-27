@@ -871,7 +871,10 @@ End
                 .sides()
                 .write()
                 .unwrap()
-                .add_player_by_template(&"FactionPeer".into());
+                .add_player_by_template(
+                    &"FactionPeer".into(),
+                    game_engine::common::name_key_generator::NameKeyGenerator::name_to_key,
+                );
             NameKeyGenerator::name_to_key("playerName")
         });
         let check_map_sides = |owner: &EngineStores, script_active: bool| {

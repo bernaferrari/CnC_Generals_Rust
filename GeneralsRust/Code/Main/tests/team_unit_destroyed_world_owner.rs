@@ -10,7 +10,7 @@ use generals_sim::scripting::program::{
     ScriptActionType, ScriptList, THIS_TEAM,
 };
 use gamelogic::scripting::engine::ScriptEngine;
-use gamelogic::sides_list::SidesList;
+use generals_sim::sides::SidesList;
 use generals_main::game_logic::{GameLogic, GameMode, ObjectId};
 use glam::Vec3;
 
@@ -100,7 +100,11 @@ fn map_file(root: &std::path::Path, destination: [f32; 3]) -> std::path::PathBuf
     out.write_dict(&waypoint);
     out.close_data_chunk();
     out.close_data_chunk();
-    sides.write_sides_data_chunk(&mut out, &engine.script_template_lookup());
+    sides.write_sides_data_chunk(
+        &mut out,
+        &engine.script_template_lookup(),
+        game_engine::common::name_key_generator::NameKeyGenerator::name_to_key,
+    );
 
     let path = root.join("ResidentDeath.map");
     std::fs::write(&path, out.into_ckmp_bytes()).expect("write receiving map");

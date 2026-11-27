@@ -64,7 +64,7 @@ mod sides_host_apply_tests {
                     player.is_alive = true;
                     logic.add_player(player);
                 }
-                let mut sides = gamelogic::sides_list::SidesList::new();
+                let mut sides = generals_sim::sides::SidesList::new();
                 logic.add_host_players_as_sides(&mut sides);
                 let dicts: Vec<Dict> = (0..sides.get_num_sides())
                     .filter_map(|i| sides.get_side_info(i).map(|side| side.get_dict().clone()))

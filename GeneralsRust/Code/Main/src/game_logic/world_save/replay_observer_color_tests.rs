@@ -25,7 +25,10 @@ fn synthetic_observer_projects_authored_zero_day_and_night_to_host_sides_and_cor
             world.install_replay_observer_side();
             let sides = &world.prepared_map_sides;
             let side = sides
-                .find_side_info("ReplayObserver")
+                .find_side_info(
+                    "ReplayObserver",
+                    game_engine::common::well_known_keys::key_player_name,
+                )
                 .and_then(|i| sides.get_side_info(i))
                 .unwrap()
                 .get_dict();

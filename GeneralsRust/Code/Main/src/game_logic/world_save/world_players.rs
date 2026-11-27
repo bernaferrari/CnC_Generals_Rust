@@ -45,7 +45,10 @@ impl GameLogic {
             }
             let sides = &self.prepared_map_sides;
             let Some(list) = sides
-                .find_side_info(&host_slot_script_name(player))
+                .find_side_info(
+                    &host_slot_script_name(player),
+                    game_engine::common::well_known_keys::key_player_name,
+                )
                 .and_then(|index| sides.get_side_info(index))
                 .and_then(|side| side.get_script_list())
             else {
@@ -774,7 +777,7 @@ impl GameLogic {
 
     pub(in super::super) fn add_host_players_as_sides(
         &self,
-        sides: &mut gamelogic::sides_list::SidesList,
+        sides: &mut generals_sim::sides::SidesList,
     ) {
         let mut pids: Vec<u32> = self.players.keys().copied().collect();
         pids.sort_unstable();
@@ -798,7 +801,13 @@ impl GameLogic {
                 continue;
             }
             let player_name = host_slot_script_name(player);
-            if sides.find_side_info(&player_name).is_some() {
+            if sides
+                .find_side_info(
+                    &player_name,
+                    game_engine::common::well_known_keys::key_player_name,
+                )
+                .is_some()
+            {
                 continue;
             }
             let faction = self
@@ -848,7 +857,13 @@ impl GameLogic {
         }
         // C++ adds ReplayObserver after every occupied slot, independently of host IDs.
         if self.replay_observer_player_id().is_some() {
-            if sides.find_side_info("ReplayObserver").is_none() {
+            if sides
+                .find_side_info(
+                    "ReplayObserver",
+                    game_engine::common::well_known_keys::key_player_name,
+                )
+                .is_none()
+            {
                 let mut dict = Dict::new();
                 dict.set_ascii_string(key_player_name(), "ReplayObserver");
                 dict.set_bool(key_player_is_human(), true);

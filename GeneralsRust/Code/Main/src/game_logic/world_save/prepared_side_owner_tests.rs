@@ -99,8 +99,20 @@ fn prepared_map_adapter_calibration_preserves_source_order_and_scripts() {
                 ["PlyrCivilian", "player0", "player3", "ReplayObserver", ""],
                 "missing neutral is appended, never normalized to row zero"
             );
-            assert!(sides.find_side_info("MapFactionSource").is_none());
-            let source = sides.find_skirmish_side_info("MapFactionSource").unwrap();
+            assert!(
+                sides
+                    .find_side_info(
+                        "MapFactionSource",
+                        game_engine::common::well_known_keys::key_player_name
+                    )
+                    .is_none()
+            );
+            let source = sides
+                .find_skirmish_side_info(
+                    "MapFactionSource",
+                    game_engine::common::well_known_keys::key_player_name,
+                )
+                .unwrap();
             assert!(
                 sides
                     .get_skirmish_side_info(source)
@@ -181,8 +193,22 @@ fn busy_compatibility_adapter_cannot_skip_host_admission() {
                 5,
                 "host admission precedes compatibility publication"
             );
-            assert!(foreign.find_side_info("ForeignOwner").is_some());
-            assert!(foreign.find_side_info("PlyrCivilian").is_none());
+            assert!(
+                foreign
+                    .find_side_info(
+                        "ForeignOwner",
+                        game_engine::common::well_known_keys::key_player_name
+                    )
+                    .is_some()
+            );
+            assert!(
+                foreign
+                    .find_side_info(
+                        "PlyrCivilian",
+                        game_engine::common::well_known_keys::key_player_name
+                    )
+                    .is_none()
+            );
             assert!(world.players[&retained(&world, "")].is_reserved_neutral());
         },
     );
@@ -344,11 +370,30 @@ fn retry_with_different_map_retires_previous_authored_owners() {
             );
             let sides = world.prepared_map_sides();
             assert!(
-                sides.find_side_info("FirstCivilian").is_none(),
+                sides
+                    .find_side_info(
+                        "FirstCivilian",
+                        game_engine::common::well_known_keys::key_player_name
+                    )
+                    .is_none(),
                 "old map owner must not be emitted as a lobby slot"
             );
-            assert!(sides.find_team_info("teamFirstCivilian").is_none());
-            assert!(sides.find_side_info("SecondCivilian").is_some());
+            assert!(
+                sides
+                    .find_team_info(
+                        "teamFirstCivilian",
+                        game_engine::common::well_known_keys::key_team_name
+                    )
+                    .is_none()
+            );
+            assert!(
+                sides
+                    .find_side_info(
+                        "SecondCivilian",
+                        game_engine::common::well_known_keys::key_player_name
+                    )
+                    .is_some()
+            );
             assert_eq!(world.players[&3].map_side.map_player_name, "player3");
         },
     );
@@ -369,7 +414,14 @@ fn receiving_prepared_sides_survive_peer_reset_restore_and_busy_global_adapter()
             let mut inert = GameLogic::new();
             assert_eq!(inert.prepared_map_sides().get_num_sides(), 0);
             inert.reset();
-            assert!(foreign.find_side_info("UnrelatedGlobalSide").is_some());
+            assert!(
+                foreign
+                    .find_side_info(
+                        "UnrelatedGlobalSide",
+                        game_engine::common::well_known_keys::key_player_name
+                    )
+                    .is_some()
+            );
 
             let mut receiving = configured();
             prepare_restore_foundation(&mut receiving);
@@ -406,7 +458,14 @@ fn receiving_prepared_sides_survive_peer_reset_restore_and_busy_global_adapter()
                     .collect::<Vec<_>>(),
                 original_rows
             );
-            assert!(foreign.find_side_info("PlyrCivilian").is_none());
+            assert!(
+                foreign
+                    .find_side_info(
+                        "PlyrCivilian",
+                        game_engine::common::well_known_keys::key_player_name
+                    )
+                    .is_none()
+            );
             let builder = SnapshotBuilder::new();
             let snapshot = builder.create_world_snapshot(&receiving).unwrap();
             let encoded = bincode_legacy::serialize(&snapshot).unwrap();
@@ -436,7 +495,14 @@ fn receiving_prepared_sides_survive_peer_reset_restore_and_busy_global_adapter()
             );
             restored.reset();
             assert_eq!(restored.prepared_map_sides().get_num_sides(), 0);
-            assert!(foreign.find_side_info("UnrelatedGlobalSide").is_some());
+            assert!(
+                foreign
+                    .find_side_info(
+                        "UnrelatedGlobalSide",
+                        game_engine::common::well_known_keys::key_player_name
+                    )
+                    .is_some()
+            );
             assert_eq!(foreign.get_num_sides(), 1);
         },
     );

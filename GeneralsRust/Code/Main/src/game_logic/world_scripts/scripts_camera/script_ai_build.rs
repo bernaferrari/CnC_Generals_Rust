@@ -14,7 +14,7 @@ fn ordinary_priority_build_row(
     position: Vec3,
     angle: f32,
 ) -> crate::ai::AIBuildingInfo {
-    use gamelogic::build_list_info::BuildListInfo;
+    use generals_sim::build_list::BuildListInfo;
     use glam::Vec3 as Coord3D;
 
     let mut entry = BuildListInfo::new();

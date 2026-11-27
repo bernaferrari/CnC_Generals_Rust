@@ -13,7 +13,7 @@ use generals_sim::scripting::program::{
     ScriptActionType, ScriptList, THIS_PLAYER,
 };
 use gamelogic::scripting::engine::ScriptEngine;
-use gamelogic::sides_list::SidesList;
+use generals_sim::sides::SidesList;
 use generals_main::game_logic::{GameLogic, GameMode, ObjectId};
 use generals_main::save_load::SaveFileManager;
 
@@ -125,7 +125,11 @@ fn authored_map_file(
         out.close_data_chunk();
     }
     out.close_data_chunk();
-    sides.write_sides_data_chunk(&mut out, &engine.script_template_lookup());
+    sides.write_sides_data_chunk(
+        &mut out,
+        &engine.script_template_lookup(),
+        game_engine::common::name_key_generator::NameKeyGenerator::name_to_key,
+    );
 
     let path = root.join("ReceivingGeneric.map");
     std::fs::write(&path, out.into_ckmp_bytes()).expect("write map");
@@ -230,7 +234,11 @@ fn map_with_later_prototype_creation(root: &std::path::Path) -> std::path::PathB
     out.write_dict(&properties);
     out.close_data_chunk();
     out.close_data_chunk();
-    sides.write_sides_data_chunk(&mut out, &engine.script_template_lookup());
+    sides.write_sides_data_chunk(
+        &mut out,
+        &engine.script_template_lookup(),
+        game_engine::common::name_key_generator::NameKeyGenerator::name_to_key,
+    );
 
     let path = root.join("GenericCreatesLaterPrototype.map");
     std::fs::write(&path, out.into_ckmp_bytes()).expect("write map");
@@ -341,7 +349,11 @@ fn map_with_transfer_options(root: &std::path::Path, siblings: bool) -> std::pat
         out.close_data_chunk();
     }
     out.close_data_chunk();
-    sides.write_sides_data_chunk(&mut out, &engine.script_template_lookup());
+    sides.write_sides_data_chunk(
+        &mut out,
+        &engine.script_template_lookup(),
+        game_engine::common::name_key_generator::NameKeyGenerator::name_to_key,
+    );
 
     let path = root.join("GenericTransfersPrototype.map");
     std::fs::write(&path, out.into_ckmp_bytes()).expect("write map");

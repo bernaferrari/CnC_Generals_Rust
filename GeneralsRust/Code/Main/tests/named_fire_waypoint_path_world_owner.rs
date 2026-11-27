@@ -117,7 +117,11 @@ fn waypoint_map(root: &std::path::Path, endpoint_x: f32) -> std::path::PathBuf {
     map.write_int(1);
     map.write_int(2);
     map.close_data_chunk();
-    sides.write_sides_data_chunk(&mut map, &script_engine.script_template_lookup());
+    sides.write_sides_data_chunk(
+        &mut map,
+        &script_engine.script_template_lookup(),
+        game_engine::common::name_key_generator::NameKeyGenerator::name_to_key,
+    );
 
     let directory = root.join(format!("endpoint-{endpoint_x}"));
     std::fs::create_dir(&directory).expect("create map fixture directory");

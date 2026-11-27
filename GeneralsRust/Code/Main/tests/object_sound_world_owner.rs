@@ -87,7 +87,11 @@ fn map_file(
     map.write_dict(&properties);
     map.close_data_chunk();
     map.close_data_chunk();
-    sides.write_sides_data_chunk(&mut map, &script_engine.script_template_lookup());
+    sides.write_sides_data_chunk(
+        &mut map,
+        &script_engine.script_template_lookup(),
+        game_engine::common::name_key_generator::NameKeyGenerator::name_to_key,
+    );
 
     let path = root.join(format!("ObjectSoundOwner-{action_kind:?}.map"));
     std::fs::write(&path, map.into_ckmp_bytes()).expect("write map fixture");

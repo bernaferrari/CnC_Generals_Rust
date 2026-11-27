@@ -95,7 +95,11 @@ fn encode(
                 .get_side_info_mut(0)
                 .unwrap()
                 .set_script_list(Some(Box::new(list.clone())));
-            sides.write_sides_data_chunk(&mut output, catalog);
+            sides.write_sides_data_chunk(
+                &mut output,
+                catalog,
+                game_engine::common::name_key_generator::NameKeyGenerator::name_to_key,
+            );
         } else {
             let empty = ScriptList::new();
             crate::scripting::chunk_codec::write_scripts_data_chunk(
@@ -140,7 +144,7 @@ fn decode(bytes: Vec<u8>, catalog: ScriptTemplateLookup, sides: bool) -> Vec<Box
             parse_player_scripts_list_chunk
         },
     );
-    let mut read = ScriptListReadInfo::with_templates(catalog);
+    let mut read = ScriptListReadInfo::with_templates(catalog, crate::scripting::new_script_group);
     assert!(input.parse(&mut read));
     read.lists
 }

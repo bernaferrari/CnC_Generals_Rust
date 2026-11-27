@@ -2,6 +2,7 @@
 
 pub mod armor;
 pub mod bridge_behavior;
+pub mod build_list;
 pub mod chinook;
 pub mod command;
 pub mod damage;
@@ -15,6 +16,7 @@ pub mod pathfinding;
 pub mod production;
 pub mod recurring;
 pub mod science;
+pub mod sides;
 pub mod scripting;
 pub mod special_power;
 mod special_power_targeting;

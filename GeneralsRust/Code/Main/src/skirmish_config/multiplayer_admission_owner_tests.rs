@@ -111,7 +111,10 @@ fn receiving_palette_controls_actual_admission_and_retained_original_record() {
                 world.with_own_services(|| {
                     let sides = &world.prepared_map_sides;
                     let side = sides
-                        .find_side_info("ReplayObserver")
+                        .find_side_info(
+                            "ReplayObserver",
+                            game_engine::common::well_known_keys::key_player_name,
+                        )
                         .and_then(|index| sides.get_side_info(index))
                         .unwrap()
                         .get_dict();

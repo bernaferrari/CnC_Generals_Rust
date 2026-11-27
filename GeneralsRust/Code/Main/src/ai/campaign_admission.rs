@@ -1,6 +1,7 @@
 //! PlayerList admission for ordinary campaign controllers.
 use super::*;
-use gamelogic::{build_list_info::BuildListInfo, player::GameDifficulty};
+use gamelogic::player::GameDifficulty;
+use generals_sim::build_list::BuildListInfo;
 
 impl GameLogic {
     /// Player.cpp:736–755, 791–819. The outgoing TeamFactory was already

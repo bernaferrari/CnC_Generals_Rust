@@ -1,6 +1,7 @@
 //! Actual public callback decoder under a private driving ScriptEngine.
 use super::*;
-use crate::scripting::core::{ScriptListReadInfo, parse_player_scripts_list_chunk};
+use crate::scripting::chunk_codec::active_script_list_reader;
+use crate::scripting::core::parse_player_scripts_list_chunk;
 use game_engine::common::system::{DataChunkInput, DataChunkOutput};
 
 struct RestoreGlobal(Option<ScriptEngine>);
@@ -68,7 +69,7 @@ fn decode(engine: &mut ScriptEngine, condition: bool) -> ScriptList {
     assert!(input.is_valid_file_type());
     input.register_parser("PlayerScriptsList", "", parse_player_scripts_list_chunk);
     engine.with_active(|| {
-        let mut read = ScriptListReadInfo::default();
+        let mut read = active_script_list_reader();
         assert!(input.parse(&mut read));
         assert_eq!(read.lists.len(), 1);
         *read.lists.pop().unwrap()

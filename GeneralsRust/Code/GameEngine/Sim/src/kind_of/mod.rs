@@ -1,5 +1,6 @@
 //! Object classifications and their packed simulation membership.
 
+pub mod classic;
 mod set;
 
 use serde::{Deserialize, Serialize};

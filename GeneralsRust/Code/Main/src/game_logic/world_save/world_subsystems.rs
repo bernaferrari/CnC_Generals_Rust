@@ -422,7 +422,10 @@ impl GameLogic {
 
         {
             let sides = &mut self.prepared_map_sides;
-            if let Some(index) = sides.find_side_info("ReplayObserver") {
+            if let Some(index) = sides.find_side_info(
+                "ReplayObserver",
+                game_engine::common::well_known_keys::key_player_name,
+            ) {
                 let existing = sides
                     .get_side_info_mut(index)
                     .expect("existing observer side")
@@ -432,7 +435,13 @@ impl GameLogic {
             } else {
                 sides.add_side(&d);
             }
-            if sides.find_team_info("teamReplayObserver").is_none() {
+            if sides
+                .find_team_info(
+                    "teamReplayObserver",
+                    game_engine::common::well_known_keys::key_team_name,
+                )
+                .is_none()
+            {
                 let mut team = Dict::new();
                 team.set_ascii_string(key_team_name(), "teamReplayObserver");
                 team.set_ascii_string(key_team_owner(), "ReplayObserver");

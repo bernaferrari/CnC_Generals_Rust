@@ -166,8 +166,20 @@ fn admitted_world(mode: GameMode, relationship: Relationship) -> (GameLogic, Obj
     let team_definitions =
         world.sync_legacy_sides_list_from_dicts(&[civilian, faction], &[], &[], &[], None);
     assert!(world.sync_legacy_team_factory_from_team_dicts(&team_definitions));
-    assert_eq!(world.prepared_map_sides.find_side_info("player0"), Some(1));
-    assert_eq!(world.prepared_map_sides.find_side_info("player3"), Some(2));
+    assert_eq!(
+        world.prepared_map_sides.find_side_info(
+            "player0",
+            game_engine::common::well_known_keys::key_player_name
+        ),
+        Some(1)
+    );
+    assert_eq!(
+        world.prepared_map_sides.find_side_info(
+            "player3",
+            game_engine::common::well_known_keys::key_player_name
+        ),
+        Some(2)
+    );
 
     let id = world
         .create_object_for_player("OwnedTech", 3, Vec3::new(10.0, 0.0, 10.0))
@@ -279,7 +291,10 @@ fn admitted_sparse_lobby_and_replay_names_drive_tech_queries_after_restore() {
                 assert_eq!(restored.players[&0].map_side.map_player_name, "player0");
                 assert_eq!(restored.players[&3].map_side.map_player_name, "player3");
                 assert_eq!(
-                    restored.prepared_map_sides.find_side_info("player3"),
+                    restored.prepared_map_sides.find_side_info(
+                        "player3",
+                        game_engine::common::well_known_keys::key_player_name
+                    ),
                     Some(2)
                 );
                 assert_eq!(

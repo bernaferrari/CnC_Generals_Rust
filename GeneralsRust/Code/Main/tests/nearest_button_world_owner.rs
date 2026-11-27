@@ -12,7 +12,7 @@ use generals_sim::scripting::program::{
     ScriptActionType, ScriptList,
 };
 use gamelogic::scripting::engine::ScriptEngine;
-use gamelogic::sides_list::SidesList;
+use generals_sim::sides::SidesList;
 use generals_main::game_logic::{AIState, GameLogic, GameMode, ObjectId, Player, Team};
 
 fn world(
@@ -114,7 +114,11 @@ fn world_with_roster(
         map.close_data_chunk();
     }
     map.close_data_chunk();
-    sides.write_sides_data_chunk(&mut map, &engine.script_template_lookup());
+    sides.write_sides_data_chunk(
+        &mut map,
+        &engine.script_template_lookup(),
+        game_engine::common::name_key_generator::NameKeyGenerator::name_to_key,
+    );
     let path = root.join("NearestButton.map");
     std::fs::write(&path, map.into_ckmp_bytes()).unwrap();
     let power = "SpecialPower SpecialAbilityMissileDefenderLaserGuidedMissiles\n Enum = SPECIAL_MISSILE_DEFENDER_LASER_GUIDED_MISSILES\n ReloadTime = 0\nEnd\n";

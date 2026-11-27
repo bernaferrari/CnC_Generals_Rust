@@ -111,7 +111,11 @@ fn write_upgrade_map(path: &Path, master: &str, team_name: &str, script: Script)
         map.write_dict(&properties);
         map.close_data_chunk();
         map.close_data_chunk();
-        sides.write_sides_data_chunk(&mut map, &script_engine.script_template_lookup());
+        sides.write_sides_data_chunk(
+            &mut map,
+            &script_engine.script_template_lookup(),
+            game_engine::common::name_key_generator::NameKeyGenerator::name_to_key,
+        );
 
         std::fs::write(path, map.into_ckmp_bytes()).unwrap();
     });

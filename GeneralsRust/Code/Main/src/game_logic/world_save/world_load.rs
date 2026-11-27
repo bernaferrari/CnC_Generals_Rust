@@ -1741,7 +1741,8 @@ pub(in super::super) fn load_multiplayer_scripts_scb(
 ) -> Option<ScriptList> {
     use game_engine::common::system::DataChunkInput;
     use game_engine::common::system::file::FileAccess;
-    use gamelogic::scripting::core::{ScriptListReadInfo, parse_player_scripts_list_chunk};
+    use gamelogic::scripting::chunk_codec::active_script_list_reader;
+    use generals_sim::scripting::chunk_codec::parse_player_scripts_list_chunk;
 
     const VIRTUAL: &str = "Data\\Scripts\\MultiplayerScripts.scb";
     let data = files
@@ -1751,7 +1752,7 @@ pub(in super::super) fn load_multiplayer_scripts_scb(
         .read_entire_and_close()
         .ok()?;
     let mut input = DataChunkInput::new(data);
-    let mut read_info = ScriptListReadInfo::default();
+    let mut read_info = active_script_list_reader();
     input.register_parser("PlayerScriptsList", "", parse_player_scripts_list_chunk);
     if !input.parse(&mut read_info) {
         return None;

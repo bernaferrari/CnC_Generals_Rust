@@ -648,10 +648,14 @@ fn parse_sides_list_chunk(
         return false;
     };
     let sides = ctx.sides.get_or_insert_with(SidesList::new);
-    match ctx.script_templates.as_ref() {
-        Some(templates) => sides.parse_sides_data_chunk_in(input, info, templates.clone()),
-        None => sides.parse_sides_data_chunk(input, info),
-    }
+    use crate::scripting::chunk_codec::{ScriptListReadInfo, active_script_list_reader};
+    use crate::scripting::new_script_group;
+
+    let reader = match ctx.script_templates.as_ref() {
+        Some(templates) => ScriptListReadInfo::with_templates(templates.clone(), new_script_group),
+        None => active_script_list_reader(),
+    };
+    sides.parse_sides_data_chunk(input, info, Some(reader))
 }
 
 fn parse_polygon_triggers_chunk(

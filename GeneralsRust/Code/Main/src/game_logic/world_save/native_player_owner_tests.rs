@@ -18,7 +18,7 @@ fn build_world(first: &str) -> GameLogic {
         world.templates.insert(name.into(), template);
     }
     for (index, name) in [first, "SecondBuilding"].into_iter().enumerate() {
-        let mut entry = gamelogic::build_list_info::BuildListInfo::new();
+        let mut entry = generals_sim::build_list::BuildListInfo::new();
         entry.set_template_name(name.into());
         entry.set_building_name(format!("Authored{index}").into());
         entry.set_script(format!("Complete{index}").into());

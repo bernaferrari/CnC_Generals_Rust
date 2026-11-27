@@ -262,7 +262,7 @@ pub(crate) struct OrdinaryBuildListFields {
     pub object_timestamp: u32,
     pub under_construction: bool,
     pub resource_gatherers:
-        [Option<ObjectId>; gamelogic::build_list_info::BuildListInfo::MAX_RESOURCE_GATHERERS],
+        [Option<ObjectId>; generals_sim::build_list::BuildListInfo::MAX_RESOURCE_GATHERERS],
 }
 
 /// AI building info for base construction

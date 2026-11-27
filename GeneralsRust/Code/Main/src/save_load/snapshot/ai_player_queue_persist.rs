@@ -902,8 +902,7 @@ mod tests {
             frame_last_building_built: 219,
             bridge_timer: 1401,
         };
-        let mut gatherers =
-            [None; gamelogic::build_list_info::BuildListInfo::MAX_RESOURCE_GATHERERS];
+        let mut gatherers = [None; generals_sim::build_list::BuildListInfo::MAX_RESOURCE_GATHERERS];
         gatherers[1] = Some(ObjectId(74));
         gatherers[8] = Some(ObjectId(3));
         let former = OrdinaryBuildListFields {

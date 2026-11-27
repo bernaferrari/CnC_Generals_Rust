@@ -382,7 +382,7 @@ End
             object_timestamp: 0,
             under_construction: false,
             resource_gatherers: [None;
-                gamelogic::build_list_info::BuildListInfo::MAX_RESOURCE_GATHERERS],
+                generals_sim::build_list::BuildListInfo::MAX_RESOURCE_GATHERERS],
         }));
         row.completion = Some(AuthoredStructureCompletion {
             name: "BoundOnlyAfterInstantCallback".into(),
@@ -516,7 +516,7 @@ End
             object_timestamp: 0,
             under_construction: false,
             resource_gatherers: [None;
-                gamelogic::build_list_info::BuildListInfo::MAX_RESOURCE_GATHERERS],
+                generals_sim::build_list::BuildListInfo::MAX_RESOURCE_GATHERERS],
         };
         let ai = world.ai_manager.ai_players.get_mut(&1).unwrap();
         ai.ordinary_timing = Some(OrdinaryAiTiming {

@@ -27,7 +27,7 @@ use crate::player::{
     GameDifficulty as LogicGameDifficulty, Player as LogicPlayer, PlayerList as LogicPlayerList,
     PlayerType as LogicPlayerType, ThePlayerList,
 };
-use crate::sides_list::{SidesList, get_sides_list};
+use crate::sides_list::{SidesList, get_sides_list, prepare_legacy_skirmish_sides};
 use crate::team::MAX_GENERIC_SCRIPTS;
 use crate::team::get_team_factory;
 use game_engine::System::get_game_state;
@@ -401,11 +401,11 @@ impl GameInitializer {
             return;
         };
         if is_mp_or_skirmish {
-            sides.prepare_for_mp_or_skirmish();
+            prepare_legacy_skirmish_sides(&mut sides);
             Self::add_occupied_session_sides(&mut sides, params);
         }
         Self::add_replay_observer_side(&mut sides);
-        sides.validate_sides();
+        sides.validate_sides(NameKeyGenerator::name_to_key);
     }
 
     fn add_occupied_session_sides(sides: &mut SidesList, params: &GameInitParams) {
@@ -458,7 +458,13 @@ impl GameInitializer {
     }
 
     fn add_replay_observer_side(sides: &mut SidesList) {
-        if sides.find_side_info("ReplayObserver").is_some() {
+        if sides
+            .find_side_info(
+                "ReplayObserver",
+                game_engine::common::well_known_keys::key_player_name,
+            )
+            .is_some()
+        {
             return;
         }
         let mut dict = Dict::new();
@@ -1469,7 +1475,13 @@ impl GameInitializer {
                 let mut team_dict = team_info.get_dict().clone();
                 let team_name = team_dict.get_ascii_string(key_team_name());
                 let new_name = format!("{}{}", team_name, player.mp_start_index);
-                if sides_guard.find_team_info(new_name.as_str()).is_some() {
+                if sides_guard
+                    .find_team_info(
+                        new_name.as_str(),
+                        game_engine::common::well_known_keys::key_team_name,
+                    )
+                    .is_some()
+                {
                     continue;
                 }
                 team_dict.set_ascii_string(key_team_owner(), player_name.clone());

@@ -270,7 +270,10 @@ fn parse_script_lists_from_sides_chunk(
     }
 
     let mut context = SidesScriptContext {
-        scripts: ScriptListReadInfo::with_templates(templates.clone()),
+        scripts: ScriptListReadInfo::with_templates(
+            templates.clone(),
+            gamelogic::scripting::new_script_group,
+        ),
     };
     input.register_parser(SIDES_LIST_LABEL, "", parse_sides_chunk_for_scripts_only);
     if !input.parse(&mut context) {

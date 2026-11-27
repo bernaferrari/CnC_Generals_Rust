@@ -129,7 +129,7 @@ pub struct GameLogic {
     pub(crate) team_factory: gamelogic::team::TeamFactoryHandle,
     /// Prepared map definitions in authored order, owned by this match. Runtime
     /// script state belongs to owned_script_engine; no ambient SidesList.
-    pub(crate) prepared_map_sides: gamelogic::sides_list::SidesList,
+    pub(crate) prepared_map_sides: generals_sim::sides::SidesList,
     pub(crate) prepared_player_controllers:
         crate::game_logic::player_controllers::PreparedControllers,
     /// Immutable attack priority rows used by combat at the frame boundary.

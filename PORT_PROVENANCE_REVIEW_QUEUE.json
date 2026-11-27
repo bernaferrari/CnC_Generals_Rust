@@ -16101,6 +16101,11 @@
             {
               "cargo_reachable": true,
               "classification": "implementation",
+              "path": "GeneralsRust/Code/GameEngine/Sim/src/kind_of/classic.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "implementation",
               "path": "GeneralsRust/Code/GameEngine/Sim/src/kind_of/mod.rs"
             },
             {
@@ -187699,7 +187704,7 @@
       ]
     }
   ],
-  "provenance_input_digest": "349299b75fccbeb5d9421c58630aeacae02fd9537d83454b9892b1b555d1015d",
+  "provenance_input_digest": "18380fc9eb5ca0f45bf38733939bf45719e0155c936a4292c81188598ca00f73",
   "schema_version": 1,
   "summary": {
     "maximum_packet_size": 15,

@@ -70,7 +70,8 @@ fn decode(engine: &mut ScriptEngine, condition: bool) -> ScriptList {
     let templates = engine.script_template_lookup();
     let foreign = ScriptEngine::new_in_published_world().unwrap();
     foreign.with_active(|| {
-        let mut read = ScriptListReadInfo::with_templates(templates);
+        let mut read =
+            ScriptListReadInfo::with_templates(templates, crate::scripting::new_script_group);
         assert!(input.parse(&mut read));
         assert_eq!(read.lists.len(), 1);
         *read.lists.pop().unwrap()

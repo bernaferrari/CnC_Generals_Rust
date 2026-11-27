@@ -2848,6 +2848,13 @@
             "classification": "implementation",
             "owned_source_ranges": [],
             "owned_symbols": [],
+            "path": "GeneralsRust/Code/GameEngine/Sim/src/kind_of/classic.rs"
+          },
+          {
+            "cargo_reachable": true,
+            "classification": "implementation",
+            "owned_source_ranges": [],
+            "owned_symbols": [],
             "path": "GeneralsRust/Code/GameEngine/Sim/src/kind_of/mod.rs"
           },
           {
@@ -41739,6 +41746,13 @@
       "mapping": {
         "candidate_status": "reachable_implementation_candidate",
         "destinations": [
+          {
+            "cargo_reachable": true,
+            "classification": "implementation",
+            "owned_source_ranges": [],
+            "owned_symbols": [],
+            "path": "GeneralsRust/Code/GameEngine/Sim/src/kind_of/classic.rs"
+          },
           {
             "cargo_reachable": true,
             "classification": "implementation",
@@ -153614,7 +153628,7 @@
     }
   ],
   "generator": "GeneralsRust/Code/Main/scripts/generate_port_provenance.py",
-  "input_digest": "349299b75fccbeb5d9421c58630aeacae02fd9537d83454b9892b1b555d1015d",
+  "input_digest": "18380fc9eb5ca0f45bf38733939bf45719e0155c936a4292c81188598ca00f73",
   "metric_contract": {
     "behavior_requires_explicit_evidence": true,
     "candidate_mapping_is_reviewed": false,
@@ -198289,11 +198303,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 1891,
+        "end_line": 1809,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/behavior/auto_heal_behavior.rs",
-      "sha256": "58713a544852eb986eb8002058f5f27998f736b05f66dda840079ebb9cd22e80",
+      "sha256": "f7944d2d81436bb8c35c800705bd1acfc479d997e7c97a7ba17d589cf51a2888",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -206636,11 +206650,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 928,
+        "end_line": 86,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/sides_list.rs",
-      "sha256": "2a8103954a5881011fd11e5ddbadfc81ebb1672ebb7ea7e433b65e10c2de813d",
+      "sha256": "4771b3b7e4bc79d2de826f8ae008d6bb60decefeeace6372e670afc412169198",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -208856,11 +208870,23 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 500,
+        "end_line": 671,
+        "start_line": 1
+      },
+      "path": "GeneralsRust/Code/GameEngine/Sim/src/kind_of/classic.rs",
+      "sha256": "3a6a3985c87e74a1ad125f7d6ce83e3668f33450285ea4e19e1372729d12e0b9",
+      "symbol_index_status": "awaiting_mapping_review",
+      "symbols": []
+    },
+    {
+      "cargo_reachable": true,
+      "classification": "implementation",
+      "file_range": {
+        "end_line": 501,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/Sim/src/kind_of/mod.rs",
-      "sha256": "f9dbee0ae8d2696101e1c5973e427989e9efc401771f4237fd03aa8d22c8adea",
+      "sha256": "1aefea74113a67f2e5ebda2d1a9335cc86c1d5ce7391cf03cbf56abc6cd551a1",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },

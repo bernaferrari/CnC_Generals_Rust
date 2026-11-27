@@ -4,7 +4,7 @@ use crate::save_load::{SnapshotBuilder, snapshot::decode_bincode_world_snapshot}
 use crate::skirmish_config::{
     SkirmishPlayerTemplateSelection, apply_skirmish_config, golden_skirmish_config,
 };
-use gamelogic::sides_list::SidesList;
+use generals_sim::sides::SidesList;
 
 fn isolated(name: &str, run: impl FnOnce()) {
     crate::game_logic::game_logic::pose_owner_tests::isolated_at(module_path!(), name, run);
@@ -46,7 +46,7 @@ fn sides(world: &GameLogic) -> SidesList {
 
 fn side<'a>(sides: &'a SidesList, name: &str) -> &'a Dict {
     sides
-        .find_side_info(name)
+        .find_side_info(name, game_engine::common::well_known_keys::key_player_name)
         .and_then(|i| sides.get_side_info(i))
         .unwrap_or_else(|| panic!("missing side {name}"))
         .get_dict()
@@ -148,7 +148,14 @@ fn participant_display_cannot_capture_replay_observer_identity() {
                 side(&authored, "player0").get_ascii_string(key_player_enemies()),
                 "player3"
             );
-            assert!(authored.find_side_info("ReplayObserver").is_some());
+            assert!(
+                authored
+                    .find_side_info(
+                        "ReplayObserver",
+                        game_engine::common::well_known_keys::key_player_name
+                    )
+                    .is_some()
+            );
         },
     );
 }
@@ -170,7 +177,14 @@ fn blank_occupied_observer_remains_an_authored_slot() {
             side(&authored, "player0").get_ascii_string(key_player_enemies()),
             "player3"
         );
-        assert!(authored.find_team_info("teamplayer3").is_some());
+        assert!(
+            authored
+                .find_team_info(
+                    "teamplayer3",
+                    game_engine::common::well_known_keys::key_team_name
+                )
+                .is_some()
+        );
     });
 }
 
@@ -330,7 +344,14 @@ fn owned_admission_roles_and_names_survive_encoded_save_continuation() {
                 side(&authored, "player3").get_ascii_string(key_player_faction()),
                 "FactionObserver"
             );
-            assert!(authored.find_side_info("PlyrCivilian").is_some());
+            assert!(
+                authored
+                    .find_side_info(
+                        "PlyrCivilian",
+                        game_engine::common::well_known_keys::key_player_name
+                    )
+                    .is_some()
+            );
             assert_eq!(
                 side(&authored, "player0").get_ascii_string(key_player_enemies()),
                 "player3"

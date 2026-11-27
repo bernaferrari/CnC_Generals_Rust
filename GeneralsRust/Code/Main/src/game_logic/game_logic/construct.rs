@@ -120,7 +120,7 @@ impl GameLogic {
             application_assets: None,
             host_trigger_world,
             team_factory: team_factory.clone(),
-            prepared_map_sides: gamelogic::sides_list::SidesList::new(),
+            prepared_map_sides: generals_sim::sides::SidesList::new(),
             prepared_player_controllers: Default::default(),
             #[cfg(feature = "game_client")]
             host_physics_visuals: Default::default(),

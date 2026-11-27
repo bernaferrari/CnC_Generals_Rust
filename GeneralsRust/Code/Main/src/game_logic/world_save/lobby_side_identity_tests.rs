@@ -1,7 +1,7 @@
 //! CPP GameLogic1291–1425: lobby slot identity survives holes and map preparation.
 use super::*;
 use crate::skirmish_config::{apply_skirmish_config, golden_skirmish_config};
-use gamelogic::sides_list::SidesList;
+use generals_sim::sides::SidesList;
 
 fn isolated(name: &str, run: impl FnOnce()) {
     // Existing native bootstrap is process-scoped. A fixture never clears a
@@ -45,17 +45,31 @@ fn prepared(world: &GameLogic) -> SidesList {
         .get_side_info_mut(2)
         .unwrap()
         .set_script_list(Some(Box::new(source)));
-    sides.prepare_for_mp_or_skirmish();
-    assert!(sides.find_side_info("PlyrTemplate").is_none());
-    assert!(sides.find_skirmish_side_info("PlyrTemplate").is_some());
+    gamelogic::sides_list::prepare_legacy_skirmish_sides(&mut sides);
+    assert!(
+        sides
+            .find_side_info(
+                "PlyrTemplate",
+                game_engine::common::well_known_keys::key_player_name
+            )
+            .is_none()
+    );
+    assert!(
+        sides
+            .find_skirmish_side_info(
+                "PlyrTemplate",
+                game_engine::common::well_known_keys::key_player_name
+            )
+            .is_some()
+    );
     world.add_host_players_as_sides(&mut sides);
-    sides.validate_sides();
+    sides.validate_sides(game_engine::common::name_key_generator::NameKeyGenerator::name_to_key);
     sides
 }
 
 fn side<'a>(sides: &'a SidesList, name: &str) -> &'a Dict {
     sides
-        .find_side_info(name)
+        .find_side_info(name, game_engine::common::well_known_keys::key_player_name)
         .and_then(|index| sides.get_side_info(index))
         .unwrap_or_else(|| panic!("missing authored side {name}"))
         .get_dict()
@@ -112,9 +126,19 @@ fn sparse_slots_author_matching_sides_and_singleton_teams() {
                 side(&sides, "player3").get_ascii_string(key_player_name()),
                 "player3"
             );
-            assert!(sides.find_side_info("player1").is_none());
+            assert!(
+                sides
+                    .find_side_info(
+                        "player1",
+                        game_engine::common::well_known_keys::key_player_name
+                    )
+                    .is_none()
+            );
             let team = sides
-                .find_team_info("teamplayer3")
+                .find_team_info(
+                    "teamplayer3",
+                    game_engine::common::well_known_keys::key_team_name,
+                )
                 .and_then(|index| sides.get_team_info(index))
                 .expect("singleton team for original slot");
             assert_eq!(
@@ -187,13 +211,34 @@ fn side_authoring_preserves_unresolved_start_position_and_observer_name() {
                 side(&sides, "player0").get_int(key_multiplayer_start_index()),
                 -1
             );
-            assert!(sides.find_side_info("player77").is_none());
-            assert!(sides.find_side_info("player90").is_some());
+            assert!(
+                sides
+                    .find_side_info(
+                        "player77",
+                        game_engine::common::well_known_keys::key_player_name
+                    )
+                    .is_none()
+            );
+            assert!(
+                sides
+                    .find_side_info(
+                        "player90",
+                        game_engine::common::well_known_keys::key_player_name
+                    )
+                    .is_some()
+            );
             assert_eq!(
                 side(&sides, "ReplayObserver").get_ascii_string(key_player_faction()),
                 "FactionObserver"
             );
-            assert!(sides.find_team_info("teamReplayObserver").is_some());
+            assert!(
+                sides
+                    .find_team_info(
+                        "teamReplayObserver",
+                        game_engine::common::well_known_keys::key_team_name
+                    )
+                    .is_some()
+            );
         },
     );
 }

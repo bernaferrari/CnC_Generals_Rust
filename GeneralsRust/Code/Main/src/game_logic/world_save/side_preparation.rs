@@ -1,8 +1,16 @@
 //! C++ SidesList preparation and host admission on the receiving map owner.
 use super::*;
+use game_engine::common::ascii_string::AsciiString;
+use game_engine::common::name_key_generator::NameKeyGenerator;
+use game_engine::common::system::DataChunkInput;
+use game_engine::common::system::file::FileAccess;
+use generals_sim::build_list::BuildListInfo;
+use generals_sim::scripting::chunk_codec::ScriptListReadInfo;
+use generals_sim::scripting::program::ScriptGroup;
+use generals_sim::sides::{STANDARD_SKIRMISH_SCRIPTS, SidesList, read_standard_skirmish_scripts};
 
 impl GameLogic {
-    pub(crate) fn prepared_map_sides(&self) -> &gamelogic::sides_list::SidesList {
+    pub(crate) fn prepared_map_sides(&self) -> &SidesList {
         &self.prepared_map_sides
     }
 
@@ -12,8 +20,8 @@ impl GameLogic {
         team_dicts: &[Dict],
         side_builds: &[super::script_loader::SideBuildEntry],
         script_lists: &[ScriptList],
-    ) -> gamelogic::sides_list::SidesList {
-        let mut sides = gamelogic::sides_list::SidesList::new();
+    ) -> SidesList {
+        let mut sides = SidesList::new();
         for dict in side_dicts {
             sides.add_side(dict);
         }
@@ -24,23 +32,15 @@ impl GameLogic {
         let mut pos_by_side: HashMap<u32, i32> = HashMap::new();
         for entry in side_builds {
             let pos = *pos_by_side.get(&entry.side_index).unwrap_or(&0);
-            let mut build = gamelogic::build_list_info::BuildListInfo::new();
-            build.set_building_name(gamelogic::common::AsciiString::from(
-                entry.building_name.as_str(),
-            ));
-            build.set_template_name(gamelogic::common::AsciiString::from(
-                entry.template.as_str(),
-            ));
-            build.set_location(glam::Vec3::new(
-                entry.position.x,
-                entry.position.y,
-                0.0,
-            ));
+            let mut build = BuildListInfo::new();
+            build.set_building_name(AsciiString::from(entry.building_name.as_str()));
+            build.set_template_name(AsciiString::from(entry.template.as_str()));
+            build.set_location(glam::Vec3::new(entry.position.x, entry.position.y, 0.0));
             build.set_angle(entry.angle);
             build.set_initially_built(entry.initially_built);
             build.set_num_rebuilds(entry.num_rebuilds.max(0) as u32);
             if let Some(script) = &entry.script_name {
-                build.set_script(gamelogic::common::AsciiString::from(script.as_str()));
+                build.set_script(AsciiString::from(script.as_str()));
             }
             if let Some(health) = entry.health {
                 build.set_health(health);
@@ -66,22 +66,57 @@ impl GameLogic {
             }
         }
 
-        sides.validate_sides();
+        // The input Dicts use the namespace established by the map caller.
+        let key = NameKeyGenerator::name_to_key;
+        sides.validate_sides(key);
 
         if self.uses_lobby_side_foundation() {
-            match self.owned_script_engine.as_ref() {
-                Some(engine) => {
-                    let templates =
-                        engine.script_template_lookup();
-                    sides.prepare_for_mp_or_skirmish_with_definitions(
-                        templates,
-                        &self.world_services.common().name_key_namespace,
-                    );
-                }
-                None => sides.prepare_for_mp_or_skirmish(),
-            }
+            sides.prepare_for_skirmish(key, || {
+                let common = self.world_services.common();
+                let data = common
+                    .application
+                    .file_system
+                    .lock()
+                    .ok()?
+                    .open_mounted_file(
+                        STANDARD_SKIRMISH_SCRIPTS,
+                        FileAccess::READ.combine(FileAccess::BINARY),
+                    )?
+                    .read_entire_and_close()
+                    .ok()?;
+                let templates = if let Some(engine) = self.owned_script_engine.as_ref() {
+                    engine.script_template_lookup()
+                } else {
+                    self.world_services
+                        .scripts()
+                        .engine()
+                        .read()
+                        .ok()
+                        .and_then(|engine| {
+                            engine
+                                .as_ref()
+                                .map(|engine| engine.script_template_lookup())
+                        })
+                        .unwrap_or_default()
+                };
+                let services = self.world_services.clone();
+                let reader = ScriptListReadInfo::with_templates(templates, move || {
+                    let id = services
+                        .session_flags()
+                        .script_group_name_id
+                        .fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+                        + 1;
+                    ScriptGroup::new(id)
+                });
+                let mut namespace = common
+                    .name_key_namespace
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner());
+                let mut input = DataChunkInput::with_namespace(data, &mut namespace);
+                read_standard_skirmish_scripts(&mut input, reader)
+            });
             self.add_host_players_as_sides(&mut sides);
-            sides.validate_sides();
+            sides.validate_sides(key);
         }
         sides
     }
@@ -135,7 +170,8 @@ impl GameLogic {
     ) -> Vec<Dict> {
         // Preparation may load faction scripts. Neither that IO nor host admission
         // needs to hold, or discover its owner through, the compatibility registry.
-        let mut prepared = self.prepare_map_sides(side_dicts, team_dicts, side_builds, script_lists);
+        let mut prepared =
+            self.prepare_map_sides(side_dicts, team_dicts, side_builds, script_lists);
         let rows: Vec<_> = (0..prepared.get_num_sides())
             .filter_map(|i| {
                 prepared
@@ -248,20 +284,20 @@ fn key_team_generic_script_hook_keys(
 /// skirmish scripts; a skirmish AI copies its side's skirmish scripts and
 /// teams, qualified by its multiplayer start index.
 fn qualify_skirmish_side_scripts(
-    prepared: &mut gamelogic::sides_list::SidesList,
+    prepared: &mut SidesList,
     controllers: &crate::game_logic::player_controllers::PreparedControllers,
     catalog: &HashMap<String, String>,
     generic_hook_keys: &[game_engine::common::name_key_generator::NameKeyType],
 ) {
     use game_engine::common::well_known_keys::{
-        key_team_all_clear_script, key_team_enemy_sighted_script,
-        key_team_on_create_script, key_team_on_destroyed_script, key_team_on_idle_script,
-        key_team_on_unit_destroyed_script, key_team_production_condition,
+        key_team_all_clear_script, key_team_enemy_sighted_script, key_team_on_create_script,
+        key_team_on_destroyed_script, key_team_on_idle_script, key_team_on_unit_destroyed_script,
+        key_team_production_condition,
     };
     if prepared.get_num_skirmish_sides() == 0 {
         return;
     }
-    let skirmish_source = |sides: &gamelogic::sides_list::SidesList, side: &str| {
+    let skirmish_source = |sides: &SidesList, side: &str| {
         (0..sides.get_num_skirmish_sides()).find(|&index| {
             sides
                 .get_skirmish_side_info(index)
@@ -288,7 +324,9 @@ fn qualify_skirmish_side_scripts(
             let Some(source) = skirmish_source(prepared, "Civilian") else {
                 continue;
             };
-            let source_info = prepared.get_skirmish_side_info(source).expect("found source");
+            let source_info = prepared
+                .get_skirmish_side_info(source)
+                .expect("found source");
             let qual = format!(
                 "{}{}",
                 source_info.get_dict().get_ascii_string(key_player_name()),
@@ -320,7 +358,9 @@ fn qualify_skirmish_side_scripts(
         let start_index = row.get_int(key_multiplayer_start_index());
         let qualifier = start_index.to_string();
         let (original_player_name, scripts) = {
-            let source_info = prepared.get_skirmish_side_info(source).expect("found source");
+            let source_info = prepared
+                .get_skirmish_side_info(source)
+                .expect("found source");
             let original = source_info.get_dict().get_ascii_string(key_player_name());
             let qual = format!("{original}{start_index}");
             let scripts = source_info
@@ -355,7 +395,7 @@ fn qualify_skirmish_side_scripts(
                 team_dict.get_ascii_string(key_team_name()),
                 start_index
             );
-            if prepared.find_team_info(&new_name).is_some() {
+            if prepared.find_team_info(&new_name, key_team_name).is_some() {
                 continue;
             }
             team_dict.set_ascii_string(key_team_owner(), pname.clone());
@@ -386,3 +426,107 @@ fn qualify_skirmish_side_scripts(
 #[cfg(test)]
 #[path = "replay_authored_side_tests.rs"]
 mod replay_authored_side_tests;
+
+#[cfg(all(test, not(target_arch = "wasm32")))]
+mod tests {
+    use super::*;
+    use game_engine::common::system::DataChunkOutput;
+    use game_engine::common::system::local_file_system::LocalFileSystem;
+    use std::sync::Arc;
+    use std::sync::atomic::Ordering;
+
+    fn world_with_standard_scripts(group: &str) -> (GameLogic, tempfile::TempDir, Dict) {
+        let application =
+            Arc::new(game_engine::common::common_services::ApplicationChannels::new());
+        let mut world = GameLogic::in_application(&application);
+        world.game_mode = GameMode::Skirmish;
+
+        let mut archive = DataChunkOutput::new();
+        archive.open_data_chunk("ScriptsPlayers", 1);
+        archive.write_int(1);
+        archive.write_ascii_string("MapAI");
+        archive.close_data_chunk();
+        archive.open_data_chunk("PlayerScriptsList", 1);
+        archive.open_data_chunk("ScriptList", 1);
+        archive.open_data_chunk("ScriptGroup", 2);
+        archive.write_ascii_string(group);
+        archive.write_byte(1);
+        archive.write_byte(0);
+        archive.close_data_chunk();
+        archive.close_data_chunk();
+        archive.close_data_chunk();
+
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory
+            .path()
+            .join(STANDARD_SKIRMISH_SCRIPTS.replace('\\', "/"));
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(path, archive.into_ckmp_bytes()).unwrap();
+        let mut backend = LocalFileSystem::new();
+        backend.add_search_path(directory.path());
+        application
+            .file_system
+            .lock()
+            .unwrap()
+            .register_backend(Box::new(backend));
+
+        let mut side = Dict::new();
+        let mut names = world
+            .world_services
+            .common()
+            .name_key_namespace
+            .lock()
+            .unwrap();
+        side.set_ascii_string(names.name_to_key("playerName"), "MapAI");
+        side.set_ascii_string(names.name_to_key("playerFaction"), "FactionUSA");
+        drop(names);
+        (world, directory, side)
+    }
+
+    #[test]
+    fn standard_skirmish_scripts_use_the_receiving_mount_and_group_sequence() {
+        use gamelogic::system::engine_stores::with_world_services;
+
+        let (first, _first_mount, first_side) = world_with_standard_scripts("FirstAppGroup");
+        let (second, _second_mount, second_side) = world_with_standard_scripts("SecondAppGroup");
+        let group_count = |world: &GameLogic| {
+            world
+                .world_services
+                .session_flags()
+                .script_group_name_id
+                .load(Ordering::Relaxed)
+        };
+        let load = |world: &GameLogic, input, expected: &str| {
+            let sides = world.prepare_map_sides(&[input], &[], &[], &[]);
+            let name = || {
+                world
+                    .world_services
+                    .common()
+                    .name_key_namespace
+                    .lock()
+                    .unwrap()
+                    .name_to_key("playerName")
+            };
+            let index = sides.find_skirmish_side_info("MapAI", name).unwrap();
+            let scripts = sides
+                .get_skirmish_side_info(index)
+                .unwrap()
+                .get_script_list()
+                .unwrap();
+            assert_eq!(scripts.get_script_group().unwrap().group_name, expected);
+        };
+
+        assert_eq!((group_count(&first), group_count(&second)), (0, 0));
+        with_world_services(&second.world_services, || {
+            load(&first, first_side.clone(), "FirstAppGroup")
+        });
+        assert_eq!((group_count(&first), group_count(&second)), (1, 0));
+        with_world_services(&first.world_services, || {
+            load(&second, second_side, "SecondAppGroup")
+        });
+        with_world_services(&second.world_services, || {
+            load(&first, first_side, "FirstAppGroup")
+        });
+        assert_eq!((group_count(&first), group_count(&second)), (2, 1));
+    }
+}

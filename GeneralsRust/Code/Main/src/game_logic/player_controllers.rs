@@ -28,7 +28,7 @@ pub(crate) struct PreparedControllers {
 }
 impl PreparedControllers {
     pub(crate) fn capture(
-        sides: &gamelogic::sides_list::SidesList,
+        sides: &generals_sim::sides::SidesList,
         template_sides: &HashMap<String, String>,
     ) -> Self {
         let source_sides: Vec<&str> = (0..sides.get_num_skirmish_sides())
