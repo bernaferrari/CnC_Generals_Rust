@@ -21,8 +21,7 @@ pub const PROJECTILE_COLLIDE_CONTROLLED_STRUCTURES: u32 = WeaponCollideMask::CON
 /// Default ballistic residual: structures + walls (most tank/missile shells).
 /// C++ Weapon.cpp:273 default is STRUCTURES only — own buildings require
 /// CONTROLLED_STRUCTURES (0x0100), which this default does not set.
-pub const PROJECTILE_COLLIDE_DEFAULT: u32 =
-    PROJECTILE_COLLIDE_STRUCTURES | PROJECTILE_COLLIDE_WALLS;
+pub use generals_sim::combat::projectile::DEFAULT_PROJECTILE_COLLISIONS as PROJECTILE_COLLIDE_DEFAULT;
 
 /// C++ Weapon.ini ProjectileCollidesWith residual mask (Regular).
 ///

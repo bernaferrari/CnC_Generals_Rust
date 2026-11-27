@@ -1,5 +1,6 @@
 #[path = "projectile_step.rs"]
 mod projectile_step;
+pub(in crate::game_logic) use projectile_step::accepts_owned_projectile_contact;
 
 /// The source of a projectile callback, in its receiving world's phase order.
 #[derive(Clone, Copy)]
@@ -46,11 +47,9 @@ impl CombatSystem {
 
     pub fn new() -> Self {
         Self {
-            projectiles: HashMap::new(),
-            pending_projectile_weapon_bonus_ids: Default::default(),
+            projectiles: Default::default(),
             fire_sound_loop_events: Default::default(),
             shots: Default::default(),
-            next_projectile_id: ObjectId(100000), // Start high to avoid conflicts with objects
             impact_fx: Vec::new(),
             pending_under_attack: Vec::new(),
             pending_on_die: Vec::new(),
@@ -78,7 +77,7 @@ impl CombatSystem {
 
     /// Snapshot active projectiles for PresentationFrame freeze (read-only).
     pub fn projectiles_snapshot(&self) -> Vec<&Projectile> {
-        self.projectiles.values().collect()
+        self.projectiles.as_map().values().collect()
     }
 
     /// Drain ProjectileDetonationFX residual events produced by the last update.
@@ -130,7 +129,7 @@ impl CombatSystem {
     }
 
     pub fn projectile_count(&self) -> usize {
-        self.projectiles.len()
+        self.projectiles.as_map().len()
     }
 
     pub(in crate::game_logic) fn projectiles_mut(&mut self) -> impl Iterator<Item = &mut Projectile> {
@@ -139,25 +138,18 @@ impl CombatSystem {
 
     pub(in crate::game_logic) fn visit_new_projectile_weapon_bonuses(
         &mut self,
-        mut visit: impl FnMut(&mut Projectile),
+        visit: impl FnMut(&mut Projectile),
     ) {
-        for id in self.pending_projectile_weapon_bonus_ids.drain() {
-            if let Some(projectile) = self.projectiles.get_mut(&id)
-                .filter(|projectile| !projectile.projectile_upgrades_initialized)
-            {
-                visit(projectile);
-            }
-        }
+        self.projectiles.visit_uninitialized_bonuses(visit);
     }
 
     pub fn projectile_mut(&mut self, id: ObjectId) -> Option<&mut Projectile> {
         self.projectiles.get_mut(&id)
     }
 
-    /// Remove one projectile by id (GameWorld projectile-authority writeback).
+    /// Remove one projectile and its pending initialization.
     pub fn remove_projectile(&mut self, id: ObjectId) -> bool {
-        self.pending_projectile_weapon_bonus_ids.remove(&id);
-        self.projectiles.remove(&id).is_some()
+        self.projectiles.remove(id)
     }
 
     /// Fire a projectile from one object to another
@@ -192,13 +184,7 @@ impl CombatSystem {
         speed: f32,
         is_homing: bool,
     ) -> ObjectId {
-        let projectile_id = loop {
-            let id = self.next_projectile_id;
-            self.next_projectile_id.0 = self.next_projectile_id.0.wrapping_add(1);
-            if id.0 != 0 && !self.projectiles.contains_key(&id) {
-                break id;
-            }
-        };
+        let projectile_id = self.projectiles.allocate_standalone();
 
         self.fire_projectile_ex_with_id(
             projectile_id,
@@ -223,42 +209,17 @@ impl CombatSystem {
         speed: f32,
         is_homing: bool,
     ) -> ObjectId {
-        assert!(
-            !self.projectiles.contains_key(&projectile_id),
-            "duplicate live projectile identity"
-        );
-        let mut projectile = Projectile::new(
+        self.projectiles.admit(Projectile::fired(
             projectile_id,
             shooter_pos,
             target_pos,
             weapon.damage,
-            // C++ WeaponTemplate ctor defaults m_damageType to DAMAGE_EXPLOSION
-            // (Weapon.cpp:249); the host Weapon payload carries no authored
-            // type, so the direct-fire default is Explosion, not Bullet.
-            DamageType::Explosive,
+            weapon.splash_radius,
             shooter_id,
             target_id,
-        );
-
-        // C++ radius damage residual from WeaponTemplate splash/radius.
-        projectile.explosion_radius = weapon.splash_radius.max(0.0);
-        projectile.is_homing = is_homing && !Projectile::is_instant_speed(speed);
-
-        if Projectile::is_instant_speed(speed) {
-            // Laser / hitscan residual: spawn already at impact for same-frame resolve.
-            projectile.speed = 0.0;
-            projectile.velocity = Vec3::ZERO;
-            projectile.position = target_pos;
-            projectile.target_position = target_pos;
-        } else {
-            let spd = if speed > 0.0 { speed } else { 200.0 };
-            let dir = (target_pos - shooter_pos).normalize_or_zero();
-            projectile.speed = spd;
-            projectile.velocity = dir * spd;
-        }
-
-        self.projectiles.insert(projectile_id, projectile);
-        self.pending_projectile_weapon_bonus_ids.insert(projectile_id);
+            speed,
+            is_homing,
+        ));
 
         projectile_id
     }
@@ -647,7 +608,7 @@ impl CombatSystem {
 
     /// Existing arena encounter only; actual UpdateModule admission is hq-om90a.
     pub(in crate::game_logic) fn projectile_update_ids(&self) -> Vec<ObjectId> {
-        self.projectiles.keys().copied().collect()
+        self.projectiles.as_map().keys().copied().collect()
     }
 
     /// Existing physical removal boundary after all selected callbacks complete.
@@ -1032,7 +993,7 @@ impl CombatSystem {
 
     /// Get all active projectiles
     pub fn get_projectiles(&self) -> &HashMap<ObjectId, Projectile> {
-        &self.projectiles
+        self.projectiles.as_map()
     }
 
     pub(in crate::game_logic) fn take_historic_bonus_firestorms(
@@ -1050,7 +1011,6 @@ impl CombatSystem {
     /// Clear all projectiles
     pub fn clear(&mut self) {
         self.projectiles.clear();
-        self.pending_projectile_weapon_bonus_ids.clear();
     }
 }
 

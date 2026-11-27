@@ -31,7 +31,7 @@ fn missile(id: ObjectId, delay: u32) -> Projectile {
     }));
     // Production binds the authored flight after selecting its module. This
     // enters C++ LAUNCH; Projectile::new's unbound runtime is already armed.
-    p.bind_authored_flight(p.position, p.target_position, p.speed, None);
+    p.bind_authored_flight(p.position, p.target_position, p.speed, |_, _| None);
     p
 }
 #[cfg(feature = "game_client")]
@@ -70,8 +70,8 @@ fn native_ignition_is_delayed_once_and_uses_receiving_view_after_restore() {
             peer.session_view.target = Vec3::new(10. + rules.max_shake_range * 2., 0., 12.);
             reveal_object(&owner, id);
             reveal_object(&peer, id);
-            owner.combat_system.projectiles.insert(id, missile(id, 2));
-            peer.combat_system.projectiles.insert(id, missile(id, 2));
+            owner.combat_system.projectiles.insert_fixture(id, missile(id, 2));
+            peer.combat_system.projectiles.insert_fixture(id, missile(id, 2));
             game_client::display::view::with_tactical_view(|view| {
                 view.set_position(&game_client::display::view::Point3::new(
                     -100000., -100000., 0.,
@@ -81,11 +81,11 @@ fn native_ignition_is_delayed_once_and_uses_receiving_view_after_restore() {
             owner.update_owned_projectile_impacts(1. / 30.).unwrap();
             assert_eq!(owner.session_view.impulse.intensity, 0.);
             assert!(
-                !owner.combat_system.projectiles[&id]
+                !owner.combat_system.projectiles.as_map()[&id]
                     .flight_runtime
                     .missile_armed
             );
-            let encoded = serde_json::to_vec(&owner.combat_system.projectiles[&id]).unwrap();
+            let encoded = serde_json::to_vec(&owner.combat_system.projectiles.as_map()[&id]).unwrap();
             let mut restored = world();
             admit_shake(&mut restored);
             restored
@@ -96,7 +96,7 @@ fn native_ignition_is_delayed_once_and_uses_receiving_view_after_restore() {
             restored
                 .combat_system
                 .projectiles
-                .insert(id, serde_json::from_slice(&encoded).unwrap());
+                .insert_fixture(id, serde_json::from_slice(&encoded).unwrap());
             peer.update_owned_projectile_impacts(2. / 30.).unwrap();
             assert_eq!(
                 peer.session_view.impulse.intensity, 0.,
@@ -116,12 +116,12 @@ fn native_ignition_is_delayed_once_and_uses_receiving_view_after_restore() {
             assert_eq!(restored.session_view.impulse.intensity, expected);
             assert_eq!(owner.session_view.impulse.offset, Vec3::ZERO);
             assert!(
-                owner.combat_system.projectiles[&id]
+                owner.combat_system.projectiles.as_map()[&id]
                     .flight_runtime
                     .missile_armed
             );
             assert!(
-                restored.combat_system.projectiles[&id]
+                restored.combat_system.projectiles.as_map()[&id]
                     .flight_runtime
                     .missile_armed
             );
@@ -130,11 +130,11 @@ fn native_ignition_is_delayed_once_and_uses_receiving_view_after_restore() {
             // At a new POST-ignition checkpoint, restore the exact owner impulse
             // and projectile; future offsets must continue that saved value.
             let saved_projectile =
-                serde_json::to_vec(&owner.combat_system.projectiles[&id]).unwrap();
+                serde_json::to_vec(&owner.combat_system.projectiles.as_map()[&id]).unwrap();
             restored
                 .combat_system
                 .projectiles
-                .insert(id, serde_json::from_slice(&saved_projectile).unwrap());
+                .insert_fixture(id, serde_json::from_slice(&saved_projectile).unwrap());
             restored
                 .session_view
                 .admit(owner.session_view.capture())
@@ -250,7 +250,7 @@ fn native_garrison_hit_uses_building_pose_and_suppresses_normal_detonation() {
                     ..Default::default()
                 }));
                 p.detonation_fx_name = "FX_NormalDetonation".into();
-                owner.combat_system.projectiles.insert(projectile, p);
+                owner.combat_system.projectiles.insert_fixture(projectile, p);
                 let retired = owner.update_owned_projectile_impacts(1. / 30.).unwrap();
                 assert_eq!(retired, vec![projectile]);
                 if eligible {
@@ -323,13 +323,13 @@ fn native_ignition_fx_uses_receiving_visibility_for_matching_ids() {
             // centered above that pose, so shroud alone changes the effect.
             owner.session_view.target = Vec3::new(10., 0., 12.);
             peer.session_view.target = owner.session_view.target;
-            owner.combat_system.projectiles.insert(id, p.clone());
-            peer.combat_system.projectiles.insert(id, p);
+            owner.combat_system.projectiles.insert_fixture(id, p.clone());
+            peer.combat_system.projectiles.insert_fixture(id, p);
             peer.update_owned_projectile_impacts(1.0 / 30.0).unwrap();
-            assert!(peer.combat_system.projectiles[&id].is_warhead_armed());
+            assert!(peer.combat_system.projectiles.as_map()[&id].is_warhead_armed());
             assert_eq!(peer.session_view.impulse.intensity, 0.);
             owner.update_owned_projectile_impacts(1.0 / 30.0).unwrap();
-            assert!(owner.combat_system.projectiles[&id].is_warhead_armed());
+            assert!(owner.combat_system.projectiles.as_map()[&id].is_warhead_armed());
             assert!(owner.session_view.impulse.intensity > 0.);
             reveal_object(&peer, id);
             peer.update_owned_projectile_impacts(1.0 / 30.0).unwrap();
@@ -389,7 +389,7 @@ fn detonation_fx_flushes_before_body_damage_and_empties_deferred_queue() {
             p.flight = Some(HostProjectileFlight::Dumb(HostDumbProjectileFlight {
                 ..Default::default()
             }));
-            owner.combat_system.projectiles.insert(projectile, p);
+            owner.combat_system.projectiles.insert_fixture(projectile, p);
             let before = owner.objects[&victim].health.current;
             let retired = owner.update_owned_projectile_impacts(1. / 30.).unwrap();
             assert_eq!(retired, vec![projectile], "projectile must detonate");

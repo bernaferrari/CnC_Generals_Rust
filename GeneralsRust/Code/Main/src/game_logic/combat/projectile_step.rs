@@ -1,16 +1,9 @@
 //! Adapt the receiving world's projectile callback to simulation impact rules.
 //! Borrows end before the world handles Body damage and detonation FX/OCL.
 use super::*;
-use generals_sim::{
-    combat::{
-        projectile_contact::{
-            ProjectileCollision, ProjectileContactObject, VerticalExtents, VirtualProjectileContact,
-        },
-        projectile_impact::{
-            ImpactCause, ProjectileAfterUpdate, ProjectileImpact, ProjectileWarhead,
-        },
-    },
-    weapon::{WeaponAffectsMask, WeaponCollideMask},
+use generals_sim::combat::{
+    projectile_contact::{ProjectileContactObject, VerticalExtents, VirtualProjectileContact},
+    projectile_impact::{ImpactCause, ProjectileAfterUpdate, ProjectileImpact},
 };
 
 #[derive(Default)]
@@ -21,68 +14,38 @@ pub(in crate::game_logic) struct PreparedProjectileImpact {
     pub virtual_death: Option<VirtualProjectileDeath>,
 }
 
-impl Projectile {
-    /// A registered actor is eligible for contact once its warhead is armed.
-    pub(in crate::game_logic) fn accepts_owned_contact(
-        &self,
-        objects: HostObjectRead<'_>,
-        target: ObjectId,
-        frame: u32,
-    ) -> bool {
-        if self.missile_drawable_hidden() || !self.is_warhead_armed() {
-            return false;
-        }
-        let mut collision = self.collision();
-        collision.intended = collision
-            .intended
-            .filter(|_| self.is_homing || self.is_dumb_flight());
+/// Check the already-confirmed partition contact in the receiving world.
+pub(in crate::game_logic) fn accepts_owned_projectile_contact(
+    projectile: &Projectile,
+    objects: HostObjectRead<'_>,
+    target: ObjectId,
+    frame: u32,
+) -> bool {
+    projectile.registered_collision().is_some_and(|collision| {
         collision.accepts_object(
             target,
             frame,
             |id| objects.lookup(&id),
             |projectile, other| objects.relationship(projectile, other),
         )
-    }
+    })
+}
 
-    fn collision(&self) -> ProjectileCollision {
-        ProjectileCollision {
-            id: self.id,
-            launcher: self.shooter_id,
-            intended: self.target_id,
-            mask: WeaponCollideMask::new(self.projectile_collides),
-            damage_type: self.damage_type,
-        }
-    }
-
-    fn find_virtual_contact(&self, objects: HostObjectRead<'_>, frame: u32) -> Option<ObjectId> {
-        self.collision().find_virtual_contact(
-            VirtualProjectileContact {
-                position: self.position,
-                vertical_extents: self.collision_geometry.as_ref().map(vertical_extents),
-                launch_controller: (self.source_owner_player_id, self.source_team),
-            },
-            frame,
-            |id| objects.lookup(&id),
-            || objects.registered(),
-        )
-    }
-
-    fn warhead(&self) -> ProjectileWarhead {
-        ProjectileWarhead {
-            projectile: self.id,
-            launcher: self.shooter_id,
-            authored_flight: self.flight.is_some(),
-            has_registered_actor: self.projectile_actor_birth.is_some(),
-            no_damage: self.no_damage,
-            damage: self.damage,
-            damage_type: self.damage_type,
-            death_type: self.death_type,
-            damage_status_type: self.damage_status_type,
-            primary_radius: self.explosion_radius,
-            secondary_radius: self.secondary_damage_radius,
-            affects: WeaponAffectsMask::new(self.radius_damage_affects),
-        }
-    }
+fn find_virtual_contact(
+    projectile: &Projectile,
+    objects: HostObjectRead<'_>,
+    frame: u32,
+) -> Option<ObjectId> {
+    projectile.collision().find_virtual_contact(
+        VirtualProjectileContact {
+            position: projectile.position,
+            vertical_extents: projectile.collision_geometry.as_ref().map(vertical_extents),
+            launch_controller: (projectile.source_owner_player_id, projectile.source_team),
+        },
+        frame,
+        |id| objects.lookup(&id),
+        || objects.registered(),
+    )
 }
 
 impl ProjectileContactObject for Object {
@@ -381,7 +344,8 @@ impl CombatSystem {
                         } else {
                             None
                         };
-                        projectile.update_with_terrain_runtime(
+                        advance_projectile_flight(
+                            projectile,
                             dt,
                             target_exists,
                             kill_target,
@@ -409,7 +373,7 @@ impl CombatSystem {
                                 projectile.position,
                                 projectile.target_position,
                                 projectile.target_id.is_some(),
-                                projectile.find_virtual_contact(objects.read(), frame),
+                                find_virtual_contact(projectile, objects.read(), frame),
                             )
                         }
                         ProjectileAfterUpdate::Detonate(impact) => Some(impact),

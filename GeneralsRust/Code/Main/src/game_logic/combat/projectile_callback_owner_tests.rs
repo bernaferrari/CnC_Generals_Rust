@@ -336,7 +336,7 @@ fn world_with_owned_detonation_ocl() -> (GameLogic, ObjectId, glam::Mat4) {
         detonate_calls_kill: false,
     });
     projectile.detonation_ocl_name = LIST.into();
-    world.combat_system.projectiles.insert(id, projectile);
+    world.combat_system.projectiles.insert_fixture(id, projectile);
     (world, id, pose)
 }
 
@@ -434,7 +434,7 @@ fn ranked_detonation_world(marker: &str) -> (GameLogic, ObjectId, ObjectId) {
     });
     // Both launch-time names are empty. C++ only reads the weapon slot after
     // the projectile reaches the detonation callback.
-    world.combat_system.projectiles.insert(id, projectile);
+    world.combat_system.projectiles.insert_fixture(id, projectile);
     (world, launcher, id)
 }
 
@@ -675,7 +675,7 @@ fn impact_callback_error_cannot_replay_retired_shells() {
         let mut projectile = shell(id, source);
         projectile.target_position = Vec3::ZERO;
         projectile.target_id = Some(target);
-        owner.combat_system.projectiles.insert(id, projectile);
+        owner.combat_system.projectiles.insert_fixture(id, projectile);
     }
     let order = owner.combat_system.projectile_update_ids();
     owner.combat_system.projectiles.get_mut(&order[1]).unwrap().detonation_ocl_name =
@@ -707,11 +707,11 @@ fn first_body_callback_neutralizes_controller_before_next_incidental_collision()
         owner
             .combat_system
             .projectiles
-            .insert(id, shell(id, source));
+            .insert_fixture(id, shell(id, source));
     }
     // Preserve HashMap's existing encounter, without pretending this is C++
     // equal-priority module order. Mutating values does not change that order.
-    let order: Vec<_> = owner.combat_system.projectiles.keys().copied().collect();
+    let order: Vec<_> = owner.combat_system.projectiles.as_map().keys().copied().collect();
     let first = owner.combat_system.projectiles.get_mut(&order[0]).unwrap();
     first.target_id = Some(blocker);
     first.target_position = Vec3::ZERO;
@@ -761,9 +761,9 @@ fn registered_dead_target_is_not_missile_target_disappearance() {
         detonate_on_no_fuel: false,
         kill_self_delay_frames: 30,
     });
-    owner.combat_system.projectiles.insert(id, missile);
+    owner.combat_system.projectiles.insert_fixture(id, missile);
     assert!(owner.update_owned_projectile_impacts(1.0 / 30.0).unwrap().is_empty());
-    let missile = &owner.combat_system.projectiles[&id];
+    let missile = &owner.combat_system.projectiles.as_map()[&id];
     assert_eq!(
         missile.missile_kill_self_started_frame, None,
         "CPP getGoalObject returns a registered pointer, not an isAlive filter"
@@ -773,7 +773,7 @@ fn registered_dead_target_is_not_missile_target_disappearance() {
     owner.objects.remove(&target);
     assert!(owner.update_owned_projectile_impacts(1.0 / 30.0).unwrap().is_empty());
     assert!(
-        owner.combat_system.projectiles[&id]
+        owner.combat_system.projectiles.as_map()[&id]
             .missile_kill_self_started_frame
             .is_some()
     );
@@ -806,18 +806,18 @@ fn authored_projectile_vertical_extent_controls_intervening_structure_collision_
         drain_pending_projectiles(
             &mut owner.combat_system, owner.objects.read(), owner.frame, &definitions,
         );
-        let id = owner.combat_system.projectiles.keys().copied().next().unwrap();
-        assert_eq!(owner.combat_system.projectiles[&id].collision_geometry.unwrap().major_radius, 2.0);
+        let id = owner.combat_system.projectiles.as_map().keys().copied().next().unwrap();
+        assert_eq!(owner.combat_system.projectiles.as_map()[&id].collision_geometry.unwrap().major_radius, 2.0);
         worlds.push((owner, blocker, id));
     }
     assert_eq!(worlds[0].2, worlds[1].2);
     let (mut above, above_blocker, above_id) = worlds.remove(0);
     let (mut touching, touching_blocker, touching_id) = worlds.remove(0);
     assert!(above.update_owned_projectile_impacts(1.0 / 30.0).unwrap().is_empty());
-    assert!(above.combat_system.projectiles.contains_key(&above_id));
+    assert!(above.combat_system.projectiles.as_map().contains_key(&above_id));
     assert!(!touching.update_owned_projectile_impacts(1.0 / 30.0).unwrap().is_empty());
-    assert!(!touching.combat_system.projectiles.contains_key(&touching_id));
-    assert!(above.combat_system.projectiles.contains_key(&above_id));
+    assert!(!touching.combat_system.projectiles.as_map().contains_key(&touching_id));
+    assert!(above.combat_system.projectiles.as_map().contains_key(&above_id));
     assert_eq!(above.host_object(above_blocker).unwrap().health.current, 100.0);
     assert!(touching.host_object(touching_blocker).unwrap().health.current < 100.0);
 }
@@ -915,7 +915,7 @@ End
         // This fixture observes the collision itself. Body damage is covered
         // by the intended-victim and STRUCTURES callback tests above.
         projectile.no_damage = true;
-        owner.combat_system.projectiles.insert(id, projectile);
+        owner.combat_system.projectiles.insert_fixture(id, projectile);
 
         let retired = owner.update_owned_projectile_impacts(1.0 / 30.0).unwrap();
         assert_eq!(retired.contains(&id), expected_hit, "{weapon} crossing {template}");

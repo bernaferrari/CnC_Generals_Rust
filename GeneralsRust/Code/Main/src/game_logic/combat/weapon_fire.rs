@@ -148,11 +148,8 @@ pub struct WeaponFireOcl {
 pub struct CombatSystem {
     pub(crate) fire_sound_loop_events:
         crate::game_logic::host_fire_sound_loop_log::FireSoundLoopEvents,
-    projectiles: HashMap<ObjectId, Projectile>,
-    /// Materialized flights awaiting their owner's existing upgrade phase.
-    pending_projectile_weapon_bonus_ids: game_engine::common::fast_hash::FxHashSet<ObjectId>,
+    projectiles: generals_sim::combat::projectile_arena::ProjectileArena,
     shots: generals_sim::combat::ShotQueue,
-    next_projectile_id: ObjectId,
     /// Impacts carrying ProjectileDetonationFX residual (drained by GameLogic).
     impact_fx: Vec<ProjectileImpactFx>,
     /// C++ TheRadar->tryUnderAttackEvent victims from this projectile pass.
@@ -439,7 +436,7 @@ pub fn drain_pending_projectiles(
     frame: u32,
     definitions: &crate::game_logic::projectile_definitions::ProjectileDefinitions,
 ) {
-    let mut standalone_next = generals_sim::object::ObjectIds::from_next(combat.next_projectile_id);
+    let mut standalone_next = combat.projectiles.take_fixture_cursor();
     drain_pending_projectiles_with_partition(
         combat,
         objects,
@@ -449,7 +446,7 @@ pub fn drain_pending_projectiles(
         &mut standalone_next,
         &game_engine::common::random_value::SessionRandom::default(),
     );
-    combat.next_projectile_id = standalone_next.next();
+    combat.projectiles.set_fixture_cursor(standalone_next);
 }
 
 /// Actual Main admissions borrow the receiving partition for each path calculation.
@@ -841,7 +838,9 @@ pub(in crate::game_logic) fn materialize_accepted_projectile(
             } else {
                 target_pos
             };
-            flight_valid = proj.bind_authored_flight(launch_pos, flight_target, flight_speed_per_second, partition);
+            flight_valid = proj.bind_authored_flight(launch_pos, flight_target, flight_speed_per_second, |start, end| {
+                partition.and_then(|owner| owner.terrain_high_along_line(start, end))
+            });
         }
         proj.is_small_missile = profile.is_some_and(|profile| profile.is_small_missile);
     }

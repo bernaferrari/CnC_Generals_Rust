@@ -380,7 +380,7 @@ mod tests {
             detonate_on_no_fuel: false,
             kill_self_delay_frames: 3,
         }));
-        projectile.bind_authored_flight(start, goal, 60.0, None);
+        projectile.bind_authored_flight(start, goal, 60.0, |_, _| None);
         projectile.flight_runtime.missile_armed = true;
         projectile.flight_runtime.missile_phase = HostMissilePhase::Attack;
         projectile.missile_motion =
@@ -392,7 +392,8 @@ mod tests {
     fn ground_detonation_keeps_missile_for_authored_kill_self_delay() {
         let (mut projectile, mut actor) = falling_projectile(Vec3::Y, Vec3::ZERO);
         assert_eq!(
-            projectile.update_with_terrain_runtime(
+            advance_projectile_flight(
+                &mut projectile,
                 1.0 / 30.0,
                 true,
                 None,
@@ -409,7 +410,8 @@ mod tests {
         );
         assert_eq!(projectile.position.y, 0.0);
         assert_eq!(
-            projectile.update_with_terrain_runtime(
+            advance_projectile_flight(
+                &mut projectile,
                 1.0 / 30.0,
                 true,
                 None,
@@ -422,7 +424,8 @@ mod tests {
             ProjectileStep::Hold
         );
         assert_eq!(
-            projectile.update_with_terrain_runtime(
+            advance_projectile_flight(
+                &mut projectile,
                 1.0 / 30.0,
                 true,
                 None,
@@ -435,7 +438,8 @@ mod tests {
             ProjectileStep::Hold
         );
         assert_eq!(
-            projectile.update_with_terrain_runtime(
+            advance_projectile_flight(
+                &mut projectile,
                 1.0 / 30.0,
                 true,
                 None,
@@ -462,7 +466,9 @@ mod tests {
         });
         projectile.lifetime = 1.0;
 
-        let step = projectile.update_with_terrain_runtime(
+        let step = advance_projectile_flight(
+
+            &mut projectile,
             1.0 / 30.0,
             true,
             None,
@@ -487,7 +493,8 @@ mod tests {
         let (mut projectile, mut actor) =
             falling_projectile(Vec3::new(40.0, 1.0, 0.0), Vec3::new(0.0, -15.0, 0.0));
         assert_eq!(
-            projectile.update_with_terrain_runtime(
+            advance_projectile_flight(
+                &mut projectile,
                 1.0 / 30.0,
                 true,
                 None,

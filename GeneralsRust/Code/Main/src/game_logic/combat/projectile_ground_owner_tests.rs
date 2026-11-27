@@ -52,11 +52,11 @@ fn initialize(world: &mut GameLogic) -> ObjectId {
     shot.speed = 30.;
     // Actual synchronous accepted-shot admission, not a second path builder.
     world.materialize_owned_passive_shot(shot, None);
-    assert_eq!(world.combat_system.projectiles.len(), 1);
-    *world.combat_system.projectiles.keys().next().unwrap()
+    assert_eq!(world.combat_system.projectiles.as_map().len(), 1);
+    *world.combat_system.projectiles.as_map().keys().next().unwrap()
 }
 fn peak(world: &GameLogic, id: ObjectId) -> f32 {
-    world.combat_system.projectiles[&id]
+    world.combat_system.projectiles.as_map()[&id]
         .flight_runtime
         .path
         .iter()
@@ -96,15 +96,15 @@ fn high_world_object_ids_survive_projectile_continuation_in_independent_worlds()
             shot.shooter_pos = Vec3::new(20., 20., 30.);
             shot.speed = 30.;
             restored.materialize_owned_passive_shot(shot, None);
-            assert_eq!(restored.combat_system.projectiles.len(), 2);
-            assert!(restored.combat_system.projectiles.contains_key(&ObjectId(100001)));
+            assert_eq!(restored.combat_system.projectiles.as_map().len(), 2);
+            assert!(restored.combat_system.projectiles.as_map().contains_key(&ObjectId(100001)));
             first.update_owned_projectile_impacts(1. / 30.).unwrap();
             restored.update_owned_projectile_impacts(1. / 30.).unwrap();
             assert_eq!(
-                first.combat_system.projectiles[&id].position,
-                restored.combat_system.projectiles[&id].position,
+                first.combat_system.projectiles.as_map()[&id].position,
+                restored.combat_system.projectiles.as_map()[&id].position,
             );
-            assert_eq!(second.combat_system.projectiles[&id].lifetime, 0.);
+            assert_eq!(second.combat_system.projectiles.as_map()[&id].lifetime, 0.);
         },
     );
 }
@@ -125,12 +125,12 @@ fn dumb_projectile_aims_and_retargets_to_box_geometry_center() {
             target.set_position(Vec3::new(120., 20., 30.));
             world.objects.insert(target.id, target);
             let id = initialize(&mut world);
-            assert_eq!(world.combat_system.projectiles[&id].flight_runtime.path_end,
+            assert_eq!(world.combat_system.projectiles.as_map()[&id].flight_runtime.path_end,
                 Vec3::new(120., 40., 30.));
             world.objects.get_mut(&ObjectId(42)).unwrap()
                 .set_position(Vec3::new(150., 20., 30.));
             world.update_owned_projectile_impacts(1. / 30.).unwrap();
-            assert_eq!(world.combat_system.projectiles[&id].flight_runtime.path_end,
+            assert_eq!(world.combat_system.projectiles.as_map()[&id].flight_runtime.path_end,
                 Vec3::new(122., 40., 30.));
         },
     );
@@ -155,13 +155,13 @@ fn actual_receiving_projectile_initialization_and_retarget_ignore_locked_foreign
                 let bid = initialize(&mut b);
                 assert_eq!(aid, bid);
                 assert!(peak(&b, bid) > peak(&a, aid) + 10.);
-                let a_segments = a.combat_system.projectiles[&aid].flight_runtime.path_segments;
-                let b_segments = b.combat_system.projectiles[&bid].flight_runtime.path_segments;
-                let a_before = a.combat_system.projectiles[&aid]
+                let a_segments = a.combat_system.projectiles.as_map()[&aid].flight_runtime.path_segments;
+                let b_segments = b.combat_system.projectiles.as_map()[&bid].flight_runtime.path_segments;
+                let a_before = a.combat_system.projectiles.as_map()[&aid]
                     .flight_runtime
                     .path
                     .clone();
-                let b_before = b.combat_system.projectiles[&bid]
+                let b_before = b.combat_system.projectiles.as_map()[&bid]
                     .flight_runtime
                     .path
                     .clone();
@@ -169,23 +169,23 @@ fn actual_receiving_projectile_initialization_and_retarget_ignore_locked_foreign
                 move_target(&mut b);
                 a.update_owned_projectile_impacts(1. / 30.).unwrap();
                 b.update_owned_projectile_impacts(1. / 30.).unwrap();
-                assert_eq!(a.combat_system.projectiles[&aid].flight_runtime.path_segments, a_segments);
-                assert_eq!(b.combat_system.projectiles[&bid].flight_runtime.path_segments, b_segments);
+                assert_eq!(a.combat_system.projectiles.as_map()[&aid].flight_runtime.path_segments, a_segments);
+                assert_eq!(b.combat_system.projectiles.as_map()[&bid].flight_runtime.path_segments, b_segments);
                 assert_ne!(
-                    a.combat_system.projectiles[&aid].flight_runtime.path,
+                    a.combat_system.projectiles.as_map()[&aid].flight_runtime.path,
                     a_before
                 );
                 assert_ne!(
-                    b.combat_system.projectiles[&bid].flight_runtime.path,
+                    b.combat_system.projectiles.as_map()[&bid].flight_runtime.path,
                     b_before
                 );
                 assert!(peak(&b, bid) > peak(&a, aid) + 10.);
                 assert_eq!(
-                    a.combat_system.projectiles[&aid].flight_runtime.path_end.x,
+                    a.combat_system.projectiles.as_map()[&aid].flight_runtime.path_end.x,
                     122.
                 );
                 assert_eq!(
-                    b.combat_system.projectiles[&bid].flight_runtime.path_end.x,
+                    b.combat_system.projectiles.as_map()[&bid].flight_runtime.path_end.x,
                     122.
                 );
                 // Real encoded arena continuation restores state, not launch callbacks.
@@ -204,12 +204,12 @@ fn actual_receiving_projectile_initialization_and_retarget_ignore_locked_foreign
                 a.update_owned_projectile_impacts(1. / 30.).unwrap();
                 restored.update_owned_projectile_impacts(1. / 30.).unwrap();
                 assert_eq!(
-                    a.combat_system.projectiles[&aid].flight_runtime.path,
-                    restored.combat_system.projectiles[&aid].flight_runtime.path,
+                    a.combat_system.projectiles.as_map()[&aid].flight_runtime.path,
+                    restored.combat_system.projectiles.as_map()[&aid].flight_runtime.path,
                 );
                 assert_eq!(
-                    a.combat_system.projectiles[&aid].position,
-                    restored.combat_system.projectiles[&aid].position
+                    a.combat_system.projectiles.as_map()[&aid].position,
+                    restored.combat_system.projectiles.as_map()[&aid].position
                 );
             });
         },
@@ -252,7 +252,7 @@ fn accepted_shot_requires_a_visited_receiving_cell() {
             crossing.shooter_pos = Vec3::new(-60., 20., 30.);
             crossing.speed = 30.;
             world.materialize_owned_passive_shot(crossing, None);
-            assert_eq!(world.combat_system.projectiles.len(), 1);
+            assert_eq!(world.combat_system.projectiles.as_map().len(), 1);
 
             let mut outside = tests::lifecycle_test_pending_projectile(
                 "ReceivingGroundProjectile", None, Vec3::new(-40., 20., -30.),
@@ -260,7 +260,7 @@ fn accepted_shot_requires_a_visited_receiving_cell() {
             outside.shooter_pos = Vec3::new(-80., 20., -30.);
             outside.speed = 30.;
             world.materialize_owned_passive_shot(outside, None);
-            assert_eq!(world.combat_system.projectiles.len(), 1);
+            assert_eq!(world.combat_system.projectiles.as_map().len(), 1);
         },
     );
 }
@@ -280,13 +280,13 @@ fn retarget_failure_detonates_before_advancing_when_grid_is_replaced() {
             }
             world.rebuild_receiving_partition_terrain();
             move_target(&mut world);
-            let before = world.combat_system.projectiles[&id].position;
+            let before = world.combat_system.projectiles.as_map()[&id].position;
             let impact = world.combat_system.prepare_projectile_impact_with_runtime(
                 id, ProjectileCallback::Update(1. / 30.), &mut world.objects, None, world.frame, None,
                 Some(&mut world.partition_manager), &mut world.ownership_events, 0, None, &mut (),
             );
             assert_eq!(impact.retired, vec![id]);
-            assert_eq!(world.combat_system.projectiles[&id].position, before);
+            assert_eq!(world.combat_system.projectiles.as_map()[&id].position, before);
         },
     );
 }
@@ -345,8 +345,8 @@ fn fractional_partition_cell_uses_source_float_step_loop() {
                 shot.speed = 30.;
                 world.materialize_owned_passive_shot(shot, None);
             }
-            let flat = flat.combat_system.projectiles.values().next().unwrap();
-            let peaked = peaked.combat_system.projectiles.values().next().unwrap();
+            let flat = flat.combat_system.projectiles.as_map().values().next().unwrap();
+            let peaked = peaked.combat_system.projectiles.as_map().values().next().unwrap();
             // Seven float additions of 61/7 overshoot 61. The source loop
             // stops at the sixth sample; forcing the endpoint at (61,61)
             // would interpolate the height at (70,70) into this cell.

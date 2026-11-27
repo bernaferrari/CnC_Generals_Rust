@@ -177,7 +177,7 @@ pub(super) fn decode(bytes: &[u8], required_new: bool) -> SaveLoadResult<Decoded
         return Ok(Decoded {
             arena: LiveProjectileArenaSnapshot::default()
                 .validate()
-                .map_err(corrupted)?,
+                .map_err(|error| corrupted(error.to_string()))?,
             projectile_objects: Vec::new(),
             legacy_tail: Cow::Borrowed(bytes),
         });
@@ -284,7 +284,7 @@ pub(super) fn decode(bytes: &[u8], required_new: bool) -> SaveLoadResult<Decoded
     if !identities.is_empty() {
         return Err(corrupted("projectile Object identity references unknown flight"));
     }
-    let arena = record.validate().map_err(corrupted)?;
+    let arena = record.validate().map_err(|error| corrupted(error.to_string()))?;
     let mut legacy = Vec::with_capacity(bytes.len() - (end));
     legacy.extend_from_slice(&bytes[..boundary]);
     legacy.extend_from_slice(&suffix[end..]);

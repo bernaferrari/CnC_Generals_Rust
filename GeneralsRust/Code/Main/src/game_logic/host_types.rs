@@ -299,34 +299,7 @@ pub struct ObjectStatus {
     pub missile_killing_self: bool,
 }
 
-/// Basic geometry information for objects
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct GeometryInfo {
-    /// Canonical mutable original shape. Remaining fields are the existing
-    /// derived bounds cache and pose projection, not another shape owner.
-    /// Native saved continuation transfers shape at a structural tail boundary.
-    #[serde(skip)]
-    pub(crate) shape: Option<crate::game_logic::HostGeometryInfo>,
-    pub position: Vec3,
-    pub rotation: f32,
-    pub bounds_min: Vec3,
-    pub bounds_max: Vec3,
-    pub radius: f32,
-}
-
-impl Default for GeometryInfo {
-    fn default() -> Self {
-        Self {
-            shape: None,
-            position: Vec3::ZERO,
-            rotation: 0.0,
-            bounds_min: Vec3::splat(-1.0),
-            bounds_max: Vec3::splat(1.0),
-            radius: 1.0,
-        }
-    }
-}
-
+pub use generals_sim::object::GeometryInfo;
 pub use generals_sim::object::body::Health;
 pub use generals_sim::object::Movement;
 

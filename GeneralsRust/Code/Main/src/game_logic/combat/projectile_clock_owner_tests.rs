@@ -88,7 +88,7 @@ fn batch(world: &mut GameLogic, shooter: ObjectId) -> (Vec<DamageEvent>, Vec<Obj
     // footprint rather than teleport to its distant aim point.
     projectile.speed = 100.0;
     projectile.velocity = Vec3::new(100.0, 0.0, 0.0);
-    world.combat_system.projectiles.insert(id, projectile);
+    world.combat_system.projectiles.insert_fixture(id, projectile);
     world.combat_system.prepare_projectile_impacts(
         0.0,
         &mut world.objects,

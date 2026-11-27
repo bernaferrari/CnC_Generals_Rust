@@ -2201,7 +2201,8 @@ impl GameLogic {
         let has_physics = shot.missile_motion.is_some()
             || self.projectile_definitions.get(&shot.projectile_object_name)
                 .is_some_and(|profile| profile.behaviors.iter().any(|module| module.physics.is_some()));
-        if !has_physics || actor.status.no_collisions || !shot.accepts_owned_contact(
+        if !has_physics || actor.status.no_collisions || !crate::game_logic::combat::accepts_owned_projectile_contact(
+            shot,
             objects.with_players(&self.players).with_team_factory(&self.team_factory),
             other,
             self.frame,

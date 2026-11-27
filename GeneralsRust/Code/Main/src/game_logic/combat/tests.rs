@@ -31,12 +31,12 @@ pub(in crate::game_logic) mod tests {
         map.boundaries = vec![glam::IVec2::new(32, 32)];
         world.world_services.terrain().write().unwrap().try_load_map_geometry(map).unwrap();
         world.initialize_receiving_partition_grid().unwrap();
-        let mut next = generals_sim::object::ObjectIds::from_next(combat.next_projectile_id);
+        let mut next = combat.projectiles.take_fixture_cursor();
         drain_pending_projectiles_with_partition(
             combat, objects, frame, definitions, Some(&world.partition_manager), &mut next,
             &game_engine::common::random_value::SessionRandom::default(),
         );
-        combat.next_projectile_id = next.next();
+        combat.projectiles.set_fixture_cursor(next);
     }
 
     pub(in crate::game_logic) fn queue_delayed_impact_for_test(
@@ -3270,7 +3270,7 @@ pub(in crate::game_logic) mod tests {
             ignition_fx: "FX_MissileIgnition".into(),
             ..HostMissileFlight::default()
         }));
-        delay0.bind_authored_flight(Vec3::ZERO, Vec3::new(100.0, 0.0, 0.0), 100.0, None);
+        delay0.bind_authored_flight(Vec3::ZERO, Vec3::new(100.0, 0.0, 0.0), 100.0, |_, _| None);
         assert!(
             !delay0.is_warhead_armed(),
             "C++ delay 0 still starts LAUNCH so IgnitionFX can play"
@@ -3301,7 +3301,7 @@ pub(in crate::game_logic) mod tests {
             ignition_fx: "FX_MissileIgnition".into(),
             ..HostMissileFlight::default()
         }));
-        delayed.bind_authored_flight(Vec3::ZERO, Vec3::new(100.0, 0.0, 0.0), 100.0, None);
+        delayed.bind_authored_flight(Vec3::ZERO, Vec3::new(100.0, 0.0, 0.0), 100.0, |_, _| None);
         assert!(!delayed.is_warhead_armed());
         let _ = delayed.update(1.0 / 30.0, true);
         assert!(
@@ -3337,7 +3337,7 @@ pub(in crate::game_logic) mod tests {
                 detonate_on_no_fuel,
                 kill_self_delay_frames: 3,
             }));
-            missile.bind_authored_flight(Vec3::ZERO, missile.target_position, 30.0, None);
+            missile.bind_authored_flight(Vec3::ZERO, missile.target_position, 30.0, |_, _| None);
             missile
         };
 
@@ -3401,7 +3401,7 @@ pub(in crate::game_logic) mod tests {
                 try_to_follow_target: follows, fuel_lifetime_frames: 0,
                 detonate_on_no_fuel: false, kill_self_delay_frames: 3,
             }));
-            missile.bind_authored_flight(missile.position, missile.target_position, 30.0, None);
+            missile.bind_authored_flight(missile.position, missile.target_position, 30.0, |_, _| None);
             let mut health = crate::game_logic::HostHealthEvents::default();
             let mut ownership = crate::game_logic::host_owner_log::OwnershipEvents::default();
             combat.update_projectiles_with_countermeasures(1.0 / 30.0, &mut objects,
@@ -3427,7 +3427,7 @@ pub(in crate::game_logic) mod tests {
             ObjectId(1), None,
         );
         missile.flight = Some(HostProjectileFlight::Missile(HostMissileFlight::default()));
-        missile.bind_authored_flight(missile.position, missile.target_position, 30.0, None);
+        missile.bind_authored_flight(missile.position, missile.target_position, 30.0, |_, _| None);
         assert_eq!(missile.update(1.0 / 30.0, true), ProjectileStep::Remove);
         assert!(!missile.is_warhead_armed());
     }
@@ -3444,7 +3444,7 @@ pub(in crate::game_logic) mod tests {
         missile.speed = 30.0;
         missile.velocity = Vec3::X * 30.0;
         missile.flight = Some(HostProjectileFlight::Missile(HostMissileFlight::default()));
-        missile.bind_authored_flight(Vec3::ZERO, missile.target_position, 30.0, None);
+        missile.bind_authored_flight(Vec3::ZERO, missile.target_position, 30.0, |_, _| None);
 
         missile.update(1.0 / 30.0, true);
         assert_eq!(missile.flight_runtime.missile_phase, HostMissilePhase::Attack);

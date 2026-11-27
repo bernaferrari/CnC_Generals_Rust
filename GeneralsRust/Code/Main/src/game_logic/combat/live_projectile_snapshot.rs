@@ -1,139 +1,17 @@
-//! Saved continuation of the receiving combat owner's materialized arena.
-//! C++ Object::xfer delegates to MissileAIUpdate/DumbProjectileBehavior Xfer;
-//! restoration installs their state rather than repeating launch callbacks.
+//! Main's save bridge and tests for the simulation-owned projectile arena.
 use super::*;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub(crate) struct LiveProjectileArenaSnapshot {
-    pub next_projectile_id: ObjectId,
-    pub projectiles: Vec<Projectile>,
-}
-
-impl Default for LiveProjectileArenaSnapshot {
-    fn default() -> Self {
-        Self {
-            next_projectile_id: ObjectId(100000),
-            projectiles: Vec::new(),
-        }
-    }
-}
-
-pub(crate) struct ValidatedLiveProjectileArena {
-    next_projectile_id: ObjectId,
-    projectiles: HashMap<ObjectId, Projectile>,
-}
-
-impl LiveProjectileArenaSnapshot {
-    /// Detached validation. Missing launchers/victims are legitimate flight state.
-    pub(crate) fn validate(self) -> Result<ValidatedLiveProjectileArena, String> {
-        if self.next_projectile_id.0 == 0 {
-            return Err("Invalid combat projectile allocation cursor".into());
-        }
-        let mut projectiles = HashMap::with_capacity(self.projectiles.len());
-        for projectile in self.projectiles {
-            // Production projectile IDs come from the world's object cursor,
-            // not this arena's standalone allocation cursor.
-            if projectile.id.0 == 0 {
-                return Err("Invalid combat projectile identity".into());
-            }
-            validate_projectile(&projectile)?;
-            if projectiles.insert(projectile.id, projectile).is_some() {
-                return Err("Duplicate combat projectile identity".into());
-            }
-        }
-        Ok(ValidatedLiveProjectileArena {
-            next_projectile_id: self.next_projectile_id,
-            projectiles,
-        })
-    }
-}
-
-fn validate_projectile(p: &Projectile) -> Result<(), String> {
-    let runtime = &p.flight_runtime;
-    let vectors = [
-        p.position,
-        p.velocity,
-        p.target_position,
-        runtime.path_start,
-        runtime.path_end,
-        runtime.original_target_pos,
-    ];
-    let scalars = [
-        p.damage,
-        p.speed,
-        p.lifetime,
-        p.max_lifetime,
-        p.explosion_radius,
-        p.secondary_damage,
-        p.secondary_damage_radius,
-        p.shock_wave_amount,
-        p.shock_wave_radius,
-        p.shock_wave_taper_off,
-        p.historic_bonus_radius,
-        runtime.path_speed_per_frame,
-    ];
-    if vectors.iter().any(|v| !v.is_finite())
-        || scalars.iter().any(|v| !v.is_finite())
-        || runtime.path.iter().any(|v| !v.is_finite())
-    {
-        return Err("Nonfinite combat projectile continuation".into());
-    }
-    if p.computed_bonus_mask.is_some_and(|mask| {
-        mask != (p.launcher_bonus_mask | p.projectile_bonus_mask)
-    }) {
-        return Err("Invalid combat projectile bonus continuation".into());
-    }
-    // A completed Dumb path legitimately retains step == len until its next update.
-    if runtime.step > runtime.path.len() || p.lifetime < 0.0 || p.max_lifetime < 0.0 {
-        return Err("Invalid combat projectile flight continuation".into());
-    }
-    // The shared Bezier producer emits exactly one point per segment. Empty
-    // paths remain valid for unbound/legacy projectiles and Missile flight.
-    if !runtime.path.is_empty() && runtime.path_segments != runtime.path.len() {
-        return Err("Invalid combat projectile path segment count".into());
-    }
-    use crate::game_logic::weapon_bootstrap::HostProjectileFlight;
-    let authored = match &p.flight {
-        Some(HostProjectileFlight::Dumb(f)) => vec![
-            f.first_height,
-            f.second_height,
-            f.first_percent_indent,
-            f.second_percent_indent,
-            f.flight_path_adjust_per_frame,
-        ],
-        Some(HostProjectileFlight::Missile(f)) => vec![f.lock_distance],
-        None => Vec::new(),
-    };
-    if authored.iter().any(|v| !v.is_finite()) {
-        return Err("Nonfinite authored projectile flight".into());
-    }
-    Ok(())
-}
+pub(crate) use generals_sim::combat::projectile_arena::{
+    LiveProjectileArenaSnapshot, ValidatedLiveProjectileArena,
+};
 
 impl CombatSystem {
     pub(crate) fn live_projectile_arena_snapshot(&self) -> LiveProjectileArenaSnapshot {
-        // Canonical wire order only. This does not choose simulation visitation
-        // order: C++ sleepy heap topology integration remains hq-om90a.
-        let mut projectiles: Vec<_> = self.projectiles.values().cloned().collect();
-        projectiles.sort_unstable_by_key(|p| p.id.0);
-        LiveProjectileArenaSnapshot {
-            next_projectile_id: self.next_projectile_id,
-            projectiles,
-        }
+        self.projectiles.snapshot()
     }
 
-    /// No name resolution, rebinding, ignition, countermeasure reporting or FX.
     pub(crate) fn restore_live_projectile_arena(&mut self, arena: ValidatedLiveProjectileArena) {
-        // Older saves can contain a flight that has yet to reach the
-        // normal bonus phase. Rebuild the IDs without applying its bonus here.
-        self.pending_projectile_weapon_bonus_ids.clear();
-        self.pending_projectile_weapon_bonus_ids.extend(
-            arena.projectiles.values()
-                .filter(|projectile| !projectile.projectile_upgrades_initialized)
-                .map(|projectile| projectile.id)
-        );
-        self.projectiles = arena.projectiles;
-        self.next_projectile_id = arena.next_projectile_id;
+        self.projectiles.restore(arena);
     }
 }
 

@@ -3,6 +3,8 @@
 pub mod bezier;
 mod damage_event;
 pub mod missile_motion;
+pub mod projectile;
+pub mod projectile_arena;
 pub mod projectile_contact;
 pub mod projectile_flight;
 pub mod projectile_impact;

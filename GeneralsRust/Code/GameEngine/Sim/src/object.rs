@@ -4,6 +4,8 @@ use std::fmt;
 
 pub mod ai;
 pub mod body;
+mod geometry;
+pub use geometry::{GeometryInfo, GeometryShape, GeometryType};
 mod ids;
 mod movement;
 mod roster;
@@ -127,7 +129,9 @@ impl ObjectStatusTypes {
 }
 
 /// Veterancy level (matching C++ VeterancyLevel)
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
+)]
 #[repr(i32)]
 pub enum VeterancyLevel {
     Rookie = 0,
